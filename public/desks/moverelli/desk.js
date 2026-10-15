@@ -518,7 +518,7 @@ function livePicture(nn) {
   picLive = nightPicture(nn);
   return picLive;
 }
-/** A whole trip of a file between the bars (the owner, 2026-10-15: slow — the reel readable, its wings seen flapping) */
+/** A whole trip of a file between the bars (the owner, 2026-10-15: slow — the reel readable) */
 const PIC_FLIGHT_MS = 14000;
 const PIC_PAUSE_MS = 3000;       // between two files
 const PIC_BOBS = 10;              // the gentle ups and downs while across
@@ -538,7 +538,7 @@ function picFlight(from, to) {
     const y = from.y + (to.y - from.y) * t;
     return `translate(${x.toFixed(1)}px, ${(y + (top - y) * lift + bob).toFixed(1)}px) rotate(${scale >= 1 ? tilt : tilt / 2}deg) scale(${scale})`;
   };
-  // 2.5 s growing out of the bar, 8 s across at full size bobbing gently with the beats, 3.5 s shrinking into the other
+  // 2.5 s growing out of the bar, 8 s across at full size bobbing gently, 3.5 s shrinking into the other
   const grow = 2500 / PIC_FLIGHT_MS;
   const sink = 1 - 3500 / PIC_FLIGHT_MS;
   const cruise = [];
@@ -556,50 +556,13 @@ function picFlight(from, to) {
   ];
 }
 
-/** One wing's beat (owner, 2026-10-15: a real wing beat): ~0.55 s about the shoulder, down fast (40 %), up slower */
-const PIC_BEAT = { dur: '0.55s', values: '36;-24;36', keyTimes: '0;0.4;1', keySplines: '0.4 0 0.6 1;0.4 0 0.6 1' };
-/** The wing's feathers, body to tip: [root x, root y, angle down from outwards, length, half width] — longer to the tip */
-const PIC_FEATHERS = [[-3, -2, 96, 15, 4.8], [-8, -5, 86, 18, 5], [-13.5, -8, 74, 21, 5.2], [-19.5, -10.5, 60, 25, 5.4],
-  [-25, -12.3, 46, 29, 5.4], [-30, -13.5, 32, 32, 5.2], [-34.5, -14.4, 18, 33, 4.8], [-38.5, -15, 5, 31, 4.2]];
-/** The leading edge (the arm) from the shoulder to the wrist, and how far each covert row reaches below it */
-const PIC_ARM = [[2, -1], [-5, -6.5], [-12, -10.5], [-19, -13.2], [-26, -15], [-33, -16], [-40, -16.2]];
 let picSeq = 0;
 
 /**
- * One bird's wing (drawn leftwards from its shoulder at 0,0, as heraldic wing pairs are): the arm as a curved leading edge,
- * two rows of small round covert feathers along it, under them long primaries growing longer to the tip, sweeping out and
- * a little up, laid like shingles, each with its shaft. It beats about the shoulder (SMIL's rotate turns about the group's
- * own 0,0 — Chrome and Firefox alike), the feathers spreading on the downstroke; $g: the flyer's gradient ids; $still: no beat
- */
-function picWing(g, still) {
-  const f = (x) => Number(x.toFixed(2));
-  const anim = (values) => (still ? '' : `<animateTransform attributeName="transform" type="rotate" dur="${PIC_BEAT.dur}" values="${values}"`
-    + ` keyTimes="${PIC_BEAT.keyTimes}" calcMode="spline" keySplines="${PIC_BEAT.keySplines}" repeatCount="indefinite"/>`);
-  // the feathers from the tip inwards: the inner one lies over the outer one; on the downstroke they fan apart
-  const feathers = PIC_FEATHERS.map(([x, y, a, l, w], i) => {
-    const s = (i - 3.5) * 1.8;
-    return `<g transform="translate(${x} ${y}) rotate(${180 - a})"><g>${anim(`${f(-0.5 * s)};${f(s)};${f(-0.5 * s)}`)}`
-      + `<path class="mo-feather" fill="url(#${g}f)" d="M0 ${f(-w * 0.45)}C${f(l * 0.3)} ${f(-w * 1.2)} ${f(l - w * 0.4)} ${f(-w * 1.1)} ${l} 0`
-      + `C${f(l - w * 0.4)} ${f(w * 1.1)} ${f(l * 0.3)} ${f(w * 1.2)} 0 ${f(w * 0.45)}Z"/>`
-      + `<path class="mo-feather-shaft" d="M1 0L${f(l * 0.82)} 0"/></g></g>`;
-  }).reverse().join('');
-  // a row of coverts: the arm on top, round scallops below it, $depth below the arm at the shoulder, $tip at the wrist
-  const row = (cls, depth, tip) => {
-    const top = PIC_ARM.map(([x, y]) => `${x} ${y}`).join('L');
-    const low = PIC_ARM.map(([x, y], i) => [x, y + depth + (tip - depth) * i / (PIC_ARM.length - 1)]).reverse();
-    return `<path class="${cls}" d="M${top}L${low[0][0]} ${f(low[0][1])}`
-      + low.slice(1).map(([x, y], i) => `A${f((x - low[i][0]) / 1.7)} ${f((x - low[i][0]) / 1.7)} 0 0 0 ${x} ${f(y)}`).join('') + 'Z"/>';
-  };
-  const arm = 'M2 -1C-6 -8 -16 -13.5 -26 -15C-32 -16 -37 -16.4 -40 -16.2';
-  return `<g class="mo-wing-beat">${anim(PIC_BEAT.values)}${feathers}${row('mo-covert mo-covert-big', 10, 6)}${row('mo-covert', 5.5, 3.2)}`
-    + `<path class="mo-wing-arm" d="${arm}"/></g>`;
-}
-
-/**
- * What flies between the pool and the array / second pool (the owner, 2026-10-15, «winged reel»): a pair of bird's wings
- * beating at its sides, carrying a silver film reel seen a little from the side — its rim and thickness, a sheen on the
- * metal, five round holes showing the golden film wound inside, turning about its hub — with a short strip of film
- * trailing behind it, for Jack Streamer's files; a block for hers, with smaller wings. $left: it flies to the left (all
+ * What flies between the pool and the array / second pool (the owner, 2026-10-15: the reel without wings): a silver film
+ * reel seen a little from the side — its rim and thickness, a sheen on the metal, five round holes showing the golden film
+ * wound inside, turning about its hub — with a short strip of film trailing behind it, for Jack Streamer's files; a block
+ * for hers. $left: it flies to the left (all
  * mirrored: the strip trails behind). Our own drawing, inline SVG, colours from the desk's tokens (the reel's rim and the
  * block in currentColor = the part's colour), no data inside.
  */
@@ -616,7 +579,6 @@ function picFlyer(reel, left = false) {
   });
   const circle = (x, y, r) => `M${x - r} ${y}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0Z`;
   const defs = '<defs>'
-    + `<linearGradient id="${g}f" x1="0" y1="0" x2="1" y2="0"><stop offset="0" class="mo-wing-light"/><stop offset="1" class="mo-wing-shade"/></linearGradient>`
     + `<linearGradient id="${g}m" x1="0" y1="0" x2="1" y2="1"><stop offset="0" class="mo-metal-light"/><stop offset=".55" class="mo-metal"/><stop offset="1" class="mo-metal-dark"/></linearGradient>`
     + `<radialGradient id="${g}w"><stop offset=".3" class="mo-gold-dark"/><stop offset="1" class="mo-gold"/></radialGradient></defs>`;
   const film = ['M68 62C60 74 48 70 37 76S20 86 9 83', 'M68 62C60 72 48 74 37 78S20 82 9 86'];
@@ -633,11 +595,7 @@ function picFlyer(reel, left = false) {
       + `<path class="mo-reel-sheen" fill-rule="evenodd" d="M-24 -6A24 24 0 0 1 6 -23.2L5 -19.4A20 20 0 0 0 -19.6 -4Z"/>`
       + `<circle r="${R}" class="mo-reel-rim"/></g>`
     : `<rect x="${cx - 15}" y="${cy - 15}" width="30" height="30" rx="5" fill="currentColor" class="mo-fly-body"/>`;
-  // the wings at its sides (a shoulder just inside its edge, a little above the middle), smaller on her block
-  const reach = reel ? [cx - R * sq - 2, cx + R * sq - 1] : [cx - 13, cx + 13];
-  const k = reel ? 1 : 0.72;
-  const wing = (side, x, flip) => `<g transform="translate(${x.toFixed(1)} ${cy - (reel ? 6 : 4)}) scale(${flip ? -k : k} ${k})"><g class="mo-wing mo-wing-${side}">${picWing(g, still)}</g></g>`;
-  const all = wing('l', reach[0], false) + wing('r', reach[1], true) + body;
+  const all = body;
   return `<svg viewBox="0 0 150 96" width="112" height="72" focusable="false" aria-hidden="true">${defs}`
     + (left ? `<g transform="translate(150 0) scale(-1 1)">${all}</g>` : all) + '</svg>';
 }

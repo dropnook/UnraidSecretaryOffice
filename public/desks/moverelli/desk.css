@@ -85,14 +85,14 @@
 .mo-pic-key{display:inline-flex; align-items:center; gap:6px}
 .mo-pic-key .mo-pic-seg{width:10px; height:10px; border-radius:2px; border:1px solid var(--line2)}
 .mo-pic-file{margin:6px 0 0; font-size:12px; color:var(--muted); overflow-wrap:anywhere; min-height:1.4em}
-/* what flies (2026-10-15): a pair of bird's wings beating, a film reel (Jack Streamer's) or a block (hers) — currentColor */
+/* what flies (2026-10-15): a film reel (Jack Streamer's) or a block (hers) — currentColor */
 .mo-pic-dot{position:absolute; top:0; left:0; width:112px; height:72px; margin:-36px 0 0 -56px; opacity:0; pointer-events:none; color:var(--ink2); line-height:0; will-change:transform}
 .mo-pic-dot svg{display:block; overflow:visible}
 .mo-fly-jack{color:var(--accent)}
 .mo-fly-watched{color:var(--good)}
 .mo-fly-others{color:var(--ink2)}
 .mo-fly-body{stroke:var(--surface); stroke-width:2.5; paint-order:stroke}   /* a ring: seen over a part of its own colour */
-/* the winged reel (picFlyer): metal greys and gold mixed from Unraid's white, black and orange — the same in both themes,
+/* the reel (picFlyer): metal greys and gold mixed from Unraid's white, black and orange — the same in both themes,
    with dark edges that hold on a white page and light faces that hold on a black one; the rim in the part's colour */
 .mo-pic{--mo-silver:color-mix(in srgb, var(--on-fill) 80%, var(--black, #000)); --mo-steel:color-mix(in srgb, var(--on-fill) 30%, var(--black, #000));
   --mo-film:color-mix(in srgb, var(--on-fill) 12%, var(--black, #000));
@@ -117,19 +117,10 @@
 .mo-film{stroke:var(--mo-gold); stroke-width:9}
 .mo-film-holes{stroke:var(--mo-film); stroke-width:6.4; stroke-dasharray:2 2.6}
 .mo-film-mid{stroke:var(--mo-gold); stroke-width:3.4}
-/* the wings: light feathers fading to a soft grey at their tips, fine dark edges (seen on a white page), the arm a little
-   stronger; they beat about the shoulder by SMIL (picWing(): the group's own 0,0 — the same in every browser), ~0.55 s */
-.mo-wing-light{stop-color:var(--on-fill)}
-.mo-wing-shade{stop-color:color-mix(in srgb, var(--on-fill) 72%, var(--black, #000))}
-.mo-feather{stroke:var(--mo-steel); stroke-width:.8; stroke-linejoin:round}
-.mo-feather-shaft{fill:none; stroke:var(--mo-steel); stroke-width:.5; opacity:.7}
-.mo-covert{fill:var(--on-fill); stroke:var(--mo-steel); stroke-width:.8; stroke-linejoin:round}
-.mo-covert-big{fill:color-mix(in srgb, var(--on-fill) 90%, var(--black, #000))}
-.mo-wing-arm{fill:none; stroke:var(--mo-steel); stroke-width:1.6; stroke-linecap:round}
 .mo-fly-reel{transform-box:fill-box; transform-origin:50% 50%; animation:mo-reel 6s linear infinite}
 @keyframes mo-reel{to{transform:rotate(360deg)}}
 @media (max-width:640px){ .mo-pic-grid{grid-template-columns:minmax(0, 1fr)} }
-@media (prefers-reduced-motion: reduce){ .mo-pic-dot{display:none} .mo-wing, .mo-fly-reel{animation:none} }
+@media (prefers-reduced-motion: reduce){ .mo-pic-dot{display:none} .mo-fly-reel{animation:none} }
 /* her one card while a run goes (2026-10-15): the run, Jack Streamer at work, the pool — parts inside it, no own box */
 .mo-one{display:block; min-height:0; padding:12px 14px; margin:0 0 12px}
 .mo-one > .mo-run{border:0; background:none; box-shadow:none; padding:0; margin:0; min-height:0}

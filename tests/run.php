@@ -35254,13 +35254,12 @@ out.split = [split.before.segs.map((s) => s.k), split.before.segs.map((s) => s.b
 const splitBox = texts(m.nightPicture({ running: true, started: 11, picture: { ...pic, phases: { check: { before: W(B(300, 150, 400, 150), 50 * G), forecast: W(B(300, 90, 410, 200), 0) } } } }));
 out.splitLegend = [splitBox.filter((t) => /^pic\.(watched|seg\.jack )/.test(t)), texts(m.nightPicture({ running: true, started: 12, picture: pic })).filter((t) => /^pic\.watched/.test(t))];
 out.flyer = [m.picFlyer(true), m.picFlyer(false)].map((h) => [(h.match(/class="mo-wing /g) || []).length, h.includes('mo-fly-reel'), /<script|on\w+=/.test(h)]);
-// the winged reel (owner, 2026-10-15): bird's wings (eight feathers under two rows of coverts), a reel with five holes over
-// its wound film and a hub, a strip of film behind it (mirrored when it flies left); the trip: small out
+// the reel (owner, 2026-10-15: no wings any more): a reel with five holes over its wound film and a hub, a strip of film behind it (mirrored when it flies left); the trip: small out
 // of the bar it leaves, grown to full size high up, small again into the bar it reaches, faded in and out
 const reel = m.picFlyer(true);
-out.reel = [(reel.match(/class="mo-feather"/g) || []).length, (reel.match(/class="mo-covert/g) || []).length, (reel.match(/mo-reel-plate[^>]*d="([^"]*)"/) || ['', ''])[1].split('Z').length - 2,
+out.reel = [(reel.match(/mo-wing|mo-feather|mo-covert|animateTransform/g) || []).length, (reel.match(/mo-reel-plate[^>]*d="([^"]*)"/) || ['', ''])[1].split('Z').length - 2,
   reel.includes('mo-reel-hub'), reel.includes('mo-reel-film'), reel.includes('mo-film-holes'), m.picFlyer(false).includes('mo-film'),
-  reel.includes('translate(150 0)'), m.picFlyer(true, true).includes('<g transform="translate(150 0) scale(-1 1)">'), new Set(reel.match(/id="[^"]+"/g)).size === 3];
+  reel.includes('translate(150 0)'), m.picFlyer(true, true).includes('<g transform="translate(150 0) scale(-1 1)">'), new Set(reel.match(/id="[^"]+"/g)).size === 2];
 const fl = m.picFlight({ x: 100, y: 120 }, { x: 500, y: 200 });
 const tr = (k) => k.transform.match(/translate\(([-\d.]+)px, ([-\d.]+)px\) rotate\([-\d.]+deg\) scale\(([\d.]+)\)/).slice(1).map(Number);
 const tilt = (f) => f.map((k) => Number(k.transform.match(/rotate\(([-\d.]+)deg\)/)[1]));
@@ -35269,8 +35268,6 @@ const back = m.picFlight({ x: 500, y: 200 }, { x: 100, y: 120 });
 out.flight = [fl.length, Math.round(full[0].offset * 14000), Math.round(full[full.length - 1].offset * 14000), fl.map((k) => tr(k)[2]).filter((x) => x < 1), fl.map((k) => k.opacity).filter((o) => o < 1),
   tr(fl[0]).slice(0, 2), tr(fl[fl.length - 1]).slice(0, 2), [...new Set(full.map((k) => tr(k)[1]))].sort(), fl.every((k, i) => !i || k.offset > fl[i - 1].offset),
   tr(m.picFlight({ x: 0, y: 40 }, { x: 10, y: 50 })[2])[1], [...new Set(tilt(fl))], [...new Set(tilt(back))]];
-// the wings' beat: SMIL about the shoulder (the same in every browser), ~0.55 s, down fast, up slower; none with reduced motion
-out.beat = [(reel.match(/<animateTransform attributeName="transform" type="rotate" dur="0\.55s" values="36;-24;36" keyTimes="0;0\.4;1"/g) || []).length];
 const done = m.pictureBars({ ...pic, phases: { ...pic.phases, done: { before: B(300, 90, 410, 200) } } }, 800, true);
 out.done = [done.forecast, done.after.segs.map((s) => s.bytes / G)];
 // nothing measured: no pool numbers (the check's before null), the target without size; no limit: no X
@@ -35319,9 +35316,9 @@ JS);
         $j['split'] ?? null);
     same('night picture: the legend — his part as a whole (before → after), «of which watched 50 GiB» in green once known; unknown — no such line',
         [['pic.seg.jack pic.change {"before":"400 GiB","after":"410 GiB"}', 'pic.watched {"size":"50 GiB"}'], []], $j['splitLegend'] ?? null);
-    same('night picture: what flies — two wings each, a film reel for Jack Streamer\'s, a block for hers; nothing that runs', [[2, true, false], [2, false, false]], $j['flyer'] ?? null);
-    same('night picture: the winged reel — eight feathers a wing under two rows of coverts, a plate with five holes over the wound film, a hub, a strip of film with sprocket holes; her block without film; flying left all mirrored; its own gradients; both wings beat (SMIL, 0.55 s, down fast — 40 %)',
-        [16, 4, 5, true, true, true, false, false, true, true, [2]], array_merge($j['reel'] ?? [], [$j['beat'] ?? null]));
+    same('night picture: what flies — no wings, a film reel for Jack Streamer\'s, a block for hers; nothing that runs', [[0, true, false], [0, false, false]], $j['flyer'] ?? null);
+    same('night picture: the reel without wings (owner, 2026-10-15) — no feather, no beat; a plate with five holes over the wound film, a hub, a strip of film with sprocket holes; her block without film; flying left all mirrored; its own gradients',
+        [0, 5, true, true, true, false, false, true, true], $j['reel'] ?? null);
     same('night picture: the trip (14 s) — 2.5 s growing out of the bar it leaves, across at full size till 10.5 s bobbing ±4 px about its height (34 px above the higher end), 3.5 s shrinking into the bar it reaches, faded in and out; never above the box\'s top part; leaning into its way (right: clockwise, left: the other way)',
         [15, 2500, 10500, [0.12, 0.15, 0.15, 0.12], [0, 0], [100, 120], [500, 200], [82, 86, 90], true, 34, [5, 10], [-5, -10]], $j['flight'] ?? null);
     same('night picture: once done — the pool as measured at the end, no forecast', [false, [0, 300, 90, 410, 0, 0, 200]], $j['done'] ?? null);
