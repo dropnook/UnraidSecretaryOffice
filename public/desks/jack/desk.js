@@ -1514,14 +1514,36 @@ function renderSetup() {
   if (!state) return;
   if (!form) initForm();
   // the row of his setup's parts and under it the part chosen (none: every part in order)
+  // «Save» right under his own parts: on the whole page between them and the optional «Take over an earlier install»
+  // (drawn with that part — importStep()), under one part of his own after it (the slot under the switcher), none under
+  // the import alone (it has its own button)
   const sw = setupSwitcher();
   root.appendChild(sw.el);
+  saveSlot = el('div', 'jo-save-slot');
+  root.appendChild(saveSlot);
+  fillSaveSlot(sw.active());
   sw.render();
-  root.appendChild(saveBar());
   focusBack(spot);
 }
 
-/** The save bar under all: «Save», why it is grey (a run going, the budget), else what saving does */
+let saveSlot = null;
+/** The slot under the switcher (onPick: before the part is drawn): «Save» under a part of his own; on the whole page with the import part the bar is that part's */
+function fillSaveSlot(cur) {
+  if (!saveSlot) return;
+  saveSlot.innerHTML = '';
+  const withImport = setupTileList().some((x) => x.id === 'import');
+  if (cur ? cur !== 'import' : !withImport) saveSlot.appendChild(saveBar());
+}
+/** The import part; on the whole page «Save» over it — the bar ends his own parts, the optional part comes after it */
+function importStep() {
+  const part = setupStep('import');
+  if (!setupSw || setupSw.active()) return part;
+  const box = el('div', 'jo-import-part');
+  box.append(saveBar(), part);
+  return box;
+}
+
+/** The save bar under his own parts: «Save», why it is grey (a run going, the budget), else what saving does */
 function saveBar() {
   const foot = el('div', 'toolbar jo-save');
   const save = button(T('setup.save'), '', saveSetup);
@@ -1556,6 +1578,7 @@ function setupSwitcher() {
     default: '',                 // the start: every part
     tiles: () => setupTileList(),
     wants: (sub) => SETUP_TILES.some(([id]) => id === sub),      // a route before his state is in
+    onPick: (cur) => fillSaveSlot(cur),                            // «Save» where it belongs for the part chosen
   });
   return setupSw;
 }
@@ -1566,7 +1589,8 @@ const tileOf = (sub) => (Object.prototype.hasOwnProperty.call(OLD_STEPS, sub) ? 
 function setupTileList() {
   if (!state || !form) return [];
   return setupTileData().map((d) => ({ id: d.id, key: d.key, place: `setup.tile.${d.id}`,
-    tile: (a) => Office.stat({ label: T(d.key), value: d.value, sub: d.sub.filter(Boolean), alert: d.alert, ...a }), section: () => setupStep(d.id) }));
+    tile: (a) => Office.stat({ label: T(d.key), value: d.value, sub: d.sub.filter(Boolean), alert: d.alert, ...a }),
+    section: () => (d.id === 'import' ? importStep() : setupStep(d.id)) }));
 }
 /** The parts' heads (the tile's name — its place — and a line under it) */
 const SETUP_HEADS = {
@@ -2495,7 +2519,7 @@ async function saveSetup(e) {
   // saved: the tab shows his setup as saved now — from its top, not left at the bottom where «Save» was
   form = null;
   renderSetup();
-  window.scrollTo(0, 0);
+  if (typeof window !== 'undefined') window.scrollTo(0, 0);
 }
 
 // ------------------------------------------------------------------ desk
