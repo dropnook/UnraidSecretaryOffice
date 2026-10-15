@@ -1,6 +1,11 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.52 - 2026-10-15
+# unraid-backup - backup.sh                       Version 2.53 - 2026-10-15
+#   2.53 The offsite repository emptied is said at once: before the upload the snapshots of this identity are counted
+#        against the last run's end (state/kopia-count.json, kept after the Kopia phase and after --orphans-delete) -
+#        none left or less than half, in the same repository and identity, is warning_items kopia_emptied and a
+#        notification (alert); the run uploads everything anew. Kopia not answering counts nothing. --kopia-count:
+#        the count as JSON, read only (the office's Night Watchman)
 #   2.52 The notifications speak the office's language (ub_tell in lib/common.sh): subject «<Mr. Backupsy's name>: …»
 #        and description from his language files (notify.*), the long report stays English
 #   2.51 No change here (the engine's version: setup.sh --orphans / --orphans-delete)
@@ -292,6 +297,7 @@
 #   UB_ARRAY_STOP=1                --unmount: the array is being stopped - don't wait for the
 #                                  lock, detach busy mounts (umount -l) at once (the hook, 2.25)
 #                     --about      name, version and interface as JSON
+#                     --kopia-count the offsite repository's snapshots and sources now, as JSON (read only, 2.53)
 #   UB_DATA=/path                  another data folder (default <office>/data/unraid-backup)
 #   UB_SETTINGS=/path/settings.ini another settings file
 #   Example: UB_DRY_RUN=1 bash /usr/local/emhttp/plugins/unraid-secretary-office/backup/backup.sh
@@ -324,6 +330,7 @@ for a in "$@"; do
         --check)    UB_MODE="check" ;;
         --unmount)  UB_MODE="unmount" ;;
         --recover)  UB_MODE="recover" ;;
+        --kopia-count) UB_MODE="kopia_count" ;;
         --dry-run)  UB_DRY_RUN=1 ;;
         --no-kopia) UB_SKIP_KOPIA=1 ;;
         --about)    jq -nc --arg n "$UB_NAME" --arg v "$UB_VERSION" --argjson i "$UB_INTERFACE" --arg c "$UB_DIR" --arg d "$UB_DATA" \
@@ -335,12 +342,26 @@ done
 UB_MODE="${UB_MODE:-backup}"
 DRY="${UB_DRY_RUN:-0}"
 SKIPK="${UB_SKIP_KOPIA:-0}"
-case "$UB_MODE" in backup|check|unmount|recover) ;; *) echo "UB_MODE=$UB_MODE is unknown"; exit 2 ;; esac
+case "$UB_MODE" in backup|check|unmount|recover|kopia_count) ;; *) echo "UB_MODE=$UB_MODE is unknown"; exit 2 ;; esac
 
 [[ $EUID -eq 0 ]] || { echo "Please run as root."; exit 1; }
 # --recover (2.25): no note of an interrupted run - nothing to do, nothing written; the array being
 # stopped - not now (the notes stay for after the array start), exit 3 like a run the stop ends
 ub_data_trusted || ub_untrusted_refuse     # 2.49: nothing read or written in a folder others can write or replace
+# --kopia-count (2.53): how many snapshots and sources of this identity the offsite repository holds now, one line of
+# JSON ({ok: true, repo, identity, storage, time, snapshots, sources, by: "watch"} or {ok: false, why}) - read only: no
+# lock, no log, nothing written (the office's Night Watchman looks once a day; lib/common.sh kopia_count_load)
+if [[ "$UB_MODE" == "kopia_count" ]]; then
+    LOG_FILE=""
+    kc_not() { jq -nc --arg why "$1" '{ok: false, why: $why}'; exit 0; }
+    load_settings >/dev/null 2>&1 || kc_not no_settings
+    is_yes "$KOPIA_ENABLED" || kc_not off
+    [[ -n "$KOPIA_CONTAINER" ]] || kc_not no_container
+    if ! kopia_status_load >/dev/null 2>&1; then [[ "$KOPIA_RUNNING" == "yes" ]] && kc_not not_connected; kc_not not_running; fi
+    kopia_count_load || kc_not no_answer
+    kopia_count_json watch | jq -c '{ok: true} + .'
+    exit 0
+fi
 if [[ "$UB_MODE" == "recover" ]]; then
     recover_notes || exit 0
     array_stopping && { echo "The array is being stopped - nothing is started now; the notes stay for after the array start."; exit 3; }
@@ -3534,6 +3555,7 @@ KOPIA_ORDER=()              # the Kopia phase's sources in their order (2.25, ko
 if [[ "$KOPIA_OK" == "yes" && "$SKIPK" != "1" ]]; then
     # small and important first: the flash, the apps' own sources, then shares and VMs by expected size
     kopia_sizes_load
+    kopia_emptied_check              # 2.53: far fewer snapshots than at the last run's end, not by the office - said at once
     mapfile -t KOPIA_ORDER < <(kopia_order)
     ST_KOPIA_PLAN=(); ko_line=""
     for ko in "${KOPIA_ORDER[@]}"; do
@@ -3816,6 +3838,7 @@ elif [[ "$KOPIA_OK" == "yes" ]]; then
             share) kopia_share_one "$ko_item" ;;
         esac
     done
+    kopia_count_save run             # 2.53: what the next run (and the Night Watchman) compares with
     [[ $KOPIA_FAILED -gt 0 ]] && ub_tell kopia_incomplete warning "Log: $LOG_FILE" "Not everything went offsite" \
         "$KOPIA_FAILED source(s) not backed up offsite, $KOPIA_DONE done. Mr. Backupsy's page shows the details." "n=$KOPIA_FAILED" "done=$KOPIA_DONE"
 fi

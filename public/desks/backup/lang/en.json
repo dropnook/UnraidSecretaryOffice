@@ -1677,5 +1677,8 @@
   "notify.new_folder.subject": "New folder stays local",
   "notify.new_folder": "{folder} — new in the share for apps or VMs, of no app or VM or of a new one: only in the local snapshots until you decide in Mr. Backupsy's setup.",
   "notify.new_folders.subject": "{n} new folders stay local",
-  "notify.new_folders": "{n} new folders in the shares for apps or VMs, of no app or VM or of a new one: only in the local snapshots until you decide in Mr. Backupsy's setup."
+  "notify.new_folders": "{n} new folders in the shares for apps or VMs, of no app or VM or of a new one: only in the local snapshots until you decide in Mr. Backupsy's setup.",
+  "warn_code.kopia_emptied": "The offsite copy was nearly empty when this run began — snapshots on {when}: {before}, now: {now}, not deleted by the office. If that wasn't you: delete nothing, Object Lock may still hold the data — Mr. Restori and the Consultant show how to get it back. This run uploaded everything anew.",
+  "notify.kopia_emptied.subject": "The offsite copy was emptied",
+  "notify.kopia_emptied": "Snapshots on {when}: {before}, now: {now} — not deleted by the office. If that wasn't you: delete nothing, Object Lock may still hold the data; Mr. Restori and the Consultant show how to get it back. This run uploads everything anew."
 }

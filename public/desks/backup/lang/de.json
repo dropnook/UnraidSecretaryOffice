@@ -1677,5 +1677,8 @@
   "notify.new_folder.subject": "Neuer Ordner bleibt lokal",
   "notify.new_folder": "{folder} — neu im Share für Apps oder VMs, zu keiner oder einer neuen App oder VM: nur in den lokalen Snapshots, bis du in der Einrichtung von Herrn Backupsi entscheidest.",
   "notify.new_folders.subject": "{n} neue Ordner bleiben lokal",
-  "notify.new_folders": "{n} neue Ordner in den Shares für Apps oder VMs, zu keiner oder einer neuen App oder VM: nur in den lokalen Snapshots, bis du in der Einrichtung von Herrn Backupsi entscheidest."
+  "notify.new_folders": "{n} neue Ordner in den Shares für Apps oder VMs, zu keiner oder einer neuen App oder VM: nur in den lokalen Snapshots, bis du in der Einrichtung von Herrn Backupsi entscheidest.",
+  "warn_code.kopia_emptied": "Die Kopie ausser Haus war fast leer, als dieses Backup begann — Snapshots am {when}: {before}, jetzt: {now}, nicht vom Sekretariat gelöscht. Wenn du das nicht selbst warst: nichts löschen, Object Lock hält die Daten womöglich noch — Herr Restori und der Berater zeigen, wie du sie zurückholst. Dieses Backup hat alles neu hochgeladen.",
+  "notify.kopia_emptied.subject": "Die Kopie ausser Haus wurde geleert",
+  "notify.kopia_emptied": "Snapshots am {when}: {before}, jetzt: {now} — nicht vom Sekretariat gelöscht. Wenn du das nicht selbst warst: nichts löschen, Object Lock hält die Daten womöglich noch; Herr Restori und der Berater zeigen, wie du sie zurückholst. Dieses Backup lädt alles neu hoch."
 }

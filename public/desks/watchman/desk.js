@@ -1162,7 +1162,17 @@ function details(e) {
   add(T('detail.first'), fmt.date(e.time));
   if (e.last !== e.time) add(T('detail.last'), fmt.date(e.last));
   if (e.count > 1 && e.group !== 'snap') add(T('detail.count'), T('times', { n: e.count }));
-  if (e.kind === 'parity_check') {
+  if (e.kind === 'kopia_emptied') {
+    // the offsite copy emptied: the way back is the Consultant's Object Lock guide, its step with the read-only --point-in-time connection
+    const adv = Office.desks.get('advisor');
+    if (adv && adv.hired) {
+      const b = el('button', 'btn small', T('detail.kopia_back'));
+      b.type = 'button';
+      b.dataset.own = '1';
+      b.onclick = () => { Office.go('#/advisor'); Office.reveal('lock.8', { name: T('detail.kopia_back'), part: 'ext.kopia' }); };
+      add(Office.t('advisor.name'), b);
+    }
+  } else if (e.kind === 'parity_check') {
     // the operation, how far it is, and where the reason was seen (Unraid's diagnostics, the syslog it kept, its own line)
     add(T('detail.parity_action'), p.action, true);
     const errors = T('parity.errors', { n: Number(p.errors) || 0 });

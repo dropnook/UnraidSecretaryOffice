@@ -5874,9 +5874,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.52 everywhere it is named', ['2.52', '2.52', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.52"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.52** –')]);
+    same('data trust: the engine\'s version 2.53 everywhere it is named', ['2.53', '2.53', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.53"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.53** –')]);
     // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
     same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
         array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
@@ -7514,6 +7514,171 @@ SH);
     $bad = trim((string) shell_exec('bash -c ' . escapeshellarg("$env; source $lib >/dev/null 2>&1; printf '[general]\\nasleep_pools = maybe\\n' >$tmp/bad.ini; cfg_load $tmp/bad.ini; cfg_validate >/dev/null; printf '%s' \"\${CFG_ERRORS[*]}\"")));
     check('settings: asleep_pools takes wake or skip only', str_contains($bad, "asleep_pools = 'maybe' is invalid (wake/skip)"), $bad);
     same('asleep: every date call one the tests\' clock knows', '', testsClockUnsupported($clock));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * Engine 2.53 + the Night Watchman: the offsite repository emptied (Object Lock test 2026-10-15: every object deleted with
+ * the bucket's key, `kopia snapshot list` then shows nothing and exits 0). The engine counts this identity's snapshots
+ * before its upload against the count kept at the last run's end (state/kopia-count.json) — none left or less than half,
+ * same repository and identity: warning_items kopia_emptied and an alert, the run goes on; Kopia erring counts nothing,
+ * another repository is no comparison, the office's own deleting (--orphans-delete) counts anew. backup.sh --kopia-count
+ * says the count as JSON, read only. The watchman looks once a day the same way (never while the engine's lock is held)
+ * against the newer of his count and the engine's: an important entry, the notification an alert with the way back.
+ */
+function testKopiaEmptied(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-kemptied-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    @mkdir("$tmp/bin", 0700, true);
+    @mkdir("$tmp/data/state", 0700, true);
+    $repo = str_repeat('f4', 32);
+    $ks = fn (string $path, string $host = 'kopia') => ['source' => ['host' => $host, 'userName' => 'root', 'path' => $path], 'startTime' => '2026-10-14T01:00:00Z'];
+    $list = fn (array $l) => file_put_contents("$tmp/list.json", json_encode($l));
+    $list([$ks('/uso/photos'), $ks('/uso/photos'), $ks('/uso/photos'), $ks('/uso/.apps/immich'), $ks('/uso/other', 'elsewhere')]);
+    file_put_contents("$tmp/repo.json", json_encode(['uniqueIDHex' => $repo, 'configFile' => '/config/repository.config',
+        'clientOptions' => ['username' => 'root', 'hostname' => 'kopia'], 'storage' => ['type' => 's3']]));
+    // docker: the Kopia container runs as root; "fails" makes every kopia call fail (unreachable, forbidden)
+    file_put_contents("$tmp/bin/docker", "#!/bin/bash\nF=" . escapeshellarg($tmp) . "\ncase \"\$1\" in\n"
+        . "  inspect) echo true; exit 0 ;;\n  top) printf 'PID UID ARGS\\n1 0 /bin/kopia server --x\\n'; exit 0 ;;\nesac\n"
+        . "[[ -e \$F/fails ]] && { echo 'ERROR unable to open repository: Access Denied' >&2; exit 1; }\n"
+        . "case \"\$*\" in\n  *'repository status --json'*) cat \$F/repo.json ;;\n  *'snapshot list --all --json'*) cat \$F/list.json ;;\n"
+        . "  *--version*) echo '0.23.1 build' ;;\nesac\nexit 0\n");
+    chmod("$tmp/bin/docker", 0755);
+    file_put_contents("$tmp/notify", "#!/bin/bash\nfor a in \"\$@\"; do printf '%s\\x1f' \"\$a\"; done >> " . escapeshellarg("$tmp/notified") . "\necho >> " . escapeshellarg("$tmp/notified") . "\n");
+    chmod("$tmp/notify", 0755);
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+    $sh = function (string $script) use ($lib, $tmp, $repo): string {
+        $pre = "PATH=$tmp/bin:\$PATH UB_DATA=$tmp/data UB_NOTIFY_BIN=$tmp/notify UB_NOTIFY_STAMP= UB_NOTIFY_LANG_FILE= UB_LANG_DIR=" . OFFICE_DIR . "/public/desks/backup/lang;"
+             . " source $lib >/dev/null 2>&1; LOG_FILE=''; DRY=0; KOPIA_CONNECTED=yes KOPIA_USER=root KOPIA_HOST=kopia KOPIA_ID=root@kopia"
+             . " KOPIA_RUN_UID=0 KOPIA_CONTAINER=kopia KOPIA_STORAGE=s3 KOPIA_REPO_ID=" . ($repo) . ';';
+        return trim((string) shell_exec('bash -c ' . escapeshellarg("$pre $script") . ' 2>&1'));
+    };
+    $notified = fn () => array_values(array_filter(explode("\n", (string) @file_get_contents("$tmp/notified"))));
+    $record = fn () => json_decode((string) @file_get_contents("$tmp/data/state/kopia-count.json"), true);
+
+    same('kopia emptied: none left or less than half — never half, never from nothing', ['no', 'yes', 'yes', 'no', 'no', 'no', 'yes'],
+        explode(' ', $sh('for p in "4 2" "4 1" "1 0" "0 0" "5 3" "7 4" "7 3"; do kopia_emptied $p && printf "yes " || printf "no "; done')));
+    same('kopia count: this identity\'s snapshots and sources (another host\'s left out)', '4 2',
+        $sh('kopia_count_load && echo "$KC_SNAPS $KC_SOURCES"'));
+    $sh('kopia_count_save run');
+    $r = $record();
+    same('kopia count: kept after the run (repository, identity, storage, by)', [1, $repo, 'root@kopia', 's3', 4, 2, 'run', true],
+        [$r['v'] ?? null, $r['repo'] ?? null, $r['identity'] ?? null, $r['storage'] ?? null, $r['snapshots'] ?? null, $r['sources'] ?? null, $r['by'] ?? null,
+         is_int($r['time'] ?? null) && abs($r['time'] - time()) < 60]);
+    same('kopia count: 0600, nothing else left in state/', ['600', ['kopia-count.json']],
+        [substr(sprintf('%o', fileperms("$tmp/data/state/kopia-count.json")), -3), array_values(array_diff(scandir("$tmp/data/state"), ['.', '..']))]);
+
+    // Kopia erring: no count, the record stays, nothing said
+    touch("$tmp/fails");
+    $out = $sh('kopia_emptied_check; echo "w=$WARNINGS items=${#WARN_ITEMS[@]}"; kopia_count_save run');
+    same('kopia emptied: Kopia erring (forbidden, unreachable) counts nothing — no warning, the record as it was', [true, 4, []],
+        [str_contains($out, 'w=0 items=0'), $record()['snapshots'] ?? null, $notified()]);
+    unlink("$tmp/fails");
+    // a drop of one: nothing
+    $list([$ks('/uso/photos'), $ks('/uso/photos'), $ks('/uso/.apps/immich')]);
+    same('kopia emptied: one fewer (Kopia\'s retention) — nothing', 'w=0', $sh('kopia_emptied_check >/dev/null; echo "w=$WARNINGS"'));
+    // emptied: Kopia lists nothing and exits 0
+    $list([]);
+    $out = $sh('kopia_emptied_check >/dev/null; echo "w=$WARNINGS"; printf "%s\n" "${WARN_ITEMS[@]}" | tr "\037" "|"');
+    $when = date('Y-m-d H:i', (int) ($record()['time'] ?? 0));
+    same('kopia emptied: none left — a coded warning (before, now, when)', "w=1\nkopia_emptied|before=4|now=0|when=$when", $out);
+    $n = $notified();
+    $f = explode("\x1f", $n[0] ?? '');
+    same('kopia emptied: … and an alert right away, in the office\'s words', [1, true, 'alert', true],
+        [count($n), in_array('Unraid Secretary Office: Mr. Backupsy: The offsite copy was emptied', $f, true), $f[array_search('-i', $f, true) + 1] ?? null,
+         in_array("Snapshots on $when: 4, now: 0 — not deleted by the office. If that wasn't you: delete nothing, Object Lock may still hold the data; Mr. Restori and the Consultant show how to get it back. This run uploads everything anew.", $f, true)]);
+    @unlink("$tmp/notified");
+    same('kopia emptied: a dry run says it, tells nobody', ['w=1', []], [$sh('DRY=1; kopia_emptied_check >/dev/null; echo "w=$WARNINGS"'), $notified()]);
+    // another repository (a new one, a re-pair) or identity: no comparison
+    same('kopia emptied: another repository — no comparison', 'w=0', $sh('KOPIA_REPO_ID=' . str_repeat('ab', 32) . '; kopia_emptied_check >/dev/null; echo "w=$WARNINGS"'));
+    same('kopia emptied: another identity — no comparison', 'w=0', $sh('KOPIA_ID=root@other; kopia_emptied_check >/dev/null; echo "w=$WARNINGS"'));
+    // the office's own deleting counts anew (setup.sh --orphans-delete calls kopia_count_save orphans)
+    $sh('kopia_count_save orphans');
+    same('kopia emptied: after the office\'s own deleting the count is anew — nothing to say', [0, 'orphans', 'w=0'],
+        [$record()['snapshots'] ?? null, $record()['by'] ?? null, $sh('kopia_emptied_check >/dev/null; echo "w=$WARNINGS"')]);
+    same('kopia emptied: setup.sh counts anew after deleting, backup.sh before its upload and after its Kopia phase', [1, 1, 1],
+        [substr_count((string) file_get_contents(OFFICE_DIR . '/backup/setup.sh'), 'kopia_count_save orphans'),
+         substr_count((string) file_get_contents(OFFICE_DIR . '/backup/backup.sh'), "\n    kopia_emptied_check "),
+         substr_count((string) file_get_contents(OFFICE_DIR . '/backup/backup.sh'), "\n    kopia_count_save run ")]);
+
+    // backup.sh --kopia-count: the interface, read only
+    file_put_contents("$tmp/data/settings.ini", "[general]\nserver = t\n[kopia]\nenabled = yes\ncontainer = kopia\n");
+    $list([$ks('/uso/photos'), $ks('/uso/docs')]);
+    $env = ['PATH' => "$tmp/bin:/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin", 'UB_DATA' => "$tmp/data", 'UB_NOTIFY_BIN' => "$tmp/notify"];
+    $before = scandir("$tmp/data/state");
+    [$e, $o] = runEnv(['bash', OFFICE_DIR . '/backup/backup.sh', '--kopia-count'], $env, 60);
+    $j = json_decode(trim((string) $o), true);
+    same('--kopia-count: one line of JSON — the count now, nothing written', [0, true, 2, 2, $repo, 'root@kopia', 'watch', $before, false],
+        [$e, $j['ok'] ?? null, $j['snapshots'] ?? null, $j['sources'] ?? null, $j['repo'] ?? null, $j['identity'] ?? null, $j['by'] ?? null,
+         scandir("$tmp/data/state"), is_dir("$tmp/data/logs") && count(scandir("$tmp/data/logs")) > 2]);
+    touch("$tmp/fails");
+    [, $o] = runEnv(['bash', OFFICE_DIR . '/backup/backup.sh', '--kopia-count'], $env, 60);
+    same('--kopia-count: Kopia erring — not connected (its status fails too), never a count', ['ok' => false, 'why' => 'not_connected'], json_decode(trim((string) $o), true));
+    unlink("$tmp/fails");
+    file_put_contents("$tmp/data/settings.ini", "[kopia]\nenabled = no\n");
+    [, $o] = runEnv(['bash', OFFICE_DIR . '/backup/backup.sh', '--kopia-count'], $env, 60);
+    same('--kopia-count: Kopia off', ['ok' => false, 'why' => 'off'], json_decode(trim((string) $o), true));
+
+    // the Night Watchman: his look through the engine's interface (a stand-in here), once a day, never during the engine's lock
+    $now = 1791280000;
+    $count = fn (int $snaps, int $t, string $by = 'watch', string $r = '') => ['v' => 1, 'repo' => $r ?: $repo, 'identity' => 'root@kopia', 'storage' => 's3',
+        'time' => $t, 'snapshots' => $snaps, 'sources' => min($snaps, 2), 'by' => $by];
+    file_put_contents("$tmp/answer.json", json_encode(['ok' => true] + $count(48, $now)));
+    file_put_contents("$tmp/backup.sh", "#!/bin/bash\n[[ \"\$1\" == --kopia-count ]] || exit 2\necho \$\$ >> " . escapeshellarg("$tmp/looks") . "\ncat " . escapeshellarg("$tmp/answer.json") . "\n");
+    $paths = ['backup_sh' => "$tmp/backup.sh", 'engine' => "$tmp/engine"];
+    @mkdir("$tmp/engine/state", 0700, true);
+    $look = watchmanKopiaLook($paths, null, $now);
+    same('watchman kopia: his first look — the count', [true, 48, 2], [$look['ok'] ?? null, $look['snapshots'] ?? null, $look['sources'] ?? null]);
+    same('watchman kopia: not again within the day; after a failed look an hour', [null, null, true],
+        [watchmanKopiaLook($paths, ['looked' => $now, 'ok' => true], $now + 3 * 3600), watchmanKopiaLook($paths, ['looked' => $now, 'ok' => false], $now + 1800),
+         is_array(watchmanKopiaLook($paths, ['looked' => $now, 'ok' => false], $now + 3700))]);
+    $h = fopen("$tmp/engine/state/lock", 'c');
+    flock($h, LOCK_EX);
+    same('watchman kopia: never while the engine\'s lock is held (a run, a setup, a restore)', null, watchmanKopiaLook($paths, null, $now));
+    flock($h, LOCK_UN);
+    fclose($h);
+    file_put_contents("$tmp/answer.json", '{"ok":false,"why":"not_running"}');
+    same('watchman kopia: Kopia not running — said so, no count', ['ok' => false, 'why' => 'not_running'], watchmanKopiaLook($paths, null, $now));
+    file_put_contents("$tmp/answer.json", 'oops');
+    same('watchman kopia: an answer not in the engine\'s shape — no count', ['ok' => false, 'why' => 'no_answer'], watchmanKopiaLook($paths, null, $now));
+
+    $book = [];
+    [$k, $known] = watchmanKopiaCompare(null, ['ok' => true] + $count(48, $now), null, $book, $now);
+    same('watchman kopia: the first count — nothing to compare', [null, [], 48], [$k, $book, $known['count']['snapshots'] ?? null]);
+    [$k, $known2] = watchmanKopiaCompare($known, ['ok' => false, 'why' => 'no_answer'], null, $book, $now + 86400);
+    same('watchman kopia: Kopia erring — his count kept, nothing told', [null, [], 48, false], [$k, $book, $known2['count']['snapshots'] ?? null, $known2['ok']]);
+    [$k] = watchmanKopiaCompare($known2, ['ok' => true] + $count(30, $now + 86400), null, $book, $now + 86400);
+    same('watchman kopia: fewer, not under half — nothing', [null, []], [$k, $book]);
+    // the engine's count is newer (its run's retention, the office's own deleting): that is the comparison
+    $b2 = [];
+    [$k] = watchmanKopiaCompare($known, ['ok' => true] + $count(5, $now + 86400), $count(5, $now + 3600, 'orphans'), $b2, $now + 86400);
+    same('watchman kopia: the office deleted itself (the engine\'s newer count) — nothing', [null, []], [$k, $b2]);
+    [$k] = watchmanKopiaCompare($known, ['ok' => true] + $count(0, $now + 86400, 'watch', str_repeat('ab', 32)), null, $b2, $now + 86400);
+    same('watchman kopia: another repository (a new one, a re-pair) — no comparison', [null, []], [$k, $b2]);
+    [$k, $known3] = watchmanKopiaCompare($known, ['ok' => true] + $count(0, $now + 86400), $count(40, $now - 3600, 'run'), $book, $now + 86400);
+    same('watchman kopia: emptied — an entry against the newer count (his), important', ['kopia_emptied', 1, ['before' => 48, 'now' => 0, 'when' => $now], true, 0],
+        [$k, count($book), array_intersect_key($book[0]['p'] ?? [], ['before' => 1, 'now' => 1, 'when' => 1]), WATCH_KINDS['kopia_emptied'][1], $known3['count']['snapshots'] ?? null]);
+    [$k] = watchmanKopiaCompare($known3, ['ok' => true] + $count(0, $now + 2 * 86400), null, $book, $now + 2 * 86400);
+    same('watchman kopia: the next day still empty — no second entry', [null, 1], [$k, count($book)]);
+
+    // the notification: an alert, the brief's words, the way back, the Consultant's page
+    @unlink("$tmp/notified");
+    $envBefore = getenv('OFFICE_NOTIFY_BIN');
+    putenv("OFFICE_NOTIFY_BIN=$tmp/notify");
+    $e = $book[0] + ['last' => $now + 86400];
+    $sent = watchmanNotifySend('kopia_emptied', [$e], 'de');
+    putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
+    $f = explode("\x1f", $notified()[0] ?? '');
+    $at = fn (string $flag) => $f[array_search($flag, $f, true) + 1] ?? null;
+    $whenDe = date('Y-m-d H:i', $now);
+    same('watchman kopia: the notification — an alert in the office\'s words, the way back, the Consultant\'s page', [true, 'alert', true, true, true],
+        [$sent, $at('-i'), str_contains((string) $at('-s'), 'Nachtwächter: Die Kopie ausser Haus ist fast leer'),
+         $at('-d') === "Die Kopie ausser Haus ist fast leer — Snapshots am $whenDe: 48, jetzt: 0. Wenn du das nicht selbst warst: nichts löschen, Object Lock hält die Daten womöglich noch; Herr Restori und der Berater zeigen, wie du sie zurückholst.",
+         str_contains((string) $at('-m'), '--point-in-time') && str_ends_with((string) $at('-l'), '#/advisor')]);
+    same('watchman kopia: the page\'s words and the Team Lead\'s finding', ['before' => '48', 'now' => '0', 'when' => $whenDe],
+        watchmanText($book[0]));
+    same('watchman kopia: Inhibit System Recovery, like snapshots that vanish', 'T1490', WATCH_ATTACK['kopia_emptied']);
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -37676,7 +37841,7 @@ const TILES_FIRST_LATER = ['advisor', 'backup', 'cleanup', 'restore'];
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
