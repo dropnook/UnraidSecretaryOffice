@@ -2896,7 +2896,7 @@ function testJackProgress(): void
     putenv($envBefore[1] === false ? 'OFFICE_NOTIFY_STAMP' : "OFFICE_NOTIFY_STAMP=$envBefore[1]");
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
     check('stop: the action asks jackStopAsk() (the whole night while one goes: nightStopAsk()); the job notes why user', str_contains($src, "'stop'           => fn (array \$r) => ['ok' => true, 'asked' => jackNightNow() !== null ? nightStopAsk() : jackStopAsk(), 'state' => jackScan()]")
-        && str_contains($src, "\$note['why'] = in_array(\$stoppedWhy, ['mover', 'user'], true) ? \$stoppedWhy : 'watching';"));
+        && str_contains($src, "\$note['why'] = in_array(\$stoppedWhy, ['mover', 'watching'], true) ? \$stoppedWhy : 'user';"));
     jackProgressClear($paths);
     same('progress part: the run ended — its files gone, no panel', [false, false, null], [is_file($paths['file']), is_file($paths['samples']), $state(['running' => true, 'mode' => 'run'])['progress']]);
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');

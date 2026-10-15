@@ -2814,13 +2814,15 @@ function jackJob(string $tool, array $args): int
             . $result . ', ' . (int) ($status['protected'] ?? 0) . ' still on the pool)');
     }
     if ($result === 'stopped') {
-        $note['why'] = in_array($stoppedWhy, ['mover', 'user'], true) ? $stoppedWhy : 'watching';
+        // 1.64.2: a stop the watcher didn't see (the night run writes EmbyCache's own stop file, EmbyCache stops itself) was
+        // asked by someone — only the watcher knows «watching», so without its word it is the user's
+        $note['why'] = in_array($stoppedWhy, ['mover', 'watching'], true) ? $stoppedWhy : 'user';
         if ($note['why'] === 'watching') {
             $note['who'] = $stoppedFor ?? [];
         }
         logLine('Jack Streamer: ' . ($tool === 'gather' ? 'the gather stopped after ' . (int) ($status['folders_done'] ?? 0) . ' of ' . (int) ($status['folders'] ?? 0) . ' folders'
             : "EmbyCache ($mode) stopped after the file it was on") . ' — ' . match ($note['why']) {
-                'mover' => "Unraid's mover started", 'user' => 'as asked on his page', default => 'someone watches Emby' });
+                'mover' => "Unraid's mover started", 'watching' => 'someone watches Emby', default => 'as asked' });
     }
     jackRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => $started, 'finished' => time(),
                   'exit' => $exit, 'result' => $result, 'status' => jackStatusShort($status)] + $note);
