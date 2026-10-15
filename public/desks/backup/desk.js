@@ -271,8 +271,26 @@ function firstWords(u, pre) {
 }
 
 /**
+ * The rate of this run's offsite upload so far, for the very first backup's rough estimate (2026-10-15): the sources done
+ * (their sizes, agent: state.rough, in their real seconds) and the one going up (what Kopia read since it started) —
+ * before a minute of that, the rate measured on the one going up. Bytes/s, null while nothing was measured.
+ */
+function roughRate(s, u) {
+  const sizes = (state.rough && state.rough.sizes) || {};
+  let bytes = 0;
+  let secs = 0;
+  ((s.kopia && s.kopia.done) || []).forEach((d) => {
+    if (d.ok && typeof sizes[d.name] === 'number' && d.seconds > 0) { bytes += sizes[d.name]; secs += d.seconds; }
+  });
+  if (u && typeof u.read === 'number' && u.time > u.since) { bytes += u.read; secs += u.time - u.since; }
+  return secs >= 60 && bytes > 0 ? bytes / secs : (u && u.rate) || null;
+}
+
+/**
  * Where the run is and when it will be done, from the durations of earlier runs — except a source going
- * to Kopia for the first time: its own measure (size, rate), never "late"
+ * to Kopia for the first time: its own measure (size, rate), never "late". The very first backup (no good run
+ * to go by: estimates.total null) gets a rough one in the Kopia step (`rough`): a source not started yet at its
+ * size at this run's rate (roughRate()), the flash (never measured, a few MB) as nothing
  */
 function progress() {
   const s = status();
@@ -284,18 +302,33 @@ function progress() {
   const phase = s.phase;
   const step = Math.max(0, STEPS.findIndex(([, phases]) => phases.includes(phase)));
   const first = uploadNow();
+  const firstRun = est.total === null || est.total === undefined;
+  const sizes = (firstRun && state.rough && state.rough.sizes) || null;
+  const rate = sizes ? roughRate(s, first) : null;
   let remaining = 0;
   let known = true;
   let overdue = false;
 
+  // the very first backup: what is left of a source at its size and this run's rate (null: can't be told)
+  const roughLeft = (name) => {
+    if (!sizes) return null;
+    if (name === 'flash' && typeof sizes[name] !== 'number') return 0;
+    if (typeof sizes[name] !== 'number' || !rate) return null;
+    const gone = name === s.kopia.current && s.kopia.current_since ? now - s.kopia.current_since : 0;
+    return Math.max(0, sizes[name] / rate - gone);
+  };
   const sourceLeft = (name) => {
     if (first && name === first.source) {
-      const left = first.rate && first.size !== null && first.size !== undefined ? firstLeft(first) : null;
+      const left = first.rate && first.size !== null && first.size !== undefined ? firstLeft(first) : roughLeft(name);
       if (left === null) known = false;
       return left || 0;
     }
     const e = est.sources[name];
-    if (e === undefined || e === null) { known = false; return 0; }
+    if (e === undefined || e === null) {
+      const left = roughLeft(name);
+      if (left === null) known = false;
+      return left || 0;
+    }
     if (name === s.kopia.current && s.kopia.current_since) {
       const elapsed = now - s.kopia.current_since;
       if (elapsed > e) overdue = true;
@@ -349,6 +382,8 @@ function progress() {
     percent: known && elapsed + remaining > 0 ? Math.min(99, Math.round(elapsed / (elapsed + remaining) * 100)) : null,
     overdue,
     first,
+    rough: firstRun && known,
+    firstRun,
   };
 }
 
@@ -372,7 +407,7 @@ function bubbleText(pg) {
     }
     else if (s) out.push(T('bubble.running_phase', { step: T('step.' + STEPS[p ? p.step : 0][0]) }));
     else out.push(T('bubble.running_old', { step: state.step || '…' }));
-    if (p && p.eta) out.push(T(p.overdue ? 'bubble.eta_late' : 'bubble.eta', { time: fmt.time(p.eta) }));
+    if (p && p.eta) out.push(T(p.overdue ? 'bubble.eta_late' : p.rough ? 'bubble.eta_rough' : 'bubble.eta', { time: fmt.time(p.eta) }));
     if (newSkip()) out.push(T('bubble.skipped', { when: fmt.relative(newSkip().time) }));
     return out;
   }
@@ -665,8 +700,9 @@ function runningCard() {
     card.appendChild(bar);
   }
   const line = el('div', 'card-line');
-  if (p.eta) line.append(T(p.overdue ? 'eta_late' : 'eta_at', { time: fmt.time(p.eta) }));
-  else line.append(T(p.first ? 'eta_first' : 'eta_unknown'));
+  if (p.eta) line.append(T(p.overdue ? 'eta_late' : p.rough ? 'eta_rough' : 'eta_at', { time: fmt.time(p.eta) }));
+  // the very first backup before its upload: a rough estimate comes once that is measured (2026-10-15)
+  else line.append(T(p.first ? 'eta_first' : p.firstRun && p.planned.length && p.step < KOPIA_STEP ? 'eta_first_wait' : 'eta_unknown'));
   if (s.downtime_s) line.append(' · ', T('downtime_was', { duration: fmt.duration(s.downtime_s) }));
   if (s.packages && s.packages.written) line.append(' · ', T('pk.run_packed', { apps: nOf('apps', s.packages.apps), vms: nOf('vms', s.packages.vms) }));
   card.appendChild(line);
