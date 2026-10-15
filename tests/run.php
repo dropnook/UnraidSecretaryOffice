@@ -17138,6 +17138,141 @@ function testNightUi(): void
     hardeningRm($tmp);
 }
 
+/**
+ * The Dashboard tile's running jobs (agent/lib/jobs.php office.jobs, src/dashboard.php officeDashJobLine()): what each desk's
+ * job writes becomes one line — Mr. Backupsy's step, Mr. Restori's restore and drill, Ms. Snapshotini's plans, Jack
+ * Streamer's percent and file, Ms. Moverelli's moved files and the night run's step; nothing running: the quiet rows
+ */
+function testDashboardJobs(): void
+{
+    $tmp = hardeningTmp('dashjobs');
+    // the agent's side: Mr. Backupsy — only a backup holds the lock as a run (never setup, a restore, the recovery)
+    $holder = ['holder' => 'backup', 'mode' => 'backup', 'what' => '', 'run' => '', 'pid' => 4242, 'started' => 1000];
+    $status = ['result' => 'running', 'mode' => 'backup', 'phase' => 'kopia', 'started' => 1100,
+               'kopia' => ['planned' => ['appdata', 'Familienfilme', 'domains'], 'done' => ['appdata'], 'current' => 'Familienfilme']];
+    $b = officeJobsBackup("$tmp/none", $holder, $status)[0] ?? [];
+    same('dash jobs: a backup in the offsite step — mode, phase, 1 of 3 done, the share at work, since', ['backup', 'backup', 'kopia', 1, 3, 'Familienfilme', 1100],
+        [$b['desk'] ?? null, $b['mode'] ?? null, $b['phase'] ?? null, $b['done'] ?? null, $b['total'] ?? null, $b['current'] ?? null, $b['started'] ?? null]);
+    same('dash jobs: setup, a restore, the recovery after a start hold the lock — no backup line', [[], [], []],
+        [officeJobsBackup("$tmp/none", ['holder' => 'setup'] + $holder, $status), officeJobsBackup("$tmp/none", ['holder' => 'restore'] + $holder, $status),
+         officeJobsBackup("$tmp/none", ['mode' => 'recover'] + $holder, $status)]);
+    $old = officeJobsBackup("$tmp/none", ['holder' => 'other'] + $holder, [])[0] ?? [];
+    same('dash jobs: an engine holding the lock without a status - a run all the same, no step', ['backup', '', null], [$old['kind'] ?? null, $old['phase'] ?? null, $old['total'] ?? null]);
+    same('dash jobs: the lock free (no state folder) — nothing', [], officeJobsBackup("$tmp/none"));
+
+    // the steps of a restore or drill: the last one begun
+    same('dash jobs: steps — two of four begun, none, junk', [['step' => 2, 'steps' => 4], ['step' => 0, 'steps' => 2], ['step' => 0, 'steps' => 1]],
+        [officeJobsSteps([['state' => 'ok'], ['state' => 'running'], ['state' => 'pending'], []]), officeJobsSteps([[], ['state' => 'pending']]), officeJobsSteps(['x'])]);
+
+    // Ms. Snapshotini: her round holds its lock in RAM
+    $lock = "$tmp/snapshot-plans.lock";
+    same('dash jobs: no lock file — no line', [], officeJobsSnapshot($lock));
+    $fh = fopen($lock, 'c');
+    same('dash jobs: the lock there, free — no line', [], officeJobsSnapshot($lock));
+    flock($fh, LOCK_EX);
+    same('dash jobs: the lock held — her plans at work', [['desk' => 'snapshot', 'kind' => 'plans']], officeJobsSnapshot($lock));
+    flock($fh, LOCK_UN);
+    fclose($fh);
+
+    // Jack Streamer: a real run with its live panel (percent by bytes, the file it is on), a dry run, the gather
+    $prog = ['phase' => 'fill', 'total' => ['files' => 4, 'done_files' => 1, 'bytes' => 4000, 'done_bytes' => 1450],
+             'current' => ['phase' => 'fill', 'rel' => 'Familienfilme/Sommer am See (2019)/Sommer am See.mkv']];
+    $j = officeJobsJack(['embycache' => ['running' => true, 'mode' => 'run', 'by' => 'night'], 'gather' => ['running' => false]], $prog);
+    same('dash jobs: Jack Streamer fetching — 36 %, the file\'s name only', [[1], 'embycache', 'run', 36, 'Sommer am See.mkv', false],
+        [[count($j)], $j[0]['kind'] ?? null, $j[0]['mode'] ?? null, $j[0]['percent'] ?? null, $j[0]['file'] ?? null, $j[0]['back'] ?? null]);
+    $prog['current']['phase'] = 'back';
+    same('dash jobs: Jack Streamer giving back', true, officeJobsJack(['embycache' => ['running' => true, 'mode' => 'run']], $prog)[0]['back'] ?? null);
+    $j = officeJobsJack(['embycache' => ['running' => true, 'mode' => 'dry'], 'gather' => ['running' => true, 'mode' => 'run']], null);
+    same('dash jobs: a dry run (no panel) and the gather', [['embycache', 'dry', null, null], ['gather', 'run']],
+        [[$j[0]['kind'] ?? null, $j[0]['mode'] ?? null, $j[0]['percent'] ?? null, $j[0]['file'] ?? null], [$j[1]['kind'] ?? null, $j[1]['mode'] ?? null]]);
+    same('dash jobs: nothing running — nothing', [], officeJobsJack(['embycache' => ['running' => false], 'gather' => []], null));
+
+    // Ms. Moverelli: her own run (Smart Mover's live status: moved so far = the shares done + the one at work), the night run
+    $dir = "$tmp/moverelli";
+    @mkdir($dir, 0700, true);
+    file_put_contents("$dir/status.json", json_encode(['result' => 'running', 'phase' => 'share', 'share' => 'Familienserien', 'share_done_files' => 3,
+        'shares' => [['share' => 'Familienfilme', 'moved' => 9], 'junk']]));
+    $m = officeJobsMoverelli($dir, ['running' => true, 'mode' => 'run'], [])[0] ?? [];
+    same('dash jobs: her real run — the share at work, 12 moved', ['run', 'run', 'share', 'Familienserien', 12],
+        [$m['kind'] ?? null, $m['mode'] ?? null, $m['phase'] ?? null, $m['share'] ?? null, $m['moved'] ?? null]);
+    $m = officeJobsMoverelli($dir, ['running' => true, 'mode' => 'dry'], [])[0] ?? [];
+    same('dash jobs: her dry run — nothing counted as moved', ['run', 'dry', null], [$m['kind'] ?? null, $m['mode'] ?? null, $m['moved'] ?? null]);
+    $m = officeJobsMoverelli($dir, ['running' => false], ['running' => true, 'mode' => 'run', 'phase' => 'fill', 'who' => 'jack'])[0] ?? [];
+    same('dash jobs: the night run, Jack Streamer\'s step — its phase, not her status', ['night', 'fill', null, null],
+        [$m['kind'] ?? null, $m['phase'] ?? null, $m['share'] ?? null, $m['moved'] ?? null]);
+    $m = officeJobsMoverelli($dir, ['running' => false], ['running' => true, 'mode' => 'run', 'phase' => 'free', 'who' => 'her'])[0] ?? [];
+    same('dash jobs: the night run, her step — with what she moved', ['night', 'free', 12], [$m['kind'] ?? null, $m['phase'] ?? null, $m['moved'] ?? null]);
+    same('dash jobs: neither — nothing', [], officeJobsMoverelli($dir, ['running' => false], ['running' => false]));
+
+    // the action: only hired desks are asked; the agent answers office.jobs
+    same('dash jobs: nobody hired — nothing asked', [], officeJobs([]));
+    $a = handle(json_encode(['action' => 'office.jobs']));
+    check('dash jobs: the agent answers office.jobs', ($a['ok'] ?? null) === true && is_array($a['jobs'] ?? null), json_encode($a));
+
+    // the web side, in a process of its own: each job's line, then the rows with and without them
+    @mkdir("$tmp/data/office", 0700, true);
+    file_put_contents("$tmp/data/office/staff.json", json_encode(['hired' => array_fill_keys(['backup', 'restore', 'snapshot', 'jack', 'moverelli'], 1)]));
+    // Mr. Backupsy's state file still says «running» (written while the run went, nobody looked since)
+    file_put_contents("$tmp/data/backup.json", json_encode(['running' => true, 'history' => [['result' => 'ok', 'started' => 1, 'finished' => 2]],
+        'schedule' => ['enabled' => false]]));
+    $jobs = [
+        ['desk' => 'backup', 'kind' => 'backup', 'mode' => 'backup', 'phase' => 'kopia', 'done' => 1, 'total' => 3, 'current' => 'x', 'partner' => null],
+        ['desk' => 'restore', 'kind' => 'restore', 'what' => 'appdata', 'step' => 2, 'steps' => 5],
+        ['desk' => 'restore', 'kind' => 'drill', 'step' => 1, 'steps' => 3],
+        ['desk' => 'snapshot', 'kind' => 'plans'],
+        ['desk' => 'jack', 'kind' => 'embycache', 'mode' => 'run', 'phase' => 'fill', 'percent' => 36, 'file' => 'Sommer am See.mkv', 'back' => false],
+        ['desk' => 'jack', 'kind' => 'embycache', 'mode' => 'release', 'phase' => 'back', 'percent' => null, 'file' => 'Herbst.mkv', 'back' => true],
+        ['desk' => 'jack', 'kind' => 'gather', 'mode' => 'dry'],
+        ['desk' => 'moverelli', 'kind' => 'run', 'mode' => 'run', 'phase' => 'share', 'share' => 'Familienserien', 'moved' => 12],
+        ['desk' => 'moverelli', 'kind' => 'night', 'mode' => 'run', 'phase' => 'fill', 'share' => null, 'moved' => null],
+        ['desk' => 'moverelli', 'kind' => 'run', 'mode' => 'run', 'phase' => 'look', 'share' => null, 'moved' => 1],
+        ['desk' => 'future', 'kind' => 'thing'],
+    ];
+    // the plugin's layout: src/ beside the web files
+    @mkdir("$tmp/plugin/src", 0700, true);
+    foreach (glob(OFFICE_DIR . '/src/*.php') ?: [] as $f) {
+        copy($f, "$tmp/plugin/src/" . basename($f));
+    }
+    foreach (['assets', 'desks', 'lang'] as $d) {
+        @symlink(OFFICE_WEB . "/$d", "$tmp/plugin/$d");
+    }
+    $code = 'require ' . var_export("$tmp/plugin/src/bootstrap.php", true) . '; require_once ' . var_export("$tmp/plugin/src/page.php", true) . ';'
+        . ' require_once ' . var_export("$tmp/plugin/src/dashboard.php", true) . '; $jobs = json_decode(' . var_export(json_encode($jobs), true) . ', true);'
+        . ' $out = []; foreach (["en", "de"] as $l) { $s = officeStrings($l); $out[$l] = array_map(fn ($j) => ($x = officeDashJobLine($s, $j)) === null ? null : [$x[0], basename(strtok($x[1], "?")), $x[2], $x[3], $x[5]], $jobs); }'
+        . ' $out["quiet"] = officeDashRows("en", []); $out["busy"] = officeDashRows("en", $jobs); $out["unknown"] = officeDashRows("en");'
+        . ' echo json_encode($out);';
+    $p = proc_open(['php', '-r', $code], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+        ['OFFICE_DATA_DIR' => "$tmp/data", 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
+    $raw = (string) stream_get_contents($pipes[1]);
+    $err = (string) stream_get_contents($pipes[2]);
+    proc_close($p);
+    $o = json_decode($raw, true) ?: [];
+    same('dash jobs: the web side without a word', '', trim($err));
+    same('dash jobs: each line — route, face, name, how far, what it does (en)', [
+        ['backup', 'avatar.svg', 'Mr. Backupsy', 'Backing up right now', 'Offsite · 2 of 3'],
+        ['restore', 'avatar.svg', 'Mr. Restori', 'restoring appdata', 'Step 2 of 5'],
+        ['restore/drill', 'avatar.svg', 'Mr. Restori', 'Drill running', 'Step 1 of 3'],
+        ['snapshot', 'avatar.svg', 'Ms. Snapshotini', 'Taking snapshots', ''],
+        ['jack', 'avatar.svg', 'Jack Streamer', '36 %', 'Fetching Sommer am See.mkv'],
+        ['jack', 'avatar.svg', 'Jack Streamer', 'At work', 'Giving back Herbst.mkv'],
+        ['jack', 'avatar.svg', 'Jack Streamer', 'Consolidating folders', 'Dry run'],
+        ['moverelli', 'avatar.svg', 'Ms. Moverelli', '12 files moved', 'Share Familienserien'],
+        ['moverelli', 'avatar.svg', 'Ms. Moverelli', 'At work', 'Night run · Jack Streamer fetches'],
+        ['moverelli', 'avatar.svg', 'Ms. Moverelli', '1 file moved', 'Looking around'],
+        null], $o['en'] ?? $raw);
+    same('dash jobs: German', ['Sichert gerade', 'Schritt 2 von 5', '12 Dateien verschoben', 'Holt Sommer am See.mkv'],
+        [$o['de'][0][3] ?? null, $o['de'][1][4] ?? null, $o['de'][7][3] ?? null, $o['de'][4][4] ?? null]);
+    $quiet = (string) ($o['quiet'] ?? '');
+    $busy = (string) ($o['busy'] ?? '');
+    check('dash jobs: nothing runs (the agent says so) — the quiet rows: the last backup, not the state file\'s «running»',
+        str_contains($quiet, 'Backed up') && !str_contains($quiet, 'right now') && !str_contains($quiet, 'Ms. Snapshotini'), $quiet);
+    check('dash jobs: the agent\'s word unknown — the state file as before', str_contains((string) ($o['unknown'] ?? ''), 'Backing up right now'), (string) ($o['unknown'] ?? ''));
+    check('dash jobs: at work — the messenger and a line each, linked to the desk, the quiet backup row gone',
+        substr_count($busy, 'class="sso-dash-row"') === 11 && (bool) preg_match('~#/jack"><img class="sso-dash-icon" src="[^"]*desks/jack/avatar\.svg~', $busy)
+        && str_contains($busy, '#/restore/drill"') && str_contains($busy, 'Offsite · 2 of 3') && !str_contains($busy, 'Backed up'), $busy);
+    hardeningRm($tmp);
+}
+
 function testWatchmanSnaps(): void
 {
     $now = strtotime('2026-10-06 12:00:00');
@@ -36423,7 +36558,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightReserve', 'testNightSnaps', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

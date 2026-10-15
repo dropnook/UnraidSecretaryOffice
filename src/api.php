@@ -683,10 +683,11 @@ function apiGzipWanted(?string $accept = null): bool
     return false;
 }
 
-/** The rows of the office's tile on Unraid's Dashboard (src/dashboard.php), for its refresh every minute */
+/** The rows of the office's tile on Unraid's Dashboard (src/dashboard.php) with what runs right now, for its refresh */
 function apiDash(string $lang): never
 {
     require_once __DIR__ . '/page.php';
     require_once __DIR__ . '/dashboard.php';
-    answer(['ok' => true, 'html' => officeDashRows(officeDashLang($lang))]);
+    $jobs = officeDashJobs();
+    answer(['ok' => true, 'html' => officeDashRows(officeDashLang($lang), $jobs), 'busy' => (bool) $jobs]);
 }

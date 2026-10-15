@@ -114,6 +114,7 @@ function officeAgentActions(): array
         'report_send'    => fn (array $r): array => reportSend($r),
         'reports'        => fn (array $r): array => reportsAnswer(),
         'supporter_claim' => fn (array $r): array => supporterClaim($r),     // lib/supporter.php: the key a tip made
+        'jobs'           => fn (array $r): array => ['ok' => true, 'jobs' => officeJobs()],     // lib/jobs.php: the Dashboard tile's running jobs
     ];
 }
 

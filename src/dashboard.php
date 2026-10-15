@@ -8,9 +8,11 @@ declare(strict_types=1);
  * the engine is doing right now: a backup, a check, a dry run; a run skipped
  * because the engine was busy, engine 2.20); while the array isn't started the
  * night watchman's night shift (since when, its rounds, what is new) — each row
- * a link into the office. Built from the desks' state files only (no request
- * to the agent, no disk wakes up); the tile asks api.php?a=dash again every
- * minute. While Mr. Restori restores, a row of his says what. Texts from the office's language files (dash.*) in the
+ * a link into the office. The page's rows come from the desks' state files (no
+ * disk wakes up); the tile then asks api.php?a=dash, which adds what runs right now — one request to the agent
+ * (office.jobs): Mr. Backupsy's run, Mr. Restori's restore or drill, Ms. Snapshotini's plans, Jack Streamer's runs,
+ * Ms. Moverelli's run or the night run, each a line with what it does and how far it is — every minute, every 15 s
+ * while something runs. Texts from the office's language files (dash.*) in the
  * office's language — the browser's (like the page: the one chosen in ⋯ → Language, else the browser's own), Unraid's
  * labels in them in Unraid's words (src/words.php).
  */
@@ -210,8 +212,114 @@ function officeDashDrill(?array $cert, ?int $now = null): ?array
     return ($now ?? time()) - $passed > 60 * 86400 ? ['restore.dash_drill_overdue', 'plain', $passed] : ['restore.dash_drill_passed', 'green', $passed];
 }
 
-/** The tile's rows as HTML (escaped) */
-function officeDashRows(string $lang): string
+/**
+ * What the office is doing right now: the agent's `office.jobs` (agent/lib/jobs.php) — one request, answered from what
+ * the jobs write, no disk asked. Null: the agent isn't at work or didn't answer in time (the tile then shows what the
+ * state files say, as before).
+ *
+ * @return list<array>|null
+ */
+function officeDashJobs(?array $agent = null, float $wait = 3.0): ?array
+{
+    $agent ??= agentInfo();
+    if (empty($agent['running'])) {
+        return null;
+    }
+    try {
+        $a = askAgent('office.jobs', [], $wait);
+    } catch (Throwable) {
+        return null;
+    }
+    return ($a['ok'] ?? null) === true && is_array($a['jobs'] ?? null) ? array_values(array_filter($a['jobs'], 'is_array')) : null;
+}
+
+/** The engine's phases (status.json "phase") grouped into the steps Mr. Backupsy's page shows (public/desks/backup/desk.js STEPS) */
+const OFFICE_DASH_BACKUP_STEPS = [
+    'prepare'   => ['start', 'inventory'],
+    'dumps'     => ['vm_shutdown', 'maintenance', 'manifest', 'stopping_apps', 'dumps'],
+    'snapshots' => ['stopping', 'vms', 'snapshots', 'starting'],
+    'partner'   => ['partner'],
+    'kopia'     => ['mounting', 'kopia'],
+    'finish'    => ['unmounting', 'cleanup', 'aborting', 'done'],
+];
+
+/**
+ * One running job's line on the tile: [route, icon, name, state, tone, sub] — the desk's face and name, how far it is
+ * (right) and what it is doing (under the name). Null: a job the tile doesn't know (a newer agent's).
+ */
+function officeDashJobLine(array $s, array $job): ?array
+{
+    $str = static fn (mixed $v): string => is_string($v) ? $v : '';
+    $int = static fn (mixed $v): ?int => is_int($v) ? $v : null;
+    $steps = static fn (array $j): string => ($int($j['steps'] ?? null) ?? 0) > 0
+        ? officeDashT($s, 'dash.job_step', ['step' => (int) $j['step'], 'total' => (int) $j['steps']]) : '';
+    $desk = $str($job['desk'] ?? '');
+    $kind = $str($job['kind'] ?? '');
+    $line = static fn (string $route, string $state, string $sub = ''): array
+        => [$route, officeDashAsset("desks/$desk/avatar.svg"), officeDashT($s, "$desk.name"), $state, 'orange', $sub];
+    switch ("$desk/$kind") {
+        case 'backup/backup':
+            $state = officeDashT($s, officeDashBackupRunning(['status' => ['result' => 'running', 'mode' => $str($job['mode'] ?? '')]]));
+            $sub = is_array($job['partner'] ?? null)
+                ? officeDashBackupPartner($s, ['running' => true, 'status' => ['phase' => 'partner', 'partner' => $job['partner']]]) : null;
+            if ($sub === null) {
+                $phase = $str($job['phase'] ?? '');
+                $step = '';
+                foreach (OFFICE_DASH_BACKUP_STEPS as $name => $phases) {
+                    $step = in_array($phase, $phases, true) ? $name : $step;
+                }
+                $sub = $step === '' ? '' : officeDashT($s, "backup.step.$step");
+                $total = $int($job['total'] ?? null) ?? 0;
+                if ($step === 'kopia' && $total > 0) {
+                    $sub = officeDashT($s, 'dash.job_of', ['what' => $sub, 'at' => min($total, ($int($job['done'] ?? null) ?? 0) + 1), 'total' => $total]);
+                }
+            }
+            return $line('backup', $state, $sub);
+        case 'restore/restore':
+            return $line('restore', officeDashT($s, 'restore.dash_restoring', ['what' => $str($job['what'] ?? '')]), $steps($job));
+        case 'restore/drill':
+            return $line('restore/drill', officeDashT($s, 'dash.job_drill'), $steps($job));
+        case 'snapshot/plans':
+            return $line('snapshot', officeDashT($s, 'dash.job_snapshots'));
+        case 'jack/embycache':
+            $mode = $str($job['mode'] ?? '');
+            if (!in_array($mode, ['run', 'release'], true)) {
+                return $line('jack', officeDashT($s, in_array($mode, ['dry', 'report'], true) ? "jack.mode.$mode" : 'dash.job_running'));
+            }
+            $pct = $int($job['percent'] ?? null);
+            $file = $str($job['file'] ?? '');
+            $sub = $file !== '' ? officeDashT($s, empty($job['back']) ? 'dash.job_fetch' : 'dash.job_give_back', ['file' => $file])
+                : (($job['phase'] ?? '') === 'plan' ? officeDashT($s, 'dash.job_plan') : '');
+            return $line('jack', $pct !== null ? officeDashT($s, 'dash.job_percent', ['pct' => $pct]) : officeDashT($s, 'dash.job_running'), $sub);
+        case 'jack/gather':
+            $mode = $str($job['mode'] ?? '');
+            return $line('jack', officeDashT($s, 'dash.job_gather'), $mode === 'dry' ? officeDashT($s, 'jack.mode.dry') : '');
+        case 'moverelli/run':
+        case 'moverelli/night':
+            $mode = $str($job['mode'] ?? '');
+            $moved = $int($job['moved'] ?? null);
+            $phase = $str($job['phase'] ?? '');
+            $state = $moved !== null && $moved > 0 ? officeDashT($s, 'dash.job_moved', ['n' => $moved])
+                : officeDashT($s, $mode === 'dry' ? 'moverelli.mode.dry' : 'dash.job_running');
+            if ($kind === 'night') {
+                $step = in_array($phase, ['check', 'free', 'recheck', 'fill'], true) ? officeDashT($s, "moverelli.rc.phase.$phase") : '';
+                $sub = officeDashT($s, 'moverelli.rc.night_title') . ($step !== '' ? " · $step" : '');
+            } else {
+                $share = $str($job['share'] ?? '');
+                $sub = match ($phase) {
+                    'look'  => officeDashT($s, 'moverelli.rc.look'),
+                    'share' => $share !== '' ? officeDashT($s, 'dash.job_share', ['share' => $share]) : '',
+                    'tidy'  => officeDashT($s, 'moverelli.rc.tidy'),
+                    default => '',
+                };
+            }
+            return $line('moverelli', $state, $sub);
+    }
+    return null;
+}
+
+/** The tile's rows as HTML (escaped); $jobs: what runs right now (officeDashJobs()), null: not known — the state files only */
+function officeDashRows(string $lang, ?array $jobs = null): string
 {
     $s = officeStrings($lang);
     $h = static fn (string $text): string => htmlspecialchars($text, ENT_QUOTES);
@@ -225,6 +333,19 @@ function officeDashRows(string $lang): string
     };
     $out = '';
     $agent = agentInfo();
+    $byDesk = [];
+    foreach ($jobs ?? [] as $job) {
+        if (($l = officeDashJobLine($s, $job)) !== null) {
+            $byDesk[(string) $job['desk']][] = $l;
+        }
+    }
+    $jobRows = static function (string $desk) use (&$byDesk, $row): string {
+        $html = '';
+        foreach ($byDesk[$desk] ?? [] as $l) {
+            $html .= $row($l[0], $l[1], $l[2], $l[3], $l[4], $l[5]);
+        }
+        return $html;
+    };
     $night = !$agent['running'] && is_array($agent['night'] ?? null) ? $agent['night'] : null;
     $out .= $row('', officeDashAsset('assets/messenger.svg'), officeDashT($s, 'dash.messenger'),
         officeDashT($s, $agent['running'] ? 'agent.label_on'
@@ -250,7 +371,12 @@ function officeDashRows(string $lang): string
 
     // Mr. Backupsy: the last run and the next one
     $backup = isset($hired['backup']) ? officeReadJson(OFFICE_DATA . '/backup.json') : null;
-    if ($backup) {
+    if (isset($byDesk['backup'])) {
+        $out .= $jobRows('backup');          // at work right now: what it is doing
+    } elseif ($backup) {
+        if ($jobs !== null) {
+            $backup['running'] = false;      // the agent says no run goes: the state file is older than the run's end
+        }
         [$key, $tone, $when] = officeDashBackupState($backup);
         $state = officeDashT($s, $key) . ($when ? ' · ' . officeDashWhen($s, $when, $lang) : '');
         $schedule = (array) ($backup['schedule'] ?? []);
@@ -262,9 +388,17 @@ function officeDashRows(string $lang): string
         $out .= $row('backup', officeDashAsset('desks/backup/avatar.svg'), officeDashT($s, 'backup.name'), $state, $tone, $sub);
     }
 
-    // Mr. Restori, only while he restores (his job file, as long as the job writes its heartbeat)
-    $job = isset($hired['restore']) ? officeReadJson(OFFICE_DATA . '/restore-job.json') : null;
-    if (officeDashRestoring($job)) {
+    // the others at work right now: Ms. Snapshotini's plans, Jack Streamer's runs, Ms. Moverelli's run or the night run
+    foreach (['snapshot', 'jack', 'moverelli'] as $desk) {
+        $out .= $jobRows($desk);
+    }
+
+    // Mr. Restori: his restore or drill at work; without the agent's word only while he restores (his job file, as long as
+    // the job writes its heartbeat)
+    $job = isset($hired['restore']) && $jobs === null ? officeReadJson(OFFICE_DATA . '/restore-job.json') : null;
+    if (isset($byDesk['restore'])) {
+        $out .= $jobRows('restore');
+    } elseif (officeDashRestoring($job)) {
         $out .= $row('restore', officeDashAsset('desks/restore/avatar.svg'), officeDashT($s, 'restore.name'),
             officeDashT($s, 'restore.dash_restoring', ['what' => (string) $job['what']]), 'orange');
     } elseif ($drill = officeDashDrill(isset($hired['restore']) ? officeReadJson(OFFICE_DATA . '/restore-drill.json') : null)) {
@@ -312,8 +446,10 @@ function officeDashTile(): string
         . 'for(i=0;i<t.length&&!own;i++){var x=String(t[i]||"").toLowerCase(),m=x.split("-")[0];'
         . 'for(j=0;j<codes.length&&!own;j++){if(codes[j].toLowerCase()===x)own=codes[j];}if(!own&&codes.indexOf(m)>=0)own=m;}}'
         . 'own=own||"en";var u=' . json_encode($api) . '+encodeURIComponent(own);'
-        . 'function load(){fetch(u,{cache:"no-store"}).then(function(r){return r.json();}).then(function(j){var b=document.getElementById("sso-dash");if(b&&j&&j.ok)b.innerHTML=j.html;}).catch(function(){});}'
-        // the first time when the server guessed another language; then every minute while the page is in view, and when it comes back
-        . 'if(own!==lang)load();setInterval(function(){if(!document.hidden)load();},60000);'
-        . 'document.addEventListener("visibilitychange",function(){if(!document.hidden)load();});})();</script>';
+        // at once (the page's own rows come from the state files; what runs right now only the agent knows), then every
+        // minute while the page is in view — every 15 s while a job runs —, and when it comes back
+        . 'var next=null;function again(ms){clearTimeout(next);next=setTimeout(function(){if(!document.hidden)load();},ms);}'
+        . 'function load(){fetch(u,{cache:"no-store"}).then(function(r){return r.json();}).then(function(j){var b=document.getElementById("sso-dash");'
+        . 'if(b&&j&&j.ok)b.innerHTML=j.html;again(j&&j.busy?15000:60000);}).catch(function(){again(60000);});}'
+        . 'load();document.addEventListener("visibilitychange",function(){if(!document.hidden)load();});})();</script>';
 }
