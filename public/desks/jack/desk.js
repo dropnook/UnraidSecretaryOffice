@@ -1455,7 +1455,7 @@ function initForm() {
       max_resume_series: set.max_resume_series ?? set.max_resume_items ?? 10,
       max_favorite_series: set.max_favorite_series ?? 10,
       use_next_up: set.use_next_up ?? true,
-      return_to_origin: set.return_to_origin ?? true,
+      return_to_origin: set.return_to_origin ?? false,     // an option, MediaCache's way off (a migrated setup keeps its own)
       array_source: set.array_source || 'user0',
     },
   };
@@ -1626,7 +1626,7 @@ function setupStep(id) {
 /** The people of all connected servers, each once */
 const everyone = () => [...new Set(form.instances.flatMap((inst) => (inst.users || []).map((u) => u.id)))];
 /** The way back and reading from the array as they come (EmbyCache's defaults) */
-const MORE_DEFAULTS = { return_to_origin: true, array_source: 'user0' };
+const MORE_DEFAULTS = { return_to_origin: false, array_source: 'user0' };
 
 /**
  * His setup's tiles, pure (no DOM): [{id, key, value, sub: [text], alert}] in the parts' order — the servers (how many,

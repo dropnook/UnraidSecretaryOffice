@@ -43,9 +43,11 @@ const JACK_SETTINGS = ['cache_path', 'cache_budget', 'number_episodes', 'movie_s
 // default false; the wizard's give_back_unwatched_days, read by nothing, goes at the next save and with the update)
 // budget mode always (2026-10-14, the owner): the budget in total is the hard cap, every person at least this much
 const JACK_MIN_PERSON_BYTES = 20 << 30;
-// both ways always rsync (2026-10-10, after Unraid's mover took EmbyCache's films back): EmbyCache keeps its mover
-// path for standalone users, Jack never selects it — not in his setup, not from an old settings file, not in what he hands it
-const JACK_TOOLS_RSYNC = ['fill_tool' => 'rsync', 'cleanup_tool' => 'rsync'];
+// MediaCache's own ways (the owner, 2026-10-15 — before, Jack forced rsync both ways): filling with rsync (its default,
+// file by file: his live panel and «stop after this file»), giving back with Unraid's move binary (its default: through
+// shfs, keeping the share's «Minimum free space», making a ZFS disk's dataset itself). Jack's shares are «Cache: yes» on his
+// pool (jackShareFit() ok), so the binary moves them Cache → Array. Written into the settings, never forced by environment.
+const JACK_TOOLS = ['fill_tool' => 'rsync', 'cleanup_tool' => 'mover'];
 const JACK_FIXED       = ['create_share_root' => true, 'parallel_per_disk' => 1, 'parallel_total' => 1];
 // rsync's options are the office's too (EmbyCache's defaults): never what a settings file names - rsync runs as root, and
 // an option like --log-file writes wherever it says (review 2026-10-15)
@@ -328,17 +330,17 @@ function jackPools(): array
 function jackReadSettings(string $dir = JACK_DATA): ?array
 {
     $j = json_decode((string) @file_get_contents("$dir/mediacache_settings.json"), true);
-    return is_array($j) ? jackToolsRsync($j) : null;
+    return is_array($j) ? jackTools($j) : null;
 }
 
 /**
- * MediaCache's settings as Jack uses them: an old 'mover' (or none — its own default) reads as rsync; the next save writes it
- * so. The share's ZFS dataset is MediaCache's (create_share_root, 1.65.0 — before, Jack made it himself before a real run),
+ * MediaCache's settings as Jack uses them: its own tools (JACK_TOOLS — an old forced rsync for the give-back reads as the
+ * move binary; the next save writes it so). The share's ZFS dataset is MediaCache's (create_share_root, 1.65.0 — before, Jack made it himself before a real run),
  * one copy at a time (his live panel and his stop count on it).
  */
-function jackToolsRsync(array $s): array
+function jackTools(array $s): array
 {
-    return array_replace($s, JACK_TOOLS_RSYNC, JACK_FIXED);
+    return array_replace($s, JACK_TOOLS, JACK_FIXED);
 }
 
 /** The settings as the page may see them — without the API keys */
@@ -1112,7 +1114,7 @@ function jackSave(mixed $in): array
             $cfg[$k] = $in[$k];
         }
     }
-    $cfg = jackToolsRsync($cfg);                       // a fill_tool/cleanup_tool the request carries is ignored: always rsync
+    $cfg = jackTools($cfg);                       // a fill_tool/cleanup_tool the request carries is ignored: MediaCache's own
     unset($cfg['give_back_unwatched_days']);           // the wizard's, read by nothing (create_share_root: as it was)
     $cfg['cache_budget'] = strtoupper(str_replace(' ', '', is_string($cfg['cache_budget'] ?? null) ? $cfg['cache_budget'] : ''));
     jackBudgetCheck($cfg['cache_budget'], $users);
@@ -1265,7 +1267,7 @@ function jackWriteSettings(array $cfg, string $dir = JACK_DATA, string $tmp = RU
     }
     jackDataDir($dir);
     @mkdir($tmp, 0700, true);
-    $cfg = jackToolsRsync($cfg);                       // whatever writes Jack's settings (his setup, the import): rsync both ways
+    $cfg = jackTools($cfg);                       // whatever writes Jack's settings (his setup, the import): rsync both ways
     $file = writeNewFile("$tmp/.jack-settings", json_encode($cfg, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), 0600);
     if ($file === null) {
         throw new Problem('jack_config', ['detail' => "cannot write in $tmp"]);
@@ -1336,7 +1338,7 @@ function runEnv(array $command, array $env, int $timeout = 60): array
 function jackPyEnv(): array
 {
     return ['MEDIACACHE_DIR' => JACK_DATA, 'PYTHONDONTWRITEBYTECODE' => '1', 'PYTHONIOENCODING' => 'utf-8', 'PYTHONUNBUFFERED' => '1',
-            'MEDIACACHE_FILL_TOOL' => JACK_TOOLS_RSYNC['fill_tool'], 'MEDIACACHE_CLEANUP_TOOL' => JACK_TOOLS_RSYNC['cleanup_tool'], 'MEDIACACHE_GIVE_BACK_FREE' => '1',
+            'MEDIACACHE_GIVE_BACK_FREE' => '1',
             'MEDIACACHE_RSYNC_ARGS' => JACK_RSYNC_ARGS,
             // one file at a time (his live panel and «stop after this file» count on it); MediaCache's own live status in RAM
             'MEDIACACHE_PARALLEL_PER_DISK' => '1', 'MEDIACACHE_PARALLEL_TOTAL' => '1', 'MEDIACACHE_LIVE_STATUS' => RUN_DIR . '/jack-live-status.json'];
@@ -1496,7 +1498,7 @@ const JACK_IMPORT_FILES = [   // the only files read in the old folder: name, si
 ];
 // set by Jack whatever the old file says (Unraid's views, the share configs, rsync both ways); the mover only as EmbyCache finds it itself
 const JACK_IMPORT_FIXED = ['array_path' => '/mnt/user0', 'user_path' => '/mnt/user', 'array_disks_glob' => '/mnt/disk[0-9]*',
-                           'shares_cfg_dir' => '/boot/config/shares'] + JACK_TOOLS_RSYNC;
+                           'shares_cfg_dir' => '/boot/config/shares'] + JACK_TOOLS;
 const JACK_MOVER_BINS   = ['', '/usr/libexec/unraid/move', '/usr/local/sbin/move', '/usr/local/bin/move'];
 // rsync options an imported rsync_args may hold: plain switches only (no -e, no files, no remote shell)
 const JACK_RSYNC_SHORT  = '/^-[aAXHSDglopPrtuvhxWcm]+$/D';
@@ -1506,7 +1508,7 @@ const JACK_RSYNC_LONG   = ['--numeric-ids', '--sparse', '--hard-links', '--acls'
 const JACK_IMPORT_PCT   = ['min_free_percent', 'movie_share_percent'];
 // a key the old install doesn't have and Jack has no value for: what Jack's setup page would choose
 // (desk.js initForm()/saveSetup()), where it differs from EmbyCache's DEFAULTS; max_resume_movies/_series: max_resume_items
-const JACK_DEFAULTS = ['cleanup_tool' => 'rsync', 'fill_tool' => 'rsync', 'array_source' => 'user0', 'return_to_origin' => true,
+const JACK_DEFAULTS = JACK_TOOLS + ['array_source' => 'user0', 'return_to_origin' => false,
                             'movie_mode' => 'folder', 'create_share_root' => true, 'mover_debug_level' => 0, 'number_episodes' => 3,
                             'movie_share_percent' => 50, 'max_episodes_per_series' => 0, 'max_favorite_series' => 10, 'use_next_up' => true,
                             'min_free_percent' => 20];
@@ -1938,7 +1940,7 @@ function jackImportValueOk(string $key, mixed $v, mixed $def): bool
                                      && !array_filter($v, fn ($a) => !is_string($a) || (!preg_match(JACK_RSYNC_SHORT, $a) && !in_array($a, JACK_RSYNC_LONG, true))),
         $key === 'cache_budget'   => is_string($v) && ($v === '' || (bool) preg_match('/^\d+(\.\d+)?[KMGTP]?B?$/D', $v)),
         $key === 'movie_mode'     => in_array($v, ['folder', 'file'], true),
-        isset(JACK_TOOLS_RSYNC[$key]) => $v === 'rsync',          // never 'mover' (Jack never selects Unraid's move binary)
+        isset(JACK_TOOLS[$key]) => $v === JACK_TOOLS[$key],   // MediaCache's own way, nothing else
         $key === 'array_source'   => in_array($v, ['user0', 'disk'], true),
         $key === 'mover_debug_level' => is_int($v) && $v >= 0 && $v <= 3,
         in_array($key, JACK_IMPORT_PCT, true) => (is_int($v) || is_float($v)) && $v >= 0 && $v <= 100,

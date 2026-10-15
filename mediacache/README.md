@@ -16,27 +16,41 @@
 >   (`Locations(…, skip)`), the longest mapping wins — never a shorter one. An answer without an item list, a server
 >   without users, or a claimed Plex whose shared users plex.tv didn't give is an incomplete plan (no cleanup that run),
 >   never «nothing watched». `PlexApi.resume_items` honours `IncludeItemTypes` (the separate limits below).
-> * **Back to the origin disk** (`return_to_origin`, default on): filling remembers each file's array disk
->   (`system.LOCATION`, `mediacache_origin.json`); the cleanup rsyncs it straight back to `/mnt/diskN/<rel>` when the disk
->   still belongs to the share and keeps the share's minimum free space; otherwise `cleanup_tool`. The emptied folder on
->   the disk stays as a signpost (split level «top level only»).
+> * **Back to the origin disk** (`return_to_origin`, an option, **off by default** — MediaCache's own way back): when on,
+>   filling remembers each file's array disk (`system.LOCATION`, `mediacache_origin.json`) and the cleanup rsyncs it
+>   straight back to `/mnt/diskN/<rel>` when the disk still belongs to the share and keeps the share's minimum free space,
+>   else `cleanup_tool`; the emptied folder on the disk stays as a signpost. Setups migrated from the office's EmbyCache
+>   keep the value they had.
 > * Separate limits for started films and series (`max_resume_movies`, `max_resume_series`; default `max_resume_items`).
 > * `MEDIACACHE_RESULT`: a JSON file with the result of a run (mode, counts, warnings, errors, `pool`, `give_back`).
->   (helmi1987's own `mediacache_status.json` is his live status; `MEDIACACHE_LIVE_STATUS` moves it — the office: RAM.)
 > * `--release` (mode `release`): everything on the exclude list goes back to the array the cleanup's way, nothing is
 >   filled; what is playing stays. Jack runs it once when he is let go and the user ticks «bring the films back».
 > * **A sensible order both ways:** every on-deck file knows, per person, how far ahead it lies (`ahead`); filling goes
 >   round-robin across the persons by rank (`Planner.fill_order`), giving back over the limit the farthest ahead first
->   (`give_back_order`). `MEDIACACHE_GIVE_BACK_FREE=1` (the office) makes `min_free_percent` a limit the run gives back to;
->   `MEDIACACHE_KEEP_BYTES` is that give-back's floor; `MEDIACACHE_NO_FILL=1` only frees (the night run's first call);
->   `MEDIACACHE_WATCHED_ONLY=1` gives back only what was watched (Ms. Moverelli keeps only X). Status `pool`, `give_back`.
+>   (`give_back_order`). `MEDIACACHE_KEEP_BYTES`, `MEDIACACHE_NO_FILL`, `MEDIACACHE_WATCHED_ONLY` serve the night run.
 > * `MEDIACACHE_STOP` (a file): a real run stops after the file it is on — never inside a copy; result `stopped`, exit 3.
 > * `MEDIACACHE_PROGRESS` (a file): rewritten at every file boundary — phase, per person planned/done, the file in work
->   with its target, person and reason, the fill's queue, the last 50 files done. Jack's live panel reads it. It assumes one
->   file at a time: the office keeps `parallel_per_disk` = `parallel_total` = 1.
-> * Jack always moves with rsync both ways (`MEDIACACHE_FILL_TOOL`/`MEDIACACHE_CLEANUP_TOOL` = `rsync`); the share's
->   ZFS dataset is helmi1987's `ensure_share_root()` (`create_share_root`, on).
+>   with its target, person and reason, the fill's queue, the last 50 files done. Jack's live panel reads it.
+> * **With a progress or a stop file, Unraid's move binary gets one file per call** (the cleanup): so the progress names
+>   the file in work and «stop after this file» holds exactly. Standalone: one call for all, as before. (The target of a
+>   file the binary moves is unknown until it is done — the progress gives it empty, the panel shows no part inside it.)
 >
+> **How the office runs it — every deviation from MediaCache's defaults, and why** (the owner, 2026-10-15: MediaCache's own
+> ways wherever they don't collide with the office's logic):
+>
+> * Its own tools: filling `rsync`, giving back Unraid's `move` binary (through shfs: the share's «Minimum free space»,
+>   allocation and split level, a ZFS array disk's dataset made by Unraid). Jack writes them into the settings; no
+>   environment forces them. Jack's shares are «Cache: yes» on his pool, so the binary moves them Cache → Array.
+> * `parallel_per_disk` = `parallel_total` = 1 (also MediaCache's default — written fixed): the progress, the panel's
+>   queue and «stop after this file» count on one file at a time.
+> * `create_share_root` on (its default — written fixed): the share's ZFS dataset is MediaCache's, Jack makes none.
+> * `MEDIACACHE_RSYNC_ARGS` = `-aAX --numeric-ids` (its default): rsync runs as root — no option from a settings file.
+> * `MEDIACACHE_GIVE_BACK_FREE=1`: `min_free_percent` is a limit the run gives back to, not only one it stops filling at;
+>   with Ms. Moverelli the office sets `min_free_percent` = 100 − her limit X and `MEDIACACHE_WATCHED_ONLY=1`.
+> * `MEDIACACHE_LIVE_STATUS` = a file in RAM: MediaCache's live `mediacache_status.json` would be rewritten every 2 s on
+>   the pool (the data folder lies there); the office never reads it.
+> * Budget mode always (`cache_budget` set by Jack's setup) — a choice of the setup, not a change of the code.
+
 > **Licence:** helmi1987's original is under the GNU GPL v3 ([LICENSE](LICENSE), «Copyright (C) 2025–2026 helmi1987»,
 > SPDX `GPL-3.0-or-later`). This modified copy is likewise GPL-3.0-or-later, as part of the office.
 

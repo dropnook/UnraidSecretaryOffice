@@ -98,7 +98,7 @@ def stop_requested():
 from mediacache_lib import (
     ConfigError, MediaServerApi, Locations, Status, acquire_lock, array_location, keep_bytes, pool_usage, format_status,
     collect_sessions, detect_mover_bin, ensure_share_root, free_percent_after, human, is_playing, load_config, mkdir_like,
-    origin_target, read_exclude, read_origin, remove_empty_parents, run_mover, run_rsync, setup_logging, share_mode_ok,
+    origin_target, read_exclude, read_origin, remove_empty_parents, run_mover, run_rsync, setup_logging, share_mode_ok, share_mover_mode,
     summarize_mover_output, unraid_mover_running, write_exclude, write_origin, write_progress, write_result, EXCLUDE_FILE,
     PROGRESS_FILE, __version__,
 )
@@ -976,20 +976,46 @@ class Runner:
         self.status.phase("Cleanup (Cache -> Array, move-Binary)", len(candidates), self.to_array)
         sizes = {str(loc.cache / r): sz for r, sz in listing}
         tracked = [(p, Path(p).relative_to(loc.cache), sizes.get(p, 0), lambda rel: loc.on_disk(rel)) for p in candidates]
-        with self.track_mover(tracked, "-> ARRAY"):
-            rc, stdout, stderr = run_mover(mover, candidates, self.cfg["mover_debug_level"], log)
+        # USO: with a progress file or a stop file (the office) the binary gets one file per call — the progress names the
+        # file in work and «stop after this file» holds exactly; standalone one call for all, as before
+        per_file = bool(PROGRESS_FILE or STOP_FILE)
+        batches = [[t] for t in tracked] if per_file else [tracked]
+        stdout = stderr = ""
+        asked = []
+        for batch in batches:
+            if per_file and self.halt():
+                break
+            paths = [t[0] for t in batch]
+            if per_file:
+                self.progress.start("back", batch[0][1], batch[0][2], "", why=self.back_why.get(paths[0]))
+            with self.track_mover(batch, "-> ARRAY"):
+                rc, out, err = run_mover(mover, paths, self.cfg["mover_debug_level"], log)
+            stdout, stderr = stdout + out + "\n", stderr + err + "\n"
+            asked += paths
+            if per_file:
+                p = paths[0]
+                if Path(p).exists():
+                    self.progress.drop_back(sizes.get(p, 0))
+                else:
+                    self.progress.done(sizes.get(p, 0))
         messages = summarize_mover_output(stdout + "\n" + stderr, candidates)
         left_by_reason = {}
         for p in candidates:
-            if Path(p).exists():
+            if p not in asked:                   # USO: stopped before its turn – stays on the cache and in the list
                 protected.add(p)
                 self.progress.drop_back(sizes.get(p, 0))
+                continue
+            if Path(p).exists():
+                protected.add(p)
+                if not per_file:
+                    self.progress.drop_back(sizes.get(p, 0))
                 reason = messages.get(p, "keine Meldung vom Mover (in Benutzung oder Ziel existiert bereits)")
                 left_by_reason.setdefault(reason, []).append(p)
             else:
                 self.moved_back += 1
                 self.moved_back_bytes += sizes.get(p, 0)
-                self.progress.done(sizes.get(p, 0))
+                if not per_file:
+                    self.progress.done(sizes.get(p, 0))
                 remove_empty_parents(Path(p).parent, loc.cache, log)
         for reason, paths in left_by_reason.items():
             log.warning(f"{len(paths)} Dateien nicht verschoben – Mover: {reason}")
@@ -1021,8 +1047,9 @@ class Runner:
                 rel = path.relative_to(loc.cache)
                 if is_playing(rel, sessions):
                     continue
-                if self.cfg["cleanup_tool"] != "rsync" and not (self.cfg["return_to_origin"] and self.origin.get(p)):
-                    continue
+                if (self.cfg["cleanup_tool"] != "rsync" and not (self.cfg["return_to_origin"] and self.origin.get(p))
+                        and share_mover_mode(self.cfg, rel.parts[0])[0] != "yes"):
+                    continue                     # the move binary goes Cache -> Array only for shareUseCache=yes
                 n += path.stat().st_size
             except (ValueError, OSError):
                 continue

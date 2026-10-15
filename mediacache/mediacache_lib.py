@@ -84,7 +84,7 @@ DEFAULTS = {
     "fill_tool": "rsync",                # Array -> Cache: rsync (kopieren + Quelle löschen) oder mover (Unraid move-Binary)
     "cleanup_tool": "mover",             # Cache -> Array: mover (Unraid move-Binary, wie das Original) oder rsync
                                          #   (rsync /mnt/<pool>/<rel> -> /mnt/user0/<rel>, unabhängig von der Mover-Richtung des Shares)
-    "return_to_origin": True,            # Cache -> Array: zuerst zurück auf die Disk, von der die Datei kam (mediacache_origin.json),
+    "return_to_origin": False,           # USO, Option: Cache -> Array zuerst zurück auf die Disk, von der die Datei kam (mediacache_origin.json),
                                          #   per rsync nach /mnt/diskN/<rel>; nur wenn das nicht geht, cleanup_tool.
                                          #   Beim Befüllen bleibt der (leere) Ordner auf der Disk dann stehen – als Wegweiser
     "parallel_per_disk": 1,              # Befüllen per rsync: gleichzeitige Kopien pro Quell-Disk (1 = wie das Original)

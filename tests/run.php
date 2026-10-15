@@ -1552,12 +1552,12 @@ function testJackImport(): void
     // keys 7.2.1 didn't have: Jack's current value stays; without one, Jack's own default (max_resume_*: the old max_resume_items)
     same('import preview: keys the old install lacks — Jack\'s value stays, else his default',
         [['key' => 'max_resume_movies', 'kept' => true, 'value' => 1], ['key' => 'max_resume_series', 'kept' => false, 'value' => 8],
-         ['key' => 'return_to_origin', 'kept' => false, 'value' => true]], $e['defaults']);
+         ['key' => 'return_to_origin', 'kept' => false, 'value' => false]], $e['defaults']);      // an option, off (MediaCache's way)
     $jackSet = array_column($e['jack'], 'new', 'key');
     same('import preview: Jack\'s values for what runs or isn\'t valid', ['mover_bin' => '', 'rsync_args' => ['-aAX', '--numeric-ids']],
         array_intersect_key($jackSet, ['mover_bin' => 1, 'rsync_args' => 1]));
     check('import preview: array_path with a slash is no change', !isset($jackSet['array_path']));
-    same('import preview: the old «mover» way back becomes Jack\'s rsync, said as his; rsync filling no change', ['cleanup_tool' => 'rsync', 'fill' => false],
+    same('import preview: the old «mover» way back is MediaCache\'s own — no change; rsync filling no change', ['cleanup_tool' => null, 'fill' => false],
         ['cleanup_tool' => $jackSet['cleanup_tool'] ?? null, 'fill' => isset($jackSet['fill_tool'])]);
     $changes = array_column($e['changes'], null, 'key');
     same('import preview: a change, old → new', ['key' => 'min_free_percent', 'old' => 20, 'new' => 15], $changes['min_free_percent'] ?? null);
@@ -1604,8 +1604,8 @@ function testJackImport(): void
     same('import done: copies are root\'s only', '600', substr(sprintf('%o', fileperms($done['backups'][0])), -3));
     $s = json_decode((string) file_get_contents("$jack/embycache/mediacache_settings.json"), true);
     same('import done: the old key stays on the server', $key, $s['instances'][0]['api_key'] ?? null);
-    same('import done: settings as shown (the old «mover» way back is rsync: Jack never selects the move binary)',
-        [$pool, 15, '', ['-aAX', '--numeric-ids'], true, '/mnt/user0', '2.5T', [], 1, 8, 'rsync', 'rsync'],
+    same('import done: settings as shown (the way back MediaCache\'s move binary, filling rsync)',
+        [$pool, 15, '', ['-aAX', '--numeric-ids'], false, '/mnt/user0', '2.5T', [], 1, 8, 'mover', 'rsync'],
         [$s['cache_path'], $s['min_free_percent'], $s['mover_bin'], $s['rsync_args'], $s['return_to_origin'], $s['array_path'], $s['cache_budget'], $s['path_mappings'],
          $s['max_resume_movies'], $s['max_resume_series'], $s['cleanup_tool'], $s['fill_tool']]);
     check('import done: unknown keys gone', !isset($s['old_option']) && !isset($s['emby_token']));
@@ -1649,12 +1649,12 @@ function testJackImport(): void
     file_put_contents("$tmp/jack2/embycache/mediacache_settings.json", json_encode(['cache_path' => $pool, 'cleanup_tool' => 'rsync', 'mover_debug_level' => 1,
         'max_resume_series' => 4, 'max_resume_movies' => null, 'mover_bin' => '/mnt/user/x.sh', 'array_path' => '/mnt/elsewhere'], JSON_UNESCAPED_SLASHES));
     $d = array_column(jackImportPlan($old, '', $withJack)['preview']['embycache']['defaults'], null, 'key');
-    same('import, older install: Jack\'s own choices stay (the way back is always rsync — his, not a choice kept)',
-        [['cleanup_tool', false, 'rsync'], ['mover_debug_level', true, 1], ['max_resume_series', true, 4]],
+    same('import, older install: Jack\'s own choices stay (the way back always MediaCache\'s move binary — his, not a choice kept)',
+        [['cleanup_tool', false, 'mover'], ['mover_debug_level', true, 1], ['max_resume_series', true, 4]],
         array_map(fn ($k) => [$k, $d[$k]['kept'] ?? null, $d[$k]['value'] ?? null], ['cleanup_tool', 'mover_debug_level', 'max_resume_series']));
     same('import, older install: a null of Jack\'s is no value — his default', [false, 8], [$d['max_resume_movies']['kept'] ?? null, $d['max_resume_movies']['value'] ?? null]);
     $d = array_column(jackImportPlan($old, '', ['jack_dir' => "$tmp/nojack/embycache", 'gather_dir' => "$tmp/nojack/gather"] + $ctx)['preview']['embycache']['defaults'], null, 'key');
-    same('import, older install, Jack without settings: his defaults, not the original\'s mover', [['cleanup_tool', false, 'rsync'], ['mover_debug_level', false, 0]],
+    same('import, older install, Jack without settings: his defaults (MediaCache\'s own way back)', [['cleanup_tool', false, 'mover'], ['mover_debug_level', false, 0]],
         array_map(fn ($k) => [$k, $d[$k]['kept'] ?? null, $d[$k]['value'] ?? null], ['cleanup_tool', 'mover_debug_level']));
     unset($older['mover_bin'], $older['array_path']);
     file_put_contents("$dir/mediacache_settings.json", json_encode($older, JSON_UNESCAPED_SLASHES));
@@ -2479,6 +2479,54 @@ function testJackMover(): void
                        'python3', OFFICE_DIR . '/mediacache/mediacache_run.py', '--release'], 120);
         same('mover stop: without the stop file the next run goes on to the end', [0, 'ok', 0], [$exit, readJson("$py/data/status.json")['result'] ?? null,
             count(file("$py/data/mediacache_exclude.txt", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES))]);
+
+        // 2026-10-15 (the owner): the way back is MediaCache's own — Unraid's move binary. With the office's progress and stop
+        // files it gets ONE file per call: the progress names the file in work and «stop after this file» holds exactly
+        $m = "$tmp/mv";
+        foreach (["$m/data", "$m/pool/Filme/A", "$m/pool/Filme/B", "$m/pool/Filme/C", "$m/user0/Filme", "$m/user/Filme", "$m/shares", "$m/disk1"] as $d) {
+            mkdir($d, 0700, true);
+        }
+        foreach (['A/a.mkv', 'B/b.mkv', 'C/c.mkv'] as $f) {
+            file_put_contents("$m/pool/Filme/$f", str_repeat('x', 1000));
+        }
+        file_put_contents("$m/shares/Filme.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"pool\"\n");
+        file_put_contents("$m/data/mediacache_exclude.txt", "$m/pool/Filme/A/a.mkv\n$m/pool/Filme/B/b.mkv\n$m/pool/Filme/C/c.mkv\n");
+        // the stand-in binary: every path it gets goes to disk1 (as Unraid's move would), each call logged; after the first call: stop
+        file_put_contents("$m/move", "#!/bin/bash\nn=0\nwhile IFS= read -r f; do [ -z \"\$f\" ] && continue; n=\$((n+1)); r=\${f#" . "$m/pool/}; mkdir -p \"$m/disk1/\$(dirname \"\$r\")\"; "
+            . "mv \"\$f\" \"$m/disk1/\$r\"; done\necho \$n >> " . escapeshellarg("$m/calls") . "\ntouch " . escapeshellarg("$m/stop") . "\n");
+        chmod("$m/move", 0755);
+        $set = ['cache_path' => "$m/pool", 'array_path' => "$m/user0", 'user_path' => "$m/user", 'array_disks_glob' => "$m/disk[0-9]*", 'cleanup_tool' => 'mover',
+            'mover_bin' => "$m/move", 'return_to_origin' => false, 'shares_cfg_dir' => "$m/shares", 'api_timeout' => 2,
+            'instances' => [['servername' => 'Test', 'url' => 'http://127.0.0.1:9', 'api_key' => 'k', 'path_mappings' => ['/media/movies' => "$m/user/Filme"]]]];
+        file_put_contents("$m/data/mediacache_settings.json", json_encode($set));
+        $env = ['env', 'PATH=' . getenv('PATH'), "MEDIACACHE_DIR=$m/data", "MEDIACACHE_RESULT=$m/data/status.json", "MEDIACACHE_STOP=$m/stop",
+                "MEDIACACHE_PROGRESS=$m/progress.json", "MEDIACACHE_LIVE_STATUS=$m/live.json", 'PYTHONDONTWRITEBYTECODE=1'];
+        [$exit, $out, $err] = run(array_merge($env, ['python3', OFFICE_DIR . '/mediacache/mediacache_run.py', '--release']), 120);
+        $st = readJson("$m/data/status.json") ?? [];
+        $pg = readJson("$m/progress.json") ?? [];
+        same('move binary: one file per call, stops after the first — exit 3, 1 of 3 back (on disk1), 2 stay on the pool and the list',
+            [3, 'stopped', 1, 1, true, ["$m/pool/Filme/B/b.mkv", "$m/pool/Filme/C/c.mkv"]],
+            [$exit, $st['result'] ?? null, $st['cleanup']['done'] ?? null, (int) trim((string) @file_get_contents("$m/calls")), is_file("$m/disk1/Filme/A/a.mkv"),
+             file("$m/data/mediacache_exclude.txt", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES)], $out . $err);
+        same('move binary: the progress — phase back, 1 left planned and done (the stopped two dropped)', ['done', 1, 1, 1000],
+            [$pg['phase'] ?? null, $pg['back']['files'] ?? null, $pg['back']['done_files'] ?? null, $pg['back']['done_bytes'] ?? null]);
+        @unlink("$m/stop");
+        @unlink("$m/calls");
+        file_put_contents("$m/move", str_replace("touch ", ": ", (string) file_get_contents("$m/move")));
+        [$exit] = run(array_merge($env, ['python3', OFFICE_DIR . '/mediacache/mediacache_run.py', '--release']), 120);
+        same('move binary: the next run goes on — the other two, one call each, the list empty', [0, ['1', '1'], true, 0],
+            [$exit, file("$m/calls", FILE_IGNORE_NEW_LINES), is_file("$m/disk1/Filme/C/c.mkv"), count(file("$m/data/mediacache_exclude.txt", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES))]);
+        // standalone (no progress, no stop file): one call for all, as helmi1987's MediaCache does
+        @mkdir("$m/pool/Filme/A", 0700, true);              // (the emptied folders went with the files)
+        @mkdir("$m/pool/Filme/B", 0700, true);
+        file_put_contents("$m/pool/Filme/A/a.mkv", 'y');
+        file_put_contents("$m/pool/Filme/B/b.mkv", 'y');
+        @unlink("$m/disk1/Filme/A/a.mkv");
+        @unlink("$m/disk1/Filme/B/b.mkv");
+        file_put_contents("$m/data/mediacache_exclude.txt", "$m/pool/Filme/A/a.mkv\n$m/pool/Filme/B/b.mkv\n");
+        @unlink("$m/calls");
+        [$exit, $out, $err] = run(['env', 'PATH=' . getenv('PATH'), "MEDIACACHE_DIR=$m/data", 'PYTHONDONTWRITEBYTECODE=1', 'python3', OFFICE_DIR . '/mediacache/mediacache_run.py', '--release'], 120);
+        same('move binary: standalone one call for all', [0, ['2']], [$exit, @file("$m/calls", FILE_IGNORE_NEW_LINES)], $out . $err);
     }
     unset($GLOBALS['jackMoverHost']);
 
@@ -2594,46 +2642,43 @@ JS);
  */
 function testJackRsync(): void
 {
+    // 2026-10-15 (the owner): MediaCache's own ways — filling with rsync, giving back with Unraid's move binary; written
+    // into the settings by Jack, never forced through the environment
     $tmp = hardeningTmp('jackrsync');
-    same('rsync: an old «mover» reads as rsync, the rest kept (and MediaCache\'s share root and one copy at a time)',
-        ['fill_tool' => 'rsync', 'cleanup_tool' => 'rsync', 'cache_path' => '/mnt/maple'] + JACK_FIXED,
-        jackToolsRsync(['fill_tool' => 'mover', 'cleanup_tool' => 'mover', 'cache_path' => '/mnt/maple']));
-    same('rsync: none set (MediaCache\'s own default would be the mover) — rsync', ['fill_tool' => 'rsync', 'cleanup_tool' => 'rsync'] + JACK_FIXED, jackToolsRsync([]));
-    same('rsync: one copy at a time, MediaCache makes the share\'s dataset', ['create_share_root' => true, 'parallel_per_disk' => 1, 'parallel_total' => 1], JACK_FIXED);
+    same('tools: whatever an old file says — filling rsync, the way back the move binary, the rest kept (share root, one copy at a time)',
+        ['fill_tool' => 'rsync', 'cleanup_tool' => 'mover', 'cache_path' => '/mnt/maple'] + JACK_FIXED,
+        jackTools(['fill_tool' => 'mover', 'cleanup_tool' => 'rsync', 'cache_path' => '/mnt/maple']));
+    same('tools: none set — MediaCache\'s defaults', ['fill_tool' => 'rsync', 'cleanup_tool' => 'mover'] + JACK_FIXED, jackTools([]));
+    same('tools: one copy at a time, MediaCache makes the share\'s dataset', ['create_share_root' => true, 'parallel_per_disk' => 1, 'parallel_total' => 1], JACK_FIXED);
     @mkdir("$tmp/emby", 0700, true);
     @mkdir("$tmp/pool", 0700, true);
     $inst = [['servername' => 'Emby', 'url' => 'http://192.168.20.10:8096', 'api_key' => 'abcdefgh12345678', 'path_mappings' => ['/media/Filme' => '/mnt/user/Filme']]];
-    file_put_contents("$tmp/emby/mediacache_settings.json", json_encode(['cache_path' => "$tmp/pool", 'array_path' => $tmp, 'fill_tool' => 'mover', 'cleanup_tool' => 'mover',
+    file_put_contents("$tmp/emby/mediacache_settings.json", json_encode(['cache_path' => "$tmp/pool", 'array_path' => $tmp, 'fill_tool' => 'rsync', 'cleanup_tool' => 'rsync',
         'instances' => $inst], JSON_UNESCAPED_SLASHES));
     $read = jackReadSettings("$tmp/emby");
-    same('rsync: an old settings file with «mover» reads as rsync (migrated on read)', ['rsync', 'rsync', "$tmp/pool"],
+    same('tools: an old file with Jack\'s forced rsync back reads as the move binary', ['rsync', 'mover', "$tmp/pool"],
         [$read['fill_tool'] ?? null, $read['cleanup_tool'] ?? null, $read['cache_path'] ?? null]);
-    same('rsync: the file itself untouched until the next save', 'mover', json_decode((string) file_get_contents("$tmp/emby/mediacache_settings.json"), true)['cleanup_tool']);
-    check('rsync: the setup\'s save no longer takes the two keys from the page', !in_array('fill_tool', JACK_SETTINGS, true) && !in_array('cleanup_tool', JACK_SETTINGS, true));
+    check('tools: the setup\'s save takes neither key from the page', !in_array('fill_tool', JACK_SETTINGS, true) && !in_array('cleanup_tool', JACK_SETTINGS, true));
     $code = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
-    check('rsync: the save lays rsync over the request', (bool) preg_match('/\$cfg\[\$k\] = \$in\[\$k\];\s*\}\s*\}\s*\$cfg = jackToolsRsync\(\$cfg\);/', $code));
-    // the save's writer (also the import's): a request with «mover» is written as rsync
+    check('tools: the save lays them over the request', (bool) preg_match('/\$cfg\[\$k\] = \$in\[\$k\];\s*\}\s*\}\s*\$cfg = jackTools\(\$cfg\);/', $code));
     $cfg = $read;
-    $cfg['fill_tool'] = $cfg['cleanup_tool'] = 'mover';
+    $cfg['fill_tool'] = 'mover';
+    $cfg['cleanup_tool'] = 'rsync';
     @mkdir("$tmp/run", 0700, true);
     jackWriteSettings($cfg, "$tmp/emby", "$tmp/run");
     $saved = json_decode((string) file_get_contents("$tmp/emby/mediacache_settings.json"), true);
-    same('rsync: a save that carries «mover» writes rsync (refused as a choice)', ['rsync', 'rsync'], [$saved['fill_tool'] ?? null, $saved['cleanup_tool'] ?? null]);
-    // what Jack hands EmbyCache: its environment wins over any settings file — EmbyCache's own load_config() says so
-    file_put_contents("$tmp/emby/old.json", json_encode(['cache_path' => "$tmp/pool", 'array_path' => $tmp, 'fill_tool' => 'mover', 'cleanup_tool' => 'mover',
-        'instances' => $inst], JSON_UNESCAPED_SLASHES));
+    same('tools: a save writes MediaCache\'s own, whatever the request carries', ['rsync', 'mover'], [$saved['fill_tool'] ?? null, $saved['cleanup_tool'] ?? null]);
     $env = jackPyEnv();
-    same('rsync: Jack\'s environment for EmbyCache says rsync both ways', ['rsync', 'rsync'], [$env['MEDIACACHE_FILL_TOOL'] ?? null, $env['MEDIACACHE_CLEANUP_TOOL'] ?? null]);
-    $py = 'import json, sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; c = l.load_config(require_paths=False); print(c["fill_tool"] + "|" + c["cleanup_tool"])';
-    [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], ['MEDIACACHE_DIR' => "$tmp/emby"] + $env + ['MEDIACACHE_CONFIG' => "$tmp/emby/old.json"], 30);
-    same('rsync: EmbyCache run with Jack\'s environment on an old «mover» file — rsync both ways', [0, 'rsync|rsync'], [$exit, trim($out) ?: trim($err)]);
-    // the import: an old «mover» is Jack's rsync (tested with the whole import in testJackImport); never accepted as a value
-    same('rsync: «mover» is no valid value for the two keys', [false, true, false], [jackImportValueOk('cleanup_tool', 'mover', 'mover'),
-        jackImportValueOk('fill_tool', 'rsync', 'rsync'), jackImportValueOk('fill_tool', 'mover', 'rsync')]);
-    same('rsync: the import sets both itself', ['rsync', 'rsync'], [JACK_IMPORT_FIXED['fill_tool'] ?? null, JACK_IMPORT_FIXED['cleanup_tool'] ?? null]);
-    // his setup page: no choice of the tool left, nothing sent
+    same('tools: no environment forces a tool (the settings say it)', [false, false], [isset($env['MEDIACACHE_FILL_TOOL']), isset($env['MEDIACACHE_CLEANUP_TOOL'])]);
+    $py = 'import json, sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; c = l.load_config(require_paths=False); print(c["fill_tool"] + "|" + c["cleanup_tool"] + "|" + str(c["return_to_origin"]))';
+    [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], ['MEDIACACHE_DIR' => "$tmp/emby"] + $env, 30);
+    same('tools: MediaCache run with Jack\'s environment on his file — rsync in, the move binary back, no origin unless set', [0, 'rsync|mover|False'], [$exit, trim($out) ?: trim($err)]);
+    same('tools: only MediaCache\'s own way is a valid value', [true, false, true, false], [jackImportValueOk('cleanup_tool', 'mover', 'mover'),
+        jackImportValueOk('cleanup_tool', 'rsync', 'mover'), jackImportValueOk('fill_tool', 'rsync', 'rsync'), jackImportValueOk('fill_tool', 'mover', 'rsync')]);
+    same('tools: the import sets both itself', ['rsync', 'mover'], [JACK_IMPORT_FIXED['fill_tool'] ?? null, JACK_IMPORT_FIXED['cleanup_tool'] ?? null]);
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.js');
-    check('rsync: the setup page has no tool select and sends none', !str_contains($js, 'cleanup_tool') && !str_contains($js, 'fill_tool'));
+    check('tools: the setup page has no tool select and sends none; the way to the origin disk off by default',
+        !str_contains($js, 'cleanup_tool') && !str_contains($js, 'fill_tool') && str_contains($js, 'return_to_origin: false'));
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -2698,8 +2743,8 @@ except l.ConfigError as e:
         [$exit, $out, $err] = runEnv(['python3', '-c', $load, JACK_APP], ['MEDIACACHE_DIR' => "$tmp/emby"] + jackPyEnv() + $env, 30);
         return $exit . ' ' . (trim($out) ?: trim($err));
     };
-    same('emby upstream 9d14374: numbers read as numbers, rsync both ways', '0 ok 20.0 0 rsync', $run([]));
-    same('emby upstream 9d14374: … from the environment too', '0 ok 12.5 2 rsync', $run([], ['MEDIACACHE_MIN_FREE_PERCENT' => '12.5', 'MEDIACACHE_MOVER_DEBUG' => '2']));
+    same('emby upstream 9d14374: numbers read as numbers, the way back MediaCache\'s own', '0 ok 20.0 0 mover', $run([]));
+    same('emby upstream 9d14374: … from the environment too', '0 ok 12.5 2 mover', $run([], ['MEDIACACHE_MIN_FREE_PERCENT' => '12.5', 'MEDIACACHE_MOVER_DEBUG' => '2']));
     $bad = [$run(['min_free_percent' => 'viel']), $run([], ['MEDIACACHE_MOVER_DEBUG' => 'x']), $run(['mover_debug_level' => null])];
     check('emby upstream 9d14374: no number (file, environment, null) — a ConfigError naming both settings, no traceback',
         count(array_filter($bad, fn ($o) => str_starts_with($o, '0 config min_free_percent muss eine Zahl') && !str_contains($o, 'Traceback'))) === 3, implode("\n", $bad));
@@ -35659,7 +35704,7 @@ function testJackShareDataset(): void
     // never Jack before the run as well (his jackMakeShareDatasets() went); MediaCache's own tests (mediacache/tests) cover it
     $php = (string) file_get_contents(dirname(__DIR__) . '/agent/desks/jack.php');
     same('share dataset: Jack\'s settings always say create_share_root (MediaCache makes it, like Unraid)', true,
-        jackToolsRsync(['create_share_root' => false])['create_share_root']);
+        jackTools(['create_share_root' => false])['create_share_root']);
     check('share dataset: Jack makes no dataset himself any more — one way only', !str_contains($php, 'jackMakeShareDatasets(') && !str_contains($php, "'zfs', 'create'"));
     $lib = (string) file_get_contents(OFFICE_DIR . '/mediacache/mediacache_lib.py');
     check('share dataset: MediaCache\'s ensure_share_root() makes it with zfs create, only where the share may use the pool',

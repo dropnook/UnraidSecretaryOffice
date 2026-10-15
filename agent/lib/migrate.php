@@ -661,6 +661,11 @@ function officeMigrateMediaCache(string $dir, string $to, array $o = []): string
     $cfgFile = "$partial/mediacache_settings.json";
     $servers = 0;
     if (is_file($cfgFile) && !is_link($cfgFile) && is_array($cfg = json_decode((string) file_get_contents($cfgFile), true))) {
+        // the give-back through MediaCache's own way (Unraid's move binary): EmbyCache's «rsync» was Jack's force, never a
+        // choice on his page (owner, 2026-10-15); return_to_origin keeps what it was
+        if (($cfg['cleanup_tool'] ?? null) === 'rsync') {
+            $cfg['cleanup_tool'] = 'mover';
+        }
         foreach ((array) ($cfg['instances'] ?? []) as $k => $i) {
             if (is_array($i)) {
                 $cfg['instances'][$k]['type'] = is_string($i['type'] ?? null) && $i['type'] !== '' ? $i['type'] : 'emby';
