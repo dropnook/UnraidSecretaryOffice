@@ -29551,6 +29551,10 @@ function testBackupLetGo(): void
     $sleeper = proc_open(['sh', '-c', 'sleep 30; :', 'agent.php'], [], $pp);
     $j4['result'] = 'running';
     $j4['pid'] = proc_get_status($sleeper)['pid'];
+    // the child may not have exec'd yet (its cmdline still the test's own): wait until it shows (up to 2 s)
+    for ($i = 0; $i < 40 && !str_contains((string) @file_get_contents("/proc/{$j4['pid']}/cmdline"), 'agent.php'); $i++) {
+        usleep(50000);
+    }
     backupLetGoJournalWrite($f4, $j4);
     $alive = backupLetGoJobState(['id' => $c4['id']])['job']['result'] ?? null;
     $busyAlive = backupLetGoRunning();
