@@ -1114,11 +1114,13 @@ function moverelliProgressState(?array $h = null): array
         }
     }
     // his step at work (free = give back, fill = fetch): his live panel's numbers under her card, as his own page has them
-    // (jack-progress.php, two RAM reads) — {real, progress}, null in her steps and between them
+    // (jack-progress.php, two RAM reads) — {real, progress}, null in her steps and between them. Real by the night's word
+    // (a real night, his step written), never only by his job's marker: his panel shows from the moment his step starts,
+    // «working out what goes where» until EmbyCache's first progress (2026-10-15)
     $jack = null;
     if ($short !== null && ($night['who'] ?? null) === 'jack' && in_array($night['phase'] ?? null, ['free', 'fill'], true)) {
-        $jl = (nightHost($h)['jack_progress'])();
-        $jack = is_array($jl) ? ['real' => !empty($jl['real']), 'progress' => is_array($jl['progress'] ?? null) ? $jl['progress'] : null] : null;
+        $jl = (nightHost($h)['jack_progress'])($night);
+        $jack = ['real' => true, 'progress' => is_array($jl) && is_array($jl['progress'] ?? null) ? $jl['progress'] : null];
     }
     return ['time' => time(), 'running' => $job['running'] || $nightReal, 'real' => $real, 'stopping' => is_array($stop) ? (string) ($stop['why'] ?? 'user') : null,
             'progress' => $prog, 'night' => $short, 'jack' => $jack];
@@ -1546,7 +1548,7 @@ function moverelliNight(array $h, ?array $settings): array
 function moverelliNightShort(array $n): array
 {
     return array_intersect_key($n, array_flip(['mode', 'by', 'started', 'finished', 'phase', 'round', 'who', 'jack', 'pool', 'plan', 'steps',
-        'result', 'stopped_in', 'missed', 'end_pct', 'running', 'waited', 'why', 'picture', 'jack_out']));
+        'result', 'stopped_in', 'stopped_who', 'missed', 'end_pct', 'running', 'waited', 'why', 'picture', 'jack_out']));
 }
 
 /**

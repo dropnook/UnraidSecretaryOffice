@@ -302,7 +302,15 @@ function officeDashJobLine(array $s, array $job): ?array
             $state = $moved !== null && $moved > 0 ? officeDashT($s, 'dash.job_moved', ['n' => $moved])
                 : officeDashT($s, $mode === 'dry' ? 'moverelli.mode.dry' : 'dash.job_running');
             if ($kind === 'night') {
-                $step = in_array($phase, ['check', 'free', 'recheck', 'fill'], true) ? officeDashT($s, "moverelli.rc.phase.$phase") : '';
+                // the step as her card names it: his give-back, her part (named while he is in the night) — an older agent's
+                // record without `who`: the phase's own word
+                $who = $job['who'] ?? null;
+                $key = match (true) {
+                    $phase === 'free' && $who === 'jack' => 'jack_back',
+                    $phase === 'free' && $who === 'her' && ($job['with_jack'] ?? false) === true => 'her',
+                    default => $phase,
+                };
+                $step = in_array($phase, ['check', 'free', 'recheck', 'fill'], true) ? officeDashT($s, "moverelli.rc.phase.$key") : '';
                 $sub = officeDashT($s, 'moverelli.rc.night_title') . ($step !== '' ? " · $step" : '');
             } else {
                 $share = $str($job['share'] ?? '');

@@ -107,11 +107,12 @@ function tookProgress(j) {
   if (!p || typeof p.time !== 'number' || p.time < progressAt) { scheduleProgress(); return; }
   if (!p.real && !p.night) { progressAt = p.time; nightNow = null; load(true); return; }     // the run ended: his state anew — the panel goes
   // the night's steps change who works: her step over, his starting (or the other way) — his state anew for the rest
-  const was = nightNow ? `${nightNow.who}|${nightNow.phase}|${realRun()}` : '';
+  // (who and phase only: inside the night his part is real by the night's word, his job's marker may lag — 2026-10-15)
+  const was = nightNow ? `${nightNow.who}|${nightNow.phase}` : '';
   progress = p.progress || null;
   stopping = p.stopping || null;
   nightNow = p.night || null;
-  if (nightNow && (`${nightNow.who}|${nightNow.phase}|${!!p.real}` !== was)) { progressAt = p.time; load(true); return; }
+  if (nightNow && (`${nightNow.who}|${nightNow.phase}` !== was)) { progressAt = p.time; load(true); return; }
   progressAt = p.time;
   redrawProgress();
   scheduleProgress();
@@ -744,6 +745,9 @@ function progressRows(box, p = progress, o = {}) {
 
 Office.jackRows = (box, p, o) => progressRows(box, p || null, o || {});
 
+/** His step of the night at work (give back, fetch) — by the night's word, from the moment it starts (2026-10-15) */
+const jackStep = (n) => !!(n && n.who === 'jack' && ['free', 'fill'].includes(n.phase));
+
 /** What follows live over his row: the night run's card while it goes, else EmbyCache's panel */
 function livePanel() {
   return nightGoing() ? nightPanel() : progressPanel();
@@ -759,7 +763,7 @@ function nightPanel(now) {
   const n = nightNow;
   const asked = stopping || n.stopping || null;
   const card = Office.nightCard(n, { T: MT, now: now ?? Date.now() / 1000, stopping: asked, cls: 'jo-night' });
-  const jack = n.who === 'jack' && realRun();
+  const jack = jackStep(n);
   if (jack) {
     const rows = el('div', 'jo-prog jo-night-prog');
     progressRows(rows);

@@ -17726,6 +17726,11 @@ function testDashboardJobs(): void
         [$m['kind'] ?? null, $m['phase'] ?? null, $m['share'] ?? null, $m['moved'] ?? null]);
     $m = officeJobsMoverelli($dir, ['running' => false], ['running' => true, 'mode' => 'run', 'phase' => 'free', 'who' => 'her'])[0] ?? [];
     same('dash jobs: the night run, her step — with what she moved', ['night', 'free', 12], [$m['kind'] ?? null, $m['phase'] ?? null, $m['moved'] ?? null]);
+    $m = officeJobsMoverelli($dir, ['running' => false], ['running' => true, 'mode' => 'run', 'phase' => 'free', 'who' => 'jack', 'jack' => true])[0] ?? [];
+    $o = officeJobsMoverelli($dir, ['running' => false], ['running' => true, 'mode' => 'run', 'phase' => 'free', 'who' => 'her', 'jack' => true, 'jack_out' => 'jack_watching'])[0] ?? [];
+    same('dash jobs: the night — whose step and whether Jack Streamer is in it (her card\'s step names); her own run without them',
+        [['jack', true], ['her', false], false], [[$m['who'] ?? 'x', $m['with_jack'] ?? 'x'], [$o['who'] ?? 'x', $o['with_jack'] ?? 'x'],
+         array_key_exists('who', officeJobsMoverelli($dir, ['running' => true, 'mode' => 'run'], [])[0] ?? [])]);
     same('dash jobs: neither — nothing', [], officeJobsMoverelli($dir, ['running' => false], ['running' => false]));
 
     // the action: only hired desks are asked; the agent answers office.jobs
@@ -17751,6 +17756,8 @@ function testDashboardJobs(): void
         ['desk' => 'moverelli', 'kind' => 'night', 'mode' => 'run', 'phase' => 'fill', 'share' => null, 'moved' => null],
         ['desk' => 'moverelli', 'kind' => 'run', 'mode' => 'run', 'phase' => 'look', 'share' => null, 'moved' => 1],
         ['desk' => 'future', 'kind' => 'thing'],
+        ['desk' => 'moverelli', 'kind' => 'night', 'mode' => 'run', 'phase' => 'free', 'share' => null, 'moved' => null, 'who' => 'jack', 'with_jack' => true],
+        ['desk' => 'moverelli', 'kind' => 'night', 'mode' => 'run', 'phase' => 'free', 'share' => null, 'moved' => null, 'who' => 'her', 'with_jack' => true],
     ];
     // the plugin's layout: src/ beside the web files
     @mkdir("$tmp/plugin/src", 0700, true);
@@ -17783,7 +17790,9 @@ function testDashboardJobs(): void
         ['moverelli', 'avatar.svg', 'Ms. Moverelli', '12 files moved', 'Share Familienserien'],
         ['moverelli', 'avatar.svg', 'Ms. Moverelli', 'At work', 'Night run · Jack Streamer fetches'],
         ['moverelli', 'avatar.svg', 'Ms. Moverelli', '1 file moved', 'Looking around'],
-        null], $o['en'] ?? $raw);
+        null,
+        ['moverelli', 'avatar.svg', 'Ms. Moverelli', 'At work', 'Night run · Jack Streamer gives back'],
+        ['moverelli', 'avatar.svg', 'Ms. Moverelli', 'At work', 'Night run · Ms. Moverelli makes room']], $o['en'] ?? $raw);
     same('dash jobs: German', ['Sichert gerade', 'Schritt 2 von 5', '12 Dateien verschoben', 'Holt Sommer am See.mkv'],
         [$o['de'][0][3] ?? null, $o['de'][1][4] ?? null, $o['de'][7][3] ?? null, $o['de'][4][4] ?? null]);
     $quiet = (string) ($o['quiet'] ?? '');
@@ -17792,7 +17801,7 @@ function testDashboardJobs(): void
         str_contains($quiet, 'Backed up') && !str_contains($quiet, 'right now') && !str_contains($quiet, 'Ms. Snapshotini'), $quiet);
     check('dash jobs: the agent\'s word unknown — the state file as before', str_contains((string) ($o['unknown'] ?? ''), 'Backing up right now'), (string) ($o['unknown'] ?? ''));
     check('dash jobs: at work — the messenger and a line each, linked to the desk, the quiet backup row gone',
-        substr_count($busy, 'class="sso-dash-row"') === 11 && (bool) preg_match('~#/jack"><img class="sso-dash-icon" src="[^"]*desks/jack/avatar\.svg~', $busy)
+        substr_count($busy, 'class="sso-dash-row"') === 13 && (bool) preg_match('~#/jack"><img class="sso-dash-icon" src="[^"]*desks/jack/avatar\.svg~', $busy)
         && str_contains($busy, '#/restore/drill"') && str_contains($busy, 'Offsite · 2 of 3') && !str_contains($busy, 'Backed up'), $busy);
     hardeningRm($tmp);
 }
@@ -30615,7 +30624,7 @@ function testsRunHelpersJs(string $tmp): string
 function testsNightHelpersJs(string $tmp): string
 {
     $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
-    $a = strpos($core, "/**\n * The night run's phases (agent/lib/nightrun.php) as a run's steps");
+    $a = strpos($core, "/**\n * The night run's steps (agent/lib/nightrun.php) as a run's steps");
     $b = strpos($core, '// ---- end run card helpers');
     $file = "$tmp/night-helpers.js";
     file_put_contents($file, '(function (el) {' . "\n" . substr($core, (int) $a, (int) $b - (int) $a) . "\n})(Office.el);\n");
@@ -34666,6 +34675,12 @@ function testNightRun(): void
         return poolLevelMath(1000 * $G, $used * $G, ($p['j'] + $p['d']) * $G, 80, $p['j'] * $G) + ['pool' => 'cache'];
     };
     $runs = [];
+    // where night.json says the work is at every measure and every tool's call (the card's highlight, 2026-10-15)
+    $trace = [];
+    $at = function (string $what) use (&$trace, $dir): void {
+        $nj = readJson("$dir/night.json") ?? [];
+        $trace[] = $what . ' ' . ($nj['phase'] ?? '-') . '/' . ($nj['who'] ?? '-');
+    };
     // Unraid's bookkeeping: two data disks (4 TB, 1 TB used each — KB), parity and a pool not counted
     file_put_contents("$tmp/disks.ini", "[\"parity\"]\nname=\"parity\"\ntype=\"Parity\"\nfsSize=\"9\"\nfsUsed=\"9\"\n"
         . "[\"disk1\"]\nname=\"disk1\"\ntype=\"Data\"\nfsSize=\"4000000000\"\nfsUsed=\"1000000000\"\n"
@@ -34676,7 +34691,7 @@ function testNightRun(): void
         'disks_ini' => "$tmp/disks.ini",
         'jack_budget' => fn () => null,
         'jack_on' => fn () => true,
-        'level' => fn (array $g, array $hh, bool $wake) => $level(),
+        'level' => function (array $g, array $hh, bool $wake) use ($level, $at) { $at('measure'); return $level(); },
         'jack_status' => function () use (&$p, $G) {
             return ['pool' => ['waiting_bytes' => $p['wait'] * $G], 'cleanup' => ['bytes_done' => ($p['gave'] ?? 0) * $G, 'bytes_planned' => $p['w'] * $G],
                     'fill' => ['bytes_planned' => min($p['wait'], max(0, 800 - $p['nm'] - $p['j'] + $p['w'] - $p['d'])) * $G]];
@@ -34685,7 +34700,8 @@ function testNightRun(): void
         'jack_runs' => function () use (&$runs) { return $runs; },
         'jack_stop' => "$tmp/jack-stop.json",
         'notify' => function (string $s, string $b) use (&$notified) { $notified[] = $b; return true; },
-        'jack_job' => function (array $args) use (&$p, &$calls, &$runs, &$inside, $dir) {
+        'jack_job' => function (array $args) use (&$p, &$calls, &$runs, &$inside, $dir, $at) {
+            $at('jack');
             $calls[] = 'jack ' . implode(' ', $args);
             $inside[] = [nightRunning($dir), moverelliBusy($dir), nightInside()];
             $exit = array_shift($p['jack_exit']) ?? 0;
@@ -34705,7 +34721,8 @@ function testNightRun(): void
             }
             return $exit;
         },
-        'her_job' => function (array $args, array $hh) use (&$p, &$calls, $dir, $G) {
+        'her_job' => function (array $args, array $hh) use (&$p, &$calls, $dir, $G, $at) {
+            $at('her');
             $calls[] = 'her ' . implode(' ', array_map(fn ($a) => preg_replace_callback('/^--fill-until=(\d+)$/', fn ($m) => '--fill-until=' . intdiv((int) $m[1], $G) . 'G', $a), $args));
             $p['d'] -= $p['age'] ?? 0;                      // the age rule
             $p['age'] = 0;
@@ -34732,8 +34749,11 @@ function testNightRun(): void
     // (1) 850: Jack Emby gives back his 50 watched; his 60 waiting come first — she pushes the others below X (until 740) so his
     // fetch ends at X; downloads (40) arrive meanwhile: a recheck round, her part again; then he fetches his 60
     $p = $fresh(['j' => 400, 'w' => 50, 'd' => 150, 'wait' => 60, 'burst' => 40]);
+    $trace = [];
     $exit = nightRun(['run', '--office']);
     $n = $night();
+    same('night run 1: the work where night.json says — «check» while the pool is first measured, his give-back, «recheck» (nobody) while measured after it, her part, the quick recheck, her second pass, his fetch',
+        ['measure check/-', 'jack free/jack', 'measure recheck/-', 'her free/her', 'measure recheck/-', 'her free/her', 'measure recheck/-', 'measure recheck/-', 'jack fill/jack', 'measure fill/-'], $trace);
     $her = 'her run --night --fill-until=740G --fill-pool=cache';
     same('night run 1: Jack Emby frees (watched only, no fill), she makes his room below X, the pool grew: her part again, then he fetches — last',
         [0, ['jack run --night --nofill', $her, $her, 'jack run --night']], [$exit, $calls]);
@@ -34842,7 +34862,8 @@ function testNightRun(): void
     $p = $fresh(['j' => 400, 'w' => 50, 'd' => 150, 'wait' => 60, 'jack_exit' => [3]]);
     $exit = nightRun(['run']);
     $n = $night();
-    same('night run stopped: in «free», nothing after it (no fill), exit 3', [3, ['jack run --night --nofill'], 'stopped', 'free'], [$exit, $calls, $n['result'] ?? null, $n['stopped_in'] ?? null]);
+    same('night run stopped: in «free» (his give-back — whose step said too), nothing after it (no fill), exit 3', [3, ['jack run --night --nofill'], 'stopped', 'free', 'jack'],
+        [$exit, $calls, $n['result'] ?? null, $n['stopped_in'] ?? null, $n['stopped_who'] ?? null]);
     // «Stop after this file» from a page while Jack Emby works: his stop file and the night's — the night ends after his step
     $calls = [];
     $p = $fresh(['j' => 400, 'w' => 50, 'd' => 150, 'wait' => 60, 'stop_ask' => true]);
@@ -35103,12 +35124,12 @@ JS);
         && in_array($j['tonight'] ?? '-', $j['section'] ?? [], true) && in_array('night.dry', $j['section'] ?? [], true), json_encode($j['section'] ?? null));
     same('night page: the dialog — three choices (no «after Jack Emby»), the night\'s intro, sent as {cron}', [3, 'schedule.intro_night', ['moverelli.schedule', ['cron' => '15 1 * * *']]],
         [$j['radios'] ?? null, $j['intro'] ?? null, $j['post'] ?? null]);
-    same('night page: the card\'s phases — check and free done, a second pass running, fill pending; without Jack Emby: no fill, no recheck',
-        [[['rc.phase.check', 'done'], ['rc.phase.free', 'done'], ['rc.phase.recheck · night.rounds {"n":2}', 'running'], ['rc.phase.fill', 'pending']],
+    same('night page: the card\'s steps — a second pass: her part with its pass going (its quick measure too), fill pending; without Jack Emby: measure, make room',
+        [[['rc.phase.check', 'done'], ['rc.phase.jack_back', 'done'], ['rc.phase.recheck', 'done'], ['rc.phase.her · night.rounds {"n":2}', 'running'], ['rc.phase.fill', 'pending']],
          [['rc.phase.check', 'done'], ['rc.phase.free', 'running']]], [$j['steps'] ?? null, $j['steps2'] ?? null]);
     check('night page: the card while Jack Emby works in it — «Night run», his line with the way to his page, no «looking around»',
         in_array('rc.night_title', $j['card'] ?? [], true) && in_array('rc.night_jack ', $j['card'] ?? [], true) && !in_array('rc.waiting', $j['card'] ?? [], true)
-        && count($j['cardSteps'] ?? []) === 3, json_encode($j['card'] ?? null));
+        && count($j['cardSteps'] ?? []) === 5, json_encode($j['card'] ?? null));
     check('night page: Jack Emby\'s schedules — EmbyCache with Ms. Moverelli at her time, her page to change it, tonight\'s line; the tile counts it',
         in_array('plans.night_name', $j['plans'] ?? [], true) && in_array('plans.night {"when":"C15 1 * * *"}', $j['plans'] ?? [], true)
         && in_array('plans.night_open', $j['plans'] ?? [], true) && in_array($j['jtonight'] ?? '-', $j['plans'] ?? [], true) && str_starts_with((string) ($j['tile'] ?? ''), 'plans.on'),
@@ -35806,6 +35827,98 @@ JS);
 }
 
 /**
+ * The night run's card follows the work step by step (2026-10-15, the owner: «Messen» never lit, «Platz schaffen» lit for
+ * both his give-back and her part, his panel missing while he gave back) — core.js Office.nightSteps() under node: with
+ * Jack Streamer and a limit Measure · Jack Streamer gives back · Measure again · Ms. Moverelli makes room · Jack Streamer
+ * fetches, the highlight from night.json's phase and who (between steps from the steps done; an older agent's file reads
+ * the same); without a limit, she alone, he out tonight; a stopped night's step by `stopped_who` (an older file: the
+ * phase's word). Agent: jackNightProgress() — his view real by the night's word, an older run's progress file none.
+ */
+function testNightSteps(): void
+{
+    $tmp = hardeningTmp('night-steps');
+    // (1) his view by the night's word: no file yet → real, «working out …»; this night's file → his numbers; an older run's → none
+    $paths = ['file' => "$tmp/jack-progress.json", 'samples' => "$tmp/jack-progress-speed.json"];
+    $prog = fn (int $started) => json_encode(['v' => 1, 'mode' => 'run', 'phase' => 'back', 'started' => $started, 'updated' => $started,
+        'back' => ['files' => 2, 'bytes' => 10, 'done_files' => 0, 'done_bytes' => 0], 'users' => []]);
+    $night = ['started' => 5000, 'who' => 'jack', 'phase' => 'free'];
+    $a = jackNightProgress($night, $paths, 5010, "$tmp/stop.json");
+    file_put_contents($paths['file'], $prog(5003));
+    $b = jackNightProgress($night, $paths, 5010, "$tmp/stop.json");
+    file_put_contents($paths['file'], $prog(4000));
+    $c = jackNightProgress($night, $paths, 5010, "$tmp/stop.json");
+    same('night steps (agent): his step — real at once, no numbers before EmbyCache\'s first progress; this night\'s file his numbers; an older run\'s none',
+        [true, null, true, 'back', true, null], [$a['real'], $a['progress'], $b['real'], $b['progress']['phase'] ?? null, $c['real'], $c['progress']]);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/lib/nightrun.php');
+    check('night steps (agent): «check» written before the first measure, «recheck» after his give-back, whose step a stop ended in',
+        strpos($src, "'started' => \$started, 'phase' => 'check'") < strpos($src, "\$level = (\$h['level'])(\$g, \$h, \$real && \$jack);")
+        && str_contains($src, "\$n['phase'] = 'recheck';\n            nightWrite(\$dir, \$n);\n        }\n        if (\$go) {") && substr_count($src, "\$n['stopped_who'] = \$who;") === 2);
+
+    $node = testsNode();
+    if ($node === '') {
+        check('night steps (page): node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+globalThis.Office = { el: () => ({}) };
+for (const f of process.argv.slice(2)) (0, eval)(fs.readFileSync(f, 'utf8'));
+const lit = (n) => { const s = Office.nightSteps(n, T); return [s.map((x) => x.id).join(' '), (s.find((x) => x.state === 'running') || {}).id || null,
+  s.filter((x) => x.state === 'done').length]; };
+const J = { mode: 'run', started: 1, jack: true, plan: { measured: true }, round: 1 };
+const back = { who: 'jack', phase: 'free', round: 1, result: 'ok' };
+const her = { who: 'her', phase: 'free', round: 1, result: 'ok' };
+const out = {
+  joint: [
+    lit({ ...J, phase: 'check', who: null, steps: [] }),
+    lit({ ...J, phase: 'check', who: null, steps: [], plan: undefined }),          // the first write: no plan yet
+    lit({ ...J, phase: 'free', who: 'jack', steps: [] }),
+    lit({ ...J, phase: 'recheck', who: null, steps: [back] }),
+    lit({ ...J, phase: 'free', who: null, steps: [back] }),                          // an older agent: measuring after him in «free»
+    lit({ ...J, phase: 'free', who: 'her', steps: [back] }),
+    lit({ ...J, phase: 'recheck', who: null, steps: [back, her] }),                  // the quick measure after her part
+    lit({ ...J, phase: 'fill', who: 'jack', steps: [back, her] }),
+    lit({ ...J, phase: 'done', who: null, steps: [back, her] }),
+  ],
+  round2: Office.nightSteps({ ...J, phase: 'free', who: 'her', round: 2, steps: [back, her] }, T).map((x) => [x.name, x.state]),
+  nolimit: [lit({ ...J, plan: { measured: false }, phase: 'free', who: 'her', steps: [] }), lit({ ...J, plan: { measured: false }, phase: 'fill', who: 'jack', steps: [her] })],
+  alone: [lit({ mode: 'run', jack: false, plan: { measured: true }, phase: 'check', who: null }), lit({ mode: 'run', jack: false, plan: { measured: true }, phase: 'free', who: 'her' })],
+  out: lit({ ...J, jack_out: 'jack_gather_first', phase: 'free', who: 'her', steps: [{ ...back, result: 'refused' }] }),
+  names: Office.nightSteps({ ...J, phase: 'check', steps: [] }, T).map((x) => x.name).concat(Office.nightSteps({ mode: 'run', jack: false, phase: 'free', who: 'her' }, T).map((x) => x.name)),
+  stopped: [Office.nightStoppedName({ ...J, stopped_in: 'free', stopped_who: 'jack' }, T), Office.nightStoppedName({ ...J, stopped_in: 'free', stopped_who: 'her' }, T),
+    Office.nightStoppedName({ ...J, stopped_in: 'fill', stopped_who: 'jack' }, T), Office.nightStoppedName({ ...J, plan: { measured: false }, stopped_in: 'fill', stopped_who: 'jack' }, T),
+    Office.nightStoppedName({ ...J, stopped_in: 'free' }, T), Office.nightStoppedName({ jack: false, stopped_in: 'free', stopped_who: 'her' }, T), Office.nightStoppedName({ jack: true }, T)],
+};
+console.log(JSON.stringify(out));
+JS);
+    [, $out, $err] = run([$node, "$tmp/t.js", testsNightHelpersJs($tmp)], 30);
+    $j = json_decode(trim((string) $out), true) ?? [];
+    check('night steps (page): it runs', $j !== [], $out . $err);
+    $all = 'check jack_back measure her fill';
+    same('night steps (page): with Jack Streamer and a limit — the highlight wanders: measure, his give-back, measure again (also an older agent\'s «free» between), her part (and its quick measure), his fetch, all done',
+        [[$all, 'check', 0], [$all, 'check', 0], [$all, 'jack_back', 1], [$all, 'measure', 2], [$all, 'measure', 2], [$all, 'her', 3], [$all, 'her', 3], [$all, 'fill', 4], [$all, null, 5]], $j['joint'] ?? null);
+    same('night steps (page): a second pass — on her step, said there', [['rc.phase.check', 'done'], ['rc.phase.jack_back', 'done'], ['rc.phase.recheck', 'done'],
+        ['rc.phase.her · night.rounds {"n":2}', 'running'], ['rc.phase.fill', 'pending']], $j['round2'] ?? null);
+    same('night steps (page): no limit — measure, her part, his whole run; she alone — measure, make room; he out tonight — the same, her part going',
+        [[['check her fill', 'her', 1], ['check her fill', 'fill', 2]], [['check her', 'check', 0], ['check her', 'her', 1]], ['check her', 'her', 1]],
+        [$j['nolimit'] ?? null, $j['alone'] ?? null, $j['out'] ?? null]);
+    same('night steps (page): the names — her part named while he is in the night, plain «Make room» alone',
+        ['rc.phase.check', 'rc.phase.jack_back', 'rc.phase.recheck', 'rc.phase.her', 'rc.phase.fill', 'rc.phase.check', 'rc.phase.free'], $j['names'] ?? null);
+    same('night steps (page): stopped in — his give-back, her part, his fetch, his whole run (no limit), an older file by its phase, she alone, nothing said',
+        ['rc.phase.jack_back', 'rc.phase.her', 'rc.phase.fill', 'rc.phase.fill', 'rc.phase.free', 'rc.phase.free', 'rc.phase.free'], $j['stopped'] ?? null);
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $lang = readJson(OFFICE_WEB . "/desks/moverelli/lang/$l.json") ?? [];
+        $name = preg_replace('/^(Ms\.|Frau|Signora|Madame|Señora) /u', '', (string) ($lang['name'] ?? ''));
+        check("night steps lang $l: «Jack Streamer» gives back, she by her name, the summary in the same order",
+            str_contains((string) ($lang['rc.phase.jack_back'] ?? ''), 'Jack Streamer') && $name !== '' && str_contains((string) ($lang['rc.phase.her'] ?? ''), $name)
+            && strpos((string) ($lang['night.steps'] ?? ''), 'Jack Streamer') < strpos((string) ($lang['night.steps'] ?? ''), $name), json_encode([$lang['rc.phase.jack_back'] ?? null, $lang['rc.phase.her'] ?? null]));
+    }
+    hardeningRm($tmp);
+}
+
+/**
  * Jack Streamer's live panel on Ms. Moverelli's page (owner 2026-10-15: every part of the night visible on her page):
  * while his step runs (free = give back, fill = fetch) her part «progress» carries his live view and his panel stands right
  * under her card — his page's bars (core.js Office.jackRows, lent by his desk.js), «Jack Streamer at work»; absent in her
@@ -35830,12 +35943,13 @@ function testNightJackInHerCard(): void
         [$view, $view, null, null, null],
         [$poll($night), $poll(['phase' => 'free'] + $night), $poll(['who' => 'her', 'phase' => 'free'] + $night), $poll(['who' => null, 'phase' => 'recheck'] + $night), $poll(['phase' => 'check'] + $night)]);
     $view = ['real' => false, 'progress' => null];
-    same('jack in her card (agent): his job not yet running — not real, no numbers', ['real' => false, 'progress' => null], $poll($night));
+    same('jack in her card (agent): his job\'s marker not there yet (his step written, EmbyCache not started) — real by the night\'s word, no numbers («working out …»)',
+        ['real' => true, 'progress' => null], $poll($night));
     flock($lock, LOCK_UN);
     fclose($lock);
     same('jack in her card (agent): no night going — nothing of his', null, $poll($night));
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/lib/nightrun.php');
-    check('jack in her card (agent): his view read from his own part (jackProgressState, RAM only)', str_contains($src, "function_exists('jackProgressState') ? jackProgressState() : []"));
+    check('jack in her card (agent): his view read from his own part by the night\'s word (jackNightProgress, RAM only)', str_contains($src, 'function_exists(\'jackNightProgress\') ? jackNightProgress($night) : []'));
     if ($hostWas === null) unset($GLOBALS['moverelliHost']); else $GLOBALS['moverelliHost'] = $hostWas;
     if ($nightWas === null) unset($GLOBALS['nightHost']); else $GLOBALS['nightHost'] = $nightWas;
 
@@ -35955,7 +36069,7 @@ function testNightJackCard(): void
     fclose($lock);
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
     check('night card (agent): his part «progress» carries the night, his stop stops the whole night while it goes',
-        str_contains($src, "jackProgressState() + ['night' => jackNightNow()]") && str_contains($src, 'jackNightNow() !== null ? nightStopAsk() : jackStopAsk()'));
+        str_contains($src, "'state' => jackProgressNow(jackNightNow())") && str_contains($src, 'jackNightNow() !== null ? nightStopAsk() : jackStopAsk()'));
 
     // (2) the page under node
     $node = testsNode();
@@ -36041,8 +36155,8 @@ JS);
         in_array('moverelli:rc.night_title', $her, true) && in_array('moverelli:rc.since {"time":"T1000","duration":"600s"}', $her, true)
         && in_array('jack:night.her_moving {"share":"Downloads","done":5,"files":"jack:count.files {\"n\":12}"} ', $her, true)
         && in_array('jack:night.her_open', $her, true) && in_array('jack:progress.stop', $her, true) && !in_array('jack:progress.raw', $her, true), json_encode($her));
-    same('night card (page): her phases in her words — Check done, Free going, Fill waiting; the card is the shared one',
-        [[['moverelli:rc.phase.check', 'done'], ['moverelli:rc.phase.free', 'running'], ['moverelli:rc.phase.fill', 'pending']], 'card running night-card jo-night'],
+    same('night card (page): her steps in her words — measured, his give-back and the measure after it done, her part going, his fetch waiting; the card is the shared one',
+        [[['moverelli:rc.phase.check', 'done'], ['moverelli:rc.phase.jack_back', 'done'], ['moverelli:rc.phase.recheck', 'done'], ['moverelli:rc.phase.her', 'running'], ['moverelli:rc.phase.fill', 'pending']], 'card running night-card jo-night'],
         [$j['herSteps'] ?? null, $j['herCls'] ?? null]);
     same('night card (page): her page opens; «Stop after this file» asks his desk (the agent stops the whole night); his head buttons wait',
         [['#/moverelli'], [['jack.stop', []]], [true, true]], [$j['went'] ?? null, $j['posts'] ?? null, $j['headOff'] ?? null]);
@@ -37868,7 +37982,7 @@ const TILES_FIRST_LATER = ['advisor', 'backup', 'cleanup', 'restore'];
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackProgress', 'testJackReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],

@@ -1035,7 +1035,7 @@ function lastNightText(l) {
   if (!l || !l.started) return '';
   const when = fmt.relative(l.finished || l.started);
   const how = l.result === 'missed' ? T(l.why === 'jack' ? 'night.last_missed_jack' : 'night.last_missed', { pct: l.end_pct ?? '?' })
-    : l.result === 'stopped' ? T('night.last_stopped', { phase: T('rc.phase.' + (l.stopped_in || 'free')) })
+    : l.result === 'stopped' ? T('night.last_stopped', { phase: Office.nightStoppedName(l, T) })
     : l.result === 'refused' ? T('night.last_refused') : T('night.last_ok');
   return T(l.jack === false || l.jack_out ? 'night.last_mine' : 'night.last', { when, how }) + (Number(l.round) > 1 ? ' · ' + T('night.rounds', { n: Number(l.round) }) : '')
     + (l.mode === 'dry' ? ' · ' + T('mode.dry') : '') + (l.jack_out ? ' · ' + jackOutText(l.jack_out) : '');

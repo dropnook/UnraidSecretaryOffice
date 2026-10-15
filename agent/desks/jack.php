@@ -102,7 +102,8 @@ desk('jack', [
         'mover_off'      => fn (array $r) => jackMoverOff($r) + ['state' => jackScan()],
         // the part «progress» (desk.json): the live panel while EmbyCache runs for real (jack-progress.php) — two RAM files
         // — and, while the night run with Ms. Moverelli goes, its card (jackNightNow(): phases, who works, her share)
-        'progress'       => fn (array $r) => ['ok' => true, 'state' => jackProgressState() + ['night' => jackNightNow()]],
+        // (his step of it at work: his view by the night's word — jackNightProgress())
+        'progress'       => fn (array $r) => ['ok' => true, 'state' => jackProgressNow(jackNightNow())],
         // «Stop after this file» in that panel: EmbyCache's stop request with why `user` (jack-progress.php); while the
         // night run goes, the whole night stops after the file in flight (nightStopAsk(), as on her card)
         // «Set up from scratch» (2026-10-14, the owner: really zero — no copy)
@@ -846,6 +847,17 @@ function jackNight(): ?array
     } catch (Throwable $e) {
         return null;
     }
+}
+
+/**
+ * His part «progress»: EmbyCache's live view and the night run going ($night: jackNightNow()) — while his step of the night
+ * runs, his view by the night's word (jackNightProgress(): `real` from the moment his step starts, not only once his job's
+ * marker shows), else by his own job (jackProgressState())
+ */
+function jackProgressNow(?array $night): array
+{
+    $jack = $night !== null && ($night['who'] ?? null) === 'jack' && in_array($night['phase'] ?? null, ['free', 'fill'], true);
+    return ($jack ? jackNightProgress($night) : jackProgressState()) + ['night' => $night];
 }
 
 /**
