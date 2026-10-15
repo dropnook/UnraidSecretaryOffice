@@ -73,6 +73,11 @@ function officeMigrateSteps(): array
         // Jack Streamer's desk id `emby` → `jack` (2026-10-14): staff.json (STAFF_MERGED), his state file, the Team Lead's
         // notes under the old id — each copy before kept beside it
         ['id' => 'jack-id', 'version' => '1.63.0', 'run' => fn (string $dir, string $to): string => officeMigrateJackId($dir, $to)],
+        // pairs.json: a partner renamed on its side kept its old name here — the name its last status said (state.json)
+        ['id' => 'partner-names', 'version' => '1.64.0', 'run' => function (string $dir, string $to): string {
+            require_once __DIR__ . '/partner.php';
+            return partnerMigrateNames($dir);
+        }],
     ];
 }
 
