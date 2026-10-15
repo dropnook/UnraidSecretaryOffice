@@ -269,6 +269,7 @@
   "errors.setup_running": "Die Einrichtung ist gerade beschäftigt — gleich nochmals versuchen.",
   "errors.setup_bad_decisions": "Diese Einstellungen lassen sich nicht übernehmen ({detail}). Server neu einlesen und nochmals versuchen.",
   "errors.setup_plan_old": "Die Einstellungen wurden geschrieben, nachdem ich zuletzt auf den Server geschaut habe — ich schaue nochmals. Prüf dann die Liste und übernimm nochmals.",
+  "errors.orphans_stale": "Die Liste hat sich inzwischen geändert — ich schaue noch einmal nach.",
   "errors.setup_zero_partner": "{name} geht an ein Partner-Sekretariat, darum muss bei seinen lokalen Snapshots mindestens einer bleiben (zum Beispiel «1 0 0» statt «0 0 0»): Ein Partner bekommt nur, was sich seit einem Snapshot geändert hat, den beide Seiten noch haben — ohne ihn ginge jedes Mal alles vollständig hinüber.",
   "setup.replan": "Neu planen",
   "setup.measure": "Grössen messen",
@@ -555,7 +556,48 @@
   "setup.tile.settings": {"one": "{n} Einstellung", "other": "{n} Einstellungen"},
   "setup.tile.sources_sub": "noch in Kopia",
   "setup.sources_manual": "Auf «manuell» stellen",
-  "setup.sources_manual_hint": "Kopia plant sie nicht mehr; ihre Snapshots bleiben. Löschen kannst du sie in der KopiaUI.",
+  "setup.sources_manual_hint": "Kopia plant sie nicht mehr; ihre Snapshots bleiben. «In Kopia löschen…» löscht die von Shares, Apps und VMs, die es nicht mehr gibt; alle anderen in der KopiaUI.",
+  "setup.orphans.button": "In Kopia löschen…",
+  "setup.orphans.button_hint": "Zeigt die alten Quellen von Shares, Apps und VMs, die es nicht mehr gibt, mit ihren Snapshots — du hakst an, welche gehen.",
+  "setup.orphans.title": "Alte Quellen in Kopia löschen",
+  "setup.orphans.looking": "Ich schaue im Kopia-Repository nach …",
+  "setup.orphans.intro": "Diese Quellen im Kopia-Repository sind die eigenen des Sekretariats und gehören zu einem Share, einer App oder VM, die es nicht mehr gibt. Quellen, die noch zu etwas gehören oder nicht vom Sekretariat sind, stehen nicht hier — sie bleiben, wie sie sind.",
+  "setup.orphans.none": "Es gibt keine alte Quelle des Sekretariats zum Löschen. Was im Repository übrig ist, gehört zu etwas, das noch da ist, oder nicht zum Sekretariat — es bleibt.",
+  "setup.orphans.kind_share": "Share {name}",
+  "setup.orphans.kind_app": "App {name}",
+  "setup.orphans.kind_vm": "VM {name}",
+  "setup.orphans.snapshots": {
+    "one": "{n} Snapshot",
+    "other": "{n} Snapshots"
+  },
+  "setup.orphans.line": "{snapshots} · neuester {when} ({size})",
+  "setup.orphans.warn": "Löschen entfernt jeden Snapshot der angehakten Quellen im Kopia-Repository (ausser Haus) — endgültig, nichts holt sie zurück. Kopia gibt den Platz bei seiner nächsten Wartung frei. Auf diesem Server ändert sich nichts.",
+  "setup.orphans.go": {
+    "one": "{n} Quelle endgültig löschen",
+    "other": "{n} Quellen endgültig löschen"
+  },
+  "setup.orphans.deleting": "Ich lösche im Kopia-Repository …",
+  "setup.orphans.deleted": {
+    "one": "{n} alte Quelle in Kopia gelöscht.",
+    "other": "{n} alte Quellen in Kopia gelöscht."
+  },
+  "setup.orphans.failed": {
+    "one": "{n} Quelle liess sich nicht löschen — das Protokoll der Einrichtung sagt, warum.",
+    "other": "{n} Quellen liessen sich nicht löschen — das Protokoll der Einrichtung sagt, warum."
+  },
+  "setup.orphans.refused": {
+    "one": "{n} Quelle stand nicht mehr zur Wahl und ist geblieben.",
+    "other": "{n} Quellen standen nicht mehr zur Wahl und sind geblieben."
+  },
+  "setup.orphans.code.no_settings": "Herr Backupsi ist noch nicht eingerichtet.",
+  "setup.orphans.code.kopia_off": "Ausser Haus sichern ist ausgeschaltet — dann schaue ich nicht in Kopia.",
+  "setup.orphans.code.kopia_not_running": "Der Kopia-Container läuft nicht.",
+  "setup.orphans.code.kopia_not_connected": "Kopia ist nicht mit seinem Repository verbunden.",
+  "setup.orphans.code.not_mapped": "Der Kopia-Container sieht die Snapshots des Sekretariats nicht — richte Kopia zuerst ein.",
+  "setup.orphans.code.list_failed": "Kopia hat seine Snapshots nicht aufgelistet — das Protokoll der Einrichtung sagt mehr.",
+  "setup.orphans.code.nothing_chosen": "Nichts war angehakt.",
+  "setup.orphans.code.busy": "Ein Backup, die Einrichtung oder eine Rückholung läuft — versuch es danach noch einmal.",
+  "setup.orphans.code.other": "Das hat nicht geklappt — das Protokoll der Einrichtung sagt mehr.",
   "setup.messages": "Was die Einrichtung geprüft hat",
   "setup.messages_sum": "{messages} · {errors} · {warnings}",
   "setup.step.environment": "Umgebung",

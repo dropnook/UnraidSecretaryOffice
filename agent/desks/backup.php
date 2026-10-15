@@ -75,6 +75,9 @@ desk('backup', [
         'setup_get'   => fn (array $r) => backupSetupGet(),
         'setup_apply' => fn (array $r) => backupSetupApply($r['decisions'] ?? null, $r['plan_time'] ?? null),
         'setup_forget' => fn (array $r) => backupSetupForget(),
+        'orphans_look'   => fn (array $r) => backupOrphansLook(),                    // engine 2.51: old Kopia sources of gone units
+        'orphans_get'    => fn (array $r) => ['ok' => true, 'orphans' => backupOrphans()],
+        'orphans_delete' => fn (array $r) => backupOrphansDelete(idList($r, 'sources'), optText($r, 'listed')),
         'setup_decline' => fn (array $r) => backupDecline(textField($r, 'key'), $r['value'] ?? null),          // 1.60.1: a declined proposal stays declined
         'setup_decline_undo' => fn (array $r) => backupDeclineUndo(textField($r, 'key')),
         'schedule'    => fn (array $r) => backupSetSchedule(cronField($r)),       // null: off — said, never a missing key
@@ -2991,6 +2994,119 @@ function backupSetupForget(): array
     backupLaunch(["$dir/setup.sh", '--forget', '--yes']);
     logLine('Backup: setup.sh --forget started via at');
     return ['ok' => true, 'started' => backupSetupWait(), 'state' => backupScan()];
+}
+
+// ===================================================================== old Kopia sources (setup.sh --orphans, engine 2.51)
+
+const BACKUP_ORPHANS_ENGINE = '2.51';
+const BACKUP_ORPHANS_FILE = 'kopia-orphans.json';
+const BACKUP_ORPHANS_CHOSEN = 'kopia-orphans-chosen.json';
+
+/**
+ * The engine's list of the office's own Kopia sources whose share, app or VM is gone (state/kopia-orphans.json) — only
+ * entries in exactly its shape; `running` only while its pid lives and the engine's lock is held (else a run killed hard:
+ * failed). Null before the first look.
+ *
+ * @return ?array{mode: string, result: string, code: string, running: bool, started: int, finished: int, identity: string,
+ *                sources: list<array{source: string, path: string, kind: string, name: string, snapshots: int, bytes: int, newest: string}>,
+ *                deleted: list<string>, failed: list<string>, refused: list<string>}
+ */
+function backupOrphans(): ?array
+{
+    $data = BACKUP_DATA_DIR;
+    $j = readJson("$data/state/" . BACKUP_ORPHANS_FILE);
+    if (!is_array($j) || ($j['v'] ?? null) !== 1) {
+        return null;
+    }
+    $result = in_array($j['result'] ?? '', ['running', 'ok', 'failed', 'busy'], true) ? $j['result'] : 'failed';
+    $running = $result === 'running' && posix_kill((int) ($j['pid'] ?? 0), 0) && flockHeld("$data/state/lock");
+    if ($result === 'running' && !$running) {
+        $result = 'failed';
+    }
+    $str = fn ($v) => is_string($v) && $v !== '' && strlen($v) <= 1000 && !preg_match('/[\x00-\x1f]/', $v);
+    $strs = fn ($l) => is_array($l) ? array_values(array_filter($l, $str)) : [];
+    $sources = [];
+    foreach (is_array($j['sources'] ?? null) ? $j['sources'] : [] as $x) {
+        if (is_array($x) && $str($x['source'] ?? null) && $str($x['path'] ?? null) && in_array($x['kind'] ?? '', ['share', 'app', 'vm'], true)
+            && $str($x['name'] ?? null) && is_int($x['snapshots'] ?? null) && is_int($x['bytes'] ?? null) && is_string($x['newest'] ?? null)) {
+            $sources[] = ['source' => $x['source'], 'path' => $x['path'], 'kind' => $x['kind'], 'name' => $x['name'],
+                'snapshots' => $x['snapshots'], 'bytes' => $x['bytes'], 'newest' => $x['newest']];
+        }
+    }
+    return [
+        'mode' => ($j['mode'] ?? '') === 'delete' ? 'delete' : 'list',
+        'result' => $result,
+        'code' => is_string($j['code'] ?? null) ? preg_replace('/[^a-z_]/', '', $j['code']) : '',
+        'running' => $running,
+        'started' => (int) ($j['started'] ?? 0),
+        'finished' => (int) ($j['finished'] ?? 0),
+        'identity' => is_string($j['identity'] ?? null) ? $j['identity'] : '',
+        'sources' => $sources,
+        'deleted' => $strs($j['deleted'] ?? null),
+        'failed' => $strs($j['failed'] ?? null),
+        'refused' => $strs($j['refused'] ?? null),
+    ];
+}
+
+/** The engine's setup.sh, refused while anything holds its lock (a backup run, a setup, a restore) or too old for --orphans */
+function backupOrphansReady(): string
+{
+    $dir = backupCheckReady();
+    if (version_compare((string) (backupAbout($dir)['version'] ?? '0'), BACKUP_ORPHANS_ENGINE, '<')) {
+        throw new Problem('backup_too_old', ['version' => backupAbout($dir)['version'] ?? '?']);
+    }
+    return $dir;
+}
+
+/** Asks the engine which old sources of the office's are in the Kopia repository — writes nothing but its list */
+function backupOrphansLook(): array
+{
+    $dir = backupOrphansReady();
+    backupLaunch(["$dir/setup.sh", '--orphans']);
+    logLine('Backup: setup.sh --orphans started via at (old Kopia sources)');
+    return ['ok' => true, 'started' => backupOrphansWait(), 'orphans' => backupOrphans()];
+}
+
+/**
+ * Deletes the old sources the user ticked — every one of them must be in the list the page showed (`listed`: that list's
+ * start, so a list made anew meanwhile is refused) and the engine lists anew and deletes only what it offers right then.
+ * For good: all their snapshots in the Kopia repository.
+ *
+ * @param array<string, true> $ids the sources (user@host:path), as idList() gives them
+ */
+function backupOrphansDelete(array $ids, string $listed): array
+{
+    $dir = backupOrphansReady();
+    $data = BACKUP_DATA_DIR;
+    $o = backupOrphans();
+    if ($o === null || $o['mode'] !== 'list' || $o['result'] !== 'ok' || (string) $o['started'] !== $listed) {
+        throw new Problem('orphans_stale');
+    }
+    $offered = array_column($o['sources'], 'source');
+    $chosen = array_keys($ids);
+    if (array_diff($chosen, $offered)) {
+        throw new Problem('orphans_stale');
+    }
+    writeAtomic("$data/state/" . BACKUP_ORPHANS_CHOSEN, jsonEncode(array_values($chosen)), 0600, 0, 0);
+    backupLaunch(["$dir/setup.sh", "--orphans-delete=$data/state/" . BACKUP_ORPHANS_CHOSEN]);
+    logLine('Backup: setup.sh --orphans-delete started via at — deleting in the Kopia repository: ' . implode(', ', $chosen));
+    return ['ok' => true, 'started' => backupOrphansWait(), 'orphans' => backupOrphans()];
+}
+
+/** Until setup.sh's list or deletion reports that it runs (a moment), or gives up */
+function backupOrphansWait(): bool
+{
+    $data = BACKUP_DATA_DIR;
+    $before = time() - 1;
+    for ($i = 0; $i < 40; $i++) {
+        usleep(250000);
+        clearstatcache();
+        $j = readJson("$data/state/" . BACKUP_ORPHANS_FILE);
+        if ((int) ($j['started'] ?? 0) >= $before) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /** Until setup.sh reports that it runs (a moment), or gives up */
