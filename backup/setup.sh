@@ -1,6 +1,9 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.50 - 2026-10-15
+# unraid-backup - setup.sh                        Version 2.51 - 2026-10-15
+#   2.51 --orphans lists the office's own Kopia sources whose share, app or VM is gone (state/kopia-orphans.json: per
+#        source its snapshots, the newest one's size and date); --orphans-delete=<file> deletes those of a JSON list
+#        that are offered right then (kopia snapshot delete --all-snapshots-for-source), nothing else. Behind the lock
 #   2.50 Refuses to write «0 0 0» local snapshots for what goes to a partner office (cfg_validate, the same as a run)
 #   2.49 UB_DATA and settings.ini must be root's own (ub_data_trusted) - else refused before anything is read or written
 #   2.48 No change here (the engine's version: backup.sh's review fixes)
@@ -219,6 +222,8 @@ for a in "$@"; do
         --plan)  UB_SETUP="plan" ;;
         --apply=*) UB_SETUP="apply"; UB_DECISIONS="${a#--apply=}" ;;
         --forget) UB_SETUP="forget" ;;
+        --orphans) UB_SETUP="orphans" ;;
+        --orphans-delete=*) UB_SETUP="orphans_delete"; UB_ORPHANS="${a#--orphans-delete=}" ;;
         --yes)   UB_YES=1 ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Unknown option: $a  (see --help)"; exit 2 ;;
@@ -226,9 +231,9 @@ for a in "$@"; do
 done
 MODE="${UB_SETUP:-interactive}"
 YES="${UB_YES:-0}"
-[[ "$MODE" == "auto" || "$MODE" == "plan" || "$MODE" == "apply" ]] && YES=1
+[[ "$MODE" == "auto" || "$MODE" == "plan" || "$MODE" == "apply" || "$MODE" == "orphans" || "$MODE" == "orphans_delete" ]] && YES=1
 [[ "$MODE" == "interactive" && "$YES" == "1" ]] && MODE="auto"
-case "$MODE" in interactive|check|kopia|auto|plan|apply|forget) ;; *) echo "UB_SETUP=$MODE is unknown"; exit 2 ;; esac
+case "$MODE" in interactive|check|kopia|auto|plan|apply|forget|orphans|orphans_delete) ;; *) echo "UB_SETUP=$MODE is unknown"; exit 2 ;; esac
 SIZE_TIMEOUT="${UB_SIZE_TIMEOUT:-120}"
 EXPLAIN="${UB_EXPLAIN:-1}"
 
@@ -2803,6 +2808,173 @@ plan_write() {
 }
 
 ##############################################################################
+# Old Kopia sources of units that are gone (2.51): --orphans lists them, --orphans-delete=<file> deletes them
+##############################################################################
+# Only the office's own sources are ever offered: this identity's, a path exactly as the engine names them under the
+# mount root in the container (<root>/<share>, <root>/.apps/<folder>, <root>/.vms/<folder>; never <root> itself or
+# <root>/_flash), of a unit that is no longer there - a share neither Unraid (shares.ini) nor settings.ini knows, an app
+# without a container or Compose project of that folder name, a VM libvirt doesn't list (and none settings.ini still
+# names). When Docker, libvirt or Unraid's share list can't be asked, nothing of that kind counts as gone. Another
+# identity's sources, paths of the user's own or an old script's are never offered, never deleted.
+# state/kopia-orphans.json {v, mode (list|delete), result (running|ok|failed|busy), code, sources [{source, path, kind,
+# name, snapshots, bytes (its newest complete snapshot), newest}], deleted, failed, refused}. A delete lists anew first
+# and deletes only what is offered right then; what it deleted leaves setup-plan.json's kopia.sources too.
+ORPH_FILE="$UB_STATE/kopia-orphans.json"
+ORPH_CODE=""; ORPH_ROOT=""; ORPH_JSON="[]"; ORPH_DELETED="[]"; ORPH_FAILED="[]"; ORPH_REFUSED="[]"
+ORPH_SHARES_OK="no"; ORPH_APPS_OK="no"; ORPH_VMS_OK="no"
+declare -gA ORPH_SHARE=() ORPH_APPF=() ORPH_VMF=()
+UB_SHARES_INI="${UB_SHARES_INI:-/var/local/emhttp/shares.ini}"
+
+orphans_write() { # orphans_write <result>
+    local tmp="$UB_STATE/.kopia-orphans.json.$$" mode="list"
+    [[ "$MODE" == "orphans_delete" ]] && mode="delete"
+    if jq -n --arg mode "$mode" --arg result "$1" --arg code "$ORPH_CODE" --arg version "$UB_VERSION" \
+        --argjson interface "$UB_INTERFACE" --argjson pid "$$" --argjson started "$SETUP_STARTED" --argjson now "$(date +%s)" \
+        --arg identity "$KOPIA_ID" --argjson sources "$ORPH_JSON" --argjson deleted "$ORPH_DELETED" \
+        --argjson failed "$ORPH_FAILED" --argjson refused "$ORPH_REFUSED" --arg log "$(basename "$LOG_FILE")" \
+        '{v: 1, interface: $interface, version: $version, mode: $mode, pid: $pid, started: $started,
+          finished: (if $result == "running" then 0 else $now end), result: $result, code: $code, identity: $identity,
+          sources: $sources, deleted: $deleted, failed: $failed, refused: $refused, log: $log}' >"$tmp" 2>/dev/null; then
+        chmod 600 "$tmp"; mv -f "$tmp" "$ORPH_FILE"
+    else
+        rm -f "$tmp"
+    fi
+}
+
+# orph_known <map name> <folder>  -> the folder belongs to a unit that is there (a second of the same safe name: -<6 hex>)
+orph_known() {
+    local -n _m="$1"
+    [[ -n "${_m[$2]:-}" ]] && return 0
+    [[ "$2" =~ ^(.+)-[0-9a-f]{6}$ && -n "${_m[${BASH_REMATCH[1]}]:-}" ]]
+}
+
+# The units that are there: shares, apps (containers and Compose projects), VMs - and whatever settings.ini still names
+orphans_units_load() {
+    local n p out
+    ORPH_SHARE=(); ORPH_APPF=(); ORPH_VMF=()
+    while IFS= read -r n; do [[ -n "$n" ]] && ORPH_SHARE[$n]=1; done < <(cfg_names share)
+    while IFS= read -r n; do [[ -n "$n" ]] && ORPH_APPF[$(pkg_folder "$n")]=1; done < <(cfg_names app)
+    while IFS= read -r n; do [[ -n "$n" ]] && ORPH_VMF[$(pkg_folder "$n")]=1; done < <(cfg_names vm)
+    ORPH_SHARE[$UB_OFFICE_SHARE]=1
+    [[ -n "${DUMPS_SHARE:-}" ]] && ORPH_SHARE[$DUMPS_SHARE]=1
+    ORPH_SHARES_OK="no"
+    if [[ -r "$UB_SHARES_INI" ]] && grep -q '^\[' "$UB_SHARES_INI" 2>/dev/null; then
+        ORPH_SHARES_OK="yes"
+        while IFS= read -r n; do [[ -n "$n" ]] && ORPH_SHARE[$n]=1; done \
+            < <(sed -n 's/^\["\{0,1\}\([^"]*\)"\{0,1\}\]$/\1/p; s/^name="\(.*\)"$/\1/p' "$UB_SHARES_INI")
+    fi
+    ORPH_APPS_OK="no"
+    if out="$(timeout 20 docker ps -a --format '{{.Names}}{{"\x1e"}}{{.Label "com.docker.compose.project"}}' 2>/dev/null)"; then
+        ORPH_APPS_OK="yes"
+        while IFS=$'\x1e' read -r n p; do
+            [[ -n "$n" ]] && ORPH_APPF[$(pkg_folder "$n")]=1
+            [[ -n "$p" ]] && ORPH_APPF[$(pkg_folder "$p")]=1
+        done <<<"$out"
+    fi
+    ORPH_VMS_OK="no"
+    if command -v virsh >/dev/null 2>&1 && out="$(timeout 20 virsh list --all --name 2>/dev/null)"; then
+        ORPH_VMS_OK="yes"
+        while IFS= read -r n; do [[ -n "${n// /}" ]] && ORPH_VMF[$(pkg_folder "$n")]=1; done <<<"$out"
+    fi
+    return 0
+}
+
+# orphans_kind <path in the container>  -> "kind<TAB>name" for an office source of a unit that is gone, else returns 1
+orphans_kind() {
+    local p="$1" rel f
+    [[ -n "$ORPH_ROOT" && "$ORPH_ROOT" != "/" && "$p" == "$ORPH_ROOT/"* ]] || return 1
+    rel="${p#"$ORPH_ROOT"/}"
+    if [[ "$rel" =~ ^\.apps/([^/]+)$ ]]; then
+        f="${BASH_REMATCH[1]}"
+        [[ "$ORPH_APPS_OK" == "yes" ]] && ! orph_known ORPH_APPF "$f" && { printf 'app\t%s' "$f"; return 0; }
+    elif [[ "$rel" =~ ^\.vms/([^/]+)$ ]]; then
+        f="${BASH_REMATCH[1]}"
+        [[ "$ORPH_VMS_OK" == "yes" ]] && ! orph_known ORPH_VMF "$f" && { printf 'vm\t%s' "$f"; return 0; }
+    elif [[ "$rel" =~ ^[^/.][^/]*$ && "$rel" != "$FLASH_SOURCE_NAME" ]]; then
+        [[ "$ORPH_SHARES_OK" == "yes" && -z "${ORPH_SHARE[$rel]:-}" ]] && { printf 'share\t%s' "$rel"; return 0; }
+    fi
+    return 1
+}
+
+# Kopia asked, the sources sorted out -> ORPH_JSON; ORPH_CODE says why not
+orphans_scan() {
+    load_settings || { ORPH_CODE="no_settings"; bad "settings.ini is missing"; return 1; }
+    is_yes "$KOPIA_ENABLED" || { ORPH_CODE="kopia_off"; bad "Kopia is switched off in settings.ini"; return 1; }
+    kopia_mounts_load
+    if ! kopia_status_load; then
+        if [[ "$KOPIA_RUNNING" == "yes" ]]; then ORPH_CODE="kopia_not_connected"; bad "Kopia is not connected to its repository"
+        else ORPH_CODE="kopia_not_running"; bad "The Kopia container${KOPIA_CONTAINER:+ '$KOPIA_CONTAINER'} is not running"; fi
+        return 1
+    fi
+    ORPH_ROOT="$(k_path "$MOUNT_ROOT")" && [[ "$ORPH_ROOT" != "/" ]] \
+        || { ORPH_CODE="not_mapped"; bad "$MOUNT_ROOT is not mapped into the Kopia container on its own"; return 1; }
+    orphans_units_load
+    say "Units that are there: ${#ORPH_SHARE[@]} share(s) (Unraid's list: $ORPH_SHARES_OK), ${#ORPH_APPF[@]} app(s) (Docker: $ORPH_APPS_OK), ${#ORPH_VMF[@]} VM(s) (libvirt: $ORPH_VMS_OK)"
+    local e=() js lines p n b t kn
+    [[ "$KOPIA_RUN_UID" != "0" ]] && e=( -e HOME=/tmp )
+    js="$(timeout "${UB_KOPIA_LIST_TIMEOUT:-60}" docker exec -u "$KOPIA_RUN_UID" "${e[@]}" "$KOPIA_CONTAINER" \
+              kopia --no-progress snapshot list --all --json 2>>"$LOG_FILE")"
+    jq -e 'type == "array"' >/dev/null 2>&1 <<<"$js" || { ORPH_CODE="list_failed"; bad "Kopia did not list its snapshots"; return 1; }
+    lines=""
+    # per path of this identity (none with a control character or a backslash): snapshots, the newest complete one's size, the newest start
+    while IFS=$'\t' read -r p n b t; do
+        [[ -z "$p" ]] && continue
+        kn="$(orphans_kind "$p")" || continue
+        lines+="$KOPIA_ID:$p"$'\x1f'"$p"$'\x1f'"${kn%%$'\t'*}"$'\x1f'"${kn#*$'\t'}"$'\x1f'"$n"$'\x1f'"$b"$'\x1f'"$t"$'\n'
+        say "  orphaned  $KOPIA_ID:$p - $n snapshot(s), newest $t"
+    done < <(jq -r --arg u "$KOPIA_USER" --arg h "$KOPIA_HOST" '
+                 [.[]? | select(.source.userName == $u and .source.host == $h and (.source.path | type == "string")
+                                and (.source.path | explode | all(. >= 32 and . != 92)))]
+                 | group_by(.source.path)[]
+                 | ((map(select((.incompleteReason // "") == "")) | max_by(.startTime // "")) // {}) as $c
+                 | [.[0].source.path, (length | tostring),
+                    ((($c.stats.totalSize // $c.rootEntry.summ.size // 0) | if type == "number" then floor else 0 end) | tostring),
+                    (map(.startTime // "") | max)] | @tsv' <<<"$js")
+    ORPH_JSON="$(printf '%s' "$lines" | jq -Rn '[inputs | select(. != "") | split("\u001f")
+        | {source: .[0], path: .[1], kind: .[2], name: .[3], snapshots: (.[4] | tonumber), bytes: (.[5] | tonumber), newest: .[6]}]')" \
+        || { ORPH_CODE="list_failed"; ORPH_JSON="[]"; return 1; }
+    ok "$(jq length <<<"$ORPH_JSON") orphaned source(s) of the office in the repository"
+    return 0
+}
+
+# orphans_delete <file: a JSON list of sources>  -> deletes every one that is offered right now, nothing else
+orphans_delete() {
+    local -a want=() del=() fail=() refused=()
+    local src
+    mapfile -t want < <(jq -r 'if type == "array" then .[] | strings else empty end' "$1" 2>/dev/null | LC_ALL=C sort -u)
+    [[ ${#want[@]} -gt 0 ]] || { ORPH_CODE="nothing_chosen"; bad "No source chosen ($1)"; return 1; }
+    say "Deleting in the Kopia repository (the space is freed at Kopia's next maintenance):"
+    for src in "${want[@]}"; do
+        [[ -z "$src" ]] && continue
+        if ! jq -e --arg s "$src" 'any(.[]; .source == $s)' >/dev/null 2>&1 <<<"$ORPH_JSON"; then
+            wrn "not offered - left alone: $src"; refused+=( "$src" ); continue
+        fi
+        say "  kopia snapshot delete --all-snapshots-for-source $src --delete"
+        if kopia_x snapshot delete --all-snapshots-for-source "$src" --delete >>"$LOG_FILE" 2>&1; then
+            ok "deleted: $src"; del+=( "$src" )
+        else
+            bad "deleting $src failed (see the log)"; fail+=( "$src" )
+        fi
+    done
+    local j='if . == [""] then [] else . end'
+    ORPH_DELETED="$(printf '%s\n' "${del[@]}" | jq -Rn "[inputs] | $j")"
+    ORPH_FAILED="$(printf '%s\n' "${fail[@]}" | jq -Rn "[inputs] | $j")"
+    ORPH_REFUSED="$(printf '%s\n' "${refused[@]}" | jq -Rn "[inputs] | $j")"
+    ORPH_JSON="$(jq --argjson d "$ORPH_DELETED" 'map(select(.source as $s | $d | index($s) | not))' <<<"$ORPH_JSON")"
+    # the plan's list of old sources: what is gone from the repository leaves it (the page reads it)
+    local plan="$UB_STATE/setup-plan.json" tmp="$UB_STATE/.setup-plan.json.$$"
+    if [[ ${#del[@]} -gt 0 && -f "$plan" ]]; then
+        if jq --argjson d "$ORPH_DELETED" 'if (.kopia.sources | type) == "array"
+                 then .kopia.sources |= map(select(.source as $s | $d | index($s) | not)) else . end' "$plan" >"$tmp" 2>/dev/null; then
+            chmod --reference="$plan" "$tmp" 2>/dev/null; mv -f "$tmp" "$plan"
+        else
+            rm -f "$tmp"
+        fi
+    fi
+    [[ ${#fail[@]} -eq 0 ]]
+}
+
+##############################################################################
 # Sequence
 ##############################################################################
 # The engine's lock (lib/common.sh, "Who holds the lock"): opened without truncating it - only the one
@@ -2816,6 +2988,8 @@ if ! flock -n 9; then
         restore) echo "A restore${HOLDER_WHAT:+ of $HOLDER_WHAT} is going on right now - start setup.sh later." ;;
         *)       echo "Another program holds the engine's lock ($UB_STATE/lock) - start setup.sh later." ;;
     esac
+    # 2.51: the office waits for the list or the deletion - it learns at once that nothing happened
+    [[ "$MODE" == orphans* ]] && { ORPH_CODE="busy_$HOLDER_KIND"; SETUP_STARTED="$(date +%s)"; orphans_write busy; }
     exit 75
 fi
 touch "$UB_STATE/lock"
@@ -2825,15 +2999,26 @@ if [[ "$MODE" == "plan" || "$MODE" == "apply" || "$MODE" == "forget" ]]; then
     SETUP_STARTED="$(date +%s)"
     setup_status_write running
     trap setup_end EXIT
+elif [[ "$MODE" == orphans* ]]; then
+    SETUP_STARTED="$(date +%s)"
+    orphans_write running
+    trap 'rc=$?; orphans_write "$( (( rc == 0 )) && echo ok || echo failed)"; ub_holder_clear' EXIT
 fi
 
 say "${C_B}$UB_NAME $UB_VERSION - setup ($MODE) on $(hostname -s)${C_0}"
-[[ "$MODE" != "check" && "$MODE" != "plan" && "$MODE" != "forget" ]] && recover_interrupted_run
+[[ "$MODE" != "check" && "$MODE" != "plan" && "$MODE" != "forget" && "$MODE" != orphans* ]] && recover_interrupted_run
 case "$MODE" in
     check)
         STEPS=1; run_check ;;
     forget)
         STEP_ID=forget; step_forget || exit 1 ;;
+    orphans)
+        STEP_ID=sources; orphans_scan || exit 1 ;;
+    orphans_delete)
+        STEP_ID=sources
+        [[ -n "${UB_ORPHANS:-}" && -f "$UB_ORPHANS" && ! -L "$UB_ORPHANS" ]] || { ORPH_CODE="nothing_chosen"; bad "--orphans-delete needs the file of the sources chosen"; exit 1; }
+        orphans_scan || exit 1
+        orphans_delete "$UB_ORPHANS" || exit 1 ;;
     kopia)
         STEPS=1
         load_settings || { echo "settings.ini is missing - run setup.sh without --kopia first"; exit 1; }

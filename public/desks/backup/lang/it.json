@@ -272,6 +272,7 @@
   "errors.setup_running": "La configurazione è occupata in questo momento — riprova tra un attimo.",
   "errors.setup_bad_decisions": "Queste impostazioni non si possono applicare ({detail}). Rileggi il server e riprova.",
   "errors.setup_plan_old": "Le impostazioni sono state scritte dopo l'ultima volta che ho guardato il server — guardo di nuovo. Poi controlla l'elenco e applica ancora una volta.",
+  "errors.orphans_stale": "La lista è cambiata nel frattempo — guardo di nuovo.",
   "errors.setup_zero_partner": "{name} va a una segreteria partner, quindi dei suoi snapshot locali deve restarne almeno uno (per esempio «1 0 0» invece di «0 0 0»): un partner riceve solo ciò che è cambiato da uno snapshot che entrambe le parti hanno ancora — senza, ogni volta passerebbe tutto per intero.",
   "setup.replan": "Ripianifica",
   "setup.measure": "Misura le dimensioni",
@@ -561,7 +562,48 @@
   "setup.tile.settings": {"one": "{n} impostazione", "other": "{n} impostazioni"},
   "setup.tile.sources_sub": "ancora in Kopia",
   "setup.sources_manual": "Impostale su «manuale»",
-  "setup.sources_manual_hint": "Kopia non li pianifica più; i loro snapshot restano. Puoi eliminarli nella KopiaUI.",
+  "setup.sources_manual_hint": "Kopia non li pianifica più; i loro snapshot restano. «Elimina in Kopia…» elimina quelli di condivisioni, app e VM che non ci sono più; tutti gli altri nella KopiaUI.",
+  "setup.orphans.button": "Elimina in Kopia…",
+  "setup.orphans.button_hint": "Mostra le vecchie sorgenti di condivisioni, app e VM che non ci sono più, con i loro snapshot — scegli tu quali eliminare.",
+  "setup.orphans.title": "Elimina vecchie sorgenti in Kopia",
+  "setup.orphans.looking": "Guardo nel repository di Kopia …",
+  "setup.orphans.intro": "Queste sorgenti nel repository di Kopia sono della segreteria e appartengono a una condivisione, app o VM che non c'è più. Le sorgenti che appartengono ancora a qualcosa, o che non sono della segreteria, non sono elencate — restano come sono.",
+  "setup.orphans.none": "Non c'è nessuna vecchia sorgente della segreteria da eliminare. Quello che resta nel repository appartiene a qualcosa che c'è ancora, o non è della segreteria — resta.",
+  "setup.orphans.kind_share": "Condivisione {name}",
+  "setup.orphans.kind_app": "App {name}",
+  "setup.orphans.kind_vm": "VM {name}",
+  "setup.orphans.snapshots": {
+    "one": "{n} snapshot",
+    "other": "{n} snapshot"
+  },
+  "setup.orphans.line": "{snapshots} · il più recente {when} ({size})",
+  "setup.orphans.warn": "L'eliminazione rimuove ogni snapshot delle sorgenti spuntate nel repository di Kopia (fuori sede) — per sempre, niente le riporta indietro. Kopia libera lo spazio alla sua prossima manutenzione. Su questo server non cambia niente.",
+  "setup.orphans.go": {
+    "one": "Elimina {n} sorgente per sempre",
+    "other": "Elimina {n} sorgenti per sempre"
+  },
+  "setup.orphans.deleting": "Sto eliminando nel repository di Kopia …",
+  "setup.orphans.deleted": {
+    "one": "{n} vecchia sorgente eliminata in Kopia.",
+    "other": "{n} vecchie sorgenti eliminate in Kopia."
+  },
+  "setup.orphans.failed": {
+    "one": "{n} sorgente non si è potuta eliminare — il log della configurazione dice perché.",
+    "other": "{n} sorgenti non si sono potute eliminare — il log della configurazione dice perché."
+  },
+  "setup.orphans.refused": {
+    "one": "{n} sorgente non era più proposta ed è rimasta.",
+    "other": "{n} sorgenti non erano più proposte e sono rimaste."
+  },
+  "setup.orphans.code.no_settings": "Il Signor Backupsi non è ancora configurato.",
+  "setup.orphans.code.kopia_off": "Il backup fuori sede è spento — allora non guardo in Kopia.",
+  "setup.orphans.code.kopia_not_running": "Il container di Kopia non è in esecuzione.",
+  "setup.orphans.code.kopia_not_connected": "Kopia non è collegato al suo repository.",
+  "setup.orphans.code.not_mapped": "Il container di Kopia non vede gli snapshot della segreteria — configura prima Kopia.",
+  "setup.orphans.code.list_failed": "Kopia non ha elencato i suoi snapshot — il log della configurazione dice di più.",
+  "setup.orphans.code.nothing_chosen": "Non era spuntato niente.",
+  "setup.orphans.code.busy": "È in corso un backup, la configurazione o un ripristino — riprova dopo.",
+  "setup.orphans.code.other": "Non ha funzionato — il log della configurazione dice di più.",
   "setup.messages": "Cosa ha controllato la configurazione",
   "setup.messages_sum": "{messages} · {errors} · {warnings}",
   "setup.step.environment": "Ambiente",

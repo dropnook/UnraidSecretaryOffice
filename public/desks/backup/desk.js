@@ -5265,7 +5265,140 @@ function setupSources(old) {
   old.filter((o) => fitRow(o.source, false)).forEach((o) => ul.appendChild(el('li', '', o.source)));
   s.appendChild(ul);
   s.appendChild(checkbox(T('setup.sources_manual'), setup.retire, (v) => { setup.retire = v; }, T('setup.sources_manual_hint')));
+  // engine 2.51: the office's own sources under its mount root («orphan»; never «gone» - not the office's) can go in Kopia
+  if (old.some((o) => o.state === 'orphan') && dget('kopia|enabled') === 'yes') {
+    const b = button(T('setup.orphans.button'), 'small', orphansDialog);
+    b.title = T('setup.orphans.button_hint');
+    b.disabled = !canAct() || !!(setup.status && setup.status.running);
+    const p = el('p', 'bk-orphans-open');
+    p.appendChild(b);
+    s.appendChild(p);
+  }
   return s;
+}
+
+// ---- old Kopia sources (engine 2.51): the office's own sources of shares, apps and VMs that are gone. The engine lists
+// them (setup.sh --orphans: snapshots, the newest one's size and date), the user ticks, it lists anew and deletes for good
+// only what it offers then (--orphans-delete). Never another identity's, a path of the user's own, a unit still there.
+let orphansTurn = 0;               // the dialog's turn: a closed or newer one stops the older one's polling
+const ORPHANS_POLL = 1000;
+const orphansTitle = () => T('setup.orphans.title');
+/** The engine's word for why not (`busy_<holder>`: one text) */
+function orphansCode(code) {
+  const c = /^busy_/.test(code || '') ? 'busy' : String(code || '');
+  return c && Office.has(`${ID}.setup.orphans.code.${c}`) ? T('setup.orphans.code.' + c) : T('setup.orphans.code.other');
+}
+/** The wave and what runs, in the dialog's body */
+function orphansWaitBox(box, key) {
+  const p = el('p', 'role');
+  p.append(el('span', 'spin'), ' ', T(key));
+  box.replaceChildren(p);
+}
+/** Until the engine's list (or deletion) that started at `started` has ended — null when the dialog went or it took too long */
+async function orphansWait(turn, started) {
+  for (let i = 0; i < 900 && turn === orphansTurn; i++) {
+    const j = await Office.api.post(`${ID}.orphans_get`, {});
+    if (!j.ok) return { error: j.error };
+    const o = j.orphans;
+    if (o && o.started >= started && !o.running) return { o };
+    await new Promise((r) => setTimeout(r, ORPHANS_POLL));
+  }
+  return null;
+}
+/** One answer of the engine as a line of the dialog, or what went wrong */
+async function orphansAfter(turn, j, box) {
+  if (!j.ok) { box.replaceChildren(el('p', 'callout warn', Office.errorText(j.error, ID))); return null; }
+  const got = j.started && j.orphans ? await orphansWait(turn, j.orphans.started) : null;
+  if (turn !== orphansTurn) return null;
+  if (!got || got.error) { box.replaceChildren(el('p', 'callout warn', got && got.error ? Office.errorText(got.error, ID) : T('setup.orphans.code.other'))); return null; }
+  return got.o;
+}
+
+/** «Delete in Kopia…»: the engine looks, then the list to tick */
+async function orphansDialog() {
+  const turn = ++orphansTurn;
+  const box = el('div', 'bk-orphans');
+  orphansWaitBox(box, 'setup.orphans.looking');
+  Office.dialog({ title: orphansTitle(), body: box, buttons: [{ text: Office.t('common.cancel') }],
+    onClose: () => { if (turn === orphansTurn) orphansTurn++; } });
+  const o = await orphansAfter(turn, await Office.api.post(`${ID}.orphans_look`, {}), box);
+  if (!o || turn !== orphansTurn) return;
+  if (o.result !== 'ok') { box.replaceChildren(el('p', 'callout warn', orphansCode(o.code))); return; }
+  orphansPick(o);
+}
+
+/** The office's old sources with their snapshots, each with a tick (none ticked), and what deleting means */
+function orphansPick(o) {
+  const turn = ++orphansTurn;
+  const box = el('div', 'bk-orphans');
+  if (!o.sources.length) {
+    box.appendChild(el('p', '', T('setup.orphans.none')));
+    Office.dialog({ title: orphansTitle(), body: box, buttons: [{ text: Office.t('common.close') }] });
+    return;
+  }
+  box.appendChild(el('p', '', T('setup.orphans.intro')));
+  const ticked = new Set();
+  let d = null;
+  const sync = () => {
+    if (!d) return;
+    d.buttons[1].textContent = T('setup.orphans.go', { n: ticked.size });
+    d.buttons[1].disabled = !ticked.size || !Office.agent.running;
+  };
+  const list = el('div', 'bk-orphans-list');
+  o.sources.forEach((x) => {
+    const at = Date.parse(String(x.newest).replace(/(\.\d{3})\d+/, '$1'));      // Kopia's nanoseconds: milliseconds for every browser
+    const line = T('setup.orphans.line', { snapshots: T('setup.orphans.snapshots', { n: x.snapshots }),
+      when: isNaN(at) ? '–' : fmt.date(Math.round(at / 1000)), size: fmt.size(x.bytes) });
+    const label = checkbox(T('setup.orphans.kind_' + x.kind, { name: x.name }), false,
+      (v) => { if (v) ticked.add(x.source); else ticked.delete(x.source); sync(); }, line);
+    label.title = x.source;
+    list.appendChild(label);
+  });
+  box.appendChild(list);
+  box.appendChild(el('p', 'callout warn', T('setup.orphans.warn')));
+  d = Office.dialog({
+    title: orphansTitle(),
+    body: box,
+    buttons: [
+      { text: Office.t('common.cancel') },
+      { text: T('setup.orphans.go', { n: 0 }), kind: 'danger', act: () => {
+        if (!ticked.size || turn !== orphansTurn) return false;
+        orphansDelete(o, [...ticked]);
+        return true;
+      } },
+    ],
+  });
+  sync();
+  d.buttons[0].focus();           // safe default: Enter cancels
+}
+
+/** Deletes the ticked ones for good, then says what went, what failed, what was no longer offered */
+async function orphansDelete(o, sources) {
+  const turn = ++orphansTurn;
+  const box = el('div', 'bk-orphans');
+  orphansWaitBox(box, 'setup.orphans.deleting');
+  Office.dialog({ title: orphansTitle(), body: box, buttons: [{ text: Office.t('common.close') }],
+    onClose: () => { if (turn === orphansTurn) orphansTurn++; } });
+  const j = await Office.api.post(`${ID}.orphans_delete`, { sources, listed: String(o.started) });
+  if (!j.ok && j.error && j.error.key === 'orphans_stale') {
+    Office.toast(Office.errorText(j.error, ID));
+    if (turn === orphansTurn) orphansDialog();
+    return;
+  }
+  const r = await orphansAfter(turn, j, box);
+  if (!r) return;
+  if (r.deleted.length && setup.plan && setup.plan.kopia && Array.isArray(setup.plan.kopia.sources)) {
+    // the engine took them out of the plan too (setup-plan.json): the page's copy the same way
+    setup.plan.kopia.sources = setup.plan.kopia.sources.filter((x) => !r.deleted.includes(x.source));
+  }
+  const out = [];
+  if (r.deleted.length) out.push(el('p', 'callout', T('setup.orphans.deleted', { n: r.deleted.length })));
+  if (r.failed.length) out.push(el('p', 'callout warn', T('setup.orphans.failed', { n: r.failed.length })));
+  if (r.refused.length) out.push(el('p', 'role', T('setup.orphans.refused', { n: r.refused.length })));
+  if (!out.length) out.push(el('p', 'callout warn', orphansCode(r.code)));
+  box.replaceChildren(...out);
+  if (r.deleted.length) Office.toast(T('setup.orphans.deleted', { n: r.deleted.length }));
+  if (page === 'setup' && setup.plan) renderSetup();
 }
 
 /** A setup message's level as a class of the desk's own: office.css styles `.hint` (one line, cut) — never the level bare */

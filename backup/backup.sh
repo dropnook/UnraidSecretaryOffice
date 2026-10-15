@@ -1,6 +1,7 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.50 - 2026-10-15
+# unraid-backup - backup.sh                       Version 2.51 - 2026-10-15
+#   2.51 No change here (the engine's version: setup.sh --orphans / --orphans-delete)
 #   2.50 A unit that goes to a partner office never keeps «0 0 0» local snapshots: settings.ini refused (cfg_validate) -
 #        the partner's incremental send needs one snapshot both sides still have
 #   2.49 Review: UB_DATA a real folder of root's that nobody else can write, settings.ini a plain root-owned file -

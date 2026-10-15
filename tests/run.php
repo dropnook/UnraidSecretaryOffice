@@ -4220,7 +4220,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.50'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.51'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -5683,9 +5683,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.50 everywhere it is named', ['2.50', '2.50', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.50"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.50** –')]);
+    same('data trust: the engine\'s version 2.51 everywhere it is named', ['2.51', '2.51', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.51"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.51** –')]);
     // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
     same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
         array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
@@ -6672,7 +6672,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.50', [1, '2.50'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.51', [1, '2.51'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -7280,7 +7280,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.50', [1, '2.50'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.51', [1, '2.51'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -7323,6 +7323,131 @@ SH);
     $bad = trim((string) shell_exec('bash -c ' . escapeshellarg("$env; source $lib >/dev/null 2>&1; printf '[general]\\nasleep_pools = maybe\\n' >$tmp/bad.ini; cfg_load $tmp/bad.ini; cfg_validate >/dev/null; printf '%s' \"\${CFG_ERRORS[*]}\"")));
     check('settings: asleep_pools takes wake or skip only', str_contains($bad, "asleep_pools = 'maybe' is invalid (wake/skip)"), $bad);
     same('asleep: every date call one the tests\' clock knows', '', testsClockUnsupported($clock));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * Engine 2.51: old Kopia sources of units that are gone (setup.sh --orphans / --orphans-delete=<file>) on a fixture server -
+ * stand-ins for docker (Kopia inside) and virsh, Unraid's shares.ini; nothing real touched. Only the office's own source
+ * names of this identity, of a share/app/VM that is no longer there, are offered; what can't be asked offers nothing of its
+ * kind; a delete deletes only what is offered right then (the rest refused), each failure said; behind the engine's lock.
+ * The agent reads only the list's exact shape and refuses a delete of anything the page's list didn't offer.
+ */
+function testBackupKopiaOrphans(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-korphans-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $root = "$tmp/mnt/addons/UnraidSecretaryOffice/snapshots";
+    foreach (["$tmp/bin", "$tmp/fake", "$tmp/data/state", $root] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    file_put_contents("$tmp/bin/docker", <<<'SH'
+#!/bin/bash
+case "$1" in
+  ps) [[ -n "${FAKE_NODOCKER:-}" ]] && exit 1; printf 'nextcloud\x1e\nimmich-server\x1eimmich\nimmich-db\x1eimmich\n'; exit 0 ;;
+  top) printf 'PID UID COMMAND\n7 0 /app/kopia server start\n'; exit 0 ;;
+  inspect)
+    case "$3" in
+      *State.Running*) echo true ;;
+      *Mounts*) printf '%s\x1e/uso\x1efalse\x1erslave\n' "$FAKE_ROOT" ;;
+    esac
+    exit 0 ;;
+  exec)
+    shift
+    while [[ "$1" == -* ]]; do case "$1" in -u|-e) shift 2 ;; *) shift ;; esac; done
+    shift
+    [[ "$1" == kopia ]] || exit 1
+    shift; [[ "$1" == --no-progress ]] && shift
+    case "$1 ${2:-}" in
+      "repository status") echo '{"clientOptions":{"username":"root","hostname":"kopia"},"configFile":"/app/config/repository.config","storage":{"type":"b2"}}' ;;
+      "snapshot list") cat "$FAKE/list.json" ;;
+      "snapshot delete")
+        echo "$4" >>"$FAKE/deleted.log"
+        [[ -n "${FAKE_FAIL:-}" && "$4" == *"$FAKE_FAIL" ]] && exit 1 ;;
+      --version*) echo "0.23.0 build" ;;
+    esac
+    exit 0 ;;
+esac
+exit 0
+SH);
+    file_put_contents("$tmp/bin/virsh", "#!/bin/bash\n[[ \"\$1\" == list ]] && printf 'Debian\\n'\nexit 0\n");
+    foreach (glob("$tmp/bin/*") as $f) {
+        chmod($f, 0755);
+    }
+    file_put_contents("$tmp/data/settings.ini", "[general]\ndumps_share = UnraidSecretaryOffice\nmount_root = $root\n[kopia]\nenabled = yes\ncontainer = kopia\n"
+        . "[share \"appdata\"]\nmode = kopia\n[app \"nextcloud\"]\nkopia = yes\nfolder = appdata/nextcloud\n");
+    file_put_contents("$tmp/fake/shares.ini", "[\"appdata\"]\nname=\"appdata\"\n[\"media\"]\nname=\"media\"\n[\"UnraidSecretaryOffice\"]\nname=\"UnraidSecretaryOffice\"\n");
+    $k = fn ($path, $start, $size, $host = 'kopia', $more = []) => ['source' => ['host' => $host, 'userName' => 'root', 'path' => $path], 'startTime' => $start, 'stats' => ['totalSize' => $size]] + $more;
+    file_put_contents("$tmp/fake/list.json", json_encode([
+        $k('/uso/appdata', '2026-10-10T01:00:00Z', 5), $k('/uso/media', '2026-10-10T01:00:00Z', 5),           // shares that are there
+        $k('/uso/oldshare', '2026-09-01T01:00:00Z', 700), $k('/uso/oldshare', '2026-09-02T01:00:00Z', 900),
+        $k('/uso/oldshare', '2026-09-03T01:00:00Z', 5000, 'kopia', ['incompleteReason' => 'checkpoint']),      // a share gone: 3, newest complete 900
+        $k('/uso/_flash', '2026-10-10T01:00:00Z', 5), $k('/uso', '2026-10-10T01:00:00Z', 5),                  // the flash, the root: never
+        $k('/uso/.apps/nextcloud', '2026-10-10T01:00:00Z', 5), $k('/uso/.apps/immich', '2026-10-10T01:00:00Z', 5),
+        $k('/uso/.apps/immich-0a1b2c', '2026-10-10T01:00:00Z', 5),                                            // a second of a safe name that is there
+        $k('/uso/.apps/paperless', '2026-08-01T01:00:00Z', 42),                                               // an app gone
+        $k('/uso/.vms/Debian', '2026-10-10T01:00:00Z', 5), $k('/uso/.vms/Win_11', '2026-07-01T01:00:00Z', 77), // a VM gone
+        $k('/uso/deep/path', '2026-10-10T01:00:00Z', 5), $k('/uso/.hidden', '2026-10-10T01:00:00Z', 5),       // not the office's names
+        $k('/mnt/user/mine', '2026-10-10T01:00:00Z', 5),                                                      // the user's own
+        $k('/uso/oldshare2', '2026-10-10T01:00:00Z', 5, 'other')]));                                         // another identity
+    $env = "export PATH=$tmp/bin:\$PATH UB_DATA=$tmp/data UB_SHARES_INI=$tmp/fake/shares.ini FAKE=$tmp/fake FAKE_ROOT=$root UB_EXPLAIN=0";
+    $setup = fn (string $args, string $more = ':') => (int) shell_exec('bash -c ' . escapeshellarg("$env; $more; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null >/dev/null 2>&1; echo \$?"));
+    $file = fn () => json_decode((string) @file_get_contents("$tmp/data/state/kopia-orphans.json"), true) ?: [];
+    $paths = fn () => array_column($file()['sources'] ?? [], 'path');
+
+    same('kopia orphans: listed - only the office\'s names of this identity whose share, app or VM is gone; root, flash, units there, '
+        . 'a second safe name, deeper paths, hidden ones, the user\'s own, another identity never',
+        [0, 'list', 'ok', ['/uso/.apps/paperless', '/uso/.vms/Win_11', '/uso/oldshare']], [$setup('--orphans'), $file()['mode'] ?? null, $file()['result'] ?? null, $paths()]);
+    $old = array_values(array_filter($file()['sources'] ?? [], fn ($s) => $s['path'] === '/uso/oldshare'))[0] ?? [];
+    same('kopia orphans: per source its kind and name, snapshots (checkpoints too), the newest complete one\'s size, the newest start',
+        ['source' => 'root@kopia:/uso/oldshare', 'path' => '/uso/oldshare', 'kind' => 'share', 'name' => 'oldshare', 'snapshots' => 3, 'bytes' => 900, 'newest' => '2026-09-03T01:00:00Z'], $old);
+    $noDocker = [$setup('--orphans', 'export FAKE_NODOCKER=1'), $paths()];
+    $noShares = [$setup('--orphans', "export UB_SHARES_INI=$tmp/none"), $paths()];
+    same('kopia orphans: what can\'t be asked offers nothing of its kind (Docker away: no app; no share list: no share)',
+        [[0, ['/uso/.vms/Win_11', '/uso/oldshare']], [0, ['/uso/.apps/paperless', '/uso/.vms/Win_11']]], [$noDocker, $noShares]);
+    same('kopia orphans: Kopia switched off - nothing asked, said as a code', [1, 'failed', 'kopia_off', []],
+        [$setup('--orphans', "export UB_DATA=$tmp/off; mkdir -p -m 700 $tmp/off; printf '[general]\\nmount_root = $root\\n[kopia]\\nenabled = no\\n' >$tmp/off/settings.ini"),
+         ...array_map(fn ($k) => (json_decode((string) @file_get_contents("$tmp/off/state/kopia-orphans.json"), true) ?: [])[$k] ?? null, ['result', 'code', 'sources'])]);
+
+    // --- the delete: the plan's list loses what went; a source not offered stays; a failure is said
+    file_put_contents("$tmp/data/state/setup-plan.json", json_encode(['time' => 1, 'kopia' => ['sources' => [['state' => 'orphan', 'source' => 'root@kopia:/uso/oldshare'], ['state' => 'active', 'source' => 'root@kopia:/uso/appdata']]]]));
+    file_put_contents("$tmp/chosen.json", json_encode(['root@kopia:/uso/oldshare', 'root@kopia:/uso/appdata', 'root@kopia:/uso/.vms/Win_11', 'root@other:/uso/oldshare2']));
+    $rc = $setup("--orphans-delete=$tmp/chosen.json", 'export FAKE_FAIL=Win_11');
+    $f = $file();
+    same('kopia orphans: delete - only what is offered right then goes to Kopia; the rest refused, a failure said (exit 1)',
+        [1, 'delete', 'failed', ['root@kopia:/uso/oldshare'], ['root@kopia:/uso/.vms/Win_11'], ['root@kopia:/uso/appdata', 'root@other:/uso/oldshare2'],
+         "root@kopia:/uso/.vms/Win_11\nroot@kopia:/uso/oldshare\n", ['/uso/.apps/paperless', '/uso/.vms/Win_11']],
+        [$rc, $f['mode'] ?? null, $f['result'] ?? null, $f['deleted'] ?? null, $f['failed'] ?? null, $f['refused'] ?? null,
+         (string) @file_get_contents("$tmp/fake/deleted.log"), $paths()]);
+    same('kopia orphans: the plan\'s old sources lose what was deleted, nothing else', ['root@kopia:/uso/appdata'],
+        array_column(json_decode((string) file_get_contents("$tmp/data/state/setup-plan.json"), true)['kopia']['sources'] ?? [], 'source'));
+    @unlink("$tmp/fake/deleted.log");
+    file_put_contents("$tmp/chosen.json", '{"root@kopia:/uso/.apps/paperless": true}');
+    same('kopia orphans: a list of the wrong shape deletes nothing', [1, 'nothing_chosen', false], [$setup("--orphans-delete=$tmp/chosen.json"), $file()['code'] ?? null, is_file("$tmp/fake/deleted.log")]);
+    // the engine's lock held (a backup run): refused at once, said in the file
+    $busy = $setup('--orphans', "exec 9>>$tmp/data/state/lock; flock 9");
+    same('kopia orphans: the lock held - exit 75, result busy, nothing asked', [75, 'busy', true], [$busy, $file()['result'] ?? null, str_starts_with((string) ($file()['code'] ?? ''), 'busy_')]);
+
+    // --- the agent: only the list's exact shape; a delete only of what the page's list offered
+    $state = BACKUP_DATA_DIR . '/state';
+    @mkdir($state, 0700, true);
+    $mine = "$state/kopia-orphans.json";
+    $had = is_file($mine) ? (string) file_get_contents($mine) : null;
+    $src = ['source' => 'root@kopia:/uso/old', 'path' => '/uso/old', 'kind' => 'share', 'name' => 'old', 'snapshots' => 2, 'bytes' => 10, 'newest' => '2026-09-01T01:00:00Z'];
+    file_put_contents($mine, json_encode(['v' => 1, 'mode' => 'list', 'result' => 'ok', 'code' => '', 'pid' => 1, 'started' => 1000, 'finished' => 1001, 'identity' => 'root@kopia',
+        'sources' => [$src, ['source' => 'x', 'kind' => 'disk'], array_merge($src, ['bytes' => '10'])], 'deleted' => [], 'failed' => [], 'refused' => []]));
+    $o = backupOrphans();
+    same('kopia orphans: the agent reads only entries in exactly their shape', [[$src], 'ok', false], [$o['sources'] ?? null, $o['result'] ?? null, $o['running'] ?? null]);
+    $refuse = function (array $ids, string $listed) { try { backupOrphansDelete($ids, $listed); return 'ran'; } catch (Problem $p) { return $p->key; } };
+    $stale = [$refuse(['root@kopia:/uso/old' => true], '999'), $refuse(['root@kopia:/uso/appdata' => true], '1000')];
+    file_put_contents($mine, json_encode(['v' => 1, 'mode' => 'list', 'result' => 'running', 'pid' => 2147483000, 'started' => 1000, 'sources' => []]));
+    $o = backupOrphans();
+    same('kopia orphans: a delete of another list or of a source it didn\'t offer refused (orphans_stale); a list whose pid is gone has failed',
+        ['orphans_stale', 'orphans_stale', 'failed', false], [...$stale, $o['result'] ?? null, $o['running'] ?? null]);
+    $had === null ? @unlink($mine) : file_put_contents($mine, $had);
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/backup/desk.js');
+    check('kopia orphans: the page offers it only for the office\'s own old sources («orphan»), never «gone» ones',
+        str_contains($js, "if (old.some((o) => o.state === 'orphan') && dget('kopia|enabled') === 'yes') {"));
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -36287,7 +36412,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightReserve', 'testNightSnaps', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testBackupKopiaOrphans', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

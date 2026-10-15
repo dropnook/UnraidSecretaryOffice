@@ -232,3 +232,7 @@ td.bk-filter-none{padding:6px 10px; font-weight:400; white-space:normal}
 .bk-diff{display:inline-block; min-width:1em; font-weight:700; text-align:center}
 .bk-diff.add{color:var(--good)}
 .bk-diff.gone{color:var(--warn)}
+/* engine 2.51: «Delete in Kopia…» under the old sources, and its dialog's list of ticks (long lists scroll inside) */
+#sso .bk-orphans-open{margin:8px 0 0}
+#sso .bk-orphans-list{display:flex; flex-direction:column; gap:8px; margin:0 0 12px; max-height:320px; overflow:auto}
+#sso .bk-orphans-list label{overflow-wrap:anywhere}

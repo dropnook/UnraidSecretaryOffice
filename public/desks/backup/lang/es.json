@@ -272,6 +272,7 @@
   "errors.setup_running": "La configuración está ocupada ahora mismo — inténtalo de nuevo en un momento.",
   "errors.setup_bad_decisions": "Estos ajustes no se pueden aplicar ({detail}). Vuelve a leer el servidor e inténtalo de nuevo.",
   "errors.setup_plan_old": "Los ajustes se escribieron después de la última vez que miré el servidor — vuelvo a mirar. Revisa luego la lista y aplica otra vez.",
+  "errors.orphans_stale": "La lista ha cambiado mientras tanto — miro otra vez.",
   "errors.setup_zero_partner": "{name} va a una secretaría asociada, así que de sus instantáneas locales debe quedar al menos una (por ejemplo «1 0 0» en vez de «0 0 0»): un socio solo recibe lo que cambió desde una instantánea que ambos lados aún tienen — sin ella, todo pasaría entero cada vez.",
   "setup.replan": "Replanificar",
   "setup.measure": "Medir tamaños",
@@ -561,7 +562,48 @@
   "setup.tile.settings": {"one": "{n} ajuste", "other": "{n} ajustes"},
   "setup.tile.sources_sub": "aún en Kopia",
   "setup.sources_manual": "Ponerlas en «manual»",
-  "setup.sources_manual_hint": "Kopia ya no las programa; sus instantáneas se quedan. Puedes borrarlas en la KopiaUI.",
+  "setup.sources_manual_hint": "Kopia ya no las programa; sus instantáneas se quedan. «Borrar en Kopia…» borra las de recursos compartidos, apps y VMs que ya no existen; todas las demás en la KopiaUI.",
+  "setup.orphans.button": "Borrar en Kopia…",
+  "setup.orphans.button_hint": "Muestra las fuentes antiguas de recursos compartidos, apps y VMs que ya no existen, con sus instantáneas — tú marcas cuáles se van.",
+  "setup.orphans.title": "Borrar fuentes antiguas en Kopia",
+  "setup.orphans.looking": "Miro en el repositorio de Kopia …",
+  "setup.orphans.intro": "Estas fuentes del repositorio de Kopia son de la secretaría y pertenecen a un recurso compartido, una app o una VM que ya no existe. Las fuentes que aún pertenecen a algo, o que no son de la secretaría, no aparecen — se quedan como están.",
+  "setup.orphans.none": "No hay ninguna fuente antigua de la secretaría que borrar. Lo que queda en el repositorio pertenece a algo que sigue ahí, o no es de la secretaría — se queda.",
+  "setup.orphans.kind_share": "Recurso compartido {name}",
+  "setup.orphans.kind_app": "App {name}",
+  "setup.orphans.kind_vm": "VM {name}",
+  "setup.orphans.snapshots": {
+    "one": "{n} instantánea",
+    "other": "{n} instantáneas"
+  },
+  "setup.orphans.line": "{snapshots} · la más reciente {when} ({size})",
+  "setup.orphans.warn": "Borrar elimina cada instantánea de las fuentes marcadas en el repositorio de Kopia (fuera de casa) — para siempre, nada las recupera. Kopia libera el espacio en su próximo mantenimiento. En este servidor no cambia nada.",
+  "setup.orphans.go": {
+    "one": "Borrar {n} fuente para siempre",
+    "other": "Borrar {n} fuentes para siempre"
+  },
+  "setup.orphans.deleting": "Estoy borrando en el repositorio de Kopia …",
+  "setup.orphans.deleted": {
+    "one": "{n} fuente antigua borrada en Kopia.",
+    "other": "{n} fuentes antiguas borradas en Kopia."
+  },
+  "setup.orphans.failed": {
+    "one": "{n} fuente no se pudo borrar — el registro de la configuración dice por qué.",
+    "other": "{n} fuentes no se pudieron borrar — el registro de la configuración dice por qué."
+  },
+  "setup.orphans.refused": {
+    "one": "{n} fuente ya no se ofrecía y se quedó.",
+    "other": "{n} fuentes ya no se ofrecían y se quedaron."
+  },
+  "setup.orphans.code.no_settings": "El Señor Backupsi aún no está configurado.",
+  "setup.orphans.code.kopia_off": "La copia fuera de casa está apagada — entonces no miro en Kopia.",
+  "setup.orphans.code.kopia_not_running": "El contenedor de Kopia no está en marcha.",
+  "setup.orphans.code.kopia_not_connected": "Kopia no está conectado a su repositorio.",
+  "setup.orphans.code.not_mapped": "El contenedor de Kopia no ve las instantáneas de la secretaría — configura Kopia primero.",
+  "setup.orphans.code.list_failed": "Kopia no listó sus instantáneas — el registro de la configuración dice más.",
+  "setup.orphans.code.nothing_chosen": "No había nada marcado.",
+  "setup.orphans.code.busy": "Hay una copia, la configuración o una restauración en marcha — vuelve a intentarlo después.",
+  "setup.orphans.code.other": "No ha funcionado — el registro de la configuración dice más.",
   "setup.messages": "Lo que comprobó la configuración",
   "setup.messages_sum": "{messages} · {errors} · {warnings}",
   "setup.step.environment": "Entorno",

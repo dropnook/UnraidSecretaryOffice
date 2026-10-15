@@ -272,6 +272,7 @@
   "errors.setup_running": "La configuration est occupée en ce moment — réessaie dans un instant.",
   "errors.setup_bad_decisions": "Ces réglages ne peuvent pas être appliqués ({detail}). Relis le serveur et réessaie.",
   "errors.setup_plan_old": "Les réglages ont été écrits après la dernière fois que j'ai regardé le serveur — je regarde à nouveau. Vérifie ensuite la liste et applique encore une fois.",
+  "errors.orphans_stale": "La liste a changé entre-temps — je regarde à nouveau.",
   "errors.setup_zero_partner": "{name} va à un secrétariat partenaire, il faut donc garder au moins un de ses snapshots locaux (par exemple «1 0 0» au lieu de «0 0 0») : un partenaire ne reçoit que ce qui a changé depuis un snapshot que les deux côtés ont encore — sans lui, tout repartirait en entier à chaque fois.",
   "setup.replan": "Replanifier",
   "setup.measure": "Mesurer les tailles",
@@ -561,7 +562,48 @@
   "setup.tile.settings": {"one": "{n} réglage", "other": "{n} réglages"},
   "setup.tile.sources_sub": "encore dans Kopia",
   "setup.sources_manual": "Les passer en « manual »",
-  "setup.sources_manual_hint": "Kopia ne les planifie plus ; leurs instantanés restent. Tu peux les supprimer dans la KopiaUI.",
+  "setup.sources_manual_hint": "Kopia ne les planifie plus ; leurs instantanés restent. « Supprimer dans Kopia… » supprime celles des partages, apps et VM qui n'existent plus ; toutes les autres dans la KopiaUI.",
+  "setup.orphans.button": "Supprimer dans Kopia…",
+  "setup.orphans.button_hint": "Montre les anciennes sources des partages, apps et VM qui n'existent plus, avec leurs instantanés — tu coches celles qui partent.",
+  "setup.orphans.title": "Supprimer d'anciennes sources dans Kopia",
+  "setup.orphans.looking": "Je regarde dans le dépôt Kopia …",
+  "setup.orphans.intro": "Ces sources du dépôt Kopia sont celles du secrétariat et appartiennent à un partage, une app ou une VM qui n'existe plus. Les sources qui appartiennent encore à quelque chose, ou qui ne sont pas du secrétariat, ne sont pas listées — elles restent telles quelles.",
+  "setup.orphans.none": "Il n'y a aucune ancienne source du secrétariat à supprimer. Ce qui reste dans le dépôt appartient à quelque chose qui est encore là, ou n'est pas du secrétariat — cela reste.",
+  "setup.orphans.kind_share": "Partage {name}",
+  "setup.orphans.kind_app": "App {name}",
+  "setup.orphans.kind_vm": "VM {name}",
+  "setup.orphans.snapshots": {
+    "one": "{n} instantané",
+    "other": "{n} instantanés"
+  },
+  "setup.orphans.line": "{snapshots} · le plus récent {when} ({size})",
+  "setup.orphans.warn": "Supprimer efface chaque instantané des sources cochées dans le dépôt Kopia (hors site) — définitivement, rien ne les ramène. Kopia libère la place à sa prochaine maintenance. Rien ne change sur ce serveur.",
+  "setup.orphans.go": {
+    "one": "Supprimer {n} source définitivement",
+    "other": "Supprimer {n} sources définitivement"
+  },
+  "setup.orphans.deleting": "Je supprime dans le dépôt Kopia …",
+  "setup.orphans.deleted": {
+    "one": "{n} ancienne source supprimée dans Kopia.",
+    "other": "{n} anciennes sources supprimées dans Kopia."
+  },
+  "setup.orphans.failed": {
+    "one": "{n} source n'a pas pu être supprimée — le journal de la configuration dit pourquoi.",
+    "other": "{n} sources n'ont pas pu être supprimées — le journal de la configuration dit pourquoi."
+  },
+  "setup.orphans.refused": {
+    "one": "{n} source n'était plus proposée et est restée.",
+    "other": "{n} sources n'étaient plus proposées et sont restées."
+  },
+  "setup.orphans.code.no_settings": "Monsieur Backupsi n'est pas encore configuré.",
+  "setup.orphans.code.kopia_off": "La sauvegarde hors site est désactivée — je ne regarde alors pas dans Kopia.",
+  "setup.orphans.code.kopia_not_running": "Le conteneur Kopia ne tourne pas.",
+  "setup.orphans.code.kopia_not_connected": "Kopia n'est pas connecté à son dépôt.",
+  "setup.orphans.code.not_mapped": "Le conteneur Kopia ne voit pas les instantanés du secrétariat — configure d'abord Kopia.",
+  "setup.orphans.code.list_failed": "Kopia n'a pas listé ses instantanés — le journal de la configuration en dit plus.",
+  "setup.orphans.code.nothing_chosen": "Rien n'était coché.",
+  "setup.orphans.code.busy": "Une sauvegarde, la configuration ou une restauration est en cours — réessaie après.",
+  "setup.orphans.code.other": "Cela n'a pas marché — le journal de la configuration en dit plus.",
   "setup.messages": "Ce que la configuration a vérifié",
   "setup.messages_sum": "{messages} · {errors} · {warnings}",
   "setup.step.environment": "Environnement",

@@ -269,6 +269,7 @@
   "errors.setup_running": "The setup is busy right now — try again in a moment.",
   "errors.setup_bad_decisions": "These settings can't be applied ({detail}). Read the server again and retry.",
   "errors.setup_plan_old": "The settings were written after I last looked at the server — I'm looking again. Check the list then and apply once more.",
+  "errors.orphans_stale": "The list has changed since — I'm looking again.",
   "errors.setup_zero_partner": "{name} goes to a partner office, so its local snapshots must keep at least one (for example «1 0 0» instead of «0 0 0»): a partner gets only what changed since a snapshot both sides still have — without one, everything would go over in full every time.",
   "setup.replan": "Plan anew",
   "setup.measure": "Measure sizes",
@@ -555,7 +556,48 @@
   "setup.tile.settings": {"one": "{n} setting", "other": "{n} settings"},
   "setup.tile.sources_sub": "still in Kopia",
   "setup.sources_manual": "Set them to «manual»",
-  "setup.sources_manual_hint": "Kopia no longer schedules them; their snapshots stay. You can delete them in the KopiaUI.",
+  "setup.sources_manual_hint": "Kopia no longer schedules them; their snapshots stay. «Delete in Kopia…» deletes those of shares, apps and VMs that are gone; any others in the KopiaUI.",
+  "setup.orphans.button": "Delete in Kopia…",
+  "setup.orphans.button_hint": "Shows the old sources of shares, apps and VMs that are gone, with their snapshots — you tick which ones go.",
+  "setup.orphans.title": "Delete old sources in Kopia",
+  "setup.orphans.looking": "I'm looking in the Kopia repository …",
+  "setup.orphans.intro": "These sources in the Kopia repository are the office's own and belong to a share, app or VM that is no longer there. Sources that still belong to something, or that aren't the office's, are not listed — they stay as they are.",
+  "setup.orphans.none": "There is no old source of the office's to delete. What is left in the repository belongs to something that is still there, or isn't the office's — it stays.",
+  "setup.orphans.kind_share": "Share {name}",
+  "setup.orphans.kind_app": "App {name}",
+  "setup.orphans.kind_vm": "VM {name}",
+  "setup.orphans.snapshots": {
+    "one": "{n} snapshot",
+    "other": "{n} snapshots"
+  },
+  "setup.orphans.line": "{snapshots} · newest {when} ({size})",
+  "setup.orphans.warn": "Deleting removes every snapshot of the ticked sources in the Kopia repository (offsite) — for good, nothing brings them back. Kopia frees the space at its next maintenance. Nothing on this server changes.",
+  "setup.orphans.go": {
+    "one": "Delete {n} source for good",
+    "other": "Delete {n} sources for good"
+  },
+  "setup.orphans.deleting": "I'm deleting in the Kopia repository …",
+  "setup.orphans.deleted": {
+    "one": "Deleted {n} old source in Kopia.",
+    "other": "Deleted {n} old sources in Kopia."
+  },
+  "setup.orphans.failed": {
+    "one": "{n} source could not be deleted — the setup log says why.",
+    "other": "{n} sources could not be deleted — the setup log says why."
+  },
+  "setup.orphans.refused": {
+    "one": "{n} source was no longer offered and stayed.",
+    "other": "{n} sources were no longer offered and stayed."
+  },
+  "setup.orphans.code.no_settings": "Mr. Backupsy isn't set up yet.",
+  "setup.orphans.code.kopia_off": "Backing up offsite is switched off — I don't look in Kopia then.",
+  "setup.orphans.code.kopia_not_running": "The Kopia container isn't running.",
+  "setup.orphans.code.kopia_not_connected": "Kopia isn't connected to its repository.",
+  "setup.orphans.code.not_mapped": "The Kopia container doesn't see the office's snapshots — set up Kopia first.",
+  "setup.orphans.code.list_failed": "Kopia did not list its snapshots — the setup log says more.",
+  "setup.orphans.code.nothing_chosen": "Nothing was ticked.",
+  "setup.orphans.code.busy": "A backup, the setup or a restore is running — try again afterwards.",
+  "setup.orphans.code.other": "That did not work — the setup log says more.",
   "setup.messages": "What the setup checked",
   "setup.messages_sum": "{messages} · {errors} · {warnings}",
   "setup.step.environment": "Environment",
