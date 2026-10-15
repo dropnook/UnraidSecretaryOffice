@@ -441,6 +441,25 @@ function jackPoolDataset(string $cache, array $mounts): ?string
     return null;
 }
 
+/**
+ * The ZFS array disks where the share's folder is a plain folder in the disk's own dataset (shfs makes a dataset there too):
+ * the disks the gather's numbers say hold files of the share, ZFS, and no dataset mounted at /mnt/diskN/<share> — from the
+ * mount table only, no disk touched
+ */
+function jackPlainDisks(string $share, array $sizes, array $mounts, string $mnt = '/mnt'): array
+{
+    $out = [];
+    foreach ((array) ($sizes['shares'][$share]['roots'] ?? []) as $disk => $n) {
+        $disk = (string) $disk;
+        if (preg_match('/^disk\d{1,3}$/D', $disk) && (int) ($n['files'] ?? 0) > 0 && jackPoolDataset("$mnt/$disk", $mounts) !== null
+            && !jackIsDataset("$mnt/$disk/$share", $mounts)) {
+            $out[] = $disk;
+        }
+    }
+    sort($out, SORT_NATURAL);
+    return $out;
+}
+
 /** A share name ZFS takes as a dataset name as it is (as shfs passes it) */
 function jackDatasetName(string $share): bool
 {
@@ -501,9 +520,11 @@ function jackSharesSized(array $rows, ?array $sizes = null, ?array $live = null)
 {
     $sizes ??= jackGatherSizes(readJson(GATHER_DATA . '/sizes.json'), readJson(GATHER_DATA . '/status.json'));
     $live ??= jackShareLive($rows);
+    $mounts = mountTable();
     foreach ($rows as &$row) {
         $row['sizes'] = jackShareSized($sizes, (string) $row['share']);
         $row['live'] = $live[$row['share']] ?? [];
+        $row['plain_disks'] = jackPlainDisks((string) $row['share'], $sizes, $mounts);
     }
     unset($row);
     return $rows;
@@ -3223,8 +3244,19 @@ function jackChecks(): array
     $missing = array_column(array_filter($shares, fn ($s) => $s['root'] === false && !$s['auto']), 'share');
     $unseen = array_filter($shares, fn ($s) => $s['root'] === null);
     $out[] = finding('share_root', 'required', $missing ? false : ($unseen ? null : true), ['shares' => implode(', ', $missing), 'pool' => (string) ($settings['cache_path'] ?? '')], '#/jack');
-    $plain = array_column(array_filter($shares, fn ($s) => $s['dataset'] === false), 'share');
-    $out[] = finding('share_dataset', 'recommended', !$plain, ['shares' => implode(', ', $plain), 'pool' => (string) ($settings['cache_path'] ?? '')], '#/jack');
+    $pool = rtrim((string) ($settings['cache_path'] ?? ''), '/');
+    $sizes = jackGatherSizes(readJson(GATHER_DATA . '/sizes.json'), readJson(GATHER_DATA . '/status.json'));
+    $mounts = mountTable();
+    $plain = [];
+    foreach ($shares as $s) {
+        if ($s['dataset'] === false) {
+            $plain[] = "$pool/$s[share]";
+        }
+        foreach (jackPlainDisks((string) $s['share'], $sizes, $mounts) as $disk) {
+            $plain[] = "/mnt/$disk/$s[share]";
+        }
+    }
+    $out[] = finding('share_dataset', 'recommended', !$plain, ['where' => implode(', ', $plain)], '#/jack');
     $unfit = array_column(array_filter($shares, fn ($s) => !in_array($s['fit'], ['ok', 'array_only'], true)), 'share');
     $out[] = finding('share_fit', 'recommended', !$unfit, ['shares' => implode(', ', $unfit)], '#/jack');
     $out[] = finding('gather_done', 'required', jackGatherReady(), [], '#/jack');

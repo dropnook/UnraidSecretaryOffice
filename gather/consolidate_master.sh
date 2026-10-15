@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-#  consolidate_master.sh  —  Unraid Media Consolidator & Cleaner  (V11.4)
+#  consolidate_master.sh  —  Unraid Media Consolidator & Cleaner  (V11.5)
 # =============================================================================
 #  Führt zersplitterte Medienordner (Film-/Serienordner) auf EINER Array-Disk
 #  zusammen, entfernt identische Duplikate und räumt leere Ordner auf.
@@ -50,6 +50,7 @@
 #                        an dem es gerade ist (kein Retry, kein Deep Clean; Ergebnis
 #                        "stopped", Exit 3) – z.B. wenn jemand Emby zu schauen beginnt
 #    CONSOLIDATE_LOCK, CONSOLIDATE_USER_ROOT   Sperrdatei und /mnt/user – nur für Tests
+#    CONSOLIDATE_MOUNTS, CONSOLIDATE_ZFS       /proc/mounts und zfs – nur für Tests (USO, V11.5)
 #
 #  LEERE ORDNER  werden gelöscht – ausser es gibt denselben Ordner auf einem
 #                Cache/Pool: Dann liegt der Inhalt gerade dort (z.B. von EmbyCache
@@ -86,6 +87,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="${CONSOLIDATE_CONFIG:-$SCRIPT_DIR/consolidate.ini}"
 STATUS_FILE="${CONSOLIDATE_STATUS:-}"
 STOP_FILE="${CONSOLIDATE_STOP:-}"
+MOUNTS_FILE="${CONSOLIDATE_MOUNTS:-/proc/mounts}"
+ZFS_BIN="${CONSOLIDATE_ZFS:-zfs}"
 STARTED=$(printf '%(%s)T' -1)
 N_FOLDERS=0; N_FOLDERS_DONE=0
 N_MOVED=0; N_DUP_DELETED=0; N_IGNORED=0; N_SKIPPED_CACHE=0
@@ -115,7 +118,7 @@ sizes_json() {               # ,"sizes":{"<share>":{"<disk>":{"bytes":n,"files":
 }
 write_status() {             # $1 result (ok|errors|failed|aborted|stopped), $2 exit code, $3 Meldung
     [[ -n "$STATUS_FILE" ]] || return 0
-    printf '{"version":"V11.4","mode":%s,"result":%s,"exit":%d,"message":%s,"started":%d,"finished":%d,"moved":%d,"duplicates":%d,"ignored":%d,"cache_skipped":%d,"full":%d,"errors":%d,"conflicts":%d,"dirs_deleted":%d,"dirs_failed":%d,"dirs_kept":%d,"folders":%d,"folders_done":%d%s}\n' \
+    printf '{"version":"V11.5","mode":%s,"result":%s,"exit":%d,"message":%s,"started":%d,"finished":%d,"moved":%d,"duplicates":%d,"ignored":%d,"cache_skipped":%d,"full":%d,"errors":%d,"conflicts":%d,"dirs_deleted":%d,"dirs_failed":%d,"dirs_kept":%d,"folders":%d,"folders_done":%d%s}\n' \
         "$(json_str "$( [[ "${DRYRUN:-true}" == false ]] && echo run || echo dry )")" "$(json_str "$1")" "$2" "$(json_str "${3:-}")" \
         "$STARTED" "$(printf '%(%s)T' -1)" "$N_MOVED" "$N_DUP_DELETED" "$N_IGNORED" "$N_SKIPPED_CACHE" \
         "$N_FULL_FAILED" "$N_RSYNC_ERR" "$N_CONFLICT" "$N_DIRS_DELETED" "$N_DIRS_FAILED" "$N_DIRS_KEPT" "$N_FOLDERS" "$N_FOLDERS_DONE" "$(sizes_json)" > "$STATUS_FILE.tmp" 2>/dev/null \
@@ -419,6 +422,17 @@ remove_duplicate() {         # $1 behaltene Kopie, $2 zu löschende Kopie
 # -----------------------
 # 📁 ZIELORDNER MIT RECHTEN DER QUELLE
 # -----------------------
+# USO (V11.5): fehlt der Share-Ordner auf einer ZFS-Disk, legt ihn Unraid (shfs) als eigenes Dataset an
+# (zfs create <disk>/<share>) – ein mkdir dort wäre ein gewöhnlicher Ordner im Dataset der Disk.
+make_share_root() {          # $1 Ziel-Root, $2 Share-Ordner
+    local ds
+    ds=$(awk -v m="$1" '$2 == m && $3 == "zfs" { print $1; exit }' "$MOUNTS_FILE" 2>/dev/null)
+    if [[ -z "$ds" ]]; then mkdir "$1/$2"; return; fi
+    "$ZFS_BIN" create "$ds/$2" || return 1
+    logf "ZFS: Dataset $ds/$2 angelegt (wie Unraid)"
+    [[ -d "$1/$2" ]]
+}
+
 ensure_target_dir() {        # $1 Quell-Root, $2 Ziel-Root, $3 rel. Ordnerpfad
     local src_root="$1" tgt_root="$2" rel="$3" acc="" comp src dst
     local -a comps
@@ -427,7 +441,8 @@ ensure_target_dir() {        # $1 Quell-Root, $2 Ziel-Root, $3 rel. Ordnerpfad
         [[ -z "$comp" ]] && continue
         acc="$acc/$comp"; dst="$tgt_root$acc"; src="$src_root$acc"
         if [[ ! -d "$dst" ]]; then
-            mkdir "$dst" || return 1
+            if [[ "$acc" == "/$comp" ]]; then make_share_root "$tgt_root" "$comp" || return 1   # USO: die Share-Ebene
+            else mkdir "$dst" || return 1; fi
             if [[ -d "$src" ]]; then
                 chown --reference="$src" "$dst" 2>/dev/null
                 chmod --reference="$src" "$dst" 2>/dev/null
