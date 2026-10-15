@@ -3458,8 +3458,8 @@ function testDetailsKept(): void
             }
         }
     }
-    // the office's own: «How to read this page» remembers itself in the browser; the report dialog's list lives in a dialog
-    same('details: every one a desk builds keeps what the user chose (keepFold)', ['assets/core.js page-help', 'assets/core.js sso-report-yours'], $bare);
+    // the office's own: «How to read this page» remembers itself in the browser; the report dialog's lists (yours, the diagnostics' files) live in a dialog
+    same('details: every one a desk builds keeps what the user chose (keepFold)', ['assets/core.js page-help', 'assets/core.js sso-report-yours', 'assets/core.js sso-report-diag-files'], $bare);
     foreach (glob(OFFICE_WEB . '/desks/*/desk.js') ?: [] as $f) {
         $js = (string) file_get_contents($f);
         if (str_contains($js, 'keepFold(el(')) {
