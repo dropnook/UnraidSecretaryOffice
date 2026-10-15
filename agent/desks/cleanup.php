@@ -96,6 +96,8 @@ const CL_KINDS        = ['templates' => 'template', 'compose' => 'stack', 'appda
 // a VM's folder or disk image still in use (`force` on these kinds) — no «anyway»; the page's IN_USE_LOCKED says the same.
 // Stacks in use («let go»: stopped and parked) and Mr. Restori's way back (leftovers) keep their warning and «anyway».
 const CL_IN_USE_LOCKED = ['template', 'appdata', 'domain', 'iso'];
+// her rooms whose datasets go into the storeroom only after the page showed what zfs rename does and the user ticked it
+const CL_ZFS_CONFIRM   = ['appdata', 'domain'];
 const CL_US_SCRIPTS   = US_DIR . '/scripts';
 const CL_SHARE_CFGS   = '/boot/config/shares';      // every share's settings — one whose share is gone stays behind (room «flash»)
 const CL_US_TMP       = '/tmp/user.scripts';         // running markers and last outputs (RAM: since the reboot)
@@ -240,7 +242,8 @@ desk('cleanup', [
         'install' => fn (array $r) => clInstall(textField($r, 'id')),
         'measure' => fn (array $r) => clMeasure(idList($r, 'ids')),
         'detail'  => fn (array $r) => clDetail(textField($r, 'id')),
-        'park'    => fn (array $r) => clPark(idList($r, 'ids'), !empty($r['force'])),
+        'park'    => fn (array $r) => clPark(idList($r, 'ids'), !empty($r['force']), array_key_exists('zfs_ok', $r) && boolField($r, 'zfs_ok')),
+        'zfs_preview' => fn (array $r) => clZfsPreview(idList($r, 'ids')),
         'restore' => fn (array $r) => clRestore(idList($r, 'ids')),
         'purge'   => fn (array $r) => clPurge(idList($r, 'ids'), !empty($r['volumes']), !empty($r['images'])),
         'remove'  => fn (array $r) => clRemove(idList($r, 'ids')),
@@ -2649,7 +2652,8 @@ function clBuild(): array
     [$adRefs, $mounters] = clTopRefs($refs, $ad['share']);
     $complete = $searched && $docker['ok'];
     $space = $raw['zfs_space'] ?? [];
-    $folders = clFolderEntries($ad['folders']['list'], $adRefs, $named, 'appdata', $docker['ok'], $complete, $cache, $pending, $space);
+    $folders = clKeep(clFolderEntries($ad['folders']['list'], $adRefs, $named, 'appdata', $docker['ok'], $complete, $cache, $pending, $space),
+                      clKeepNames($ad['share'], $ad['folders']['list']));
 
     // VMs: what deleted VMs left behind (a stopped Docker can't name these, unless it is switched off anyway)
     $vmItems = [];
@@ -2677,7 +2681,8 @@ function clBuild(): array
                                'why' => $why, 'force' => false];
         }
         [$domRefs] = clTopRefs($refs, $raw['domains']['share']);
-        $vmItems = array_merge($vmItems, clFolderEntries($raw['domains']['folders']['list'], $domRefs, $vmNamed, 'domain', $vmf['ok'], $vmComplete, $cache, $pending, $space));
+        $vmItems = array_merge($vmItems, clKeep(clFolderEntries($raw['domains']['folders']['list'], $domRefs, $vmNamed, 'domain', $vmf['ok'], $vmComplete, $cache, $pending, $space),
+                                                clKeepNames($raw['domains']['share'], $raw['domains']['folders']['list'])));
         [$isoRefs] = clTopRefs($refs, $raw['isos']['share']);
         foreach (clFolderEntries($raw['isos']['files'], $isoRefs, [], 'iso', $vmf['ok'], $vmComplete, $cache, $pending) as $e) {
             $e['category'] = in_array($e['category'], ['unused', 'check'], true) ? 'media' : $e['category'];
@@ -2954,6 +2959,161 @@ function clFolderEntries(array $list, array $tops, array $named, string $kind, b
         ];
     }
     return $out;
+}
+
+// --------------------------------------------------------------------- what the office keeps in appdata and domains
+
+/**
+ * First-level entries of appdata or domains that are never hers to put away, whoever names them (2026-10-15): the
+ * office's own (its data folder, anything named UnraidSecretaryOffice / unraid-secretary-office), Mr. Backupsy's backup
+ * place in that share, and what a partner holds — a dataset under the partners' place, or the folder of an app or VM
+ * Mr. Backupsy sends to a partner office (its copies there go on from this dataset's snapshots: renamed, the chain
+ * breaks). name => office | backup_place | partner_held. $settings: the engine's settings.ini (tests pass their own).
+ *
+ * @param list<array{name:string, parts:list<array>}> $folders
+ * @return array<string, string>
+ */
+function clKeepNames(string $share, array $folders, ?array $settings = null, ?string $dataDir = null): array
+{
+    $settings ??= backupReadSettings(BACKUP_DATA_DIR . '/settings.ini');
+    $dataDir ??= DATA_DIR_USER;
+    $keep = [];
+    $q = preg_quote($share, '#');
+    if (preg_match("#^/mnt/[^/]+/$q/([^/]+)#", $dataDir, $m)) {
+        $keep[$m[1]] = 'office';
+    }
+    if ($share !== '' && (string) backupSetting($settings, 'general', 'dumps_share', '') === $share) {
+        $keep[$share === BACKUP_OFFICE_SHARE ? BACKUP_DESK_DIR : 'unraid-backup'] = 'backup_place';
+    }
+    $sent = [];
+    foreach ($settings as $section => $keys) {
+        if (!is_array($keys) || !preg_match('/^(app|vm)\|(.+)$/D', (string) $section, $s) || !array_filter((array) ($keys['partner'] ?? []), 'is_string')) {
+            continue;
+        }
+        foreach ((array) ($keys['folder'] ?? []) as $f) {
+            if (is_string($f) && preg_match("#^$q/([^/]+)/?$#D", $f, $m)) {
+                $sent[$m[1]] = true;
+            }
+        }
+        if ($s[1] === 'vm') {
+            $sent[$s[2]] = true;                          // a VM's folder in domains carries its name
+        }
+    }
+    foreach ($folders as $f) {
+        $n = $f['name'];
+        if (isset($keep[$n])) {
+            continue;
+        }
+        if (preg_match('/^(UnraidSecretaryOffice|unraid-secretary-office)/i', $n)) {
+            $keep[$n] = 'office';
+            continue;
+        }
+        foreach ($f['parts'] ?? [] as $p) {
+            $ds = $p['dataset'] ?? null;
+            if (is_string($ds) && (partnerLookDataset($ds) !== null || str_contains("/$ds/", '/' . PARTNER_PARENT . '/'))) {
+                $keep[$n] = 'partner_held';
+            }
+        }
+        if (!isset($keep[$n]) && isset($sent[$n])) {
+            $keep[$n] = 'partner_held';
+        }
+    }
+    return $keep;
+}
+
+/** Her folder entries with what the office keeps marked: `kept` says whose, `why` refuses it (no «anyway») */
+function clKeep(array $entries, array $keep): array
+{
+    foreach ($entries as &$e) {
+        $k = $keep[$e['name']] ?? null;
+        $e['kept'] = $k;
+        if ($k !== null && $e['why'] !== 'docker_down' && $e['why'] !== 'vm_off') {
+            $e['why'] = $k;
+        }
+    }
+    unset($e);
+    return $entries;
+}
+
+// --------------------------------------------------------------------- a dataset's way into the storeroom
+
+const CL_ZFS_SNAPS_MAX = 300;          // snapshots listed per dataset in the preview (the count is always whole)
+
+/**
+ * Whose a snapshot is, by its name: Ms. Snapshotini's plans (uso-plan-…), Mr. Backupsy's runs (the engine's prefix,
+ * exactly <prefix>YYYYMMDD-HHMM), a partner's copy (the door's names, on a dataset under the partners' place) —
+ * anybody else's is «manual» (taken by hand, or by a tool the office doesn't know).
+ */
+function clSnapOwner(string $snap, array $prefixes): string
+{
+    [$ds, $name] = array_pad(explode('@', $snap, 2), 2, '');
+    return match (true) {
+        str_starts_with($name, 'uso-plan-')                                     => 'plan',
+        partnerLookDataset($ds) !== null && preg_match(PARTNER_SNAP_RE, $name) === 1 => 'partner',
+        backupIsEngineSnap($name, $prefixes)                                    => 'backup',
+        default                                                                 => 'manual',
+    };
+}
+
+/**
+ * What putting one entry's datasets away does — read only, the page's preview: per dataset the exact zfs rename (the
+ * time in the new name is the moment of the click: `stamp`, from now), what it holds (used, of that the snapshots),
+ * the datasets inside it that go along, and every snapshot (also theirs) with whose it is. One zfs list per dataset.
+ *
+ * @return list<array{dataset:string, path:string, to:string, used:?int, snaps_bytes:?int, inside:list<string>,
+ *                    snapshots:list<array{name:string, used:int, time:int, owner:string}>, count:int, owners:array<string,int>}>
+ */
+function clZfsPlan(array $e, ?callable $zfs = null, ?array $prefixes = null, ?string $stamp = null): array
+{
+    $zfs ??= fn (array $cmd): array => run($cmd, 60);
+    $prefixes ??= backupEngineSnapPrefixes();
+    $stamp ??= date('Ymd-His');
+    $out = [];
+    foreach ($e['parts'] ?? [] as $p) {
+        $ds = $p['dataset'] ?? null;
+        if (!is_string($ds) || !clZfsNameOk($ds)) {
+            continue;
+        }
+        $plan = ['dataset' => $ds, 'path' => (string) $p['path'], 'to' => dirname($ds) . '/' . CL_TRASH . "-$stamp-" . basename($ds),
+                 'used' => null, 'snaps_bytes' => null, 'inside' => [], 'snapshots' => [], 'count' => 0,
+                 'owners' => ['plan' => 0, 'backup' => 0, 'partner' => 0, 'manual' => 0]];
+        [$exit, $text] = $zfs(['zfs', 'list', '-Hp', '-r', '-t', 'filesystem,volume,snapshot', '-o', 'name,used,usedbysnapshots,creation', '-s', 'creation', $ds]);
+        foreach ($exit === 0 ? rows((string) $text) : [] as $f) {
+            if (count($f) < 4 || !ctype_digit($f[1]) || ($f[0] !== $ds && !str_starts_with($f[0], "$ds/") && !str_starts_with($f[0], "$ds@"))) {
+                continue;
+            }
+            if ($f[0] === $ds) {
+                $plan['used'] = (int) $f[1];
+                $plan['snaps_bytes'] = ctype_digit($f[2]) ? (int) $f[2] : null;
+            } elseif (!str_contains($f[0], '@')) {
+                $plan['inside'][] = $f[0];
+            } else {
+                $owner = clSnapOwner($f[0], $prefixes);
+                $plan['owners'][$owner]++;
+                $plan['count']++;
+                if (count($plan['snapshots']) < CL_ZFS_SNAPS_MAX) {
+                    $plan['snapshots'][] = ['name' => $f[0], 'used' => (int) $f[1], 'time' => ctype_digit($f[3]) ? (int) $f[3] : 0, 'owner' => $owner];
+                }
+            }
+        }
+        $out[] = $plan;
+    }
+    return $out;
+}
+
+/** The page's preview before datasets go into the storeroom: her look again, then each chosen entry's clZfsPlan() */
+function clZfsPreview(array $ids): array
+{
+    $state = clScan(false, false);
+    $all = clIndex($state);
+    $plans = [];
+    foreach ($ids as $id) {
+        $e = $all[$id] ?? throw new Problem('unknown_target', ['target' => $id]);
+        if (in_array($e['kind'], CL_ZFS_CONFIRM, true) && array_filter($e['parts'] ?? [], fn ($p) => !empty($p['dataset']))) {
+            $plans[] = ['id' => $id, 'datasets' => clZfsPlan($e, $GLOBALS['clZfsStub'] ?? null)];
+        }
+    }
+    return ['ok' => true, 'plans' => $plans];
 }
 
 /** Docker's own leftovers: images no container uses (dangling or tagged), volumes no container mounts, the build cache */
@@ -3786,6 +3946,9 @@ function clParkCheck(array $e, bool $force): void
             'transfer'      => new Problem('cleanup_partner_transfer', $p),
             'share_known'   => new Problem('cleanup_share_known', $p),
             'shares_unknown' => new Problem('cleanup_shares_unknown', $p),
+            'office'        => new Problem('cleanup_kept_office', $p),
+            'backup_place'  => new Problem('cleanup_kept_backup_place', $p),
+            'partner_held'  => new Problem('cleanup_kept_partner_held', $p),
             default         => new Problem('cleanup_measure_first', $p),
         };
     }
@@ -3794,8 +3957,11 @@ function clParkCheck(array $e, bool $force): void
     }
 }
 
-/** Puts templates, stacks or appdata folders into the trash */
-function clPark(array $ids, bool $force): array
+/**
+ * Puts templates, stacks or appdata folders into the trash. $zfsOk: the page showed what zfs rename does with the
+ * chosen appdata and domains datasets (clZfsPreview()) and the user ticked it — without it none of those is touched.
+ */
+function clPark(array $ids, bool $force, bool $zfsOk = false): array
 {
     $state = clScan(false, false);
     clGuard($state);
@@ -3805,6 +3971,11 @@ function clPark(array $ids, bool $force): array
         $e = $all[$id] ?? throw new Problem('unknown_target', ['target' => $id]);
         clParkCheck($e, $force);
         $todo[] = $e;
+    }
+    foreach ($zfsOk ? [] : $todo as $e) {
+        if (in_array($e['kind'], CL_ZFS_CONFIRM, true) && array_filter($e['parts'] ?? [], fn ($p) => !empty($p['dataset']))) {
+            throw new Problem('cleanup_zfs_confirm', ['name' => clLabel($e)]);
+        }
     }
 
     $runs = [];
