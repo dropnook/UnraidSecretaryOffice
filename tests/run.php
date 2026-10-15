@@ -32773,7 +32773,7 @@ Object.values(st.jobs || {}).forEach((j) => { j.running = false; });      // no 
 const con = connectFile ? JSON.parse(fs.readFileSync(connectFile, 'utf8')) : null;
 const texts = (n) => all(n).map((x) => x.textContent).filter(Boolean);
 /** the form connected to the canned server, every library chosen, its folders mapped as the container has them */
-const connect = () => { const f = e.form(); Object.assign(f.instances[0], { url: 'http://x', server: con.server, libraries: con.libraries, users: con.users, connectedAs: 'http://x|' });
+const connect = () => { const f = e.form(); Object.assign(f.instances[0], { url: 'http://x', server: con.server, libraries: con.libraries, users: con.users, connectedAs: `${f.instances[0].type}|http://x|` });
   con.libraries.forEach((l) => { f.chosenLibs.add(l.name); l.locations.forEach((p) => { f.instances[0].mappings[p] = (st.emby[0].mounts || {})[p] || '/mnt/user' + p; }); }); return f; };
 JS;
 }
@@ -32802,7 +32802,7 @@ function streamerTabRun(string $name, string $script, array $args): ?array
  * Jack Streamer's «Set up» tab (2026-10-14, the owner: the modal wizard and the pool simulator went — back to the office's
  * standard tab with tiles, budget mode only, clear sentences instead of a simulator). The parts as tiles in order (server,
  * libraries and shares, amount, people, more, and — once set up — the import); the wizard's step routes lead to the tile
- * that holds them now; Plex and Jellyfin greyed «coming soon»; the import offered in the server's part before he is set
+ * that holds them now; Emby, Jellyfin and Plex (1.65.0); the import offered in the server's part before he is set
  * up; the amount: a budget in GB (required), no mode, the rule in sentences with Ms. Moverelli's X; «Save» connects a
  * server first when its address or key is new (a failure: no save, the server's part shown); saving writes budget mode
  * only — nothing of the wizard (N days, create_share_root, number_episodes).
@@ -32892,7 +32892,8 @@ function testStreamerTab(): void
   posts.length = 0;
   e.setupSwitcher().pick('scope', 'click');
   await e.saveSetup();
-  out.blocked = [posts.length, toasts.at(-1)[0].replace(/ \{.*$/, ''), picks.at(-1)];
+  // (the demo's other saved servers get connected first — only no «save» may go)
+  out.blocked = [posts.filter((p) => p[0] === 'jack.save').length, toasts.at(-1)[0].replace(/ \{.*$/, ''), picks.at(-1)];
   // «Save» connects first when the address or the key is new: a failure — no save, the error in the server's box, its part shown
   f.budgets = {};
   const g = e.form();
@@ -32933,7 +32934,7 @@ JS, [OFFICE_WEB . '/desks/jack/desk.js', OFFICE_DIR . '/tests/ui/demo/jack.json'
         }
     }
     same('desk scripts: no top-level function declared twice', [], $dups);
-    same('streamer tab: Emby works, Plex and Jellyfin greyed «coming soon» (not choosable)', [['Emby', 'false', false], ['Plex', 'true', true], ['Jellyfin', 'true', true]], $r['cards']);
+    same('streamer tab: Emby, Jellyfin and Plex all work (1.65.0, MediaCache)', [['Emby', 'false', false], ['Jellyfin', 'false', false], ['Plex', 'false', false]], $r['cards']);
     same('streamer tab: the amount needs a connected server first', ['setup.after_connect'], $r['notYet']);
     same('streamer tab: the form is budget mode only — the saved budget in GB, episodes per series inside it, nothing of count mode or the wizard',
         ['300', 3, false, false, false, false], $r['form']);
