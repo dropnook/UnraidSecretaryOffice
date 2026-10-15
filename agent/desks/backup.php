@@ -254,6 +254,8 @@ function backupScan(): array
         'skipped'    => backupSkipRow(readJson("$data/state/skipped.json")),   // the last attempt of any mode
         'estimates'  => backupEstimates($history),
         'upload'     => $running ? backupUpload($status, $history, $settings) : null,     // a first upload to Kopia going on now
+        // the very first backup (no good run to go by): the sizes of its Kopia sources for a rough estimate (2026-10-15)
+        'rough'      => $running && backupEstimates($history)['total'] === null ? backupRough($status, $settings) : null,
         'drift'      => backupDrift(),
         'settings'   => backupSettingsSummary($settings),
         'shares'     => backupShares($settings, $history),
@@ -1101,6 +1103,48 @@ function backupUpload(?array $status, array $history, array $settings, ?string $
     [$c, $out] = backupUploadStep($c, $since, $read, time(), $sent);
     $keep($c);
     return $out;
+}
+
+/**
+ * The very first backup has no earlier run to go by (2026-10-15: «No estimate yet» for hours): the page reckons a rough
+ * one from the sizes of its Kopia sources and the rate measured in this run (the sources done: their real seconds; the
+ * one going up: what it has read). This gives the sizes — of this run's snapshot (backupSourceSize()), during the Kopia
+ * step only, at most ONE new source per call (the tick stays cheap), kept per run in RAM. {sizes: {source: bytes|null},
+ * complete: every planned source looked at}; null outside the Kopia step. The caller asks only while no good run exists.
+ * $size: the measure (tests pass their own).
+ */
+function backupRough(?array $status, array $settings, ?string $cache = null, ?callable $size = null): ?array
+{
+    $k = is_array($status['kopia'] ?? null) ? $status['kopia'] : [];
+    $run = (string) ($status['run'] ?? '');
+    $planned = array_values(array_filter((array) ($k['planned'] ?? []), fn ($n) => is_string($n) && $n !== ''));
+    if (!in_array($status['phase'] ?? '', ['mounting', 'kopia'], true) || $run === '' || !$planned) {
+        return null;
+    }
+    $cache ??= RUN_DIR . '/backup-rough.json';
+    $size ??= fn (string $source): ?int => backupSourceSize($source, $settings, (string) ($status['snapshot'] ?? ''));
+    $c = readJson($cache) ?? [];
+    if (($c['run'] ?? null) !== $run || !is_array($c['sizes'] ?? null)) {
+        $c = ['run' => $run, 'sizes' => []];
+    }
+    foreach ($planned as $n) {
+        if (!array_key_exists($n, $c['sizes'])) {
+            $c['sizes'][$n] = $size($n);
+            try {
+                @mkdir(dirname($cache), 0700, true);
+                writeAtomic($cache, jsonEncode($c), 0600, 0, 0);
+            } catch (Throwable $e) {
+                // RAM only - without it the sizes are looked at again
+            }
+            break;
+        }
+    }
+    $sizes = [];
+    foreach ($planned as $n) {
+        $v = $c['sizes'][$n] ?? null;
+        $sizes[$n] = is_int($v) && $v >= 0 ? $v : null;
+    }
+    return ['sizes' => $sizes, 'complete' => count(array_intersect($planned, array_keys($c['sizes']))) === count($planned)];
 }
 
 /**

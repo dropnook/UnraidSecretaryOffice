@@ -231,4 +231,40 @@ same('history: the words - the date as the row shows it, the result', h.map((x) 
   [[`date(${NOW - 3600})`, 'result.warnings'], [`date(${NOW - 50000})`, 'result.skipped'], [`date(${NOW - 90000})`, 'result.ok']]);
 same('history: a word fits its rows only', h.filter((x) => Office.fits(W('warnings'), x.hay)).length, 1);
 
+// ---------------------------------------------------------------- progress(): the very first backup's rough estimate (2026-10-15)
+{
+  const now = Math.floor(Date.now() / 1000);
+  const GB = 10 ** 9;
+  const run = (o) => ({ found: true, running: true, estimates: { sources: {}, before: null, prepare: null, total: null, partner: {} }, upload: null, rough: null,
+    status: { run: 'r1', mode: 'backup', phase: 'kopia', started: now - 7200,
+      kopia: { planned: ['appdata', 'media', 'flash'], done: [{ name: 'appdata', ok: true, seconds: 1000 }], current: 'media', current_since: now - 1000 } }, ...o });
+  // appdata 100 GB in 1000 s, media 500 GB: 100 GB read in its first 1000 s → 200 GB in 2000 s = 100 MB/s, 400 GB left = 4000 s
+  const up = { source: 'media', first: true, since: now - 1000, size: 500 * GB, read: 100 * GB, sent: 0, rate: null, left: null, time: now };
+  B.setState(run({ upload: up, rough: { sizes: { appdata: 100 * GB, media: 500 * GB, flash: null }, complete: true } }));
+  let p = B.progress();
+  same('first estimate: the first backup in the Kopia step — rough, from this run\'s rate (done + going up), the flash as nothing',
+    [p.rough, Math.round(p.eta - now), p.percent], [true, 4000, 64]);
+  same('first estimate: the run card and the bubble say it is rough', [B.bubbleText().some((x) => x.startsWith('bubble.eta_rough'))], [true]);
+  // the one going up measured on its own (windowed rate, left): its own measure; the next source at this run's rate
+  B.setState(run({ upload: { ...up, rate: 50 * 10 ** 6, left: 3000 }, status: { ...run().status, kopia: { planned: ['media', 'isos'], done: [], current: 'media', current_since: now - 1000 } },
+    rough: { sizes: { media: 500 * GB, isos: 10 * GB }, complete: true } }));
+  p = B.progress();
+  same('first estimate: the one going up by its own measure, the next at this run\'s rate (100 GB in 1000 s)', [p.rough, Math.round(p.eta - now)], [true, 3100]);
+  // a size not known (a place that isn't ZFS): no estimate, as before
+  B.setState(run({ upload: up, rough: { sizes: { appdata: 100 * GB, media: 500 * GB, flash: null, isos: null }, complete: true },
+    status: { ...run().status, kopia: { ...run().status.kopia, planned: ['appdata', 'media', 'isos'] } } }));
+  same('first estimate: a source of unknown size — none', [B.progress().eta, B.progress().rough], [null, false]);
+  // no sizes yet (an agent before this, or not looked at yet): none
+  B.setState(run({ upload: up }));
+  same('first estimate: without the sizes — none, as before', B.progress().eta, null);
+  // before the upload: none yet, and the card says a rough one comes
+  B.setState(run({ status: { ...run().status, phase: 'snapshots', kopia: { planned: ['appdata'], done: [], current: null } } }));
+  same('first estimate: before the upload — none yet, a rough one announced', [B.progress().eta, B.progress().firstRun], [null, true]);
+  // a later run: unchanged — earlier runs' durations, never rough
+  B.setState(run({ estimates: { sources: { appdata: 60, media: 600, flash: 5 }, prepare: 100, total: 900, partner: {} }, upload: null,
+    rough: { sizes: { appdata: 1, media: 1 }, complete: true }, status: { ...run().status, kopia: { ...run().status.kopia, current_since: now - 100 } } }));
+  p = B.progress();
+  same('first estimate: a later run goes by earlier runs, never rough', [p.rough, Math.round(p.eta - now), p.overdue], [false, 505, false]);
+}
+
 console.log(JSON.stringify(out));
