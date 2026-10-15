@@ -837,7 +837,7 @@ function jackPoolEnv(?array $settings): array
     try {
         return jackPoolLook($settings, true)['env'] ?? [];
     } catch (Throwable $e) {
-        logLine("Jack Streamer: Ms. Moverelli's limit not looked at ({$e->getMessage()}) — EmbyCache keeps its own minimum free space");
+        logLine("Jack Streamer: Ms. Moverelli's limit not looked at ({$e->getMessage()}) — MediaCache keeps its own minimum free space");
         return [];
     }
 }
@@ -1130,7 +1130,7 @@ function jackSave(mixed $in): array
     if ($gather = jackGatherSettings()) {
         jackWriteGatherIni($gather, $cfg);             // follows the pool
     }
-    logLine('Jack Streamer: EmbyCache settings saved');
+    logLine('Jack Streamer: MediaCache settings saved');
     return ['ok' => true, 'state' => jackScan()];
 }
 
@@ -2770,7 +2770,7 @@ function jackJob(string $tool, array $args): int
             jackRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => $p->key]
                 + array_intersect_key($p->params, ['schedule' => 1, 'shares' => 1, 'file' => 1, 'detail' => 1]));
             if (str_starts_with($p->key, 'jack_mover_')) {
-                logLine("Jack Streamer: $tool ($mode) not started — the mover could take EmbyCache's files ($p->key); only dry runs go");
+                logLine("Jack Streamer: $tool ($mode) not started — the mover could take MediaCache's files ($p->key); only dry runs go");
             }
         }
         if ($mode === 'release') {

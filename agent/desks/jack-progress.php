@@ -404,6 +404,6 @@ function jackStopAsk(?array $job = null, ?string $file = null): bool
         return false;
     }
     writeAtomic($file, jsonEncode(['time' => time(), 'why' => 'user']), 0600, 0, 0);
-    logLine('Jack Streamer: asked EmbyCache (' . $job['mode'] . ') to stop after the file it is on — from his page');
+    logLine('Jack Streamer: asked MediaCache (' . $job['mode'] . ') to stop after the file it is on — from his page');
     return true;
 }
