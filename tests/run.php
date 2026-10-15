@@ -827,7 +827,7 @@ function testJack(): void
 
     // the gather's consolidate.ini: bash sources it, so every value is quoted and checked
     $ini = jackGatherIni(['shares' => ['Filme', 'Meine Filme'], 'min_free_gb' => 256, 'dup_check' => 'size'],
-        ['/mnt/maple', '/mnt/disk1', '/mnt/user0', '/mnt/bad pool'], "/x/it's/consolidate.log", '/x/embycache_exclude.txt');
+        ['/mnt/maple', '/mnt/disk1', '/mnt/user0', '/mnt/bad pool'], "/x/it's/consolidate.log", '/x/mediacache_exclude.txt');
     check('gather ini: shares quoted', str_contains($ini, "BASE_DIRS=('/mnt/user/Filme' '/mnt/user/Meine Filme')\n"));
     same('gather ini: only real pools as cache', 1, preg_match("/^CACHE_PATTERN='\\/mnt\\/maple'$/m", $ini));
     check('gather ini: the cache left alone (a gather.json from before #14), always dry by default',
@@ -1266,8 +1266,8 @@ function testJackPool(): void
         $list[] = "$tmp/pool/Serien/Die.Serie/$f";
         $origin["$tmp/pool/Serien/Die.Serie/$f"] = 'disk3';
     }
-    file_put_contents("$tmp/data/embycache_exclude.txt", implode("\n", $list) . "\n");
-    file_put_contents("$tmp/data/embycache_origin.json", json_encode($origin));
+    file_put_contents("$tmp/data/mediacache_exclude.txt", implode("\n", $list) . "\n");
+    file_put_contents("$tmp/data/mediacache_origin.json", json_encode($origin));
     $c = jackCacheStats(['cache_path' => "$tmp/pool"], "$tmp/data");
     $first = $c['groups'][0] ?? [];
     same('pool list: every folder — nothing cut (251, the old cut was 200)', [252, 251], [$c['files'], count($c['groups'])]);
@@ -1422,7 +1422,7 @@ function testJackImport(): void
     symlink('../cache/appdata', "$fs/mnt/user/appdata");                         // an exclusive share, Unraid's own link
     symlink('/tmp', "$fs/mnt/user/linked");                                      // any other link
     symlink('embycache', "$fs/mnt/user/system/scripts/lnk");
-    symlink('/etc/hostname', "$fs/mnt/user/system/scripts/badfile/embycache_settings.json");
+    symlink('/etc/hostname', "$fs/mnt/user/system/scripts/badfile/mediacache_settings.json");
     file_put_contents("$fs/mnt/user/system/scripts/notes.txt", 'x');
     @mkdir("$fs/mnt/user/system/scripts/hardlink", 0700);
     link("$fs/mnt/user/system/scripts/notes.txt", "$fs/mnt/user/system/scripts/hardlink/consolidate.ini");
@@ -1458,7 +1458,7 @@ function testJackImport(): void
               '/mnt/user' => 'jack_import_where', '/boot/config/plugins/user.scripts/scripts' => 'jack_import_where', '/tmp/x' => 'jack_import_where',
               '/mnt/user/linked' => 'jack_import_link', '/mnt/user/linked/x' => 'jack_import_link', '/mnt/user/system/scripts/lnk' => 'jack_import_link',
               '/mnt/user/Sleepy/old' => 'jack_import_asleep', '/mnt/hazel/x' => 'jack_import_asleep', '/mnt/disk2/scripts' => 'jack_import_asleep',
-              '/mnt/user/system/nothing' => 'jack_import_missing', '/mnt/user/system/scripts/badfile/embycache_settings.json' => 'jack_import_link',
+              '/mnt/user/system/nothing' => 'jack_import_missing', '/mnt/user/system/scripts/badfile/mediacache_settings.json' => 'jack_import_link',
               '/mnt/user/Nocfg/old' => 'jack_import_asleep', '/mnt/user/system/scripts/notes.txt' => 'jack_import_missing',
               '/mnt/user/appdata/UnraidSecretaryOffice/data/embycache' => 'jack_import_own'] as $path => $want) {
         same('import folder refused: ' . json_encode($path), $want, $err(fn () => jackImportFolder($path, $ctx)));
@@ -1482,11 +1482,11 @@ function testJackImport(): void
         'fill_tool' => 'rsync', 'cleanup_tool' => 'mover', 'api_timeout' => 10, 'shares_cfg_dir' => '/boot/config/shares',
         'old_option' => 1, 'emby_token' => $key];
     $dir = "$fs$old";
-    file_put_contents("$dir/embycache_settings.json", json_encode($settings, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    file_put_contents("$dir/embycache_exclude.txt", implode("\n", ["$pool/Filme/Alien (1979)/Alien.mkv", "$pool/Serien/X/S01/e1.mkv",
+    file_put_contents("$dir/mediacache_settings.json", json_encode($settings, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    file_put_contents("$dir/mediacache_exclude.txt", implode("\n", ["$pool/Filme/Alien (1979)/Alien.mkv", "$pool/Serien/X/S01/e1.mkv",
         "$pool/Serien/X/S01/e1.mkv", "/mnt/other/Filme/x.mkv", "$pool/Filme/../../etc/passwd", "$pool/NoShare/x.mkv", 'relative.mkv',
         "$pool/Filme", "$pool/Filme/a\x01b.mkv", '', "  $pool/Filme/Brazil/Brazil.mkv  "]) . "\n");
-    file_put_contents("$dir/embycache_origin.json", json_encode(["$pool/Filme/Alien (1979)/Alien.mkv" => 'disk1', "$pool/Serien/X/S01/e1.mkv" => 'disk2',
+    file_put_contents("$dir/mediacache_origin.json", json_encode(["$pool/Filme/Alien (1979)/Alien.mkv" => 'disk1', "$pool/Serien/X/S01/e1.mkv" => 'disk2',
         "$pool/Filme/../x.mkv" => 'disk1', "$pool/Filme/y.mkv" => 'cache', "$pool/Filme/z.mkv" => 3], JSON_UNESCAPED_SLASHES));
     // the gather, as setup_consolidate.sh V11 writes it — plus a list over two lines, a key it never had, a command
     file_put_contents("$fs/mnt/user/system/scripts/consolidate/consolidate.ini", implode("\n", [
@@ -1502,9 +1502,9 @@ function testJackImport(): void
     $mine = ['cache_path' => $pool, 'instances' => [['servername' => 'Emby', 'url' => 'http://192.168.20.10:8096', 'api_key' => $jackKey,
              'path_mappings' => ['/media/Filme' => '/mnt/user/Filme']]], 'min_free_percent' => 20, 'library_types' => ['Filme' => 'movies', 'Musik' => 'music'],
              'cleanup_tool' => 'rsync', 'max_resume_movies' => 1];
-    file_put_contents("$jack/embycache/embycache_settings.json", json_encode($mine, JSON_UNESCAPED_SLASHES));
-    file_put_contents("$jack/embycache/embycache_exclude.txt", "$pool/Filme/Alien (1979)/Alien.mkv\n$pool/Filme/Jack Own/j.mkv\n");
-    file_put_contents("$jack/embycache/embycache_origin.json", json_encode(["$pool/Filme/Jack Own/j.mkv" => 'disk3', "$pool/Filme/Alien (1979)/Alien.mkv" => 'disk4'], JSON_UNESCAPED_SLASHES));
+    file_put_contents("$jack/embycache/mediacache_settings.json", json_encode($mine, JSON_UNESCAPED_SLASHES));
+    file_put_contents("$jack/embycache/mediacache_exclude.txt", "$pool/Filme/Alien (1979)/Alien.mkv\n$pool/Filme/Jack Own/j.mkv\n");
+    file_put_contents("$jack/embycache/mediacache_origin.json", json_encode(["$pool/Filme/Jack Own/j.mkv" => 'disk3', "$pool/Filme/Alien (1979)/Alien.mkv" => 'disk4'], JSON_UNESCAPED_SLASHES));
     file_put_contents("$jack/gather/gather.json", json_encode(['shares' => ['Filme'], 'min_free_gb' => 256, 'dup_check' => 'size']));
 
     $plan = jackImportPlan("$old/", '/mnt/user/system/scripts/consolidate', $ctx);
@@ -1554,24 +1554,24 @@ function testJackImport(): void
     // the import: something changed since the preview → refused; then done, with copies of Jack's files
     $again = jackImportPlan($old, '/mnt/user/system/scripts/consolidate', $ctx);
     same('import: the same look gives the same token', $p['token'], $again['preview']['token']);
-    file_put_contents("$jack/embycache/embycache_exclude.txt", "$pool/Filme/Jack Own/j.mkv\n$pool/Filme/Alien (1979)/Alien.mkv\n$pool/Filme/New/n.mkv\n");
+    file_put_contents("$jack/embycache/mediacache_exclude.txt", "$pool/Filme/Jack Own/j.mkv\n$pool/Filme/Alien (1979)/Alien.mkv\n$pool/Filme/New/n.mkv\n");
     check('import: Jack\'s list changed meanwhile — another token', jackImportPlan($old, '/mnt/user/system/scripts/consolidate', $ctx)['preview']['token'] !== $p['token']);
     $plan = jackImportPlan($old, '/mnt/user/system/scripts/consolidate', $ctx);
-    $before = ['settings' => file_get_contents("$jack/embycache/embycache_settings.json"), 'exclude' => file_get_contents("$jack/embycache/embycache_exclude.txt"),
-               'origin' => file_get_contents("$jack/embycache/embycache_origin.json"), 'gather' => file_get_contents("$jack/gather/gather.json")];
+    $before = ['settings' => file_get_contents("$jack/embycache/mediacache_settings.json"), 'exclude' => file_get_contents("$jack/embycache/mediacache_exclude.txt"),
+               'origin' => file_get_contents("$jack/embycache/mediacache_origin.json"), 'gather' => file_get_contents("$jack/gather/gather.json")];
     $done = jackImportApply($plan['do'], $ctx);
     check('import done: the API key never in the answer', !str_contains(json_encode(jackImportScrub($done, $plan['secrets'])), $key));
     $copies = array_map(fn ($f) => basename($f), $done['backups']);
     same('import done: copies of Jack\'s files', array_map(fn ($n) => "$n.before-import-{$done['stamp']}",
-        ['embycache_settings.json', 'embycache_exclude.txt', 'embycache_origin.json', 'gather.json', 'consolidate.ini'])[0], $copies[0] ?? null);
+        ['mediacache_settings.json', 'mediacache_exclude.txt', 'mediacache_origin.json', 'gather.json', 'consolidate.ini'])[0], $copies[0] ?? null);
     same('import done: copies of all five (consolidate.ini only if it was there)', 4, count($copies));
     same('import done: the copies hold what Jack had', $before, [
-        'settings' => (string) @file_get_contents("$jack/embycache/embycache_settings.json.before-import-{$done['stamp']}"),
-        'exclude' => (string) @file_get_contents("$jack/embycache/embycache_exclude.txt.before-import-{$done['stamp']}"),
-        'origin' => (string) @file_get_contents("$jack/embycache/embycache_origin.json.before-import-{$done['stamp']}"),
+        'settings' => (string) @file_get_contents("$jack/embycache/mediacache_settings.json.before-import-{$done['stamp']}"),
+        'exclude' => (string) @file_get_contents("$jack/embycache/mediacache_exclude.txt.before-import-{$done['stamp']}"),
+        'origin' => (string) @file_get_contents("$jack/embycache/mediacache_origin.json.before-import-{$done['stamp']}"),
         'gather' => (string) @file_get_contents("$jack/gather/gather.json.before-import-{$done['stamp']}")]);
     same('import done: copies are root\'s only', '600', substr(sprintf('%o', fileperms($done['backups'][0])), -3));
-    $s = json_decode((string) file_get_contents("$jack/embycache/embycache_settings.json"), true);
+    $s = json_decode((string) file_get_contents("$jack/embycache/mediacache_settings.json"), true);
     same('import done: the old key stays on the server', $key, $s['instances'][0]['api_key'] ?? null);
     same('import done: settings as shown (the old «mover» way back is rsync: Jack never selects the move binary)',
         [$pool, 15, '', ['-aAX', '--numeric-ids'], true, '/mnt/user0', '2.5T', [], 1, 8, 'rsync', 'rsync'],
@@ -1581,14 +1581,14 @@ function testJackImport(): void
     same('import done: people with their budget', ['u1' => ['budget' => '300G'], 'u2' => [], 'u3' => []], $s['valid_users']);
     same('import done: library types kept where the name matches', ['Filme' => 'movies'], $s['library_types']);
     same('import done: Jack\'s list and the old one, merged', ["$pool/Filme/Alien (1979)/Alien.mkv", "$pool/Filme/Brazil/Brazil.mkv", "$pool/Filme/Jack Own/j.mkv",
-        "$pool/Filme/New/n.mkv", "$pool/Serien/X/S01/e1.mkv"], file("$jack/embycache/embycache_exclude.txt", FILE_IGNORE_NEW_LINES));
+        "$pool/Filme/New/n.mkv", "$pool/Serien/X/S01/e1.mkv"], file("$jack/embycache/mediacache_exclude.txt", FILE_IGNORE_NEW_LINES));
     same('import done: origins merged, Jack\'s own win', ["$pool/Filme/Alien (1979)/Alien.mkv" => 'disk4', "$pool/Filme/Jack Own/j.mkv" => 'disk3',
-        "$pool/Serien/X/S01/e1.mkv" => 'disk2'], json_decode((string) file_get_contents("$jack/embycache/embycache_origin.json"), true));
+        "$pool/Serien/X/S01/e1.mkv" => 'disk2'], json_decode((string) file_get_contents("$jack/embycache/mediacache_origin.json"), true));
     same('import done: the gather\'s settings', ['shares' => ['Filme', 'Serien'], 'min_free_gb' => 300, 'dup_check' => 'cmp', 'move_cache' => false, 'cache_only_target' => 'most-free'],
         json_decode((string) file_get_contents("$jack/gather/gather.json"), true));
     $ini = (string) file_get_contents("$jack/gather/consolidate.ini");
     check('import done: the gather\'s ini is Jack\'s', str_contains($ini, "BASE_DIRS=('/mnt/user/Filme' '/mnt/user/Serien')\n") && str_contains($ini, "DRYRUN=true\n")
-        && str_contains($ini, "MIN_FREE_GB=300\n") && str_contains($ini, "EXCLUDE_FILE='$jack/embycache/embycache_exclude.txt'\n")
+        && str_contains($ini, "MIN_FREE_GB=300\n") && str_contains($ini, "EXCLUDE_FILE='$jack/embycache/mediacache_exclude.txt'\n")
         && str_contains($ini, "MOVE_CACHE=false\n") && str_contains($ini, "CACHE_ONLY_TARGET='most-free'\n"), $ini);
     same('import done: nothing left in the trial folder', [], glob("$tmp/run/*") ?: []);
 
@@ -1612,10 +1612,10 @@ function testJackImport(): void
     // defaults (rsync back, as his setup page), never EmbyCache's original mover default
     $older = $settings;
     unset($older['cleanup_tool'], $older['mover_debug_level']);
-    file_put_contents("$dir/embycache_settings.json", json_encode($older, JSON_UNESCAPED_SLASHES));
+    file_put_contents("$dir/mediacache_settings.json", json_encode($older, JSON_UNESCAPED_SLASHES));
     $withJack = ['jack_dir' => "$tmp/jack2/embycache", 'gather_dir' => "$tmp/jack2/gather"] + $ctx;
     @mkdir("$tmp/jack2/embycache", 0700, true);
-    file_put_contents("$tmp/jack2/embycache/embycache_settings.json", json_encode(['cache_path' => $pool, 'cleanup_tool' => 'rsync', 'mover_debug_level' => 1,
+    file_put_contents("$tmp/jack2/embycache/mediacache_settings.json", json_encode(['cache_path' => $pool, 'cleanup_tool' => 'rsync', 'mover_debug_level' => 1,
         'max_resume_series' => 4, 'max_resume_movies' => null, 'mover_bin' => '/mnt/user/x.sh', 'array_path' => '/mnt/elsewhere'], JSON_UNESCAPED_SLASHES));
     $d = array_column(jackImportPlan($old, '', $withJack)['preview']['embycache']['defaults'], null, 'key');
     same('import, older install: Jack\'s own choices stay (the way back is always rsync — his, not a choice kept)',
@@ -1626,7 +1626,7 @@ function testJackImport(): void
     same('import, older install, Jack without settings: his defaults, not the original\'s mover', [['cleanup_tool', false, 'rsync'], ['mover_debug_level', false, 0]],
         array_map(fn ($k) => [$k, $d[$k]['kept'] ?? null, $d[$k]['value'] ?? null], ['cleanup_tool', 'mover_debug_level']));
     unset($older['mover_bin'], $older['array_path']);
-    file_put_contents("$dir/embycache_settings.json", json_encode($older, JSON_UNESCAPED_SLASHES));
+    file_put_contents("$dir/mediacache_settings.json", json_encode($older, JSON_UNESCAPED_SLASHES));
     $d = array_column(jackImportPlan($old, '', $withJack)['preview']['embycache']['defaults'], null, 'key');
     same('import, older install: a strange mover_bin or Unraid path of Jack\'s never stays', [[false, ''], [false, '/mnt/user0']],
         [[$d['mover_bin']['kept'] ?? null, $d['mover_bin']['value'] ?? null], [$d['array_path']['kept'] ?? null, $d['array_path']['value'] ?? null]]);
@@ -1636,7 +1636,7 @@ function testJackImport(): void
     $bad['cache_path'] = '/mnt/nowhere';
     $bad['instances'][0]['api_key'] = 'short';
     $bad['instances'][0]['url'] = 'http://elsewhere:8096';
-    file_put_contents("$dir/embycache_settings.json", json_encode($bad, JSON_UNESCAPED_SLASHES));
+    file_put_contents("$dir/mediacache_settings.json", json_encode($bad, JSON_UNESCAPED_SLASHES));
     $b = jackImportPlan($old, '', $ctx)['preview'];
     same('import blocked: a strange pool, no key', ['pool', 'no_key'], array_column($b['embycache']['blockers'], 'key'));
     check('import blocked: not ready', $b['ready'] === false);
@@ -1645,18 +1645,18 @@ function testJackImport(): void
     $bad['cache_path'] = $pool;
     $bad['movie_mode'] = 'chaos';
     $bad['max_resume_items'] = 'many';                                         // EmbyCache's own check refuses it
-    file_put_contents("$dir/embycache_settings.json", json_encode($bad, JSON_UNESCAPED_SLASHES));
+    file_put_contents("$dir/mediacache_settings.json", json_encode($bad, JSON_UNESCAPED_SLASHES));
     $b = jackImportPlan($old, '', $ctx)['preview'];
     same('import: no key in the old file — Jack keeps his own', 'jack', $b['embycache']['instances'][0]['key']);
     same('import: a choice EmbyCache doesn\'t know is Jack\'s', 'folder', array_column($b['embycache']['jack'], 'new', 'key')['movie_mode'] ?? null);
     check('import: Jack\'s key never in the preview either', !str_contains(json_encode($b), $jackKey));
     $bad['instances'][0]['path_mappings'] = ['/media/Musik' => ''];            // nothing cached at all: EmbyCache's load_config() says no
     $bad['path_mappings'] = [];
-    file_put_contents("$dir/embycache_settings.json", json_encode($bad, JSON_UNESCAPED_SLASHES));
+    file_put_contents("$dir/mediacache_settings.json", json_encode($bad, JSON_UNESCAPED_SLASHES));
     $b = jackImportPlan($old, '', $ctx)['preview'];
     same('import blocked: EmbyCache\'s own check says no', ['config'], array_column($b['embycache']['blockers'], 'key'));
     check('import blocked: its reason told', str_contains((string) ($b['embycache']['blockers'][0]['params']['detail'] ?? ''), 'path_mappings'));
-    file_put_contents("$dir/embycache_settings.json", '[1, 2]');
+    file_put_contents("$dir/mediacache_settings.json", '[1, 2]');
     same('import blocked: settings that aren\'t an object', ['bad_json'], array_column(jackImportPlan($old, '', $ctx)['preview']['embycache']['blockers'], 'key'));
 
     // the ini is read, never run
@@ -1685,7 +1685,7 @@ function testJackLetGo(): void
     }
     file_put_contents("$pool/Filme/A/a.mkv", str_repeat('a', 3000));
     file_put_contents("$pool/Filme/B/b.mkv", str_repeat('b', 5000));
-    file_put_contents("$dir/embycache_exclude.txt", "$pool/Filme/A/a.mkv\n$pool/Filme/B/b.mkv\n$pool/Filme/gone.mkv\n/elsewhere/x.mkv\n");
+    file_put_contents("$dir/mediacache_exclude.txt", "$pool/Filme/A/a.mkv\n$pool/Filme/B/b.mkv\n$pool/Filme/gone.mkv\n/elsewhere/x.mkv\n");
     $cron = "$tmp/office.cron";
     officeJobSetSchedule('backup', '0 2 * * *', $cron, false);
     officeJobSetSchedule('embycache', '15 * * * *', $cron, false);
@@ -1784,7 +1784,7 @@ function testJackLetGo(): void
     same('let Jack go with the tick while a run is going: it finishes, the release refused, said which run', ['embycache', false, 'jack_running', []],
         [$r['running'] ?? null, $r['release']['started'] ?? null, $r['release']['error']['key'] ?? null, $launched]);
     $running = null;
-    file_put_contents("$dir/embycache_exclude.txt", "$pool/Filme/gone.mkv\n");
+    file_put_contents("$dir/mediacache_exclude.txt", "$pool/Filme/gone.mkv\n");
     $r = handle(json_encode(['action' => 'jack.letgo', 'confirm' => true, 'release' => true]));
     same('let Jack go with the tick, nothing on the pool: nothing to bring back, nothing launched', ['jack_letgo_nothing', []], [$r['release']['error']['key'] ?? null, $launched]);
     $GLOBALS['agentStaffFile'] = $staffBefore;
@@ -1839,13 +1839,13 @@ function testJackLetGo(): void
         file_put_contents("$py/pool/Filme/B/b.srt", 'sub');
         file_put_contents("$py/pool/Filme/C/c.mkv", 'dup');
         file_put_contents("$py/user0/Filme/C/c.mkv", 'dup');
-        file_put_contents("$py/data/embycache_exclude.txt", "$py/pool/Filme/A/a.mkv\n$py/pool/Filme/B/b.srt\n$py/pool/Filme/C/c.mkv\n$py/pool/Filme/gone.mkv\n");
-        file_put_contents("$py/data/embycache_origin.json", json_encode(["$py/pool/Filme/A/a.mkv" => 'disk1', "$py/pool/Filme/C/c.mkv" => 'disk1']));
-        file_put_contents("$py/data/embycache_settings.json", json_encode(['cache_path' => "$py/pool", 'array_path' => "$py/user0", 'user_path' => "$py/user",
+        file_put_contents("$py/data/mediacache_exclude.txt", "$py/pool/Filme/A/a.mkv\n$py/pool/Filme/B/b.srt\n$py/pool/Filme/C/c.mkv\n$py/pool/Filme/gone.mkv\n");
+        file_put_contents("$py/data/mediacache_origin.json", json_encode(["$py/pool/Filme/A/a.mkv" => 'disk1', "$py/pool/Filme/C/c.mkv" => 'disk1']));
+        file_put_contents("$py/data/mediacache_settings.json", json_encode(['cache_path' => "$py/pool", 'array_path' => "$py/user0", 'user_path' => "$py/user",
             'array_disks_glob' => "$py/disk[0-9]*", 'cleanup_tool' => 'rsync', 'return_to_origin' => true, 'shares_cfg_dir' => "$py/shares", 'api_timeout' => 2,
             'instances' => [['servername' => 'Test', 'url' => 'http://127.0.0.1:9', 'api_key' => 'k', 'path_mappings' => ['/media/movies' => "$py/user/Filme"]]]]));
-        [$exit, $out, $err] = run(['env', "EMBYCACHE_DIR=$py/data", "EMBYCACHE_STATUS=$py/data/status.json", 'PYTHONDONTWRITEBYTECODE=1',
-                                   'python3', OFFICE_DIR . '/embycache/embycache_run.py', '--release'], 120);
+        [$exit, $out, $err] = run(['env', "MEDIACACHE_DIR=$py/data", "MEDIACACHE_RESULT=$py/data/status.json", 'PYTHONDONTWRITEBYTECODE=1',
+                                   'python3', OFFICE_DIR . '/mediacache/mediacache_run.py', '--release'], 120);
         $st = readJson("$py/data/status.json") ?? [];
         same('EmbyCache --release: ok, mode release, 2 of 3 back (the duplicate stays), nothing filled, Emby unanswered noted',
             [0, 'release', 'ok', 3, 2, 0, 1, true],
@@ -1855,7 +1855,7 @@ function testJackLetGo(): void
             is_file("$py/user0/Filme/A/a.mkv") && filesize("$py/user0/Filme/A/a.mkv") === 3000 && is_file("$py/user0/Filme/B/b.srt")
             && !file_exists("$py/pool/Filme/A/a.mkv") && !file_exists("$py/pool/Filme/B/b.srt") && is_file("$py/pool/Filme/C/c.mkv"), $out . $err);
         same('EmbyCache --release: the list and the origins name only what is still on the pool', [["$py/pool/Filme/C/c.mkv"], ["$py/pool/Filme/C/c.mkv" => 'disk1']],
-            [file("$py/data/embycache_exclude.txt", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES), readJson("$py/data/embycache_origin.json")]);
+            [file("$py/data/mediacache_exclude.txt", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES), readJson("$py/data/mediacache_origin.json")]);
         check('EmbyCache --release: nothing went to the origin disk that isn\'t mounted', !file_exists("$py/disk1/Filme/A"));
     }
 
@@ -2023,7 +2023,7 @@ function testJackReadyShares(): void
     foreach ($files as $f => $n) {
         file_put_contents($f, str_repeat('x', $n));
     }
-    file_put_contents("$tmp/data/embycache_exclude.txt", implode("\n", array_keys($files)) . "\n");
+    file_put_contents("$tmp/data/mediacache_exclude.txt", implode("\n", array_keys($files)) . "\n");
     $c = jackCacheStats(['cache_path' => $pool], "$tmp/data");
     same('ready: per share over the whole list — files and bytes', ['Filme' => ['files' => 2, 'bytes' => 150], 'Serien' => ['files' => 2, 'bytes' => 50]],
         json_decode(json_encode($c['shares']), true));
@@ -2083,7 +2083,7 @@ function testJackMover(): void
     foreach (["$tmp/data", "$tmp/tuning", "$tmp/dynamix", "$tmp/proc"] as $d) {
         mkdir($d, 0700, true);
     }
-    $list = '/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt';
+    $list = '/mnt/user/appdata/UnraidSecretaryOffice/data/mediacache/mediacache_exclude.txt';
     $installed = false;
     $hired = true;
     $shares = ['Filme', 'Serien'];
@@ -2094,7 +2094,7 @@ function testJackMover(): void
     $notes = [];
     $GLOBALS['jackMoverHost'] = ['share_cfg' => "$tmp/share.cfg", 'mover_cron' => "$tmp/dynamix/mover.cron", 'tuning_dir' => "$tmp/tuning",
         'installed' => function () use (&$installed) { return $installed; },
-        'lists' => fn () => [$list, "$tmp/data/embycache_exclude.txt"], 'dir' => "$tmp/data", 'shares' => function () use (&$shares) { return $shares; },
+        'lists' => fn () => [$list, "$tmp/data/mediacache_exclude.txt"], 'dir' => "$tmp/data", 'shares' => function () use (&$shares) { return $shares; },
         'hired' => function () use (&$hired) { return $hired; }, 'pid' => "$tmp/mover.pid", 'proc' => "$tmp/proc",
         'moverelli' => function () use (&$look) { return $look; }, 'tuning' => function () use (&$tuning) { return $tuning; },
         'note' => function (string $was, string $logging) use (&$notes) { $notes[] = [$was, $logging]; },
@@ -2358,7 +2358,7 @@ function testJackMover(): void
     check('mover: real runs ask the rule (jackRunCheck: run only), the page and the job refuse while the mover works, EmbyCache gets its stop file',
         str_contains($src, "if (\$mode === 'run' && (\$p = jackMoverProblem(jackMoverRule()))) {")
         && str_contains($src, "if (\$mode === 'run' && jackMoverRunning()) {")
-        && str_contains($src, "(\$real ? ['EMBYCACHE_STOP' => \"\$dir/office-stop.json\"] : [])")
+        && str_contains($src, "(\$real ? ['MEDIACACHE_STOP' => \"\$dir/office-stop.json\"] : [])")
         && str_contains($src, "\$real = (\$tool === 'gather' && \$mode === 'run') || (\$tool === 'embycache' && in_array(\$mode, ['run', 'release'], true));"));
 
     // Ms. Moverelli (agent/desks/moverelli.php): her smart_mover.ini must keep his list out for his shares — the
@@ -2377,7 +2377,7 @@ function testJackMover(): void
     $look = ['global' => ['/mnt/user/system/keep.txt', $list], 'shares' => []];
     $r = jackMoverRule();
     same('mover moverelli: his list in her global_excludes — real runs go her way', [true, 'moverelli', null, []], [$r['ok'], $r['way'], $r['why'], $r['moverelli']['uncovered']]);
-    $look = ['global' => [], 'shares' => ['Filme' => ['skip' => false, 'excludes' => ["$tmp/data/embycache_exclude.txt"]], 'Serien' => ['skip' => true, 'excludes' => []]]];
+    $look = ['global' => [], 'shares' => ['Filme' => ['skip' => false, 'excludes' => ["$tmp/data/mediacache_exclude.txt"]], 'Serien' => ['skip' => true, 'excludes' => []]]];
     same('mover moverelli: … per share (the list by its other path), a share left out — fine', [true, 'moverelli'], [jackMoverRule()['ok'], jackMoverRule()['way']]);
     $look = ['global' => [], 'shares' => ['Filme' => ['skip' => false, 'excludes' => ['/mnt/user/system/keep.txt']], 'Musik' => ['skip' => false, 'excludes' => [$list]]]];
     same('mover moverelli: another list for Filme, his list only for a share that isn\'t his — no', ['moverelli_list', ['Filme', 'Serien']],
@@ -2426,28 +2426,28 @@ function testJackMover(): void
         foreach (['A/a.mkv', 'B/b.mkv', 'C/c.mkv'] as $f) {
             file_put_contents("$py/pool/Filme/$f", str_repeat('x', 1000));
         }
-        file_put_contents("$py/data/embycache_exclude.txt", "$py/pool/Filme/A/a.mkv\n$py/pool/Filme/B/b.mkv\n$py/pool/Filme/C/c.mkv\n");
-        file_put_contents("$py/data/embycache_settings.json", json_encode(['cache_path' => "$py/pool", 'array_path' => "$py/user0", 'user_path' => "$py/user",
+        file_put_contents("$py/data/mediacache_exclude.txt", "$py/pool/Filme/A/a.mkv\n$py/pool/Filme/B/b.mkv\n$py/pool/Filme/C/c.mkv\n");
+        file_put_contents("$py/data/mediacache_settings.json", json_encode(['cache_path' => "$py/pool", 'array_path' => "$py/user0", 'user_path' => "$py/user",
             'array_disks_glob' => "$py/disk[0-9]*", 'cleanup_tool' => 'rsync', 'return_to_origin' => true, 'shares_cfg_dir' => "$py/shares", 'api_timeout' => 2,
             'instances' => [['servername' => 'Test', 'url' => 'http://127.0.0.1:9', 'api_key' => 'k', 'path_mappings' => ['/media/movies' => "$py/user/Filme"]]]]));
         $rsync = trim((string) shell_exec('command -v rsync'));
         file_put_contents("$py/bin/rsync", "#!/bin/bash\n" . escapeshellarg($rsync) . " \"\$@\"; rc=\$?; touch " . escapeshellarg("$py/stop") . "; exit \$rc\n");
         chmod("$py/bin/rsync", 0755);
-        [$exit, $out, $err] = run(['env', "PATH=$py/bin:" . getenv('PATH'), "EMBYCACHE_DIR=$py/data", "EMBYCACHE_STATUS=$py/data/status.json", "EMBYCACHE_STOP=$py/stop",
-                                   'PYTHONDONTWRITEBYTECODE=1', 'python3', OFFICE_DIR . '/embycache/embycache_run.py', '--release'], 120);
+        [$exit, $out, $err] = run(['env', "PATH=$py/bin:" . getenv('PATH'), "MEDIACACHE_DIR=$py/data", "MEDIACACHE_RESULT=$py/data/status.json", "MEDIACACHE_STOP=$py/stop",
+                                   'PYTHONDONTWRITEBYTECODE=1', 'python3', OFFICE_DIR . '/mediacache/mediacache_run.py', '--release'], 120);
         $st = readJson("$py/data/status.json") ?? [];
         same('mover stop: EmbyCache stops after the first file — exit 3, result stopped, 1 of 3 back, 2 stay protected',
             [3, 'stopped', 3, 1, 2], [$exit, $st['result'] ?? null, $st['cleanup']['planned'] ?? null, $st['cleanup']['done'] ?? null, $st['protected'] ?? null]);
         same('mover stop: … the one moved is on the array, the other two still on the pool and on the list (never half a copy)',
             [true, false, true, true, ["$py/pool/Filme/B/b.mkv", "$py/pool/Filme/C/c.mkv"]],
             [is_file("$py/user0/Filme/A/a.mkv"), file_exists("$py/pool/Filme/A/a.mkv"), is_file("$py/pool/Filme/B/b.mkv"), is_file("$py/pool/Filme/C/c.mkv"),
-             file("$py/data/embycache_exclude.txt", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES)]);
+             file("$py/data/mediacache_exclude.txt", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES)]);
         check('mover stop: … nothing half-copied on the array', !file_exists("$py/user0/Filme/B") && !file_exists("$py/user0/Filme/C"));
         @unlink("$py/stop");
-        [$exit] = run(['env', "EMBYCACHE_DIR=$py/data", "EMBYCACHE_STATUS=$py/data/status.json", "EMBYCACHE_STOP=$py/stop", 'PYTHONDONTWRITEBYTECODE=1',
-                       'python3', OFFICE_DIR . '/embycache/embycache_run.py', '--release'], 120);
+        [$exit] = run(['env', "MEDIACACHE_DIR=$py/data", "MEDIACACHE_RESULT=$py/data/status.json", "MEDIACACHE_STOP=$py/stop", 'PYTHONDONTWRITEBYTECODE=1',
+                       'python3', OFFICE_DIR . '/mediacache/mediacache_run.py', '--release'], 120);
         same('mover stop: without the stop file the next run goes on to the end', [0, 'ok', 0], [$exit, readJson("$py/data/status.json")['result'] ?? null,
-            count(file("$py/data/embycache_exclude.txt", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES))]);
+            count(file("$py/data/mediacache_exclude.txt", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES))]);
     }
     unset($GLOBALS['jackMoverHost']);
 
@@ -2564,18 +2564,20 @@ JS);
 function testJackRsync(): void
 {
     $tmp = hardeningTmp('jackrsync');
-    same('rsync: an old «mover» reads as rsync, the rest kept', ['fill_tool' => 'rsync', 'cleanup_tool' => 'rsync', 'cache_path' => '/mnt/maple'],
+    same('rsync: an old «mover» reads as rsync, the rest kept (and MediaCache\'s share root and one copy at a time)',
+        ['fill_tool' => 'rsync', 'cleanup_tool' => 'rsync', 'cache_path' => '/mnt/maple'] + JACK_FIXED,
         jackToolsRsync(['fill_tool' => 'mover', 'cleanup_tool' => 'mover', 'cache_path' => '/mnt/maple']));
-    same('rsync: none set (EmbyCache\'s own default would be the mover) — rsync', ['fill_tool' => 'rsync', 'cleanup_tool' => 'rsync'], jackToolsRsync([]));
+    same('rsync: none set (MediaCache\'s own default would be the mover) — rsync', ['fill_tool' => 'rsync', 'cleanup_tool' => 'rsync'] + JACK_FIXED, jackToolsRsync([]));
+    same('rsync: one copy at a time, MediaCache makes the share\'s dataset', ['create_share_root' => true, 'parallel_per_disk' => 1, 'parallel_total' => 1], JACK_FIXED);
     @mkdir("$tmp/emby", 0700, true);
     @mkdir("$tmp/pool", 0700, true);
     $inst = [['servername' => 'Emby', 'url' => 'http://192.168.20.10:8096', 'api_key' => 'abcdefgh12345678', 'path_mappings' => ['/media/Filme' => '/mnt/user/Filme']]];
-    file_put_contents("$tmp/emby/embycache_settings.json", json_encode(['cache_path' => "$tmp/pool", 'array_path' => $tmp, 'fill_tool' => 'mover', 'cleanup_tool' => 'mover',
+    file_put_contents("$tmp/emby/mediacache_settings.json", json_encode(['cache_path' => "$tmp/pool", 'array_path' => $tmp, 'fill_tool' => 'mover', 'cleanup_tool' => 'mover',
         'instances' => $inst], JSON_UNESCAPED_SLASHES));
     $read = jackReadSettings("$tmp/emby");
     same('rsync: an old settings file with «mover» reads as rsync (migrated on read)', ['rsync', 'rsync', "$tmp/pool"],
         [$read['fill_tool'] ?? null, $read['cleanup_tool'] ?? null, $read['cache_path'] ?? null]);
-    same('rsync: the file itself untouched until the next save', 'mover', json_decode((string) file_get_contents("$tmp/emby/embycache_settings.json"), true)['cleanup_tool']);
+    same('rsync: the file itself untouched until the next save', 'mover', json_decode((string) file_get_contents("$tmp/emby/mediacache_settings.json"), true)['cleanup_tool']);
     check('rsync: the setup\'s save no longer takes the two keys from the page', !in_array('fill_tool', JACK_SETTINGS, true) && !in_array('cleanup_tool', JACK_SETTINGS, true));
     $code = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
     check('rsync: the save lays rsync over the request', (bool) preg_match('/\$cfg\[\$k\] = \$in\[\$k\];\s*\}\s*\}\s*\$cfg = jackToolsRsync\(\$cfg\);/', $code));
@@ -2584,15 +2586,15 @@ function testJackRsync(): void
     $cfg['fill_tool'] = $cfg['cleanup_tool'] = 'mover';
     @mkdir("$tmp/run", 0700, true);
     jackWriteSettings($cfg, "$tmp/emby", "$tmp/run");
-    $saved = json_decode((string) file_get_contents("$tmp/emby/embycache_settings.json"), true);
+    $saved = json_decode((string) file_get_contents("$tmp/emby/mediacache_settings.json"), true);
     same('rsync: a save that carries «mover» writes rsync (refused as a choice)', ['rsync', 'rsync'], [$saved['fill_tool'] ?? null, $saved['cleanup_tool'] ?? null]);
     // what Jack hands EmbyCache: its environment wins over any settings file — EmbyCache's own load_config() says so
     file_put_contents("$tmp/emby/old.json", json_encode(['cache_path' => "$tmp/pool", 'array_path' => $tmp, 'fill_tool' => 'mover', 'cleanup_tool' => 'mover',
         'instances' => $inst], JSON_UNESCAPED_SLASHES));
     $env = jackPyEnv();
-    same('rsync: Jack\'s environment for EmbyCache says rsync both ways', ['rsync', 'rsync'], [$env['EMBYCACHE_FILL_TOOL'] ?? null, $env['EMBYCACHE_CLEANUP_TOOL'] ?? null]);
-    $py = 'import json, sys; sys.path.insert(0, sys.argv[1]); import embycache_lib as l; c = l.load_config(require_paths=False); print(c["fill_tool"] + "|" + c["cleanup_tool"])';
-    [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], ['EMBYCACHE_DIR' => "$tmp/emby"] + $env + ['EMBYCACHE_CONFIG' => "$tmp/emby/old.json"], 30);
+    same('rsync: Jack\'s environment for EmbyCache says rsync both ways', ['rsync', 'rsync'], [$env['MEDIACACHE_FILL_TOOL'] ?? null, $env['MEDIACACHE_CLEANUP_TOOL'] ?? null]);
+    $py = 'import json, sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; c = l.load_config(require_paths=False); print(c["fill_tool"] + "|" + c["cleanup_tool"])';
+    [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], ['MEDIACACHE_DIR' => "$tmp/emby"] + $env + ['MEDIACACHE_CONFIG' => "$tmp/emby/old.json"], 30);
     same('rsync: EmbyCache run with Jack\'s environment on an old «mover» file — rsync both ways', [0, 'rsync|rsync'], [$exit, trim($out) ?: trim($err)]);
     // the import: an old «mover» is Jack's rsync (tested with the whole import in testJackImport); never accepted as a value
     same('rsync: «mover» is no valid value for the two keys', [false, true, false], [jackImportValueOk('cleanup_tool', 'mover', 'mover'),
@@ -2618,29 +2620,34 @@ function testJackRsync(): void
 function testJackKeyRedirect(): void
 {
     $py = 'import sys, json, threading, http.server
-sys.path.insert(0, sys.argv[1]); import embycache_lib as l
+sys.path.insert(0, sys.argv[1]); import mediacache_lib as l
 seen = {}
 class H(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     def do_GET(self):
-        seen[self.server.name + self.path] = self.headers.get("X-Emby-Token")
+        seen[self.server.name + self.path] = self.headers.get("X-Emby-Token") or self.headers.get("Authorization") or self.headers.get("X-Plex-Token")
         if self.path.startswith("/to-"):
             self.send_response(302); self.send_header("Location", self.path[4:].replace("PORT_A", str(a.server_port)).replace("PORT_B", str(b.server_port))); self.end_headers(); return
         self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(b"{}")
 a = http.server.HTTPServer(("127.0.0.1", 0), H); a.name = "a"
 b = http.server.HTTPServer(("127.0.0.1", 0), H); b.name = "b"
 for s in (a, b): threading.Thread(target=s.serve_forever, daemon=True).start()
-api = l.EmbyApi("http://127.0.0.1:%d" % a.server_port, "abcdefgh12345678", timeout=5)
-api.get("/to-http://127.0.0.1:PORT_A/same")
-try:
-    api.get("/to-http://localhost:PORT_B/other")
-except RuntimeError:
-    pass
-print(json.dumps(seen, sort_keys=True))';
+out = {}
+for kind in ("emby", "jellyfin", "plex"):
+    seen.clear()
+    api = l.MediaServerApi.for_instance({"url": "http://127.0.0.1:%d" % a.server_port, "api_key": "abcdefgh12345678", "type": kind}, 5)
+    for path in ("/to-http://127.0.0.1:PORT_A/same", "/to-http://localhost:PORT_B/other"):
+        try:
+            api.get(path)
+        except RuntimeError:
+            pass
+    out[kind] = dict(seen)
+print(json.dumps(out, sort_keys=True))';
     [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], jackPyEnv(), 30);
-    same('emby key: to Emby itself, along a redirect to the same host - never to another host', [0, [
-        'a/same' => 'abcdefgh12345678', 'a/to-http://127.0.0.1:PORT_A/same' => 'abcdefgh12345678',
-        'a/to-http://localhost:PORT_B/other' => 'abcdefgh12345678', 'b/other' => null]], [$exit, json_decode(trim($out), true) ?? trim($err)]);
+    $want = fn (string $k) => ['a/same' => $k, 'a/to-http://127.0.0.1:PORT_A/same' => $k, 'a/to-http://localhost:PORT_B/other' => $k, 'b/other' => null];
+    same('server key: to the server itself, along a redirect to the same host - never to another host (Emby, Jellyfin, Plex)', [0, [
+        'emby' => $want('abcdefgh12345678'), 'jellyfin' => $want('MediaBrowser Token="abcdefgh12345678"'), 'plex' => $want('abcdefgh12345678')]],
+        [$exit, json_decode(trim($out), true) ?? trim($err)]);
 }
 
 function testJackUpstream(): void
@@ -2650,23 +2657,23 @@ function testJackUpstream(): void
     @mkdir("$tmp/pool", 0700, true);
     $inst = [['servername' => 'Emby: Home', 'url' => 'http://192.168.20.10:8096', 'api_key' => 'abcdefgh12345678', 'path_mappings' => ['/media/Filme' => '/mnt/user/Filme']]];
     $cfg = fn (array $x) => json_encode(['cache_path' => "$tmp/pool", 'array_path' => $tmp, 'instances' => $inst] + $x, JSON_UNESCAPED_SLASHES);
-    $load = 'import sys; sys.path.insert(0, sys.argv[1]); import embycache_lib as l
+    $load = 'import sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l
 try:
     c = l.load_config(require_paths=False); print("ok", repr(c["min_free_percent"]), repr(c["mover_debug_level"]), c["cleanup_tool"])
 except l.ConfigError as e:
     print("config", e)';
     $run = function (array $settings, array $env = []) use ($tmp, $cfg, $load): string {
-        file_put_contents("$tmp/emby/embycache_settings.json", $cfg($settings));
-        [$exit, $out, $err] = runEnv(['python3', '-c', $load, JACK_APP], ['EMBYCACHE_DIR' => "$tmp/emby"] + jackPyEnv() + $env, 30);
+        file_put_contents("$tmp/emby/mediacache_settings.json", $cfg($settings));
+        [$exit, $out, $err] = runEnv(['python3', '-c', $load, JACK_APP], ['MEDIACACHE_DIR' => "$tmp/emby"] + jackPyEnv() + $env, 30);
         return $exit . ' ' . (trim($out) ?: trim($err));
     };
     same('emby upstream 9d14374: numbers read as numbers, rsync both ways', '0 ok 20.0 0 rsync', $run([]));
-    same('emby upstream 9d14374: … from the environment too', '0 ok 12.5 2 rsync', $run([], ['EMBYCACHE_MIN_FREE_PERCENT' => '12.5', 'EMBYCACHE_MOVER_DEBUG' => '2']));
-    $bad = [$run(['min_free_percent' => 'viel']), $run([], ['EMBYCACHE_MOVER_DEBUG' => 'x']), $run(['mover_debug_level' => null])];
+    same('emby upstream 9d14374: … from the environment too', '0 ok 12.5 2 rsync', $run([], ['MEDIACACHE_MIN_FREE_PERCENT' => '12.5', 'MEDIACACHE_MOVER_DEBUG' => '2']));
+    $bad = [$run(['min_free_percent' => 'viel']), $run([], ['MEDIACACHE_MOVER_DEBUG' => 'x']), $run(['mover_debug_level' => null])];
     check('emby upstream 9d14374: no number (file, environment, null) — a ConfigError naming both settings, no traceback',
         count(array_filter($bad, fn ($o) => str_starts_with($o, '0 config min_free_percent muss eine Zahl') && !str_contains($o, 'Traceback'))) === 3, implode("\n", $bad));
     // the budget: a server named «Emby: Home», user u1 with a fixed 5 GB of a 100 GB budget; before, «Home:u1» was looked up
-    $plan = 'import sys; sys.path.insert(0, sys.argv[1]); import embycache_run as r
+    $plan = 'import sys; sys.path.insert(0, sys.argv[1]); import mediacache_run as r
 p = r.Planner({"cache_budget_bytes": 100 * 2**30, "movie_share_percent": 50, "user_budgets": {"u1": 5 * 2**30}})
 for key, uid in (("Emby: Home:u1", "u1"), ("Emby: Home:u2", "u2")):
     u = r.UserPlan(key, uid, uid, "Emby: Home"); u.movies = ["x"]; p.users[key] = u
@@ -2675,10 +2682,10 @@ def select(u, cap, share):
 p.select = select
 p.apply_budget()
 print(" ".join(str(int(p.users[k].budget // 2**30)) for k in ("Emby: Home:u1", "Emby: Home:u2")))';
-    [$exit, $out, $err] = runEnv(['python3', '-c', $plan, JACK_APP], ['EMBYCACHE_DIR' => "$tmp/emby"], 30);
+    [$exit, $out, $err] = runEnv(['python3', '-c', $plan, JACK_APP], ['MEDIACACHE_DIR' => "$tmp/emby"], 30);
     same('emby upstream 9d14374: a fixed budget found by the user id on a server whose name has «:» (u1 5 GB, u2 the other 95)', [0, '5 95'], [$exit, preg_replace('/^.*\n/s', '', trim($out)) ?: trim($err)]);
-    check('emby upstream: the README names 9d14374 and why 6974247 stays out', str_contains($readme = (string) file_get_contents(JACK_APP . '/README.md'), '`9d14374`')
-        && str_contains($readme, '`6974247`'));
+    check('upstream: the README names MediaCache\'s commit taken and the office\'s changes, GPL', str_contains($readme = (string) file_get_contents(JACK_APP . '/README.md'), '`2a91ef1`')
+        && str_contains($readme, 'Changes against 2a91ef1') && str_contains($readme, 'GPL-3.0-or-later') && is_file(JACK_APP . '/LICENSE'));
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -2900,8 +2907,8 @@ function testJackProgress(): void
     jackProgressClear($paths);
     same('progress part: the run ended — its files gone, no panel', [false, false, null], [is_file($paths['file']), is_file($paths['samples']), $state(['running' => true, 'mode' => 'run'])['progress']]);
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
-    check('progress: Jack\'s job sets EMBYCACHE_PROGRESS for real EmbyCache runs only, samples while it watches, clears it after',
-        (bool) preg_match('/if \(\$real\) \{[^}]*jackProgressClear\(\$progress\);\s*\$env\[\'EMBYCACHE_PROGRESS\'\] = \$progress\[\'file\'\];/s', $src)
+    check('progress: Jack\'s job sets MEDIACACHE_PROGRESS for real EmbyCache runs only, samples while it watches, clears it after',
+        (bool) preg_match('/if \(\$real\) \{[^}]*jackProgressClear\(\$progress\);\s*\$env\[\'MEDIACACHE_PROGRESS\'\] = \$progress\[\'file\'\];/s', $src)
         && str_contains($src, 'tick: $progress !== null ? jackProgressTicker($progress) : null')
         && str_contains($src, "'progress'       => fn (array \$r) => ['ok' => true, 'state' => jackProgressNow(jackNightNow())]")
         && str_contains($src, "return (\$jack ? jackNightProgress(\$night) : jackProgressState()) + ['night' => \$night];"));
@@ -2925,7 +2932,7 @@ function testJackProgress(): void
     file_put_contents("$py/user0/Filme/Alien/Alien.mkv", str_repeat('a', 3000));
     file_put_contents("$py/user0/Filme/Alien/Alien.srt", str_repeat('s', 10));
     file_put_contents("$py/user0/Filme/Brazil/Brazil.mkv", str_repeat('b', 2000));
-    file_put_contents("$py/data/embycache_exclude.txt", "$py/pool/Filme/Old/old.mkv\n");
+    file_put_contents("$py/data/mediacache_exclude.txt", "$py/pool/Filme/Old/old.mkv\n");
     file_put_contents("$py/emby.py", <<<'PY'
 import http.server, json, sys, urllib.parse
 RESUME = {"u1": [{"Type": "Movie", "Id": "m1", "Name": "Alien", "Path": "/media/movies/Alien/Alien.mkv"}],
@@ -2960,16 +2967,16 @@ PY);
         usleep(100000);
     }
     $port = (int) @file_get_contents("$py/port");
-    file_put_contents("$py/data/embycache_settings.json", json_encode(['cache_path' => "$py/pool", 'array_path' => "$py/user0", 'user_path' => "$py/user",
+    file_put_contents("$py/data/mediacache_settings.json", json_encode(['cache_path' => "$py/pool", 'array_path' => "$py/user0", 'user_path' => "$py/user",
         'array_disks_glob' => "$py/disk[0-9]*", 'cleanup_tool' => 'rsync', 'fill_tool' => 'rsync', 'return_to_origin' => true, 'shares_cfg_dir' => "$py/shares",
         'api_timeout' => 3, 'min_free_percent' => 0, 'max_resume_movies' => 10, 'max_resume_series' => 0, 'max_favorite_series' => 0, 'use_next_up' => false,
         'instances' => [['servername' => 'Test', 'url' => "http://127.0.0.1:$port", 'api_key' => 'k', 'path_mappings' => ['/media/movies' => "$py/user/Filme"]]]],
         JSON_UNESCAPED_SLASHES));
     $rsync = trim((string) shell_exec('command -v rsync'));
-    file_put_contents("$py/bin/rsync", "#!/bin/bash\ncat \"\$EMBYCACHE_PROGRESS\" >> " . escapeshellarg("$py/seen.jsonl") . "\nexec " . escapeshellarg($rsync) . " \"\$@\"\n");
+    file_put_contents("$py/bin/rsync", "#!/bin/bash\ncat \"\$MEDIACACHE_PROGRESS\" >> " . escapeshellarg("$py/seen.jsonl") . "\nexec " . escapeshellarg($rsync) . " \"\$@\"\n");
     chmod("$py/bin/rsync", 0755);
-    $env = ['env', "PATH=$py/bin:" . getenv('PATH'), "EMBYCACHE_DIR=$py/data", "EMBYCACHE_STATUS=$py/data/status.json", "EMBYCACHE_PROGRESS=$py/run/progress.json",
-            'EMBYCACHE_FILL_TOOL=rsync', 'EMBYCACHE_CLEANUP_TOOL=rsync', 'PYTHONDONTWRITEBYTECODE=1', 'python3', OFFICE_DIR . '/embycache/embycache_run.py'];
+    $env = ['env', "PATH=$py/bin:" . getenv('PATH'), "MEDIACACHE_DIR=$py/data", "MEDIACACHE_RESULT=$py/data/status.json", "MEDIACACHE_PROGRESS=$py/run/progress.json",
+            'MEDIACACHE_FILL_TOOL=rsync', 'MEDIACACHE_CLEANUP_TOOL=rsync', 'PYTHONDONTWRITEBYTECODE=1', 'python3', OFFICE_DIR . '/mediacache/mediacache_run.py'];
     [$exit, $out, $err] = run($env, 120);
     same('progress, EmbyCache dry run: no progress file (only real runs)', [0, false], [$exit, is_file("$py/run/progress.json")]);
     [$exit, $out, $err] = run(array_merge($env, ['--run']), 120);
@@ -3222,7 +3229,7 @@ function testJackForeign(): void
 {
     $tmp = hardeningTmp('jackforeign');
     $us = "$tmp/user.scripts";
-    $call = 'python3 /usr/local/emhttp/plugins/unraid-secretary-office/embycache/embycache_run.py --mode run';
+    $call = 'python3 /usr/local/emhttp/plugins/unraid-secretary-office/mediacache/mediacache_run.py --mode run';
     $scripts = [
         'Active'      => "#!/bin/bash\n# description=EmbyCache every 15 minutes\n$call\n",
         'Commented'   => "#!/bin/bash\n#$call\necho done\n",
@@ -3250,7 +3257,7 @@ function testJackForeign(): void
     @mkdir("$tmp/plugins/other", 0700, true);
     @mkdir("$tmp/plugins/office", 0700, true);
     file_put_contents("$tmp/plugins/other/other.cron", "# */5 * * * * $call\n   #0 4 * * 0 bash /x/consolidate_master.sh\n0 4 * * 0 bash /x/consolidate_master.sh > /dev/null\n"
-        . "*/10 * * * * /usr/local/emhttp/plugins/user.scripts/startCustom.php $us/scripts/Active/script embycache_run.py\n");
+        . "*/10 * * * * /usr/local/emhttp/plugins/user.scripts/startCustom.php $us/scripts/Active/script mediacache_run.py\n");
     file_put_contents("$tmp/plugins/office/office.cron", "0 3 * * * $call\n");
     $found = jackForeignSchedules($us, "$tmp/plugins/*/*.cron", "$tmp/plugins/office/office.cron");
     $by = [];
@@ -5919,10 +5926,10 @@ function testDataTrust(): void
     }
     // EmbyCache: rsync's options the office's, whatever its settings file says
     @mkdir("$tmp/emby", 0700);
-    file_put_contents("$tmp/emby/embycache_settings.json", json_encode(['cache_path' => $tmp, 'array_path' => $tmp, 'rsync_args' => ['-a', '--log-file=/boot/config/go'],
+    file_put_contents("$tmp/emby/mediacache_settings.json", json_encode(['cache_path' => $tmp, 'array_path' => $tmp, 'rsync_args' => ['-a', '--log-file=/boot/config/go'],
         'instances' => [['servername' => 'E', 'url' => 'http://192.0.2.1:8096', 'api_key' => 'abcdefgh12345678', 'path_mappings' => ['/media' => '/mnt/user/Media']]]]));
-    [, $out] = runEnv(['python3', '-c', 'import sys, json; sys.path.insert(0, sys.argv[1]); import embycache_lib as l; print(json.dumps(l.load_config(require_paths=False)["rsync_args"]))', JACK_APP],
-        ['EMBYCACHE_DIR' => "$tmp/emby"] + jackPyEnv(), 30);
+    [, $out] = runEnv(['python3', '-c', 'import sys, json; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; print(json.dumps(l.load_config(require_paths=False)["rsync_args"]))', JACK_APP],
+        ['MEDIACACHE_DIR' => "$tmp/emby"] + jackPyEnv(), 30);
     same('data trust: EmbyCache\'s rsync options are the office\'s (a settings file can\'t add --log-file)', ['-aAX', '--numeric-ids'], json_decode(trim($out), true));
     check('data trust: the .plg says «Jack Streamer», never «Jack Emby»', !str_contains($src('plugin/unraid-secretary-office.plg'), 'Jack Emby'));
     check('data trust: the guide says a partner\'s copy is trusted like your own backup', str_contains($src('docs/GUIDE.md'), "trusts that partner like your own backup"));
@@ -12903,7 +12910,7 @@ function testWatchmanFlowGone(): void
     $tmp = sys_get_temp_dir() . '/office-tests-gone-flow-' . getmypid();
     same('gone movers: who moves data (not unbalanced\'s web page, always running)', ['mover', 'mover', 'embycache', 'gather', 'rsync', null, 'storeroom', null, null], array_map('watchmanFlowMover', [
         ['/bin/bash', '/usr/local/sbin/mover', 'start'], ['/bin/bash', '/usr/local/emhttp/plugins/ca.mover.tuning/age_mover', 'start'],
-        ['python3', '/usr/local/emhttp/plugins/unraid-secretary-office/embycache/embycache_run.py', '--run'],
+        ['python3', '/usr/local/emhttp/plugins/unraid-secretary-office/mediacache/mediacache_run.py', '--run'],
         ['bash', '/usr/local/emhttp/plugins/unraid-secretary-office/gather/consolidate_master.sh', 'run'],
         ['rsync', '-a', '--remove-source-files', '/mnt/user/a/', '/mnt/user/b/'], ['rsync', '-a', '/mnt/user/a/', '/mnt/user/b/'],
         ['rm', '-rf', '--', '/mnt/hazel/Serien/_UnraidSecretaryOffice-trash/20261006-1010.purging'], ['rm', '-rf', '/mnt/hazel/Serien/Staffel 1'],
@@ -15367,12 +15374,12 @@ function testJackPaths(): void
     if ($exit !== 0) {
         return;                                    // no Python on this server: EmbyCache can't run here either
     }
-    $py = 'import sys; sys.path.insert(0, sys.argv[1]); import embycache_lib as l; '
+    $py = 'import sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; '
         . 'loc = l.Locations({"cache_path": "/mnt/cache", "array_path": "/mnt/user0", "user_path": "/mnt/user", "array_disks_glob": "/mnt/disk[0-9]*"}, '
         . '{"/media/movies": "/mnt/user/Filme"}); '
         . 'print(loc.rel_from_docker("/media/movies/A/a.mkv"), loc.rel_from_docker("/media/movies/../../../../boot/config/go"), '
         . 'loc.rel_from_docker("/media/movies/A/../../Other/x"))';
-    [$exit, $out] = run(['env', 'EMBYCACHE_DIR=' . sys_get_temp_dir(), 'PYTHONDONTWRITEBYTECODE=1', 'python3', '-c', $py, OFFICE_DIR . '/embycache'], 30);
+    [$exit, $out] = run(['env', 'MEDIACACHE_DIR=' . sys_get_temp_dir(), 'PYTHONDONTWRITEBYTECODE=1', 'python3', '-c', $py, OFFICE_DIR . '/mediacache'], 30);
     same('EmbyCache: paths with ".." are skipped', 'Filme/A/a.mkv None None', trim($out));
 }
 
@@ -32111,9 +32118,9 @@ function testMoverelliUnraid(): void
     unset($GLOBALS['jackMoverHost']);
 
     // D1: EmbyCache's list in her ini before EmbyCache's first run — no real run (said once, never notified), a Team Lead hint
-    $list = "$tmp/emby/embycache_exclude.txt";
+    $list = "$tmp/emby/mediacache_exclude.txt";
     @mkdir("$tmp/emby", 0700, true);
-    $v['jack_lists'] = [$list, '/mnt/user/appdata/x/embycache_exclude.txt'];
+    $v['jack_lists'] = [$list, '/mnt/user/appdata/x/mediacache_exclude.txt'];
     $v['jack_ran'] = false;
     $v['own'] = ['set' => '', 'cron' => null];
     moverelliSave(moverelliTestSettings(['files' => [$list]]), $h);
@@ -32145,10 +32152,10 @@ function testMoverelliUnraid(): void
     file_put_contents("$jd/office-history.json", json_encode(['runs' => [['tool' => 'embycache', 'mode' => 'release', 'result' => 'ok']]]));
     $ran[] = moverelliJackRan($jd);
     unlink("$jd/office-history.json");
-    file_put_contents("$jd/embycache_origin.json", '{}');
+    file_put_contents("$jd/mediacache_origin.json", '{}');
     $ran[] = moverelliJackRan($jd);
-    unlink("$jd/embycache_origin.json");
-    file_put_contents("$jd/embycache_exclude.txt.before-import-20261012-101010", '');
+    unlink("$jd/mediacache_origin.json");
+    file_put_contents("$jd/mediacache_exclude.txt.before-import-20261012-101010", '');
     $ran[] = moverelliJackRan($jd);
     same('jack list: EmbyCache\'s traces — none, a refused run or a gather, a release, origin.json, an import\'s copy', [false, false, true, true, true], $ran);
 
@@ -32226,7 +32233,7 @@ const texts = (n) => (typeof n === 'string' ? [n] : [n.text, ...n.children.flatM
   out.noBar = m.setupBarSpec();
   const f = m.form();
   f.global.min_age = 14;
-  f.global.files.push('/mnt/user/appdata/x/embycache_exclude.txt');
+  f.global.files.push('/mnt/user/appdata/x/mediacache_exclude.txt');
   f.global.patterns = ['*.nfo'];
   f.shares.Filme.min_age = null;
   f.shares.Filme.move_when_used_above = 70;
@@ -32269,7 +32276,7 @@ JS);
             same('unraid mover page: the bar — «N changes», Discard, Apply…', ['setup.bar_changes {"n":6}', [['setup.discard', false], ['setup.save', false]]], $o['bar']);
             same('unraid mover page: the changes, Mr. Backupsy\'s marks — a value «a → b», + a list, + an own line, a share\'s own rules new, a share\'s rules changed', [
                 [null, 'setup.row_global {"what":"setup.min_age"}', 'setup.tile.days {"n":0} → setup.tile.days {"n":14}'],
-                ['add', 'setup.files', '/mnt/user/appdata/x/embycache_exclude.txt'], ['add', 'setup.patterns', '*.nfo'],
+                ['add', 'setup.files', '/mnt/user/appdata/x/mediacache_exclude.txt'], ['add', 'setup.patterns', '*.nfo'],
                 ['add', 'setup.row_share {"share":"Docs"}', 'setup.row_own'],
                 [null, 'setup.row_share {"share":"Filme"} — setup.min_age', 'setup.tile.days {"n":30} → setup.as_global'],
                 [null, 'setup.row_share {"share":"Filme"} — setup.threshold', 'setup.as_global → 70 %']], $o['rows']);
@@ -32810,23 +32817,23 @@ function testStreamerReset(): void
     };
     $jobs = [];
     $o = ['dir' => $dir, 'gather' => $gdir, 'running' => fn (): bool => false, 'schedule' => function (string $job) use (&$jobs) { $jobs[] = $job; }];
-    $his = ['embycache_settings.json', 'embycache_origin.json', 'office-history.json', 'office-run.json', 'office-output.txt', 'office-stop.json',
-            'jack-progress.json', 'status.json', 'embycache_settings.json.before-import-20261001'];
+    $his = ['mediacache_settings.json', 'mediacache_origin.json', 'office-history.json', 'office-run.json', 'office-output.txt', 'office-stop.json',
+            'jack-progress.json', 'status.json', 'mediacache_settings.json.before-import-20261001'];
     foreach ($his as $f) {
         file_put_contents("$dir/$f", '{}');
     }
-    file_put_contents("$dir/embycache_exclude.txt", "/mnt/cache/Filme/A/a.mkv\n");
+    file_put_contents("$dir/mediacache_exclude.txt", "/mnt/cache/Filme/A/a.mkv\n");
     file_put_contents("$dir/embycache.log", "a line\n");
     foreach (['gather.json', 'consolidate.ini', 'last-real.json', 'sizes.json', 'status.json', 'office-run.json'] as $f) {
         file_put_contents("$gdir/$f", '{}');
     }
     file_put_contents("$gdir/consolidate.log", "a line\n");
     same('reset: refused while a run of his goes — nothing touched', ['jack_running', true, 25],
-        [$refused(fn () => jackReset(['running' => fn (): bool => true] + $o)), is_file("$dir/embycache_settings.json"), filesize("$dir/embycache_exclude.txt")]);
+        [$refused(fn () => jackReset(['running' => fn (): bool => true] + $o)), is_file("$dir/mediacache_settings.json"), filesize("$dir/mediacache_exclude.txt")]);
     same('reset: done', 'ok', $refused(fn () => jackReset($o)));
     same('reset: his settings, origin, runs, progress, status and import copies gone — no copy', [], array_values(array_filter($his, fn ($f) => file_exists("$dir/$f"))));
     same('reset: … no .bak of anything', [], glob("$dir/*bak*") ?: []);
-    same('reset: his list emptied, the file kept (her ini names it)', [true, 0], [is_file("$dir/embycache_exclude.txt"), filesize("$dir/embycache_exclude.txt")]);
+    same('reset: his list emptied, the file kept (her ini names it)', [true, 0], [is_file("$dir/mediacache_exclude.txt"), filesize("$dir/mediacache_exclude.txt")]);
     same('reset: the gather\'s settings and state gone', ['consolidate.log'], array_map('basename', glob("$gdir/*") ?: []));
     same('reset: the logs stay (Ms. Protocolli shows them)', [true, true], [is_file("$dir/embycache.log"), is_file("$gdir/consolidate.log")]);
     same('reset: his and the gather\'s schedules off', ['embycache', 'gather'], $jobs);
@@ -32840,15 +32847,15 @@ function testStreamerReset(): void
     file_put_contents("$t/shares/Filme.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\n");
     file_put_contents("$t/mnt/cache/Filme/film.mkv", str_repeat('x', 100));
     touch("$t/mnt/cache/Filme/film.mkv", time() - 40 * 86400);
-    file_put_contents("$t/embycache/embycache_exclude.txt", "$t/mnt/cache/Filme/film.mkv\n");
-    file_put_contents("$t/embycache/embycache_settings.json", '{}');
+    file_put_contents("$t/embycache/mediacache_exclude.txt", "$t/mnt/cache/Filme/film.mkv\n");
+    file_put_contents("$t/embycache/mediacache_settings.json", '{}');
     file_put_contents("$t/bin/move", "#!/bin/bash\nwhile IFS= read -r f; do r=\${f#\"\$ZROOT\"/}; mkdir -p \"\$(dirname \"\$DISK/\$r\")\"; mv \"\$f\" \"\$DISK/\$r\"; done\n");
     file_put_contents("$t/bin/zfs", "#!/bin/bash\nexit 1\n");
     file_put_contents("$t/bin/df", "#!/bin/bash\necho 'Used Avail Use%'; echo '100 900 10%'\n");
     foreach (['move', 'zfs', 'df'] as $b) {
         chmod("$t/bin/$b", 0755);
     }
-    file_put_contents("$t/ini", "[GLOBAL]\nglobal_excludes=$t/embycache/embycache_exclude.txt\nmin_age=30\nage_stat=mtime\n");
+    file_put_contents("$t/ini", "[GLOBAL]\nglobal_excludes=$t/embycache/mediacache_exclude.txt\nmin_age=30\nage_stat=mtime\n");
     $env = ['CUSTOMMOVER_INI' => "$t/ini", 'CUSTOMMOVER_SHARES_DIR' => "$t/shares", 'CUSTOMMOVER_MNT' => "$t/mnt", 'CUSTOMMOVER_LOG' => "$t/log",
             'CUSTOMMOVER_LOCK' => "$t/lock", 'CUSTOMMOVER_STATUS' => "$t/st.json", 'CUSTOMMOVER_ZFS' => "$t/bin/zfs", 'CUSTOMMOVER_DF' => "$t/bin/df",
             'CUSTOMMOVER_MOVER_BIN' => "$t/bin/move", 'CUSTOMMOVER_EXCLUDES_REQUIRED' => '1', 'CUSTOMMOVER_IGNORE_MOVER' => '1',
@@ -33025,7 +33032,7 @@ function testStreamerFix3(): void
         && str_contains($css, '.dialog > .dialog-body{flex:1 1 auto; min-height:0}') && str_contains($core, 'if (ownFoot) foot.appendChild(ownFoot);'));
     // her rules without his settings
     $tmp = hardeningTmp('fix3-ini');
-    file_put_contents("$tmp/smart_mover.ini", "[GLOBAL]\nmove_when_used_above=80\nmin_age=7\nglobal_excludes=/x/embycache_exclude.txt\n");
+    file_put_contents("$tmp/smart_mover.ini", "[GLOBAL]\nmove_when_used_above=80\nmin_age=7\nglobal_excludes=/x/mediacache_exclude.txt\n");
     $keep = $GLOBALS['jackPool'] ?? null;
     $GLOBALS['jackPool'] = ['ini' => "$tmp/smart_mover.ini"];
     $with = jackMoverelliRules();
@@ -33174,7 +33181,7 @@ function testPoolLevel(): void
     $e = [poolLevelJack($jo)['env'] ?? null, poolLevelJack(['cache_path' => "$tmp/mnt/fast"] + $jo)['env'] ?? null];
     file_put_contents("$tmp/ini", "[GLOBAL]\nmove_when_used_above=0\n");
     $e[] = poolLevelJack($jo)['env'] ?? null;
-    $want = ['EMBYCACHE_MIN_FREE_PERCENT' => '20', 'EMBYCACHE_WATCHED_ONLY' => '1'];
+    $want = ['MEDIACACHE_MIN_FREE_PERCENT' => '20', 'MEDIACACHE_WATCHED_ONLY' => '1'];
     same('level jack: 100 − X free and only what was watched (an old Y and «guaranteed» ignored); a pool not measured — the same; no limit — nothing; she isn\'t set up — null',
         [$want, $want, [], null], [...$e, poolLevelJack(['ini' => "$tmp/none"] + $jo)]);
     $GLOBALS['jackPool'] = ['ini' => "$tmp/ini", 'shares_dir' => "$tmp/shares", 'names' => $o['names'], 'zfs' => "$tmp/bin/zfs", 'mnt' => "$tmp/mnt",
@@ -33182,9 +33189,9 @@ function testPoolLevel(): void
     file_put_contents("$tmp/ini", "[GLOBAL]\nmove_when_used_above=80\n");
     same('level jack: his launch hands it to EmbyCache (jackPoolEnv) — the same', $want, jackPoolEnv(['cache_path' => "$tmp/mnt/master"]));
     unset($GLOBALS['jackPool']);
-    $py = (string) file_get_contents(OFFICE_DIR . '/embycache/embycache_run.py');
-    check('level jack: EmbyCache with EMBYCACHE_WATCHED_ONLY never gives back by rank (EMBYCACHE_GIVE_BACK_FREE then off) and still writes its pool status',
-        str_contains($py, 'os.environ.get("EMBYCACHE_GIVE_BACK_FREE") == "1" and not WATCHED_ONLY') && str_contains($py, 'self.office_pool = self.give_back_free or WATCHED_ONLY'));
+    $py = (string) file_get_contents(OFFICE_DIR . '/mediacache/mediacache_run.py');
+    check('level jack: EmbyCache with MEDIACACHE_WATCHED_ONLY never gives back by rank (MEDIACACHE_GIVE_BACK_FREE then off) and still writes its pool status',
+        str_contains($py, 'os.environ.get("MEDIACACHE_GIVE_BACK_FREE") == "1" and not WATCHED_ONLY') && str_contains($py, 'self.office_pool = self.give_back_free or WATCHED_ONLY'));
 
     // her save: only X — an older page's Y and «Jack guaranteed» not read, never written
     $v = [];
@@ -33350,7 +33357,7 @@ JS);
  * dataset from /proc/mounts, the pool's used + avail, the dataset's avail — a quota counts). A stand-in Emby — Mutter
  * resumes «Serie» S01E01 (E02–E05 follow, 1–4 ahead), Vater has S01E03 next up (E04, E05 follow: shared with Mutter, each
  * counted once at its nearest rank), the Kids resume «Brazil»; 1000 bytes each, the pool 10000 (a ZFS stand-in that
- * counts what lies on it). The office tells him 100 − Y free and his half (EMBYCACHE_KEEP_BYTES): he fills round-robin
+ * counts what lies on it). The office tells him 100 − Y free and his half (MEDIACACHE_KEEP_BYTES): he fills round-robin
  * by everyone's next up to Y (borrowing), the rest waits; over Y he gives back the farthest ahead first, what is started
  * last, what plays never — never below his half; under Y nothing; what was watched first; standalone as before; the
  * words in the log, the status, the live panel and his page.
@@ -33370,11 +33377,11 @@ function testJackYield(): void
     @mkdir("$tmp/z/pool/Quota", 0700, true);
     file_put_contents("$tmp/z/zfs", "#!/bin/bash\ncase \"\${@: -1}\" in master) echo '7000 3000';; master/Filme) echo '500 3000';; master/Quota) echo '50 100';; *) exit 1;; esac\n");
     chmod("$tmp/z/zfs", 0755);
-    $py = 'import sys; sys.path.insert(0, sys.argv[1]); import embycache_lib as l; '
+    $py = 'import sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; '
         . 'print(round(l.free_percent_after(sys.argv[2] + "/pool/Filme", 0), 1), round(l.free_percent_after(sys.argv[2] + "/pool", 1000), 1), '
         . 'round(l.free_percent_after(sys.argv[2] + "/pool/Quota", 0), 1), l.pool_usage(sys.argv[2] + "/plain")[0] > 0)';
-    [, $out, $err] = runEnv(['python3', '-c', $py, OFFICE_DIR . '/embycache', "$tmp/z"], ['EMBYCACHE_ZFS' => "$tmp/z/zfs", 'EMBYCACHE_MOUNTS' => "$tmp/z/mounts",
-        'EMBYCACHE_DIR' => "$tmp/z", 'PYTHONDONTWRITEBYTECODE' => '1', 'PATH' => getenv('PATH')], 30);
+    [, $out, $err] = runEnv(['python3', '-c', $py, OFFICE_DIR . '/mediacache', "$tmp/z"], ['MEDIACACHE_ZFS' => "$tmp/z/zfs", 'MEDIACACHE_MOUNTS' => "$tmp/z/mounts",
+        'MEDIACACHE_DIR' => "$tmp/z", 'PYTHONDONTWRITEBYTECODE' => '1', 'PATH' => getenv('PATH')], 30);
     same('emby zfs: a share\'s dataset — the whole pool 30 % free (not refer+avail: 86 %); 1000 bytes more → 20 %; a quota\'d dataset 1 %; not ZFS — statvfs',
         '30.0 20.0 1.0 True', trim((string) $out), $err);
 
@@ -33382,7 +33389,8 @@ function testJackYield(): void
 
     $tmp = hardeningTmp('jack-rank');
     $p = "$tmp/py";
-    foreach (["$p/data", "$p/pool", "$p/user0/Filme/Brazil", "$p/user0/Serien/Serie", "$p/user/Filme", "$p/user/Serien", "$p/shares"] as $d) {
+    // the shares' folders on the pool there already (MediaCache makes a missing one itself only on a real ZFS pool the share may use)
+    foreach (["$p/data", "$p/pool/Filme", "$p/pool/Serien", "$p/user0/Filme/Brazil", "$p/user0/Serien/Serie", "$p/user/Filme", "$p/user/Serien", "$p/shares"] as $d) {
         @mkdir($d, 0700, true);
     }
     for ($e = 1; $e <= 5; $e++) {
@@ -33433,7 +33441,7 @@ PY);
         usleep(100000);
     }
     $port = (int) @file_get_contents("$p/port");
-    $settings = fn (int $minFree) => file_put_contents("$p/data/embycache_settings.json", json_encode(['cache_path' => "$p/pool", 'array_path' => "$p/user0",
+    $settings = fn (int $minFree) => file_put_contents("$p/data/mediacache_settings.json", json_encode(['cache_path' => "$p/pool", 'array_path' => "$p/user0",
         'user_path' => "$p/user", 'array_disks_glob' => "$p/disk[0-9]*", 'cleanup_tool' => 'rsync', 'fill_tool' => 'rsync', 'return_to_origin' => true,
         'shares_cfg_dir' => "$p/shares", 'create_share_root' => true, 'api_timeout' => 3, 'min_free_percent' => $minFree, 'max_resume_movies' => 10,
         'max_resume_series' => 10, 'max_favorite_series' => 0, 'use_next_up' => true, 'number_episodes' => 4,
@@ -33448,23 +33456,23 @@ PY);
         $settings(100 - $y);
         file_put_contents("$p/base", (string) $base);
         @unlink("$p/data/status.json");
-        $cmd = ['env', 'PATH=' . getenv('PATH'), "EMBYCACHE_DIR=$p/data", "EMBYCACHE_STATUS=$p/data/status.json", 'EMBYCACHE_FILL_TOOL=rsync',
-                'EMBYCACHE_CLEANUP_TOOL=rsync', 'PYTHONDONTWRITEBYTECODE=1', "EMBYCACHE_PROGRESS=$p/data/progress.json", "EMBYCACHE_MOUNTS=$p/mounts", "EMBYCACHE_ZFS=$p/zfs"];
+        $cmd = ['env', 'PATH=' . getenv('PATH'), "MEDIACACHE_DIR=$p/data", "MEDIACACHE_RESULT=$p/data/status.json", 'MEDIACACHE_FILL_TOOL=rsync',
+                'MEDIACACHE_CLEANUP_TOOL=rsync', 'PYTHONDONTWRITEBYTECODE=1', "MEDIACACHE_PROGRESS=$p/data/progress.json", "MEDIACACHE_MOUNTS=$p/mounts", "MEDIACACHE_ZFS=$p/zfs"];
         if ($office) {
-            $cmd[] = 'EMBYCACHE_GIVE_BACK_FREE=1';
+            $cmd[] = 'MEDIACACHE_GIVE_BACK_FREE=1';
         }
         if ($keep !== null) {
-            $cmd[] = "EMBYCACHE_KEEP_BYTES=$keep";
+            $cmd[] = "MEDIACACHE_KEEP_BYTES=$keep";
         }
         if ($noFill) {
-            $cmd[] = 'EMBYCACHE_NO_FILL=1';
+            $cmd[] = 'MEDIACACHE_NO_FILL=1';
         }
         if ($watched) {
-            $cmd[] = 'EMBYCACHE_WATCHED_ONLY=1';
+            $cmd[] = 'MEDIACACHE_WATCHED_ONLY=1';
         }
-        [$exit, $out, $err] = run(array_merge($cmd, ['python3', OFFICE_DIR . '/embycache/embycache_run.py', '--run']), 120);
-        $log = (string) @file_get_contents("$p/data/logs/embycache.log");
-        @unlink("$p/data/logs/embycache.log");
+        [$exit, $out, $err] = run(array_merge($cmd, ['python3', OFFICE_DIR . '/mediacache/mediacache_run.py', '--run']), 120);
+        $log = (string) @file_get_contents("$p/data/logs/mediacache.log");
+        @unlink("$p/data/logs/mediacache.log");
         return [$exit, readJson("$p/data/status.json") ?? [], $out . $err . $log];
     };
     $on = function () use ($p): array {
@@ -33481,10 +33489,10 @@ PY);
         return $m[1];
     };
 
-    // the night run's freeing pass (EMBYCACHE_NO_FILL=1): nothing fetched, what waits counted (all six of everyone's queue)
+    // the night run's freeing pass (MEDIACACHE_NO_FILL=1): nothing fetched, what waits counted (all six of everyone's queue)
     [$exit, $st, $out] = $go(50, 2000, null, true, true);
     same('emby no fill: the freeing pass — nothing fetched, the six queued files counted as waiting, said', [0, [], 6, 6000, 0, true],
-        [$exit, $on(), $st['pool']['waiting'] ?? null, $st['pool']['waiting_bytes'] ?? null, $st['fill']['planned'] ?? null, str_contains($out, 'EMBYCACHE_NO_FILL')], $out);
+        [$exit, $on(), $st['pool']['waiting'] ?? null, $st['pool']['waiting_bytes'] ?? null, $st['fill']['planned'] ?? null, str_contains($out, 'MEDIACACHE_NO_FILL')], $out);
     [$exit, $st, $out] = $go(50, 2000);
     same('emby yield: Y 50 %, appdata & co. 2000 — round-robin by everyone\'s next (Mutter E01, Vater E03, Kids Brazil) up to Y, the rest waits (counted)',
         [0, ['Brazil', 'S01E01', 'S01E03'], ['S01E01', 'S01E03', 'Brazil'], 3], [$exit, $on(), array_values(array_unique($copied($out))), $st['pool']['waiting'] ?? null], $out);
@@ -33504,12 +33512,12 @@ PY);
     // but the cleanup frees 400 → 50 % free: no ranked give-back, only old.mkv goes
     @mkdir("$p/pool/Filme/Old", 0700, true);
     file_put_contents("$p/pool/Filme/Old/old.mkv", str_repeat('o', 400));
-    file_put_contents("$p/data/embycache_exclude.txt", "$p/pool/Filme/Old/old.mkv\n", FILE_APPEND);
+    file_put_contents("$p/data/mediacache_exclude.txt", "$p/pool/Filme/Old/old.mkv\n", FILE_APPEND);
     [$exit, $st, $out] = $go(50, 2000);
     same('emby yield: watched files alone bring the pool under Y — no ranked give-back, the watched one back on the array',
         [0, [], ['Brazil', 'S01E01', 'S01E03'], false, true], [$exit, $back($out), $on(), is_file("$p/pool/Filme/Old/old.mkv"), is_file("$p/user0/Filme/Old/old.mkv")], $out);
     [$exit, $st, $out] = $go(45, 2000, null, false);
-    same('emby yield: standalone (no EMBYCACHE_GIVE_BACK_FREE) over its limit — nothing goes back, min_free only stops filling (as before)',
+    same('emby yield: standalone (no MEDIACACHE_GIVE_BACK_FREE) over its limit — nothing goes back, min_free only stops filling (as before)',
         [0, [], ['Brazil', 'S01E01', 'S01E03'], false, false], [$exit, $back($out), $on(), isset($st['give_back']), isset($st['pool'])], $out);
     [$exit, $st, $out] = $go(45, 2000, '3000');
     same('emby yield: his half 3000, he holds 3000 — over Y, but nothing goes back (said)', [0, [], ['Brazil', 'S01E01', 'S01E03'], 3000],
@@ -33519,7 +33527,7 @@ PY);
     same('emby yield: Y 30 % (2000 short), his half 2500 — back only down to it: the next up E03 (500 over his half) before what is started',
         [0, ['S01E03'], ['Brazil', 'S01E01'], 2000], [$exit, $back($out), $on(), $st['pool']['held'] ?? null], $out);
     check('emby yield: … said with the floor', str_contains($out, 'meine Hälfte (2.4 KiB) bleibt') || str_contains($out, 'meine Hälfte ('), $out);
-    // only X (2026-10-14): EMBYCACHE_WATCHED_ONLY — over the limit, nothing goes back by rank (GIVE_BACK_FREE set or not); what
+    // only X (2026-10-14): MEDIACACHE_WATCHED_ONLY — over the limit, nothing goes back by rank (GIVE_BACK_FREE set or not); what
     // he holds and what waits still in the status; the progress file keeps the files done (`recent`)
     [$exit, $st, $out] = $go(30, 2000, null, true, true, true);
     same('emby watched only: over the limit (Y 30 %), nothing back by rank, nothing fetched; his pool status written all the same', [0, [], ['Brazil', 'S01E01'], 2000, true],
@@ -33529,12 +33537,12 @@ PY);
     [$exit, $st, $out] = $go(10, 2000);
     same('emby yield: Y 10 %, no floor — both started ones would go, Brazil plays and stays', [0, ['S01E01'], ['Brazil']], [$exit, $back($out), $on()], $out);
     check('emby yield: … the one playing said', str_contains($out, '[BLEIBT: läuft gerade] Filme/Brazil/Brazil.mkv'), $out);
-    [$exit, $out, $err] = run(['env', 'PATH=' . getenv('PATH'), "EMBYCACHE_DIR=$p/data", 'EMBYCACHE_KEEP_BYTES=12T', 'PYTHONDONTWRITEBYTECODE=1', 'python3', OFFICE_DIR . '/embycache/embycache_run.py'], 60);
-    check('emby yield: a floor that is no number — refused, nothing done', $exit !== 0 && str_contains($out . $err, 'EMBYCACHE_KEEP_BYTES'), $out . $err);
+    [$exit, $out, $err] = run(['env', 'PATH=' . getenv('PATH'), "MEDIACACHE_DIR=$p/data", 'MEDIACACHE_KEEP_BYTES=12T', 'PYTHONDONTWRITEBYTECODE=1', 'python3', OFFICE_DIR . '/mediacache/mediacache_run.py'], 60);
+    check('emby yield: a floor that is no number — refused, nothing done', $exit !== 0 && str_contains($out . $err, 'MEDIACACHE_KEEP_BYTES'), $out . $err);
     proc_terminate($emby);
     proc_close($emby);
 
-    same('emby yield: the office launches EmbyCache with the free-% give-back on', '1', jackPyEnv()['EMBYCACHE_GIVE_BACK_FREE'] ?? null);
+    same('emby yield: the office launches EmbyCache with the free-% give-back on', '1', jackPyEnv()['MEDIACACHE_GIVE_BACK_FREE'] ?? null);
     // the live panel's file going back and his page's words — in their shape
     file_put_contents("$tmp/progress.json", json_encode(['v' => 1, 'phase' => 'back', 'started' => 1, 'updated' => 2, 'back' => ['files' => 1, 'bytes' => 9],
         'users' => [], 'current' => ['phase' => 'back', 'rel' => 'Serien/S/E10.mkv', 'size' => 9, 'target' => '/x', 'since' => 2,
@@ -33849,21 +33857,21 @@ function testMoverelliIni(): void
     $dir = "$tmp/data";
     same('moverelli ini: none yet — not configured, the page starts from Smart Mover\'s defaults (no «which time counts»: always the younger)', [null, MOVERELLI_DEFAULTS['min_age'], false],
         [moverelliSettings($dir), moverelliScan($h)['settings']['global']['min_age'], array_key_exists('age_stat', moverelliScan($h)['settings']['global'])]);
-    $in = moverelliTestSettings(['min_age' => 30, 'move_when_used_above' => 80, 'move_until_used_below' => 70, 'files' => ['/mnt/user/appdata/emby/embycache_exclude.txt'], 'patterns' => ['# metadata', '*.nfo', '']],
+    $in = moverelliTestSettings(['min_age' => 30, 'move_when_used_above' => 80, 'move_until_used_below' => 70, 'files' => ['/mnt/user/appdata/emby/mediacache_exclude.txt'], 'patterns' => ['# metadata', '*.nfo', '']],
         ['Filme' => ['skip' => false, 'min_age' => 14, 'age_stat' => 'mtime', 'move_when_used_above' => null, 'files' => [], 'patterns' => ['/mnt/user/Filme/Kids']],
          'Back' => ['skip' => true, 'min_age' => null, 'age_stat' => null, 'move_when_used_above' => null, 'files' => [], 'patterns' => []],
          'Docs' => ['skip' => false, 'min_age' => null, 'age_stat' => null, 'move_when_used_above' => null, 'files' => [], 'patterns' => []]]);
     $r = moverelliSave($in, $h);
     $ini = (string) file_get_contents("$dir/smart_mover.ini");
     same('moverelli ini: written as Smart Mover reads it — GLOBAL, a section per share with something of its own (Docs: none), her lists after the others',
-        ["[GLOBAL]", 'min_age=30', 'age_stat=newest', 'move_when_used_above=80', "global_excludes=/mnt/user/appdata/emby/embycache_exclude.txt,$dir/excludes/global.txt",
+        ["[GLOBAL]", 'min_age=30', 'age_stat=newest', 'move_when_used_above=80', "global_excludes=/mnt/user/appdata/emby/mediacache_exclude.txt,$dir/excludes/global.txt",
          '[Back]', 'skip=yes', '[Filme]', 'min_age=14', "excludes=$dir/excludes/share-Filme.txt"],
         array_values(array_filter(explode("\n", $ini), fn ($l) => preg_match('/^(\[|min_age|move_when|global_ex|skip|age_stat|excludes)/', $l))));
     check('moverelli ini: … no section for Docs, 0600', !str_contains($ini, '[Docs]') && (fileperms("$dir/smart_mover.ini") & 0777) === 0600);
     same('moverelli ini: her own lists (the empty last line dropped)', ["# metadata\n*.nfo\n", "/mnt/user/Filme/Kids\n"],
         [file_get_contents("$dir/excludes/global.txt"), file_get_contents("$dir/excludes/share-Filme.txt")]);
     $back = moverelliSettings($dir);
-    same('moverelli ini: read back the same', [30, 80, ['/mnt/user/appdata/emby/embycache_exclude.txt'], ['# metadata', '*.nfo'], ['Back', 'Filme'],
+    same('moverelli ini: read back the same', [30, 80, ['/mnt/user/appdata/emby/mediacache_exclude.txt'], ['# metadata', '*.nfo'], ['Back', 'Filme'],
         [true, null], [14, null, [], ['/mnt/user/Filme/Kids']]],
         [$back['global']['min_age'], $back['global']['move_when_used_above'], $back['global']['files'], $back['global']['patterns'], array_keys($back['shares']),
          [$back['shares']['Back']['skip'], $back['shares']['Back']['min_age']],
@@ -33932,11 +33940,11 @@ function testMoverelliIni(): void
     flock($lock, LOCK_UN);
     fclose($lock);
     // for Jack Emby's rule: what her ini keeps out
-    moverelliSave(moverelliTestSettings(['files' => ['/x/embycache_exclude.txt']], $share([]) + ['Back' => ['skip' => true, 'min_age' => null, 'age_stat' => null,
+    moverelliSave(moverelliTestSettings(['files' => ['/x/mediacache_exclude.txt']], $share([]) + ['Back' => ['skip' => true, 'min_age' => null, 'age_stat' => null,
         'move_when_used_above' => null, 'files' => [], 'patterns' => []]]), $h);
-    same('moverelli ini: what she keeps out, as Jack\'s rule reads it', ['global' => ['/x/embycache_exclude.txt'], 'shares' => ['Back' => ['skip' => true, 'excludes' => []]]],
+    same('moverelli ini: what she keeps out, as Jack\'s rule reads it', ['global' => ['/x/mediacache_exclude.txt'], 'shares' => ['Back' => ['skip' => true, 'excludes' => []]]],
         moverelliExcludeFrom($dir));
-    same('moverelli ini: … his shares covered', [[], ['Musik']], [moverelliJackUncovered(['lists' => ['/x/embycache_exclude.txt'], 'shares' => ['Filme', 'Back']], $dir),
+    same('moverelli ini: … his shares covered', [[], ['Musik']], [moverelliJackUncovered(['lists' => ['/x/mediacache_exclude.txt'], 'shares' => ['Filme', 'Back']], $dir),
         moverelliJackUncovered(['lists' => ['/y/other.txt'], 'shares' => ['Back', 'Musik']], $dir)]);
     // a share named «2024»: JSON gives PHP an int key — taken as the share's name all the way
     file_put_contents("$tmp/shares/2024.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\n");
@@ -34077,7 +34085,7 @@ function testMoverelliRun(): void
         [$dry, $state(), readJson("$dir/status.json")['result'] ?? null, is_file("$tmp/mnt/cache/Docs/f.txt")]);
     moverelliSave(moverelliTestSettings(['patterns' => ['*.nfo']]), $h);
     // EmbyCache's list gone on a real run: always an error — whether or not EmbyCache ever ran here; nothing of the share moves
-    $jack = "$tmp/jack/embycache_exclude.txt";
+    $jack = "$tmp/jack/mediacache_exclude.txt";
     $one = fn (array $files) => ['skip' => false, 'min_age' => null, 'age_stat' => null, 'move_when_used_above' => null, 'files' => $files, 'patterns' => []];
     file_put_contents("$tmp/mnt/cache/Docs/h.txt", 'h');
     file_put_contents("$tmp/mnt/cache/Filme/A/i.mkv", 'i');
@@ -34092,7 +34100,7 @@ function testMoverelliRun(): void
          $docsState(), str_contains($out, "exclude file not found: $jack"), str_contains($out, 'taken as empty'), file_exists($jack)]);
     // … the same once EmbyCache ran here (its traces in Jack's folder) and the list is gone
     @mkdir("$tmp/jack", 0700, true);
-    file_put_contents("$tmp/jack/embycache_origin.json", '{}');
+    file_put_contents("$tmp/jack/mediacache_origin.json", '{}');
     file_put_contents("$tmp/mnt/cache/Docs/m.txt", 'm');
     moverelliSave(moverelliTestSettings(['patterns' => ['*.nfo']], ['Docs' => $one([$jack])]), $h);
     moverelliJob(['run', '--office'], $h);
@@ -34224,7 +34232,7 @@ function testMoverelliGates(): void
         [moverelliJob(['dry', '--office'], $h), $last(), moverelliBusy($dir)]);
     flock($lock, LOCK_UN);
     fclose($lock);
-    $v['jack_desk'] = ['lists' => ['/mnt/user/appdata/x/embycache_exclude.txt', "$tmp/data/embycache_exclude.txt"], 'shares' => ['Docs', 'Filme']];
+    $v['jack_desk'] = ['lists' => ['/mnt/user/appdata/x/mediacache_exclude.txt', "$tmp/data/mediacache_exclude.txt"], 'shares' => ['Docs', 'Filme']];
     // not set up yet (no smart_mover.ini): refused as not configured, she doesn't count for Jack — no «his list», no point
     rename("$dir/smart_mover.ini", "$dir/smart_mover.ini.aside");
     $okNow = function () use ($h) { try { moverelliRunCheck('run', $h); return 'ok'; } catch (Problem $p) { return $p->key; } };
@@ -34239,7 +34247,7 @@ function testMoverelliGates(): void
         [moverelliJob(['run', '--office'], $h), $last(), moverelliHistory($dir)[0]['shares'] ?? null]);
     same('moverelli gate: … the page and the Team Lead say so', [['Docs', 'Filme'], false],
         [moverelliScan($h)['jack']['uncovered'], array_values(array_filter(moverelliChecks($h), fn ($f) => $f['id'] === 'jack_list'))[0]['ok'] ?? null]);
-    moverelliSave(moverelliTestSettings(['files' => ['/mnt/user/appdata/x/embycache_exclude.txt']]), $h);
+    moverelliSave(moverelliTestSettings(['files' => ['/mnt/user/appdata/x/mediacache_exclude.txt']]), $h);
     $ok = function () use ($h) { try { moverelliRunCheck('run', $h); return 'ok'; } catch (Problem $p) { return $p->key; } };
     same('moverelli gate: … his list in her settings — fine', 'ok', $ok());
     $v['jack_desk'] = null;
@@ -34444,7 +34452,7 @@ function testMoverelliImport(): void
     $old = '/mnt/user/system/scripts/smartmover';
     $messy = '/mnt/user/system/scripts/messy';
     $jackOld = '/mnt/user/system/scripts/jackold';
-    foreach (["$fs$old", "$fs$messy", "$fs$jackOld", "$fs/mnt/user/system/excludes", "$fs/mnt/user/Sleepy/old", "$fs/mnt/cache/appdata/embycache", $dir, "$root/embycache",
+    foreach (["$fs$old", "$fs$messy", "$fs$jackOld", "$fs/mnt/user/system/excludes", "$fs/mnt/user/Sleepy/old", "$fs/mnt/cache/appdata/embycache", $dir, "$root/mediacache",
               "$fs/boot/config/plugins/user.scripts/scripts/oldmover", "$fs/etc"] as $d) {
         @mkdir($d, 0700, true);
     }
@@ -34455,8 +34463,8 @@ function testMoverelliImport(): void
     }
     $GLOBALS['moverelliHost']['dir'] = $dir;
     $GLOBALS['moverelliHost']['import'] = ['fs' => $fs, 'pools' => ['/mnt/cache'], 'asleep' => ['disk1' => false, 'disk2' => true, 'cache' => false],
-                                           'own_below' => [$root], 'jack_dirs' => ["$root/embycache"]];
-    $jackList = '/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt';
+                                           'own_below' => [$root], 'jack_dirs' => ["$root/mediacache"]];
+    $jackList = '/mnt/user/appdata/UnraidSecretaryOffice/data/mediacache/mediacache_exclude.txt';
     $h = moverelliHost();
     $err = function (callable $f): string {
         try {
@@ -34470,12 +34478,12 @@ function testMoverelliImport(): void
     file_put_contents("$fs$old/smart_mover.ini", implode("\r\n", ['# Smart Mover', '[GLOBAL]', 'mover_bin=/usr/libexec/unraid/move',
         "log_file=$old/smart_mover.log", 'min_age=30', 'age_stat=atime', 'move_when_used_above=', 'move_prefer_shares=no', 'mover_debug=7', 'max_list=100',
         'colour=blue', 'global_excludes=/mnt/user/system/excludes/global.txt', '',
-        '[Filme]', 'min_age=14', 'min_age=99', 'excludes=/mnt/user/appdata/embycache/embycache_exclude.txt,/mnt/user/system/excludes/filme.txt', '',
+        '[Filme]', 'min_age=14', 'min_age=99', 'excludes=/mnt/user/appdata/embycache/mediacache_exclude.txt,/mnt/user/system/excludes/filme.txt', '',
         '[Docs]', 'skip=maybe', 'move_when_used_above=80', '', '[Back]', 'skip=yes', 'mover_bin=/x', '', '[Gone]', 'min_age=3', '',
         '[bad/name]', 'skip=yes']) . "\r\n");
     file_put_contents("$fs/mnt/user/system/excludes/global.txt", "# what stays\n*.nfo\n\n  /mnt/user/Filme/Kids/  \n*.nfo\n; old\n");
     file_put_contents("$fs/mnt/user/system/excludes/filme.txt", "*.nfo\r\n/mnt/user/Filme/Extras\r\n");
-    file_put_contents("$fs/mnt/cache/appdata/embycache/embycache_exclude.txt", "/mnt/cache/Filme/A/a.mkv\n");
+    file_put_contents("$fs/mnt/cache/appdata/embycache/mediacache_exclude.txt", "/mnt/cache/Filme/A/a.mkv\n");
     file_put_contents("$fs/etc/passwd", "root:x:0:0\n");
 
     // the folder: Jack's checks (shared), her own folder refused, nothing typed refused
@@ -34488,7 +34496,7 @@ function testMoverelliImport(): void
          $err(fn () => moverelliImportPreview(['folder' => ['/x']], $h)), $err(fn () => moverelliImportPreview(['folder' => '/mnt/user/system/excludes'], $h))]);
     same('moverelli import: the office\'s data folder and anything in it — refused (Jack\'s folder too)', ['moverelli_import_own', 'moverelli_import_own'],
         [$err(fn () => moverelliImportPreview(['folder' => '/mnt/user/appdata/UnraidSecretaryOffice/data'], $h)),
-         $err(fn () => moverelliImportPreview(['folder' => '/mnt/user/appdata/UnraidSecretaryOffice/data/embycache'], $h))]);
+         $err(fn () => moverelliImportPreview(['folder' => '/mnt/user/appdata/UnraidSecretaryOffice/data/mediacache'], $h))]);
     same('moverelli import: User Scripts\' folder on the flash is a place she reads (no ini there)', 'moverelli_import_none',
         $err(fn () => moverelliImportPreview(['folder' => '/boot/config/plugins/user.scripts/scripts/oldmover'], $h)));
 
@@ -34520,9 +34528,9 @@ function testMoverelliImport(): void
     // a protecting list that can't be had never silently disappears (the owner's rule): each blocks, said with what to do;
     // so does a bad age or fill (its fallback 0 would move at once / always)
     file_put_contents("$fs$messy/smart_mover.ini", implode("\n", ['[GLOBAL]', 'min_age=abc', 'mover_debug=9', 'global_excludes=/mnt/user/system/excludes/missing.txt,'
-        . '/mnt/user/Sleepy/old/ex.txt,/etc/passwd,/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_settings.json,'
+        . '/mnt/user/Sleepy/old/ex.txt,/etc/passwd,/mnt/user/appdata/UnraidSecretaryOffice/data/mediacache/mediacache_settings.json,'
         . '/mnt/user/system/excludes/binary.lst,/mnt/user/system/excludes/bad.txt', '[Docs]', 'move_when_used_above=101']) . "\n");
-    file_put_contents("$root/embycache/embycache_settings.json", "{\"instances\": []}\n");
+    file_put_contents("$root/mediacache/mediacache_settings.json", "{\"instances\": []}\n");
     file_put_contents("$fs/mnt/user/system/excludes/binary.lst", "abc\0def\n");
     file_put_contents("$fs/mnt/user/system/excludes/bad.txt", "ok.txt\nbad\x01line\n" . str_repeat('x', 1001) . "\n");
     $m = moverelliImportPreview(['folder' => $messy], $h)['preview'];
@@ -34537,8 +34545,8 @@ function testMoverelliImport(): void
     $m1 = $m;
 
     // Jack Emby's own list in the office's data folder: not hired — copied (a frozen copy); hired — named (below)
-    file_put_contents("$fs$jackOld/smart_mover.ini", "[Filme]\nexcludes=/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt\n");
-    file_put_contents("$root/embycache/embycache_exclude.txt", "/mnt/cache/Filme/B/b.mkv\n");
+    file_put_contents("$fs$jackOld/smart_mover.ini", "[Filme]\nexcludes=/mnt/user/appdata/UnraidSecretaryOffice/data/mediacache/mediacache_exclude.txt\n");
+    file_put_contents("$root/mediacache/mediacache_exclude.txt", "/mnt/cache/Filme/B/b.mkv\n");
     $j = moverelliImportPreview(['folder' => $jackOld], $h)['preview'];
     same('moverelli import: Jack\'s own list in the office\'s data, he isn\'t hired — read all the same, a frozen copy', [true, [], 1, [['copied', true]]],
         [$j['ready'], $j['blocked'], $j['lists'][0]['taken'] ?? null, array_map(fn ($f) => [$f['how'], $f['frozen'] ?? null], $j['lists'][0]['files'] ?? [])]);
@@ -34607,7 +34615,7 @@ function testMoverelliImport(): void
         $err(fn () => moverelliImportDo(['folder' => $old, 'token' => $token], $h)));
 
     // Jack Emby hired: EmbyCache's list not copied — his own list named for that scope
-    $v['jack_desk'] = ['lists' => [$jackList, "$fs/mnt/cache/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt"], 'shares' => ['Filme']];
+    $v['jack_desk'] = ['lists' => [$jackList, "$fs/mnt/cache/appdata/UnraidSecretaryOffice/data/mediacache/mediacache_exclude.txt"], 'shares' => ['Filme']];
     $p = moverelliImportPreview(['folder' => $old], $h)['preview'];
     $filme = array_column($p['lists'], null, 'scope')['Filme'];
     same('moverelli import: Jack hired — his list named, not copied; the other list copied', [true, 1, 2, [['jack', $jackList], ['copied', null]]],
@@ -35035,11 +35043,11 @@ function testNightRun(): void
     check('night her part: no fill cap from the office (only X); Jack Emby\'s room as CUSTOMMOVER_FILL_UNTIL_BYTES/_POOL, only inside the night', !str_contains($src, 'CUSTOMMOVER_FILL_MAX')
         && !str_contains($src, '--fill-max') && str_contains($src, "['CUSTOMMOVER_FILL_UNTIL_BYTES' => \$room, 'CUSTOMMOVER_FILL_UNTIL_POOL' => \$roomPool]") && str_contains($src, "foreach (\$by === 'night' ? \$args : [] as \$a)"));
     $nsrc = (string) file_get_contents(OFFICE_DIR . '/agent/lib/nightrun.php');
-    check('night run: never a give-back by rank — no EMBYCACHE_GIVE_BACK_FREE, no cap, no halves in the night', !str_contains($nsrc, "'EMBYCACHE_GIVE_BACK_FREE'")
+    check('night run: never a give-back by rank — no MEDIACACHE_GIVE_BACK_FREE, no cap, no halves in the night', !str_contains($nsrc, "'MEDIACACHE_GIVE_BACK_FREE'")
         && !str_contains($nsrc, 'fill-max') && !str_contains($nsrc, "'half'"));
     $esrc = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
-    check('night Jack Emby\'s part: --night, --nofill → EMBYCACHE_NO_FILL=1; no «after Jack Emby» hand-over any more',
-        str_contains($esrc, "\$noFill = in_array('--nofill', \$args, true);") && str_contains($esrc, "+ (\$noFill ? ['EMBYCACHE_NO_FILL' => '1'] : [])")
+    check('night Jack Emby\'s part: --night, --nofill → MEDIACACHE_NO_FILL=1; no «after Jack Emby» hand-over any more',
+        str_contains($esrc, "\$noFill = in_array('--nofill', \$args, true);") && str_contains($esrc, "+ (\$noFill ? ['MEDIACACHE_NO_FILL' => '1'] : [])")
         && !str_contains($esrc, 'jackRunAfter') && !str_contains($src, 'moverelliAfterJack'));
     check('night Jack Emby\'s «Run now» (real) starts the whole night run', str_contains($esrc, "hostLaunch('moverelli', [PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', 'moverelli', 'run', '--office']);"));
 
@@ -35485,30 +35493,24 @@ function testJackShareDataset(): void
     same('share dataset: names ZFS takes as they are (a space too) — never a path, a dot or a dash first', [true, true, false, false, false, false],
         array_map('jackDatasetName', ['Filme', 'Home Videos', '../x', '.hidden', '-o', 'Fil/me']));
 
-    $asked = [];
-    $run = function (array $cmd) use (&$asked, $cache): array {
-        $asked[] = implode(' ', $cmd);
-        if ($cmd[2] === 'maple/Filme') {
-            mkdir("$cache/Filme");
-            return [0, ''];
-        }
-        return [1, 'cannot create'];
-    };
-    $rows = [['share' => 'Filme', 'auto' => true], ['share' => 'Serien', 'auto' => true], ['share' => 'Doku', 'auto' => false], ['share' => 'Kaputt', 'auto' => true]];
-    same('share dataset: made like shfs (zfs create <pool>/<share>) — never over a folder there, never a share not his to make; a failure named',
-        [[['Filme'], ['Kaputt']], ['zfs create maple/Filme', 'zfs create maple/Kaputt'], true],
-        [jackMakeShareDatasets($rows, $cache, $mounts, $run), $asked, is_dir("$cache/Filme")]);
-    $asked = [];
-    same('share dataset: not on a pool that is not ZFS — nothing asked', [[[], []], []], [jackMakeShareDatasets($rows, "$tmp/mnt/bt", $mounts, $run), $asked]);
+    // 1.65.0: ONE way the dataset is made — MediaCache's ensure_share_root() (create_share_root, Jack always writes it on),
+    // never Jack before the run as well (his jackMakeShareDatasets() went); MediaCache's own tests (mediacache/tests) cover it
+    $php = (string) file_get_contents(dirname(__DIR__) . '/agent/desks/jack.php');
+    same('share dataset: Jack\'s settings always say create_share_root (MediaCache makes it, like Unraid)', true,
+        jackToolsRsync(['create_share_root' => false])['create_share_root']);
+    check('share dataset: Jack makes no dataset himself any more — one way only', !str_contains($php, 'jackMakeShareDatasets(') && !str_contains($php, "'zfs', 'create'"));
+    $lib = (string) file_get_contents(OFFICE_DIR . '/mediacache/mediacache_lib.py');
+    check('share dataset: MediaCache\'s ensure_share_root() makes it with zfs create, only where the share may use the pool',
+        str_contains($lib, 'def ensure_share_root(') && str_contains($lib, '[ZFS_BIN, "create", name]') && str_contains($lib, 'SHARE_ROOT_OK_MODES'));
+    [$exit, $out, $err] = run(['python3', '-I', '-B', '-m', 'unittest', 'discover', '-s', OFFICE_DIR . '/mediacache/tests'], 120);
+    check('share dataset: MediaCache\'s own tests pass (share root on ZFS/btrfs/XFS, dry run, cleanup tools)', $exit === 0 && str_contains($out . $err, 'OK'), $out . $err);
 
     // his page and the Team Lead: «made at the next run» is no fault; a plain folder is a warning with the way to fix it by hand
     $js = (string) file_get_contents(dirname(__DIR__) . '/public/desks/jack/desk.js');
     check('share dataset: his page — «made at the next run» quiet, «not its own dataset» a warning, both counted right',
         str_contains($js, "(x.root === false && !x.auto) || x.dataset === false") && str_contains($js, "T('root_auto'") && str_contains($js, "T('root_plain'"));
-    $php = (string) file_get_contents(dirname(__DIR__) . '/agent/desks/jack.php');
     check('share dataset: the check share_dataset (recommended) and share_root without what he makes himself',
         str_contains($php, "finding('share_dataset', 'recommended'") && str_contains($php, "\$s['root'] === false && !\$s['auto']"));
-    check('share dataset: made only before a real run that fetches', str_contains($php, "\$tool === 'embycache' && \$mode === 'run' && !\$noFill"));
     $mo = (string) file_get_contents(dirname(__DIR__) . '/public/desks/moverelli/desk.js');
     check('share dataset: Ms. Moverelli names the folders she counts as never moving', str_contains($mo, "T('setup.level_folders'"));
 
@@ -36473,11 +36475,11 @@ function testMoverelliSuggestJack(): void
     $GLOBALS['moverelliHost']['cron_file'] = "$tmp/office.cron";
     $GLOBALS['moverelliHost']['cron_apply'] = false;
     $h = moverelliHost();
-    $user = '/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt';
-    $v['jack_desk'] = ['lists' => [$user, "$tmp/data/embycache_exclude.txt"], 'shares' => ['Docs', 'Filme']];
+    $user = '/mnt/user/appdata/UnraidSecretaryOffice/data/mediacache/mediacache_exclude.txt';
+    $v['jack_desk'] = ['lists' => [$user, "$tmp/data/mediacache_exclude.txt"], 'shares' => ['Docs', 'Filme']];
     $j = moverelliScan($h)['jack'];
     same('moverelli suggest: her state while Jack is hired — hired, every form of his list\'s path, his shares (not set up: none uncovered yet)',
-        [true, $user, [$user, "$tmp/data/embycache_exclude.txt"], ['Docs', 'Filme'], []], [$j['hired'], $j['list'], $j['lists'], $j['shares'], $j['uncovered']]);
+        [true, $user, [$user, "$tmp/data/mediacache_exclude.txt"], ['Docs', 'Filme'], []], [$j['hired'], $j['list'], $j['lists'], $j['shares'], $j['uncovered']]);
     check('moverelli suggest: … nothing written by the look', !is_file("$tmp/data/smart_mover.ini"));
     $v['jack_desk'] = null;
     $j = moverelliScan($h)['jack'];
@@ -36508,8 +36510,8 @@ globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { cron: (c) => 'C' + c,
 const m = OFFICE_DESK_TESTS.moverelli;
 const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
 const find = (n, f) => (typeof n === 'string' ? null : f(n) ? n : n.children.map((c) => find(c, f)).find(Boolean) || null);
-const U = '/mnt/user/appdata/x/embycache_exclude.txt';
-const P = '/mnt/cache/appdata/x/embycache_exclude.txt';
+const U = '/mnt/user/appdata/x/mediacache_exclude.txt';
+const P = '/mnt/cache/appdata/x/mediacache_exclude.txt';
 const shares = [{ share: 'Filme', state: 'moves', mode: 'yes' }, { share: 'Serien', state: 'moves', mode: 'yes' }, { share: 'Docs', state: 'moves', mode: 'yes' }];
 const g = (files) => ({ min_age: 30, age_stat: 'ctime', move_when_used_above: 0, files, patterns: [] });
 const st = (jack, global, own) => ({ configured: false, unraid: { ok: true }, job: {}, schedule: {}, shares, after: { on: false },
@@ -36558,7 +36560,7 @@ JS);
     $o = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/moverelli/desk.js') . ' 2>&1'), true);
     check('moverelli suggest page: it runs', is_array($o), json_encode($o));
     $o = is_array($o) ? $o : [];
-    $u = '/mnt/user/appdata/x/embycache_exclude.txt';
+    $u = '/mnt/user/appdata/x/mediacache_exclude.txt';
     same('moverelli suggest page: not covered — his list added at the end of the files for all (in the form), the note with «Remove it again», covered now, the tile calm',
         [['/mnt/user/system/keep.txt', $u], $u, ['setup.jack_added {"file":"' . $u . '"} ', 'setup.jack_remove'], [], false], $o['added'] ?? null);
     same('moverelli suggest page: «Remove it again» — exactly that line out, the warning naming his shares, the tile an alert',

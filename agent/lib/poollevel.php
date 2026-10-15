@@ -427,7 +427,7 @@ function poolLevelJack(array $o): ?array
     $env = [];
     $level = null;
     if ($rules['x'] > 0) {
-        $env = ['EMBYCACHE_MIN_FREE_PERCENT' => (string) (100 - $rules['x']), 'EMBYCACHE_WATCHED_ONLY' => '1'];
+        $env = ['MEDIACACHE_MIN_FREE_PERCENT' => (string) (100 - $rules['x']), 'MEDIACACHE_WATCHED_ONLY' => '1'];
         $mnt = rtrim($o['mnt'] ?? '/mnt', '/');
         $pool = preg_match('#^' . preg_quote($mnt, '#') . '/([\w.\-]{1,64})/?$#D', (string) ($o['cache_path'] ?? ''), $m) ? $m[1] : null;
         if ($pool !== null && $pool !== 'user' && $pool !== 'user0') {

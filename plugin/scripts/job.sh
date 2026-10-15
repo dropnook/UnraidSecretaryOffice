@@ -4,7 +4,7 @@
 #
 #   job.sh backup      Mr. Backupsy's nightly run (the engine in backup/)
 #   job.sh snapshots   Ms. Snapshotini's schedules: the snapshots that are due
-#   job.sh embycache   Jack Emby: EmbyCache (what's watched next onto the pool)
+#   job.sh embycache   Jack Streamer: MediaCache (what's watched next onto the pool; the job keeps EmbyCache's old name)
 #   job.sh gather      Jack Emby: the media gather (folders together on one disk)
 #   job.sh moverelli   Ms. Moverelli: a real Smart Mover run (the bundled smartmover/)
 #   job.sh watch       is the agent at work? (agent-watch.cron, written by scripts/agent.sh)

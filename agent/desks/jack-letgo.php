@@ -13,7 +13,7 @@ declare(strict_types=1);
  *     nothing starts it again. A scheduled gather that waits for Emby to be free (jackGatherGate()) gives up at its
  *     next look once its schedule is off.
  *   - One tick, off by default: «Also bring the prepared films back to the array» — a last EmbyCache run in mode
- *     `release` (embycache_run.py --release: its cleanup over the whole exclude list, the same way its cleanup takes
+ *     `release` (mediacache_run.py --release: its cleanup over the whole exclude list, the same way its cleanup takes
  *     them — origin disk, then rsync or the move binary per his settings; nothing filled), a job of the host's atd
  *     (`php agent.php job embycache release --letgo`, jackJob()) under the usual locks (the gather's lock held by the
  *     job, EmbyCache's own by EmbyCache), refused while someone watches Emby (asked here and again in the job), its
@@ -71,7 +71,7 @@ function jackLetGoRunning(): ?string
         }
     }
     return match (true) {
-        flockHeld(JACK_DATA . '/embycache.lock') => 'embycache',
+        flockHeld(JACK_DATA . '/mediacache.lock') => 'embycache',
         flockHeld(GATHER_LOCK)                   => 'gather',
         default                                  => null,
     };
@@ -87,7 +87,7 @@ function jackLetGoOnPool(?array $settings, string $dir): array
     $files = 0;
     $bytes = 0;
     if ($cache !== '') {
-        foreach (@file("$dir/embycache_exclude.txt", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $path) {
+        foreach (@file("$dir/mediacache_exclude.txt", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $path) {
             $path = trim($path);
             if (str_starts_with($path, "$cache/") && is_file($path)) {
                 $files++;

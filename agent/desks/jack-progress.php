@@ -4,7 +4,7 @@ declare(strict_types=1);
 /*
  * Jack Emby: a live panel while EmbyCache runs for real (2026-10-10 — in place of the «Output (real run)» button,
  * like Mr. Backupsy's run progress). EmbyCache writes a small progress file when EMBYCACHE_PROGRESS is set (atomic, at
- * every file boundary; embycache_run.py `Progress`): the phase (plan, back, fill, done), «back to the array» and per Emby
+ * every file boundary; mediacache_run.py `Progress`): the phase (plan, back, fill, done), «back to the array» and per Emby
  * user what is planned and done (files, bytes), the file being copied with its target, its user and its reason. Jack's
  * job sets it for real runs (run, release) to a file in RAM (`RUN_DIR/jack-progress.json`) and, every
  * JACK_PROGRESS_EVERY seconds while EmbyCache copies, keeps a sample of the bytes moved so far — the files done plus the

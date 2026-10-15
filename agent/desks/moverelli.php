@@ -154,7 +154,7 @@ function moverelliHost(): array
         'zfs'           => $h['zfs'] ?? ($h['env']['CUSTOMMOVER_ZFS'] ?? 'zfs'),
         'asleep'        => $h['asleep'] ?? null,
         'jack_cache'    => $h['jack_cache'] ?? fn (): ?string => moverelliJackLists() !== null ? (string) (jackReadSettings()['cache_path'] ?? '') : null,
-        'jack_list_file' => $h['jack_list_file'] ?? JACK_DATA . '/embycache_exclude.txt',
+        'jack_list_file' => $h['jack_list_file'] ?? JACK_DATA . '/mediacache_exclude.txt',
         // a btrfs/xfs pool (poolLevelPlain()): its du stored in her data folder; the tests' statfs, du and background job
         'du_cache'      => $h['du_cache'] ?? ($h['dir'] ?? MOVERELLI_DATA) . '/pool-du.json',
     ] + array_intersect_key($h, array_flip(['stat', 'du', 'du_launch']));
@@ -752,13 +752,13 @@ function moverelliJackLists(): ?array
 
 /**
  * Has EmbyCache ever run for real (or been imported) on this server? Read only, from Jack's own traces in his data
- * folder: embycache_origin.json (every real run and release writes it together with the list, also empty), a copy an
+ * folder: mediacache_origin.json (every real run and release writes it together with the list, also empty), a copy an
  * import put aside (`*.before-import-*`), his list of runs (an EmbyCache run or release that started), his last run's
  * marker (office-run.json: EmbyCache, run or release). None of them: EmbyCache's list can't exist yet.
  */
 function moverelliJackRan(string $dir): bool
 {
-    if (is_file("$dir/embycache_origin.json") || glob("$dir/embycache_{exclude.txt,origin.json}.before-import-*", GLOB_BRACE)) {
+    if (is_file("$dir/mediacache_origin.json") || glob("$dir/mediacache_{exclude.txt,origin.json}.before-import-*", GLOB_BRACE)) {
         return true;
     }
     $real = fn (mixed $r): bool => is_array($r) && ($r['tool'] ?? '') === 'embycache' && in_array($r['mode'] ?? '', ['run', 'release'], true)

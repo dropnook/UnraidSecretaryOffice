@@ -46,6 +46,7 @@ const JACK_MIN_PERSON_BYTES = 20 << 30;
 // both ways always rsync (2026-10-10, after Unraid's mover took EmbyCache's films back): EmbyCache keeps its mover
 // path for standalone users, Jack never selects it — not in his setup, not from an old settings file, not in what he hands it
 const JACK_TOOLS_RSYNC = ['fill_tool' => 'rsync', 'cleanup_tool' => 'rsync'];
+const JACK_FIXED       = ['create_share_root' => true, 'parallel_per_disk' => 1, 'parallel_total' => 1];
 // rsync's options are the office's too (EmbyCache's defaults): never what a settings file names - rsync runs as root, and
 // an option like --log-file writes wherever it says (review 2026-10-15)
 const JACK_RSYNC_ARGS  = '-aAX --numeric-ids';
@@ -62,9 +63,9 @@ const JACK_WATCH_SHOWN   = 10;      // at most this many watchers kept
 
 require_once dirname(__DIR__) . '/lib/poollevel.php';    // Ms. Moverelli's limit and his half of the pool (shared with her)
 
-define('JACK_APP', OFFICE_DIR . '/embycache');
+define('JACK_APP', OFFICE_DIR . '/mediacache');
 define('GATHER_APP', OFFICE_DIR . '/gather');
-define('JACK_DATA', DATA_DIR . '/embycache');
+define('JACK_DATA', DATA_DIR . '/mediacache');
 define('GATHER_DATA', DATA_DIR . '/gather');
 
 desk('jack', [
@@ -156,8 +157,20 @@ function jackMetrics(?string $state = null, ?string $history = null): array
 
 // ===================================================================== state
 
+/**
+ * 1.65.0: his EmbyCache folder still waiting to come over (the step `mediacache` was pending: a run went at the agent's
+ * start) — tried again now, cheaply: only while data/mediacache isn't there and data/embycache is (agent/lib/migrate.php)
+ */
+function jackMigratePending(): void
+{
+    if (function_exists('officeMigrateRetry') && !is_dir(JACK_DATA) && is_dir(DATA_DIR . '/embycache') && !is_link(DATA_DIR . '/embycache')) {
+        officeMigrateRetry('mediacache');
+    }
+}
+
 function jackScan(): array
 {
+    jackMigratePending();
     $settings = jackReadSettings();
     $gather = jackGatherSettings();
     $jobs = ['embycache' => jackJobInfo('embycache'), 'gather' => jackJobInfo('gather')];
@@ -212,7 +225,7 @@ function jackPython(): ?string
 /** The versions of the two tools that ship with the office */
 function jackVersions(): array
 {
-    $lib = (string) @file_get_contents(JACK_APP . '/embycache_lib.py', false, null, 0, 4096);
+    $lib = (string) @file_get_contents(JACK_APP . '/mediacache_lib.py', false, null, 0, 4096);
     $sh = (string) @file_get_contents(GATHER_APP . '/consolidate_master.sh', false, null, 0, 1024);
     return [
         'embycache' => preg_match('/__version__\s*=\s*"([^"]+)"/', $lib, $m) ? $m[1] : null,
@@ -288,14 +301,18 @@ function jackPools(): array
 
 function jackReadSettings(string $dir = JACK_DATA): ?array
 {
-    $j = json_decode((string) @file_get_contents("$dir/embycache_settings.json"), true);
+    $j = json_decode((string) @file_get_contents("$dir/mediacache_settings.json"), true);
     return is_array($j) ? jackToolsRsync($j) : null;
 }
 
-/** EmbyCache's settings as Jack uses them: an old 'mover' (or none — EmbyCache's own default) reads as rsync; the next save writes it so */
+/**
+ * MediaCache's settings as Jack uses them: an old 'mover' (or none — its own default) reads as rsync; the next save writes it
+ * so. The share's ZFS dataset is MediaCache's (create_share_root, 1.65.0 — before, Jack made it himself before a real run),
+ * one copy at a time (his live panel and his stop count on it).
+ */
 function jackToolsRsync(array $s): array
 {
-    return array_replace($s, JACK_TOOLS_RSYNC);
+    return array_replace($s, JACK_TOOLS_RSYNC, JACK_FIXED);
 }
 
 /** The settings as the page may see them — without the API keys */
@@ -415,7 +432,7 @@ function jackShares(array $settings, ?array $mounts = null): array
             'include'   => (string) ($cfg['shareInclude'] ?? ''),
             'fit'       => $fit,
             'root'      => $root,
-            // missing on a ZFS pool that is the share's own: his next real run makes the dataset, as Unraid would (jackMakeShareDatasets())
+            // missing on a ZFS pool that is the share's own: his next real run makes the dataset, as Unraid would (MediaCache's ensure_share_root())
             'auto'      => $root === false && $zfs && $fit === 'ok' && jackDatasetName($share),
             // there, but on ZFS a plain folder inside the pool's own dataset (not the share's dataset): null = not ZFS, not there or not looked
             'dataset'   => $root === true && $zfs ? jackIsDataset("$cache/$share", $mounts) : null,
@@ -476,40 +493,6 @@ function jackIsDataset(string $path, array $mounts): bool
         }
     }
     return false;
-}
-
-/**
- * Before a real run: on a ZFS pool every mapped share that lives there (Cache: yes, this pool first) and has no folder on it
- * gets its dataset — `zfs create <pool>/<share>` like shfs, owner and rights like Unraid's new share (nobody:users 0777).
- * Never over something there (a folder, a dataset mounted elsewhere). Returns [made, failed] (share names).
- */
-function jackMakeShareDatasets(array $rows, string $cache, array $mounts, ?callable $run = null): array
-{
-    $run ??= fn (array $cmd): array => run($cmd, 30);
-    $ds = jackPoolDataset($cache, $mounts);
-    $made = $failed = [];
-    if ($ds === null) {
-        return [$made, $failed];
-    }
-    foreach ($rows as $row) {
-        $share = (string) $row['share'];
-        if (empty($row['auto']) || !jackDatasetName($share) || file_exists("$cache/$share") || is_link("$cache/$share")) {
-            continue;
-        }
-        [$exit, $out] = $run(['zfs', 'create', "$ds/$share"]);
-        clearstatcache(true, "$cache/$share");
-        if ($exit !== 0 || !is_dir("$cache/$share") || is_link("$cache/$share")) {
-            $failed[] = $share;
-            logLine("Jack Streamer: could not make the dataset $ds/$share for the share's folder on $cache: " . trim((string) $out));
-            continue;
-        }
-        @chown("$cache/$share", 'nobody');
-        @chgrp("$cache/$share", 'users');
-        @chmod("$cache/$share", 0777);
-        $made[] = $share;
-        logLine("Jack Streamer: made the dataset $ds/$share (the share's folder on $cache, as Unraid does)");
-    }
-    return [$made, $failed];
 }
 
 /**
@@ -668,7 +651,7 @@ function jackWriteMeasureIni(array $shares, array $emby, string $gatherDir = GAT
 {
     $g = jackGatherSettings() ?? [];
     $set = ['shares' => $shares, 'min_free_gb' => (int) ($g['min_free_gb'] ?? 256), 'dup_check' => 'size', 'move_cache' => false];   // measuring moves nothing
-    $ini = jackGatherIni($set, jackGatherPools($shares, $emby), "$gatherDir/consolidate.log", "$jackDir/embycache_exclude.txt");
+    $ini = jackGatherIni($set, jackGatherPools($shares, $emby), "$gatherDir/consolidate.log", "$jackDir/mediacache_exclude.txt");
     writeAtomic("$gatherDir/measure.ini", $ini, 0600, 0, 0);
     return $ini;
 }
@@ -683,8 +666,8 @@ function jackWriteMeasureIni(array $shares, array $emby, string $gatherDir = GAT
  */
 function jackCacheStats(?array $settings, string $dir = JACK_DATA): array
 {
-    $list = @file("$dir/embycache_exclude.txt", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
-    $origin = readJson("$dir/embycache_origin.json") ?? [];
+    $list = @file("$dir/mediacache_exclude.txt", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+    $origin = readJson("$dir/mediacache_origin.json") ?? [];
     $bytes = 0;
     $groups = [];
     $shares = [];             // per share, over the whole list (the groups are cut at JACK_POOL_GROUPS): his page's share rows
@@ -717,7 +700,7 @@ function jackCacheStats(?array $settings, string $dir = JACK_DATA): array
     usort($groups, fn ($a, $b) => [(int) $b['since'], $a['title']] <=> [(int) $a['since'], $b['title']]);
     ksort($shares);
     return ['files' => count($list), 'bytes' => $bytes, 'groups' => array_slice(array_values($groups), 0, JACK_POOL_GROUPS), 'shares' => (object) $shares,
-            'listed_at' => @filemtime("$dir/embycache_exclude.txt") ?: null];
+            'listed_at' => @filemtime("$dir/mediacache_exclude.txt") ?: null];
 }
 
 /**
@@ -789,7 +772,7 @@ function jackGiveBackList(?array $status = null): array
 function jackPoolLook(?array $settings, bool $wake = false): ?array
 {
     $o = ($GLOBALS['jackPool'] ?? []) + ['ini' => DATA_DIR . '/moverelli/smart_mover.ini', 'shares_dir' => '/boot/config/shares', 'zfs' => 'zfs',
-        'mnt' => '/mnt', 'jack_list' => JACK_DATA . '/embycache_exclude.txt', 'asleep' => null];
+        'mnt' => '/mnt', 'jack_list' => JACK_DATA . '/mediacache_exclude.txt', 'asleep' => null];
     $o['names'] ??= array_map(fn ($f) => basename($f, '.cfg'), glob("$o[shares_dir]/*.cfg") ?: []);
     return poolLevelJack($o + ['cache_path' => (string) ($settings['cache_path'] ?? ''), 'wake' => $wake]);
 }
@@ -1126,7 +1109,7 @@ function jackConfigured(?array $settings): bool
 // ===================================================================== set up from scratch (2026-10-14)
 /*
  * «Set up from scratch» — really zero (the owner): no copy, no way back. Gone: EmbyCache's settings (server, API key,
- * libraries, people, amounts, N days), the import's and the updates' copies (*.before-*), his origin (embycache_origin.json),
+ * libraries, people, amounts, N days), the import's and the updates' copies (*.before-*), his origin (mediacache_origin.json),
  * his runs' state and history (office-run/-history/-output/-stop, the progress, status.json); the gather's settings
  * and state (gather.json, its ini files, last-real, sizes, status, its office-* files); his own schedules (EmbyCache's,
  * the gather's — Ms. Moverelli's night run is hers and stays; it leaves him out while he has no settings). His list is
@@ -1135,7 +1118,7 @@ function jackConfigured(?array $settings): bool
  * becomes ordinary cache: she moves it by her rules (the age rule, from X). Kept: the logs (Ms. Protocolli shows
  * embycache.log and consolidate.log) and the lock files. Never while a run of his (EmbyCache or the gather) goes.
  */
-const JACK_RESET_GONE   = ['embycache_settings.json', '.embycache_settings.trial.json', 'embycache_origin.json', 'office-history.json',
+const JACK_RESET_GONE   = ['mediacache_settings.json', '.mediacache_settings.trial.json', 'mediacache_origin.json', 'office-history.json',
                            'office-run.json', 'office-output.txt', 'office-stop.json', 'jack-progress.json', 'jack-progress-speed.json', 'status.json'];
 const GATHER_RESET_GONE = ['gather.json', 'consolidate.ini', 'measure.ini', 'last-real.json', 'sizes.json', 'status.json', 'office-history.json',
                            'office-run.json', 'office-output.txt', 'office-stop.json'];
@@ -1167,8 +1150,8 @@ function jackReset(array $o = []): array
         $drop("$gdir/$f");
     }
     // his list emptied, the file kept (her ini names it: a missing list stops her real runs, an empty one protects nothing)
-    if (is_dir($dir) && !is_link("$dir/embycache_exclude.txt")) {
-        writeAtomic("$dir/embycache_exclude.txt", '', 0600, 0, 0);
+    if (is_dir($dir) && !is_link("$dir/mediacache_exclude.txt")) {
+        writeAtomic("$dir/mediacache_exclude.txt", '', 0600, 0, 0);
     }
     $schedule = $o['schedule'] ?? fn (string $job) => officeJobSetSchedule($job, null);
     foreach (['embycache', 'gather'] as $job) {
@@ -1191,7 +1174,7 @@ function jackReset(array $o = []): array
  */
 function jackWriteSettings(array $cfg, string $dir = JACK_DATA, string $tmp = RUN_DIR): void
 {
-    if (!is_file(JACK_APP . '/embycache_lib.py')) {
+    if (!is_file(JACK_APP . '/mediacache_lib.py')) {
         throw new Problem('jack_missing_tool', ['path' => JACK_APP]);
     }
     jackDataDir($dir);
@@ -1201,12 +1184,12 @@ function jackWriteSettings(array $cfg, string $dir = JACK_DATA, string $tmp = RU
     if ($file === null) {
         throw new Problem('jack_config', ['detail' => "cannot write in $tmp"]);
     }
-    $trial = "$dir/.embycache_settings.trial.json";
+    $trial = "$dir/.mediacache_settings.trial.json";
     @unlink($trial);
-    $py = 'import json, sys; sys.path.insert(0, sys.argv[1]); import embycache_lib as l; '
+    $py = 'import json, sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; '
         . 'l.save_config(json.load(open(sys.argv[2], encoding="utf-8"))); l.load_config()';
     try {
-        [$exit, , $err] = runEnv(['python3', '-c', $py, JACK_APP, $file], ['EMBYCACHE_DIR' => $dir] + jackPyEnv() + ['EMBYCACHE_CONFIG' => $trial], 30);
+        [$exit, , $err] = runEnv(['python3', '-c', $py, JACK_APP, $file], ['MEDIACACHE_DIR' => $dir] + jackPyEnv() + ['MEDIACACHE_CONFIG' => $trial], 30);
     } finally {
         @unlink($file);
     }
@@ -1216,7 +1199,7 @@ function jackWriteSettings(array $cfg, string $dir = JACK_DATA, string $tmp = RU
         throw new Problem('jack_config', ['detail' => (string) end($lines)]);
     }
     chmod($trial, 0600);
-    rename($trial, "$dir/embycache_settings.json");
+    rename($trial, "$dir/mediacache_settings.json");
 }
 
 /**
@@ -1266,9 +1249,11 @@ function runEnv(array $command, array $env, int $timeout = 60): array
  */
 function jackPyEnv(): array
 {
-    return ['EMBYCACHE_DIR' => JACK_DATA, 'PYTHONDONTWRITEBYTECODE' => '1', 'PYTHONIOENCODING' => 'utf-8', 'PYTHONUNBUFFERED' => '1',
-            'EMBYCACHE_FILL_TOOL' => JACK_TOOLS_RSYNC['fill_tool'], 'EMBYCACHE_CLEANUP_TOOL' => JACK_TOOLS_RSYNC['cleanup_tool'], 'EMBYCACHE_GIVE_BACK_FREE' => '1',
-            'EMBYCACHE_RSYNC_ARGS' => JACK_RSYNC_ARGS];
+    return ['MEDIACACHE_DIR' => JACK_DATA, 'PYTHONDONTWRITEBYTECODE' => '1', 'PYTHONIOENCODING' => 'utf-8', 'PYTHONUNBUFFERED' => '1',
+            'MEDIACACHE_FILL_TOOL' => JACK_TOOLS_RSYNC['fill_tool'], 'MEDIACACHE_CLEANUP_TOOL' => JACK_TOOLS_RSYNC['cleanup_tool'], 'MEDIACACHE_GIVE_BACK_FREE' => '1',
+            'MEDIACACHE_RSYNC_ARGS' => JACK_RSYNC_ARGS,
+            // one file at a time (his live panel and «stop after this file» count on it); MediaCache's own live status in RAM
+            'MEDIACACHE_PARALLEL_PER_DISK' => '1', 'MEDIACACHE_PARALLEL_TOTAL' => '1', 'MEDIACACHE_LIVE_STATUS' => RUN_DIR . '/jack-live-status.json'];
 }
 
 // ===================================================================== the gather's settings
@@ -1343,7 +1328,7 @@ function jackGatherPools(array $shares, array $emby, ?callable $shareCfg = null)
 /** consolidate.ini from Jack's settings (written again before every run, so it follows the pool) */
 function jackWriteGatherIni(array $gather, array $emby, string $gatherDir = GATHER_DATA, string $jackDir = JACK_DATA): string
 {
-    $ini = jackGatherIni($gather, jackGatherPools($gather['shares'], $emby), "$gatherDir/consolidate.log", "$jackDir/embycache_exclude.txt");
+    $ini = jackGatherIni($gather, jackGatherPools($gather['shares'], $emby), "$gatherDir/consolidate.log", "$jackDir/mediacache_exclude.txt");
     writeAtomic("$gatherDir/consolidate.ini", $ini, 0600, 0, 0);
     return $ini;
 }
@@ -1418,9 +1403,9 @@ function jackGatherReady(): bool
  */
 
 const JACK_IMPORT_FILES = [   // the only files read in the old folder: name, size cap
-    'settings' => ['embycache_settings.json', 1048576],
-    'exclude'  => ['embycache_exclude.txt', 16777216],
-    'origin'   => ['embycache_origin.json', 16777216],
+    'settings' => ['mediacache_settings.json', 1048576],
+    'exclude'  => ['mediacache_exclude.txt', 16777216],
+    'origin'   => ['mediacache_origin.json', 16777216],
     'ini'      => ['consolidate.ini', 65536],
 ];
 // set by Jack whatever the old file says (Unraid's views, the share configs, rsync both ways); the mover only as EmbyCache finds it itself
@@ -1436,9 +1421,11 @@ const JACK_IMPORT_PCT   = ['min_free_percent', 'movie_share_percent'];
 // a key the old install doesn't have and Jack has no value for: what Jack's setup page would choose
 // (desk.js initForm()/saveSetup()), where it differs from EmbyCache's DEFAULTS; max_resume_movies/_series: max_resume_items
 const JACK_DEFAULTS = ['cleanup_tool' => 'rsync', 'fill_tool' => 'rsync', 'array_source' => 'user0', 'return_to_origin' => true,
-                            'movie_mode' => 'folder', 'create_share_root' => false, 'mover_debug_level' => 0, 'number_episodes' => 3,
+                            'movie_mode' => 'folder', 'create_share_root' => true, 'mover_debug_level' => 0, 'number_episodes' => 3,
                             'movie_share_percent' => 50, 'max_episodes_per_series' => 0, 'max_favorite_series' => 10, 'use_next_up' => true,
                             'min_free_percent' => 20];
+// MediaCache's keys Jack sets himself without a word: the share root, one copy at a time, its rsync progress and log lines
+const JACK_IMPORT_QUIET = JACK_FIXED + ['copy_progress' => true, 'status_log_interval' => 60];
 const GATHER_IMPORT_KEYS = ['BASE_DIRS', 'MIN_FREE_GB', 'DUP_CHECK', 'MOVE_CACHE', 'CACHE_ONLY_TARGET'];  // what Jack's gather settings take over
 const GATHER_IMPORT_JACK = ['LOGFILE', 'ARRAY_PATTERN', 'CACHE_PATTERN', 'EXCLUDE_FILE', 'DRYRUN'];      // Jack's own
 
@@ -1506,10 +1493,10 @@ function jackImportRead(string $dir, string $name, int $cap): ?string
     return importRead($dir, $name, $cap, 'jack_import');
 }
 
-/** EmbyCache's own DEFAULTS (the version that ships with the office), asked from embycache_lib.py */
+/** EmbyCache's own DEFAULTS (the version that ships with the office), asked from mediacache_lib.py */
 function jackImportDefaults(): array
 {
-    $py = 'import json, sys; sys.path.insert(0, sys.argv[1]); import embycache_lib as l; print(json.dumps(l.DEFAULTS))';
+    $py = 'import json, sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; print(json.dumps(l.DEFAULTS))';
     [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], jackPyEnv(), 30);
     $j = $exit === 0 ? json_decode(trim($out), true) : null;
     if (!is_array($j) || !array_key_exists('cache_path', $j)) {
@@ -1530,7 +1517,7 @@ function jackImportPlan(string $jackFolder, string $gatherFolder, array $ctx): a
     $secrets = [];
     $preview = ['embycache' => null, 'gather' => null];
     $do = ['embycache' => null, 'gather' => null];
-    $current = readJson($ctx['jack_dir'] . '/embycache_settings.json');
+    $current = readJson($ctx['jack_dir'] . '/mediacache_settings.json');
     foreach ((array) ($current['instances'] ?? []) as $i) {
         if (is_array($i) && is_string($i['api_key'] ?? null) && $i['api_key'] !== '') {
             $secrets[] = $i['api_key'];
@@ -1552,7 +1539,7 @@ function jackImportPlan(string $jackFolder, string $gatherFolder, array $ctx): a
     $preview = jackImportScrub($preview, $secrets);
     // the token: what the page saw, what will be done, and Jack's own files as they are now
     $mine = '';
-    foreach ([$ctx['jack_dir'] . '/embycache_settings.json', $ctx['jack_dir'] . '/embycache_exclude.txt', $ctx['jack_dir'] . '/embycache_origin.json',
+    foreach ([$ctx['jack_dir'] . '/mediacache_settings.json', $ctx['jack_dir'] . '/mediacache_exclude.txt', $ctx['jack_dir'] . '/mediacache_origin.json',
               $ctx['gather_dir'] . '/gather.json'] as $f) {
         $mine .= (string) @sha1_file($f) . '|';
     }
@@ -1588,7 +1575,9 @@ function jackImportEmbyCache(string $dir, array $ctx, ?array $current, array &$s
 {
     $files = [];
     foreach (['settings', 'exclude', 'origin'] as $k) {
-        $files[$k] = jackImportRead($dir, JACK_IMPORT_FILES[$k][0], JACK_IMPORT_FILES[$k][1]);
+        // a standalone MediaCache's files, else an older EmbyCache's (embycache_*) — the same shape
+        $files[$k] = jackImportRead($dir, JACK_IMPORT_FILES[$k][0], JACK_IMPORT_FILES[$k][1])
+            ?? jackImportRead($dir, str_replace('mediacache_', 'embycache_', JACK_IMPORT_FILES[$k][0]), JACK_IMPORT_FILES[$k][1]);
     }
     $pv = ['found' => array_map(fn ($f) => $f !== null, $files), 'blockers' => [], 'warnings' => [], 'changes' => [], 'same' => 0,
            'defaults' => [], 'jack' => [], 'dropped' => [], 'instances' => [], 'users' => null, 'libraries' => null,
@@ -1610,7 +1599,7 @@ function jackImportEmbyCache(string $dir, array $ctx, ?array $current, array &$s
         if ($target === null || $cache === '') {
             $pv['blockers'][] = ['key' => 'no_settings'];
         } else {
-            $mine = array_values(array_filter(array_map('trim', explode("\n", (string) @file_get_contents($ctx['jack_dir'] . '/embycache_exclude.txt')))));
+            $mine = array_values(array_filter(array_map('trim', explode("\n", (string) @file_get_contents($ctx['jack_dir'] . '/mediacache_exclude.txt')))));
             $exclude = $mine;
             if ($files['exclude'] !== null) {
                 $lines = array_values(array_filter(array_map('trim', explode("\n", $files['exclude'])), fn ($l) => $l !== ''));
@@ -1622,7 +1611,7 @@ function jackImportEmbyCache(string $dir, array $ctx, ?array $current, array &$s
                                   'bad_sample' => array_map(fn ($l) => mb_substr($l, 0, 200), array_slice($bad, 0, 5)),
                                   'already' => count(array_intersect($ok, $mine)), 'mine' => count($mine), 'total' => count($exclude)];
             }
-            $mineOrigin = readJson($ctx['jack_dir'] . '/embycache_origin.json') ?? [];
+            $mineOrigin = readJson($ctx['jack_dir'] . '/mediacache_origin.json') ?? [];
             if ($files['origin'] !== null) {
                 $o = json_decode($files['origin'], true);
                 $o = is_array($o) && !($o && array_is_list($o)) ? $o : [];
@@ -1696,6 +1685,10 @@ function jackImportSettings(array $old, array $ctx, ?array $current, array &$pv,
     $cfg = [];
     foreach ($defaults as $k => $def) {
         if (in_array($k, $structured, true)) {
+            continue;
+        }
+        if (array_key_exists($k, JACK_IMPORT_QUIET)) {   // Jack's own, whatever the old file says — not worth a line in the preview
+            $cfg[$k] = JACK_IMPORT_QUIET[$k];
             continue;
         }
         if ($k === 'cache_path') {                   // the pool: one of this server's, never a default
@@ -1896,8 +1889,8 @@ function jackImportTrial(array $cfg, array $ctx): ?string
     } catch (Problem $p) {
         return (string) ($p->params['detail'] ?? $p->key);
     } finally {
-        @unlink("$dir/embycache_settings.json");
-        @unlink("$dir/.embycache_settings.trial.json");
+        @unlink("$dir/mediacache_settings.json");
+        @unlink("$dir/.mediacache_settings.trial.json");
         @rmdir($dir);
     }
 }
@@ -1919,7 +1912,7 @@ function jackImportGather(string $dir, array $ctx, array $emby): array
     $new = ['shares' => [], 'min_free_gb' => (int) ($cur['min_free_gb'] ?? 256), 'dup_check' => ($cur['dup_check'] ?? 'size') === 'cmp' ? 'cmp' : 'size',
             'move_cache' => ($cur['move_cache'] ?? false) === true, 'cache_only_target' => ($cur['cache_only_target'] ?? '') === 'most-free' ? 'most-free' : 'skip'];
     $jack = ['LOGFILE' => $ctx['gather_dir'] . '/consolidate.log', 'ARRAY_PATTERN' => '/mnt/disk[0-9]*', 'CACHE_PATTERN' => null,
-             'EXCLUDE_FILE' => $ctx['jack_dir'] . '/embycache_exclude.txt', 'DRYRUN' => 'true'];
+             'EXCLUDE_FILE' => $ctx['jack_dir'] . '/mediacache_exclude.txt', 'DRYRUN' => 'true'];
     foreach ($vars as $k => $v) {
         if (in_array($k, GATHER_IMPORT_KEYS, true)) {
             continue;
@@ -2108,20 +2101,20 @@ function jackImportApply(array $do, array $ctx): array
     if ($do['embycache']) {
         $e = $do['embycache'];
         jackDataDir($ctx['jack_dir']);
-        $backups = jackImportBackup($ctx['jack_dir'], array_filter(['embycache_settings.json' => $e['settings'] !== null,
-            'embycache_exclude.txt' => $e['exclude'] !== null, 'embycache_origin.json' => $e['origin'] !== null]), $stamp);
+        $backups = jackImportBackup($ctx['jack_dir'], array_filter(['mediacache_settings.json' => $e['settings'] !== null,
+            'mediacache_exclude.txt' => $e['exclude'] !== null, 'mediacache_origin.json' => $e['origin'] !== null]), $stamp);
         if ($e['settings'] !== null) {
             jackWriteSettings($e['settings'], $ctx['jack_dir'], (string) ($ctx['tmp'] ?? RUN_DIR));
         }
         if ($e['exclude'] !== null) {
-            writeAtomic($ctx['jack_dir'] . '/embycache_exclude.txt', $e['exclude'] ? implode("\n", $e['exclude']) . "\n" : '', 0600, 0, 0);
+            writeAtomic($ctx['jack_dir'] . '/mediacache_exclude.txt', $e['exclude'] ? implode("\n", $e['exclude']) . "\n" : '', 0600, 0, 0);
         }
         if ($e['origin'] !== null) {
-            writeAtomic($ctx['jack_dir'] . '/embycache_origin.json',
+            writeAtomic($ctx['jack_dir'] . '/mediacache_origin.json',
                 json_encode((object) $e['origin'], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n", 0600, 0, 0);
         }
     }
-    $emby = readJson($ctx['jack_dir'] . '/embycache_settings.json') ?? [];
+    $emby = readJson($ctx['jack_dir'] . '/mediacache_settings.json') ?? [];
     if ($do['gather']) {
         $backups = array_merge($backups, jackImportBackup($ctx['gather_dir'], ['gather.json' => true, 'consolidate.ini' => true], $stamp));
         jackSaveGather($do['gather'], $emby, $ctx['gather_dir'], $ctx['jack_dir']);
@@ -2595,7 +2588,7 @@ function jackRunCheck(string $tool, string $mode): void
         }
     }
     if (jackJobInfo('embycache')['running'] || jackJobInfo('gather')['running']
-        || flockHeld(JACK_DATA . '/embycache.lock') || flockHeld(GATHER_LOCK)) {
+        || flockHeld(JACK_DATA . '/mediacache.lock') || flockHeld(GATHER_LOCK)) {
         throw new Problem('jack_running');
     }
     // never beside a run of Ms. Moverelli's Smart Mover (agent/desks/moverelli.php) — any of hers, any of his
@@ -2611,7 +2604,7 @@ function jackRunCheck(string $tool, string $mode): void
 function jackAnyRunning(): bool
 {
     return jackJobInfo('embycache')['running'] || jackJobInfo('gather')['running']
-        || flockHeld(JACK_DATA . '/embycache.lock') || flockHeld(GATHER_LOCK);
+        || flockHeld(JACK_DATA . '/mediacache.lock') || flockHeld(GATHER_LOCK);
 }
 
 function jackToolDir(string $tool): string
@@ -2643,6 +2636,7 @@ function jackJob(string $tool, array $args): int
     $noFill = in_array('--nofill', $args, true);       // inside the night run: only free (give back, cleanup), fetch nothing
     $args = array_values(array_filter($args, fn ($a) => !str_starts_with($a, '--')));
     $mode = $args[0] ?? 'run';
+    jackMigratePending();
     $dir = jackToolDir($tool);
     try {
         jackRunCheck($tool, $mode);
@@ -2718,7 +2712,7 @@ function jackJob(string $tool, array $args): int
     // the other tool's lock, held for the whole run, so it can't start meanwhile (a measurement too: EmbyCache moves files)
     $hold = null;
     if (in_array($mode, ['run', 'measure', 'release'], true)) {
-        $hold = @fopen($tool === 'gather' ? JACK_DATA . '/embycache.lock' : GATHER_LOCK, 'c');
+        $hold = @fopen($tool === 'gather' ? JACK_DATA . '/mediacache.lock' : GATHER_LOCK, 'c');
         if (!$hold || !flock($hold, LOCK_EX | LOCK_NB)) {
             jackWaitEnd($wait, RUN_DIR, $tool);
             jackRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => 'jack_running']);
@@ -2756,12 +2750,7 @@ function jackJob(string $tool, array $args): int
         writeAtomic("$dir/office-stop.json", (string) @file_get_contents("$night/night-stop.json"), 0600, 0, 0);
     }
 
-    if ($tool === 'embycache' && $mode === 'run' && !$noFill && ($settings = jackReadSettings())) {
-        // the shares' folders on a ZFS pool as Unraid makes them — never a plain folder (jackMakeShareDatasets())
-        $cache = rtrim((string) ($settings['cache_path'] ?? ''), '/');
-        $mounts = mountTable();
-        jackMakeShareDatasets(jackShares($settings, $mounts), $cache, $mounts);
-    }
+    // the shares' folders on a ZFS pool: MediaCache makes the dataset itself, as Unraid does (create_share_root, 1.65.0)
     $progress = null;                    // a real EmbyCache run: its two RAM files for the live panel
     if ($tool === 'gather') {
         $text = $mode === 'measure' ? jackWriteMeasureIni(jackMeasureShares(), jackReadSettings() ?? [])
@@ -2773,16 +2762,16 @@ function jackJob(string $tool, array $args): int
              + ($mode === 'run' ? ['CONSOLIDATE_STOP' => "$dir/office-stop.json"] : []);
         $cwd = '/';
     } else {
-        $cmd = array_merge(['python3', JACK_APP . '/embycache_run.py'], JACK_MODES[$mode]);
-        $env = jackPyEnv() + ['EMBYCACHE_STATUS' => "$dir/status.json"] + ($real ? ['EMBYCACHE_STOP' => "$dir/office-stop.json"] : [])
+        $cmd = array_merge(['python3', JACK_APP . '/mediacache_run.py'], JACK_MODES[$mode]);
+        $env = jackPyEnv() + ['MEDIACACHE_RESULT' => "$dir/status.json"] + ($real ? ['MEDIACACHE_STOP' => "$dir/office-stop.json"] : [])
              // Ms. Moverelli's limit and his half (a dry run sees what the real one would)
              + (in_array($mode, ['dry', 'run'], true) ? jackPoolEnv(jackReadSettings()) : [])
-             + ($noFill ? ['EMBYCACHE_NO_FILL' => '1'] : []);
+             + ($noFill ? ['MEDIACACHE_NO_FILL' => '1'] : []);
         $cwd = JACK_APP;
         if ($real) {                     // the live panel on his page (jack-progress.php): EmbyCache's progress in RAM
             $progress = jackProgressPaths();
             jackProgressClear($progress);
-            $env['EMBYCACHE_PROGRESS'] = $progress['file'];
+            $env['MEDIACACHE_PROGRESS'] = $progress['file'];
         }
     }
     $out = fopen("$dir/office-output.txt", 'w');
@@ -3073,7 +3062,7 @@ function jackPlainOutput(string $text): string
 function jackLog(string $tool): array
 {
     jackToolKnown($tool);
-    $file = $tool === 'gather' ? GATHER_DATA . '/consolidate.log' : JACK_DATA . '/logs/embycache.log';
+    $file = $tool === 'gather' ? GATHER_DATA . '/consolidate.log' : JACK_DATA . '/logs/mediacache.log';
     $size = (int) @filesize($file);
     $h = @fopen($file, 'r');
     if (!$h) {
@@ -3135,7 +3124,7 @@ function jackSetSchedule(string $job, ?string $cron): array
  */
 function jackForeignSchedules(string $usDir = US_DIR, string $cronGlob = '/boot/config/plugins/*/*.cron', string $officeCron = OFFICE_CRON): array
 {
-    return officeForeignCalls(['embycache' => '/embycache_run\.py/', 'gather' => '/consolidate_master\.sh/'], $usDir, $cronGlob, [$officeCron]);
+    return officeForeignCalls(['embycache' => '/mediacache_run\.py/', 'gather' => '/consolidate_master\.sh/'], $usDir, $cronGlob, [$officeCron]);
 }
 
 /**
