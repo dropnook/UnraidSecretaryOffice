@@ -373,6 +373,7 @@ function bubbleText() {
 const PAGES = () => [{ id: '', text: Office.t('common.page_overview') }, { id: 'setup', text: T('page.setup') }];
 /** Set up (or not known yet — the search's places): the pool and the shares have tiles only then */
 const configured = () => !state || !!state.configured;
+let hintsBox = null;                // the hints under the row (render())
 const sw = Office.sections({
   id: ID,                          // kept as jack.tile, routes #/jack/<tile>
   grid: 'stats jo-tiles',
@@ -428,36 +429,41 @@ function render() {
   ]));
   if (!state) return;
 
-  // hints, no sections: they stay at every click
-  if (!state.emby.length) root.appendChild(el('p', 'callout warn', T('notice.no_emby')));
-  if (!state.python) root.appendChild(el('p', 'callout warn', T('notice.no_python')));
+  // hints, no sections: they stay at every click — under the row (the house rule: tiles right under the head)
+  const hints = [];
+  if (!state.emby.length) hints.push(el('p', 'callout warn', T('notice.no_emby')));
+  if (!state.python) hints.push(el('p', 'callout warn', T('notice.no_python')));
   const foreign = state.foreign.filter((f) => f.enabled);
-  if (foreign.length) root.appendChild(el('p', 'callout warn', T('notice.foreign', { where: foreign.map((f) => f.where).join(', ') })));
+  if (foreign.length) hints.push(el('p', 'callout warn', T('notice.foreign', { where: foreign.map((f) => f.where).join(', ') })));
   const back = letGoNotice();
-  if (back) root.appendChild(back);
+  if (back) hints.push(back);
   const mv = state.configured ? moverNotice() : null;
-  if (mv) root.appendChild(mv);
+  if (mv) hints.push(mv);
   const wait = (state.waiting || {}).embycache;
-  if (wait) root.appendChild(moverWaitLine(wait));
-  if (state.old_clone) root.appendChild(el('p', 'callout', T('notice.old_clone')));
+  if (wait) hints.push(moverWaitLine(wait));
+  if (state.old_clone) hints.push(el('p', 'callout', T('notice.old_clone')));
   if (running()) {
     const p = el('p', 'callout', T(state.jobs.gather.running ? 'notice.gathering' : 'notice.running') + ' ');
     // a real EmbyCache run: its panel right under this has the raw output
     if (!realRun()) p.appendChild(button(T('show_output_now'), 'small', () => showOutput(state.jobs.gather.running ? 'gather' : 'embycache', true))).disabled = !Office.agent.running;
-    root.appendChild(p);
+    hints.push(p);
   }
   if (!state.configured) {
     const p = el('p', 'callout', T('notice.setup') + ' ');
     p.appendChild(button(T('setup_open'), 'small', () => Office.go(`#/${ID}/setup`)));
     p.appendChild(document.createTextNode(' '));
     p.appendChild(button(T('import.open'), 'small plain', importDialog)).disabled = !Office.agent.running;
-    root.appendChild(p);
+    hints.push(p);
   }
-  // a real run going: the live panel over the row (a hint — it stays at every click)
+  // a real run going: the live panel under the row (a hint — it stays at every click)
   progBox = liveRun() ? livePanel() : null;
-  if (progBox) root.appendChild(progBox);
-  if (state.configured) root.appendChild(scopeLine());
+  if (progBox) hints.push(progBox);
+  if (state.configured) hints.push(scopeLine());
   root.appendChild(sw.el);
+  // one box in the switcher (it lives as long as the page; core.js redraws only the row and the body), filled anew
+  if (!hintsBox) hintsBox = sw.el.insertBefore(el('div', 'jo-hints'), sw.body);
+  hintsBox.innerHTML = '';
+  hints.forEach((n) => hintsBox.appendChild(n));
   sw.render();
   root.appendChild(footer());
 }

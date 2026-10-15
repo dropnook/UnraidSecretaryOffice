@@ -35885,6 +35885,7 @@ globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
 const mk = (tag, cls, text) => { const n = { tag, cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, checked: false,
   dataset: {}, style: {}, isConnected: true, append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {}, remove() {},
+  insertBefore(c, ref) { const i = this.children.indexOf(ref); this.children.splice(i < 0 ? this.children.length : i, 0, c); return c; },
   addEventListener() {} };
   Object.defineProperty(n, 'innerHTML', { set() { n.children = []; } }); return n; };
 const specs = [];
@@ -35898,7 +35899,8 @@ globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { cron: (c) => 'C' + c,
   deskHead: (d, o) => ({ head: mk('div', 'deskhead', o.pages ? 'tabs:' + o.pages.list.map((p) => p.id).join(',') + ':' + o.pages.current : 'notabs') }),
   pageFrom: (list, sub) => (String(sub || '').split('/')[0] === 'setup' ? 'setup' : ''),
   stat: (o) => ({ tag: o.on ? 'button' : 'div', o, children: [] }),
-  sections: (o) => { specs.push(o); return { el: mk('div', 'sections'), render() {}, mount: () => false, pick() {}, active: () => '' }; },
+  sections: (o) => { specs.push(o); const box = mk('div', 'sections'); const grid = mk('div', 'grid'); const body = mk('div', 'sections-body'); box.append(grid, body);
+    return { el: box, grid, body, render() {}, mount: () => false, pick() {}, active: () => '' }; },
   filterBar: (o) => ({ o, el: mk('div', 'filterbar'), words: [], read() { return { words: this.words }; }, done(n, t) { this.doneArgs = [n, t]; }, reset() { this.words = []; } }),
   selbar: (spec) => { bars.push(spec); return spec; } };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
@@ -35935,6 +35937,21 @@ m.setView(view, 'main');
 m.bars();
 m.render();
 out.page = view.children.map((c) => c.cls || c.tag);
+const under = () => (view.children.find((c) => c.cls === 'sections') || { children: [] }).children.map((c) => [c.cls, (c.children || []).map((x) => x.cls || x.tag)]);
+m.render();          // a second drawing (every answer of the agent): the hints once, never twice
+out.underRow = under();
+// the kind of the run going, in «Last run» (owner 2026-10-15: a real night run said «dry run»): a night's own record —
+// her job's file still the last dry run's while the night checks or Jack Streamer's step goes; a scheduled night; her job's
+const going = (st) => { m.setState({ ...base, ...st }); return tiles().find(([id]) => id === 'runs')[3]; };
+out.kinds = [
+  going({ job: { running: false, mode: 'dry', finished: 700 }, night: { jack: true, plan: null, last: { running: true, mode: 'run', by: 'office', started: 950 } } }),
+  going({ job: { running: true, mode: 'run', pid: 9 }, night: { jack: false, plan: null, last: { running: true, mode: 'run', by: 'schedule', started: 950 } } }),
+  going({ job: { running: false, mode: 'run', finished: 900 }, night: { jack: true, plan: null, last: { running: true, mode: 'dry', by: 'office', started: 950 } } }),
+  going({ job: { running: true, mode: 'dry', pid: 9 } }),
+  going({ job: { running: true, mode: 'list', pid: 9 } }),
+  going({ job: { running: false, mode: 'dry', finished: 700 }, night: { jack: true, plan: null, last: { running: false, mode: 'run', finished: 960 } } }),
+].map((o) => [o.value, o.sub]);
+m.setState(base);
 out.sections = [texts(m.scheduleSection()), m.shareSection().children.length, texts(m.historySection()).slice(0, 4)];
 const hist = m.historySection();
 out.foot = texts(m.footer());
@@ -35971,8 +35988,13 @@ JS);
         str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php'), "in_array(\$r['mode'] ?? '', ['run', 'dry'], true) && !in_array(\$r['result'] ?? '', ['refused', 'skipped'], true)"));
     same('moverelli tiles: Unraid\'s schedule on, Jack Emby\'s list missing, a run going — the tiles say so (alert, «running»)',
         [['schedule', 'not_scheduled', true], ['shares', '1 / 3', true], ['runs', 'output_running', false]], $o['alerts'] ?? null);
-    same('moverelli tiles: her page — the head with tabs, the help, the hints, the row, the footer under all', ['deskhead', 'help', 'mo-mover', 'role mo-hint', 'sections', 'mo-foot'],
+    same('moverelli tiles: her page — the head with tabs, the help, the row (tiles first, owner 2026-10-15), the footer under all', ['deskhead', 'help', 'sections', 'mo-foot'],
         $o['page'] ?? null);
+    same('moverelli tiles: her hints right under the row, over the sections (they stay at every click)', [['grid', []], ['mo-hints', ['mo-mover', 'role mo-hint']], ['sections-body', []]],
+        $o['underRow'] ?? null);
+    same('moverelli tiles: «Last run» names the kind of the run going — a real night with the last dry run\'s job file, a scheduled night, a dry night, a dry run, a list; none once the night ended', [
+        ['output_running', ['mode.run']], ['output_running', ['mode.run']], ['output_running', ['mode.dry']], ['output_running', ['mode.dry']], ['output_running', ['mode.list']],
+        ['R900', ['mode.run · result.ok']]], $o['kinds'] ?? null);
     same('moverelli tiles: the sections — «Schedule» (hers with «Change…», Unraid\'s), «Shares» (head, bar, box), «My runs» (the last run\'s result on top)', [
         ['schedule', 'sched.mine', 'C15 5 * * *', 'by_office', 'sched.change', 'night.unmeasured_mine', 'night.steps_mine', 'night.dry', 'unraid_schedule', 'unraid_off', 'unraid_off_sub'], 3,
         ['history', 'run_summary {"moved":2,"files":2,"size":"5 B","left":"count.left {\"n\":0}"}', 'share_moved {"share":"Filme","moved":2,"files":"count.files {\"n\":2}","size":"5 B","left":"count.left {\"n\":0}"}', 'show_log']],
@@ -36577,8 +36599,9 @@ function testTilesMediaPages(): void
     check('jack page: «Recent runs» filtered by the switcher (sw.active(), the note line from sw.note), the result box its first row',
         str_contains($jackSrc, "const only = sw.active() === 'runs' ? 'embycache' : '';") && str_contains($jackSrc, "runsBar.done(fit.length, runs.length, sw.note('runs'));")
         && str_contains($jackSrc, "s.id = 'jo-runs';\n  const rb = resultBox();\n  if (rb) s.appendChild(rb);"));
-    check('jack page: «Amount» is the line «How I work» over the row, the tools a footer under it, the live panel over the row; Python missing a callout',
-        str_contains($jackSrc, "if (progBox) root.appendChild(progBox);\n  if (state.configured) root.appendChild(scopeLine());\n  root.appendChild(sw.el);\n  sw.render();\n  root.appendChild(footer());")
+    check('jack page: the row first (owner 2026-10-15), then the hints, the live panel and «How I work» under it, over the sections, in one box filled anew; the tools a footer; Python missing a callout',
+        str_contains($jackSrc, "if (progBox) hints.push(progBox);\n  if (state.configured) hints.push(scopeLine());\n  root.appendChild(sw.el);\n  // one box in the switcher (it lives as long as the page; core.js redraws only the row and the body), filled anew\n  if (!hintsBox) hintsBox = sw.el.insertBefore(el('div', 'jo-hints'), sw.body);\n  hintsBox.innerHTML = '';\n  hints.forEach((n) => hintsBox.appendChild(n));\n  sw.render();\n  root.appendChild(footer());")
+        && !preg_match('/\n  if \([^\n]*\) root\.appendChild\(el\(\'p\', \'callout/', substr($jackSrc, (int) strpos($jackSrc, '\nfunction render() {'), 3000))
         && str_contains($jackSrc, "Office.place('overview', el('div', 'jo-scope'))") && str_contains($jackSrc, "Office.place('tools', el('div', 'jo-foot'))")
         && !str_contains($jackSrc, "T('tools_sub')") && !str_contains($jackSrc, "T('tools.python_missing')") && str_contains($jackSrc, "T('notice.no_python')"));
     check('jack page: «Consolidate folders» — its two facts as rows, no tiles inside a section', str_contains($jackSrc, "const facts = el('div', 'box jo-facts');")
@@ -37282,6 +37305,14 @@ JS;
     $lines = array_map(fn ($x) => (int) explode(' ', explode(':', $x, 2)[1])[0], $r['faults']);
     same('tiles convention: a made-up desk — role=button on a .stat, scrollIntoView, own folding (twice), a card without aria-pressed, a filter kept, role="button" in markup, a filtering tile without a place, one whose key lacks a language, one whose tile has no sub-route (a folding head, a reveal, a choice kept, a pressed card and a tile of the search pass)',
         [3, 4, 6, 7, 9, 10, 11, 26, 36, 56], $lines);
+    // tiles first: a hint or a run's card over the row is a fault; the same under it (into the switcher, over the body) is not
+    $over = "function render() {\n  root.appendChild(Office.pageHelp(ID, [\n  ]));\n  root.appendChild(el('p', 'callout', T('x')));\n"
+        . "  if (live()) root.appendChild(runCard());\n  root.appendChild(sw.el);\n  root.appendChild(footer());\n}\n";
+    $under = "function render() {\n  root.appendChild(Office.pageHelp(ID, [\n  ]));\n  if (!state) { root.appendChild(el('p', 'empty', T('l'))); return; }\n"
+        . "  root.appendChild(sw.el);\n  hints.forEach((n) => sw.el.insertBefore(n, sw.body));\n  root.appendChild(footer());\n}\n";
+    $at = fn (string $js, string $desk = 'x') => array_map(fn ($x) => (int) explode(' ', explode(':', $x, 2)[1])[0], tilesConventionFaults($desk, 'desk.js', $js, [], fn () => true)['faults']);
+    same('tiles convention: tiles first — a hint and a run\'s card over the row are faults (lines 4, 5); under the row none; a desk not moved yet passes',
+        [[4, 5], [], []], [$at($over), $at($under), $at($over, TILES_FIRST_LATER[0])]);
 
     // tiles v2: the desks on the section switcher (SECTIONS_DESKS — each desk group adds its desk when it moves it over)
     $v2 = [];
@@ -37579,8 +37610,30 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
             }
         }
     }
+    // tiles first (owner 2026-10-15): on a desk's main page nothing stands between its help and the row — hints, banners,
+    // a run's card go under the row, over the sections (`sw.el.insertBefore(n, sw.body)`); the desks named are not moved yet
+    if ($file === 'desk.js' && !in_array($desk, TILES_FIRST_LATER, true)) {
+        $in = false;
+        foreach ($lines as $i => $l) {
+            if (preg_match('/Office\.pageHelp\(ID, \[/', $l)) {
+                $in = true;
+                continue;
+            }
+            if (!$in || preg_match('/^\s*(\/\/|\*)/', $l)) {
+                continue;
+            }
+            if (preg_match('/root\.(appendChild|append)\(.*\b\w+\.el\b/', $l)) {
+                break;          // the row: what follows is under it
+            }
+            if (preg_match('/root\.(appendChild|append)\(/', $l) && !preg_match("/deskHead|'empty'|missing\(\)|Office\.pageHelp/", $l)) {
+                $fault($i, 'something over the row of tiles — the tiles come first under the head; put it under the row (sw.el.insertBefore(n, sw.body))');
+            }
+        }
+    }
     return ['faults' => $faults, 'sites' => count($sites)];
 }
+/** Desks whose main page still has hints over the row (tiles first, 2026-10-15): moved one by one, then taken off */
+const TILES_FIRST_LATER = ['advisor', 'backup', 'cleanup', 'restore'];
 
 
 // ===================================================================== run

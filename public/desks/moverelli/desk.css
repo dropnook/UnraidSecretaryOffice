@@ -57,7 +57,7 @@
 .mo-run-right{display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; margin-left:auto}
 /* the night's picture (2026-10-14): the pool before and after the run, where she moves to, a file on its slow way */
 .mo-pic{--mo-dest:color-mix(in srgb, var(--blue-800, #486dba) 80%, var(--text-color)); position:relative; display:block; min-height:0; padding:10px 14px 12px; margin:0 0 12px; overflow:hidden}
-.mo-pic-head{font-weight:600; font-size:13px; color:var(--ink); margin:0 0 6px}
+.mo-pic-head{display:flex; align-items:center; gap:8px; font-weight:600; font-size:13px; color:var(--ink); margin:0 0 6px}
 .mo-pic-grid{display:grid; grid-template-columns:minmax(0, 1fr) minmax(140px, 220px); gap:6px 28px; align-items:end}
 .mo-pic-row{margin:0 0 10px}
 .mo-pic-label{font-size:12.5px; color:var(--ink2); margin:0 0 4px; overflow-wrap:anywhere}
