@@ -90,12 +90,12 @@ function jackPanel(nn) {
   if (!jackAtWork(nn)) return null;
   const box = el('div', 'box jo-prog running mo-jack');
   const head = el('div', 'jo-prog-head');
-  head.append(el('span', 'spin'), el('span', '', T('rc.jack_title')));
+  head.append(el('span', '', T('rc.jack_title')));          // a part of her one card: its wave is the card's
   const open = link(T('rc.night_jack_open'), () => Office.go('#/jack'));
   open.className = 'mo-link mo-jack-open';
   head.appendChild(open);
   box.appendChild(head);
-  Office.jackRows(box, jackLive.progress);
+  Office.jackRows(box, jackLive.progress, { noFile: true });     // his file in flight: the one line in the run's part
   return box;
 }
 
@@ -151,6 +151,24 @@ function fillLine(x) {
 /** The night run's phases as the card's steps, pure — core.js Office.nightSteps() (Jack Emby's page shows the same) */
 const nightSteps = (n) => Office.nightSteps(n, T);
 
+/** The pool of the night (its picture's), else the one her shares move from */
+function nightPool(nn) {
+  const pic = nn && nn.picture;
+  return (pic && pic.pool) || (((state && state.shares) || []).find((x) => x.state === 'moves') || {}).from || 'cache';
+}
+/** «Array», «Pool cache» */
+const placeName = (x) => (!x || x === 'array' ? T('pic.array') : T('pic.pool_name', { pool: x }));
+/**
+ * The ONE line of the file in flight in her card (owner 2026-10-15), pure: hers (Smart Mover's status) or Jack Streamer's
+ * (his live view) — «On its way: Teil 2.mkv (1.6 GB of 2.5 GB) — Pool cache → Array»; the pool's picture says none while
+ * the run goes
+ */
+function onWayText(f) {
+  const name = String(f.name || '').split('/').pop();
+  const size = f.size != null && Number(f.size) > 0 ? ` (${T('rc.file_bytes', { done: fmt.size(Number(f.done) || 0), size: fmt.size(Number(f.size)) })})` : '';
+  return T('rc.on_way', { file: name + size, from: placeName(f.from), to: placeName(f.to) });
+}
+
 /** The card above the tiles while a real run goes: the steps, the bar, the file in flight, the end; «Stop after this file» */
 function runCard(p, now) {
   const nn = nightNow || (nightGoing() ? night().last : null);
@@ -185,12 +203,19 @@ function runCard(p, now) {
     }
     if (d.fill) card.appendChild(el('div', 'card-line', d.fill));
     if (d.file) {
-      card.appendChild(el('div', 'card-line mo-run-file', T('rc.file', { file: d.file })
-        + (d.fileSize ? ' · ' + T('rc.file_bytes', { done: fmt.size(d.fileBytes), size: fmt.size(d.fileSize) }) : '')
+      const sh = ((state && state.shares) || []).find((x) => x.share === d.share) || {};
+      card.appendChild(el('div', 'card-line mo-run-file', onWayText({ name: d.file, done: d.fileBytes, size: d.fileSize, from: sh.from || nightPool(nn), to: sh.to || 'array' })
         + (d.fileRate || d.rate ? ' · ' + T('rc.rate', { rate: fmt.size(d.fileRate || d.rate) }) : '')));
       if (d.waking) card.appendChild(el('div', 'card-line', T('rc.waking')));
     }
     if (d.end) card.appendChild(el('div', 'card-line', T('rc.end', { time: fmt.time(d.end) })));
+  }
+  // Jack Streamer's file in flight while his step runs: the same one line, from his live view (his part below shows none)
+  const cur = jackAtWork(nn) && jackLive.progress && jackLive.progress.current;
+  if (cur && cur.rel) {
+    const pool = nightPool(nn);
+    card.appendChild(el('div', 'card-line mo-run-file', onWayText({ name: cur.rel, done: cur.done, size: cur.size,
+      from: cur.phase === 'free' ? pool : 'array', to: cur.phase === 'free' ? 'array' : pool })));
   }
   // the foot: «N errors, N warnings» on the left (as Mr. Backupsy's card); on the right, in Jack Emby's order and style
   // (his live panel): «Log» as a quiet link, «Stop after this file» (Unraid's move finishes the file in flight anyway —
@@ -212,8 +237,8 @@ function runCard(p, now) {
 // pool) — and the files done wandering slowly between them (night.json `picture`, agent/lib/nightrun.php).
 // Jack Streamer's part in two (the owner, 2026-10-15): not yet watched in his colour, already watched (goes back) in green
 // and his reserved room (owner + helmi1987, 2026-10-15): hatched after his part — his budget's room not yet filled
-// the snapshots apart in black (owner, 2026-10-15; ZFS only — no figure, no part)
-const PIC_SEGS = ['fixed', 'snaps', 'others', 'jack', 'watched', 'reserve', 'free'];
+// the snapshots apart in black (owner, 2026-10-15; ZFS only — no figure, no part), first at the very left (owner, 2026-10-15)
+const PIC_SEGS = ['snaps', 'fixed', 'others', 'jack', 'watched', 'reserve', 'free'];
 const PIC_MIN_PX = 10;            // a segment with something in it is never thinner than this (the owner, 2026-10-14)
 const PIC_ORDER = ['recheck', 'free', 'check'];       // the latest forecast first (a phase as it began)
 
@@ -295,13 +320,9 @@ function nightPicture(n) {
   let pic = n && n.picture;
   if (!pic || typeof pic !== 'object') return null;
   const box = el('div', 'box mo-pic');
-  // its title like the other run cards': the wave at its left while the run goes (no wave once it ended)
+  // its small head: while the run goes a part of her one card (the card's wave at its top), after it a box of its own
   const head = el('div', 'mo-pic-head');
-  const title = (nn) => {
-    head.innerHTML = '';
-    if (nn.running) head.appendChild(el('span', 'spin'));
-    head.appendChild(el('span', '', T(nn.running ? 'pic.title_run' : 'pic.title_last')));
-  };
+  const title = (nn) => { head.textContent = T(nn.running ? 'pic.title_run' : 'pic.title_last'); };
   title(n);
   const grid = el('div', 'mo-pic-grid');
   const rowsBox = el('div', 'mo-pic-rowsBox');
@@ -415,11 +436,12 @@ function nightPicture(n) {
     const to = f.who === 'jack' || !data || !data.dest || data.dest.to === 'array' ? T('pic.array') : T('pic.pool_name', { pool: data.dest.to });
     return fileOnto(f, pic.pool) ? [to, pool] : [pool, to];
   }
-  function say(f, moving) {
+  // while the run goes no file line here (the run's part says the one in flight); after it «Last moved: …»
+  function say(f) {
     line.textContent = '';
-    if (!f) return;
+    if (!f || n.running) return;
     const [from, to] = ends(f);
-    line.textContent = T(moving ? 'pic.moving' : 'pic.last_file', { file: short(f.name), size: fmt.size(Number(f.bytes) || 0), from, to });
+    line.textContent = T('pic.last_file', { file: short(f.name), size: fmt.size(Number(f.bytes) || 0), from, to });
   }
   // the slow walk: one real file at a time from where it was to where it went (her files and Jack Emby's watched ones
   // off the pool, his new ones onto it); the newest as they come, the latest few again while nothing new comes — calm
@@ -469,7 +491,6 @@ function nightPicture(n) {
     if (!from || !to || !dot.animate) return Promise.resolve();
     dot.className = 'mo-pic-dot mo-fly-' + k;
     dot.innerHTML = picFlyer(f.who === 'jack', to.x < from.x);
-    say(f, true);
     dot.getAnimations().forEach((x) => x.cancel());       // the last flight's (kept at its end) — one at a time on it
     return dot.animate(picFlight(from, to), { duration: PIC_FLIGHT_MS, easing: 'linear', fill: 'forwards' })
       .finished.catch(() => {});
@@ -943,13 +964,17 @@ function hints() {
     out.push(el('p', 'callout warn', T(last.mover_by === 'schedule' ? 'stopped_mover_schedule' : 'stopped_mover')));
   }
   if (realRun()) {
-    out.push(runCard(progress, Date.now() / 1000));
+    // ONE card while the run goes (owner 2026-10-15): the run (steps, progress, buttons), Jack Streamer at work (his step
+    // only), the pool in this run — one wave at its top, the parts below sections inside it (a divider, a small head)
+    const one = el('div', 'card mo-one running');
+    one.appendChild(runCard(progress, Date.now() / 1000));
     // right under it, while Jack Streamer's step runs: his live panel (the same as on his page)
     const jp = jackPanel(nightNow || (nightGoing() ? night().last : null));
-    if (jp) out.push(jp);
+    if (jp) one.appendChild(jp);
     // under the card: the night's picture — the pool before, the forecast after, where she moves to, files on the way
     const pic = livePicture(nightNow || (nightGoing() ? night().last : null));
-    if (pic) out.push(pic);
+    if (pic) one.appendChild(pic);
+    out.push(one);
   } else if (running()) {
     const p = el('p', 'callout', T('notice.running', { mode: T('mode.' + state.job.mode) }) + ' ');
     p.appendChild(button(T('rc.show_log'), 'small plain', () => showOutput(true))).disabled = !Office.agent.running;
@@ -2316,7 +2341,7 @@ Office.places(ID, [
 ]);
 
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
+  globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, onWayText, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
     importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, picFlight, fileOnto, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, setJackLive: (x) => { jackLive = x; }, jackPanel, jackAtWork, redrawCard, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
     setForm: (f) => { form = f; }, initForm, levelMath, levelSection, levelLines, levelNight, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
