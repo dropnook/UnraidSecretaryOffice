@@ -2458,6 +2458,13 @@ function jackRunWatch($proc, string $stopFile, bool $watchers, ?callable $look =
         $st = proc_get_status($proc);
         if (!$st['running']) {
             proc_close($proc);
+            // ended before the watch looked (a tool that stops itself at once): a stop request lying there still says why
+            clearstatcache(true, $stopFile);
+            if ($why === null && is_file($stopFile)) {
+                $j = json_decode((string) @file_get_contents($stopFile, false, null, 0, 65536), true);
+                $why = in_array($j['why'] ?? null, ['mover', 'watching'], true) ? $j['why'] : 'user';
+                $asked = $why === 'watching' && is_array($j['who'] ?? null) ? $j['who'] : null;
+            }
             return ['exit' => (int) $st['exitcode'], 'stopped_for' => $why === 'watching' ? $asked : null, 'stopped_why' => $why];
         }
         if ($why === null) {
