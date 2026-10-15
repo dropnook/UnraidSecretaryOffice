@@ -1859,7 +1859,9 @@ function levelNight(pool, m) {
 /** One pool in words: what it holds and what never moves, the next night — a warning when she can't get below X */
 function levelLines(pool, c, g) {
   const m = levelMath(c, g.move_when_used_above);
-  const out = [T(c.estimated === true ? 'setup.level_pool_estimated' : 'setup.level_pool', { pool, used: fmt.size(m.used), size: fmt.size(m.size), nm: fmt.size(m.nm) })];
+  // a btrfs/xfs pool: estimated, with the age of its last measuring of the share folders
+  const p = { pool, used: fmt.size(m.used), size: fmt.size(m.size), nm: fmt.size(m.nm) };
+  const out = [c.estimated === true ? T('setup.level_pool_estimated', { ...p, age: fmt.relative(Number(c.measured_at) || 0) }) : T('setup.level_pool', p)];
   if (m.never) return { lines: out, warn: T('setup.level_never', { pool, nm: Math.floor(m.nmPct), x: m.x }) };
   out.push(levelNight(pool, m));
   return { lines: out, warn: m.jackOver && jack().hired ? T('setup.level_jack_over', { pool, jack: fmt.size(m.jack), x: m.x }) : null };
@@ -1873,7 +1875,12 @@ function levelSection(g) {
     if (!(x > 0)) { box.appendChild(el('p', 'role', T('setup.level_off'))); return; }
     box.appendChild(el('p', 'mo-level-rule', T(jack().hired ? 'setup.level_rule_jack' : 'setup.level_rule', { x })));
     levelList().forEach(([pool, c]) => {
-      if (!c) { box.appendChild(el('p', 'role', T('setup.level_unseen', { pool }))); return; }
+      if (!c) {
+        // a btrfs/xfs pool before its first measuring (it runs in the background) — else asleep or not measurable
+        const wait = Array.isArray(state.levels_wait) && state.levels_wait.includes(pool);
+        box.appendChild(el('p', 'role', T(wait ? 'setup.level_wait' : 'setup.level_unseen', { pool })));
+        return;
+      }
       const v = levelLines(pool, c, g);
       box.appendChild(el('p', 'mo-level-pool', v.lines.join(' ')));
       if (v.warn) box.appendChild(el('p', 'callout warn', v.warn));

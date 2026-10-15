@@ -321,7 +321,7 @@ function nightLevel(array $g, array $h, bool $wake): ?array
         return nightHerPool($g, $h, $jack);
     }
     return poolLevel($pool, ['x' => (int) $g['move_when_used_above'], 'shares_dir' => $h['shares_dir'], 'names' => moverelliShareNames($h['shares_dir'], $h),
-        'zfs' => $h['zfs'], 'mnt' => $h['mnt'], 'jack_list' => $h['jack_list_file'], 'asleep' => $h['asleep'], 'wake' => $wake]);
+        'zfs' => $h['zfs'], 'mnt' => $h['mnt'], 'jack_list' => $h['jack_list_file'], 'asleep' => $h['asleep'], 'wake' => $wake, 'measure' => 'night']);
 }
 
 /**
@@ -331,7 +331,8 @@ function nightLevel(array $g, array $h, bool $wake): ?array
  */
 function nightHerPool(array $g, array $h, bool $jack): ?array
 {
-    $levels = array_filter(moverelliLevels($g, $jack ? $h : ['jack_cache' => fn () => null] + $h));
+    // a btrfs/xfs pool's folders measured now (the night's du, not the stored one)
+    $levels = array_filter(moverelliLevels($g, ['pool_measure' => 'night'] + ($jack ? $h : ['jack_cache' => fn () => null] + $h)));
     if (!$levels) {
         return null;
     }

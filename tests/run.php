@@ -34739,8 +34739,9 @@ function testPoolJackOutside(): void
 
 /**
  * A btrfs or XFS pool (2026-10-15): poolLevel() measures it too — size/used from statfs as df counts them, M = the du of
- * the movable shares' folders (kept a while in RAM, a run measures anew), no snapshots counted, `estimated` — and a ZFS
- * pool exactly as before (no new key, statfs never asked).
+ * the movable shares' folders, no snapshots counted, `estimated` with `measured_at`. The du runs only in the night run
+ * (measure 'night') and in the background job (at most once an hour, asked by a page or a check finding the stored value
+ * missing or older than an hour); pages and checks use the stored value (her data folder). A ZFS pool exactly as before.
  */
 function testPoolNonZfs(): void
 {
@@ -34758,68 +34759,114 @@ function testPoolNonZfs(): void
     // statfs as df: 4096-byte blocks, 1 000 000 of them, 600 000 free, 590 000 available (btrfs/xfs keep some back)
     $stat = fn (string $fs) => file_put_contents("$tmp/bin/stat", "#!/bin/bash\necho stat >> $tmp/asked\necho '$fs 4096 1000000 600000 590000'\n");
     $du = fn (string $body) => file_put_contents("$tmp/bin/du", "#!/bin/bash\necho \"\${@: -1}\" >> $tmp/du-asked\n$body\n");
+    $duOk = 'case "${@: -1}" in */Filme) echo "300000000 x";; */Downloads) echo "100000000 x";; *) exit 1;; esac';
     $stat('btrfs');
-    $du('case "${@: -1}" in */Filme) echo "300000000 x";; */Downloads) echo "100000000 x";; *) exit 1;; esac');
+    $du($duOk);
     chmod("$tmp/bin/stat", 0755);
     chmod("$tmp/bin/du", 0755);
     file_put_contents("$tmp/bin/zfs", "#!/bin/bash\nexit 1\n");
     chmod("$tmp/bin/zfs", 0755);
+    $launched = [];
+    $store = "$tmp/data/moverelli/pool-du.json";
     $o = ['x' => 80, 'shares_dir' => "$tmp/shares", 'names' => ['Filme', 'Downloads', 'Serien', 'appdata'], 'zfs' => "$tmp/bin/zfs", 'mnt' => "$tmp/mnt",
-          'jack_list' => "$tmp/list.txt", 'asleep' => [], 'stat' => "$tmp/bin/stat", 'du' => "$tmp/bin/du", 'du_cache' => "$tmp/run/pool-du.json"];
+          'jack_list' => "$tmp/list.txt", 'asleep' => [], 'stat' => "$tmp/bin/stat", 'du' => "$tmp/bin/du", 'du_cache' => $store,
+          'du_launch' => function (string $pool) use (&$launched): void { $launched[] = $pool; }];
+    $duAsked = function () use ($tmp): int { $n = is_file("$tmp/du-asked") ? count(file("$tmp/du-asked")) : 0; @unlink("$tmp/du-asked"); return $n; };
     $size = 4096 * (400000 + 590000);
     $used = 4096 * 400000;
     $pick = fn (?array $l): array => [$l['size'] ?? null, $l['used'] ?? null, $l['movable'] ?? null, $l['nm'] ?? null, $l['jack'] ?? null, $l['others'] ?? null,
         $l['snapshots'] ?? null, $l['estimated'] ?? null, $l['fs'] ?? null, $l['folders'] ?? null];
+    $want = [$size, $used, 400000000, $used - 400000000, $his, 400000000 - $his, 0, true, 'btrfs', []];
+
+    // a page or a check before the first du: not measured yet, du never run there, the background job asked once an hour
+    $first = [poolLevel('cache', $o), poolLevelWaiting('cache', $o), poolLevel('cache', $o)];
+    same('pool non-zfs: before the first du — not measured (null), waiting; the page runs no du; the background job asked once (not again within the hour)',
+        [null, true, null, 0, ['cache']], [...$first, $duAsked(), $launched]);
+
+    // the background job: measured and stored in her data folder
+    $job = poolLevelDuJob('cache', $o);
+    $launched = [];
     $l = poolLevel('cache', $o);
-    same('pool non-zfs (btrfs): size = used + avail and used = blocks − free (as df); M = du of Filme + Downloads (Serien has no folder: 0, appdata never); Jack Streamer from his list; no snapshots; estimated; no folder warning',
-        [$size, $used, 400000000, $used - 400000000, $his, 400000000 - $his, 0, true, 'btrfs', []], $pick($l));
+    same('pool non-zfs (btrfs): the background job measures Filme and Downloads (Serien has no folder: 0, appdata never) and stores them; the page then: size = used + avail, used = blocks − free (as df), Jack Streamer from his list, no snapshots, estimated — no du, no job asked',
+        [0, 2, $want, false, [], 0], [$job, $duAsked(), $pick($l), poolLevelWaiting('cache', $o), $launched, $duAsked()]);
+    same('pool non-zfs: the stored du\'s time on the level (measured_at), in her data folder', [true, true],
+        [abs(($l['measured_at'] ?? 0) - time()) <= 2, is_int((readJson($store)['pools']['cache']['at'] ?? null))]);
     $pic = nightPicture($l);
     same('pool non-zfs: the night picture — no snapshot part (all in fixed), the parts add up to the size', [null, $size],
         [$pic['snapshots'], $pic['fixed'] + $pic['others'] + $pic['jack'] + $pic['free']]);
     $plan = nightPlan($l, 0);
     same('pool non-zfs: the plan is measured, X 80 % — nothing must go', [true, 0, false], [$plan['measured'], $plan['need'], $plan['over']]);
 
-    // the du kept a while: a second look asks du nothing; a run (wake) measures anew
-    @unlink("$tmp/du-asked");
-    $again = poolLevel('cache', $o);
-    $first = @file_get_contents("$tmp/du-asked");
-    poolLevel('cache', ['wake' => true] + $o);
-    same('pool non-zfs: the folders\' du kept — not asked again; a run measures anew (Filme, Downloads)', [$pick($l), false, 2],
-        [$pick($again), $first !== false && $first !== '', count(file("$tmp/du-asked"))]);
-    // a du that fails or a cache from the future: not measured — never a wrong M
-    $du('exit 1');
-    same('pool non-zfs: a du that fails — not measured (null)', null, poolLevel('cache', ['wake' => true] + $o));
-    file_put_contents("$tmp/run/pool-du.json", json_encode(['dirs' => ["$tmp/mnt/cache/Filme" => ['bytes' => 1, 'at' => time() + 999], "$tmp/mnt/cache/Downloads" => ['bytes' => 1, 'at' => time()]]]));
-    same('pool non-zfs: a kept du from the future is not believed', null, poolLevel('cache', $o));
-    $du('case "${@: -1}" in */Filme) echo "300000000 x";; */Downloads) echo "100000000 x";; *) exit 1;; esac');
+    // older than an hour: the page still shows it (with its age) and asks the job — once an hour
+    $d = readJson($store);
+    $d['pools']['cache']['at'] = time() - 4000;
+    $d['asked']['cache'] = time() - 4000;
+    file_put_contents($store, json_encode($d));
+    $old = [poolLevel('cache', $o), poolLevel('cache', $o)];
+    same('pool non-zfs: a stored du older than an hour — still used (its age on the level), the job asked once, no du on the page',
+        [$want, time() - 4000, ['cache'], 0], [$pick($old[1]), $old[0]['measured_at'] ?? null, $launched, $duAsked()]);
 
-    // XFS: the same; anything else (ZFS seen through statfs, tmpfs, not mounted) — not measured
+    // the night measures now (and stores it)
+    $launched = [];
+    $n = poolLevel('cache', ['measure' => 'night'] + $o);
+    same('pool non-zfs: the night run measures the folders now and stores them', [$want, 2, true, []],
+        [$pick($n), $duAsked(), (readJson($store)['pools']['cache']['at'] ?? 0) >= time() - 2, $launched]);
+
+    // a du that fails: the night not measured, the job stores nothing — never a wrong M
+    $du('exit 1');
+    $before = readJson($store)['pools'] ?? null;
+    same('pool non-zfs: a du that fails — the night not measured, the job 1 and nothing stored', [null, 1, true],
+        [poolLevel('cache', ['measure' => 'night'] + $o), poolLevelDuJob('cache', $o), (readJson($store)['pools'] ?? 0) === $before]);
+    $du($duOk);
+    // a stored value from the future, or a share made movable since (a folder not in it): not believed — waiting again
+    $d = readJson($store);
+    $d['pools']['cache']['at'] = time() + 999;
+    file_put_contents($store, json_encode($d));
+    $future = poolLevel('cache', $o);
+    poolLevelDuJob('cache', $o);
+    @mkdir("$tmp/mnt/cache/Serien");
+    same('pool non-zfs: a stored du from the future, or a new movable folder not in it — not measured', [null, null, true],
+        [$future, poolLevel('cache', $o), poolLevelWaiting('cache', $o)]);
+    rmdir("$tmp/mnt/cache/Serien");
+    $duAsked();
+
+    // XFS the same; anything else (ZFS seen through statfs, tmpfs, not mounted) — not measured, never waiting
     $stat('xfs');
-    $x = poolLevel('cache', ['wake' => true] + $o);
+    $x = poolLevel('cache', ['measure' => 'night'] + $o);
     same('pool non-zfs (xfs): the same numbers, fs xfs', [$size, $used, 400000000, 'xfs'], [$x['size'] ?? null, $x['used'] ?? null, $x['movable'] ?? null, $x['fs'] ?? null]);
-    $stat('tmpfs');
-    $none = [poolLevel('cache', ['wake' => true] + $o)];
-    $stat('zfs');
-    $none[] = poolLevel('cache', ['wake' => true] + $o);
-    same('pool non-zfs: tmpfs or zfs by statfs (zfs list said nothing) — not measured', [null, null], $none);
-    // asleep: not looked at, statfs not asked
+    $none = [];
+    foreach (['tmpfs', 'zfs'] as $fs) {
+        $stat($fs);
+        $none[] = [poolLevel('cache', ['measure' => 'night'] + $o), poolLevelWaiting('cache', $o)];
+    }
+    same('pool non-zfs: tmpfs or zfs by statfs (zfs list said nothing) — not measured, not waiting', [[null, false], [null, false]], $none);
+    // asleep: not looked at, statfs not asked, the job does nothing
     $stat('btrfs');
     @unlink("$tmp/asked");
-    same('pool non-zfs: asleep — not looked at, nothing asked', [null, false], [poolLevel('cache', ['asleep' => ['cache' => true]] + $o), is_file("$tmp/asked")]);
+    $duAsked();
+    same('pool non-zfs: asleep — not looked at, nothing asked; the job leaves it', [null, false, 1, 0],
+        [poolLevel('cache', ['asleep' => ['cache' => true]] + $o), is_file("$tmp/asked"), poolLevelDuJob('cache', ['asleep' => ['cache' => true]] + $o), $duAsked()]);
 
     // the destination: a btrfs secondary pool's size and use from statfs
     same('pool non-zfs: statfs of a destination pool', ['fs' => 'btrfs', 'size' => $size, 'used' => $used], poolLevelStatfs("$tmp/mnt/cache", "$tmp/bin/stat"));
 
-    // ZFS exactly as before: the same keys, statfs and du never asked
+    // her desk: the du stored in her data folder
+    $GLOBALS['moverelliHost'] = ['dir' => "$tmp/data/moverelli"];
+    same('pool non-zfs: her host keeps the du in her data folder', $store, moverelliHost()['du_cache']);
+    unset($GLOBALS['moverelliHost']);
+
+    // ZFS exactly as before: the same keys, statfs, du and the job never asked
     file_put_contents("$tmp/bin/zfs", "#!/bin/bash\nprintf 'cache\\t60000\\t40000\\t100\\t0\\ncache/Filme\\t9000\\t40000\\t7000\\t2000\\n'\n");
     @unlink("$tmp/asked");
-    @unlink("$tmp/du-asked");
-    $z = poolLevel('cache', ['wake' => true] + $o);
-    same('pool non-zfs: a ZFS pool — no estimated/fs key, statfs and du never asked, the numbers from zfs list',
-        [false, false, false, false, 100000, 60000, 7000, 2000],
-        [isset($z['estimated']), isset($z['fs']), is_file("$tmp/asked"), is_file("$tmp/du-asked"), $z['size'], $z['used'], $z['movable'], $z['snapshots']]);
+    @unlink($store);
+    $launched = [];
+    $z = [poolLevel('cache', $o), poolLevel('cache', ['measure' => 'night', 'wake' => true] + $o)];
+    same('pool non-zfs: a ZFS pool — no estimated/fs/measured_at key, statfs, du and the job never asked, nothing stored, the numbers from zfs list',
+        [false, false, false, false, 0, [], false, 100000, 60000, 7000, 2000, true],
+        [isset($z[0]['estimated']), isset($z[0]['fs']), isset($z[0]['measured_at']), is_file("$tmp/asked"), $duAsked(), $launched, is_file($store),
+         $z[0]['size'], $z[0]['used'], $z[0]['movable'], $z[0]['snapshots'], $z[0] === $z[1]]);
     same('pool non-zfs: a ZFS pool\'s keys as in 1.64.0', ['pool', 'shares', 'folders', 'snapshots', 'snap_all', 'jack_logical', 'snap_pct', 'size', 'used', 'movable', 'nm', 'x', 'xb', 'jack',
-        'jack_out', 'others', 'need', 'used_pct', 'nm_pct', 'never', 'jack_over', 'free', 'y', 'k', 'room', 'half', 'half_d', 'back', 'goes', 'downloads'], array_keys($z));
+        'jack_out', 'others', 'need', 'used_pct', 'nm_pct', 'never', 'jack_over', 'free', 'y', 'k', 'room', 'half', 'half_d', 'back', 'goes', 'downloads'], array_keys($z[0]));
     hardeningRm($tmp);
 }
 

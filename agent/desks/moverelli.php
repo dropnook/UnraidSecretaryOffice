@@ -92,6 +92,9 @@ desk('moverelli', [
         // the night run (nightrun.php: run, dry — her cron line, her page, Jack Emby's «Run now»); her own part inside
         // it (--night) and the list of shares go to Smart Mover directly
         'moverelli' => fn (array $args) => in_array('--night', $args, true) || in_array('list', $args, true) ? moverelliJob($args) : nightRun($args),
+        // a btrfs/xfs pool's movable share folders measured (du) in the background — asked by a page or a check at most
+        // once an hour (agent/lib/poollevel.php poolLevelDuAsk())
+        'pool-du'   => fn (array $args) => moverelliPoolDu((string) ($args[0] ?? '')),
     ],
     'checks'  => fn () => moverelliChecks(),
 ]);
@@ -152,7 +155,9 @@ function moverelliHost(): array
         'asleep'        => $h['asleep'] ?? null,
         'jack_cache'    => $h['jack_cache'] ?? fn (): ?string => moverelliJackLists() !== null ? (string) (jackReadSettings()['cache_path'] ?? '') : null,
         'jack_list_file' => $h['jack_list_file'] ?? JACK_DATA . '/embycache_exclude.txt',
-    ];
+        // a btrfs/xfs pool (poolLevelPlain()): its du stored in her data folder; the tests' statfs, du and background job
+        'du_cache'      => $h['du_cache'] ?? ($h['dir'] ?? MOVERELLI_DATA) . '/pool-du.json',
+    ] + array_intersect_key($h, array_flip(['stat', 'du', 'du_launch']));
 }
 
 // ===================================================================== fit
@@ -867,10 +872,30 @@ function moverelliLevels(array $g, array $h): array
         $pool = (string) $pool;
         $mine = $pool === $jack;
         $level = poolLevel($pool, ['x' => (int) $g['move_when_used_above'], 'shares_dir' => $h['shares_dir'], 'names' => $names, 'zfs' => $h['zfs'],
-            'mnt' => $h['mnt'], 'jack_list' => $mine ? $h['jack_list_file'] : null, 'asleep' => $h['asleep']]);
+            'mnt' => $h['mnt'], 'jack_list' => $mine ? $h['jack_list_file'] : null, 'asleep' => $h['asleep'], 'measure' => $h['pool_measure'] ?? null]
+            + array_intersect_key($h, array_flip(['stat', 'du', 'du_cache', 'du_launch'])));
         $out[$pool] = $level === null ? null : $level + ['mine' => $mine];
     }
     return $out;
+}
+
+/** The pools of moverelliLevels() not looked at that are btrfs/xfs waiting for their first du (poolLevelWaiting()) */
+function moverelliLevelsWaiting(array $levels, array $h): array
+{
+    $o = ['shares_dir' => $h['shares_dir'], 'names' => moverelliShareNames($h['shares_dir'], $h), 'mnt' => $h['mnt']]
+       + array_intersect_key($h, array_flip(['stat', 'du_cache']));
+    return array_values(array_filter(array_map('strval', array_keys(array_filter($levels, fn ($l) => $l === null))),
+        fn (string $pool) => !poolsBySleep([$pool], $h['asleep'])['asleep'] && poolLevelWaiting($pool, $o)));
+}
+
+/** The background job: a btrfs/xfs pool's movable share folders measured and stored (poolLevelDuJob()); 0: stored */
+function moverelliPoolDu(string $pool): int
+{
+    $h = moverelliHost();
+    $code = poolLevelDuJob($pool, ['shares_dir' => $h['shares_dir'], 'names' => moverelliShareNames($h['shares_dir'], $h), 'mnt' => $h['mnt'], 'asleep' => $h['asleep']]
+        + array_intersect_key($h, array_flip(['stat', 'du', 'du_cache'])));
+    logLine("Ms. Moverelli: pool $pool's movable share folders " . ($code === 0 ? 'measured' : 'not measured'));
+    return $code;
 }
 
 /**
@@ -967,7 +992,9 @@ function moverelliScan(?array $h = null): array
         'import_found' => moverelliImportFound($h),
         // the pool per pool of her movable shares (null: not looked at — no ZFS, asleep): her setup's sentence and numbers
         // Jack Emby's bytes on his pool (`mine`)
-        'levels'     => (object) moverelliLevels(($settings ?? moverelliDefaults())['global'], $h),
+        'levels'     => (object) ($levels = moverelliLevels(($settings ?? moverelliDefaults())['global'], $h)),
+        // the pools not looked at that are btrfs/xfs waiting for their first du (the background job on its way): «not measured yet»
+        'levels_wait' => moverelliLevelsWaiting($levels, $h),
     ];
     if ($h['write_state']) {
         writeAtomic(deskFile('moverelli'), jsonEncode($state));
