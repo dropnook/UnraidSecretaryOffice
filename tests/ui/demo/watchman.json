@@ -205,7 +205,8 @@
    "by": "page",
    "told": 1791311474,
    "muted": null,
-   "night": false
+   "night": false,
+   "serious": true
   },
   {
    "id": "wa92b5cedfc",
@@ -1287,6 +1288,64 @@
   "window": 600,
   "quiet": 3600,
   "keep": 500,
-  "days": 90
- }
+  "days": 90,
+  "serious_days": 30
+ },
+ "incidents": [
+  {
+   "id": "w41acb2239b",
+   "kind": "login_new_ip",
+   "group": "login",
+   "attack": "T1078",
+   "v": null,
+   "time": 1791311474,
+   "last": 1791455474,
+   "count": 212,
+   "t": {
+    "ip": "192.168.178.20",
+    "user": "root",
+    "service": "WebGUI"
+   },
+   "p": {
+    "ip": "192.168.178.20",
+    "users": [
+     "root"
+    ],
+    "services": [
+     "web"
+    ]
+   },
+   "at": 1791315074,
+   "until": 1793907074,
+   "louder": true,
+   "note": "Not one of ours: changed the root password, SSH keys only now",
+   "again": 0
+  },
+  {
+   "id": "w5c1e2a9b04",
+   "kind": "container_new",
+   "group": "container",
+   "attack": "T1610",
+   "v": null,
+   "time": 1787243474,
+   "last": 1787243474,
+   "count": 1,
+   "t": {
+    "name": "cryptobox",
+    "rights": "--privileged --network=host"
+   },
+   "p": {
+    "name": "cryptobox",
+    "tokens": [
+     "--privileged",
+     "--network=host"
+    ]
+   },
+   "at": 1787329874,
+   "until": 1789921874,
+   "louder": false,
+   "note": "Pulled by mistake from a forum post; removed",
+   "again": 0
+  }
+ ]
 }

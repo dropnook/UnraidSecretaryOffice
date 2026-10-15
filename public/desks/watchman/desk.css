@@ -37,6 +37,11 @@
 /* how secure it stands: a tip, its link into Unraid and «I know, thanks» on the right (under it on a phone) */
 .row.wm-tip{grid-template-columns:minmax(0,1fr) auto; align-items:start}
 .wm-tip-acts{display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; padding-top:2px}
+/* an open entry's two answers: «I know, thanks» and «Acknowledge — this was serious»; the history of serious incidents */
+.wm-entry-acts{display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; align-items:flex-start}
+.wm-serious-what{font-weight:600; overflow-wrap:anywhere}
+.wm-incident-note{overflow-wrap:anywhere}
+.wm-incidents-none{margin:0}
 .wm-tip-known .row-name, .wm-tip-known .row-detail{color:var(--muted)}
 .wm-posture-none{margin:0 2px}
 /* what he keeps an eye on: groups that fold, small rows */
@@ -48,6 +53,7 @@
 @media (max-width:640px){
   .row.wm-entry{grid-template-columns:minmax(0,1fr)}
   .row.wm-entry > .btn{justify-self:start}
+  .wm-entry-acts{justify-content:flex-start}
   .row.wm-tip{grid-template-columns:minmax(0,1fr)}
   .wm-tip-acts{justify-content:flex-start}
   .row.wm-item{padding-left:14px}
