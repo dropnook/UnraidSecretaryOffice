@@ -22,11 +22,16 @@ declare(strict_types=1);
  * secondary pool until it is back below X; the age rule always. Jack Emby gives back only what was watched and fetches
  * only up to X (EMBYCACHE_MIN_FREE_PERCENT = 100 − X) and his GB budget. Both in ONE night run (nightrun.php). fixed ≥ X:
  * she can never get below it (pool_never_moves); fixed + jack ≥ X: only Jack Emby's unwatched keeps it over X.
- * Only ZFS pools are measured here (refer per dataset); a sleeping pool is not looked at (null) unless a run wakes it.
+ * ZFS pools are measured exactly (refer per dataset). A btrfs or XFS pool (2026-10-15, poolLevelPlain()): size and used from
+ * statfs as df counts them (Smart Mover's own measure there), M = the allocated bytes of the movable shares' folders on the
+ * pool (du, kept a while in RAM), snapshots none counted (they stay in `fixed`) — `estimated` says so on the pages. A
+ * sleeping pool is not looked at (null) unless a run wakes it.
  */
 
 const POOL_SNAP_HINT = 2;      // % of the pool in the movable shares' snapshots: the Team Lead's hint
 const POOL_LIST_MAX  = 200000; // lines of EmbyCache's list read
+const POOL_DU_TTL    = 900;    // s a share folder's du on a btrfs/xfs pool is reused (a run measures anew)
+const POOL_DU_TIME   = 60;     // s the du of a pool's movable share folders may take (longer: not measured)
 
 /**
  * The numbers (pure). x: % of the whole pool (0: no limit); jack: Jack Emby's bytes inside the movable shares' datasets
@@ -147,6 +152,86 @@ function poolLevelLook(string $pool, array $shares, string $zfs = 'zfs'): ?array
 }
 
 /**
+ * A pool that isn't ZFS (btrfs, xfs): {fs, size, used} from statfs of its mount as df counts it (used = blocks − free,
+ * size = used + avail — Smart Mover's pool_used_pct() there); null: no btrfs/xfs mounted there (ZFS, or not mounted: the
+ * empty folder lies on the root file system). statfs reads the superblock in memory — no disk woken.
+ */
+function poolLevelStatfs(string $path, string $stat = 'stat'): ?array
+{
+    [$exit, $out] = run([$stat, '-f', '-c', '%T %S %b %f %a', $path], 10);
+    if ($exit !== 0 || !preg_match('/^(btrfs|xfs) (\d{1,12}) (\d{1,20}) (\d{1,20}) (\d{1,20})$/D', trim((string) $out), $m)) {
+        return null;
+    }
+    $used = max(0, (int) $m[3] - (int) $m[4]) * (int) $m[2];
+    $size = $used + (int) $m[5] * (int) $m[2];
+    return $size > 0 ? ['fs' => $m[1], 'size' => $size, 'used' => $used] : null;
+}
+
+/**
+ * The movable shares' folders on a btrfs/xfs pool: {share: allocated bytes} (du -s -B1 -x, nice; a folder not there: 0) —
+ * each kept POOL_DU_TTL s in $cache (RAM) and measured anew when older or $fresh (a run); null: a du failed or took
+ * longer than POOL_DU_TIME (then the pool isn't measured, never a wrong M).
+ */
+function poolLevelFolderBytes(string $root, array $shares, string $cache, bool $fresh, string $du = 'du'): ?array
+{
+    $saved = (array) (readJson($cache)['dirs'] ?? []);
+    $out = $todo = [];
+    foreach ($shares as $s) {
+        $path = $root . $s;
+        $c = $saved[$path] ?? null;
+        if (!is_dir($path) || is_link($path)) {
+            $out[$s] = 0;
+        } elseif (!$fresh && is_array($c) && is_int($c['bytes'] ?? null) && is_int($c['at'] ?? null) && $c['at'] > time() - POOL_DU_TTL && $c['at'] <= time()) {
+            $out[$s] = $c['bytes'];
+        } else {
+            $todo[$s] = ['nice', '-n', '10', $du, '-s', '-B1', '-x', $path];
+        }
+    }
+    if ($todo) {
+        foreach (runAll($todo, POOL_DU_TIME) as $s => [$exit, $text]) {
+            if ($exit !== 0 || !preg_match('/^(\d+)\s/', (string) $text, $m)) {
+                return null;
+            }
+            $out[$s] = (int) $m[1];
+            $saved[$root . $s] = ['bytes' => (int) $m[1], 'at' => time()];
+        }
+        // only folders still asked about are kept
+        $keep = array_flip(array_map(fn ($s) => $root . $s, $shares));
+        try {
+            @mkdir(dirname($cache), 0700, true);
+            writeAtomic($cache, jsonEncode(['dirs' => array_intersect_key($saved, $keep) + array_filter($saved, fn ($k) => !str_starts_with((string) $k, $root), ARRAY_FILTER_USE_KEY)]), 0600);
+        } catch (Throwable) {
+            // not kept: measured again next time
+        }
+    }
+    ksort($out, SORT_STRING);
+    return $out;
+}
+
+/**
+ * poolLevelLook() for a btrfs/xfs pool: the same shape (datasets = the movable shares with a folder on the pool — their
+ * bytes are M), snapshots 0 and snap_all null (none counted: they stay in what never moves) and `estimated` — null: not
+ * such a pool, or not measured. $o: mnt, stat, du, du_cache, fresh.
+ */
+function poolLevelPlain(string $pool, array $shares, array $o): ?array
+{
+    if (!preg_match('/^[\w.\-]{1,64}$/D', $pool)) {
+        return null;
+    }
+    $root = rtrim($o['mnt'] ?? '/mnt', '/') . "/$pool/";
+    $fs = poolLevelStatfs(rtrim($root, '/'), $o['stat'] ?? 'stat');
+    if ($fs === null) {
+        return null;
+    }
+    $bytes = poolLevelFolderBytes($root, $shares, $o['du_cache'] ?? officeRunDir() . '/pool-du.json', (bool) ($o['fresh'] ?? false), $o['du'] ?? 'du');
+    if ($bytes === null) {
+        return null;
+    }
+    return ['size' => $fs['size'], 'used' => $fs['used'], 'movable' => array_sum($bytes), 'snapshots' => 0, 'snap_all' => null,
+            'datasets' => array_values(array_filter($shares, fn ($s) => is_dir($root . $s) && !is_link($root . $s))), 'fs' => $fs['fs'], 'estimated' => true];
+}
+
+/**
  * J: what the entries of EmbyCache's list that lie on this pool take there (a file that is gone: 0) — in the pool's own
  * bytes (2026-10-15: allocated, st_blocks — ZFS counts them after compression, like `refer`; never above the size), and
  * their sizes (logical): [physical, logical]. The ratio converts what waits on the array into pool bytes (nightPlan()).
@@ -191,9 +276,10 @@ function poolLevelFileBytes(int $size, int $blocks): int
 }
 
 /**
- * One pool as it stands: poolLevelMath() with its movable shares and snapshots — or null (no ZFS pool, the pool asleep
- * and not to be woken). $o: x, shares_dir, names (the shares that exist), zfs, mnt, jack_list (EmbyCache's list,
- * null: none), asleep (sleepingDisks()' map, null: asked now), wake (a run is about to wake it anyway).
+ * One pool as it stands: poolLevelMath() with its movable shares and snapshots — or null (neither ZFS nor btrfs/xfs, not
+ * measured, the pool asleep and not to be woken). $o: x, shares_dir, names (the shares that exist), zfs, mnt, jack_list
+ * (EmbyCache's list, null: none), asleep (sleepingDisks()' map, null: asked now), wake (a run is about to wake it anyway;
+ * a btrfs/xfs pool's folders measured anew), stat, du, du_cache (poolLevelPlain()). `estimated`: not ZFS (true only there).
  */
 function poolLevel(string $pool, array $o): ?array
 {
@@ -201,7 +287,7 @@ function poolLevel(string $pool, array $o): ?array
         return null;
     }
     $shares = poolLevelMovable($pool, $o['shares_dir'], $o['names']);
-    $look = poolLevelLook($pool, $shares, $o['zfs'] ?? 'zfs');
+    $look = poolLevelLook($pool, $shares, $o['zfs'] ?? 'zfs') ?? poolLevelPlain($pool, $shares, ['fresh' => (bool) ($o['wake'] ?? false)] + $o);
     if ($look === null) {
         return null;
     }
@@ -211,7 +297,7 @@ function poolLevel(string $pool, array $o): ?array
     // count as never moving — her page says so (inbox #14)
     $root = rtrim($o['mnt'] ?? '/mnt', '/') . "/$pool/";
     $folders = array_values(array_filter(array_diff($shares, $look['datasets']), fn ($s) => is_dir($root . $s) && !is_link($root . $s)));
-    return ['pool' => $pool, 'shares' => $shares, 'folders' => $folders, 'snapshots' => $look['snapshots'], 'snap_all' => $look['snap_all'], 'jack_logical' => $jackLogical,
+    return (isset($look['estimated']) ? ['estimated' => true, 'fs' => $look['fs']] : []) + ['pool' => $pool, 'shares' => $shares, 'folders' => $folders, 'snapshots' => $look['snapshots'], 'snap_all' => $look['snap_all'], 'jack_logical' => $jackLogical,
             'snap_pct' => $look['size'] > 0 ? round($look['snapshots'] * 100 / $look['size'], 1) : 0.0]
          + poolLevelMath($look['size'], $look['used'], $look['movable'], (int) $o['x'], $jackIn, $jack - $jackIn);
 }

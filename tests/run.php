@@ -34738,6 +34738,92 @@ function testPoolJackOutside(): void
 }
 
 /**
+ * A btrfs or XFS pool (2026-10-15): poolLevel() measures it too — size/used from statfs as df counts them, M = the du of
+ * the movable shares' folders (kept a while in RAM, a run measures anew), no snapshots counted, `estimated` — and a ZFS
+ * pool exactly as before (no new key, statfs never asked).
+ */
+function testPoolNonZfs(): void
+{
+    $tmp = hardeningTmp('pool-nonzfs');
+    foreach (["$tmp/shares", "$tmp/bin", "$tmp/mnt/cache/Filme/A", "$tmp/mnt/cache/Downloads", "$tmp/mnt/cache/appdata"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    file_put_contents("$tmp/shares/Filme.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\n");
+    file_put_contents("$tmp/shares/Downloads.cfg", "shareUseCache=\"yes\"\n");
+    file_put_contents("$tmp/shares/Serien.cfg", "shareUseCache=\"prefer\"\nshareCachePool=\"cache\"\n");
+    file_put_contents("$tmp/shares/appdata.cfg", "shareUseCache=\"only\"\nshareCachePool=\"cache\"\n");
+    file_put_contents("$tmp/mnt/cache/Filme/A/a.mkv", str_repeat('a', 9000));
+    file_put_contents("$tmp/list.txt", "$tmp/mnt/cache/Filme/A/a.mkv\n");
+    $his = poolLevelFileBytes(9000, (int) stat("$tmp/mnt/cache/Filme/A/a.mkv")['blocks']);
+    // statfs as df: 4096-byte blocks, 1 000 000 of them, 600 000 free, 590 000 available (btrfs/xfs keep some back)
+    $stat = fn (string $fs) => file_put_contents("$tmp/bin/stat", "#!/bin/bash\necho stat >> $tmp/asked\necho '$fs 4096 1000000 600000 590000'\n");
+    $du = fn (string $body) => file_put_contents("$tmp/bin/du", "#!/bin/bash\necho \"\${@: -1}\" >> $tmp/du-asked\n$body\n");
+    $stat('btrfs');
+    $du('case "${@: -1}" in */Filme) echo "300000000 x";; */Downloads) echo "100000000 x";; *) exit 1;; esac');
+    chmod("$tmp/bin/stat", 0755);
+    chmod("$tmp/bin/du", 0755);
+    file_put_contents("$tmp/bin/zfs", "#!/bin/bash\nexit 1\n");
+    chmod("$tmp/bin/zfs", 0755);
+    $o = ['x' => 80, 'shares_dir' => "$tmp/shares", 'names' => ['Filme', 'Downloads', 'Serien', 'appdata'], 'zfs' => "$tmp/bin/zfs", 'mnt' => "$tmp/mnt",
+          'jack_list' => "$tmp/list.txt", 'asleep' => [], 'stat' => "$tmp/bin/stat", 'du' => "$tmp/bin/du", 'du_cache' => "$tmp/run/pool-du.json"];
+    $size = 4096 * (400000 + 590000);
+    $used = 4096 * 400000;
+    $pick = fn (?array $l): array => [$l['size'] ?? null, $l['used'] ?? null, $l['movable'] ?? null, $l['nm'] ?? null, $l['jack'] ?? null, $l['others'] ?? null,
+        $l['snapshots'] ?? null, $l['estimated'] ?? null, $l['fs'] ?? null, $l['folders'] ?? null];
+    $l = poolLevel('cache', $o);
+    same('pool non-zfs (btrfs): size = used + avail and used = blocks − free (as df); M = du of Filme + Downloads (Serien has no folder: 0, appdata never); Jack Streamer from his list; no snapshots; estimated; no folder warning',
+        [$size, $used, 400000000, $used - 400000000, $his, 400000000 - $his, 0, true, 'btrfs', []], $pick($l));
+    $pic = nightPicture($l);
+    same('pool non-zfs: the night picture — no snapshot part (all in fixed), the parts add up to the size', [null, $size],
+        [$pic['snapshots'], $pic['fixed'] + $pic['others'] + $pic['jack'] + $pic['free']]);
+    $plan = nightPlan($l, 0);
+    same('pool non-zfs: the plan is measured, X 80 % — nothing must go', [true, 0, false], [$plan['measured'], $plan['need'], $plan['over']]);
+
+    // the du kept a while: a second look asks du nothing; a run (wake) measures anew
+    @unlink("$tmp/du-asked");
+    $again = poolLevel('cache', $o);
+    $first = @file_get_contents("$tmp/du-asked");
+    poolLevel('cache', ['wake' => true] + $o);
+    same('pool non-zfs: the folders\' du kept — not asked again; a run measures anew (Filme, Downloads)', [$pick($l), false, 2],
+        [$pick($again), $first !== false && $first !== '', count(file("$tmp/du-asked"))]);
+    // a du that fails or a cache from the future: not measured — never a wrong M
+    $du('exit 1');
+    same('pool non-zfs: a du that fails — not measured (null)', null, poolLevel('cache', ['wake' => true] + $o));
+    file_put_contents("$tmp/run/pool-du.json", json_encode(['dirs' => ["$tmp/mnt/cache/Filme" => ['bytes' => 1, 'at' => time() + 999], "$tmp/mnt/cache/Downloads" => ['bytes' => 1, 'at' => time()]]]));
+    same('pool non-zfs: a kept du from the future is not believed', null, poolLevel('cache', $o));
+    $du('case "${@: -1}" in */Filme) echo "300000000 x";; */Downloads) echo "100000000 x";; *) exit 1;; esac');
+
+    // XFS: the same; anything else (ZFS seen through statfs, tmpfs, not mounted) — not measured
+    $stat('xfs');
+    $x = poolLevel('cache', ['wake' => true] + $o);
+    same('pool non-zfs (xfs): the same numbers, fs xfs', [$size, $used, 400000000, 'xfs'], [$x['size'] ?? null, $x['used'] ?? null, $x['movable'] ?? null, $x['fs'] ?? null]);
+    $stat('tmpfs');
+    $none = [poolLevel('cache', ['wake' => true] + $o)];
+    $stat('zfs');
+    $none[] = poolLevel('cache', ['wake' => true] + $o);
+    same('pool non-zfs: tmpfs or zfs by statfs (zfs list said nothing) — not measured', [null, null], $none);
+    // asleep: not looked at, statfs not asked
+    $stat('btrfs');
+    @unlink("$tmp/asked");
+    same('pool non-zfs: asleep — not looked at, nothing asked', [null, false], [poolLevel('cache', ['asleep' => ['cache' => true]] + $o), is_file("$tmp/asked")]);
+
+    // the destination: a btrfs secondary pool's size and use from statfs
+    same('pool non-zfs: statfs of a destination pool', ['fs' => 'btrfs', 'size' => $size, 'used' => $used], poolLevelStatfs("$tmp/mnt/cache", "$tmp/bin/stat"));
+
+    // ZFS exactly as before: the same keys, statfs and du never asked
+    file_put_contents("$tmp/bin/zfs", "#!/bin/bash\nprintf 'cache\\t60000\\t40000\\t100\\t0\\ncache/Filme\\t9000\\t40000\\t7000\\t2000\\n'\n");
+    @unlink("$tmp/asked");
+    @unlink("$tmp/du-asked");
+    $z = poolLevel('cache', ['wake' => true] + $o);
+    same('pool non-zfs: a ZFS pool — no estimated/fs key, statfs and du never asked, the numbers from zfs list',
+        [false, false, false, false, 100000, 60000, 7000, 2000],
+        [isset($z['estimated']), isset($z['fs']), is_file("$tmp/asked"), is_file("$tmp/du-asked"), $z['size'], $z['used'], $z['movable'], $z['snapshots']]);
+    same('pool non-zfs: a ZFS pool\'s keys as in 1.64.0', ['pool', 'shares', 'folders', 'snapshots', 'snap_all', 'jack_logical', 'snap_pct', 'size', 'used', 'movable', 'nm', 'x', 'xb', 'jack',
+        'jack_out', 'others', 'need', 'used_pct', 'nm_pct', 'never', 'jack_over', 'free', 'y', 'k', 'room', 'half', 'half_d', 'back', 'goes', 'downloads'], array_keys($z));
+    hardeningRm($tmp);
+}
+
+/**
  * The snapshots apart in her picture (owner, 2026-10-15, release 1.63.1): ZFS's usedbysnapshots of the pool's own dataset
  * and every one directly below it (poolLevelLook()'s snap_all, the same zfs list) as their own black part after «appdata &
  * co.» (fixed less them, never below 0); no figure (btrfs, xfs, an older night.json) — no part, no legend line, all in fixed.
@@ -36908,7 +36994,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackProgress', 'testJackReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],

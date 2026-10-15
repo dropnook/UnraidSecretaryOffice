@@ -247,7 +247,8 @@ function nightDest(?string $pool, array $h): ?array
     if ($to === 'array') {
         [$size, $used] = nightArrayLevel((string) ($h['disks_ini'] ?? disksIniFile()));
     } elseif (preg_match('/^[\w.\-]{1,64}$/D', $to) && !poolsBySleep([$to], $h['asleep'])['asleep']) {
-        $look = poolLevelLook($to, [], $h['zfs']);
+        // a btrfs/xfs pool: statfs as df counts it (2026-10-15)
+        $look = poolLevelLook($to, [], $h['zfs']) ?? poolLevelStatfs(rtrim((string) ($h['mnt'] ?? '/mnt'), '/') . "/$to", (string) ($h['stat'] ?? 'stat'));
         [$size, $used] = $look !== null ? [$look['size'], $look['used']] : [null, null];
     }
     return ['to' => $to, 'size' => $size, 'used' => $used];
@@ -495,7 +496,9 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
     $pic = fn (array $p, bool $end = false): array => nightPhasePicture(nightPictureReserve($p, $budget, $end || !$jack || nightWaitKnown($h)));
     $n = ['v' => 1, 'mode' => $mode, 'by' => $by, 'pid' => getmypid(), 'started' => time(), 'phase' => 'check', 'round' => 1, 'who' => null,
           'jack' => $jack, 'pool' => $pool, 'plan' => nightWords($plan) + ['used_pct' => $plan['used_pct'], 'x' => $plan['x']],
-          'picture' => ['pool' => $pool, 'x' => $plan['x'], 'dest' => $plan['measured'] ? nightDest($pool, $h) : null,
+          'picture' => ['pool' => $pool, 'x' => $plan['x'], 'dest' => $plan['measured'] ? nightDest($pool, $h) : null]
+                     // a btrfs/xfs pool: its numbers estimated (poolLevelPlain()) — the picture says so
+                     + (!empty($level['estimated']) ? ['estimated' => true] : []) + [
                         'phases' => ['check' => $pic($plan)], 'files' => []],
           'steps' => [], 'result' => null] + ($waited > 0 ? ['waited' => $waited] : []);
     nightWrite($dir, $n);
