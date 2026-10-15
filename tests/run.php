@@ -19108,6 +19108,118 @@ JS);
  * Jack Streamer's desk id `emby` → `jack` (2026-10-14, agent/lib/migrate.php officeMigrateJackId()): staff.json,
  * his state file, the Team Lead's notes — the copies before kept beside them, the second run changes nothing.
  */
+/**
+ * Step `mediacache` (1.65.0): Jack Streamer's EmbyCache folder (data/embycache) → MediaCache's (data/mediacache). The fixture
+ * is shaped like a real 1.64.3 folder after one real run (Tower, 2026-10-15): settings with one server and no type, the list,
+ * the origins, the result, the log and a rotated one, the lock, an import's copy, a clone of long ago; Ms. Moverelli's ini
+ * and the gather's name the list (the data folder's and the share's form). An install without the folder stays untouched; a
+ * run going defers it; done once, idempotent, the old folder kept; a pending step runs again from Jack's look.
+ */
+function testMigrateMediaCache(): void
+{
+    $ids = array_column(officeMigrateSteps(), 'id');
+    check('mediacache: a step of the agent\'s migrations, the last one (1.65.0)', end($ids) === 'mediacache'
+        && officeMigrateSteps()[count($ids) - 1]['version'] === '1.65.0');
+    $tmp = hardeningTmp('migrate-mediacache');
+    // a fresh install: nothing there, nothing made
+    mkdir("$tmp/fresh", 0700);
+    same('mediacache: an install that never set Jack up — untouched', ['nothing to change (Jack Streamer had no EmbyCache folder here)', false],
+        [officeMigrateMediaCache("$tmp/fresh", '1.65.0'), file_exists("$tmp/fresh/mediacache")]);
+
+    $d = "$tmp/data";
+    $old = "$d/embycache";
+    foreach (["$old/logs", "$old/app/.git", "$d/moverelli", "$d/gather"] as $x) {
+        mkdir($x, 0700, true);
+    }
+    $settings = ['instances' => [['servername' => 'tower-emby', 'url' => 'http://192.168.7.111:8096', 'api_key' => 'abcdef0123456789abcdef0123456789',
+        'path_mappings' => ['/mnt/media/Familienfilme' => '/mnt/user/media/Familienfilme', '/mnt/media/Privat' => '']]],
+        'path_mappings' => [], 'libraries' => ['Familienfilme'], 'library_types' => ['Familienfilme' => 'movies'], 'valid_users' => [],
+        'cache_path' => '/mnt/big', 'cache_budget' => '60G', 'max_resume_movies' => 10, 'return_to_origin' => true, 'fill_tool' => 'rsync',
+        'cleanup_tool' => 'rsync', 'create_share_root' => false, 'some_future_key' => 7];
+    file_put_contents("$old/embycache_settings.json", json_encode($settings, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    chmod("$old/embycache_settings.json", 0600);
+    $list = "/mnt/big/media/Familienfilme/Ferien am See (2019)/Ferien am See (2019).mkv\n";
+    file_put_contents("$old/embycache_exclude.txt", $list);
+    file_put_contents("$old/embycache_origin.json", json_encode(['/mnt/big/media/Familienfilme/Ferien am See (2019)/Ferien am See (2019).mkv' => 'disk1']));
+    file_put_contents("$old/embycache_exclude.txt.before-import-1700000000", "old\n");
+    file_put_contents("$old/status.json", '{"mode":"run","result":"ok"}');
+    file_put_contents("$old/office-history.json", '{"runs":[{"tool":"embycache","mode":"run","result":"ok"}]}');
+    file_put_contents("$old/embycache.lock", '4242');
+    file_put_contents("$old/.embycache_settings.trial.json", '{}');
+    file_put_contents("$old/logs/embycache.log", "a line\n");
+    file_put_contents("$old/logs/embycache.log.1", "an older line\n");
+    file_put_contents("$old/app/.git/HEAD", "ref\n");
+    symlink('/etc/passwd', "$old/a-link");
+    touch("$old/embycache_origin.json", 1700000000);
+    $ini = "[GLOBAL]\nglobal_excludes=$old/embycache_exclude.txt,/mnt/user/x.txt\n[media]\nexcludes=$old/embycache_exclude.txt\n";
+    file_put_contents("$d/moverelli/smart_mover.ini", $ini);
+    file_put_contents("$d/gather/consolidate.ini", "EXCLUDE_FILE='$old/embycache_exclude.txt'\nLOGFILE='$d/gather/consolidate.log'\n");
+
+    // a run going: deferred, nothing touched
+    $err = '';
+    try {
+        officeMigrateMediaCache($d, '1.65.0', ['running' => fn () => true]);
+    } catch (RuntimeException $e) {
+        $err = $e->getMessage();
+    }
+    same('mediacache: an EmbyCache run going — tried again later, nothing touched', ['an EmbyCache run is going — tried again once it has ended', false, true],
+        [$err, file_exists("$d/mediacache"), is_dir($old)]);
+
+    $said = officeMigrateMediaCache($d, '1.65.0', ['running' => fn () => false]);
+    $new = "$d/mediacache";
+    same('mediacache: said in the log', 'data/embycache → data/mediacache (7 files, 1 server typed emby; the list\'s path in moverelli/smart_mover.ini, '
+        . 'gather/consolidate.ini; the old folder kept as embycache.before-1.65.0)', $said);
+    $files = array_values(array_diff(scandir($new), ['.', '..']));
+    same('mediacache: MediaCache\'s names, the rest as it was — no lock, no trial, no clone, no link, only the current log',
+        ['logs', 'mediacache_exclude.txt', 'mediacache_exclude.txt.before-import-1700000000', 'mediacache_origin.json', 'mediacache_settings.json',
+         'office-history.json', 'status.json'], $files);
+    same('mediacache: the log as mediacache.log', ['mediacache.log'], array_values(array_diff(scandir("$new/logs"), ['.', '..'])));
+    $s = json_decode((string) file_get_contents("$new/mediacache_settings.json"), true);
+    same('mediacache: the server typed emby, key and mappings (the deliberate «not cached» too) and unknown keys kept',
+        ['emby', 'abcdef0123456789abcdef0123456789', ['/mnt/media/Familienfilme' => '/mnt/user/media/Familienfilme', '/mnt/media/Privat' => ''], 7, '60G'],
+        [$s['instances'][0]['type'] ?? null, $s['instances'][0]['api_key'] ?? null, $s['instances'][0]['path_mappings'] ?? null, $s['some_future_key'] ?? null,
+         $s['cache_budget'] ?? null]);
+    same('mediacache: the settings stay root\'s alone (0600); the list and the origins as they were (time too)', [0600, $list, 1700000000],
+        [fileperms("$new/mediacache_settings.json") & 0777, file_get_contents("$new/mediacache_exclude.txt"), filemtime("$new/mediacache_origin.json")]);
+    same('mediacache: the old folder kept beside it, whole (the rotated log, the lock)', [false, true, true, true],
+        [is_dir($old), is_file("$d/embycache.before-1.65.0/logs/embycache.log.1"), is_file("$d/embycache.before-1.65.0/embycache.lock"),
+         is_file("$d/embycache.before-1.65.0/embycache_settings.json")]);
+    same('mediacache: Ms. Moverelli\'s ini names the new list (both places), the one before kept beside it',
+        ["[GLOBAL]\nglobal_excludes=$new/mediacache_exclude.txt,/mnt/user/x.txt\n[media]\nexcludes=$new/mediacache_exclude.txt\n", $ini],
+        [file_get_contents("$d/moverelli/smart_mover.ini"), (string) @file_get_contents("$d/moverelli/smart_mover.ini.before-1.65.0")]);
+    check('mediacache: the gather\'s ini names the new list', str_contains((string) file_get_contents("$d/gather/consolidate.ini"), "EXCLUDE_FILE='$new/mediacache_exclude.txt'"));
+    same('mediacache: Jack reads it as set up (one Emby server, budget mode)', [true, 'emby', 'tower-emby'],
+        [jackConfigured($r = jackReadSettings($new)), $r['instances'][0]['type'] ?? null, $r['instances'][0]['servername'] ?? null]);
+    // MediaCache itself takes the migrated file (load_config, the paths not asked)
+    $py = 'import sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; c = l.load_config(require_paths=False); '
+        . 'i = c["instances"][0]; print(i["type"], sorted(i["_mappings"]), i["_skip"])';
+    [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], ['MEDIACACHE_DIR' => $new, 'PYTHONDONTWRITEBYTECODE' => '1'], 30);
+    same('mediacache: MediaCache loads the migrated settings', [0, "emby ['/mnt/media/Familienfilme'] ['/mnt/media/Privat']"], [$exit, trim($out) ?: trim($err)]);
+
+    // again (a downgrade and back): nothing more; a crash after the copy: the old one only put aside
+    same('mediacache: done once — again nothing', 'nothing to change (Jack Streamer had no EmbyCache folder here)', officeMigrateMediaCache($d, '1.65.0'));
+    mkdir("$d/embycache");
+    file_put_contents("$d/embycache/embycache_settings.json", '{}');
+    same('mediacache: both there (a crash before the rename) — the old one put aside, the new one kept',
+        ['data/mediacache is there already — data/embycache put aside as embycache.before-1.65.0-2', true, '60G'],
+        [officeMigrateMediaCache($d, '1.65.0'), is_dir("$d/embycache.before-1.65.0-2"), json_decode((string) file_get_contents("$new/mediacache_settings.json"), true)['cache_budget']]);
+
+    // pending (a run went at the start) → Jack's look runs it again, the marker says done
+    $p = "$tmp/pending";
+    mkdir("$p/embycache", 0700, true);
+    file_put_contents("$p/embycache/embycache_settings.json", json_encode($settings));
+    file_put_contents("$p/office.json", json_encode(['version' => '1.65.0', 'since' => 1, 'updated_from' => [], 'done' => ['marker'], 'pending' => ['mediacache']]));
+    $logged = [];
+    $steps = [['id' => 'mediacache', 'version' => '1.65.0', 'run' => fn (string $dir, string $to): string => officeMigrateMediaCache($dir, $to, ['running' => fn () => false])]];
+    same('mediacache: a pending step runs again outside the start, the marker says done', [true, ['marker', 'mediacache'], [], true, false],
+        [officeMigrateRetry('mediacache', $p, '1.65.0', $steps, function (string $l) use (&$logged) { $logged[] = $l; }),
+         readJson("$p/office.json")['done'], readJson("$p/office.json")['pending'], is_file("$p/mediacache/mediacache_settings.json"),
+         officeMigrateRetry('mediacache', $p, '1.65.0', $steps, fn () => null)]);
+    check('mediacache: Jack\'s look and job ask for it while his old folder waits', str_contains($src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php'),
+        "officeMigrateRetry('mediacache')") && substr_count($src, 'jackMigratePending();') >= 2);
+    hardeningRm($tmp);
+}
+
 function testMigrateJackId(): void
 {
     require_once OFFICE_DIR . '/src/staff.php';
@@ -38088,7 +38200,7 @@ const TILES_FIRST_LATER = ['advisor', 'backup', 'cleanup', 'restore'];
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords']];
