@@ -10,8 +10,12 @@ declare(strict_types=1);
  *   M          = Σ refer of the movable shares' datasets (shareUseCache yes|prefer, primary = this pool)
  *   fixed      = used − M                                (never moves: pool-only shares, snapshots, overhead)
  *   jack       = Σ allocated bytes of the entries of EmbyCache's list on this pool (after compression, like refer;
- *                2026-10-15 — the sizes as jack_logical)
- *   others     = M − jack                                (the other caching shares: downloads …)
+ *                2026-10-15 — the sizes as jack_logical) — ALL of them, wherever they lie (2026-10-15, a user's report:
+ *                his media share not movable — «no»/«only» — or its folder on the pool not its own dataset, e.g. made
+ *                by his first copy; then his earlier files sat in `fixed`, his bytes were capped at M and the others
+ *                showed 0). What lies outside M (jack_out) comes out of fixed: he gives it back himself, whatever
+ *                Unraid's mover does with the share.
+ *   others     = M − his part inside M                   (the other caching shares: downloads …)
  *   need       = max(0, used − X%·size)                  (what must go tonight)
  *
  * Above X Ms. Moverelli moves the oldest files (across the pool, never one on Jack Emby's list) to the array or the
@@ -25,29 +29,32 @@ const POOL_SNAP_HINT = 2;      // % of the pool in the movable shares' snapshots
 const POOL_LIST_MAX  = 200000; // lines of EmbyCache's list read
 
 /**
- * The numbers (pure). x: % of the whole pool (0: no limit); jack: Jack Emby's bytes on the pool. `need`: what must go
+ * The numbers (pure). x: % of the whole pool (0: no limit); jack: Jack Emby's bytes inside the movable shares' datasets
+ * (more than M: capped), $jackOut: his bytes elsewhere on the pool (taken from what never moves). `need`: what must go
  * to be at X; `never`: what never moves reaches X; `jack_over`: what never moves and Jack Emby's bytes reach X together.
  * The keys after `free` are only for readers from before 2026-10-14 (agent/desks/jack.php until its rewrite): y = x,
  * no half, nothing borrowed.
  */
-function poolLevelMath(int $size, int $used, int $movable, int $x, int $jack): array
+function poolLevelMath(int $size, int $used, int $movable, int $x, int $jack, int $jackOut = 0): array
 {
     $size = max(0, $size);
     $used = max(0, min($used, $size));
     $m = max(0, min($movable, $used));
-    $nm = $used - $m;
-    $jack = max(0, min($jack, $m));
+    $jackIn = max(0, min($jack, $m));
+    $jackOut = max(0, min($jackOut + max(0, $jack - $jackIn), $used - $m));
+    $nm = $used - $m - $jackOut;
+    $jack = $jackIn + $jackOut;
     $xb = $x > 0 ? intdiv($x * $size, 100) : 0;
     $need = $x > 0 ? max(0, $used - $xb) : 0;
     $pct = fn (int $b): float => $size > 0 ? round($b * 100 / $size, 1) : 0.0;
     $never = $x > 0 && $size > 0 && $nm >= $xb;
     return [
-        'size' => $size, 'used' => $used, 'movable' => $m, 'nm' => $nm, 'x' => $x, 'xb' => $xb, 'jack' => $jack, 'others' => $m - $jack,
+        'size' => $size, 'used' => $used, 'movable' => $m, 'nm' => $nm, 'x' => $x, 'xb' => $xb, 'jack' => $jack, 'jack_out' => $jackOut, 'others' => $m - $jackIn,
         'need' => $need, 'used_pct' => $pct($used), 'nm_pct' => $pct($nm), 'never' => $never,
         'jack_over' => !$never && $x > 0 && $size > 0 && $nm + $jack >= $xb, 'free' => $size - $used,
         // older readers (see above)
         'y' => $x, 'k' => 0, 'room' => $x > 0 ? max(0, $xb - $nm) : 0, 'half' => 0, 'half_d' => $x > 0 ? max(0, $xb - $nm) : 0,
-        'back' => 0, 'goes' => $need, 'downloads' => $m - $jack,
+        'back' => 0, 'goes' => $need, 'downloads' => $m - $jackIn,
     ];
 }
 
@@ -101,7 +108,8 @@ function poolLevelMovable(string $pool, string $sharesDir, array $names): array
 }
 
 /**
- * The pool from ZFS: {size, used, movable (Σ refer), snapshots (Σ usedbysnapshots)} of the shares' datasets, snap_all
+ * The pool from ZFS: {size, used, movable (Σ refer), snapshots (Σ usedbysnapshots)} of the shares' datasets, datasets (the
+ * shares of $shares that are a dataset of their own — only their bytes are in movable), snap_all
  * (Σ usedbysnapshots of the pool's own dataset and every one directly below it — her picture's black part; a deeper
  * dataset's own snapshots stay in «appdata & co.»); null: no ZFS pool
  */
@@ -125,43 +133,55 @@ function poolLevelLook(string $pool, array $shares, string $zfs = 'zfs'): ?array
         return null;
     }
     $m = $snap = 0;
+    $sets = [];
     $all = array_sum(array_column($rows, 'snap'));
     foreach ($shares as $s) {
-        $m += $rows["$pool/$s"]['refer'] ?? 0;
-        $snap += $rows["$pool/$s"]['snap'] ?? 0;
+        if (isset($rows["$pool/$s"])) {
+            $sets[] = (string) $s;
+            $m += $rows["$pool/$s"]['refer'];
+            $snap += $rows["$pool/$s"]['snap'];
+        }
     }
-    return ['size' => $rows[$pool]['used'] + $rows[$pool]['avail'], 'used' => $rows[$pool]['used'], 'movable' => $m, 'snapshots' => $snap, 'snap_all' => $all];
+    return ['size' => $rows[$pool]['used'] + $rows[$pool]['avail'], 'used' => $rows[$pool]['used'], 'movable' => $m, 'snapshots' => $snap, 'snap_all' => $all,
+            'datasets' => $sets];
 }
 
 /**
  * J: what the entries of EmbyCache's list that lie on this pool take there (a file that is gone: 0) — in the pool's own
  * bytes (2026-10-15: allocated, st_blocks — ZFS counts them after compression, like `refer`; never above the size), and
  * their sizes (logical): [physical, logical]. The ratio converts what waits on the array into pool bytes (nightPlan()).
+ * $inside (the shares whose dataset is counted as movable): a third value, the physical bytes of the entries in them.
  */
-function poolLevelJackBytes(?string $list, string $pool, string $mnt = '/mnt'): array
+function poolLevelJackBytes(?string $list, string $pool, string $mnt = '/mnt', ?array $inside = null): array
 {
+    $none = $inside === null ? [0, 0] : [0, 0, 0];
     if ($list === null || !is_file($list)) {
-        return [0, 0];
+        return $none;
     }
     $fh = @fopen($list, 'r');
     if (!$fh) {
-        return [0, 0];
+        return $none;
     }
     $pre = rtrim($mnt, '/') . "/$pool/";
-    $sum = $logical = 0;
+    $in = array_fill_keys(array_map('strval', $inside ?? []), true);
+    $sum = $logical = $sumIn = 0;
     for ($i = 0; $i < POOL_LIST_MAX && ($line = fgets($fh)) !== false; $i++) {
         $p = rtrim($line, "\r\n");
         if (str_starts_with($p, $pre) && !str_contains($p, '/../')) {
             clearstatcache(true, $p);
             $st = @lstat($p);
             if ($st !== false && ($st['mode'] & 0170000) === 0100000) {
+                $bytes = poolLevelFileBytes((int) $st['size'], (int) $st['blocks']);
                 $logical += (int) $st['size'];
-                $sum += poolLevelFileBytes((int) $st['size'], (int) $st['blocks']);
+                $sum += $bytes;
+                if (isset($in[strstr(substr($p, strlen($pre)), '/', true) ?: ''])) {
+                    $sumIn += $bytes;
+                }
             }
         }
     }
     fclose($fh);
-    return [$sum, $logical];
+    return $inside === null ? [$sum, $logical] : [$sum, $logical, $sumIn];
 }
 
 /** A file's bytes on its pool: its allocated blocks (512 each; ZFS after compression), never more than its size */
@@ -185,10 +205,11 @@ function poolLevel(string $pool, array $o): ?array
     if ($look === null) {
         return null;
     }
-    [$jack, $jackLogical] = poolLevelJackBytes($o['jack_list'] ?? null, $pool, $o['mnt'] ?? '/mnt');
+    // his bytes inside the movable datasets (in M) and the rest of them (outside: in what never moves until taken out)
+    [$jack, $jackLogical, $jackIn] = poolLevelJackBytes($o['jack_list'] ?? null, $pool, $o['mnt'] ?? '/mnt', $look['datasets']);
     return ['pool' => $pool, 'shares' => $shares, 'snapshots' => $look['snapshots'], 'snap_all' => $look['snap_all'], 'jack_logical' => $jackLogical,
             'snap_pct' => $look['size'] > 0 ? round($look['snapshots'] * 100 / $look['size'], 1) : 0.0]
-         + poolLevelMath($look['size'], $look['used'], $look['movable'], (int) $o['x'], $jack);
+         + poolLevelMath($look['size'], $look['used'], $look['movable'], (int) $o['x'], $jackIn, $jack - $jackIn);
 }
 
 /**
