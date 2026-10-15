@@ -33428,7 +33428,7 @@ const fl = m.runCardData({ ...p(200), file_bytes: 300, file_size: 500, started: 
 m.runCardData({ ...p(200), file_bytes: 400, file_size: 500, started: 7 }, 2010);
 const fl2 = m.runCardData({ ...p(200), file_bytes: 500, file_size: 500, started: 7 }, 2020);
 out.flight = [fl.dBytes, fl.percent, fl2.dBytes, fl2.rate, fl2.fileBytes, fl2.fileSize, fl2.fileRate];
-out.waking = texts(m.runCard({ ...p(200), file_bytes: 0, file_size: 500, waking: true, started: 8 }, 2040)).filter((x) => /^rc\.(waking|file)/.test(x));
+out.waking = texts(m.runCard({ ...p(200), file_bytes: 0, file_size: 500, waking: true, started: 8 }, 2040)).filter((x) => /^rc\.(waking|file|on_way)/.test(x));
 out.flightCard = texts(m.runCard({ ...p(200), file_bytes: 500, file_size: 500, started: 7 }, 2030));
 m.runCardData(p(300), 2010);
 const d2 = m.runCardData(p(400), 2020);
@@ -33462,15 +33462,15 @@ JS);
             $o['steps'] ?? null);
         same('run card: the first reading — the share\'s 20 % by bytes, no time yet (one reading), no end', [2, 20, null, null], $o['first'] ?? null);
         same('run card: the file in flight counts with its .partial — 200 + 300 = 50 %; 10 B/s from the readings', [500, 50, 700, 10, 500, 500, 10], $o['flight'] ?? null);
-        same('run card: no .partial yet, the target disk asleep — «The target disk is waking up …» under the file', ['rc.file {"file":"/mnt/cache/Docs/c2.txt"} · rc.file_bytes {"done":"0 B","size":"500 B"}', 'rc.waking'],
+        same('run card: no .partial yet, the target disk asleep — «The target disk is waking up …» under the file', ['rc.on_way {"file":"c2.txt (rc.file_bytes {\\"done\\":\\"0 B\\",\\"size\\":\\"500 B\\"})","from":"pic.pool_name {\\"pool\\":\\"cache\\"}","to":"pic.array"}', 'rc.waking'],
             $o['waking'] ?? null);
         check('run card: … the rate in the bar\'s words like Mr. Backupsy\'s partner line, the file\'s bytes beside it',
-            (bool) preg_grep('/^70 % · rc\.rate \{"rate":"10 B"\}/', $o['flightCard'] ?? []) && (bool) preg_grep('/^rc\.file .* · rc\.file_bytes \{"done":"500 B","size":"500 B"\} · rc\.rate \{"rate":"10 B"\}$/', $o['flightCard'] ?? []), json_encode($o['flightCard'] ?? null));
+            (bool) preg_grep('/^70 % · rc\.rate \{"rate":"10 B"\}/', $o['flightCard'] ?? []) && (bool) preg_grep('/^rc\.on_way \{"file":"c2\.txt \(rc\.file_bytes \{\\\\"done\\\\":\\\\"500 B\\\\",\\\\"size\\\\":\\\\"500 B\\\\"\}\)",.* · rc\.rate \{"rate":"10 B"\}$/', $o['flightCard'] ?? []), json_encode($o['flightCard'] ?? null));
         same('run card: three readings (10 B/s) — 40 %, 60 s left, the end (Docs is the run\'s last share)', [40, 60, 2080], $o['rate'] ?? null);
         same('run card: looking around — the first step, no bar', [0, null, ['running', 'pending', 'pending']], $o['look'] ?? null);
         check('run card: its title, the steps, «40 % · about … left», the share\'s counts, the file in flight, the end',
             in_array('rc.title', $o['card'] ?? [], true) && (bool) preg_grep('/^40 % · rc\.rate \{"rate":"10 B"\} · rc\.left/', $o['card'] ?? []) && (bool) preg_grep('/^rc\.share \{"share":"Docs","done":1/', $o['card'] ?? [])
-            && in_array('rc.file {"file":"/mnt/cache/Docs/c2.txt"} · rc.rate {"rate":"10 B"}', $o['card'] ?? [], true) && (bool) preg_grep('/^rc\.end/', $o['card'] ?? []), json_encode($o['card'] ?? null));
+            && in_array('rc.on_way {"file":"c2.txt","from":"pic.pool_name {\\"pool\\":\\"cache\\"}","to":"pic.array"} · rc.rate {"rate":"10 B"}', $o['card'] ?? [], true) && (bool) preg_grep('/^rc\.end/', $o['card'] ?? []), json_encode($o['card'] ?? null));
         same('run card: the foot — «N errors, N warnings» left (as Mr. Backupsy\'s); right, in Jack Emby\'s order and style: «Log» as a quiet link, «Stop after this file»; no harder stop',
             ['card-foot mo-run-foot', 'rc.counts {"errors":"count.errors {\\"n\\":0}","warnings":"count.warnings {\\"n\\":0}"}', 'mo-run-right',
              [['button', 'mo-link', 'rc.show_log', false], ['button', 'btn small plain', 'stop', false]]], $o['foot'] ?? null);
@@ -35072,6 +35072,7 @@ out.onto = [m.fileOnto(pic.files[1], 'cache'), m.fileOnto({ who: 'jack', from: '
 // the box: two bars (before, forecast), X, the array with its use, the legend before → after, the last file
 const box = m.nightPicture({ running: true, started: 5, picture: pic });
 out.box = texts(box);
+out.boxDone = texts(m.nightPicture({ running: false, started: 5, picture: pic }));      // after the run: «Last moved: …»
 out.x = all(box).filter((n) => n.cls === 'mo-pic-x').map((n) => n.style.left);
 out.segs = all(box).filter((n) => /mo-seg-/.test(n.cls || '') && n.style.width).map((n) => n.cls.replace('mo-pic-seg ', ''));
 const boxNone = m.nightPicture({ running: false, started: 5, picture: { pool: 'cache', x: 80, dest: { to: 'array', size: null, used: null }, phases: { check: { before: null } }, files: [] } });
@@ -35120,12 +35121,13 @@ JS);
     same('night picture: the files\' way — Jack Emby from the array onto the pool, his watched off it, hers off it, hers back for a «prefer» share', [true, false, false, true],
         $j['onto'] ?? null);
     $box = $j['box'] ?? [];
-    check('night picture: the box — its title, «before», «after (forecast)», X, the array with its use (in the legend too, its own colour), the legend before → after, the last file in words',
+    check('night picture: the box — its title, «before», «after (forecast)», X, the array with its use (in the legend too, its own colour), the legend before → after; no file line while the run goes (the run\'s part has the one in flight), «Last moved» after it',
         in_array('pic.title_run', $box, true) && in_array('pic.before', $box, true) && in_array('pic.forecast', $box, true) && in_array('pic.x {"pct":80}', $box, true)
         && in_array('pic.array', $box, true) && in_array('pic.dest_used {"used":"2000 GiB","size":"8000 GiB"}', $box, true)
         && in_array('pic.array pic.dest_used {"used":"2000 GiB","size":"8000 GiB"}', $box, true)
         && in_array('pic.seg.others pic.change {"before":"150 GiB","after":"80 GiB"}', $box, true)
-        && in_array('pic.last_file {"file":"a.mkv","size":"7 GiB","from":"pic.array","to":"pic.pool_name {\"pool\":\"cache\"}"}', $box, true), json_encode($box));
+        && !preg_grep('/^pic\.(last_file|moving)/', $box)
+        && in_array('pic.last_file {"file":"a.mkv","size":"7 GiB","from":"pic.array","to":"pic.pool_name {\"pool\":\"cache\"}"}', $j['boxDone'] ?? [], true), json_encode([$box, $j['boxDone'] ?? null]));
     same('night picture without Jack Emby in the night: his part gone from the legend (not «0 B»); with him in it shown even at 0', [false, true],
         array_map(fn ($t) => (bool) preg_grep('/^pic\.seg\.jack /', (array) $t), $j['alone'] ?? [[], []]));
     same('night picture: X on both bars, seven parts each (the snapshots, his watched one and his reserve too) and the array\'s use (classes with the desk\'s prefix)', [['80.00%', '80.00%'], 15], [$j['x'] ?? null, count($j['segs'] ?? [])]);
@@ -35693,9 +35695,9 @@ JS);
     $j = json_decode(trim((string) $out), true) ?? [];
     check('jack in her card (page): it runs', $j !== [], $out . $err);
     $fill = $j['fill'] ?? [];
-    check('jack in her card (page): his fill — «Jack Streamer at work», his bars (total, per person), the file in flight, the way to his page; no stop of its own',
+    check('jack in her card (page): his fill — «Jack Streamer at work», his bars (total, per person), the way to his page; no stop of its own; his file in flight not here (one line in the run\'s part)',
         in_array('moverelli:rc.jack_title', $fill, true) && in_array('jack:progress.total', $fill, true) && in_array('Mutter', $fill, true)
-        && in_array('Familienfilme/Sommer/a.mkv', $fill, true) && in_array('moverelli:rc.night_jack_open', $fill, true)
+        && !in_array('Familienfilme/Sommer/a.mkv', $fill, true) && in_array('moverelli:rc.night_jack_open', $fill, true)
         && !in_array('jack:progress.stop', $fill, true) && !in_array('jack:progress.title', $fill, true), json_encode($fill));
     same('jack in her card (page): his look (jo-prog), present in his free step; absent in hers, between steps, the check, no night, his job not running, his desk not loaded',
         ['box jo-prog running mo-jack', true, null, null, null, null, null, null],
@@ -35938,6 +35940,8 @@ out.listOnly = [tiles().find(([id]) => id === 'runs')[3].value, tiles().find(([i
 m.setState({ ...base, history: [{ mode: 'list', result: 'ok', by: 'office', started: 990, finished: 990, status: { result: 'ok' } }, ...base.history] });
 out.listOver = tiles().find(([id]) => id === 'runs')[3].value;
 m.setState(base);
+// the ONE line of the file in flight (owner 2026-10-15): its name, done of size, from → to; without a size none
+out.onWay = [m.onWayText({ name: 'Serie/S01/S01E23.mkv', done: 16, size: 25, from: 'cache', to: 'array' }), m.onWayText({ name: '/mnt/cache/x.mkv', done: 0, size: null, from: 'array', to: 'cache' })];
 // the page: hints, the row, the footer — in that order; the sections
 const view = mk('div', 'view');
 m.setView(view, 'main');
@@ -35997,6 +36001,9 @@ JS);
         [['schedule', 'not_scheduled', true], ['shares', '1 / 3', true], ['runs', 'output_running', false]], $o['alerts'] ?? null);
     same('moverelli tiles: her page — the head with tabs, the help, the row (tiles first, owner 2026-10-15), the footer under all', ['deskhead', 'help', 'sections', 'mo-foot'],
         $o['page'] ?? null);
+    same('moverelli: the one line of the file in flight — «On its way: S01E23.mkv (16 of 25) — Pool cache → Array»; no size, no bytes', [
+        'rc.on_way {"file":"S01E23.mkv (rc.file_bytes {\\"done\\":\\"16 B\\",\\"size\\":\\"25 B\\"})","from":"pic.pool_name {\\"pool\\":\\"cache\\"}","to":"pic.array"}',
+        'rc.on_way {"file":"x.mkv","from":"pic.array","to":"pic.pool_name {\\"pool\\":\\"cache\\"}"}'], $o['onWay'] ?? null);
     same('moverelli tiles: her hints right under the row, over the sections (they stay at every click)', [['grid', []], ['mo-hints', ['mo-mover', 'role mo-hint']], ['sections-body', []]],
         $o['underRow'] ?? null);
     same('moverelli tiles: «Last run» names the kind of the run going — a real night with the last dry run\'s job file, a scheduled night, a dry night, a dry run, a list; none once the night ended', [
