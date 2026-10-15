@@ -1572,14 +1572,19 @@ k_path() {
 
 kopia_status_load() {
     KOPIA_RUNNING="no"; KOPIA_CONNECTED="no"; KOPIA_ID=""; KOPIA_USER=""; KOPIA_HOST=""
-    KOPIA_VERSION=""; KOPIA_CONFIG_FILE=""; KOPIA_STORAGE=""; KOPIA_REPO_ID=""
+    KOPIA_VERSION=""; KOPIA_CONFIG_FILE=""; KOPIA_STORAGE=""; KOPIA_REPO_ID=""; KOPIA_FORMAT_GONE="no"
     [[ -n "$KOPIA_CONTAINER" ]] || return 1
     [[ "$(docker inspect -f '{{.State.Running}}' "$KOPIA_CONTAINER" 2>/dev/null)" == "true" ]] || return 1
     KOPIA_RUNNING="yes"
     kopia_detect_uid
     KOPIA_VERSION="$(kopia_x --version 2>/dev/null | awk 'NR==1{print $1}')"
     local js
-    js="$(kopia_x repository status --json 2>/dev/null)" || return 1
+    if ! js="$(kopia_x repository status --json 2>/dev/null)"; then
+        # 2.53: the storage answers, but the repository's own format blob is gone - all of it was deleted (an attacker with
+        # the bucket's key; Kopia's cache of it expired) - never said for an error of the way there (unreachable, forbidden)
+        [[ "$(kopia_x repository status --json 2>&1 >/dev/null)" == *"kopia.repository blob: BLOB not found"* ]] && KOPIA_FORMAT_GONE="yes"
+        return 1
+    fi
     [[ -n "$js" ]] || return 1
     KOPIA_USER="$(jq -r '.clientOptions.username // ""' <<<"$js")"
     KOPIA_HOST="$(jq -r '.clientOptions.hostname // ""' <<<"$js")"
@@ -1668,6 +1673,30 @@ kopia_count_save() {
 }
 # kopia_emptied <before> <now> - far fewer: none left, or less than half
 kopia_emptied() { is_uint "$1" && is_uint "$2" && (( $1 > 0 && ( $2 == 0 || $2 * 2 < $1 ) )); }
+# kopia_gone_check - Kopia can't open the repository because its format blob is gone (kopia_status_load): emptied down
+# to its description - said like kopia_emptied (now 0) against the last record, whatever repository it was (none can be
+# asked now), and once: the record then says 0 (by gone)
+kopia_gone_check() {
+    [[ "${KOPIA_FORMAT_GONE:-no}" == "yes" && -f "$KC_FILE" && ! -L "$KC_FILE" ]] || return 0
+    local j was wt when tmp="$UB_STATE/.kopia-count.json.$$"
+    j="$(jq -c 'select(.v == 1 and (.repo | type == "string") and (.identity | type == "string") and (.snapshots | type == "number")
+        and (.time | type == "number"))' "$KC_FILE" 2>/dev/null)"
+    read -r was wt <<<"$(jq -r '"\(.snapshots | floor) \(.time | floor)"' <<<"$j" 2>/dev/null)"
+    is_uint "$was" && is_uint "$wt" && (( was > 0 )) || return 0
+    when="$(date -d "@$wt" '+%Y-%m-%d %H:%M')"
+    warn_code kopia_gone "The offsite repository was emptied - Kopia can't open it any more, its own description is gone too ($was snapshots on $when) - not by the office. If that wasn't you: delete nothing, Object Lock may still hold the data (the Consultant's Object Lock guide shows how to get it back). Nothing went offsite in this run." \
+        before="$was" when="$when"
+    [[ "${DRY:-0}" == "1" || "${UB_MODE:-backup}" != "backup" ]] && return 0
+    ub_tell kopia_gone alert "Log: $LOG_FILE" "The offsite copy was emptied" \
+        "Kopia can't open the repository any more - its own description is gone too (snapshots on $when: $was); not deleted by the office. If that wasn't you: delete nothing, Object Lock may still hold the data; Mr. Restori and the Consultant show how to get it back." \
+        "before=$was" "when=$when"
+    if jq -c --argjson time "$(date +%s)" '.snapshots = 0 | .sources = 0 | .time = $time | .by = "gone"' <<<"$j" >"$tmp" 2>/dev/null; then
+        chmod 600 "$tmp"; mv -f "$tmp" "$KC_FILE"
+    else
+        rm -f "$tmp"
+    fi
+    return 0
+}
 # kopia_emptied_check - before the upload: the count now against the last record of the same repository and identity
 kopia_emptied_check() {
     kopia_count_load || { log "  Kopia's snapshots not counted (it didn't answer) - not compared"; return 0; }
@@ -1681,7 +1710,7 @@ kopia_emptied_check() {
     when="$(date -d "@$wt" '+%Y-%m-%d %H:%M')"
     warn_code kopia_emptied "The offsite repository was emptied: $was snapshots on $when, $KC_SNAPS now - not by the office. If that wasn't you: delete nothing, Object Lock may still hold the data (the Consultant's Object Lock guide shows how to get it back). This run uploads everything anew." \
         before="$was" now="$KC_SNAPS" when="$when"
-    [[ "$DRY" == "1" ]] || ub_tell kopia_emptied alert "Log: $LOG_FILE" "The offsite copy was emptied" \
+    [[ "${DRY:-0}" == "1" || "${UB_MODE:-backup}" != "backup" ]] || ub_tell kopia_emptied alert "Log: $LOG_FILE" "The offsite copy was emptied" \
         "Snapshots on $when: $was, now: $KC_SNAPS - not deleted by the office. If that wasn't you: delete nothing, Object Lock may still hold the data; Mr. Restori and the Consultant show how to get it back. This run uploads everything anew." \
         "before=$was" "now=$KC_SNAPS" "when=$when"
     return 0

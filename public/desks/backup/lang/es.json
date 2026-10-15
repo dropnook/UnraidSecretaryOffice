@@ -1701,5 +1701,8 @@
   "notify.new_folders": "{n} carpetas nuevas en los shares de apps o VM, de ninguna app o VM o de una nueva: solo en las instantáneas locales hasta que decidas en la configuración del señor Backupsi.",
   "warn_code.kopia_emptied": "La copia fuera de casa estaba casi vacía al empezar esta copia — instantáneas el {when}: {before}, ahora: {now}, no borradas por la secretaría. Si no fuiste tú: no borres nada, Object Lock quizá aún guarda los datos — el Señor Restori y el consultor muestran cómo recuperarlos. Esta copia lo ha subido todo de nuevo.",
   "notify.kopia_emptied.subject": "La copia fuera de casa se ha vaciado",
-  "notify.kopia_emptied": "Instantáneas el {when}: {before}, ahora: {now} — no borradas por la secretaría. Si no fuiste tú: no borres nada, Object Lock quizá aún guarda los datos; el Señor Restori y el consultor muestran cómo recuperarlos. Esta copia lo sube todo de nuevo."
+  "notify.kopia_emptied": "Instantáneas el {when}: {before}, ahora: {now} — no borradas por la secretaría. Si no fuiste tú: no borres nada, Object Lock quizá aún guarda los datos; el Señor Restori y el consultor muestran cómo recuperarlos. Esta copia lo sube todo de nuevo.",
+  "warn_code.kopia_gone": "La copia fuera de casa se ha vaciado — Kopia ya no puede abrir el repositorio, también falta su propia descripción (instantáneas el {when}: {before}); no borradas por la secretaría. Si no fuiste tú: no borres nada, Object Lock quizá aún guarda los datos — el Señor Restori y el consultor muestran cómo recuperarlos. En esta copia no salió nada fuera de casa.",
+  "notify.kopia_gone.subject": "La copia fuera de casa se ha vaciado",
+  "notify.kopia_gone": "Kopia ya no puede abrir el repositorio — también falta su propia descripción (instantáneas el {when}: {before}); no borradas por la secretaría. Si no fuiste tú: no borres nada, Object Lock quizá aún guarda los datos; el Señor Restori y el consultor muestran cómo recuperarlos."
 }

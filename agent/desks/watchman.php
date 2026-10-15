@@ -7154,7 +7154,8 @@ function watchmanKopiaEmptied(int $before, int $now): bool
  * This look against the last count of the same repository and identity — his own or the engine's (its run's end, its
  * deleting of old sources), whichever is newer: what the office deleted itself is in the engine's count already. Far
  * fewer is `kopia_emptied` (important: Object Lock may still hold the data — the sooner the user knows, the more of it).
- * Another repository or identity (a new repository, a re-pair) is no comparison; a look without a count changes no count.
+ * Another repository or identity (a new repository, a re-pair) is no comparison; a look without a count changes no count —
+ * except the one the engine calls repository_gone (Kopia can't open the repository: its format blob was deleted too).
  *
  * @return array{0: ?string, 1: array}  the kind when its entry is new, his record (state.json kopia)
  */
@@ -7163,6 +7164,23 @@ function watchmanKopiaCompare(?array $known, ?array $look, ?array $engine, array
     $known = is_array($known) ? $known : [];
     if ($look === null) {
         return [null, $known];
+    }
+    if (($look['why'] ?? null) === 'repository_gone') {
+        // the storage answers, but the repository's own format blob is gone: all of it deleted — against the last count,
+        // whatever repository it was (none can be asked now), once: his count then says 0
+        $base = null;
+        foreach ([watchmanKopiaCount($known['count'] ?? null), watchmanKopiaCount($engine)] as $c) {
+            if ($c !== null && ($base === null || $c['time'] > $base['time'])) {
+                $base = $c;
+            }
+        }
+        if ($base === null || $base['snapshots'] === 0) {
+            return [null, ['looked' => $now, 'ok' => false, 'why' => 'repository_gone'] + array_intersect_key($known, ['count' => 1])];
+        }
+        $added = watchmanSet($book, 'kopia_emptied', 'kopia_emptied:' . substr($base['repo'], 0, 16), $now,
+            ['before' => $base['snapshots'], 'now' => 0, 'when' => $base['time'], 'sources_before' => $base['sources'], 'sources_now' => 0,
+             'identity' => $base['identity'], 'gone' => true]);
+        return [$added, ['looked' => $now, 'ok' => true, 'count' => ['snapshots' => 0, 'sources' => 0, 'time' => $now, 'by' => 'gone'] + $base]];
     }
     if (empty($look['ok'])) {
         return [null, ['looked' => $now, 'ok' => false, 'why' => (string) ($look['why'] ?? 'no_answer')] + array_intersect_key($known, ['count' => 1])];

@@ -4,8 +4,9 @@
 #   2.53 The offsite repository emptied is said at once: before the upload the snapshots of this identity are counted
 #        against the last run's end (state/kopia-count.json, kept after the Kopia phase and after --orphans-delete) -
 #        none left or less than half, in the same repository and identity, is warning_items kopia_emptied and a
-#        notification (alert); the run uploads everything anew. Kopia not answering counts nothing. --kopia-count:
-#        the count as JSON, read only (the office's Night Watchman)
+#        notification (alert); the run uploads everything anew. Kopia not answering counts nothing. Kopia unable to
+#        open the repository because its format blob is gone (BLOB not found): kopia_gone, once. --kopia-count:
+#        the count as JSON, read only (the office's Night Watchman; why repository_gone for the format blob gone)
 #   2.52 The notifications speak the office's language (ub_tell in lib/common.sh): subject «<Mr. Backupsy's name>: …»
 #        and description from his language files (notify.*), the long report stays English
 #   2.51 No change here (the engine's version: setup.sh --orphans / --orphans-delete)
@@ -357,7 +358,10 @@ if [[ "$UB_MODE" == "kopia_count" ]]; then
     load_settings >/dev/null 2>&1 || kc_not no_settings
     is_yes "$KOPIA_ENABLED" || kc_not off
     [[ -n "$KOPIA_CONTAINER" ]] || kc_not no_container
-    if ! kopia_status_load >/dev/null 2>&1; then [[ "$KOPIA_RUNNING" == "yes" ]] && kc_not not_connected; kc_not not_running; fi
+    if ! kopia_status_load >/dev/null 2>&1; then
+        [[ "$KOPIA_FORMAT_GONE" == "yes" ]] && kc_not repository_gone      # the storage answers, the repository's format blob is gone
+        [[ "$KOPIA_RUNNING" == "yes" ]] && kc_not not_connected; kc_not not_running
+    fi
     kopia_count_load || kc_not no_answer
     kopia_count_json watch | jq -c '{ok: true} + .'
     exit 0
@@ -3441,6 +3445,7 @@ drift_check_vms
 drift_check_items
 drift_check_new_local                # what the last run left out as new and is still undecided (section 11)
 if [[ "$SKIPK" != "1" ]]; then drift_check_kopia; else KOPIA_OK="skip"; fi
+[[ "$KOPIA_OK" == "no" ]] && kopia_gone_check      # 2.53: Kopia can't open the repository - its format blob deleted with all the rest
 
 # The backup place: a share of its own, backed up - otherwise no run (nothing is paused up to here)
 DUMPS_PROBLEM="$(dumps_share_problem "$DUMPS_SHARE")"

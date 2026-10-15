@@ -7542,6 +7542,7 @@ function testKopiaEmptied(): void
     file_put_contents("$tmp/bin/docker", "#!/bin/bash\nF=" . escapeshellarg($tmp) . "\ncase \"\$1\" in\n"
         . "  inspect) echo true; exit 0 ;;\n  top) printf 'PID UID ARGS\\n1 0 /bin/kopia server --x\\n'; exit 0 ;;\nesac\n"
         . "[[ -e \$F/fails ]] && { echo 'ERROR unable to open repository: Access Denied' >&2; exit 1; }\n"
+        . "[[ -e \$F/gone ]] && { echo 'open repository: unable to open repository: unable to create format manager: unable to read format blob: error getting kopia.repository blob: BLOB not found' >&2; exit 1; }\n"
         . "case \"\$*\" in\n  *'repository status --json'*) cat \$F/repo.json ;;\n  *'snapshot list --all --json'*) cat \$F/list.json ;;\n"
         . "  *--version*) echo '0.23.1 build' ;;\nesac\nexit 0\n");
     chmod("$tmp/bin/docker", 0755);
@@ -7616,6 +7617,25 @@ function testKopiaEmptied(): void
     [, $o] = runEnv(['bash', OFFICE_DIR . '/backup/backup.sh', '--kopia-count'], $env, 60);
     same('--kopia-count: Kopia erring — not connected (its status fails too), never a count', ['ok' => false, 'why' => 'not_connected'], json_decode(trim((string) $o), true));
     unlink("$tmp/fails");
+    touch("$tmp/gone");
+    [, $o] = runEnv(['bash', OFFICE_DIR . '/backup/backup.sh', '--kopia-count'], $env, 60);
+    same('--kopia-count: the repository\'s format blob gone (all of it deleted, Kopia\'s cache of it expired) — repository_gone', ['ok' => false, 'why' => 'repository_gone'],
+        json_decode(trim((string) $o), true));
+    // a run: Kopia can't open it — said once against the last record (kopia_gone: nothing went offsite), the record then 0
+    file_put_contents("$tmp/data/state/kopia-count.json", json_encode(['v' => 1, 'repo' => $repo, 'identity' => 'root@kopia', 'storage' => 's3', 'time' => 1792000000,
+        'snapshots' => 3, 'sources' => 1, 'by' => 'run']));
+    @unlink("$tmp/notified");
+    $out = $sh('KOPIA_CONTAINER=kopia; kopia_status_load; echo "gone=$KOPIA_FORMAT_GONE"; UB_MODE=backup; kopia_gone_check >/dev/null; printf "%s\n" "${WARN_ITEMS[@]}" | tr "\037" "|"; kopia_gone_check >/dev/null; echo "n=${#WARN_ITEMS[@]}"');
+    $gw = date('Y-m-d H:i', 1792000000);
+    same('kopia gone: Kopia can\'t open the repository, its format blob deleted — a coded warning, once', "gone=yes\nkopia_gone|before=3|when=$gw\nn=1", $out);
+    $f = explode("\x1f", $notified()[0] ?? '');
+    same('kopia gone: … an alert, the record then 0 (by gone)', [1, 'alert', true, 0, 'gone'],
+        [count($notified()), $f[array_search('-i', $f, true) + 1] ?? null, in_array('Unraid Secretary Office: Mr. Backupsy: The offsite copy was emptied', $f, true),
+         $record()['snapshots'] ?? null, $record()['by'] ?? null]);
+    unlink("$tmp/gone");
+    touch("$tmp/fails");
+    same('kopia gone: forbidden is no gone repository', 'gone=no', $sh('KOPIA_CONTAINER=kopia; kopia_status_load; echo "gone=$KOPIA_FORMAT_GONE"'));
+    unlink("$tmp/fails");
     file_put_contents("$tmp/data/settings.ini", "[kopia]\nenabled = no\n");
     [, $o] = runEnv(['bash', OFFICE_DIR . '/backup/backup.sh', '--kopia-count'], $env, 60);
     same('--kopia-count: Kopia off', ['ok' => false, 'why' => 'off'], json_decode(trim((string) $o), true));
@@ -7661,6 +7681,16 @@ function testKopiaEmptied(): void
         [$k, count($book), array_intersect_key($book[0]['p'] ?? [], ['before' => 1, 'now' => 1, 'when' => 1]), WATCH_KINDS['kopia_emptied'][1], $known3['count']['snapshots'] ?? null]);
     [$k] = watchmanKopiaCompare($known3, ['ok' => true] + $count(0, $now + 2 * 86400), null, $book, $now + 2 * 86400);
     same('watchman kopia: the next day still empty — no second entry', [null, 1], [$k, count($book)]);
+    // the repository's format blob gone (Kopia can't open it): against the last count, whatever repository — once
+    $b3 = [];
+    [$k, $kg] = watchmanKopiaCompare($known, ['ok' => false, 'why' => 'repository_gone'], $count(40, $now - 3600, 'run', str_repeat('cd', 32)), $b3, $now + 86400);
+    same('watchman kopia: the repository gone — an entry against the newer count (now 0, gone)', ['kopia_emptied', ['before' => 48, 'now' => 0, 'gone' => true], 0, 'gone'],
+        [$k, array_intersect_key($b3[0]['p'] ?? [], ['before' => 1, 'now' => 1, 'gone' => 1]), $kg['count']['snapshots'] ?? null, $kg['count']['by'] ?? null]);
+    [$k] = watchmanKopiaCompare($kg, ['ok' => false, 'why' => 'repository_gone'], null, $b3, $now + 2 * 86400);
+    same('watchman kopia: still gone the next day — said once', [null, 1], [$k, count($b3)]);
+    $b4 = [];
+    [$k] = watchmanKopiaCompare(null, ['ok' => false, 'why' => 'repository_gone'], null, $b4, $now);
+    same('watchman kopia: gone without any count before — nothing to compare', [null, []], [$k, $b4]);
 
     // the notification: an alert, the brief's words, the way back, the Consultant's page
     @unlink("$tmp/notified");
