@@ -5,7 +5,7 @@ setting it up, scheduling it, starting and stopping runs, helping with restores.
 office's plugin starts it at night from its cron file, `setup.sh` sets it up in a terminal, and `bash <engine>/backup.sh`
 runs it by hand.
 
-Version **2.42** (12 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh`
+Version **2.53** (15 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh`
 (`UB_VERSION`) and in every log.
 
 The first part is for users of the office; the second, [For the terminal and for developers](#for-the-terminal-and-for-developers),
@@ -504,6 +504,7 @@ What the setup never does: change container templates, connect Kopia to a reposi
 | `UB_ASLEEP_NIGHTS` | since 2.28: after so many nights in a row left out asleep a share warns once (default 7, see [Sleeping pools](#sleeping-pools-since-228)) |
 | `UB_PARTNER_DIR`, `UB_PARTNER_ASK` | since 2.27: the folder of the partners' keys and known_hosts (default the plugin's `partners/` on the flash), seconds for a short question to a partner's door (60). `UB_PARTNER_NIGHTS` (nights unreachable before a warning) is gone since 2.46: a partner that got nothing warns in the same run |
 | `backup.sh --about` | name, version, interface, code and data folder as JSON |
+| `backup.sh --kopia-count` | since 2.53: the offsite repository's snapshots and sources of this identity now, one line of JSON: `{ok: true, repo, identity, storage, time, snapshots, sources, by: "watch"}` or `{ok: false, why}` (`no_settings`, `off`, `no_container`, `not_running`, `not_connected`, `repository_gone` — the storage answers but the repository's format blob is gone, `no_answer` — Kopia erred or gave no list). Read only: no lock, no log, nothing written |
 
 Exit codes: `0` done (also with warnings), `1` failed or ended with errors (since 2.34 also: a run of this minute was made already — see «One run a minute» above), `2` unknown option, `3` stopped at once because the array was being stopped (since 2.24, see below), `75` not started because another run holds the lock (see below). `--recover`: `0` done or nothing to do, `1` something stays noted (Docker or libvirt didn't answer, a container or VM didn't start, a Nextcloud's container didn't run — the next run tries again), `3` the array is being stopped (not now), `75` the lock is busy.
 
@@ -711,6 +712,7 @@ No warranty: a backup can be faulty or incomplete, and you stay responsible for 
 
 ## Versions
 
+- **2.53** – An offsite repository someone emptied is said at once: before its upload a run counts this identity's Kopia snapshots against the count kept at the last run's end (`state/kopia-count.json` {v, repo — Kopia's `uniqueIDHex` —, identity, storage, time, snapshots, sources, by}, written after the Kopia phase and after `--orphans-delete`). None left, or less than half, in the same repository and identity: `warning_items` `kopia_emptied` (before, now, when) and a notification (alert) — Object Lock may still hold the data — and the run uploads everything anew. Kopia erroring (unreachable, forbidden) counts nothing; another repository or identity is no comparison. Kopia unable to open the repository because its format blob is gone (`kopia.repository blob: BLOB not found` — everything deleted and Kopia's cached copy of it expired) is said once against the last record: `warning_items` `kopia_gone` (before, when) and an alert, the record then 0 (`by` `gone`); nothing can go offsite then. `backup.sh --kopia-count`: the count now as JSON, read only (the office's Night Watchman looks once a day).
 - **2.52** – The notifications speak the office's language: the subject carries Mr. Backupsy's name in the language the office was last used in (Herr Backupsi, Signor Backupsi …), subject and short text come from his language files (`notify.*`); the language is the copy in RAM the office's agent keeps (`/var/run/unraid-secretary-office/notify.lang`), English without it. The long report under it stays English.
 - **2.51** – Old Kopia sources of units that are gone can be deleted from the office: `setup.sh --orphans` lists the office's own sources whose share, app or VM is no longer there (snapshots, size, newest), `--orphans-delete=<file>` deletes those chosen that are offered right then — never another identity's, a path of the user's own, or a unit that is still there. Both behind the engine's lock (a backup run going on: `busy`).
 - **2.50** – Retention «0 0 0» (no local snapshot kept) only for what goes to no partner office: a share, VM, app or the backup place sent to a partner keeps at least one (`d w m` not all 0 — its own, else its share's, else `[zfs] retention`), else settings.ini has an error — `setup.sh` doesn't write it, a run refuses to start. Why: a partner gets only what changed since the snapshot both sides still have; with «0 0 0» this run's own snapshot goes too and everything would go over in full every time (review 2026-10-15, R3-8).

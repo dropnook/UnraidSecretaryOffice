@@ -1698,5 +1698,11 @@
   "notify.new_folder.subject": "Un nouveau dossier reste local",
   "notify.new_folder": "{folder} — nouveau dans le share des apps ou VM, d'aucune app ou VM ou d'une nouvelle : seulement dans les snapshots locaux jusqu'à ce que tu décides dans la configuration de Monsieur Backupsi.",
   "notify.new_folders.subject": "{n} nouveaux dossiers restent locaux",
-  "notify.new_folders": "{n} nouveaux dossiers dans les shares des apps ou VM, d'aucune app ou VM ou d'une nouvelle : seulement dans les snapshots locaux jusqu'à ce que tu décides dans la configuration de Monsieur Backupsi."
+  "notify.new_folders": "{n} nouveaux dossiers dans les shares des apps ou VM, d'aucune app ou VM ou d'une nouvelle : seulement dans les snapshots locaux jusqu'à ce que tu décides dans la configuration de Monsieur Backupsi.",
+  "warn_code.kopia_emptied": "La copie hors site était presque vide au début de cette sauvegarde — snapshots le {when} : {before}, maintenant : {now}, non supprimés par le secrétariat. Si ce n'était pas toi : ne supprime rien, Object Lock garde peut-être encore les données — Monsieur Restori et le consultant montrent comment les récupérer. Cette sauvegarde a tout envoyé à nouveau.",
+  "notify.kopia_emptied.subject": "La copie hors site a été vidée",
+  "notify.kopia_emptied": "Snapshots le {when} : {before}, maintenant : {now} — non supprimés par le secrétariat. Si ce n'était pas toi : ne supprime rien, Object Lock garde peut-être encore les données ; Monsieur Restori et le consultant montrent comment les récupérer. Cette sauvegarde envoie tout à nouveau.",
+  "warn_code.kopia_gone": "La copie hors site a été vidée — Kopia ne peut plus ouvrir le dépôt, sa propre description manque aussi (snapshots le {when} : {before}) ; non supprimés par le secrétariat. Si ce n'était pas toi : ne supprime rien, Object Lock garde peut-être encore les données — Monsieur Restori et le consultant montrent comment les récupérer. Rien n'est parti hors site lors de cette sauvegarde.",
+  "notify.kopia_gone.subject": "La copie hors site a été vidée",
+  "notify.kopia_gone": "Kopia ne peut plus ouvrir le dépôt — sa propre description manque aussi (snapshots le {when} : {before}) ; non supprimés par le secrétariat. Si ce n'était pas toi : ne supprime rien, Object Lock garde peut-être encore les données ; Monsieur Restori et le consultant montrent comment les récupérer."
 }

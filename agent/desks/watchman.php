@@ -194,6 +194,7 @@ const WATCH_KINDS = [
     'smb_hour'             => ['flow', false],
     'snap_gone'            => ['snap', true],       // snapshots gone that the office didn't remove
     'snap_hold_released'   => ['snap', true],       // a hold released, not by Ms. Snapshotini
+    'kopia_emptied'        => ['snap', true],       // the offsite repository holds far fewer snapshots than at the last count, not by the office (watchmanKopiaCompare())
     'log_cleared'          => ['host', true],       // a log emptied or replaced outside its rotation (watchmanHostLogsCompare())
     'user_ram'             => ['host', true],       // an account in RAM the flash doesn't have, a second root, a login shell or password for a system account
     'listen_new'           => ['host', true],       // a program of the server listens on a network port it never used
@@ -244,6 +245,8 @@ const WATCH_ATTACK = [
     'flow_client' => 'T1039', 'flow_container' => 'T1041', 'flow_written' => 'T1486', 'flow_gone' => 'T1485',
     'smb_user' => 'T1021.002', 'smb_client' => 'T1021.002', 'smb_hour' => 'T1021.002',
     'snap_gone' => 'T1490', 'snap_hold_released' => 'T1490',
+    // the offsite copy emptied: backups deleted so nothing comes back — Inhibit System Recovery, like snapshots that vanish
+    'kopia_emptied' => 'T1490',
     'log_cleared' => 'T1070.002', 'user_ram' => 'T1136.001', 'listen_new' => 'T1133', 'proc_odd' => 'T1105', 'door_new' => 'T1133',
     // an API key is a credential added to the server's API (or more rights given to one) to keep a way in: Account Manipulation
     // (its sub-technique .001 is for cloud accounts, so the parent is the nearest); T1078 Valid Accounts would be its use, which
@@ -378,6 +381,7 @@ function watchmanPaths(): array
         'agent_log'  => AGENT_LOG,
         'snap_record' => DATA_DIR . '/snapshot/deletes.jsonl',     // Ms. Snapshotini's own record (root only)
         'engine'     => BACKUP_DATA_DIR,
+        'backup_sh'  => BACKUP_SCRIPT_DIR . '/backup.sh',              // the offsite repository's count once a day (watchmanKopiaLook())
         // how secure (watchmanPostureLook())
         'ident'      => '/boot/config/ident.cfg',
         'inetd'      => '/etc/inetd.conf',
@@ -1313,13 +1317,15 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
     // snapshots that vanish: only rounds write snaps.json (one at a time), so it is read out here
     $snapKnown = $snaps ? readJson("$dir/snaps.json") : null;
     $snapRes = $snaps ? watchmanSnaps($paths, $fresh ? null : $snapKnown, $fresh ? [] : (array) ($snap['baseline']['snaps']['series'] ?? []), $now) : null;
+    // the offsite repository: once a day how many snapshots it holds (the day's rounds only — the night shift has no engine)
+    $kopiaLook = $snaps && isset($paths['backup_sh']) ? watchmanKopiaLook($paths, is_array($snap['state']['kopia'] ?? null) ? $snap['state']['kopia'] : null, $now) : null;
 
     $btime = $boot !== '' && isset($paths['stat']) ? watchmanBootTime((string) $paths['stat']) : null;
     // why a parity check runs (agent/lib/paritywhy.php) — the day's rounds only (the night shift has no parity paths)
     $parity = paritywhyLook($paths, is_array($snap['state']['parity'] ?? null) ? $snap['state']['parity'] : null, $boot, $btime, $now);
 
     return watchmanLocked($dir, function () use ($dir, $hired, $now, $fresh, $events, $pos, $read, $seen, $notify, $acks, $t0, $look, $facts, $snapKnown, $snapRes,
-                                               $office, $paths, $boot, $btime, $netLook, $netServer, $parity): array {
+                                               $office, $paths, $boot, $btime, $netLook, $netServer, $parity, $kopiaLook): array {
         $old = watchmanLoad($dir);
         $old['seen'] = readJson("$dir/seen.json");
         $old['flow'] = readJson("$dir/flow.json");
@@ -1403,6 +1409,20 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
                 $added = array_merge($added, watchmanSnapCompare($b['snaps'], $snapRes, $book, $now));
             }
             $st['snaps'] = $snapRes['summary'];
+        }
+        if ($kopiaLook !== null) {
+            // far fewer snapshots offsite than at the last count (his or the engine's) — taken over anew: only counted
+            $engineCount = isset($paths['engine']) ? readJson($paths['engine'] . '/state/kopia-count.json') : null;
+            $none = [];
+            $kopiaKnown = is_array($st['kopia'] ?? null) ? $st['kopia'] : null;
+            if ($fresh) {
+                [, $st['kopia']] = watchmanKopiaCompare($kopiaKnown, $kopiaLook, $engineCount, $none, $now);
+            } else {
+                [$k, $st['kopia']] = watchmanKopiaCompare($kopiaKnown, $kopiaLook, $engineCount, $book, $now);
+                if ($k !== null) {
+                    $added[] = $k;
+                }
+            }
         }
         // the logins of the last half hour (for the array's lines); an array stopped or started since the last round: a plain line
         $st['logins'] = watchmanRecentLogins((array) ($st['logins'] ?? []), $events, $now);
@@ -7078,6 +7098,112 @@ function watchmanSnapWords(array $g, array $list): array
             'history' => array_values((array) ($g['history'] ?? [])), 'evidence' => array_values((array) ($g['evidence'] ?? []))];
 }
 
+// ===================================================================== the offsite copy emptied (engine 2.53)
+
+const WATCH_KOPIA_EVERY   = 86400;      // his own look at the offsite repository: once a day …
+const WATCH_KOPIA_RETRY   = 3600;       // … again after an hour when Kopia didn't answer (or isn't set up)
+const WATCH_KOPIA_TIMEOUT = 150;        // backup.sh --kopia-count at most so long (Kopia's list itself has 60 s)
+const WATCH_KOPIA_REPO    = '/^[0-9a-f]{16,128}$/D';
+
+/**
+ * His daily look at the offsite repository: how many snapshots and sources of the office's identity it holds now —
+ * through the engine (backup.sh --kopia-count: read only, Kopia as its server's user). Null when not due, no engine, or
+ * the engine's lock held (a run, a setup, a restore: what they delete is theirs, and they count anew themselves).
+ * Kopia off, stopped, not connected or erring (unreachable, forbidden) is ['ok' => false] — never a count.
+ */
+function watchmanKopiaLook(array $paths, ?array $known, int $now): ?array
+{
+    $last = (int) ($known['looked'] ?? 0);
+    if ($last > 0 && $last <= $now && $now - $last < (!empty($known['ok']) ? WATCH_KOPIA_EVERY : WATCH_KOPIA_RETRY)) {
+        return null;
+    }
+    $sh = (string) ($paths['backup_sh'] ?? '');
+    if ($sh === '' || !is_file($sh) || (isset($paths['engine']) && flockHeld($paths['engine'] . '/state/lock'))) {
+        return null;
+    }
+    [$code, $out] = run(['timeout', (string) WATCH_KOPIA_TIMEOUT, 'bash', $sh, '--kopia-count'], WATCH_KOPIA_TIMEOUT + 10);
+    $j = $code === 0 ? json_decode(trim((string) $out), true) : null;
+    if (is_array($j) && ($j['ok'] ?? null) === true && ($c = watchmanKopiaCount($j)) !== null) {
+        return ['ok' => true] + $c;
+    }
+    $why = is_array($j) && is_string($j['why'] ?? null) && preg_match('/^[a-z_]{1,30}$/D', $j['why']) ? $j['why'] : 'no_answer';
+    return ['ok' => false, 'why' => $why];
+}
+
+/** A count in exactly the engine's shape (backup.sh --kopia-count, state/kopia-count.json) — else null */
+function watchmanKopiaCount(mixed $j): ?array
+{
+    if (!is_array($j) || ($j['v'] ?? null) !== 1 || !is_string($j['repo'] ?? null) || !preg_match(WATCH_KOPIA_REPO, $j['repo'])
+        || !is_string($j['identity'] ?? null) || !preg_match('/^[^\x00-\x1f]{1,200}$/uD', $j['identity'])
+        || !is_int($j['snapshots'] ?? null) || $j['snapshots'] < 0 || !is_int($j['sources'] ?? null) || $j['sources'] < 0
+        || !is_int($j['time'] ?? null) || $j['time'] <= 0) {
+        return null;
+    }
+    $by = is_string($j['by'] ?? null) && preg_match('/^[a-z_]{1,20}$/D', $j['by']) ? $j['by'] : '';
+    return ['v' => 1, 'repo' => $j['repo'], 'identity' => $j['identity'], 'snapshots' => $j['snapshots'], 'sources' => $j['sources'],
+            'time' => $j['time'], 'by' => $by];
+}
+
+/** Far fewer: none left, or less than half (the engine's kopia_emptied says the same) */
+function watchmanKopiaEmptied(int $before, int $now): bool
+{
+    return $before > 0 && ($now === 0 || $now * 2 < $before);
+}
+
+/**
+ * This look against the last count of the same repository and identity — his own or the engine's (its run's end, its
+ * deleting of old sources), whichever is newer: what the office deleted itself is in the engine's count already. Far
+ * fewer is `kopia_emptied` (important: Object Lock may still hold the data — the sooner the user knows, the more of it).
+ * Another repository or identity (a new repository, a re-pair) is no comparison; a look without a count changes no count —
+ * except the one the engine calls repository_gone (Kopia can't open the repository: its format blob was deleted too).
+ *
+ * @return array{0: ?string, 1: array}  the kind when its entry is new, his record (state.json kopia)
+ */
+function watchmanKopiaCompare(?array $known, ?array $look, ?array $engine, array &$book, int $now): array
+{
+    $known = is_array($known) ? $known : [];
+    if ($look === null) {
+        return [null, $known];
+    }
+    if (($look['why'] ?? null) === 'repository_gone') {
+        // the storage answers, but the repository's own format blob is gone: all of it deleted — against the last count,
+        // whatever repository it was (none can be asked now), once: his count then says 0
+        $base = null;
+        foreach ([watchmanKopiaCount($known['count'] ?? null), watchmanKopiaCount($engine)] as $c) {
+            if ($c !== null && ($base === null || $c['time'] > $base['time'])) {
+                $base = $c;
+            }
+        }
+        if ($base === null || $base['snapshots'] === 0) {
+            return [null, ['looked' => $now, 'ok' => false, 'why' => 'repository_gone'] + array_intersect_key($known, ['count' => 1])];
+        }
+        $added = watchmanSet($book, 'kopia_emptied', 'kopia_emptied:' . substr($base['repo'], 0, 16), $now,
+            ['before' => $base['snapshots'], 'now' => 0, 'when' => $base['time'], 'sources_before' => $base['sources'], 'sources_now' => 0,
+             'identity' => $base['identity'], 'gone' => true]);
+        return [$added, ['looked' => $now, 'ok' => true, 'count' => ['snapshots' => 0, 'sources' => 0, 'time' => $now, 'by' => 'gone'] + $base]];
+    }
+    if (empty($look['ok'])) {
+        return [null, ['looked' => $now, 'ok' => false, 'why' => (string) ($look['why'] ?? 'no_answer')] + array_intersect_key($known, ['count' => 1])];
+    }
+    $count = watchmanKopiaCount($look);
+    if ($count === null) {
+        return [null, ['looked' => $now, 'ok' => false, 'why' => 'no_answer'] + array_intersect_key($known, ['count' => 1])];
+    }
+    $base = null;
+    foreach ([watchmanKopiaCount($known['count'] ?? null), watchmanKopiaCount($engine)] as $c) {
+        if ($c !== null && $c['repo'] === $count['repo'] && $c['identity'] === $count['identity'] && ($base === null || $c['time'] > $base['time'])) {
+            $base = $c;
+        }
+    }
+    $added = null;
+    if ($base !== null && watchmanKopiaEmptied($base['snapshots'], $count['snapshots'])) {
+        $added = watchmanSet($book, 'kopia_emptied', 'kopia_emptied:' . substr($count['repo'], 0, 16), $now,
+            ['before' => $base['snapshots'], 'now' => $count['snapshots'], 'when' => $base['time'], 'sources_before' => $base['sources'],
+             'sources_now' => $count['sources'], 'identity' => $count['identity']]);
+    }
+    return [$added, ['looked' => $now, 'ok' => true, 'count' => $count]];
+}
+
 /** "What I keep an eye on" of the snapshots: per pool and disk how many, which sleep, the learned series */
 function watchmanSnapSummary(?array $s, ?array $bs): ?array
 {
@@ -7524,6 +7650,8 @@ function watchmanText(array $e, ?string $lang = null): array
         'snap_gone', 'snap_hold_released'
                          => ['where' => (string) ($p['where'] ?? ''), 'names' => watchmanNames((array) ($p['names'] ?? []), 3),
                              'datasets' => watchmanNames((array) ($p['datasets'] ?? []), 3) ?: (string) ($p['where'] ?? '')],
+        'kopia_emptied'  => ['before' => (string) (int) ($p['before'] ?? 0), 'now' => (string) (int) ($p['now'] ?? 0),
+                             'when' => date('Y-m-d H:i', (int) ($p['when'] ?? 0))],
         'log_cleared'    => ['log' => (string) ($p['log'] ?? '')],
         'user_ram'       => ['user' => (string) ($p['user'] ?? ''), 'uid' => (int) ($p['uid'] ?? 0)],
         'listen_new'     => ['prog' => (string) ($p['prog'] ?? ''), 'port' => isset($p['port']) ? (string) (int) $p['port'] : '*'],
@@ -7961,12 +8089,16 @@ function watchmanNotifySend(string $kind, array $entries, string $lang): bool
     if ($n > 10) {
         $lines[] = officeNotifyText('watchman', 'notify.more', ['n' => $n - 10], $lang);
     }
+    // the offsite copy emptied: at risk now (Object Lock holds the data only so long) — an alert, and the way back: the
+    // Consultant's Object Lock guide (its read-only --point-in-time connection)
+    $emptied = $kind === 'kopia_emptied';
     return officeNotify(
         officeNotifyText('watchman', "notify.$kind", $params, $lang),
         officeNotifyText('watchman', "check.$kind", $params, $lang),
-        'warning',
-        implode("\n", $lines) . "\n\n" . officeNotifyText('watchman', 'notify.footer', [], $lang),
-        officeNotifyLink('#/watchman'),
+        $emptied ? 'alert' : 'warning',
+        implode("\n", $lines) . "\n\n" . ($emptied ? officeNotifyText('watchman', 'notify.kopia_back', [], $lang) . "\n\n" : '')
+            . officeNotifyText('watchman', 'notify.footer', [], $lang),
+        officeNotifyLink($emptied ? '#/advisor' : '#/watchman'),
     );
 }
 

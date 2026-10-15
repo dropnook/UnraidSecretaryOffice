@@ -1683,5 +1683,11 @@
   "notify.new_folder.subject": "Nuova cartella resta locale",
   "notify.new_folder": "{folder} — nuova nella condivisione per app o VM, di nessuna app o VM o di una nuova: solo negli snapshot locali finché non decidi nella configurazione del signor Backupsi.",
   "notify.new_folders.subject": "{n} nuove cartelle restano locali",
-  "notify.new_folders": "{n} nuove cartelle nelle condivisioni per app o VM, di nessuna app o VM o di una nuova: solo negli snapshot locali finché non decidi nella configurazione del signor Backupsi."
+  "notify.new_folders": "{n} nuove cartelle nelle condivisioni per app o VM, di nessuna app o VM o di una nuova: solo negli snapshot locali finché non decidi nella configurazione del signor Backupsi.",
+  "warn_code.kopia_emptied": "La copia fuori sede era quasi vuota all'inizio di questo backup — snapshot il {when}: {before}, ora: {now}, non cancellati dalla segreteria. Se non sei stato tu: non cancellare nulla, Object Lock potrebbe conservare ancora i dati — il Signor Restori e il consulente mostrano come recuperarli. Questo backup ha caricato tutto da capo.",
+  "notify.kopia_emptied.subject": "La copia fuori sede è stata svuotata",
+  "notify.kopia_emptied": "Snapshot il {when}: {before}, ora: {now} — non cancellati dalla segreteria. Se non sei stato tu: non cancellare nulla, Object Lock potrebbe conservare ancora i dati; il Signor Restori e il consulente mostrano come recuperarli. Questo backup carica tutto da capo.",
+  "warn_code.kopia_gone": "La copia fuori sede è stata svuotata — Kopia non riesce più ad aprire il repository, manca anche la sua descrizione (snapshot il {when}: {before}); non cancellati dalla segreteria. Se non sei stato tu: non cancellare nulla, Object Lock potrebbe conservare ancora i dati — il Signor Restori e il consulente mostrano come recuperarli. In questo backup nulla è andato fuori sede.",
+  "notify.kopia_gone.subject": "La copia fuori sede è stata svuotata",
+  "notify.kopia_gone": "Kopia non riesce più ad aprire il repository — manca anche la sua descrizione (snapshot il {when}: {before}); non cancellati dalla segreteria. Se non sei stato tu: non cancellare nulla, Object Lock potrebbe conservare ancora i dati; il Signor Restori e il consulente mostrano come recuperarli."
 }

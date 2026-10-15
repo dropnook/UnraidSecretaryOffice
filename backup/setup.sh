@@ -1,6 +1,8 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.52 - 2026-10-15
+# unraid-backup - setup.sh                        Version 2.53 - 2026-10-15
+#   2.53 --orphans-delete counts the repository's snapshots anew after deleting (state/kopia-count.json, lib/common.sh
+#        kopia_count_save): what the office deleted is never taken for a repository someone emptied
 #   2.52 No change here (the engine's version: the notifications in the office's language, lib/common.sh ub_tell)
 #   2.51 --orphans lists the office's own Kopia sources whose share, app or VM is gone (state/kopia-orphans.json: per
 #        source its snapshots, the newest one's size and date); --orphans-delete=<file> deletes those of a JSON list
@@ -2962,6 +2964,7 @@ orphans_delete() {
     ORPH_FAILED="$(printf '%s\n' "${fail[@]}" | jq -Rn "[inputs] | $j")"
     ORPH_REFUSED="$(printf '%s\n' "${refused[@]}" | jq -Rn "[inputs] | $j")"
     ORPH_JSON="$(jq --argjson d "$ORPH_DELETED" 'map(select(.source as $s | $d | index($s) | not))' <<<"$ORPH_JSON")"
+    [[ ${#del[@]} -gt 0 ]] && kopia_count_save orphans      # 2.53: the office's own deleting is no emptied repository
     # the plan's list of old sources: what is gone from the repository leaves it (the page reads it)
     local plan="$UB_STATE/setup-plan.json" tmp="$UB_STATE/.setup-plan.json.$$"
     if [[ ${#del[@]} -gt 0 && -f "$plan" ]]; then
