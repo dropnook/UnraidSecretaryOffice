@@ -1102,7 +1102,7 @@ function testJackSizes(): void
         'Se rien' => ['disk2' => ['bytes' => 50, 'files' => 1]]]], [$exit, $dry['sizes'] ?? null], $out);
     check('gather sizes: a dry run — when the numbers were true (after the index)', is_int($dry['sizes_at'] ?? null) && $dry['sizes_at'] >= $t0 && $dry['sizes_at'] <= ($dry['finished'] ?? 0));
     check('gather sizes: a dry run changed nothing', is_file("$tmp/mnt/disk2/Filme/B/b.mkv") && is_file("$tmp/mnt/disk2/Filme/A/a.srt"));
-    check('gather sizes: the status as before beside them', ($dry['version'] ?? '') === 'V11.4' && ($dry['mode'] ?? '') === 'dry' && isset($dry['moved'], $dry['folders_done']));
+    check('gather sizes: the status as before beside them', ($dry['version'] ?? '') === 'V11.5' && ($dry['mode'] ?? '') === 'dry' && isset($dry['moved'], $dry['folders_done']));
     [$exit, $real, $out] = $gather('--run', $both);
     $onDisk = function (string $root, string $share) use ($tmp): array {
         $b = 0;
@@ -34638,6 +34638,38 @@ function testJackShareDataset(): void
     check('share dataset: made only before a real run that fetches', str_contains($php, "\$tool === 'embycache' && \$mode === 'run' && !\$noFill"));
     $mo = (string) file_get_contents(dirname(__DIR__) . '/public/desks/moverelli/desk.js');
     check('share dataset: Ms. Moverelli names the folders she counts as never moving', str_contains($mo, "T('setup.level_folders'"));
+
+    // ZFS array disks: from the gather's numbers and the mount table only — a disk holding files of the share, ZFS, no dataset there
+    $sizes = ['shares' => ['Filme' => ['roots' => ['disk1' => ['bytes' => 9, 'files' => 2], 'disk2' => ['bytes' => 9, 'files' => 1], 'disk3' => ['bytes' => 0, 'files' => 0],
+              'disk4' => ['bytes' => 5, 'files' => 1], 'maple' => ['bytes' => 1, 'files' => 1]]]]];
+    $dm = [['mount' => '/mnt/disk1', 'fs' => 'xfs', 'source' => '/dev/md1p1'], ['mount' => '/mnt/disk2', 'fs' => 'zfs', 'source' => 'disk2'],
+           ['mount' => '/mnt/disk3', 'fs' => 'zfs', 'source' => 'disk3'], ['mount' => '/mnt/disk4', 'fs' => 'zfs', 'source' => 'disk4'],
+           ['mount' => '/mnt/disk4/Filme', 'fs' => 'zfs', 'source' => 'disk4/Filme'], ['mount' => '/mnt/maple', 'fs' => 'zfs', 'source' => 'maple']];
+    same('share dataset: plain folders on ZFS array disks — disk2 (xfs, empty, a dataset and a pool never)', [['disk2'], []],
+        [jackPlainDisks('Filme', $sizes, $dm), jackPlainDisks('Serien', $sizes, $dm)]);
+    check('share dataset: his page names those disks', str_contains($js, "T('disk_plain'") && str_contains($js, '(x.plain_disks || []).length > 0'));
+
+    // the gather (V11.5): a cache-only folder to the disk with most free space — the share's missing folder on a ZFS disk is its dataset
+    foreach (['mnt/disk1/Filme/A', 'mnt/disk2', 'mnt/cache/Filme/C', 'user/Filme', 'bin'] as $d) {
+        @mkdir("$tmp/g/$d", 0700, true);
+    }
+    file_put_contents("$tmp/g/mnt/disk1/Filme/A/a.mkv", 'a');
+    file_put_contents("$tmp/g/mnt/cache/Filme/C/c.mkv", str_repeat('c', 100));
+    file_put_contents("$tmp/g/bin/df", "#!/bin/bash\necho Avail\ncase \"\$*\" in *disk2*) echo 999999999 ;; *) echo 5000000 ;; esac\n");
+    file_put_contents("$tmp/g/bin/zfs", "#!/bin/bash\necho \"\$*\" >> '$tmp/g/zfs.log'\n[[ \$1 == create ]] && mkdir '$tmp/g/mnt/'\"\$2\"\n");
+    chmod("$tmp/g/bin/df", 0755);
+    chmod("$tmp/g/bin/zfs", 0755);
+    file_put_contents("$tmp/g/mounts", "disk2 $tmp/g/mnt/disk2 zfs rw 0 0\n/dev/md1p1 $tmp/g/mnt/disk1 xfs rw 0 0\n");
+    file_put_contents("$tmp/g/ex.txt", '');
+    $ini = jackGatherIni(['shares' => ['Filme'], 'dup_check' => 'size', 'min_free_gb' => 0, 'move_cache' => true, 'cache_only_target' => 'most-free'], ['/mnt/cache'], "$tmp/g/c.log", "$tmp/g/ex.txt");
+    file_put_contents("$tmp/g/c.ini", str_replace(["'/mnt/user/", "'/mnt/"], ["'$tmp/g/user/", "'$tmp/g/mnt/"], $ini));
+    $env = ['PATH' => "$tmp/g/bin:/usr/bin:/bin", 'HOME' => $tmp, 'LANG' => 'C.UTF-8', 'CONSOLIDATE_CONFIG' => "$tmp/g/c.ini", 'CONSOLIDATE_STATUS' => "$tmp/g/status.json",
+            'CONSOLIDATE_LOCK' => "$tmp/g/gather.lock", 'CONSOLIDATE_USER_ROOT' => "$tmp/g/user", 'CONSOLIDATE_MOUNTS' => "$tmp/g/mounts", 'CONSOLIDATE_ZFS' => "$tmp/g/bin/zfs"];
+    $p = proc_open(['bash', OFFICE_DIR . '/gather/consolidate_master.sh', '--run'], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $tmp, $env);
+    $out = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
+    $exit = proc_close($p);
+    same('share dataset: the gather makes the share\'s folder on a ZFS disk as its dataset (zfs create disk2/Filme), the file lands in it',
+        [0, "create disk2/Filme\n", true], [$exit, (string) @file_get_contents("$tmp/g/zfs.log"), is_file("$tmp/g/mnt/disk2/Filme/C/c.mkv")], $out);
     hardeningRm($tmp);
 }
 

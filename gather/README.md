@@ -1,6 +1,6 @@
 > **In the Unraid Secretary Office** this is Jack Emby's "Consolidate folders": taken from
 > [helmi1987/media-disk-gather-for-unraid](https://github.com/helmi1987/media-disk-gather-for-unraid)
-> (V11.0) and since changed here (V11.4). Jack writes its settings (`data/gather/consolidate.ini`)
+> (V11.0) and since changed here (V11.5). Jack writes its settings (`data/gather/consolidate.ini`)
 > and runs it — never while EmbyCache runs; the cache only when switched on in his settings
 > (`MOVE_CACHE`/`CACHE_ONLY_TARGET` in the ini, #14 — EmbyCache's list is the exclude file, so
 > what it keeps on the pool always stays). Changes against V11.0:
@@ -16,6 +16,8 @@
 >   no deep clean; result `stopped`, exit 3, `folders`/`folders_done` in the status) — Jack writes it
 >   when someone starts watching Emby or Unraid's mover starts during a real run.
 > * `CONSOLIDATE_LOCK`, `CONSOLIDATE_USER_ROOT`: the lock file and `/mnt/user` — for the tests only.
+* A share's missing folder on a ZFS disk is made as its dataset (`zfs create <disk>/<share>`, V11.5), the way
+  Unraid's shfs does — never a plain folder inside the disk's own dataset (`CONSOLIDATE_MOUNTS`, `CONSOLIDATE_ZFS`: tests only).
 > * Deep clean keeps an empty array folder when the same folder exists on a cache/pool: its
 >   content lies there right now and the folder shows which disk it belongs to.
 > * Not taken over: `setup_consolidate.sh` (Jack is the setup), the zip and the test suite.
