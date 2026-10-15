@@ -469,8 +469,8 @@ class PlexApi:
             # USO: a claimed server whose users plex.tv didn't give is an incomplete plan (the cleanup is skipped),
             # never «the others watch nothing»; an unclaimed (local-only) server has only its admin anyway
             try:
-                root = self.get("/")
-                self.users_incomplete = bool(root.get("myPlex")) or bool(root.get("myPlexUsername"))
+                root = self.get("/")   # signed in to plex.tv (claimed): myPlexSigninState ok, myPlexUsername set; unclaimed: none
+                self.users_incomplete = (str(root.get("myPlexSigninState") or "none") != "none") or bool(root.get("myPlexUsername"))
             except RuntimeError:
                 self.users_incomplete = True
         self._tokens, self._names = tokens, names

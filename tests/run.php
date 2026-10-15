@@ -2715,6 +2715,25 @@ p.apply_budget()
 print(" ".join(str(int(p.users[k].budget // 2**30)) for k in ("Emby: Home:u1", "Emby: Home:u2")))';
     [$exit, $out, $err] = runEnv(['python3', '-c', $plan, JACK_APP], ['MEDIACACHE_DIR' => "$tmp/emby"], 30);
     same('emby upstream 9d14374: a fixed budget found by the user id on a server whose name has «:» (u1 5 GB, u2 the other 95)', [0, '5 95'], [$exit, preg_replace('/^.*\n/s', '', trim($out)) ?: trim($err)]);
+    // review #3/#6 (2026-10-15): plex.tv not reachable for a claimed Plex, or an answer without an item list — an incomplete
+    // plan (no cleanup), never «nothing watched»; an unclaimed Plex has only its admin (complete)
+    $py = 'import sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l
+def run(state):
+    p = l.PlexApi("http://127.0.0.1:1", "tok")
+    def req(full, token, accept_json=True): raise RuntimeError("HTTP 401 bei /api/v2/user")
+    p._request = req
+    p.get = lambda path, token=None, **k: {"myPlexSigninState": state, "machineIdentifier": "m"}
+    return [u["Id"] for u in p.users()], p.users_incomplete
+e = l.MediaServerApi("http://127.0.0.1:1", "k")
+e.get = lambda path, **k: {"TotalRecordCount": 0}
+try:
+    e.items("/Users/u/Items/Resume"); bad = "no error"
+except RuntimeError as x:
+    bad = str(x)
+print(run("none"), run("ok"), bad)';
+    [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], ['MEDIACACHE_DIR' => "$tmp/emby", 'PYTHONDONTWRITEBYTECODE' => '1'], 30);
+    same('upstream fixes: Plex users — unclaimed complete, claimed without plex.tv incomplete; an answer without items an error',
+        [0, "(['admin'], False) (['admin'], True) Ungültige Antwort von /Users/u/Items/Resume"], [$exit, trim($out) ?: trim($err)]);
     check('upstream: the README names MediaCache\'s commit taken and the office\'s changes, GPL', str_contains($readme = (string) file_get_contents(JACK_APP . '/README.md'), '`2a91ef1`')
         && str_contains($readme, 'Changes against 2a91ef1') && str_contains($readme, 'GPL-3.0-or-later') && is_file(JACK_APP . '/LICENSE'));
     exec('rm -rf ' . escapeshellarg($tmp));
