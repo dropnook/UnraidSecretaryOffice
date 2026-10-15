@@ -1537,7 +1537,7 @@ function advisorKopiaS3(array $r, array $secret): array
  * Does the bucket keep Object Lock? enabled (with the bucket's own default rule, if it has one: mode,
  * days) / off (the bucket was made without it) / unsupported (the provider doesn't know it — also said for
  * providers known not to offer it when their answer is unclear) / unknown (couldn't ask: why — keys,
- * denied, no_bucket, unreachable, other). $http: a stand-in for the tests.
+ * denied, no_bucket, certificate, no_https, unreachable, other). $http: a stand-in for the tests.
  *
  * @param array{provider?: string, endpoint: string, region: ?string, bucket: string, access: string, secret: string} $s3
  * @return array{state: string, why?: string, code?: string|int, mode?: ?string, days?: ?int}
@@ -1597,6 +1597,9 @@ function advisorObjectLockState(array $answer, string $provider): array
             || ($status === 400 && in_array($code, ['InvalidArgument', 'InvalidRequest'], true)) => ['unsupported', null],
         $status === 403 && in_array($code, ['InvalidAccessKeyId', 'SignatureDoesNotMatch', 'InvalidToken'], true) => ['unknown', 'keys'],
         $status === 403                                                                    => ['unknown', 'denied'],
+        // no answer: a certificate this server doesn't trust (self-signed — versitygw's own VGW_CERT), plain HTTP on that port, or nothing
+        $status === 0 && in_array((int) ($answer['errno'] ?? 0), [51, 60], true)            => ['unknown', 'certificate'],
+        $status === 0 && (int) ($answer['errno'] ?? 0) === 35                              => ['unknown', 'no_https'],
         $status === 0                                                                      => ['unknown', 'unreachable'],
         default                                                                            => ['unknown', 'other'],
     };
@@ -1653,9 +1656,10 @@ function advisorS3RegionHint(array $answer): ?string
 
 /**
  * One HTTPS GET with PHP's curl: certificate checked, no proxy (whatever the environment says), no
- * redirect, at most 64 KB of answer, $timeout seconds.
+ * redirect, at most 64 KB of answer, $timeout seconds. errno: curl's code when nothing came back (60 a
+ * certificate this server doesn't trust, 35 no TLS handshake — e.g. plain HTTP on that port).
  *
- * @return array{status: int, headers: array<string, string>, body: string, error: ?string}
+ * @return array{status: int, headers: array<string, string>, body: string, error: ?string, errno: int}
  */
 function advisorHttps(string $url, array $headers, int $timeout = 15): array
 {
@@ -1693,8 +1697,9 @@ function advisorHttps(string $url, array $headers, int $timeout = 15): array
     $ok = curl_exec($c);
     $status = (int) curl_getinfo($c, CURLINFO_RESPONSE_CODE);
     $error = $ok === false && $status === 0 ? (curl_error($c) ?: 'no answer') : null;
+    $errno = $error !== null ? curl_errno($c) : 0;
     unset($c);
-    return ['status' => $status, 'headers' => $got, 'body' => $body, 'error' => $error];
+    return ['status' => $status, 'headers' => $got, 'body' => $body, 'error' => $error, 'errno' => $errno];
 }
 
 /**

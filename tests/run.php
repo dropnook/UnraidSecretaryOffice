@@ -15143,6 +15143,10 @@ function testAdvisorObjectLock(): void
         'unknown: not allowed to read it'     => [$ans(403, $err('AccessDenied')), 'b2', ['state' => 'unknown', 'why' => 'denied']],
         'unknown: no such bucket'             => [$ans(404, $err('NoSuchBucket')), 'wasabi', ['state' => 'unknown', 'why' => 'no_bucket']],
         'unknown: no answer'                  => [$ans(0, ''), 's3', ['state' => 'unknown', 'why' => 'unreachable']],
+        // tested 2026-10-15 against versitygw 1.9 with its own self-signed VGW_CERT (curl 60) and on a plain-HTTP port (curl 35)
+        'unknown: a certificate not trusted'  => [['errno' => 60] + $ans(0, ''), 'versitygw', ['state' => 'unknown', 'why' => 'certificate']],
+        'unknown: no HTTPS on that port'      => [['errno' => 35] + $ans(0, ''), 'versitygw', ['state' => 'unknown', 'why' => 'no_https']],
+        'unknown: refused, not a TLS matter'  => [['errno' => 7] + $ans(0, ''), 'versitygw', ['state' => 'unknown', 'why' => 'unreachable']],
         'unknown: something else'             => [$ans(500, $err('InternalError')), 's3', ['state' => 'unknown', 'why' => 'other', 'code' => 'InternalError']],
     ] as $what => [$answer, $provider, $want]) {
         same("object lock: $what", $want, advisorObjectLockState($answer, $provider));
@@ -15171,6 +15175,15 @@ function testAdvisorObjectLock(): void
     same('object lock elsewhere: path style, the host with its port, asked once', ['https://minio.lan:9000/b.with.dots?object-lock', 1, 'us-east-1'],
         [$seen[0][0] ?? null, count($seen), $region(0)]);
     same('object lock: https only, never anything else', 'no curl', advisorHttps('http://example.test/', [])['error']);
+    // every reason the probe can give has its words in the page (desk.js lists them, en has the key)
+    $js = (string) file_get_contents(dirname(__DIR__) . '/public/desks/advisor/desk.js');
+    $en = json_decode((string) file_get_contents(dirname(__DIR__) . '/public/desks/advisor/lang/en.json'), true) ?: [];
+    foreach (['keys', 'denied', 'no_bucket', 'certificate', 'no_https', 'unreachable', 'other'] as $why) {
+        check("object lock: the reason $why has its words", isset($en["kr.why_$why"]) && ($why === 'other' || str_contains($js, "'$why'")));
+    }
+    // after an attack (tested 2026-10-15): a second, read-only connection to the moment before — never over the nightly one
+    check('object lock: the after-an-attack command connects read-only, at a moment before, in a config of its own',
+        (bool) preg_match("/pit: 'kopia --config-file=\\S+ repository connect s3 [^']*--point-in-time=[^']*--readonly'/", $js));
 }
 
 /**

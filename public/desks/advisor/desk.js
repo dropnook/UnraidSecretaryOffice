@@ -423,6 +423,8 @@ const LOCK_COPIES = {
   create: 'kopia repository create s3 --bucket=<bucket> --endpoint=<endpoint> --access-key=<access key> --secret-access-key=<secret key> --retention-mode=COMPLIANCE --retention-period=30d',
   extend: 'kopia maintenance set --extend-object-locks=true',
   check: 'kopia repository status',
+  // after an attack: a second, read-only connection to the moment before it — the nightly one stays as it is
+  pit: 'kopia --config-file=/tmp/before.config repository connect s3 --bucket=<bucket> --endpoint=<endpoint> --access-key=<access key> --secret-access-key=<secret key> --point-in-time=<2026-10-15T03:00:00Z> --readonly',
 };
 // on the second server, in Unraid's terminal there: a user who sees only his buckets, his bucket born with Object Lock
 const VGW_ADMIN = 'docker exec versitygw versitygw admin --access <root key> --secret <root secret> --endpoint-url http://<address>:7070';
@@ -1047,7 +1049,7 @@ function lockBox(form) {
   } else if (l.state === 'unsupported') {
     box.appendChild(callout(T('kr.lock_unsupported', { provider: PROVIDER_NAMES[form.provider] || T('kr.lock_this') })));
   } else {
-    const why = ['keys', 'denied', 'no_bucket', 'unreachable'].includes(l.why) ? l.why : 'other';
+    const why = ['keys', 'denied', 'no_bucket', 'certificate', 'no_https', 'unreachable'].includes(l.why) ? l.why : 'other';
     box.appendChild(callout(T('kr.lock_unknown', { why: T(`kr.why_${why}`, { bucket: form.bucket.trim(), endpoint: form.endpoint.trim(), code: String(l.code || '?') }) }), true));
   }
   return box;
