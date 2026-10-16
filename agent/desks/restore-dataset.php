@@ -119,8 +119,13 @@ function mdBytes(string $path): ?int
     return $exit === 0 && preg_match('/^(\d+)/', $out, $m) ? (int) $m[1] : null;
 }
 
-/** The last real backup (last-run.json): when, how; fresh = ok or warnings within MD_FRESH */
-function mdLastBackup(): ?array
+/**
+ * The last real backup (last-run.json): when, how; fresh = ok or warnings within MD_FRESH. With the target (app or VM):
+ * `unit` = whether that backup holds it - its package in the run's list (packages.list, kind and name), so a unit new
+ * since then isn't told «the last backup went well» as if it were in it (a user, 2026-10-16); null when the run lists no
+ * packages (an old engine, a run that stopped early). Not in it = not fresh for this unit.
+ */
+function mdLastBackup(?array $t = null): ?array
 {
     $l = $GLOBALS['md']['last'] ?? (defined('BACKUP_DATA_DIR') ? readJson(BACKUP_DATA_DIR . '/state/last-run.json') : null);
     if (!is_array($l)) {
@@ -128,7 +133,19 @@ function mdLastBackup(): ?array
     }
     $time = (int) ($l['finished'] ?? 0) ?: (int) ($l['started'] ?? 0);
     $result = (string) ($l['result'] ?? '');
-    return ['time' => $time ?: null, 'result' => $result, 'fresh' => in_array($result, ['ok', 'warnings'], true) && $time > time() - MD_FRESH];
+    $unit = null;
+    $list = $l['packages']['list'] ?? null;
+    if ($t !== null && is_array($list) && array_is_list($list)) {
+        $unit = false;
+        foreach ($list as $p) {
+            if (is_array($p) && ($p['kind'] ?? null) === $t['kind'] && ($p['name'] ?? null) === $t['name'] && ($p['result'] ?? '') !== 'failed') {
+                $unit = true;
+                break;
+            }
+        }
+    }
+    return ['time' => $time ?: null, 'result' => $result, 'unit' => $unit,
+            'fresh' => in_array($result, ['ok', 'warnings'], true) && $time > time() - MD_FRESH && $unit !== false];
 }
 
 /** The dialog's facts (backup.dataset_look): the target, what stops and for about how long, the last backup, blockers */
@@ -141,7 +158,7 @@ function mdLook(array $r): array
     }
     $bytes = $t['blockers'] ? null : mdBytes((string) $t['path']);
     return ['ok' => true, 'target' => array_diff_key($t, ['blockers' => 1]), 'blockers' => $t['blockers'], 'stops' => $stops, 'bytes' => $bytes,
-            'downtime' => $bytes !== null ? 30 + (int) ceil($bytes / MD_RATE) : null, 'last' => mdLastBackup()];
+            'downtime' => $bytes !== null ? 30 + (int) ceil($bytes / MD_RATE) : null, 'last' => mdLastBackup($t)];
 }
 
 /** The job's plan (rsLaunch()): the steps in their order; what stops is started again */
