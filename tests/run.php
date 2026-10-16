@@ -29295,7 +29295,8 @@ function testReport(): void
     $files[OFFICE_DIR . '/agent/agent.php'] = 'office';
     // calls whose text isn't a literal — each looked at: Held:/Released: are labels; metricsNote()'s texts start
     // «Metrics:» (checked below); the agent's own with a variable in front are the office's anyway
-    $notLiteral = ["(\$on ? 'Held: '", '$text', '$pinGone', '"$why', '"$dir'];
+    // $line: makeDataDir() writes lib/firsthome.php's «Created the share …» lines (checked below)
+    $notLiteral = ["(\$on ? 'Held: '", '$text', '$pinGone', '"$why', '"$dir', '$line'];
     $unlabelled = [];
     foreach ($files as $f => $desk) {
         $src = (string) file_get_contents($f);
@@ -29311,6 +29312,9 @@ function testReport(): void
         }
     }
     same('report: every logLine() a desk writes starts with one of its labels', [], $unlabelled);
+    check('report: … the first start\'s «Created the share …» lines carry the office\'s label',
+        reportLabelOf("Created the share appdata on the user's click", REPORT_LOG_LABELS['office']) !== null
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/lib/firsthome.php'), '$log[] = "Created the share $share'));
 
     // the desk's lines from agent.log (and .1): its own, «<id>:», and the agent's start and errors
     file_put_contents("$tmp/agent.log.1", "2026-10-08 09:00:00  Agent started (v1.43.0, PID 1, desks: caretaker)\n2026-10-08 09:00:01  Ms. Snapshotini: plan p saved\n");
@@ -31763,7 +31767,8 @@ function testHiddenStoreroom(): void
     };
     $runsOf = function (array $roots): array {
         $GLOBALS['clCtx'] = ['roots' => [], 'asleep' => []];
-        $out = clTrashRuns([], ['ok' => false], $roots);
+        // the test server's own flash storeroom (Ms. Dustdevil put real share settings there, Tower 2026-10-16) isn't the test's
+        $out = array_values(array_filter(clTrashRuns([], ['ok' => false], $roots), fn ($r) => !str_starts_with((string) ($r['root'] ?? ''), CL_FLASH . '/')));
         unset($GLOBALS['clCtx']);
         return $out;
     };

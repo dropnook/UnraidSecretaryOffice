@@ -105,7 +105,7 @@ const REPORT_HOSTS_KEPT  = ['github.com', 'api.github.com'];
  * watchman reads them, their shape is his interface).
  */
 const REPORT_LOG_LABELS = [
-    'office'    => ['Agent ', 'Error: ', 'PHP: ', 'Office: ', 'Metrics: ', 'Mailbox: ', 'The ', 'No doorbell', 'Created the data folder',
+    'office'    => ['Agent ', 'Error: ', 'PHP: ', 'Office: ', 'Metrics: ', 'Mailbox: ', 'The ', 'No doorbell', 'Created the data folder', 'Created the share',
                     'New agent code', 'Could not ', 'agent.json '],
     'caretaker' => ['Caretaker: ', 'Partner offices: ', 'Menu entry: '],
     'snapshot'  => ['Ms. Snapshotini: ', 'Snapshot schedules: ', 'Snapshot scan', 'Deleted: ', 'Released: ', 'Renamed: ', 'Held: '],
