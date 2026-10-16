@@ -246,6 +246,25 @@
     "errors": 0,
     "warnings": 1
    }
+  },
+  {
+   "tool": "gather",
+   "mode": "run",
+   "by": "schedule",
+   "started": 1791631800,
+   "finished": 1791633400,
+   "exit": 0,
+   "result": "ok",
+   "status": {
+    "result": "ok",
+    "moved": 14,
+    "duplicates": 2,
+    "conflicts": 0,
+    "dirs_deleted": 6,
+    "dirs_kept": 0,
+    "errors": 0,
+    "full": 0
+   }
   }
  ],
  "schedules": {

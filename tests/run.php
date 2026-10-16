@@ -37551,10 +37551,11 @@ function testTilesMediaPages(): void
         str_contains($jackSrc, "renderSetup();\n  if (typeof window !== 'undefined') window.scrollTo(0, 0);")
         && str_contains((string) file_get_contents(OFFICE_WEB . '/desks/moverelli/desk.js'), "Office.go(`#/\${ID}`);\n      if (typeof window !== 'undefined') window.scrollTo(0, 0);")
         && str_contains((string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js'), "setupLoad();\n        if (typeof window !== 'undefined') window.scrollTo(0, 0);"));
-    check('jack page: the routes of his tiles (the switcher\'s), the Team Lead\'s links to his schedules land in «Schedules» (the row revealed), #/jack/history the whole page',
-        str_contains($jackSrc, "if (plan) sw.mount('plans');") && str_contains($jackSrc, "} else sw.mount(sub);") && str_contains($jackSrc, "Office.reveal(`plan:\${plan}`)")
+    check('jack page: the routes of his tiles (the switcher\'s), the Team Lead\'s links to his schedules land in «Schedules» (the row revealed), #/jack/history the whole page — picked once his state is there (a pick before it broke his page, 2026-10-16), MediaCache\'s runs in the search by «Last run»',
+        str_contains($jackSrc, "if (plan) sw.mount('plans');") && str_contains($jackSrc, "else sw.mount(whole ? '' : sub);") && str_contains($jackSrc, "Office.reveal(`plan:\${plan}`)")
         && str_contains($jackSrc, "const plan = { schedule: 'embycache', 'gather-schedule': 'gather' }[sub];") && str_contains($jackSrc, "Office.place(`plan:\${job}`")
-        && str_contains($jackSrc, "...sw.places().map(") && str_contains($jackSrc, "route: `#/\${ID}/history`"));
+        && str_contains($jackSrc, "...sw.places().map(") && str_contains($jackSrc, "route: r.tool === 'embycache' ? `#/\${ID}/runs` : `#/\${ID}/history`")
+        && str_contains($jackSrc, "if (whole && view === root && state && sw.active()) sw.pick('', 'route');") && !str_contains($jackSrc, "sw.mount('');\n      sw.pick('', 'route');"));
     // Ms. Snapshotini
     check('snapshot page: the switcher — no start tile; pool cards, the array disks\' rows (btrfs and ZFS), the VMs filter «Snapshots»; «Schedules» and «Snapshots» section tiles',
         str_contains($snap, "const sw = Office.sections({") && str_contains($snap, "default: '',")

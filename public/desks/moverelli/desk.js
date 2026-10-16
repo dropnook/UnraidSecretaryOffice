@@ -2286,14 +2286,16 @@ Office.placesFrom(ID, (s, part) => {
 // her places for the search (places.json lists the same keys): each section by the route of its tile (a section stands
 // under the row only while its tile is chosen — or none is), her tiles (place tile.<id>), then the setup's steps and tiles
 const SETUP = { route: '#/moverelli/setup', crumb: 'setup_open' };
+const importShown = () => !state || !!(state.import_found || []).length;     // not known yet: listed
 Office.places(ID, [
   { kind: 'section', key: 'schedule', route: `#/${ID}/schedule`, shown: configured },
   { kind: 'section', key: 'shares', route: `#/${ID}/shares` },
   { kind: 'section', key: 'history', route: `#/${ID}/runs` },
   ...TILES.map(([id, key]) => ({ kind: 'tile', key, anchor: `tile.${id}`, route: `#/${ID}/${id}`, ...(id === 'schedule' ? { shown: configured } : {}) })),
   { kind: 'section', key: 'tools' },
-  ...SETUP_TILES.map(([id, key]) => ({ kind: 'step', key, ...SETUP, route: `#/${ID}/setup/${id}` })),
-  ...SETUP_TILES.map(([id, key]) => ({ kind: 'tile', key, anchor: `setup.tile.${id}`, ...SETUP, route: `#/${ID}/setup/${id}` })),
+  // (the import's part only while something to import was found — its tile comes only then)
+  ...SETUP_TILES.map(([id, key]) => ({ kind: 'step', key, ...SETUP, route: `#/${ID}/setup/${id}`, ...(id === 'import' ? { shown: importShown } : {}) })),
+  ...SETUP_TILES.map(([id, key]) => ({ kind: 'tile', key, anchor: `setup.tile.${id}`, ...SETUP, route: `#/${ID}/setup/${id}`, ...(id === 'import' ? { shown: importShown } : {}) })),
   ...[['list', 'help.list'], ['mode.dry', 'help.dry'], ['mode.run', 'help.run']].map(([key, text]) => ({ kind: 'help', key, text })),
   ...['what', 'rules', 'unraid', 'jack', 'schedule'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
   ...[['setup.global', 'setup.help_global'], ['setup.files', 'setup.help_files'], ['setup.shares', 'setup.help_shares'], ['setup.save', 'setup.help_save'],

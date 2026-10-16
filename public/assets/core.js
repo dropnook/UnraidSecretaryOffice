@@ -3517,6 +3517,11 @@ function readItems() {
   return n;
 }
 
+/** A desk's items as the search keeps them, the waiting states read first (for the tests: tools/ui-clicks.mjs walks their routes) */
+Office.itemsOf = (desk) => {
+  readItems();
+  return [...itemLists].filter(([k]) => k === desk || k.startsWith(`${desk}/`)).flatMap(([, l]) => l.map((x) => ({ ...x })));
+};
 /** A text as an item shows it: one line, at most max letters (cut at a word) */
 const itemText = (s, max) => {
   const v = (typeof s === 'string' || typeof s === 'number' ? String(s) : '').replace(/\s+/g, ' ').trim();
