@@ -12,9 +12,7 @@ Ablauf pro Lauf:
        (feste Budgets pro Benutzer möglich, ungenutzter Anteil fliesst an die anderen); pro Benutzer werden
        Filme und Serien nach Bytes im Verhältnis movie_share_percent gefüllt, Serien reihum eine Folge pro
        Runde – kleine Folgen ergeben viele, grosse wenige. Was nicht ins Budget passt, bleibt auf dem Array.
-  3. Cleanup: Dateien aus der alten Exclude-Liste, die nicht mehr on deck sind -> Cache -> Array.
-       Zuerst zurück auf die Disk, von der sie kamen (return_to_origin, mediacache_origin.json: rsync nach
-       /mnt/diskN/<rel>, Ordner mit den Rechten wie auf dem Cache) – wenn das nicht geht, per cleanup_tool:
+  3. Cleanup: Dateien aus der alten Exclude-Liste, die nicht mehr on deck sind -> Cache -> Array, per cleanup_tool:
        mover (Default): Unraid move-Binary wie das Original – setzt voraus, dass die Mover-Richtung des Shares
                         Cache -> Array ist (shareUseCache=yes); das Script prüft das vorher und meldet es
        rsync:           rsync /mnt/<pool>/<rel> -> /mnt/user0/<rel> (shfs wählt die Disk), Grössenvergleich, dann
@@ -96,10 +94,10 @@ def stop_requested():
     return bool(STOP_FILE) and os.path.exists(STOP_FILE)
 
 from mediacache_lib import (
-    ConfigError, MediaServerApi, Locations, Status, acquire_lock, array_location, keep_bytes, pool_usage, format_status,
+    ConfigError, MediaServerApi, Locations, Status, acquire_lock, keep_bytes, pool_usage, format_status,
     collect_sessions, detect_mover_bin, ensure_share_root, free_percent_after, human, is_playing, load_config, mkdir_like,
-    origin_target, read_exclude, read_origin, remove_empty_parents, run_mover, run_rsync, setup_logging, share_mode_ok, share_mover_mode,
-    summarize_mover_output, unraid_mover_running, write_exclude, write_origin, write_progress, write_result, EXCLUDE_FILE,
+    read_exclude, remove_empty_parents, run_mover, run_rsync, setup_logging, share_mode_ok, share_mover_mode,
+    summarize_mover_output, unraid_mover_running, write_exclude, write_progress, write_result, EXCLUDE_FILE,
     PROGRESS_FILE, __version__,
 )
 
@@ -719,9 +717,7 @@ class Runner:
         self.fill_planned = self.cleanup_planned = 0
         self.sim_delta = 0  # Dry-Run: Bytes, die der Cleanup freigäbe, minus Bytes geplanter Kopien
         self.copied = self.moved_back = 0
-        self.to_origin = 0                # davon zurück auf ihre Herkunfts-Disk
         self.result = {"mode": mode}      # für $MEDIACACHE_RESULT (USO)
-        self.origin = read_origin()       # Cache-Pfad -> diskN
         self.stopped = False              # MEDIACACHE_STOP: nach der aktuellen Datei aufgehört
         self.progress = Progress(mode, self.run_mode and bool(PROGRESS_FILE))   # MEDIACACHE_PROGRESS
         # USO: Jacks Boden (MEDIACACHE_KEEP_BYTES, None: keiner) – was auf dem Cache liegt, was zurückgeht, was wartet
@@ -809,99 +805,6 @@ class Runner:
             self.progress.done(sizes.get(p, 0))
             remove_empty_parents(src.parent, loc.cache, log)
 
-    def cleanup_to_origin(self, loc, candidates, listing, protected, checked):
-        """Cache -> die Disk, von der die Datei kam (rsync nach /mnt/diskN/<rel>, Grössenvergleich, dann Quelle
-        löschen). Liefert die Pfade, die das nicht konnten – sie gehen den Weg über cleanup_tool."""
-        rsync_args = list(self.cfg["rsync_args"])
-        sizes = {str(loc.cache / r): sz for r, sz in listing}
-        rest, failures = [], 0
-        for p in candidates:
-            if self.halt():
-                protected.add(p)  # bleibt auf dem Cache und in der Liste
-                self.progress.drop_back(sizes.get(p, 0))
-                continue
-            disk = self.origin.get(p)
-            if not disk:
-                rest.append(p)
-                continue
-            src = Path(p)
-            rel = src.relative_to(loc.cache)
-            if failures >= 3:
-                log.error("Drei rsync-Fehler in Folge – Rückweg zur Herkunft abgebrochen, Ursache im Log prüfen")
-                protected.add(p)
-                self.progress.drop_back(sizes.get(p, 0))
-                continue
-            dst, why = origin_target(self.cfg, rel, disk, sizes.get(p, 0))
-            if dst is None:
-                log.info(f"[HERKUNFT {disk} geht nicht: {why}] {rel}")
-                if share_mode_ok(self.cfg, rel.parts[0], checked, log):
-                    rest.append(p)
-                else:
-                    protected.add(p)
-                    self.progress.drop_back(sizes.get(p, 0))
-                continue
-            if dst.exists():
-                log.warning(f"Ziel existiert schon auf {disk} (Duplikat?), Datei bleibt auf dem Cache: {rel}")
-                protected.add(p)
-                self.progress.drop_back(sizes.get(p, 0))
-                continue
-            try:
-                self.make_dirs_like(loc.cache, dst.parents[len(rel.parts) - 1], rel.parent)
-            except OSError as e:
-                failures += 1
-                log.error(f"Ordner auf {disk} konnte nicht angelegt werden ({e}): {rel.parent}")
-                protected.add(p)
-                self.progress.drop_back(sizes.get(p, 0))
-                continue
-            cmd = ["rsync", *rsync_args, str(src), str(dst)]
-            log.debug("rsync-Aufruf (Herkunft): " + " ".join(cmd))
-            self.progress.start("back", rel, sizes.get(p, 0), dst, why=self.back_why.get(p))
-            rc, out = run_rsync(cmd)
-            if rc != 0:
-                failures += 1
-                log.error(f"rsync-Fehler (Code {rc}) bei {rel} -> {disk}: {out.strip()}")
-                protected.add(p)
-                self.progress.drop_back(sizes.get(p, 0))
-                continue
-            failures = 0
-            try:
-                if dst.stat().st_size != src.stat().st_size:
-                    log.error(f"Grösse stimmt nicht überein nach rsync, Datei bleibt auf dem Cache: {rel}")
-                    protected.add(p)
-                    self.progress.drop_back(sizes.get(p, 0))
-                    continue
-                src.unlink()
-            except OSError as e:
-                log.error(f"Quelle konnte nicht gelöscht werden (Datei liegt jetzt doppelt!): {src} ({e})")
-                protected.add(p)
-                self.progress.drop_back(sizes.get(p, 0))
-                continue
-            log.info(f"[ZURÜCK -> {disk}] {rel}")
-            self.moved_back += 1
-            self.to_origin += 1
-            self.moved_back_bytes += sizes.get(p, 0)
-            self.progress.done(sizes.get(p, 0))
-            self.origin.pop(p, None)
-            remove_empty_parents(src.parent, loc.cache, log)
-        return rest
-
-    @staticmethod
-    def make_dirs_like(model_root, root, rel_dir):
-        """Legt root/rel_dir an; jeder neue Ordner bekommt Besitzer und Rechte des gleichen Ordners unter model_root."""
-        acc = Path(root)
-        for part in Path(rel_dir).parts:
-            acc = acc / part
-            if acc.is_dir():
-                continue
-            acc.mkdir()
-            model = Path(model_root) / acc.relative_to(root)
-            try:
-                st = model.stat()
-                os.chown(acc, st.st_uid, st.st_gid)
-                os.chmod(acc, st.st_mode & 0o7777)
-            except OSError:
-                pass
-
     def cleanup(self, loc, current, sessions, protected):
         """Alte Exclude-Einträge, die nicht mehr on deck sind -> move-Binary (Cache -> Array)."""
         previous = read_exclude()
@@ -922,7 +825,7 @@ class Runner:
                 log.info(f"[BLEIBT: läuft gerade] {rel}")
                 protected.add(p)
                 continue
-            if not (self.cfg["return_to_origin"] and self.origin.get(p)) and not share_mode_ok(self.cfg, rel.parts[0], checked, log):
+            if not share_mode_ok(self.cfg, rel.parts[0], checked, log):
                 protected.add(p)  # bleibt geschützt, bis die Share-Einstellung stimmt
                 continue
             try:
@@ -937,23 +840,11 @@ class Runner:
             return
         log_grouped("MOVE -> ARRAY" if self.run_mode else "PLAN: -> ARRAY", listing)
         log.info(f"Cleanup: {len(candidates)} Dateien ({human(self.to_array)}) vom Cache aufs Array")
-        if self.cfg["return_to_origin"]:
-            known = {}
-            for p in candidates:
-                if self.origin.get(p):
-                    known[self.origin[p]] = known.get(self.origin[p], 0) + 1
-            rest = len(candidates) - sum(known.values())
-            log.info("Rückweg: " + ", ".join(f"{n} an ihre Herkunft {d}" for d, n in sorted(known.items()))
-                     + (", " if known and rest else "") + (f"{rest} ohne bekannte Herkunft per {self.cfg['cleanup_tool']}" if rest else ""))
         if not self.run_mode:
             self.sim_delta += self.to_array  # Dry-Run: diesen Platz gäbe der Cleanup frei
             return
         self.progress.plan_back(len(candidates), self.to_array)
         self.progress.phase("back")
-        if self.cfg["return_to_origin"]:
-            candidates = self.cleanup_to_origin(loc, candidates, listing, protected, checked)
-            if not candidates:
-                return
         sizes = {str(loc.cache / r): sz for r, sz in listing}
         if self.halt():
             protected.update(candidates)
@@ -1047,8 +938,7 @@ class Runner:
                 rel = path.relative_to(loc.cache)
                 if is_playing(rel, sessions):
                     continue
-                if (self.cfg["cleanup_tool"] != "rsync" and not (self.cfg["return_to_origin"] and self.origin.get(p))
-                        and share_mover_mode(self.cfg, rel.parts[0])[0] != "yes"):
+                if self.cfg["cleanup_tool"] != "rsync" and share_mover_mode(self.cfg, rel.parts[0])[0] != "yes":
                     continue                     # the move binary goes Cache -> Array only for shareUseCache=yes
                 n += path.stat().st_size
             except (ValueError, OSError):
@@ -1246,7 +1136,6 @@ class Runner:
         key = f"{index}:{f.rel}"
         log.info(f"[{index}/{count}] Start  {disk:<7} {human(f.size):>10}  {f.rel}")
         self.status.job_start(key, f.rel, disk, f.size, index)
-        origin = array_location(src)          # USO: vor dem Kopieren – von hier soll sie später wieder hin
         t0 = time.time()
         ok = False
         try:
@@ -1275,12 +1164,7 @@ class Runner:
                 self.copied_bytes += f.size
                 f.on_cache = True
                 ok = True
-                if origin:
-                    self.origin[str(dst)] = origin
-                if not self.cfg["return_to_origin"]:
-                    # USO: mit return_to_origin bleibt der Ordner auf der Disk als Wegweiser stehen
-                    # (Split-Level «nur oberste Ebene»: Unraid legt Dateien dorthin, wo ihr Ordner ist)
-                    remove_empty_parents(src.parent, self._disk_root(src, loc, src != loc.on_array(f.rel)), log)
+                remove_empty_parents(src.parent, self._disk_root(src, loc, src != loc.on_array(f.rel)), log)
         finally:
             self.status.job_end(key, ok)
             if ok:
@@ -1306,7 +1190,6 @@ class Runner:
             log.error("Kein Unraid move-Binary gefunden (mover_bin in der Config setzen) – nichts kopiert")
             return
         log.info(f"Befüllen: {len(batch)} Dateien ({human(sum(f.size for f, _ in batch))}) per move-Binary Array -> Cache")
-        disks = {str(src): array_location(src) for _, src in batch}
         self.status.phase("Befüllen (Array -> Cache, move-Binary)", len(batch), sum(f.size for f, _ in batch))
         tracked = [(str(src), f.rel, f.size, lambda rel: [loc.on_cache(rel)]) for f, src in batch]
         with self.track_mover(tracked, "-> CACHE"):
@@ -1318,10 +1201,7 @@ class Runner:
                 self.copied_bytes += f.size
                 self.progress.done(f.size, f)
                 f.on_cache = True
-                if disks.get(str(src)):
-                    self.origin[str(dst)] = disks[str(src)]
-                if not self.cfg["return_to_origin"]:
-                    remove_empty_parents(src.parent, self._disk_root(src, loc, src != loc.on_array(f.rel)), log)
+                remove_empty_parents(src.parent, self._disk_root(src, loc, src != loc.on_array(f.rel)), log)
             elif dst.exists() and src.exists():
                 log.error(f"Datei liegt jetzt doppelt (Quelle nicht entfernt): {f.rel}")
                 self.progress.drop(f)
@@ -1537,8 +1417,6 @@ class Runner:
             if self.run_mode:
                 on_cache = {str(loc.on_cache(f.rel)) for f in files if loc.on_cache(f.rel).exists()}
                 write_exclude(on_cache | protected)
-                # Herkunft nur für Dateien, die das Script weiter auf dem Cache hält
-                write_origin({p: d for p, d in self.origin.items() if p in on_cache | protected})
         if self.run_mode:
             excl = read_exclude()
             log.info(f"Ergebnis Cleanup:  {self.moved_back} von {self.cleanup_planned} Dateien aufs Array verschoben "
@@ -1550,7 +1428,7 @@ class Runner:
         else:
             log.info(f"Dry-Run: {self.cleanup_planned} Dateien ({human(self.to_array)}) würden aufs Array, "
                      f"{self.fill_planned} Dateien ({human(self.to_cache)}) auf den Cache – nichts verändert")
-        self.result["cleanup"] = {"planned": self.cleanup_planned, "done": self.moved_back, "to_origin": self.to_origin,
+        self.result["cleanup"] = {"planned": self.cleanup_planned, "done": self.moved_back,
                                   "bytes_planned": self.to_array, "bytes_done": self.moved_back_bytes}
         self.result["fill"] = {"planned": self.fill_planned, "done": self.copied,
                                "bytes_planned": self.to_cache, "bytes_done": self.copied_bytes}
@@ -1566,8 +1444,8 @@ class Runner:
 
     def release(self, sessions, sessions_ok):
         """Alles zurück aufs Array: der Cleanup über die ganze Exclude-Liste (nichts ist mehr «on deck») – derselbe Weg
-        wie der normale Cleanup (zuerst die Herkunfts-Disk, dann cleanup_tool), ohne Befüllen. Was gerade läuft, bleibt.
-        Danach steht in der Exclude-Liste (und der Herkunft) nur noch, was weiter auf dem Cache liegt."""
+        wie der normale Cleanup (cleanup_tool), ohne Befüllen. Was gerade läuft, bleibt.
+        Danach steht in der Exclude-Liste nur noch, was weiter auf dem Cache liegt."""
         cfg = self.cfg
         if not sessions_ok:
             log.warning("Nicht alle Emby-Instanzen haben geantwortet – was dort gerade läuft, kann nicht geschützt werden "
@@ -1581,11 +1459,10 @@ class Runner:
             self.progress.phase("done")
             left = {p for p in previous if Path(p).exists()}
             write_exclude(left)
-            write_origin({p: d for p, d in self.origin.items() if p in left})
         log.info(f"Ergebnis Zurückbringen: {self.moved_back} von {self.cleanup_planned} Dateien aufs Array verschoben "
-                 f"({human(self.moved_back_bytes)} von {human(self.to_array)}), {self.to_origin} davon auf ihre Herkunfts-Disk")
+                 f"({human(self.moved_back_bytes)} von {human(self.to_array)})")
         log.info(f"Exclude-Liste: {len(left)} Einträge" + (" (liegen weiter auf dem Cache)" if left else ""))
-        self.result["cleanup"] = {"planned": self.cleanup_planned, "done": self.moved_back, "to_origin": self.to_origin,
+        self.result["cleanup"] = {"planned": self.cleanup_planned, "done": self.moved_back,
                                   "bytes_planned": self.to_array, "bytes_done": self.moved_back_bytes}
         self.result["fill"] = {"planned": 0, "done": 0, "bytes_planned": 0, "bytes_done": 0}
         self.result["protected"] = len(left)

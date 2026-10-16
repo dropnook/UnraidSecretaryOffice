@@ -46,7 +46,6 @@ LOCK_FILE = BASE_DIR / "mediacache.lock"
 # USO: MEDIACACHE_LIVE_STATUS puts the live status elsewhere (the office: RAM, not the pool every 2 s)
 STATUS_FILE = Path(os.environ.get("MEDIACACHE_LIVE_STATUS") or (BASE_DIR / "mediacache_status.json"))
 LOG_DIR = BASE_DIR / "logs"
-ORIGIN_FILE = BASE_DIR / "mediacache_origin.json"   # Cache-Pfad -> Array-Disk, von der die Datei kam
 RESULT_FILE = os.environ.get("MEDIACACHE_RESULT") or ""   # USO
 PROGRESS_FILE = os.environ.get("MEDIACACHE_PROGRESS") or ""
 
@@ -84,9 +83,6 @@ DEFAULTS = {
     "fill_tool": "rsync",                # Array -> Cache: rsync (kopieren + Quelle löschen) oder mover (Unraid move-Binary)
     "cleanup_tool": "mover",             # Cache -> Array: mover (Unraid move-Binary, wie das Original) oder rsync
                                          #   (rsync /mnt/<pool>/<rel> -> /mnt/user0/<rel>, unabhängig von der Mover-Richtung des Shares)
-    "return_to_origin": False,           # USO, Option: Cache -> Array zuerst zurück auf die Disk, von der die Datei kam (mediacache_origin.json),
-                                         #   per rsync nach /mnt/diskN/<rel>; nur wenn das nicht geht, cleanup_tool.
-                                         #   Beim Befüllen bleibt der (leere) Ordner auf der Disk dann stehen – als Wegweiser
     "parallel_per_disk": 1,              # Befüllen per rsync: gleichzeitige Kopien pro Quell-Disk (1 = wie das Original)
     "parallel_total": 1,                 # Befüllen per rsync: gleichzeitige Kopien insgesamt (0 = ohne Limit, nur parallel_per_disk)
     "copy_progress": True,               # rsync zusätzlich mit --info=progress2 (nur Ausgabe) – Fortschritt pro Datei im Status
@@ -282,8 +278,6 @@ def load_config(require_paths=True):
     cfg["create_share_root"] = bool(cfg["create_share_root"])
     if not cfg["rsync_args"]:
         raise ConfigError("rsync_args darf nicht leer sein (Original: [\"-aAX\", \"--numeric-ids\"])")
-    if not isinstance(cfg["return_to_origin"], bool):
-        raise ConfigError("return_to_origin muss true oder false sein")
     return cfg
 
 
@@ -1251,58 +1245,6 @@ def is_playing(rel, sessions):
 
 
 # --------------------------------------------------------------------------- Herkunft / Status
-def array_location(path):
-    """Array-Disk einer Datei (z.B. 'disk3'): aus dem Pfad (/mnt/diskN/...) oder über das shfs-Attribut
-    system.LOCATION der Array-Sicht (/mnt/user0/...). None, wenn es keine Array-Disk ist oder unbekannt."""
-    parts = Path(path).parts
-    name = parts[2] if len(parts) > 2 and parts[1] == "mnt" else ""
-    if not name.startswith("disk") or not name[4:].isdigit():
-        try:
-            name = os.getxattr(str(path), "system.LOCATION").decode("utf-8", "replace").strip().strip("\0")
-        except (OSError, AttributeError):   # AttributeError: no xattrs on this system (not Linux)
-            return None
-    return name if name.startswith("disk") and name[4:].isdigit() else None
-
-
-def read_origin():
-    """{Cache-Pfad: 'diskN'} – woher die Dateien auf dem Cache kamen."""
-    try:
-        data = json.loads(ORIGIN_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    return {str(k): str(v) for k, v in data.items() if isinstance(v, str)} if isinstance(data, dict) else {}
-
-
-def write_origin(origin):
-    tmp = ORIGIN_FILE.with_suffix(".tmp")
-    tmp.write_text(json.dumps(dict(sorted(origin.items())), indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
-    os.replace(tmp, ORIGIN_FILE)
-
-
-def origin_target(cfg, rel, disk, size):
-    """Ziel /mnt/diskN/<rel> für die Rückkehr an die Herkunfts-Disk – oder (None, Grund).
-    Prüft: echte Disk eingehängt, Share-Wurzel dort vorhanden, Disk für den Share erlaubt (Include/Exclude),
-    danach bleibt mindestens der Mindest-Freiplatz des Shares (shareFloor, in KB) frei."""
-    root = Path(cfg["array_disks_glob"]).parent / disk
-    if not os.path.ismount(root):
-        return None, f"{root} ist nicht eingehängt"
-    share = Path(rel).parts[0]
-    vals = _read_share_cfg(Path(cfg["shares_cfg_dir"]) / f"{share}.cfg") or {}
-    include = [d for d in (vals.get("shareInclude") or "").split(",") if d]
-    exclude = [d for d in (vals.get("shareExclude") or "").split(",") if d]
-    if (include and disk not in include) or disk in exclude:
-        return None, f"{disk} gehört nicht (mehr) zum Share «{share}»"
-    if not (root / share).is_dir():
-        return None, f"«{share}» liegt nicht (mehr) auf {disk}"
-    try:
-        floor = int(vals.get("shareFloor") or 0) * 1024
-    except ValueError:
-        floor = 0
-    if shutil.disk_usage(root).free - size < floor:
-        return None, f"{disk} zu voll (Mindest-Freiplatz des Shares)"
-    return root / rel, ""
-
-
 def write_result(data):
     """Ergebnis eines Laufs nach $MEDIACACHE_RESULT (atomar), wenn gesetzt."""
     if not RESULT_FILE:
