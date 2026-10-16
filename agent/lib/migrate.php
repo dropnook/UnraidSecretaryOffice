@@ -78,6 +78,10 @@ function officeMigrateSteps(): array
             require_once __DIR__ . '/partner.php';
             return partnerMigrateNames($dir);
         }],
+        // Jack Streamer runs MediaCache (Emby, Jellyfin, Plex) instead of EmbyCache: data/embycache → data/mediacache with
+        // MediaCache's file names, the one server typed «emby»; the lists' path in Ms. Moverelli's and the gather's ini
+        // follows; the old folder kept as embycache.before-<version>. While an EmbyCache run goes: tried again later
+        ['id' => 'mediacache', 'version' => '1.65.0', 'run' => fn (string $dir, string $to): string => officeMigrateMediaCache($dir, $to)],
     ];
 }
 
@@ -601,4 +605,184 @@ function officeMigrateJackId(string $dir, string $to): string
         }
     }
     return implode('; ', $done) ?: 'nothing to change';
+}
+
+// ===================================================================== EmbyCache → MediaCache (1.65.0)
+
+// the files of EmbyCache's data folder that MediaCache names its own way; anything else keeps its name (office-*.json,
+// status.json, the progress, an import's or an update's copies of other files)
+const OFFICE_MIGRATE_MC_NAMES = ['embycache_settings.json' => 'mediacache_settings.json', 'embycache_exclude.txt' => 'mediacache_exclude.txt',
+                                 'embycache_origin.json' => 'mediacache_origin.json'];
+const OFFICE_MIGRATE_MC_SKIP  = ['embycache.lock', '.embycache_settings.trial.json', 'app'];   // a lock, a half-written trial, a clone of long ago
+const OFFICE_MIGRATE_MC_LISTS = ['moverelli/smart_mover.ini', 'gather/consolidate.ini', 'gather/measure.ini'];   // name Jack's list (and log)
+
+/**
+ * Step `mediacache` (1.65.0). Jack Streamer's data folder was data/embycache (EmbyCache's files embycache_*), now it is
+ * data/mediacache (mediacache_*). An install that never had Jack's folder: nothing. Otherwise, once: the old folder copied
+ * (plain files and folders only, never through a link; the current log as logs/mediacache.log — the rotated ones stay in
+ * the old folder), the settings' servers typed `emby` (MediaCache's default, written out), the list's path in Ms.
+ * Moverelli's and the gather's ini rewritten (each file before kept beside it), then the old folder renamed aside
+ * (embycache.before-<version>) — never deleted. While an EmbyCache run goes (its lock held, its process there) it throws:
+ * the step stays pending and runs again (the agent's next start, or Jack's next look — officeMigrateRetry()). A copy left
+ * half done by a crash (mediacache.partial) is put aside, never reused.
+ *
+ * $o (the tests): running (callable: does a run of EmbyCache go?)
+ */
+function officeMigrateMediaCache(string $dir, string $to, array $o = []): string
+{
+    $old = "$dir/embycache";
+    $new = "$dir/mediacache";
+    clearstatcache();
+    $st = @lstat($old);
+    if ($st === false || ($st['mode'] & 0170000) !== 0040000) {
+        return 'nothing to change (Jack Streamer had no EmbyCache folder here)';
+    }
+    if (@lstat($new) !== false) {
+        // done before (a downgrade and back, or a crash after the copy): the old folder only put aside
+        $aside = officeMigrateAside($old, $to);
+        return 'data/mediacache is there already — data/embycache put aside as ' . basename((string) $aside);
+    }
+    $running = $o['running'] ?? function () use ($old): bool {
+        if (function_exists('flockHeld') && is_file("$old/embycache.lock") && flockHeld("$old/embycache.lock")) {
+            return true;
+        }
+        [$exit] = run(['pgrep', '-f', '[e]mbycache_run\.py'], 10);
+        return $exit === 0;
+    };
+    if ($running()) {
+        throw new RuntimeException('an EmbyCache run is going — tried again once it has ended');
+    }
+    $partial = "$dir/mediacache.partial";
+    if (@lstat($partial) !== false && officeMigrateAside($partial, $to) === null) {
+        throw new RuntimeException('a half-done copy (mediacache.partial) could not be put aside');
+    }
+    $n = officeMigrateCopyTree($old, $partial, '');
+    // the settings: every server typed (MediaCache's default «emby», written out — the setup lists them by type)
+    $cfgFile = "$partial/mediacache_settings.json";
+    $servers = 0;
+    if (is_file($cfgFile) && !is_link($cfgFile) && is_array($cfg = json_decode((string) file_get_contents($cfgFile), true))) {
+        // the give-back through MediaCache's own way (Unraid's move binary): EmbyCache's «rsync» was Jack's force, never a
+        // choice on his page (owner, 2026-10-15); return_to_origin keeps what it was
+        if (($cfg['cleanup_tool'] ?? null) === 'rsync') {
+            $cfg['cleanup_tool'] = 'mover';
+        }
+        foreach ((array) ($cfg['instances'] ?? []) as $k => $i) {
+            if (is_array($i)) {
+                $cfg['instances'][$k]['type'] = is_string($i['type'] ?? null) && $i['type'] !== '' ? $i['type'] : 'emby';
+                $servers++;
+            }
+        }
+        writeAtomic($cfgFile, json_encode($cfg, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n", 0600, 0, 0);
+    }
+    if (!@rename($partial, $new)) {
+        throw new RuntimeException('the copy could not be renamed to data/mediacache');
+    }
+    // the list's (and the log's) path where other files name it: every form of it (the data folder's, the share's)
+    $pairs = [];
+    foreach (['embycache_exclude.txt' => 'mediacache_exclude.txt', 'logs/embycache.log' => 'logs/mediacache.log'] as $a => $b) {
+        foreach (array_unique(["$old/$a", function_exists('dataPathUser') ? dataPathUser("$old/$a") : "$old/$a"]) as $form) {
+            $pairs[$form] = substr($form, 0, -strlen("embycache/$a")) . "mediacache/$b";
+        }
+    }
+    $rewritten = [];
+    foreach (OFFICE_MIGRATE_MC_LISTS as $rel) {
+        $f = "$dir/$rel";
+        $fs = @lstat($f);
+        if ($fs === false || ($fs['mode'] & 0170000) !== 0100000) {
+            continue;
+        }
+        $text = (string) file_get_contents($f);
+        $next = strtr($text, $pairs);
+        if ($next !== $text) {
+            officeMigrateKeep($f, $text, $to);
+            writeAtomic($f, $next, $fs['mode'] & 0777, $fs['uid'], $fs['gid']);
+            $rewritten[] = $rel;
+        }
+    }
+    $aside = officeMigrateAside($old, $to);
+    return "data/embycache → data/mediacache ($n files, " . ($servers === 1 ? '1 server' : "$servers servers") . ' typed emby'
+        . ($rewritten ? '; the list\'s path in ' . implode(', ', $rewritten) : '') . '; the old folder kept as '
+        . basename((string) $aside) . ')';
+}
+
+/** A folder copied for a step: plain files and folders (mode, owner, times kept), never a link; EmbyCache's names → MediaCache's. Count of files */
+function officeMigrateCopyTree(string $from, string $to, string $rel): int
+{
+    $st = lstat($from);
+    if (!@mkdir($to, $st['mode'] & 07777) && !is_dir($to)) {
+        throw new RuntimeException("cannot make $to");
+    }
+    @chown($to, $st['uid']);
+    @chgrp($to, $st['gid']);
+    $n = 0;
+    foreach (scandir($from) ?: [] as $name) {
+        if ($name === '.' || $name === '..' || ($rel === '' && in_array($name, OFFICE_MIGRATE_MC_SKIP, true))) {
+            continue;
+        }
+        $src = "$from/$name";
+        $s = @lstat($src);
+        if ($s === false) {
+            continue;
+        }
+        $type = $s['mode'] & 0170000;
+        if ($type === 0040000) {
+            $n += officeMigrateCopyTree($src, "$to/$name", "$rel$name/");
+            continue;
+        }
+        if ($type !== 0100000) {
+            continue;                                   // a link, a socket …: never followed
+        }
+        if ($rel === 'logs/') {
+            if ($name !== 'embycache.log') {
+                continue;                               // the rotated logs stay in the old folder
+            }
+            $target = 'mediacache.log';
+        } else {
+            $target = OFFICE_MIGRATE_MC_NAMES[$name] ?? null;
+            if ($target === null) {
+                // an import's copy (embycache_exclude.txt.before-import-…) keeps its tail, else the name stays
+                $target = preg_match('/^embycache_(settings\.json|exclude\.txt|origin\.json)(\..+)$/D', $name, $m) ? "mediacache_$m[1]$m[2]" : $name;
+            }
+        }
+        $dst = "$to/$target";
+        if (!@copy($src, $dst)) {
+            throw new RuntimeException("cannot copy $rel$name");
+        }
+        @chmod($dst, $s['mode'] & 07777);
+        @chown($dst, $s['uid']);
+        @chgrp($dst, $s['gid']);
+        @touch($dst, $s['mtime']);
+        $n++;
+    }
+    return $n;
+}
+
+/**
+ * A step that is pending (it threw: e.g. `mediacache` while an EmbyCache run went) run again outside the agent's start —
+ * Jack's look calls it, so his data comes over once the run has ended, not only at the next start. Nothing when the step
+ * isn't pending. True when it ran now.
+ */
+function officeMigrateRetry(string $id, ?string $dir = null, string $to = AGENT_VERSION, ?array $steps = null, ?callable $log = null): bool
+{
+    $dir ??= DATA_DIR;
+    $log ??= 'logLine';
+    $mark = officeMarkRead($dir);
+    if (!$mark || !in_array($id, $mark['pending'] ?? [], true)) {
+        return false;
+    }
+    $steps ??= officeMigrateSteps();
+    $s = $steps[array_search($id, array_column($steps, 'id'), true)] ?? null;
+    if ($s === null) {
+        return false;
+    }
+    try {
+        $what = ($s['run'])($dir, $to);
+    } catch (Throwable $e) {
+        return false;                                   // still pending; said once at the start already
+    }
+    $mark['pending'] = array_values(array_diff($mark['pending'], [$id]));
+    $mark['done'] = array_values(array_unique(array_merge($mark['done'], [$id])));
+    writeAtomic(officeMarkFile($dir), jsonEncode($mark));
+    $log("Data folder: step {$s['id']} ({$s['version']}): $what");
+    return true;
 }

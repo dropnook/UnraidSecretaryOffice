@@ -4,7 +4,7 @@ declare(strict_types=1);
 /*
  * Jack Emby: a live panel while EmbyCache runs for real (2026-10-10 — in place of the «Output (real run)» button,
  * like Mr. Backupsy's run progress). EmbyCache writes a small progress file when EMBYCACHE_PROGRESS is set (atomic, at
- * every file boundary; embycache_run.py `Progress`): the phase (plan, back, fill, done), «back to the array» and per Emby
+ * every file boundary; mediacache_run.py `Progress`): the phase (plan, back, fill, done), «back to the array» and per Emby
  * user what is planned and done (files, bytes), the file being copied with its target, its user and its reason. Jack's
  * job sets it for real runs (run, release) to a file in RAM (`RUN_DIR/jack-progress.json`) and, every
  * JACK_PROGRESS_EVERY seconds while EmbyCache copies, keeps a sample of the bytes moved so far — the files done plus the
@@ -404,6 +404,6 @@ function jackStopAsk(?array $job = null, ?string $file = null): bool
         return false;
     }
     writeAtomic($file, jsonEncode(['time' => time(), 'why' => 'user']), 0600, 0, 0);
-    logLine('Jack Streamer: asked EmbyCache (' . $job['mode'] . ') to stop after the file it is on — from his page');
+    logLine('Jack Streamer: asked MediaCache (' . $job['mode'] . ') to stop after the file it is on — from his page');
     return true;
 }

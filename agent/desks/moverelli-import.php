@@ -23,7 +23,7 @@ declare(strict_types=1);
  *     8 MB over all lists of one import. A protecting list that can't be had never silently disappears (the owner's
  *     rule): a list not read (asleep, missing, not allowed, too big, binary) or a line her lists can't take blocks the
  *     import, said with what to do; the user fixes it and looks again. EmbyCache's
- *     list (embycache_exclude.txt): while Jack Emby is hired it is not copied — the scope names Jack's own list instead,
+ *     list (mediacache_exclude.txt): while Jack Emby is hired it is not copied — the scope names Jack's own list instead,
  *     the way her setup's «Add Jack Emby's list» does; while he isn't, it is copied like any other (a frozen copy, said),
  *     also from his own data folder. Jack hired and a share of his left uncovered by the result: a warning (her real
  *     runs are refused until his list is added), no block.
@@ -41,7 +41,7 @@ const MOVERELLI_IMPORT_READ_CAP  = 8388608;         // bytes read over all old e
 const MOVERELLI_IMPORT_FILES_MAX = 50;              // exclude files one scope of the old ini may name
 const MOVERELLI_IMPORT_NO_FALLBACK = ['min_age', 'move_when_used_above'];     // a bad one blocks: its default (0) moves at once / always
 const MOVERELLI_IMPORT_SAMPLE    = 3;               // entries of a list the preview shows
-const MOVERELLI_IMPORT_EMBY      = 'embycache_exclude.txt';
+const MOVERELLI_IMPORT_EMBY      = ['mediacache_exclude.txt', 'embycache_exclude.txt'];   // MediaCache's, and the older EmbyCache's
 const MOVERELLI_IMPORT_GLOBAL    = ['min_age', 'move_when_used_above', 'move_prefer_shares', 'mover_debug', 'max_list', 'global_excludes'];
 const MOVERELLI_IMPORT_SHARE     = ['skip', 'min_age', 'move_when_used_above', 'excludes'];     // (only X since 2026-10-14: a Y is left aside)
 const MOVERELLI_IMPORT_HERS      = ['mover_bin', 'log_file', 'age_stat'];     // where the old install ran and logged, which time counts (always the younger): hers now
@@ -329,7 +329,7 @@ function moverelliImportLists(string $scope, string $value, array $ctx, array &$
     }
     foreach ($names as $f) {
         $entry = ['file' => mb_substr($f, 0, 300)];
-        $emby = basename($f) === MOVERELLI_IMPORT_EMBY;
+        $emby = in_array(basename($f), MOVERELLI_IMPORT_EMBY, true);
         if ($emby && $ctx['jack_desk'] !== null && ($jack = (string) ($ctx['jack_desk']['lists'][0] ?? '')) !== '') {
             if (!in_array($jack, $files, true)) {
                 $files[] = $jack;

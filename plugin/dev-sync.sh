@@ -30,7 +30,7 @@ copy "$src/agent/"         "$dir/agent/"
 copy "$src/plugin/scripts/" "$dir/scripts/"
 copy "$src/plugin/event/"  "$dir/event/"
 copy "$src/plugin/images/" "$dir/images/"
-copy --exclude=__pycache__ "$src/embycache/" "$dir/embycache/"     # Jack Emby's tools; a running one keeps its old files
+copy --exclude=__pycache__ --exclude=tests "$src/mediacache/" "$dir/mediacache/"     # Jack Streamer's MediaCache; a running one keeps its old files
 copy "$src/gather/"        "$dir/gather/"
 copy "$src/smartmover/"    "$dir/smartmover/"     # Ms. Moverelli's Smart Mover; a running one keeps its old file
 copy "$src/monitoring/"    "$dir/monitoring/"     # the Grafana dashboard the Consultant provisions

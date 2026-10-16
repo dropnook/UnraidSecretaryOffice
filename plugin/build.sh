@@ -13,7 +13,7 @@
 # The GitHub Action (.github/workflows/plugin.yml) runs this when a release
 # is published and attaches both files to it. The package holds the web files
 # (public/) at the top of the plugin folder with src/, agent/, backup/,
-# embycache/ and gather/ next to them, plus plugin/scripts, plugin/event and
+# mediacache/ and gather/ next to them, plus plugin/scripts, plugin/event and
 # the menu entry.
 
 set -euo pipefail
@@ -44,7 +44,8 @@ pkg="$stage/$name"
 mkdir -p "$pkg" dist
 
 cp -R public/. "$pkg/"
-cp -R src agent backup embycache gather smartmover monitoring "$pkg/"
+cp -R src agent backup mediacache gather smartmover monitoring "$pkg/"
+rm -rf "$pkg/mediacache/tests"            # MediaCache's own unit tests: the repository's, not the package's
 cp -R plugin/scripts plugin/event plugin/images "$pkg/"
 cp plugin/*.page LICENSE "$pkg/"
 # Unraid shows the plugin's README.md in its list under Plugins: a short one of its own

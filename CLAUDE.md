@@ -27,7 +27,7 @@ agent/desks/<id>.php   one desk each: desk('<id>', [...]) (+ moverelli-unraid/-i
 src/*.php              web side: bootstrap (versions), place (paths, URLs, OFFICE_UNRAID_TESTED), api, staff, page, words
 public/assets/core.js  Office: t(), routing, api, loadState, deskHead, sectionHead, sections, filterBar, places, keepInPlace
 public/lang/ desks/    office strings ×5 (lang/unraid/: Unraid's words); desks/<id>/: desk.json, desk.js, places.json, lang/
-backup/ embycache/ gather/ smartmover/   the engine; Jack Streamer's tools; Ms. Moverelli's Smart Mover (data in data/<tool>)
+backup/ mediacache/ gather/ smartmover/  the engine; Jack Streamer's tools; Ms. Moverelli's Smart Mover (data in data/<tool>)
 plugin/                .plg template, build.sh, dev-sync.sh, scripts/ (agent.sh, job.sh, partner-door.sh), event/, *.page
 tests/ tools/          run.php, node tests, ui/ (harness, stubs, demo/); release.sh, ui-*.sh — never in the package. monitoring/:
                        grafana-dashboard.json; data/: runtime, not in git. The support page lives in a private repository.
@@ -128,9 +128,9 @@ tests/ tools/          run.php, node tests, ui/ (harness, stubs, demo/); release
   for ssh options. Fixtures run on the tests' clock (checklist 3).
 
 ### Jack Streamer's tools
-`embycache/` (EmbyCache by helmi1987) and `gather/` ship with the office; our changes kept small and listed at the top of their
-README.md; their data apart (`EMBYCACHE_DIR`, `CONSOLIDATE_CONFIG`); they report through status files, never parsed log lines.
-**EmbyCache MOVES files** — test with report and dry runs. Runs via `php agent.php job embycache|gather <mode>`; a real run
+`mediacache/` (MediaCache by helmi1987: Emby, Jellyfin, Plex; job id still `embycache`) and `gather/` ship with the office; our changes kept small and listed at the top of their
+README.md; their data apart (`MEDIACACHE_DIR`, `CONSOLIDATE_CONFIG`); they report through status files, never parsed log lines.
+**MediaCache MOVES files** — test with report and dry runs. Runs via `php agent.php job embycache|gather <mode>`; a real run
 holds the other tool's lock. The cleaner is left out on purpose. Smart Mover (`smartmover/`, helmi1987) likewise: office hooks
 `CUSTOMMOVER_*` listed in smartmover/README.md, changes marked `USO`.
 

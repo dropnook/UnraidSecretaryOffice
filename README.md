@@ -5,7 +5,7 @@
   </picture>
 </h1>
 
-A small office inside Unraid's web UI: backups and restore, snapshots, a media cache for Emby, the mover and a night
+A small office inside Unraid's web UI: backups and restore, snapshots, a media cache for Emby, Jellyfin and Plex, the mover and a night
 watchman — free, open source, no account. More on the [product page](https://uso.dropnook.app).
 
 <a name="team"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/team-dark.webp"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/team-light.webp" alt="The team of the Unraid Secretary Office: the Team Lead, Mr. Backupsy, Mr. Restori, Ms. Snapshotini, Jack Streamer, Ms. Moverelli, the Night Watchman, Ms. Dustdevil, Ms. Protocolli and the Consultant — each with one sentence about their work"></picture></a>
@@ -22,7 +22,7 @@ office becomes a partner: the two keep each other's backups.
 
 ## The pool: fast and tidy
 
-Jack Streamer puts on the fast pool what you watch next in Emby — the array disks may sleep. Ms. Moverelli adds
+Jack Streamer puts on the fast pool what you watch next in Emby, Jellyfin or Plex — the array disks may sleep. Ms. Moverelli adds
 helmi1987's Smart Mover to Unraid's mover: she moves to the array what hasn't been used on the pool for a while, and
 leaves what is current in the cache. Both in one run a night, live to watch.
 
@@ -71,10 +71,10 @@ the office, no account needed (*⋯ → Report a problem or a wish…*, you see 
 
 ## Special thanks
 
-Jack Streamer's tools [EmbyCache](https://github.com/helmi1987/embycache-for-unraid) and
+Jack Streamer's tools [MediaCache](https://github.com/helmi1987/mediacache-for-unraid) and
 [media-disk-gather](https://github.com/helmi1987/media-disk-gather-for-unraid) (folder consolidation) and Ms. Moverelli's
 [Smart Mover](https://github.com/helmi1987/custom-mover-for-unraid) are the work of
-**[helmi1987](https://github.com/helmi1987)**, GPL-3.0-or-later; they ship in `embycache/`, `gather/` and `smartmover/`,
+**[helmi1987](https://github.com/helmi1987)**, GPL-3.0-or-later; they ship in `mediacache/`, `gather/` and `smartmover/`,
 with our changes listed in their READMEs. Thank you — a share of the tips goes to him.
 
 ## License

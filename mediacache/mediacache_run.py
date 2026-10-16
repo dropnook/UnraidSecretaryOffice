@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-EmbyCache – holt «Weiterschauen»-Inhalte, die nächsten Folgen und Favoriten-Serien der Emby-Benutzer
+MediaCache – holt «Weiterschauen»-Inhalte, die nächsten Folgen und Favoriten-Serien der Emby-/Jellyfin-Benutzer
 vom Unraid-Array auf den Cache-Pool und räumt nicht mehr benötigte Dateien wieder aufs Array.
 
 Ablauf pro Lauf:
@@ -13,87 +13,95 @@ Ablauf pro Lauf:
        Filme und Serien nach Bytes im Verhältnis movie_share_percent gefüllt, Serien reihum eine Folge pro
        Runde – kleine Folgen ergeben viele, grosse wenige. Was nicht ins Budget passt, bleibt auf dem Array.
   3. Cleanup: Dateien aus der alten Exclude-Liste, die nicht mehr on deck sind -> Cache -> Array.
-       Zuerst zurück auf die Disk, von der sie kamen (return_to_origin, embycache_origin.json: rsync nach
+       Zuerst zurück auf die Disk, von der sie kamen (return_to_origin, mediacache_origin.json: rsync nach
        /mnt/diskN/<rel>, Ordner mit den Rechten wie auf dem Cache) – wenn das nicht geht, per cleanup_tool:
        mover (Default): Unraid move-Binary wie das Original – setzt voraus, dass die Mover-Richtung des Shares
                         Cache -> Array ist (shareUseCache=yes); das Script prüft das vorher und meldet es
        rsync:           rsync /mnt/<pool>/<rel> -> /mnt/user0/<rel> (shfs wählt die Disk), Grössenvergleich, dann
                         Quelle löschen – unabhängig von der Mover-Richtung des Shares
   4. Befüllen: On-Deck-Dateien, die noch auf dem Array liegen -> auf den Cache. Werkzeug per fill_tool:
-       rsync (Default): rsync -aAX --numeric-ids /mnt/user0/<rel> /mnt/<pool>/<rel> – exakt wie das Original;
+       rsync (Default): rsync -aAX --numeric-ids /mnt/user0/<rel> /mnt/<pool>/<rel> – wie das Original (plus
+                        --info=progress2 für den Status, abschaltbar mit copy_progress=false);
                         Quelle erst nach Rückgabecode 0 und Grössenvergleich löschen. array_source = disk liest
                         stattdessen vom echten /mnt/diskN-Pfad (schneller, am FUSE vorbei) – optional
        mover:           Array-Pfade ans Unraid move-Binary pipen (wie der Stock-Mover bei «prefer»-Shares);
                         das Binary wählt den Pool aus der Share-Konfiguration – vorher mit einer Datei testen
-     Der Freiplatz-Floor wird in beiden Fällen vorher geprüft
+     Der Freiplatz-Floor wird in beiden Fällen vorher für alle geplanten Kopien zusammen geprüft.
+     rsync-Kopien optional parallel: parallel_per_disk pro Quell-Disk, parallel_total gesamt (Default 1/1 = sequentiell)
   5. Exclude-Liste neu schreiben (alle On-Deck-Dateien, die jetzt auf dem Cache liegen)
 
 Aufruf:
-  python3 embycache_run.py                 Dry-Run: zeigt alle geplanten Aktionen, verändert nichts
-  python3 embycache_run.py --show-on-deck  Report pro Benutzer: Filme, dann Serien mit ihren Folgen, dann «Nicht im Budget»
+  python3 mediacache_run.py                 Dry-Run: zeigt alle geplanten Aktionen, verändert nichts
+  python3 mediacache_run.py --show-on-deck  Report pro Benutzer: Filme, dann Serien mit ihren Folgen, dann «Nicht im Budget»
       --user Benj,Kid   nur diese Benutzer anzeigen (Name oder ID); die Planung läuft immer für alle
       --compact         nur Einträge, keine einzelnen Dateien
-  python3 embycache_run.py --run           Scharf
-  python3 embycache_run.py --release       Alles zurück aufs Array (Unraid Secretary Office: Jack Streamer wird entlassen):
+  python3 mediacache_run.py --run           Scharf
+  python3 mediacache_run.py --release       Alles zurück aufs Array (Unraid Secretary Office: Jack Streamer wird entlassen):
                                            ein Cleanup über die ganze Exclude-Liste auf demselben Weg wie oben (3.),
                                            nichts wird befüllt; was gerade läuft, bleibt auf dem Cache und in der Liste
+  python3 mediacache_run.py --status        Live-Status des laufenden bzw. letzten Laufs (--watch [SEK] = laufend neu)
 
-Umgebungsvariablen (überschreiben Config bzw. Defaults; CLI-Flags haben Vorrang vor EMBYCACHE_MODE):
-  EMBYCACHE_MODE              dry | report | run | release
-  EMBYCACHE_DIR               Arbeitsverzeichnis (Settings, Exclude-Liste, Lock, logs/); Default: Script-Verzeichnis
-  EMBYCACHE_CONFIG            Pfad zur Settings-JSON
-  EMBYCACHE_LOG_LEVEL         DEBUG | INFO | WARNING (Default INFO)
-  EMBYCACHE_MIN_FREE_PERCENT  Mindest-Freiplatz auf dem Cache in Prozent (überschreibt min_free_percent)
-  EMBYCACHE_GIVE_BACK_FREE    USO: "1" (das Office) – unter min_free_percent gibt der Lauf zurück, nach Rang, bis
+Umgebungsvariablen (überschreiben Config bzw. Defaults; CLI-Flags haben Vorrang vor MEDIACACHE_MODE):
+  MEDIACACHE_MODE              dry | report | run | release
+  MEDIACACHE_DIR               Arbeitsverzeichnis (Settings, Exclude-Liste, Lock, logs/); Default: Script-Verzeichnis
+  MEDIACACHE_CONFIG            Pfad zur Settings-JSON
+  MEDIACACHE_LOG_LEVEL         DEBUG | INFO | WARNING (Default INFO)
+  MEDIACACHE_MIN_FREE_PERCENT  Mindest-Freiplatz auf dem Cache in Prozent (überschreibt min_free_percent)
+  MEDIACACHE_GIVE_BACK_FREE    USO: "1" (das Office) – unter min_free_percent gibt der Lauf zurück, nach Rang, bis
                               es wieder reicht; sonst hört das Befüllen dort nur auf (wie bisher)
-  EMBYCACHE_NO_FILL           USO: "1" (das Office, die gemeinsame Nacht mit Frau Moverelli) – der Lauf gibt nur frei
+  MEDIACACHE_NO_FILL           USO: "1" (das Office, die gemeinsame Nacht mit Frau Moverelli) – der Lauf gibt nur frei
                               (Rückgabe + Cleanup) und holt nichts; was auf dem Array wartet, wird gezählt (waiting)
-  EMBYCACHE_WATCHED_ONLY      USO: "1" (das Office, seit 2026-10-14: nur Frau Moverellis Grenze X) – zurück geht nur, was
-                              geschaut ist (der Cleanup), nie nach Rang; EMBYCACHE_GIVE_BACK_FREE gilt dann nicht.
+  MEDIACACHE_WATCHED_ONLY      USO: "1" (das Office, seit 2026-10-14: nur Frau Moverellis Grenze X) – zurück geht nur, was
+                              geschaut ist (der Cleanup), nie nach Rang; MEDIACACHE_GIVE_BACK_FREE gilt dann nicht.
                               Was er hält und was wartet, steht trotzdem im Status (pool)
-  EMBYCACHE_KEEP_BYTES        USO: der Boden dieser Rückgabe in Bytes (das Office: Jacks Hälfte) – was auf dem Cache
+  MEDIACACHE_KEEP_BYTES        USO: der Boden dieser Rückgabe in Bytes (das Office: Jacks Hälfte) – was auf dem Cache
                               liegt, geht nie darunter zurück; leer: kein Boden
-  EMBYCACHE_MOVER_DEBUG       0–3, Parameter -d für das move-Binary (überschreibt mover_debug_level)
-  EMBYCACHE_RSYNC_ARGS        vollständige rsync-Optionen, Default "-aAX --numeric-ids" (überschreibt rsync_args)
-  EMBYCACHE_FILL_TOOL         rsync | mover (überschreibt fill_tool)
-  EMBYCACHE_CLEANUP_TOOL      mover | rsync (überschreibt cleanup_tool)
-  EMBYCACHE_CACHE_BUDGET      z.B. "2.5T" (überschreibt cache_budget; "" = Zähl-Modus)
-  EMBYCACHE_REPORT_USER       wie --user
-  EMBYCACHE_STATUS            JSON-Datei für das Ergebnis des Laufs (siehe embycache_lib.py)
-  EMBYCACHE_PROGRESS          JSON-Datei mit dem Fortschritt des scharfen Laufs (--run, --release), an jeder Dateigrenze
+  MEDIACACHE_MOVER_DEBUG       0–3, Parameter -d für das move-Binary (überschreibt mover_debug_level)
+  MEDIACACHE_RSYNC_ARGS        vollständige rsync-Optionen, Default "-aAX --numeric-ids" (überschreibt rsync_args)
+  MEDIACACHE_FILL_TOOL         rsync | mover (überschreibt fill_tool)
+  MEDIACACHE_CLEANUP_TOOL      mover | rsync (überschreibt cleanup_tool)
+  MEDIACACHE_CACHE_BUDGET      z.B. "2.5T" (überschreibt cache_budget; "" = Zähl-Modus)
+  MEDIACACHE_REPORT_USER       wie --user
+  MEDIACACHE_RESULT            USO: JSON-Datei für das Ergebnis des Laufs (siehe mediacache_lib.py)
+  MEDIACACHE_PROGRESS          JSON-Datei mit dem Fortschritt des scharfen Laufs (--run, --release), an jeder Dateigrenze
                               neu geschrieben: Phase (plan | back | fill | done), «Zurück aufs Array» geplant/erledigt,
                               pro Benutzer geplant/erledigt (Dateien, Bytes) mit Beginn/Ende, die Datei in Arbeit mit
                               Ziel und Grund, die Warteschlange des Befüllens (queue, pos: wer wann dran ist)
-  EMBYCACHE_ZFS, EMBYCACHE_MOUNTS  USO: zfs und /proc/mounts für die Tests (Freiplatz auf ZFS: der ganze Pool)
-  EMBYCACHE_STOP              Datei: sobald es sie gibt, hört der Lauf nach der aktuellen Datei auf (nie mitten in einer
+  MEDIACACHE_ZFS, MEDIACACHE_MOUNTS  USO: zfs und /proc/mounts für die Tests (Freiplatz auf ZFS: der ganze Pool)
+  MEDIACACHE_STOP              Datei: sobald es sie gibt, hört der Lauf nach der aktuellen Datei auf (nie mitten in einer
                               Kopie); was noch auf dem Cache liegt, bleibt in der Exclude-Liste geschützt; Ergebnis
                               «stopped», Exit-Code 3 (das Office: der Unraid-Mover startete, oder auf Wunsch)
+  MEDIACACHE_PARALLEL_PER_DISK gleichzeitige rsync-Kopien pro Quell-Disk (überschreibt parallel_per_disk)
+  MEDIACACHE_PARALLEL_TOTAL    gleichzeitige rsync-Kopien insgesamt, 0 = ohne Limit (überschreibt parallel_total)
+  MEDIACACHE_STATUS_LOG_INTERVAL  Sekunden zwischen Fortschrittszeilen im Log, 0 = aus
 
-Beispiel User Scripts (Unraid):  cd /mnt/user/system/scripts/embycache && python3 embycache_run.py --run
+Beispiel User Scripts (Unraid):  cd /mnt/user/system/scripts/mediacache && python3 mediacache_run.py --run
 """
 import argparse
+import collections
+import contextlib
 import os
-import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
-STOP_FILE = os.environ.get("EMBYCACHE_STOP") or ""
-NO_FILL = os.environ.get("EMBYCACHE_NO_FILL") == "1"     # USO: nur freigeben, nichts holen (das Office)
-WATCHED_ONLY = os.environ.get("EMBYCACHE_WATCHED_ONLY") == "1"   # USO: zurück nur, was geschaut ist (das Office, nur X)
+STOP_FILE = os.environ.get("MEDIACACHE_STOP") or ""
+NO_FILL = os.environ.get("MEDIACACHE_NO_FILL") == "1"     # USO: nur freigeben, nichts holen (das Office)
+WATCHED_ONLY = os.environ.get("MEDIACACHE_WATCHED_ONLY") == "1"   # USO: zurück nur, was geschaut ist (das Office, nur X)
 
 
 def stop_requested():
-    """EMBYCACHE_STOP: gibt es die Datei, hört der Lauf nach der aktuellen Datei auf."""
+    """MEDIACACHE_STOP: gibt es die Datei, hört der Lauf nach der aktuellen Datei auf."""
     return bool(STOP_FILE) and os.path.exists(STOP_FILE)
 
-from embycache_lib import (
-    ConfigError, EmbyApi, Locations, acquire_lock, array_location, keep_bytes, pool_usage, collect_sessions, detect_mover_bin,
-    free_percent_after, human, is_playing, load_config, origin_target, read_exclude, read_origin,
-    remove_empty_parents, run_mover, setup_logging, share_mover_mode, summarize_mover_output,
-    unraid_mover_running, write_exclude, write_origin, write_progress, write_status, EXCLUDE_FILE, MOVER_MODE_HINT,
+from mediacache_lib import (
+    ConfigError, MediaServerApi, Locations, Status, acquire_lock, array_location, keep_bytes, pool_usage, format_status,
+    collect_sessions, detect_mover_bin, ensure_share_root, free_percent_after, human, is_playing, load_config, mkdir_like,
+    origin_target, read_exclude, read_origin, remove_empty_parents, run_mover, run_rsync, setup_logging, share_mode_ok, share_mover_mode,
+    summarize_mover_output, unraid_mover_running, write_exclude, write_origin, write_progress, write_result, EXCLUDE_FILE,
     PROGRESS_FILE, __version__,
 )
-import time
 
 
 def group_key(rel):
@@ -112,7 +120,7 @@ def log_grouped(label, rels_with_size):
         for rel, size in items:
             log.info(f"      {human(size):>10}  {rel}")
 
-log = setup_logging("EmbyCache", "embycache.log")
+log = setup_logging("MediaCache", "mediacache.log")
 
 
 class OnDeckFile:
@@ -120,7 +128,7 @@ class OnDeckFile:
 
     def __init__(self, rel, size, on_cache, reason, user=None, source=None, title=None, ahead=0, item=None):
         self.rel, self.size, self.on_cache, self.reason = rel, size, on_cache, reason
-        # für EMBYCACHE_PROGRESS: wessen Datei (UserPlan.key), warum (SOURCE_CODES) und was («Serie – S01E02 Titel»)
+        # für MEDIACACHE_PROGRESS: wessen Datei (UserPlan.key), warum (SOURCE_CODES) und was («Serie – S01E02 Titel»)
         self.user, self.source, self.title = user, source, title
         # USO (Phase 2, Rang): pro Benutzer, wie weit voraus (0 angefangen, 1 als Nächstes, n die n-te Folge voraus);
         # eine Datei, die mehrere vormerken, trägt alle; item: das Emby-Item (alle Dateien eines Items gehen zusammen)
@@ -132,12 +140,12 @@ class OnDeckFile:
         return min(self.ranks.values()) if self.ranks else 0
 
 
-# Die Quellen als Codes für EMBYCACHE_PROGRESS (ein Programm übersetzt sie selbst)
+# Die Quellen als Codes für MEDIACACHE_PROGRESS (ein Programm übersetzt sie selbst)
 SOURCE_CODES = {"Weiterschauen": "resume", "Als Nächstes": "next_up", "Nächste Folge": "next_episode", "Favorit": "favorite"}
 
 
 class Progress:
-    """EMBYCACHE_PROGRESS: nur im scharfen Lauf und nur, wenn gesetzt; an jeder Dateigrenze neu geschrieben (atomar).
+    """MEDIACACHE_PROGRESS: nur im scharfen Lauf und nur, wenn gesetzt; an jeder Dateigrenze neu geschrieben (atomar).
     Für ein Programm, das den Lauf zeigt: die Phase, «Zurück aufs Array» und pro Benutzer geplant/erledigt, die Datei in
     Arbeit mit ihrem Ziel (dort liegt rsyncs temporäre Datei .<name>.XXXXXX – deren Grösse ist der Stand in der Datei).
     Geplant ist, was der Lauf vorhat; was er unterwegs auslässt (läuft gerade, Freiplatz, Fehler), fällt aus «geplant».
@@ -271,7 +279,7 @@ SOURCE_ORDER = ("Weiterschauen", "Als Nächstes", "Nächste Folge", "Favorit")
 
 
 def ep_label(ep):
-    """«S02E03 Titel» – oder nur der Titel, wenn Emby keine Nummern liefert."""
+    """«S02E03 Titel» – oder nur der Titel, wenn der Server keine Nummern liefert."""
     s, e = ep.get("ParentIndexNumber"), ep.get("IndexNumber")
     name = ep.get("Name", "?")
     return f"S{s:02d}E{e:02d} {name}" if s is not None and e is not None else name
@@ -305,7 +313,7 @@ class Planner:
 
     # ------------------------------------------------------------------ Dateien eines Items
     def files_for_item(self, loc, item):
-        """Ermittelt alle Dateien (relativ zur Share-Ebene), die zu einem Emby-Item gehören."""
+        """Ermittelt alle Dateien (relativ zur Share-Ebene), die zu einem Server-Item gehören."""
         raw = item.get("Path") or ""
         if not raw or item.get("LocationType") == "Virtual":
             return []
@@ -329,7 +337,9 @@ class Planner:
             return loc.list_files(parent, recursive=True)
         # Episoden, Filme in flacher Ablage, movie_mode=file: nur Dateien mit gleichem Basisnamen (mkv, srt, nfo …)
         stem = rel.stem
-        return [f for f in loc.list_files(parent, recursive=False) if f.name.startswith(stem)]
+        files = [f for f in loc.list_files(parent, recursive=False) if f.name.startswith(stem)]
+        # Jellyfin legt Trickplay-Vorschaubilder (bei «neben den Medien speichern») in <Basisname>.trickplay/ ab
+        return files + loc.list_files(parent / f"{stem}.trickplay", recursive=True)
 
     def make_group(self, loc, item, category, chain, source, title, uname, series=None, ahead=0):
         """ahead (USO, Phase 2): wie weit voraus – 0 angefangen (Weiterschauen), 1 als Nächstes, n die n-te Folge voraus."""
@@ -349,14 +359,14 @@ class Planner:
                                     ahead, f"{item.get('Id')}|{item.get('Path')}"))
         return Group(files, category, chain, source, series, title, reason) if files else None
 
-    # ------------------------------------------------------------------ Emby-Abfragen
+    # ------------------------------------------------------------------ Server-Abfragen
     @staticmethod
     def ep_key(ep):
         return (ep.get("ParentIndexNumber") if ep.get("ParentIndexNumber") is not None else -1,
                 ep.get("IndexNumber") if ep.get("IndexNumber") is not None else -1)
 
     def series_episodes(self, api, uid, series_id):
-        eps = api.items(f"/Users/{uid}/Items", ParentId=series_id, Recursive="true", IncludeItemTypes="Episode",
+        eps = api.user_items(uid, ParentId=series_id, Recursive="true", IncludeItemTypes="Episode",
                         SortBy="ParentIndexNumber,IndexNumber", SortOrder="Ascending",
                         Fields="Path,ParentIndexNumber,IndexNumber,LocationType")
         eps = [e for e in eps if e.get("Path") and e.get("LocationType") != "Virtual"]
@@ -397,10 +407,11 @@ class Planner:
         # Filme und Serien je mit eigener Grenze: zwei «Weiterschauen»-Abfragen
         resume = []
         try:
+            # USO: getrennte Grenzen für angefangene Filme und Serien (max_resume_movies / max_resume_series)
             for kind, limit in (("Movie", int(self.cfg["max_resume_movies"])), ("Episode", int(self.cfg["max_resume_series"]))):
                 if limit > 0:
-                    resume += api.items(f"/Users/{uid}/Items/Resume", MediaTypes="Video", IncludeItemTypes=kind, Limit=limit,
-                                        Fields="Path,SeriesId,ParentIndexNumber,IndexNumber,LocationType")
+                    resume += api.resume_items(uid, MediaTypes="Video", IncludeItemTypes=kind, Limit=limit,
+                                               Fields="Path,SeriesId,ParentIndexNumber,IndexNumber,LocationType")
         except RuntimeError as e:
             self.errors += 1; log.error(f"[{name}] Resume-Liste von {uname} nicht abrufbar: {e}")
             return
@@ -437,7 +448,7 @@ class Planner:
         # noch nicht läuft – ohne diese Quelle fiele die Serie zwischen zwei Folgen aus dem Cache
         if self.cfg["use_next_up"]:
             try:
-                nextup = api.items("/Shows/NextUp", UserId=uid, Limit=int(self.cfg["max_resume_series"]),
+                nextup = api.next_up(uid, Limit=int(self.cfg["max_resume_series"]),
                                    Fields="Path,SeriesId,ParentIndexNumber,IndexNumber,LocationType")
             except RuntimeError as e:
                 self.errors += 1; log.error(f"[{name}] NextUp-Liste von {uname} nicht abrufbar: {e}")
@@ -467,7 +478,7 @@ class Planner:
         max_fav = int(self.cfg["max_favorite_series"])
         if max_fav > 0:
             try:
-                favs = api.items(f"/Users/{uid}/Items", Recursive="true", IncludeItemTypes="Series",
+                favs = api.user_items(uid, Recursive="true", IncludeItemTypes="Series",
                                  Filters="IsFavorite", Limit=max_fav, Fields="Path")
             except RuntimeError as e:
                 self.errors += 1; log.error(f"[{name}] Favoriten von {uname} nicht abrufbar: {e}")
@@ -499,15 +510,18 @@ class Planner:
         self.users[up.key] = up
 
     def plan_instance(self, inst, uids):
-        api = EmbyApi(inst["url"], inst["api_key"], self.cfg["api_timeout"])
+        api = MediaServerApi.for_instance(inst, self.cfg["api_timeout"])
         loc = Locations(self.cfg, inst["_mappings"], inst["_skip"])
         name = inst["servername"]
         if not uids:
             try:
-                users = api.get("/Users") or []
+                users = api.users()
             except RuntimeError as e:
                 self.errors += 1; log.error(f"[{name}] Benutzerliste nicht abrufbar: {e}")
                 return
+            if getattr(api, "users_incomplete", False) or not users:
+                # USO: no users (or Plex's shared ones missing) is never «nobody watches anything» – no cleanup this run
+                self.errors += 1; log.error(f"[{name}] Benutzerliste unvollständig – Cleanup wird übersprungen")
             uids = [(u["Id"], u.get("Name", u["Id"])) for u in users]
         for uid, uname in uids:
             self.plan_user(api, loc, name, uid, uname)
@@ -556,7 +570,6 @@ class Planner:
         share = float(self.cfg["movie_share_percent"]) / 100.0
         user_budgets = self.cfg["user_budgets"]
         active = [u for u in self.users.values() if u.has_candidates()]
-        # upstream 9d14374: by the user's id, not the key «server:id» split (a server name with «:» broke it)
         explicit = {u.key: user_budgets[u.uid] for u in active if u.uid in user_budgets}
         pool = total - sum(explicit.values())
         if pool < 0:
@@ -597,7 +610,7 @@ class Planner:
             if wanted:
                 # Namen für die Log-Ausgabe auflösen; unbekannte IDs (z.B. andere Instanz) still überspringen
                 try:
-                    known = {u["Id"]: u.get("Name", u["Id"]) for u in EmbyApi(inst["url"], inst["api_key"], self.cfg["api_timeout"]).get("/Users") or []}
+                    known = {u["Id"]: u.get("Name", u["Id"]) for u in MediaServerApi.for_instance(inst, self.cfg["api_timeout"]).users()}
                 except RuntimeError as e:
                     self.errors += 1; log.error(f"[{inst['servername']}] nicht erreichbar: {e}")
                     continue
@@ -707,60 +720,42 @@ class Runner:
         self.sim_delta = 0  # Dry-Run: Bytes, die der Cleanup freigäbe, minus Bytes geplanter Kopien
         self.copied = self.moved_back = 0
         self.to_origin = 0                # davon zurück auf ihre Herkunfts-Disk
-        self.status = {"mode": mode}      # für $EMBYCACHE_STATUS
+        self.result = {"mode": mode}      # für $MEDIACACHE_RESULT (USO)
         self.origin = read_origin()       # Cache-Pfad -> diskN
-        self.stopped = False              # EMBYCACHE_STOP: nach der aktuellen Datei aufgehört
-        self.progress = Progress(mode, self.run_mode and bool(PROGRESS_FILE))   # EMBYCACHE_PROGRESS
-        # USO: Jacks Boden (EMBYCACHE_KEEP_BYTES, None: keiner) – was auf dem Cache liegt, was zurückgeht, was wartet
+        self.stopped = False              # MEDIACACHE_STOP: nach der aktuellen Datei aufgehört
+        self.progress = Progress(mode, self.run_mode and bool(PROGRESS_FILE))   # MEDIACACHE_PROGRESS
+        # USO: Jacks Boden (MEDIACACHE_KEEP_BYTES, None: keiner) – was auf dem Cache liegt, was zurückgeht, was wartet
         self.keep = keep_bytes()
         self.held = 0
         self.given_back = self.given_back_bytes = 0
         self.waiting = self.waiting_bytes = 0
         # USO (Phase 2): was über die Grenze zurückgeht – Cache-Pfad -> {title, ahead, who} (Fortschritt) und seine Stelle
         self.back_why, self.back_rank, self.given_back_list = {}, {}, []
-        # USO: im Office (EMBYCACHE_GIVE_BACK_FREE=1) ist auch der Freiplatz eine Grenze – unter min_free_percent gibt der
+        # USO: im Office (MEDIACACHE_GIVE_BACK_FREE=1) ist auch der Freiplatz eine Grenze – unter min_free_percent gibt der
         # Lauf zurück (0: keine Grenze); eigenständig hört das Befüllen dort nur auf, wie bisher
-        # USO (2026-10-14): mit EMBYCACHE_WATCHED_ONLY nie nach Rang – nur der Cleanup bringt Geschautes zurück
-        self.give_back_free = (os.environ.get("EMBYCACHE_GIVE_BACK_FREE") == "1" and not WATCHED_ONLY
+        # USO (2026-10-14): mit MEDIACACHE_WATCHED_ONLY nie nach Rang – nur der Cleanup bringt Geschautes zurück
+        self.give_back_free = (os.environ.get("MEDIACACHE_GIVE_BACK_FREE") == "1" and not WATCHED_ONLY
                                and float(cfg["min_free_percent"]) > 0)
         self.office_pool = self.give_back_free or WATCHED_ONLY   # USO: was er hält und was wartet, in den Status
+
+        self.fill_failures = 0
+        self._lock = threading.Lock()  # Zähler und Löschen/Ordner-Aufräumen bei parallelen Kopien
+        self.status = Status(mode, log, enabled=self.run_mode, log_interval=cfg["status_log_interval"])
 
     def halt(self):
         """True, sobald ein Anhalten verlangt wurde (nur im scharfen Lauf; einmal ins Log)."""
         if not self.stopped and self.run_mode and stop_requested():
             self.stopped = True
-            log.warning("Anhalten verlangt (EMBYCACHE_STOP – das Office: der Unraid-Mover startete, oder auf Wunsch): "
+            log.warning("Anhalten verlangt (MEDIACACHE_STOP – das Office: der Unraid-Mover startete, oder auf Wunsch): "
                         "nach der aktuellen Datei ist Schluss, was noch auf dem Cache liegt, bleibt geschützt")
         return self.stopped
 
-    def share_mode_ok(self, share, checked):
-        """Prüft einmal pro Share, ob das move-Binary Cache → Array kann, und schreibt das Ergebnis ins Log."""
-        if share in checked:
-            return checked[share]
-        if self.cfg["cleanup_tool"] == "rsync":
-            checked[share] = True  # rsync nach /mnt/user0 ist von der Mover-Richtung unabhängig
-            return True
-        mode, primary, secondary, source = share_mover_mode(self.cfg, share)
-        where = f"Primary {primary}, Secondary {secondary}; aus {source}" if mode else "keine Konfiguration gefunden"
-        hint = MOVER_MODE_HINT.get(mode, f"unbekannter Wert «{mode}»")
-        if mode == "yes":
-            log.info(f"Share «{share}»: shareUseCache=yes ({where}) – {hint}")
-            checked[share] = True
-        elif mode is None or mode == "no":
-            log.warning(f"Share «{share}»: shareUseCache={mode or '?'} ({where}) – {hint}")
-            checked[share] = True
-        else:
-            log.error(f"Share «{share}»: shareUseCache={mode} ({where}) – {hint}. "
-                      f"Cleanup für diesen Share übersprungen (Alternative: cleanup_tool=rsync).")
-            checked[share] = False
-        return checked[share]
-
     def cleanup_with_rsync(self, loc, candidates, listing, protected):
         """Cache -> Array per rsync nach /mnt/user0 (shfs wählt die Disk), Quelle erst nach Prüfung löschen."""
-        rsync_args = list(self.cfg["rsync_args"])
         sizes = {str(loc.cache / r): sz for r, sz in listing}
         failures = 0
-        for p in candidates:
+        self.status.phase("Cleanup (Cache -> Array, rsync)", len(candidates), sum(sizes.values()))
+        for i, p in enumerate(candidates, 1):
             if self.halt():
                 protected.add(p)  # bleibt auf dem Cache und in der Liste
                 self.progress.drop_back(sizes.get(p, 0))
@@ -778,15 +773,19 @@ class Runner:
                 protected.add(p)
                 self.progress.drop_back(sizes.get(p, 0))
                 continue
-            self.make_dirs_like(loc.cache, loc.array, rel.parent)
-            cmd = ["rsync", *rsync_args, str(src), str(dst)]
+            mkdir_like(dst.parent, src.parent)
+            key = f"{i}:{rel}"
+            log.info(f"[{i}/{len(candidates)}] -> ARRAY {human(sizes.get(p, 0)):>10}  {rel}")
+            self.status.job_start(key, rel, "Array", sizes.get(p, 0), i)
+            cmd = self.rsync_cmd(src, dst)
             log.debug("rsync-Aufruf (Cleanup): " + " ".join(cmd))
             self.progress.start("back", rel, sizes.get(p, 0), dst, why=self.back_why.get(p))
-            res = subprocess.run(cmd, capture_output=True, text=True)
-            if res.returncode != 0:
+            rc, out = run_rsync(cmd, lambda done, speed, eta: self.status.job_progress(key, done, speed, eta))
+            if rc != 0:
                 failures += 1
-                log.error(f"rsync-Fehler (Code {res.returncode}) bei {rel}: {res.stderr.strip() or res.stdout.strip()}")
+                log.error(f"rsync-Fehler (Code {rc}) bei {rel}: {out.strip()}")
                 protected.add(p)
+                self.status.job_end(key, False)
                 self.progress.drop_back(sizes.get(p, 0))
                 continue
             failures = 0
@@ -794,14 +793,17 @@ class Runner:
                 if dst.stat().st_size != src.stat().st_size:
                     log.error(f"Grösse stimmt nicht überein nach rsync, Datei bleibt auf dem Cache: {rel}")
                     protected.add(p)
+                    self.status.job_end(key, False)
                     self.progress.drop_back(sizes.get(p, 0))
                     continue
                 src.unlink()
             except OSError as e:
                 log.error(f"Quelle konnte nicht gelöscht werden (Datei liegt jetzt doppelt!): {src} ({e})")
                 protected.add(p)
+                self.status.job_end(key, False)
                 self.progress.drop_back(sizes.get(p, 0))
                 continue
+            self.status.job_end(key, True)
             self.moved_back += 1
             self.moved_back_bytes += sizes.get(p, 0)
             self.progress.done(sizes.get(p, 0))
@@ -832,7 +834,7 @@ class Runner:
             dst, why = origin_target(self.cfg, rel, disk, sizes.get(p, 0))
             if dst is None:
                 log.info(f"[HERKUNFT {disk} geht nicht: {why}] {rel}")
-                if self.share_mode_ok(rel.parts[0], checked):
+                if share_mode_ok(self.cfg, rel.parts[0], checked, log):
                     rest.append(p)
                 else:
                     protected.add(p)
@@ -854,10 +856,10 @@ class Runner:
             cmd = ["rsync", *rsync_args, str(src), str(dst)]
             log.debug("rsync-Aufruf (Herkunft): " + " ".join(cmd))
             self.progress.start("back", rel, sizes.get(p, 0), dst, why=self.back_why.get(p))
-            res = subprocess.run(cmd, capture_output=True, text=True)
-            if res.returncode != 0:
+            rc, out = run_rsync(cmd)
+            if rc != 0:
                 failures += 1
-                log.error(f"rsync-Fehler (Code {res.returncode}) bei {rel} -> {disk}: {res.stderr.strip() or res.stdout.strip()}")
+                log.error(f"rsync-Fehler (Code {rc}) bei {rel} -> {disk}: {out.strip()}")
                 protected.add(p)
                 self.progress.drop_back(sizes.get(p, 0))
                 continue
@@ -920,7 +922,7 @@ class Runner:
                 log.info(f"[BLEIBT: läuft gerade] {rel}")
                 protected.add(p)
                 continue
-            if not (self.cfg["return_to_origin"] and self.origin.get(p)) and not self.share_mode_ok(rel.parts[0], checked):
+            if not (self.cfg["return_to_origin"] and self.origin.get(p)) and not share_mode_ok(self.cfg, rel.parts[0], checked, log):
                 protected.add(p)  # bleibt geschützt, bis die Share-Einstellung stimmt
                 continue
             try:
@@ -971,19 +973,49 @@ class Runner:
                 self.progress.drop_back(sizes.get(p, 0))
             self.progress.write()
             return
-        rc, stdout, stderr = run_mover(mover, candidates, self.cfg["mover_debug_level"], log)
+        self.status.phase("Cleanup (Cache -> Array, move-Binary)", len(candidates), self.to_array)
+        sizes = {str(loc.cache / r): sz for r, sz in listing}
+        tracked = [(p, Path(p).relative_to(loc.cache), sizes.get(p, 0), lambda rel: loc.on_disk(rel)) for p in candidates]
+        # USO: with a progress file or a stop file (the office) the binary gets one file per call — the progress names the
+        # file in work and «stop after this file» holds exactly; standalone one call for all, as before
+        per_file = bool(PROGRESS_FILE or STOP_FILE)
+        batches = [[t] for t in tracked] if per_file else [tracked]
+        stdout = stderr = ""
+        asked = []
+        for batch in batches:
+            if per_file and self.halt():
+                break
+            paths = [t[0] for t in batch]
+            if per_file:
+                self.progress.start("back", batch[0][1], batch[0][2], "", why=self.back_why.get(paths[0]))
+            with self.track_mover(batch, "-> ARRAY"):
+                rc, out, err = run_mover(mover, paths, self.cfg["mover_debug_level"], log)
+            stdout, stderr = stdout + out + "\n", stderr + err + "\n"
+            asked += paths
+            if per_file:
+                p = paths[0]
+                if Path(p).exists():
+                    self.progress.drop_back(sizes.get(p, 0))
+                else:
+                    self.progress.done(sizes.get(p, 0))
         messages = summarize_mover_output(stdout + "\n" + stderr, candidates)
         left_by_reason = {}
         for p in candidates:
-            if Path(p).exists():
+            if p not in asked:                   # USO: stopped before its turn – stays on the cache and in the list
                 protected.add(p)
                 self.progress.drop_back(sizes.get(p, 0))
+                continue
+            if Path(p).exists():
+                protected.add(p)
+                if not per_file:
+                    self.progress.drop_back(sizes.get(p, 0))
                 reason = messages.get(p, "keine Meldung vom Mover (in Benutzung oder Ziel existiert bereits)")
                 left_by_reason.setdefault(reason, []).append(p)
             else:
                 self.moved_back += 1
                 self.moved_back_bytes += sizes.get(p, 0)
-                self.progress.done(sizes.get(p, 0))
+                if not per_file:
+                    self.progress.done(sizes.get(p, 0))
                 remove_empty_parents(Path(p).parent, loc.cache, log)
         for reason, paths in left_by_reason.items():
             log.warning(f"{len(paths)} Dateien nicht verschoben – Mover: {reason}")
@@ -1015,19 +1047,20 @@ class Runner:
                 rel = path.relative_to(loc.cache)
                 if is_playing(rel, sessions):
                     continue
-                if self.cfg["cleanup_tool"] != "rsync" and not (self.cfg["return_to_origin"] and self.origin.get(p)):
-                    continue
+                if (self.cfg["cleanup_tool"] != "rsync" and not (self.cfg["return_to_origin"] and self.origin.get(p))
+                        and share_mover_mode(self.cfg, rel.parts[0])[0] != "yes"):
+                    continue                     # the move binary goes Cache -> Array only for shareUseCache=yes
                 n += path.stat().st_size
             except (ValueError, OSError):
                 continue
         return n
 
     def give_back(self, loc, files, current, sessions, planner, cleanup_runs=True):
-        """USO: Jacks Grenze ist der Freiplatz des Pools (nur mit EMBYCACHE_GIVE_BACK_FREE=1, das Office): liegt weniger frei
+        """USO: Jacks Grenze ist der Freiplatz des Pools (nur mit MEDIACACHE_GIVE_BACK_FREE=1, das Office): liegt weniger frei
         als min_free_percent (gemessen wie beim Befüllen, auf ZFS der ganze Pool), nimmt der Lauf Dateien aus `current`
         (der Cleanup bringt sie zurück aufs Array), bis es wieder reicht (der Pool auf Frau Moverellis
         Ziel Y = 100 − min_free_percent) – aber nie unter
-        EMBYCACHE_KEEP_BYTES (Jacks Hälfte: was On-Deck auf dem Cache liegt, bleibt mindestens so viel). Was schon
+        MEDIACACHE_KEEP_BYTES (Jacks Hälfte: was On-Deck auf dem Cache liegt, bleibt mindestens so viel). Was schon
         geschaut ist, geht immer zuerst: der Freiplatz zählt, was der Cleanup gleich zurückbringt (nicht mehr on
         deck, läuft nicht), schon als frei – zurückgegeben wird nur, was dann noch fehlt (cleanup_runs=False: der Cleanup
         fällt aus, nichts davon zählt). Die Reihenfolge nach Rang (give_back_order): das am weitesten voraus Liegende
@@ -1079,55 +1112,52 @@ class Runner:
             log.info(f"[ZURÜCK: Rang] {f.rel} ({human(f.size)}) – Gebe zurück: {f.title or f.rel} ({ahead_words(f.ahead(), who)})")
 
     def fill(self, loc, files, sessions):
-        """On-Deck-Dateien vom Array auf den Cache – per rsync (Quelle erst nach Prüfung löschen) oder per move-Binary."""
-        rsync_args = list(self.cfg["rsync_args"])
+        """On-Deck-Dateien vom Array auf den Cache – per rsync (Quelle erst nach Prüfung löschen) oder per move-Binary.
+        Erst wird geplant (Freiplatz inkl. aller geplanten Kopien), dann kopiert – sequentiell oder parallel pro Disk."""
         from_disk = self.cfg["array_source"] == "disk"
         min_free = float(self.cfg["min_free_percent"])
         use_mover = self.cfg["fill_tool"] == "mover"
         label = "MOVE" if use_mover else "COPY"
-        mover_batch = []  # (OnDeckFile, src) für fill_tool=mover
-        failures = 0
+        jobs = []  # (OnDeckFile, src, disk)
+        pending = 0  # scharfer Lauf: Bytes, die die geplanten Kopien noch belegen werden
         last_group = None
+        share_roots = {}  # {share: bool} – Share-Wurzel einmal pro Lauf prüfen/anlegen
         for f in files:                   # USO: reihum über die Benutzer nach Rang (Planner.fill_order)
             if f.on_cache:
                 continue
-            if self.halt():
-                break
-            if failures >= 3:
-                log.error("Drei rsync-Fehler in Folge – Befüllen abgebrochen, Ursache im Log prüfen")
-                break
             if is_playing(f.rel, sessions):
                 log.info(f"[SKIP: läuft gerade] {f.rel}")
                 self.progress.drop(f)
                 continue
             share_root = loc.cache / f.rel.parts[0]
-            if not share_root.is_dir():
-                if not self.cfg["create_share_root"]:
-                    log.error(f"Share-Wurzel {share_root} fehlt. Auf ZFS-Pools zuerst als Dataset anlegen "
-                              f"(zfs create <pool>/{f.rel.parts[0]}) oder create_share_root=true setzen. Übersprungen: {f.rel}")
-                    self.progress.drop(f)
-                    continue
-                if self.run_mode:
-                    share_root.mkdir(parents=True, exist_ok=True)
+            # ZFS: Dataset <pool>/<share> wie Unraid; btrfs/XFS: Ordner. Dry-Run meldet nur.
+            if not ensure_share_root(self.cfg, loc.cache, loc.array, f.rel.parts[0], self.run_mode, log, share_roots):
+                log.warning(f"[SKIP: Share-Wurzel] {f.rel}")
+                self.progress.drop(f)
+                continue
             # Dataset (Quota) und Pool-Wurzel prüfen – appdata liegt oft auf demselben Pool
-            free_after = free_percent_after(loc.cache, f.size, self.sim_delta)
+            delta = self.sim_delta if not self.run_mode else -pending
+            free_after = free_percent_after(loc.cache, f.size, delta)
             if share_root.is_dir():
-                free_after = min(free_after, free_percent_after(share_root, f.size, self.sim_delta))
+                free_after = min(free_after, free_percent_after(share_root, f.size, delta))
             if free_after < min_free:
                 log.warning(f"[SKIP: Freiplatz] {f.rel} ({human(f.size)}) – danach nur {free_after:.1f} % frei, Minimum {min_free:g} %"
-                            + (" (Dry-Run: Cleanup und geplante Kopien eingerechnet)" if not self.run_mode else ""))
+                            + (" (Dry-Run: Cleanup und geplante Kopien eingerechnet)" if not self.run_mode
+                               else " (geplante Kopien eingerechnet)"))
                 self.waiting += 1             # USO: wartet auf dem Array, bis Platz frei wird
                 self.waiting_bytes += f.size
                 self.progress.drop(f)
                 continue
-            sources = loc.on_disk(f.rel) if from_disk else []
-            if len(sources) > 1:
-                log.warning(f"Datei liegt auf mehreren Disks (Duplikat im Array!): {', '.join(map(str, sources))} – nehme die erste")
+            disks = loc.on_disk(f.rel)
+            sources = disks if from_disk else []
+            if len(disks) > 1:
+                log.warning(f"Datei liegt auf mehreren Disks (Duplikat im Array!): {', '.join(map(str, disks))} – nehme die erste")
             src = sources[0] if sources else loc.on_array(f.rel)
             if not src.is_file():
                 log.warning(f"Quelle nicht gefunden: {src}")
                 self.progress.drop(f)
                 continue
+            disk = self._disk_name(disks[0], loc) if disks else "?"
             self.to_cache += f.size
             self.fill_planned += 1
             self.held += f.size           # USO: zählt die geplante Kopie (auch im Dry-Run)
@@ -1135,52 +1165,139 @@ class Runner:
             if key != last_group:
                 log.info(f"[{label if self.run_mode else 'PLAN:'} -> CACHE] {key}   ({f.reason})")
                 last_group = key
-            log.info(f"      {human(f.size):>10}  {f.rel}")
+            log.info(f"      {human(f.size):>10}  {disk:<7} {f.rel}")
             if not self.run_mode:
                 self.sim_delta -= f.size  # Dry-Run: diese Kopie würde Platz belegen
                 continue
-            if use_mover:
-                mover_batch.append((f, src))
-                continue
+            pending += f.size
+            jobs.append((f, src, disk))
 
-            dst = loc.on_cache(f.rel)
-            disk = array_location(src)        # vor dem Kopieren: von hier soll sie später wieder hin
-            # neue Ordner auf dem Cache mit Besitzer und Rechten wie auf dem Array (sonst root:root)
-            self.make_dirs_like(src.parents[len(f.rel.parts) - 1], loc.cache, f.rel.parent)
-            cmd = ["rsync", *rsync_args, str(src), str(dst)]
+        per_disk, total = self.cfg["parallel_per_disk"], self.cfg["parallel_total"]
+        if not use_mover and (per_disk > 1 or total != 1):
+            n_disks = len({d for _, _, d in jobs}) or 1
+            limit = per_disk * n_disks if total == 0 else min(total, per_disk * n_disks)
+            log.info(f"Parallel: {per_disk} pro Disk, {'ohne Gesamtlimit' if total == 0 else f'höchstens {total} gesamt'}"
+                     f" – {n_disks} Quell-Disk(s), also bis {limit} Kopien gleichzeitig")
+        if not jobs:
+            return
+        if use_mover:
+            if not self.halt():
+                self.fill_with_mover(loc, [(f, src) for f, src, _ in jobs])
+            return
+        self.status.phase("Befüllen (Array -> Cache)", len(jobs), sum(f.size for f, _, _ in jobs))
+        if per_disk == 1 and total == 1:
+            for i, job in enumerate(jobs, 1):  # wie das Original: eine Datei nach der anderen
+                if self.halt():               # USO: MEDIACACHE_STOP – nach der aktuellen Datei
+                    break
+                if self.fill_failures >= 3:
+                    log.error("Drei rsync-Fehler in Folge – Befüllen abgebrochen, Ursache im Log prüfen")
+                    break
+                self.copy_one(loc, *job, i, len(jobs))
+        else:
+            self.copy_parallel(loc, jobs, per_disk, total)
+        log.info(self.status.summary())
+
+    def copy_parallel(self, loc, jobs, per_disk, total):
+        """Pro Quell-Disk eine Warteschlange mit per_disk Workern; total begrenzt alle Disks zusammen (0 = ohne Limit)."""
+        queues = {}
+        for i, (f, src, disk) in enumerate(jobs, 1):
+            queues.setdefault(disk, collections.deque()).append((f, src, disk, i))
+        gate = threading.Semaphore(total) if total > 0 else None
+        stop = threading.Event()
+
+        def worker(disk):
+            q = queues[disk]
+            while not stop.is_set():
+                with self._lock:
+                    if not q:
+                        return
+                    f, src, d, i = q.popleft()
+                if gate:
+                    gate.acquire()
+                try:
+                    if stop.is_set():
+                        return
+                    if self.halt():           # USO: MEDIACACHE_STOP – keine neue Kopie mehr
+                        stop.set()
+                        return
+                    self.copy_one(loc, f, src, d, i, len(jobs))
+                    if self.fill_failures >= 3 and not stop.is_set():
+                        stop.set()
+                        log.error("Drei rsync-Fehler in Folge – Befüllen abgebrochen (laufende Kopien werden fertig), "
+                                  "Ursache im Log prüfen")
+                finally:
+                    if gate:
+                        gate.release()
+
+        threads = [threading.Thread(target=worker, args=(disk,), name=f"copy-{disk}-{n}", daemon=True)
+                   for disk, q in queues.items() for n in range(min(per_disk, len(q)))]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+    def rsync_cmd(self, src, dst):
+        extra = ["--info=progress2"] if self.cfg["copy_progress"] else []
+        return ["rsync", *self.cfg["rsync_args"], *extra, str(src), str(dst)]
+
+    def copy_one(self, loc, f, src, disk, index, count):
+        """Eine Datei Array -> Cache per rsync, Grössenvergleich, dann Quelle löschen. Thread-sicher."""
+        dst = loc.on_cache(f.rel)
+        key = f"{index}:{f.rel}"
+        log.info(f"[{index}/{count}] Start  {disk:<7} {human(f.size):>10}  {f.rel}")
+        self.status.job_start(key, f.rel, disk, f.size, index)
+        origin = array_location(src)          # USO: vor dem Kopieren – von hier soll sie später wieder hin
+        t0 = time.time()
+        ok = False
+        try:
+            mkdir_like(dst.parent, src.parent)
+            cmd = self.rsync_cmd(src, dst)
             log.debug("rsync-Aufruf: " + " ".join(cmd))
             self.progress.start("fill", f.rel, f.size, dst, f)
-            res = subprocess.run(cmd, capture_output=True, text=True)
-            if res.returncode != 0:
-                failures += 1
-                log.error(f"rsync-Fehler (Code {res.returncode}) bei {f.rel}: {res.stderr.strip() or res.stdout.strip()}")
+            rc, out = run_rsync(cmd, lambda done, speed, eta: self.status.job_progress(key, done, speed, eta))
+            if rc != 0:
+                with self._lock:
+                    self.fill_failures += 1
+                log.error(f"rsync-Fehler (Code {rc}) bei {f.rel}: {out.strip()}")
                 log.error("Quelle bleibt auf dem Array; Ziel prüfen, sonst liegt die Datei doppelt")
+                return
+            with self._lock:
+                self.fill_failures = 0
+                try:
+                    if dst.stat().st_size != src.stat().st_size:
+                        log.error(f"Grösse stimmt nicht überein nach rsync, Quelle bleibt: {f.rel}")
+                        return
+                    src.unlink()
+                except OSError as e:
+                    log.error(f"Quelle konnte nicht gelöscht werden (Datei liegt jetzt doppelt!): {src} ({e})")
+                    return
+                self.copied += 1
+                self.copied_bytes += f.size
+                f.on_cache = True
+                ok = True
+                if origin:
+                    self.origin[str(dst)] = origin
+                if not self.cfg["return_to_origin"]:
+                    # USO: mit return_to_origin bleibt der Ordner auf der Disk als Wegweiser stehen
+                    # (Split-Level «nur oberste Ebene»: Unraid legt Dateien dorthin, wo ihr Ordner ist)
+                    remove_empty_parents(src.parent, self._disk_root(src, loc, src != loc.on_array(f.rel)), log)
+        finally:
+            self.status.job_end(key, ok)
+            if ok:
+                self.progress.done(f.size, f)
+            else:
                 self.progress.drop(f)
-                continue
-            failures = 0
-            try:
-                if dst.stat().st_size != src.stat().st_size:
-                    log.error(f"Grösse stimmt nicht überein nach rsync, Quelle bleibt: {f.rel}")
-                    self.progress.drop(f)
-                    continue
-                src.unlink()
-            except OSError as e:
-                log.error(f"Quelle konnte nicht gelöscht werden (Datei liegt jetzt doppelt!): {src} ({e})")
-                self.progress.drop(f)
-                continue
-            self.copied += 1
-            self.copied_bytes += f.size
-            self.progress.done(f.size, f)
-            f.on_cache = True
-            if disk:
-                self.origin[str(dst)] = disk
-            if not self.cfg["return_to_origin"]:
-                # mit return_to_origin bleibt der Ordner auf der Disk als Wegweiser stehen
-                # (Split-Level «nur oberste Ebene»: Unraid legt Dateien dorthin, wo ihr Ordner ist)
-                remove_empty_parents(src.parent, self._disk_root(src, loc, bool(sources)), log)
+            secs = time.time() - t0
+            if ok:
+                log.info(f"[{index}/{count}] Fertig {disk:<7} {human(f.size):>10} in {secs:.0f} s "
+                         f"({human(f.size / secs if secs > 0 else 0)}/s)  {f.rel}")
 
-        if mover_batch and not self.halt():
-            self.fill_with_mover(loc, mover_batch)
+    @staticmethod
+    def _disk_name(path, loc):
+        """/mnt/disk3/Filme/x.mkv -> disk3"""
+        depth = len(Path(loc.disks_glob).parts)
+        parts = Path(path).parts
+        return parts[depth - 1] if len(parts) >= depth else "?"
 
     def fill_with_mover(self, loc, batch):
         """Array -> Cache über das Unraid move-Binary (ein Aufruf für alle Dateien), danach Ergebnis prüfen."""
@@ -1190,7 +1307,10 @@ class Runner:
             return
         log.info(f"Befüllen: {len(batch)} Dateien ({human(sum(f.size for f, _ in batch))}) per move-Binary Array -> Cache")
         disks = {str(src): array_location(src) for _, src in batch}
-        run_mover(mover, [str(src) for _, src in batch], self.cfg["mover_debug_level"], log)
+        self.status.phase("Befüllen (Array -> Cache, move-Binary)", len(batch), sum(f.size for f, _ in batch))
+        tracked = [(str(src), f.rel, f.size, lambda rel: [loc.on_cache(rel)]) for f, src in batch]
+        with self.track_mover(tracked, "-> CACHE"):
+            run_mover(mover, [str(src) for _, src in batch], self.cfg["mover_debug_level"], log)
         for f, src in batch:
             dst = loc.on_cache(f.rel)
             if dst.exists() and not src.exists():
@@ -1210,6 +1330,74 @@ class Runner:
                 self.progress.drop(f)
         if self.copied == 0:
             log.warning("Das move-Binary hat nichts auf den Cache verschoben – fill_tool=rsync verwenden oder mover_debug_level=1 setzen und Log prüfen")
+
+    @contextlib.contextmanager
+    def track_mover(self, items, label):
+        """Überwacht einen laufenden move-Binary-Aufruf: alle 2 s wird geprüft, welche Quellen schon weg sind.
+        Das Binary arbeitet die Pfade der Reihe nach ab – die erste noch vorhandene Quelle gilt als aktuelle Datei;
+        ihr Fortschritt ist die Grösse am Ziel, soweit dort schon sichtbar. items: (quelle, rel, size, targets(rel))."""
+        stop = threading.Event()
+        count = len(items)
+
+        def monitor():
+            pending = list(enumerate(items, 1))
+            current = None
+            skipped = set()  # schon als Fehler gezählt
+            last_done = 0
+            t_current = time.time()
+            while True:
+                finished = stop.wait(2)
+                still = []
+                for i, (src, rel, size, targets) in pending:
+                    if os.path.exists(src):
+                        still.append((i, (src, rel, size, targets)))
+                        continue
+                    key = f"m{i}"
+                    if current != key:
+                        self.status.job_start(key, rel, "move", size, i)
+                    self.status.job_end(key, True)
+                    secs = time.time() - t_current if current == key else 0
+                    log.info(f"[{i}/{count}] {label} fertig {human(size):>10}"
+                             + (f" in {secs:.0f} s" if secs else "") + f"  {rel}")
+                    if current == key:
+                        current = None
+                    last_done = max(last_done, i)
+                pending = still
+                if finished:
+                    # vom Binary liegengelassen (in Benutzung, Ziel voll …) – im Status als Fehler zählen
+                    for i, (src, rel, size, targets) in pending:
+                        key = f"m{i}"
+                        if key in skipped:
+                            continue
+                        if current != key:
+                            self.status.job_start(key, rel, "move", size, i)
+                        self.status.job_end(key, False)
+                    break
+                if not pending:
+                    break
+                # aktuelle Datei = erste noch vorhandene nach der zuletzt fertigen (übersprungene bleiben zurück)
+                i, (src, rel, size, targets) = next((x for x in pending if x[0] > last_done), pending[0])
+                key = f"m{i}"
+                if current != key:
+                    if current:
+                        skipped.add(current)
+                        self.status.job_end(current, False)  # übersprungen (in Benutzung o.ä.) – Endergebnis prüft unten
+                    current, t_current = key, time.time()
+                    self.status.job_start(key, rel, "move", size, i)
+                    log.info(f"[{i}/{count}] {label} läuft {human(size):>10}  {rel}")
+                try:
+                    done = max((t.stat().st_size for t in targets(rel) if t.is_file()), default=0)
+                except OSError:
+                    done = 0
+                self.status.job_progress(key, done)
+
+        t = threading.Thread(target=monitor, name="mover-monitor", daemon=True)
+        t.start()
+        try:
+            yield
+        finally:
+            stop.set()
+            t.join(timeout=30)
 
     @staticmethod
     def _disk_root(src, loc, from_disk):
@@ -1293,8 +1481,17 @@ class Runner:
         print(f"Exclude-Liste: {EXCLUDE_FILE} ({len(read_exclude())} Einträge)\n")
 
     def execute(self):
+        state = "abgebrochen (Fehler)"
+        try:
+            rc = self._execute()
+            state = "fertig"
+            return rc
+        finally:
+            self.status.finish(state)
+
+    def _execute(self):
         cfg = self.cfg
-        log.info(f"=== EmbyCache {__version__} – Modus: {self.mode.upper()} ===")
+        log.info(f"=== MediaCache {__version__} – Modus: {self.mode.upper()} ===")
         if unraid_mover_running():
             log.warning("Der reguläre Unraid-Mover läuft gerade – Cleanup könnte mit ihm kollidieren (nur Log-Meldungen, kein Datenrisiko)")
 
@@ -1303,7 +1500,7 @@ class Runner:
             return self.release(sessions, sessions_ok)
         planner = Planner(cfg)
         files = planner.run()
-        self.status["on_deck"] = {"files": len(files), "bytes": sum(f.size for f in files),
+        self.result["on_deck"] = {"files": len(files), "bytes": sum(f.size for f in files),
                                   "on_cache": sum(1 for f in files if f.on_cache)}
         log.info(f"On deck: {len(files)} Dateien, {human(sum(f.size for f in files))} "
                  f"(davon {sum(1 for f in files if f.on_cache)} bereits auf dem Cache)")
@@ -1320,7 +1517,7 @@ class Runner:
             self.give_back(loc, files, current, sessions, planner, not (planner.errors or not sessions_ok))
         try:
             if planner.errors or not sessions_ok:
-                log.warning("Planung unvollständig (Emby nicht vollständig erreichbar) – Cleanup wird übersprungen, "
+                log.warning("Planung unvollständig (Medienserver nicht vollständig erreichbar) – Cleanup wird übersprungen, "
                             "bisherige Exclude-Liste bleibt geschützt")
                 protected.update(p for p in read_exclude() if Path(p).exists())
             else:
@@ -1331,7 +1528,7 @@ class Runner:
                     if not loc.on_cache(f.rel).exists():
                         self.waiting += 1
                         self.waiting_bytes += f.size
-                log.info(f"Nur freigeben (EMBYCACHE_NO_FILL): nichts geholt – {self.waiting} Dateien ({human(self.waiting_bytes)}) warten auf dem Array")
+                log.info(f"Nur freigeben (MEDIACACHE_NO_FILL): nichts geholt – {self.waiting} Dateien ({human(self.waiting_bytes)}) warten auf dem Array")
             else:
                 self.progress.phase("fill")
                 self.fill(loc, files, sessions)
@@ -1353,17 +1550,17 @@ class Runner:
         else:
             log.info(f"Dry-Run: {self.cleanup_planned} Dateien ({human(self.to_array)}) würden aufs Array, "
                      f"{self.fill_planned} Dateien ({human(self.to_cache)}) auf den Cache – nichts verändert")
-        self.status["cleanup"] = {"planned": self.cleanup_planned, "done": self.moved_back, "to_origin": self.to_origin,
+        self.result["cleanup"] = {"planned": self.cleanup_planned, "done": self.moved_back, "to_origin": self.to_origin,
                                   "bytes_planned": self.to_array, "bytes_done": self.moved_back_bytes}
-        self.status["fill"] = {"planned": self.fill_planned, "done": self.copied,
+        self.result["fill"] = {"planned": self.fill_planned, "done": self.copied,
                                "bytes_planned": self.to_cache, "bytes_done": self.copied_bytes}
-        self.status["protected"] = len(protected)
-        self.status["incomplete"] = bool(planner.errors or not sessions_ok)
+        self.result["protected"] = len(protected)
+        self.result["incomplete"] = bool(planner.errors or not sessions_ok)
         if self.office_pool:              # USO: was er hält, sein Boden, was zurückging (in Worten fürs Office), was wartet
-            self.status["pool"] = {"keep": self.keep, "held": self.held, "waiting": self.waiting, "waiting_bytes": self.waiting_bytes}
-            self.status["give_back"] = {"files": self.given_back, "bytes": self.given_back_bytes, "items": self.given_back_list}
+            self.result["pool"] = {"keep": self.keep, "held": self.held, "waiting": self.waiting, "waiting_bytes": self.waiting_bytes}
+            self.result["give_back"] = {"files": self.given_back, "bytes": self.given_back_bytes, "items": self.given_back_list}
         if self.stopped:
-            log.info("Angehalten nach der aktuellen Datei (EMBYCACHE_STOP) – der nächste Lauf macht weiter")
+            log.info("Angehalten nach der aktuellen Datei (MEDIACACHE_STOP) – der nächste Lauf macht weiter")
         return 3 if self.stopped else 0
 
 
@@ -1388,23 +1585,40 @@ class Runner:
         log.info(f"Ergebnis Zurückbringen: {self.moved_back} von {self.cleanup_planned} Dateien aufs Array verschoben "
                  f"({human(self.moved_back_bytes)} von {human(self.to_array)}), {self.to_origin} davon auf ihre Herkunfts-Disk")
         log.info(f"Exclude-Liste: {len(left)} Einträge" + (" (liegen weiter auf dem Cache)" if left else ""))
-        self.status["cleanup"] = {"planned": self.cleanup_planned, "done": self.moved_back, "to_origin": self.to_origin,
+        self.result["cleanup"] = {"planned": self.cleanup_planned, "done": self.moved_back, "to_origin": self.to_origin,
                                   "bytes_planned": self.to_array, "bytes_done": self.moved_back_bytes}
-        self.status["fill"] = {"planned": 0, "done": 0, "bytes_planned": 0, "bytes_done": 0}
-        self.status["protected"] = len(left)
-        self.status["incomplete"] = not sessions_ok
+        self.result["fill"] = {"planned": 0, "done": 0, "bytes_planned": 0, "bytes_done": 0}
+        self.result["protected"] = len(left)
+        self.result["incomplete"] = not sessions_ok
         return 3 if self.stopped else 0
 
 
 def main():
-    parser = argparse.ArgumentParser(description="EmbyCache für Unraid", epilog="Details: siehe Kopf des Scripts")
+    parser = argparse.ArgumentParser(description="MediaCache für Unraid", epilog="Details: siehe Kopf des Scripts")
     parser.add_argument("--run", action="store_true", help="Aktionen wirklich ausführen (Default: Dry-Run)")
     parser.add_argument("--show-on-deck", action="store_true", help="Nur die On-Deck-Liste anzeigen (pro Benutzer, nach Quelle)")
     parser.add_argument("--release", action="store_true", help="Alles aus der Exclude-Liste zurück aufs Array (nichts befüllen)")
     parser.add_argument("--user", help="Report nur für diese Benutzer (Name oder ID, Komma-getrennt); nur mit --show-on-deck")
     parser.add_argument("--compact", action="store_true", help="Report ohne einzelne Dateien, nur Einträge")
+    parser.add_argument("--status", action="store_true", help="Status des laufenden bzw. letzten Laufs anzeigen")
+    parser.add_argument("--watch", type=float, nargs="?", const=2, metavar="SEK",
+                        help="mit --status: alle SEK Sekunden neu anzeigen (Default 2), Ende mit Ctrl+C")
     args = parser.parse_args()
-    mode = os.environ.get("EMBYCACHE_MODE", "dry").lower()
+    if args.watch is not None and args.watch <= 0:
+        parser.error("--watch braucht ein Intervall grösser als 0 Sekunden")
+    if args.watch and not args.status:
+        parser.error("--watch nur zusammen mit --status (in einer zweiten Shell, während --run läuft)")
+    if args.status:
+        if not args.watch:
+            print(format_status())
+            return 0
+        try:
+            while True:
+                print("\033[2J\033[H" + format_status(), flush=True)
+                time.sleep(args.watch)
+        except KeyboardInterrupt:
+            return 0
+    mode = os.environ.get("MEDIACACHE_MODE", "dry").lower()
     if args.release:
         mode = "release"
     elif args.run:
@@ -1414,7 +1628,7 @@ def main():
     if mode not in ("dry", "report", "run", "release"):
         log.error(f"Ungültiger Modus: {mode}")
         return 2
-    user_filter = args.user if args.user is not None else os.environ.get("EMBYCACHE_REPORT_USER")
+    user_filter = args.user if args.user is not None else os.environ.get("MEDIACACHE_REPORT_USER")
     if user_filter and mode != "report":
         log.error("--user filtert nur die Anzeige und ist deshalb nur mit --show-on-deck erlaubt – "
                   "ein Lauf für einzelne Benutzer würde die Dateien der anderen zurückräumen")
@@ -1426,12 +1640,12 @@ def main():
         keep_bytes()          # USO: a floor that is no number stops here, like a bad setting
     except ConfigError as e:
         log.error(str(e))
-        write_status({"mode": mode, "result": "config", "message": str(e), "started": started, "finished": int(time.time())})
+        write_result({"mode": mode, "result": "config", "message": str(e), "started": started, "finished": int(time.time())})
         return 1
 
     lock = acquire_lock(log)
     if lock is None:
-        write_status({"mode": mode, "result": "busy", "started": started, "finished": int(time.time())})
+        write_result({"mode": mode, "result": "busy", "started": started, "finished": int(time.time())})
         return 1
     runner = Runner(cfg, mode, user_filter.split(",") if user_filter else None, not args.compact)
     result, code = "failed", 1
@@ -1444,7 +1658,7 @@ def main():
         return 1
     finally:
         lock.close()
-        write_status(dict(runner.status, result=result, started=started, finished=int(time.time())))
+        write_result(dict(runner.result, result=result, started=started, finished=int(time.time())))
 
 
 if __name__ == "__main__":
