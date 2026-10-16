@@ -14,3 +14,4 @@ _*/
 
 # Python bytecode (Jack Emby's EmbyCache)
 __pycache__/
+mediacache/logs/
