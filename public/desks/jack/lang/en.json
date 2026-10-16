@@ -719,5 +719,11 @@
   "setup.budget_pool": "The budget is larger than the pool {pool} ({size}) — at most that much fits on it.",
   "errors.jack_budget_pool": "The budget ({total}) is larger than the whole pool ({pool}).",
   "setup.pool_change": {"one": "{n} file I laid out still lies on {old}. If I switch to {new}, I only look there — it would stay on {old}. Bring it back first: let me go with «{tick}», then hire me again — or stay with {old}.", "other": "{n} files I laid out still lie on {old}. If I switch to {new}, I only look there — they would stay on {old}. Bring them back first: let me go with «{tick}», then hire me again — or stay with {old}."},
-  "setup.person_server": "On {server}"
+  "setup.person_server": "On {server}",
+  "count.films": {"one": "{n} film", "other": "{n} films"},
+  "count.episodes": {"one": "{n} episode", "other": "{n} episodes"},
+  "count.items": {"one": "{n} item", "other": "{n} items"},
+  "budget.both": "{films} and {episodes}",
+  "budget.full": {"one": "Budget full — nothing new: {what} ({size}) still waits; more budget fetches more.", "other": "Budget full — nothing new: {what} ({size}) still wait; more budget fetches more."},
+  "budget.more": {"one": "Beyond the budget: {what} ({size}) still waits; more budget fetches more.", "other": "Beyond the budget: {what} ({size}) still wait; more budget fetches more."}
 }

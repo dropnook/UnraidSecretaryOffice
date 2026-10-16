@@ -250,7 +250,22 @@ function runSummary(r) {
   const key = (s.mode || r.mode) === 'run' ? 'run_summary' : 'dry_summary';
   const files = (n) => (key === 'dry_summary' ? nOf('files', n) : n || 0);     // «would bring 1 file back»; the run's «1 of 3» stays a number
   return stopped + T(key, { back: c.done || 0, back_planned: files(c.planned),
-    fill: f.done || 0, fill_planned: files(f.planned), fill_size: fmt.size(f.bytes_planned || 0) });
+    fill: f.done || 0, fill_planned: files(f.planned), fill_size: fmt.size(f.bytes_planned || 0) }) + budgetNote(s);
+}
+/**
+ * What waits beyond the budget (MediaCache's `not_in_budget`, USO 2026-10-16; an older status has none: nothing said), pure:
+ * nothing new planned — «Budget full — nothing new: 12 films and 63 episodes (212 GB) still wait; more budget fetches more»;
+ * some fetched — the same as «more waits». '' when nothing waits.
+ */
+function budgetNote(s) {
+  const b = s && s.not_in_budget;
+  if (!b || !(Number(b.items) > 0)) return '';
+  const films = Number(b.films) || 0;
+  const eps = Number(b.episodes) || 0;
+  const what = films && eps ? T('budget.both', { films: nOf('films', films), episodes: nOf('episodes', eps) })
+    : films ? nOf('films', films) : eps ? nOf('episodes', eps) : nOf('items', b.items);
+  const none = !(Number((s.fill || {}).planned) > 0);
+  return ' · ' + T(none ? 'budget.full' : 'budget.more', { n: films + eps || Number(b.items), what, size: fmt.size(Number(b.bytes) || 0) });
 }
 
 /** Unraid's mover as the agent sees it (jack-mover.php) — an older agent's state has none: nothing refused, nothing said */

@@ -719,5 +719,11 @@
   "setup.budget_pool": "Das Budget ist grösser als der Pool {pool} ({size}) — höchstens so viel geht darauf.",
   "errors.jack_budget_pool": "Das Budget ({total}) ist grösser als der ganze Pool ({pool}).",
   "setup.pool_change": {"one": "Auf {old} liegt noch {n} Datei, die ich bereitgelegt habe. Wechsle ich auf {new}, suche ich nur noch dort — sie bliebe auf {old} liegen. Bring sie zuerst zurück: mich entlassen mit «{tick}», dann wieder einstellen — oder bleib bei {old}.", "other": "Auf {old} liegen noch {n} Dateien, die ich bereitgelegt habe. Wechsle ich auf {new}, suche ich nur noch dort — sie blieben auf {old} liegen. Bring sie zuerst zurück: mich entlassen mit «{tick}», dann wieder einstellen — oder bleib bei {old}."},
-  "setup.person_server": "Auf {server}"
+  "setup.person_server": "Auf {server}",
+  "count.films": {"one": "{n} Film", "other": "{n} Filme"},
+  "count.episodes": {"one": "{n} Folge", "other": "{n} Folgen"},
+  "count.items": {"one": "{n} Eintrag", "other": "{n} Einträge"},
+  "budget.both": "{films} und {episodes}",
+  "budget.full": {"one": "Budget voll — nichts Neues: {what} ({size}) wartet noch; mehr Budget holt mehr.", "other": "Budget voll — nichts Neues: {what} ({size}) warten noch; mehr Budget holt mehr."},
+  "budget.more": {"one": "Nicht mehr im Budget: {what} ({size}) wartet noch; mehr Budget holt mehr.", "other": "Nicht mehr im Budget: {what} ({size}) warten noch; mehr Budget holt mehr."}
 }
