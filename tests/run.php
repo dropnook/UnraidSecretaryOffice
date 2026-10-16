@@ -32973,6 +32973,18 @@ function testStreamerTab(): void
   { const keep = e.form().instances; e.form().instances = keep.filter((i) => i.type === 'emby'); out.chipsEmby = chipsOf();
     e.form().instances = [...e.form().instances, { type: 'jellyfin', url: 'http://jf:8096', mappings: {}, users: [] }, { type: 'plex', url: '', mappings: {}, users: [] }];
     out.chipsAll = chipsOf(); e.form().instances = keep; }
+  // a click on a card: set up — its row; not yet — a new row of that kind (its container here, else empty with the note)
+  { const keep = e.form().instances, st0 = e.form();
+    e.form().instances = keep.filter((i) => i.type === 'emby');
+    const conts = (globalThis.__jackState || {}).emby;
+    const at = e.mediaPick('emby');
+    const n0 = e.form().instances.length;
+    const j = e.mediaPick('jellyfin'); const ji = e.form().instances[j];
+    const again = e.mediaPick('jellyfin');
+    out.pick = [at, n0, j, ji.type, !!ji.noContainer || ji.url !== 'http://', again === j, e.form().instances.length];
+    const note = texts(e.setupServers()).filter((t) => t.startsWith('setup.no_container'));
+    out.pickNote = [ji.noContainer ? note.length === 1 : note.length === 0];
+    e.form().instances = keep; }
   out.offer = srv.some((n) => n.textContent === 'import.open');
   out.notYet = texts(e.setupScope()).map((t) => t.replace(/ \{.*$/, ''));
   e.setState(st); e.initForm();
@@ -33067,6 +33079,9 @@ JS, [OFFICE_WEB . '/desks/jack/desk.js', OFFICE_DIR . '/tests/ui/demo/jack.json'
     same('streamer tab: the media cards — a kind with a server (an address) below «set up» (green), a Plex box still empty not; only Emby set up: the others «supported» (grey)',
         [[['setup.media_set', true], ['setup.media_set', true], ['setup.media_ok', false]], [['setup.media_set', true], ['setup.media_ok', false], ['setup.media_ok', false]]],
         [$r['chipsAll'] ?? null, $r['chipsEmby'] ?? null]);
+    same('streamer tab: a card clicked — Emby set up: its row (0, nothing added); Jellyfin not yet: a new Jellyfin row (from its container, or empty saying none runs here); clicked again: the same row',
+        [0, 1, 1, 'jellyfin', true, true, 2], $r['pick'] ?? null);
+    same('streamer tab: … the note «no container here» exactly when none runs here', [true], $r['pickNote'] ?? null);
     same('streamer tab: the amount needs a connected server first', ['setup.after_connect'], $r['notYet']);
     same('streamer tab: the form is budget mode only — the saved budget in GB, episodes per series inside it, nothing of count mode or the wizard',
         ['300', 3, false, false, false, false], $r['form']);
@@ -37398,7 +37413,8 @@ function testTilesMediaPages(): void
     check('pages: the old open/closed keys are gone (jack.plans_open, jack.pool_open, snapshot.plans_open)', !preg_match('/plans_open|pool_open/', $jackSrc . $snap));
     check('pages: no role="button" on a tile (her group heads fold — the only one)', !str_contains($jackSrc, "'role', 'button'") && substr_count($snap, "'role', 'button'") === 1
         && str_contains($snap, "const head = el('div', 'group-head');\n  head.tabIndex = 0;\n  head.setAttribute('role', 'button');"));
-    check('pages: no scrollIntoView for a tile (Jack\'s: a dialog\'s error line)', !str_contains($snap, 'scrollIntoView') && substr_count($jackSrc, 'scrollIntoView') === 1
+    check('pages: no scrollIntoView for a tile (Jack\'s: a dialog\'s error line; and the media card\'s jump to its server row, marked /* reveal */)', !str_contains($snap, 'scrollIntoView') && substr_count($jackSrc, 'scrollIntoView') === 3
+        && str_contains($jackSrc, "if (box.scrollIntoView) box.scrollIntoView({ block: 'center', behavior: 'smooth' });   /* reveal */")
         && str_contains($jackSrc, "box.style.display = '';\n  box.scrollIntoView({ block: 'nearest' });"));
     check('pages: nothing hidden — no section, list or tile switched off with hidden', !preg_match('/\b(s|section|plans|pool|dom\.\w+)\.hidden\s*=/', $jackSrc . $snap));
     // Jack Emby

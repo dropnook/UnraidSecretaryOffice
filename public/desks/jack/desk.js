@@ -1434,11 +1434,16 @@ let form = null;
 /** The media servers MediaCache speaks to (1.65.0): their names as they write themselves */
 const SERVER_NAMES = { emby: 'Emby', jellyfin: 'Jellyfin', plex: 'Plex' };
 const serverType = (t) => (SERVER_NAMES[t] ? t : 'emby');
-/** A new server's row: a container found that isn't in the form yet (its kind, name, address), else an empty Emby */
-function newInstance(taken) {
-  const c = (state.emby || []).find((x) => !taken.some((i) => i.url === x.url)) || null;
-  const type = serverType(c && c.type);
-  return { type, servername: c ? c.name : `${SERVER_NAMES[type]}${taken.length + 1}`, url: c ? c.url : 'http://', has_key: false, path_mappings: {} };
+/**
+ * A new server's row: a container found that isn't in the form yet (its kind, name, address), else an empty Emby. With a
+ * kind asked for (a click on its card): only a container of that kind — none here: an empty row of that kind that says so
+ * (`noContainer`: it may run on another machine).
+ */
+function newInstance(taken, want) {
+  const c = (state.emby || []).find((x) => !taken.some((i) => i.url === x.url) && (!want || x.type === want)) || null;
+  const type = serverType(want || (c && c.type));
+  return { type, servername: c ? c.name : `${SERVER_NAMES[type]}${taken.length + 1}`, url: c ? c.url : 'http://', has_key: false, path_mappings: {},
+           ...(want && !c ? { noContainer: true } : {}) };
 }
 
 function initForm() {
@@ -1798,7 +1803,7 @@ function setupServers() {
     const f1 = el('div', 'jo-form');
     // the kind first: it says how the key goes and which hint helps (Plex: its token)
     const kind = select(inst, 'type', Object.entries(SERVER_NAMES));
-    kind.addEventListener('change', () => { inst.server = null; renderSetup(); });
+    kind.addEventListener('change', () => { inst.server = null; inst.noContainer = false; renderSetup(); });
     const name = input(inst.servername, (v) => { inst.servername = v; });
     const url = input(inst.url, (v) => { inst.url = v.trim(); });
     const key = input('', (v) => { inst.api_key = v.trim(); });
@@ -1808,6 +1813,7 @@ function setupServers() {
     f1.append(field(T('setup.type'), kind), field(T('setup.name'), name), field(T('setup.url'), url, T('setup.url_hint')),
       field(T('setup.key'), key, T(inst.type === 'emby' ? 'setup.key_hint' : 'setup.key_hint_' + inst.type)));
     box.appendChild(f1);
+    if (inst.noContainer && !inst.server) box.appendChild(el('p', 'callout jo-no-container', T('setup.no_container', { kind: SERVER_NAMES[inst.type] })));
     const bar = el('div', 'toolbar');
     const connect = button(T('setup.connect'), inst.server ? 'small plain' : 'small', async () => {
       connect.disabled = true;
@@ -1881,6 +1887,30 @@ async function connectInst(inst) {
 }
 
 /**
+ * A click on a media server's card: set up — to its row (the first of that kind); not yet — a new row of that kind (from
+ * its container if one runs here, else empty with the note that none runs here). Returns the row's index.
+ */
+function mediaPick(type) {
+  let idx = form.instances.findIndex((i) => i.type === type && String(i.url || '').trim() !== '');
+  if (idx < 0) {
+    // an untouched empty row (the first Emby of a fresh setup) becomes this kind instead of a second row
+    const blank = form.instances.findIndex((i) => !i.has_key && !i.api_key && !i.server && /^https?:\/\/$/.test(String(i.url || '').trim() || 'http://'));
+    const row = { ...newInstance(form.instances.filter((_, n) => n !== blank), type), api_key: '', mappings: {}, skip: new Set(), server: null, libraries: [], users: [] };
+    if (blank >= 0) form.instances[blank] = row; else form.instances.push(row);
+    idx = blank >= 0 ? blank : form.instances.length - 1;
+    renderSetup();
+  }
+  const boxes = typeof document !== 'undefined' && document.querySelectorAll ? document.querySelectorAll('.jo-instance') : [];
+  const box = boxes[idx];
+  if (box) {
+    if (box.scrollIntoView) box.scrollIntoView({ block: 'center', behavior: 'smooth' });   /* reveal */ // the card asked for its server's row
+    const f = box.querySelector('input:not([type=password])');
+    if (f) f.focus({ preventScroll: true });
+  }
+  return idx;
+}
+
+/**
  * The media servers he can work with: Emby, Jellyfin and Plex. A kind with a server below says «set up» (green); the
  * others «supported» (grey — what he can do, not that one is installed here). The names are the products' own.
  */
@@ -1890,8 +1920,11 @@ function mediaChoice() {
   const row = el('div', 'jo-media-row');
   [['Emby', 'emby'], ['Jellyfin', 'jellyfin'], ['Plex', 'plex']].forEach(([name, type]) => {
     const set = (form && form.instances || []).some((i) => i.type === type && String(i.url || '').trim() !== '');
-    const card = el('div', 'box jo-media-card' + (set ? ' on' : ''));   // the orange frame only around what is set up
+    const card = el('button', 'box jo-media-card' + (set ? ' on' : ''));   // the orange frame only around what is set up
+    card.type = 'button';
     card.setAttribute('aria-disabled', 'false');
+    card.title = T(set ? 'setup.media_show' : 'setup.media_add', { kind: name });
+    card.addEventListener('click', () => mediaPick(type));
     const who = el('span', 'jo-media-name');
     who.append(mediaLogo(name), el('b', '', name));
     card.append(who, chip(T(set ? 'setup.media_set' : 'setup.media_ok'), set ? 'ok' : ''));
@@ -2872,7 +2905,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     historySection, plansSection, plansList, gatherSection, footer, scopeLine, lastRunTile, plansTile, poolTile, sharesTile, gatherTile, render,
     renderSetup, page: () => page, SETUP_TILES, setupTileData, setupTileList, setupStep, importSection, setupSwitcher, tileOf, setForm: (f) => { form = f; }, initForm, form: () => form,
     herRules, sharePart, ruleTexts, needsConnect, connectInst, resetDialog, budgetGb, budgetSplit, budgetState, budgetLine, setupBlocked, MIN_PERSON_GB, shareCase,
-    setupServers, setupLibraries, setupUsers, setupScope, setupMore, saveSetup, saveBar, formKey, formChanged, derivedPool, poolsOfChoice, cacheable,
+    setupServers, mediaPick, newInstance, setupLibraries, setupUsers, setupScope, setupMore, saveSetup, saveBar, formKey, formChanged, derivedPool, poolsOfChoice, cacheable,
     letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog, gatherSettingsDialog, gatherRunDialog, gatherCacheWords,
     progressPanel, setProgress: (p, why) => { progress = p; stopping = why || null; }, etaText, tookText, nightPanel, livePanel, chooseRun, headActions,
     setNight: (n) => { nightNow = n; }, nightGoing };
