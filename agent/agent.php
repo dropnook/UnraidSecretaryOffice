@@ -291,8 +291,9 @@ function serve(): int
             $ready = false;
             // a fresh server without the share: the page's welcome (lib/firsthome.php), the user's click at once by
             // the doorbell
-            if (arrayRunning()) {
-                homeTick(DATA_DIR_USER);
+            // the user's click (lib/firsthome.php), then — for an exclusive share — at once on the pool, past shfs
+            if (arrayRunning() && !empty(homeTick(DATA_DIR_USER)['answer']['made']) && officeUnraidPath(DATA_DIR_USER) !== DATA_DIR) {
+                restartInPlace($lock, 'The share of the data folder is there now, reached ' . officeUnraidPath(DATA_DIR_USER));
             }
             agentNap($bell, microtime(true) + HOME_LOOK_EVERY);
             if (arrayRunning() && ($way = dataWayLook()) !== null) {
@@ -480,9 +481,10 @@ function makeDataDir(): bool
     if (!is_dir($appdata) || !@mkdir(DATA_DIR, 0755, true)) {
         return false;
     }
-    if (($made = $GLOBALS['homeLogLater'] ?? null) !== null) {
-        logLine($made);
-        unset($GLOBALS['homeLogLater']);
+    // the share made on the user's click (lib/firsthome.php): said in the log, which only now has a place
+    $made = readJson(officeHomeLookFile())['answer'] ?? null;
+    if (!empty($made['made']) && is_string($made['log'] ?? null)) {
+        logLine($made['log']);
     }
     logLine('Created the data folder ' . DATA_DIR);
     @unlink(officeHomeLookFile());

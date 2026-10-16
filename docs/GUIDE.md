@@ -142,7 +142,11 @@ than the one the office was tested on.
    ```
    https://github.com/dropnook/UnraidSecretaryOffice/releases/latest/download/unraid-secretary-office.plg
    ```
-2. Open **Sekretariat** in Unraid's menu bar. The Team Lead welcomes you and suggests whom to hire.
+2. Open **Sekretariat** in Unraid's menu bar. The Team Lead welcomes you and suggests whom to hire. The office keeps
+   its data in the share *appdata*, which Unraid creates only once Docker is turned on: on a server without it the
+   office first offers *Create appdata* — the messenger then adds the share the way Unraid's *Shares* page does (only
+   on the pool *cache* when there is one, else on the array) and moves in within seconds. Nothing happens without
+   that click; you can also create the share yourself.
 3. For backups: Mr. Backupsy → *Set up…* (he reads the server and proposes everything with reasons; change what you
    like — the bar counts his proposals and your changes, *Leave out* declines one of his — then *Apply*), then
    *Schedule…*. The Team Lead lists what is still missing.

@@ -38711,9 +38711,10 @@ function testFirstHome(): void
     $t = homeTick($data, $look, $req, $h);
     same('home: … the agent sends Unraid\'s «Add Share» once, the share there, «made»', [1, true, true, false],
         [count($sent()), is_dir("$tmp/user/appdata"), $t['answer']['made'] ?? null, file_exists($req)]);
+    same('home: … its log line for later (the data folder comes only now)', true, str_contains($t['answer']['log'] ?? '', 'Created the share appdata on the user\'s click'));
     same('home: … once it is there the look goes', [null, false], [homeTick($data, $look, $req, $h), file_exists($look)]);
     rmdir("$tmp/user/appdata");
-    unset($GLOBALS['homeAnswer'], $GLOBALS['homeLogLater']);
+    unset($GLOBALS['homeAnswer']);
     // gone, not new: the click refused by the page, and by the agent too when it comes anyway
     file_put_contents("$tmp/shares/appdata.cfg", "shareUseCache=\"only\"\n");
     homeTick($data, $look, $req, $h);
@@ -38728,7 +38729,7 @@ function testFirstHome(): void
     file_put_contents($look, json_encode(['share' => 'appdata', 'fresh' => true, 'pool' => null]));
     touch($look, time() - 120);
     same('home: a look two minutes old (the agent away) — nothing offered', ['l' => null], $web('echo json_encode(["l" => officeHomeLook()]);'));
-    unset($GLOBALS['homeAnswer'], $GLOBALS['homeLogLater']);
+    unset($GLOBALS['homeAnswer']);
     hardeningRm($tmp);
 }
 

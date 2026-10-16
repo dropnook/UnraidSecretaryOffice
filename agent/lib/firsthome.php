@@ -160,7 +160,8 @@ function homeMake(array $look, ?array $h = null): array
 /**
  * One look while the data folder is missing (agent.php's loop, array started): what is there goes to the page
  * (officeHomeLookFile(), 0600 in RAM); a click waiting for this share is carried out. The last answer to a click
- * (made / error) stays in the look until the share is there. Nothing to offer: the file goes.
+ * (made / error) stays in the look until the share is there (the agent then starts anew: agent.php), and
+ * makeDataDir() reads its log line from there. Nothing to offer: the file goes.
  */
 function homeTick(string $dataUser, ?string $lookFile = null, ?string $requestFile = null, ?array $h = null): ?array
 {
@@ -181,11 +182,10 @@ function homeTick(string $dataUser, ?string $lookFile = null, ?string $requestFi
             $answer = ['share' => $look['share'], 'time' => time(), 'error' => ['key' => 'home_stale', 'params' => []]];
         } else {
             $r = homeMake($look, $h);
-            $answer = ['share' => $look['share'], 'time' => time()] + ($r['ok'] ? ['made' => true] : ['error' => $r['error']]);
-            // the log lies in the data folder, which comes only now: makeDataDir() writes it down once it is there
-            $GLOBALS['homeLogLater'] = $r['ok']
-                ? "Created the share {$look['share']} on the user's click (Unraid's «Add Share», " . ($look['pool'] !== null ? "only on the pool {$look['pool']}" : 'on the array') . ')'
-                : null;
+            // the log lies in the data folder, which comes only now: makeDataDir() writes the line down once it is there
+            $answer = ['share' => $look['share'], 'time' => time()] + ($r['ok'] ? ['made' => true,
+                'log' => "Created the share {$look['share']} on the user's click (Unraid's «Add Share», "
+                    . ($look['pool'] !== null ? "only on the pool {$look['pool']}" : 'on the array') . ')'] : ['error' => $r['error']]);
         }
         $GLOBALS['homeAnswer'] = $answer;
     }
