@@ -516,8 +516,26 @@ function credit() {
 }
 
 /** The result box: what the last run of any mode did (EmbyCache's status file — an older agent sent it as «last») */
+/**
+ * The night with Ms. Moverelli (1.65.0): his status file holds only his last step (the fetch) — his give-back of the first
+ * step was gone from the summary. Summed over his steps of the last night (night.json keeps each step's counts), when his
+ * last run was that night's; else the status as it is.
+ */
+function nightStatus(st) {
+  const last = state.night && state.night.last;
+  const h = (state.history || []).find((r) => r.tool === 'embycache' && !['refused', 'skipped'].includes(r.result));
+  const mine = last && Array.isArray(last.steps) ? last.steps.filter((x) => x.who === 'jack' && (x.cleanup || x.fill)) : [];
+  if (!st || st.mode !== 'run' || !h || h.by !== 'night' || mine.length < 2) return st;
+  const sum = (k) => mine.reduce((acc, x) => {
+    const c = x[k] || {};
+    ['planned', 'done', 'bytes_planned', 'bytes_done'].forEach((f) => { acc[f] = (acc[f] || 0) + (Number(c[f]) || 0); });
+    return acc;
+  }, {});
+  return { ...st, cleanup: sum('cleanup'), fill: sum('fill') };
+}
+
 function resultBox() {
-  const st = 'last_status' in state ? state.last_status : state.last;
+  const st = nightStatus('last_status' in state ? state.last_status : state.last);
   if (!st || !st.result) return null;
   const box = el('div', 'box jo-results');
   // why it stopped lies in his list of runs (the run's own entry: the newest EmbyCache run that started)
@@ -1618,6 +1636,32 @@ function setupStep(id) {
 
 /** The people of all connected servers, each once */
 const everyone = () => [...new Set(form.instances.flatMap((inst) => (inst.users || []).map((u) => u.id)))];
+/** One person over several servers (1.65.0, as MediaCache counts them): the same name ignoring case, spaces and accents */
+function personKey(name) {
+  return String(name || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '').toLowerCase();
+}
+/** The people as persons: [{key, name, ids, servers, admin}] in the servers' order — a person's ids on every server */
+function persons() {
+  const out = new Map();
+  form.instances.forEach((inst) => (inst.users || []).forEach((u) => {
+    const k = personKey(u.name) || u.id;
+    const p = out.get(k) || { key: k, name: u.name, ids: [], servers: [], admin: false };
+    if (!p.ids.includes(u.id)) p.ids.push(u.id);
+    if (!p.servers.includes(inst.servername)) p.servers.push(inst.servername);
+    p.admin = p.admin || !!u.admin;
+    out.set(k, p);
+  }));
+  return [...out.values()];
+}
+/** Chosen: any of their ids chosen (settings from before chose per server id) */
+const personChosen = (p) => p.ids.some((id) => form.chosenUsers.has(id));
+const chosenPersons = () => persons().filter(personChosen);
+/** A person's own budget: kept under one of their ids (any — older settings kept it per server id) */
+const personBudget = (p) => { const id = p.ids.find((x) => budgetGb(form.budgets[x]) > 0); return id ? form.budgets[id] : ''; };
+function setPersonBudget(p, value) {
+  p.ids.forEach((id) => delete form.budgets[id]);
+  if (value) form.budgets[p.ids[0]] = value;
+}
 /** Reading from the array as it comes (MediaCache's default); the way back is always Unraid's move binary (1.65.0) */
 const MORE_DEFAULTS = { array_source: 'user0' };
 
@@ -1644,8 +1688,8 @@ function setupTileData() {
   const total = budgetGb(v.cache_budget);
   out.push({ id: 'scope', key: 'setup.scope', value: total > 0 ? gbSize(total) : '–',
     sub: [total > 0 ? T('setup.tile.budget_line', { pool: String(derivedPool() || v.cache_path || '').replace('/mnt/', '') || '–' }) : T('setup.tile.no_budget')], alert: on && !(total > 0) });
-  const people = everyone();
-  const chosen = on ? people.filter((id) => form.chosenUsers.has(id)).length : form.chosenUsers.size;
+  const people = persons();
+  const chosen = on ? people.filter(personChosen).length : form.chosenUsers.size;
   const sp = on ? budgetState() : null;
   out.push({ id: 'users', key: 'setup.users', value: !chosen ? T('setup.tile.everyone') : on ? T('setup.tile.of', { n: chosen, total: people.length }) : String(chosen),
     sub: [on ? '' : T('setup.tile.saved'), sp && sp.total > 0 && sp.bad ? T('setup.tile.too_little', { min: gbSize(MIN_PERSON_GB) }) : ''], alert: !!(sp && sp.total > 0 && sp.bad) });
@@ -1860,34 +1904,39 @@ function mediaChoice() {
 function setupUsers() {
   if (!connected()) return notYet();
   const s3 = el('div', 'jo-part-body');
-  const people = everyone();
+  const people = persons();
   if (people.length) {
     const pick = el('div', 'toolbar');
-    pick.append(button(T('setup.users_all'), 'small plain', () => { people.forEach((id) => form.chosenUsers.add(id)); renderSetup(); }),
+    pick.append(button(T('setup.users_all'), 'small plain', () => { people.forEach((p) => p.ids.forEach((id) => form.chosenUsers.add(id))); renderSetup(); }),
       button(T('setup.users_none'), 'small plain', () => { form.chosenUsers.clear(); renderSetup(); }));
     s3.appendChild(pick);
   }
   const f3 = el('div', 'jo-users');
-  const seen = new Set();
   let line = null;
-  form.instances.forEach((inst) => (inst.users || []).forEach((u) => {
-    if (seen.has(u.id)) return;
-    seen.add(u.id);
+  const several = form.instances.length > 1;
+  people.forEach((p) => {
     const wrap = el('div');
-    const extra = [u.admin ? T('setup.admin') : '', form.instances.length > 1 ? inst.servername : ''].filter(Boolean).join(' · ');
-    wrap.appendChild(check(u.name, form.chosenUsers.has(u.id), (on) => { if (on) form.chosenUsers.add(u.id); else form.chosenUsers.delete(u.id); renderSetup(); }, extra));
-    // a budget of their own in GB (EmbyCache's valid_users {id: {budget: "300G"}})
-    if (form.chosenUsers.has(u.id)) {
+    const on = personChosen(p);
+    // one person, all their servers (1.65.0): one choice, one budget — the servers as small chips beside the name
+    wrap.appendChild(check(p.name, on, (x) => { p.ids.forEach((id) => (x ? form.chosenUsers.add(id) : form.chosenUsers.delete(id))); renderSetup(); },
+      p.admin ? T('setup.admin') : ''));
+    if (several) {
+      const chips = el('div', 'row-meta');
+      p.servers.forEach((name) => chips.appendChild(chip(name, 'quiet', T('setup.person_server', { server: name }))));
+      wrap.appendChild(chips);
+    }
+    // a budget of their own in GB (MediaCache's valid_users {id: {budget: "300G"}}, under their first id)
+    if (on) {
       const b = el('input', 'input');
       b.type = 'number';
       b.min = MIN_PERSON_GB;
       b.step = 1;
-      const now = budgetGb(form.budgets[u.id]);
+      const now = budgetGb(personBudget(p));
       b.value = now > 0 ? String(now) : '';
       b.placeholder = T('setup.user_budget_gb_hint');
       b.oninput = () => {
         const n = Number(b.value);
-        if (b.value.trim() === '' || !(n > 0)) delete form.budgets[u.id]; else form.budgets[u.id] = `${n}G`;
+        setPersonBudget(p, b.value.trim() === '' || !(n > 0) ? '' : `${n}G`);
         if (line) line.replaceWith(line = budgetLine());
         if (saveGate) saveGate();          // «Save» blocked or free again, with its reason
         setupSwitcher().row();             // the people's tile red or not (the row only: the field keeps the focus)
@@ -1895,7 +1944,7 @@ function setupUsers() {
       wrap.appendChild(field(T('setup.user_budget_gb'), b));
     }
     f3.appendChild(wrap);
-  }));
+  });
   s3.appendChild(f3);
   s3.appendChild(line = budgetLine());
   return s3;
@@ -1921,11 +1970,10 @@ function budgetSplit(total, fixed, others) {
 /** The split of the form now: the chosen people (none: everyone), their budgets, the low ones' names */
 function budgetState() {
   if (!form) return null;
-  const chosen = form.chosenUsers.size ? everyone().filter((id) => form.chosenUsers.has(id)) : everyone();
-  const own = chosen.filter((id) => budgetGb(form.budgets[id]) > 0);
-  const sp = budgetSplit(budgetGb(form.values.cache_budget), own.map((id) => budgetGb(form.budgets[id])), chosen.length - own.length);
-  const names = new Map(form.instances.flatMap((inst) => (inst.users || []).map((u) => [u.id, u.name])));
-  sp.lowNames = own.filter((id) => budgetGb(form.budgets[id]) < MIN_PERSON_GB).map((id) => names.get(id) || id);
+  const chosen = form.chosenUsers.size ? chosenPersons() : persons();       // a person once, over all their servers
+  const own = chosen.filter((p) => budgetGb(personBudget(p)) > 0);
+  const sp = budgetSplit(budgetGb(form.values.cache_budget), own.map((p) => budgetGb(personBudget(p))), chosen.length - own.length);
+  sp.lowNames = own.filter((p) => budgetGb(personBudget(p)) < MIN_PERSON_GB).map((p) => p.name);
   return sp;
 }
 /** Why «Save» can't go now, '' when it can: no server to connect, no budget, or a person would get under MIN_PERSON_GB */
@@ -2511,15 +2559,17 @@ async function saveSetup(e) {
   // budget mode always (2026-10-14): the budget in GB is the hard cap, everyone chosen at least MIN_PERSON_GB
   const blocked = setupBlocked();
   if (blocked) { Office.toast(blocked, true); showPart(budgetGb(v.cache_budget) > 0 ? 'users' : 'scope'); return; }
-  const chosen = new Set(form.chosenUsers.size ? form.chosenUsers : []);
+  // a person over all their servers: every id of theirs chosen, their budget once (under their first id)
+  const people = chosenPersons();
   const userBudgets = {};
-  for (const [id, b] of Object.entries(form.budgets)) if (chosen.has(id) && budgetGb(b) > 0) userBudgets[id] = `${budgetGb(b)}G`;
+  for (const p of people) if (budgetGb(personBudget(p)) > 0) userBudgets[p.ids[0]] = `${budgetGb(personBudget(p))}G`;
   const settings = {
     instances,
     libraries: libs.map((l) => l.name),
     library_types: Object.fromEntries(libs.map((l) => [l.name, l.type])),
-    valid_users: [...form.chosenUsers],
+    valid_users: [...new Set([...form.chosenUsers, ...people.flatMap((p) => p.ids)])],     // (a server not connected keeps its ids)
     user_budgets: userBudgets,
+    people: chosenPersons().map((p) => p.ids),
     cache_path: cache,
     cache_budget: `${budgetGb(v.cache_budget)}G`,
     movie_share_percent: v.movie_share_percent,

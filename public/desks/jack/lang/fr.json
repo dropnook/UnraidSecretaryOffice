@@ -714,5 +714,6 @@
   "check.gather_optional_how": "Une aide si tu veux : quand un film est éparpillé sur plusieurs disques, il le ramène sur un seul — ensuite moins de disques se réveillent dans les allers-retours. Jack Streamer → Regrouper les dossiers.",
   "setup.budget_pool": "Le budget est plus grand que le pool {pool} ({size}) — on ne peut pas y mettre plus.",
   "errors.jack_budget_pool": "Le budget ({total}) est plus grand que tout le pool ({pool}).",
-  "setup.pool_change": {"one": "{n} fichier que j'ai préparé se trouve encore sur {old}. Si je passe à {new}, je ne regarde plus que là — il resterait sur {old}. Ramène-le d'abord : congédie-moi avec « {tick} », puis réengage-moi — ou reste sur {old}.", "other": "{n} fichiers que j'ai préparés se trouvent encore sur {old}. Si je passe à {new}, je ne regarde plus que là — ils resteraient sur {old}. Ramène-les d'abord : congédie-moi avec « {tick} », puis réengage-moi — ou reste sur {old}."}
+  "setup.pool_change": {"one": "{n} fichier que j'ai préparé se trouve encore sur {old}. Si je passe à {new}, je ne regarde plus que là — il resterait sur {old}. Ramène-le d'abord : congédie-moi avec « {tick} », puis réengage-moi — ou reste sur {old}.", "other": "{n} fichiers que j'ai préparés se trouvent encore sur {old}. Si je passe à {new}, je ne regarde plus que là — ils resteraient sur {old}. Ramène-les d'abord : congédie-moi avec « {tick} », puis réengage-moi — ou reste sur {old}."},
+  "setup.person_server": "Sur {server}"
 }

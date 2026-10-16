@@ -1463,6 +1463,10 @@ function moverelliOutput(?array $h = null): array
 {
     $h ??= moverelliHost();
     $text = (string) @file_get_contents("$h[dir]/office-output.txt", false, null, 0, 2 * 1024 * 1024);
+    // her last run was a step of the night: the whole night's output (Jack Streamer's steps and hers, in order)
+    if ((moverelliJobInfo($h['dir'])['by'] ?? '') === 'night' && is_file("$h[dir]/night-output.txt") && !is_link("$h[dir]/night-output.txt")) {
+        $text = (string) @file_get_contents("$h[dir]/night-output.txt", false, null, 0, 2 * 1024 * 1024);
+    }
     return ['ok' => true, 'info' => moverelliJobInfo($h['dir']), 'text' => (string) preg_replace('/\e\[[0-9;]*[A-Za-z]/', '', $text)];
 }
 
