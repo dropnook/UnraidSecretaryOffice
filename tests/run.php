@@ -4033,6 +4033,7 @@ function testSetupNoDocker(): void
         && str_contains($js, "if (dockerOff && !on) { kbox.querySelector('input').disabled = true;")
         && str_contains($js, "T(plan.docker_service === false ? 'setup.apps_docker_off' : 'setup.apps_none')")
         && str_contains($js, "sub: [T('setup.tile.docker_off')]")
+        && str_contains($js, "if (plan.docker_service === false) note(T('setup.k_problem.docker_off'), 'warn');")
         && str_contains($js, "m.code && Office.has(`\${ID}.setup.msg.\${m.code}`) ? T('setup.msg.' + m.code, setupMsgParams(m.params)) : m.text"));
     $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/en.json'), true) ?: [];
     check('no docker (page): its words', isset($en['setup.msg.docker_off'], $en['setup.msg.docker_silent'], $en['setup.k_problem.docker_off'], $en['setup.apps_docker_off'], $en['setup.tile.docker_off']));

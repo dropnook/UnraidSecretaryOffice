@@ -2799,7 +2799,7 @@ plan_write() {
         --argjson vms "${vms:-[]}" --arg vm_service "$VM_SERVICE" --arg docker_service "$DOCKER_SERVICE" --argjson apps "$apps" \
         --arg flash_ds "${FLASH_DATASET:-}" --arg flash_fs "${FLASH_FS:-}" --arg size_timeout "$SIZE_TIMEOUT" \
         --arg k_enabled "$(pget "kopia|enabled" no)" --arg k_container "$kc" --arg k_cands "$cands" \
-        --arg k_running "${CT_RUNNING[$kc]:-}" --arg k_image "${CT_IMAGE[$kc]:-}" --arg k_ready "$KOPIA_POLICY_READY" \
+        --arg k_running "${kc:+${CT_RUNNING[$kc]:-}}" --arg k_image "${kc:+${CT_IMAGE[$kc]:-}}" --arg k_ready "$KOPIA_POLICY_READY" \
         --arg k_fail "$KOPIA_FAIL" --arg k_probe "$KOPIA_PROBE" --argjson k_maps "$maps" \
         --arg k_connected "${KOPIA_CONNECTED:-no}" --arg k_id "${KOPIA_ID:-}" --arg k_version "${KOPIA_VERSION:-}" \
         --arg k_storage "${KOPIA_STORAGE:-}" --arg k_host "${KOPIA_HOST:-}" --arg k_uid "${KOPIA_SERVER_UID:-}" \

@@ -2954,7 +2954,9 @@ function presetNotes(kind, kst, measure, newOnly) {
   if (kind === 'partner') note(T('setup.preset.partner_note'));
   if (kind === 'kopia') {
     if (!kst.ok) {
-      note(T('setup.preset.kopia_none'), 'warn').append(' ', kopiaHelpLink());
+      // engine 2.54: Docker switched off - no Kopia container can run, the reason and where to switch it on
+      if (plan.docker_service === false) note(T('setup.k_problem.docker_off'), 'warn');
+      else note(T('setup.preset.kopia_none'), 'warn').append(' ', kopiaHelpLink());
       return out;
     }
     note(T('setup.preset.kopia_repo'));

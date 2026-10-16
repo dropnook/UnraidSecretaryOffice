@@ -1,0 +1,839 @@
+{
+    "status": {
+        "running": false,
+        "mode": "plan",
+        "result": "ok",
+        "started": 1792181935,
+        "finished": 1792181936,
+        "written": false,
+        "errors": 0,
+        "warnings": 0,
+        "plan_time": 1792181936
+    },
+    "run": {
+        "interface": 1,
+        "version": "2.54",
+        "mode": "plan",
+        "pid": 625902,
+        "started": 1792181935,
+        "updated": 1792181936,
+        "finished": 1792181936,
+        "result": "ok",
+        "written": false,
+        "errors": 0,
+        "warnings": 0,
+        "log": "setup-20261016-201855.log",
+        "messages": [
+            {
+                "level": "ok",
+                "step": "environment",
+                "text": "Unraid 7.4.0-rc.1"
+            },
+            {
+                "level": "hint",
+                "step": "environment",
+                "text": "Docker is switched off (Settings > Docker) - no apps to back up; shares, VMs and the flash as usual, offsite (Kopia) needs Docker",
+                "code": "docker_off",
+                "params": []
+            },
+            {
+                "level": "ok",
+                "step": "environment",
+                "text": "/mnt/user is mounted"
+            },
+            {
+                "level": "ok",
+                "step": "environment",
+                "text": "zfs present"
+            },
+            {
+                "level": "ok",
+                "step": "environment",
+                "text": "btrfs present"
+            },
+            {
+                "level": "ok",
+                "step": "environment",
+                "text": "overlayfs present (shares across several bases)"
+            },
+            {
+                "level": "ok",
+                "step": "environment",
+                "text": "Unraid notifications available"
+            },
+            {
+                "level": "ok",
+                "step": "environment",
+                "text": "The office's plugin schedules the nightly run (no User Scripts needed)"
+            },
+            {
+                "level": "hint",
+                "step": "basis",
+                "text": "No settings.ini yet - the proposals come from the system",
+                "code": "no_settings",
+                "params": []
+            },
+            {
+                "level": "hint",
+                "step": "basis",
+                "text": "Kopia leaves out Ms. Dustdevil's storeroom (_UnraidSecretaryOffice-trash) - the local snapshots keep it",
+                "code": "storeroom_ignored",
+                "params": {
+                    "folder": "_UnraidSecretaryOffice-trash"
+                }
+            },
+            {
+                "level": "hint",
+                "step": "basis",
+                "text": "Kopia leaves out Ms. Dustdevil's storeroom under its new, hidden name (.UnraidSecretaryOffice-trash) - the local snapshots keep it",
+                "code": "storeroom_ignored",
+                "params": {
+                    "folder": ".UnraidSecretaryOffice-trash"
+                }
+            },
+            {
+                "level": "ok",
+                "step": "offsite",
+                "text": "Without Kopia: local snapshots and dumps. Shares can be 'snapshot' or 'off'."
+            },
+            {
+                "level": "hint",
+                "step": "databases",
+                "text": "No databases found",
+                "code": "no_databases",
+                "params": []
+            },
+            {
+                "level": "hint",
+                "step": "databases",
+                "text": "No Nextcloud detected",
+                "code": "no_nextcloud",
+                "params": []
+            },
+            {
+                "level": "ok",
+                "step": "general",
+                "text": "Backup place: /mnt/user/UnraidSecretaryOffice/backup"
+            },
+            {
+                "level": "hint",
+                "step": "general",
+                "text": "snapshot = local ZFS snapshot only (Kopia is off); tar = archive in the backup place",
+                "code": "flash_snapshot_local",
+                "params": []
+            },
+            {
+                "level": "hint",
+                "step": "kopia",
+                "text": "Kopia is off - skipped. To switch it on: setup.sh again, step 3.",
+                "code": "kopia_off",
+                "params": []
+            },
+            {
+                "level": "ok",
+                "step": "plan",
+                "text": "Plan written: /tmp/ubfresh/state/setup-plan.json"
+            }
+        ],
+        "notes": [
+            {
+                "level": "ok",
+                "step": "environment",
+                "items": [
+                    {
+                        "text": "Unraid 7.4.0-rc.1"
+                    }
+                ]
+            },
+            {
+                "level": "hint",
+                "step": "environment",
+                "code": "docker_off",
+                "items": [
+                    {
+                        "text": "Docker is switched off (Settings > Docker) - no apps to back up; shares, VMs and the flash as usual, offsite (Kopia) needs Docker",
+                        "params": []
+                    }
+                ]
+            },
+            {
+                "level": "ok",
+                "step": "environment",
+                "items": [
+                    {
+                        "text": "/mnt/user is mounted"
+                    }
+                ]
+            },
+            {
+                "level": "ok",
+                "step": "environment",
+                "items": [
+                    {
+                        "text": "zfs present"
+                    }
+                ]
+            },
+            {
+                "level": "ok",
+                "step": "environment",
+                "items": [
+                    {
+                        "text": "btrfs present"
+                    }
+                ]
+            },
+            {
+                "level": "ok",
+                "step": "environment",
+                "items": [
+                    {
+                        "text": "overlayfs present (shares across several bases)"
+                    }
+                ]
+            },
+            {
+                "level": "ok",
+                "step": "environment",
+                "items": [
+                    {
+                        "text": "Unraid notifications available"
+                    }
+                ]
+            },
+            {
+                "level": "ok",
+                "step": "environment",
+                "items": [
+                    {
+                        "text": "The office's plugin schedules the nightly run (no User Scripts needed)"
+                    }
+                ]
+            },
+            {
+                "level": "hint",
+                "step": "basis",
+                "code": "no_settings",
+                "items": [
+                    {
+                        "text": "No settings.ini yet - the proposals come from the system",
+                        "params": []
+                    }
+                ]
+            },
+            {
+                "level": "hint",
+                "step": "basis",
+                "code": "storeroom_ignored",
+                "items": [
+                    {
+                        "text": "Kopia leaves out Ms. Dustdevil's storeroom (_UnraidSecretaryOffice-trash) - the local snapshots keep it",
+                        "params": {
+                            "folder": "_UnraidSecretaryOffice-trash"
+                        }
+                    },
+                    {
+                        "text": "Kopia leaves out Ms. Dustdevil's storeroom under its new, hidden name (.UnraidSecretaryOffice-trash) - the local snapshots keep it",
+                        "params": {
+                            "folder": ".UnraidSecretaryOffice-trash"
+                        }
+                    }
+                ]
+            },
+            {
+                "level": "ok",
+                "step": "offsite",
+                "items": [
+                    {
+                        "text": "Without Kopia: local snapshots and dumps. Shares can be 'snapshot' or 'off'."
+                    }
+                ]
+            },
+            {
+                "level": "hint",
+                "step": "databases",
+                "code": "no_databases",
+                "items": [
+                    {
+                        "text": "No databases found",
+                        "params": []
+                    }
+                ]
+            },
+            {
+                "level": "hint",
+                "step": "databases",
+                "code": "no_nextcloud",
+                "items": [
+                    {
+                        "text": "No Nextcloud detected",
+                        "params": []
+                    }
+                ]
+            },
+            {
+                "level": "ok",
+                "step": "general",
+                "items": [
+                    {
+                        "text": "Backup place: /mnt/user/UnraidSecretaryOffice/backup"
+                    }
+                ]
+            },
+            {
+                "level": "hint",
+                "step": "general",
+                "code": "flash_snapshot_local",
+                "items": [
+                    {
+                        "text": "snapshot = local ZFS snapshot only (Kopia is off); tar = archive in the backup place",
+                        "params": []
+                    }
+                ]
+            },
+            {
+                "level": "hint",
+                "step": "kopia",
+                "code": "kopia_off",
+                "items": [
+                    {
+                        "text": "Kopia is off - skipped. To switch it on: setup.sh again, step 3.",
+                        "params": []
+                    }
+                ]
+            },
+            {
+                "level": "ok",
+                "step": "plan",
+                "items": [
+                    {
+                        "text": "Plan written: /tmp/ubfresh/state/setup-plan.json"
+                    }
+                ]
+            }
+        ]
+    },
+    "plan": {
+        "interface": 1,
+        "version": "2.54",
+        "time": 1792181936,
+        "have_settings": false,
+        "asleep_pools": "wake",
+        "asleep_nights": 7,
+        "preset_new": "auto",
+        "sizes_measured": false,
+        "P": {
+            "general|keep_mounts": "no",
+            "share|appdata|mode": "snapshot",
+            "kopia|keep_monthly": "12",
+            "flash|mode": "tar",
+            "kopia|keep_weekly": "4",
+            "libvirt|mode": "off",
+            "share|UnraidSecretaryOffice|kopia_ignore": [],
+            "docker|stop_timeout": "60",
+            "share|Familienfilme|exclude_dataset": [],
+            "flash|tar_exclude": [
+                "./bz*",
+                "./previous",
+                "./config/plugins/*/packages"
+            ],
+            "general|notify_success": "yes",
+            "share|appdata|method": "auto",
+            "kopia|keep_latest": "7",
+            "general|keep_logs": "60",
+            "kopia|container": "",
+            "share|UnraidSecretaryOffice|exclude_dataset": [],
+            "general|min_free_gb": "8",
+            "share|Familienfilme|method": "auto",
+            "kopia|identity": "",
+            "btrfs|snapshot_all": "no",
+            "kopia|ignore": [
+                ".DS_Store",
+                "._*",
+                ".Trash-*",
+                ".Recycle.Bin/",
+                "*@eaDir*",
+                "*@__thumb*",
+                "*SynoResource*",
+                "_UnraidSecretaryOffice-trash*/",
+                ".UnraidSecretaryOffice-trash*/"
+            ],
+            "kopia|keep_daily": "7",
+            "share|Familienfilme|mode": "snapshot",
+            "general|btrfs_snap_dir": ".btrfs-snap",
+            "docker|stop": "all",
+            "docker|known": [],
+            "general|server": "FamilienServer",
+            "share|appdata|kopia_ignore": [],
+            "general|preset_new": "auto",
+            "kopia|keep_hourly": "0",
+            "general|snap_prefix": "uso-backup-",
+            "share|UnraidSecretaryOffice|method": "auto",
+            "general|asleep_pools": "wake",
+            "share|appdata|exclude_dataset": [],
+            "kopia|compression": "inherit",
+            "general|view_root": "/mnt/addons/UnraidSecretaryOffice/btrfs-snap",
+            "kopia|enabled": "no",
+            "btrfs|keep_days": "7",
+            "share|Familienfilme|kopia_ignore": [],
+            "drift|remind_days": "7",
+            "docker|skip": [],
+            "share|UnraidSecretaryOffice|mode": "snapshot",
+            "kopia|keep_annual": "3",
+            "zfs|retention": "7 4 6",
+            "general|mount_root": "/mnt/addons/UnraidSecretaryOffice/snapshots",
+            "general|dumps_share": "UnraidSecretaryOffice",
+            "btrfs|min_free_gb": "150",
+            "flash|kopia_ignore": [
+                "/bz*",
+                "/EFI*/",
+                "/previous/",
+                "/config/plugins/nvidia-driver/"
+            ],
+            "docker|no_stop": [],
+            "drift|ignore": []
+        },
+        "O": [],
+        "pending": [],
+        "shares": [
+            {
+                "name": "Familienfilme",
+                "mode": "snapshot",
+                "why": "size_unknown",
+                "why_arg": "",
+                "why_text": "size unknown - measure or decide on purpose",
+                "locations": "disk1, disk2",
+                "where": "2 disks",
+                "method": "live",
+                "layout": "live",
+                "gb": null,
+                "notes": [
+                    "disk2 is xfs - no snapshots possible"
+                ],
+                "exists": true,
+                "children": [],
+                "folders": [],
+                "syslog": false,
+                "waiting": [],
+                "app_share": null,
+                "partner": [],
+                "partner_ok": false,
+                "partner_why": "split",
+                "place": [
+                    {
+                        "code": "no_history",
+                        "where": "disk2"
+                    }
+                ],
+                "asleep_bases": [],
+                "pool_asleep": false,
+                "top": [
+                    "Geburtstag Oma 2021",
+                    "Sommer am See 2019"
+                ],
+                "top_asleep": [],
+                "top_many": false
+            },
+            {
+                "name": "UnraidSecretaryOffice",
+                "mode": "snapshot",
+                "why": "size_unknown",
+                "why_arg": "",
+                "why_text": "size unknown - measure or decide on purpose",
+                "locations": "cache",
+                "where": "cache",
+                "method": "snap",
+                "layout": "single",
+                "gb": null,
+                "notes": [],
+                "exists": true,
+                "children": [],
+                "folders": [],
+                "syslog": false,
+                "waiting": [],
+                "app_share": null,
+                "partner": [],
+                "partner_ok": false,
+                "partner_why": "no_dataset",
+                "place": [
+                    {
+                        "code": "same_pool",
+                        "where": "cache"
+                    }
+                ],
+                "asleep_bases": [],
+                "pool_asleep": false,
+                "top": [
+                    "backup"
+                ],
+                "top_asleep": [],
+                "top_many": false
+            },
+            {
+                "name": "appdata",
+                "mode": "snapshot",
+                "why": "kopia_off_local",
+                "why_arg": "",
+                "why_text": "new; Kopia off -> local",
+                "locations": "cache",
+                "where": "cache",
+                "method": "snap",
+                "layout": "single",
+                "gb": null,
+                "notes": [],
+                "exists": true,
+                "children": [],
+                "folders": [],
+                "syslog": false,
+                "waiting": [],
+                "app_share": [
+                    "docker"
+                ],
+                "partner": [],
+                "partner_ok": false,
+                "partner_why": "no_dataset",
+                "place": [],
+                "asleep_bases": [],
+                "pool_asleep": false,
+                "top": [
+                    "UnraidSecretaryOffice"
+                ],
+                "top_asleep": [],
+                "top_many": false
+            }
+        ],
+        "containers": [],
+        "databases": [],
+        "missing_databases": [],
+        "nextcloud": [],
+        "vms": [],
+        "vm_service": false,
+        "docker_service": false,
+        "apps": [],
+        "partners": [],
+        "place_partner": {
+            "share": "UnraidSecretaryOffice",
+            "partner": [],
+            "partner_ok": false,
+            "partner_why": "no_dataset"
+        },
+        "bases": [
+            {
+                "name": "cache",
+                "fs": "btrfs",
+                "kind": "pool"
+            },
+            {
+                "name": "disk1",
+                "fs": "btrfs",
+                "kind": "disk"
+            },
+            {
+                "name": "disk2",
+                "fs": "xfs",
+                "kind": "disk"
+            }
+        ],
+        "flash": {
+            "dataset": "",
+            "fs": "vfat"
+        },
+        "mount_root": "/mnt/addons/UnraidSecretaryOffice/snapshots",
+        "kopia": {
+            "enabled": false,
+            "container": "",
+            "candidates": [],
+            "running": false,
+            "image": "",
+            "ready": false,
+            "problem": "off",
+            "probe": null,
+            "mappings": [],
+            "connected": false,
+            "identity": "",
+            "version": "",
+            "storage": "",
+            "host_is_container_id": false,
+            "server_uid": "",
+            "sources": []
+        },
+        "messages": [
+            {
+                "level": "ok",
+                "step": "environment",
+                "text": "Unraid 7.4.0-rc.1"
+            },
+            {
+                "level": "hint",
+                "step": "environment",
+                "text": "Docker is switched off (Settings > Docker) - no apps to back up; shares, VMs and the flash as usual, offsite (Kopia) needs Docker",
+                "code": "docker_off",
+                "params": []
+            },
+            {
+                "level": "ok",
+                "step": "environment",
+                "text": "/mnt/user is mounted"
+            },
+            {
+                "level": "ok",
+                "step": "environment",
+                "text": "zfs present"
+            },
+            {
+                "level": "ok",
+                "step": "environment",
+                "text": "btrfs present"
+            },
+            {
+                "level": "ok",
+                "step": "environment",
+                "text": "overlayfs present (shares across several bases)"
+            },
+            {
+                "level": "ok",
+                "step": "environment",
+                "text": "Unraid notifications available"
+            },
+            {
+                "level": "ok",
+                "step": "environment",
+                "text": "The office's plugin schedules the nightly run (no User Scripts needed)"
+            },
+            {
+                "level": "hint",
+                "step": "basis",
+                "text": "No settings.ini yet - the proposals come from the system",
+                "code": "no_settings",
+                "params": []
+            },
+            {
+                "level": "hint",
+                "step": "basis",
+                "text": "Kopia leaves out Ms. Dustdevil's storeroom (_UnraidSecretaryOffice-trash) - the local snapshots keep it",
+                "code": "storeroom_ignored",
+                "params": {
+                    "folder": "_UnraidSecretaryOffice-trash"
+                }
+            },
+            {
+                "level": "hint",
+                "step": "basis",
+                "text": "Kopia leaves out Ms. Dustdevil's storeroom under its new, hidden name (.UnraidSecretaryOffice-trash) - the local snapshots keep it",
+                "code": "storeroom_ignored",
+                "params": {
+                    "folder": ".UnraidSecretaryOffice-trash"
+                }
+            },
+            {
+                "level": "ok",
+                "step": "offsite",
+                "text": "Without Kopia: local snapshots and dumps. Shares can be 'snapshot' or 'off'."
+            },
+            {
+                "level": "hint",
+                "step": "databases",
+                "text": "No databases found",
+                "code": "no_databases",
+                "params": []
+            },
+            {
+                "level": "hint",
+                "step": "databases",
+                "text": "No Nextcloud detected",
+                "code": "no_nextcloud",
+                "params": []
+            },
+            {
+                "level": "ok",
+                "step": "general",
+                "text": "Backup place: /mnt/user/UnraidSecretaryOffice/backup"
+            },
+            {
+                "level": "hint",
+                "step": "general",
+                "text": "snapshot = local ZFS snapshot only (Kopia is off); tar = archive in the backup place",
+                "code": "flash_snapshot_local",
+                "params": []
+            },
+            {
+                "level": "hint",
+                "step": "kopia",
+                "text": "Kopia is off - skipped. To switch it on: setup.sh again, step 3.",
+                "code": "kopia_off",
+                "params": []
+            }
+        ],
+        "notes": [
+            {
+                "level": "ok",
+                "step": "environment",
+                "items": [
+                    {
+                        "text": "Unraid 7.4.0-rc.1"
+                    }
+                ]
+            },
+            {
+                "level": "hint",
+                "step": "environment",
+                "code": "docker_off",
+                "items": [
+                    {
+                        "text": "Docker is switched off (Settings > Docker) - no apps to back up; shares, VMs and the flash as usual, offsite (Kopia) needs Docker",
+                        "params": []
+                    }
+                ]
+            },
+            {
+                "level": "ok",
+                "step": "environment",
+                "items": [
+                    {
+                        "text": "/mnt/user is mounted"
+                    }
+                ]
+            },
+            {
+                "level": "ok",
+                "step": "environment",
+                "items": [
+                    {
+                        "text": "zfs present"
+                    }
+                ]
+            },
+            {
+                "level": "ok",
+                "step": "environment",
+                "items": [
+                    {
+                        "text": "btrfs present"
+                    }
+                ]
+            },
+            {
+                "level": "ok",
+                "step": "environment",
+                "items": [
+                    {
+                        "text": "overlayfs present (shares across several bases)"
+                    }
+                ]
+            },
+            {
+                "level": "ok",
+                "step": "environment",
+                "items": [
+                    {
+                        "text": "Unraid notifications available"
+                    }
+                ]
+            },
+            {
+                "level": "ok",
+                "step": "environment",
+                "items": [
+                    {
+                        "text": "The office's plugin schedules the nightly run (no User Scripts needed)"
+                    }
+                ]
+            },
+            {
+                "level": "hint",
+                "step": "basis",
+                "code": "no_settings",
+                "items": [
+                    {
+                        "text": "No settings.ini yet - the proposals come from the system",
+                        "params": []
+                    }
+                ]
+            },
+            {
+                "level": "hint",
+                "step": "basis",
+                "code": "storeroom_ignored",
+                "items": [
+                    {
+                        "text": "Kopia leaves out Ms. Dustdevil's storeroom (_UnraidSecretaryOffice-trash) - the local snapshots keep it",
+                        "params": {
+                            "folder": "_UnraidSecretaryOffice-trash"
+                        }
+                    },
+                    {
+                        "text": "Kopia leaves out Ms. Dustdevil's storeroom under its new, hidden name (.UnraidSecretaryOffice-trash) - the local snapshots keep it",
+                        "params": {
+                            "folder": ".UnraidSecretaryOffice-trash"
+                        }
+                    }
+                ]
+            },
+            {
+                "level": "ok",
+                "step": "offsite",
+                "items": [
+                    {
+                        "text": "Without Kopia: local snapshots and dumps. Shares can be 'snapshot' or 'off'."
+                    }
+                ]
+            },
+            {
+                "level": "hint",
+                "step": "databases",
+                "code": "no_databases",
+                "items": [
+                    {
+                        "text": "No databases found",
+                        "params": []
+                    }
+                ]
+            },
+            {
+                "level": "hint",
+                "step": "databases",
+                "code": "no_nextcloud",
+                "items": [
+                    {
+                        "text": "No Nextcloud detected",
+                        "params": []
+                    }
+                ]
+            },
+            {
+                "level": "ok",
+                "step": "general",
+                "items": [
+                    {
+                        "text": "Backup place: /mnt/user/UnraidSecretaryOffice/backup"
+                    }
+                ]
+            },
+            {
+                "level": "hint",
+                "step": "general",
+                "code": "flash_snapshot_local",
+                "items": [
+                    {
+                        "text": "snapshot = local ZFS snapshot only (Kopia is off); tar = archive in the backup place",
+                        "params": []
+                    }
+                ]
+            },
+            {
+                "level": "hint",
+                "step": "kopia",
+                "code": "kopia_off",
+                "items": [
+                    {
+                        "text": "Kopia is off - skipped. To switch it on: setup.sh again, step 3.",
+                        "params": []
+                    }
+                ]
+            }
+        ],
+        "migrated": {},
+        "declined": {}
+    },
+    "time": 1792181936
+}
