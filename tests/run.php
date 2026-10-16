@@ -3730,6 +3730,28 @@ function testNoScriptNames(): void
     same('texts: no internal script names (*.sh) anywhere on the page', [], $hits);
 }
 
+function testPhpVarNames(): void
+{
+    // Tower 7.4 lab (2026-10-16): «"$k×$n"» is the variable `$k×` to PHP (bytes over 0x7F belong to a name) — a warning
+    // and an empty count in the log line; a variable glued to such a character is written «{$k}×»
+    $hits = [];
+    foreach ([OFFICE_DIR . '/agent', OFFICE_DIR . '/src'] as $root) {
+        foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS)) as $f) {
+            if (substr((string) $f, -4) !== '.php') {
+                continue;
+            }
+            // (Unraid's PHP has no tokenizer: line by line, comment lines and the part after « // » left out)
+            foreach (preg_split('/\n/', (string) file_get_contents((string) $f)) as $i => $line) {
+                $code = preg_replace('~\s//\s.*$~', '', $line);
+                if (!preg_match('~^\s*(?://|\*|/\*|#)~', $code) && preg_match('/\$[A-Za-z_][A-Za-z0-9_]*[\x80-\xFF]+/', $code, $m)) {
+                    $hits[] = substr((string) $f, strlen(OFFICE_DIR) + 1) . ':' . ($i + 1) . " $m[0]";
+                }
+            }
+        }
+    }
+    same('php: no variable name with a character over ASCII (a «×» or «…» glued to $x in a string)', [], $hits);
+}
+
 function testDetailsKept(): void
 {
     // ui-clicks (2026-10-09, Inbox #11, the UniFi guide that closed again): a desk draws its page anew often (a new
@@ -34286,6 +34308,17 @@ function testMoverelliStop(): void
     @unlink("$dir/night-stop.json");
     same('night stop at her start: the night\'s stop file holds for her job — stopped (3), nothing of Docs moved', [3, 'stopped', $before],
         [$exit, (readJson("$dir/status.json") ?? [])['result'] ?? null, count(glob("$tmp/mnt/cache/Docs/*"))]);
+    // Tower 7.4 lab (2026-10-16): her fill's cap became the night's target ($room) but one line still asked for $cap — a PHP
+    // warning after every real run, and inside a measured night her own «target missed» beside the night's
+    $warned = [];
+    set_error_handler(function (int $no, string $msg) use (&$warned): bool { $warned[] = $msg; return true; }, E_WARNING);
+    $GLOBALS['moverelliHost']['env']['MOVE_FAIL'] = '1';
+    moverelliJob(['run', '--office'], moverelliHost());
+    moverelliJob(['run', '--night', '--solo', '--fill-until=1', '--fill-pool=cache'], moverelliHost());
+    unset($GLOBALS['moverelliHost']['env']['MOVE_FAIL']);
+    restore_error_handler();
+    same('her real run (by the office, inside the night with a target): no undefined variable', [],
+        array_values(array_filter($warned, fn ($m) => str_contains($m, 'Undefined variable'))));
     unset($GLOBALS['disksIni']);
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php');
     check('no harder stop (Unraid\'s move catches TERM and finishes its file): no stop_now action, no kill', !str_contains($src, "'stop_now'") && !str_contains($src, 'moverelliKillMove')
@@ -38901,7 +38934,7 @@ function testFirstHome(): void
     hardeningRm($tmp);
 }
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',

@@ -213,7 +213,7 @@ function nightShift(): int
                 }
                 if ($r['added']) {
                     $kinds = array_count_values($r['added']);
-                    nightLog(count($r['added']) . ' new in the night\'s book (' . implode(', ', array_map(fn ($k, $n) => "$k×$n", array_keys($kinds), $kinds)) . ')');
+                    nightLog(count($r['added']) . ' new in the night\'s book (' . implode(', ', array_map(fn ($k, $n) => "{$k}×{$n}", array_keys($kinds), $kinds)) . ')');
                 }
                 foreach ($r['told'] as $t) {
                     nightLog("Unraid's notifications " . ($t['sent'] ? 'told' : 'could not be told') . " about {$t['n']} × {$t['kind']}");
