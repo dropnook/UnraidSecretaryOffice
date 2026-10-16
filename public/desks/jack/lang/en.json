@@ -643,7 +643,7 @@
   "count.days": {"one": "{n} day", "other": "{n} days"},
   "setup.media": "Media server",
   "setup.media_sub": "The media servers Jack Streamer looks after — several at once too, mixed as well.",
-  "setup.media_ok": "Works",
+  "setup.media_ok": "supported",
   "setup.soon": "Coming soon",
   "share.title": "Sharing the pool",
   "share.help": "Ms. Moverelli sets the pool's limit X in her setup; here it is shown as it is. Below X Jack Streamer lays out up to his budget; if not everything fits, he fetches less.",

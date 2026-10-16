@@ -643,7 +643,7 @@
   "count.days": {"one": "{n} Tag", "other": "{n} Tage"},
   "setup.media": "Medienserver",
   "setup.media_sub": "Die Medienserver, um die sich Jack Streamer kümmert — auch mehrere auf einmal, auch gemischt.",
-  "setup.media_ok": "Läuft",
+  "setup.media_ok": "unterstützt",
   "setup.soon": "Kommt bald",
   "share.title": "Den Pool teilen",
   "share.help": "Frau Moverelli legt die Grenze X des Pools in ihrer Einrichtung fest; hier steht sie, wie sie ist. Unter X legt Jack Streamer bis zu seinem Budget bereit; passt nicht alles, holt er weniger.",

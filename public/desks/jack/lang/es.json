@@ -643,7 +643,7 @@
   "count.days": {"one": "{n} día", "other": "{n} días"},
   "setup.media": "Servidor multimedia",
   "setup.media_sub": "Los servidores multimedia de los que se ocupa Jack Streamer — también varios a la vez, incluso mezclados.",
-  "setup.media_ok": "Funciona",
+  "setup.media_ok": "compatible",
   "setup.soon": "Próximamente",
   "share.title": "Compartir el pool",
   "share.help": "La señora Moverelli fija el límite X del pool y el desfase en su configuración; aquí se muestran tal cual. Por debajo de Y = X − desfase se reparte el espacio que dejan appdata & co.: una parte para Jack Streamer, el resto para los otros recursos compartidos con caché. Cada parte es un mínimo; cada lado puede tomar prestada como mucho la mitad de lo que el otro no usa.",

@@ -1881,8 +1881,8 @@ async function connectInst(inst) {
 }
 
 /**
- * The media server: Emby (what he works with), Plex and Jellyfin coming soon (greyed, not choosable). The names are the
- * products' own (not translated).
+ * The media servers he can work with: Emby, Jellyfin and Plex, each «supported» (what he can do — not whether one is
+ * installed here; the servers below say that). The names are the products' own (not translated).
  */
 function mediaChoice() {
   const box = el('div', 'jo-media');
