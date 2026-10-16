@@ -1683,5 +1683,7 @@
   "notify.kopia_emptied": "Snapshots am {when}: {before}, jetzt: {now} — nicht vom Sekretariat gelöscht. Wenn du das nicht selbst warst: nichts löschen, Object Lock hält die Daten womöglich noch; Herr Restori und der Berater zeigen, wie du sie zurückholst. Dieses Backup lädt alles neu hoch.",
   "warn_code.kopia_gone": "Die Kopie ausser Haus wurde geleert — Kopia kann das Repository nicht mehr öffnen, auch seine eigene Beschreibung fehlt (Snapshots am {when}: {before}); nicht vom Sekretariat gelöscht. Wenn du das nicht selbst warst: nichts löschen, Object Lock hält die Daten womöglich noch — Herr Restori und der Berater zeigen, wie du sie zurückholst. Bei diesem Backup ging nichts ausser Haus.",
   "notify.kopia_gone.subject": "Die Kopie ausser Haus wurde geleert",
-  "notify.kopia_gone": "Kopia kann das Repository nicht mehr öffnen — auch seine eigene Beschreibung fehlt (Snapshots am {when}: {before}); nicht vom Sekretariat gelöscht. Wenn du das nicht selbst warst: nichts löschen, Object Lock hält die Daten womöglich noch; Herr Restori und der Berater zeigen, wie du sie zurückholst."
+  "notify.kopia_gone": "Kopia kann das Repository nicht mehr öffnen — auch seine eigene Beschreibung fehlt (Snapshots am {when}: {before}); nicht vom Sekretariat gelöscht. Wenn du das nicht selbst warst: nichts löschen, Object Lock hält die Daten womöglich noch; Herr Restori und der Berater zeigen, wie du sie zurückholst.",
+  "check.docker_system": "Unraids Share system ist da – Docker braucht ihn",
+  "check.docker_system_how": "Es fehlt der Share system: dort legt Unraid das Docker-Image ab, ohne ihn laufen weder Docker noch Kopia. Der Teamchef sagt, wie er dazu kommt."
 }

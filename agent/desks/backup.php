@@ -2263,6 +2263,10 @@ function backupChecks(): array
         }
     }
     $out[] = finding('kopia', $level, $name !== null, ['name' => $name ?? 'kopia'], 'apps');
+    // Kopia runs in Docker, and Docker's image lies in Unraid's share system: missing, the Team Lead says what to do
+    if ($name === null && in_array('system', array_column(homeMissing()['missing'], 'share'), true)) {
+        $out[] = finding('docker_system', $level, false, ['share' => 'system'], '#/caretaker/todo');
+    }
     if ($name !== null) {
         $c = $containers[$name];
         $out[] = finding('kopia_running', $level, $c['running'], ['name' => $name], 'docker');

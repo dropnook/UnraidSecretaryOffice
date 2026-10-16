@@ -1683,5 +1683,7 @@
   "notify.kopia_emptied": "Snapshots on {when}: {before}, now: {now} — not deleted by the office. If that wasn't you: delete nothing, Object Lock may still hold the data; Mr. Restori and the Consultant show how to get it back. This run uploads everything anew.",
   "warn_code.kopia_gone": "The offsite copy was emptied — Kopia can't open the repository any more, its own description is gone too (snapshots on {when}: {before}); not deleted by the office. If that wasn't you: delete nothing, Object Lock may still hold the data — Mr. Restori and the Consultant show how to get it back. Nothing went offsite in this run.",
   "notify.kopia_gone.subject": "The offsite copy was emptied",
-  "notify.kopia_gone": "Kopia can't open the repository any more — its own description is gone too (snapshots on {when}: {before}); not deleted by the office. If that wasn't you: delete nothing, Object Lock may still hold the data; Mr. Restori and the Consultant show how to get it back."
+  "notify.kopia_gone": "Kopia can't open the repository any more — its own description is gone too (snapshots on {when}: {before}); not deleted by the office. If that wasn't you: delete nothing, Object Lock may still hold the data; Mr. Restori and the Consultant show how to get it back.",
+  "check.docker_system": "Unraid's share system is there — Docker needs it",
+  "check.docker_system_how": "The share system is missing: Unraid keeps Docker's image there, without it neither Docker nor Kopia runs. The Team Lead says how to get it."
 }

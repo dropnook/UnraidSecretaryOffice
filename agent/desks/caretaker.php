@@ -50,6 +50,8 @@ desk('caretaker', [
         'office_check'  => fn (array $r) => ['ok' => true, 'state' => caretakerScan(true)],
         'menu_name'     => fn (array $r) => caretakerMenuName(is_string($r['name'] ?? null) ? $r['name'] : '', textField($r, 'place')),
         'notify_set'    => fn (array $r) => caretakerNotifySet($r['on'] ?? null),
+        // Unraid's standard shares (system) on the user's click — only those missing and never there (lib/firsthome.php)
+        'shares_make'   => fn (array $r) => caretakerSharesMake(idList($r, 'shares')),
         'ack'           => fn (array $r) => caretakerAck($r['sig'] ?? null, true),
         'unack'         => fn (array $r) => caretakerAck($r['sig'] ?? null, false),
         // the pairing (since 1.60 the Team Lead only pairs: the levels in Mr. Backupsy's setup say what goes, the door
@@ -575,6 +577,14 @@ function caretakerChecks(): array
     // the data folder and the one above it: root's alone (review 2026-10-15) - the command shown, never run
     $trust = officeDataTrust(DATA_DIR, officeHomeIsOwn(DATA_DIR_USER));
     $out[] = finding('data_trust', 'recommended', $trust['ok'], ['paths' => implode(', ', $trust['paths']), 'cmd' => $trust['cmd']]);
+    // Unraid's standard shares (lib/firsthome.php): system holds Docker's image and libvirt's — without it neither Docker
+    // nor Kopia runs. A new one he offers to create (his card's button); one that was there and is gone: said, never made
+    $std = homeMissing();
+    $fresh = homeFreshNames($std['missing']);
+    $gone = array_values(array_diff(array_column($std['missing'], 'share'), $fresh));
+    $out[] = $gone
+        ? finding('std_shares_gone', 'recommended', false, ['shares' => implode(', ', $gone), 'n' => count($gone)], 'shares')
+        : finding('std_shares', 'recommended', !$fresh, ['shares' => implode(', ', $fresh), 'n' => count($fresh)]);
     $out[] = finding('community_apps', 'recommended', housePlugin('community.applications'), [], 'plugins');
     if (!in_array('advisor', staffHired(), true)) {      // once hired, the consultant looks after them
         $out[] = finding('fix_common_problems', 'recommended', housePlugin('fix.common.problems'), [], 'apps');
@@ -1183,4 +1193,27 @@ function caretakerMenuName(string $name, string $place): array
     }
     logLine("Menu entry: $name ($place)");
     return ['ok' => true, 'name' => $name, 'place' => $place, 'url' => officeMenuUrl($place)];
+}
+
+/**
+ * «Create system» on his card (std_shares): exactly the standard shares missing and never there right now (looked at
+ * again — anything else is refused, nothing made), by Unraid's own «Add Share» (lib/firsthome.php homeMakeAll()).
+ */
+function caretakerSharesMake(array $asked): array
+{
+    $fresh = homeFreshNames(homeMissing()['missing']);
+    $want = array_values(array_unique($asked));
+    sort($want);
+    sort($fresh);
+    if (!$want || $want !== $fresh) {
+        throw new Problem('home_stale');
+    }
+    $r = homeMakeAll($want);
+    foreach ($r['log'] as $line) {
+        logLine("Caretaker: $line");
+    }
+    if (!$r['ok']) {
+        throw new Problem($r['error']['key'], $r['error']['params']);
+    }
+    return ['ok' => true, 'made' => $r['made'], 'state' => caretakerScan()];
 }

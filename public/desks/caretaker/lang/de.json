@@ -524,5 +524,13 @@
   "partner.need_restori": "Um hier von einer Kopie zu starten, braucht es Herrn Restori.",
   "partner.hire_restori": "Herrn Restori einstellen",
   "partner.i_keep_start": "Herr Restori kann von diesen Kopien starten («Für {name} aufbewahrt» auf seiner Seite) — die Kopie einer VM oder App trägt seit Engine 2.43 ihre Konfiguration in sich; ältere Kopien nicht.",
-  "needs_away": "{name} käme gern — aber nur unter der Aufsicht von {with}, und sie kann hier nicht kommen."
+  "needs_away": "{name} käme gern — aber nur unter der Aufsicht von {with}, und sie kann hier nicht kommen.",
+  "open.shares": "⟦Shares⟧",
+  "check.std_shares": "Unraids Standard-Share system ist da (dort liegen das Docker-Image und die VM-Einstellungen)",
+  "check.std_shares_how": "Es fehlt: {shares}. Unraid legt ihn sonst erst an, wenn man Docker einschaltet – ohne ihn laufen weder Docker noch Kopia. Auf Klick legt der Hausbote ihn so an, wie Unraid es tut (nur auf dem Pool cache, ohne Pool auf dem Array); oder lege ihn selbst unter ⟦Shares⟧ an.",
+  "check.std_shares_gone": "Unraids Standard-Share {shares} ist da (dort liegen das Docker-Image und die VM-Einstellungen)",
+  "check.std_shares_gone_how": "{shares} gab es auf diesem Server schon und fehlt jetzt – ohne ihn laufen weder Docker noch Kopia. Den legt der Hausbote nicht neu an: hol den Ordner zurück oder lege den Share unter ⟦Shares⟧ wieder an.",
+  "shares_make_one": "{share} anlegen",
+  "shares_make_all": "Fehlende Standard-Shares anlegen",
+  "shares_made": {"one": "{shares} ist angelegt.", "other": "{shares} sind angelegt."}
 }

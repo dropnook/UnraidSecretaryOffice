@@ -125,6 +125,9 @@
 .notice.home{display:flex; flex-wrap:wrap; align-items:flex-start; gap:8px 12px; color:var(--ink); font-size:14px; padding:12px 14px}
 .notice.home img.desk-icon{width:34px; height:34px; flex:0 0 auto}
 .notice.home .home-text{flex:1 1 280px; min-width:0; overflow-wrap:anywhere}
+.notice.home .home-list{margin:6px 0 4px; padding-left:18px}
+.notice.home .home-list li{margin:2px 0}
+.notice.home .home-note{margin:4px 0 0}
 .notice.home .home-acts{flex:1 1 100%; display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; padding-left:46px}
 .notice.home .home-or{color:var(--muted); font-size:12.5px; flex:1 1 220px}
 .notice.home .home-error{flex:1 1 100%; margin:0; color:var(--danger)}

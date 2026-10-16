@@ -481,10 +481,12 @@ function makeDataDir(): bool
     if (!is_dir($appdata) || !@mkdir(DATA_DIR, 0755, true)) {
         return false;
     }
-    // the share made on the user's click (lib/firsthome.php): said in the log, which only now has a place
+    // the shares made on the user's click (lib/firsthome.php): said in the log, which only now has a place
     $made = readJson(officeHomeLookFile())['answer'] ?? null;
-    if (!empty($made['made']) && is_string($made['log'] ?? null)) {
-        logLine($made['log']);
+    foreach (is_array($made) && is_array($made['log'] ?? null) ? $made['log'] : [] as $line) {
+        if (is_string($line)) {
+            logLine($line);
+        }
     }
     logLine('Created the data folder ' . DATA_DIR);
     @unlink(officeHomeLookFile());

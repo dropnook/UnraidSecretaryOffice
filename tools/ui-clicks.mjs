@@ -561,13 +561,15 @@ async function dialogStack(browser, harness) {
   return res;
 }
 // ------------------------------------------------------------------ a fresh server's first start (2026-10-16)
-// No appdata share (Docker never on): the messenger waits without his data folder. The page welcomes (the Team Lead's
-// icon, «Create appdata», «First start» in the top line) instead of the careful «missing» text, both themes at 1440 and
-// 375 px, nothing scrolls sideways; the click posts office.home_make for exactly that share and shows the wave; once
+// No appdata and no system share (Docker never on): the messenger waits without his data folder. The page welcomes (the
+// Team Lead's icon, both shares listed, the VMs' named, «Create missing standard shares», «First start» in the top line)
+// instead of the careful «missing» text, both themes at 1440 and 375 px, nothing scrolls sideways; the click posts
+// office.home_make for exactly those shares and shows the wave; once
 // he is at work the page loads anew and the reception is back. A share that was there and is gone keeps the careful
 // text, without a button. On a harness of its own (the messenger away there).
 const NO_HOME = (fresh, answer) => ({ running: false, no_data: { array: 'Started', dir: '/mnt/user/appdata/UnraidSecretaryOffice/data',
-  appdata: '/mnt/user/appdata', home: { share: 'appdata', fresh, pool: 'cache', answer: answer || null } } });
+  appdata: '/mnt/user/appdata', home: { share: 'appdata', fresh, pool: 'cache', answer: answer || null,
+    missing: [{ share: 'appdata', fresh }, { share: 'system', fresh: true }], optional: ['domains', 'isos'] } } });
 async function firstHome(browser) {
   const res = { route: 'first start', theme: 'both', width: 0, tested: 0, skipped: 0, capped: 0, hidden: 0, sections: 0, fails: [], ms: 0 };
   const t0 = Date.now();
@@ -588,9 +590,12 @@ async function firstHome(browser) {
         const look = await page.evaluate(() => ({ title: (document.querySelector('#sso-notice.home strong') || {}).textContent,
           button: (document.querySelector('#sso-notice.home .home-acts .btn') || {}).textContent,
           label: document.querySelector('#sso-state-label').textContent, icon: !!document.querySelector('#sso-notice.home img.desk-icon'),
+          listed: [...document.querySelectorAll('#sso-notice.home .home-list li strong')].map((n) => n.textContent).join(','),
+          optional: /domains, isos/.test(document.querySelector('#sso-notice.home').textContent),
           wide: document.documentElement.scrollWidth > innerWidth + 1, cards: document.querySelectorAll('.reception .desk-card').length }));
         res.tested++;
-        if (look.title !== 'Welcome to the office!' || look.button !== 'Create appdata' || look.label !== 'First start' || !look.icon || look.cards) {
+        if (look.title !== 'Welcome to the office!' || look.button !== 'Create missing standard shares' || look.label !== 'First start' || !look.icon
+          || look.cards || look.listed !== 'appdata,system' || !look.optional) {
           fail(`${theme} ${width}: the welcome is not as it should be (${JSON.stringify(look)})`);
         }
         if (look.wide) fail(`${theme} ${width}: the page scrolls sideways`);
@@ -601,7 +606,7 @@ async function firstHome(browser) {
           const post = h.posts.slice(before).find((p) => p.action === 'office.home_make');
           const wave = await page.evaluate(() => { const w = document.querySelector('#sso-notice.home .home-acts .spin'); return !!w && getComputedStyle(w).display !== 'none' && !document.querySelector('#sso-notice.home .home-acts .btn'); });
           res.tested++;
-          if (!post || post.data.share !== 'appdata') fail(`the click did not post office.home_make for appdata (${JSON.stringify(post || null)})`);
+          if (!post || JSON.stringify(post.data.shares) !== '["appdata","system"]') fail(`the click did not post office.home_make for appdata and system (${JSON.stringify(post || null)})`);
           if (!wave) fail('after the click: no wave, or the button still there');
           // he made it and is at work: the page loads anew, the reception is back
           h.setAgent(null);

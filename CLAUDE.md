@@ -76,8 +76,8 @@ tests/ tools/          run.php, node tests, ui/ (harness, stubs, demo/); release
   those helpers. A path through /mnt/user may touch every disk of the share — check all its parts first.
 * **Nothing directly in /mnt** (Fix Common Problems): mounts under `/mnt/addons/UnraidSecretaryOffice/…` (RAM), desk data in the
   share `UnraidSecretaryOffice/<desk>/`. **The office never creates (or deletes) a share** — the user does (⟦Shares⟧); the
-  office says which and why. One exception: a fresh server's appdata (never there), only on the welcome's click, by Unraid's
-  own «Add Share» (agent/lib/firsthome.php).
+  office says which and why. One exception: Unraid's standard shares appdata/system when never there, only on the user's click
+  (the welcome, the Team Lead's card), by Unraid's own «Add Share» (agent/lib/firsthome.php).
 * **Never block the array stop:** nothing kept open in the pool (doorbell, heartbeat in `RUN_DIR`); the night shift never opens
   anything under `/mnt` (cwd `/`).
 * **Never delete right away** what the user may want back (storeroom, set-aside). Backups keep copies on purpose (the office's
