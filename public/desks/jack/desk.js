@@ -246,10 +246,10 @@ function runSummary(r) {
   // stopped after the file it was on: Unraid's mover started (jack-mover.php), or asked on his panel («Stop after this file»)
   const stopped = s.result === 'stopped' ? T(r.why === 'user' ? 'stopped_user_summary' : 'stopped_mover_summary') + ' · ' : '';
   // everything back to the array when he was let go (jack-letgo.php)
-  if ((s.mode || r.mode) === 'release') return stopped + T('release_summary', { back: c.done || 0, planned: c.planned || 0, origin: c.to_origin || 0, left: s.protected || 0 });
+  if ((s.mode || r.mode) === 'release') return stopped + T('release_summary', { back: c.done || 0, planned: c.planned || 0, left: s.protected || 0 });
   const key = (s.mode || r.mode) === 'run' ? 'run_summary' : 'dry_summary';
   const files = (n) => (key === 'dry_summary' ? nOf('files', n) : n || 0);     // «would bring 1 file back»; the run's «1 of 3» stays a number
-  return stopped + T(key, { back: c.done || 0, back_planned: files(c.planned), origin: c.to_origin || 0,
+  return stopped + T(key, { back: c.done || 0, back_planned: files(c.planned),
     fill: f.done || 0, fill_planned: files(f.planned), fill_size: fmt.size(f.bytes_planned || 0) });
 }
 
@@ -355,7 +355,6 @@ function bubbleText() {
   if (state.jobs.embycache.running) return T('bubble.running');
   if (state.gather.waiting) return T(state.gather.waiting.why === 'mover' ? 'bubble.mover_waiting' : 'bubble.gather_waiting');
   if (!moverOk()) return T('bubble.mover_dry');
-  if (!state.gather.ready) return T('bubble.gather_first');
   const c = state.cache;
   const parts = [c.files ? T('bubble.on_pool', { n: c.files, size: fmt.size(c.bytes) }) : T('bubble.nothing_yet')];
   if (!jackSched().enabled) parts.push(T('bubble.no_schedule'));
@@ -419,7 +418,6 @@ function render() {
     [T('mode.dry'), T('help.dry')],
     [T('mode.run'), T('help.run')],
     [T('help.progress'), T('help.progress_text')],
-    [T('help.origin'), T('help.origin_text')],
     [T('gather'), T('help.gather_text')],
     [T('help.watch'), T('help.watch_text')],
     [T('help.shares'), T('help.shares_text')],
@@ -924,19 +922,18 @@ function shareSection() {
   return s;
 }
 
-/** The gather: once before the first real run, then on its own schedule */
+/** The gather: an optional helper (2026-10-16) — fewer disks wake when films go back and forth; no run waits for it */
 function gatherSection() {
   const g = state.gather;
-  const s = section(T('gather'), T('gather_sub'), g.ready ? chip(T('gather_ready'), 'ok') : chip(T('gather_not_ready'), 'warn', T('gather_not_ready_tip')),
+  const s = section(T('gather'), T('gather_sub'), g.ready ? chip(T('gather_ready'), 'ok') : chip(T('gather_not_ready'), 'quiet', T('gather_not_ready_tip')),
     { place: 'gather' });
   const set = g.settings;
   if (!set || !set.shares.length) {
-    const p = el('p', 'callout', T('gather_unset') + ' ');
+    const p = el('p', 'role', T('gather_unset') + ' ');
     p.appendChild(button(T('gather_cfg_open'), 'small', gatherSettingsDialog)).disabled = !Office.agent.running;
     s.appendChild(p);
     return s;
   }
-  if (!g.ready) s.appendChild(el('p', 'callout', T('gather_first')));
   if (g.waiting && g.waiting.why === 'mover') {
     s.appendChild(moverWaitLine(g.waiting));
   } else if (g.waiting) {
@@ -1043,7 +1040,7 @@ function fillRuns(box) {
 /** A film or series folder's name as the page shows it (dots as spaces) */
 const poolName = (g) => String(g.title || '').replace(/\./g, ' ');
 /** Its words for the filter: the name (as shown and as on disk), the library, the disks it goes back to */
-const poolHay = (g) => [poolName(g), g.title, g.share, ...(Array.isArray(g.origin) ? g.origin : [])];
+const poolHay = (g) => [poolName(g), g.title, g.share];
 
 /**
  * «Ready on the pool» as his page lists it — no DOM (the tests run it under node). groups: what his state holds
@@ -1072,8 +1069,6 @@ function poolRow(g, most) {
   const meta = el('div', 'row-meta');
   meta.append(chip(g.share, 'quiet'), el('span', '', T('files_n', { n: Number(g.files) || 0 })));
   if (typeof g.bytes === 'number') meta.appendChild(el('span', '', fmt.size(g.bytes)));
-  if (Array.isArray(g.origin) && g.origin.length) meta.appendChild(chip(T('origin', { disks: g.origin.join(', ') }), 'quiet', T('origin_tip')));
-  else meta.appendChild(chip(T('origin_unknown'), 'quiet', T('origin_unknown_tip')));
   if (g.since) meta.appendChild(el('span', '', T('pool.since', { date: fmt.date(g.since) })));
   main.appendChild(meta);
   const bar = el('div', 'bar thin jo-bar');
@@ -1156,11 +1151,10 @@ function radioList(name, options, current, onchange) {
 async function chooseRun() {
   if (!(await Office.freshState(ID))) return;
   let mode = 'dry';
-  const ready = state.gather.ready;
   const free = moverOk();
   const box = radioList('jo-mode', [
     ['dry', T('mode.dry'), T('mode_hint.dry')],
-    ['run', T('mode.run'), !free ? T('mode_hint.run_mover') : ready ? T('mode_hint.run') : T('mode_hint.run_gather'), !ready || !free],
+    ['run', T('mode.run'), !free ? T('mode_hint.run_mover') : T('mode_hint.run'), !free],
   ], mode, (m) => { mode = m; });
   // with Ms. Moverelli: the real run is the night run for both; the dry run for both lives on her schedule's row
   let dlg = null;
@@ -1455,7 +1449,6 @@ function initForm() {
       max_resume_series: set.max_resume_series ?? set.max_resume_items ?? 10,
       max_favorite_series: set.max_favorite_series ?? 10,
       use_next_up: set.use_next_up ?? true,
-      return_to_origin: set.return_to_origin ?? false,     // an option, MediaCache's way off (a migrated setup keeps its own)
       array_source: set.array_source || 'user0',
     },
   };
@@ -1564,7 +1557,7 @@ function saveBar() {
   foot.append(save, why);
   saveGate = () => {
     const r = running() ? T('setup.save_running') : setupBlocked();
-    why.textContent = r || T('setup.save_hint');
+    why.textContent = r || poolChangeWarning() || T('setup.save_hint');
     why.classList.toggle('jo-save-no', !!r);
     save.disabled = !!r || !Office.agent.running;
   };
@@ -1625,8 +1618,8 @@ function setupStep(id) {
 
 /** The people of all connected servers, each once */
 const everyone = () => [...new Set(form.instances.flatMap((inst) => (inst.users || []).map((u) => u.id)))];
-/** The way back and reading from the array as they come (EmbyCache's defaults) */
-const MORE_DEFAULTS = { return_to_origin: false, array_source: 'user0' };
+/** Reading from the array as it comes (MediaCache's default); the way back is always Unraid's move binary (1.65.0) */
+const MORE_DEFAULTS = { array_source: 'user0' };
 
 /**
  * His setup's tiles, pure (no DOM): [{id, key, value, sub: [text], alert}] in the parts' order — the servers (how many,
@@ -1940,6 +1933,11 @@ function setupBlocked() {
   if (!form) return '';
   if (!connected()) return form.instances.some(needsConnect) ? '' : T('setup.connect_first');      // «Save» connects what is typed
   if (!(budgetGb(form.values.cache_budget) > 0)) return T('setup.budget_missing');
+  // never more than the pool holds (the lab, 2026-10-16)
+  const size = (state.pool_sizes || {})[derivedPool()];
+  if (size > 0 && budgetGb(form.values.cache_budget) * 1024 ** 3 > size) {
+    return T('setup.budget_pool', { pool: derivedPool(), size: fmt.size(size) });
+  }
   const sp = budgetState();
   return sp && sp.bad ? T('setup.users_budget_block', { step: T('setup.users'), min: gbSize(MIN_PERSON_GB) }) : '';
 }
@@ -1964,9 +1962,22 @@ function budgetLine() {
 }
 
 /** The libraries and their folders on the pool — each share with its primary pool (read only, Unraid's share settings) */
+/**
+ * The pool would change while files of his lie on the old one (the lab, 2026-10-16): MediaCache looks only on its pool —
+ * what lies on the old one would stay there, found by nobody. Said before «Save», with the way out. '' when not so.
+ */
+function poolChangeWarning() {
+  const old = (state.settings && state.settings.cache_path) || '';
+  const now = derivedPool();
+  const n = (state.cache && state.cache.files) || 0;
+  return state.configured && old && now && old !== now && n > 0 ? T('setup.pool_change', { old, new: now, n, tick: T('letgo.tick') }) : '';
+}
+
 function setupLibraries() {
   if (!connected()) return notYet();
   const s2 = el('div', 'jo-part-body');
+  const moving = poolChangeWarning();
+  if (moving) s2.appendChild(el('p', 'callout warn', moving));
   const box2 = el('div', 'box');
   const cache = derivedPool();
   libraryList().forEach((lib) => {
@@ -2189,7 +2200,6 @@ function setupMore() {
   const v = form.values;
   const s5 = el('div', 'jo-part-body');
   const f5 = el('div', 'jo-form');
-  f5.appendChild(check(T('setup.origin'), v.return_to_origin, (x) => { v.return_to_origin = x; }, T('setup.origin_hint')));
   f5.appendChild(field(T('setup.array_source'), select(v, 'array_source', [['user0', T('setup.source_user0')], ['disk', T('setup.source_disk')]]), T('setup.array_source_hint')));
   f5.appendChild(el('p', 'role', T('setup.fixed_paths')));
   s5.appendChild(f5);
@@ -2313,7 +2323,7 @@ function importLists(box, part, sameText) {
 
 function importEmbyCache(p) {
   const box = el('div', 'jo-imp');
-  const files = Object.entries(p.found).filter(([, on]) => on).map(([k]) => ({ settings: 'mediacache_settings.json', exclude: 'mediacache_exclude.txt', origin: 'mediacache_origin.json' })[k]);
+  const files = Object.entries(p.found).filter(([, on]) => on).map(([k]) => ({ settings: 'mediacache_settings.json', exclude: 'mediacache_exclude.txt' })[k]);
   box.appendChild(el('p', 'role', files.length ? T('import.found', { files: files.join(', ') }) : T('import.found_none')));
   if (p.blockers.length) box.appendChild(importList(p.blockers.map((b) => [T('import.block.' + b.key, b.params || {}), undefined, 'error'])));
   p.instances.forEach((inst) => {
@@ -2335,7 +2345,7 @@ function importEmbyCache(p) {
     box.appendChild(kv);
   }
   importLists(box, p, p.same ? T('import.same', { n: p.same }) : '');
-  if (p.exclude || p.origin) {
+  if (p.exclude) {
     box.appendChild(importHead(T('import.on_pool')));
     if (p.exclude) {
       const kv = el('dl', 'kv');
@@ -2345,13 +2355,6 @@ function importEmbyCache(p) {
       if (p.exclude.bad) kv.append(el('dt', '', T('import.list_bad')), el('dd', 'warn-text', String(p.exclude.bad)));
       box.appendChild(kv);
       if (p.exclude.bad_sample.length) box.appendChild(importList(p.exclude.bad_sample.map((l) => [l, undefined, 'jo-imp-warn'])));
-    }
-    if (p.origin) {
-      const kv = el('dl', 'kv');
-      kv.append(el('dt', '', T('import.origin_old')), el('dd', '', String(p.origin.ok)),
-        el('dt', '', T('import.origin_after')), el('dd', '', String(p.origin.total)));
-      if (p.origin.bad) kv.append(el('dt', '', T('import.list_bad')), el('dd', 'warn-text', String(p.origin.bad)));
-      box.appendChild(kv);
     }
   }
   (p.warnings || []).forEach((w) => box.appendChild(el('p', 'callout warn', T('import.warn.' + w.key, w.params || {}))));
@@ -2411,7 +2414,6 @@ function importDone(d) {
   const what = [];
   if (d.settings) what.push(T('import.done_settings'));
   if (d.exclude !== null) what.push(T('import.done_list', { n: d.exclude }));
-  if (d.origin !== null) what.push(T('import.done_origin', { n: d.origin }));
   if (d.gather) what.push(T('import.done_gather'));
   if (what.length) box.appendChild(importList(what.map((w) => [w])));
   const still = (state.foreign || []).filter((f) => f.enabled);
@@ -2528,7 +2530,6 @@ async function saveSetup(e) {
     max_favorite_series: v.max_favorite_series,
     use_next_up: v.use_next_up,
     movie_mode: 'folder',          // always the whole folder: subtitles, preview images, nfo, extras
-    return_to_origin: v.return_to_origin,
     array_source: v.array_source,
   };
   const j = await act('save', { settings });
@@ -2767,7 +2768,6 @@ Office.desk({
       facts.push(T('fact.pool', { n: state.cache.files, size: fmt.size(state.cache.bytes) }));
       const { main } = lastRuns(state.history);          // as «Last run» on his page says it
       if (main && main.finished) facts.push(T('fact.last', { when: fmt.relative(main.finished) }));
-      if (!state.gather.ready) facts.push(T('fact.gather_first'));
     } else {
       facts.push(T('fact.setup'));
     }
@@ -2810,7 +2810,7 @@ Office.places(ID, [
   ...SETUP_TILES.map(([id, key]) => ({ kind: 'tile', key, anchor: `setup.tile.${id}`, ...SETUP, route: `#/${ID}/setup/${id}` })),
   ...[['report', 'help.report'], ['mode.dry', 'help.dry'], ['mode.run', 'help.run'], ['gather', 'help.gather_text']]
     .map(([key, text]) => ({ kind: 'help', key, text })),
-  ...['what', 'tools', 'progress', 'origin', 'watch', 'shares', 'sizes', 'pool', 'schedule', 'letgo'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
+  ...['what', 'tools', 'progress', 'watch', 'shares', 'sizes', 'pool', 'schedule', 'letgo'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
   ...[['import.title', 'import.help'], ['setup.key', 'setup.help_key'], ['setup.mapping', 'setup.help_mapping'], ['setup.users', 'setup.help_users'],
     ['setup.scope', 'setup.help_scope'], ['setup.more', 'setup.help_more'], ['share.title', 'share.help'], ['setup.save', 'setup.help_save']]
     .map(([key, text]) => ({ kind: 'help', key, text, ...SETUP })),

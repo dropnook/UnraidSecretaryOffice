@@ -2,7 +2,6 @@
   "keys": [
     "gather",
     "help.letgo",
-    "help.origin",
     "help.pool",
     "help.progress",
     "help.schedule",
@@ -37,7 +36,6 @@
     "help.dry",
     "help.gather_text",
     "help.letgo_text",
-    "help.origin_text",
     "help.pool_text",
     "help.progress_text",
     "help.report",

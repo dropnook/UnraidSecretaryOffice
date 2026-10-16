@@ -16,11 +16,8 @@
 >   (`Locations(…, skip)`), the longest mapping wins — never a shorter one. An answer without an item list, a server
 >   without users, or a claimed Plex whose shared users plex.tv didn't give is an incomplete plan (no cleanup that run),
 >   never «nothing watched». `PlexApi.resume_items` honours `IncludeItemTypes` (the separate limits below).
-> * **Back to the origin disk** (`return_to_origin`, an option, **off by default** — MediaCache's own way back): when on,
->   filling remembers each file's array disk (`system.LOCATION`, `mediacache_origin.json`) and the cleanup rsyncs it
->   straight back to `/mnt/diskN/<rel>` when the disk still belongs to the share and keeps the share's minimum free space,
->   else `cleanup_tool`; the emptied folder on the disk stays as a signpost. Setups migrated from the office's EmbyCache
->   keep the value they had.
+> * (Gone in 1.65.0, the owner: the office's «back to the disk they came from» — Unraid's share rules and its move binary
+>   decide where a file goes back; an old `mediacache_origin.json` stays in the data folder, unused.)
 > * Separate limits for started films and series (`max_resume_movies`, `max_resume_series`; default `max_resume_items`).
 > * `MEDIACACHE_RESULT`: a JSON file with the result of a run (mode, counts, warnings, errors, `pool`, `give_back`).
 > * `--release` (mode `release`): everything on the exclude list goes back to the array the cleanup's way, nothing is

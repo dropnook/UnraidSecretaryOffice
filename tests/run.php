@@ -820,6 +820,9 @@ function testJack(): void
     }
     same('a server\'s key header by kind (Jellyfin 10.9+: Authorization)', ['X-Emby-Token: k1', 'Authorization: MediaBrowser Token="k1"', 'X-Plex-Token: k1'],
         [jackKeyHeader('emby', 'k1'), jackKeyHeader('jellyfin', 'k1'), jackKeyHeader('plex', 'k1')]);
+    same('plex.tv shared servers: ids and names only — never a token or an address', [['id' => '2902501', 'name' => 'friend & co', 'admin' => false]],
+        jackPlexShared('<MediaContainer><SharedServer id="1" username="friend &amp; co" email="x@example.org" userID="2902501" accessToken="secrettoken"/>'
+            . '<SharedServer id="2" username="nouser"/></MediaContainer>'));
     same('a stored server without a kind is Emby (MediaCache\'s default)', ['emby', 'plex', 'emby'], [jackType(null), jackType('Plex'), jackType('kodi')]);
     same('Plex\'s token letters are a key; a space or a quote never', [true, true, false, false],
         array_map(fn ($k) => (bool) preg_match(JACK_KEY, $k), ['abcdef0123456789abcdef0123456789', 'xY-z_12345678AbCdEfGh', 'abc def12345', 'abc"12345678']));
@@ -1302,8 +1305,9 @@ function testJackPool(): void
     $c = jackCacheStats(['cache_path' => "$tmp/pool"], "$tmp/data");
     $first = $c['groups'][0] ?? [];
     same('pool list: every folder — nothing cut (251, the old cut was 200)', [252, 251], [$c['files'], count($c['groups'])]);
-    same('pool list: newest first, a folder\'s files and bytes, the disk it goes back to', ['Serien', 'Die.Serie', 2, 3000, ['disk3']],
-        [$first['share'] ?? null, $first['title'] ?? null, $first['files'] ?? null, $first['bytes'] ?? null, $first['origin'] ?? null]);
+    // 1.65.0: no «disk it goes back to» any more — Unraid's share rules decide; an old origin file is not read
+    same('pool list: newest first, a folder\'s files and bytes (no origin, an old origin file unread)', ['Serien', 'Die.Serie', 2, 3000, false],
+        [$first['share'] ?? null, $first['title'] ?? null, $first['files'] ?? null, $first['bytes'] ?? null, array_key_exists('origin', $first)]);
     check('pool list: since = when its newest file came onto the pool (ctime)', ($first['since'] ?? 0) === filectime("$tmp/pool/Serien/Die.Serie/e2.mkv")
         && ($c['groups'][1]['since'] ?? PHP_INT_MAX) < $first['since']);
     same('pool list: the same time — by name', ['Film.001', 'Film.002'], [$c['groups'][1]['title'] ?? null, $c['groups'][2]['title'] ?? null]);
@@ -1361,7 +1365,7 @@ let v = e.poolView(g, { lib: '', words: [], shown: 30 });
 out.all = [v.libs, v.rows.length, v.shown, names(v).slice(0, 3), names(v).slice(-3)];
 v = e.poolView(g, { lib: 'Filme', words: [], shown: 30 });
 out.lib = [names(v), v.shown];
-out.words = ['amelie', 'disk3', 'serie 07', 'filme zorro', 'serien disk1 zz'].map((w) => names(e.poolView(g, { lib: '', words: W(w), shown: 30 })));
+out.words = ['amelie', 'film amelie', 'serie 07', 'filme zorro', 'serien disk1 zz'].map((w) => names(e.poolView(g, { lib: '', words: W(w), shown: 30 })));
 out.libWords = names(e.poolView(g, { lib: 'Serien', words: W('alien'), shown: 30 }));
 out.shown = [e.poolView(g, { lib: '', words: [], shown: 60 }).shown, e.poolView([], { lib: '', words: [], shown: 30 })];
 out.since = names(e.poolView(g, { lib: '', words: [], since: 1035, shown: 30 }));
@@ -1412,16 +1416,16 @@ JS);
     same('pool view: the libraries with counts, newest first, those without a time by name at the end, 30 shown', [[['Filme', 3], ['Serien', 40]], 43, 30,
         ['Serie.40', 'Serie.39', 'Serie.38'], ['Amélie.2001', 'Alien', 'Zorro']], $r['all'] ?? null, $raw);
     same('pool view: one library', [['Amélie.2001', 'Alien', 'Zorro'], 3], $r['lib'] ?? null, $raw);
-    same('pool view: the words — a name without accents, a disk, a name with dots as spaces, a library and a name, a word that meets nothing',
+    same('pool view: the words — a name without accents, a library and a name, a name with dots as spaces, a library and a name, a word that meets nothing',
         [['Amélie.2001'], ['Amélie.2001'], ['Serie.07'], ['Zorro'], []], $r['words'] ?? null, $raw);
     same('pool view: the words within the library', [], $r['libWords'] ?? null, $raw);
     same('pool view: more shown; nothing there', [43, ['libs' => [], 'rows' => [], 'shown' => 0]], $r['shown'] ?? null, $raw);
     same('pool view: «only new» — what came onto the pool from then on', ['Serie.40', 'Serie.39', 'Serie.38', 'Serie.37', 'Serie.36', 'Serie.35'], $r['since'] ?? null, $raw);
     same('pool page: the library of the old key taken over once (the old key gone), the bar starts with it', ['Filme', null, 'Filme'], $r['migrated'] ?? null, $raw);
-    same('pool page: 30 rows, «Show 13 more», the select with counts, a row: library, files, size beside them, the disk, since when; «43 of 43», the switch there; the bar in the section', [30,
+    same('pool page: 30 rows, «Show 13 more», the select with counts, a row: library, files, size beside them, since when; «43 of 43», the switch there; the bar in the section', [30,
         'pool.more {"n":13}', [['Filme', 'Filme', 3], ['Serien', 'Serien', 40]],
-        ['Serien', 'files_n {"n":16}', '40000B', 'origin {"disks":"disk1"}', 'pool.since {"date":"D1040"}'], [43, 43, true], true, 'jo-pool'], $r['section'] ?? null, $raw);
-    same('pool page: a row of an older agent — no size, no time', ['Alien', 'Filme', 'files_n {"n":2}', 'origin_unknown'], $r['noSize'] ?? null, $raw);
+        ['Serien', 'files_n {"n":16}', '40000B', 'pool.since {"date":"D1040"}'], [43, 43, true], true, 'jo-pool'], $r['section'] ?? null, $raw);
+    same('pool page: a row of an older agent — no size, no time', ['Alien', 'Filme', 'files_n {"n":2}'], $r['noSize'] ?? null, $raw);
     same('pool page: «Show more» — all 43, no button left', [43, null], $r['more'] ?? null, $raw);
     same('pool page: the words narrow it (accents folded, «1 of 43»)', [1, 'Zorro', [1, 43, true]], $r['search'] ?? null, $raw);
     same('pool page: the library narrows it', [3, [3, 43, true]], $r['pick'] ?? null, $raw);
@@ -1544,7 +1548,7 @@ function testJackImport(): void
     $json = json_encode($p, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     check('import preview: the old API key never in it', !str_contains($json, $key), $json);
     check('import preview: Jack\'s own API key never in it', !str_contains($json, $jackKey));
-    same('import preview: the files found', ['settings' => true, 'exclude' => true, 'origin' => true], $e['found']);
+    same('import preview: the files found (an old origin list no longer taken over, 1.65.0)', ['settings' => true, 'exclude' => true], $e['found']);
     same('import preview: nothing stops it', [[], []], [$e['blockers'], $p['gather']['blockers']]);
     check('import preview: ready, with a token', $p['ready'] === true && strlen($p['token']) === 40);
     same('import preview: the key found (no value)', 'found', $e['instances'][0]['key']);
@@ -1552,7 +1556,7 @@ function testJackImport(): void
     // keys 7.2.1 didn't have: Jack's current value stays; without one, Jack's own default (max_resume_*: the old max_resume_items)
     same('import preview: keys the old install lacks — Jack\'s value stays, else his default',
         [['key' => 'max_resume_movies', 'kept' => true, 'value' => 1], ['key' => 'max_resume_series', 'kept' => false, 'value' => 8],
-         ['key' => 'return_to_origin', 'kept' => false, 'value' => false]], $e['defaults']);      // an option, off (MediaCache's way)
+        ], $e['defaults']);
     $jackSet = array_column($e['jack'], 'new', 'key');
     same('import preview: Jack\'s values for what runs or isn\'t valid', ['mover_bin' => '', 'rsync_args' => ['-aAX', '--numeric-ids']],
         array_intersect_key($jackSet, ['mover_bin' => 1, 'rsync_args' => 1]));
@@ -1569,7 +1573,7 @@ function testJackImport(): void
     same('import preview: people', ['n' => 3, 'budgets' => 1, 'bad' => 2], $e['users']);
     same('import preview: the list', ['lines' => 10, 'ok' => 3, 'bad' => 6, 'already' => 1, 'mine' => 2, 'total' => 4],
         array_diff_key($e['exclude'], ['bad_sample' => 1]));
-    same('import preview: the origins', ['entries' => 5, 'ok' => 2, 'bad' => 3, 'already' => 1, 'total' => 3, 'unreadable' => false], $e['origin']);
+    check('import preview: no origins any more', !array_key_exists('origin', $e));
     $g = $p['gather'];
     same('import preview: the gather\'s shares', ['Filme', 'Serien'], $g['shares']);
     same('import preview: shares left out and why', [['/mnt/user/Filme/Sub', 'not_share'], ['/mnt/user/Gone', 'missing'], ['/data/x', 'outside']],
@@ -1589,32 +1593,31 @@ function testJackImport(): void
     check('import: Jack\'s list changed meanwhile — another token', jackImportPlan($old, '/mnt/user/system/scripts/consolidate', $ctx)['preview']['token'] !== $p['token']);
     $plan = jackImportPlan($old, '/mnt/user/system/scripts/consolidate', $ctx);
     $before = ['settings' => file_get_contents("$jack/embycache/mediacache_settings.json"), 'exclude' => file_get_contents("$jack/embycache/mediacache_exclude.txt"),
-               'origin' => file_get_contents("$jack/embycache/mediacache_origin.json"), 'gather' => file_get_contents("$jack/gather/gather.json")];
+               'gather' => file_get_contents("$jack/gather/gather.json")];
     $done = jackImportApply($plan['do'], $ctx);
     check('import done: the API key never in the answer', !str_contains(json_encode(jackImportScrub($done, $plan['secrets'])), $key));
     $copies = array_map(fn ($f) => basename($f), $done['backups']);
     same('import done: copies of Jack\'s files', array_map(fn ($n) => "$n.before-import-{$done['stamp']}",
-        ['mediacache_settings.json', 'mediacache_exclude.txt', 'mediacache_origin.json', 'gather.json', 'consolidate.ini'])[0], $copies[0] ?? null);
-    same('import done: copies of all five (consolidate.ini only if it was there)', 4, count($copies));
+        ['mediacache_settings.json', 'mediacache_exclude.txt', 'gather.json', 'consolidate.ini'])[0], $copies[0] ?? null);
+    same('import done: copies of all four (consolidate.ini only if it was there)', 3, count($copies));
     same('import done: the copies hold what Jack had', $before, [
         'settings' => (string) @file_get_contents("$jack/embycache/mediacache_settings.json.before-import-{$done['stamp']}"),
         'exclude' => (string) @file_get_contents("$jack/embycache/mediacache_exclude.txt.before-import-{$done['stamp']}"),
-        'origin' => (string) @file_get_contents("$jack/embycache/mediacache_origin.json.before-import-{$done['stamp']}"),
         'gather' => (string) @file_get_contents("$jack/gather/gather.json.before-import-{$done['stamp']}")]);
     same('import done: copies are root\'s only', '600', substr(sprintf('%o', fileperms($done['backups'][0])), -3));
     $s = json_decode((string) file_get_contents("$jack/embycache/mediacache_settings.json"), true);
     same('import done: the old key stays on the server', $key, $s['instances'][0]['api_key'] ?? null);
     same('import done: settings as shown (the way back MediaCache\'s move binary, filling rsync)',
         [$pool, 15, '', ['-aAX', '--numeric-ids'], false, '/mnt/user0', '2.5T', [], 1, 8, 'mover', 'rsync'],
-        [$s['cache_path'], $s['min_free_percent'], $s['mover_bin'], $s['rsync_args'], $s['return_to_origin'], $s['array_path'], $s['cache_budget'], $s['path_mappings'],
+        [$s['cache_path'], $s['min_free_percent'], $s['mover_bin'], $s['rsync_args'], array_key_exists('return_to_origin', $s), $s['array_path'], $s['cache_budget'], $s['path_mappings'],
          $s['max_resume_movies'], $s['max_resume_series'], $s['cleanup_tool'], $s['fill_tool']]);
     check('import done: unknown keys gone', !isset($s['old_option']) && !isset($s['emby_token']));
     same('import done: people with their budget', ['u1' => ['budget' => '300G'], 'u2' => [], 'u3' => []], $s['valid_users']);
     same('import done: library types kept where the name matches', ['Filme' => 'movies'], $s['library_types']);
     same('import done: Jack\'s list and the old one, merged', ["$pool/Filme/Alien (1979)/Alien.mkv", "$pool/Filme/Brazil/Brazil.mkv", "$pool/Filme/Jack Own/j.mkv",
         "$pool/Filme/New/n.mkv", "$pool/Serien/X/S01/e1.mkv"], file("$jack/embycache/mediacache_exclude.txt", FILE_IGNORE_NEW_LINES));
-    same('import done: origins merged, Jack\'s own win', ["$pool/Filme/Alien (1979)/Alien.mkv" => 'disk4', "$pool/Filme/Jack Own/j.mkv" => 'disk3',
-        "$pool/Serien/X/S01/e1.mkv" => 'disk2'], json_decode((string) file_get_contents("$jack/embycache/mediacache_origin.json"), true));
+    same('import done: Jack\'s own origin file untouched (no longer used)', ["$pool/Filme/Jack Own/j.mkv" => 'disk3', "$pool/Filme/Alien (1979)/Alien.mkv" => 'disk4'],
+        json_decode((string) file_get_contents("$jack/embycache/mediacache_origin.json"), true));
     same('import done: the gather\'s settings', ['shares' => ['Filme', 'Serien'], 'min_free_gb' => 300, 'dup_check' => 'cmp', 'move_cache' => false, 'cache_only_target' => 'most-free'],
         json_decode((string) file_get_contents("$jack/gather/gather.json"), true));
     $ini = (string) file_get_contents("$jack/gather/consolidate.ini");
@@ -1885,9 +1888,10 @@ function testJackLetGo(): void
         check('EmbyCache --release: the files are on the array view, gone from the pool; the duplicate stays on both',
             is_file("$py/user0/Filme/A/a.mkv") && filesize("$py/user0/Filme/A/a.mkv") === 3000 && is_file("$py/user0/Filme/B/b.srt")
             && !file_exists("$py/pool/Filme/A/a.mkv") && !file_exists("$py/pool/Filme/B/b.srt") && is_file("$py/pool/Filme/C/c.mkv"), $out . $err);
-        same('EmbyCache --release: the list and the origins name only what is still on the pool', [["$py/pool/Filme/C/c.mkv"], ["$py/pool/Filme/C/c.mkv" => 'disk1']],
+        same('MediaCache --release: the list names only what is still on the pool; an old origin file stays untouched, unused',
+            [["$py/pool/Filme/C/c.mkv"], ["$py/pool/Filme/A/a.mkv" => 'disk1', "$py/pool/Filme/C/c.mkv" => 'disk1']],
             [file("$py/data/mediacache_exclude.txt", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES), readJson("$py/data/mediacache_origin.json")]);
-        check('EmbyCache --release: nothing went to the origin disk that isn\'t mounted', !file_exists("$py/disk1/Filme/A"));
+        check('MediaCache --release: nothing went to a disk of its own choosing (the old origin)', !file_exists("$py/disk1/Filme/A"));
     }
 
     // his dialog part, the done dialog and the page's note under node
@@ -2034,7 +2038,7 @@ JS);
          ['schedule_title.embycache', 'schedule_title.gather'], 'letgo.note {"date":"D100","list":"letgo.sched_item {\"tool\":\"tool.embycache\",\"when\":\"C(15 * * * *)\"}, letgo.sched_item {\"tool\":\"tool.gather\",\"when\":\"C(0 3 * * 0)\"}"} ',
          ['jack.letgo_seen'], ['schedule_title.gather'], null],
         [...$o['note'], $o['noteOn'], $o['noteGone']]);
-    same('let Jack go: the release in his list of runs', ['release_summary {"back":2,"planned":3,"origin":1,"left":1}', 'refused {"why":"err:jack:jack_release_watching"}'], $o['summary']);
+    same('let Jack go: the release in his list of runs', ['release_summary {"back":2,"planned":3,"left":1}', 'refused {"why":"err:jack:jack_release_watching"}'], $o['summary']);
     hardeningRm($tmp);
 }
 
@@ -2375,6 +2379,12 @@ function testJackMover(): void
     @unlink("$tmp/notified");
     jackNotify('gather', 'run', 'stopped', ['result' => 'stopped', 'folders_done' => 4, 'folders' => 9], 3, 'mover');
     check('mover stop: … the gather\'s', str_contains((string) @file_get_contents("$tmp/notified"), 'Stopped after 4 of 9 folders'), (string) @file_get_contents("$tmp/notified"));
+    // a server (or plex.tv for Plex's people) didn't answer fully: the notification says so plainly, not only «one problem»
+    @unlink("$tmp/notified");
+    jackNotify('embycache', 'run', 'ok', ['result' => 'ok', 'incomplete' => true, 'cleanup' => ['done' => 0], 'fill' => ['done' => 0], 'errors' => 1], 0);
+    $sent = (string) @file_get_contents("$tmp/notified");
+    check('incomplete: the notification — a warning, plex.tv named, nothing went back, the pool protected, the problem counted',
+        str_contains($sent, "-i\nwarning") && str_contains($sent, 'plex.tv') && str_contains($sent, 'nothing went back to the array this time') && str_contains($sent, 'One problem'), $sent);
     putenv($envBefore[0] === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore[0]");
     putenv($envBefore[1] === false ? 'OFFICE_NOTIFY_STAMP' : "OFFICE_NOTIFY_STAMP=$envBefore[1]");
     $hdir = "$tmp/hist";
@@ -2625,7 +2635,7 @@ JS);
         'refused {"why":"err:jack_mover_schedule:{\"detail\":\"\",\"shares\":\"\",\"file\":\"\"}"} · refused_times {"n":3}',
         'skipped_mover_summary {"min":120}',
         'gather_stopped_mover {"done":4,"total":9} · gather_summary {"moved":"count.moved {\"n\":0}","dups":"count.dups {\"n\":0}","conflicts":"count.conflicts {\"n\":0}","dirs":"count.empty_dirs {\"n\":0}","kept":"count.kept {\"n\":0}"}',
-        'stopped_mover_summary · run_summary {"back":1,"back_planned":3,"origin":0,"fill":0,"fill_planned":2,"fill_size":"5 B"}'], $o['runs']);
+        'stopped_mover_summary · run_summary {"back":1,"back_planned":3,"fill":0,"fill_planned":2,"fill_size":"5 B"}'], $o['runs']);
     hardeningRm($tmp);
 }
 
@@ -2670,15 +2680,22 @@ function testJackRsync(): void
     same('tools: a save writes MediaCache\'s own, whatever the request carries', ['rsync', 'mover'], [$saved['fill_tool'] ?? null, $saved['cleanup_tool'] ?? null]);
     $env = jackPyEnv();
     same('tools: no environment forces a tool (the settings say it)', [false, false], [isset($env['MEDIACACHE_FILL_TOOL']), isset($env['MEDIACACHE_CLEANUP_TOOL'])]);
-    $py = 'import json, sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; c = l.load_config(require_paths=False); print(c["fill_tool"] + "|" + c["cleanup_tool"] + "|" + str(c["return_to_origin"]))';
+    $py = 'import json, sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; c = l.load_config(require_paths=False); print(c["fill_tool"] + "|" + c["cleanup_tool"] + "|" + str("return_to_origin" in l.DEFAULTS))';
     [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], ['MEDIACACHE_DIR' => "$tmp/emby"] + $env, 30);
-    same('tools: MediaCache run with Jack\'s environment on his file — rsync in, the move binary back, no origin unless set', [0, 'rsync|mover|False'], [$exit, trim($out) ?: trim($err)]);
+    same('tools: MediaCache run with Jack\'s environment on his file — rsync in, the move binary back, no «origin» at all', [0, 'rsync|mover|False'], [$exit, trim($out) ?: trim($err)]);
     same('tools: only MediaCache\'s own way is a valid value', [true, false, true, false], [jackImportValueOk('cleanup_tool', 'mover', 'mover'),
         jackImportValueOk('cleanup_tool', 'rsync', 'mover'), jackImportValueOk('fill_tool', 'rsync', 'rsync'), jackImportValueOk('fill_tool', 'mover', 'rsync')]);
     same('tools: the import sets both itself', ['rsync', 'mover'], [JACK_IMPORT_FIXED['fill_tool'] ?? null, JACK_IMPORT_FIXED['cleanup_tool'] ?? null]);
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.js');
-    check('tools: the setup page has no tool select and sends none; the way to the origin disk off by default',
-        !str_contains($js, 'cleanup_tool') && !str_contains($js, 'fill_tool') && str_contains($js, 'return_to_origin: false'));
+    check('tools: the setup page has no tool select and sends none; no «back to the disk they came from» (1.65.0)',
+        !str_contains($js, 'cleanup_tool') && !str_contains($js, 'fill_tool') && !str_contains($js, 'return_to_origin'));
+    same('tools: Jack\'s settings drop «return_to_origin», on or off', false, array_key_exists('return_to_origin', jackTools(['return_to_origin' => true])));
+    // 2026-10-16 (the owner): «Consolidate folders» is an optional helper — no real run waits for it, no open point
+    check('gather optional: no real run waits for it, its check a calm hint that is never open', !str_contains($code, "throw new Problem('jack_gather_first')")
+        && str_contains($code, "finding('gather_optional', 'hint', true") && !str_contains($code, "finding('gather_done'") && !str_contains($code, "finding('gather_schedule'"));
+    check('gather optional: his page pushes it nowhere (no «gather first» bubble, callout, fact or greyed real run)',
+        !str_contains($js, "'bubble.gather_first'") && !str_contains($js, "T('gather_first')") && !str_contains($js, "'fact.gather_first'") && !str_contains($js, 'run_gather')
+        && str_contains($js, "chip(T('gather_not_ready'), 'quiet'"));
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -2777,6 +2794,20 @@ except RuntimeError as x:
     bad = str(x)
 print(run("none"), run("ok"), bad)';
     [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], ['MEDIACACHE_DIR' => "$tmp/emby", 'PYTHONDONTWRITEBYTECODE' => '1'], 30);
+    // Tower 2026-10-16: only the friend chosen (valid_users) and plex.tv not reachable — the run had given back everything
+    $py2 = 'import sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l, mediacache_run as r
+class Fake:
+    users_incomplete = True
+    def users(self): return [{"Id": "admin", "Name": "Admin"}]
+r.MediaServerApi.for_instance = classmethod(lambda cls, inst, t: Fake())
+p = r.Planner({"cache_budget_bytes": 0, "valid_users": ["2902501"], "api_timeout": 1,
+               "instances": [{"servername": "Plex", "type": "plex", "_mappings": {}, "_skip": []}]})
+p.plan_instance = lambda inst, uids: None
+p.run()
+print(p.errors)';
+    [$exit2, $out2, $err2] = runEnv(['python3', '-c', $py2, JACK_APP], ['MEDIACACHE_DIR' => "$tmp/emby", 'PYTHONDONTWRITEBYTECODE' => '1'], 30);
+    same('upstream fixes: chosen people on a Plex whose shared users plex.tv didn\'t give — an incomplete plan (no cleanup), never «not here»',
+        [0, '1'], [$exit2, preg_replace('/^.*\n/s', '', trim($out2)) ?: trim($err2)]);
     same('upstream fixes: Plex users — unclaimed complete, claimed without plex.tv incomplete; an answer without items an error',
         [0, "(['admin'], False) (['admin'], True) Ungültige Antwort von /Users/u/Items/Resume"], [$exit, trim($out) ?: trim($err)]);
     check('upstream: the README names MediaCache\'s commit taken and the office\'s changes, GPL', str_contains($readme = (string) file_get_contents(JACK_APP . '/README.md'), '`2a91ef1`')
@@ -19274,6 +19305,8 @@ function testMigrateMediaCache(): void
         ['emby', 'abcdef0123456789abcdef0123456789', ['/mnt/media/Familienfilme' => '/mnt/user/media/Familienfilme', '/mnt/media/Privat' => ''], 7, '60G'],
         [$s['instances'][0]['type'] ?? null, $s['instances'][0]['api_key'] ?? null, $s['instances'][0]['path_mappings'] ?? null, $s['some_future_key'] ?? null,
          $s['cache_budget'] ?? null]);
+    same('mediacache: «back to the disk they came from» gone even where it was on (2026-10-16); its old file kept, unused', [false, true],
+        [array_key_exists('return_to_origin', $s), is_file("$new/mediacache_origin.json")]);
     same('mediacache: the settings stay root\'s alone (0600); the list and the origins as they were (time too)', [0600, $list, 1700000000],
         [fileperms("$new/mediacache_settings.json") & 0777, file_get_contents("$new/mediacache_exclude.txt"), filemtime("$new/mediacache_origin.json")]);
     same('mediacache: the old folder kept beside it, whole (the rotated log, the lock)', [false, true, true, true],
@@ -32334,6 +32367,19 @@ function testMoverelliUnraid(): void
     $why = function (string $mode) use ($h) { try { moverelliRunCheck($mode, $h); return 'ok'; } catch (Problem $p) { return [$p->key, $p->params]; } };
     same('jack list: named, not there, EmbyCache never ran — a real run refused with the file; a dry run not (it only warns)',
         [['moverelli_jack_list_pending', ['file' => $list]], 'ok', $list], [$why('run'), $why('dry'), moverelliJackListPending($h)]);
+    // the lab, 2026-10-16: the deadlock — his real run with her is the joint night run, which waited for a list only that run
+    // makes. Jack writes his empty list once he is set up (his look, his save) — whichever was hired first, her real runs go
+    $set = ['instances' => [['url' => 'http://x']], 'cache_budget' => '100G'];
+    same('jack list: not set up — no list written', [false, false], [jackListEnsure(null, "$tmp/emby"), is_file($list)]);
+    same('jack list: set up — his empty list written (root\'s, 0600), her real run goes; once', [true, '', '600', 'ok', null, false],
+        [jackListEnsure($set, "$tmp/emby"), (string) @file_get_contents($list), substr(sprintf('%o', fileperms($list)), -3), $why('run'), moverelliJackListPending($h),
+         jackListEnsure($set, "$tmp/emby")]);
+    file_put_contents($list, "/mnt/cache/Filme/A/a.mkv\n");
+    same('jack list: a list there is never touched', [false, "/mnt/cache/Filme/A/a.mkv\n"], [jackListEnsure($set, "$tmp/emby"), file_get_contents($list)]);
+    unlink($list);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
+    check('jack list: his look and his save write it (Jack hired before or after Ms. Moverelli)',
+        str_contains($src, "    \$settings = jackReadSettings();\n    jackListEnsure(\$settings);") && str_contains($src, "jackWriteSettings(\$cfg);\n    jackListEnsure(jackReadSettings());"));
     $f = array_column(moverelliChecks($h), null, 'id')['jack_list_pending'] ?? null;
     same('jack list: … the Team Lead\'s hint (to know, nothing to do)', ['hint', false, ['file' => $list], '#/jack'], [$f['level'] ?? null, $f['ok'] ?? null, $f['params'] ?? null, $f['link'] ?? null]);
     $v['jack_ran'] = true;
@@ -32981,13 +33027,31 @@ function testStreamerBudget(): void
     same('streamer budget: fine — 20 GB each, everyone a budget up to the whole, 1.5T, everyone (no list)', ['ok', 'ok', 'ok', 'ok'],
         [$refused('60G', ['a' => ['budget' => '20G'], 'b' => $o, 'c' => $o]), $refused('300G', ['a' => ['budget' => '100G'], 'b' => ['budget' => '200G']]),
          $refused('1.5T', ['a' => ['budget' => '1T']]), $refused('20G', [])]);
+    // the lab, 2026-10-16: never more than the pool holds (60 GB on a 32 GB pool was taken)
+    $pool = function (string $budget, ?int $bytes): string {
+        try {
+            jackBudgetCheck($budget, [], $bytes);
+            return 'ok';
+        } catch (Problem $e) {
+            return $e->key . ' ' . json_encode($e->params);
+        }
+    };
+    same('streamer budget: over the whole pool refused; up to it, or the pool\'s size not known, fine',
+        ['jack_budget_pool {"total":"60 GB","pool":"32 GB"}', 'ok', 'ok'], [$pool('60G', 32 << 30), $pool('32G', 32 << 30), $pool('60G', null)]);
+    same('streamer budget: the pools\' sizes — ZFS the whole pool (used + avail of its root), others the file system; a pool not his left out',
+        ['/mnt/big' => 300], jackPoolSizes([['mount' => '/mnt/big', 'fs' => 'zfs', 'source' => 'big'], ['mount' => '/mnt/disk1', 'fs' => 'xfs', 'source' => '/dev/md1p1']],
+            fn () => ['big' => 300, 'disk1' => 5]));
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.js');
+    check('streamer budget: the setup says it before «Save» (the pool\'s size from his state); the pool changing while files lie on the old one is said too',
+        str_contains($js, "return T('setup.budget_pool', { pool: derivedPool(), size: fmt.size(size) });") && str_contains($js, "T('setup.pool_change', { old, new: now, n, tick: T('letgo.tick') })")
+        && str_contains($js, 'why.textContent = r || poolChangeWarning() || T(\'setup.save_hint\');'));
     same('streamer budget: set up = a server and a budget — without one (an older count-mode setup) «not set up yet»: no migration, the setup starts',
         [true, false, false, false, false], [jackConfigured(['instances' => [['url' => 'x']], 'cache_budget' => '300G']), jackConfigured(['instances' => [['url' => 'x']], 'cache_budget' => '']),
         jackConfigured(['instances' => [['url' => 'x']], 'number_episodes' => 3]), jackConfigured(['instances' => [], 'cache_budget' => '300G']), jackConfigured(null)]);
-    check('streamer budget: his state, his checks, runs and his schedule go by it', substr_count((string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php'), 'jackConfigured(') === 6);
+    check('streamer budget: his state, his checks, runs and his schedule go by it', substr_count((string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php'), 'jackConfigured(') === 7);   // + his empty list (jackListEnsure)
     same('streamer budget: sizes as EmbyCache reads them', [500 << 30, (int) (1.5 * (1 << 40)), 800 << 30, 0, 0], array_map('jackSizeBytes', ['500G', '1.5T', '800GB', 'lots', '']));
     $jackSrc = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
-    check('streamer budget: jackSave() checks before it writes', (bool) preg_match('/jackBudgetCheck\(\$cfg\[\'cache_budget\'\], \$users\);.*?jackWriteSettings\(\$cfg\);/s', $jackSrc));
+    check('streamer budget: jackSave() checks before it writes', (bool) preg_match('/jackBudgetCheck\(\$cfg\[\'cache_budget\'\], \$users, jackPoolSizes\(\).*?jackWriteSettings\(\$cfg\);/s', $jackSrc));
     $lang = [];
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         $words = langFile(OFFICE_WEB . "/desks/jack/lang/$l.json");
