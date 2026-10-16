@@ -2799,6 +2799,74 @@ PY);
     hardeningRm($tmp);
 }
 
+/**
+ * «Budget full — nothing new» (owner 2026-10-16: a run fetched nothing, nobody said why): MediaCache's result carries
+ * `not_in_budget` {items, films, episodes, bytes} — what the persons' budgets leave out, each entry once (two persons may want
+ * it), none another person's budget takes along; none outside the budget mode. His run summary says it plainly: nothing new
+ * planned → «budget full», some fetched → «beyond the budget»; an older status without it says nothing.
+ */
+function testJackNotInBudget(): void
+{
+    $tmp = hardeningTmp('jack-not-in-budget');
+    $py = 'import sys, json; sys.path.insert(0, sys.argv[1]); import mediacache_run as r
+from types import SimpleNamespace as N
+G = 2**30
+def g(cat, size, *rels): return N(category=cat, size=size * G, files=[N(rel=x) for x in rels])
+p = r.Planner({"cache_budget_bytes": 100 * G, "movie_share_percent": 50, "user_budgets": {}})
+big = g("movie", 25, "Filme/Big/big.mkv", "Filme/Big/big.srt")
+p.users = {"a": N(skipped=[big, g("series", 2, "S/e5.mkv"), g("series", 2, "S/e6.mkv"), g("movie", 4, "Filme/Taken/t.mkv")]),
+           "b": N(skipped=[g("movie", 25, "Filme/Big/big.srt", "Filme/Big/big.mkv")])}
+p.files = {"Filme/Taken/t.mkv": object()}
+q = r.Planner({"cache_budget_bytes": 0, "movie_share_percent": 50, "user_budgets": {}})
+print(json.dumps([p.not_in_budget(), q.not_in_budget()]))';
+    [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], ['MEDIACACHE_DIR' => $tmp, 'PYTHONDONTWRITEBYTECODE' => '1'], 30);
+    same('not in budget (engine): the big film both want once, two episodes; the film another\'s budget takes not counted; no budget mode — none',
+        [0, [['items' => 3, 'films' => 1, 'episodes' => 2, 'bytes' => 29 * 2 ** 30], null]], [$exit, json_decode((string) preg_replace('/^.*\n/s', '', trim($out)), true) ?? trim($err)]);
+    $src = (string) file_get_contents(JACK_APP . '/mediacache_run.py');
+    check('not in budget (engine): written into the result file after the plan, marked USO, in the README\'s list',
+        str_contains($src, 'self.result["not_in_budget"] = nib') && str_contains((string) file_get_contents(JACK_APP . '/README.md'), '`not_in_budget`'));
+
+    $node = testsNode();
+    if ($node === '') {
+        check('not in budget (page): node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? '(' + Object.entries(p).map(([a, v]) => a + '=' + v).join(', ') + ')' : '');
+const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], style: {}, dataset: {},
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {} });
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }), scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', time: (t) => 'T' + t, date: (t) => 'D' + t }, desk: () => {}, places: () => {},
+  placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, errorText: (e) => 'err:' + e.key };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const e = OFFICE_DESK_TESTS.jack;
+const st = (fill, nib) => ({ tool: 'embycache', mode: 'run', result: 'ok', status: { mode: 'run', result: 'ok', cleanup: { done: 0, planned: 0 }, fill, ...(nib ? { not_in_budget: nib } : {}) } });
+console.log(JSON.stringify([
+  e.runSummary(st({ done: 0, planned: 0 }, { items: 75, films: 12, episodes: 63, bytes: 212 })),
+  e.runSummary(st({ done: 2, planned: 2, bytes_planned: 9 }, { items: 1, films: 1, episodes: 0, bytes: 25 })),
+  e.runSummary(st({ done: 0, planned: 0 }, { items: 0, films: 0, episodes: 0, bytes: 0 })),
+  e.runSummary(st({ done: 0, planned: 0 }, null)),
+]));
+JS);
+    [, $out, $err] = run([$node, "$tmp/t.js", OFFICE_WEB . '/desks/jack/desk.js'], 30);
+    $j = json_decode(trim((string) $out), true);
+    $sum = 'run_summary(back=0, back_planned=0, fill=0, fill_planned=0, fill_size=0 B)';
+    same('not in budget (page): nothing new — «budget full» with films and episodes; some fetched — «beyond the budget» (one film); nothing waits or an older status — nothing said',
+        [$sum . ' · budget.full(n=75, what=budget.both(films=count.films(n=12), episodes=count.episodes(n=63)), size=212 B)',
+         'run_summary(back=0, back_planned=0, fill=2, fill_planned=2, fill_size=9 B) · budget.more(n=1, what=count.films(n=1), size=25 B)',
+         $sum, $sum], $j, $out . $err);
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $lang = readJson(OFFICE_WEB . "/desks/jack/lang/$l.json") ?? [];
+        check("not in budget lang $l: both notes say what waits and its size, films and episodes counted",
+            str_contains(json_encode($lang['budget.full'] ?? ''), '{what} ({size})') && str_contains(json_encode($lang['budget.more'] ?? ''), '{what} ({size})')
+            && is_array($lang['count.films'] ?? null) && is_array($lang['count.episodes'] ?? null) && str_contains((string) ($lang['budget.both'] ?? ''), '{episodes}'));
+    }
+    hardeningRm($tmp);
+}
+
 function testJackUpstream(): void
 {
     $tmp = hardeningTmp('jackupstream');
@@ -36400,6 +36468,12 @@ const out = {
   nolimit: [lit({ ...J, plan: { measured: false }, phase: 'free', who: 'her', steps: [] }), lit({ ...J, plan: { measured: false }, phase: 'fill', who: 'jack', steps: [her] })],
   alone: [lit({ mode: 'run', jack: false, plan: { measured: true }, phase: 'check', who: null }), lit({ mode: 'run', jack: false, plan: { measured: true }, phase: 'free', who: 'her' })],
   out: lit({ ...J, jack_out: 'jack_gather_first', phase: 'free', who: 'her', steps: [{ ...back, result: 'refused' }] }),
+  first: (() => {
+    const at = (n, seen, now) => (Office.nightFirstLook(Office.nightSteps(n, T), n, seen, now).find((x) => x.state === 'running') || {}).id || null;
+    const go = { ...J, started: 1000, phase: 'free', who: 'jack', steps: [] };
+    return [at(go, 1001, 1001), at(go, 1001, 1002.5), at(go, 1001, 1004), at(go, 1100, 1100), at({ ...go, phase: 'recheck', who: null, steps: [back] }, 1001, 1001),
+      at({ ...J, started: 1000, phase: 'done', who: null, steps: [] }, 1001, 1001), at({ ...J, started: 1000, phase: 'check', who: null, steps: [] }, 1001, 1001)];
+  })(),
   names: Office.nightSteps({ ...J, phase: 'check', steps: [] }, T).map((x) => x.name).concat(Office.nightSteps({ mode: 'run', jack: false, phase: 'free', who: 'her' }, T).map((x) => x.name)),
   stopped: [Office.nightStoppedName({ ...J, stopped_in: 'free', stopped_who: 'jack' }, T), Office.nightStoppedName({ ...J, stopped_in: 'free', stopped_who: 'her' }, T),
     Office.nightStoppedName({ ...J, stopped_in: 'fill', stopped_who: 'jack' }, T), Office.nightStoppedName({ ...J, plan: { measured: false }, stopped_in: 'fill', stopped_who: 'jack' }, T),
@@ -36413,6 +36487,8 @@ JS);
     $all = 'check jack_back measure her fill';
     same('night steps (page): with Jack Streamer and a limit — the highlight wanders: measure, his give-back, measure again (also an older agent\'s «free» between), her part (and its quick measure), his fetch, all done',
         [[$all, 'check', 0], [$all, 'check', 0], [$all, 'jack_back', 1], [$all, 'measure', 2], [$all, 'measure', 2], [$all, 'her', 3], [$all, 'her', 3], [$all, 'fill', 4], [$all, null, 5]], $j['joint'] ?? null);
+    same('night steps (page): «Measure» seen once — a young night first drawn shows step 1 for 2 s, then where the work is; one opened later, with a step done, or done shows what is',
+        ['check', 'check', 'jack_back', 'jack_back', 'measure', null, 'check'], $j['first'] ?? null);
     same('night steps (page): a second pass — on her step, said there', [['rc.phase.check', 'done'], ['rc.phase.jack_back', 'done'], ['rc.phase.recheck', 'done'],
         ['rc.phase.her · night.rounds {"n":2}', 'running'], ['rc.phase.fill', 'pending']], $j['round2'] ?? null);
     same('night steps (page): no limit — measure, her part, his whole run; she alone — measure, make room; he out tonight — the same, her part going',
@@ -37475,10 +37551,11 @@ function testTilesMediaPages(): void
         str_contains($jackSrc, "renderSetup();\n  if (typeof window !== 'undefined') window.scrollTo(0, 0);")
         && str_contains((string) file_get_contents(OFFICE_WEB . '/desks/moverelli/desk.js'), "Office.go(`#/\${ID}`);\n      if (typeof window !== 'undefined') window.scrollTo(0, 0);")
         && str_contains((string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js'), "setupLoad();\n        if (typeof window !== 'undefined') window.scrollTo(0, 0);"));
-    check('jack page: the routes of his tiles (the switcher\'s), the Team Lead\'s links to his schedules land in «Schedules» (the row revealed), #/jack/history the whole page',
-        str_contains($jackSrc, "if (plan) sw.mount('plans');") && str_contains($jackSrc, "} else sw.mount(sub);") && str_contains($jackSrc, "Office.reveal(`plan:\${plan}`)")
+    check('jack page: the routes of his tiles (the switcher\'s), the Team Lead\'s links to his schedules land in «Schedules» (the row revealed), #/jack/history the whole page — picked once his state is there (a pick before it broke his page, 2026-10-16), MediaCache\'s runs in the search by «Last run»',
+        str_contains($jackSrc, "if (plan) sw.mount('plans');") && str_contains($jackSrc, "else sw.mount(whole ? '' : sub);") && str_contains($jackSrc, "Office.reveal(`plan:\${plan}`)")
         && str_contains($jackSrc, "const plan = { schedule: 'embycache', 'gather-schedule': 'gather' }[sub];") && str_contains($jackSrc, "Office.place(`plan:\${job}`")
-        && str_contains($jackSrc, "...sw.places().map(") && str_contains($jackSrc, "route: `#/\${ID}/history`"));
+        && str_contains($jackSrc, "...sw.places().map(") && str_contains($jackSrc, "route: r.tool === 'embycache' ? `#/\${ID}/runs` : `#/\${ID}/history`")
+        && str_contains($jackSrc, "if (whole && view === root && state && sw.active()) sw.pick('', 'route');") && !str_contains($jackSrc, "sw.mount('');\n      sw.pick('', 'route');"));
     // Ms. Snapshotini
     check('snapshot page: the switcher — no start tile; pool cards, the array disks\' rows (btrfs and ZFS), the VMs filter «Snapshots»; «Schedules» and «Snapshots» section tiles',
         str_contains($snap, "const sw = Office.sections({") && str_contains($snap, "default: '',")
@@ -38503,7 +38580,7 @@ const TILES_FIRST_LATER = ['advisor', 'backup', 'cleanup', 'restore'];
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackProgress', 'testJackReadyShares',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',

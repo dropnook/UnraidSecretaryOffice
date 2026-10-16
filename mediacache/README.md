@@ -25,6 +25,8 @@
 > * **A sensible order both ways:** every on-deck file knows, per person, how far ahead it lies (`ahead`); filling goes
 >   round-robin across the persons by rank (`Planner.fill_order`), giving back over the limit the farthest ahead first
 >   (`give_back_order`). `MEDIACACHE_KEEP_BYTES`, `MEDIACACHE_NO_FILL`, `MEDIACACHE_WATCHED_ONLY` serve the night run.
+> * `not_in_budget` in the result (2026-10-16): what the persons' budgets leave out — {items, films, episodes, bytes}, each
+>   entry once; Jack's run summary says «budget full» with it.
 > * `MEDIACACHE_STOP` (a file): a real run stops after the file it is on — never inside a copy; result `stopped`, exit 3.
 > * `MEDIACACHE_PROGRESS` (a file): rewritten at every file boundary — phase, per person planned/done, the file in work
 >   with its target, person and reason, the fill's queue, the last 50 files done. Jack's live panel reads it.

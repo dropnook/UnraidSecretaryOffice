@@ -719,5 +719,11 @@
   "setup.budget_pool": "El presupuesto es mayor que el pool {pool} ({size}) — no cabe más que eso.",
   "errors.jack_budget_pool": "El presupuesto ({total}) es mayor que todo el pool ({pool}).",
   "setup.pool_change": {"one": "En {old} todavía hay {n} archivo que preparé. Si cambio a {new}, solo miro allí — se quedaría en {old}. Devuélvelo primero: despídeme con «{tick}» y vuelve a contratarme — o quédate con {old}.", "other": "En {old} todavía hay {n} archivos que preparé. Si cambio a {new}, solo miro allí — se quedarían en {old}. Devuélvelos primero: despídeme con «{tick}» y vuelve a contratarme — o quédate con {old}."},
-  "setup.person_server": "En {server}"
+  "setup.person_server": "En {server}",
+  "count.films": {"one": "{n} película", "other": "{n} películas"},
+  "count.episodes": {"one": "{n} episodio", "other": "{n} episodios"},
+  "count.items": {"one": "{n} elemento", "other": "{n} elementos"},
+  "budget.both": "{films} y {episodes}",
+  "budget.full": {"one": "Presupuesto lleno — nada nuevo: {what} ({size}) sigue esperando; más presupuesto trae más.", "other": "Presupuesto lleno — nada nuevo: {what} ({size}) siguen esperando; más presupuesto trae más."},
+  "budget.more": {"one": "Fuera del presupuesto: {what} ({size}) sigue esperando; más presupuesto trae más.", "other": "Fuera del presupuesto: {what} ({size}) siguen esperando; más presupuesto trae más."}
 }

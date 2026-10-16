@@ -250,7 +250,22 @@ function runSummary(r) {
   const key = (s.mode || r.mode) === 'run' ? 'run_summary' : 'dry_summary';
   const files = (n) => (key === 'dry_summary' ? nOf('files', n) : n || 0);     // «would bring 1 file back»; the run's «1 of 3» stays a number
   return stopped + T(key, { back: c.done || 0, back_planned: files(c.planned),
-    fill: f.done || 0, fill_planned: files(f.planned), fill_size: fmt.size(f.bytes_planned || 0) });
+    fill: f.done || 0, fill_planned: files(f.planned), fill_size: fmt.size(f.bytes_planned || 0) }) + budgetNote(s);
+}
+/**
+ * What waits beyond the budget (MediaCache's `not_in_budget`, USO 2026-10-16; an older status has none: nothing said), pure:
+ * nothing new planned — «Budget full — nothing new: 12 films and 63 episodes (212 GB) still wait; more budget fetches more»;
+ * some fetched — the same as «more waits». '' when nothing waits.
+ */
+function budgetNote(s) {
+  const b = s && s.not_in_budget;
+  if (!b || !(Number(b.items) > 0)) return '';
+  const films = Number(b.films) || 0;
+  const eps = Number(b.episodes) || 0;
+  const what = films && eps ? T('budget.both', { films: nOf('films', films), episodes: nOf('episodes', eps) })
+    : films ? nOf('films', films) : eps ? nOf('episodes', eps) : nOf('items', b.items);
+  const none = !(Number((s.fill || {}).planned) > 0);
+  return ' · ' + T(none ? 'budget.full' : 'budget.more', { n: films + eps || Number(b.items), what, size: fmt.size(Number(b.bytes) || 0) });
 }
 
 /** Unraid's mover as the agent sees it (jack-mover.php) — an older agent's state has none: nothing refused, nothing said */
@@ -2819,17 +2834,18 @@ Office.desk({
     bars();
     // his tiles as places (CLAUDE.md «Tiles»): #/jack/<tile> (plans, pool, runs, shares, gather) picks it exactly like a
     // click and the address is his page's again; the Team Lead's findings #/jack/schedule, #/jack/gather-schedule land
-    // in «Schedules» with the row revealed; #/jack/history (the search's runs) shows the whole page — every run
+    // in «Schedules» with the row revealed; #/jack/history (a gather run in the search) shows the whole page — every run.
+    // The whole page is picked once his state is there: a pick draws the sections, and before his first look they had
+    // nothing to draw from (2026-10-16: a click on a run in the search broke his page)
     const plan = { schedule: 'embycache', 'gather-schedule': 'gather' }[sub];
+    const whole = sub === 'history';
     if (plan) sw.mount('plans');
-    else if (sub === 'history') {
-      sw.mount('');
-      sw.pick('', 'route');
-      Office.subroute('');
-    } else sw.mount(sub);
+    else sw.mount(whole ? '' : sub);
+    if (whole) Office.subroute('');
     render();
     if (plan) Office.reveal(`plan:${plan}`);
     await load(false);
+    if (whole && view === root && state && sw.active()) sw.pick('', 'route');
   },
   unmount() { view = null; saveGate = null; clearTimeout(outTimer); clearTimeout(progTimer); progTimer = null; progBox = null; startKicks = 0; letGoNote = null; },
   letGo: letGoPart,
@@ -2863,7 +2879,8 @@ Office.desk({
 });
 
 // what his state holds for the search (core.js «items»): his Emby servers (the line «How I work» names them), the shares
-// of the chosen libraries (#/jack/shares), the runs his history shows (#/jack/history: the whole page, every run)
+// of the chosen libraries (#/jack/shares), the runs his history shows (MediaCache's in the tile «Last run» #/jack/runs, a
+// gather's on the whole page #/jack/history, where every run is listed)
 Office.placesFrom(ID, (s, part) => {
   if (part) return [];                       // the part «progress» (the live panel) holds nothing to find
   const out = [];
@@ -2874,7 +2891,7 @@ Office.placesFrom(ID, (s, part) => {
     (s.shares || []).forEach((x) => out.push({ text: x.share, sub: T('shares'), route: `#/${ID}/shares`, anchor: `share:${x.share}` }));
   }
   (s.history || []).slice(0, HISTORY_SHOWN).forEach((r) => out.push({ text: `${T('tool.' + r.tool)} · ${T('mode.' + r.mode)} · ${fmt.date(r.started)}`,
-    sub: `${T('history')} · ${T('result.' + (r.result || 'failed'))}`, route: `#/${ID}/history`, anchor: `run:${r.tool}:${r.started}` }));
+    sub: `${T('history')} · ${T('result.' + (r.result || 'failed'))}`, route: r.tool === 'embycache' ? `#/${ID}/runs` : `#/${ID}/history`, anchor: `run:${r.tool}:${r.started}` }));
   return out;
 });
 
@@ -2887,7 +2904,7 @@ Office.places(ID, [
   { kind: 'section', key: 'overview', shown: configured },
   { kind: 'section', key: 'shares', route: '#/jack/shares', shown: configured },
   { kind: 'section', key: 'gather', route: '#/jack/gather' },
-  { kind: 'section', key: 'history', route: '#/jack/history' },
+  { kind: 'section', key: 'history', route: '#/jack/runs' },
   { kind: 'section', key: 'on_pool', route: '#/jack/pool', shown: configured },
   // his tiles (CLAUDE.md «Tiles», the switcher's places): each sets its choice as a click would
   ...sw.places().map((p) => (['tile.pool', 'tile.shares'].includes(p.anchor) ? { ...p, shown: configured } : p)),

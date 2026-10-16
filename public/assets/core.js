@@ -1053,9 +1053,25 @@ Office.nightCard = function nightCard(n, o) {
   if (o.stopping) top.appendChild(el('span', 'chip warn', T('stopping')));
   if (n.started) top.appendChild(el('span', 'status quiet', T('rc.since', { time: Office.fmt.time(n.started), duration: Office.fmt.duration(Math.max(0, o.now - n.started)) })));
   card.appendChild(top);
-  const steps = Office.nightSteps(n, T);
-  card.appendChild(Office.runSteps(steps, steps.findIndex((x) => x.state === 'running'), `night|${n.started}`));
+  const key = `night|${n.started}`;
+  const nowS = o.now ?? Date.now() / 1000;
+  if (!(key in nightSeenAt)) nightSeenAt[key] = nowS;
+  const steps = Office.nightFirstLook(Office.nightSteps(n, T), n, nightSeenAt[key], nowS);
+  card.appendChild(Office.runSteps(steps, steps.findIndex((x) => x.state === 'running'), key));
   return card;
+};
+const nightSeenAt = {};      // when this browser first drew a night's card (key night|started)
+/**
+ * «Measure» seen at least once (owner 2026-10-16: step 1 was never highlighted — the pool is measured in a second, the
+ * pages look every 3–10 s), pure: a young night (started ≤ 60 s ago, nothing done yet) first seen by this card shows
+ * step 1 going for 2 s, then the highlight slides to where the work is. A night opened later shows what is.
+ * $seen, $now: seconds.
+ */
+Office.nightFirstLook = function nightFirstLook(steps, n, seen, now) {
+  const young = n && n.phase !== 'done' && !(Array.isArray(n.steps) && n.steps.length) && (Number(n.round) || 1) === 1
+    && Number(n.started) > 0 && now - Number(n.started) <= 60 && now - seen < 2;
+  if (!young || !steps.length || steps[0].state === 'running') return steps;
+  return steps.map((x, i) => ({ ...x, state: i === 0 ? 'running' : 'pending' }));
 };
 /**
  * Jack Streamer's live panel's bars (his desk.js lends them: progressRows(box, view)) — Ms. Moverelli's page draws them
@@ -3501,6 +3517,11 @@ function readItems() {
   return n;
 }
 
+/** A desk's items as the search keeps them, the waiting states read first (for the tests: tools/ui-clicks.mjs walks their routes) */
+Office.itemsOf = (desk) => {
+  readItems();
+  return [...itemLists].filter(([k]) => k === desk || k.startsWith(`${desk}/`)).flatMap(([, l]) => l.map((x) => ({ ...x })));
+};
 /** A text as an item shows it: one line, at most max letters (cut at a word) */
 const itemText = (s, max) => {
   const v = (typeof s === 'string' || typeof s === 'number' ? String(s) : '').replace(/\s+/g, ' ').trim();

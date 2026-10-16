@@ -560,6 +560,72 @@ async function dialogStack(browser, harness) {
   await ctx.close();
   return res;
 }
+// ------------------------------------------------------------------ the routes walk (2026-10-16)
+// Every place Jack Streamer's and Ms. Moverelli's search names (Office.placesOf: sections, tiles, setup steps; the items
+// of their demo states: Office.itemsOf) and every '#/<desk>…' address their pages link to: each opened cold (a fresh
+// load of that address) and from the reception as the search does (Office.goToPlace) - no page error, the desk drawn,
+// the place named (its data-place / data-id) there and in sight. A click on a run in the search broke Jack's page
+// (#/jack/history before his state was there).
+const WALK = ['jack', 'moverelli'];
+async function routeWalk(browser, harness, desk) {
+  const res = { route: `${desk} routes`, theme: 'dark', width: 1440, tested: 0, skipped: 0, capped: 0, hidden: 0, sections: 0, fails: [], ms: 0 };
+  const t0 = Date.now();
+  const fail = (what) => { if (res.fails.length < 40 && !res.fails.includes(what)) res.fails.push(what); };
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'en-US' });
+  const page = await ctx.newPage();
+  let errors = [];
+  page.on('pageerror', (e) => errors.push(`page error: ${String(e.message).slice(0, 160)}`));
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text().slice(0, 160)); });
+  page.on('dialog', (d) => d.dismiss().catch(() => {}));
+  const drawn = () => page.waitForFunction((d) => window.Office && Office.current && Office.current.id === d
+    && document.querySelector('#sso-desk .section, #sso-desk section, #sso-desk .box'), desk, { timeout: 8000 }).then(() => true, () => false);
+  const open = async (url) => { await page.goto('about:blank'); await page.goto(url, { waitUntil: 'load' }); };
+  try {
+    await open(`${harness.url}#/${desk}`);
+    await drawn();
+    await page.waitForFunction((d) => Office.itemsOf(d).length > 0, desk, { timeout: 8000 }).catch(() => fail('no items from the demo state'));
+    const found = await page.evaluate((d) => ({
+      places: Office.placesOf(d).filter((p) => p.kind !== 'help' && !p.act && (!p.shown || p.shown())).map((p) => ({ route: p.route, anchor: p.anchor, what: `${p.kind} ${p.key}` })),
+      items: Office.itemsOf(d).map((p) => ({ route: p.route, anchor: p.anchor, what: `item ${p.label}` })),
+    }), desk);
+    const src = WALK.map((d) => fs.readFileSync(path.join(REPO, 'public', 'desks', d, 'desk.js'), 'utf8')).join('\n');
+    const links = [...new Set([...src.matchAll(new RegExp(`['\`](#/${desk}(?:/[a-z0-9/_-]*)?)['\`]`, 'g'))].map((m) => m[1]))]
+      .map((route) => ({ route, anchor: null, what: `link ${route}` }));
+    const seen = new Set();
+    const targets = [...found.places, ...found.items, ...links].filter((x) => !seen.has(`${x.route}|${x.anchor}`) && seen.add(`${x.route}|${x.anchor}`));
+    for (const route of new Set(targets.map((x) => x.route))) {
+      errors = [];
+      await open(`${harness.url}${route}`);
+      if (!(await drawn())) fail(`${route} (opened cold): the desk not drawn`);
+      await page.waitForTimeout(600);
+      for (const e of new Set(errors)) fail(`${route} (opened cold): ${e}`);
+      res.tested++;
+    }
+    for (const x of targets.filter((t) => t.anchor)) {
+      errors = [];
+      await open(`${harness.url}#/`);
+      await page.waitForFunction(() => window.Office && Office.goToPlace && document.querySelector('#sso-desk'), null, { timeout: 8000 }).catch(() => {});
+      await page.evaluate((t) => Office.goToPlace({ desk: t.desk, route: t.route, anchor: t.anchor, hired: true, label: t.what }), { ...x, desk });
+      if (!(await drawn())) fail(`${x.what} → ${x.route}: the desk not drawn`);
+      const there = await page.waitForFunction((a) => {
+        const q = (s) => document.querySelector(s);
+        const v = String(a).replace(/["\\]/g, '\\$&');
+        const n = q(`[data-place="${v}"]`) || q(`[data-id="${v}"]`);
+        return n && n.getClientRects().length > 0;
+      }, x.anchor, { timeout: 6000 }).then(() => true, () => false);
+      if (!there) fail(`${x.what} → ${x.route}: «${x.anchor}» not there`);
+      for (const e of new Set(errors)) fail(`${x.what} → ${x.route}: ${e}`);
+      res.tested++;
+    }
+  } catch (e) {
+    fail(String(e.message || e).split('\n')[0].slice(0, 200));
+  }
+  await ctx.close();
+  res.ms = Date.now() - t0;
+  return res;
+}
+const walks = WALK.filter((d) => !opt.only || routes.includes(d));
+results.push(...await Promise.all(walks.map((d) => routeWalk(browser, harness, d))));
 if (!opt.only || routes.includes('jack/setup')) results.push(await dialogStack(browser, harness));
 await browser.close();
 await harness.close();

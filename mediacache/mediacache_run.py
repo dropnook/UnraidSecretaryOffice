@@ -686,6 +686,23 @@ class Planner:
                      f"für {sum(1 for u in self.users.values() if u.has_candidates())} aktive Benutzer")
         return self.fill_order()
 
+    def not_in_budget(self):
+        """USO (2026-10-16): what waits beyond the budget — each entry once (several persons may want it), none another
+        person's budget takes along; films and episodes apart. None outside the budget mode."""
+        if not self.budget_mode:
+            return None
+        seen, out = set(), {"items": 0, "films": 0, "episodes": 0, "bytes": 0}
+        for u in self.users.values():
+            for g in u.skipped:
+                key = tuple(sorted(str(f.rel) for f in g.files))
+                if not key or key in seen or any(k in self.files for k in key):
+                    continue
+                seen.add(key)
+                out["items"] += 1
+                out["films" if g.category == "movie" else "episodes"] += 1
+                out["bytes"] += g.size
+        return out
+
     def fill_order(self):
         """USO (Phase 2): die Reihenfolge des Befüllens – reihum über die Benutzer nach ihrem nächsten Eintrag
         (des ersten Nächstes, des zweiten Nächstes, …, dann jedermanns Zweites), damit bei knappem Platz jeder etwas
@@ -1432,6 +1449,9 @@ class Runner:
         files = planner.run()
         self.result["on_deck"] = {"files": len(files), "bytes": sum(f.size for f in files),
                                   "on_cache": sum(1 for f in files if f.on_cache)}
+        nib = planner.not_in_budget()           # USO: what waits beyond the budget (Jack's «budget full»)
+        if nib is not None:
+            self.result["not_in_budget"] = nib
         log.info(f"On deck: {len(files)} Dateien, {human(sum(f.size for f in files))} "
                  f"(davon {sum(1 for f in files if f.on_cache)} bereits auf dem Cache)")
         if self.mode == "report":
