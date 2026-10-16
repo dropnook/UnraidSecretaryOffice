@@ -3921,6 +3921,124 @@ SH);
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
+/**
+ * Engine 2.54: a server without Docker backs up (2026-10-16, a fresh Unraid 7.4 server with Docker switched off: the
+ * setup failed with «Docker does not answer»). setup.sh --plan on a fixture server whose docker never answers: Docker
+ * switched off (docker.cfg DOCKER_ENABLED="no") is a plan without apps - docker_service false, one hint docker_off, no
+ * error, Kopia's part skipped with the problem docker_off; Docker switched on but silent fails with the error code
+ * docker_silent; Docker answering: docker_service true. The run's own check (ub_docker_service_off) the same; the page
+ * greys «offsite» with the reason and says it in the apps step.
+ */
+function testSetupNoDocker(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-nodocker-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $mnt = "$tmp/mnt";
+    $root = "$mnt/addons/UnraidSecretaryOffice/snapshots";
+    $pool = "$mnt/maple";
+    foreach (["$tmp/bin", "$tmp/fake", "$tmp/data/unraid-backup/state", "$tmp/boot/config/shares", $root, "$mnt/user",
+              "$pool/media", "$pool/UnraidSecretaryOffice/backup"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    foreach (['media', 'UnraidSecretaryOffice'] as $n) {
+        touch("$tmp/boot/config/shares/$n.cfg");
+    }
+    $env = "export PATH=$tmp/bin:\$PATH UB_DATA=$tmp/data/unraid-backup UB_MNT=$mnt UB_BOOT=$tmp/boot UB_SHARES_CFG=$tmp/boot/config/shares"
+         . " UB_DISKS_INI=$tmp/fake/disks.ini UB_NOTIFY_BIN=$tmp/bin/notify UB_MOUNTS_FILE=$tmp/fake/mounts FAKE=$tmp/fake";
+    // docker: silent unless «up» (then it answers and lists nothing)
+    file_put_contents("$tmp/bin/docker", "#!/bin/bash\n[[ -e \"\$FAKE/up\" ]] || exit 1\ncase \"\$1\" in version) echo 29.0 ;; esac\nexit 0\n");
+    file_put_contents("$tmp/bin/zfs", "#!/bin/bash\n[[ \"\$*\" == *'-t filesystem'* ]] && cat \"\$FAKE/zfs.txt\"\nexit 0\n");
+    file_put_contents("$tmp/bin/virsh", "#!/bin/bash\nexit 0\n");
+    file_put_contents("$tmp/bin/mountpoint", "#!/bin/bash\n[[ \"\${@: -1}\" == */user ]]\n");
+    file_put_contents("$tmp/bin/mount", "#!/bin/bash\nmkdir -p \"\${@: -1}\"\n");
+    file_put_contents("$tmp/bin/umount", "#!/bin/bash\nexit 0\n");
+    file_put_contents("$tmp/bin/notify", "#!/bin/bash\nexit 0\n");
+    foreach (glob("$tmp/bin/*") as $f) {
+        chmod($f, 0755);
+    }
+    file_put_contents("$tmp/fake/mounts", "maple $pool zfs rw 0 0\nmaple/media $pool/media zfs rw 0 0\nmaple/UnraidSecretaryOffice $pool/UnraidSecretaryOffice zfs rw 0 0\n"
+        . "shfs $mnt/user fuse.shfs rw 0 0\n");
+    $z = fn ($n, $mp, $ref) => "$n\t$mp\ton\t" . crc32($n) . "\t$ref\t-\n";
+    file_put_contents("$tmp/fake/zfs.txt", $z('maple', $pool, 1) . $z('maple/media', "$pool/media", 5000) . $z('maple/UnraidSecretaryOffice', "$pool/UnraidSecretaryOffice", 10));
+    file_put_contents("$tmp/fake/disks.ini", "[\"maple\"]\nname=\"maple\"\nspundown=\"0\"\n");
+    $data = "$tmp/data/unraid-backup";
+    $setup = function (string $args) use ($env): array {
+        $out = [];
+        exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1', $out, $rc);
+        return [$rc, implode("\n", $out)];
+    };
+    $json = fn (string $f) => json_decode((string) @file_get_contents("$data/state/$f"), true) ?: [];
+    $coded = fn (array $msgs, string $code) => array_values(array_filter($msgs, fn ($m) => ($m['code'] ?? '') === $code));
+    $cfg = fn (string $on) => file_put_contents("$tmp/boot/config/docker.cfg", "DOCKER_ENABLED=\"$on\"\nDOCKER_APP_CONFIG_PATH=\"/mnt/user/appdata/\"\n");
+
+    // Docker switched off, a first setup: a plan, no error, said once; no apps, offsite skipped for Docker
+    $cfg('no');
+    [$rc, $out] = $setup('--plan');
+    $plan = $json('setup-plan.json');
+    $st = $json('setup-status.json');
+    same('no docker: switched off - the plan is written, no error', [0, 'ok', 0, false], [$rc, $st['result'] ?? null, $st['errors'] ?? null, $plan['docker_service'] ?? null], $out);
+    same('no docker: said once, as a hint', [1, 'hint'], [count($coded($plan['messages'] ?? [], 'docker_off')), $coded($plan['messages'] ?? [], 'docker_off')[0]['level'] ?? null]);
+    same('no docker: no apps, no containers; no «no Kopia container» hint', [[], [], []],
+        [$plan['apps'] ?? null, $plan['containers'] ?? null, $coded($plan['messages'] ?? [], 'kopia_container_none')]);
+    check('no docker: the shares are planned as usual', in_array('media', array_column($plan['shares'] ?? [], 'name'), true), json_encode($plan['shares'] ?? null));
+
+    // a setting that wanted offsite while Docker is off: Kopia's part skipped with the reason, still no error
+    file_put_contents("$data/settings.ini", "[general]\nserver = Test\nmount_root = $root\ndumps_share = UnraidSecretaryOffice\n[flash]\nmode = off\n"
+        . "[kopia]\nenabled = yes\ncontainer = kopia\n[share \"media\"]\nmode = kopia\n");
+    [$rc, $out] = $setup('--plan');
+    $plan = $json('setup-plan.json');
+    same('no docker: offsite wanted - Kopia skipped as docker_off, no error', [0, 'docker_off', 0], [$rc, $plan['kopia']['problem'] ?? null, $json('setup-status.json')['errors'] ?? null], $out);
+    @unlink("$data/settings.ini");
+
+    // Docker switched on but silent: an error the office says in its own words
+    $cfg('yes');
+    [$rc, $out] = $setup('--plan');
+    $st = $json('setup-status.json');
+    same('no docker: switched on but silent - the setup fails with docker_silent', [true, 'failed', 'error'],
+        [$rc !== 0, $st['result'] ?? null, $coded($st['messages'] ?? [], 'docker_silent')[0]['level'] ?? null], $out);
+
+    // Docker answering: as before
+    touch("$tmp/fake/up");
+    [$rc, $out] = $setup('--plan');
+    $plan = $json('setup-plan.json');
+    same('no docker: Docker answering - docker_service true, nothing said', [0, true, []], [$rc, $plan['docker_service'] ?? null, $coded($plan['messages'] ?? [], 'docker_off')], $out);
+    @unlink("$tmp/fake/up");
+
+    // the run's check: off by docker.cfg or with no docker at all; a missing docker.cfg is never off
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+    $off = fn (string $path) => trim((string) shell_exec('bash -c ' . escapeshellarg("PATH=$path UB_DATA=$tmp/x UB_BOOT=$tmp/boot; source $lib >/dev/null 2>&1; ub_docker_service_off && echo off || echo on") . ' 2>&1'));
+    $cfg('no');
+    $offA = $off("$tmp/bin:/usr/bin:/bin");
+    $cfg('yes');
+    $offB = $off("$tmp/bin:/usr/bin:/bin");
+    unlink("$tmp/boot/config/docker.cfg");
+    $offC = $off("$tmp/bin:/usr/bin:/bin");
+    @mkdir("$tmp/nodocker", 0700);
+    foreach (['grep', 'sed', 'cat', 'date', 'mkdir', 'basename', 'dirname'] as $b) {
+        $w = trim((string) shell_exec('command -v ' . $b));
+        if ($w !== '') {
+            @symlink($w, "$tmp/nodocker/$b");
+        }
+    }
+    $offD = $off("$tmp/nodocker");
+    same('no docker: the run\'s check - switched off, on, no docker.cfg, no docker at all', ['off', 'on', 'on', 'off'], [$offA, $offB, $offC, $offD]);
+    $bk = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh');
+    check('no docker: a run with Docker off goes on, Docker on but silent still ends it',
+        str_contains($bk, 'if ub_docker_service_off; then log "Docker is switched off (Settings > Docker) - no apps to back up"')
+        && str_contains($bk, 'else docker info >/dev/null 2>&1 || die "Docker is switched on but does not answer"; fi'));
+
+    // the page: «offsite» greyed with the reason, the apps step and tile say it, a failed plan in the office's words
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('no docker (page): offsite greyed with the reason, apps step and tile', str_contains($js, "const dockerOff = plan.docker_service === false;")
+        && str_contains($js, "if (dockerOff && !on) { kbox.querySelector('input').disabled = true;")
+        && str_contains($js, "T(plan.docker_service === false ? 'setup.apps_docker_off' : 'setup.apps_none')")
+        && str_contains($js, "sub: [T('setup.tile.docker_off')]")
+        && str_contains($js, "m.code && Office.has(`\${ID}.setup.msg.\${m.code}`) ? T('setup.msg.' + m.code, setupMsgParams(m.params)) : m.text"));
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/en.json'), true) ?: [];
+    check('no docker (page): its words', isset($en['setup.msg.docker_off'], $en['setup.msg.docker_silent'], $en['setup.k_problem.docker_off'], $en['setup.apps_docker_off'], $en['setup.tile.docker_off']));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 function testSetupListDiff(): void
 {
     // the apply dialog (2026-10-09): the same containers in another order are no change; a list shows only what
@@ -4506,7 +4624,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.53'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.54'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -6160,9 +6278,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.53 everywhere it is named', ['2.53', '2.53', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.53"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.53** –')]);
+    same('data trust: the engine\'s version 2.54 everywhere it is named', ['2.54', '2.54', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.54"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.54** –')]);
     // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
     same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
         array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
@@ -7149,7 +7267,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.53', [1, '2.53'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.54', [1, '2.54'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -7757,7 +7875,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.53', [1, '2.53'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.54', [1, '2.54'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -38594,7 +38712,7 @@ const TILES_FIRST_LATER = ['advisor', 'backup', 'cleanup', 'restore'];
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

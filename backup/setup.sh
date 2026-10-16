@@ -1,6 +1,8 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.53 - 2026-10-15
+# unraid-backup - setup.sh                        Version 2.54 - 2026-10-16
+#   2.54 Docker switched off is no error: hint docker_off, no apps, the plan's docker_service false, Kopia's part skipped
+#        (problem docker_off - it runs in a container); Docker switched on but silent still fails the setup
 #   2.53 --orphans-delete counts the repository's snapshots anew after deleting (state/kopia-count.json, lib/common.sh
 #        kopia_count_save): what the office deleted is never taken for a repository someone emptied
 #   2.52 No change here (the engine's version: the notifications in the office's language, lib/common.sh ub_tell)
@@ -475,14 +477,22 @@ TXT
         wrn_as flash_script_dir "The script folder is on the flash ($UB_BOOT) - better under $UB_MNT/user/appdata"
     fi
     local t miss=0
-    for t in docker jq flock timeout gzip numfmt mountpoint awk du; do
+    for t in jq flock timeout gzip numfmt mountpoint awk du; do
         command -v "$t" >/dev/null 2>&1 || { bad "Tool '$t' is missing"; miss=1; }
     done
     (( miss )) && { say "Without these tools it cannot go on."; exit 1; }
     [[ -f /etc/unraid-version ]] && ok "Unraid $(sed -n 's/version="\(.*\)"/\1/p' /etc/unraid-version)" \
                                  || wrn_as no_unraid_version "/etc/unraid-version is missing - is this an Unraid server?"
-    docker info >/dev/null 2>&1 && ok "Docker $(docker version -f '{{.Server.Version}}' 2>/dev/null)" \
-                                || { bad "Docker does not answer"; exit 1; }
+    # 2.54: Docker switched off (or not there) is a server of shares and VMs - no apps, nothing offsite (Kopia runs in a
+    # container); Docker switched on but silent stays an error: its apps would be left out without a word
+    if ub_docker_service_off; then
+        hint_as docker_off "Docker is switched off (Settings > Docker) - no apps to back up; shares, VMs and the flash as usual, offsite (Kopia) needs Docker"
+    elif docker info >/dev/null 2>&1; then
+        ok "Docker $(docker version -f '{{.Server.Version}}' 2>/dev/null)"
+    else
+        t="Docker is switched on but does not answer - restart it (Settings > Docker) and look again"
+        ERRORS=$((ERRORS+1)); say "  ${C_R}ERROR${C_0}   $t"; msg error "$t" docker_silent '{}'; exit 1
+    fi
     mountpoint -q "$UB_MNT/user" && ok "$UB_MNT/user is mounted" \
                                  || { bad "$UB_MNT/user is missing - start the array/pools first"; exit 1; }
     command -v zfs   >/dev/null 2>&1 && ok "zfs present"   || hint_as fs_missing "zfs not present" fs zfs
@@ -698,8 +708,9 @@ TXT
     if [[ -n "${OLD[kopia|enabled]+x}" ]]; then dflt="$([[ $(old "kopia|enabled") == yes ]] && echo y || echo n)"
     elif [[ -n "$has_ct" ]]; then dflt="y"
     else dflt="n"; fi
-    [[ -n "$has_ct" ]] && hint_as kopia_container "Kopia container found: $has_ct" name "$has_ct" \
-        || hint_as kopia_container_none "No Kopia container found (image with 'kopia' in its name)"
+    if [[ "$DOCKER_SERVICE" == "no" ]]; then :        # 2.54: the environment step said Docker is off - Kopia needs it
+    elif [[ -n "$has_ct" ]]; then hint_as kopia_container "Kopia container found: $has_ct" name "$has_ct"
+    else hint_as kopia_container_none "No Kopia container found (image with 'kopia' in its name)"; fi
     if ask_yn "Set up offsite backup with Kopia?" "$dflt"; then
         pset "kopia|enabled" yes
         if [[ ! -d "$MOUNT_ROOT" ]]; then
@@ -1840,6 +1851,10 @@ step_kopia() {
         hint_as kopia_off "Kopia is off - skipped. To switch it on: setup.sh again, step 3."
         return 0
     fi
+    if [[ "$DOCKER_SERVICE" == "no" ]]; then          # 2.54: Kopia runs in a container - the environment step said why
+        KOPIA_FAIL="docker_off"
+        return 0
+    fi
     explain <<'TXT'
 Mapping: Kopia only needs <mount_root>, access mode "Read Only - Slave".
 - Read Only: Kopia cannot change anything at the sources.
@@ -2781,7 +2796,7 @@ plan_write() {
         --argjson interface "$UB_INTERFACE" --arg version "$UB_VERSION" --argjson time "$(date +%s)" \
         --arg have "$HAVE_SETTINGS" --argjson P "$p" --argjson O "$o" --argjson pending "$pending" --argjson shares "$shares" --argjson containers "$cts" \
         --argjson databases "$dbs" --argjson missing "$miss" --argjson nextcloud "$ncs" --argjson bases "$bases" \
-        --argjson vms "${vms:-[]}" --arg vm_service "$VM_SERVICE" --argjson apps "$apps" \
+        --argjson vms "${vms:-[]}" --arg vm_service "$VM_SERVICE" --arg docker_service "$DOCKER_SERVICE" --argjson apps "$apps" \
         --arg flash_ds "${FLASH_DATASET:-}" --arg flash_fs "${FLASH_FS:-}" --arg size_timeout "$SIZE_TIMEOUT" \
         --arg k_enabled "$(pget "kopia|enabled" no)" --arg k_container "$kc" --arg k_cands "$cands" \
         --arg k_running "${CT_RUNNING[$kc]:-}" --arg k_image "${CT_IMAGE[$kc]:-}" --arg k_ready "$KOPIA_POLICY_READY" \
@@ -2796,7 +2811,7 @@ plan_write() {
           asleep_pools: $asleep_pools, asleep_nights: $asleep_nights, preset_new: $preset_new,
           sizes_measured: ($size_timeout != "0"), P: $P, O: $O, pending: $pending, shares: $shares, containers: $containers,
           databases: $databases, missing_databases: $missing, nextcloud: $nextcloud,
-          vms: $vms, vm_service: ($vm_service == "yes"), apps: $apps, partners: $partners, place_partner: $place_partner,
+          vms: $vms, vm_service: ($vm_service == "yes"), docker_service: ($docker_service != "no"), apps: $apps, partners: $partners, place_partner: $place_partner,
           bases: $bases, flash: {dataset: $flash_ds, fs: $flash_fs}, mount_root: $mount_root,
           kopia: {enabled: ($k_enabled == "yes"), container: $k_container,
                   candidates: ($k_cands | split("\u001e") | map(select(length > 0))),

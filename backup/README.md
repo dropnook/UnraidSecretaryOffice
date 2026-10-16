@@ -5,7 +5,7 @@ setting it up, scheduling it, starting and stopping runs, helping with restores.
 office's plugin starts it at night from its cron file, `setup.sh` sets it up in a terminal, and `bash <engine>/backup.sh`
 runs it by hand.
 
-Version **2.53** (15 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh`
+Version **2.54** (16 Oct 2026). The version is in the header of `setup.sh` and `backup.sh`, in `lib/common.sh`
 (`UB_VERSION`) and in every log.
 
 The first part is for users of the office; the second, [For the terminal and for developers](#for-the-terminal-and-for-developers),
@@ -88,6 +88,7 @@ settings and reports what was changed by hand.
 - **Unraid 7.3.2 or a newer 7.x** (the plugin's minimum); **Unraid 8 is not supported** for now. Snapshots need pools or array disks on ZFS or btrfs; shares on XFS are backed up without a snapshot ("live").
 - The office's plugin schedules the nightly run itself (its cron file) — no User Scripts needed.
 - Optional: the **Compose Manager**, when stacks with databases are involved.
+- Optional: Docker — without it (switched off in Settings > Docker) shares, VMs and the flash are backed up as usual, only apps and the offsite copy need it.
 - Optional: a **Kopia** container (e.g. `imagegenius/kopia` from Community Apps) for offsite backups.
 - `jq`, `flock`, `timeout` and friends come with Unraid; `setup.sh` checks for them.
 
@@ -712,6 +713,7 @@ No warranty: a backup can be faulty or incomplete, and you stay responsible for 
 
 ## Versions
 
+- **2.54** – A server without Docker backs up: Docker switched off (Settings > Docker > Enable Docker: No, `docker.cfg` `DOCKER_ENABLED="no"`, or no `docker` at all) is no error any more. `setup.sh` says so once (hint `docker_off`), plans shares, VMs and the flash as usual and no apps; the plan carries `docker_service: false` and Kopia's part is skipped with the problem `docker_off` (Kopia runs in a container). A run logs it and backs up what is there; `--recover` doesn't wait for a Docker that never answers. Docker switched on but silent still fails the setup and the run (`Docker is switched on but does not answer`).
 - **2.53** – An offsite repository someone emptied is said at once: before its upload a run counts this identity's Kopia snapshots against the count kept at the last run's end (`state/kopia-count.json` {v, repo — Kopia's `uniqueIDHex` —, identity, storage, time, snapshots, sources, by}, written after the Kopia phase and after `--orphans-delete`). None left, or less than half, in the same repository and identity: `warning_items` `kopia_emptied` (before, now, when) and a notification (alert) — Object Lock may still hold the data — and the run uploads everything anew. Kopia erroring (unreachable, forbidden) counts nothing; another repository or identity is no comparison. Kopia unable to open the repository because its format blob is gone (`kopia.repository blob: BLOB not found` — everything deleted and Kopia's cached copy of it expired) is said once against the last record: `warning_items` `kopia_gone` (before, when) and an alert, the record then 0 (`by` `gone`); nothing can go offsite then. `backup.sh --kopia-count`: the count now as JSON, read only (the office's Night Watchman looks once a day).
 - **2.52** – The notifications speak the office's language: the subject carries Mr. Backupsy's name in the language the office was last used in (Herr Backupsi, Signor Backupsi …), subject and short text come from his language files (`notify.*`); the language is the copy in RAM the office's agent keeps (`/var/run/unraid-secretary-office/notify.lang`), English without it. The long report under it stays English.
 - **2.51** – Old Kopia sources of units that are gone can be deleted from the office: `setup.sh --orphans` lists the office's own sources whose share, app or VM is no longer there (snapshots, size, newest), `--orphans-delete=<file>` deletes those chosen that are offered right then — never another identity's, a path of the user's own, or a unit that is still there. Both behind the engine's lock (a backup run going on: `busy`).

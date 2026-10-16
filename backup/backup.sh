@@ -1,6 +1,8 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.53 - 2026-10-15
+# unraid-backup - backup.sh                       Version 2.54 - 2026-10-16
+#   2.54 Docker switched off (Settings > Docker, or no docker at all) is a server of shares and VMs: the run backs them
+#        and the flash up, no apps (ub_docker_service_off); Docker switched on but silent still ends the run
 #   2.53 The offsite repository emptied is said at once: before the upload the snapshots of this identity are counted
 #        against the last run's end (state/kopia-count.json, kept after the Kopia phase and after --orphans-delete) -
 #        none left or less than half, in the same repository and identity, is warning_items kopia_emptied and a
@@ -1664,15 +1666,17 @@ pkg_server() {
         for f in "${PKG_VMS[@]}"; do echo "vms/$f: ${PKG_VM_NAME[$f]}"; done
         echo
         echo "## Containers (name, image)"
-        docker ps -a --format '{{.Names}}\t{{.Image}}' | sort
+        if [[ "$DOCKER_SERVICE" == "no" ]]; then echo "(Docker is switched off)"
+        else docker ps -a --format '{{.Names}}\t{{.Image}}' | sort; fi
     } >"$S/manifest.txt"
-    local -a ids=(); mapfile -t ids < <(docker ps -aq 2>/dev/null)
+    local -a ids=(); [[ "$DOCKER_SERVICE" == "no" ]] || mapfile -t ids < <(docker ps -aq 2>/dev/null)
     if (( ${#ids[@]} )); then
         docker inspect --format '{{.Name}}  {{.Config.Image}}  {{.Image}}' "${ids[@]}" >"$S/docker-images.txt" 2>&1
     else
         : >"$S/docker-images.txt"
     fi
-    docker ps -a --format '{{.Names}}\t{{.Image}}\t{{.Status}}' >"$S/docker-ps.txt" 2>&1
+    if [[ "$DOCKER_SERVICE" == "no" ]]; then echo "(Docker is switched off)" >"$S/docker-ps.txt"
+    else docker ps -a --format '{{.Names}}\t{{.Image}}\t{{.Status}}' >"$S/docker-ps.txt" 2>&1; fi
     command -v zfs   >/dev/null && { zfs list -o name,used,refer,mountpoint >"$S/zfs-list.txt" 2>&1; zpool status >"$S/zpool-status.txt" 2>&1; }
     # --mounted: what the kernel knows - no raw reads of every device (a busy or sleeping disk held this up for minutes)
     command -v btrfs >/dev/null && timeout 30 btrfs filesystem show --mounted >"$S/btrfs-show.txt" 2>&1
@@ -2789,7 +2793,7 @@ skip_busy() {
 # libvirt never answers while Unraid's VM service is switched off: not waited for (the VMs' note goes then).
 recover_wait() {
     local until=$(( $(date +%s) + UB_RECOVER_WAIT )) docker=0 virt=0 told=0
-    [[ -s "$UB_STATE/stopped" || -s "$UB_STATE/maintenance" ]] && docker=1
+    [[ -s "$UB_STATE/stopped" || -s "$UB_STATE/maintenance" ]] && ! ub_docker_service_off && docker=1   # off: never answers (2.54)
     [[ -s "$UB_STATE/vms" ]] && command -v virsh >/dev/null 2>&1 && ! ub_vm_service_off && virt=1
     while :; do
         array_stopping && return 1
@@ -3413,10 +3417,12 @@ array_stop_check "at its start"      # before anything - also before an earlier 
 recover_interrupted_run
 [[ "$DRY" == "1" ]] && log "DRY RUN - nothing is changed."
 
-for t in docker jq flock timeout gzip numfmt mountpoint awk; do
+for t in jq flock timeout gzip numfmt mountpoint awk; do
     command -v "$t" >/dev/null 2>&1 || die "Tool '$t' is missing"
 done
-docker info >/dev/null 2>&1 || die "Docker does not answer"
+# 2.54: Docker switched off - a server of shares and VMs, no apps this run; switched on but silent stays an error
+if ub_docker_service_off; then log "Docker is switched off (Settings > Docker) - no apps to back up"
+else docker info >/dev/null 2>&1 || die "Docker is switched on but does not answer"; fi
 mountpoint -q "$UB_MNT/user" || die "$UB_MNT/user is not mounted - array/pools not started?"
 
 SNAP_NAME="${SNAP_PREFIX}${TS}"

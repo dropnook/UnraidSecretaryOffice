@@ -146,6 +146,8 @@
 .bk-code{display:flex; gap:8px; align-items:flex-start; margin-top:6px}
 .bk-code pre{flex:1; min-width:0; margin:0; font-size:11.5px}
 .bk-schedule .check{margin-bottom:6px}
+.check.bk-off{cursor:default; color:var(--muted)}   /* offsite greyed: Docker is switched off (engine 2.54) */
+.check.bk-off input{opacity:.5}
 .bk-schedule-field{margin:0 0 14px 25px; display:flex; flex-direction:column; gap:5px; max-width:260px}
 .bk-schedule-field small{font-size:12px; color:var(--muted)}
 .bk-schedule-field .chip{align-self:flex-start; cursor:help}

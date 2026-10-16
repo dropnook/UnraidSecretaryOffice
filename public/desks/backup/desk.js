@@ -3635,8 +3635,10 @@ function setupTileData(plan) {
   out.push(plan.vm_service
     ? { id: 'vms', key: 'setup.vms', value: String(m.vms.length), sub: [T('setup.tile.on', { n: vmsOn })], alert: false, fresh: fresh.vms }
     : { id: 'vms', key: 'setup.vms', value: '–', sub: [T('setup.tile.vm_off')], alert: false, fresh: 0 });
-  out.push({ id: 'apps', key: 'setup.apps', value: String(m.apps.length), sub: [T('setup.tile.on', { n: m.apps.filter((a) => levelOf('app:' + a.id) > 0).length })],
-    alert: false, fresh: fresh.apps });
+  out.push(plan.docker_service === false && !m.apps.length
+    ? { id: 'apps', key: 'setup.apps', value: '–', sub: [T('setup.tile.docker_off')], alert: false, fresh: 0 }
+    : { id: 'apps', key: 'setup.apps', value: String(m.apps.length), sub: [T('setup.tile.on', { n: m.apps.filter((a) => levelOf('app:' + a.id) > 0).length })],
+      alert: false, fresh: fresh.apps });
   // 3 shares: the table's rows, those backed up
   const shares = plan.shares || [];
   out.push({ id: 'shares', key: 'setup.shares', value: String(shares.length),
@@ -3852,13 +3854,17 @@ function setupKopia(plan) {
   }
   if (!guideFirst) s.appendChild(placeGuide(plan));
   const on = dget('kopia|enabled') === 'yes';
-  s.appendChild(checkbox(T('setup.kopia_on'), on, (v) => {
+  // engine 2.54: Docker switched off - Kopia runs in a container: greyed with the reason (switched on earlier: it can be unticked)
+  const dockerOff = plan.docker_service === false;
+  const kbox = checkbox(T('setup.kopia_on'), on, (v) => {
     dset('kopia|enabled', v ? 'yes' : 'no');
     if (!v) Object.keys(setup.draft).forEach((key) => { if (/^share\|.+\|mode$/.test(key) && setup.draft[key] === 'kopia') setup.draft[key] = 'snapshot'; });
     setupDerive();
     renderSetup();
-  }, T('setup.kopia_on_hint')));
-  if (!on) return s;
+  }, dockerOff ? T('setup.k_problem.docker_off') : T('setup.kopia_on_hint'));
+  if (dockerOff && !on) { kbox.querySelector('input').disabled = true; kbox.classList.add('bk-off'); }
+  s.appendChild(kbox);
+  if (!on || dockerOff) return s;
   if (!plan.P['kopia|enabled'] || plan.P['kopia|enabled'] !== 'yes') {
     s.appendChild(el('p', 'callout', T('setup.kopia_recheck')));
     return s;
@@ -4875,7 +4881,7 @@ function setupApps(plan) {
   const s = Office.place('setup.apps', setupSection(T('setup.apps'), T('setup.apps_sub')));
   const m = setup.model;
   const gone = goneApps(plan);
-  if (!m.apps.length && !m.skipped.length && !gone.length) { s.appendChild(el('p', 'empty', T('setup.apps_none'))); return s; }
+  if (!m.apps.length && !m.skipped.length && !gone.length) { s.appendChild(el('p', 'empty', T(plan.docker_service === false ? 'setup.apps_docker_off' : 'setup.apps_none'))); return s; }
   const shareOf = (n) => plan.shares.find((x) => x.name === n);
   const list = el('div', 'box');
   let head = null;
@@ -5468,7 +5474,8 @@ function setupFailedCallout(st) {
   const errs = (st.messages || []).filter((m) => m && m.level === 'error' && m.text);
   if (errs.length) {
     const ul = el('ul', 'bk-msgs');
-    errs.forEach((m) => ul.appendChild(el('li', '', m.text)));
+    // engine 2.54: an error with a code the office knows in its own words, else the engine's English text
+    errs.forEach((m) => ul.appendChild(el('li', '', m.code && Office.has(`${ID}.setup.msg.${m.code}`) ? T('setup.msg.' + m.code, setupMsgParams(m.params)) : m.text)));
     p.appendChild(ul);
   }
   return p;

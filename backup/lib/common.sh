@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.53"
+UB_VERSION="2.54"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -1003,9 +1003,12 @@ declare -ga CT_NAMES=()
 declare -gA CT_IMAGE=() CT_RUNNING=() CT_NET=() CT_ID=() CT_BINDS=() CT_VOLUMES=() CT_HEALTH=()
 declare -gA CT_ENVKEYS=() CT_PORTS=() CT_PROJECT=() CT_SERVICE=()
 
+DOCKER_SERVICE="yes"    # (2.54) "no": Unraid's Docker service is switched off - no containers, no Kopia (ub_docker_service_off)
 docker_load() {
     CT_NAMES=(); CT_IMAGE=(); CT_RUNNING=(); CT_NET=(); CT_ID=(); CT_BINDS=(); CT_VOLUMES=(); CT_HEALTH=()
     CT_ENVKEYS=(); CT_PORTS=(); CT_PROJECT=(); CT_SERVICE=()
+    DOCKER_SERVICE="yes"
+    ub_docker_service_off && { DOCKER_SERVICE="no"; return 0; }
     local ids n img run net id binds vols health envk ports proj svc
     mapfile -t ids < <(docker ps -aq 2>/dev/null)
     [[ ${#ids[@]} -eq 0 ]] && return 0
@@ -1874,6 +1877,13 @@ ub_libvirt_answers() { timeout 20 virsh list --name >/dev/null 2>&1; }
 # Unraid's VM service switched off (Settings > VM Manager > Enable VMs: No, domain.cfg SERVICE="disable"): no libvirt
 # to answer, no VM to start (2.25). A missing domain.cfg is never taken for off.
 ub_vm_service_off() { grep -qE '^SERVICE="?disable"?[[:space:]]*$' "$UB_BOOT/config/domain.cfg" 2>/dev/null; }
+# Unraid's Docker service switched off (Settings > Docker > Enable Docker: No, docker.cfg DOCKER_ENABLED="no") or no
+# docker at all (2.54): no apps to back up and no Kopia container - a server of shares and VMs, never an error. A missing
+# docker.cfg is never taken for off; Docker switched on but silent stays an error where Docker is needed.
+ub_docker_service_off() {
+    command -v docker >/dev/null 2>&1 || return 0
+    grep -qE '^DOCKER_ENABLED="?no"?[[:space:]]*$' "$UB_BOOT/config/docker.cfg" 2>/dev/null
+}
 
 UB_RECOVER_READY="${UB_RECOVER_READY:-120}"   # noted containers started again: seconds a tier may take to run ("healthy")
 UB_NC_RUN_WAIT="${UB_NC_RUN_WAIT:-120}"       # a noted Nextcloud: seconds its container may take to run before its note stays
