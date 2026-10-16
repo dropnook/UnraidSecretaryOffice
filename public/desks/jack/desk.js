@@ -1442,7 +1442,9 @@ const serverType = (t) => (SERVER_NAMES[t] ? t : 'emby');
 function newInstance(taken, want) {
   const c = (state.emby || []).find((x) => !taken.some((i) => i.url === x.url) && (!want || x.type === want)) || null;
   const type = serverType(want || (c && c.type));
-  return { type, servername: c ? c.name : `${SERVER_NAMES[type]}${taken.length + 1}`, url: c ? c.url : 'http://', has_key: false, path_mappings: {},
+  // the kind's own name; a number only for a second one of the same kind («Plex», then «Plex 2»)
+  const same = taken.filter((i) => i.type === type).length;
+  return { type, servername: c ? c.name : SERVER_NAMES[type] + (same ? ` ${same + 1}` : ''), url: c ? c.url : 'http://', has_key: false, path_mappings: {},
            ...(want && !c ? { noContainer: true } : {}) };
 }
 
@@ -1800,17 +1802,18 @@ function setupServers() {
   s1.appendChild(mediaChoice());
   form.instances.forEach((inst, idx) => {
     const box = el('div', 'box jo-instance');
+    // the kind is fixed (its card above made the row): its logo and name as the row's head
+    const head = el('div', 'jo-instance-head');
+    head.append(mediaLogo(SERVER_NAMES[inst.type]), el('b', '', SERVER_NAMES[inst.type]));
+    box.appendChild(head);
     const f1 = el('div', 'jo-form');
-    // the kind first: it says how the key goes and which hint helps (Plex: its token)
-    const kind = select(inst, 'type', Object.entries(SERVER_NAMES));
-    kind.addEventListener('change', () => { inst.server = null; inst.noContainer = false; renderSetup(); });
     const name = input(inst.servername, (v) => { inst.servername = v; });
     const url = input(inst.url, (v) => { inst.url = v.trim(); });
     const key = input('', (v) => { inst.api_key = v.trim(); });
     key.type = 'password';
     key.autocomplete = 'off';
     key.placeholder = inst.has_key ? T('setup.key_kept') : T('setup.key_placeholder');
-    f1.append(field(T('setup.type'), kind), field(T('setup.name'), name), field(T('setup.url'), url, T('setup.url_hint')),
+    f1.append(field(T('setup.name'), name), field(T('setup.url'), url, T('setup.url_hint', { port: inst.type === 'plex' ? 32400 : 8096 })),
       field(T('setup.key'), key, T(inst.type === 'emby' ? 'setup.key_hint' : 'setup.key_hint_' + inst.type)));
     box.appendChild(f1);
     if (inst.noContainer && !inst.server) box.appendChild(el('p', 'callout jo-no-container', T('setup.no_container', { kind: SERVER_NAMES[inst.type] })));
@@ -1826,16 +1829,16 @@ function setupServers() {
     if (inst.server && inst.type === 'plex') box.appendChild(el('p', 'role', T('setup.plex_users')));
     if (inst.connectError) box.appendChild(el('p', 'callout danger jo-connect-error', inst.connectError));
     if (form.instances.length > 1) bar.appendChild(button(T('setup.remove_server'), 'small plain', () => { form.instances.splice(idx, 1); renderSetup(); }));
+    // a second server of the same kind (rare): from its last row
+    if (form.instances.findLastIndex((i) => i.type === inst.type) === idx) {
+      bar.appendChild(button(T('setup.add_same', { kind: SERVER_NAMES[inst.type] }), 'small plain', () => {
+        form.instances.splice(idx + 1, 0, { ...newInstance(form.instances, inst.type), api_key: '', mappings: {}, skip: new Set(), server: null, libraries: [], users: [] });
+        renderSetup();
+      }));
+    }
     box.appendChild(bar);
     s1.appendChild(box);
   });
-  const add = button(T('setup.add_server'), 'small plain', () => {
-    form.instances.push({ ...newInstance(form.instances), api_key: '', mappings: {}, skip: new Set(), server: null, libraries: [], users: [] });
-    renderSetup();
-  });
-  const bar1 = el('div', 'toolbar');
-  bar1.appendChild(add);
-  s1.appendChild(bar1);
   if (!connected()) s1.appendChild(el('p', 'callout', T('setup.connect_first')));
   // someone who ran helmi1987's tools before: the offer (only while he isn't set up — afterwards its own tile)
   if (!state.configured) {

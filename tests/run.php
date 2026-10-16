@@ -32982,6 +32982,11 @@ function testStreamerTab(): void
     const j = e.mediaPick('jellyfin'); const ji = e.form().instances[j];
     const again = e.mediaPick('jellyfin');
     out.pickChips = chipsOf().map((c) => c[0]);
+    const rows = texts(e.setupServers());
+    out.rows = [rows.includes('setup.type'), rows.filter((t) => t.startsWith('setup.add_same')).map((t) => t.replace(/^setup.add_same /, '')), rows.includes('setup.add_server')];
+    e.setState({ ...st, emby: [] });   // no containers here: the names alone
+    out.names = [e.newInstance([{ type: 'emby' }], 'plex').servername, e.newInstance([{ type: 'plex' }], 'plex').servername, e.newInstance([{ type: 'plex' }, { type: 'plex' }], 'plex').servername];
+    e.setState(st);
     out.pick = [at, n0, j, ji.type, !!ji.noContainer || ji.url !== 'http://', again === j, e.form().instances.length];
     const note = texts(e.setupServers()).filter((t) => t.startsWith('setup.no_container'));
     out.pickNote = [ji.noContainer ? note.length === 1 : note.length === 0];
@@ -33083,6 +33088,9 @@ JS, [OFFICE_WEB . '/desks/jack/desk.js', OFFICE_DIR . '/tests/ui/demo/jack.json'
     same('streamer tab: a card clicked — Emby set up: its row (0, nothing added); Jellyfin not yet: a new Jellyfin row (from its container, or empty saying none runs here); clicked again: the same row',
         [0, 1, 1, 'jellyfin', true, true, 2], $r['pick'] ?? null);
     same('streamer tab: … the note «no container here» exactly when none runs here', [true], $r['pickNote'] ?? null);
+    same('streamer tab: … a new row without a container is named by its kind, a number only for a second of that kind', ['Plex', 'Plex 2', 'Plex 3'], $r['names'] ?? null);
+    same('streamer tab: … a row\'s kind is fixed (no «Kind» field); «another <kind> server» once per kind at its last row; no generic «another server»',
+        [false, ['{"kind":"Emby"}', '{"kind":"Jellyfin"}'], false], $r['rows'] ?? null);
     same('streamer tab: … the new Jellyfin row (no key yet) leaves its card «supported»', ['setup.media_set', 'setup.media_ok', 'setup.media_ok'], $r['pickChips'] ?? null);
     same('streamer tab: the amount needs a connected server first', ['setup.after_connect'], $r['notYet']);
     same('streamer tab: the form is budget mode only — the saved budget in GB, episodes per series inside it, nothing of count mode or the wizard',
