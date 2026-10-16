@@ -539,7 +539,9 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
         }
     };
     // one step: a tool called with its part; false = the night ends here (stopped, refused)
-    $step = function (string $who, string $phase, array $extra = []) use (&$n, $h, $dir, $mode, $stopped, $jack): bool {
+    // who started the night (its schedule or the page) goes along to both: their run lists say it, never «at night»
+    $from = $by === 'office' ? ['--office'] : [];
+    $step = function (string $who, string $phase, array $extra = []) use (&$n, $h, $dir, $mode, $stopped, $jack, $from): bool {
         if ($stopped()) {
             $n['result'] = 'stopped';
             $n['stopped_in'] = $phase;
@@ -551,7 +553,7 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
         nightWrite($dir, $n);
         $counts = [];
         if ($who === 'jack') {
-            $args = [$mode, '--night'];
+            $args = array_merge([$mode, '--night'], $from);
             if ($phase !== 'fill' && $mode === 'run') {
                 $args[] = '--nofill';
             }
@@ -569,7 +571,7 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
         } else {
             // without Jack Emby (not taking part, or his step refused tonight): her part alone, her record says why
             $out = isset($n['jack_out']) ? ['--solo', '--jack-out=' . $n['jack_out']] : ['--solo'];
-            $exit = ($h['her_job'])(array_merge([$mode, '--night'], $jack && !isset($n['jack_out']) ? [] : $out, $extra), $h);
+            $exit = ($h['her_job'])(array_merge([$mode, '--night'], $from, $jack && !isset($n['jack_out']) ? [] : $out, $extra), $h);
             $last = moverelliHistory($dir)[0] ?? [];
             $recent = (readJson("$dir/status.json") ?? [])['recent'] ?? [];
             nightOutputAdd($dir, "Ms. Moverelli · $phase · round {$n['round']}", ($h['her_output'])());

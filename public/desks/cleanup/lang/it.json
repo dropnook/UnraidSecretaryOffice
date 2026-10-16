@@ -1648,7 +1648,7 @@
   "where.adv.cron_dead.own": "Sono nel crontab di root (crontab -l): il comando qui sotto le toglie in un terminale (il >_ di Unraid in alto a destra) e prima mette una copia sull'unità flash.",
   "where.adv.cron_dead.system": "Le righe in /etc/cron.d vengono da un plugin (Unraid vi costruisce il suo crontab dai file .cron dei plugin sull'unità flash): reinstalla quel plugin, o rimuovilo in ⟦Plugins⟧.",
   "where.adv.spindown_default.title": "I dischi non dormono mai",
-  "where.adv.spindown_default.why": "L'impostazione «⟦Default spin down delay⟧» è su «⟦Never⟧»: ogni disco dell'array gira giorno e notte — corrente, calore e usura. Da 30 a 60 minuti è un buon inizio; con i pool per appdata e VM la maggior parte dei dischi poi riposa davvero.",
+  "where.adv.spindown_default.why": "L'impostazione «⟦Default spin down delay⟧» è su «⟦Never⟧»: ogni disco dell'array gira ininterrottamente — corrente, calore e usura. Da 30 a 60 minuti è un buon inizio; con i pool per appdata e VM la maggior parte dei dischi poi riposa davvero.",
   "where.adv.spindown_some.title": {
     "one": "Un disco non dorme mai",
     "other": "{n} dischi non dormono mai"

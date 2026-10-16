@@ -1229,6 +1229,8 @@ function moverelliJob(array $args, ?array $h = null): int
     $h ??= moverelliHost();
     $dir = $h['dir'];
     $by = in_array('--night', $args, true) ? 'night' : (in_array('--office', $args, true) ? 'office' : 'schedule');
+    // inside the joint run: who started it (its schedule or the page) — her run list says that, never «the night run»
+    $from = $by === 'night' ? ['from' => in_array('--office', $args, true) ? 'office' : 'schedule'] : [];
     // inside the night run (nightrun.php): the room Jack Emby fetches into — her fill goes until the pool uses at most this
     $room = $roomPool = null;
     foreach ($by === 'night' ? $args : [] as $a) {
@@ -1251,8 +1253,8 @@ function moverelliJob(array $args, ?array $h = null): int
         fwrite(STDERR, "moverelli: not started (not hired)\n");
         return 1;
     }
-    $refused = function (string $why, array $params = []) use ($mode, $by, $dir): int {
-        moverelliRemember(['mode' => $mode, 'by' => $by, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => $why]
+    $refused = function (string $why, array $params = []) use ($mode, $by, $from, $dir): int {
+        moverelliRemember(['mode' => $mode, 'by' => $by, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => $why] + $from
             + array_intersect_key($params, ['schedule' => 1, 'shares' => 1, 'version' => 1, 'file' => 1]), $dir);
         logLine("Ms. Moverelli: Smart Mover ($mode) not started ($why)");
         fwrite(STDERR, "moverelli: not started ($why)\n");
@@ -1278,7 +1280,7 @@ function moverelliJob(array $args, ?array $h = null): int
         if (!$gate['go']) {
             if (in_array($gate['result'], ['refused', 'skipped'], true)) {
                 moverelliRemember(['mode' => $mode, 'by' => $by, 'started' => $asked, 'finished' => time(), 'result' => $gate['result'],
-                                   'why' => 'moverelli_mover_running'] + ($gate['waited'] > 0 ? ['waited' => $gate['waited']] : []), $dir);
+                                   'why' => 'moverelli_mover_running'] + $from + ($gate['waited'] > 0 ? ['waited' => $gate['waited']] : []), $dir);
                 logLine("Ms. Moverelli: Smart Mover (run) " . ($gate['result'] === 'skipped' ? 'skipped' : 'not started') . " — Unraid's mover is at work");
                 return $gate['result'] === 'skipped' ? 0 : 1;
             }
@@ -1362,7 +1364,7 @@ function moverelliJob(array $args, ?array $h = null): int
         $note['stop_file'] = (string) ($status['stop_file'] ?? '');
     }
     moverelliRemember(['mode' => $mode, 'by' => $by, 'started' => $started, 'finished' => time(), 'exit' => $exit, 'result' => $result,
-                       'status' => moverelliStatusShort($status)] + ($solo ? ['jack' => false] : []) + ($jackOut !== null ? ['jack_out' => $jackOut] : []) + $note, $dir);
+                       'status' => moverelliStatusShort($status)] + $from + ($solo ? ['jack' => false] : []) + ($jackOut !== null ? ['jack_out' => $jackOut] : []) + $note, $dir);
     logLine("Ms. Moverelli: Smart Mover ($mode) $result" . ($mode === 'run' ? ' — ' . (int) ($status['moved'] ?? 0) . ' moved, '
         . (int) ($status['left'] ?? 0) . ' left' : '') . (isset($note['why']) ? " (stopped: {$note['why']})" : ''));
     try {

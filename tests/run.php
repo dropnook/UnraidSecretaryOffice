@@ -18311,11 +18311,11 @@ function testDashboardJobs(): void
         ['jack', 'avatar.svg', 'Jack Streamer', 'At work', 'Giving back Herbst.mkv'],
         ['jack', 'avatar.svg', 'Jack Streamer', 'Consolidating folders', 'Dry run'],
         ['moverelli', 'avatar.svg', 'Ms. Moverelli', '12 files moved', 'Share Familienserien'],
-        ['moverelli', 'avatar.svg', 'Ms. Moverelli', 'At work', 'Night run · Jack Streamer fetches'],
+        ['moverelli', 'avatar.svg', 'Ms. Moverelli', 'At work', 'Joint run · Jack Streamer fetches'],
         ['moverelli', 'avatar.svg', 'Ms. Moverelli', '1 file moved', 'Looking around'],
         null,
-        ['moverelli', 'avatar.svg', 'Ms. Moverelli', 'At work', 'Night run · Jack Streamer gives back'],
-        ['moverelli', 'avatar.svg', 'Ms. Moverelli', 'At work', 'Night run · Ms. Moverelli makes room']], $o['en'] ?? $raw);
+        ['moverelli', 'avatar.svg', 'Ms. Moverelli', 'At work', 'Joint run · Jack Streamer gives back'],
+        ['moverelli', 'avatar.svg', 'Ms. Moverelli', 'At work', 'Joint run · Ms. Moverelli makes room']], $o['en'] ?? $raw);
     same('dash jobs: German', ['Sichert gerade', 'Schritt 2 von 5', '12 Dateien verschoben', 'Holt Sommer am See.mkv'],
         [$o['de'][0][3] ?? null, $o['de'][1][4] ?? null, $o['de'][7][3] ?? null, $o['de'][4][4] ?? null]);
     $quiet = (string) ($o['quiet'] ?? '');
@@ -33175,6 +33175,36 @@ function testJackByWords(): void
     same('jack by-words: every «by» of the run list has its words in all five languages', [], $miss);
 }
 
+/**
+ * No run happens «at night» (the owner, 2026-10-16: a run is on schedule or started by hand — «night» is wrong, above all
+ * for Jack Streamer): the texts of the desks that run things or talk about runs carry no night word in any language. Only
+ * the Night Watchman keeps the night — his name inside another desk's text is taken out first, and his night shift's own
+ * key is excepted by name; placeholders ({night}, {nights}) are code names.
+ */
+function testNoNightWords(): void
+{
+    $words = ['de' => '/nacht|nächtlich/iu', 'en' => '/night/iu', 'fr' => '/nuit|nocturne/iu', 'it' => '/notte|nottur/iu', 'es' => '/noche|nocturn|madrugada/iu'];
+    $except = ['caretaker' => ['partner.night']];     // «night shift»: the Night Watchman's while the array is stopped
+    $hits = [];
+    foreach (['moverelli', 'jack', 'advisor', 'restore', 'caretaker', 'cleanup', 'backup', 'snapshot', 'logs'] as $desk) {
+        foreach ($words as $l => $re) {
+            $name = mb_strtolower((string) (langFile(OFFICE_WEB . "/desks/watchman/lang/$l.json")['name'] ?? ''));
+            $name = preg_replace('/^(der|the|le|il|el)\s+/u', '', $name);
+            foreach (langFile(OFFICE_WEB . "/desks/$desk/lang/$l.json") as $k => $v) {
+                foreach ((array) $v as $text) {
+                    $text = str_replace($name, '', mb_strtolower(preg_replace('/\{[a-z_]+\}/', '', (string) $text)));
+                    if (!in_array($k, $except[$desk] ?? [], true) && preg_match($re, $text)) {
+                        $hits[] = "$desk/$l $k";
+                    }
+                }
+            }
+        }
+    }
+    same('texts: no run happens «at night» — on schedule or started here; only the Night Watchman keeps the night', [], $hits);
+    check('texts: … his name was found in all five languages (else nothing of him would be taken out)',
+        count(array_filter(array_keys($words), fn ($l) => mb_strlen((string) (langFile(OFFICE_WEB . "/desks/watchman/lang/$l.json")['name'] ?? '')) > 4)) === 5);
+}
+
 function testStreamerTab(): void
 {
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.js');
@@ -35499,9 +35529,9 @@ function testNightRun(): void
     $n = $night();
     same('night run 1: the work where night.json says — «check» while the pool is first measured, his give-back, «recheck» (nobody) while measured after it, her part, the quick recheck, her second pass, his fetch',
         ['measure check/-', 'jack free/jack', 'measure recheck/-', 'her free/her', 'measure recheck/-', 'her free/her', 'measure recheck/-', 'measure recheck/-', 'jack fill/jack', 'measure fill/-'], $trace);
-    $her = 'her run --night --fill-until=740G --fill-pool=cache';
-    same('night run 1: Jack Emby frees (watched only, no fill), she makes his room below X, the pool grew: her part again, then he fetches — last',
-        [0, ['jack run --night --nofill', $her, $her, 'jack run --night']], [$exit, $calls]);
+    $her = 'her run --night --office --fill-until=740G --fill-pool=cache';
+    same('night run 1 (started here: «--office» goes along to both, their run lists say so): Jack Emby frees (watched only, no fill), she makes his room below X, the pool grew: her part again, then he fetches — last',
+        [0, ['jack run --night --office --nofill', $her, $her, 'jack run --night --office']], [$exit, $calls]);
     same('night run 1: … the pool at X (800), Jack Emby 350 + 60 fetched, nothing waits, two rounds, done, nothing told',
         [800, 410, 0, 2, 'ok', 'done', false, []], [$p['nm'] + $p['j'] + $p['d'], $p['j'], $p['wait'], $n['round'] ?? null, $n['result'] ?? null, $n['phase'] ?? null,
          $n['running'] ?? null, $notified]);
@@ -35512,7 +35542,7 @@ function testNightRun(): void
     preg_match_all('/^===== (.+) =====$/m', $out, $m);
     same('night run 1: the output of every step in order, each with its tool\'s text', [['Jack Streamer · free · round 1', 'Ms. Moverelli · free · round 1',
         'Ms. Moverelli · free · round 2', 'Jack Streamer · fill · round 2'], true, true],
-        [$m[1], str_contains($out, "his output after: jack run --night --nofill\n"), str_contains($out, "his output after: jack run --night\n")]);
+        [$m[1], str_contains($out, "his output after: jack run --night --office --nofill\n"), str_contains($out, "his output after: jack run --night --office\n")]);
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.js');
     check('night run 1: «Raw output» on both pages shows the whole night when the last run was a step of it; his result box sums his steps',
         str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php'), "(jackJobInfo(\$tool)['by'] ?? '') === 'night' && is_file(\$night)")
@@ -35671,7 +35701,7 @@ function testNightRun(): void
     nightRun(['dry', '--office']);
     $n = $night();
     same('night dry run: Jack Emby dry, then she dry with his room — no recheck, no fill; the plan: 70 watched back, 20 fetched (from his dry answer)',
-        [['jack dry --night', 'her dry --night --fill-until=780G --fill-pool=cache'], 70 * $G, 0, 20 * $G], [$calls, $n['plan']['back'] ?? null, $n['plan']['goes'] ?? null, $n['plan']['fill'] ?? null]);
+        [['jack dry --night --office', 'her dry --night --office --fill-until=780G --fill-pool=cache'], 70 * $G, 0, 20 * $G], [$calls, $n['plan']['back'] ?? null, $n['plan']['goes'] ?? null, $n['plan']['fill'] ?? null]);
     // not hired, a run of hers going: refused
     $v['hired'] = false;
     same('night run: she isn\'t hired — nothing', 1, nightRun(['run']));
@@ -35689,7 +35719,14 @@ function testNightRun(): void
     // her part inside the night: by «night», no cap any more (only X), no gate wait
     unset($GLOBALS['nightHost']);
     $exit = moverelliJob(['run', '--night'], $h);
-    same('night her part: ran, «by night»', [0, 'night'], [$exit, moverelliHistory($dir)[0]['by'] ?? null]);
+    same('night her part: ran, «by night», started by her schedule (no «--office»: «from» schedule)', [0, 'night', 'schedule'],
+        [$exit, moverelliHistory($dir)[0]['by'] ?? null, moverelliHistory($dir)[0]['from'] ?? null]);
+    // 2026-10-16: never «the night run» in her list — a joint run started on her page says «started here»
+    moverelliJob(['run', '--night', '--office'], $h);
+    same('night her part started here: «from» office; a run of her own carries no «from»', ['office', false],
+        [moverelliHistory($dir)[0]['from'] ?? null, array_key_exists('from', (function () use ($h, $dir) { moverelliJob(['run', '--office'], $h); return moverelliHistory($dir)[0] ?? []; })())]);
+    check('night Jack Emby\'s part: his record says who started the joint run too (only then)',
+        str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php'), "\$from = \$by === 'night' ? (in_array('--office', \$args, true) ? 'office' : 'schedule') : null;"));
     // without Jack Emby because he refused tonight: her record says so and why (a code in exactly its shape, else nothing)
     moverelliJob(['run', '--night', '--solo', '--jack-out=jack_gather_first'], $h);
     $r0 = moverelliHistory($dir)[0] ?? [];
@@ -35875,9 +35912,10 @@ JS);
     check('night page without Jack Emby: her schedule section shows tonight and her steps (no step of his), the dry run',
         in_array('sched.mine', $j['mineSection'] ?? [], true) && in_array($j['mine'][0] ?? '-', $j['mineSection'] ?? [], true) && in_array('night.steps_mine', $j['mineSection'] ?? [], true)
         && !in_array('night.steps', $j['mineSection'] ?? [], true) && in_array('night.dry', $j['mineSection'] ?? [], true), json_encode($j['mineSection'] ?? null));
-    check('night run history: «by.night_solo» for a night without Jack Streamer (record "jack": false) in all five languages, «by.night» stays the joint one',
-        count(array_filter(['en', 'de', 'it', 'fr', 'es'], fn ($l) => isset((json_decode(file_get_contents(OFFICE_WEB . "/desks/moverelli/lang/$l.json"), true) ?: [])['by.night_solo']))) === 5
-        && str_contains(file_get_contents(OFFICE_WEB . '/desks/moverelli/desk.js'), "r.by === 'night' && r.jack === false"));
+    check('run history: a joint run says who started it (its record\'s «from»: started here / on schedule), «in the joint run» only while Jack Streamer took part; «by.night_solo» («the night run») gone in every language',
+        count(array_filter(['en', 'de', 'it', 'fr', 'es'], fn ($l) => isset((json_decode(file_get_contents(OFFICE_WEB . "/desks/moverelli/lang/$l.json"), true) ?: [])['by.night_solo']))) === 0
+        && str_contains(file_get_contents(OFFICE_WEB . '/desks/moverelli/desk.js'), "['office', 'schedule'].includes(r.from) ? T('by.' + r.from)")
+        && str_contains(file_get_contents(OFFICE_WEB . '/desks/moverelli/desk.js'), "r.jack === false ? '' : T('by.night')"));
     same('night page: the last night — missed at 81 %, two passes', 'night.last {"when":"R200","how":"night.last_missed {\"pct\":81}"} · night.rounds {"n":2}', $j['last'] ?? null);
     check('night page: her schedule section — «Night run with Jack Emby», tonight, the steps and the dry run', in_array('sched.night', $j['section'] ?? [], true)
         && in_array($j['tonight'] ?? '-', $j['section'] ?? [], true) && in_array('night.dry', $j['section'] ?? [], true), json_encode($j['section'] ?? null));
@@ -38940,7 +38978,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
-          'strings' => ['testStrings', 'testUnraidWords']];
+          'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.
 $only = array_values(array_unique(array_slice($argv, 1)));

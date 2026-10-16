@@ -2840,6 +2840,8 @@ function jackJob(string $tool, array $args): int
 {
     $by = in_array('--night', $args, true) ? 'night' : (in_array('--letgo', $args, true) ? 'letgo' : (in_array('--office', $args, true) ? 'office' : 'schedule'));
     $noFill = in_array('--nofill', $args, true);       // inside the night run: only free (give back, cleanup), fetch nothing
+    // inside the joint run: who started it (Ms. Moverelli's schedule or her page) — his run list says that, never «at night»
+    $from = $by === 'night' ? (in_array('--office', $args, true) ? 'office' : 'schedule') : null;
     $args = array_values(array_filter($args, fn ($a) => !str_starts_with($a, '--')));
     $mode = $args[0] ?? 'run';
     jackMigratePending();
@@ -2848,7 +2850,7 @@ function jackJob(string $tool, array $args): int
         jackRunCheck($tool, $mode);
     } catch (Problem $p) {
         if (!in_array($p->key, ['jack_not_configured', 'jack_gather_not_configured', 'jack_measure_none'], true)) {
-            jackRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => $p->key]
+            jackRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'from' => $from, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => $p->key]
                 + array_intersect_key($p->params, ['schedule' => 1, 'shares' => 1, 'file' => 1, 'detail' => 1]));
             if (str_starts_with($p->key, 'jack_mover_')) {
                 logLine("Jack Streamer: $tool ($mode) not started — the mover could take MediaCache's files ($p->key); only dry runs go");
@@ -2885,7 +2887,7 @@ function jackJob(string $tool, array $args): int
             jackRunCheck($tool, $mode);           // after a wait: still nothing else at work?
         } catch (Problem $p) {
             jackWaitEnd($wait, RUN_DIR, $tool);
-            jackRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => $p->key] + $note);
+            jackRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'from' => $from, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => $p->key] + $note);
             if ($mode === 'release') {
                 jackReleaseRefusedTell($p->key);
             }
@@ -2898,7 +2900,7 @@ function jackJob(string $tool, array $args): int
         if ($p = jackWatchProblem($look)) {
             logLine('Jack Streamer: measuring not started — ' . ($look['state'] === 'watching' ? 'someone watches Emby: ' . jackWatchersLine($look['who'])
                 : "Emby's answer: " . ($look['why'] ?? '') . ' ' . ($look['detail'] ?? '')));
-            jackRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => $p->key]
+            jackRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'from' => $from, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => $p->key]
                 + ($p->key === 'jack_watching' ? ['who' => $look['who']] : ['detail' => (string) ($look['detail'] ?? '')]));
             return 1;
         }
@@ -2909,7 +2911,7 @@ function jackJob(string $tool, array $args): int
         if ($p = jackLetGoWatchProblem($look)) {
             logLine('Jack Streamer: the films are not brought back — ' . ($look['state'] === 'watching' ? 'someone watches Emby: ' . jackWatchersLine($look['who'])
                 : "Emby's answer: " . ($look['why'] ?? '') . ' ' . ($look['detail'] ?? '')));
-            jackRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => $p->key]
+            jackRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'from' => $from, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => $p->key]
                 + ($look['state'] === 'watching' ? ['who' => $look['who']] : ['detail' => (string) ($look['detail'] ?? '')]));
             jackReleaseRefusedTell($p->key);
             return 1;
@@ -2921,7 +2923,7 @@ function jackJob(string $tool, array $args): int
         $hold = @fopen($tool === 'gather' ? JACK_DATA . '/mediacache.lock' : GATHER_LOCK, 'c');
         if (!$hold || !flock($hold, LOCK_EX | LOCK_NB)) {
             jackWaitEnd($wait, RUN_DIR, $tool);
-            jackRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => 'jack_running']);
+            jackRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'from' => $from, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => 'jack_running']);
             if ($mode === 'release') {
                 jackReleaseRefusedTell('jack_running');
             }
@@ -2938,14 +2940,14 @@ function jackJob(string $tool, array $args): int
             flock($hold, LOCK_UN);
             fclose($hold);
         }
-        jackRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => 'jack_moverelli_running']);
+        jackRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'from' => $from, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => 'jack_moverelli_running']);
         if ($mode === 'release') {
             jackReleaseRefusedTell('jack_moverelli_running');
         }
         return 1;
     }
     $started = time();
-    $run = ['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => $started, 'pid' => getmypid()];
+    $run = ['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => $started, 'pid' => getmypid()] + ($from !== null ? ['from' => $from] : []);
     writeAtomic("$dir/office-run.json", jsonEncode($run), 0600, 0, 0);
     jackMoversUnlock($movers);
     jackWaitEnd($wait, RUN_DIR, $tool);          // the run shows as running now: a second start is refused by that
@@ -3038,7 +3040,7 @@ function jackJob(string $tool, array $args): int
             : "EmbyCache ($mode) stopped after the file it was on") . ' — ' . match ($note['why']) {
                 'mover' => "Unraid's mover started", 'watching' => 'someone watches Emby', default => 'as asked' });
     }
-    jackRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => $started, 'finished' => time(),
+    jackRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'from' => $from, 'started' => $started, 'finished' => time(),
                   'exit' => $exit, 'result' => $result, 'status' => jackStatusShort($status)] + $note);
     try {
         jackNotify($tool, $mode, $result, $status, $exit, $note['why'] ?? null);
@@ -3214,6 +3216,9 @@ function jackHistory(string $dir = JACK_DATA): array
 /** A run (or one that didn't start) into his list of runs; $dir: the tests' */
 function jackRemember(array $entry, string $dir = JACK_DATA): void
 {
+    if (($entry['from'] ?? null) === null) {
+        unset($entry['from']);                          // only a joint run's record says who started it
+    }
     jackDataDir($dir);
     $lock = fopen("$dir/office-history.lock", 'c');
     flock($lock, LOCK_EX);

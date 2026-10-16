@@ -24,9 +24,9 @@ office becomes a partner: the two keep each other's backups.
 
 Jack Streamer puts on the fast pool what you watch next in Emby, Jellyfin or Plex — the array disks may sleep. Ms. Moverelli adds
 helmi1987's Smart Mover to Unraid's mover: she moves to the array what hasn't been used on the pool for a while, and
-leaves what is current in the cache. Both in one run a night, live to watch.
+leaves what is current in the cache. Both in one joint run on a schedule, live to watch.
 
-<a name="moverelli-live"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/moverelli-live-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/moverelli-live-light.png" alt="Ms. Moverelli's night run, live: the pool before and after, the array beside it, a file on its way"></picture></a>
+<a name="moverelli-live"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/moverelli-live-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/moverelli-live-light.png" alt="Ms. Moverelli's joint run, live: the pool before and after, the array beside it, a file on its way"></picture></a>
 
 ## The Night Watchman
 
