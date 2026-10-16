@@ -1950,13 +1950,21 @@ function dset(k, v) {
   setupBar();
 }
 
+/**
+ * A share where no snapshot is possible (the plan's method live: XFS or btrfs-less disks, a share over XFS and ZFS) is
+ * backed up by nothing at «local snapshot» (engine 2.55: the setup proposes «off» there and warns share_no_snapshots).
+ * shareLocal(): what «local» means for a share — the snapshot, or «not backed up» where none is possible.
+ */
+const shareNoSnap = (sh) => !!sh && sh.exists !== false && sh.method === 'live';
+const shareLocal = (name) => (shareNoSnap(((setup.plan && setup.plan.shares) || []).find((sh) => sh.name === name)) ? 'off' : 'snapshot');
+
 /** A fresh draft from the plan, with the apps' and VMs' levels read from it */
 function setupDraftFromPlan() {
   setup.draft = clone(setup.plan.P);
   setup.itemKeep = {};
   if (!setup.plan.have_settings) {
     // a new setup sends nothing to Kopia unasked: every share starts local, the user picks what goes to Kopia
-    Object.keys(setup.draft).forEach((k) => { if (/^share\|.+\|mode$/.test(k) && setup.draft[k] === 'kopia') setup.draft[k] = 'snapshot'; });
+    Object.keys(setup.draft).forEach((k) => { if (/^share\|.+\|mode$/.test(k) && setup.draft[k] === 'kopia') setup.draft[k] = shareLocal(k.slice(6, -5)); });
   }
   // a default chosen on this page and not applied yet - Apply stores it (only an engine that knows the key, 2.31)
   if (setup.choice && setup.plan.preset_new !== undefined) setup.draft['general|preset_new'] = setup.choice.kind;
@@ -2532,12 +2540,12 @@ function setupNewRows() {
   const appHand = (a) => levelHand('app:' + a.id) || (setup.held[a.id] || 'stop') !== (baseHeld[a.id] || 'stop');
   const appHow = (a) => {
     const l = levelOf('app:' + a.id);
-    return l === 0 ? T('setup.level.0') : `${T('setup.level.' + l)}, ${T('setup.app_hold.' + (setup.held[a.id] || 'stop'))}`;
+    return l === 0 ? T('setup.level.0') : `${levelWord('app:' + a.id, `app|${a.name}|partner`)}, ${T('setup.app_hold.' + (setup.held[a.id] || 'stop'))}`;
   };
   m.vms.filter((x) => x.isNew).forEach((x) => {
     const l = levelOf('vm:' + x.name);
     out.push({ name: T('setup.new_vm', { name: x.name }), own: `vm|${x.name}|`,
-      how: l === 0 ? T('setup.level.0') : `${T('setup.level.' + l)}, ${T('setup.vm_prep.' + dget(`vm|${x.name}|prepare`, 'none'))}`,
+      how: l === 0 ? T('setup.level.0') : `${levelWord('vm:' + x.name, `vm|${x.name}|partner`)}, ${T('setup.vm_prep.' + dget(`vm|${x.name}|prepare`, 'none'))}`,
       hand: levelHand('vm:' + x.name) || edited.has(`vm|${x.name}|prepare`) || edited.has(`vm|${x.name}|mode`) });
   });
   m.apps.filter((a) => a.isNew).forEach((a) => out.push({ name: T('setup.new_app', { name: a.name }), own: `app|${a.name}|`, how: appHow(a), hand: appHand(a) }));
@@ -2702,7 +2710,7 @@ function presetApply(kind, items) {
   const lv = offsite ? 2 : 1;
   dset('kopia|enabled', offsite ? 'yes' : 'no');
   // Kopia off: what went there stays local (like unticking «Back up with Kopia»)
-  if (!offsite) Object.keys(setup.draft).forEach((k) => { if (/^share\|.+\|mode$/.test(k) && setup.draft[k] === 'kopia') setup.draft[k] = 'snapshot'; });
+  if (!offsite) Object.keys(setup.draft).forEach((k) => { if (/^share\|.+\|mode$/.test(k) && setup.draft[k] === 'kopia') setup.draft[k] = shareLocal(k.slice(6, -5)); });
   // the partner levels (2.42): every unit that can travel to every partner — or to none
   presetPartners(presetToPartner(kind), has);
   const before = { ...setup.levels };
@@ -2714,7 +2722,7 @@ function presetApply(kind, items) {
     setup.levels['vm:' + x.name] = lv;
   });
   plan.shares.forEach((sh) => {
-    if (sh.exists && has('share:' + sh.name) && !presetKeep(sh, plan)) dset(`share|${sh.name}|mode`, LV[lv]);
+    if (sh.exists && has('share:' + sh.name) && !presetKeep(sh, plan)) dset(`share|${sh.name}|mode`, lv === 1 ? shareLocal(sh.name) : LV[lv]);
   });
   if (dget('flash|mode', 'off') === 'off') dset('flash|mode', plan.flash && plan.flash.dataset ? 'snapshot' : 'tar');
   if (dget('libvirt|mode') === 'off') dset('libvirt|mode', 'tar');
@@ -2794,7 +2802,7 @@ function presetApplyNew(kind, items) {
     setup.levels['vm:' + x.name] = lv;
   });
   plan.shares.forEach((sh) => {
-    if (sh.exists && items.has('share:' + sh.name) && !presetKeep(sh, plan) && !presetNewAsk(sh, presetCardOf(kind))) dset(`share|${sh.name}|mode`, LV[lv]);
+    if (sh.exists && items.has('share:' + sh.name) && !presetKeep(sh, plan) && !presetNewAsk(sh, presetCardOf(kind))) dset(`share|${sh.name}|mode`, lv === 1 ? shareLocal(sh.name) : LV[lv]);
   });
   setupDerive();
   apps.forEach((a) => { setup.held[a.id] = presetHold(a, 0); });   // kept running so far only because it was new
@@ -4011,12 +4019,13 @@ function modeSelect(sh, modes, pKey) {
     options.push({ value: o, mode: o, partner: false, text: T('setup.mode.' + o) });
     if (withPartner && o !== 'off') options.push({ value: o + '+partner', mode: o, partner: true, text: T('setup.mode.' + o + '_partner') });
   });
+  const mode = dget(key, modes[modes.length - 1]);
   options.forEach((o) => {
     const opt = new Option(o.text, o.value);
     if (o.partner && !sh.partner_ok) { opt.disabled = true; opt.title = T('partner.why.' + (sh.partner_why || 'no_dataset')); }
+    else if (o.mode === 'snapshot' && shareNoSnap(sh)) { opt.disabled = mode !== 'snapshot'; opt.title = T('setup.no_snap_opt'); }
     sel.appendChild(opt);
   });
-  const mode = dget(key, modes[modes.length - 1]);
   const now = options.find((o) => o.mode === mode && o.partner === (pOn && mode !== 'off')) || options.find((o) => o.mode === mode) || options[options.length - 1];
   sel.value = now.value;
   sel.onchange = () => {
@@ -4093,6 +4102,12 @@ function setupShares(plan) {
       if (setupPartners().length && !sh.partner_ok && ['not_dataset', 'split'].includes(sh.partner_why)) {
         modeCell.appendChild(whyFold('share:' + sh.name, T('dsw.share_' + sh.partner_why), null));
       }
+    }
+    // engine 2.55: said on the row — at «local snapshot» nothing backs it up, at «offsite» Kopia reads it live
+    if (sh.exists && shareNoSnap(sh)) {
+      const m = dget(`share|${sh.name}|mode`, 'off');
+      if (m === 'snapshot') modeCell.append(' ', chip(T('setup.no_snap'), 'warn', T(kopiaOn ? 'setup.no_snap_hint' : 'setup.no_snap_hint_nokopia')));
+      else if (m === 'kopia') modeCell.append(' ', chip(T('live'), '', T('live_hint')));
     }
     tr.appendChild(modeCell);
     const why = el('td', 'bk-why', lock ? T('setup.lock', { list: lock.why.join(', ') }) : shareWhy(sh));
@@ -4232,7 +4247,7 @@ function waitSet(w, choice) {
   dset(kk, known);
   dset(ki, ign);
 }
-const waitHow = (w) => (w.owner ? T('setup.waiting_follows', { name: w.owner.name, level: T('setup.level.' + levelOf(w.owner.key)) })
+const waitHow = (w) => (w.owner ? T('setup.waiting_follows', { name: w.owner.name, level: levelWord(w.owner.key, unitPartnerKey(w.owner.key)) })
   : T('setup.waiting_' + (waitChoice(w) || 'local')));
 
 /** Step 3, under a share: its new folders, waiting for a decision - only local so far */
@@ -4666,8 +4681,11 @@ async function setupMakeDataset(target) {
   }
   const last = j.last;
   const fresh = !!(last && last.fresh);
+  // whether *this* app or VM is in that backup (agent: its package in the run's list; null = the run doesn't say)
   box.appendChild(el('p', '', !last || !last.time ? T('dsw.last_none')
-    : T(fresh ? 'dsw.last_fresh' : last.result === 'failed' ? 'dsw.last_failed' : 'dsw.last_old', { when: fmt.relative(last.time) })));
+    : last.unit === false ? T('dsw.last_without', { when: fmt.relative(last.time), name: target.name })
+      : T(fresh ? (last.unit ? 'dsw.last_fresh_in' : 'dsw.last_fresh') : last.result === 'failed' ? 'dsw.last_failed' : 'dsw.last_old',
+        { when: fmt.relative(last.time), name: target.name })));
   const st = j.stops || {};
   const what = [...(st.containers || []), ...(st.vm ? [st.vm] : [])];
   if (st.stack) {
@@ -4722,6 +4740,22 @@ async function setupMakeDataset(target) {
  */
 const LEVEL_FIELDS = [{ id: 0, lv: 0, partner: false, key: '0' }, { id: 1, lv: 1, partner: false, key: '1' }, { id: 'p', lv: 1, partner: true, key: 'partner' },
   { id: 2, lv: 2, partner: false, key: '2' }, { id: 'pk', lv: 2, partner: true, key: 'partner_kopia' }];
+/**
+ * A unit's level in the words of its level picker (LEVEL_FIELDS), the partner part included: «local + partner +
+ * offsite» when its partner list (`pKey`) names a partner of the plan — never «local + offsite» for what also goes to
+ * a partner (a user, 2026-10-16: «Apply the settings?» said «App Jellyfin: local + offsite» for local + partner + offsite)
+ */
+function levelWord(key, pKey) {
+  const l = levelOf(key);
+  if (l > 0 && pKey && partnerListOf(pKey).length) return T(l === 1 ? 'setup.level.partner' : 'setup.level.partner_kopia');
+  return T('setup.level.' + l);
+}
+/** The partner list key of a unit key (app:<id> → app|<name>|partner, vm:<name> → vm|<name>|partner) */
+function unitPartnerKey(key) {
+  if (key.startsWith('vm:')) return `vm|${key.slice(3)}|partner`;
+  const a = key.startsWith('app:') && setup.model ? setup.model.apps.find((x) => 'app:' + x.id === key) : null;
+  return a ? `app|${a.name}|partner` : null;
+}
 /** The draft's partner list of a unit, only partners of the plan */
 function partnerListOf(key) {
   const ids = setupPartners().map((p) => p.id);

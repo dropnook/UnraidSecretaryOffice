@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.54"
+UB_VERSION="2.55"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -1160,6 +1160,37 @@ is_media_server() { [[ "${1,,}" =~ (emby|jellyfin|plex) ]]; }
 # media_kind <image>  -> emby | jellyfin | plex (empty for anything else)
 media_kind() { local i="${1,,}"; case "$i" in *jellyfin*) echo jellyfin ;; *emby*) echo emby ;; *plex*) echo plex ;; esac; }
 is_immich_server() { [[ "${1,,}" == *immich-server* || "${1,,}" == *immich_server* ]]; }
+# media_sqlite_check <container> <kind> <copy>  -> SQ_CHECK_OUT: the first lines of PRAGMA quick_check on a database
+# copy; SQ_CHECK_BY = plex (the server's own SQLite checked it) or host (Unraid's sqlite3). Plex's database carries an ICU
+# collation (icu_root) and an FTS tokenizer (collating) only its own SQLite knows: Unraid's sqlite3 stops at them and
+# checks nothing (2.55). So a Plex copy is checked by the SQLite inside the running container - its loader, libraries
+# and «Plex Media Server --sqlite» (what its «Plex SQLite» starts), opened by root through /proc/<pid>/root and run as
+# nobody (setpriv, no new privileges, empty environment) on the copy, read only (immutable: nothing written beside
+# it). First a sum it must answer within 20 s - a binary that doesn't know --sqlite never runs as a server for long.
+UB_PROC="${UB_PROC:-/proc}"
+media_sqlite_check() {
+    local c="$1" k="$2" out="$3" pid d u
+    SQ_CHECK_BY="host"; SQ_CHECK_OUT=""
+    u="file:$(uri_escape "$out")"
+    if [[ "$k" == plex ]] && command -v setpriv >/dev/null 2>&1 \
+       && pid="$(timeout 20 docker inspect -f '{{.State.Pid}}' "$c" 2>/dev/null)" && [[ "$pid" =~ ^[1-9][0-9]{0,9}$ ]]; then
+        for d in /usr/lib/plexmediaserver /app/usr/lib/plexmediaserver; do      # official and linuxserver; hotio
+            d="$UB_PROC/$pid/root$d"
+            [[ -f "$d/lib/ld-musl-x86_64.so.1" && -f "$d/Plex Media Server" ]] || continue
+            [[ "$(media_plex_sqlite "$d" 20 ':memory:' 'SELECT 6*7;')" == "42" ]] || continue
+            SQ_CHECK_BY="plex"
+            SQ_CHECK_OUT="$(media_plex_sqlite "$d" "${SQ_TIMEOUT:-600}" "$u?immutable=1" 'PRAGMA quick_check;' | head -3)"
+            return 0
+        done
+    fi
+    SQ_CHECK_OUT="$(timeout "${SQ_TIMEOUT:-600}" sqlite3 "$u?mode=ro" 'PRAGMA quick_check;' 2>&1 | head -3)"
+}
+# media_plex_sqlite <dir in /proc/<pid>/root> <seconds> <database> <sql>   (the files opened as root, run as nobody)
+media_plex_sqlite() {
+    ( exec 5<"$1/lib/ld-musl-x86_64.so.1" 6<"$1/lib" 7<"$1/Plex Media Server" || exit 1
+      exec env -i PATH=/usr/bin:/bin HOME=/nonexistent "$(command -v setpriv)" --reuid=99 --regid=100 --clear-groups --no-new-privs -- \
+          timeout "$2" /proc/self/fd/5 --library-path /proc/self/fd/6 /proc/self/fd/7 --sqlite "$3" "$4" ) </dev/null 2>&1
+}
 # ct_host_path <container> <path inside it>  -> where that lies on the host (the bind with the longest
 # matching target), returns 1 when no bind holds it
 ct_host_path() {

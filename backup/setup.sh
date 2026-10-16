@@ -1,6 +1,8 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.54 - 2026-10-16
+# unraid-backup - setup.sh                        Version 2.55 - 2026-10-16
+#   2.55 A share where no snapshot is possible is never proposed «local» (off, why no_snapshots); one set to local
+#        there is warned about (share_no_snapshots)
 #   2.54 Docker switched off is no error: hint docker_off, no apps, the plan's docker_service false, Kopia's part skipped
 #        (problem docker_off - it runs in a container); Docker switched on but silent still fails the setup
 #   2.53 --orphans-delete counts the repository's snapshots anew after deleting (state/kopia-count.json, lib/common.sh
@@ -983,6 +985,14 @@ TXT
         if ! is_yes "$KOPIA_ENABLED" && [[ "$(pget "share|$s|mode")" == "kopia" ]]; then
             pset "share|$s|mode" snapshot; why "$s" kopia_off_local "" "${WHY[$s]:+${WHY[$s]}; }Kopia off -> local"
         fi
+        # 2.55: no local snapshot where the file system has none (XFS or btrfs-less disks, a share over XFS and ZFS) -
+        # a proposal of «local» there would back up nothing: «off» with the reason, Kopia (offsite) reads it live when
+        # chosen. A choice made earlier stays and is warned about after the editing (share_no_snapshots)
+        if [[ "${INV_METHOD[$s]:-}" == "live" && "$(pget "share|$s|mode")" == "snapshot" \
+              && "${WHY_CODE[$s]:-}" != "previous" && "${WHY_CODE[$s]:-}" != "renamed_from" ]]; then
+            pset "share|$s|mode" off
+            why "$s" no_snapshots "" "lies on a file system without snapshots - no local snapshot; Kopia (offsite) reads it live, or leave it out"
+        fi
         if ! inv_has_share "$s"; then
             [[ "${WHY[$s]:-}" == "no longer exists"* ]] || why "$s" gone "" "no longer exists - the entry is removed"
         fi
@@ -1036,6 +1046,13 @@ TXT
             esac
         done
         _apply_P
+    done
+
+    # 2.55: a share at «local» where no snapshot is possible isn't backed up at all - said here, not only by the run
+    for s in "${SH[@]}"; do
+        inv_has_share "$s" && [[ "$(pget "share|$s|mode")" == "snapshot" ]] || continue
+        [[ "${INV_METHOD[$s]:-}" == "live" || ( "$(pget "share|$s|method" auto)" == "live" && "${INV_METHOD[$s]:-}" == "snap" ) ]] || continue
+        wrn_as share_no_snapshots "Share '$s' is set to a local snapshot but no snapshot is possible there ($(head -1 <<<"${INV_NOTE[$s]:-${INV_METHOD[$s]}}")) - it is not backed up; choose kopia (reads it live) or off" share "$s"
     done
 
     # Offer big folders in appdata-like shares

@@ -2232,6 +2232,36 @@ function backupEngineTrust(string $data): array
     return ['ok' => $bad === null, 'path' => (string) $bad, 'cmd' => $bad !== null ? "chown root:root $q && chmod go-w $q" : ''];
 }
 
+/**
+ * The shares settings.ini keeps at «local» (mode snapshot) while the last plan found no snapshot possible there (method
+ * live: XFS or btrfs-less disks, a share over XFS and ZFS, a locked dataset) or the user set method live - the run backs
+ * them up with nothing (its drift share_snapshot_no_fs). Settings and plan only, nothing on the disks.
+ *
+ * @return list<string>
+ */
+function backupLocalWithoutSnapshot(array $settings, array $plan): array
+{
+    $method = [];
+    foreach (is_array($plan['shares'] ?? null) ? $plan['shares'] : [] as $sh) {
+        if (is_array($sh) && is_string($sh['name'] ?? null) && is_string($sh['method'] ?? null)) {
+            $method[$sh['name']] = $sh['method'];
+        }
+    }
+    $out = [];
+    foreach ($settings as $section => $_) {
+        if (!str_starts_with((string) $section, 'share|') || backupSetting($settings, (string) $section, 'mode') !== 'snapshot') {
+            continue;
+        }
+        $name = substr((string) $section, 6);
+        $m = $method[$name] ?? '';
+        if ($m === 'live' || ($m === 'snap' && backupSetting($settings, (string) $section, 'method') === 'live')) {
+            $out[] = $name;
+        }
+    }
+    sort($out, SORT_NATURAL | SORT_FLAG_CASE);
+    return $out;
+}
+
 function backupChecks(): array
 {
     $data = BACKUP_DATA_DIR;
@@ -2316,6 +2346,10 @@ function backupChecks(): array
     if (is_file("$data/settings.ini")) {
         $drift = array_filter(backupDrift()['items'], fn ($d) => in_array($d['level'] ?? '', ['warn', 'error'], true));
         $out[] = finding('drift', 'recommended', !$drift, ['n' => count($drift)], '#/backup/setup');
+
+        // engine 2.55: a share at «local» where no snapshot is possible (the plan's method live) is backed up by nothing
+        $noSnap = backupLocalWithoutSnapshot($settings, readJson("$data/state/setup-plan.json"));
+        $out[] = finding('share_no_snapshots', 'recommended', !$noSnap, ['shares' => implode(', ', $noSnap), 'n' => count($noSnap)], '#/backup/setup');
 
         // the packages in their own backup share, never in appdata — without one the engine refuses to run;
         // Unraid's share config (on the flash) says it exists, the share itself is only looked at while its disks are awake

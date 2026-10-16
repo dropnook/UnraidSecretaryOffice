@@ -3944,6 +3944,155 @@ SH);
 }
 
 /**
+ * Engine 2.55, the 7.4 test's Mr. Backupsy findings (2026-10-16, Tower: Plex 1.43, shares on XFS and ZFS):
+ * - Plex's database copy is checked by Plex's own SQLite (media_sqlite_check): a fixture container root under UB_PROC
+ *   with a stand-in loader that answers like «Plex Media Server --sqlite»; a sound copy «ok», a broken one its message,
+ *   a binary that fails the sum, another server or no Plex root → Unraid's sqlite3; run through setpriv as nobody
+ * - setup.sh never proposes «local» for a share without snapshots (off, why no_snapshots), warns share_no_snapshots for
+ *   one set there; the Team Lead's check share_no_snapshots from settings.ini + plan
+ * - the dataset dialog's last backup says whether this app is in it (packages.list); the Apply summary's level words
+ *   carry the partner part
+ */
+function testBackup74Polish(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-74polish-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+
+    // ---- Plex's own SQLite checks the copy
+    $px = "$tmp/proc/4242/root/usr/lib/plexmediaserver";
+    foreach (["$tmp/bin", "$px/lib"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    // the loader stand-in: <loader> --library-path <dir> <binary> --sqlite <db> <sql>, the arguments noted
+    file_put_contents("$px/lib/ld-musl-x86_64.so.1", "#!/bin/bash\necho \"\$*\" >>\"$tmp/loader.log\"\n[[ \"\$1 \$3 \$4\" == '--library-path /proc/self/fd/7 --sqlite' ]] || { echo usage; exit 1; }\n"
+        . "[[ -e \"$tmp/nosum\" ]] && exit 0\n[[ \"\$6\" == 'SELECT 6*7;' ]] && { echo 42; exit 0; }\n[[ \"\$5\" == *bad* ]] && { printf '*** in database main ***\\nTree 11 page 488: btreeInitPage() returns error code 11\\n'; exit 0; }\necho ok\n");
+    file_put_contents("$px/Plex Media Server", "binary\n");
+    file_put_contents("$tmp/bin/docker", "#!/bin/bash\n[[ \"\$1 \$2 \$3\" == 'inspect -f {{.State.Pid}}' && \"\$4\" == Plex ]] && { echo 4242; exit 0; }\necho 0\n");
+    file_put_contents("$tmp/bin/setpriv", "#!/bin/bash\necho \"\$*\" >>\"$tmp/setpriv.log\"\nwhile [[ \$# -gt 0 && \"\$1\" != -- ]]; do shift; done\nshift\nexec \"\$@\"\n");
+    file_put_contents("$tmp/bin/sqlite3", "#!/bin/bash\necho 'Parse error in 2nd command line argument: unknown tokenizer: collating'\nexit 1\n");
+    foreach (array_merge(glob("$tmp/bin/*"), ["$px/lib/ld-musl-x86_64.so.1"]) as $f) {
+        chmod($f, 0755);
+    }
+    $check = fn (string $c, string $k, string $copy) => trim((string) shell_exec('bash -c ' . escapeshellarg("PATH=$tmp/bin:\$PATH UB_DATA=$tmp/data UB_PROC=$tmp/proc; source $lib >/dev/null 2>&1; "
+        . 'media_sqlite_check ' . escapeshellarg($c) . ' ' . escapeshellarg($k) . ' ' . escapeshellarg($copy) . '; printf "%s|%s" "$SQ_CHECK_BY" "$SQ_CHECK_OUT"') . ' 2>&1'));
+    same('plex sqlite: a sound copy - checked by Plex\'s own SQLite', 'plex|ok', $check('Plex', 'plex', "$tmp/db/sqlite_Plex_com.plexapp.plugins.library.db"));
+    $log = (string) @file_get_contents("$tmp/loader.log");
+    check('plex sqlite: the sum first, then quick_check on the copy, read only (immutable), the library and binary by fd',
+        str_contains($log, "--library-path /proc/self/fd/6 /proc/self/fd/7 --sqlite :memory: SELECT 6*7;")
+        && str_contains($log, "--sqlite file:$tmp/db/sqlite_Plex_com.plexapp.plugins.library.db?immutable=1 PRAGMA quick_check;"), $log);
+    check('plex sqlite: run as nobody, no new privileges', str_contains((string) @file_get_contents("$tmp/setpriv.log"), '--reuid=99 --regid=100 --clear-groups --no-new-privs --'));
+    same('plex sqlite: a broken copy - its message, by Plex (so it fails its check)', "plex|*** in database main ***\nTree 11 page 488: btreeInitPage() returns error code 11",
+        $check('Plex', 'plex', "$tmp/db/bad.db"));
+    same('plex sqlite: a path with a space and a quote is escaped in the URI', 'plex|ok', $check('Plex', 'plex', "$tmp/my db/it's.db"));
+    check('plex sqlite: … escaped', str_contains((string) file_get_contents("$tmp/loader.log"), "file:$tmp/my%20db/it%27s.db?immutable=1"));
+    same('plex sqlite: another media server - Unraid\'s sqlite3', 'host|Parse error in 2nd command line argument: unknown tokenizer: collating', $check('Jellyfin', 'jellyfin', "$tmp/db/x.db"));
+    same('plex sqlite: no pid (the container not answering) - Unraid\'s sqlite3', 'host', explode('|', $check('Other', 'plex', "$tmp/db/x.db"))[0]);
+    touch("$tmp/nosum");
+    same('plex sqlite: a binary that doesn\'t answer the sum - Unraid\'s sqlite3', 'host', explode('|', $check('Plex', 'plex', "$tmp/db/x.db"))[0]);
+    $bk = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh');
+    check('plex sqlite: the run - Unraid\'s sqlite3 stopping at «unknown tokenizer» marks the copy unchecked, a failure by Plex\'s own SQLite fails it',
+        str_contains($bk, 'media_sqlite_check "$c" "$(media_kind "${CT_IMAGE[$c]}")" "$out"; r="$SQ_CHECK_OUT"')
+        && str_contains($bk, 'elif [[ "$SQ_CHECK_BY" == "host" ]] && grep -qiE \'no such (collation|module|function|tokenizer)|unknown tokenizer\' <<<"$r"; then'));
+
+    // ---- setup: a share without snapshots
+    $mnt = "$tmp/mnt";
+    $root = "$mnt/addons/UnraidSecretaryOffice/snapshots";
+    $pool = "$mnt/maple";
+    foreach (["$tmp/fake", "$tmp/data/unraid-backup/state", "$tmp/boot/config/shares", $root, "$mnt/user", "$mnt/disk1/Filme",
+              "$pool/media", "$pool/UnraidSecretaryOffice/backup"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    file_put_contents("$mnt/disk1/Filme/a.mkv", 'x');
+    foreach (['media', 'UnraidSecretaryOffice', 'Filme'] as $n) {
+        touch("$tmp/boot/config/shares/$n.cfg");
+    }
+    $env = "export PATH=$tmp/sbin:\$PATH UB_DATA=$tmp/data/unraid-backup UB_MNT=$mnt UB_BOOT=$tmp/boot UB_SHARES_CFG=$tmp/boot/config/shares"
+         . " UB_DISKS_INI=$tmp/fake/disks.ini UB_NOTIFY_BIN=$tmp/sbin/notify UB_MOUNTS_FILE=$tmp/fake/mounts FAKE=$tmp/fake";
+    @mkdir("$tmp/sbin", 0700);
+    file_put_contents("$tmp/sbin/docker", "#!/bin/bash\ncase \"\$1\" in version) echo 29.0 ;; esac\nexit 0\n");
+    file_put_contents("$tmp/sbin/zfs", "#!/bin/bash\n[[ \"\$*\" == *'-t filesystem'* ]] && cat \"\$FAKE/zfs.txt\"\nexit 0\n");
+    file_put_contents("$tmp/sbin/virsh", "#!/bin/bash\nexit 0\n");
+    file_put_contents("$tmp/sbin/mountpoint", "#!/bin/bash\n[[ \"\${@: -1}\" == */user ]]\n");
+    file_put_contents("$tmp/sbin/mount", "#!/bin/bash\nmkdir -p \"\${@: -1}\"\n");
+    file_put_contents("$tmp/sbin/umount", "#!/bin/bash\nexit 0\n");
+    file_put_contents("$tmp/sbin/notify", "#!/bin/bash\nexit 0\n");
+    foreach (glob("$tmp/sbin/*") as $f) {
+        chmod($f, 0755);
+    }
+    file_put_contents("$tmp/boot/config/docker.cfg", "DOCKER_ENABLED=\"yes\"\nDOCKER_APP_CONFIG_PATH=\"/mnt/user/appdata/\"\n");
+    file_put_contents("$tmp/fake/mounts", "maple $pool zfs rw 0 0\nmaple/media $pool/media zfs rw 0 0\nmaple/UnraidSecretaryOffice $pool/UnraidSecretaryOffice zfs rw 0 0\n"
+        . "/dev/md1p1 $mnt/disk1 xfs rw 0 0\nshfs $mnt/user fuse.shfs rw 0 0\n");
+    $z = fn ($n, $mp, $ref) => "$n\t$mp\ton\t" . crc32($n) . "\t$ref\t-\n";
+    file_put_contents("$tmp/fake/zfs.txt", $z('maple', $pool, 1) . $z('maple/media', "$pool/media", 5000) . $z('maple/UnraidSecretaryOffice', "$pool/UnraidSecretaryOffice", 10));
+    file_put_contents("$tmp/fake/disks.ini", "[\"maple\"]\nname=\"maple\"\nspundown=\"0\"\n[\"disk1\"]\nname=\"disk1\"\ntype=\"Data\"\nfsType=\"xfs\"\nspundown=\"0\"\nrotational=\"0\"\n");
+    $data = "$tmp/data/unraid-backup";
+    $setup = function () use ($env): array {
+        $out = [];
+        exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " --plan </dev/null") . ' 2>&1', $out, $rc);
+        return [$rc, implode("\n", $out)];
+    };
+    $json = fn (string $f) => json_decode((string) @file_get_contents("$data/state/$f"), true) ?: [];
+    $share = fn (array $plan, string $n) => array_values(array_filter($plan['shares'] ?? [], fn ($s) => ($s['name'] ?? '') === $n))[0] ?? [];
+    $coded = fn (array $msgs, string $code) => array_values(array_filter($msgs, fn ($m) => ($m['code'] ?? '') === $code));
+
+    [$rc, $out] = $setup();
+    $plan = $json('setup-plan.json');
+    $f = $share($plan, 'Filme');
+    same('no snapshots: a first setup - the XFS share is live, proposed off with the reason (never «local»)', [0, 'live', 'off', 'no_snapshots'],
+        [$rc, $f['method'] ?? null, $f['mode'] ?? null, $f['why'] ?? null], $out);
+    same('no snapshots: … nothing to warn about while it is off; the ZFS share keeps its proposal', [[], 'snap'],
+        [$coded($plan['messages'] ?? [], 'share_no_snapshots'), $share($plan, 'media')['method'] ?? null]);
+
+    // set to local earlier: it stays (the user's), warned about with the share
+    file_put_contents("$data/settings.ini", "[general]\nserver = Test\nmount_root = $root\ndumps_share = UnraidSecretaryOffice\n[flash]\nmode = off\n"
+        . "[kopia]\nenabled = no\n[share \"Filme\"]\nmode = snapshot\n[share \"media\"]\nmode = snapshot\n[share \"UnraidSecretaryOffice\"]\nmode = snapshot\n");
+    [$rc, $out] = $setup();
+    $plan = $json('setup-plan.json');
+    $w = $coded($plan['messages'] ?? [], 'share_no_snapshots');
+    same('no snapshots: set to local before - kept, warned once with the share (not the ZFS one)', [0, 'snapshot', 'previous', 1, 'warn', ['share' => 'Filme']],
+        [$rc, $share($plan, 'Filme')['mode'] ?? null, $share($plan, 'Filme')['why'] ?? null, count($w), $w[0]['level'] ?? null, $w[0]['params'] ?? null], $out);
+
+    // the Team Lead's check: settings.ini + the plan
+    $settings = backupReadSettings("$data/settings.ini");
+    same('no snapshots: the check names the share at local the plan found live', ['Filme'], backupLocalWithoutSnapshot($settings, $plan));
+    $settings['share|media']['method'] = ['live'];
+    same('no snapshots: … and one the user set to method live on ZFS', ['Filme', 'media'], backupLocalWithoutSnapshot($settings, $plan));
+    same('no snapshots: … none without a plan, none at off or offsite', [[], []], [backupLocalWithoutSnapshot($settings, []),
+        backupLocalWithoutSnapshot(['share|Filme' => ['mode' => ['kopia']]], $plan)]);
+    $bp = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
+    check('no snapshots: the check is registered', str_contains($bp, "finding('share_no_snapshots', 'recommended', !\$noSnap, ['shares' => implode(', ', \$noSnap), 'n' => count(\$noSnap)], '#/backup/setup')"));
+
+    // ---- the dataset dialog: is this unit in the last backup (its package in the run's list)?
+    $oldMd = $GLOBALS['md'] ?? null;
+    $GLOBALS['md'] = ['last' => ['finished' => time() - 600, 'result' => 'ok', 'packages' => ['list' => [['kind' => 'app', 'name' => 'Plex', 'result' => 'warnings'],
+        ['kind' => 'app', 'name' => 'Emby', 'result' => 'failed'], ['kind' => 'vm', 'name' => 'Plex', 'result' => 'ok']]]]];
+    $u = fn (?array $t) => array_intersect_key(mdLastBackup($t) ?? [], ['unit' => 1, 'fresh' => 1]);
+    same('dataset dialog: in the last backup - fresh; new since (not in it), its package failed - not fresh; a VM by kind; no target - unknown',
+        [['unit' => true, 'fresh' => true], ['unit' => false, 'fresh' => false], ['unit' => false, 'fresh' => false], ['unit' => true, 'fresh' => true], ['unit' => null, 'fresh' => true]],
+        [$u(['kind' => 'app', 'name' => 'Plex']), $u(['kind' => 'app', 'name' => 'Jellyfin']), $u(['kind' => 'app', 'name' => 'Emby']), $u(['kind' => 'vm', 'name' => 'Plex']), $u(null)]);
+    $GLOBALS['md'] = ['last' => ['finished' => time() - 600, 'result' => 'ok']];
+    same('dataset dialog: a run without a package list (an old engine) - unknown, fresh as before', ['unit' => null, 'fresh' => true], $u(['kind' => 'app', 'name' => 'Jellyfin']));
+    $GLOBALS['md'] = $oldMd;
+
+    // ---- the page
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('no snapshots (page): the row says it, «local snapshot» greyed, «local» of a start is «not backed up» there',
+        str_contains($js, "if (m === 'snapshot') modeCell.append(' ', chip(T('setup.no_snap'), 'warn', T(kopiaOn ? 'setup.no_snap_hint' : 'setup.no_snap_hint_nokopia')));")
+        && str_contains($js, "else if (o.mode === 'snapshot' && shareNoSnap(sh)) { opt.disabled = mode !== 'snapshot'; opt.title = T('setup.no_snap_opt'); }")
+        && substr_count($js, "lv === 1 ? shareLocal(sh.name) : LV[lv]") === 2 && substr_count($js, "setup.draft[k] = shareLocal(k.slice(6, -5));") === 2);
+    check('dataset dialog (page): whether this app is in the last backup', str_contains($js, "last.unit === false ? T('dsw.last_without', { when: fmt.relative(last.time), name: target.name })"));
+    check('apply (page): the new rows\' levels with the partner part', str_contains($js, "\${levelWord('app:' + a.id, `app|\${a.name}|partner`)}")
+        && str_contains($js, "\${levelWord('vm:' + x.name, `vm|\${x.name}|partner`)}") && str_contains($js, "level: levelWord(w.owner.key, unitPartnerKey(w.owner.key))"));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $t = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$l.json"), true) ?: [];
+        check("74 polish ($l): the words", isset($t['setup.no_snap'], $t['setup.no_snap_hint'], $t['setup.no_snap_hint_nokopia'], $t['setup.no_snap_opt'], $t['setup.why.no_snapshots'],
+            $t['setup.msg.share_no_snapshots'], $t['check.share_no_snapshots'], $t['check.share_no_snapshots_how']['one'], $t['dsw.last_fresh_in'], $t['dsw.last_without']));
+    }
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * Engine 2.54: a server without Docker backs up (2026-10-16, a fresh Unraid 7.4 server with Docker switched off: the
  * setup failed with «Docker does not answer»). setup.sh --plan on a fixture server whose docker never answers: Docker
  * switched off (docker.cfg DOCKER_ENABLED="no") is a plan without apps - docker_service false, one hint docker_off, no
@@ -4647,7 +4796,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.54'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.55'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -6301,9 +6450,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.54 everywhere it is named', ['2.54', '2.54', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.54"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.54** –')]);
+    same('data trust: the engine\'s version 2.55 everywhere it is named', ['2.55', '2.55', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.55"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.55** –')]);
     // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
     same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
         array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
@@ -7292,7 +7441,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.54', [1, '2.54'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.55', [1, '2.55'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -7900,7 +8049,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.54', [1, '2.54'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.55', [1, '2.55'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -9979,8 +10128,8 @@ JS;
         [$lines['setup.new_share {"name":"fresh"}'] ?? null, $lines['setup.new_share {"name":"huge"}'] ?? null, $lines['setup.new_share {"name":"unk"}'] ?? null]);
     same('default: kopia stored - the first upload counts the new share, the new VM\'s share and the new VM - not the VMs there that stay local (left out), not the big share',
         [['domains', 'fresh'], ['vmnew']], [$n['kopiaUpload']['shares'], $n['kopiaUpload']['vms']]);
-    same('default: local stored - the new app local and stopped for the snapshot (it writes into a backed-up share), the new VM held, every new share local, the folder only local; Kopia stays on',
-        ['levels' => [1, 1], 'held' => 'stop', 'noStop' => false, 'items' => [null, null], 'prepare' => 'freeze', 'modes' => ['snapshot', 'snapshot', 'snapshot', 'snapshot', 'snapshot'],
+    same('default: local stored - the new app local and stopped for the snapshot (it writes into a backed-up share), the new VM held, every new share local (one without snapshots not backed up, 2.55), the folder only local; Kopia stays on',
+        ['levels' => [1, 1], 'held' => 'stop', 'noStop' => false, 'items' => [null, null], 'prepare' => 'freeze', 'modes' => ['snapshot', 'snapshot', 'off', 'snapshot', 'snapshot'],
          'loose' => 'local', 'kopia' => 'yes', 'key' => 'local', 'now' => 'local', 'changed' => false, 'chosen' => true,
          'start' => 'setup.preset.new_sub {"name":"setup.preset.local"}'], $n['local']);
     check('default: local stored - everything that was there before exactly as without a default', $n['localOld']);
@@ -38974,7 +39123,7 @@ function testFirstHome(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackup74Polish', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

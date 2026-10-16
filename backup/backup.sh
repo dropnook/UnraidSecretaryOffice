@@ -1,6 +1,8 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.54 - 2026-10-16
+# unraid-backup - backup.sh                       Version 2.55 - 2026-10-16
+#   2.55 Plex's database copies are checked by Plex's own SQLite (media_sqlite_check in lib/common.sh): Unraid's sqlite3
+#        can't read its ICU collation and FTS tokenizer and failed every copy; that sqlite3 failing on them is «unchecked»
 #   2.54 Docker switched off (Settings > Docker, or no docker at all) is a server of shares and VMs: the run backs them
 #        and the flash up, no apps (ub_docker_service_off); Docker switched on but silent still ends the run
 #   2.53 The offsite repository emptied is said at once: before the upload the snapshots of this identity are counted
@@ -1292,7 +1294,8 @@ run_dumps() {
 # databases there are only crash-consistent, and Jellyfin's and Plex's docs say to stop the server
 # for a backup. Such a server that keeps running gets a consistent copy of its main databases in its
 # package (db/sqlite_<container>_<file>): SQLite's backup API, read-only, through the very path the
-# server uses (so locks and the WAL index are shared), checked with PRAGMA quick_check. Made while
+# server uses (so locks and the WAL index are shared), checked with PRAGMA quick_check (Plex: by its own SQLite, 2.55,
+# media_sqlite_check in lib/common.sh). Made while
 # everything still runs - it doesn't lengthen the interruption. A copy that fails or takes too long
 # keeps the last good one; an unchanged database keeps it too (a hard link: no new blocks in the
 # snapshots of the backup place). Never on a sleeping disk.
@@ -1349,10 +1352,10 @@ run_sqlite_copies() {
         [[ "$out" != *"'"* ]] && mkdir -p "${out%/*}" || { SQ_STATE[$key]="failed"; warn "SQLite '$c' ${p##*/}: no place for the copy"; pkg_mark apps "$f" warnings; continue; }
         log "  SQLite '$c' ${p##*/} ..."
         if timeout "$SQ_TIMEOUT" sqlite3 "file:$(uri_escape "$hp")?mode=ro" ".backup '$out'" >/dev/null 2>>"$LOG_FILE" && [[ -s "$out" ]]; then
-            r="$(timeout "$SQ_TIMEOUT" sqlite3 "file:$(uri_escape "$out")?mode=ro" 'PRAGMA quick_check;' 2>&1 | head -3)"
+            media_sqlite_check "$c" "$(media_kind "${CT_IMAGE[$c]}")" "$out"; r="$SQ_CHECK_OUT"
             rm -f "$out-wal" "$out-shm" "$out-journal"
             if [[ "$r" == "ok" ]]; then SQ_CHECK[$key]="ok"
-            elif grep -qiE 'no such (collation|module|function|tokenizer)' <<<"$r"; then
+            elif [[ "$SQ_CHECK_BY" == "host" ]] && grep -qiE 'no such (collation|module|function|tokenizer)|unknown tokenizer' <<<"$r"; then
                 SQ_CHECK[$key]="unchecked"; log "    (Unraid's sqlite3 can't check it - the server's own SQLite extensions: $r)"
             else
                 SQ_STATE[$key]="failed"; rm -f "$out"
@@ -1360,7 +1363,7 @@ run_sqlite_copies() {
             fi
             SQ_STATE[$key]="ok"; DUMP_FILE_CT[apps/$f/db/$file]="$c"
             sz="$(stat -c %s "$out" 2>/dev/null)"
-            log "    OK: $(human "${sz:-0}")$([[ "${SQ_CHECK[$key]}" == "ok" ]] && echo ', checked')"
+            log "    OK: $(human "${sz:-0}")$([[ "${SQ_CHECK[$key]}" == "ok" ]] && echo ', checked')$([[ "${SQ_CHECK[$key]}" == "ok" && "$SQ_CHECK_BY" == "plex" ]] && echo " by Plex's own SQLite")"
         else
             SQ_STATE[$key]="failed"; rm -f "$out" "$out-journal"
             warn "SQLite copy of '$c' ${p##*/} failed or took longer than ${SQ_TIMEOUT} s - the package keeps its last copy"; pkg_mark apps "$f" warnings
