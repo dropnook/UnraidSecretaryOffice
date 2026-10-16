@@ -708,7 +708,7 @@ function watchmanRun(): int
     }
     if ($r['added']) {
         $kinds = array_count_values($r['added']);
-        logLine('Night watchman: ' . count($r['added']) . ' new in the watch book (' . implode(', ', array_map(fn ($k, $n) => "$k×$n", array_keys($kinds), $kinds)) . ')');
+        logLine('Night watchman: ' . count($r['added']) . ' new in the watch book (' . implode(', ', array_map(fn ($k, $n) => "{$k}×{$n}", array_keys($kinds), $kinds)) . ')');
     }
     foreach ($r['told'] as $t) {
         logLine("Night watchman: Unraid's notifications " . ($t['sent'] ? 'told' : 'could not be told') . " about {$t['n']} × {$t['kind']}");

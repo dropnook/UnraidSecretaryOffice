@@ -1367,7 +1367,7 @@ function moverelliJob(array $args, ?array $h = null): int
         . (int) ($status['left'] ?? 0) . ' left' : '') . (isset($note['why']) ? " (stopped: {$note['why']})" : ''));
     try {
         moverelliNotify($mode, $result, $status, $exit, $note['why'] ?? null);
-        if ($real && $cap === null) {      // inside the night with a cap: the night tells a missed target at its end
+        if ($real && $room === null) {     // inside the night with a fill target: the night tells a missed one at its end
             moverelliTargetNotify($status);
         }
     } catch (Throwable $e) {
