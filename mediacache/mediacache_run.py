@@ -82,6 +82,7 @@ import os
 import sys
 import threading
 import time
+import unicodedata
 from pathlib import Path
 
 STOP_FILE = os.environ.get("MEDIACACHE_STOP") or ""
@@ -283,11 +284,27 @@ def ep_label(ep):
     return f"S{s:02d}E{e:02d} {name}" if s is not None and e is not None else name
 
 
+def group_key_files(g):
+    """USO: ein Eintrag nach seinen Dateien – derselbe Film/dieselbe Folge, von zwei Servern gemeldet, ist einer."""
+    return tuple(sorted(str(f.rel) for f in g.files))
+
+
+def person_key(name):
+    """USO: eine Person über mehrere Server – derselbe Name ohne Gross/Klein, Leerraum und Akzente («Anna», «anna»,
+    «Ánna »); andere Namen bleiben andere Personen (kein Raten darüber hinaus)."""
+    n = unicodedata.normalize("NFKD", str(name or ""))
+    return "p:" + "".join(c for c in n if not unicodedata.combining(c) and not c.isspace()).casefold()
+
+
 class UserPlan:
-    """Kandidaten und Auswahl eines Benutzers (pro Instanz)."""
+    """Kandidaten und Auswahl einer Person (USO: über alle Server mit ihrem Namen zusammengefasst)."""
 
     def __init__(self, key, name, uid="", server=""):
         self.key, self.name, self.uid, self.server = key, name, uid, server
+        self.uids = [uid] if uid else []      # USO: ihre Benutzer-IDs auf allen Servern
+        self.servers = [server] if server else []
+        self.chains = []                      # USO: Serien-Ketten aller Server (reihum neu verteilt)
+        self.seen = set()                     # USO: schon vorgemerkte Einträge (Dateien) – ein Eintrag auf zwei Servern zählt einmal
         self.movies = []       # Group, nach Aktualität (Weiterschauen)
         self.series = []       # Group, reihum über alle laufenden Serien und Favoriten
         self.selected = []
@@ -400,7 +417,16 @@ class Planner:
 
     # ------------------------------------------------------------------ Kandidaten pro Benutzer
     def plan_user(self, api, loc, name, uid, uname):
-        up = UserPlan(f"{name}:{uid}", uname, uid, name)
+        # USO: dieselbe Person auf mehreren Servern (gleicher Name) ist eine – ein Anteil am Budget, ihre Einträge zusammen
+        key = person_key(uname)
+        up = self.users.get(key)
+        if up is None:
+            up = UserPlan(key, uname, uid, name)
+        else:
+            up.uids.append(uid)
+            if name not in up.servers:
+                up.servers.append(name)
+            up.server = ", ".join(up.servers)
         self.planning = up.key
         # Filme und Serien je mit eigener Grenze: zwei «Weiterschauen»-Abfragen
         resume = []
@@ -418,7 +444,8 @@ class Planner:
         for item in resume:
             if item.get("Type") == "Movie":
                 g = self.make_group(loc, item, "movie", f"movie:{item.get('Id')}", "Weiterschauen", item.get("Name", "?"), uname)
-                if g:
+                if g and group_key_files(g) not in up.seen:   # USO: derselbe Film auf zwei Servern einmal
+                    up.seen.add(group_key_files(g))
                     up.movies.append(g)
                 continue
             if item.get("Type") != "Episode":
@@ -499,10 +526,14 @@ class Planner:
 
         # Reihum über alle Serien: jede Serie eine Folge pro Runde – kleine Folgen ergeben so
         # automatisch mehr Stück im Budget als grosse, keine Serie kann alles belegen
+        # USO: über die Serien aller Server der Person; eine Folge, die zwei Server vormerken, einmal
+        up.chains += chains
+        up.series, seen = [], {group_key_files(g) for g in up.movies}
         pos = 0
-        while any(pos < len(c) for c in chains):
-            for c in chains:
-                if pos < len(c):
+        while any(pos < len(c) for c in up.chains):
+            for c in up.chains:
+                if pos < len(c) and group_key_files(c[pos]) not in seen:
+                    seen.add(group_key_files(c[pos]))
                     up.series.append(c[pos])
             pos += 1
         self.users[up.key] = up
@@ -568,7 +599,8 @@ class Planner:
         share = float(self.cfg["movie_share_percent"]) / 100.0
         user_budgets = self.cfg["user_budgets"]
         active = [u for u in self.users.values() if u.has_candidates()]
-        explicit = {u.key: user_budgets[u.uid] for u in active if u.uid in user_budgets}
+        # USO: das Budget einer Person – unter einer ihrer IDs (auf irgendeinem Server) gespeichert
+        explicit = {u.key: next(user_budgets[i] for i in u.uids if i in user_budgets) for u in active if any(i in user_budgets for i in u.uids)}
         pool = total - sum(explicit.values())
         if pool < 0:
             log.warning(f"Feste Benutzer-Budgets ({human(sum(explicit.values()))}) übersteigen cache_budget ({human(total)})")
@@ -1326,7 +1358,7 @@ class Runner:
         wanted = {u.strip().lower() for u in (user_filter or []) if u.strip()}
         users = sorted(planner.users.values(), key=lambda u: (u.server, u.name.lower()))
         if wanted:
-            users = [u for u in users if u.name.lower() in wanted or u.uid.lower() in wanted]
+            users = [u for u in users if u.name.lower() in wanted or any(i.lower() in wanted for i in u.uids)]
             if not users:
                 print(f"\nKein Benutzer passt auf: {', '.join(sorted(wanted))}")
                 print("Bekannt: " + ", ".join(f"{u.name} ({u.uid})" for u in planner.users.values()))

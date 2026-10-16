@@ -279,6 +279,16 @@ function nightArrayLevel(string $file): array
 /**
  * Where the night reads and writes, whom it calls — moverelliHost() plus the night's own (the tests: $GLOBALS['nightHost']).
  */
+const NIGHT_OUTPUT = 'night-output.txt';     // in her data folder: every step's output of the last night, one after the other
+const NIGHT_OUTPUT_MAX = 2 << 20;            // its size at most (the start of a long one kept, the rest cut)
+
+/** Every step's output of the night so far: the step's header, then what its tool wrote (a step's own file is new each run) */
+function nightOutputAdd(string $dir, string $head, string $text): void
+{
+    $all = (string) @file_get_contents("$dir/" . NIGHT_OUTPUT, false, null, 0, NIGHT_OUTPUT_MAX) . "===== $head =====\n" . rtrim($text) . "\n\n";
+    writeAtomic("$dir/" . NIGHT_OUTPUT, substr($all, 0, NIGHT_OUTPUT_MAX), 0600, 0, 0);
+}
+
 function nightHost(?array $h = null): array
 {
     $h ??= moverelliHost();
@@ -291,6 +301,9 @@ function nightHost(?array $h = null): array
         'jack_job'    => $n['jack_job'] ?? fn (array $args): int => jackJob('embycache', $args),
         'her_job'     => $n['her_job'] ?? fn (array $args, array $hh): int => moverelliJob($args, $hh),
         'jack_status' => $n['jack_status'] ?? fn (): array => (array) (readJson(JACK_DATA . '/status.json') ?? []),
+        // each step's own output (the tools write it anew each run): the night keeps all of them (night-output.txt)
+        'jack_output' => $n['jack_output'] ?? fn (): string => defined('JACK_DATA') ? (string) @file_get_contents(JACK_DATA . '/office-output.txt', false, null, 0, NIGHT_OUTPUT_MAX) : '',
+        'her_output'  => $n['her_output'] ?? fn (): string => (string) @file_get_contents($h['dir'] . '/office-output.txt', false, null, 0, NIGHT_OUTPUT_MAX),
         'jack_runs'   => $n['jack_runs'] ?? $h['jack_runs'],
         'jack_stop'   => $n['jack_stop'] ?? (defined('JACK_DATA') ? JACK_DATA . '/office-stop.json' : ''),
         // EmbyCache's live progress (RAM): the files his step did (`recent`) for the picture
@@ -498,6 +511,7 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
     // and the picture follow once measured (2026-10-15 — the step highlight sits where the work is)
     nightWrite($dir, ['v' => 1, 'mode' => $mode, 'by' => $by, 'pid' => getmypid(), 'started' => $started, 'phase' => 'check', 'round' => 1, 'who' => null,
                       'jack' => $jack, 'steps' => [], 'result' => null] + ($waited > 0 ? ['waited' => $waited] : []));
+    writeAtomic("$dir/" . NIGHT_OUTPUT, '', 0600, 0, 0);     // this night's steps, from the first
     // the pool measured: Jack Emby's while he takes part, else the pool of her shares (her picture on every night)
     $level = ($h['level'])($g, $h, $real && $jack);
     $plan = nightPlan($level, $jack ? nightWaiting($h) : 0);
@@ -535,6 +549,7 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
         $n['phase'] = $phase;
         $n['who'] = $who;
         nightWrite($dir, $n);
+        $counts = [];
         if ($who === 'jack') {
             $args = [$mode, '--night'];
             if ($phase !== 'fill' && $mode === 'run') {
@@ -543,16 +558,25 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
             $exit = ($h['jack_job'])($args);
             $last = ($h['jack_runs'])()[0] ?? [];
             $recent = (($h['jack_live'])())['recent'] ?? [];
+            // what his step did (his status), kept with the step: his page sums the night's give-back and fetch
+            $st = ($h['jack_status'])();
+            foreach (['cleanup', 'fill'] as $k) {
+                if (is_array($st[$k] ?? null)) {
+                    $counts[$k] = array_map('intval', array_intersect_key($st[$k], array_flip(['planned', 'done', 'bytes_planned', 'bytes_done'])));
+                }
+            }
+            nightOutputAdd($dir, "Jack Streamer · $phase · round {$n['round']}", ($h['jack_output'])());
         } else {
             // without Jack Emby (not taking part, or his step refused tonight): her part alone, her record says why
             $out = isset($n['jack_out']) ? ['--solo', '--jack-out=' . $n['jack_out']] : ['--solo'];
             $exit = ($h['her_job'])(array_merge([$mode, '--night'], $jack && !isset($n['jack_out']) ? [] : $out, $extra), $h);
             $last = moverelliHistory($dir)[0] ?? [];
             $recent = (readJson("$dir/status.json") ?? [])['recent'] ?? [];
+            nightOutputAdd($dir, "Ms. Moverelli · $phase · round {$n['round']}", ($h['her_output'])());
         }
         $n['picture']['files'] = array_slice(array_merge($n['picture']['files'], nightFiles($recent, $who)), -NIGHT_FILES_MAX);
         $result = (string) ($last['result'] ?? ($exit === 0 ? 'ok' : 'failed'));
-        $n['steps'][] = ['who' => $who, 'phase' => $phase, 'round' => $n['round'], 'exit' => $exit, 'result' => $result];
+        $n['steps'][] = ['who' => $who, 'phase' => $phase, 'round' => $n['round'], 'exit' => $exit, 'result' => $result] + $counts;
         $n['who'] = null;
         nightWrite($dir, $n);
         if ($exit === 3 || $result === 'stopped' || $stopped()) {

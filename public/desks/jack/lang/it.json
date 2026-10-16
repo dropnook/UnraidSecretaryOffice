@@ -714,5 +714,6 @@
   "check.gather_optional_how": "Un aiuto se vuoi: quando un film è sparso su più dischi lo porta su uno solo — così nei viaggi avanti e indietro si svegliano meno dischi. Jack Streamer → Riunisci cartelle.",
   "setup.budget_pool": "Il budget è più grande del pool {pool} ({size}) — di più non ci sta.",
   "errors.jack_budget_pool": "Il budget ({total}) è più grande dell'intero pool ({pool}).",
-  "setup.pool_change": {"one": "Su {old} c'è ancora {n} file che ho preparato. Se passo a {new}, guardo solo lì — resterebbe su {old}. Riportalo prima indietro: licenziami con «{tick}», poi riassumimi — oppure resta su {old}.", "other": "Su {old} ci sono ancora {n} file che ho preparato. Se passo a {new}, guardo solo lì — resterebbero su {old}. Riportali prima indietro: licenziami con «{tick}», poi riassumimi — oppure resta su {old}."}
+  "setup.pool_change": {"one": "Su {old} c'è ancora {n} file che ho preparato. Se passo a {new}, guardo solo lì — resterebbe su {old}. Riportalo prima indietro: licenziami con «{tick}», poi riassumimi — oppure resta su {old}.", "other": "Su {old} ci sono ancora {n} file che ho preparato. Se passo a {new}, guardo solo lì — resterebbero su {old}. Riportali prima indietro: licenziami con «{tick}», poi riassumimi — oppure resta su {old}."},
+  "setup.person_server": "Su {server}"
 }

@@ -1183,6 +1183,32 @@ function jackSave(mixed $in): array
         }
     }
     $cfg['valid_users'] = array_filter($users, fn ($u) => is_array($u)) ? $users : array_keys($users);
+    // one person over several servers (1.65.0): the page sends their ids together — the budget counts each person once
+    $people = $in['people'] ?? [];
+    if (!is_array($people)) {
+        throw new Problem('bad_request');
+    }
+    $persons = [];
+    $grouped = [];
+    foreach ($people as $ids) {
+        if (!is_array($ids)) {
+            throw new Problem('bad_request');
+        }
+        $ids = array_values(array_filter($ids, fn ($id) => is_string($id) && isset($users[$id]) && !isset($grouped[$id])));
+        if (!$ids) {
+            continue;
+        }
+        $own = array_values(array_filter($ids, fn ($id) => is_array($users[$id])));
+        $persons[] = $own ? $users[$own[0]] : (object) [];
+        foreach ($ids as $id) {
+            $grouped[$id] = true;
+        }
+    }
+    foreach ($users as $id => $u) {                    // an id the page didn't group: a person of its own (as before)
+        if (!isset($grouped[$id])) {
+            $persons[] = $u;
+        }
+    }
     foreach (JACK_SETTINGS as $k) {
         if (array_key_exists($k, $in)) {
             $cfg[$k] = $in[$k];
@@ -1191,7 +1217,7 @@ function jackSave(mixed $in): array
     $cfg = jackTools($cfg);                       // a fill_tool/cleanup_tool the request carries is ignored: MediaCache's own
     unset($cfg['give_back_unwatched_days']);           // the wizard's, read by nothing (create_share_root: as it was)
     $cfg['cache_budget'] = strtoupper(str_replace(' ', '', is_string($cfg['cache_budget'] ?? null) ? $cfg['cache_budget'] : ''));
-    jackBudgetCheck($cfg['cache_budget'], $users, jackPoolSizes()[rtrim((string) ($cfg['cache_path'] ?? ''), '/')] ?? null);
+    jackBudgetCheck($cfg['cache_budget'], $persons, jackPoolSizes()[rtrim((string) ($cfg['cache_path'] ?? ''), '/')] ?? null);
     if (!in_array($cfg['cache_path'] ?? '', jackPools(), true)) {
         throw new Problem('jack_bad_pool', ['path' => (string) ($cfg['cache_path'] ?? '')]);
     }
@@ -3218,6 +3244,11 @@ function jackOutput(string $tool): array
 {
     jackToolKnown($tool);
     $text = (string) @file_get_contents(jackToolDir($tool) . '/office-output.txt', false, null, 0, 2 * 1024 * 1024);
+    // his last run was a step of the night with Ms. Moverelli: the whole night's output — every step, not only his last
+    $night = DATA_DIR . '/moverelli/night-output.txt';
+    if ($tool === 'embycache' && (jackJobInfo($tool)['by'] ?? '') === 'night' && is_file($night) && !is_link($night)) {
+        $text = (string) @file_get_contents($night, false, null, 0, 2 * 1024 * 1024);
+    }
     return ['ok' => true, 'info' => jackJobInfo($tool), 'text' => jackPlainOutput($text)];
 }
 

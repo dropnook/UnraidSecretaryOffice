@@ -714,5 +714,6 @@
   "check.gather_optional_how": "Ein Helfer, wenn du magst: Liegt ein Film verteilt auf mehreren Disks, holt er ihn auf eine — dann wachen beim Hin und Her weniger Disks auf. Jack Streamer → Ordner zusammenführen.",
   "setup.budget_pool": "Das Budget ist grösser als der Pool {pool} ({size}) — höchstens so viel geht darauf.",
   "errors.jack_budget_pool": "Das Budget ({total}) ist grösser als der ganze Pool ({pool}).",
-  "setup.pool_change": {"one": "Auf {old} liegt noch {n} Datei, die ich bereitgelegt habe. Wechsle ich auf {new}, suche ich nur noch dort — sie bliebe auf {old} liegen. Bring sie zuerst zurück: mich entlassen mit «{tick}», dann wieder einstellen — oder bleib bei {old}.", "other": "Auf {old} liegen noch {n} Dateien, die ich bereitgelegt habe. Wechsle ich auf {new}, suche ich nur noch dort — sie blieben auf {old} liegen. Bring sie zuerst zurück: mich entlassen mit «{tick}», dann wieder einstellen — oder bleib bei {old}."}
+  "setup.pool_change": {"one": "Auf {old} liegt noch {n} Datei, die ich bereitgelegt habe. Wechsle ich auf {new}, suche ich nur noch dort — sie bliebe auf {old} liegen. Bring sie zuerst zurück: mich entlassen mit «{tick}», dann wieder einstellen — oder bleib bei {old}.", "other": "Auf {old} liegen noch {n} Dateien, die ich bereitgelegt habe. Wechsle ich auf {new}, suche ich nur noch dort — sie blieben auf {old} liegen. Bring sie zuerst zurück: mich entlassen mit «{tick}», dann wieder einstellen — oder bleib bei {old}."},
+  "setup.person_server": "Auf {server}"
 }

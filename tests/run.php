@@ -2743,6 +2743,62 @@ print(json.dumps(out, sort_keys=True))';
         [$exit, json_decode(trim($out), true) ?? trim($err)]);
 }
 
+/**
+ * 1.65.0 (the owner): one person on several servers counts once — the same name ignoring case, spaces and accents across
+ * Emby, Jellyfin and Plex is one person: one share of the budget, one budget of their own (kept under any of their ids, as
+ * settings from before keep it per server id), their items from all servers together, an item two servers name once.
+ * MediaCache's planner with two stand-in servers; Jack's page groups them the same way.
+ */
+function testJackPersons(): void
+{
+    $tmp = hardeningTmp('jack-persons');
+    file_put_contents("$tmp/t.py", <<<'PY'
+import sys, os, json
+sys.path.insert(0, sys.argv[1]); base = sys.argv[2]
+for d in ("user0/Filme/A", "user0/Filme/B", "user0/Serien/S/S01", "pool", "user"):
+    os.makedirs(f"{base}/{d}", exist_ok=True)
+for f, n in (("Filme/A/a.mkv", 100), ("Filme/B/b.mkv", 200), ("Serien/S/S01/e1.mkv", 10), ("Serien/S/S01/e2.mkv", 10)):
+    open(f"{base}/user0/{f}", "wb").write(b"x" * n)
+os.environ["MEDIACACHE_DIR"] = base
+import mediacache_lib as l, mediacache_run as r
+A = {"Type": "Movie", "Id": "a", "Name": "A", "Path": "/m/Filme/A/a.mkv"}
+B = {"Type": "Movie", "Id": "b", "Name": "B", "Path": "/m/Filme/B/b.mkv"}
+E = lambda i: {"Type": "Episode", "Id": f"e{i}", "Name": f"E{i}", "SeriesId": "s", "SeriesName": "S", "ParentIndexNumber": 1, "IndexNumber": i, "Path": f"/m/Serien/S/S01/e{i}.mkv"}
+class Api:
+    def __init__(self, users, resume): self.u, self.r = users, resume
+    def users(self): return self.u
+    def resume_items(self, uid, IncludeItemTypes=None, **k): return [x for x in self.r.get(uid, []) if x["Type"] == IncludeItemTypes]
+    def next_up(self, uid, **k): return []
+    def user_items(self, uid, ParentId=None, **k): return [E(1), E(2)] if ParentId == "s" else []
+    def items(self, *a, **k): return []
+apis = {"Emby": Api([{"Id": "e-anna", "Name": "Anna"}, {"Id": "e-leo", "Name": "Leo"}], {"e-anna": [A, E(1)], "e-leo": [B]}),
+        "Jelly": Api([{"Id": "j-anna", "Name": " ánna"}], {"j-anna": [A]})}
+r.MediaServerApi.for_instance = classmethod(lambda cls, inst, t: apis[inst["servername"]])
+cfg = {"cache_path": f"{base}/pool", "array_path": f"{base}/user0", "user_path": f"{base}/user", "array_disks_glob": f"{base}/disk[0-9]*",
+       "api_timeout": 1, "movie_mode": "folder", "max_resume_movies": 10, "max_resume_series": 10, "max_favorite_series": 0, "use_next_up": False,
+       "number_episodes": 2, "max_episodes_per_series": 0, "movie_share_percent": 50, "cache_budget_bytes": 10000,
+       "valid_users": [], "user_budgets": {"j-anna": 5000},
+       "instances": [{"servername": n, "_mappings": {"/m": f"{base}/user"}, "_skip": []} for n in ("Emby", "Jelly")]}
+p = r.Planner(cfg)
+files = p.run()
+anna = p.users[r.person_key("Anna")]
+print(json.dumps({"people": sorted(u.name for u in p.users.values()), "anna_uids": anna.uids, "anna_servers": anna.servers,
+                  "anna_movies": [g.title for g in anna.movies], "files": sorted(str(f.rel) for f in files), "anna_budget": anna.budget,
+                  "keys": sorted(p.users)}))
+PY);
+    [$exit, $out, $err] = runEnv(['python3', '-I', "$tmp/t.py", OFFICE_DIR . '/mediacache', "$tmp/tree"], ['PYTHONDONTWRITEBYTECODE' => '1'], 60);
+    $r = json_decode((string) preg_replace('/^.*\n/s', '', trim($out)), true);
+    same('persons: «Anna» on Emby and « ánna» on Jellyfin are one person (both ids, both servers), Leo another',
+        [['Anna', 'Leo'], ['e-anna', 'j-anna'], ['Emby', 'Jelly'], ['p:anna', 'p:leo']], [$r['people'] ?? null, $r['anna_uids'] ?? null, $r['anna_servers'] ?? null, $r['keys'] ?? null], $out . $err);
+    same('persons: the film both servers name once in her plan, every file once; her own budget found under her Jellyfin id',
+        [['A'], ['Filme/A/a.mkv', 'Filme/B/b.mkv', 'Serien/S/S01/e1.mkv', 'Serien/S/S01/e2.mkv'], 5000],
+        [$r['anna_movies'] ?? null, $r['files'] ?? null, (int) ($r['anna_budget'] ?? 0)]);
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.js');
+    check('persons: his page groups people the same way (name ignoring case, spaces, accents) and sends the groups',
+        str_contains($js, "function personKey(name)") && str_contains($js, "people: chosenPersons().map((p) => p.ids)"));
+    hardeningRm($tmp);
+}
+
 function testJackUpstream(): void
 {
     $tmp = hardeningTmp('jackupstream');
@@ -3115,9 +3171,9 @@ PY);
         $s['current']['title'] ?? null, $s['current']['target'] ?? null], $seen);
     same('progress, EmbyCache: before each copy — the phase, the file, whose, why, where to', [
         ['back', 'Filme/Old/old.mkv', null, null, null, "$py/user0/Filme/Old/old.mkv"],
-        ['fill', 'Filme/Alien/Alien.mkv', 'Test:u1', 'resume', 'Alien', "$py/pool/Filme/Alien/Alien.mkv"],
-        ['fill', 'Filme/Alien/Alien.srt', 'Test:u1', 'resume', 'Alien', "$py/pool/Filme/Alien/Alien.srt"],
-        ['fill', 'Filme/Brazil/Brazil.mkv', 'Test:u2', 'resume', 'Brazil', "$py/pool/Filme/Brazil/Brazil.mkv"]], $at, $out . $err);
+        ['fill', 'Filme/Alien/Alien.mkv', 'p:benj', 'resume', 'Alien', "$py/pool/Filme/Alien/Alien.mkv"],
+        ['fill', 'Filme/Alien/Alien.srt', 'p:benj', 'resume', 'Alien', "$py/pool/Filme/Alien/Alien.srt"],
+        ['fill', 'Filme/Brazil/Brazil.mkv', 'p:kids', 'resume', 'Brazil', "$py/pool/Filme/Brazil/Brazil.mkv"]], $at, $out . $err);
     same('progress, EmbyCache: the plan before the first copy — back 1 of 1500 B; Benj 2 files 3010 B, Kids 1 file 2000 B',
         [['files' => 1, 'bytes' => 1500, 'done_files' => 0, 'done_bytes' => 0], [['Benj', 2, 3010, 0], ['Kids', 1, 2000, 0]]],
         [array_intersect_key($seen[0]['back'] ?? [], ['files' => 1, 'bytes' => 1, 'done_files' => 1, 'done_bytes' => 1]), array_map(fn ($u) => [$u['name'], $u['files'], $u['bytes'], $u['done_files']], $seen[0]['users'] ?? [])]);
@@ -33051,7 +33107,9 @@ function testStreamerBudget(): void
     check('streamer budget: his state, his checks, runs and his schedule go by it', substr_count((string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php'), 'jackConfigured(') === 7);   // + his empty list (jackListEnsure)
     same('streamer budget: sizes as EmbyCache reads them', [500 << 30, (int) (1.5 * (1 << 40)), 800 << 30, 0, 0], array_map('jackSizeBytes', ['500G', '1.5T', '800GB', 'lots', '']));
     $jackSrc = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
-    check('streamer budget: jackSave() checks before it writes', (bool) preg_match('/jackBudgetCheck\(\$cfg\[\'cache_budget\'\], \$users, jackPoolSizes\(\).*?jackWriteSettings\(\$cfg\);/s', $jackSrc));
+    check('streamer budget: jackSave() checks before it writes', (bool) preg_match('/jackBudgetCheck\(\$cfg\[\'cache_budget\'\], \$persons, jackPoolSizes\(\).*?jackWriteSettings\(\$cfg\);/s', $jackSrc));
+    check('streamer budget: a person over several servers counts once in the check (the page sends their ids together)',
+        str_contains($jackSrc, "\$people = \$in['people'] ?? [];") && str_contains($jackSrc, "\$persons[] = \$own ? \$users[\$own[0]] : (object) [];"));
     $lang = [];
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         $words = langFile(OFFICE_WEB . "/desks/jack/lang/$l.json");
@@ -35074,6 +35132,8 @@ function testNightRun(): void
         'jack_live' => fn () => ['recent' => [['name' => 'Film/a.mkv', 'bytes' => 7, 'from' => 'cache', 'to' => 'array'], ['name' => 1, 'bytes' => 'x']]],
         'jack_runs' => function () use (&$runs) { return $runs; },
         'jack_stop' => "$tmp/jack-stop.json",
+        'jack_output' => function () use (&$calls) { return 'his output after: ' . end($calls) . "\n"; },
+        'her_output' => function () use (&$calls) { return 'her output after: ' . end($calls) . "\n"; },
         'notify' => function (string $s, string $b) use (&$notified) { $notified[] = $b; return true; },
         'jack_job' => function (array $args) use (&$p, &$calls, &$runs, &$inside, $dir, $at) {
             $at('jack');
@@ -35136,6 +35196,20 @@ function testNightRun(): void
         [800, 410, 0, 2, 'ok', 'done', false, []], [$p['nm'] + $p['j'] + $p['d'], $p['j'], $p['wait'], $n['round'] ?? null, $n['result'] ?? null, $n['phase'] ?? null,
          $n['running'] ?? null, $notified]);
     same('night run 1: inside the night the runs pass its lock (night held, not «busy» for them)', [true, false, true], $inside[0] ?? null);
+    // 1.65.0: the night's output — every step's, one after the other (each tool writes its own file anew each run); his steps
+    // keep their counts (his page sums his give-back and his fetch over the night)
+    $out = (string) @file_get_contents("$dir/" . NIGHT_OUTPUT);
+    preg_match_all('/^===== (.+) =====$/m', $out, $m);
+    same('night run 1: the output of every step in order, each with its tool\'s text', [['Jack Streamer · free · round 1', 'Ms. Moverelli · free · round 1',
+        'Ms. Moverelli · free · round 2', 'Jack Streamer · fill · round 2'], true, true],
+        [$m[1], str_contains($out, "his output after: jack run --night --nofill\n"), str_contains($out, "his output after: jack run --night\n")]);
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.js');
+    check('night run 1: «Raw output» on both pages shows the whole night when the last run was a step of it; his result box sums his steps',
+        str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php'), "(jackJobInfo(\$tool)['by'] ?? '') === 'night' && is_file(\$night)")
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php'), "(moverelliJobInfo(\$h['dir'])['by'] ?? '') === 'night' && is_file(\"\$h[dir]/night-output.txt\")")
+        && str_contains($js, "const st = nightStatus('last_status' in state ? state.last_status : state.last);"));
+    same('night run 1: his steps keep their counts', [true, false, true],
+        [isset(($n['steps'][0] ?? [])['cleanup']), isset(($n['steps'][1] ?? [])['cleanup']), isset((end($n['steps']) ?: [])['fill'])]);
     $pic = $n['picture'] ?? [];
     same('night run 1: the picture — X, where she moves to (the array\'s data disks from disks.ini), each phase as it began (before, forecast, planned), the files done by both',
         [80, ['to' => 'array', 'size' => 8000000000 * 1024, 'used' => 2000000000 * 1024], ['check', 'free', 'recheck', 'fill', 'done'], ['before', 'forecast', 'planned'],
@@ -38357,7 +38431,7 @@ const TILES_FIRST_LATER = ['advisor', 'backup', 'cleanup', 'restore'];
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackProgress', 'testJackReadyShares',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
