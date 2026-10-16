@@ -27,7 +27,7 @@
   "mode.run": "Ejecución real",
   "mode.measure": "Medición",
   "mode_hint.dry": "Muestra lo que movería — no cambia nada.",
-  "mode_hint.run": "Devuelve lo visto a su disco y mueve lo que viene a continuación del array al pool. Despierta los discos del array que necesita.",
+  "mode_hint.run": "Devuelve lo visto al array (Unraid elige el disco, como su mover) y mueve lo que viene a continuación del array al pool. Despierta los discos del array que necesita.",
   "tool.embycache": "Preparar",
   "tool.gather": "Agrupar",
   "overview": "Cómo trabajo",

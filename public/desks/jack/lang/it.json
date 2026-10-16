@@ -27,7 +27,7 @@
   "mode.run": "Esecuzione vera",
   "mode.measure": "Misurazione",
   "mode_hint.dry": "Mostra cosa sposterei — non cambia niente.",
-  "mode_hint.run": "Riporta sul suo disco ciò che è stato visto e sposta dall'array al pool ciò che viene dopo. Sveglia i dischi dell'array che gli servono.",
+  "mode_hint.run": "Riporta sull'array ciò che è stato visto (Unraid sceglie il disco, come il suo mover) e sposta dall'array al pool ciò che viene dopo. Sveglia i dischi dell'array che gli servono.",
   "tool.embycache": "Prepara",
   "tool.gather": "Consolida",
   "overview": "Come lavoro",

@@ -27,7 +27,7 @@
   "mode.run": "Echter Lauf",
   "mode.measure": "Messung",
   "mode_hint.dry": "Zeigt, was ich verschieben würde — ändert nichts.",
-  "mode_hint.run": "Bringt Gesehenes zurück auf seine Disk und holt, was als Nächstes dran ist, vom Array auf den Pool. Weckt die Array-Disks, die es braucht.",
+  "mode_hint.run": "Bringt Gesehenes zurück aufs Array (Unraid wählt die Disk wie sein Mover) und holt, was als Nächstes dran ist, vom Array auf den Pool. Weckt die Array-Disks, die es braucht.",
   "tool.embycache": "Bereitlegen",
   "tool.gather": "Zusammenführen",
   "overview": "So arbeite ich",

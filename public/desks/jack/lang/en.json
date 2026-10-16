@@ -27,7 +27,7 @@
   "mode.run": "Real run",
   "mode.measure": "Measurement",
   "mode_hint.dry": "Shows what I would move — changes nothing.",
-  "mode_hint.run": "Brings watched things back to their disk and moves what's up next from the array to the pool. Wakes the array disks it needs.",
+  "mode_hint.run": "Brings watched things back to the array (Unraid picks the disk, as its mover does) and moves what's up next from the array to the pool. Wakes the array disks it needs.",
   "tool.embycache": "Lay out",
   "tool.gather": "Consolidate",
   "overview": "How I work",

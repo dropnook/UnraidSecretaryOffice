@@ -567,16 +567,29 @@ class Planner:
         target = {"movie": budget * movie_share, "series": budget * (1.0 - movie_share)}
         stopped = set()
         up.selected, up.skipped, up.bytes = [], [], 0
+        # USO (2026-10-16): the share holds while the other kind still has something — a big film that would overrun the
+        # films' part waits (its kind is «full» for now) instead of taking the whole budget because it came first; once the
+        # other kind is done or full too, what is left of the budget is filled as before (soft: an empty kind gives its room).
+        full, relaxed = set(), False
 
         def fill_fraction(cat):
             return (used[cat] / target[cat]) if target[cat] > 0 else float("inf")
 
         while True:
-            avail = [c for c in ("movie", "series") if idx[c] < len(queues[c])]
+            avail = [c for c in ("movie", "series") if idx[c] < len(queues[c]) and c not in full]
             if not avail:
-                break
+                if not full:
+                    break
+                full.clear()
+                relaxed = True
+                continue
             cat = min(avail, key=fill_fraction)
             g = queues[cat][idx[cat]]
+            other = "series" if cat == "movie" else "movie"
+            if (not relaxed and g.chain not in stopped and used[cat] + g.size > target[cat]
+                    and idx[other] < len(queues[other])):
+                full.add(cat)
+                continue
             idx[cat] += 1
             if g.chain in stopped:
                 up.skipped.append(g)

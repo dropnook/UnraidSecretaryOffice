@@ -2866,6 +2866,22 @@ print(p.errors)';
         [0, '1'], [$exit2, preg_replace('/^.*\n/s', '', trim($out2)) ?: trim($err2)]);
     same('upstream fixes: Plex users — unclaimed complete, claimed without plex.tv incomplete; an answer without items an error',
         [0, "(['admin'], False) (['admin'], True) Ungültige Antwort von /Users/u/Items/Resume"], [$exit, trim($out) ?: trim($err)]);
+    // nostromo 2026-10-16: budget 200 → 300 GB, a 25 GB started film came first and took a person's 30 GB — the films' share
+    // (20 %) holds while there are episodes; the rest of the budget afterwards as before (an empty kind gives its room)
+    $sel = 'import sys; sys.path.insert(0, sys.argv[1]); import mediacache_run as r
+from types import SimpleNamespace as N
+G = 2**30
+def g(cat, size, chain, t): return N(category=cat, size=size * G, chain=chain, title=t)
+def run(movies, series, budget, share):
+    up = N(movies=movies, series=series)
+    r.Planner.select(up, budget * G, share)
+    return [round(up.movie_bytes / G), round(up.series_bytes / G), "Big" in [x.title for x in up.selected]]
+mv = [g("movie", 25, "m1", "Big"), g("movie", 3, "m2", "Small")]
+se = [g("series", 1, "s%d" % (i % 2), "E%d" % i) for i in range(30)]
+print(run(mv, se, 30, 0.2), run(mv, [], 30, 0.2), run([g("movie", 25, "m1", "Big")], se[:3], 30, 0.2))';
+    [$exitS, $outS, $errS] = runEnv(['python3', '-c', $sel, JACK_APP], ['MEDIACACHE_DIR' => "$tmp/emby", 'PYTHONDONTWRITEBYTECODE' => '1'], 30);
+    same('budget share: a big film first no longer takes the person\'s whole budget while episodes wait (films 3 GB, series 27 GB, the 25 GB film out); only films — they get the room; few episodes — the film gets the rest',
+        [0, '[3, 27, False] [28, 0, True] [25, 3, True]'], [$exitS, trim($outS) ?: trim($errS)]);
     check('upstream: the README names MediaCache\'s commit taken and the office\'s changes, GPL', str_contains($readme = (string) file_get_contents(JACK_APP . '/README.md'), '`2a91ef1`')
         && str_contains($readme, 'Changes against 2a91ef1') && str_contains($readme, 'GPL-3.0-or-later') && is_file(JACK_APP . '/LICENSE'));
     exec('rm -rf ' . escapeshellarg($tmp));
