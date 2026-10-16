@@ -644,6 +644,7 @@
   "setup.media": "Serveur multimédia",
   "setup.media_sub": "Les serveurs multimédia dont Jack Streamer s'occupe — plusieurs à la fois aussi, même mélangés.",
   "setup.media_ok": "pris en charge",
+  "setup.media_set": "configuré",
   "setup.soon": "Bientôt",
   "share.title": "Partager le pool",
   "share.help": "Madame Moverelli fixe la limite X du pool et le décalage dans sa configuration ; ils sont affichés ici tels quels. Sous Y = X − décalage, la place que laissent appdata & co. est partagée : une part pour Jack Streamer, le reste pour les autres partages avec cache. Chaque part est un plancher ; chaque côté peut emprunter au plus la moitié de ce que l'autre n'utilise pas.",

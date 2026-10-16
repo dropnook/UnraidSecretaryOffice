@@ -32968,6 +32968,11 @@ function testStreamerTab(): void
   out.freshTiles = e.setupTileData().map((d) => d.id);
   const srv = all(e.setupServers());
   out.cards = srv.filter((n) => /jo-media-card/.test(n.className)).map((n) => [all(n).find((x) => x.tag === 'b').textContent, n.attrs['aria-disabled'], /\boff\b/.test(n.className)]);
+  // the chip: «set up» (green) for a kind with a server below, «supported» (grey) for the others
+  const chipsOf = () => all(e.setupServers()).filter((n) => /jo-media-card/.test(n.className)).map((n) => { const c = all(n).find((x) => /\bchip\b/.test(x.className || '')); return [c.textContent, /\bok\b/.test(c.className)]; });
+  { const keep = e.form().instances; e.form().instances = keep.filter((i) => i.type === 'emby'); out.chipsEmby = chipsOf();
+    e.form().instances = [...e.form().instances, { type: 'jellyfin', url: 'http://jf:8096', mappings: {}, users: [] }, { type: 'plex', url: '', mappings: {}, users: [] }];
+    out.chipsAll = chipsOf(); e.form().instances = keep; }
   out.offer = srv.some((n) => n.textContent === 'import.open');
   out.notYet = texts(e.setupScope()).map((t) => t.replace(/ \{.*$/, ''));
   e.setState(st); e.initForm();
@@ -33059,6 +33064,9 @@ JS, [OFFICE_WEB . '/desks/jack/desk.js', OFFICE_DIR . '/tests/ui/demo/jack.json'
     }
     same('desk scripts: no top-level function declared twice', [], $dups);
     same('streamer tab: Emby, Jellyfin and Plex all work (1.65.0, MediaCache)', [['Emby', 'false', false], ['Jellyfin', 'false', false], ['Plex', 'false', false]], $r['cards']);
+    same('streamer tab: the media cards — a kind with a server (an address) below «set up» (green), a Plex box still empty not; only Emby set up: the others «supported» (grey)',
+        [[['setup.media_set', true], ['setup.media_set', true], ['setup.media_ok', false]], [['setup.media_set', true], ['setup.media_ok', false], ['setup.media_ok', false]]],
+        [$r['chipsAll'] ?? null, $r['chipsEmby'] ?? null]);
     same('streamer tab: the amount needs a connected server first', ['setup.after_connect'], $r['notYet']);
     same('streamer tab: the form is budget mode only — the saved budget in GB, episodes per series inside it, nothing of count mode or the wizard',
         ['300', 3, false, false, false, false], $r['form']);

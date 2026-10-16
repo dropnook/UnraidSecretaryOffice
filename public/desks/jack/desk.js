@@ -1881,19 +1881,20 @@ async function connectInst(inst) {
 }
 
 /**
- * The media servers he can work with: Emby, Jellyfin and Plex, each «supported» (what he can do — not whether one is
- * installed here; the servers below say that). The names are the products' own (not translated).
+ * The media servers he can work with: Emby, Jellyfin and Plex. A kind with a server below says «set up» (green); the
+ * others «supported» (grey — what he can do, not that one is installed here). The names are the products' own.
  */
 function mediaChoice() {
   const box = el('div', 'jo-media');
   box.appendChild(el('div', 'jo-media-head', T('setup.media')));
   const row = el('div', 'jo-media-row');
-  [['Emby', true], ['Jellyfin', true], ['Plex', true]].forEach(([name, works]) => {
-    const card = el('div', 'box jo-media-card' + (works ? ' on' : ' off'));
-    card.setAttribute('aria-disabled', works ? 'false' : 'true');
+  [['Emby', 'emby'], ['Jellyfin', 'jellyfin'], ['Plex', 'plex']].forEach(([name, type]) => {
+    const set = (form && form.instances || []).some((i) => i.type === type && String(i.url || '').trim() !== '');
+    const card = el('div', 'box jo-media-card' + (set ? ' on' : ''));   // the orange frame only around what is set up
+    card.setAttribute('aria-disabled', 'false');
     const who = el('span', 'jo-media-name');
     who.append(mediaLogo(name), el('b', '', name));
-    card.append(who, chip(T(works ? 'setup.media_ok' : 'setup.soon'), works ? 'ok' : ''));
+    card.append(who, chip(T(set ? 'setup.media_set' : 'setup.media_ok'), set ? 'ok' : ''));
     row.appendChild(card);
   });
   box.append(row, el('p', 'role', T('setup.media_sub')));
