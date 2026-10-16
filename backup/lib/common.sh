@@ -1165,31 +1165,43 @@ is_immich_server() { [[ "${1,,}" == *immich-server* || "${1,,}" == *immich_serve
 # collation (icu_root) and an FTS tokenizer (collating) only its own SQLite knows: Unraid's sqlite3 stops at them and
 # checks nothing (2.55). So a Plex copy is checked by the SQLite inside the running container - its loader, libraries
 # and «Plex Media Server --sqlite» (what its «Plex SQLite» starts), opened by root through /proc/<pid>/root and run as
-# nobody (setpriv, no new privileges, empty environment) on the copy, read only (immutable: nothing written beside
-# it). First a sum it must answer within 20 s - a binary that doesn't know --sqlite never runs as a server for long.
+# nobody (setpriv, no new privileges, empty environment). The copy lies in root's own staging folder: it is bound onto
+# an empty file in a fresh folder in /tmp, in a mount namespace of its own (unshare -m, private - gone with the
+# process), and opened there read only (immutable: nothing written beside it). First a sum it must answer within
+# 20 s - a binary that doesn't know --sqlite never runs as a server for long.
 UB_PROC="${UB_PROC:-/proc}"
 media_sqlite_check() {
-    local c="$1" k="$2" out="$3" pid d u
+    local c="$1" k="$2" out="$3" pid d
     SQ_CHECK_BY="host"; SQ_CHECK_OUT=""
-    u="file:$(uri_escape "$out")"
-    if [[ "$k" == plex ]] && command -v setpriv >/dev/null 2>&1 \
+    if [[ "$k" == plex ]] && command -v setpriv >/dev/null 2>&1 && command -v unshare >/dev/null 2>&1 \
        && pid="$(timeout 20 docker inspect -f '{{.State.Pid}}' "$c" 2>/dev/null)" && [[ "$pid" =~ ^[1-9][0-9]{0,9}$ ]]; then
         for d in /usr/lib/plexmediaserver /app/usr/lib/plexmediaserver; do      # official and linuxserver; hotio
             d="$UB_PROC/$pid/root$d"
             [[ -f "$d/lib/ld-musl-x86_64.so.1" && -f "$d/Plex Media Server" ]] || continue
-            [[ "$(media_plex_sqlite "$d" 20 ':memory:' 'SELECT 6*7;')" == "42" ]] || continue
+            [[ "$(media_plex_sqlite "$d" 20 '' 'SELECT 6*7;')" == "42" ]] || continue
             SQ_CHECK_BY="plex"
-            SQ_CHECK_OUT="$(media_plex_sqlite "$d" "${SQ_TIMEOUT:-600}" "$u?immutable=1" 'PRAGMA quick_check;' | head -3)"
+            SQ_CHECK_OUT="$(media_plex_sqlite "$d" "${SQ_TIMEOUT:-600}" "$out" 'PRAGMA quick_check;' | head -3)"
             return 0
         done
     fi
-    SQ_CHECK_OUT="$(timeout "${SQ_TIMEOUT:-600}" sqlite3 "$u?mode=ro" 'PRAGMA quick_check;' 2>&1 | head -3)"
+    SQ_CHECK_OUT="$(timeout "${SQ_TIMEOUT:-600}" sqlite3 "file:$(uri_escape "$out")?mode=ro" 'PRAGMA quick_check;' 2>&1 | head -3)"
 }
-# media_plex_sqlite <dir in /proc/<pid>/root> <seconds> <database> <sql>   (the files opened as root, run as nobody)
+# media_plex_sqlite <dir in /proc/<pid>/root> <seconds> <copy, empty = :memory:> <sql>   (files opened as root, run as nobody)
 media_plex_sqlite() {
-    ( exec 5<"$1/lib/ld-musl-x86_64.so.1" 6<"$1/lib" 7<"$1/Plex Media Server" || exit 1
-      exec env -i PATH=/usr/bin:/bin HOME=/nonexistent "$(command -v setpriv)" --reuid=99 --regid=100 --clear-groups --no-new-privs -- \
-          timeout "$2" /proc/self/fd/5 --library-path /proc/self/fd/6 /proc/self/fd/7 --sqlite "$3" "$4" ) </dev/null 2>&1
+    local d="$1" s="$2" copy="$3" sql="$4" v="" rc
+    local -a run=(env -i PATH=/usr/bin:/bin HOME=/nonexistent "$(command -v setpriv)" --reuid=99 --regid=100 --clear-groups --no-new-privs --
+                  timeout "$s" /proc/self/fd/5 --library-path /proc/self/fd/6 /proc/self/fd/7 --sqlite)
+    if [[ -z "$copy" ]]; then
+        ( exec 5<"$d/lib/ld-musl-x86_64.so.1" 6<"$d/lib" 7<"$d/Plex Media Server" || exit 1; exec "${run[@]}" ':memory:' "$sql" ) </dev/null 2>&1
+        return
+    fi
+    v="$(mktemp -d /tmp/.uso-sqlite.XXXXXX)" && chmod 0755 "$v" && : >"$v/copy.db" || { [[ -n "$v" ]] && rm -rf "$v"; echo "no place to check the copy"; return 1; }
+    ( exec 5<"$d/lib/ld-musl-x86_64.so.1" 6<"$d/lib" 7<"$d/Plex Media Server" || exit 1
+      exec unshare -m --propagation private sh -c 'mount --bind "$1" "$2" || exit 1; shift 2; exec "$@"' sh "$copy" "$v/copy.db" \
+          "${run[@]}" "file:$v/copy.db?immutable=1" "$sql" ) </dev/null 2>&1
+    rc=$?
+    rm -f "$v/copy.db"; rmdir "$v" 2>/dev/null
+    return "$rc"
 }
 # ct_host_path <container> <path inside it>  -> where that lies on the host (the bind with the longest
 # matching target), returns 1 when no bind holds it

@@ -3966,7 +3966,7 @@ function testBackup74Polish(): void
     }
     // the loader stand-in: <loader> --library-path <dir> <binary> --sqlite <db> <sql>, the arguments noted
     file_put_contents("$px/lib/ld-musl-x86_64.so.1", "#!/bin/bash\necho \"\$*\" >>\"$tmp/loader.log\"\n[[ \"\$1 \$3 \$4\" == '--library-path /proc/self/fd/7 --sqlite' ]] || { echo usage; exit 1; }\n"
-        . "[[ -e \"$tmp/nosum\" ]] && exit 0\n[[ \"\$6\" == 'SELECT 6*7;' ]] && { echo 42; exit 0; }\n[[ \"\$5\" == *bad* ]] && { printf '*** in database main ***\\nTree 11 page 488: btreeInitPage() returns error code 11\\n'; exit 0; }\necho ok\n");
+        . "[[ -e \"$tmp/nosum\" ]] && exit 0\n[[ \"\$6\" == 'SELECT 6*7;' ]] && { echo 42; exit 0; }\nf=\"\${5#file:}\"; f=\"\${f%%\\?*}\"\n[[ -r \"\$f\" ]] || { echo \"unable to open \$f\"; exit 0; }\ngrep -q bad \"\$f\" && { printf '*** in database main ***\\nTree 11 page 488: btreeInitPage() returns error code 11\\n'; exit 0; }\necho ok\n");
     file_put_contents("$px/Plex Media Server", "binary\n");
     file_put_contents("$tmp/bin/docker", "#!/bin/bash\n[[ \"\$1 \$2 \$3\" == 'inspect -f {{.State.Pid}}' && \"\$4\" == Plex ]] && { echo 4242; exit 0; }\necho 0\n");
     file_put_contents("$tmp/bin/setpriv", "#!/bin/bash\necho \"\$*\" >>\"$tmp/setpriv.log\"\nwhile [[ \$# -gt 0 && \"\$1\" != -- ]]; do shift; done\nshift\nexec \"\$@\"\n");
@@ -3976,20 +3976,30 @@ function testBackup74Polish(): void
     }
     $check = fn (string $c, string $k, string $copy) => trim((string) shell_exec('bash -c ' . escapeshellarg("PATH=$tmp/bin:\$PATH UB_DATA=$tmp/data UB_PROC=$tmp/proc; source $lib >/dev/null 2>&1; "
         . 'media_sqlite_check ' . escapeshellarg($c) . ' ' . escapeshellarg($k) . ' ' . escapeshellarg($copy) . '; printf "%s|%s" "$SQ_CHECK_BY" "$SQ_CHECK_OUT"') . ' 2>&1'));
+    // the copies in a folder of root's alone, as the run's staging folder
+    foreach (["$tmp/db", "$tmp/my db"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    file_put_contents("$tmp/db/sqlite_Plex_com.plexapp.plugins.library.db", 'good');
+    file_put_contents("$tmp/db/bad.db", 'bad');
+    file_put_contents("$tmp/my db/it's.db", 'good');
     same('plex sqlite: a sound copy - checked by Plex\'s own SQLite', 'plex|ok', $check('Plex', 'plex', "$tmp/db/sqlite_Plex_com.plexapp.plugins.library.db"));
     $log = (string) @file_get_contents("$tmp/loader.log");
-    check('plex sqlite: the sum first, then quick_check on the copy, read only (immutable), the library and binary by fd',
+    check('plex sqlite: the sum first, then quick_check on the copy bound into a fresh folder in /tmp, read only (immutable), the library and binary by fd',
         str_contains($log, "--library-path /proc/self/fd/6 /proc/self/fd/7 --sqlite :memory: SELECT 6*7;")
-        && str_contains($log, "--sqlite file:$tmp/db/sqlite_Plex_com.plexapp.plugins.library.db?immutable=1 PRAGMA quick_check;"), $log);
+        && (bool) preg_match('#--sqlite file:/tmp/\.uso-sqlite\.\w{6}/copy\.db\?immutable=1 PRAGMA quick_check;#', $log), $log);
     check('plex sqlite: run as nobody, no new privileges', str_contains((string) @file_get_contents("$tmp/setpriv.log"), '--reuid=99 --regid=100 --clear-groups --no-new-privs --'));
     same('plex sqlite: a broken copy - its message, by Plex (so it fails its check)', "plex|*** in database main ***\nTree 11 page 488: btreeInitPage() returns error code 11",
         $check('Plex', 'plex', "$tmp/db/bad.db"));
-    same('plex sqlite: a path with a space and a quote is escaped in the URI', 'plex|ok', $check('Plex', 'plex', "$tmp/my db/it's.db"));
-    check('plex sqlite: … escaped', str_contains((string) file_get_contents("$tmp/loader.log"), "file:$tmp/my%20db/it%27s.db?immutable=1"));
+    same('plex sqlite: a path with a space and a quote', 'plex|ok', $check('Plex', 'plex', "$tmp/my db/it's.db"));
+    same('plex sqlite: nothing left - no folder in /tmp, no mount', [[], false],
+        [glob('/tmp/.uso-sqlite.*') ?: [], str_contains((string) file_get_contents('/proc/mounts'), '.uso-sqlite.')]);
     same('plex sqlite: another media server - Unraid\'s sqlite3', 'host|Parse error in 2nd command line argument: unknown tokenizer: collating', $check('Jellyfin', 'jellyfin', "$tmp/db/x.db"));
     same('plex sqlite: no pid (the container not answering) - Unraid\'s sqlite3', 'host', explode('|', $check('Other', 'plex', "$tmp/db/x.db"))[0]);
     touch("$tmp/nosum");
     same('plex sqlite: a binary that doesn\'t answer the sum - Unraid\'s sqlite3', 'host', explode('|', $check('Plex', 'plex', "$tmp/db/x.db"))[0]);
+    same('plex sqlite: the helpers beside it still there (ct_host_path finds the databases)', '/mnt/cache/appdata/plex/Library/x.db',
+        trim((string) shell_exec('bash -c ' . escapeshellarg("UB_DATA=$tmp/data; source $lib >/dev/null 2>&1; declare -A CT_BINDS=([Plex]='/mnt/cache/appdata/plex|/config|true'); ct_host_path Plex /config/Library/x.db") . ' 2>&1')));
     $bk = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh');
     check('plex sqlite: the run - Unraid\'s sqlite3 stopping at «unknown tokenizer» marks the copy unchecked, a failure by Plex\'s own SQLite fails it',
         str_contains($bk, 'media_sqlite_check "$c" "$(media_kind "${CT_IMAGE[$c]}")" "$out"; r="$SQ_CHECK_OUT"')
