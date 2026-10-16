@@ -1638,7 +1638,7 @@ function setupStep(id) {
 const everyone = () => [...new Set(form.instances.flatMap((inst) => (inst.users || []).map((u) => u.id)))];
 /** One person over several servers (1.65.0, as MediaCache counts them): the same name ignoring case, spaces and accents */
 function personKey(name) {
-  return String(name || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '').toLowerCase();
+  return (Office.fold || ((x) => String(x).toLowerCase()))(name || '').replace(/\s+/g, '');   // the office's folding (ß → ss, like Python's casefold)
 }
 /** The people as persons: [{key, name, ids, servers, admin}] in the servers' order — a person's ids on every server */
 function persons() {
