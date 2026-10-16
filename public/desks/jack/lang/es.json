@@ -129,6 +129,7 @@
   "exit_code": "código de salida {n}",
   "by.office": "iniciado aquí",
   "by.schedule": "programado",
+  "by.night": "en la ejecución conjunta",
   "array": "array",
   "shares": "Recursos compartidos",
   "shares_sub": "Dónde están las bibliotecas elegidas — muevo entre el array y un pool, así que un recurso compartido debe tener sus archivos en el array.",

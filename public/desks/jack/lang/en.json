@@ -129,6 +129,7 @@
   "exit_code": "exit code {n}",
   "by.office": "started here",
   "by.schedule": "on schedule",
+  "by.night": "in the joint run",
   "array": "array",
   "shares": "Shares",
   "shares_sub": "Where the chosen libraries live — I move between the array and one pool, so a share must have its files on the array.",

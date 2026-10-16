@@ -129,6 +129,7 @@
   "exit_code": "Rückgabewert {n}",
   "by.office": "hier gestartet",
   "by.schedule": "nach Zeitplan",
+  "by.night": "im gemeinsamen Lauf",
   "array": "Array",
   "shares": "Shares",
   "shares_sub": "Wo die gewählten Bibliotheken liegen — ich verschiebe zwischen Array und einem Pool, ein Share muss also seine Dateien auf dem Array haben.",

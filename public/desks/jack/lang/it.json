@@ -129,6 +129,7 @@
   "exit_code": "codice di uscita {n}",
   "by.office": "avviato da qui",
   "by.schedule": "pianificato",
+  "by.night": "nell'esecuzione comune",
   "array": "array",
   "shares": "Condivisioni",
   "shares_sub": "Dove stanno le librerie scelte — sposto tra l'array e un pool, quindi una condivisione deve avere i suoi file sull'array.",
