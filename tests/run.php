@@ -38592,12 +38592,152 @@ const TILES_FIRST_LATER = ['advisor', 'backup', 'cleanup', 'restore'];
 
 // ===================================================================== run
 
+/**
+ * A fresh server without the share of the data folder (agent/lib/firsthome.php, 2026-10-16): Unraid makes appdata only
+ * once Docker is turned on. The agent's look tells «never there» (no .cfg, not in shares.ini, Docker's apps not in it)
+ * from «gone»; only a click (the web side's officeHomeAsk(): the RAM inbox, never the mailbox) makes it create the
+ * share — Unraid's «Add Share» through a stand-in for emcmd: on the pool cache (only) when there is one, else the array.
+ * The web side in a process of its own (its RAM folder, var.ini of the test's own).
+ */
+function testFirstHome(): void
+{
+    $tmp = hardeningTmp('firsthome');
+    $run = "$tmp/run";
+    @mkdir("$tmp/user", 0755, true);
+    @mkdir("$tmp/shares", 0755, true);
+    @mkdir("$tmp/pools", 0755, true);
+    @mkdir($run, 0700, true);
+    $data = "$tmp/user/appdata/UnraidSecretaryOffice/data";
+    // emcmd's stand-in: notes what it was sent, makes the share (its folder) unless told to fail or to make nothing
+    file_put_contents("$tmp/emcmd", "#!/bin/bash\necho \"\$1\" >> " . escapeshellarg("$tmp/sent") . "\n"
+        . '[ -e ' . escapeshellarg("$tmp/fail") . " ] && { echo 'Share name is reserved'; exit 1; }\n"
+        . '[ -e ' . escapeshellarg("$tmp/lazy") . " ] && exit 0\n"
+        . 'n=$(sed -n "s/.*shareName=\([^&]*\).*/\1/p" <<<"$1"); mkdir -p ' . escapeshellarg("$tmp/user") . "/\"\$n\"\n");
+    chmod("$tmp/emcmd", 0755);
+    $h = ['shares_dir' => "$tmp/shares", 'shares_ini' => "$tmp/shares.ini", 'docker_cfg' => "$tmp/docker.cfg", 'pools_dir' => "$tmp/pools",
+          'mnt_user' => "$tmp/user", 'emcmd' => "$tmp/emcmd", 'wait' => 1];
+    $sent = function () use ($tmp): array {
+        $s = array_values(array_filter(explode("\n", (string) @file_get_contents("$tmp/sent"))));
+        @unlink("$tmp/sent");
+        return $s;
+    };
+
+    same('home: the share of the data folder', ['appdata', 'my.apps', null, null, null, null],
+        [homeShareOf('/mnt/user/appdata/UnraidSecretaryOffice/data'), homeShareOf('/mnt/user/my.apps/UnraidSecretaryOffice/data/'),
+         homeShareOf('/mnt/cache/appdata/UnraidSecretaryOffice/data'), homeShareOf('/mnt/user/.hidden/UnraidSecretaryOffice/data'),
+         homeShareOf('/mnt/user/apps./UnraidSecretaryOffice/data'), homeShareOf('/mnt/user/appdata/elsewhere/data')]);
+
+    // a fresh server: Docker never on (docker.cfg with it off), no share settings, two pools — cache first
+    file_put_contents("$tmp/docker.cfg", "DOCKER_ENABLED=\"no\"\nDOCKER_APP_CONFIG_PATH=\"/mnt/user/appdata/\"\n");
+    file_put_contents("$tmp/shares.ini", "[\"isos\"]\nname=\"isos\"\n");
+    touch("$tmp/pools/alpha.cfg");
+    touch("$tmp/pools/cache.cfg");
+    same('home: never there — fresh, on the pool cache', ['share' => 'appdata', 'fresh' => true, 'pool' => 'cache'], homeLook($data, $h));
+    unlink("$tmp/pools/cache.cfg");
+    same('home: … without cache the first pool', 'alpha', homeLook($data, $h)['pool'] ?? '?');
+    unlink("$tmp/pools/alpha.cfg");
+    same('home: … no pool — the array', ['share' => 'appdata', 'fresh' => true, 'pool' => null], homeLook($data, $h));
+    touch("$tmp/pools/cache.cfg");
+    // gone: Unraid knew it
+    file_put_contents("$tmp/shares/AppData.cfg", "shareUseCache=\"only\"\n");
+    same('home: its settings on the flash (any case) — gone, not fresh', false, homeLook($data, $h)['fresh'] ?? '?');
+    unlink("$tmp/shares/AppData.cfg");
+    file_put_contents("$tmp/shares.ini", "[\"appdata\"]\nname=\"appdata\"\n");
+    same('home: listed by emhttp — gone', false, homeLook($data, $h)['fresh'] ?? '?');
+    file_put_contents("$tmp/shares.ini", '');
+    file_put_contents("$tmp/docker.cfg", "DOCKER_ENABLED=\"yes\"\nDOCKER_APP_CONFIG_PATH=\"" . "$tmp/user/appdata/\"\n");
+    same('home: Docker on with its apps in it — gone', false, homeLook($data, $h)['fresh'] ?? '?');
+    file_put_contents("$tmp/docker.cfg", "DOCKER_ENABLED=\"yes\"\nDOCKER_APP_CONFIG_PATH=\"" . "$tmp/user/containers/\"\n");
+    same('home: Docker on, its apps in another share — fresh', true, homeLook($data, $h)['fresh'] ?? '?');
+    file_put_contents("$tmp/docker.cfg", "DOCKER_ENABLED=\"no\"\n");
+
+    // Unraid's «Add Share»: exactly the form its Shares page sends
+    $r = homeMake(['share' => 'appdata', 'fresh' => true, 'pool' => 'cache'], $h);
+    $s = $sent();
+    same('home: made — on the pool cache only, Unraid\'s form', [true, 1, true],
+        [$r['ok'], count($s), str_contains($s[0] ?? '', 'shareNameOrig=&shareName=appdata&') && str_contains($s[0], '&shareUseCache=only&shareCachePool=cache&')
+            && str_contains($s[0], '&cmdEditShare=Add%20Share') && is_dir("$tmp/user/appdata")]);
+    rmdir("$tmp/user/appdata");
+    homeMake(['share' => 'appdata', 'fresh' => true, 'pool' => null], $h);
+    same('home: … without a pool on the array', true, str_contains($sent()[0] ?? '', '&shareUseCache=no&shareCachePool=&'));
+    rmdir("$tmp/user/appdata");
+    touch("$tmp/fail");
+    same('home: emcmd refused — said with its words', ['home_failed', 'Share name is reserved'],
+        [homeMake(['share' => 'appdata', 'fresh' => true, 'pool' => 'cache'], $h)['error']['key'] ?? null, homeMake(['share' => 'appdata', 'fresh' => true, 'pool' => 'cache'], $h)['error']['params']['detail'] ?? null]);
+    unlink("$tmp/fail");
+    touch("$tmp/lazy");
+    same('home: Unraid said yes but no share came — said', 'home_not_there', homeMake(['share' => 'appdata', 'fresh' => true, 'pool' => 'cache'], $h)['error']['key'] ?? null);
+    unlink("$tmp/lazy");
+    $sent();
+
+    // the agent's round: the look in RAM, a click carried out only for this share, new enough, a plain file
+    $look = "$run/home.json";
+    $req = "$run/inbox/home.request";
+    @mkdir("$run/inbox", 0700, true);
+    $t = homeTick($data, $look, $req, $h);
+    same('home: a round without a click — the look in RAM, nothing sent', [true, true, false, []],
+        [$t['fresh'] ?? null, is_file($look), isset($t['answer']), $sent()]);
+    file_put_contents($req, json_encode(['share' => 'other']));
+    homeTick($data, $look, $req, $h);
+    same('home: a click for another share — taken, nothing sent', [false, []], [file_exists($req), $sent()]);
+    file_put_contents($req, json_encode(['share' => 'appdata']));
+    touch($req, time() - 600);
+    homeTick($data, $look, $req, $h);
+    same('home: a click ten minutes old — nothing sent', [false, []], [file_exists($req), $sent()]);
+    symlink("$tmp/elsewhere.json", $req);
+    file_put_contents("$tmp/elsewhere.json", json_encode(['share' => 'appdata']));
+    homeTick($data, $look, $req, $h);
+    same('home: a link in its place — nothing sent, the link gone, its target kept', [false, true, []], [is_link($req), is_file("$tmp/elsewhere.json"), $sent()]);
+
+    // the web side: the look read back in its shape, the click into the RAM inbox
+    file_put_contents("$tmp/var.ini", "fsState=\"Started\"\n");
+    $web = function (string $code) use ($run, $tmp): array {
+        $p = proc_open([PHP_BINARY, '-r', 'require ' . var_export(OFFICE_DIR . '/src/bootstrap.php', true) . '; require_once '
+            . var_export(OFFICE_DIR . '/src/api.php', true) . "; $code"], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes, null, ['OFFICE_DATA_DIR' => "$tmp/user/appdata/UnraidSecretaryOffice/data", 'OFFICE_RUN_DIR' => $run, 'PATH' => getenv('PATH')]);
+        $out = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
+        proc_close($p);
+        return json_decode(substr($out, (int) strpos($out, '{')), true) ?: ['raw' => $out];
+    };
+    $ask = fn (string $share, string $ini = 'var.ini') => $web('$r = officeHomeAsk(["share" => ' . var_export($share, true) . '], '
+        . var_export("$tmp/$ini", true) . '); unset($r["agent"]); echo json_encode($r);');
+    same('home: the page reads the look', ['share' => 'appdata', 'fresh' => true, 'pool' => 'cache', 'answer' => null],
+        $web('echo json_encode(officeHomeLook());'));
+    same('home: a click for another share — refused (stale)', ['ok' => false, 'error' => ['key' => 'home_stale', 'params' => []]], $ask('other'));
+    file_put_contents("$tmp/stopped.ini", "fsState=\"Stopped\"\n");
+    same('home: the array stopped — refused', false, $ask('appdata', 'stopped.ini')['ok'] ?? null);
+    same('home: the click — into the RAM inbox, 0600', [true, true, 0600],
+        [$ask('appdata')['ok'] ?? null, is_file($req), @fileperms($req) & 0777]);
+    $t = homeTick($data, $look, $req, $h);
+    same('home: … the agent sends Unraid\'s «Add Share» once, the share there, «made»', [1, true, true, false],
+        [count($sent()), is_dir("$tmp/user/appdata"), $t['answer']['made'] ?? null, file_exists($req)]);
+    same('home: … once it is there the look goes', [null, false], [homeTick($data, $look, $req, $h), file_exists($look)]);
+    rmdir("$tmp/user/appdata");
+    unset($GLOBALS['homeAnswer'], $GLOBALS['homeLogLater']);
+    // gone, not new: the click refused by the page, and by the agent too when it comes anyway
+    file_put_contents("$tmp/shares/appdata.cfg", "shareUseCache=\"only\"\n");
+    homeTick($data, $look, $req, $h);
+    same('home: gone — the page reads «not fresh» and refuses the click', [false, 'home_stale'],
+        [$web('echo json_encode(officeHomeLook());')['fresh'] ?? null, $ask('appdata')['error']['key'] ?? null]);
+    file_put_contents($req, json_encode(['share' => 'appdata']));
+    $t = homeTick($data, $look, $req, $h);
+    same('home: … and the agent never creates it', ['home_stale', []], [$t['answer']['error']['key'] ?? null, $sent()]);
+    // the page's reader: only its shape, only while new
+    file_put_contents($look, json_encode(['share' => 'app data', 'fresh' => true, 'pool' => null]));
+    same('home: a look not in its shape — nothing offered', ['l' => null], $web('echo json_encode(["l" => officeHomeLook()]);'));
+    file_put_contents($look, json_encode(['share' => 'appdata', 'fresh' => true, 'pool' => null]));
+    touch($look, time() - 120);
+    same('home: a look two minutes old (the agent away) — nothing offered', ['l' => null], $web('echo json_encode(["l" => officeHomeLook()]);'));
+    unset($GLOBALS['homeAnswer'], $GLOBALS['homeLogLater']);
+    hardeningRm($tmp);
+}
+
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
-          'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
+          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.

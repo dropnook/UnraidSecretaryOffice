@@ -88,6 +88,9 @@ function api_main(): void
         if (in_array($action, OFFICE_SUPPORTER_ACTIONS, true)) {
             answer(officeSupporterAction($action, $data));
         }
+        if ($action === 'office.home_make') {
+            answer(officeHomeAsk($data));        // a fresh server: the agent waits without a mailbox (src/mailbox.php)
+        }
         if ($action === 'office.lang') {
             answer(officeLangRemember($data));
         }

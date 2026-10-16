@@ -560,6 +560,76 @@ async function dialogStack(browser, harness) {
   await ctx.close();
   return res;
 }
+// ------------------------------------------------------------------ a fresh server's first start (2026-10-16)
+// No appdata share (Docker never on): the messenger waits without his data folder. The page welcomes (the Team Lead's
+// icon, «Create appdata», «First start» in the top line) instead of the careful «missing» text, both themes at 1440 and
+// 375 px, nothing scrolls sideways; the click posts office.home_make for exactly that share and shows the wave; once
+// he is at work the page loads anew and the reception is back. A share that was there and is gone keeps the careful
+// text, without a button. On a harness of its own (the messenger away there).
+const NO_HOME = (fresh, answer) => ({ running: false, no_data: { array: 'Started', dir: '/mnt/user/appdata/UnraidSecretaryOffice/data',
+  appdata: '/mnt/user/appdata', home: { share: 'appdata', fresh, pool: 'cache', answer: answer || null } } });
+async function firstHome(browser) {
+  const res = { route: 'first start', theme: 'both', width: 0, tested: 0, skipped: 0, capped: 0, hidden: 0, sections: 0, fails: [], ms: 0 };
+  const t0 = Date.now();
+  const fail = (what) => res.fails.push(what);
+  const h = await startHarness({ agent: NO_HOME(true) });
+  try {
+    for (const theme of ['dark', 'light']) {
+      for (const width of [1440, 375]) {
+        h.setAgent(NO_HOME(true));
+        const ctx = await browser.newContext({ viewport: { width, height: 900 }, locale: 'en-US' });
+        await ctx.addInitScript((t) => { try { localStorage.setItem('office.theme', t); } catch (e) { /* none */ } }, theme);
+        const page = await ctx.newPage();
+        const errors = [];
+        page.on('pageerror', (e) => errors.push(`page error: ${String(e.message).slice(0, 160)}`));
+        page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text().slice(0, 200)); });
+        await page.goto(h.url, { waitUntil: 'load' });
+        await page.waitForSelector('#sso-notice.home .home-acts .btn', { timeout: 15000 });
+        const look = await page.evaluate(() => ({ title: (document.querySelector('#sso-notice.home strong') || {}).textContent,
+          button: (document.querySelector('#sso-notice.home .home-acts .btn') || {}).textContent,
+          label: document.querySelector('#sso-state-label').textContent, icon: !!document.querySelector('#sso-notice.home img.desk-icon'),
+          wide: document.documentElement.scrollWidth > innerWidth + 1, cards: document.querySelectorAll('.reception .desk-card').length }));
+        res.tested++;
+        if (look.title !== 'Welcome to the office!' || look.button !== 'Create appdata' || look.label !== 'First start' || !look.icon || look.cards) {
+          fail(`${theme} ${width}: the welcome is not as it should be (${JSON.stringify(look)})`);
+        }
+        if (look.wide) fail(`${theme} ${width}: the page scrolls sideways`);
+        if (theme === 'dark' && width === 1440) {
+          const before = h.posts.length;
+          await page.click('#sso-notice.home .home-acts .btn');
+          await page.waitForTimeout(300);
+          const post = h.posts.slice(before).find((p) => p.action === 'office.home_make');
+          const wave = await page.evaluate(() => { const w = document.querySelector('#sso-notice.home .home-acts .spin'); return !!w && getComputedStyle(w).display !== 'none' && !document.querySelector('#sso-notice.home .home-acts .btn'); });
+          res.tested++;
+          if (!post || post.data.share !== 'appdata') fail(`the click did not post office.home_make for appdata (${JSON.stringify(post || null)})`);
+          if (!wave) fail('after the click: no wave, or the button still there');
+          // he made it and is at work: the page loads anew, the reception is back
+          h.setAgent(null);
+          await page.waitForSelector('.reception .desk-card', { timeout: 15000 }).catch(() => fail('the office at work: the page did not come back to the reception'));
+          res.tested++;
+        }
+        for (const e of [...new Set(errors)]) fail(`${theme} ${width}: ${e}`);
+        await ctx.close();
+      }
+    }
+    // gone, not new: the careful text, no button
+    h.setAgent(NO_HOME(false));
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'en-US' });
+    const page = await ctx.newPage();
+    await page.goto(h.url, { waitUntil: 'load' });
+    await page.waitForSelector('#sso-notice:not([hidden]) strong', { timeout: 15000 });
+    const gone = await page.evaluate(() => ({ title: document.querySelector('#sso-notice strong').textContent, button: !!document.querySelector('#sso-notice .btn'),
+      label: document.querySelector('#sso-state-label').textContent }));
+    res.tested++;
+    if (gone.title !== 'The share appdata is missing.' || gone.button || gone.label !== 'appdata missing') fail(`gone: not the careful text (${JSON.stringify(gone)})`);
+    await ctx.close();
+  } catch (e) {
+    fail(String(e.message || e).split('\n')[0].slice(0, 200));
+  }
+  await h.close();
+  res.ms = Date.now() - t0;
+  return res;
+}
 // ------------------------------------------------------------------ the routes walk (2026-10-16)
 // Every place Jack Streamer's and Ms. Moverelli's search names (Office.placesOf: sections, tiles, setup steps; the items
 // of their demo states: Office.itemsOf) and every '#/<desk>…' address their pages link to: each opened cold (a fresh
@@ -627,6 +697,7 @@ async function routeWalk(browser, harness, desk) {
 const walks = WALK.filter((d) => !opt.only || routes.includes(d));
 results.push(...await Promise.all(walks.map((d) => routeWalk(browser, harness, d))));
 if (!opt.only || routes.includes('jack/setup')) results.push(await dialogStack(browser, harness));
+if (!opt.only || routes.includes('caretaker')) results.push(await firstHome(browser));
 await browser.close();
 await harness.close();
 
