@@ -711,5 +711,8 @@
   "setup.key_hint_plex": "Pour Plex, le X-Plex-Token de l'administrateur (article d'aide de Plex « Finding an authentication token »). Un Plex non réclamé qui laisse entrer les requêtes du LAN sans connexion accepte n'importe quel mot — alors n'importe quel texte suffit.",
   "setup.plex_users": "Plex : l'administrateur et tous ceux avec qui le serveur est partagé (via plex.tv). Sur un Plex non réclamé, seulement l'administrateur.",
   "check.gather_optional": "« Regrouper les dossiers » est facultatif",
-  "check.gather_optional_how": "Une aide si tu veux : quand un film est éparpillé sur plusieurs disques, il le ramène sur un seul — ensuite moins de disques se réveillent dans les allers-retours. Jack Streamer → Regrouper les dossiers."
+  "check.gather_optional_how": "Une aide si tu veux : quand un film est éparpillé sur plusieurs disques, il le ramène sur un seul — ensuite moins de disques se réveillent dans les allers-retours. Jack Streamer → Regrouper les dossiers.",
+  "setup.budget_pool": "Le budget est plus grand que le pool {pool} ({size}) — on ne peut pas y mettre plus.",
+  "errors.jack_budget_pool": "Le budget ({total}) est plus grand que tout le pool ({pool}).",
+  "setup.pool_change": {"one": "{n} fichier que j'ai préparé se trouve encore sur {old}. Si je passe à {new}, je ne regarde plus que là — il resterait sur {old}. Ramène-le d'abord : congédie-moi avec « {tick} », puis réengage-moi — ou reste sur {old}.", "other": "{n} fichiers que j'ai préparés se trouvent encore sur {old}. Si je passe à {new}, je ne regarde plus que là — ils resteraient sur {old}. Ramène-les d'abord : congédie-moi avec « {tick} », puis réengage-moi — ou reste sur {old}."}
 }

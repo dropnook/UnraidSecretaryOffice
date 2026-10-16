@@ -175,10 +175,27 @@ function jackMigratePending(): void
     }
 }
 
+/**
+ * Set up, his list there — empty until his first real run (the lab, 2026-10-16: with Ms. Moverelli hired his real run is
+ * the joint night run, which waited for a list only that run makes — a fresh install never started). An empty list
+ * protects nothing; MediaCache rewrites it at its first real run. Never over a link or something there. True: written now.
+ */
+function jackListEnsure(?array $settings, string $dir = JACK_DATA): bool
+{
+    $f = "$dir/mediacache_exclude.txt";
+    if (!jackConfigured($settings) || !is_dir($dir) || is_link($f) || file_exists($f)) {
+        return false;
+    }
+    writeAtomic($f, '', 0600, 0, 0);
+    logLine('Jack Streamer: his list written, empty until his first real run (Ms. Moverelli\'s joint night run waits for it)');
+    return true;
+}
+
 function jackScan(): array
 {
     jackMigratePending();
     $settings = jackReadSettings();
+    jackListEnsure($settings);
     $gather = jackGatherSettings();
     $jobs = ['embycache' => jackJobInfo('embycache'), 'gather' => jackJobInfo('gather')];
     $state = [
@@ -213,6 +230,7 @@ function jackScan(): array
         'pools'      => jackPools(),
         'share_info' => jackShareInfo(),
         'pool_dirs'  => jackPoolDirs(),
+        'pool_sizes' => jackPoolSizes(),        // each pool's size in bytes (on ZFS the whole pool): the budget never above it
         'old_clone'  => is_dir(JACK_DATA . '/app/.git'),
         // Unraid's mover: may real runs go (its schedule «Disabled», Ms. Moverelli supervising with his list kept out), is it at work
         'mover'      => jackMoverState(),
@@ -325,6 +343,44 @@ function jackPools(): array
     }
     ksort($pools);
     return array_keys($pools);
+}
+
+/**
+ * The pools' sizes in bytes: on ZFS the whole pool (used + avail of its root dataset, one `zfs list` — no disk is read),
+ * else the file system's size. [mount => bytes]; a pool not mounted or unreadable is left out.
+ */
+function jackPoolSizes(?array $mounts = null, ?callable $zfs = null): array
+{
+    $mounts ??= mountTable();
+    $zfs ??= function (): array {
+        [$exit, $out] = run(['zfs', 'list', '-Hp', '-d', '0', '-o', 'name,used,avail'], 10);
+        $sizes = [];
+        foreach ($exit === 0 ? explode("\n", trim($out)) : [] as $line) {
+            $f = preg_split('/\s+/', trim($line));
+            if (count($f) === 3 && is_numeric($f[1]) && is_numeric($f[2])) {
+                $sizes[$f[0]] = (int) $f[1] + (int) $f[2];
+            }
+        }
+        return $sizes;
+    };
+    $pools = array_flip(jackPools());
+    $z = null;
+    $out = [];
+    foreach ($mounts as $m) {
+        if (!isset($pools[$m['mount']])) {
+            continue;
+        }
+        if ($m['fs'] === 'zfs') {
+            $z ??= $zfs();
+            $size = $z[$m['source']] ?? null;
+        } else {
+            $size = @disk_total_space($m['mount']) ?: null;
+        }
+        if ($size) {
+            $out[$m['mount']] = (int) $size;
+        }
+    }
+    return $out;
 }
 
 function jackReadSettings(string $dir = JACK_DATA): ?array
@@ -1135,7 +1191,7 @@ function jackSave(mixed $in): array
     $cfg = jackTools($cfg);                       // a fill_tool/cleanup_tool the request carries is ignored: MediaCache's own
     unset($cfg['give_back_unwatched_days']);           // the wizard's, read by nothing (create_share_root: as it was)
     $cfg['cache_budget'] = strtoupper(str_replace(' ', '', is_string($cfg['cache_budget'] ?? null) ? $cfg['cache_budget'] : ''));
-    jackBudgetCheck($cfg['cache_budget'], $users);
+    jackBudgetCheck($cfg['cache_budget'], $users, jackPoolSizes()[rtrim((string) ($cfg['cache_path'] ?? ''), '/')] ?? null);
     if (!in_array($cfg['cache_path'] ?? '', jackPools(), true)) {
         throw new Problem('jack_bad_pool', ['path' => (string) ($cfg['cache_path'] ?? '')]);
     }
@@ -1145,6 +1201,7 @@ function jackSave(mixed $in): array
         throw new Problem('jack_config', ['detail' => 'array_path / user_path / array_disks_glob']);
     }
     jackWriteSettings($cfg);
+    jackListEnsure(jackReadSettings());               // the night run with Ms. Moverelli can start at once
     if ($gather = jackGatherSettings()) {
         jackWriteGatherIni($gather, $cfg);             // follows the pool
     }
@@ -1157,12 +1214,16 @@ function jackSave(mixed $in): array
  * budget of their own at least JACK_MIN_PERSON_BYTES, together never more than the total; what they leave gives the
  * chosen people without one at least as much each. $users: id => ['budget' => …] | (object) [] (as jackSave() built them).
  */
-function jackBudgetCheck(string $budget, array $users): void
+function jackBudgetCheck(string $budget, array $users, ?int $poolBytes = null): void
 {
     $min = JACK_MIN_PERSON_BYTES;
     $total = jackSizeBytes($budget);
     if ($total < $min) {
         throw new Problem('jack_budget_missing', ['min' => jackGb($min)]);
+    }
+    // never more than the pool holds (the lab, 2026-10-16: 60 GB on a 32 GB pool was taken) — null: size not known
+    if ($poolBytes !== null && $poolBytes > 0 && $total > $poolBytes) {
+        throw new Problem('jack_budget_pool', ['total' => jackGb($total), 'pool' => jackGb($poolBytes)]);
     }
     $fixed = 0;
     $others = 0;

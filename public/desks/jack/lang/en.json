@@ -711,5 +711,8 @@
   "setup.key_hint_plex": "For Plex the admin's X-Plex-Token (Plex's support article «Finding an authentication token»). An unclaimed Plex that lets requests from the LAN in without signing in takes any word — then any text will do.",
   "setup.plex_users": "Plex: the admin and everyone the server is shared with (through plex.tv). On an unclaimed Plex only the admin.",
   "check.gather_optional": "«Consolidate folders» is optional",
-  "check.gather_optional_how": "A helper if you like: when a film is spread over several disks it brings it onto one — then fewer disks wake when files go back and forth. Jack Streamer → Consolidate folders."
+  "check.gather_optional_how": "A helper if you like: when a film is spread over several disks it brings it onto one — then fewer disks wake when files go back and forth. Jack Streamer → Consolidate folders.",
+  "setup.budget_pool": "The budget is larger than the pool {pool} ({size}) — at most that much fits on it.",
+  "errors.jack_budget_pool": "The budget ({total}) is larger than the whole pool ({pool}).",
+  "setup.pool_change": {"one": "{n} file I laid out still lies on {old}. If I switch to {new}, I only look there — it would stay on {old}. Bring it back first: let me go with «{tick}», then hire me again — or stay with {old}.", "other": "{n} files I laid out still lie on {old}. If I switch to {new}, I only look there — they would stay on {old}. Bring them back first: let me go with «{tick}», then hire me again — or stay with {old}."}
 }

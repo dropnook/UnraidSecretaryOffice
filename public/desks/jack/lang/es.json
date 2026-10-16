@@ -711,5 +711,8 @@
   "setup.key_hint_plex": "Para Plex, el X-Plex-Token del administrador (artículo de soporte de Plex «Finding an authentication token»). Un Plex no reclamado que deja entrar las peticiones de la LAN sin iniciar sesión acepta cualquier palabra — entonces basta cualquier texto.",
   "setup.plex_users": "Plex: el administrador y todos con quienes se comparte el servidor (a través de plex.tv). En un Plex no reclamado, solo el administrador.",
   "check.gather_optional": "«Reunir carpetas» es opcional",
-  "check.gather_optional_how": "Una ayuda si quieres: cuando una película está repartida por varios discos, la lleva a uno solo — así en las idas y vueltas despiertan menos discos. Jack Streamer → Reunir carpetas."
+  "check.gather_optional_how": "Una ayuda si quieres: cuando una película está repartida por varios discos, la lleva a uno solo — así en las idas y vueltas despiertan menos discos. Jack Streamer → Reunir carpetas.",
+  "setup.budget_pool": "El presupuesto es mayor que el pool {pool} ({size}) — no cabe más que eso.",
+  "errors.jack_budget_pool": "El presupuesto ({total}) es mayor que todo el pool ({pool}).",
+  "setup.pool_change": {"one": "En {old} todavía hay {n} archivo que preparé. Si cambio a {new}, solo miro allí — se quedaría en {old}. Devuélvelo primero: despídeme con «{tick}» y vuelve a contratarme — o quédate con {old}.", "other": "En {old} todavía hay {n} archivos que preparé. Si cambio a {new}, solo miro allí — se quedarían en {old}. Devuélvelos primero: despídeme con «{tick}» y vuelve a contratarme — o quédate con {old}."}
 }

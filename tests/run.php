@@ -32367,6 +32367,19 @@ function testMoverelliUnraid(): void
     $why = function (string $mode) use ($h) { try { moverelliRunCheck($mode, $h); return 'ok'; } catch (Problem $p) { return [$p->key, $p->params]; } };
     same('jack list: named, not there, EmbyCache never ran — a real run refused with the file; a dry run not (it only warns)',
         [['moverelli_jack_list_pending', ['file' => $list]], 'ok', $list], [$why('run'), $why('dry'), moverelliJackListPending($h)]);
+    // the lab, 2026-10-16: the deadlock — his real run with her is the joint night run, which waited for a list only that run
+    // makes. Jack writes his empty list once he is set up (his look, his save) — whichever was hired first, her real runs go
+    $set = ['instances' => [['url' => 'http://x']], 'cache_budget' => '100G'];
+    same('jack list: not set up — no list written', [false, false], [jackListEnsure(null, "$tmp/emby"), is_file($list)]);
+    same('jack list: set up — his empty list written (root\'s, 0600), her real run goes; once', [true, '', '600', 'ok', null, false],
+        [jackListEnsure($set, "$tmp/emby"), (string) @file_get_contents($list), substr(sprintf('%o', fileperms($list)), -3), $why('run'), moverelliJackListPending($h),
+         jackListEnsure($set, "$tmp/emby")]);
+    file_put_contents($list, "/mnt/cache/Filme/A/a.mkv\n");
+    same('jack list: a list there is never touched', [false, "/mnt/cache/Filme/A/a.mkv\n"], [jackListEnsure($set, "$tmp/emby"), file_get_contents($list)]);
+    unlink($list);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
+    check('jack list: his look and his save write it (Jack hired before or after Ms. Moverelli)',
+        str_contains($src, "    \$settings = jackReadSettings();\n    jackListEnsure(\$settings);") && str_contains($src, "jackWriteSettings(\$cfg);\n    jackListEnsure(jackReadSettings());"));
     $f = array_column(moverelliChecks($h), null, 'id')['jack_list_pending'] ?? null;
     same('jack list: … the Team Lead\'s hint (to know, nothing to do)', ['hint', false, ['file' => $list], '#/jack'], [$f['level'] ?? null, $f['ok'] ?? null, $f['params'] ?? null, $f['link'] ?? null]);
     $v['jack_ran'] = true;
@@ -33014,13 +33027,31 @@ function testStreamerBudget(): void
     same('streamer budget: fine — 20 GB each, everyone a budget up to the whole, 1.5T, everyone (no list)', ['ok', 'ok', 'ok', 'ok'],
         [$refused('60G', ['a' => ['budget' => '20G'], 'b' => $o, 'c' => $o]), $refused('300G', ['a' => ['budget' => '100G'], 'b' => ['budget' => '200G']]),
          $refused('1.5T', ['a' => ['budget' => '1T']]), $refused('20G', [])]);
+    // the lab, 2026-10-16: never more than the pool holds (60 GB on a 32 GB pool was taken)
+    $pool = function (string $budget, ?int $bytes): string {
+        try {
+            jackBudgetCheck($budget, [], $bytes);
+            return 'ok';
+        } catch (Problem $e) {
+            return $e->key . ' ' . json_encode($e->params);
+        }
+    };
+    same('streamer budget: over the whole pool refused; up to it, or the pool\'s size not known, fine',
+        ['jack_budget_pool {"total":"60 GB","pool":"32 GB"}', 'ok', 'ok'], [$pool('60G', 32 << 30), $pool('32G', 32 << 30), $pool('60G', null)]);
+    same('streamer budget: the pools\' sizes — ZFS the whole pool (used + avail of its root), others the file system; a pool not his left out',
+        ['/mnt/big' => 300], jackPoolSizes([['mount' => '/mnt/big', 'fs' => 'zfs', 'source' => 'big'], ['mount' => '/mnt/disk1', 'fs' => 'xfs', 'source' => '/dev/md1p1']],
+            fn () => ['big' => 300, 'disk1' => 5]));
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.js');
+    check('streamer budget: the setup says it before «Save» (the pool\'s size from his state); the pool changing while files lie on the old one is said too',
+        str_contains($js, "return T('setup.budget_pool', { pool: derivedPool(), size: fmt.size(size) });") && str_contains($js, "T('setup.pool_change', { old, new: now, n, tick: T('letgo.tick') })")
+        && str_contains($js, 'why.textContent = r || poolChangeWarning() || T(\'setup.save_hint\');'));
     same('streamer budget: set up = a server and a budget — without one (an older count-mode setup) «not set up yet»: no migration, the setup starts',
         [true, false, false, false, false], [jackConfigured(['instances' => [['url' => 'x']], 'cache_budget' => '300G']), jackConfigured(['instances' => [['url' => 'x']], 'cache_budget' => '']),
         jackConfigured(['instances' => [['url' => 'x']], 'number_episodes' => 3]), jackConfigured(['instances' => [], 'cache_budget' => '300G']), jackConfigured(null)]);
-    check('streamer budget: his state, his checks, runs and his schedule go by it', substr_count((string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php'), 'jackConfigured(') === 6);
+    check('streamer budget: his state, his checks, runs and his schedule go by it', substr_count((string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php'), 'jackConfigured(') === 7);   // + his empty list (jackListEnsure)
     same('streamer budget: sizes as EmbyCache reads them', [500 << 30, (int) (1.5 * (1 << 40)), 800 << 30, 0, 0], array_map('jackSizeBytes', ['500G', '1.5T', '800GB', 'lots', '']));
     $jackSrc = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
-    check('streamer budget: jackSave() checks before it writes', (bool) preg_match('/jackBudgetCheck\(\$cfg\[\'cache_budget\'\], \$users\);.*?jackWriteSettings\(\$cfg\);/s', $jackSrc));
+    check('streamer budget: jackSave() checks before it writes', (bool) preg_match('/jackBudgetCheck\(\$cfg\[\'cache_budget\'\], \$users, jackPoolSizes\(\).*?jackWriteSettings\(\$cfg\);/s', $jackSrc));
     $lang = [];
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         $words = langFile(OFFICE_WEB . "/desks/jack/lang/$l.json");

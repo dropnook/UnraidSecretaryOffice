@@ -1557,7 +1557,7 @@ function saveBar() {
   foot.append(save, why);
   saveGate = () => {
     const r = running() ? T('setup.save_running') : setupBlocked();
-    why.textContent = r || T('setup.save_hint');
+    why.textContent = r || poolChangeWarning() || T('setup.save_hint');
     why.classList.toggle('jo-save-no', !!r);
     save.disabled = !!r || !Office.agent.running;
   };
@@ -1933,6 +1933,11 @@ function setupBlocked() {
   if (!form) return '';
   if (!connected()) return form.instances.some(needsConnect) ? '' : T('setup.connect_first');      // «Save» connects what is typed
   if (!(budgetGb(form.values.cache_budget) > 0)) return T('setup.budget_missing');
+  // never more than the pool holds (the lab, 2026-10-16)
+  const size = (state.pool_sizes || {})[derivedPool()];
+  if (size > 0 && budgetGb(form.values.cache_budget) * 1024 ** 3 > size) {
+    return T('setup.budget_pool', { pool: derivedPool(), size: fmt.size(size) });
+  }
   const sp = budgetState();
   return sp && sp.bad ? T('setup.users_budget_block', { step: T('setup.users'), min: gbSize(MIN_PERSON_GB) }) : '';
 }
@@ -1957,9 +1962,22 @@ function budgetLine() {
 }
 
 /** The libraries and their folders on the pool — each share with its primary pool (read only, Unraid's share settings) */
+/**
+ * The pool would change while files of his lie on the old one (the lab, 2026-10-16): MediaCache looks only on its pool —
+ * what lies on the old one would stay there, found by nobody. Said before «Save», with the way out. '' when not so.
+ */
+function poolChangeWarning() {
+  const old = (state.settings && state.settings.cache_path) || '';
+  const now = derivedPool();
+  const n = (state.cache && state.cache.files) || 0;
+  return state.configured && old && now && old !== now && n > 0 ? T('setup.pool_change', { old, new: now, n, tick: T('letgo.tick') }) : '';
+}
+
 function setupLibraries() {
   if (!connected()) return notYet();
   const s2 = el('div', 'jo-part-body');
+  const moving = poolChangeWarning();
+  if (moving) s2.appendChild(el('p', 'callout warn', moving));
   const box2 = el('div', 'box');
   const cache = derivedPool();
   libraryList().forEach((lib) => {
