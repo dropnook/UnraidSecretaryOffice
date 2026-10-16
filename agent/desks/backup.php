@@ -2242,8 +2242,11 @@ function backupChecks(): array
 
     $out[] = finding('setup', 'required', is_file("$data/settings.ini"), ['path' => BACKUP_SCRIPT_DIR . '/setup.sh'], '#/backup/setup');
     // the engine (2.49) refuses a folder or settings.ini that isn't root's alone (ub_data_trusted) - said here, the command shown
+    // no folder yet (nothing set up): nothing to trust or distrust, no «couldn't check» with an empty path (7.4 test 2026-10-16)
     $trust = backupEngineTrust($data);
-    $out[] = finding('engine_trust', 'required', $trust['ok'], ['path' => $trust['path'], 'cmd' => $trust['cmd']]);
+    if ($trust['ok'] !== null) {
+        $out[] = finding('engine_trust', 'required', $trust['ok'], ['path' => $trust['path'], 'cmd' => $trust['cmd']]);
+    }
     $schedule = backupSchedule();
     if ($schedule['script']) {
         $out[] = finding('schedule', 'required', $schedule['enabled'], [], '#/backup/schedule');

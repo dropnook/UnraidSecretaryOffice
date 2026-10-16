@@ -20,7 +20,7 @@ const OFFICE_PLUGIN_CFG = '/boot/config/plugins/' . OFFICE_PLUGIN . '/' . OFFICE
 // The .plg's max is <major>.99.99 (officeUnraidMax(); plugin/build.sh refuses another): Unraid moves a plugin whose max
 // it exceeds to plugins-error at boot — the office and its nightly backups gone without a word. The team lead warns
 // beyond this version (caretakerUnraidTested()). Raise it (and with a new major the .plg's max) only once tested.
-const OFFICE_UNRAID_TESTED = '7.3';
+const OFFICE_UNRAID_TESTED = '7.4';
 
 // «Report a problem or a wish…» (agent/lib/report.php): the makers' inbox — a Cloudflare Worker that turns a report into
 // an issue in a private GitHub repository. Shared by the web side (the menu item shows only with an address) and the

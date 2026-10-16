@@ -6304,6 +6304,8 @@ function testDataTrust(): void
     check('data trust: the findings are registered (Team Lead recommended, Mr. Backupsy required)',
         str_contains($src('agent/desks/caretaker.php'), "finding('data_trust', 'recommended', \$trust['ok']")
         && str_contains($src('agent/desks/backup.php'), "finding('engine_trust', 'required', \$trust['ok']"));
+    check('data trust: no backup folder yet — no engine_trust finding (no «couldn\'t check» with an empty path)',
+        str_contains($src('agent/desks/backup.php'), "if (\$trust['ok'] !== null) {"));
     check('data trust: a new data folder\'s parent is no longer handed to nobody', !preg_match('/function makeDataDir\(.*?lchown\(dirname\(DATA_DIR\)/s', $src('agent/agent.php')));
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         $ct = json_decode($src("public/desks/caretaker/lang/$l.json"), true) ?: [];

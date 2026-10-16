@@ -41,7 +41,7 @@ plugin and a desk are built). In short:
 
 ## Unraid versions
 
-The office is tested on Unraid 7.3. Work that depends on a newer Unraid says so in its desk's `fit` (it isn't offered
+The office is tested on Unraid 7.3 and 7.4. Work that depends on a newer Unraid says so in its desk's `fit` (it isn't offered
 below that version) — Ms. Moverelli works on Unraid 7.3.2 and newer (#16).
 
 ## License
