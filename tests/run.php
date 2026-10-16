@@ -820,6 +820,9 @@ function testJack(): void
     }
     same('a server\'s key header by kind (Jellyfin 10.9+: Authorization)', ['X-Emby-Token: k1', 'Authorization: MediaBrowser Token="k1"', 'X-Plex-Token: k1'],
         [jackKeyHeader('emby', 'k1'), jackKeyHeader('jellyfin', 'k1'), jackKeyHeader('plex', 'k1')]);
+    same('plex.tv shared servers: ids and names only — never a token or an address', [['id' => '2902501', 'name' => 'friend & co', 'admin' => false]],
+        jackPlexShared('<MediaContainer><SharedServer id="1" username="friend &amp; co" email="x@example.org" userID="2902501" accessToken="secrettoken"/>'
+            . '<SharedServer id="2" username="nouser"/></MediaContainer>'));
     same('a stored server without a kind is Emby (MediaCache\'s default)', ['emby', 'plex', 'emby'], [jackType(null), jackType('Plex'), jackType('kodi')]);
     same('Plex\'s token letters are a key; a space or a quote never', [true, true, false, false],
         array_map(fn ($k) => (bool) preg_match(JACK_KEY, $k), ['abcdef0123456789abcdef0123456789', 'xY-z_12345678AbCdEfGh', 'abc def12345', 'abc"12345678']));
@@ -2376,6 +2379,12 @@ function testJackMover(): void
     @unlink("$tmp/notified");
     jackNotify('gather', 'run', 'stopped', ['result' => 'stopped', 'folders_done' => 4, 'folders' => 9], 3, 'mover');
     check('mover stop: … the gather\'s', str_contains((string) @file_get_contents("$tmp/notified"), 'Stopped after 4 of 9 folders'), (string) @file_get_contents("$tmp/notified"));
+    // a server (or plex.tv for Plex's people) didn't answer fully: the notification says so plainly, not only «one problem»
+    @unlink("$tmp/notified");
+    jackNotify('embycache', 'run', 'ok', ['result' => 'ok', 'incomplete' => true, 'cleanup' => ['done' => 0], 'fill' => ['done' => 0], 'errors' => 1], 0);
+    $sent = (string) @file_get_contents("$tmp/notified");
+    check('incomplete: the notification — a warning, plex.tv named, nothing went back, the pool protected, the problem counted',
+        str_contains($sent, "-i\nwarning") && str_contains($sent, 'plex.tv') && str_contains($sent, 'nothing went back to the array this time') && str_contains($sent, 'One problem'), $sent);
     putenv($envBefore[0] === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore[0]");
     putenv($envBefore[1] === false ? 'OFFICE_NOTIFY_STAMP' : "OFFICE_NOTIFY_STAMP=$envBefore[1]");
     $hdir = "$tmp/hist";
@@ -2785,6 +2794,20 @@ except RuntimeError as x:
     bad = str(x)
 print(run("none"), run("ok"), bad)';
     [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], ['MEDIACACHE_DIR' => "$tmp/emby", 'PYTHONDONTWRITEBYTECODE' => '1'], 30);
+    // Tower 2026-10-16: only the friend chosen (valid_users) and plex.tv not reachable — the run had given back everything
+    $py2 = 'import sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l, mediacache_run as r
+class Fake:
+    users_incomplete = True
+    def users(self): return [{"Id": "admin", "Name": "Admin"}]
+r.MediaServerApi.for_instance = classmethod(lambda cls, inst, t: Fake())
+p = r.Planner({"cache_budget_bytes": 0, "valid_users": ["2902501"], "api_timeout": 1,
+               "instances": [{"servername": "Plex", "type": "plex", "_mappings": {}, "_skip": []}]})
+p.plan_instance = lambda inst, uids: None
+p.run()
+print(p.errors)';
+    [$exit2, $out2, $err2] = runEnv(['python3', '-c', $py2, JACK_APP], ['MEDIACACHE_DIR' => "$tmp/emby", 'PYTHONDONTWRITEBYTECODE' => '1'], 30);
+    same('upstream fixes: chosen people on a Plex whose shared users plex.tv didn\'t give — an incomplete plan (no cleanup), never «not here»',
+        [0, '1'], [$exit2, preg_replace('/^.*\n/s', '', trim($out2)) ?: trim($err2)]);
     same('upstream fixes: Plex users — unclaimed complete, claimed without plex.tv incomplete; an answer without items an error',
         [0, "(['admin'], False) (['admin'], True) Ungültige Antwort von /Users/u/Items/Resume"], [$exit, trim($out) ?: trim($err)]);
     check('upstream: the README names MediaCache\'s commit taken and the office\'s changes, GPL', str_contains($readme = (string) file_get_contents(JACK_APP . '/README.md'), '`2a91ef1`')

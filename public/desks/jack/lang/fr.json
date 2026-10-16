@@ -74,7 +74,7 @@
   "count.empty_dirs": {"one": "{n} dossier vide supprimé", "other": "{n} dossiers vides supprimés"},
   "count.kept": {"one": "{n} gardé comme repère", "other": "{n} gardés comme repères"},
   "count.not_moved": {"one": "{n} pas déplacé", "other": "{n} pas déplacés"},
-  "incomplete": "Un serveur multimédia n'a pas répondu complètement — rien n'est revenu cette fois, la liste reste protégée.",
+  "incomplete": "Un serveur multimédia n'a pas répondu complètement (pour Plex aussi : plex.tv pour les personnes avec qui il est partagé) — rien n'est retourné sur l'array cette fois, ce qui est sur le pool reste protégé.",
   "not_scheduled": "aucune",
   "show_log": "Journal",
   "show_output": "Sortie ({mode})",

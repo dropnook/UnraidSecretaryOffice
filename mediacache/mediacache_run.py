@@ -608,10 +608,15 @@ class Planner:
             if wanted:
                 # Namen für die Log-Ausgabe auflösen; unbekannte IDs (z.B. andere Instanz) still überspringen
                 try:
-                    known = {u["Id"]: u.get("Name", u["Id"]) for u in MediaServerApi.for_instance(inst, self.cfg["api_timeout"]).users()}
+                    api = MediaServerApi.for_instance(inst, self.cfg["api_timeout"])
+                    known = {u["Id"]: u.get("Name", u["Id"]) for u in api.users()}
                 except RuntimeError as e:
                     self.errors += 1; log.error(f"[{inst['servername']}] nicht erreichbar: {e}")
                     continue
+                if getattr(api, "users_incomplete", False):
+                    # USO: a chosen user may be one plex.tv didn't give – never «nobody of them is here» (the cleanup
+                    # would give back what they hold)
+                    self.errors += 1; log.error(f"[{inst['servername']}] Benutzerliste unvollständig – Cleanup wird übersprungen")
                 uids = [(u, known[u]) for u in wanted if u in known]
                 if not uids:
                     log.warning(f"[{inst['servername']}] keiner der konfigurierten Benutzer existiert auf dieser Instanz")

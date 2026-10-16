@@ -972,11 +972,32 @@ function jackConnectPlex(string $url, string $key): array
     try {
         $acc = (array) jackApi('https://plex.tv', $key, '/api/v2/user', 'plex');
         $users[] = ['id' => (string) ($acc['id'] ?? 'admin'), 'name' => (string) ($acc['title'] ?? $acc['username'] ?? 'Admin'), 'admin' => true];
+        // those the server is shared with (MediaCache's PlexApi.users() asks the same): id and name only, their tokens stay at plex.tv
+        $mid = (string) ($root['machineIdentifier'] ?? '');
+        if (preg_match('/^[a-f0-9]{8,64}$/D', $mid)) {
+            $users = array_merge($users, jackPlexShared((string) jackApi('https://plex.tv', $key, "/api/servers/$mid/shared_servers", 'plex', true)));
+        }
     } catch (Problem $p) {
-        $users[] = ['id' => 'admin', 'name' => 'Admin', 'admin' => true];        // unclaimed or plex.tv not reachable: the admin only
+        $users = $users ?: [['id' => 'admin', 'name' => 'Admin', 'admin' => true]];   // unclaimed or plex.tv not reachable: the admin only
     }
     return ['ok' => true, 'server' => ['name' => (string) ($root['friendlyName'] ?? ''), 'version' => (string) ($root['version'] ?? ''), 'type' => 'plex'],
             'libraries' => $libs, 'users' => $users];
+}
+
+/** plex.tv's shared_servers (XML): [{id, name}] of the accounts the server is shared with — never their tokens or e-mail */
+function jackPlexShared(string $xml): array
+{
+    $out = [];
+    if (preg_match_all('/<SharedServer\b[^>]*>/', $xml, $m)) {
+        foreach ($m[0] as $tag) {
+            $id = preg_match('/\buserID="(\d{1,20})"/', $tag, $x) ? $x[1] : '';
+            $name = preg_match('/\busername="([^"]{1,120})"/', $tag, $x) ? html_entity_decode($x[1], ENT_QUOTES | ENT_XML1, 'UTF-8') : '';
+            if ($id !== '') {
+                $out[] = ['id' => $id, 'name' => jackWatchText($name !== '' ? $name : $id, 60), 'admin' => false];
+            }
+        }
+    }
+    return $out;
 }
 
 /** A server's kind as stored (MediaCache's default: emby) */
@@ -1006,7 +1027,7 @@ function jackKeyHeader(string $type, string $key): string
 }
 
 /** One GET to a media server's API, through the host's network; the key goes in a header file, not on a command line (curl never follows a redirect) */
-function jackApi(string $url, string $key, string $path, string $type = 'emby'): mixed
+function jackApi(string $url, string $key, string $path, string $type = 'emby', bool $raw = false): mixed
 {
     @mkdir(RUN_DIR, 0700, true);
     $headers = RUN_DIR . '/jack-headers.' . getmypid();
@@ -1020,6 +1041,9 @@ function jackApi(string $url, string $key, string $path, string $type = 'emby'):
     if ($exit !== 0) {
         throw new Problem(str_contains($err, '401') || str_contains($err, '403') ? 'jack_bad_key' : 'jack_unreachable',
             ['url' => $url, 'detail' => trim($err)]);
+    }
+    if ($raw) {
+        return $out;                               // plex.tv's shared_servers: XML only
     }
     $j = json_decode($out, true);
     if (!is_array($j)) {
@@ -3050,6 +3074,10 @@ function jackNotify(string $tool, string $mode, string $result, array $status, i
         $detail = $message;
     } else {
         $detail = $problems > 0 ? officeNotifyText('jack', 'notify.problems', ['n' => $problems], $lang) : '';
+    }
+    if (!empty($status['incomplete']) && !in_array($outcome, ['stopped_mover', 'stopped_user'], true)) {
+        // a server (or plex.tv for Plex's people) didn't answer fully: said plainly — nothing went back, the pool stays protected
+        $detail = trim(officeNotifyText('jack', 'incomplete', [], $lang) . ' ' . $detail);
     }
     $release = $mode === 'release';
     $sent = officeNotify(

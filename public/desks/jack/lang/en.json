@@ -74,7 +74,7 @@
   "count.empty_dirs": {"one": "{n} empty folder removed", "other": "{n} empty folders removed"},
   "count.kept": {"one": "{n} kept as a signpost", "other": "{n} kept as signposts"},
   "count.not_moved": {"one": "{n} not moved", "other": "{n} not moved"},
-  "incomplete": "A media server didn't answer completely — nothing was brought back this time, the list stays protected.",
+  "incomplete": "A media server didn't answer completely (for Plex also: plex.tv for the people it is shared with) — nothing went back to the array this time, what lies on the pool stays protected.",
   "not_scheduled": "none",
   "show_log": "Log",
   "show_output": "Output ({mode})",

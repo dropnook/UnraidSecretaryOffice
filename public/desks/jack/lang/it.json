@@ -74,7 +74,7 @@
   "count.empty_dirs": {"one": "{n} cartella vuota tolta", "other": "{n} cartelle vuote tolte"},
   "count.kept": {"one": "{n} tenuta come segnaposto", "other": "{n} tenute come segnaposto"},
   "count.not_moved": {"one": "{n} non spostato", "other": "{n} non spostati"},
-  "incomplete": "Un media server non ha risposto del tutto — questa volta non è tornato niente, la lista resta protetta.",
+  "incomplete": "Un media server non ha risposto del tutto (per Plex anche: plex.tv per le persone con cui è condiviso) — questa volta niente è tornato sull'array, ciò che sta sul pool resta protetto.",
   "not_scheduled": "nessuna",
   "show_log": "Log",
   "show_output": "Output ({mode})",

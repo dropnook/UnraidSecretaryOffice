@@ -74,7 +74,7 @@
   "count.empty_dirs": {"one": "{n} leerer Ordner weg", "other": "{n} leere Ordner weg"},
   "count.kept": {"one": "{n} als Wegweiser behalten", "other": "{n} als Wegweiser behalten"},
   "count.not_moved": {"one": "{n} nicht verschoben", "other": "{n} nicht verschoben"},
-  "incomplete": "Ein Medienserver hat nicht vollständig geantwortet — diesmal kam nichts zurück, die Liste bleibt geschützt.",
+  "incomplete": "Ein Medienserver hat nicht vollständig geantwortet (bei Plex auch: plex.tv für die Benutzer, mit denen er geteilt ist) — diesmal ging nichts zurück aufs Array, was auf dem Pool liegt, bleibt geschützt.",
   "not_scheduled": "keiner",
   "show_log": "Protokoll",
   "show_output": "Ausgabe ({mode})",

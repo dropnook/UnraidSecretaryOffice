@@ -74,7 +74,7 @@
   "count.empty_dirs": {"one": "{n} carpeta vacía eliminada", "other": "{n} carpetas vacías eliminadas"},
   "count.kept": {"one": "{n} conservada como señal", "other": "{n} conservadas como señales"},
   "count.not_moved": {"one": "{n} sin mover", "other": "{n} sin mover"},
-  "incomplete": "Un servidor multimedia no respondió del todo — esta vez no volvió nada, la lista sigue protegida.",
+  "incomplete": "Un servidor multimedia no respondió del todo (en Plex también: plex.tv para las personas con quienes se comparte) — esta vez nada volvió al array, lo que está en el pool sigue protegido.",
   "not_scheduled": "ninguna",
   "show_log": "Registro",
   "show_output": "Salida ({mode})",
