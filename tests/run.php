@@ -23523,6 +23523,105 @@ function testPartnerWatch(): void
 }
 
 /**
+ * 2026-10-16 (the 7.4 test): a server set up anew with its flash kept — its authorized_keys still lets the old partner
+ * knock. The asker says «doesn't know this partnership any more» (no_pair: from the door's ping, or from the status an
+ * older door refuses) instead of «answers» with what was said before; the door's side names the line of no pair and
+ * removes it only on the click (partnerOrphanRemove()); a pairing anew from the same address leaves one line. Two
+ * offices, ssh played by the stand-in: A sends, B keeps.
+ */
+function testPartnerGone(): void
+{
+    if (posix_geteuid() !== 0) {
+        check('partner gone: root only — not run here', true);
+        return;
+    }
+    $tmp = hardeningTmp('partner-gone');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $A = partnerTestOffice("$tmp/A");
+    $B = partnerTestOffice("$tmp/B", 'vault');
+    $target = fn (array $o) => ['php' => PHP_BINARY, 'door' => OFFICE_DIR . '/agent/partner-door.php', 'host_key' => $o['host'], 'auth_keys' => $o['keys'],
+                                'env' => array_diff_key($o['env'], ['PATH' => 1]) + ['PATH' => '/usr/bin:/bin']];
+    partnerTestBin($A['bin'], ['pools' => ['tank'], 'ds' => ['tank' => ['used' => 0]]], ['root@192.168.77.2' => $target($B)]);
+    partnerTestBin($B['bin'], ['pools' => ['vault'], 'ds' => ['vault' => ['used' => 0]]], ['root@192.168.77.1' => $target($A)]);
+    $benj = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBenjBenjBenjBenjBenjBenjBenjBenjBenjBenj benj@MacBook\n";
+    file_put_contents($B['keys'], $benj);
+    $pair = function () use ($A, $B): string {
+        $made = partnerTestAs($A, 'return partner_add(["step" => "do", "address" => "192.168.77.1", "port" => 22, "trust" => "mine"]);');
+        $acc = partnerTestAs($B, 'return partner_accept(' . var_export(['step' => 'do', 'block' => (string) ($made['block'] ?? ''), 'confirm' => true, 'address' => '192.168.77.2',
+            'port' => 22, 'trust' => 'mine', 'send_too' => false, 'receive' => ['pool' => 'vault', 'quota_gb' => 0, 'retention' => '7 4 6', 'wake' => false]], true) . ');');
+        partnerTestAs($A, 'return partner_finish(["step" => "do", "confirm" => true, "code" => ' . var_export((string) ($acc['code'] ?? ''), true) . ', "block" => '
+            . var_export((string) ($acc['block'] ?? ''), true) . ', "receive" => null]);');
+        return (string) ($made['id'] ?? '');
+    };
+    $id = $pair();
+    $ask = fn (string $id) => partnerTestAs($A, 'return partnerAskAndKeep(' . var_export($id, true) . ');');
+    $card = fn () => partnerTestAs($A, 'return partnerPublic()["pairs"][0];');
+    $findings = fn (array $o) => array_map(fn ($f) => [$f['id'], $f['level'], $f['ok'], $f['params']],
+        array_values(array_filter(partnerTestAs($o, 'return caretakerPartnerFindings();') ?: [], fn ($f) => $f['id'] !== 'partner_silent')));
+    $lines = fn () => preg_match_all('/ uso-partner:([0-9a-f]{8})$/m', (string) file_get_contents($B['keys']), $m) ? $m[1] : [];
+    same('gone: paired — A asks B, it answers', [true, null], array_values(array_intersect_key($ask($id) ?? [], ['reachable' => 1, 'why' => 1])));
+    same('gone: … the card «answers», no finding on either side', [false, [], []], [$card()['no_pair'] ?? null, $findings($A), $findings($B)]);
+    // what B said it keeps, before
+    $st = json_decode((string) file_get_contents("$A[data]/partner/state.json"), true);
+    $st['pairs'][$id]['status'] = ['name' => 'B', 'array' => 'started', 'units' => ['share:appdata' => ['snaps' => 3, 'newest' => null, 'used_bytes' => 1]]];
+    partnerTestAs($A, 'partnerWritePrivate(' . var_export("$A[data]/partner/state.json", true) . ', ' . var_export($st, true) . '); return true;');
+
+    // ---- B set up anew, its flash kept: a fresh data folder, the old line still in authorized_keys
+    exec('rm -rf ' . escapeshellarg("$B[data]/partner"));
+    $r = partnerTestDoor($B, 'ping', '', $id);
+    same('gone: B\'s door — ping of a pair it doesn\'t know: no_pair', [1, ['ok' => false, 'why' => 'no_pair']], [$r['exit'], $r['out'][0] ?? null]);
+    file_put_contents("$tmp/stopped.ini", "fsState=\"Stopped\"\n");
+    $r = partnerTestDoor($B, 'ping', '', $id, ['OFFICE_VAR_INI' => "$tmp/stopped.ini", 'OFFICE_DATA_DIR' => "$tmp/nowhere/data"]);
+    same('gone: … the array stopped: answered from RAM and flash, nothing under the data folder', [0, true, false], [$r['exit'], $r['out'][0]['ok'] ?? null, file_exists("$tmp/nowhere")]);
+    same('gone: A asks — it answers but doesn\'t know this pair (never «answers»)', [true, 'no_pair'], array_values(array_intersect_key($ask($id) ?? [], ['reachable' => 1, 'why' => 1])));
+    $c = $card();
+    same('gone: A\'s card — no_pair, not silent, heard', [true, false, true], [$c['no_pair'] ?? null, $c['silent'] ?? null, ($c['last_heard'] ?? 0) > 0]);
+    same('gone: A\'s finding partner_no_pair (recommended)', [['partner_no_pair', 'recommended', false, ['name' => $c['name'], 'pair' => $id]]], $findings($A));
+    // an older door answers ping before it looks for the pair: the refused status says it (B's pairs file unreadable stands for it)
+    @mkdir("$B[data]/partner", 0700);
+    file_put_contents("$B[data]/partner/pairs.json", '{"v":1,"pairs":[]}');
+    chmod("$B[data]/partner/pairs.json", 0644);
+    same('gone: B\'s pairs not known (a file not root\'s alone): ping answers', 0, partnerTestDoor($B, 'ping', '', $id)['exit']);
+    same('gone: … nothing called «without a partnership» then', [], $findings($B));
+    same('gone: an older door — ping ok, status refused no_pair: said so', [true, 'no_pair'], array_values(array_intersect_key($ask($id) ?? [], ['reachable' => 1, 'why' => 1])));
+    unlink("$B[data]/partner/pairs.json");
+
+    // ---- B's side: the line of no pair named, kept until the click
+    $f = $findings($B);
+    same('gone: B\'s finding — the line of no partnership, from where, when it knocked', [['partner_line_orphan', 'recommended', false, $id, '192.168.77.1', true]],
+        array_map(fn ($x) => [$x[0], $x[1], $x[2], $x[3]['pair'] ?? null, $x[3]['from'] ?? null, (bool) preg_match('/^\d{4}-\d\d-\d\d \d\d:\d\d$/D', $x[3]['knocked'] ?? '')], $f));
+    same('gone: … nothing removed without the click', $benj, preg_replace('/^.* uso-partner:[0-9a-f]{8}\n/m', '', (string) file_get_contents($B['keys'])));
+    same('gone: … still there', [$id], $lines());
+    @unlink("$B[run]/partner/heard-$id");
+    @unlink("$B[run]/partner/refused-$id.json");
+    same('gone: never knocked since the start: _quiet', ['partner_line_orphan_quiet'], array_column($findings($B), 0));
+    same('gone: remove — not an id', 'bad_request', partnerTestAs($B, 'return partnerOrphanRemove("../x");')['problem'] ?? null);
+    same('gone: remove — a line that isn\'t there', 'partner_line_gone', partnerTestAs($B, 'return partnerOrphanRemove("0badbeef");')['problem'] ?? null);
+    $keep = file_get_contents($B['keys']);
+    same('gone: remove — that line', $id, partnerTestAs($B, 'return partnerOrphanRemove(' . var_export($id, true) . ');'));
+    same('gone: … only that line out, the user\'s byte for byte', $benj, file_get_contents($B['keys']));
+    same('gone: … the finding gone', [], $findings($B));
+    same('gone: A — its key no longer let in', [false, 'denied'], array_values(array_intersect_key($ask($id) ?? [], ['reachable' => 1, 'why' => 1])));
+
+    // ---- paired anew with the old line still there: one line stays (the old one from the same address goes)
+    file_put_contents($B['keys'], $keep);
+    partnerTestAs($A, 'return partner_end(["id" => ' . var_export($id, true) . ']);');
+    $id2 = $pair();
+    check('gone: paired anew — a new pair', $id2 !== '' && $id2 !== $id, $id2);
+    same('gone: … exactly one line on B, the new pair\'s', [$id2], $lines());
+    same('gone: … the user\'s line kept', true, str_starts_with((string) file_get_contents($B['keys']), $benj));
+    $id = $id2;
+    same('gone: … A asks — answers', [true, null], array_values(array_intersect_key($ask($id) ?? [], ['reachable' => 1, 'why' => 1])));
+    same('gone: … no finding on either side', [[], []], [$findings($A), $findings($B)]);
+    // a line of no pair from another address stays at a pairing (only the click removes it)
+    $stray = 'restrict,from="192.168.77.9",command="' . PARTNER_DOOR . ' 0badbeef" ' . partnerTestKey() . " uso-partner:0badbeef\n";
+    file_put_contents($B['keys'], $stray . file_get_contents($B['keys']));
+    partnerTestAs($B, 'return partnerOrphansSameFrom("192.168.77.1");');
+    same('gone: another address\'s line of no pair — kept at a pairing', ['0badbeef', $id], $lines());
+    hardeningRm($tmp);
+}
+
+/**
  * Partner offices since 1.60 (the concept «Partner einfach»): the Team Lead only pairs — pairs.json without the units
  * agreed per pair (send {rate_mbit}, receive {pool, quota_gb, retention, wake}; the shapes up to 1.59 read and stripped,
  * the migration step partner-simple with its copy and migrated.json), what a server sends is the level in Mr. Backupsy's
@@ -38975,7 +39074,7 @@ function testFirstHome(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];

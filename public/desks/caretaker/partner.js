@@ -101,6 +101,8 @@ function stateChip(x) {
   // a key or a door gone (a plugin remove takes both): said at once, never the last «answers»
   if (x.key_missing) return chip('danger', T('partner.key_missing'), T('partner.key_missing_tip'));
   if (x.door === 'closed' || x.door === 'changed') return chip('danger', T('partner.door_' + x.door), T('partner.door_' + x.door + '_tip'));
+  // it answers but doesn't know this pair any more (set up anew, its flash kept): never «answers» (2026-10-16)
+  if (x.no_pair) return chip('danger', T('partner.no_pair'), T('partner.why.no_pair'));
   if (x.silent) return chip('danger', T('partner.silent'), T('partner.silent_tip', { since: x.last_heard ? fmt.date(x.last_heard) : T('partner.never') }));
   if (x.reachable === false) return chip('warn', T('partner.unreachable'), T('partner.why.' + (x.why || 'unreachable')));
   if (x.last_heard) return chip('ok', T('partner.answers'), T('partner.answers_tip', { when: fmt.date(x.last_heard) }));
@@ -184,7 +186,8 @@ function card(x) {
   main.appendChild(send);
   if (x.sends) { const need = needLine('send'); if (need) main.appendChild(need); }
   if (x.sends) sendLines(x).forEach((n) => main.appendChild(n));
-  const tk = x.they_keep;
+  const tk = x.no_pair ? null : x.they_keep;         // what it said before it forgot this pair isn't how it is now
+  if (x.no_pair) main.appendChild(el('div', 'row-detail', T('partner.no_pair_detail', { name: x.name })));
   if (x.sends && tk) {
     const d = el('div', 'row-detail');
     const units = Object.entries(tk.units || {});
@@ -240,7 +243,8 @@ function card(x) {
     ask.onclick = async () => {
       ask.disabled = true;
       const j = await Office.api.post(`${ID}.partner_ping`, { id: x.id });
-      if (took(j) && j.ask) Office.toast(j.ask.reachable ? T('partner.asked_ok', { name: x.name }) : T('partner.asked_no', { name: x.name, why: T('partner.why.' + (j.ask.why || 'unreachable')) }), !j.ask.reachable);
+      const fine = j.ask && j.ask.reachable && !j.ask.why;
+      if (took(j) && j.ask) Office.toast(fine ? T('partner.asked_ok', { name: x.name }) : T('partner.asked_no', { name: x.name, why: T('partner.why.' + (j.ask.why || 'unreachable')) }), !fine);
       ask.disabled = false;
     };
     acts.appendChild(ask);

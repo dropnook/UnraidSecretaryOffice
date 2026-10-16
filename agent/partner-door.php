@@ -10,7 +10,9 @@ declare(strict_types=1);
  * SSH_ variables — scripts/partner-door.sh). The request arrives as SSH_ORIGINAL_COMMAND and is taken word by word:
  *
  *   ping                              {"ok":true,"v","pair","array","night","time"} — from RAM and the flash only (the
- *                                     array may be stopped: nothing under /mnt is touched)
+ *                                     array may be stopped: nothing under /mnt is touched); with the array started and
+ *                                     the data folder there, a pair it doesn't know (partnerKnownIds()) is refused
+ *                                     no_pair — a line left from before the server was set up anew with its flash kept
  *   status                            the public summary (needs the data folder); `takes_all` true (a door since 1.60 takes
  *                                     any unit of the pair up to its quota), `agreed` = every unit received so far and
  *                                     every unit the partner named with `offer` (for a sender up to 1.59), `wish` = []
@@ -281,6 +283,11 @@ function doorMain(array $argv): int
         // a ticket's ping: its expiry looked at while the data folder is there (the array stopped: RAM and flash only)
         if ($ticketId !== null && doorArrayRunning() && is_dir(DATA_DIR) && ($why = doorTicketWhy($ticketId)) !== null) {
             return doorRefuse($id, $why, false, $why === 'ticket_expired' ? ['time' => doorNow()] : []);
+        }
+        // a pair's ping (2026-10-16): a line left from before this server was set up anew (its flash kept) — said as
+        // no_pair while the data folder is there and knows its pairs; the array stopped: answered from RAM and flash
+        if ($ticketId === null && doorArrayRunning() && is_dir(DATA_DIR) && ($known = partnerKnownIds()) !== null && !in_array($id, $known, true)) {
+            return doorRefuse($id, 'no_pair');
         }
         doorHeard($id);
         doorSay(['ok' => true, 'v' => doorVersion(), 'pair' => $id, 'array' => doorArrayRunning() ? 'started' : 'stopped', 'night' => doorNight(), 'time' => doorNow()]);

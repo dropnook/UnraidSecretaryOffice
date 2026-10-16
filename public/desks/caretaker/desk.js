@@ -241,8 +241,9 @@ function partnerTile(a) {
   const p = state.partners || {};
   const pairs = p.pairs || [];
   const held = p.ticket_pairs || [];
-  // a key or a door gone (a plugin remove takes both) counts at once — never the last «answers» of the state
-  const broken = (x) => x.key_missing || x.door === 'closed' || x.door === 'changed';
+  // a key or a door gone (a plugin remove takes both), or a partner that no longer knows the pair (set up anew), counts
+  // at once — never the last «answers» of the state
+  const broken = (x) => x.key_missing || x.door === 'closed' || x.door === 'changed' || x.no_pair;
   const lost = pairs.filter(broken).length;
   const silent = pairs.filter((x) => !broken(x) && x.silent).length;
   const answer = pairs.filter((x) => !broken(x) && !x.silent && x.reachable !== false && x.last_heard).length;
@@ -365,6 +366,15 @@ function row(f) {
     b.onclick = () => sharesMake(names, b);
     acts.appendChild(b);
   }
+  if ((f.id === 'partner_line_orphan' || f.id === 'partner_line_orphan_quiet') && f.ok === false && f.params && f.params.pair) {
+    // a door line of no partnership (a server set up anew, its flash kept): out of authorized_keys on this click only
+    const b = el('button', 'btn small', T('partner.line_remove'));
+    b.type = 'button';
+    b.title = T('partner.line_remove_title', { pair: f.params.pair });
+    b.disabled = !Office.agent.running;
+    b.onclick = () => lineRemove(f.params.pair, b);
+    acts.appendChild(b);
+  }
   if (ackable(f)) {
     // «I know, thanks» / «Bring back» — kept on the server, so the Dashboard and his picture follow
     const b = el('button', 'btn small plain', T(noted ? 'unack' : 'ack'));
@@ -393,6 +403,23 @@ async function sharesMake(names, b) {
   if (view) renderKeeping(['advice', 'done']);
   mood();
   Office.toast(T('shares_made', { n: j.made.length, shares: j.made.join(', ') }));
+}
+
+async function lineRemove(pair, b) {
+  b.disabled = true;
+  b.classList.add('running');
+  b.prepend(el('span', 'spin'));
+  await Office.freshState(ID);
+  const j = await Office.api.post(`${ID}.partner_line_remove`, { pair });
+  if (!j.ok) {
+    Office.toast(Office.errorText(j.error, ID), true);
+    await load(true);       // as things are now: the line may be gone or belong to a pairing meanwhile
+    return;
+  }
+  state = j.state;
+  if (view) renderKeeping(['advice', 'done']);
+  mood();
+  Office.toast(T('partner.line_removed', { pair: j.pair }));
 }
 
 async function ack(f, on, b) {

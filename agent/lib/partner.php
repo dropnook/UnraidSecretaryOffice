@@ -709,6 +709,122 @@ function partnerAuthKeysLine(string $id, ?string $file = null, bool $ticket = fa
     return null;
 }
 
+/**
+ * The pair ids this office knows (2026-10-16, a server set up anew with its flash kept): every id in pairs.json and
+ * pending.json, and every pair a restore ticket was given for — taken from the files as they are, also an entry no
+ * longer in exactly its shape (whatever looks like one counts as known: nothing is ever called «without a partnership»
+ * by mistake). Null: it can't be known — no data folder (the array stopped) or one of the files there but unreadable or
+ * not in the office's shape.
+ *
+ * @return list<string>|null
+ */
+function partnerKnownIds(): ?array
+{
+    if (!is_dir(DATA_DIR)) {
+        return null;
+    }
+    $ids = [];
+    foreach (['pairs.json' => 'pairs', 'pending.json' => 'offers', 'tickets.json' => 'tickets'] as $name => $list) {
+        $file = partnerDir() . "/$name";
+        if (!file_exists($file) && !is_link($file)) {
+            continue;
+        }
+        $j = partnerReadPrivate($file);
+        if ($j === null || !is_array($j[$list] ?? null)) {
+            return null;
+        }
+        foreach ($j[$list] as $e) {
+            foreach ($name === 'tickets.json' ? ['of'] : ['id'] as $k) {
+                if (is_array($e) && is_string($e[$k] ?? null)) {
+                    $ids[] = $e[$k];
+                }
+            }
+        }
+    }
+    return array_values(array_unique($ids));
+}
+
+/**
+ * The office's lines in authorized_keys whose pair this office doesn't know (partnerKnownIds()): left from before a
+ * server was set up anew with its flash kept — the partner's key still opens the door, which refuses all but `ping`
+ * (a door of this version that too, once the data folder is there). Each with its from= and when it knocked last (the door's
+ * heard-<id> or its refusals, RAM). Empty when it can't be known.
+ *
+ * @return list<array{id: string, from: string, knocked: ?int}>
+ */
+function partnerOrphanLines(?string $file = null): array
+{
+    $known = partnerKnownIds();
+    if ($known === null) {
+        return [];
+    }
+    $out = [];
+    foreach (preg_split('/\r?\n/', (string) @file_get_contents($file ?? partnerAuthKeysFile(), false, null, 0, 1024 * 1024)) ?: [] as $l) {
+        if (!partnerLineIsOurs($l) || !preg_match('/uso-partner:([0-9a-f]{8})\r?$/D', $l, $m) || in_array($m[1], $known, true) || isset($out[$m[1]])) {
+            continue;
+        }
+        $from = preg_match('/(?:^|,)from="([^"]{1,1000})"/', $l, $f) ? $f[1] : '';
+        $knocked = (int) partnerHeardAtDoor($m[1]);
+        $refused = partnerReadRefused($m[1]);
+        $out[$m[1]] = ['id' => $m[1], 'from' => $from, 'knocked' => max($knocked, $refused) ?: null];
+    }
+    return array_values($out);
+}
+
+/** The newest refusal the door noted for an id (RUN_DIR/partner/refused-<id>.json, the last hour); 0: none */
+function partnerReadRefused(string $id): int
+{
+    $j = json_decode((string) @file_get_contents(partnerRunDir() . "/refused-$id.json", false, null, 0, 65536), true);
+    $times = is_array($j) && ($j['pair'] ?? null) === $id ? array_filter((array) ($j['times'] ?? []), 'is_int') : [];
+    return $times ? max($times) : 0;
+}
+
+/**
+ * A pairing anew with a partner whose old line is still here (a server set up anew, its flash kept): the lines of no
+ * known pair whose from= shares an address with the new line's go — the same partner, so one line stays. Only on the
+ * pairing's own click; any other line of no pair waits for the Team Lead's «Remove this line». The ids taken out.
+ *
+ * @return list<string>
+ */
+function partnerOrphansSameFrom(string $from, ?string $file = null): array
+{
+    $mine = array_filter(explode(',', $from));
+    $gone = [];
+    foreach (partnerOrphanLines($file) as $o) {
+        if (array_intersect($mine, array_filter(explode(',', $o['from']))) && partnerAuthKeysEdit($o['id'], null, $file)) {
+            $gone[] = $o['id'];
+        }
+    }
+    if ($gone) {
+        partnerLog('a line of no partnership from ' . $from . ' removed with the new pairing: ' . implode(', ', $gone));
+    }
+    return $gone;
+}
+
+/** The Team Lead's «Remove this line»: exactly that id's line, only while it is still one of no pair known (looked up now) */
+function partnerOrphanRemove(string $id): string
+{
+    if (!preg_match(PARTNER_ID_RE, $id)) {
+        throw new Problem('bad_request');
+    }
+    if (!in_array($id, array_column(partnerOrphanLines(), 'id'), true)) {
+        throw new Problem('partner_line_gone', ['pair' => $id]);
+    }
+    partnerAuthKeysEdit($id, null);
+    partnerLog("the line of no partnership uso-partner:$id removed from authorized_keys (on the user's click)");
+    return $id;
+}
+
+/** partnerOrphansSameFrom() after a pairing: the pairing stands whatever happens there */
+function partnerOrphansQuiet(string $from): void
+{
+    try {
+        partnerOrphansSameFrom($from);
+    } catch (Throwable $e) {
+        partnerLog('an old line from ' . $from . ' could not be removed: ' . $e->getMessage());
+    }
+}
+
 // ===================================================================== the two blocks and the safety code
 
 /** A block to copy: base64 of its JSON, on one line */
@@ -1084,7 +1200,8 @@ function partnerStatusClean(mixed $s): ?array
 
 /**
  * Asks a partner how it is: ping, then status while its array runs. Null when this office has no key there (it only
- * receives: it hears of the partner when the partner knocks — heard-<id> in RAM).
+ * receives: it hears of the partner when the partner knocks — heard-<id> in RAM). `why` no_pair with reachable: it
+ * answers but doesn't know this pair any more (set up anew with its flash kept) — its door refused ping or status.
  *
  * @return array{time:int, reachable:bool, answer:?array, status:?array, why:?string}|null
  */
@@ -1099,18 +1216,25 @@ function partnerAsk(array $pair): ?array
     $ok = $exit === 0 && is_array($j) && ($j['ok'] ?? null) === true && ($j['pair'] ?? null) === $pair['id']
         && in_array($j['array'] ?? null, ['started', 'stopped'], true) && is_bool($j['night'] ?? null)
         && is_string($j['v'] ?? null) && preg_match(PARTNER_VERSION_RE, $j['v']);
+    if (!$ok && is_array($j) && ($j['ok'] ?? null) === false && ($j['why'] ?? null) === 'no_pair') {
+        // it answers, but doesn't know this pair (set up anew, its flash kept): said as that — never «answers» (2026-10-16)
+        return ['time' => $now, 'reachable' => true, 'answer' => null, 'status' => null, 'why' => 'no_pair'];
+    }
     if (!$ok) {
         $why = $exit === 255 ? (preg_match('/Host key verification failed|REMOTE HOST IDENTIFICATION/i', $err) ? 'host_key'
             : (preg_match('/Permission denied/i', $err) ? 'denied' : 'unreachable')) : ($exit === 124 ? 'timeout' : 'bad_answer');
         return ['time' => $now, 'reachable' => false, 'answer' => null, 'status' => null, 'why' => $why];
     }
     $answer = ['array' => $j['array'], 'night' => $j['night'], 'v' => $j['v'], 'time' => is_int($j['time'] ?? null) ? $j['time'] : null];
-    $status = null;
+    $status = $why = null;
     if ($j['array'] === 'started') {
         [$exit, $out] = partnerSsh($pair, 'status');
-        $status = $exit === 0 ? partnerStatusClean(partnerJsonLine($out)) : null;
+        $s = partnerJsonLine($out);
+        $status = $exit === 0 ? partnerStatusClean($s) : null;
+        // an older door answers `ping` before it looks for the pair: its refused status says it
+        $why = $exit !== 0 && is_array($s) && ($s['ok'] ?? null) === false && ($s['why'] ?? null) === 'no_pair' ? 'no_pair' : null;
     }
-    return ['time' => $now, 'reachable' => true, 'answer' => $answer, 'status' => $status, 'why' => null];
+    return ['time' => $now, 'reachable' => true, 'answer' => $answer, 'status' => $status, 'why' => $why];
 }
 
 // ===================================================================== the mutual watch
@@ -1163,7 +1287,7 @@ function partnerStateEntry(array $old, ?array $ask, array $pair): array
         $entry['why'] = $ask['why'];
         if ($ask['reachable']) {
             $entry['last_heard'] = $ask['time'];
-            $entry['answer'] = $ask['answer'];
+            $entry['answer'] = $ask['answer'] ?? $entry['answer'];
             if ($ask['status'] !== null) {
                 $entry['status'] = $ask['status'];
                 $entry['status_time'] = $ask['time'];
@@ -1583,6 +1707,8 @@ function partnerPublic(): array
             'night'      => is_array($answer) ? (bool) ($answer['night'] ?? false) : null,
             'version'    => is_array($answer) ? ($answer['v'] ?? null) : null,
             'silent'     => partnerSilent($p, $e, $now),
+            // it answers but doesn't know this pair any more: what it said before (they_keep) is from then, not now
+            'no_pair'    => $p['my_key'] !== null && ($e['reachable'] ?? null) === true && ($e['why'] ?? null) === 'no_pair',
             'tailnet'    => $e['tailnet'] ?? null,
             'sends'      => $p['my_key'] !== null,
             // my key for this pair (or the partner's pinned host key) gone from the flash — after a plugin remove, the
@@ -1832,6 +1958,9 @@ function partner_accept(array $r): array
         partnerPairsWrite($pairs);
         throw $e;
     }
+    if ($receive !== null) {
+        partnerOrphansQuiet((string) $from);
+    }
     partnerLog("paired with {$a['name']} ({$a['id']}, {$a['address']}:{$a['port']}) — accepted their offer"
         . ($receive !== null ? ', their line in authorized_keys' : '') . ($myPub !== null ? ', I send too' : ''));
     $block = partnerBlockEncode(['v' => 1, 'block' => 'B', 'id' => $a['id'], 'name' => partnerMyName(), 'address' => $address, 'port' => $port,
@@ -1939,6 +2068,9 @@ function partner_finish(array $r): array
         @unlink(partnerKnownFile($b['id']));
         throw $e;
     }
+    if ($receive !== null) {
+        partnerOrphansQuiet((string) $from);
+    }
     if (!$sends) {
         @unlink(partnerKeyFile($b['id']));
         @unlink(partnerKeyFile($b['id']) . '.pub');
@@ -1963,7 +2095,9 @@ function partnerAskAndKeep(string $id): ?array
     if ($ask !== null && $ask['reachable']) {
         partnerPairUpdate($id, function (array $p) use ($ask) {
             $p['last_heard'] = $ask['time'];
-            $p['last_answer'] = ['array' => $ask['answer']['array'], 'night' => $ask['answer']['night'], 'v' => $ask['answer']['v']];
+            if ($ask['answer'] !== null) {
+                $p['last_answer'] = ['array' => $ask['answer']['array'], 'night' => $ask['answer']['night'], 'v' => $ask['answer']['v']];
+            }
             return $p;
         });
         [, $entry] = partnerUnitsFollow(partnerPair($id) ?? $pair, $ask, $entry);

@@ -29,7 +29,7 @@ const CARETAKER_NOTIFY_SETTLE = 1800;      // something new to do is told once i
 const CARETAKER_CRON_RETRY    = 600;       // a missing cron line: update_cron at most every 10 minutes
 const CARETAKER_WATCH_CRON    = '/boot/config/plugins/' . OFFICE_PLUGIN . '/agent-watch.cron';   // written by scripts/agent.sh
 const CARETAKER_ACK_SIG       = '/^[a-z0-9_-]{1,40}:[a-z0-9_]{1,60}:[0-9a-f]{16}$/';   // desk:id:hash, see caretakerAckSig()
-const CARETAKER_ACK_DRIFT     = ['days', 'size'];    // params that change by themselves (an age, a size) — not a new situation
+const CARETAKER_ACK_DRIFT     = ['days', 'size', 'knocked'];    // params that change by themselves (an age, a size, a knock) — not a new situation
 const CARETAKER_ACK_KEEP      = 30 * 86400;          // a noted point that hasn't turned up for this long is forgotten
 const CARETAKER_ACK_SEEN      = 86400;               // "still there" is written down at most once a day
 const CARETAKER_PROM_ASK      = 300;                 // Prometheus is asked at most this often (the page refreshes every 5 minutes)
@@ -62,6 +62,7 @@ desk('caretaker', [
         'partner_end'    => fn (array $r) => caretakerPartnerDone(partner_end($r)),
         'partner_state'  => fn (array $r) => partner_state($r),
         'partner_ping'   => fn (array $r) => caretakerPartnerDone(partner_ping($r)),
+        'partner_line_remove' => fn (array $r) => caretakerPartnerLineRemove($r),
         // restore tickets (stage 3): a gone server's copies handed to a new server
         'partner_ticket_start'  => fn (array $r) => partner_ticket_start($r),
         'partner_ticket_make'   => fn (array $r) => partner_ticket_make($r),
@@ -970,7 +971,13 @@ function caretakerPartnerWatch(): int
     return 0;
 }
 
-/** partner_silent per pair (recommended; in place while it answers): from the files only */
+/**
+ * partner_silent per pair (recommended; in place while it answers): from the files only. 2026-10-16, a server set up
+ * anew with its flash kept: partner_no_pair while a partner answers but doesn't know this pair any more (recommended:
+ * the office works, only the copies there stop — the copies of theirs kept here stay, they are the user's), and
+ * partner_line_orphan for each line in authorized_keys of a pair this office doesn't know (recommended: the door lets
+ * that key knock and refuses it; removed only on the click, partner_line_remove). Both only while so.
+ */
 function caretakerPartnerFindings(): array
 {
     $out = [];
@@ -980,8 +987,28 @@ function caretakerPartnerFindings(): array
         $e = is_array($state['pairs'][$p['id']] ?? null) ? $state['pairs'][$p['id']] : [];
         $silent = partnerSilent($p, $e, $now);
         $out[] = finding('partner_silent', 'recommended', !$silent, $silent ? partnerSilentParams($p, $e) : ['name' => $p['name'], 'pair' => $p['id']], '#/caretaker/partner');
+        if ($p['my_key'] !== null && ($e['reachable'] ?? null) === true && ($e['why'] ?? null) === 'no_pair') {
+            $out[] = finding('partner_no_pair', 'recommended', false, ['name' => $p['name'], 'pair' => $p['id']], '#/caretaker/partner');
+        }
+    }
+    foreach (partnerOrphanLines() as $o) {
+        // _quiet: it hasn't knocked since this server started (the door's marks are in RAM)
+        $params = ['pair' => $o['id'], 'from' => $o['from'] !== '' ? $o['from'] : '?'];
+        $out[] = $o['knocked'] !== null
+            ? finding('partner_line_orphan', 'recommended', false, $params + ['knocked' => date('Y-m-d H:i', $o['knocked'])], '#/caretaker/partner')
+            : finding('partner_line_orphan_quiet', 'recommended', false, $params, '#/caretaker/partner');
     }
     return $out;
+}
+
+/**
+ * «Remove this line» of partner_line_orphan: the line of exactly that id out of authorized_keys on the flash — only
+ * while it is still one of no pair this office knows (looked up again now), never anything else
+ */
+function caretakerPartnerLineRemove(array $r): array
+{
+    $id = partnerOrphanRemove(textField($r, 'pair'));
+    return ['ok' => true, 'pair' => $id, 'state' => caretakerScan()];
 }
 
 // ===================================================================== monitoring
