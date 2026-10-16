@@ -524,5 +524,13 @@
   "partner.need_restori": "Para empezar aquí desde una copia hace falta el señor Restori.",
   "partner.hire_restori": "Contratar al señor Restori",
   "partner.i_keep_start": "El señor Restori puede empezar desde estas copias («Guardado para {name}» en su página) — la copia de una VM o de una app trae su configuración desde el motor 2.43; las copias más antiguas no.",
-  "needs_away": "{name} vendría — pero solo bajo la supervisión de {with}, y ella no puede venir aquí."
+  "needs_away": "{name} vendría — pero solo bajo la supervisión de {with}, y ella no puede venir aquí.",
+  "open.shares": "⟦Shares⟧",
+  "check.std_shares": "El recurso compartido estándar system de Unraid existe (ahí están la imagen de Docker y los ajustes de las VM)",
+  "check.std_shares_how": "Falta: {shares}. Normalmente Unraid lo crea solo cuando se activa Docker; sin él no funcionan ni Docker ni Kopia. Con un clic el mensajero lo crea como lo hace Unraid (solo en el pool cache, sin pool en el array); o créalo tú en ⟦Shares⟧.",
+  "check.std_shares_gone": "El recurso compartido estándar {shares} de Unraid existe (ahí están la imagen de Docker y los ajustes de las VM)",
+  "check.std_shares_gone_how": "{shares} existía en este servidor y ahora falta; sin él no funcionan ni Docker ni Kopia. El mensajero no lo vuelve a crear: recupera la carpeta o vuelve a crear el recurso compartido en ⟦Shares⟧.",
+  "shares_make_one": "Crear {share}",
+  "shares_make_all": "Crear los recursos compartidos estándar que faltan",
+  "shares_made": {"one": "{shares} está creado.", "other": "{shares} están creados."}
 }

@@ -524,5 +524,13 @@
   "partner.need_restori": "To start here from a copy, it takes Mr. Restori.",
   "partner.hire_restori": "Hire Mr. Restori",
   "partner.i_keep_start": "Mr. Restori can start from these copies («Kept for {name}» on his page) — a VM's or app's copy carries its configuration since engine 2.43; older copies don't.",
-  "needs_away": "{name} would come — but only under {with}'s supervision, and she can't come here."
+  "needs_away": "{name} would come — but only under {with}'s supervision, and she can't come here.",
+  "open.shares": "⟦Shares⟧",
+  "check.std_shares": "Unraid's standard share system is there (Docker's image and the VMs' settings live in it)",
+  "check.std_shares_how": "Missing: {shares}. Unraid otherwise creates it only once Docker is turned on — without it neither Docker nor Kopia runs. On a click the messenger creates it the way Unraid does (only on the pool cache, without a pool on the array); or create it yourself under ⟦Shares⟧.",
+  "check.std_shares_gone": "Unraid's standard share {shares} is there (Docker's image and the VMs' settings live in it)",
+  "check.std_shares_gone_how": "{shares} was on this server and is missing now — without it neither Docker nor Kopia runs. The messenger doesn't create it anew: bring the folder back or create the share again under ⟦Shares⟧.",
+  "shares_make_one": "Create {share}",
+  "shares_make_all": "Create missing standard shares",
+  "shares_made": {"one": "{shares} is created.", "other": "{shares} are created."}
 }

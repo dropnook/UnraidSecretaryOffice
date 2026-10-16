@@ -1709,5 +1709,7 @@
   "notify.kopia_emptied": "Instantáneas el {when}: {before}, ahora: {now} — no borradas por la secretaría. Si no fuiste tú: no borres nada, Object Lock quizá aún guarda los datos; el Señor Restori y el consultor muestran cómo recuperarlos. Esta copia lo sube todo de nuevo.",
   "warn_code.kopia_gone": "La copia fuera de casa se ha vaciado — Kopia ya no puede abrir el repositorio, también falta su propia descripción (instantáneas el {when}: {before}); no borradas por la secretaría. Si no fuiste tú: no borres nada, Object Lock quizá aún guarda los datos — el Señor Restori y el consultor muestran cómo recuperarlos. En esta copia no salió nada fuera de casa.",
   "notify.kopia_gone.subject": "La copia fuera de casa se ha vaciado",
-  "notify.kopia_gone": "Kopia ya no puede abrir el repositorio — también falta su propia descripción (instantáneas el {when}: {before}); no borradas por la secretaría. Si no fuiste tú: no borres nada, Object Lock quizá aún guarda los datos; el Señor Restori y el consultor muestran cómo recuperarlos."
+  "notify.kopia_gone": "Kopia ya no puede abrir el repositorio — también falta su propia descripción (instantáneas el {when}: {before}); no borradas por la secretaría. Si no fuiste tú: no borres nada, Object Lock quizá aún guarda los datos; el Señor Restori y el consultor muestran cómo recuperarlos.",
+  "check.docker_system": "El recurso compartido system de Unraid existe: Docker lo necesita",
+  "check.docker_system_how": "Falta el recurso compartido system: ahí guarda Unraid la imagen de Docker; sin él no funcionan ni Docker ni Kopia. El jefe de equipo dice cómo conseguirlo."
 }

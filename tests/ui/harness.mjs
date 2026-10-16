@@ -9,6 +9,7 @@
 //   …/api.php?a=state|part           the stub state of tests/ui/states/<desk>[-<part>].json; every look a second newer
 //                                    than the last (its `time`), so each one is a new look the desk draws again
 //   …/api.php?a=places               no words (the search isn't what this is for)
+//   …/api.php?a=agent                the messenger (at work; opts.agent / setAgent() for one away)
 //   POST …/api.php                   noted (harness.posts); answered from tests/ui/states/post/<desk>.<action>.json when
 //                                    there, else {ok: true} - always with the agent, like the real api.php
 // Around the office the page is Unraid's: its colour palette and the theme variables of its black and white themes
@@ -122,7 +123,8 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 /**
  * Start the harness. opts: port (0 = any free one), statesDir (default tests/ui/states), demo (true: tests/ui/demo, its
  * times moved to now), later (ms: the shown desk's look comes stale and the new one that many ms later - off by default).
- * alias: {name: file} (see above). Returns { url, posts, close(), setState(desk, state) }.
+ * alias: {name: file} (see above). agent: the messenger away (see agent()). Returns { url, posts, close(), setState(desk, state),
+ * setAgent(agent) }.
  */
 export async function startHarness(opts = {}) {
   const statesDir = opts.statesDir || (opts.demo ? DEMO : path.join(HERE, 'states'));
@@ -130,7 +132,11 @@ export async function startHarness(opts = {}) {
   const stamp = Math.floor(Date.now() / 1000);
   const host = renamed(opts.demo ? 'FamilienServer' : 'Tower', opts.names);
   const alias = opts.alias || {};
-  const agent = () => ({ running: true, version: VERSION, pid: 4242, started: stamp, host, desks: list.map((d) => d.id), pulse: Math.floor(Date.now() / 1000) });
+  // opts.agent / setAgent(a): the messenger as the page hears of him — away without his data folder (a fresh server's
+  // welcome, tools/ui-clicks.mjs firstHome()); null: at work
+  let agentAs = opts.agent || null;
+  const agent = () => (agentAs ? JSON.parse(JSON.stringify(agentAs))
+    : { running: true, version: VERSION, pid: 4242, started: stamp, host, desks: list.map((d) => d.id), pulse: Math.floor(Date.now() / 1000) });
   const config = () => ({
     version: VERSION, host,
     desks: list.map((d) => ({ ...d, hired: true, avatar: fs.existsSync(path.join(PUBLIC, 'desks', d.id, 'avatar.svg')) ? `${BASE}desks/${d.id}/avatar.svg?v=${stamp}` : null })),
@@ -277,6 +283,7 @@ ${js.map((f) => `<script src="${esc(BASE + f)}?v=${stamp}"></script>`).join('\n'
   return {
     url, posts, desks: list,
     setState(name, s) { if (s === undefined) overrides.delete(name); else overrides.set(name, s); },
+    setAgent(a) { agentAs = a || null; },
     close: () => new Promise((ok) => server.close(ok)),
   };
 }

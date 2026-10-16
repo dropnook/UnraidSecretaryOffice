@@ -550,14 +550,16 @@ Office.setAgent = function setAgent(info) {
   // the array isn't started: the night watchman's night shift keeps watch (src/mailbox.php officeNightShift(), RAM only)
   const night = !Office.agent.running && Office.agent.night ? Office.agent.night : null;
   const dot = $('#sso-dot');
-  dot.className = 'dot ' + (Office.agent.running ? 'on' : night ? 'night' : 'off');
+  dot.className = 'dot ' + (Office.agent.running ? 'on' : night || homeFresh(Office.agent.no_data) ? 'night' : 'off');
   dot.title = Office.agent.running ? t('agent.running', { version: Office.agent.version || '?' }) : night ? nightText(night) : t('agent.away');
   // a word next to the dot: what runs, or what doesn't
   const state = $('#sso-state');
   const no = Office.agent.no_data;
-  state.className = 'agent-state ' + (Office.agent.running ? 'on' : night ? 'night' : 'off');
+  // a first start is no alarm: calm like the night shift
+  state.className = 'agent-state ' + (Office.agent.running ? 'on' : night || homeFresh(no) ? 'night' : 'off');
   $('#sso-state-label').textContent = t(Office.agent.running ? 'agent.label_on' : night ? 'agent.label_night'
-    : no ? (no.array !== 'Started' ? 'agent.label_array' : no.appdata ? 'agent.label_no_appdata' : 'agent.label_no_data') : 'agent.label_off');
+    : no ? (no.array !== 'Started' ? 'agent.label_array' : homeFresh(no) ? 'agent.label_home' : no.appdata ? 'agent.label_no_appdata' : 'agent.label_no_data')
+      : 'agent.label_off');
   state.title = dot.title;
   dot.removeAttribute('title');
   const notice = $('#sso-notice');
@@ -572,6 +574,8 @@ Office.setAgent = function setAgent(info) {
     text.append(el('strong', '', t('agent.array_stopped_title')), ' ', nightText(night));
     notice.append(Office.deskIcon('watchman'), text);
     notice.hidden = false;
+  } else if (homeFresh(Office.agent.no_data)) {
+    homeWelcome(notice, Office.agent.no_data);
   } else if (Office.agent.no_data) {
     // the data folder lies in appdata and comes with the array
     const stopped = Office.agent.no_data.array !== 'Started';
@@ -599,6 +603,74 @@ Office.setAgent = function setAgent(info) {
   footer();
   updateNotice();
 };
+
+/*
+ * A fresh server (2026-10-16): the share of the data folder (appdata) was never there — Unraid makes its standard shares
+ * only once Docker is turned on. The agent waits and says so (no_data.home, agent/lib/firsthome.php): a welcome instead
+ * of the careful «missing» text, every standard share missing with why it matters (one that was there and is gone
+ * said apart, never offered), the VMs' shares only mentioned, and one button that asks the messenger to create the new
+ * ones the way Unraid's ⟦Shares⟧ page does — only on this click. Then the page looks every 2 seconds for a minute; once
+ * the office runs it loads anew (agentLook()).
+ */
+const homeFresh = (no) => !!(no && no.array === 'Started' && no.appdata && no.home && no.home.fresh);
+let homeAsked = 0;                  // when this page sent the click (ms), for the wave until the agent answers
+function homeWelcome(notice, no) {
+  const home = no.home;
+  const missing = Array.isArray(home.missing) && home.missing.length ? home.missing : [{ share: home.share, fresh: true }];
+  const fresh = missing.filter((m) => m.fresh).map((m) => m.share);
+  // an answer from before this page's click is an earlier try's: the wave until the new one is there
+  const asked = homeAsked > 0 && Date.now() - homeAsked < 60000;
+  const answer = home.answer && !(asked && home.answer.time * 1000 < homeAsked - 1000) ? home.answer : null;
+  const waiting = !answer && asked;
+  notice.innerHTML = '';
+  notice.className = 'notice info home';
+  notice.dataset.kind = 'agent';
+  const text = el('div', 'home-text');
+  text.append(el('strong', '', t('agent.home_title')), ' ', t('agent.home_intro', { dir: no.dir }));
+  const list = el('ul', 'home-list');
+  for (const m of missing) {
+    const li = el('li');
+    li.append(el('strong', '', m.share), ' – ', m.fresh ? t(m.share === home.share ? 'agent.home_role_data' : `agent.home_role_${m.share}`)
+      : t('agent.home_gone', { share: m.share }));
+    list.append(li);
+  }
+  text.append(list);
+  if (Array.isArray(home.optional) && home.optional.length) text.append(el('p', 'home-note', t('agent.home_optional', { shares: home.optional.join(', ') })));
+  text.append(el('p', 'home-note', t('agent.home_ask', { n: fresh.length, where: home.pool ? t('agent.home_where_pool', { pool: home.pool }) : t('agent.home_where_array') })));
+  const acts = el('div', 'home-acts' + (waiting || (answer && answer.made) ? ' running' : ''));
+  if (answer && answer.made) {
+    acts.append(el('span', 'spin'), el('span', '', t('agent.home_made', { share: home.share })));
+  } else if (waiting) {
+    acts.append(el('span', 'spin'), el('span', '', t('agent.home_making', { shares: fresh.join(', ') })));
+  } else {
+    const b = el('button', 'btn small', fresh.length === 1 ? t('agent.home_make', { share: fresh[0] }) : t('agent.home_make_all'));
+    b.type = 'button';
+    b.onclick = () => homeMake(fresh);
+    acts.append(b, el('span', 'home-or', t('agent.home_or', { n: fresh.length })));
+    if (answer && answer.error) acts.append(el('p', 'home-error', Office.errorText(answer.error)));
+  }
+  notice.append(Office.deskIcon('caretaker'), text, acts);
+  notice.hidden = false;
+}
+async function homeMake(shares) {
+  homeAsked = Date.now();
+  Office.setAgent(Office.agent);            // the wave at once
+  const j = await Office.api.post('office.home_make', { shares });
+  if (!j.ok) {
+    homeAsked = 0;
+    Office.toast(Office.errorText(j.error), true);
+    Office.setAgent(Office.agent);
+    return;
+  }
+  // the agent answers within seconds (the shares made, its folder in it, at work): asked every 2 s for a minute
+  const until = Date.now() + 60000;
+  const again = async () => {
+    await agentLook();
+    if (Office.agent.running || Date.now() > until) { homeAsked = 0; if (!Office.agent.running) Office.setAgent(Office.agent); return; }
+    setTimeout(again, 2000);
+  };
+  setTimeout(again, 1000);
+}
 
 /*
  * The office was updated while this page was open (Unraid's plugin manager swaps the plugin's folder and starts the new

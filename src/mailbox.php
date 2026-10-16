@@ -51,6 +51,10 @@ function agentInfo(): array
         $appdata = dirname(OFFICE_DATA_USER, 2);
         if (($var['fsState'] ?? '') === 'Started' && !is_dir($appdata)) {
             $info['no_data']['appdata'] = $appdata;
+            // a fresh server (the agent's look in RAM, agent/lib/firsthome.php): the welcome and its «create»
+            if (($home = officeHomeLook()) !== null && '/mnt/user/' . $home['share'] === $appdata) {
+                $info['no_data']['home'] = $home;
+            }
         }
     }
     unset($info['night']);
@@ -58,6 +62,107 @@ function agentInfo(): array
         $info['night'] = $night;        // the array isn't started: the night watchman keeps watch from RAM and the flash
     }
     return $info;
+}
+
+/**
+ * The agent's look at the missing share of the data folder (agent/lib/firsthome.php homeTick(), RAM) while it is new
+ * (30 s — the agent looks every 5), only in exactly its shape; else null: {share, fresh, pool, missing: [{share,
+ * fresh}], optional: [names], answer: null | {time, made} | {time, error}}.
+ */
+function officeHomeLook(?string $file = null): ?array
+{
+    $file ??= officeHomeLookFile();
+    clearstatcache(true, $file);
+    if (is_link($file) || (int) @filemtime($file) < time() - 30) {
+        return null;
+    }
+    $j = officeReadJson($file);
+    $name = '/^[A-Za-z][A-Za-z0-9._-]{0,39}$/D';
+    $share = $j['share'] ?? null;
+    if (!is_string($share) || !preg_match($name, $share) || !is_bool($j['fresh'] ?? null)
+        || !(($j['pool'] ?? null) === null || (is_string($j['pool']) && preg_match('/^[a-z_][a-z0-9_~.-]{0,39}$/D', $j['pool'])))) {
+        return null;
+    }
+    $missing = [];
+    foreach (is_array($j['missing'] ?? null) ? array_slice($j['missing'], 0, 4) : [] as $m) {
+        if (is_array($m) && is_string($m['share'] ?? null) && preg_match($name, $m['share']) && is_bool($m['fresh'] ?? null)) {
+            $missing[] = ['share' => $m['share'], 'fresh' => $m['fresh']];
+        }
+    }
+    if (!in_array($share, array_column($missing, 'share'), true)) {
+        array_unshift($missing, ['share' => $share, 'fresh' => $j['fresh']]);
+    }
+    $optional = [];
+    foreach (is_array($j['optional'] ?? null) ? array_slice($j['optional'], 0, 4) : [] as $o) {
+        if (is_string($o) && preg_match($name, $o)) {
+            $optional[] = $o;
+        }
+    }
+    $a = is_array($j['answer'] ?? null) ? $j['answer'] : null;
+    $answer = null;
+    if ($a && ($a['made'] ?? null) === true) {
+        $answer = ['made' => true];
+    } elseif ($a && is_string($a['error']['key'] ?? null) && preg_match('/^home_[a-z_]{1,32}$/D', $a['error']['key'])) {
+        $params = [];
+        foreach (is_array($a['error']['params'] ?? null) ? $a['error']['params'] : [] as $k => $v) {
+            if (is_string($k) && preg_match('/^[a-z]{1,16}$/D', $k) && is_string($v)) {
+                $params[$k] = mb_substr($v, 0, 200);
+            }
+        }
+        $answer = ['error' => ['key' => $a['error']['key'], 'params' => $params]];
+    }
+    if ($answer !== null) {
+        $answer['time'] = is_int($a['time'] ?? null) ? $a['time'] : 0;
+    }
+    return ['share' => $share, 'fresh' => $j['fresh'], 'pool' => $j['pool'] ?? null, 'missing' => $missing, 'optional' => $optional,
+            'answer' => $answer];
+}
+
+/**
+ * «Create appdata» on the welcome (core.js): exactly the shares the agent just found missing and never there — the data
+ * folder's among them —, the array started. The agent's mailbox lies in that very share, so the click goes into the RAM
+ * inbox (officeHomeRequestFile(), a new 0600 file, renamed into place) and the doorbell rings; the agent looks again and
+ * asks Unraid (lib/firsthome.php homeTick()).
+ */
+function officeHomeAsk(array $data, ?string $varIni = null): array
+{
+    $shares = $data['shares'] ?? null;
+    if (!is_array($shares) || !array_is_list($shares) || array_filter($shares, fn ($s) => !is_string($s))) {
+        throw new OfficeProblem('bad_request', 400);
+    }
+    $home = officeHomeLook();
+    $var = @parse_ini_file($varIni ?? '/var/local/emhttp/var.ini') ?: [];
+    $fresh = $home === null ? [] : array_column(array_filter($home['missing'], fn ($m) => $m['fresh']), 'share');
+    $want = array_values(array_unique($shares));
+    sort($want);
+    sort($fresh);
+    if ($home === null || !$home['fresh'] || $want !== $fresh || ($var['fsState'] ?? '') !== 'Started') {
+        return ['ok' => false, 'error' => ['key' => 'home_stale', 'params' => []], 'agent' => agentInfo()];
+    }
+    $share = $home['share'];
+    $file = officeHomeRequestFile();
+    $dir = dirname($file);
+    @mkdir(dirname($dir), 0700, true);
+    @mkdir($dir, 0700);
+    clearstatcache(true, $dir);
+    $st = @lstat($dir);
+    $me = function_exists('posix_geteuid') ? posix_geteuid() : -1;
+    if (!$st || ($st['mode'] & 0170000) !== 0040000 || ($st['mode'] & 0077) !== 0 || $st['uid'] !== $me) {
+        return ['ok' => false, 'error' => ['key' => 'home_failed', 'params' => ['share' => $share, 'detail' => $dir]], 'agent' => agentInfo()];
+    }
+    $tmp = "$dir/." . bin2hex(random_bytes(8)) . '.tmp';
+    $old = umask(0177);
+    $f = @fopen($tmp, 'x');
+    umask($old);
+    $text = (string) json_encode(['shares' => $want, 'time' => time()]);
+    $ok = $f !== false && @fwrite($f, $text) === strlen($text);
+    $ok = $f !== false && fclose($f) && $ok && @rename($tmp, $file);
+    if (!$ok) {
+        @unlink($tmp);
+        return ['ok' => false, 'error' => ['key' => 'home_failed', 'params' => ['share' => $share, 'detail' => $dir]], 'agent' => agentInfo()];
+    }
+    agentRing();            // at once; without the doorbell the agent finds it within 5 seconds
+    return ['ok' => true, 'agent' => agentInfo()];
 }
 
 /**

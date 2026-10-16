@@ -213,6 +213,9 @@ desk('advisor', [
         [finding('fcp', 'recommended', housePlugin(ADVISOR_EXTERNALS['fcp']['plugin']), [], 'apps'),
          finding('filesviewer', 'recommended', housePlugin(ADVISOR_EXTERNALS['filesviewer']['plugin']), [], 'apps')],
         ($media = advisorMedia()) ? [finding('streamviewer', 'recommended', housePlugin('streamviewer'), ['media' => $media], 'apps')] : [],
+        // what he installs runs in Docker, whose image lies in Unraid's share system: missing, the Team Lead says what to do
+        in_array('system', array_column(homeMissing()['missing'], 'share'), true)
+            ? [finding('docker_system', 'recommended', false, ['share' => 'system'], '#/caretaker/todo')] : [],
     ),
 ]);
 

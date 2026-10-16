@@ -20,7 +20,7 @@
 const ID = 'caretaker';
 const T = Office.scope(ID);
 const { el, fmt } = Office;
-const LINKS = { plugins: '/Plugins', apps: '/Apps', docker: '/Docker', userscripts: '/Settings/Userscripts', notifications: '/Settings/Notifications', settings: '/Settings',
+const LINKS = { plugins: '/Plugins', apps: '/Apps', shares: '/Shares', docker: '/Docker', userscripts: '/Settings/Userscripts', notifications: '/Settings/Notifications', settings: '/Settings',
   management: '/Settings/ManagementAccess', disks: '/Settings/DiskSettings', ups: '/Settings/UPSsettings' };
 
 let state = null;
@@ -356,6 +356,15 @@ function row(f) {
     a.href = LINKS[f.link];
     acts.appendChild(a);
   }
+  if (f.id === 'std_shares' && f.ok === false && !noted && f.params && f.params.shares) {
+    // Unraid's standard shares never there (system): created on this click only, the way Unraid's ⟦Shares⟧ page does
+    const names = String(f.params.shares).split(', ').filter(Boolean);
+    const b = el('button', 'btn small', names.length === 1 ? T('shares_make_one', { share: names[0] }) : T('shares_make_all'));
+    b.type = 'button';
+    b.disabled = !Office.agent.running;
+    b.onclick = () => sharesMake(names, b);
+    acts.appendChild(b);
+  }
   if (ackable(f)) {
     // «I know, thanks» / «Bring back» — kept on the server, so the Dashboard and his picture follow
     const b = el('button', 'btn small plain', T(noted ? 'unack' : 'ack'));
@@ -367,6 +376,23 @@ function row(f) {
   }
   if (acts.childNodes.length) r.appendChild(acts);
   return r;
+}
+
+async function sharesMake(names, b) {
+  b.disabled = true;
+  b.classList.add('running');
+  b.prepend(el('span', 'spin'));
+  await Office.freshState(ID);
+  const j = await Office.api.post(`${ID}.shares_make`, { shares: names });
+  if (!j.ok) {
+    Office.toast(Office.errorText(j.error, ID), true);
+    await load(true);       // as things are now: the card shows what is still missing
+    return;
+  }
+  state = j.state;
+  if (view) renderKeeping(['advice', 'done']);
+  mood();
+  Office.toast(T('shares_made', { n: j.made.length, shares: j.made.join(', ') }));
 }
 
 async function ack(f, on, b) {

@@ -1709,5 +1709,7 @@
   "notify.kopia_emptied": "Snapshots le {when} : {before}, maintenant : {now} — non supprimés par le secrétariat. Si ce n'était pas toi : ne supprime rien, Object Lock garde peut-être encore les données ; Monsieur Restori et le consultant montrent comment les récupérer. Cette sauvegarde envoie tout à nouveau.",
   "warn_code.kopia_gone": "La copie hors site a été vidée — Kopia ne peut plus ouvrir le dépôt, sa propre description manque aussi (snapshots le {when} : {before}) ; non supprimés par le secrétariat. Si ce n'était pas toi : ne supprime rien, Object Lock garde peut-être encore les données — Monsieur Restori et le consultant montrent comment les récupérer. Rien n'est parti hors site lors de cette sauvegarde.",
   "notify.kopia_gone.subject": "La copie hors site a été vidée",
-  "notify.kopia_gone": "Kopia ne peut plus ouvrir le dépôt — sa propre description manque aussi (snapshots le {when} : {before}) ; non supprimés par le secrétariat. Si ce n'était pas toi : ne supprime rien, Object Lock garde peut-être encore les données ; Monsieur Restori et le consultant montrent comment les récupérer."
+  "notify.kopia_gone": "Kopia ne peut plus ouvrir le dépôt — sa propre description manque aussi (snapshots le {when} : {before}) ; non supprimés par le secrétariat. Si ce n'était pas toi : ne supprime rien, Object Lock garde peut-être encore les données ; Monsieur Restori et le consultant montrent comment les récupérer.",
+  "check.docker_system": "Le partage system d'Unraid est là — Docker en a besoin",
+  "check.docker_system_how": "Le partage system manque : Unraid y range l'image de Docker, sans lui ni Docker ni Kopia ne tournent. Le chef d'équipe dit comment l'obtenir."
 }

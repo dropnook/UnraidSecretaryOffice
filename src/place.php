@@ -255,3 +255,18 @@ function officeInboxDir(): string
 {
     return rtrim(getenv('OFFICE_INBOX_DIR') ?: officeRunDir() . '/inbox', '/');
 }
+
+/**
+ * A fresh server without the share of the data folder (agent/lib/firsthome.php): the agent's look at it in RAM, which
+ * the page shows (agentInfo()), and the user's click «create» the web side leaves for it in the RAM inbox
+ * (officeHomeAsk()) — never the mailbox, which lies in the very data folder that is missing.
+ */
+function officeHomeLookFile(): string
+{
+    return officeRunDir() . '/home.json';
+}
+
+function officeHomeRequestFile(): string
+{
+    return officeInboxDir() . '/home.request';
+}

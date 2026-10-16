@@ -81,6 +81,7 @@ require __DIR__ . '/lib/migrate.php';
 require __DIR__ . '/lib/report.php';
 require __DIR__ . '/lib/supporter.php';     // the key a tip made, asked of the support page (office.supporter_claim)
 require __DIR__ . '/lib/jobs.php';          // what the office is doing right now, for the Dashboard tile (office.jobs)
+require __DIR__ . '/lib/firsthome.php';       // a fresh server without appdata: the welcome's look and its «create»
 require __DIR__ . '/lib/import.php';        // taking over an earlier install: the folder and file checks (Jack Emby, Ms. Moverelli)
 foreach (glob(__DIR__ . '/desks/*.php') ?: [] as $deskFile) {
     require $deskFile;
@@ -288,7 +289,13 @@ function serve(): int
         clearstatcache();
         if (!is_dir(DATA_DIR) && !makeDataDir()) {     // array stopped: wait until it is back
             $ready = false;
-            sleep(5);
+            // a fresh server without the share: the page's welcome (lib/firsthome.php), the user's click at once by
+            // the doorbell
+            // the user's click (lib/firsthome.php), then — for an exclusive share — at once on the pool, past shfs
+            if (arrayRunning() && !empty(homeTick(DATA_DIR_USER)['answer']['made']) && officeUnraidPath(DATA_DIR_USER) !== DATA_DIR) {
+                restartInPlace($lock, 'The share of the data folder is there now, reached ' . officeUnraidPath(DATA_DIR_USER));
+            }
+            agentNap($bell, microtime(true) + HOME_LOOK_EVERY);
             if (arrayRunning() && ($way = dataWayLook()) !== null) {
                 restartInPlace($lock, "The data folder is reached another way now ($way)");
             }
@@ -474,7 +481,15 @@ function makeDataDir(): bool
     if (!is_dir($appdata) || !@mkdir(DATA_DIR, 0755, true)) {
         return false;
     }
+    // the shares made on the user's click (lib/firsthome.php): said in the log, which only now has a place
+    $made = readJson(officeHomeLookFile())['answer'] ?? null;
+    foreach (is_array($made) && is_array($made['log'] ?? null) ? $made['log'] : [] as $line) {
+        if (is_string($line)) {
+            logLine($line);
+        }
+    }
     logLine('Created the data folder ' . DATA_DIR);
+    @unlink(officeHomeLookFile());
     return true;
 }
 
