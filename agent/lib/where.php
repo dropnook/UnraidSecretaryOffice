@@ -2036,7 +2036,8 @@ function waSmart(string $file, array $watch): ?array
             if ($nv['media_errors']) {
                 $smart['problems'][] = ['level' => 'bad', 'key' => 'nvme_media', 'raw' => (string) $nv['media_errors']];
             }
-            if ($nv['spare'] !== null && $nv['spare_threshold'] !== null && $nv['spare'] <= $nv['spare_threshold']) {
+            // below the drive's own threshold only; a threshold of 0 is none (virtual NVMe report 0 % / 0 %, Unraid 7.4 test VMs)
+            if ($nv['spare'] !== null && $nv['spare_threshold'] && $nv['spare'] < $nv['spare_threshold']) {
                 $smart['problems'][] = ['level' => 'bad', 'key' => 'nvme_spare', 'raw' => "{$nv['spare']}%"];
             }
             if ($nv['used'] !== null && $nv['used'] >= 80) {

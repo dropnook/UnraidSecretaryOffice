@@ -349,7 +349,7 @@ function jackPools(): array
  * The pools' sizes in bytes: on ZFS the whole pool (used + avail of its root dataset, one `zfs list` — no disk is read),
  * else the file system's size. [mount => bytes]; a pool not mounted or unreadable is left out.
  */
-function jackPoolSizes(?array $mounts = null, ?callable $zfs = null): array
+function jackPoolSizes(?array $mounts = null, ?callable $zfs = null, ?array $poolMounts = null): array
 {
     $mounts ??= mountTable();
     $zfs ??= function (): array {
@@ -363,7 +363,7 @@ function jackPoolSizes(?array $mounts = null, ?callable $zfs = null): array
         }
         return $sizes;
     };
-    $pools = array_flip(jackPools());
+    $pools = array_flip($poolMounts ?? jackPools());   // the tests name their pools (a test server's pools change)
     $z = null;
     $out = [];
     foreach ($mounts as $m) {

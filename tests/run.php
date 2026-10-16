@@ -3681,6 +3681,18 @@ function testWhereArrayZfs(): void
     check('SMART 190 In_the_past: a notice', ($by[190]['level'] ?? '') === 'notice' && ($by[190]['key'] ?? '') === 'failed_past');
     check('SMART 197 FAILING_NOW: bad', ($by[197]['level'] ?? '') === 'bad' && ($by[197]['key'] ?? '') === 'failing');
     check('SMART 5 at 0: no problem', !isset($by[5]));
+    // NVMe spare (2026-10-16, virtual NVMe on Unraid 7.4: «Available Spare 0 %», threshold 0 % — no threshold, no alarm)
+    $nvme = function (int $spare, int $thresh): array {
+        $f = sys_get_temp_dir() . '/office-tests-smart-nv-' . getmypid();
+        file_put_contents($f, "SMART/Health Information (NVMe Log 0x02, NSID 0x1)\nCritical Warning:                   0x00\nTemperature:                        50 Celsius\n"
+            . "Available Spare:                    {$spare}%\nAvailable Spare Threshold:          {$thresh}%\nPercentage Used:                    0%\n"
+            . "Media and Data Integrity Errors:    0\n");
+        $sm = waSmart($f, []);
+        @unlink($f);
+        return array_column($sm['problems'] ?? [], 'key');
+    };
+    same('SMART NVMe spare: 0 % of threshold 0 % — nothing; 5 % under 10 % — bad; 10 % at 10 % — nothing; 100 % — nothing',
+        [[], ['nvme_spare'], [], []], [$nvme(0, 0), $nvme(5, 10), $nvme(10, 10), $nvme(100, 10)]);
 }
 
 /** Jack's setup form is made anew on every visit (a form left without «Save» kept stale values, a later save wrote them) */
@@ -33235,7 +33247,7 @@ function testStreamerBudget(): void
         ['jack_budget_pool {"total":"60 GB","pool":"32 GB"}', 'ok', 'ok'], [$pool('60G', 32 << 30), $pool('32G', 32 << 30), $pool('60G', null)]);
     same('streamer budget: the pools\' sizes — ZFS the whole pool (used + avail of its root), others the file system; a pool not his left out',
         ['/mnt/big' => 300], jackPoolSizes([['mount' => '/mnt/big', 'fs' => 'zfs', 'source' => 'big'], ['mount' => '/mnt/disk1', 'fs' => 'xfs', 'source' => '/dev/md1p1']],
-            fn () => ['big' => 300, 'disk1' => 5]));
+            fn () => ['big' => 300, 'disk1' => 5], ['/mnt/big']));
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.js');
     check('streamer budget: the setup says it before «Save» (the pool\'s size from his state); the pool changing while files lie on the old one is said too',
         str_contains($js, "return T('setup.budget_pool', { pool: derivedPool(), size: fmt.size(size) });") && str_contains($js, "T('setup.pool_change', { old, new: now, n, tick: T('letgo.tick') })")
