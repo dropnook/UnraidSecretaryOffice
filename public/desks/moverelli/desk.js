@@ -1217,9 +1217,14 @@ function resultBox() {
   return box;
 }
 /** A run's words for the bar: its mode, result, who started it, the summary */
-/** Who started a run; a night without Jack Streamer (his flag false in the record) is «the night run», not the joint one */
-const runBy = (r) => 'by.' + (r.by === 'night' && r.jack === false ? 'night_solo' : r.by);
-const runHay = (r) => [T('mode.' + r.mode), T('result.' + (r.result || 'failed')), T(runBy(r)), runSummary(r)];
+/** Who started a run; inside the joint run its record's `from` (her schedule or this page), with «in the joint run» while
+ *  Jack Streamer took part (his flag false: her part alone). A record from before `from`: only what is known */
+const runBy = (r) => {
+  if (r.by !== 'night') return T('by.' + r.by);
+  const from = ['office', 'schedule'].includes(r.from) ? T('by.' + r.from) : '';
+  return [from, r.jack === false ? '' : T('by.night')].filter(Boolean).join(' · ');
+};
+const runHay = (r) => [T('mode.' + r.mode), T('result.' + (r.result || 'failed')), runBy(r), runSummary(r)];
 function fillRuns(box) {
   box.innerHTML = '';
   const runs = state.history || [];
@@ -1233,7 +1238,7 @@ function fillRuns(box) {
     const ok = r.result === 'ok';
     const cls = ['refused', 'skipped', 'stopped'].includes(r.result) ? 'quiet' : ok ? 'ok' : 'warn';
     meta.append(chip(T('result.' + (r.result || 'failed')), cls, r.exit != null ? T('exit_code', { n: r.exit }) : ''),
-      el('span', '', fmt.date(r.started)), el('span', '', T(runBy(r))));
+      el('span', '', fmt.date(r.started)), el('span', '', runBy(r)));
     if (r.finished && r.finished - r.started >= 60) meta.appendChild(el('span', '', fmt.duration(r.finished - r.started)));
     main.append(meta, el('div', 'row-meta', runSummary(r)));
     row.appendChild(main);

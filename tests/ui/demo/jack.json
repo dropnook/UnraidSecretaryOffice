@@ -344,7 +344,8 @@
   {
    "tool": "embycache",
    "mode": "run",
-   "by": "schedule",
+   "by": "night",
+   "from": "schedule",
    "started": 1791808800,
    "finished": 1791809400,
    "exit": 0,
@@ -369,7 +370,8 @@
   {
    "tool": "embycache",
    "mode": "run",
-   "by": "schedule",
+   "by": "night",
+   "from": "office",
    "started": 1791722400,
    "finished": 1791723300,
    "exit": 0,

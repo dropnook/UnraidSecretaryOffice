@@ -188,8 +188,9 @@ only through shared libraries (`backupProtection()`, `finding()`, `partnerlook.p
 
 **The same thing has the same word on every desk** — the table (backup run, tour, package, offsite, restore, drill, hold,
 partner …, ×5 languages) is in docs/DEVELOPMENT.md «Words»: **read it before writing any UI string.** In short: the office =
-das Sekretariat / la segreteria / le secrétariat / la secretaría (never Büro); Kopia is the tool, the place is «offsite»; «a
-night» never stands for one backup run; **Unraid's own labels** are tokens `⟦English label⟧` in all five languages, listed in
+das Sekretariat / la segreteria / le secrétariat / la secretaría (never Büro); Kopia is the tool, the place is «offsite»; no
+run happens «at night» (on schedule or started here; Ms. Moverelli and Jack Streamer: «the joint run»; only the Night Watchman
+keeps the night); **Unraid's own labels** are tokens `⟦English label⟧` in all five languages, listed in
 `public/lang/unraid/<code>.json` (`testUnraidWords`), never a placeholder inside a token.
 
 ## UI conventions (for all new code)

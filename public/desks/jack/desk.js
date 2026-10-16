@@ -1044,7 +1044,9 @@ function historySection() {
   return s;
 }
 /** A run's words for the filter: the tool, the kind, the result, the date, who started it, what it did */
-const runHay = (r) => [T('tool.' + r.tool), T('mode.' + r.mode), T('result.' + (r.result || 'failed')), fmt.date(r.started), T('by.' + r.by), runSummary(r)];
+/** Who started a run; inside the joint run its record's `from` (Ms. Moverelli's schedule or a page) and «in the joint run» */
+const runBy = (r) => r.by === 'night' && ['office', 'schedule'].includes(r.from) ? `${T('by.' + r.from)} · ${T('by.night')}` : T('by.' + r.by);
+const runHay = (r) => [T('tool.' + r.tool), T('mode.' + r.mode), T('result.' + (r.result || 'failed')), fmt.date(r.started), runBy(r), runSummary(r)];
 function fillRuns(box) {
   box.innerHTML = '';
   const runs = state.history || [];
@@ -1061,7 +1063,7 @@ function fillRuns(box) {
     const ok = ['ok'].includes(r.result) && !((r.status || {}).errors);
     const cls = ['refused', 'skipped', 'stopped'].includes(r.result) ? 'quiet' : ok ? 'ok' : 'warn';
     meta.append(chip(T('result.' + (r.result || 'failed')), cls, r.exit != null ? T('exit_code', { n: r.exit }) : ''),
-      el('span', '', fmt.date(r.started)), el('span', '', T('by.' + r.by)));
+      el('span', '', fmt.date(r.started)), el('span', '', runBy(r)));
     if (r.finished && r.finished - r.started >= 60) meta.appendChild(el('span', '', fmt.duration(r.finished - r.started)));
     main.append(meta, el('div', 'row-meta', runSummary(r)));
     row.appendChild(main);

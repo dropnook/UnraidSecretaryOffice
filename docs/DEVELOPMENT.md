@@ -577,11 +577,13 @@ The same thing has the same word on every desk and text; grammar follows the wor
 * **Kopia** is the tool (container, repository, KopiaUI, policies, its errors), never the place — the place is «offsite». First
   time on a page: «offsite (encrypted with Kopia: S3, Backblaze B2, SFTP, WebDAV, a NAS …)»; partners are offsite too but say
   «to the partner». Internal keys (`mode = kopia`) stay.
-* **Nights:** a backup can run any time, so «a night» never stands for one run or its snapshot/package. «Night» stays where
-  literal or a name: the Night Watchman, «at night», «Every day at» (not «Every night at»), the drill's window (00:00–07:00,
-  «right after a nightly backup»), Immich's nightly dump, Jack Streamer's night run; code names (`{nights}`) and engine lines keep
-  theirs. The role says «the backup», the drill never «nightly». German «Lauf» only for Jack Streamer's and plan runs; Mr. Restori's
-  drill is «die Übung», never «Probelauf».
+* **Nights:** a backup can run any time, so «a night» never stands for one run or its snapshot/package. «Night» stays only
+  in a name: the Night Watchman and his night shift; code names (`{nights}`, `night.json`, `--night`) and engine lines keep
+  theirs. No other run happens «at night» (owner, 2026-10-16): a run is **on schedule** (with its time when the text knows
+  it) or **started here**; Ms. Moverelli's and Jack Streamer's run is **the joint run** (de «der gemeinsame Lauf»), «tonight»
+  is «the next run», «Every day at» (not «Every night at»); the drill says its window (00:00–07:00) and its day
+  (`testNoNightWords`). The role says «the backup», the drill never «nightly». German «Lauf» only for Jack Streamer's and plan
+  runs; Mr. Restori's drill is «die Übung», never «Probelauf».
 * **Unraid's own words:** every label of Unraid's UI a text names (menu tabs, tiles, buttons, fields, values, paths like
   `⟦Settings⟧ → ⟦User Utilities⟧ → Fix Common Problems`, «the ⟦Main⟧ page») is a token `⟦English label⟧` exactly as English
   Unraid shows it, **in all five languages**; it reads in Unraid's language (`unraid_lang`), resolved by `t()`,

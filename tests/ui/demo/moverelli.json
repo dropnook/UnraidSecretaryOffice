@@ -184,7 +184,8 @@
  "history": [
   {
    "mode": "run",
-   "by": "schedule",
+   "by": "night",
+   "from": "schedule",
    "started": 1791585902,
    "finished": 1791586502,
    "exit": 0,
