@@ -1891,7 +1891,7 @@ async function connectInst(inst) {
  * its container if one runs here, else empty with the note that none runs here). Returns the row's index.
  */
 function mediaPick(type) {
-  let idx = form.instances.findIndex((i) => i.type === type && String(i.url || '').trim() !== '');
+  let idx = form.instances.findIndex((i) => i.type === type);   // a row of that kind already (set up or just added)
   if (idx < 0) {
     // an untouched empty row (the first Emby of a fresh setup) becomes this kind instead of a second row
     const blank = form.instances.findIndex((i) => !i.has_key && !i.api_key && !i.server && /^https?:\/\/$/.test(String(i.url || '').trim() || 'http://'));
@@ -1911,7 +1911,7 @@ function mediaPick(type) {
 }
 
 /**
- * The media servers he can work with: Emby, Jellyfin and Plex. A kind with a server below says «set up» (green); the
+ * The media servers he can work with: Emby, Jellyfin and Plex. A kind with a server below (its key kept, or connected) says «set up» (green); the
  * others «supported» (grey — what he can do, not that one is installed here). The names are the products' own.
  */
 function mediaChoice() {
@@ -1919,7 +1919,7 @@ function mediaChoice() {
   box.appendChild(el('div', 'jo-media-head', T('setup.media')));
   const row = el('div', 'jo-media-row');
   [['Emby', 'emby'], ['Jellyfin', 'jellyfin'], ['Plex', 'plex']].forEach(([name, type]) => {
-    const set = (form && form.instances || []).some((i) => i.type === type && String(i.url || '').trim() !== '');
+    const set = (form && form.instances || []).some((i) => i.type === type && (i.has_key || !!i.server));   // a key kept or connected
     const card = el('button', 'box jo-media-card' + (set ? ' on' : ''));   // the orange frame only around what is set up
     card.type = 'button';
     card.setAttribute('aria-disabled', 'false');

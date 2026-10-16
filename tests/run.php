@@ -32970,17 +32970,18 @@ function testStreamerTab(): void
   out.cards = srv.filter((n) => /jo-media-card/.test(n.className)).map((n) => [all(n).find((x) => x.tag === 'b').textContent, n.attrs['aria-disabled'], /\boff\b/.test(n.className)]);
   // the chip: «set up» (green) for a kind with a server below, «supported» (grey) for the others
   const chipsOf = () => all(e.setupServers()).filter((n) => /jo-media-card/.test(n.className)).map((n) => { const c = all(n).find((x) => /\bchip\b/.test(x.className || '')); return [c.textContent, /\bok\b/.test(c.className)]; });
-  { const keep = e.form().instances; e.form().instances = keep.filter((i) => i.type === 'emby'); out.chipsEmby = chipsOf();
-    e.form().instances = [...e.form().instances, { type: 'jellyfin', url: 'http://jf:8096', mappings: {}, users: [] }, { type: 'plex', url: '', mappings: {}, users: [] }];
+  { const keep = e.form().instances; e.form().instances = keep.filter((i) => i.type === 'emby').map((i) => ({ ...i, has_key: true })); out.chipsEmby = chipsOf();
+    e.form().instances = [...e.form().instances, { type: 'jellyfin', url: 'http://jf:8096', has_key: true, mappings: {}, users: [] }, { type: 'plex', url: 'http://', mappings: {}, users: [] }];
     out.chipsAll = chipsOf(); e.form().instances = keep; }
   // a click on a card: set up — its row; not yet — a new row of that kind (its container here, else empty with the note)
   { const keep = e.form().instances, st0 = e.form();
-    e.form().instances = keep.filter((i) => i.type === 'emby');
+    e.form().instances = keep.filter((i) => i.type === 'emby').map((i) => ({ ...i, has_key: true }));
     const conts = (globalThis.__jackState || {}).emby;
     const at = e.mediaPick('emby');
     const n0 = e.form().instances.length;
     const j = e.mediaPick('jellyfin'); const ji = e.form().instances[j];
     const again = e.mediaPick('jellyfin');
+    out.pickChips = chipsOf().map((c) => c[0]);
     out.pick = [at, n0, j, ji.type, !!ji.noContainer || ji.url !== 'http://', again === j, e.form().instances.length];
     const note = texts(e.setupServers()).filter((t) => t.startsWith('setup.no_container'));
     out.pickNote = [ji.noContainer ? note.length === 1 : note.length === 0];
@@ -33076,12 +33077,13 @@ JS, [OFFICE_WEB . '/desks/jack/desk.js', OFFICE_DIR . '/tests/ui/demo/jack.json'
     }
     same('desk scripts: no top-level function declared twice', [], $dups);
     same('streamer tab: Emby, Jellyfin and Plex all work (1.65.0, MediaCache)', [['Emby', 'false', false], ['Jellyfin', 'false', false], ['Plex', 'false', false]], $r['cards']);
-    same('streamer tab: the media cards — a kind with a server (an address) below «set up» (green), a Plex box still empty not; only Emby set up: the others «supported» (grey)',
+    same('streamer tab: the media cards — a kind with a server below (its key kept or connected) «set up» (green), a Plex row just added (no key) not; only Emby set up: the others «supported» (grey)',
         [[['setup.media_set', true], ['setup.media_set', true], ['setup.media_ok', false]], [['setup.media_set', true], ['setup.media_ok', false], ['setup.media_ok', false]]],
         [$r['chipsAll'] ?? null, $r['chipsEmby'] ?? null]);
     same('streamer tab: a card clicked — Emby set up: its row (0, nothing added); Jellyfin not yet: a new Jellyfin row (from its container, or empty saying none runs here); clicked again: the same row',
         [0, 1, 1, 'jellyfin', true, true, 2], $r['pick'] ?? null);
     same('streamer tab: … the note «no container here» exactly when none runs here', [true], $r['pickNote'] ?? null);
+    same('streamer tab: … the new Jellyfin row (no key yet) leaves its card «supported»', ['setup.media_set', 'setup.media_ok', 'setup.media_ok'], $r['pickChips'] ?? null);
     same('streamer tab: the amount needs a connected server first', ['setup.after_connect'], $r['notYet']);
     same('streamer tab: the form is budget mode only — the saved budget in GB, episodes per series inside it, nothing of count mode or the wizard',
         ['300', 3, false, false, false, false], $r['form']);
