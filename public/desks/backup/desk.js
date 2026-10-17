@@ -558,6 +558,19 @@ function notices() {
     callout(drill ? T('notice.drilling') : T('notice.restoring', { what: state.holder.what || '–' }), false, go);
   }
   if (!state.settings_found) callout(T('notice.no_settings'), true, button(T('setup_open'), 'small', () => Office.go(`#/${ID}/setup`)));
+  // engine 2.56: the repository suddenly empty - the Kopia step held until the snapshots are back or the user says it is new
+  const held = state.kopia_held;
+  if (held && typeof held.repo === 'string') {
+    const more = el('span', 'bk-held-acts');
+    const adv = Office.desks.get('advisor');
+    if (adv && adv.hired) {
+      more.appendChild(button(T('held.guide'), 'small plain', () => { Office.go('#/advisor'); Office.reveal('lock.8', { name: T('held.guide'), part: 'ext.kopia' }); }));
+    }
+    const ok = button(T('held.accept'), 'small plain', heldAccept);
+    ok.disabled = !canAct() || live() || restoring();
+    more.appendChild(ok);
+    callout(T('held.callout', { when: `${fmt.date(held.when)} ${fmt.time(held.when)}`, before: String(held.before), now: String(held.now), since: fmt.date(held.time) }), true, more);
+  }
   const sc = state.schedule || {};
   if (sc.script && !sc.enabled) {     // no settings yet: "no settings" says it all
     const b = button(T('schedule.open'), 'small', scheduleDialog);
@@ -1883,6 +1896,29 @@ async function abortRun() {
       } },
     ],
   });
+}
+
+/** «The repository is new…» (engine 2.56): asked once more, the safe default «Cancel»; only the hold the page showed ends */
+async function heldAccept() {
+  if (!(await Office.freshState(ID))) return;
+  const held = state.kopia_held;
+  if (!held) { render(); return; }
+  const d = Office.dialog({
+    title: T('held.accept_title'),
+    body: el('p', '', T('held.accept_text')),
+    buttons: [
+      { text: Office.t('common.cancel') },
+      { text: T('held.accept_go'), kind: 'danger', act: async () => {
+        const j = await Office.api.post(`${ID}.kopia_accept`, { repo: held.repo });
+        if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); if (j.error && j.error.key === 'kopia_held_stale') load(true); return true; }
+        if (j.state) state = j.state;
+        Office.toast(T('held.accepted'));
+        render();
+        return true;
+      } },
+    ],
+  });
+  d.buttons[0].focus();           // safe default: Enter cancels
 }
 
 async function unmount() {

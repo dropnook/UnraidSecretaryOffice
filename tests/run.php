@@ -4806,7 +4806,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.55'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.56'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -6460,9 +6460,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.55 everywhere it is named', ['2.55', '2.55', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.55"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.55** –')]);
+    same('data trust: the engine\'s version 2.56 everywhere it is named', ['2.56', '2.56', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.56"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.56** –')]);
     // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
     same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
         array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
@@ -7451,7 +7451,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.55', [1, '2.55'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.56', [1, '2.56'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -8059,7 +8059,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.55', [1, '2.55'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.56', [1, '2.56'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -8130,6 +8130,7 @@ function testKopiaEmptied(): void
     file_put_contents("$tmp/bin/docker", "#!/bin/bash\nF=" . escapeshellarg($tmp) . "\ncase \"\$1\" in\n"
         . "  inspect) echo true; exit 0 ;;\n  top) printf 'PID UID ARGS\\n1 0 /bin/kopia server --x\\n'; exit 0 ;;\nesac\n"
         . "[[ -e \$F/fails ]] && { echo 'ERROR unable to open repository: Access Denied' >&2; exit 1; }\n"
+        . "[[ -e \$F/nolist && \"\$*\" == *'snapshot list'* ]] && exit 1\n"
         . "[[ -e \$F/gone ]] && { echo 'open repository: unable to open repository: unable to create format manager: unable to read format blob: error getting kopia.repository blob: BLOB not found' >&2; exit 1; }\n"
         . "case \"\$*\" in\n  *'repository status --json'*) cat \$F/repo.json ;;\n  *'snapshot list --all --json'*) cat \$F/list.json ;;\n"
         . "  *--version*) echo '0.23.1 build' ;;\nesac\nexit 0\n");
@@ -8167,21 +8168,78 @@ function testKopiaEmptied(): void
     // a drop of one: nothing
     $list([$ks('/uso/photos'), $ks('/uso/photos'), $ks('/uso/.apps/immich')]);
     same('kopia emptied: one fewer (Kopia\'s retention) — nothing', 'w=0', $sh('kopia_emptied_check >/dev/null; echo "w=$WARNINGS"'));
-    // emptied: Kopia lists nothing and exits 0
+    // emptied: Kopia lists nothing and exits 0 — 2.56: the Kopia step held (an error), the hold kept, an alert when it begins
     $list([]);
-    $out = $sh('kopia_emptied_check >/dev/null; echo "w=$WARNINGS"; printf "%s\n" "${WARN_ITEMS[@]}" | tr "\037" "|"');
+    $held = fn () => json_decode((string) @file_get_contents("$tmp/data/state/kopia-held.json"), true);
+    $out = $sh('kopia_emptied_check >/dev/null; echo "held=$KOPIA_HELD e=$ERRORS w=$WARNINGS"; printf "%s\n" "${WARN_ITEMS[@]}" | tr "\037" "|"');
     $when = date('Y-m-d H:i', (int) ($record()['time'] ?? 0));
-    same('kopia emptied: none left — a coded warning (before, now, when)', "w=1\nkopia_emptied|before=4|now=0|when=$when", $out);
+    same('kopia held: none left — the Kopia step held, an error in the office\'s words (before, now, when)', "held=yes e=1 w=0\nkopia_held|before=4|now=0|when=$when", $out);
     $n = $notified();
     $f = explode("\x1f", $n[0] ?? '');
-    same('kopia emptied: … and an alert right away, in the office\'s words', [1, true, 'alert', true],
-        [count($n), in_array('Unraid Secretary Office: Mr. Backupsy: The offsite copy was emptied', $f, true), $f[array_search('-i', $f, true) + 1] ?? null,
-         in_array("Snapshots on $when: 4, now: 0 — not deleted by the office. If that wasn't you: delete nothing, Object Lock may still hold the data; Mr. Restori and the Consultant show how to get it back. This run uploads everything anew.", $f, true)]);
+    same('kopia held: … an alert right away, in the office\'s words', [1, true, 'alert', true],
+        [count($n), in_array('Unraid Secretary Office: Mr. Backupsy: The offsite copy is suddenly empty', $f, true), $f[array_search('-i', $f, true) + 1] ?? null,
+         in_array("Snapshots on $when: 4, now: 0 — not deleted by the office. Possibly an attack or the wrong repository: nothing goes offsite until you decide. If that wasn't you: delete nothing, Object Lock may still hold the data; the Consultant shows how to get it back. A repository that is really new: say so on Mr. Backupsy's page.", $f, true)]);
+    $h = $held();
+    same('kopia held: the hold kept (repository, identity, before, now, when = the count compared with), 0600', [1, $repo, 'root@kopia', 4, 0, 2, 0, (int) ($record()['time'] ?? 0), false, '600'],
+        [$h['v'] ?? null, $h['repo'] ?? null, $h['identity'] ?? null, $h['before'] ?? null, $h['now'] ?? null, $h['sources_before'] ?? null, $h['sources_now'] ?? null,
+         $h['when'] ?? null, $h['gone'] ?? null, substr(sprintf('%o', fileperms("$tmp/data/state/kopia-held.json")), -3)]);
     @unlink("$tmp/notified");
-    same('kopia emptied: a dry run says it, tells nobody', ['w=1', []], [$sh('DRY=1; kopia_emptied_check >/dev/null; echo "w=$WARNINGS"'), $notified()]);
-    // another repository (a new one, a re-pair) or identity: no comparison
-    same('kopia emptied: another repository — no comparison', 'w=0', $sh('KOPIA_REPO_ID=' . str_repeat('ab', 32) . '; kopia_emptied_check >/dev/null; echo "w=$WARNINGS"'));
-    same('kopia emptied: another identity — no comparison', 'w=0', $sh('KOPIA_ID=root@other; kopia_emptied_check >/dev/null; echo "w=$WARNINGS"'));
+    same('kopia held: the next run — still held, said in the run, no second alert', ['held=yes e=1', []],
+        [$sh('kopia_emptied_check >/dev/null; echo "held=$KOPIA_HELD e=$ERRORS"'), $notified()]);
+    // a few uploaded meanwhile by hand is still far fewer than when held: against the hold, not only the record
+    file_put_contents("$tmp/data/state/kopia-count.json.keep", (string) file_get_contents("$tmp/data/state/kopia-count.json"));
+    $sh('kopia_count_save run');
+    $list([$ks('/uso/photos')]);
+    same('kopia held: one snapshot again (the record says 0 meanwhile) — far fewer than when held, still held', 'held=yes',
+        $sh('kopia_emptied_check >/dev/null; echo "held=$KOPIA_HELD"'));
+    rename("$tmp/data/state/kopia-count.json.keep", "$tmp/data/state/kopia-count.json");
+    same('kopia held: Kopia not answering with a list while held — nothing says the snapshots are back, still held', 'held=yes e=1',
+        (touch("$tmp/nolist") ? $sh('kopia_emptied_check >/dev/null; echo "held=$KOPIA_HELD e=$ERRORS"') : '') . (unlink("$tmp/nolist") ? '' : '!'));
+    same('kopia held: a dry run says it, ends nothing, tells nobody', ['held=yes e=1', []], [$sh('DRY=1; kopia_emptied_check >/dev/null; echo "held=$KOPIA_HELD e=$ERRORS"'), $notified()]);
+    // the snapshots back (the delete markers removed): the hold ends by itself
+    $list([$ks('/uso/photos'), $ks('/uso/photos'), $ks('/uso/photos'), $ks('/uso/.apps/immich')]);
+    same('kopia held: the snapshots back — the hold ends, the run goes offsite', ['held=no e=0', false],
+        [$sh('kopia_emptied_check >/dev/null; echo "held=$KOPIA_HELD e=$ERRORS"'), is_file("$tmp/data/state/kopia-held.json")]);
+    // «yes, this repository is new»: backup.sh --kopia-accept=<repo>, behind the engine's lock
+    $list([]);
+    $sh('kopia_emptied_check >/dev/null');
+    $envA = ['PATH' => "$tmp/bin:/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin", 'UB_DATA' => "$tmp/data", 'UB_NOTIFY_BIN' => "$tmp/notify"];
+    [, $o] = runEnv(['bash', OFFICE_DIR . '/backup/backup.sh', '--kopia-accept=' . str_repeat('ab', 32)], $envA, 30);
+    same('--kopia-accept: another repository than the one held — refused, the hold stays', [['ok' => false, 'why' => 'other'], true],
+        [json_decode(trim((string) $o), true), is_file("$tmp/data/state/kopia-held.json")]);
+    [, $o] = runEnv(['bash', OFFICE_DIR . '/backup/backup.sh', '--kopia-accept=../x'], $envA, 30);
+    same('--kopia-accept: a repository id not in Kopia\'s shape — refused', ['ok' => false, 'why' => 'repo'], json_decode(trim((string) $o), true));
+    $lk = fopen("$tmp/data/state/lock", 'c');
+    flock($lk, LOCK_EX);
+    [, $o] = runEnv(['bash', OFFICE_DIR . '/backup/backup.sh', "--kopia-accept=$repo"], $envA, 30);
+    flock($lk, LOCK_UN);
+    fclose($lk);
+    same('--kopia-accept: never while the engine\'s lock is held (a run, a setup, a restore)', [['ok' => false, 'why' => 'busy'], true],
+        [json_decode(trim((string) $o), true), is_file("$tmp/data/state/kopia-held.json")]);
+    [, $o] = runEnv(['bash', OFFICE_DIR . '/backup/backup.sh', "--kopia-accept=$repo"], $envA, 30);
+    $r = $record();
+    same('--kopia-accept: the hold ends, the count taken as it was when held (by accepted, before kept)', [['ok' => true, 'repo' => $repo, 'before' => 4, 'now' => 0], false, 0, 'accepted', 4, $repo],
+        [json_decode(trim((string) $o), true), is_file("$tmp/data/state/kopia-held.json"), $r['snapshots'] ?? null, $r['by'] ?? null, $r['accepted']['before'] ?? null, $r['repo'] ?? null]);
+    same('kopia held: after «it is new» the next run goes offsite (nothing to compare against 0)', 'held=no e=0',
+        $sh('kopia_emptied_check >/dev/null; echo "held=$KOPIA_HELD e=$ERRORS"'));
+    same('kopia held: the Night Watchman takes the accepted count as the engine\'s (newer, its shape)', [0, 'accepted'],
+        [watchmanKopiaCount($r)['snapshots'] ?? null, watchmanKopiaCount($r)['by'] ?? null]);
+    [, $o] = runEnv(['bash', OFFICE_DIR . '/backup/backup.sh', "--kopia-accept=$repo"], $envA, 30);
+    same('--kopia-accept: nothing held — said so', ['ok' => false, 'why' => 'none'], json_decode(trim((string) $o), true));
+    // another repository (a new one, a re-pair) or identity: no comparison, and a hold of another repository ends
+    $list([$ks('/uso/photos'), $ks('/uso/photos'), $ks('/uso/photos'), $ks('/uso/.apps/immich')]);
+    $sh('kopia_count_save run');
+    $list([]);
+    $sh('kopia_emptied_check >/dev/null');
+    @unlink("$tmp/notified");
+    same('kopia held: connected to another repository (a new one) — no comparison, the old hold ends', ['held=no e=0', false],
+        [$sh('KOPIA_REPO_ID=' . str_repeat('ab', 32) . '; kopia_emptied_check >/dev/null; echo "held=$KOPIA_HELD e=$ERRORS"'), is_file("$tmp/data/state/kopia-held.json")]);
+    same('kopia emptied: another identity — no comparison', 'held=no e=0', $sh('KOPIA_ID=root@other; kopia_emptied_check >/dev/null; echo "held=$KOPIA_HELD e=$ERRORS"'));
+    same('kopia held: the run holds Kopia\'s step (KOPIA_OK held: no mounts, no upload, no count), the local part goes on', [1, 1, 1],
+        [substr_count((string) file_get_contents(OFFICE_DIR . '/backup/backup.sh'), '[[ "$KOPIA_HELD" == "yes" ]] && KOPIA_OK="held"'),
+         substr_count((string) file_get_contents(OFFICE_DIR . '/backup/backup.sh'), 'elif [[ "$KOPIA_OK" == "held" ]]; then'),
+         substr_count((string) file_get_contents(OFFICE_DIR . '/backup/backup.sh'), "\n    kopia_lock_save ")]);
+    @unlink("$tmp/data/state/kopia-held.json");
     // the office's own deleting counts anew (setup.sh --orphans-delete calls kopia_count_save orphans)
     $sh('kopia_count_save orphans');
     same('kopia emptied: after the office\'s own deleting the count is anew — nothing to say', [0, 'orphans', 'w=0'],
@@ -8220,6 +8278,8 @@ function testKopiaEmptied(): void
     same('kopia gone: … an alert, the record then 0 (by gone)', [1, 'alert', true, 0, 'gone'],
         [count($notified()), $f[array_search('-i', $f, true) + 1] ?? null, in_array('Unraid Secretary Office: Mr. Backupsy: The offsite copy was emptied', $f, true),
          $record()['snapshots'] ?? null, $record()['by'] ?? null]);
+    same('kopia gone: … and a hold (gone, before as last counted) - the page says it until the snapshots are back or the user decides', [$repo, 3, 0, true],
+        [$held()['repo'] ?? null, $held()['before'] ?? null, $held()['now'] ?? null, $held()['gone'] ?? null]);
     unlink("$tmp/gone");
     touch("$tmp/fails");
     same('kopia gone: forbidden is no gone repository', 'gone=no', $sh('KOPIA_CONTAINER=kopia; kopia_status_load; echo "gone=$KOPIA_FORMAT_GONE"'));
@@ -8297,6 +8357,157 @@ function testKopiaEmptied(): void
     same('watchman kopia: the page\'s words and the Team Lead\'s finding', ['before' => '48', 'now' => '0', 'when' => $whenDe],
         watchmanText($book[0]));
     same('watchman kopia: Inhibit System Recovery, like snapshots that vanish', 'T1490', WATCH_ATTACK['kopia_emptied']);
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * Engine 2.56 + Mr. Backupsy: Object Lock kept. Kopia extends the locks only at its full maintenance; the engine keeps what
+ * Kopia says (state/kopia-lock.json: the lock's mode and period from `repository status`, owner, extend, the full cycle and
+ * the starts of its last successful runs from `maintenance info`) after a run's Kopia phase and by backup.sh --kopia-lock;
+ * the office judges it: extend or full maintenance off, or the locks running out within the margin — a must; the full
+ * maintenance late — a recommendation; no lock — nothing. And the hold of the Kopia step as the agent reads it.
+ */
+function testKopiaLockGuard(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-klock-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    @mkdir("$tmp/bin", 0700, true);
+    @mkdir("$tmp/data/state", 0700, true);
+    $repo = str_repeat('c7', 32);
+    $status = fn (?array $ret) => file_put_contents("$tmp/repo.json", json_encode(['uniqueIDHex' => $repo, 'configFile' => '/config/repository.config',
+        'clientOptions' => ['username' => 'root', 'hostname' => 'kopia'], 'storage' => ['type' => 's3'], 'blobRetention' => $ret ?? new stdClass()]));
+    $status(['retentionMode' => 'COMPLIANCE', 'retentionPeriod' => 7 * 86400 * 1000000000]);
+    // Kopia 0.23.1's maintenance info (Tower, 2026-10-17), an extend run added as with Object Lock (versitygw test 2026-10-15)
+    $run = fn (string $t, bool $ok = true) => ['start' => $t, 'end' => $t, 'success' => $ok];
+    $info = ['owner' => 'root@kopia', 'quick' => ['enabled' => true, 'interval' => 3600000000000], 'full' => ['enabled' => true, 'interval' => 86400000000000],
+        'extendObjectLocks' => true, 'schedule' => ['nextFullMaintenance' => '2026-10-17T22:23:35.88171268+02:00', 'runs' => [
+            'snapshot-gc' => [$run('2026-10-16T22:23:35.883790145+02:00'), $run('2026-10-15T22:20:01.1+02:00')],
+            'full-rewrite-contents' => [$run('2026-10-16T22:23:35.886307707+02:00')],
+            'extend-blob-retention-time' => [$run('2026-10-16T22:23:36.5+02:00'), $run('2026-10-17T01:00:00Z', false), $run('2026-10-15T22:20:02+02:00')],
+            'advance-epoch' => [$run('2026-10-17T04:30:08.904397066+02:00')]]]];
+    file_put_contents("$tmp/info.json", json_encode($info));
+    file_put_contents("$tmp/bin/docker", "#!/bin/bash\nF=" . escapeshellarg($tmp) . "\ncase \"\$1\" in\n"
+        . "  inspect) echo true; exit 0 ;;\n  top) printf 'PID UID ARGS\\n1 0 /bin/kopia server --x\\n'; exit 0 ;;\nesac\n"
+        . "[[ -e \$F/fails ]] && { echo 'ERROR unable to open repository: Access Denied' >&2; exit 1; }\n"
+        . "case \"\$*\" in\n  *'repository status --json'*) cat \$F/repo.json ;;\n  *'maintenance info --json'*) cat \$F/info.json ;;\n"
+        . "  *--version*) echo '0.23.1 build' ;;\nesac\nexit 0\n");
+    chmod("$tmp/bin/docker", 0755);
+    file_put_contents("$tmp/data/settings.ini", "[general]\nserver = t\n[kopia]\nenabled = yes\ncontainer = kopia\n");
+    $env = ['PATH' => "$tmp/bin:/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin", 'UB_DATA' => "$tmp/data", 'UB_NOTIFY_BIN' => '/bin/true'];
+    $file = "$tmp/data/state/kopia-lock.json";
+
+    [$e, $o] = runEnv(['bash', OFFICE_DIR . '/backup/backup.sh', '--kopia-lock'], $env, 60);
+    $j = json_decode(trim((string) $o), true);
+    $k = json_decode((string) @file_get_contents($file), true);
+    same('--kopia-lock: the lock from repository status, the maintenance from maintenance info — kept and printed', [0, true, ['mode' => 'COMPLIANCE', 'period_s' => 604800], 'root@kopia', true, true, 86400, true],
+        [$e, $j['ok'] ?? null, $j['lock'] ?? null, $j['maintenance']['owner'] ?? null, $j['maintenance']['extend'] ?? null, $j['maintenance']['full_enabled'] ?? null,
+         $j['maintenance']['full_interval_s'] ?? null, $k === $j]);
+    same('--kopia-lock: the starts of the successful full and extend runs only (a failed one left out), the next full as Kopia says it',
+        [['2026-10-15T22:20:01.1+02:00', '2026-10-16T22:23:35.883790145+02:00', '2026-10-16T22:23:35.886307707+02:00'], ['2026-10-15T22:20:02+02:00', '2026-10-16T22:23:36.5+02:00'], '2026-10-17T22:23:35.88171268+02:00', $repo, 'root@kopia', '600'],
+        [$j['maintenance']['full_runs'] ?? null, $j['maintenance']['extend_runs'] ?? null, $j['maintenance']['next_full'] ?? null, $j['repo'] ?? null, $j['identity'] ?? null,
+         substr(sprintf('%o', fileperms($file)), -3)]);
+    $lk = fopen("$tmp/data/state/lock", 'c');
+    flock($lk, LOCK_EX);
+    $before = (string) file_get_contents($file);
+    [, $o] = runEnv(['bash', OFFICE_DIR . '/backup/backup.sh', '--kopia-lock'], $env, 60);
+    flock($lk, LOCK_UN);
+    fclose($lk);
+    same('--kopia-lock: never while the engine\'s lock is held — busy, nothing written', [['ok' => false, 'why' => 'busy'], $before],
+        [json_decode(trim((string) $o), true), (string) file_get_contents($file)]);
+    touch("$tmp/fails");
+    [, $o] = runEnv(['bash', OFFICE_DIR . '/backup/backup.sh', '--kopia-lock'], $env, 60);
+    $k = json_decode((string) @file_get_contents($file), true);
+    same('--kopia-lock: Kopia not answering — said so, the facts it gave last kept beside', [['ok' => false, 'why' => 'not_connected'], false, 'not_connected', 'COMPLIANCE'],
+        [json_decode(trim((string) $o), true), $k['ok'] ?? null, $k['why'] ?? null, $k['last']['lock']['mode'] ?? null]);
+    [, $o] = runEnv(['bash', OFFICE_DIR . '/backup/backup.sh', '--kopia-lock'], $env, 60);
+    same('--kopia-lock: not answering twice — the facts of the last answer still kept', 'COMPLIANCE', json_decode((string) @file_get_contents($file), true)['last']['lock']['mode'] ?? null);
+    unlink("$tmp/fails");
+    $status(null);
+    runEnv(['bash', OFFICE_DIR . '/backup/backup.sh', '--kopia-lock'], $env, 60);
+    same('--kopia-lock: a repository without Object Lock — lock null', [true, null], [($k = json_decode((string) @file_get_contents($file), true))['ok'] ?? null, array_key_exists('lock', $k) ? $k['lock'] : 'x']);
+    file_put_contents("$tmp/data/settings.ini", "[kopia]\nenabled = no\n");
+    [, $o] = runEnv(['bash', OFFICE_DIR . '/backup/backup.sh', '--kopia-lock'], $env, 60);
+    same('--kopia-lock: Kopia off', ['ok' => false, 'why' => 'off'], json_decode(trim((string) $o), true));
+
+    // the agent: Kopia's times, the file in exactly its shape
+    same('kopia time: nanoseconds, offsets, Z — else null', [1792268615, 1792268615, 1792261415, null, null, null],
+        [backupKopiaTime('2026-10-17T22:23:35.88171268+02:00'), backupKopiaTime('2026-10-17T22:23:35+02:00'), backupKopiaTime('2026-10-17T18:23:35.1Z'),
+         backupKopiaTime('2026-10-17 22:23:35'), backupKopiaTime('yesterday'), backupKopiaTime(17)]);
+    $facts = fn (array $m = [], ?array $lock = ['mode' => 'COMPLIANCE', 'period_s' => 604800]) => ['v' => 1, 'ok' => true, 'time' => 1792180000, 'repo' => $repo, 'identity' => 'root@kopia',
+        'lock' => $lock, 'maintenance' => $m + ['owner' => 'root@kopia', 'extend' => true, 'full_enabled' => true, 'full_interval_s' => 86400,
+            'next_full' => '2026-10-17T22:23:35+02:00', 'full_runs' => ['2026-10-16T22:23:35+02:00'], 'extend_runs' => ['2026-10-15T22:20:02+02:00', '2026-10-16T22:23:36.5+02:00']]];
+    $read = function (array $j) use ($tmp): ?array {
+        file_put_contents("$tmp/lock.json", json_encode($j));
+        return backupKopiaLockRead("$tmp/lock.json");
+    };
+    $r = $read($facts());
+    same('lock read: the facts, the newest successful extend as a time', [1792180000, true, ['mode' => 'COMPLIANCE', 'period_s' => 604800], 'root@kopia', 1792182216, 1792182215],
+        [$r['looked'], $r['ok'], $r['lock'], $r['identity'], $r['maintenance']['last_extend'], $r['maintenance']['last_full']]);
+    $r2 = $read(['v' => 1, 'ok' => false, 'why' => 'not_running', 'time' => 1792190000, 'last' => $facts()]);
+    same('lock read: Kopia not answering — the last facts, looked = now, ok false', [1792190000, false, 'COMPLIANCE'], [$r2['looked'], $r2['ok'], $r2['lock']['mode'] ?? null]);
+    same('lock read: not its shape — null; a lock mode unknown — no lock', [null, null, null],
+        [$read(['v' => 2, 'time' => 1]), $read(['v' => 1]), $read($facts([], ['mode' => 'SOMETIMES', 'period_s' => 604800]))['lock']]);
+
+    $ids = fn (array $f) => array_map(fn ($x) => [$x['id'], $x['level'], $x['ok']], $f);
+    $last = 1792182216;                     // the last extension (2026-10-16 22:23:36 +02:00), period 7 days, margin 2 days
+    same('lock judge: all well a day later — extend, lapse, late all ok',
+        [['kopia_lock_extend', 'required', true], ['kopia_lock_lapse', 'required', true], ['kopia_lock_late', 'recommended', true]],
+        $ids(backupKopiaLockJudge($r, $last + 86400, 'kopia')));
+    same('lock judge: the full maintenance missed one cycle and 12 hours — late (a recommendation), the locks still hold',
+        [['kopia_lock_extend', 'required', true], ['kopia_lock_lapse', 'required', true], ['kopia_lock_late', 'recommended', false]],
+        $ids(backupKopiaLockJudge($r, $last + 86400 + 12 * 3600 + 1, 'kopia')));
+    $lapse = backupKopiaLockJudge($r, $last + 5 * 86400 + 1, 'kopia');
+    same('lock judge: less than 2 days left — the locks run out: a must (no «late» beside it)',
+        [['kopia_lock_extend', 'required', true], ['kopia_lock_lapse', 'required', false]], $ids($lapse));
+    same('lock judge: the words — when it was extended, when it runs out, owner and this office\'s Kopia', [date('Y-m-d H:i', $last), date('Y-m-d H:i', $last + 604800), 'root@kopia', 'root@kopia', 'kopia', 'COMPLIANCE'],
+        [$lapse[1]['params']['last'], $lapse[1]['params']['until'], $lapse[1]['params']['owner'], $lapse[1]['params']['me'], $lapse[1]['params']['name'], $lapse[1]['params']['mode']]);
+    same('lock judge: Kopia not answering for days — the last facts are the measure', [false],
+        array_column(array_slice(backupKopiaLockJudge($r2, $last + 6 * 86400, 'kopia'), 1, 1), 'ok'));
+    same('lock judge: extend off or the full maintenance off — a must, nothing else judged', [[['kopia_lock_extend', 'required', false]], [['kopia_lock_extend', 'required', false]]],
+        [$ids(backupKopiaLockJudge($read($facts(['extend' => false])), $last + 3600)), $ids(backupKopiaLockJudge($read($facts(['full_enabled' => false])), $last + 3600))]);
+    $p30 = $read($facts([], ['mode' => 'GOVERNANCE', 'period_s' => 30 * 86400]));
+    same('lock judge: a 30-day lock — the margin a quarter of it (7.5 days)', [true, false],
+        [backupKopiaLockJudge($p30, $last + 22 * 86400, 'k')[1]['ok'], backupKopiaLockJudge($p30, $last + 23 * 86400, 'k')[1]['ok']]);
+    $p1 = $read($facts([], ['mode' => 'COMPLIANCE', 'period_s' => 86400]));
+    same('lock judge: a 1-day lock — the margin at most half of it', [true, false],
+        [backupKopiaLockJudge($p1, $last + 11 * 3600, 'k')[1]['ok'], backupKopiaLockJudge($p1, $last + 13 * 3600, 'k')[1]['ok']]);
+    $fresh = $read($facts(['extend_runs' => [], 'full_runs' => []]));
+    $nf = 1792268615;
+    same('lock judge: a fresh repository, never extended — only «late» once its first full maintenance is 12 hours overdue',
+        [[['kopia_lock_extend', 'required', true], ['kopia_lock_late', 'recommended', true]], [['kopia_lock_extend', 'required', true], ['kopia_lock_late', 'recommended', false]]],
+        [$ids(backupKopiaLockJudge($fresh, $nf + 3600)), $ids(backupKopiaLockJudge($fresh, $nf + 13 * 3600))]);
+    same('lock judge: no Object Lock or nothing known — nothing said', [[], [], []],
+        [backupKopiaLockJudge($read($facts([], null)), $last), backupKopiaLockJudge(null, $last), backupKopiaLockJudge($read(['v' => 1, 'ok' => false, 'why' => 'off', 'time' => 1]), $last)]);
+    same('lock due: nothing known — at once; Object Lock — every 6 hours; none — every 3 days; Kopia not answering — after an hour',
+        [true, false, true, false, true, false, true],
+        [backupLockDue(null, 1), backupLockDue($r, 1792180000 + 5 * 3600), backupLockDue($r, 1792180000 + 6 * 3600), backupLockDue($read($facts([], null)), 1792180000 + 2 * 86400),
+         backupLockDue($read($facts([], null)), 1792180000 + 3 * 86400), backupLockDue($r2, 1792190000 + 1800), backupLockDue($r2, 1792190000 + 3600)]);
+    $words = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $lang = json_decode((string) file_get_contents(OFFICE_DIR . "/public/desks/backup/lang/$l.json"), true);
+        foreach (['kopia_lock_extend', 'kopia_lock_lapse', 'kopia_lock_late', 'kopia_emptied'] as $id) {
+            $words[] = isset($lang["check.$id"], $lang["check.{$id}_how"]) ? '' : "$l:$id";
+        }
+        $words[] = str_contains((string) ($lang['check.kopia_lock_lapse_how'] ?? ''), 'kopia maintenance set --owner=me') ? '' : "$l:owner";
+    }
+    same('lock words: every finding has its words ×5, the owner command in each', [], array_values(array_filter($words)));
+
+    // the hold as the agent reads it (state/kopia-held.json, exactly the engine's shape)
+    $h = ['v' => 1, 'repo' => $repo, 'identity' => 'root@kopia', 'storage' => 's3', 'before' => 48, 'now' => 0, 'sources_before' => 5, 'sources_now' => 0,
+          'when' => 1792000000, 'time' => 1792100000, 'gone' => false];
+    file_put_contents("$tmp/held.json", json_encode($h));
+    $got = backupKopiaHeld("$tmp/held.json");
+    same('held read: the engine\'s shape — the hold', [$repo, 48, 0, 1792000000, false], [$got['repo'] ?? null, $got['before'] ?? null, $got['now'] ?? null, $got['when'] ?? null, $got['gone'] ?? null]);
+    same('held read: the finding\'s words', ['before' => '48', 'now' => '0', 'when' => date('Y-m-d H:i', 1792000000), 'since' => date('Y-m-d H:i', 1792100000)], backupHeldParams($got));
+    $bad = [];
+    foreach ([['v' => 2], ['repo' => '../x'], ['before' => '48'], ['now' => -1], ['identity' => "a\nb"]] as $i => $change) {
+        file_put_contents("$tmp/held.json", json_encode($change + $h));
+        if (backupKopiaHeld("$tmp/held.json") !== null) {
+            $bad[] = $i;
+        }
+    }
+    same('held read: anything not in its shape — no hold', [], $bad);
+    same('held read: no file — none', null, backupKopiaHeld("$tmp/none.json"));
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -39464,7 +39675,7 @@ function testFirstHome(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied', 'testBackup74Polish',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

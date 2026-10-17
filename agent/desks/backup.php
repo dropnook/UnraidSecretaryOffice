@@ -78,6 +78,7 @@ desk('backup', [
         'orphans_look'   => fn (array $r) => backupOrphansLook(),                    // engine 2.51: old Kopia sources of gone units
         'orphans_get'    => fn (array $r) => ['ok' => true, 'orphans' => backupOrphans()],
         'orphans_delete' => fn (array $r) => backupOrphansDelete(idList($r, 'sources'), optText($r, 'listed')),
+        'kopia_accept'   => fn (array $r) => backupKopiaAccept(textField($r, 'repo')),     // engine 2.56: «yes, this repository is new»
         'setup_decline' => fn (array $r) => backupDecline(textField($r, 'key'), $r['value'] ?? null),          // 1.60.1: a declined proposal stays declined
         'setup_decline_undo' => fn (array $r) => backupDeclineUndo(textField($r, 'key')),
         'schedule'    => fn (array $r) => backupSetSchedule(cronField($r)),       // null: off — said, never a missing key
@@ -91,6 +92,7 @@ desk('backup', [
                                                     'no_fresh_ok' => boolField($r, 'no_fresh_ok')]),
     ],
     'jobs'    => ['backup-letgo' => fn (array $args) => backupLetGoJob($args)],
+    'tick'    => fn () => backupLockTick(),           // engine 2.56: Object Lock and Kopia's maintenance, asked a few times a day
     'checks' => fn () => backupChecks(),
     'metrics' => fn (): array => backupMetrics(),
 ]);
@@ -274,6 +276,7 @@ function backupScan(): array
         'mounted'    => backupMounted(backupSetting($settings, 'general', 'mount_root')),
         'setup'      => $setup,
         'drill'      => backupDrillLine(),       // Mr. Restori's drill: one line from its certificate
+        'kopia_held' => backupKopiaHeld(),       // engine 2.56: the Kopia step held - the repository suddenly empty
     ];
     $state['found'] = true;
     $GLOBALS['backup'] = $state;
@@ -2340,6 +2343,10 @@ function backupChecks(): array
                 $state = backupKopiaLastWord("$data/state/history.jsonl");
             }
             $out[] = finding('kopia_repo', 'required', in_array($state, ['yes', 'no'], true) ? $state === 'yes' : null, ['name' => $name]);
+            // engine 2.56: a repository suddenly empty holds the Kopia step until the user decides; Object Lock still extended
+            $held = backupKopiaHeld();
+            $out[] = finding('kopia_emptied', 'required', $held === null, $held === null ? [] : backupHeldParams($held), '#/backup');
+            array_push($out, ...backupKopiaLockJudge(backupKopiaLockRead(), time(), $name));
         }
     }
 
@@ -2422,6 +2429,189 @@ function backupKopiaAutostart(array $summary, string $name, array $inspect, stri
             : isset(houseAutostart($autostartFile)[$name]);
     }
     return $auto === null ? null : finding('kopia_autostart', 'required', $auto, ['name' => $name], 'docker');
+}
+
+// ===================================================================== the offsite repository guarded (engine 2.56)
+
+const BACKUP_GUARD_ENGINE = '2.56';
+const BACKUP_LOCK_EVERY   = 6 * 3600;      // Object Lock on: Kopia's maintenance asked anew at most every 6 hours …
+const BACKUP_LOCK_PLAIN   = 3 * 86400;     // … a repository without: every 3 days (a run writes it after its Kopia phase too)
+const BACKUP_LOCK_RETRY   = 3600;          // Kopia couldn't be asked: again after an hour
+const BACKUP_LOCK_LOOK    = 600;           // the tick looks at the file's age at most every 10 minutes
+const BACKUP_LOCK_LATE    = 12 * 3600;     // a full maintenance later than its interval by more than this: late
+const BACKUP_LOCK_MARGIN  = 2 * 86400;     // the locks run out within the larger of 2 days and a quarter of the period (at most half): a must
+const BACKUP_REPO_ID      = '/^[0-9a-f]{16,128}$/D';
+
+/** The hold of the Kopia step (state/kopia-held.json) in exactly the engine's shape — else null */
+function backupKopiaHeld(?string $file = null): ?array
+{
+    $j = readJson($file ?? BACKUP_DATA_DIR . '/state/kopia-held.json');
+    if (!is_array($j) || ($j['v'] ?? null) !== 1 || !is_string($j['repo'] ?? null) || !preg_match(BACKUP_REPO_ID, $j['repo'])
+        || !is_string($j['identity'] ?? null) || !preg_match('/^[^\x00-\x1f]{1,200}$/uD', $j['identity'])) {
+        return null;
+    }
+    foreach (['before', 'now', 'when', 'time'] as $k) {
+        if (!is_int($j[$k] ?? null) || $j[$k] < 0) {
+            return null;
+        }
+    }
+    return ['repo' => $j['repo'], 'identity' => $j['identity'], 'before' => $j['before'], 'now' => $j['now'], 'when' => $j['when'],
+            'time' => $j['time'], 'gone' => ($j['gone'] ?? false) === true];
+}
+
+/** The finding's words of a hold: counts and the dates as the page says them */
+function backupHeldParams(array $h): array
+{
+    return ['before' => (string) $h['before'], 'now' => (string) $h['now'], 'when' => date('Y-m-d H:i', $h['when']),
+            'since' => date('Y-m-d H:i', $h['time'])];
+}
+
+/**
+ * «Yes, this repository is new» (one click on his page): the engine ends the hold of exactly the repository the page
+ * showed and takes the count as it is (kopia-count.json by accepted) — behind its lock, so never during a run, setup or
+ * restore. Another hold meanwhile (another repository) is refused: the page shows the new one first.
+ */
+function backupKopiaAccept(string $repo): array
+{
+    $dir = backupCheckReady();
+    if (version_compare((string) (backupAbout($dir)['version'] ?? '0'), BACKUP_GUARD_ENGINE, '<')) {
+        throw new Problem('backup_too_old', ['version' => backupAbout($dir)['version'] ?? '?']);
+    }
+    $held = backupKopiaHeld();
+    if ($held === null || $held['repo'] !== $repo) {
+        throw new Problem('kopia_held_stale');
+    }
+    [, $out] = run(['env', 'UB_DATA=' . BACKUP_DATA_DIR_USER, 'bash', "$dir/backup.sh", "--kopia-accept=$repo"], 30);
+    $j = json_decode(trim((string) $out), true);
+    if (!is_array($j) || ($j['ok'] ?? null) !== true) {
+        $why = is_array($j) && is_string($j['why'] ?? null) && preg_match('/^[a-z_]{1,20}$/D', $j['why']) ? $j['why'] : 'no_answer';
+        if ($why === 'busy') {
+            throw new Problem('backup_running');
+        }
+        throw new Problem('command_failed', ['detail' => "backup.sh --kopia-accept: $why"]);
+    }
+    logLine("Backup: the user said the Kopia repository is new - the hold of the Kopia step ended ($held[before] snapshots on "
+        . date('Y-m-d H:i', $held['when']) . ", $held[now] then; repository " . substr($repo, 0, 16) . ')');
+    return ['ok' => true, 'state' => backupScan()];
+}
+
+/**
+ * Object Lock and Kopia's maintenance as the engine kept them (state/kopia-lock.json) — the facts in exactly their
+ * shape: those of the file, or when Kopia couldn't be asked the last ones it kept (`last`); `looked` the file's time,
+ * `ok` whether Kopia answered then. Null: nothing known.
+ */
+function backupKopiaLockRead(?string $file = null): ?array
+{
+    $j = readJson($file ?? BACKUP_DATA_DIR . '/state/kopia-lock.json');
+    if (!is_array($j) || ($j['v'] ?? null) !== 1 || !is_int($j['time'] ?? null)) {
+        return null;
+    }
+    $facts = ($j['ok'] ?? null) === true ? $j : (is_array($j['last'] ?? null) && ($j['last']['ok'] ?? null) === true ? $j['last'] : null);
+    $out = ['looked' => $j['time'], 'ok' => ($j['ok'] ?? null) === true, 'lock' => null, 'maintenance' => null, 'identity' => ''];
+    if ($facts === null) {
+        return $out;
+    }
+    $l = $facts['lock'] ?? null;
+    if (is_array($l) && in_array($l['mode'] ?? null, ['COMPLIANCE', 'GOVERNANCE'], true) && is_int($l['period_s'] ?? null) && $l['period_s'] > 0) {
+        $out['lock'] = ['mode' => $l['mode'], 'period_s' => $l['period_s']];
+    }
+    $m = $facts['maintenance'] ?? null;
+    if (is_array($m) && is_bool($m['extend'] ?? null) && is_bool($m['full_enabled'] ?? null) && is_int($m['full_interval_s'] ?? null)) {
+        $times = fn (mixed $l): array => array_values(array_filter(array_map('backupKopiaTime', is_array($l) ? $l : []), 'is_int'));
+        $out['maintenance'] = ['owner' => is_string($m['owner'] ?? null) && preg_match('/^[^\x00-\x1f]{0,200}$/uD', $m['owner']) ? $m['owner'] : '',
+            'extend' => $m['extend'], 'full_enabled' => $m['full_enabled'], 'full_interval_s' => max(0, $m['full_interval_s']),
+            'next_full' => backupKopiaTime($m['next_full'] ?? null),
+            'last_full' => ($t = $times($m['full_runs'] ?? null)) ? max($t) : null,
+            'last_extend' => ($t = $times($m['extend_runs'] ?? null)) ? max($t) : null];
+    }
+    $out['identity'] = is_string($facts['identity'] ?? null) && preg_match('/^[^\x00-\x1f]{1,200}$/uD', $facts['identity']) ? $facts['identity'] : '';
+    return $out;
+}
+
+/** One of Kopia's times (RFC 3339 with up to nanoseconds, «2026-10-17T22:23:35.88171268+02:00») as a Unix time — else null */
+function backupKopiaTime(mixed $s): ?int
+{
+    if (!is_string($s) || !preg_match('/^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d{1,9})?(Z|[+-]\d\d:\d\d)$/D', $s, $m)) {
+        return null;
+    }
+    $d = DateTimeImmutable::createFromFormat('Y-m-d\TH:i:sP', $m[1] . ($m[2] === 'Z' ? '+00:00' : $m[2]));
+    return $d === false ? null : $d->getTimestamp();
+}
+
+/**
+ * Whether Kopia still extends the Object Lock (only at its full maintenance): nothing without a lock. A must:
+ * extension or full maintenance off (`kopia_lock_extend`); the locks run out within the margin (`kopia_lock_lapse`:
+ * the last extension + the period — Kopia's maintenance owner another user@host, the Kopia server stopped …).
+ * A recommendation: the full maintenance late (`kopia_lock_late`: later than its interval by more than 12 hours, or never
+ * done long after it was due) while the locks still hold. Facts once known stay the measure while Kopia can't be asked.
+ *
+ * @return list<array> the findings
+ */
+function backupKopiaLockJudge(?array $j, int $now, ?string $name = null): array
+{
+    $m = $j['maintenance'] ?? null;
+    if (!is_array($j) || $j['lock'] === null || !is_array($m)) {
+        return [];
+    }
+    $period = $j['lock']['period_s'];
+    $base = ['name' => $name ?? 'kopia', 'mode' => $j['lock']['mode'],
+             'owner' => $m['owner'] !== '' ? $m['owner'] : '–', 'me' => $j['identity'] !== '' ? $j['identity'] : '–'];
+    $out = [finding('kopia_lock_extend', 'required', $m['extend'] && $m['full_enabled'], $base, 'docker')];
+    if (!$m['extend'] || !$m['full_enabled']) {
+        return $out;
+    }
+    $last = $m['last_extend'];
+    $interval = $m['full_interval_s'] > 0 ? $m['full_interval_s'] : 86400;
+    if ($last !== null) {
+        $until = $last + $period;
+        $margin = min(max(BACKUP_LOCK_MARGIN, intdiv($period, 4)), intdiv($period, 2));
+        $p = $base + ['last' => date('Y-m-d H:i', $last), 'until' => date('Y-m-d H:i', $until)];
+        $out[] = finding('kopia_lock_lapse', 'required', $until - $now >= $margin, $p, 'docker');
+        if ($until - $now >= $margin) {
+            $out[] = finding('kopia_lock_late', 'recommended', $now - $last <= $interval + BACKUP_LOCK_LATE, $p, 'docker');
+        }
+    } elseif ($m['next_full'] !== null) {
+        // never extended yet (a fresh repository): late only once its first full maintenance is long overdue
+        $out[] = finding('kopia_lock_late', 'recommended', $now - $m['next_full'] <= BACKUP_LOCK_LATE,
+            $base + ['last' => '–', 'until' => '–'], 'docker');
+    }
+    return $out;
+}
+
+/** Is a new look at Object Lock and Kopia's maintenance due (backup.sh --kopia-lock)? $j: backupKopiaLockRead() */
+function backupLockDue(?array $j, int $now): bool
+{
+    if ($j === null || $j['looked'] > $now) {
+        return true;
+    }
+    $age = $now - $j['looked'];
+    return $age >= (!$j['ok'] ? BACKUP_LOCK_RETRY : ($j['lock'] !== null ? BACKUP_LOCK_EVERY : BACKUP_LOCK_PLAIN));
+}
+
+/**
+ * His tick: a few times a day the engine asks Kopia about Object Lock and its maintenance (backup.sh --kopia-lock through
+ * atd, read only for Kopia) — only while Kopia is on, never while the engine's lock is held (a run asks itself after its
+ * Kopia phase), never with the engine's folder on a sleeping disk. Looked at every 10 minutes, launched at most hourly.
+ */
+function backupLockTick(?int $now = null): ?string
+{
+    static $looked = 0, $launched = 0;
+    $now ??= time();
+    if ($now - $looked < BACKUP_LOCK_LOOK || $now - $launched < BACKUP_LOCK_RETRY) {
+        return null;
+    }
+    $looked = $now;
+    $dir = BACKUP_SCRIPT_DIR;
+    $data = BACKUP_DATA_DIR;
+    if (!is_file("$dir/backup.sh") || backupHomeAsleep($data) || !is_file("$data/settings.ini")
+        || !backupSettingsSummary(backupReadSettings("$data/settings.ini"))['kopia_enabled']
+        || !backupLockDue(backupKopiaLockRead(), $now) || flockHeld("$data/state/lock")
+        || version_compare((string) (backupAbout($dir)['version'] ?? '0'), BACKUP_GUARD_ENGINE, '<')) {
+        return null;
+    }
+    $launched = $now;
+    backupLaunch(["$dir/backup.sh", '--kopia-lock']);
+    return 'launched';
 }
 
 // ===================================================================== setup (setup.sh --plan / --apply)

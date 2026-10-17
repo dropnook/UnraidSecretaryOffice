@@ -1,6 +1,12 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.55 - 2026-10-16
+# unraid-backup - backup.sh                       Version 2.56 - 2026-10-17
+#   2.56 A repository suddenly empty holds the Kopia step: far fewer snapshots than at the last count (or than when the
+#        hold began) is an error (warning_items kopia_held), nothing goes offsite, the local part and the partners go on;
+#        state/kopia-held.json keeps it from run to run (an alert when it begins) until the snapshots are back, Kopia is
+#        connected to another repository, or --kopia-accept=<repo> («yes, this repository is new»). Object Lock kept:
+#        state/kopia-lock.json (the lock's mode and period, Kopia's maintenance owner, extend, full cycle and its last
+#        runs) after the Kopia phase and by --kopia-lock (the office judges whether the locks still get extended)
 #   2.55 Plex's database copies are checked by Plex's own SQLite (media_sqlite_check in lib/common.sh): Unraid's sqlite3
 #        can't read its ICU collation and FTS tokenizer and failed every copy; that sqlite3 failing on them is «unchecked»
 #   2.54 Docker switched off (Settings > Docker, or no docker at all) is a server of shares and VMs: the run backs them
@@ -303,6 +309,8 @@
 #                                  lock, detach busy mounts (umount -l) at once (the hook, 2.25)
 #                     --about      name, version and interface as JSON
 #                     --kopia-count the offsite repository's snapshots and sources now, as JSON (read only, 2.53)
+#                     --kopia-lock  Object Lock and Kopia's maintenance now -> state/kopia-lock.json (2.56; Kopia read only)
+#                     --kopia-accept=<repo>  «yes, this repository is new»: the hold of the Kopia step ends (2.56)
 #   UB_DATA=/path                  another data folder (default <office>/data/unraid-backup)
 #   UB_SETTINGS=/path/settings.ini another settings file
 #   Example: UB_DRY_RUN=1 bash /usr/local/emhttp/plugins/unraid-secretary-office/backup/backup.sh
@@ -336,6 +344,8 @@ for a in "$@"; do
         --unmount)  UB_MODE="unmount" ;;
         --recover)  UB_MODE="recover" ;;
         --kopia-count) UB_MODE="kopia_count" ;;
+        --kopia-lock) UB_MODE="kopia_lock" ;;
+        --kopia-accept=*) UB_MODE="kopia_accept"; KA_REPO="${a#--kopia-accept=}" ;;
         --dry-run)  UB_DRY_RUN=1 ;;
         --no-kopia) UB_SKIP_KOPIA=1 ;;
         --about)    jq -nc --arg n "$UB_NAME" --arg v "$UB_VERSION" --argjson i "$UB_INTERFACE" --arg c "$UB_DIR" --arg d "$UB_DATA" \
@@ -347,7 +357,7 @@ done
 UB_MODE="${UB_MODE:-backup}"
 DRY="${UB_DRY_RUN:-0}"
 SKIPK="${UB_SKIP_KOPIA:-0}"
-case "$UB_MODE" in backup|check|unmount|recover|kopia_count) ;; *) echo "UB_MODE=$UB_MODE is unknown"; exit 2 ;; esac
+case "$UB_MODE" in backup|check|unmount|recover|kopia_count|kopia_lock|kopia_accept) ;; *) echo "UB_MODE=$UB_MODE is unknown"; exit 2 ;; esac
 
 [[ $EUID -eq 0 ]] || { echo "Please run as root."; exit 1; }
 # --recover (2.25): no note of an interrupted run - nothing to do, nothing written; the array being
@@ -368,6 +378,34 @@ if [[ "$UB_MODE" == "kopia_count" ]]; then
     fi
     kopia_count_load || kc_not no_answer
     kopia_count_json watch | jq -c '{ok: true} + .'
+    exit 0
+fi
+# --kopia-lock (2.56): Object Lock and Kopia's maintenance now, kept in state/kopia-lock.json and printed - Kopia only read,
+# no log; not while the engine's lock is held (a run writes it itself after its Kopia phase): {ok: false, why: busy}, nothing written
+if [[ "$UB_MODE" == "kopia_lock" ]]; then
+    LOG_FILE=""
+    kl_not() { [[ "$1" == "busy" ]] || kopia_lock_save "$1"; jq -nc --arg why "$1" '{ok: false, why: $why}'; exit 0; }
+    ub_data_dirs || { echo "Cannot create folders in $UB_DATA"; exit 1; }
+    exec 9>>"$UB_STATE/lock"
+    flock -n 9 || kl_not busy
+    load_settings >/dev/null 2>&1 || kl_not no_settings
+    is_yes "$KOPIA_ENABLED" || kl_not off
+    [[ -n "$KOPIA_CONTAINER" ]] || kl_not no_container
+    if ! kopia_status_load >/dev/null 2>&1; then
+        [[ "$KOPIA_RUNNING" == "yes" ]] && kl_not not_connected; kl_not not_running
+    fi
+    kopia_lock_save
+    cat "$KL_FILE"
+    exit 0
+fi
+# --kopia-accept=<repo> (2.56): «yes, this repository is new» - the office's one click, behind the engine's lock (busy: refused)
+if [[ "$UB_MODE" == "kopia_accept" ]]; then
+    LOG_FILE=""
+    [[ "${KA_REPO:-}" =~ ^[0-9a-f]{16,128}$ ]] || { jq -nc '{ok: false, why: "repo"}'; exit 0; }
+    ub_data_dirs || { echo "Cannot create folders in $UB_DATA"; exit 1; }
+    exec 9>>"$UB_STATE/lock"
+    flock -n 9 || { jq -nc '{ok: false, why: "busy"}'; exit 0; }
+    kopia_accept "$KA_REPO"
     exit 0
 fi
 if [[ "$UB_MODE" == "recover" ]]; then
@@ -3570,6 +3608,9 @@ if [[ "$KOPIA_OK" == "yes" && "$SKIPK" != "1" ]]; then
     # small and important first: the flash, the apps' own sources, then shares and VMs by expected size
     kopia_sizes_load
     kopia_emptied_check              # 2.53: far fewer snapshots than at the last run's end, not by the office - said at once
+    [[ "$KOPIA_HELD" == "yes" ]] && KOPIA_OK="held"      # 2.56: ... and the Kopia step held - no upload over what is left
+fi
+if [[ "$KOPIA_OK" == "yes" && "$SKIPK" != "1" ]]; then
     mapfile -t KOPIA_ORDER < <(kopia_order)
     ST_KOPIA_PLAN=(); ko_line=""
     for ko in "${KOPIA_ORDER[@]}"; do
@@ -3838,6 +3879,8 @@ if [[ "$SKIPK" == "1" ]]; then
     log "Kopia skipped (UB_SKIP_KOPIA=1)."
 elif [[ "$KOPIA_OK" == "off" ]]; then
     log "Kopia switched off - local snapshots and dumps are done."
+elif [[ "$KOPIA_OK" == "held" ]]; then
+    log "Kopia held - the repository is suddenly empty (see above): nothing went offsite; local snapshots, packages and partners are done."
 elif [[ "$KOPIA_OK" == "yes" ]]; then
     next_phase "kopia"
     kopia_mountinfo_load
@@ -3853,6 +3896,7 @@ elif [[ "$KOPIA_OK" == "yes" ]]; then
         esac
     done
     kopia_count_save run             # 2.53: what the next run (and the Night Watchman) compares with
+    kopia_lock_save                  # 2.56: Object Lock and Kopia's maintenance (Mr. Backupsy's checks judge it)
     [[ $KOPIA_FAILED -gt 0 ]] && ub_tell kopia_incomplete warning "Log: $LOG_FILE" "Not everything went offsite" \
         "$KOPIA_FAILED source(s) not backed up offsite, $KOPIA_DONE done. Mr. Backupsy's page shows the details." "n=$KOPIA_FAILED" "done=$KOPIA_DONE"
 fi
