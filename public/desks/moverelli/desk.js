@@ -523,7 +523,8 @@ function livePicture(nn) {
 /** A whole trip of a file between the bars (the owner, 2026-10-15: slow — the reel readable) */
 const PIC_FLIGHT_MS = 14000;
 const PIC_PAUSE_MS = 3000;       // between two files
-const PIC_BOBS = 10;              // the gentle ups and downs while across
+const PIC_BOBS = 10;              // the gentle ups and downs over the trip (half as many waves)
+const PIC_STEP_MS = 100;          // one keyframe every … ms: a smooth curve, played linearly
 const PIC_BOB = 4;                // px of each
 const PIC_LIFT = 34;              // px the flyer rises above the higher of its two ends (never above the box's top part)
 const PIC_TILT = 10;              // degrees it leans into its flight (to the right: clockwise) — the direction at a glance
@@ -531,31 +532,28 @@ const PIC_TILT = 10;              // degrees it leans into its flight (to the ri
  * One trip's keyframes, pure (tests/run.php): out of the bar it leaves very small, slowly growing to full size while it
  * rises, across at full size leaning into its way, then slowly shrinking and sinking into the bar it reaches (his fetch:
  * out of the array into the pool, his give-back and hers the other way — fileOnto()); {x, y} in the box's pixels.
+ * The owner, 2026-10-17: one even pace, no start and stop — sideways it moves at the same speed the whole trip, rising,
+ * growing and bobbing are smooth curves sampled every PIC_STEP_MS and played linearly (no easing per keyframe).
  */
 function picFlight(from, to) {
   const top = Math.max(PIC_LIFT, Math.min(from.y, to.y) - PIC_LIFT);
   const tilt = to.x >= from.x ? PIC_TILT : -PIC_TILT;
-  const at = (t, lift, scale, bob = 0) => {
+  const grow = 2500 / PIC_FLIGHT_MS;          // 2.5 s growing out of the bar
+  const sink = 1 - 3500 / PIC_FLIGHT_MS;      // 3.5 s shrinking into the other
+  const smooth = (u) => u * u * (3 - 2 * u);
+  const steps = Math.round(PIC_FLIGHT_MS / PIC_STEP_MS);
+  const frames = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const up = t < grow ? smooth(t / grow) : t > sink ? smooth((1 - t) / (1 - sink)) : 1;
+    const scale = 0.12 + 0.88 * up;
     const x = from.x + (to.x - from.x) * t;
     const y = from.y + (to.y - from.y) * t;
-    return `translate(${x.toFixed(1)}px, ${(y + (top - y) * lift + bob).toFixed(1)}px) rotate(${scale >= 1 ? tilt : tilt / 2}deg) scale(${scale})`;
-  };
-  // 2.5 s growing out of the bar, 8 s across at full size bobbing gently, 3.5 s shrinking into the other
-  const grow = 2500 / PIC_FLIGHT_MS;
-  const sink = 1 - 3500 / PIC_FLIGHT_MS;
-  const cruise = [];
-  for (let i = 1; i < PIC_BOBS; i++) {
-    cruise.push({ transform: at(0.1 + 0.8 * i / PIC_BOBS, 1, 1, i % 2 ? -PIC_BOB : PIC_BOB), opacity: 1, offset: grow + (sink - grow) * i / PIC_BOBS, easing: 'ease-in-out' });
+    const bob = PIC_BOB * up * Math.sin(2 * Math.PI * PIC_BOBS / 2 * t);
+    const opacity = i === 0 || i === steps ? 0 : 1;
+    frames.push({ transform: `translate(${x.toFixed(1)}px, ${(y + (top - y) * up + bob).toFixed(1)}px) rotate(${(tilt * up).toFixed(1)}deg) scale(${scale.toFixed(3)})`, opacity, offset: t });
   }
-  return [
-    { transform: at(0, 0, 0.12), opacity: 0, offset: 0 },
-    { transform: at(0, 0, 0.15), opacity: 1, offset: 0.02, easing: 'ease-out' },
-    { transform: at(0.1, 1, 1), opacity: 1, offset: grow, easing: 'ease-in-out' },
-    ...cruise,
-    { transform: at(0.9, 1, 1), opacity: 1, offset: sink, easing: 'ease-in' },
-    { transform: at(1, 0, 0.15), opacity: 1, offset: 0.98 },
-    { transform: at(1, 0, 0.12), opacity: 0, offset: 1 },
-  ];
+  return frames;
 }
 
 let picSeq = 0;

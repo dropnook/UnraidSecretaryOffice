@@ -36341,9 +36341,12 @@ const tr = (k) => k.transform.match(/translate\(([-\d.]+)px, ([-\d.]+)px\) rotat
 const tilt = (f) => f.map((k) => Number(k.transform.match(/rotate\(([-\d.]+)deg\)/)[1]));
 const full = fl.filter((k) => tr(k)[2] === 1);
 const back = m.picFlight({ x: 500, y: 200 }, { x: 100, y: 120 });
-out.flight = [fl.length, Math.round(full[0].offset * 14000), Math.round(full[full.length - 1].offset * 14000), fl.map((k) => tr(k)[2]).filter((x) => x < 1), fl.map((k) => k.opacity).filter((o) => o < 1),
-  tr(fl[0]).slice(0, 2), tr(fl[fl.length - 1]).slice(0, 2), [...new Set(full.map((k) => tr(k)[1]))].sort(), fl.every((k, i) => !i || k.offset > fl[i - 1].offset),
-  tr(m.picFlight({ x: 0, y: 40 }, { x: 10, y: 50 })[2])[1], [...new Set(tilt(fl))], [...new Set(tilt(back))]];
+const xs = fl.map((k) => tr(k)[0]);
+const steps = xs.slice(1).map((x, i) => Math.round((x - xs[i]) * 10) / 10);
+const small = m.picFlight({ x: 0, y: 40 }, { x: 10, y: 50 }).filter((k) => tr(k)[2] === 1).map((k) => tr(k)[1]);
+out.flight = [fl.length, Math.round(full[0].offset * 14000), Math.round(full[full.length - 1].offset * 14000), Math.min(...fl.map((k) => tr(k)[2])), fl.map((k) => k.opacity).filter((o) => o < 1),
+  tr(fl[0]).slice(0, 2), tr(fl[fl.length - 1]).slice(0, 2), full.every((k) => Math.abs(tr(k)[1] - 86) <= 4.05), fl.every((k, i) => !i || k.offset > fl[i - 1].offset),
+  Math.min(...small) >= 34 - 4.05, Math.max(...tilt(fl)), Math.min(...tilt(back)), Math.max(...steps) - Math.min(...steps) <= 0.2, fl.every((k) => !k.easing)];
 const done = m.pictureBars({ ...pic, phases: { ...pic.phases, done: { before: B(300, 90, 410, 200) } } }, 800, true);
 out.done = [done.forecast, done.after.segs.map((s) => s.bytes / G)];
 // nothing measured: no pool numbers (the check's before null), the target without size; no limit: no X
@@ -36395,8 +36398,8 @@ JS);
     same('night picture: what flies — no wings, a film reel for Jack Streamer\'s, a block for hers; nothing that runs', [[0, true, false], [0, false, false]], $j['flyer'] ?? null);
     same('night picture: the reel without wings (owner, 2026-10-15) — no feather, no beat; a plate with five holes over the wound film, a hub, a strip of film with sprocket holes; her block without film; flying left all mirrored; its own gradients',
         [0, 5, true, true, true, false, false, true, true], $j['reel'] ?? null);
-    same('night picture: the trip (14 s) — 2.5 s growing out of the bar it leaves, across at full size till 10.5 s bobbing ±4 px about its height (34 px above the higher end), 3.5 s shrinking into the bar it reaches, faded in and out; never above the box\'s top part; leaning into its way (right: clockwise, left: the other way)',
-        [15, 2500, 10500, [0.12, 0.15, 0.15, 0.12], [0, 0], [100, 120], [500, 200], [82, 86, 90], true, 34, [5, 10], [-5, -10]], $j['flight'] ?? null);
+    same('night picture: the trip (14 s) — 2.5 s growing out of the bar it leaves, across at full size till 10.5 s bobbing ±4 px about its height (34 px above the higher end), 3.5 s shrinking into the bar it reaches, faded in and out; never above the box\'s top part; leaning into its way (right: clockwise, left: the other way); one even pace sideways, no easing per keyframe (owner, 2026-10-17: no start and stop)',
+        [141, 2500, 10500, 0.12, [0, 0], [100, 120], [500, 200], true, true, true, 10, -10, true, true], $j['flight'] ?? null);
     same('night picture: once done — the pool as measured at the end, no forecast', [false, [0, 300, 90, 410, 0, 0, 200]], $j['done'] ?? null);
     same('night picture: nothing measured — no bars, no X, the target «not measured»', [false, null, ['to' => 'array', 'size' => null, 'used' => null, 'measured' => false, 'w' => null]],
         $j['none'] ?? null);
