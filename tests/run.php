@@ -14815,6 +14815,114 @@ function testWatchmanFlowSources(): void
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
+/**
+ * A share of one dataset, no single source to be seen: the watchman names who likely wrote it, from the setup (owner,
+ * 2026-10-17) — containers mapping a path in it (docker inspect's Mounts, never Env), VMs with a disk or folder in it
+ * (virsh dumpxml), Compose Manager's stacks without a container (their files); running + writing first, at most three,
+ * «and {n} more»; none found: the line as before. The same words in the entry, the notification and the page
+ * (tests/watchbook.js checks the page's line against the same English).
+ */
+function testWatchmanFlowGuess(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-flowguess-' . getmypid();
+    @mkdir($tmp, 0700, true);
+    same('flow guess: a container\'s binds under /mnt with rw — volumes, other places, «..» left out', [['/mnt/user/Media', true], ['/mnt/maple/Media/in', false]],
+        watchmanFlowBinds([['Type' => 'bind', 'Source' => '/mnt/user/Media/', 'RW' => true], ['Type' => 'bind', 'Source' => '/mnt/maple/Media/in', 'RW' => false],
+            ['Type' => 'volume', 'Source' => '/mnt/user/Media/v', 'Name' => 'v'], ['Type' => 'bind', 'Source' => '/var/run/docker.sock', 'RW' => true],
+            ['Type' => 'bind', 'Source' => '/mnt/user/Media/../appdata', 'RW' => true], ['Type' => 'bind', 'Source' => '/mnt/user', 'RW' => true], 'junk']));
+    same('flow guess: in the share through /mnt/user or its pool — not another share, another pool, a share of a similar name',
+        [true, true, true, false, false, false], array_map(fn ($p) => watchmanFlowInShare($p, 'maple/Media'),
+            ['/mnt/user/Media', '/mnt/maple/Media/Movies', '/mnt/user/Media/a b', '/mnt/user/Media2', '/mnt/oak/Media', '/mnt/user/appdata/Media']));
+
+    // the VMs from their libvirt XML: a disk (file or device), a read-only disk, a shared folder, the CD from /mnt/user/isos
+    $xml = "<domain type='kvm'><name>Win11</name><devices>"
+         . "<disk type='file' device='disk'><source file='/mnt/user/domains/Win11/vdisk1.img'/><target dev='hdc'/></disk>"
+         . "<disk type='file' device='disk'><source file='/mnt/maple/Media/vm/data.qcow2'/><readonly/></disk>"
+         . "<disk type='file' device='cdrom'><source file='/mnt/user/isos/win.iso'/><readonly/></disk>"
+         . "<disk type='block' device='disk'><source dev='/dev/nvme1n1'/></disk>"
+         . "<filesystem type='mount'><source dir='/mnt/user/Media/'/><target dir='media'/></filesystem></devices></domain>";
+    same('flow guess: a VM\'s disks and shared folders under /mnt (readonly marked), a device not', ['disks' => [['/mnt/user/domains/Win11/vdisk1.img', true],
+        ['/mnt/maple/Media/vm/data.qcow2', false], ['/mnt/user/isos/win.iso', false]], 'dirs' => [['/mnt/user/Media', true]]], watchmanFlowVmPaths($xml));
+    same('flow guess: broken XML — nothing', ['disks' => [], 'dirs' => []], watchmanFlowVmPaths('<domain><devices'));
+    file_put_contents("$tmp/sock", '');
+    file_put_contents("$tmp/virsh", "#!/bin/bash\ncase \"\$*\" in\n'list --name --all') printf 'Win11\\nHomeAssistant\\n\\n' ;;\n'list --name') echo HomeAssistant ;;\n"
+        . "'dumpxml --domain Win11') cat " . escapeshellarg("$tmp/win11.xml") . " ;;\n'dumpxml --domain HomeAssistant') echo \"<domain><devices/></domain>\" ;;\n*) exit 1 ;;\nesac\n");
+    chmod("$tmp/virsh", 0755);
+    file_put_contents("$tmp/win11.xml", $xml);
+    $vms = watchmanFlowGuessVms(['libvirt_sock' => "$tmp/sock", 'virsh' => "$tmp/virsh"]);
+    same('flow guess: libvirt asked (virsh: every VM\'s definition, which ones run)', [['Win11', false, 3, 1], ['HomeAssistant', true, 0, 0]],
+        array_map(fn ($v) => [$v['name'], $v['run'], count($v['disks']), count($v['dirs'])], (array) $vms));
+    same('flow guess: the VM service off — no VM; no virsh to ask — not known', [[], null],
+        [watchmanFlowGuessVms(['libvirt_sock' => "$tmp/nosock", 'virsh' => "$tmp/virsh"]), watchmanFlowGuessVms([])]);
+
+    // Compose Manager's stacks: their files' paths, «:ro» reads only; one whose files lie on a share is not read
+    foreach (['media' => "services:\n  tools:\n    image: alpine\n    volumes:\n      - /mnt/user/Media/in:/in:ro\n      - \"/mnt/user/Media:/data\"\n      - \${DATA}/x:/x\n",
+              'ro' => "services:\n  s:\n    volumes:\n      - /mnt/maple/Media:/m:ro\n", 'away' => '', 'none' => "services:\n  s:\n    image: nginx\n"] as $d => $yml) {
+        @mkdir("$tmp/projects/$d", 0700, true);
+        file_put_contents("$tmp/projects/$d/name", $d);
+        if ($yml !== '') {
+            file_put_contents("$tmp/projects/$d/docker-compose.yml", $yml);
+        }
+    }
+    file_put_contents("$tmp/projects/media/project_name", 'mediastack');
+    file_put_contents("$tmp/projects/away/indirect", '/mnt/user/appdata/away');
+    same('flow guess: the stacks\' paths (writing when any line writes), a stack on a share not read, one without paths not named',
+        [['name' => 'mediastack', 'paths' => [['/mnt/user/Media/in', false], ['/mnt/user/Media', true]]], ['name' => 'ro', 'paths' => [['/mnt/maple/Media', false]]]],
+        watchmanFlowGuessStacks(['compose_cfg' => "$tmp/none.cfg", 'compose_projects' => "$tmp/projects"]));
+    file_put_contents("$tmp/compose.cfg", "PROJECTS_FOLDER=\"/mnt/user/appdata/compose\"\n");
+    same('flow guess: Compose Manager\'s folder on a share — not read (no disk woken for a guess)', null,
+        watchmanFlowGuessStacks(['compose_cfg' => "$tmp/compose.cfg", 'compose_projects' => "$tmp/projects"]));
+
+    // the ranking
+    $ct = fn (array $binds, bool $run, array $more = []) => ['pid' => $run ? 4242 : 0, 'binds' => $binds] + $more;
+    $one = watchmanFlowGuess('maple/Media', ['EmbyServer' => $ct([['/mnt/user/Media/Movies', false], ['/mnt/user/Media', true]], true),
+        'web' => $ct([['/mnt/user/appdata/web', true]], true)], [], []);
+    same('flow guess: one container writing into it — its writing path named, one mapping another share not',
+        [['t' => 'ct', 'name' => 'EmbyServer', 'path' => '/mnt/user/Media']], $one);
+    same('flow guess: only reading — named so', [['t' => 'ct', 'name' => 'plex', 'path' => '/mnt/user/Media', 'ro' => true]],
+        watchmanFlowGuess('maple/Media', ['plex' => $ct([['/mnt/user/Media', false]], true)], null, null));
+    same('flow guess: a VM\'s disk in it', [['t' => 'vm', 'name' => 'Win11', 'path' => '/mnt/maple/Media/vm/data.qcow2', 'ro' => true, 'off' => true, 'disk' => true]],
+        watchmanFlowGuess('maple/Media', [], [['name' => 'Win11', 'run' => false] + watchmanFlowVmPaths((string) preg_replace('#<filesystem.*</filesystem>#', '', $xml))], []));
+    same('flow guess: nothing maps into it — none', [], watchmanFlowGuess('maple/Media', ['web' => $ct([['/mnt/user/appdata/web', true]], true)],
+        [['name' => 'Win11', 'run' => true, 'disks' => [['/mnt/user/domains/Win11/vdisk1.img', true]], 'dirs' => []]], [['name' => 'other', 'paths' => [['/mnt/user/isos', true]]]]));
+    $stacks = watchmanFlowGuessStacks(['compose_projects' => "$tmp/projects"]);
+    $all = watchmanFlowGuess('maple/Media', ['plex' => $ct([['/mnt/user/Media', false]], true), 'EmbyServer' => $ct([['/mnt/user/Media', true]], true),
+        'old' => $ct([['/mnt/maple/Media/x', true]], false), 'tools-1' => $ct([['/mnt/user/Media', true]], true, ['compose' => 'MediaStack'])], (array) $vms, $stacks);
+    same('flow guess: more than three — running + writing first, then reading, then stopped (containers, VMs, stacks, by name); a stack whose container is there named by it',
+        ['ct:EmbyServer', 'ct:tools-1', 'ct:plex', 'ct:old', 'vm:Win11 /mnt/user/Media', 'stack:ro'],
+        array_map(fn ($g) => "{$g['t']}:{$g['name']}" . ($g['t'] === 'vm' ? " {$g['path']}" : ''), $all));
+
+    // the entry: at most three named, the rest counted; none found — as before
+    $asked = [];
+    $ctx = ['single' => true, 'guess' => function (string $share) use (&$asked, $all): array {
+        $asked[] = $share;
+        return $share === 'maple/Media' ? $all : [];
+    }];
+    $src = watchmanFlowSources(['bytes' => 9], 'maple/Media', $ctx);
+    same('flow guess: the entry keeps three and how many more, the share asked once', [3, 3, 'EmbyServer', ['maple/Media']],
+        [count($src[0]['guess']), $src[0]['more'], $src[0]['guess'][0]['name'], $asked]);
+    same('flow guess: none found — the entry as before', [['t' => 'none', 'b' => 9]], watchmanFlowSources(['bytes' => 9], 'maple/appdata', $ctx));
+    watchmanFlowSources(['bytes' => 3, 'by' => ['own' => [3, false]]], 'maple/x', ['guess' => $ctx['guess']]);
+    same('flow guess: asked only for a share of one dataset', ['maple/Media', 'maple/appdata'], $asked);
+    $p = ['share' => 'maple/Media', 'src' => [['t' => 'none', 'b' => 1, 'guess' => [['t' => 'ct', 'name' => 'EmbyServer', 'path' => '/mnt/user/Media'],
+        ['t' => 'vm', 'name' => 'Win11', 'path' => '/mnt/user/Media/vm/w.img', 'disk' => true],
+        ['t' => 'stack', 'name' => 'tools', 'path' => '/mnt/maple/Media/x', 'ro' => true, 'off' => true]], 'more' => 2]]];
+    same('flow guess: in words — the same as the page\'s (tests/watchbook.js)',
+        ' No single source visible. Likely: container EmbyServer (maps /mnt/user/Media), VM Win11 (a disk in Media), Compose stack tools'
+        . ' (maps /mnt/maple/Media/x, read-only, not running) and 2 more — a guess from the setup, not measured.', watchmanFlowFrom($p, 'en'));
+    $p['src'][0]['more'] = 0;
+    array_splice($p['src'][0]['guess'], 2);
+    same('flow guess: in words (German), two named', ' Keine einzelne Quelle sichtbar. Wahrscheinlich: Container EmbyServer (mappt /mnt/user/Media), VM Win11 (Disk in Media)'
+        . ' — Vermutung aus der Einrichtung, nicht gemessen.', watchmanFlowFrom($p, 'de'));
+    $e = watchmanEntry('flow_written', 'flow_written:maple/Media', time(), $p + ['bytes' => 30 * 1024 ** 3, 'minutes' => 5, 'pct' => 30, 'learning' => true]);
+    check('flow guess: the entry\'s line carries it (the notification\'s too)', str_ends_with(officeNotifyText('watchman', 'entry.flow_written', watchmanText($e, 'fr'), 'fr'),
+        "Probablement : conteneur EmbyServer (monte /mnt/user/Media), VM Win11 (un disque dans Media) — une supposition d'après la configuration, pas une mesure."),
+        officeNotifyText('watchman', 'entry.flow_written', watchmanText($e, 'fr'), 'fr'));
+    same('flow guess: the round\'s look keeps the containers\' binds out of seen.json, like their pids', true,
+        str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/watchman.php'), "'compose' => true, 'binds' => true]"));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 /** job.sh: a second start of the same job in the same minute ends quietly, with one line for the syslog */
 function testJobGuard(): void
 {
@@ -32334,7 +32442,8 @@ JS);
  * kind and area on one day fold into one row (members newest first, open counted, the newest time, chain and night
  * shift), day headings, «show more» by rows, the area filter and its counts, the filter's words over the whole book
  * (params: MAC, IP, names; area, kind; accents folded) combined with «only open», the entry a link asks for inside its
- * row (and hidden behind the switches), a 500-entry book. Then the page's side: a folded row's text for every kind in
+ * row (and hidden behind the switches), a 500-entry book, an entry's line of a share of one dataset (who likely wrote it).
+ * Then the page's side: a folded row's text for every kind in
  * five languages (`fold.<kind>`; a new kind brings its own — `fold.any` is only the page's fallback), the batch note.
  */
 function testWatchBookView(): void
@@ -40259,7 +40368,7 @@ function testFirstHome(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanFlowGuess', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

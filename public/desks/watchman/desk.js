@@ -1048,11 +1048,30 @@ function srcLine(x) {
   return T(key, { what: srcWhat(x), size: fmt.size(x.b || 0) });
 }
 
+/**
+ * Where no source can be seen (a share of one dataset): who likely wrote it, from the setup (agent: watchmanFlowGuess(),
+ * watchmanFlowGuessText()) — at most three named, «and {n} more»; without a guess that none can be seen
+ */
+function srcNone(x, share) {
+  const guess = (Array.isArray(x.guess) ? x.guess : []).filter((g) => g && typeof g === 'object');
+  if (!guess.length) return T('src.none', { share: share || '' });
+  const name = String(share || '').split('/').slice(1).join('/') || String(share || '');
+  const one = (g) => {
+    const how = [g.disk ? T('src.guess_disk', { share: name }) : T('src.guess_maps', { path: String(g.path || '') })];
+    if (g.ro) how.push(T('src.guess_ro'));
+    if (g.off) how.push(T('src.guess_off'));
+    return T(g.t === 'vm' ? 'src.guess_vm' : g.t === 'stack' ? 'src.guess_stack' : 'src.guess_ct', { name: String(g.name || ''), how: how.join(', ') });
+  };
+  const list = guess.slice(0, 3).map(one).join(', ');
+  const more = Number(x.more) || 0;
+  return T('src.guess', { list: more > 0 ? T('src.guess_more', { list, n: more }) : list });
+}
+
 /** The biggest source behind an entry's line, or that none can be seen ('' without sources: an entry of an older office) */
 function srcFrom(p) {
   const top = Array.isArray(p.src) ? p.src[0] : null;
   if (!top || top.t === 'rest') return '';
-  return ' ' + (top.t === 'none' ? T('src.none', { share: p.share || '' }) : T('src.most', { what: srcWhat(top), size: fmt.size(top.b || 0) }));
+  return ' ' + (top.t === 'none' ? srcNone(top, p.share) : T('src.most', { what: srcWhat(top), size: fmt.size(top.b || 0) }));
 }
 
 /**
@@ -1252,7 +1271,7 @@ function details(e) {
       if ((e.kind === 'flow_written' || e.kind === 'flow_gone') && p.pct) add(T('detail.part'), `${fmt.number(p.pct)} %`);
       if (e.kind === 'flow_written' && Array.isArray(p.src) && p.src.length) {
         const box = el('div', '');
-        p.src.forEach((x) => box.appendChild(el('div', '', x.t === 'none' ? T('src.none', { share: p.share || '' }) : srcLine(x))));
+        p.src.forEach((x) => box.appendChild(el('div', '', x.t === 'none' ? srcNone(x, p.share) : srcLine(x))));
         add(T('detail.sources'), box);
       }
       if (e.kind === 'flow_gone' && p.kept) add(T('detail.kept'), fmt.size(p.kept));
@@ -1969,6 +1988,6 @@ Office.placesFrom(ID, (s) => {
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.watchman = { setState: (s) => { state = s; }, bookView, entryArea, foldKind, plainWords, entryHay, foldName,
-    groupFit, fitTally, groupOpen, watchSection };
+    groupFit, fitTally, groupOpen, watchSection, srcFrom };
 }
 })();

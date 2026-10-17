@@ -722,7 +722,9 @@ The same thing has the same word on every desk and text; grammar follows the wor
   PHP-serialized): grep, never unserialize.
 * `/mnt/addons` is Unassigned Devices' 1 MB tmpfs; without UD the office makes a plain folder; metrics there stay a few KB.
 * **Data flow:** `ss -tin`, a container's `/proc/<pid>/net/dev`, `smbstatus -b --json`; no conntrack bytes, no file-access
-  logging. **Logins:** `webgui: (Un)successful login user <name> from <ip>` (`<name>` may be a typed password; 3 failures lock
+  logging. Written into a ZFS share is told apart only per dataset; a share of one dataset gets a guess, marked as such
+  (`watchmanFlowGuess()`: binds from `docker inspect` Mounts — never Env —, `virsh dumpxml`, Compose Manager's files on the
+  flash; running + writing first, three named). **Logins:** `webgui: (Un)successful login user <name> from <ip>` (`<name>` may be a typed password; 3 failures lock
   15 min); sshd as `sshd-session`. `/root/.ssh` → `/boot/config/ssh/root`.
 * **Add Container form** (`?xmlTemplate=<type>:<file>`): Apply writes `my-<Name>.xml` and **removes an existing container of
   that name**; unknown path modes become rw (`ro,rslave` → rw!); `TemplateURL` updates are off in 7.3.2.

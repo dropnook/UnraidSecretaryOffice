@@ -14,7 +14,13 @@ const fs = require('fs');
 const path = require('path');
 
 globalThis.OFFICE_DESK_TESTS = {};
-const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+let dict = null;           // a desk's strings (the page's lines in words, below); else the key and its params
+const T = (k, p) => {
+  if (!dict) return k + (p ? ' ' + JSON.stringify(p) : '');
+  let v = dict[k.replace(/^watchman\./, '')];
+  if (v && typeof v === 'object') v = Number(p && p.n) === 1 ? v.one : v.other;
+  return String(v ?? k).replace(/\{(\w+)\}/g, (m, x) => (p && p[x] !== undefined ? String(p[x]) : m));
+};
 let has = () => true;
 globalThis.Office = {
   scope: (desk) => (k, p) => T(`${desk}.${k}`, p), t: T, el: () => ({}), store: () => null, storeJson: () => null,
@@ -195,5 +201,19 @@ same('500: the view takes a few milliseconds (with the entries\' words: < 100 ms
 const t1 = process.hrtime.bigint();
 view(many, { words: words('n4') });
 same('500: filtering by words < 100 ms', Number(process.hrtime.bigint() - t1) / 1e6 < 100, true);
+
+// ---------------------------------------------------------------- the page's line of a share of one dataset: who likely wrote it
+dict = JSON.parse(fs.readFileSync(path.join(path.dirname(file), 'lang/en.json'), 'utf8'));
+const none = (x) => W.srcFrom({ share: 'maple/Media', src: [{ t: 'none', b: 1, ...x }] });
+same('src line: no guess — none visible, as before', none({}), ' No single source visible — maple/Media is one dataset.');
+same('src line: a running container, a VM\'s disk, a stopped read-only stack, two more (the agent\'s words, testWatchmanFlowGuess)',
+  none({ guess: [{ t: 'ct', name: 'EmbyServer', path: '/mnt/user/Media' }, { t: 'vm', name: 'Win11', path: '/mnt/user/Media/vm/w.img', disk: true },
+    { t: 'stack', name: 'tools', path: '/mnt/maple/Media/x', ro: true, off: true }], more: 2 }),
+  ' No single source visible. Likely: container EmbyServer (maps /mnt/user/Media), VM Win11 (a disk in Media), Compose stack tools'
+  + ' (maps /mnt/maple/Media/x, read-only, not running) and 2 more — a guess from the setup, not measured.');
+same('src line: one read-only container', none({ guess: [{ t: 'ct', name: 'plex', path: '/mnt/user/Media/Movies', ro: true }] }),
+  ' No single source visible. Likely: container plex (maps /mnt/user/Media/Movies, read-only) — a guess from the setup, not measured.');
+same('src line: an entry of an older office (no sources) says nothing', W.srcFrom({ share: 'maple/Media' }), '');
+dict = null;
 
 console.log(JSON.stringify(out));
