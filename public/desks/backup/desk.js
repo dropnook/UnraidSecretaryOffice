@@ -2398,7 +2398,7 @@ async function setupLoad() {
   if (j.plan && (!setup.plan || j.plan.time !== setup.plan.time)) {
     setup.plan = j.plan;
     setupDraftKeep();
-    Office.placesTook(ID, j.plan, 'setup');     // its rows for the office's search (setupItems()) - the plan as it came
+    Office.placesTook(ID, j.plan, 'setup');     // its rows for the office's search (setupSearchItems()) - the plan as it came
   }
   const finishedForget = was && was.running && was.mode === 'forget' && !j.status.running;
   if (finishedForget) {
@@ -6150,7 +6150,7 @@ Office.places(ID, [
  * of its own, never per keystroke. Each leads to its step's tile and its row (setup:share|vm|app:…), which the search
  * scrolls to and marks; an app is found by its containers' names too
  */
-function setupItems(plan) {
+function setupSearchItems(plan) {
   if (!plan || !Array.isArray(plan.shares)) return [];
   const m = setup.plan === plan && setup.model ? setup.model : setupModel(plan);
   const sub = (step) => `${T('setup.page')} · ${T(step).replace(/^\d+\s*·\s*/, '')}`;     // the step's name without its number («2 · »)
@@ -6164,9 +6164,9 @@ function setupItems(plan) {
 
 // what his state holds for the search (core.js «items»): the main page's rows — every share, VM and app with how it is
 // protected (its row's «Change…» leads into the setup), the runs his history shows, the partner offices he sends to;
-// the setup's own rows from its plan as the page loaded it (part «setup», setupItems())
+// the setup's own rows from its plan as the page loaded it (part «setup», setupSearchItems())
 Office.placesFrom(ID, (s, part) => {
-  if (part === 'setup') return setupItems(s);
+  if (part === 'setup') return setupSearchItems(s);
   const out = [];
   if (!s.found) return out;
   const kopiaOn = !!(s.settings && s.settings.kopia_enabled);
@@ -6203,7 +6203,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     partnerNowText, partnerRateOf, runModeOf, progress, partnerUnits, partnerSectionRows, partnerApplyLines, setupChangeItems, listChangeText, knownText, diffMark, whyFold, folderOf, ownDataset, setupMakeDataset, appPartner, partnerShareLines, appDepGaps, depCovered, depTicked, depClick, setupInitLevels, setupDeclinedApply, declinedList, ownFoldersOf, setupModel, partnerApplyText, setupDecline, setupApplyChanges, minuteTaken, bubbleText, deskActions,
     presetKopiaMode, presetKopiaVm, draftMode, draftVm, setupNewItems, presetApplyNew, presetNow, presetChosen, presetNewMode, presetNewVm,
     letGoPart, letGoLines, letGoDoneLines, letGoResult, setLetGoClock: (c) => { letGoClock = c; }, setupUnfold, UNFOLD_OWN, setupDecisions, setupApplyChanges, changeLabel, valueText, setupSplit, setupDecline,
-    warnLines, bubbleText, setupBarSpec, setupNoPlace, setupPlaceStart, bubblePlace, setupItems,
+    warnLines, bubbleText, setupBarSpec, setupNoPlace, setupPlaceStart, bubblePlace, setupSearchItems,
   };
 }
 })();

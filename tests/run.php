@@ -9763,7 +9763,7 @@ function testSetupFilter(): void
     preg_match_all('/return setup(\w+)\(/', $f[1] ?? '', $m);
     same('setup filter: every step goes through it (0 basics … 4 retention, the rest, old sources)', ['Kopia', 'Vms', 'Apps', 'Shares', 'Retention', 'General', 'Sources'], $m[1]);
     check('setup filter: … each step a section of the switcher through fitStep, the first starts the count, the last tells the bar',
-        str_contains($js, "if (id === shown[0]) fitStart();\n  const s = id === 'messages' ? setupMessages(setupNotes(plan)) : fitStep(() => setupStepNode(id, plan));\n  if (id === shown[shown.length - 1]) setupFilterDone();"));
+        str_contains($js, "if (id === shown[0]) fitStart();\n  const s = id === 'messages' ? setupMessages(placeNotes(setupNotes(plan))) : fitStep(() => setupStepNode(id, plan));\n  if (id === shown[shown.length - 1]) setupFilterDone();"));
     check('setup filter: only hides - no dset() and no setup.open change in its code', (bool) preg_match('/function setupFits\(.*?\n\}\n/s', $js, $f)
         && !str_contains($f[0], 'dset(') && !str_contains(substr($js, strpos($js, 'function fitStep('), 400), 'setup.open'));
     check('setup filter: a new visit starts without words, «Decide…» is revealed like the search', str_contains($js, "setupFilterReset();                  // a new visit")
@@ -40656,8 +40656,8 @@ function testSetupSearch(): void
     $desk = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
     check('setup search: the plan as the page loads it goes to the search, once per plan',
         str_contains($desk, "setupDraftKeep();\n    Office.placesTook(ID, j.plan, 'setup');") && substr_count($desk, 'Office.placesTook(ID, j.plan') === 1
-        && substr_count($desk, 'Office.placesFrom(ID, ') === 1 && str_contains($desk, "if (part === 'setup') return setupItems(s);"));
-    check('setup search: no new call to the agent for it', !preg_match('/function setupItems[\s\S]{0,1500}Office\.api/', $desk));
+        && substr_count($desk, 'Office.placesFrom(ID, ') === 1 && str_contains($desk, "if (part === 'setup') return setupSearchItems(s);"));
+    check('setup search: no new call to the agent for it', !preg_match('/function setupSearchItems[\s\S]{0,1500}Office\.api/', $desk));
     $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
     if ($node === '') {
         check('setup search: node is missing here - skipped', true);
