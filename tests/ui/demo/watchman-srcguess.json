@@ -1,0 +1,1373 @@
+{
+ "time": 1791563474,
+ "hired": true,
+ "round": {
+  "last": 1791563474,
+  "next": 1791563774,
+  "running": false,
+  "failed": false,
+  "duration_ms": 87,
+  "skipped": 0,
+  "docker": true,
+  "shares": true
+ },
+ "on_watch": 1791304274,
+ "open": {
+  "flow_written": 1,
+  "net_new_device": 1,
+  "login_new_ip": 1,
+  "container_new": 1,
+  "plugin_new": 1
+ },
+ "book": [
+  {
+   "id": "wd5e04cb7da",
+   "kind": "login_new_ip",
+   "group": "login",
+   "tell": true,
+   "attack": "T1078",
+   "time": 1791545474,
+   "last": 1791556274,
+   "count": 4,
+   "open": true,
+   "t": {
+    "ip": "192.168.178.34",
+    "user": "root",
+    "service": "WebGUI"
+   },
+   "p": {
+    "ip": "192.168.178.34",
+    "users": [
+     "root"
+    ],
+    "services": [
+     "web"
+    ]
+   },
+   "noted": null,
+   "by": null,
+   "told": 1791469874,
+   "muted": null,
+   "night": false
+  },
+  {
+   "id": "w8825237f13",
+   "kind": "flow_written",
+   "group": "flow",
+   "tell": true,
+   "attack": "T1486",
+   "time": 1791545474,
+   "last": 1791547874,
+   "count": 1,
+   "open": true,
+   "t": {
+    "share": "maple/Familienfotos",
+    "size": "18 GB",
+    "minutes": 40,
+    "usual": ""
+   },
+   "p": {
+    "share": "maple/Familienfotos",
+    "pct": 6,
+    "bytes": 19327352832,
+    "minutes": 40,
+    "usual": 0,
+    "limit": 1073741824,
+    "learning": true,
+    "peak": 19327352832,
+    "src": [
+     {
+      "t": "none",
+      "b": 19327352832,
+      "guess": [
+       {
+        "t": "ct",
+        "name": "Fotoarchiv",
+        "path": "/mnt/user/Familienfotos/upload"
+       },
+       {
+        "t": "vm",
+        "name": "Win11",
+        "path": "/mnt/user/Familienfotos/vm/daten.img",
+        "disk": true
+       },
+       {
+        "t": "ct",
+        "name": "Bilderrahmen",
+        "path": "/mnt/user/Familienfotos",
+        "ro": true
+       }
+      ],
+      "more": 1
+     }
+    ]
+   },
+   "noted": null,
+   "by": null,
+   "told": 1791545474,
+   "muted": null,
+   "night": false
+  },
+  {
+   "id": "wfe162b7c9a",
+   "kind": "net_new_device",
+   "group": "net",
+   "tell": false,
+   "attack": "T1200",
+   "time": 1791531074,
+   "last": 1791531074,
+   "count": 1,
+   "open": true,
+   "t": {
+    "name": "Handy-Tochter",
+    "mac": "02:00:00:00:00:04",
+    "ip": "192.168.178.57",
+    "router": "Router"
+   },
+   "p": {
+    "sender": "192.168.178.1",
+    "router": "Router",
+    "mac": "02:00:00:00:00:04",
+    "ip": "192.168.178.57",
+    "name": "Handy-Tochter",
+    "network": "Default",
+    "taken": null,
+    "random": false,
+    "evidence": "Oct 10 03:12:07 Router CEF 402|Wireless Client Connected UNIFIclientAlias=Handy-Tochter UNIFIclientIp=192.168.178.57 msg=Handy-Tochter connected to Familien-WLAN"
+   },
+   "noted": null,
+   "by": null,
+   "told": null,
+   "muted": null,
+   "night": false
+  },
+  {
+   "id": "we39e6da19f",
+   "kind": "array_start",
+   "group": "array",
+   "tell": false,
+   "attack": "T1489",
+   "time": 1791491674,
+   "last": 1791491674,
+   "count": 1,
+   "open": false,
+   "t": {
+    "who": "root@192.168.178.20 (WebGUI)"
+   },
+   "p": {
+    "logins": [
+     {
+      "t": 1791491624,
+      "ip": "192.168.178.20",
+      "user": "root",
+      "service": "web"
+     }
+    ]
+   },
+   "noted": 1791491676,
+   "by": "array",
+   "told": null,
+   "muted": null,
+   "night": false
+  },
+  {
+   "id": "wdc05fb1798",
+   "kind": "container_new",
+   "group": "container",
+   "tell": true,
+   "attack": "T1610",
+   "time": 1791466274,
+   "last": 1791466274,
+   "count": 1,
+   "open": true,
+   "t": {
+    "name": "kopia",
+    "rights": "--cap-add=SYS_ADMIN --device=/dev/fuse -p 51515:51515/tcp"
+   },
+   "p": {
+    "name": "kopia",
+    "image": "ghcr.io/imagegenius/kopia",
+    "tokens": [
+     "--cap-add=SYS_ADMIN",
+     "--device=/dev/fuse",
+     "-p 51515:51515/tcp"
+    ]
+   },
+   "noted": null,
+   "by": null,
+   "told": 1791466274,
+   "muted": null,
+   "night": false
+  },
+  {
+   "id": "w41acb2239b",
+   "kind": "login_new_ip",
+   "group": "login",
+   "tell": true,
+   "attack": "T1078",
+   "time": 1791311474,
+   "last": 1791455474,
+   "count": 212,
+   "open": false,
+   "t": {
+    "ip": "192.168.178.20",
+    "user": "root",
+    "service": "WebGUI"
+   },
+   "p": {
+    "ip": "192.168.178.20",
+    "users": [
+     "root"
+    ],
+    "services": [
+     "web"
+    ]
+   },
+   "noted": 1791315074,
+   "by": "page",
+   "told": 1791311474,
+   "muted": null,
+   "night": false,
+   "serious": true
+  },
+  {
+   "id": "wa92b5cedfc",
+   "kind": "plugin_new",
+   "group": "plugin",
+   "tell": true,
+   "attack": "T1543",
+   "time": 1791383474,
+   "last": 1791383474,
+   "count": 1,
+   "open": true,
+   "t": {
+    "name": "fix.common.problems",
+    "source": "raw.githubusercontent.com/unraid"
+   },
+   "p": {
+    "name": "fix.common.problems",
+    "source": "raw.githubusercontent.com/unraid",
+    "version": "2026.05.16"
+   },
+   "noted": null,
+   "by": null,
+   "told": 1791383474,
+   "muted": null,
+   "night": false
+  },
+  {
+   "id": "w3bf6add5b4",
+   "kind": "partner_paired",
+   "group": "partner",
+   "tell": false,
+   "attack": "T1098.004",
+   "time": 1791347474,
+   "last": 1791347474,
+   "count": 1,
+   "open": false,
+   "t": {
+    "name": "Grosseltern",
+    "address": "100.84.12.7"
+   },
+   "p": {
+    "id": "2ec7accd",
+    "name": "Grosseltern",
+    "address": "100.84.12.7",
+    "from": "100.84.12.7",
+    "fp": "SHA256:a5468f92e0a6163490789d48cefd68cb2e783c9ee63",
+    "installed_by": "teamlead"
+   },
+   "noted": 1791347474,
+   "by": "office",
+   "told": null,
+   "muted": null,
+   "night": false
+  },
+  {
+   "id": "w1236963b43",
+   "kind": "watch",
+   "group": "watch",
+   "tell": false,
+   "attack": null,
+   "time": 1791304274,
+   "last": 1791304274,
+   "count": 1,
+   "open": false,
+   "t": {
+    "ips": 1,
+    "containers": 0,
+    "special": 0,
+    "plugins": 3,
+    "shares": 9,
+    "open": 0
+   },
+   "p": {
+    "ips": 1,
+    "containers": 0,
+    "special": 0,
+    "plugins": 3,
+    "shares": 9,
+    "open": 0
+   },
+   "noted": null,
+   "by": null,
+   "told": null,
+   "muted": null,
+   "night": false
+  }
+ ],
+ "watch": {
+  "ips": [
+   {
+    "ip": "192.168.178.219",
+    "first": 1791303603,
+    "last": 1791563011,
+    "users": [
+     "root"
+    ],
+    "services": [
+     "WebGUI",
+     "SSH (publickey)"
+    ]
+   },
+   {
+    "ip": "192.168.178.136",
+    "first": 1791361623,
+    "last": 1791473310,
+    "users": [
+     "root"
+    ],
+    "services": [
+     "SSH (publickey)",
+     "WebGUI"
+    ]
+   }
+  ],
+  "fail_ips": [],
+  "containers": {
+   "count": 8,
+   "special": [
+    {
+     "name": "Grafana",
+     "tokens": [
+      "-p 3000:3000/tcp"
+     ],
+     "rights": false
+    },
+    {
+     "name": "prometheus",
+     "tokens": [
+      "-p 9090:9090/tcp"
+     ],
+     "rights": false
+    },
+    {
+     "name": "EmbyServer",
+     "tokens": [
+      "-p 8096:8096/tcp"
+     ],
+     "rights": false
+    },
+    {
+     "name": "Nextcloud",
+     "tokens": [
+      "-p 8080:80/tcp"
+     ],
+     "rights": false
+    },
+    {
+     "name": "immich_server",
+     "tokens": [
+      "-p 2283:2283/tcp"
+     ],
+     "rights": false
+    }
+   ]
+  },
+  "plugins": [
+   {
+    "name": "community.applications",
+    "source": "raw.githubusercontent.com/unraid",
+    "version": "2026.07.21"
+   },
+   {
+    "name": "unRAIDServer",
+    "source": "stable.dl.unraid.net",
+    "version": "7.3.3"
+   },
+   {
+    "name": "unraid-secretary-office",
+    "source": "github.com/dropnook",
+    "version": "2026.10.07"
+   }
+  ],
+  "flash": {
+   "go": {
+    "lines": 3
+   },
+   "extra": [],
+   "users": [
+    "root",
+    "bin",
+    "daemon",
+    "adm",
+    "ftp",
+    "rpc",
+    "sshd",
+    "ntp",
+    "named",
+    "dhcpcd",
+    "avahi",
+    "avahi-autoipd",
+    "messagebus",
+    "nobody"
+   ],
+   "keys": [
+    {
+     "user": "root",
+     "fp": "SHA256:26488679a94dc5f0b6224a1677c3780e609c5a2c53d",
+     "type": "ssh-rsa",
+     "comment": "admin@laptop"
+    },
+    {
+     "user": "root",
+     "fp": "SHA256:a5468f92e0a6163490789d48cefd68cb2e783c9ee63",
+     "type": "ssh-ed25519",
+     "comment": "uso-partner:2ec7accd"
+    }
+   ]
+  },
+  "shares": {
+   "count": 15,
+   "open": []
+  },
+  "sched": {
+   "crontab": [
+    "47 * * * * /usr/bin/run-parts /etc/cron.hourly",
+    "40 4 * * * /usr/bin/run-parts /etc/cron.daily",
+    "30 4 * * 0 /usr/bin/run-parts /etc/cron.weekly",
+    "20 4 1 * * /usr/bin/run-parts /etc/cron.monthly"
+   ],
+   "twice": 0,
+   "files": [
+    {
+     "file": "dynamix/monitor.cron",
+     "lines": 1
+    },
+    {
+     "file": "dynamix/mover.cron",
+     "lines": 1
+    },
+    {
+     "file": "dynamix/unraid-check.cron",
+     "lines": 1
+    },
+    {
+     "file": "unraid-secretary-office/agent-watch.cron",
+     "lines": 1
+    },
+    {
+     "file": "unraid-secretary-office/unraid-secretary-office.cron",
+     "lines": 1
+    }
+   ],
+   "scripts": [],
+   "at": 0,
+   "agents": []
+  },
+  "host": {
+   "listen": [
+    {
+     "key": "tcp:22",
+     "prog": "sshd",
+     "port": 22,
+     "addr": [
+      "192.168.178.10"
+     ]
+    },
+    {
+     "key": "tcp:53",
+     "prog": "dnsmasq",
+     "port": 53,
+     "addr": [
+      "192.168.122.1"
+     ]
+    },
+    {
+     "key": "tcp:80",
+     "prog": "nginx",
+     "port": 80,
+     "addr": [
+      "192.168.178.10"
+     ]
+    },
+    {
+     "key": "tcp:139",
+     "prog": "smbd",
+     "port": 139,
+     "addr": [
+      "192.168.178.10"
+     ]
+    },
+    {
+     "key": "tcp:445",
+     "prog": "smbd",
+     "port": 445,
+     "addr": [
+      "192.168.178.10"
+     ]
+    },
+    {
+     "key": "tcp:3702",
+     "prog": "wsdd2",
+     "port": 3702,
+     "addr": [
+      "*"
+     ]
+    },
+    {
+     "key": "tcp:5355",
+     "prog": "wsdd2",
+     "port": 5355,
+     "addr": [
+      "*"
+     ]
+    }
+   ],
+   "procs": [],
+   "doors": [
+    {
+     "what": "ssh",
+     "name": "SSH",
+     "port": 22,
+     "issuer": null,
+     "peers": 0
+    },
+    {
+     "what": "oidc",
+     "name": "Unraid.net",
+     "port": null,
+     "issuer": "account.unraid.net",
+     "peers": 0
+    }
+   ],
+   "users": 14,
+   "api": []
+  },
+  "partner": {
+   "pairs": [
+    {
+     "id": "2ec7accd",
+     "name": "Grosseltern",
+     "address": "192.168.178.190",
+     "door": true,
+     "line": "ok",
+     "sends": true,
+     "receives": true,
+     "trust": "mine"
+    }
+   ],
+   "looked": true,
+   "strays": [],
+   "transfers": 0
+  }
+ },
+ "flow": {
+  "since": 1791304274,
+  "days": 3,
+  "learn": 7,
+  "last": 1791563474,
+  "can": {
+   "ss": true,
+   "smb": "on",
+   "nfs": false,
+   "docker": true,
+   "host": [],
+   "zfs": {
+    "pools": [
+     "disk2",
+     "daten",
+     "cache"
+    ],
+    "asleep": []
+   },
+   "disks": {
+    "disks": [
+     "disk1"
+    ],
+    "asleep": []
+   },
+   "moving": [],
+   "office": null
+  },
+  "clients": [
+   {
+    "ip": "192.168.178.219",
+    "service": "web",
+    "name": "",
+    "day": 257750790,
+    "usual": 31032295,
+    "peak": 31206275,
+    "learning": 2,
+    "last": 1791563474,
+    "ack": 0
+   },
+   {
+    "ip": "192.168.178.125",
+    "service": "ssh",
+    "name": "",
+    "day": 243154866,
+    "usual": 60788716,
+    "peak": 243154866,
+    "learning": 1,
+    "last": 1791526299,
+    "ack": 0
+   },
+   {
+    "ip": "192.168.178.219",
+    "service": "ssh",
+    "name": "",
+    "day": 160479148,
+    "usual": 22020777,
+    "peak": 88083110,
+    "learning": 1,
+    "last": 1791563174,
+    "ack": 0
+   },
+   {
+    "ip": "192.168.178.125",
+    "service": "web",
+    "name": "",
+    "day": 1093791,
+    "usual": 3425496,
+    "peak": 13701985,
+    "learning": 2,
+    "last": 1791526599,
+    "ack": 0
+   },
+   {
+    "ip": "192.168.178.136",
+    "service": "web",
+    "name": "",
+    "day": 0,
+    "usual": 7101485,
+    "peak": 28405942,
+    "learning": 2,
+    "last": 1791476732,
+    "ack": 0
+   },
+   {
+    "ip": "192.168.178.136",
+    "service": "ssh",
+    "name": "",
+    "day": 0,
+    "usual": 58702740,
+    "peak": 234810962,
+    "learning": 1,
+    "last": 1791474032,
+    "ack": 0
+   },
+   {
+    "ip": "192.168.179.2",
+    "service": "web",
+    "name": "",
+    "day": 0,
+    "usual": 6173038,
+    "peak": 24692154,
+    "learning": 2,
+    "last": 1791319192,
+    "ack": 0
+   }
+  ],
+  "containers": [
+   {
+    "name": "immich_server",
+    "image": "ghcr.io/immich-app/immich-server:release",
+    "day": 323012743,
+    "office": 0,
+    "usual": 13938214,
+    "media": false,
+    "kopia": false,
+    "with": [],
+    "learning": 1,
+    "running": true
+   },
+   {
+    "name": "immich_redis",
+    "image": "valkey/valkey:8-bookworm",
+    "day": 158895635,
+    "office": 0,
+    "usual": 6757573,
+    "media": false,
+    "kopia": false,
+    "with": [],
+    "learning": 1,
+    "running": true
+   },
+   {
+    "name": "immich_postgres",
+    "image": "ghcr.io/immich-app/postgres:14-vectorchord0.3.0-pgvectors0.2.0",
+    "day": 78366402,
+    "office": 0,
+    "usual": 13848532,
+    "media": false,
+    "kopia": false,
+    "with": [],
+    "learning": 1,
+    "running": true
+   },
+   {
+    "name": "EmbyServer",
+    "image": "emby/embyserver:latest",
+    "day": 275854,
+    "office": 0,
+    "usual": 0,
+    "media": true,
+    "kopia": false,
+    "with": [],
+    "learning": 1,
+    "running": true
+   },
+   {
+    "name": "Grafana",
+    "image": "grafana/grafana",
+    "day": 0,
+    "office": 0,
+    "usual": 869996,
+    "media": false,
+    "kopia": false,
+    "with": [],
+    "learning": 2,
+    "running": false
+   },
+   {
+    "name": "Nextcloud",
+    "image": "nextcloud:apache",
+    "day": 0,
+    "office": 0,
+    "usual": 794055,
+    "media": false,
+    "kopia": false,
+    "with": [],
+    "learning": 1,
+    "running": true
+   },
+   {
+    "name": "kopia",
+    "image": "ghcr.io/imagegenius/kopia",
+    "day": 0,
+    "office": 0,
+    "usual": 0,
+    "media": false,
+    "kopia": true,
+    "with": [],
+    "learning": 2,
+    "running": false
+   },
+   {
+    "name": "mariadb-nextcloud",
+    "image": "mariadb:11",
+    "day": 0,
+    "office": 0,
+    "usual": 2740506,
+    "media": false,
+    "kopia": false,
+    "with": [],
+    "learning": 1,
+    "running": true
+   },
+   {
+    "name": "prometheus",
+    "image": "prom/prometheus",
+    "day": 0,
+    "office": 0,
+    "usual": 0,
+    "media": false,
+    "kopia": false,
+    "with": [],
+    "learning": 2,
+    "running": false
+   },
+   {
+    "name": "uso-drill-test-e2e-md",
+    "image": "sha256:53ef799caed285438d88678b529b4ff24406d4788f47ab8a74bb2212c707899a",
+    "day": 0,
+    "office": 0,
+    "usual": 0,
+    "media": false,
+    "kopia": false,
+    "with": [],
+    "learning": 0,
+    "running": false
+   }
+  ],
+  "idle": 0,
+  "shares": [
+   {
+    "share": "cache/domains",
+    "day": 358883328,
+    "office": 0,
+    "written": 358912000,
+    "used": 359010304,
+    "snap": 1791513014,
+    "snapshots": true,
+    "usual": 84526080,
+    "learning": 2,
+    "seen": 1791563474
+   },
+   {
+    "share": "cache/appdata",
+    "day": 19456000,
+    "office": 0,
+    "written": 2342912,
+    "used": 1007304704,
+    "snap": 1791513014,
+    "snapshots": true,
+    "usual": 180008960,
+    "learning": 2,
+    "seen": 1791563474
+   },
+   {
+    "share": "cache/system",
+    "day": 16384,
+    "office": 0,
+    "written": 4170457088,
+    "used": 4170457088,
+    "snap": null,
+    "snapshots": false,
+    "usual": 777725952,
+    "learning": 2,
+    "seen": 1791563474
+   },
+   {
+    "share": "daten/UnraidSecretaryOffice",
+    "day": 0,
+    "office": 0,
+    "written": 65536,
+    "used": 867065856,
+    "snap": 1791513012,
+    "snapshots": true,
+    "usual": 0,
+    "learning": 1,
+    "seen": 1791563474
+   },
+   {
+    "share": "daten/UnraidSecretaryOffice-partners",
+    "day": 0,
+    "office": 0,
+    "written": 196608,
+    "used": 170369024,
+    "snap": null,
+    "snapshots": true,
+    "usual": 0,
+    "learning": 1,
+    "seen": 1791563474
+   },
+   {
+    "share": "daten/Familienvideos",
+    "day": 0,
+    "office": 0,
+    "written": 0,
+    "used": 1303355392,
+    "snap": 1791513012,
+    "snapshots": true,
+    "usual": 0,
+    "learning": 1,
+    "seen": 1791563474
+   },
+   {
+    "share": "daten/Dokumente",
+    "day": 0,
+    "office": 0,
+    "written": 0,
+    "used": 98304,
+    "snap": 1791513012,
+    "snapshots": true,
+    "usual": 0,
+    "learning": 1,
+    "seen": 1791563474
+   },
+   {
+    "share": "daten/Familienfotos",
+    "day": 0,
+    "office": 0,
+    "written": 0,
+    "used": 167837696,
+    "snap": 1791513012,
+    "snapshots": true,
+    "usual": 0,
+    "learning": 1,
+    "seen": 1791563474
+   },
+   {
+    "share": "daten/syslog",
+    "day": 0,
+    "office": 0,
+    "written": 397312,
+    "used": 397312,
+    "snap": null,
+    "snapshots": false,
+    "usual": 0,
+    "learning": 1,
+    "seen": 1791563474
+   },
+   {
+    "share": "cache/appdata.restored-20261008-082404",
+    "day": 0,
+    "office": 0,
+    "written": 0,
+    "used": 244658176,
+    "snap": 1791440644,
+    "snapshots": true,
+    "usual": 0,
+    "learning": 1,
+    "seen": 1791456388
+   },
+   {
+    "share": "cache/Dokumente",
+    "day": 0,
+    "office": 0,
+    "written": 0,
+    "used": 65736704,
+    "snap": 1791513012,
+    "snapshots": true,
+    "usual": 0,
+    "learning": 1,
+    "seen": 1791563474
+   },
+   {
+    "share": "cache/paperless",
+    "day": 0,
+    "office": 0,
+    "written": 4297957376,
+    "used": 4297957376,
+    "snap": 1791438707,
+    "snapshots": true,
+    "usual": 0,
+    "learning": 1,
+    "seen": 1791456388
+   }
+  ],
+  "gone": [
+   {
+    "key": "share:system",
+    "share": "system",
+    "disk": null,
+    "fs": "zfs",
+    "shares": [],
+    "size": 4170465280,
+    "day": 16384,
+    "expected": 0,
+    "usual": 471040,
+    "learning": 2,
+    "asleep": [],
+    "last": 1791563474,
+    "ack": 0
+   },
+   {
+    "key": "share:appdata",
+    "share": "appdata",
+    "disk": null,
+    "fs": "zfs",
+    "shares": [],
+    "size": 997482496,
+    "day": 12288,
+    "expected": 0,
+    "usual": 389120,
+    "learning": 2,
+    "asleep": [],
+    "last": 1791563174,
+    "ack": 0
+   },
+   {
+    "key": "share:syslog",
+    "share": "syslog",
+    "disk": null,
+    "fs": "zfs",
+    "shares": [],
+    "size": 397312,
+    "day": 0,
+    "expected": 0,
+    "usual": 0,
+    "learning": 1,
+    "asleep": [],
+    "last": 1791548157,
+    "ack": 0
+   },
+   {
+    "key": "share:UnraidSecretaryOffice-partners",
+    "share": "UnraidSecretaryOffice-partners",
+    "disk": null,
+    "fs": "zfs",
+    "shares": [],
+    "size": 160890880,
+    "day": 0,
+    "expected": 0,
+    "usual": 0,
+    "learning": 1,
+    "asleep": [],
+    "last": 1791471905,
+    "ack": 0
+   },
+   {
+    "key": "share:appdata.restored-20261008-082404",
+    "share": "appdata.restored-20261008-082404",
+    "disk": null,
+    "fs": "zfs",
+    "shares": [],
+    "size": 244658176,
+    "day": 0,
+    "expected": 0,
+    "usual": 61164544,
+    "learning": 1,
+    "asleep": [],
+    "last": 1791456688,
+    "ack": 0
+   },
+   {
+    "key": "share:paperless",
+    "share": "paperless",
+    "disk": null,
+    "fs": "zfs",
+    "shares": [],
+    "size": 4297957376,
+    "day": 0,
+    "expected": 0,
+    "usual": 1074489344,
+    "learning": 1,
+    "asleep": [],
+    "last": 1791456688,
+    "ack": 0
+   },
+   {
+    "key": "disk:disk1",
+    "share": null,
+    "disk": "disk1",
+    "fs": "btrfs",
+    "shares": [
+     "isos"
+    ],
+    "size": 1129627648,
+    "day": 0,
+    "expected": 0,
+    "usual": 0,
+    "learning": 2,
+    "asleep": [],
+    "last": 0,
+    "ack": 0
+   },
+   {
+    "key": "share:UnraidSecretaryOffice",
+    "share": "UnraidSecretaryOffice",
+    "disk": null,
+    "fs": "zfs",
+    "shares": [],
+    "size": 151420928,
+    "day": 0,
+    "expected": 0,
+    "usual": 0,
+    "learning": 1,
+    "asleep": [],
+    "last": 0,
+    "ack": 0
+   },
+   {
+    "key": "share:domains",
+    "share": "domains",
+    "disk": null,
+    "fs": "zfs",
+    "shares": [],
+    "size": 358928384,
+    "day": 0,
+    "expected": 0,
+    "usual": 0,
+    "learning": 2,
+    "asleep": [],
+    "last": 0,
+    "ack": 0
+   },
+   {
+    "key": "share:Familienvideos",
+    "share": "Familienvideos",
+    "disk": null,
+    "fs": "zfs",
+    "shares": [],
+    "size": 1303355392,
+    "day": 0,
+    "expected": 0,
+    "usual": 0,
+    "learning": 1,
+    "asleep": [],
+    "last": 0,
+    "ack": 0
+   },
+   {
+    "key": "share:Dokumente",
+    "share": "Dokumente",
+    "disk": null,
+    "fs": "zfs",
+    "shares": [],
+    "size": 65835008,
+    "day": 0,
+    "expected": 0,
+    "usual": 0,
+    "learning": 1,
+    "asleep": [],
+    "last": 0,
+    "ack": 0
+   },
+   {
+    "key": "share:Familienfotos",
+    "share": "Familienfotos",
+    "disk": null,
+    "fs": "zfs",
+    "shares": [],
+    "size": 167837696,
+    "day": 0,
+    "expected": 0,
+    "usual": 0,
+    "learning": 1,
+    "asleep": [],
+    "last": 0,
+    "ack": 0
+   }
+  ],
+  "smb": {
+   "users": [],
+   "clients": []
+  },
+  "limits": {
+   "factor": 4,
+   "min": 2147483648,
+   "new": 53687091200,
+   "part": 20,
+   "keep": 14,
+   "gone_new": 107374182400,
+   "gone_part": 10
+  }
+ },
+ "snaps": {
+  "time": 1791563474,
+  "zfs": {
+   "disk2": 0,
+   "daten": 25,
+   "cache": 22
+  },
+  "btrfs": {
+   "disk1": 10
+  },
+  "asleep": [],
+  "capped": [],
+  "expected": [],
+  "series": [
+   "t"
+  ]
+ },
+ "net": {
+  "state": "on",
+  "looked": 1791563474,
+  "cfg": {
+   "local": true,
+   "on": true,
+   "folder": "/mnt/user/syslog",
+   "share": "syslog",
+   "ident": "ip",
+   "remote": null
+  },
+  "own": [],
+  "skipped": 0,
+  "more": 0,
+  "since": 1791459016,
+  "senders": [
+   {
+    "sender": "192.168.179.10",
+    "host": "",
+    "product": "",
+    "version": "",
+    "vendor": "",
+    "last": 1791547852,
+    "per_day": 1040,
+    "lines": 1040,
+    "other_pct": 96.4,
+    "cef": false,
+    "detections": false,
+    "firewall": false,
+    "skew": 214
+   },
+   {
+    "sender": "192.168.178.21",
+    "host": "",
+    "product": "",
+    "version": "",
+    "vendor": "",
+    "last": 1791547761,
+    "per_day": 33,
+    "lines": 33,
+    "other_pct": 100,
+    "cef": false,
+    "detections": false,
+    "firewall": false,
+    "skew": null
+   },
+   {
+    "sender": "192.168.178.10",
+    "host": "",
+    "product": "",
+    "version": "",
+    "vendor": "",
+    "last": 1791545997,
+    "per_day": 55,
+    "lines": 55,
+    "other_pct": 100,
+    "cef": false,
+    "detections": false,
+    "firewall": false,
+    "skew": null
+   },
+   {
+    "sender": "192.168.178.190",
+    "host": "Router",
+    "product": "UniFi Network",
+    "version": "10.6.106",
+    "vendor": "Ubiquiti",
+    "last": 1791459040,
+    "per_day": 7,
+    "lines": 14,
+    "other_pct": 0,
+    "cef": true,
+    "detections": true,
+    "firewall": true,
+    "skew": 0
+   }
+  ],
+  "devices": 2,
+  "admins": 1,
+  "vpn": 0,
+  "detections": {
+   "in": 1,
+   "out": 1,
+   "other": 1
+  },
+  "blocked": {
+   "week": 1,
+   "top": [
+    {
+     "key": "203.0.113.0/24 tcp/443",
+     "n": 1,
+     "last": 1791459039,
+     "known": false
+    }
+   ]
+  },
+  "dropped": {
+   "update": 0,
+   "wan": 0
+  },
+  "lan": null
+ },
+ "net_lan": false,
+ "posture": {
+  "time": 1791563474,
+  "tips": [
+   {
+    "id": "mitigations_on",
+    "level": "info",
+    "p": {
+     "cpu": "Intel(R) Core(TM) Ultra 7 265K"
+    },
+    "link": {
+     "to": "boot",
+     "path": "/Settings/BootParameters"
+    },
+    "known": true
+   }
+  ],
+  "open": 0
+ },
+ "grafana": null,
+ "notified": {
+  "time": 1791480649,
+  "items": [
+   {
+    "kind": "net_log_silent",
+    "n": 1,
+    "sent": true
+   }
+  ]
+ },
+ "notify": {
+  "on": true,
+  "available": true
+ },
+ "syslog": {
+  "on": false
+ },
+ "chains": [],
+ "night": null,
+ "limits": {
+  "every": 300,
+  "burst": 5,
+  "window": 600,
+  "quiet": 3600,
+  "keep": 500,
+  "days": 90,
+  "serious_days": 30
+ },
+ "incidents": [
+  {
+   "id": "w41acb2239b",
+   "kind": "login_new_ip",
+   "group": "login",
+   "attack": "T1078",
+   "v": null,
+   "time": 1791311474,
+   "last": 1791455474,
+   "count": 212,
+   "t": {
+    "ip": "192.168.178.20",
+    "user": "root",
+    "service": "WebGUI"
+   },
+   "p": {
+    "ip": "192.168.178.20",
+    "users": [
+     "root"
+    ],
+    "services": [
+     "web"
+    ]
+   },
+   "at": 1791315074,
+   "until": 1793907074,
+   "louder": true,
+   "note": "Not one of ours: changed the root password, SSH keys only now",
+   "again": 0
+  },
+  {
+   "id": "w5c1e2a9b04",
+   "kind": "container_new",
+   "group": "container",
+   "attack": "T1610",
+   "v": null,
+   "time": 1787243474,
+   "last": 1787243474,
+   "count": 1,
+   "t": {
+    "name": "cryptobox",
+    "rights": "--privileged --network=host"
+   },
+   "p": {
+    "name": "cryptobox",
+    "tokens": [
+     "--privileged",
+     "--network=host"
+    ]
+   },
+   "at": 1787329874,
+   "until": 1789921874,
+   "louder": false,
+   "note": "Pulled by mistake from a forum post; removed",
+   "again": 0
+  }
+ ]
+}
