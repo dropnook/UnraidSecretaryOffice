@@ -569,7 +569,7 @@ function notices() {
     const ok = button(T('held.accept'), 'small plain', heldAccept);
     ok.disabled = !canAct() || live() || restoring();
     more.appendChild(ok);
-    callout(T('held.callout', { when: `${fmt.date(held.when)} ${fmt.time(held.when)}`, before: String(held.before), now: String(held.now), since: fmt.date(held.time) }), true, more);
+    callout(T('held.callout', { when: fmt.date(held.when), before: String(held.before), now: String(held.now), since: fmt.date(held.time) }), true, more);
   }
   const sc = state.schedule || {};
   if (sc.script && !sc.enabled) {     // no settings yet: "no settings" says it all
