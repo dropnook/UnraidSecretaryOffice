@@ -4133,6 +4133,11 @@ b.depClick(app('dropnook'), 'photos', false, {}, S.plan, null);
 out.same.push(view('dropnook', 'photos'));
 b.depClick(app('dropnook'), 'photos', true, {}, S.plan, null);
 out.same.push(view('dropnook', 'photos'), !!S.locks.photos, JSON.stringify(S.draft) === before);
+// a new plan (a tour, measuring): the boxes clicked stay as clicked
+b.depClick(app('dropnook'), 'photos', false, {}, S.plan, null);
+S.base = JSON.parse(JSON.stringify(S.draft));
+b.setupDraftKeep();
+out.same.push(view('dropnook', 'photos'));
 // a tick never lowers: tm_anna at Kopia, TimeMachine only local but to the partner - ticked, the share stays at Kopia
 const p = JSON.parse(JSON.stringify(cases['local shares']));
 p.P['share|tm_anna|mode'] = 'kopia';
@@ -4154,8 +4159,8 @@ JS);
     same('app share boxes: the page\'s box (depCovered) and the Team Lead\'s hint (backupAppShareGaps) agree on every server', $want, $r['covered'] ?? null);
     same('app share boxes: s3-tom less far than s3 - unticked; a tick raises it to Kopia (tied to the app), an untick keeps it there («stays»)',
         [[false, null, 'snapshot'], [true, null, 'kopia'], true, [false, 'kept', 'kopia'], false], $r['raise'] ?? null);
-    same('app share boxes: photos as far as dropnook - ticked on load; untick «stays», tick again «already», nothing changes, nothing tied',
-        [[true, null, 'kopia'], [false, 'kept', 'kopia'], [true, 'same', 'kopia'], false, true], $r['same'] ?? null);
+    same('app share boxes: photos as far as dropnook - ticked on load; untick «stays», tick again «already», nothing changes, nothing tied; a new plan keeps the untick',
+        [[true, null, 'kopia'], [false, 'kept', 'kopia'], [true, 'same', 'kopia'], false, true, [false, 'kept', 'kopia']], $r['same'] ?? null);
     same('app share boxes: a tick never lowers a share that goes further than its app on its own', [[false, null, 'kopia'], [true, null, 'kopia']], $r['lower'] ?? null);
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         $j = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$l.json"), true) ?: [];

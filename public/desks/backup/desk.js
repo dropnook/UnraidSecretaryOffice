@@ -2076,7 +2076,7 @@ function setupMigrated() {
  */
 function setupDraftKeep() {
   const old = setup.draft && setup.base ? { draft: setup.draft, base: setup.base, levels: setup.levels, held: setup.held,
-    baseLevels: setup.baseLevels || {}, baseHeld: setup.baseHeld || {} } : null;
+    baseLevels: setup.baseLevels || {}, baseHeld: setup.baseHeld || {}, deps: setup.deps, depsOff: setup.depsOff, depNote: setup.depNote } : null;
   setupDraftFromPlan();
   if (!old) return;
   const keys = new Set([...Object.keys(old.base), ...Object.keys(old.draft)]);
@@ -2093,6 +2093,11 @@ function setupDraftKeep() {
   Object.keys(old.held).forEach((k) => {
     if (old.held[k] !== old.baseHeld[k] && k in setup.held) { setup.held[k] = old.held[k]; kept++; }
   });
+  // the «… mitsichern» boxes clicked: kept while that app still uses that share
+  const there = new Set(setup.model.apps.flatMap((a) => a.deps.map((d) => `${a.id}|${d.share}`)));
+  old.deps.forEach((k) => { if (there.has(k)) { setup.deps.add(k); kept++; } });
+  old.depsOff.forEach((k) => { if (there.has(k)) setup.depsOff.add(k); });
+  old.depNote.forEach((v, k) => { if (there.has(k)) setup.depNote.set(k, v); });
   if (kept) setupDerive();
 }
 
