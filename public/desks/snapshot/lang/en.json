@@ -508,6 +508,7 @@
   "wake": "Wake sleeping disks",
   "wake_n": "Wake {names}",
   "wake_title": "Only for this tour: wakes the sleeping btrfs disks and ZFS pools and reads their snapshots too. Unticked, I let them sleep and show what I last knew about them. Unraid puts them back to sleep after its delay.",
+  "wake_once": "Only for the next tour, not remembered.",
   "bubble.pools_asleep": {
     "one": "The pool {names} is asleep — I show what I last saw of it and ask nothing of it.",
     "other": "The pools {names} are asleep — I show what I last saw of them and ask nothing of them."

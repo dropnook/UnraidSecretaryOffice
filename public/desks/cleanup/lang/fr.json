@@ -1506,6 +1506,8 @@
     "other": "Réveiller {n} disques endormis"
   },
   "where.wake_title": "Pour cette tournée seulement : réveille tous les disques endormis d'un coup et lit tout — où se trouvent vraiment les partages, si les chemins sur l'array existent, les disques de VM là-bas. Unraid arrête de nouveau leurs plateaux après son délai.",
+  "where.wake_once": "Seulement pour la prochaine tournée, pas mémorisé.",
+  "where.scan_now": "Tournée maintenant",
   "where.tour_done_woken": {
     "one": "Tournée terminée en {ms} ms — {n} disque réveillé.",
     "other": "Tournée terminée en {ms} ms — {n} disques réveillés."

@@ -508,6 +508,7 @@
   "wake": "Schlafende Disks wecken",
   "wake_n": "{names} wecken",
   "wake_title": "Nur für diesen Rundgang: weckt die schlafenden btrfs-Disks und ZFS-Pools und liest auch ihre Snapshots. Ohne Haken lasse ich sie schlafen und zeige, was ich zuletzt von ihnen wusste. Unraid legt sie nach seiner Wartezeit wieder schlafen.",
+  "wake_once": "Gilt nur für den nächsten Rundgang, wird nicht gemerkt.",
   "bubble.pools_asleep": {
     "one": "Der Pool {names} schläft — ich zeige, was ich zuletzt von ihm gesehen habe, und frage ihn nichts.",
     "other": "Die Pools {names} schlafen — ich zeige, was ich zuletzt von ihnen gesehen habe, und frage sie nichts."

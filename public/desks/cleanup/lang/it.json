@@ -1506,6 +1506,8 @@
     "other": "Sveglia {n} dischi in standby"
   },
   "where.wake_title": "Solo per questo giro: sveglia tutti i dischi in standby insieme e legge tutto — dove stanno davvero le condivisioni, se i percorsi sull'array esistono, i dischi delle VM che stanno lì. Unraid li rimette in standby dopo il suo ritardo.",
+  "where.wake_once": "Vale solo per il prossimo giro, non viene ricordato.",
+  "where.scan_now": "Giro adesso",
   "where.tour_done_woken": {
     "one": "Giro finito in {ms} ms — 1 disco svegliato.",
     "other": "Giro finito in {ms} ms — {n} dischi svegliati."

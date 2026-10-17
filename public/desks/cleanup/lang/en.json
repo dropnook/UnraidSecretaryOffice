@@ -1506,6 +1506,8 @@
     "other": "Wake {n} sleeping disks"
   },
   "where.wake_title": "For this tour only: wakes every sleeping disk at once and reads everything — where shares really are, whether paths on the array exist, VM disks there. Unraid spins them down again after its delay.",
+  "where.wake_once": "Only for the next tour, not remembered.",
+  "where.scan_now": "Tour now",
   "where.tour_done_woken": {
     "one": "Tour done in {ms} ms — 1 disk woken.",
     "other": "Tour done in {ms} ms — {n} disks woken."

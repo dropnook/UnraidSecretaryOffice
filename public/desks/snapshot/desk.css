@@ -27,4 +27,8 @@
 /* «Array» (and a btrfs pool's card): a row per disk — name, its filesystem's tag (btrfs / ZFS), the bar, the count */
 .sp-disks .minirow{grid-template-columns:48px 44px minmax(40px,1fr) auto}
 .sp-disks .minirow .tag{justify-self:start}
+/* the wake switch with its word once on: for the next tour only, the tour one click away (2026-10-17) */
+.sp-wake{display:inline-flex; flex-direction:column; align-items:flex-start; gap:4px}
+.sp-wake-note{display:flex; flex-wrap:wrap; align-items:center; gap:6px; font-size:12px; color:var(--muted); max-width:300px}
+.sp-wake-note[hidden]{display:none}
 }

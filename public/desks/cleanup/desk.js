@@ -304,8 +304,19 @@ function build(root, page) {
   v.wakeText = el('span', '', T('where.wake'));
   v.wakeLabel.append(v.wake, v.wakeText);
   v.wakeLabel.title = T('where.wake_title');
+  // switched on: said right under it that it holds for the next tour only, with that tour one click away (2026-10-17,
+  // silent controls: a switch that changed nothing until «Tour» and was off again afterwards, said only in its tip)
+  const wakeNote = el('span', 'clw-wake-note');
+  const wakeGo = el('button', 'btn small', T('where.scan_now'));
+  wakeGo.type = 'button';
+  wakeGo.onclick = () => tour();
+  wakeNote.append(el('span', '', T('where.wake_once')), wakeGo);
+  const wakeBox = el('span', 'clw-wake-box');
+  wakeBox.append(v.wakeLabel, wakeNote);
+  v.wakeSync = () => { wakeNote.hidden = !v.wake.checked || v.wakeLabel.hidden; wakeGo.disabled = v.scanBtn.disabled; };
+  v.wake.onchange = v.wakeSync;
   const head = Office.deskHead({ id: ID, icon: Office.desks.get(ID).icon },
-    { actions: [v.wakeLabel, v.scanBtn], pages: { list: PAGES(), current: page, store: PAGE_KEY } });
+    { actions: [wakeBox, v.scanBtn], pages: { list: PAGES(), current: page, store: PAGE_KEY } });
   v.bubble = head.bubble;
   root.appendChild(head.head);
   root.appendChild(Office.pageHelp(ID, [
@@ -395,6 +406,7 @@ function render() {
   if (!view) return;
   renderBubble();
   view.scanBtn.disabled = !Office.agent.running || busy;
+  view.wakeSync();
   if (view.page !== 'tidy') return;
   renderNotice();
   tidySw.render();
@@ -411,6 +423,7 @@ function renderBubble() {
   const sleeping = Where.sleeping();
   view.wakeText.textContent = sleeping ? T('where.wake_n', { n: sleeping }) : T('where.wake');
   view.wakeLabel.hidden = !sleeping && !view.wake.checked;
+  view.wakeSync();
 }
 
 /** What she found per room for her bubble and facts: [key, entries] — pictures missing for containers and for stacks apart */
@@ -1676,7 +1689,7 @@ async function tour() {
   if (view) { view.scanBtn.classList.add('running'); view.scanBtn.disabled = true; }
   const w = await Where.tour(wake);
   busy = false;
-  if (view) view.wake.checked = false;
+  if (view) { view.wake.checked = false; view.wakeSync(); }
   if (!w.ok) {
     Office.toast(Office.errorText(w.error, ID), true);
     if (view) { view.scanBtn.classList.remove('running'); render(); }
