@@ -5735,8 +5735,8 @@ function clPoolGoneChecks(?array $flash): array
         }
     }
     return [
-        finding('office_share_pool', 'required', !$office, ['share' => BACKUP_OFFICE_SHARE, 'pool' => implode(', ', $office)], '#/cleanup/flash'),
-        finding('share_pool', 'recommended', !$others, ['n' => count($others), 'shares' => implode(', ', $others)], '#/cleanup/flash'),
+        finding('office_share_pool', 'required', !$office, ['share' => BACKUP_OFFICE_SHARE, 'pool' => implode(', ', $office)], '#/cleanup/tidy/flash'),
+        finding('share_pool', 'recommended', !$others, ['n' => count($others), 'shares' => implode(', ', $others)], '#/cleanup/tidy/flash'),
     ];
 }
 

@@ -38497,7 +38497,7 @@ function testStaleShares(): void
         ['Fine' => [], 'Media' => ['fast'], 'Old' => [], 'UnraidSecretaryOffice' => ['big']], array_column($pgRoom['list'], 'pool_gone', 'name'));
     $pgc = array_column(clPoolGoneChecks($pgRoom), null, 'id');
     same('pool gone: the office\'s share a must, the others recommended — share and pool named, the link to her room',
-        [['required', false, ['share' => 'UnraidSecretaryOffice', 'pool' => 'big'], '#/cleanup/flash'], ['recommended', false, ['n' => 1, 'shares' => 'Media (fast)']]],
+        [['required', false, ['share' => 'UnraidSecretaryOffice', 'pool' => 'big'], '#/cleanup/tidy/flash'], ['recommended', false, ['n' => 1, 'shares' => 'Media (fast)']]],
         [[$pgc['office_share_pool']['level'], $pgc['office_share_pool']['ok'], $pgc['office_share_pool']['params'], $pgc['office_share_pool']['link']],
          [$pgc['share_pool']['level'], $pgc['share_pool']['ok'], $pgc['share_pool']['params']]]);
     same('pool gone: every pool there — both fine; an older look without her room — nothing', [[true, true], []],

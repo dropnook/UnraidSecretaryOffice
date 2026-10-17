@@ -652,7 +652,8 @@ function renderList(body, sec) {
 
 function group(sec, cat, items) {
   const key = `${sec}.${cat}`;
-  const closed = !words().length && (folded[key] ?? CLOSED.includes(cat));      // while filtering, what matches is shown
+  // while filtering, what matches is shown; a share setting on a pool that is gone opens its group (it needs the user)
+  const closed = !words().length && (folded[key] ?? (CLOSED.includes(cat) && !items.some((e) => (e.pool_gone || []).length)));
   const box = el('div', 'group' + (closed ? ' closed' : ''));
   const head = el('div', 'group-head');
   head.tabIndex = 0;
