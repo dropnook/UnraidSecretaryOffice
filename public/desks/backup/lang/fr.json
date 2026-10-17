@@ -969,6 +969,8 @@
   "setup.app_dep_unknown": "taille inconnue",
   "setup.app_dep_hint": "tout le partage est sauvegardé, comme l'appli",
   "setup.app_dep_step3": "à l'étape 3 : {mode}",
+  "setup.app_dep_same": "{share} est déjà sauvegardé comme l'appli — rien à changer.",
+  "setup.app_dep_kept": "{share} reste sur « {mode} » à l'étape 3 — c'est là que tu le changes.",
   "setup.app_dep_step3_hint": "Tu as déjà choisi ce partage à l'étape 3. Le cocher le lie à l'appli : il suit alors le choix de l'appli.",
   "setup.level.0": "off",
   "setup.level.1": "local",

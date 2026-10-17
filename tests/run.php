@@ -3960,7 +3960,7 @@ function testBackupAppShare(): void
         'why' => 'writes', 'media' => '', 'binds' => array_map(fn ($b) => ['share' => $b[0], 'path' => $b[1], 'rw' => $b[2]], $binds)];
     $sh = fn (string $name, array $more = []) => $more + ['name' => $name, 'folders' => [], 'children' => [], 'app_share' => null];
     $plan = [
-        'shares' => [$sh('appdata', ['app_share' => ['docker'], 'folders' => [['dir' => 's3', 'container' => 'S3-Tom'], ['dir' => 'drop', 'container' => 'drop']]]),
+        'shares' => [$sh('appdata', ['app_share' => ['docker'], 'folders' => [['dir' => 's3', 'container' => 'S3-Tom'], ['dir' => 'drop', 'container' => 'drop'], ['dir' => 'EmbyServer', 'container' => 'EmbyServer']]]),
             $sh('s3-tom'), $sh('drop'), $sh('Filme'), $sh('photos'), $sh('system'), $sh('isos'), $sh('UnraidSecretaryOffice'), $sh('Backups'), $sh('tm_anna'), $sh('gone')],
         'containers' => [
             $ct('S3-Tom', 's3', [['appdata', 's3/iam', true], ['s3-tom', '', true], ['Filme', '', false]]),
@@ -4034,6 +4034,133 @@ function testBackupAppShare(): void
         backupAppShareGaps($s, $plan, $exists)['kopia']);
     $bp = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
     check('app share: the check is registered with the Team Lead', str_contains($bp, 'array_push($out, ...backupAppShareFindings($settings, $plan,'));
+    testBackupAppShareBoxes($ini, $base, $plan, $exists);
+}
+
+/**
+ * The setup's «… mitsichern» boxes (2026-10-17, the owner: unticked on every visit, a tick that changed nothing said
+ * nothing): depCovered() in desk.js answers like backupAppShareGaps() on the same servers (one rule), the box shows it
+ * on load, a tick on a share already there says so, an untick keeps the share where it is, a tick never lowers one
+ */
+function testBackupAppShareBoxes(callable $ini, string $base, array $plan, array $exists): void
+{
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('app share boxes: node is missing here - skipped', true);
+        return;
+    }
+    $p2 = $plan;
+    $p2['shares'][0]['children'] = ['pool/appdata/s3'];
+    $kopia = "[share \"s3-tom\"]\nmode = kopia\n[share \"drop\"]\nmode = kopia\n[share \"photos\"]\nmode = kopia\n";
+    $partner = "[share \"s3-tom\"]\nmode = kopia\n[share \"drop\"]\nmode = kopia\npartner = 0a1b2c3d\n[share \"photos\"]\nmode = kopia\n[app \"dropnook\"]\npartner = 0a1b2c3d\n";
+    $withAppdata = $ini($base . $partner);
+    $withAppdata['share|appdata']['partner'] = ['0a1b2c3d'];
+    $cases = [
+        'local shares' => [$ini($base . "[share \"s3-tom\"]\nmode = snapshot\n[share \"photos\"]\nmode = snapshot\n"), $plan],
+        'Kopia off' => [$ini(str_replace('enabled = yes', 'enabled = no', $base) . "[share \"s3-tom\"]\nmode = snapshot\n[share \"drop\"]\nmode = snapshot\n[share \"photos\"]\nmode = snapshot\n"), $plan],
+        'partner' => [$ini($base . $partner), $plan],
+        'appdata to the partner' => [$withAppdata, $plan],
+        '… s3 a dataset of its own' => [$withAppdata, $p2],
+        'all to Kopia' => [$ini($base . $kopia), $plan],
+        'own Kopia source' => [$ini(str_replace("[share \"appdata\"]\nmode = kopia", "[share \"appdata\"]\nmode = snapshot", $base) . "[share \"s3-tom\"]\nmode = snapshot\n[app \"s3\"]\nkopia = yes\n"
+            . "[share \"drop\"]\nmode = snapshot\n[share \"photos\"]\nmode = snapshot\n"), $plan],
+    ];
+    // the pairs the Team Lead looks at (a writable bind into a data share, no media library)
+    $pairs = ['s3|s3-tom', 'dropnook|drop', 'dropnook|photos', 'TimeMachine|tm_anna'];
+    $draft = function (array $settings): array {
+        $d = [];
+        foreach ($settings as $sec => $keys) {
+            foreach (is_array($keys) ? $keys : [] as $k => $v) {
+                // as the plan's P has them: lists for the list keys, one value for the rest
+                $d["$sec|$k"] = is_array($v) && !preg_match('/^(ignore|no_stop|known|skip|kopia_ignore|kopia_known|exclude_dataset|tar_exclude|folder|partner)$/', (string) $k) ? end($v) : $v;
+            }
+        }
+        return $d;
+    };
+    $in = [];
+    $want = [];
+    foreach ($cases as $name => [$s, $pl]) {
+        $g = backupAppShareGaps($s, $pl, $exists);
+        foreach ($pairs as $pair) {
+            [$app, $share] = explode('|', $pair);
+            $gap = in_array($share, $g['off'][$app] ?? [], true) || in_array($share, $g['kopia'][$app] ?? [], true)
+                || array_filter($g['partner'], fn ($apps) => in_array($share, $apps[$app] ?? [], true));
+            $want[$name][$pair] = !$gap;
+        }
+        $d = $draft($s);
+        $in[$name] = $pl + ['have_settings' => true, 'P' => $d, 'O' => $d, 'databases' => [], 'nextcloud' => [], 'vms' => [], 'partners' => [['id' => '0a1b2c3d', 'name' => 'Tower']]];
+    }
+    $tmp = hardeningTmp('app-share-boxes');
+    file_put_contents("$tmp/cases.json", json_encode(['cases' => $in, 'pairs' => $pairs]));
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now' }, desk: () => {}, places: () => {}, placesFrom: () => {},
+  placesTook: () => {}, selbar: () => {}, has: () => false, keepInPlace: () => {} };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const S = b.setup;
+const { cases, pairs } = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+const load = (plan) => {
+  S.plan = JSON.parse(JSON.stringify(plan));
+  S.plan.containers.forEach((c) => { c.volumes = []; });
+  S.draft = JSON.parse(JSON.stringify(plan.P));
+  S.model = b.setupModel(S.plan);
+  b.setupInitLevels();
+  b.setupDerive();
+};
+const app = (n) => S.model.apps.find((a) => a.name === n);
+const out = { covered: {} };
+Object.entries(cases).forEach(([name, plan]) => {
+  load(plan);
+  out.covered[name] = Object.fromEntries(pairs.map((p) => { const [a, s] = p.split('|'); return [p, b.depCovered(app(a), s, S.plan)]; }));
+});
+const mode = (s) => S.draft[`share|${s}|mode`];
+const view = (a, s) => [b.depTicked(app(a), s, S.plan), S.depNote.get(`${app(a).id}|${s}`) || null, mode(s)];
+// s3 to Kopia, s3-tom local: unticked; a tick raises it (and ties it), an untick keeps it there
+load(cases['local shares']);
+out.raise = [view('s3', 's3-tom')];
+b.depClick(app('s3'), 's3-tom', true, {}, S.plan, null);
+out.raise.push(view('s3', 's3-tom'), !!S.locks['s3-tom']);
+b.depClick(app('s3'), 's3-tom', false, {}, S.plan, null);
+out.raise.push(view('s3', 's3-tom'), !!S.locks['s3-tom']);
+// everything to Kopia: ticked on load; untick says «stays», nothing changes; a tick again says «already», nothing locked
+load(cases['all to Kopia']);
+const before = JSON.stringify(S.draft);
+out.same = [view('dropnook', 'photos')];
+b.depClick(app('dropnook'), 'photos', false, {}, S.plan, null);
+out.same.push(view('dropnook', 'photos'));
+b.depClick(app('dropnook'), 'photos', true, {}, S.plan, null);
+out.same.push(view('dropnook', 'photos'), !!S.locks.photos, JSON.stringify(S.draft) === before);
+// a tick never lowers: tm_anna at Kopia, TimeMachine only local but to the partner - ticked, the share stays at Kopia
+const p = JSON.parse(JSON.stringify(cases['local shares']));
+p.P['share|tm_anna|mode'] = 'kopia';
+p.P['app|TimeMachine|partner'] = ['0a1b2c3d'];
+load(p);
+out.lower = [view('TimeMachine', 'tm_anna')];
+b.depClick(app('TimeMachine'), 'tm_anna', true, {}, S.plan, null);
+out.lower.push(view('TimeMachine', 'tm_anna'));
+console.log(JSON.stringify(out));
+JS);
+    $cmd = escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' ' . escapeshellarg("$tmp/cases.json") . ' 2>&1';
+    $raw = (string) shell_exec($cmd);
+    $r = json_decode($raw, true);
+    exec('rm -rf ' . escapeshellarg($tmp));
+    if (!is_array($r)) {
+        check('app share boxes: ran under node', false, $raw);
+        return;
+    }
+    same('app share boxes: the page\'s box (depCovered) and the Team Lead\'s hint (backupAppShareGaps) agree on every server', $want, $r['covered'] ?? null);
+    same('app share boxes: s3-tom less far than s3 - unticked; a tick raises it to Kopia (tied to the app), an untick keeps it there («stays»)',
+        [[false, null, 'snapshot'], [true, null, 'kopia'], true, [false, 'kept', 'kopia'], false], $r['raise'] ?? null);
+    same('app share boxes: photos as far as dropnook - ticked on load; untick «stays», tick again «already», nothing changes, nothing tied',
+        [[true, null, 'kopia'], [false, 'kept', 'kopia'], [true, 'same', 'kopia'], false, true], $r['same'] ?? null);
+    same('app share boxes: a tick never lowers a share that goes further than its app on its own', [[false, null, 'kopia'], [true, null, 'kopia']], $r['lower'] ?? null);
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $j = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$l.json"), true) ?: [];
+        check("app share boxes: the rows' words ($l)", str_contains($j['setup.app_dep_same'] ?? '', '{share}') && str_contains($j['setup.app_dep_kept'] ?? '', '{mode}'));
+    }
 }
 
 function testBackup74Polish(): void
