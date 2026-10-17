@@ -4789,7 +4789,7 @@ function testBackupPackages(): void
     same('packages: a kept dump keeps its run', ['20261005-0200', 'immich_postgres'], [$dump['run'] ?? null, $dump['container'] ?? null]);
     same('packages: dump credentials as names only', ['container' => 'immich_postgres', 'type' => 'postgres', 'state' => 'failed', 'login' => 'user',
         'user_var' => 'POSTGRES_USER', 'password_var' => 'POSTGRES_PASSWORD', 'client' => 'psql'], $immich['dumps'][0] ?? null);
-    same('packages: no docker inspect for the page', ['name', 'image', 'digest', 'template'], array_keys($immich['containers'][0] ?? []));
+    same('packages: no docker inspect for the page', ['name', 'image', 'image_id', 'digest', 'template'], array_keys($immich['containers'][0] ?? []));
     same('packages: bytes from the manifest', 120, $immich['bytes']);
     $vm = $p['vms'][0] ?? [];
     same('packages: a VM with NVRAM and TPM', ['Win 11', ['u-1_VARS-pure-efi-tpm.fd'], true, true, false],
@@ -40387,9 +40387,157 @@ JS;
         && str_contains($desk, "chip(T('setup.ct_volumes', { list: a.volumes.join(', ') }), 'danger'"));
 }
 
+/**
+ * A package of an app or VM that no longer exists (2026-10-17: two such packages made Mr. Restori's drill say «image
+ * missing» on every run; agent/desks/backup-gone.php). Gone: an app none of whose containers (a stopped one is there)
+ * and none of whose images is left; a VM libvirt doesn't know; Docker or libvirt silent — none. Only a package the
+ * engine wrote. «Into the storeroom» moves it as the let-go does (backupLetGoMovePackage()), put back by clPackageHome();
+ * refused while busy or when it isn't gone (any more)
+ */
+function testBackupGonePackage(): void
+{
+    $tmp = hardeningTmp('gone-package');
+    $mnt = "$tmp/mnt";
+    $place = '/mnt/user/UnraidSecretaryOffice/backup';
+    $pool = "$mnt/pool/UnraidSecretaryOffice/backup";
+    $man = fn (string $kind, string $folder, array $more = []) => $more + ['interface' => 1, 'engine' => '2.60', 'kind' => $kind, 'name' => $folder, 'folder' => $folder,
+        'run' => '20261001-0200', 'time' => 1, 'result' => 'ok', 'files' => []];
+    $ct = fn (string $name, string $image, string $id) => ['name' => $name, 'image' => $image, 'image_id' => $id, 'digests' => []];
+    $packs = [
+        'apps/immich'   => $man('app', 'immich', ['containers' => [$ct('immich_server', 'ghcr.io/immich-app/immich-server:release', 'sha256:aaa')]]),
+        'apps/oldapp'   => $man('app', 'oldapp', ['containers' => [$ct('oldapp', 'postgres:16', 'sha256:bbb')]]),
+        'apps/redisapp' => $man('app', 'redisapp', ['containers' => [$ct('redisapp', 'docker.io/library/redis', 'sha256:ddd')]]),
+        'apps/zz-uso-test-db' => $man('app', 'zz-uso-test-db', ['containers' => [$ct('zz-uso-test-db', 'mariadb:11', 'sha256:ccc')]]),
+        'apps/foreign'  => ['name' => 'foreign', 'containers' => [$ct('foreign', 'x:1', 'sha256:eee')]],      // not the engine's shape
+        'apps/noct'     => $man('app', 'noct', ['containers' => []]),
+        'vms/win11'     => $man('vm', 'win11'),
+        'vms/oldvm'     => $man('vm', 'oldvm'),
+    ];
+    foreach ($packs as $d => $m) {
+        mkdir("$pool/$d/db", 0700, true);
+        file_put_contents("$pool/$d/manifest.json", json_encode($m));
+    }
+    file_put_contents("$pool/apps/zz-uso-test-db/db/mariadb.sql.gz", 'x');
+    mkdir("$pool/server", 0700);
+    file_put_contents("$pool/server/run.json", json_encode(['run' => '20261001-0200']));
+    $pk = backupPackagesRead($pool);
+    same('gone package: the engine\'s own by its manifest\'s shape (interface 1, kind, folder) - not a folder of another shape',
+        ['foreign' => false, 'immich' => true, 'noct' => true, 'oldapp' => true, 'redisapp' => true, 'zz-uso-test-db' => true],
+        array_column(array_map(fn ($a) => [$a['folder'], $a['engine_written']], $pk['apps']), 1, 0));
+    $containers = ['immich_server', 'plex'];                       // immich_server stopped: docker ps -a lists it
+    $images = ['sha256:aaa', 'ghcr.io/immich-app/immich-server:release', 'sha256:bbb', 'postgres:16', 'sha256:ddd', 'redis:latest'];
+    $gone = backupGonePackages($pk, $containers, $images, ['win11']);
+    same('gone package: only the app with neither a container nor an image, and the VM libvirt doesn\'t know - a stopped container and an image alone are not gone',
+        [['app', 'zz-uso-test-db'], ['vm', 'oldvm']], array_map(fn ($g) => [$g['kind'], $g['folder']], $gone));
+    same('gone package: an image named the long way (docker.io/library/redis) is the same as Docker\'s redis:latest', ['redis:latest', 'postgres:16', 'ghcr.io/a/b:1', 'redis:latest'],
+        [backupGoneImageRef('docker.io/library/redis'), backupGoneImageRef('postgres:16'), backupGoneImageRef('ghcr.io/a/b:1'), backupGoneImageRef('redis')]);
+    same('gone package: Docker not answering - no app gone; libvirt not answering - no VM gone; the place asleep - nothing at all',
+        [[['vm', 'oldvm']], [['app', 'zz-uso-test-db']], []],
+        [array_map(fn ($g) => [$g['kind'], $g['folder']], backupGonePackages($pk, null, null, ['win11'])),
+         array_map(fn ($g) => [$g['kind'], $g['folder']], backupGonePackages($pk, $containers, $images, null)),
+         backupGonePackages(['asleep' => true] + $pk, $containers, $images, [])]);
+    $asked = [];
+    $GLOBALS['goneHost'] = ['containers' => function () use (&$asked, $containers) { $asked[] = 'containers'; return $containers; },
+                            'images' => function () use (&$asked, $images) { $asked[] = 'images'; return $images; },
+                            'vms' => function () use (&$asked) { $asked[] = 'vms'; return ['win11']; }];
+    $list = backupGoneList($pk);
+    same('gone package: the look asks Docker for its images only when an app has none of its containers left', [2, ['containers', 'images', 'vms']], [count($list), $asked]);
+    $asked = [];
+    backupGoneList(['found' => true, 'apps' => [$pk['apps'][1]], 'vms' => []]);
+    same('gone package: … every container there - the images not asked, libvirt not asked without VM packages', ['containers'], $asked);
+
+    // the finding: a hint, never a must
+    $GLOBALS['backup'] = ['packages_gone' => $list];
+    $f = array_values(array_filter(backupChecks(), fn ($x) => $x['id'] === 'package_gone'));
+    $GLOBALS['backup'] = ['packages_gone' => []];
+    $f2 = array_values(array_filter(backupChecks(), fn ($x) => $x['id'] === 'package_gone'));
+    unset($GLOBALS['backup']);
+    same('gone package: the Team Lead\'s hint (only with settings.ini) - names, count, the link; none gone - ok',
+        is_file(BACKUP_DATA_DIR . '/settings.ini') ? [['hint', false, 'zz-uso-test-db, oldvm', 2, '#/backup/prot'], true] : [null, null],
+        is_file(BACKUP_DATA_DIR . '/settings.ini') ? [[$f[0]['level'] ?? null, $f[0]['ok'] ?? null, $f[0]['params']['names'] ?? null, $f[0]['params']['n'] ?? null, $f[0]['link'] ?? null], $f2[0]['ok'] ?? null]
+            : [$f[0] ?? null, $f2[0] ?? null]);
+
+    // «Into the storeroom»
+    $ub = "$tmp/ub";
+    mkdir("$ub/state", 0700, true);
+    mkdir("$tmp/data", 0700);
+    $GLOBALS['letgoUbData'] = $ub;
+    $GLOBALS['letgoDir'] = "$tmp/data/backup";
+    $GLOBALS['goneplace'] = $place;
+    $GLOBALS['gonePackages'] = $pk;
+    $GLOBALS['goneRoots'] = ['pool' => ['fs' => 'zfs', 'kind' => 'pool']];
+    $GLOBALS['disksIni'] = "$tmp/disks.ini";
+    file_put_contents($GLOBALS['disksIni'], '');
+    $err = function (array $r) use ($mnt): ?string {
+        try {
+            backupPackageAside($r, $mnt);
+            return null;
+        } catch (Problem $p) {
+            return $p->key;
+        }
+    };
+    same('gone package: refused - a package that isn\'t gone (a stopped app, an image alone, not the engine\'s), an odd kind or name',
+        ['package_aside_gone', 'package_aside_gone', 'package_aside_gone', 'package_aside_gone', 'bad_request', 'bad_request', 'missing_field'],
+        [$err(['kind' => 'app', 'folder' => 'immich']), $err(['kind' => 'app', 'folder' => 'oldapp']), $err(['kind' => 'app', 'folder' => 'foreign']),
+         $err(['kind' => 'vm', 'folder' => 'zz-uso-test-db']), $err(['kind' => 'share', 'folder' => 'x']), $err(['kind' => 'app', 'folder' => '../x']), $err(['kind' => 'app'])]);
+    $other = fopen("$ub/state/lock", 'a');
+    flock($other, LOCK_EX);
+    file_put_contents("$ub/state/lock-holder.json", json_encode(['holder' => 'restore', 'mode' => 'drill', 'what' => 'drill', 'pid' => getmypid(), 'started' => time()]));
+    same('gone package: refused while the engine\'s lock is held (a drill, a restore) - nothing moved', ['restore_running', true], [$err(['kind' => 'app', 'folder' => 'zz-uso-test-db']), is_dir("$pool/apps/zz-uso-test-db")]);
+    unlink("$ub/state/lock-holder.json");
+    flock($other, LOCK_UN);
+    fclose($other);
+    $GLOBALS['drill']['job_file'] = "$tmp/drill-job.json";
+    file_put_contents($GLOBALS['drill']['job_file'], json_encode(['id' => '20261017-020000', 'result' => 'queued', 'created' => time()]));
+    same('gone package: refused while a drill is going on', 'package_aside_drill', $err(['kind' => 'app', 'folder' => 'zz-uso-test-db']));
+    unlink($GLOBALS['drill']['job_file']);
+
+    $during = null;
+    $GLOBALS['letgoHost'] = ['move' => function (string $from, string $to) use (&$during, $ub): void {
+        $during ??= [flockHeld("$ub/state/lock"), readJson("$ub/state/lock-holder.json")['mode'] ?? null];
+        clMove($from, $to);
+    }];
+    $r = backupPackageAside(['kind' => 'app', 'folder' => 'zz-uso-test-db'], $mnt);
+    $trash = "$mnt/pool/UnraidSecretaryOffice/" . CL_TRASH;
+    $runs = glob("$trash/*", GLOB_ONLYDIR) ?: [];
+    $m = readJson(($runs[0] ?? '') . '/manifest.json') ?? [];
+    $it = $m['items'][0] ?? [];
+    same('gone package: moved under the engine\'s lock - one package, gone from the place, the others stay',
+        [true, 1, 0, false, true, true], [$during[0] ?? null, $r['moved'], $r['failed'], is_dir("$pool/apps/zz-uso-test-db"), is_dir("$pool/apps/immich"), is_dir("$pool/vms/oldvm")]);
+    same('gone package: in Ms. Dustdevil\'s storeroom at the share\'s top - kind package, from where it lay, its contents along, her shape check takes it',
+        [1, 'package', 'apps/zz-uso-test-db', "$pool/apps/zz-uso-test-db", true, true],
+        [count($runs), $it['kind'] ?? null, $it['name'] ?? null, $it['from'] ?? null, is_file(($runs[0] ?? '') . '/' . ($it['as'] ?? 'x') . '/db/mariadb.sql.gz'),
+         clTrashAsOk((string) ($it['as'] ?? ''), 'package', basename($runs[0] ?? ''))]);
+    same('gone package: put back only into the backup place\'s folder', "$pool/apps", clPackageHome("$pool/apps/zz-uso-test-db", $trash));
+    $jf = glob("$tmp/data/backup/letgo-*.json") ?: [];
+    $j = readJson($jf[0] ?? '') ?? [];
+    same('gone package: a journal of his let-go\'s kind (mode aside) names the storeroom - Ms. Dustdevil finds it there too; the lock given back',
+        [1, 'aside', 'done', [$trash], 1, false],
+        [count($jf), $j['mode'] ?? null, $j['result'] ?? null, $j['trash'] ?? null, preg_match(LETGO_JOURNAL, basename($jf[0] ?? '')), flockHeld("$ub/state/lock")]);
+    // Mr. Restori's drill reads the folder only: the package is no longer among them
+    same('gone package: the drill\'s list of packages no longer has it', false,
+        in_array('zz-uso-test-db', array_column(backupPackagesRead($pool)['apps'], 'folder'), true));
+    $GLOBALS['gonePackages'] = backupPackagesRead($pool);
+    same('gone package: a second time - not there any more, refused', 'package_aside_gone', $err(['kind' => 'app', 'folder' => 'zz-uso-test-db']));
+    $GLOBALS['gonePackages'] = $pk;
+    // the VM's package too
+    $r = backupPackageAside(['kind' => 'vm', 'folder' => 'oldvm'], $mnt);
+    same('gone package: a gone VM\'s package the same way', [1, false], [$r['moved'], is_dir("$pool/vms/oldvm")]);
+
+    // the page: a line each with «Into the storeroom», the app row's chip; the action registered
+    $desk = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    $agent = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
+    check('gone package: the page shows each with «Into the storeroom» on a fresh look, the action asked with kind and folder',
+        str_contains($desk, "Office.api.post(`\${ID}.package_aside`, { kind: g.kind, folder: g.folder })") && str_contains($desk, "if (!(await Office.freshState(ID))) return;\n  const g = goneOf(g0.kind, g0.folder);")
+        && str_contains($agent, "'package_aside' => fn (array \$r) => backupPackageAside(\$r),") && str_contains($agent, "'packages_gone' => backupGoneList(\$pk),"));
+    unset($GLOBALS['goneHost'], $GLOBALS['goneplace'], $GLOBALS['gonePackages'], $GLOBALS['goneRoots'], $GLOBALS['disksIni'], $GLOBALS['letgoUbData'], $GLOBALS['letgoDir'],
+        $GLOBALS['letgoHost'], $GLOBALS['drill']['job_file']);
+    hardeningRm($tmp);
+}
+
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

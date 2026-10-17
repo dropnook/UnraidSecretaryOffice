@@ -1355,7 +1355,44 @@
       "present": true
      }
     ],
-    "own_backups": []
+    "own_backups": [],
+    "engine_written": true
+   },
+   {
+    "name": "Fotobuch",
+    "folder": "Fotobuch",
+    "path": "/mnt/user/UnraidSecretaryOffice/backup/apps/Fotobuch",
+    "run": "20260905-0200",
+    "time": 1788057000,
+    "result": "ok",
+    "stale": true,
+    "bytes": 3328,
+    "files": [
+     {
+      "path": "my-Grafana.xml",
+      "bytes": 3328,
+      "run": "20260905-0200",
+      "time": 1788057000,
+      "what": "template",
+      "container": ""
+     }
+    ],
+    "type": "template",
+    "containers": [
+     {
+      "name": "Fotobuch",
+      "image": "ghcr.io/example/fotobuch:2",
+      "image_id": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "digest": "",
+      "template": "my-Fotobuch.xml"
+     }
+    ],
+    "dumps": [],
+    "nextcloud": [],
+    "compose_dir": "",
+    "sqlite": [],
+    "own_backups": [],
+    "engine_written": true
    },
    {
     "name": "Grafana",
@@ -1389,7 +1426,8 @@
     "nextcloud": [],
     "compose_dir": "",
     "sqlite": [],
-    "own_backups": []
+    "own_backups": [],
+    "engine_written": true
    },
    {
     "name": "immich",
@@ -1454,7 +1492,8 @@
       "newest": 1791504001,
       "asleep": false
      }
-    ]
+    ],
+    "engine_written": true
    },
    {
     "name": "kopia",
@@ -1488,7 +1527,8 @@
     "nextcloud": [],
     "compose_dir": "",
     "sqlite": [],
-    "own_backups": []
+    "own_backups": [],
+    "engine_written": true
    },
    {
     "name": "mariadb-nextcloud",
@@ -1540,7 +1580,8 @@
     "nextcloud": [],
     "compose_dir": "",
     "sqlite": [],
-    "own_backups": []
+    "own_backups": [],
+    "engine_written": true
    },
    {
     "name": "Nextcloud",
@@ -1629,7 +1670,8 @@
     ],
     "compose_dir": "",
     "sqlite": [],
-    "own_backups": []
+    "own_backups": [],
+    "engine_written": true
    },
    {
     "name": "Node-Exporter",
@@ -1663,7 +1705,8 @@
     "nextcloud": [],
     "compose_dir": "",
     "sqlite": [],
-    "own_backups": []
+    "own_backups": [],
+    "engine_written": true
    },
    {
     "name": "prometheus",
@@ -1697,7 +1740,8 @@
     "nextcloud": [],
     "compose_dir": "",
     "sqlite": [],
-    "own_backups": []
+    "own_backups": [],
+    "engine_written": true
    }
   ],
   "vms": [],
@@ -1717,6 +1761,15 @@
   },
   "old_runs": 0
  },
+ "packages_gone": [
+  {
+   "kind": "app",
+   "folder": "Fotobuch",
+   "name": "Fotobuch",
+   "path": "/mnt/user/UnraidSecretaryOffice/backup/apps/Fotobuch",
+   "time": 1788057000
+  }
+ ],
  "schedule": {
   "script": true,
   "frequency": "custom",

@@ -86,6 +86,8 @@ desk('backup', [
         'letgo_look'  => fn (array $r) => backupLetGoLook(),
         'letgo_clear' => fn (array $r) => backupLetGoClear($r),          // hands the clearing to atd (job backup-letgo)
         'letgo_job'   => fn (array $r) => backupLetGoJobState($r),       // is a job that wrote nothing for a while still alive?
+        // a gone app's or VM's package into Ms. Dustdevil's storeroom (agent/desks/backup-gone.php)
+        'package_aside' => fn (array $r) => backupPackageAside($r),
         // «Make it a dataset of its own…» (1.60.1): the dialog's facts, then one of Mr. Restori's jobs (agent/desks/restore-dataset.php)
         'dataset_look' => fn (array $r) => mdLook(['kind' => optText($r, 'kind'), 'name' => optText($r, 'name'), 'share' => optText($r, 'share'), 'dir' => optText($r, 'dir'), 'stack' => optText($r, 'stack')]),
         'dataset_make' => fn (array $r) => mdStart(['kind' => optText($r, 'kind'), 'name' => optText($r, 'name'), 'share' => optText($r, 'share'), 'dir' => optText($r, 'dir'), 'stack' => optText($r, 'stack'),
@@ -270,7 +272,8 @@ function backupScan(): array
         'containers' => backupContainers($settings),
         'partners'   => backupPartners($settings, $history, $running ? $status : null),   // engine 2.27: the last transfer per partner
         'dumps'      => backupDumps(),           // run folders of engines before 2.18, until the first 2.18 run cleared them
-        'packages'   => backupPackages($settings),
+        'packages'   => $pk = backupPackages($settings),
+        'packages_gone' => backupGoneList($pk),     // 2026-10-17: packages whose app or VM is gone (agent/desks/backup-gone.php)
         'schedule'   => backupSchedule(),
         'logs'       => array_values(array_map(fn ($l) => ['name' => $l['name'], 'kind' => $l['kind'], 'time' => $l['time'], 'size' => $l['size']], $logs)),
         'mounted'    => backupMounted(backupSetting($settings, 'general', 'mount_root')),
@@ -1750,6 +1753,10 @@ function backupPackagesRead(string $base): array
                 'time'   => $time($run),
                 'result' => $str($m['result'] ?? ''),
                 'stale'  => $stale($run),
+                // the engine's own: its manifest in exactly the engine's shape (interface 1, this kind, this folder) - only
+                // such a package is ever moved aside by the office (backupPackageAside())
+                'engine_written' => ($m['interface'] ?? null) === 1 && ($m['kind'] ?? null) === substr($sub, 0, -1) && ($m['folder'] ?? null) === $folder
+                    && is_string($m['engine'] ?? null) && is_string($m['run'] ?? null),
                 'bytes'  => array_sum(array_column($list, 'bytes')),
                 'files'  => $list,
             ];
@@ -1757,6 +1764,7 @@ function backupPackagesRead(string $base): array
                 $p += [
                     'type'       => $str($m['type'] ?? ''),
                     'containers' => array_values(array_map(fn ($c) => ['name' => $str($c['name'] ?? ''), 'image' => $str($c['image'] ?? ''),
+                                        'image_id' => $str($c['image_id'] ?? ''),
                                         'digest' => $str(($c['digests'] ?? [])[0] ?? ''), 'template' => $str($c['template'] ?? '')],
                                         array_filter((array) ($m['containers'] ?? []), 'is_array'))),
                     'dumps'      => array_values(array_map(fn ($d) => array_map($str, array_intersect_key($d, array_flip(
@@ -2486,6 +2494,13 @@ function backupChecks(): array
     if (is_file("$data/settings.ini")) {
         $drift = array_filter(backupDrift()['items'], fn ($d) => in_array($d['level'] ?? '', ['warn', 'error'], true));
         $out[] = finding('drift', 'recommended', !$drift, ['n' => count($drift)], '#/backup/setup');
+
+        // 2026-10-17: a package whose app or VM is gone (the last look's, backupGoneList()) - a hint, «Into the storeroom» there
+        $gone = $GLOBALS['backup']['packages_gone'] ?? null;
+        if (is_array($gone)) {
+            $names = array_values(array_unique(array_map(fn ($g) => (string) ($g['name'] ?? ''), array_filter($gone, 'is_array'))));
+            $out[] = finding('package_gone', 'hint', !$names, ['names' => implode(', ', array_slice($names, 0, 8)), 'n' => count($names)], '#/backup/prot');
+        }
 
         // engine 2.55: a share at «local» where no snapshot is possible (the plan's method live) is backed up by nothing
         $plan = readJson("$data/state/setup-plan.json") ?? [];

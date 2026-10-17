@@ -1159,6 +1159,8 @@ function protection() {
   box.id = PROT_ID;
   protShown = [];
   if (!shares.length) { box.appendChild(el('p', 'empty', T('no_shares'))); return box; }
+  const gone = goneCallout();
+  if (gone) box.appendChild(gone);
 
   const bar = protFilterBar();
   box.appendChild(bar.el);
@@ -1303,6 +1305,7 @@ function protection() {
       tr.appendChild(name);
       const st = el('td');
       st.appendChild(pkChip(a));
+      if (goneOf('app', a.folder)) st.append(' ', chip(T('pk.gone'), 'warn', T('pk.gone_hint.app', { name: a.name })));
       if (a.files.some((f) => f.what === 'dump' && f.run && f.run !== a.run)) st.append(' ', chip(T('pk.kept'), 'warn', T('pk.kept_hint')));
       if (a.files.some((f) => f.what === 'sqlite' && f.run && f.run !== a.run)) st.append(' ', chip(T('pk.sq_kept'), 'warn', T('pk.sq_kept_hint')));
       const ai = kopiaOn ? itemOf('app', a.name) : null;
@@ -1362,6 +1365,54 @@ function placeLevel(kopiaOn) {
 }
 
 const vmPackage = (name) => { const pk = packages(); return pk ? pk.vms.find((x) => x.name === name) || null : null; };
+
+/** A package whose app or VM is gone (the agent's packages_gone, agent/desks/backup-gone.php) - or null */
+const goneOf = (kind, folder) => ((state && state.packages_gone) || []).find((g) => g.kind === kind && g.folder === folder) || null;
+
+/**
+ * The packages whose app or VM no longer exists (2026-10-17: Mr. Restori's drill said «image missing» for them on every
+ * run): a line each with «Into the storeroom» - Ms. Dustdevil's, put back or emptied there, never deleted at once
+ */
+function goneCallout() {
+  const gone = (state && state.packages_gone) || [];
+  if (!gone.length) return null;
+  const box = el('div', 'callout bk-gone');
+  box.appendChild(el('p', '', T('pk.gone_intro', { n: gone.length })));
+  const ul = el('ul', 'shortlist');
+  gone.forEach((g) => {
+    const li = el('li', '', T('pk.gone_line.' + g.kind, { name: g.name }));
+    const b = button(T('pk.gone_aside'), 'small', () => packageAside(g));
+    b.title = T('pk.gone_aside_tip');
+    b.disabled = !Office.agent.running || !!state.running;
+    li.appendChild(b);
+    ul.appendChild(li);
+  });
+  box.appendChild(ul);
+  return box;
+}
+
+/** «Into the storeroom»: on a fresh look, the package looked up again; a dialog says where it goes and how it comes back */
+async function packageAside(g0) {
+  if (!(await Office.freshState(ID))) return;
+  const g = goneOf(g0.kind, g0.folder);
+  if (!g) { Office.toast(Office.errorText({ key: 'package_aside_gone', params: { name: g0.name } }, ID), true); render(); return; }
+  const box = el('div');
+  box.appendChild(el('p', '', T('pk.gone_text.' + g.kind, { name: g.name })));
+  box.appendChild(el('p', '', copyCode(g.path)));
+  box.appendChild(el('p', 'role', T('pk.gone_back')));
+  Office.dialog({
+    title: T('pk.gone_title', { name: g.name }),
+    body: box,
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('pk.gone_aside'), act: async () => {
+      const j = await Office.api.post(`${ID}.package_aside`, { kind: g.kind, folder: g.folder });
+      if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return false; }
+      if (j.state) state = j.state;
+      Office.toast(T('pk.gone_done', { name: g.name }));
+      render();
+      return true;
+    } }],
+  });
+}
 
 /** A package's state: written by the last run (ok / with warnings / with errors), or stale (an earlier run's) */
 function pkChip(p) {

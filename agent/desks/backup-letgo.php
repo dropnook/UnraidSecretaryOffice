@@ -549,27 +549,7 @@ function backupLetGoDo(?string $place, bool $placeAsleep, array $parts, array $p
     $runs = [];
     foreach ($parts as $part) {
         foreach (backupLetGoPackages($part['place']) as $p) {
-            $label = backupLetGoLabel($p);
-            $trash = clLeftoverTrash($p['path'], $part['top']);
-            if ($trash === null || (@stat($p['path'])['dev'] ?? null) !== (@stat(dirname($trash))['dev'] ?? null)) {
-                $fail($p['path'], 'cleanup', new Problem('cleanup_own_fs', ['name' => $label]));     // a filesystem of its own: never copied
-                continue;
-            }
-            try {
-                if (!isset($runs[$trash])) {
-                    $runs[$trash] = clRunCreate($trash);
-                    $j['trash'] = array_values(array_unique(array_merge($j['trash'], [$trash])));
-                }
-                $as = 'packages/' . substr(md5(dirname($p['path'])), 0, 8) . '/' . basename($p['path']);
-                ($host['move'])($p['path'], $runs[$trash]['path'] . "/$as");
-                $runs[$trash]['items'][] = ['kind' => 'package', 'name' => $label, 'label' => $part['root'], 'from' => $p['path'], 'as' => $as];
-                clManifestWrite($runs[$trash]);
-                $j['moved'][] = ['from' => $p['path'], 'to' => $runs[$trash]['path'] . "/$as", 'name' => $label];
-                backupLetGoJournalWrite($file, $j);
-            } catch (Throwable $e) {
-                // anything (her manifest not written: the pool full) ends this package only — noted, the rest goes on
-                $fail($p['path'], 'cleanup', backupLetGoError($e));
-            }
+            backupLetGoMovePackage($p, $part, $runs, $j, $file, $fail, $host['move']);
         }
     }
     foreach ($runs as $run) {
@@ -641,6 +621,40 @@ function backupLetGoDo(?string $place, bool $placeAsleep, array $parts, array $p
         count($j['moved']), count($j['deleted']), count($j['failed']), basename($file)));
     return ['moved' => count($j['moved']), 'deleted' => count($j['deleted']), 'failed' => array_slice($j['failed'], 0, 20), 'failed_n' => count($j['failed']),
             'kept' => $j['snapshots_kept'], 'place_asleep' => $placeAsleep, 'journal' => basename($file), 'runs' => array_column($runs, 'path')];
+}
+
+/**
+ * One package (backupLetGoPackages()' shape) of one part of the place into Ms. Dustdevil's storeroom on its own filesystem
+ * inside the share (clLeftoverTrash()): her run folder (one per storeroom, kept in $runs), the rename (clMove() or the
+ * tests' stand-in), kind `package` in her manifest, put back by clPackageHome() — and the journal. A package on a
+ * filesystem of its own is never copied; any failure ends this package only, noted through $fail. The let-go's clearing
+ * and a gone app's package (backupPackageAside(), agent/desks/backup-gone.php) both go this one way.
+ */
+function backupLetGoMovePackage(array $p, array $part, array &$runs, array &$j, string $file, callable $fail, callable|string $move): bool
+{
+    $label = backupLetGoLabel($p);
+    $trash = clLeftoverTrash($p['path'], $part['top']);
+    if ($trash === null || (@stat($p['path'])['dev'] ?? null) !== (@stat(dirname($trash))['dev'] ?? null)) {
+        $fail($p['path'], 'cleanup', new Problem('cleanup_own_fs', ['name' => $label]));     // a filesystem of its own: never copied
+        return false;
+    }
+    try {
+        if (!isset($runs[$trash])) {
+            $runs[$trash] = clRunCreate($trash);
+            $j['trash'] = array_values(array_unique(array_merge($j['trash'], [$trash])));
+        }
+        $as = 'packages/' . substr(md5(dirname($p['path'])), 0, 8) . '/' . basename($p['path']);
+        $move($p['path'], $runs[$trash]['path'] . "/$as");
+        $runs[$trash]['items'][] = ['kind' => 'package', 'name' => $label, 'label' => $part['root'], 'from' => $p['path'], 'as' => $as];
+        clManifestWrite($runs[$trash]);
+        $j['moved'][] = ['from' => $p['path'], 'to' => $runs[$trash]['path'] . "/$as", 'name' => $label];
+        backupLetGoJournalWrite($file, $j);
+        return true;
+    } catch (Throwable $e) {
+        // anything (her manifest not written: the pool full) ends this package only — noted, the rest goes on
+        $fail($p['path'], 'cleanup', backupLetGoError($e));
+        return false;
+    }
 }
 
 /** A step's failure for the journal: a Problem as it is, anything else as `internal` with its message */
