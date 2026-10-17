@@ -2883,6 +2883,7 @@ function backupSetupGet(): array
     $run = readJson("$data/state/setup-status.json");
     if (is_array($plan)) {
         $plan['notes'] = backupSetupNotes($plan['messages'] ?? null);   // the messages grouped, for the page
+        $plan = backupPlanVolumeCaches($plan);
         // the units the pairs sent up to 1.59 (the step partner-simple): proposed at «local + partner» until applied
         $plan['migrated'] = function_exists('partnerMigratedPending') ? (object) partnerMigratedPending() : (object) [];
         $plan['declined'] = (object) backupDeclined();     // 1.60.1: the proposals the user declined, with the value proposed
@@ -2940,9 +2941,11 @@ function backupSetupNotes(mixed $messages): array
         $items = $code === 'docker_volumes' ? backupVolumeItems($params, $text)
             : [[$code, ['text' => $text, 'params' => backupNoteParams($params)]]];
         foreach ($items as [$c, $item]) {
-            $k = "$level|$c";
+            // 2026-10-17: a cache that fills itself again is nothing to fix - a hint, never counted as a warning
+            $lv = $c === 'volumes_cache' && $level === 'warn' ? 'hint' : $level;
+            $k = "$lv|$c";
             if (!isset($at[$k])) {
-                $out[] = ['level' => $level, 'step' => $step, 'code' => $c, 'items' => []];
+                $out[] = ['level' => $lv, 'step' => $step, 'code' => $c, 'items' => []];
                 $at[$k] = array_key_last($out);
             }
             $out[$at[$k]]['items'][] = $item;
@@ -3012,6 +3015,41 @@ function backupVolumeIsCache(string $target, string $name): bool
         }
     }
     return $name !== '' && (bool) preg_match('/(^|[-_.])(cache|caches|tmp|temp)([-_.]|$)/D', strtolower($name));
+}
+
+/**
+ * The plan's containers with their cache volumes (2026-10-17, a user scared his photos were not backed up: the app row's
+ * red chip «Docker volumes: /cache» was immich's model cache): `volumes_cache` lists the paths of `volumes` (paths in the
+ * container) that are caches by `backupVolumeIsCache()` - the one rule; a volume's name comes from the plan's
+ * `docker_volumes` message of the same app (the plan's container lists paths only). The page shows those grey, the rest
+ * red. Pure.
+ */
+function backupPlanVolumeCaches(array $plan): array
+{
+    if (!is_array($plan['containers'] ?? null)) {
+        return $plan;
+    }
+    $names = [];            // app → path → volume name
+    foreach (is_array($plan['messages'] ?? null) ? $plan['messages'] : [] as $m) {
+        if (!is_array($m) || ($m['code'] ?? '') !== 'docker_volumes' || !is_array($m['params']['volumes'] ?? null) || !is_scalar($m['params']['app'] ?? null)) {
+            continue;
+        }
+        foreach ($m['params']['volumes'] as $v) {
+            if (is_array($v) && is_string($v['target'] ?? null) && is_string($v['name'] ?? null)) {
+                $names[(string) $m['params']['app']][$v['target']] = $v['name'];
+            }
+        }
+    }
+    foreach ($plan['containers'] as &$ct) {
+        if (!is_array($ct)) {
+            continue;
+        }
+        $name = is_string($ct['name'] ?? null) ? $ct['name'] : '';
+        $ct['volumes_cache'] = array_values(array_filter(is_array($ct['volumes'] ?? null) ? $ct['volumes'] : [],
+            fn ($t) => is_string($t) && $t !== '' && backupVolumeIsCache($t, $names[$name][$t] ?? '')));
+    }
+    unset($ct);
+    return $plan;
 }
 
 const BACKUP_REPLAN_FILE = 'setup-replan.json';     // in the engine's state/: the office's note of its plan anew after an update

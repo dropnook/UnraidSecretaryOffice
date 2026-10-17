@@ -507,6 +507,8 @@
   "setup.ct_risk_hint": "Questo contenitore scrive in dati con backup; se continua a girare, il suo snapshot è come staccare la spina. Le app con un proprio database SQLite (Emby, Jellyfin, Plex, *arr …) sono pulite solo se fermate.",
   "setup.ct_volumes": "Volumi Docker: {list}",
   "setup.ct_volumes_hint": "I volumi Docker stanno nella cartella di Docker stesso e NON sono nel backup. Meglio mappare un percorso in una condivisione con backup.",
+  "setup.ct_volumes_cache": "Solo cache, si ricarica da sé: {list}",
+  "setup.ct_volumes_cache_hint": "Questi volumi Docker contengono solo una cache (modelli scaricati, anteprime, file temporanei). Non sono nel backup — va bene così: dopo un ripristino l'app ne recupera il contenuto da sola.",
   "setup.ctwhy.kopia": "Kopia",
   "setup.ctwhy.volumes": "usa volumi Docker",
   "setup.ctwhy.binds_root": "mappa {arg} per intero",

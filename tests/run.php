@@ -33445,7 +33445,7 @@ function testSetupMessages(): void
     same('setup messages: a `more` with nothing before it is a line of its own', [['level' => 'hint', 'step' => 'x', 'items' => [['text' => 'first']]]], array_slice($n, 0, 1));
     $n = backupSetupNotes($msgs);
     same('setup messages: grouped by level and code in the order they came; ok and odd codes stay lines of their own',
-        [['ok', null, 1], ['warn', 'volumes_cache', 2], ['warn', 'volumes_data', 2], ['warn', 'source_orphan', 2], ['hint', 'source_orphan', 1], ['hint', null, 1]],
+        [['ok', null, 1], ['hint', 'volumes_cache', 2], ['warn', 'volumes_data', 2], ['warn', 'source_orphan', 2], ['hint', 'source_orphan', 1], ['hint', null, 1]],
         array_map(fn ($g) => [$g['level'], $g['code'] ?? null, count($g['items'])], $n));
     same('setup messages: Docker volumes judged - a cache (its path or name says so) apart from real data, an app with both in each; the names beside the paths',
         [[['app' => 'ml', 'paths' => '/cache (model-cache)', 'n' => 1], ['app' => 'db', 'paths' => '/tmp', 'n' => 1]],
@@ -40324,9 +40324,72 @@ JS;
         str_contains($desk, "!/\\|kopia_known$/.test(k) && !unknownKey(k)) {") && str_contains($desk, "if (unknownKey(k)) li.title = T('setup.key_unknown_tip');"));
 }
 
+/**
+ * A Docker volume that is only a cache is not lost data (2026-10-17: immich's `model-cache:/cache` made the app row's chip
+ * red «Docker volumes … NOT in the backup», the owner feared for his photos). The agent tags each plan container's cache
+ * volumes (`backupPlanVolumeCaches()`, the one rule `backupVolumeIsCache()`, a volume's name from the docker_volumes
+ * message), the page shows those in a grey chip «Cache only, fills itself again», red only what may hold data; the
+ * setup's message for a cache is a hint, never a warning
+ */
+function testBackupVolumeCache(): void
+{
+    $plan = ['containers' => [
+        ['name' => 'immich', 'volumes' => ['/cache'], 'project' => ''],
+        ['name' => 'mixed', 'volumes' => ['/var/lib/postgresql/data', '/models', '/tmp'], 'project' => ''],
+        ['name' => 'plain', 'volumes' => [], 'project' => ''],
+        ['name' => 'old', 'project' => ''],
+        'junk'],
+        'messages' => [
+            ['level' => 'warn', 'code' => 'docker_volumes', 'params' => ['app' => 'immich', 'volumes' => [['name' => 'model-cache', 'target' => '/cache']]]],
+            ['level' => 'warn', 'code' => 'docker_volumes', 'params' => ['app' => 'mixed', 'volumes' => [['name' => 'pgdata', 'target' => '/var/lib/postgresql/data'],
+                ['name' => 'ml-cache', 'target' => '/models'], ['name' => '', 'target' => '/tmp']]]],
+            ['level' => 'warn', 'code' => 'docker_volumes', 'params' => ['app' => 'x', 'volumes' => 'odd']]]];
+    $out = backupPlanVolumeCaches($plan);
+    same('volume cache: per container the cache paths - by path (/cache, /tmp) or by the volume\'s name (ml-cache at /models); data stays out',
+        [['/cache'], ['/models', '/tmp'], [], []], array_map(fn ($c) => $c['volumes_cache'], array_slice($out['containers'], 0, 4)));
+    same('volume cache: a plan without containers or messages is left as it is', [['x' => 1], ['containers' => []]],
+        [backupPlanVolumeCaches(['x' => 1]), backupPlanVolumeCaches(['containers' => []])]);
+    $notes = backupSetupNotes($plan['messages']);
+    same('volume cache: the setup\'s messages - the cache ones a hint, the data one a warning',
+        [['hint', 'volumes_cache'], ['warn', 'volumes_data'], ['warn', 'docker_volumes']], array_map(fn ($g) => [$g['level'], $g['code']], $notes));
+    $agent = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
+    check('volume cache: the page\'s plan carries the tags', str_contains($agent, '$plan = backupPlanVolumeCaches($plan);'));
+
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('volume cache: page - node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('volume-cache');
+    $ct = fn ($name, $vols, $cache) => ['name' => $name, 'image' => "$name:1", 'running' => true, 'stop' => true, 'why' => 'volumes', 'binds' => [], 'volumes' => $vols]
+        + ($cache === null ? [] : ['volumes_cache' => $cache]);
+    file_put_contents("$tmp/plan.json", json_encode(['time' => 1, 'have_settings' => true, 'P' => [], 'O' => [], 'shares' => [],
+        'containers' => [$ct('immich', ['/cache'], ['/cache']), $ct('mixed', ['/data', '/tmp'], ['/tmp']), $ct('older', ['/cache'], null)],
+        'vms' => [], 'databases' => [], 'nextcloud' => [], 'missing_databases' => [], 'bases' => []]));
+    $js = <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now' }, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {}, has: () => true };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const m = b.setupModel(JSON.parse(fs.readFileSync(process.argv[3], 'utf8')));
+console.log(JSON.stringify(Object.fromEntries(m.apps.map((a) => [a.name, [a.volumes, a.volumesCache]]))));
+JS;
+    file_put_contents("$tmp/t.js", $js);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' ' . escapeshellarg("$tmp/plan.json") . ' 2>&1');
+    hardeningRm($tmp);
+    $r = json_decode($raw, true);
+    same('volume cache: the app row - immich grey only, a mixed app red for its data and grey for its cache; an older agent\'s plan (no tags): red as before',
+        ['immich' => [[], ['/cache']], 'mixed' => [['/data'], ['/tmp']], 'older' => [['/cache'], []]], $r);
+    $desk = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('volume cache: the grey chip beside the red one', str_contains($desk, "chip(T('setup.ct_volumes_cache', { list: a.volumesCache.join(', ') }), '', T('setup.ct_volumes_cache_hint'))")
+        && str_contains($desk, "chip(T('setup.ct_volumes', { list: a.volumes.join(', ') }), 'danger'"));
+}
+
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

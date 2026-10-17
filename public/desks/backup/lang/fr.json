@@ -507,6 +507,8 @@
   "setup.ct_risk_hint": "Ce conteneur écrit dans des données sauvegardées ; s'il continue de tourner, son snapshot équivaut à débrancher la prise. Les applis avec leur propre base SQLite (Emby, Jellyfin, Plex, *arr …) ne sont propres qu'arrêtées.",
   "setup.ct_volumes": "Volumes Docker : {list}",
   "setup.ct_volumes_hint": "Les volumes Docker vivent dans le dossier propre de Docker et ne sont PAS dans la sauvegarde. Mappe plutôt un chemin dans un partage sauvegardé.",
+  "setup.ct_volumes_cache": "Cache seulement, se remplit tout seul : {list}",
+  "setup.ct_volumes_cache_hint": "Ces volumes Docker ne contiennent qu'un cache (modèles téléchargés, miniatures, fichiers temporaires). Ils ne sont pas dans la sauvegarde — c'est normal : après une restauration, l'appli récupère leur contenu toute seule.",
   "setup.ctwhy.kopia": "Kopia",
   "setup.ctwhy.volumes": "utilise des volumes Docker",
   "setup.ctwhy.binds_root": "mappe {arg} en entier",

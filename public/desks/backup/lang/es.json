@@ -507,6 +507,8 @@
   "setup.ct_risk_hint": "Este contenedor escribe en datos con copia; si sigue funcionando, su instantánea equivale a desenchufarlo. Las apps con su propia base de datos SQLite (Emby, Jellyfin, Plex, *arr …) solo quedan limpias detenidas.",
   "setup.ct_volumes": "Volúmenes de Docker: {list}",
   "setup.ct_volumes_hint": "Los volúmenes de Docker viven en la carpeta propia de Docker y NO están en la copia de seguridad. Mapea en su lugar una ruta a un recurso compartido con copia.",
+  "setup.ct_volumes_cache": "Solo caché, se vuelve a llenar sola: {list}",
+  "setup.ct_volumes_cache_hint": "Estos volúmenes Docker solo guardan una caché (modelos descargados, miniaturas, archivos temporales). No están en la copia — está bien: tras una restauración la app recupera su contenido sola.",
   "setup.ctwhy.kopia": "Kopia",
   "setup.ctwhy.volumes": "usa volúmenes de Docker",
   "setup.ctwhy.binds_root": "mapea {arg} entero",

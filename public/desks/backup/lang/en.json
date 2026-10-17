@@ -501,6 +501,8 @@
   "setup.ct_risk_hint": "This container writes into backed-up data; if it keeps running, its snapshot is like pulling the plug. Apps with their own SQLite database (Emby, Jellyfin, Plex, *arr …) are only clean when stopped.",
   "setup.ct_volumes": "Docker volumes: {list}",
   "setup.ct_volumes_hint": "Docker volumes live in Docker's own folder and are NOT in the backup. Map a path into a backed-up share instead.",
+  "setup.ct_volumes_cache": "Cache only, fills itself again: {list}",
+  "setup.ct_volumes_cache_hint": "These Docker volumes only hold a cache (downloaded models, thumbnails, temporary files). They are not in the backup — that is fine: after a restore the app fetches their contents again by itself.",
   "setup.ctwhy.kopia": "Kopia",
   "setup.ctwhy.volumes": "uses Docker volumes",
   "setup.ctwhy.binds_root": "maps {arg} as a whole",

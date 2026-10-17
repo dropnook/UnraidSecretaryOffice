@@ -4425,7 +4425,10 @@ function setupModel(plan) {
       ...a, members, folders, deps: [...deps.values()], isNew: fresh, newMembers,
       dbs: plan.databases.filter((d) => members.includes(d.container)),
       ncs: plan.nextcloud.filter((n) => n.members.some((m) => members.includes(m))),
-      volumes: a.members.flatMap((c) => c.volumes.map((v) => (a.stack ? `${c.name}: ${v}` : v))),
+      // a cache that fills itself again apart from real data (the agent's volumes_cache, backupVolumeIsCache(); an older
+      // agent's plan has none: all count as data)
+      volumes: a.members.flatMap((c) => c.volumes.filter((v) => !(c.volumes_cache || []).includes(v)).map((v) => (a.stack ? `${c.name}: ${v}` : v))),
+      volumesCache: a.members.flatMap((c) => c.volumes.filter((v) => (c.volumes_cache || []).includes(v)).map((v) => (a.stack ? `${c.name}: ${v}` : v))),
     };
   }).sort((x, y) => (y.stack - x.stack) || x.name.localeCompare(y.name, undefined, { sensitivity: 'base' }));
   const vms = (plan.vms || []).map((v) => {
@@ -5069,6 +5072,7 @@ function setupApps(plan) {
     });
     if (a.ncs.length) meta.appendChild(chip(T('setup.app_nc'), l > 0 ? 'ok' : '', T('setup.nc_text')));
     if (a.volumes.length) meta.appendChild(chip(T('setup.ct_volumes', { list: a.volumes.join(', ') }), 'danger', T('setup.ct_volumes_hint')));
+    if (a.volumesCache.length) meta.appendChild(chip(T('setup.ct_volumes_cache', { list: a.volumesCache.join(', ') }), '', T('setup.ct_volumes_cache_hint')));
     if (!a.folders.length && !a.deps.length) {
       const flashOff = dget('flash|mode', 'off') === 'off';
       meta.appendChild(chip(T('setup.app_nodata'), flashOff ? 'warn' : '', T(flashOff ? 'setup.app_nodata_noflash' : 'setup.app_nodata_hint')));
