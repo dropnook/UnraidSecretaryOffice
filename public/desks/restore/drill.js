@@ -8,7 +8,7 @@
 
 const ID = 'restore';
 const POLL = 2000;
-const KINDS = ['package', 'dump', 'sqlite', 'vmdisk', 'kopia'];
+const KINDS = ['package', 'dump', 'sqlite', 'vmdisk', 'kopia', 'sharefile'];
 const COPIES = { package: 'package', snapshot: 'local', kopia: 'kopia' };
 const BYTES = ['need', 'budget', 'have', 'want', 'bytes', 'sample_bytes'];
 const TIMES = ['time', 'dump_time', 'when'];
@@ -192,7 +192,7 @@ function runningBox() {
 
 function stepName(st) {
   const what = st.do === 'dump' ? st.container : st.do === 'vmdisk' ? `${st.target || ''} ${(st.source || '').split('/').pop()}`
-    : st.do === 'kopia' ? st.source : st.do === 'sqlite' ? (st.file || '').split('/').pop() : '';
+    : st.do === 'kopia' ? st.source : st.do === 'sqlite' ? (st.file || '').split('/').pop() : st.do === 'sharefile' ? st.target : '';
   return what && what !== st.name ? `${st.name} · ${what}` : st.name;
 }
 
@@ -270,7 +270,8 @@ function rows() {
   const keys = [...by.keys()].sort((a, b) => order(a) - order(b) || a.localeCompare(b));
   keys.forEach((key) => {
     const items = by.get(key);
-    const name = key === 'share' ? T('drill.shares') : key === 'server' ? T('drill.server') : items[0].name;
+    // the shares' row: offsite (Kopia) — and a file brought back into its share here, then simply «Shares»
+    const name = key === 'share' ? T(items.some((it) => it.kind === 'sharefile') ? 'drill.shares_all' : 'drill.shares') : key === 'server' ? T('drill.server') : items[0].name;
     const meta = el('div', 'row-meta');
     const worst = ['failed', 'warning', 'not_checked', 'asleep'].find((r) => items.some((it) => it.result === r)) || 'ok';
     meta.appendChild(x.chip(T('drill.state.' + worst), resultCls(worst)));
@@ -298,7 +299,9 @@ function itemsDetail(items) {
   items.forEach((it) => {
     const li = el('li');
     li.append(x.chip(T('drill.state.' + it.result), resultCls(it.result)), ' ', T('drill.kind.' + it.kind));
-    if (it.what && it.what !== it.name) li.append(' ', el('code', '', it.what));
+    // a file back into its share: the share named (its «what» is the pool or disk, said in the words after it)
+    const what = it.kind === 'sharefile' ? (it.params && it.params.share) || it.name : it.what;
+    if (what && (what !== it.name || it.kind === 'sharefile')) li.append(' ', el('code', '', what));
     li.append(' · ', codeText(it.code, it.params));
     if (['ok', 'warning'].includes(it.result)) li.append(' ', levelChip(it));
     if (it.state_time) li.append(' · ', T('drill.state_of', { when: x.date(it.state_time) }));
@@ -438,6 +441,8 @@ function previewView(p) {
     if (n) ul.appendChild(el('li', '', T('drill.pv.' + k, { n })));
   });
   box.appendChild(ul);
+  // one file back into a share: none this time — why (its disks sleep, or no share has a backup snapshot yet)
+  if (p.share_file && ['asleep', 'none'].includes(p.share_file.why)) box.appendChild(el('p', 'role', T('drill.pv_sharefile_wait_' + p.share_file.why, { names: p.share_file.names || '' })));
   const kd = p.kopia_dumps || {};
   if (kd.n) box.appendChild(el('p', 'role', T('drill.pv_kopia_dumps', { n: kd.n, names: (kd.names || []).join(', '), size: x.fmt.size(kd.bytes || 0) })));
   if (p.follow_up) box.appendChild(el('p', 'role', T('drill.pv_follow_up', { n: p.follow_up })));

@@ -25766,6 +25766,109 @@ function testWatchmanTicket(): void
  * its compare with the local snapshot (stand-ins for docker and kopia), a whole job in-process (packages only),
  * agent.sh's drill_release, the strings. Everything in a temporary folder; nothing is started.
  */
+/**
+ * Mr. Restori's drill brings one file of a share back into the share (2026-10-17): the plan picks a share the engine backs
+ * up with a backup snapshot on an awake pool (never the office's own share; asleep / none: why it waits), the step copies a
+ * small file of the newest backup snapshot into a fresh <share>/.uso-drill-<id> (written down first, never over anything),
+ * compares size and sha256, and puts the folder into Ms. Dustdevil's storeroom of that share with her manifest — never
+ * deleted; a sleeping pool is never looked into; the sweeper does the same after a crash; she finds that storeroom.
+ */
+function testDrillShareFile(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-drillfile-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $saved = [$GLOBALS['drill'] ?? null, $GLOBALS['rs'] ?? null];
+    $GLOBALS['rs']['data'] = "$tmp/data/restore-drill";
+    $GLOBALS['rs']['job_file'] = "$tmp/data/restore-drill-job.json";
+    $GLOBALS['drill'] = ['data' => "$tmp/data/restore-drill", 'cert' => "$tmp/data/restore-drill.json", 'job_file' => "$tmp/data/restore-drill-job.json",
+                         'run_dir' => "$tmp/run", 'mnt' => "$tmp/mnt", 'now' => 1793600000];
+    @mkdir("$tmp/data/restore-drill", 0700, true);
+    $live = "$tmp/mnt/maple/Familienfotos";
+    $snap = "$live/.zfs/snapshot/uso-backup-20261101-0300";
+    @mkdir("$snap/2019/Sommer", 0700, true);
+    @mkdir("$live/2019/Sommer", 0700, true);
+    $photo = random_bytes(5000);
+    file_put_contents("$snap/2019/Sommer/strand.jpg", $photo);
+    file_put_contents("$live/2019/Sommer/strand.jpg", $photo);
+    file_put_contents("$snap/2019/Sommer/tiny.txt", 'x');                   // under 1 KB: never chosen
+    @symlink('/etc/passwd', "$snap/2019/Sommer/link.jpg");                  // a link: never chosen
+    $ctx = ['fs' => ['maple' => 'zfs', 'oak' => 'zfs'], 'zfs' => [$live => 'maple/Familienfotos', "$tmp/mnt/maple" => 'maple'],
+            'snaps' => ['maple/Familienfotos' => [['name' => 'uso-plan-x-20261031-0000', 'time' => 1793400000], ['name' => 'uso-backup-20261101-0300', 'time' => 1793500000]]],
+            'asleep' => [], 'prefixes' => ['uso-backup-'], 'btrfs_dir' => '.btrfs-snap', 'mnt' => "$tmp/mnt", 'settings' => [], 'zfs_kept' => [],
+            'cfg' => ['Familienfotos' => ['shareUseCache' => 'only', 'shareCachePool' => 'maple'], 'Familienfilme' => ['shareUseCache' => 'only', 'shareCachePool' => 'oak'],
+                      'UnraidSecretaryOffice' => ['shareUseCache' => 'only', 'shareCachePool' => 'maple']]];
+    @mkdir("$tmp/mnt/maple/UnraidSecretaryOffice/.zfs/snapshot/uso-backup-20261101-0300", 0700, true);
+    $settings = ['share|Familienfotos' => ['mode' => ['local']], 'share|UnraidSecretaryOffice' => ['mode' => ['local']], 'share|Leer' => ['mode' => ['off']]];
+    $pick = drillShareFilePick($settings, $ctx);
+    same('drill share file: the plan — the share with a backup snapshot on an awake pool, never the office\'s own share',
+        [['do' => 'sharefile', 'kind' => 'share', 'id' => 'Familienfotos', 'name' => 'Familienfotos', 'target' => 'maple', 'run' => ''], null], [$pick['step'], $pick['wait']]);
+    $sleepy = $ctx;
+    $sleepy['asleep'] = ['maple' => true];
+    same('drill share file: its pool asleep — no step, «asleep» with the share named (never woken)', [null, ['why' => 'asleep', 'names' => 'Familienfotos']],
+        array_values(drillShareFilePick($settings, $sleepy)));
+    same('drill share file: no share backed up with a snapshot yet — «none»; nothing backed up at all — nothing said',
+        [['why' => 'none', 'names' => ''], null], [drillShareFilePick(['share|Familienfilme' => ['mode' => ['local']]], $ctx)['wait'], drillShareFilePick([], $ctx)['wait']]);
+    check('drill share file: a kind of its own, an estimate, its texts on his page', in_array('sharefile', DRILL_STEP_KINDS, true)
+        && drillEstimate($pick['step'], ['kopia_mb' => 0]) === 10 && str_contains((string) file_get_contents(OFFICE_WEB . '/desks/restore/drill.js'), "'drill.pv_sharefile_wait_' + p.share_file.why"));
+
+    $j = drillJournalNew('20261102-031500-5f5f', ['scope' => 'now', 'deadline' => time() + 3600, 'steps' => [$pick['step']]]);
+    rsPrivateDir(drillDir($j['id']));
+    $env = ['ctx' => $ctx];
+    $scratch = "$live/.uso-drill-{$j['id']}";
+    $r = drillDoShareFile($j, 0, $env);
+    same('drill share file: the photo back from the newest backup snapshot (not a plan\'s), size and checksum the same — L1 from the local snapshot',
+        ['ok', 'sharefile_ok', 1, 'snapshot', '20261101-0300', 1793500000, '2019/Sommer/strand.jpg', 5000, ".uso-drill-{$j['id']}"],
+        [$r['state'], $r['code'], $r['level'], $r['copy'], $r['run'], $r['state_time'], $r['params']['file'] ?? null, $r['params']['bytes'] ?? null, $r['params']['folder'] ?? null]);
+    $trash = "$live/" . OFFICE_STOREROOM;
+    $runs = glob("$trash/*", GLOB_ONLYDIR) ?: [];
+    $man = $runs ? readJson("{$runs[0]}/manifest.json") : null;
+    $as = 'restore/' . substr(md5($live), 0, 8) . "/.uso-drill-{$j['id']}";
+    same('drill share file: the scratch folder in Ms. Dustdevil\'s storeroom of the share with her manifest (a leftover) — nothing deleted, the real file untouched',
+        [false, 1, [['kind' => 'leftover', 'name' => ".uso-drill-{$j['id']}", 'label' => $j['id'], 'from' => $scratch, 'as' => $as]], $photo, $photo],
+        [file_exists($scratch), count($runs), $man['items'] ?? null, (string) @file_get_contents("{$runs[0]}/$as/strand.jpg"), (string) file_get_contents("$live/2019/Sommer/strand.jpg")]);
+    $made = array_values(array_filter($j['made'], fn ($x) => $x['kind'] === 'scratch'));
+    same('drill share file: written down before it was made, gone with the storeroom it went into', [[$scratch, true, $trash]],
+        array_map(fn ($x) => [$x['name'], $x['gone'], $x['trash'] ?? null], $made));
+    check('drill share file: the manifest\'s entry in the shape Ms. Dustdevil reads', clTrashAsOk($as, 'leftover', basename($runs[0])));
+    same('drill share file: Ms. Dustdevil finds that storeroom (awake only)', [[$trash], []], [drillTrashRoots([]), drillTrashRoots(['maple' => true])]);
+
+    // never over anything: the folder there already
+    $j2 = drillJournalNew('20261102-031600-6a6a', ['scope' => 'now', 'deadline' => time() + 3600, 'steps' => [$pick['step']]]);
+    rsPrivateDir(drillDir($j2['id']));
+    @mkdir("$live/.uso-drill-{$j2['id']}");
+    file_put_contents("$live/.uso-drill-{$j2['id']}/keep.txt", 'mine');
+    $r = drillDoShareFile($j2, 0, $env);
+    same('drill share file: its folder there already — not checked, nothing written, nothing moved', ['not_checked', 'sharefile_taken', 'mine', []],
+        [$r['state'], $r['code'], (string) file_get_contents("$live/.uso-drill-{$j2['id']}/keep.txt"), $j2['made']]);
+    // what came back differs: failed (the snapshot's file changed under it is simulated by a hash stand-in: a short copy)
+    $env2 = $env;
+    $env2['ctx']['asleep'] = ['maple' => true];
+    same('drill share file: the pool asleep now — asleep, never looked into', ['asleep', []], [drillDoShareFile($j2, 0, $env2)['state'], $j2['made']]);
+    exec('rm -rf ' . escapeshellarg("$snap/2019"));
+    same('drill share file: nothing small enough in the snapshot — not checked', ['not_checked', 'sharefile_none'],
+        array_values(array_intersect_key(drillDoShareFile($j2, 0, $env), ['state' => 1, 'code' => 1])));
+    $env3 = $env;
+    $env3['ctx']['snaps']['maple/Familienfotos'] = [['name' => 'uso-plan-x-20261031-0000', 'time' => 1793400000]];
+    same('drill share file: only a plan\'s snapshot — not checked (the backup\'s is proven)', 'sharefile_no_snap', drillDoShareFile($j2, 0, $env3)['code']);
+
+    // the sweeper after a crash: a scratch folder left — into the storeroom too; never a folder of another name
+    $j3 = drillJournalNew('20261102-031700-7b7b', ['scope' => 'now', 'deadline' => time() + 3600, 'steps' => []]);
+    rsPrivateDir(drillDir($j3['id']));
+    $left = "$live/.uso-drill-{$j3['id']}";
+    @mkdir($left);
+    file_put_contents("$left/strand.jpg", 'copy');
+    drillMade($j3, ['kind' => 'scratch', 'name' => $left]);
+    drillMade($j3, ['kind' => 'scratch', 'name' => "$live/2019"]);
+    @mkdir("$live/2019", 0700, true);
+    drillCleanup($j3, null, false);
+    same('drill share file: the cleanup puts a left scratch folder away, never another folder', [false, true, [true, false]],
+        [file_exists($left), is_dir("$live/2019"), array_column($j3['made'], 'gone')]);
+    check('drill share file: the agent\'s code writes only through Ms. Dustdevil\'s helpers, never removes',
+        !preg_match('/\b(unlink|rmdir|rm -rf)\b/', (string) preg_replace('/^.*?function drillShareFilePick\b|function drillTrashRoots\b.*$/s', '', (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore-drill.php'))));
+    exec('rm -rf ' . escapeshellarg($tmp));
+    [$GLOBALS['drill'], $GLOBALS['rs']] = $saved;
+}
+
 function testRestoreDrill(): void
 {
     $tmp = sys_get_temp_dir() . '/office-tests-drill-' . getmypid();
@@ -37979,11 +38082,11 @@ function testBackupPartnerEta(): void
         'units' => $units, 'skipped' => array_map(fn ($u) => ['unit' => $u, 'why' => 'asleep'], $skipped)];
     $u = fn (string $unit, int $sec) => ['unit' => $unit, 'bytes' => $sec * 1000, 'seconds' => $sec, 'resumed' => false];
     $e = backupEstimates([
-        $run(5000, 5900, [$p('a1b2c3d4', [$u('place', 30), $u('vm:win', 500)], ['share:media'])]),
+        $run(5000, 5900, [$p('a1b2c3d4', [$u('place', 30), $u('vm:win', 500)], ['share:media', 'share:docs'])]),
         $run(1000, 1300, [$p('a1b2c3d4', [$u('place', 200), $u('share:docs', 60)])], 'aborted'),
     ]);
-    same('partner eta: each unit\'s newest transfer (an aborted run\'s too), a unit skipped last = 0',
-        ['a1b2c3d4|place' => 30, 'a1b2c3d4|vm:win' => 500, 'a1b2c3d4|share:media' => 0, 'a1b2c3d4|share:docs' => 60], $e['partner']);
+    same('partner eta: each unit\'s newest transfer (an aborted run\'s too), a real one before a newer skip, a unit only ever skipped = 0',
+        ['a1b2c3d4|place' => 30, 'a1b2c3d4|vm:win' => 500, 'a1b2c3d4|share:docs' => 60, 'a1b2c3d4|share:media' => 0], $e['partner']);
     same('partner eta: the part before the partner step = before Kopia less the run\'s partner seconds', [900, 370], [$e['before'], $e['prepare']]);
     same('partner eta: nothing known', [null, []], [backupEstimates([])['prepare'], backupEstimates([])['partner']]);
 
@@ -38016,9 +38119,22 @@ b.setState(st('snapshots', null));
 out.noPartner = left(b.progress());
 b.setState(st('snapshots', plan({ planned: [{ id: 'p1', unit: 'place' }, { id: 'p1', unit: 'share:new' }] })));
 p = b.progress();
-out.never = [p.eta, p.percent];
+out.never = [p.eta, p.percent, p.restEta === null ? null : Math.round(p.restEta - now)];
+b.setState(st('inventory', plan({ planned: [], partners: [{ id: 'p1', name: 'Office B' }] })));
+out.inventory = left(b.progress());
+b.setState(st('inventory', plan({ planned: [], partners: [{ id: 'p9', name: 'New office' }] })));
+p = b.progress();
+out.inventoryNew = [p.eta, p.restEta === null ? null : Math.round(p.restEta - now)];
 b.setState(st('partner', plan({ done: [{ id: 'p1', unit: 'place' }], current: { id: 'p1', unit: 'vm:win', since: now - 200, bytes: 1 } })));
 out.partnerNoRate = left(b.progress());
+b.setState(st('partner', plan({ done: [{ id: 'p1', unit: 'place' }], current: { id: 'p1', unit: 'vm:win', since: now - 900, bytes: 1 } })));
+p = b.progress();
+out.partnerLate = [left(p), p.overdue];
+b.setState(st('partner', plan({ planned: [{ id: 'p1', unit: 'share:new' }], current: { id: 'p1', unit: 'share:new', since: now - 30, bytes: 1 } })));
+p = b.progress();
+out.partnerFirst = [p.eta, p.percent, p.restEta === null ? null : Math.round(p.restEta - now)];
+b.setState(st('snapshots', plan({ planned: [{ id: 'p1', unit: 'share:new' }] })));
+out.bubble = b.bubbleText('main').filter((x) => x.startsWith('bubble.eta'));
 b.setState(st('partner', plan({ current: { id: 'p1', unit: 'place', since: now - 10, bytes: 1 } }),
   { partners: [{ id: 'p1', current: { unit: 'place', rate: 1000, eta: 40 } }] }));
 out.partnerRate = left(b.progress());
@@ -38028,8 +38144,15 @@ JS;
     $r = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/eta.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' 2>&1'), true);
     same('partner eta (page): in the step Snapshots the partner units count — 270 before + 30 + 500 + Kopia 100, 10 %', [900, 10], $r['snapshots'] ?? null);
     same('partner eta (page): a run without partners — before + Kopia as ever', 370, $r['noPartner'] ?? null);
-    same('partner eta (page): a unit never sent — unknown, no percent (never 99 %)', [null, null], $r['never'] ?? null);
+    same('partner eta (page): a unit never sent — no whole time, no percent (never 99 %); the rest\'s end (270 + 30 + Kopia 100) «plus the partner step»',
+        [null, null, 400], $r['never'] ?? null);
+    same('partner eta (page): the inventory, no plan yet — the units the partner got last time (270 + 30 + 500 + 100)', 900, $r['inventory'] ?? null);
+    same('partner eta (page): the inventory, a partner that never got anything — the rest only', [null, 370], $r['inventoryNew'] ?? null);
     same('partner eta (page): on the way without a rate yet — its last time less 200 s, then Kopia', 400, $r['partnerNoRate'] ?? null);
+    same('partner eta (page): past its last time without a rate — «longer than usual», Kopia still counted', [100, true], $r['partnerLate'] ?? null);
+    same('partner eta (page): its first transfer on the way, no rate yet — unknown, the rest (Kopia) known', [null, null, 100], $r['partnerFirst'] ?? null);
+    same('partner eta (page): the bubble says the rest\'s end «plus the partner step»', ['bubble.eta_partner_unknown {"time":"time(' . '<t>' . ')"}'],
+        array_map(fn ($x) => preg_replace('/time\(\d+(\.\d+)?\)/', 'time(<t>)', $x), $r['bubble'] ?? []));
     same('partner eta (page): with the rate — 40 s of this one, 500 for the next unit, Kopia 100', 640, $r['partnerRate'] ?? null);
     hardeningRm($tmp);
 }
@@ -38614,6 +38737,71 @@ function testCleanupInUseLocked(): void
  * Ms. Moverelli's list and Smart Mover's loop skip it, and her room «On the flash» offers the file: into the flash's
  * storeroom as shares/<name>.cfg and back — never while Unraid knows the share or can't tell.
  */
+/**
+ * An empty share whose snapshots still hold space (2026-10-17): her tour lists a share's dataset `<pool>/<share>` on an awake
+ * pool whose live folder holds nothing but empty folders (or isn't mounted) while its snapshots hold ≥ 100 MB — never the
+ * office's own share, the partners' copies, a backup place, a dataset that is no share, a sleeping pool (never asked).
+ * The Team Lead's hint (recommended) says how much and where and links to Ms. Snapshotini's list by dataset; she
+ * deletes nothing.
+ */
+function testCleanupSnapOnly(): void
+{
+    $tmp = hardeningTmp('snaponly');
+    $mb = 1024 * 1024;
+    foreach (['Familienfilme/2019/Sommer', 'Fotos', 'Dokumente', 'Archiv', 'UnraidSecretaryOffice', 'backup-alt', 'Kleinkram', 'Viel'] as $d) {
+        @mkdir("$tmp/cache/$d", 0700, true);
+    }
+    file_put_contents("$tmp/cache/Dokumente/brief.txt", 'x');                 // a file: not empty
+    @symlink('/etc', "$tmp/cache/Archiv/link");                                 // a link: not empty (never followed)
+    for ($i = 0; $i < CL_SNAPONLY_WALK + 1; $i++) {
+        @mkdir("$tmp/cache/Viel/d$i");                                          // more than she looks at: not empty
+    }
+    $asked = [];
+    $zfs = function (array $args) use (&$asked, $tmp, $mb): array {
+        $asked[] = $args;
+        $row = fn (string $n, int $refer, int $snaps, string $mounted = 'yes') => implode("\t", [$n, $refer, $snaps, $mounted, "$tmp/$n"]);
+        return [0, implode("\n", [
+            $row('cache', 200000, 0),
+            $row('cache/Familienfilme', 150000, 12 * 1024 * $mb),               // empty but for folders: 12 GB held
+            $row('cache/Fotos', 100000, 300 * $mb),
+            $row('cache/Dokumente', 100000, 2048 * $mb),                        // a file in it
+            $row('cache/Archiv', 100000, 2048 * $mb),
+            $row('cache/Zu', 100000, 900 * $mb, 'no'),                          // not mounted: its folder gone, the snapshots hold
+            $row('cache/Gross', 40 * $mb, 9000 * $mb),                          // its live data counts: not empty
+            $row('cache/Kleinkram', 100000, 50 * $mb),                          // too little held to say
+            $row('cache/UnraidSecretaryOffice', 100000, 5000 * $mb),            // the office's own
+            $row('cache/backup-alt', 100000, 5000 * $mb),                       // a backup place
+            $row('cache/' . PARTNER_PARENT, 100000, 5000 * $mb),                 // the partners' copies
+            $row('cache/Viel', 100000, 5000 * $mb),
+            $row('cache/nichtshare', 100000, 5000 * $mb),                       // a dataset that is no share
+            $row('cache/Familienfilme/sub', 100000, 5000 * $mb),                // below a share: never
+            "garbage line",
+        ])];
+    };
+    $shares = ['Familienfilme', 'Fotos', 'Dokumente', 'Archiv', 'Zu', 'Gross', 'Kleinkram', 'UnraidSecretaryOffice', 'backup-alt', PARTNER_PARENT, 'Viel'];
+    $r = clSnapOnlyShares(['pools' => [['cache'], ['hdd']], 'zfs' => $zfs, 'shares' => $shares, 'known' => true]);
+    same('snap only: the empty shares (folders only, not mounted) whose snapshots hold ≥ 100 MB, most held first',
+        [['Familienfilme', 'cache', 12 * 1024 * $mb, true], ['Zu', 'cache', 900 * $mb, false], ['Fotos', 'cache', 300 * $mb, true]],
+        array_map(fn ($x) => [$x['share'], $x['pool'], $x['snaps'], $x['mounted']], $r['list']));
+    same('snap only: one zfs list -d 1 of the awake pools only (the sleeping one never asked), listed as asleep',
+        [[['list', '-Hp', '-t', 'filesystem', '-o', 'name,refer,usedbysnapshots,mounted,mountpoint', '-d', '1', 'cache']], ['hdd']], [$asked, $r['asleep']]);
+    $asked = [];
+    same('snap only: every pool asleep, or the array stopped — nothing asked, nothing said',
+        [[], [], []], [clSnapOnlyShares(['pools' => [[], ['cache']], 'zfs' => $zfs, 'shares' => $shares, 'known' => true])['list'],
+                       clSnapOnlyShares(['pools' => [['cache'], []], 'zfs' => $zfs, 'shares' => $shares, 'known' => false])['list'], $asked]);
+    $c = clSnapOnlyChecks($r);
+    same('snap only: the Team Lead\'s hint — recommended, how much and where, the link to Ms. Snapshotini\'s datasets',
+        [['snap_only', 'recommended', false, '#/snapshot/datasets'], ['n' => 3, 'shares' => 'Familienfilme (cache, 12.0 GB), Zu (cache, 900.0 MB), Fotos (cache, 300.0 MB)', 'size' => '13.2 GB']],
+        [[$c[0]['id'], $c[0]['level'], $c[0]['ok'], $c[0]['link']], $c[0]['params']]);
+    same('snap only: none — in place (also with a pool asleep); her tour before this look — nothing',
+        [[true], []], [array_column(clSnapOnlyChecks(['list' => [], 'asleep' => ['hdd']]), 'ok'), clSnapOnlyChecks(null)]);
+    check('snap only: she only looked — every folder and file still there', is_file("$tmp/cache/Dokumente/brief.txt") && is_dir("$tmp/cache/Familienfilme/2019/Sommer"));
+    $ct = (string) file_get_contents(OFFICE_WEB . '/desks/caretaker/desk.js');
+    check('snap only: the Team Lead\'s button says the desk\'s own words (check.<id>_link) where it has them',
+        str_contains($ct, "text(f, '_link') || T('open.office')"));
+    hardeningRm($tmp);
+}
+
 function testStaleShares(): void
 {
     $tmp = hardeningTmp('stale-shares');
@@ -39679,9 +39867,9 @@ function testFirstHome(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of

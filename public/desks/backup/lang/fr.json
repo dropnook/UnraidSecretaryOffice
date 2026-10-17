@@ -16,6 +16,7 @@
   "bubble.eta": "Terminé vers {time}.",
   "bubble.eta_rough": "Terminé vers {time} — à la louche : c'est la première sauvegarde, rien d'antérieur pour comparer.",
   "bubble.eta_late": "Ça prend plus longtemps que d'habitude — je l'attendais vers {time}.",
+  "bubble.eta_partner_unknown": "Terminé vers {time}, plus l'étape vers le partenaire : il reçoit quelque chose pour la première fois, je ne sais pas encore combien de temps cela prend.",
   "bubble.first_eta": "Oh là là — {share} part hors site pour la toute première fois ({size}). Ça prend de longues heures, ce n'est pas bloqué, j'ai vérifié trois fois ! La lecture va à ~{rate}/s — ce sera fini vers {time}.",
   "bubble.first_soon": "Oh là là — {share} part hors site pour la toute première fois ({size}). De longues heures — mais c'est presque fini, d'un instant à l'autre (lu à ~{rate}/s). Je surveille !",
   "bubble.first_measuring": "Oh là là — {share} part hors site pour la toute première fois ({size}). Ça prend de longues heures, ce n'est pas bloqué ! Je mesure encore à quelle vitesse il est lu …",
@@ -121,6 +122,7 @@
   "eta_late": "Plus long que d'habitude — attendu à {time}",
   "eta_unknown": "Pas encore d'estimation — il y en aura une après la première sauvegarde complète.",
   "eta_at": "Terminé vers {time}",
+  "eta_partner_unknown": "Terminé vers {time}, plus l'étape vers le partenaire — aucun transfert antérieur pour comparer.",
   "eta_left": "encore {left}",
   "hold.before": "Les applis et les VM sont mises en pause ici un instant",
   "hold.now": {

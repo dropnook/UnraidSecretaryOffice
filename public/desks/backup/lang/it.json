@@ -16,6 +16,7 @@
   "bubble.eta": "Finito verso le {time}.",
   "bubble.eta_rough": "Finito verso le {time} — a occhio: è il primo backup, non c'è ancora niente con cui confrontare.",
   "bubble.eta_late": "Ci mette più del solito — me lo aspettavo verso le {time}.",
+  "bubble.eta_partner_unknown": "Finito verso le {time}, più il passo verso il partner: riceve qualcosa per la prima volta, quanto ci vorrà ancora non lo so.",
   "bubble.first_eta": "Oddio — {share} va fuori sede per la primissima volta ({size}). Ci vogliono molte ore, non è bloccato, ho controllato tre volte! Viene letto a ~{rate}/s — dovrebbe finire verso le {time}.",
   "bubble.first_soon": "Oddio — {share} va fuori sede per la primissima volta ({size}). Tante ore — ma ormai ci siamo quasi, da un momento all'altro (letto a ~{rate}/s). Tengo d'occhio!",
   "bubble.first_measuring": "Oddio — {share} va fuori sede per la primissima volta ({size}). Ci vogliono molte ore, non è bloccato! Sto ancora misurando quanto veloce viene letto …",
@@ -121,6 +122,7 @@
   "eta_late": "Più lungo del solito — previsto per le {time}",
   "eta_unknown": "Ancora nessuna stima — arriva dopo il primo backup completo.",
   "eta_at": "Finito verso le {time}",
+  "eta_partner_unknown": "Finito verso le {time}, più il passo verso il partner — non c'è ancora un trasferimento precedente con cui confrontare.",
   "eta_left": "ancora {left}",
   "hold.before": "Qui app e VM si fermano per un momento",
   "hold.now": {

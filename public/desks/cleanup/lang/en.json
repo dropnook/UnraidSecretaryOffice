@@ -25,6 +25,12 @@
     "one": "One share names a pool Unraid no longer has: {shares}. Writing there fails with «no medium found». Pick a pool under ⟦Shares⟧ → the share → ⟦Primary storage⟧ (or ⟦Secondary storage⟧).",
     "other": "{n} shares name a pool Unraid no longer has: {shares}. Writing there fails with «no medium found». Pick a pool under ⟦Shares⟧ → each share → ⟦Primary storage⟧ (or ⟦Secondary storage⟧)."
   },
+  "check.snap_only": "No share is empty while its snapshots still hold space",
+  "check.snap_only_how": {
+    "one": "The share {shares} is empty here, but its snapshots still hold {size} — the old files stay on the pool until they go. They go by their plan's or the backup's retention, or by hand at Ms. Snapshotini. I delete nothing myself.",
+    "other": "{n} shares are empty here, but their snapshots still hold {size}: {shares}. The old files stay on the pool until those snapshots go — by their plan's or the backup's retention, or by hand at Ms. Snapshotini. I delete nothing myself."
+  },
+  "check.snap_only_link": "Show at Ms. Snapshotini",
   "scan": "Tour",
   "scan_title": "Look around the whole server again: where everything is, and what lies around",
   "scan_done": "Tour done in {ms} ms.",

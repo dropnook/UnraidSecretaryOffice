@@ -356,8 +356,8 @@ function row(f) {
   r.appendChild(main);
   const acts = el('div', 'ct-acts');
   if (f.link && f.link.startsWith('#/')) {
-    // a page of the office itself, e.g. Mr. Backupsy's setup
-    const a = el('a', 'btn small plain', T('open.office'));
+    // a page of the office itself, e.g. Mr. Backupsy's setup — the desk's own word for it when it has one (check.<id>_link)
+    const a = el('a', 'btn small plain', text(f, '_link') || T('open.office'));
     a.href = f.link;
     acts.appendChild(a);
   } else if (f.link && LINKS[f.link]) {
