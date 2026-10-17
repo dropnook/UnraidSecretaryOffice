@@ -13708,6 +13708,48 @@ function testWatchmanFlowGone(): void
     $a5 = $round($t1 + 2100, [['what' => 'embycache', 'started' => $t1 + 320, 'finished' => $t1 + 590]]);
     $fi = array_column(array_filter($book, 'watchmanOpen'), null, 'key')['flow_gone:share:Filme']['p'] ?? [];
     same('a real deletion between the office\'s runs: still told, from the server', [['flow_gone'], 150 * $gb, 'server'], [$a5, $fi['bytes'] ?? null, $fi['from'] ?? null]);
+
+    // an XFS array disk with a folder of a share Smart Mover moves: excused only as much as its record says it moved (and a
+    // file in flight) — a mass deletion in another share on that disk during the run is still told (owner, 1.65.8)
+    $mo = sys_get_temp_dir() . '/office-tests-moved-off-' . getmypid();
+    @mkdir($mo, 0700, true);
+    file_put_contents("$mo/status.json", json_encode(['mode' => 'run', 'result' => 'running', 'started' => $t1, 'bytes' => 40 * $gb, 'done_bytes' => 50 * $gb]));
+    file_put_contents("$mo/jack.json", json_encode(['v' => 1, 'phase' => 'fill', 'started' => $t1 + 5, 'back' => ['done_bytes' => 3 * $gb],
+        'users' => [['key' => 'a', 'done_bytes' => 4 * $gb], ['key' => 'b', 'done_bytes' => 'x']]]));
+    file_put_contents("$mo/dry.json", json_encode(['mode' => 'dry', 'started' => $t1, 'bytes' => 9 * $gb]));
+    same('moved off: Smart Mover\'s real run (the larger of planned and done), Jack Streamer\'s back and laid out; a dry run or none: null',
+        [['sm' => [$t1, 50 * $gb], 'jack' => [$t1 + 5, 7 * $gb]], ['sm' => null, 'jack' => null]],
+        [watchmanFlowMovedOff(['moverelli_status' => "$mo/status.json", 'jack_progress' => "$mo/jack.json"]),
+         watchmanFlowMovedOff(['moverelli_status' => "$mo/dry.json", 'jack_progress' => "$mo/none.json"])]);
+    exec('rm -rf ' . escapeshellarg($mo));
+    $bf = null;
+    $book = [];
+    $dk = fn (int $used) => ['disks' => ['disk1' => ['fs' => 'xfs', 'used' => $used, 'snap' => null, 'shares' => ['Dokumente', 'Filme']]], 'asleep' => []];
+    $sm = ['smartmover' => ['Filme'], 'mover' => ['Filme']];
+    $dround = function (int $at, int $used, array $moving, ?int $smBytes) use (&$bf, &$flow, &$cnt, &$book, $look, $dk, $sm, $t1): array {
+        [$added, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $dk($used), 'moving' => $moving, 'move_shares' => $sm,
+            'moved_off' => ['sm' => $smBytes === null ? null : [$t1, $smBytes], 'jack' => null]]), $book, $at);
+        return $added;
+    };
+    [, $flow, $cnt] = watchmanFlowCompare($bf, [], null, $look(['disks' => $dk(10000 * $gb)]), $book, $t1);
+    // Smart Mover moved 50 GB of Filme off the disk — and 300 GB vanished from Dokumente meanwhile
+    $d1 = $dround($t1 + 300, 9650 * $gb, ['smartmover'], 50 * $gb);
+    $open = array_column(array_filter($book, 'watchmanOpen'), null, 'key');
+    same('moved off: during Smart Mover\'s run the disk loses 350 GB, 50 GB moved — 51 GB its (a file in flight), the other 299 GB told',
+        [['flow_gone'], 299 * $gb, 51 * $gb, 0], [$d1, $open['flow_gone:disk:disk1']['p']['bytes'] ?? null, array_sum($flow['gone']['disk:disk1']['o'] ?? []),
+         $cnt['moved_off']['left'] ?? null]);
+    $book = [];
+    // 100 GB more moved, the disk lost only 20 GB of it this round: the rest carried — the next round's loss is his
+    $d2 = $dround($t1 + 600, 9630 * $gb, ['smartmover'], 150 * $gb);
+    $left2 = $cnt['moved_off']['left'] ?? null;
+    $d3 = $dround($t1 + 900, 9550 * $gb, ['smartmover'], 150 * $gb);
+    same('moved off: what moved but no disk lost yet carries to the next round', [[], 80 * $gb, [], 0],
+        [$d2, $left2, $d3, $cnt['moved_off']['left'] ?? null]);
+    // no record (Smart Mover's status gone; Unraid's mover keeps none): the disk with a folder of its share stays excused whole
+    $d4 = $dround($t1 + 1200, 9150 * $gb, ['smartmover'], null);
+    $d5 = $dround($t1 + 1500, 8750 * $gb, ['mover'], null);
+    same('moved off: a mover without a record — the disk excused whole, as before', [[], [], (51 + 20 + 80 + 400 + 400) * $gb],
+        [$d4, $d5, array_sum($flow['gone']['disk:disk1']['o'] ?? [])]);
 }
 
 /**

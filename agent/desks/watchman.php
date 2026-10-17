@@ -388,6 +388,9 @@ function watchmanPaths(): array
         // … and the shares they move (watchmanFlowMoveShares()): Jack Streamer's mapped shares, the gather's shares
         'jack_settings'   => DATA_DIR . '/mediacache/mediacache_settings.json',
         'gather_settings' => DATA_DIR . '/gather/gather.json',
+        // … and how much they moved (watchmanFlowMovedOff()): Smart Mover's status, Jack Streamer's run progress (RAM)
+        'moverelli_status' => DATA_DIR . '/moverelli/status.json',
+        'jack_progress'    => RUN_DIR . '/jack-progress.json',
         'mover_pid'  => '/var/run/mover.pid',
         'backup_sh'  => BACKUP_SCRIPT_DIR . '/backup.sh',              // the offsite repository's count once a day (watchmanKopiaLook())
         // how secure (watchmanPostureLook())
@@ -768,7 +771,8 @@ function watchmanNightPaths(): array
     return array_diff_key(watchmanPaths(), array_flip(['office_installs', 'drill_record', 'zfs', 'zpool', 'mnt', 'agent_log', 'snap_record', 'engine',
         'sec', 'sec_nfs', 'share_cfg', 'libvirt_sock', 'virsh', 'partner_pairs', 'partner_tickets', 'partner_data',
         'rsyslog_cfg', 'shares_ini', 'arp', 'parity_log', 'parity_cron', 'pct_dir', 'boot_logs', 'domain_cfg', 'docker_cfg',
-        'docker_autostart', 'compose_cfg', 'compose_projects', 'office_runs', 'jack_settings', 'gather_settings', 'mover_pid']));
+        'docker_autostart', 'compose_cfg', 'compose_projects', 'office_runs', 'jack_settings', 'gather_settings', 'mover_pid',
+        'moverelli_status', 'jack_progress']));
 }
 
 /** This boot's id: the RAM mirror and a position in the syslog belong to one boot */
@@ -4937,7 +4941,9 @@ function watchmanSchedAdopt(array &$b, string $kind, array $p, array $seen): voi
  *               real runs and Unraid's mover by their own records — at work or ended since the last
  *               round, so a give-back that deletes on the pool as it ends counts too — only in the
  *               shares each one moves (watchmanFlowMoveShares()), so a deletion elsewhere meanwhile is
- *               still told; rsync and the storeroom can't be told by share: anywhere. Moving pool →
+ *               still told — on an XFS/btrfs disk with a folder of such a share only as much as
+ *               their records say they moved (watchmanFlowMovedOff(); Unraid's mover and the gather
+ *               keep none: that disk whole); rsync and the storeroom can't be told by share: anywhere. Moving pool →
  *               array inside a share is gone from the pool's dataset while the XFS/btrfs array disk
  *               it went to is counted per disk, never per share), a dataset renamed into her storeroom, snapshots pruned (they change
  *               usedbysnapshots, not referenced). Told while learning: one round over WATCH_GONE_NEW
@@ -5078,7 +5084,7 @@ function watchmanFlowLook(array $paths, ?array $containers): array
             'holder' => $holder['holder'] ?? null, 'kopia' => $kopia !== '' ? $kopia : null,
             'office_shares' => array_values(array_unique(array_filter([BACKUP_OFFICE_SHARE, $place]))),
             'disks' => watchmanFlowDisks($paths, $snapDirs), 'moving' => watchmanFlowMovers($paths['proc'] ?? '/proc'),
-            'runs' => watchmanFlowOfficeRuns($paths), 'move_shares' => watchmanFlowMoveShares($paths),
+            'runs' => watchmanFlowOfficeRuns($paths), 'move_shares' => watchmanFlowMoveShares($paths), 'moved_off' => watchmanFlowMovedOff($paths),
             'partner' => watchmanFlowPartner($paths, $holder['holder'] ?? null)];
 }
 
@@ -5258,6 +5264,32 @@ function watchmanFlowMoveShares(array $paths): array
     };
     return ['mover' => $list($cache), 'smartmover' => $list($cache), 'embycache' => $list($jack), 'gather' => $list($gather),
             'night' => $list($cache, $jack)];
+}
+
+/**
+ * How much the movers that keep a record say they moved — so an XFS/btrfs disk with a folder of a share they move is
+ * excused only that much, never whole (a mass deletion elsewhere on that disk during the run is still told): `sm` Smart
+ * Mover's status (a real run: its planned bytes, pool fill included, or the bytes done while it runs — both directions),
+ * `jack` Jack Streamer's EmbyCache progress (RAM while it runs: back to the array and laid out). Each [started, bytes]
+ * for the run, or null (no record). Unraid's mover and the gather keep none: a disk with a folder of theirs stays excused.
+ * @return array{sm: ?array{0:int, 1:int}, jack: ?array{0:int, 1:int}}
+ */
+function watchmanFlowMovedOff(array $paths): array
+{
+    $int = fn ($v): int => is_int($v) && $v > 0 ? $v : 0;
+    $sm = isset($paths['moverelli_status']) ? readJson((string) $paths['moverelli_status']) : null;
+    $sm = is_array($sm) && ($sm['mode'] ?? null) === 'run' && is_int($sm['started'] ?? null)
+        ? [$sm['started'], max($int($sm['bytes'] ?? 0), $int($sm['done_bytes'] ?? 0))] : null;
+    $j = isset($paths['jack_progress']) ? readJson((string) $paths['jack_progress']) : null;
+    $jack = null;
+    if (is_array($j) && ($j['v'] ?? null) === 1 && is_int($j['started'] ?? null)) {
+        $bytes = $int(is_array($j['back'] ?? null) ? ($j['back']['done_bytes'] ?? 0) : 0);
+        foreach (is_array($j['users'] ?? null) ? $j['users'] : [] as $u) {
+            $bytes += $int(is_array($u) ? ($u['done_bytes'] ?? 0) : 0);
+        }
+        $jack = [$j['started'], $bytes];
+    }
+    return ['sm' => $sm, 'jack' => $jack];
 }
 
 /**
@@ -6182,6 +6214,43 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
     $atWork = array_column(array_filter(is_array($look['runs'] ?? null) ? $look['runs'] : [], fn ($r) => is_array($r) && array_key_exists('finished', $r) && $r['finished'] === null), 'what');
     $next['moving'] = $movers === null && !$atWork ? null : array_values(array_unique(array_merge($movers ?? [], array_map('strval', $atWork))));
     $next['moved'] = array_keys($sharesOf((array) $next['moving']));        // their shares as this round knows them
+    // what the movers with a record moved since the last round (watchmanFlowMovedOff()), plus what of it no disk has
+    // lost yet (a file's source goes a little after it counts): what a disk with a folder of their shares may lose
+    $offNow = is_array($look['moved_off'] ?? null) ? $look['moved_off'] : [];
+    $offWas = is_array($prev['moved_off'] ?? null) ? $prev['moved_off'] : [];
+    $next['moved_off'] = ['left' => 0];
+    $since = [];
+    foreach (['sm', 'jack'] as $src) {
+        $cur = is_array($offNow[$src] ?? null) ? $offNow[$src] : null;
+        $was = is_array($offWas[$src] ?? null) ? $offWas[$src] : null;
+        $since[$src] = $cur === null ? null : ($was !== null && $was[0] === $cur[0] ? max(0, (int) $cur[1] - (int) $was[1]) : (int) $cur[1]);
+        $next['moved_off'][$src] = $cur;
+    }
+    $sources = ['smartmover' => ['sm'], 'night' => ['sm', 'jack'], 'embycache' => ['jack']];     // the mover, the gather: none
+    $budget = $moving ? (int) ($offWas['left'] ?? 0) : 0;
+    $counted = [];
+    foreach ($moving as $what) {
+        foreach ($sources[$what] ?? [] as $src) {
+            if (!isset($counted[$src]) && $since[$src] !== null) {
+                $counted[$src] = true;
+                $budget += $since[$src];
+            }
+        }
+    }
+    // a disk's limit: null (no limit) while a mover without a record (or whose record is missing) moves one of its shares
+    $diskLimit = function (array $diskShares) use ($moving, $moveMap, $sources, $since, &$budget): ?int {
+        foreach ($moving as $what) {
+            if (!array_intersect((array) ($moveMap[$what] ?? []), $diskShares)) {
+                continue;
+            }
+            foreach ($sources[$what] ?? [null] as $src) {
+                if ($src === null || $since[$src] === null) {
+                    return null;
+                }
+            }
+        }
+        return $budget + WATCH_FLOW_WRITE;          // a file in flight
+    };
     $expected = $office || $anywhere;       // the office's engine at work, or something moving data anywhere: what vanishes went elsewhere
     $users = [];
     foreach ((array) ($smb['sessions'] ?? []) as $x) {
@@ -6189,29 +6258,35 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
     }
     $whoNow = ['clients' => $active ?? [], 'users' => array_slice(array_keys($users), 0, WATCH_LIST_MAX),
                'from' => $active === null ? null : ($active ? 'clients' : 'server')];
-    $gone = function (string $key, int $loss, int $size, array $who) use (&$flow, &$added, &$book, $now, $prevTime, $expected, $whoNow, $ack, $door, $moved): void {
+    // $limit: a disk with a folder of a moved share — at most this much of its loss is the movers' (null: all of it)
+    $gone = function (string $key, int $loss, int $size, array $who, ?int $limit = null) use (&$flow, &$added, &$book, $now, $prevTime, $expected, $whoNow, $ack, $door, $moved): int {
         if (!isset($flow['gone'][$key]) && count($flow['gone']) >= WATCH_FLOW_SHARES) {
-            return;
+            return 0;
         }
         $expected = $expected || ($door && $key === 'share:' . PARTNER_PARENT);      // a receive brings the sender's deletions along
-        // a share a mover moves; a disk with a folder of one (the array side of a move back to the pool)
-        $expected = $expected || isset($moved[(string) ($who['share'] ?? '')]) || array_intersect_key($moved, array_flip((array) ($who['shares'] ?? [])));
+        $expected = $expected || isset($moved[(string) ($who['share'] ?? '')]);    // a share a mover moves
+        // a disk with a folder of one (the array side of a move back to the pool): as much as the movers moved
+        $byFolder = !$expected && array_intersect_key($moved, array_flip((array) ($who['shares'] ?? [])));
+        $excused = $expected ? $loss : ($byFolder ? ($limit === null ? $loss : min($loss, $limit)) : 0);
         $s = is_array($flow['gone'][$key] ?? null) ? $flow['gone'][$key] : watchmanFlowSeries($now);
         $s = $who + $s;
         $s['size'] = $size;
         $s['seen'] = $now;
+        if ($excused > 0) {
+            watchmanFlowAdd($s, $excused, $now, $prevTime, true);
+        }
+        $loss -= $excused;
         if ($loss > 0) {
-            watchmanFlowAdd($s, $loss, $now, $prevTime, $expected);
-            if (!$expected) {
-                $clear = max(WATCH_FLOW_WRITE, min(WATCH_GONE_NEW, (int) ($size * WATCH_GONE_PART)));
-                $j = watchmanFlowJudge($s, $loss, $now, $ack("flow_gone:$key"), WATCH_FLOW_MIN, $clear);
-                $run = (array) $s['run'];
-                $pct = $size > 0 ? (int) min(999, round(100 * (int) $run['bytes'] / $size)) : 0;
-                $added[] = watchmanFlowNote($book, 'flow_gone', "flow_gone:$key", $now, $run, (int) ($s['h'][intdiv($now, 3600)] ?? 0), $j,
-                    $who + ['pct' => $pct, 'part' => $j !== null && $j['learning'] && $loss >= (int) ($size * WATCH_GONE_PART)] + $whoNow);
-            }
+            watchmanFlowAdd($s, $loss, $now, $prevTime, false);
+            $clear = max(WATCH_FLOW_WRITE, min(WATCH_GONE_NEW, (int) ($size * WATCH_GONE_PART)));
+            $j = watchmanFlowJudge($s, $loss, $now, $ack("flow_gone:$key"), WATCH_FLOW_MIN, $clear);
+            $run = (array) $s['run'];
+            $pct = $size > 0 ? (int) min(999, round(100 * (int) $run['bytes'] / $size)) : 0;
+            $added[] = watchmanFlowNote($book, 'flow_gone', "flow_gone:$key", $now, $run, (int) ($s['h'][intdiv($now, 3600)] ?? 0), $j,
+                $who + ['pct' => $pct, 'part' => $j !== null && $j['learning'] && $loss >= (int) ($size * WATCH_GONE_PART)] + $whoNow);
         }
         $flow['gone'][$key] = $s;
+        return $byFolder ? $excused : 0;        // what of the movers' bytes this disk took
     };
     $flow['gone'] = (array) ($flow['gone'] ?? []);
     if (is_array($z)) {
@@ -6288,10 +6363,13 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
             if ($d['snap'] !== $p[1] || ($d['snap'] !== null && $now - (int) $d['snap'] < WATCH_GONE_SNAPS)) {
                 $loss = 0;              // its btrfs snapshots changed lately: what they freed was deleted long ago — this round left out
             }
-            $gone("disk:$name", $loss, (int) $p[0], ['share' => null, 'disk' => $name, 'fs' => (string) $d['fs'],
-                'shares' => array_slice(array_map('strval', (array) $d['shares']), 0, WATCH_LIST_MAX), 'kept' => 0, 'asleep' => []]);
+            $diskShares = array_map('strval', (array) $d['shares']);
+            $took = $gone("disk:$name", $loss, (int) $p[0], ['share' => null, 'disk' => $name, 'fs' => (string) $d['fs'],
+                'shares' => array_slice($diskShares, 0, WATCH_LIST_MAX), 'kept' => 0, 'asleep' => []], $diskLimit($diskShares));
+            $budget = max(0, $budget - $took);
         }
     }
+    $next['moved_off']['left'] = $budget;           // moved but not lost by a disk yet: the next round's (0 once nothing moves)
 
     foreach (['conns', 'cts', 'ds', 'smb', 'ref', 'disks', 'moving'] as $part) {   // 'door' is this round's word, never carried
         if ($next[$part] === null) {
