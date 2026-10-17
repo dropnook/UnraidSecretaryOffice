@@ -10131,6 +10131,10 @@ function testSetupFirstPlace(): void
         && str_contains($bk, "setupPlaceStart(setupSwitcher());\n  setupShowPlace(true);"));
     check('first place: … the guide first in «Grundlagen» while no place, after the settings once chosen',
         str_contains($bk, "if (guideFirst) s.appendChild(placeGuide(plan));\n  s.appendChild(basics);") && str_contains($bk, "if (!guideFirst) s.appendChild(placeGuide(plan));"));
+    // nostromo 2026-10-17: «Share in Unraid anlegen · Namensvorschlag UnraidSecretaryOffice» although that share was the place
+    check('backup place guide: «create a share» and its name only while no place is chosen',
+        str_contains($bk, "if (!ds) {                      // the way to a new share only while none is chosen")
+        && strpos($bk, "T('setup.place_add')") > strpos($bk, "if (!ds) {                      // the way to a new share"));
     check('first place: setupApply()\'s toast stays the last guard', str_contains($bk, "if (!ds) { Office.toast(T('setup.ds_missing'), true); return; }"));
     check('first place: the bar\'s spec drawn by setupBar() (a button\'s title set on the bar)', str_contains($bk, "const bar = Office.selbar(spec);")
         && str_contains($bk, "if (b.title && btns[i]) btns[i].title = b.title;"));

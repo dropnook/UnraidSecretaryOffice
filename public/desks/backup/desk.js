@@ -5384,12 +5384,14 @@ function placeGuide(plan) {
   const ol = el('ol');
   [T('setup.place_1'), T('setup.place_2'), T('setup.place_3'), T('setup.place_4'), T('setup.place_5')].forEach((t) => ol.appendChild(el('li', '', t)));
   det.appendChild(ol);
-  const add = el('p', 'bk-place-add');
-  const a = el('a', 'btn small', T('setup.place_add'));
-  a.href = Office.safeHref('/Shares/Share?name=');
-  add.append(a, ' ', T('setup.place_name', { name: OFFICE_SHARE }));
-  det.appendChild(add);
-  det.appendChild(el('small', '', T('setup.place_back')));
+  if (!ds) {                      // the way to a new share only while none is chosen - with one chosen it's just the five points
+    const add = el('p', 'bk-place-add');
+    const a = el('a', 'btn small', T('setup.place_add'));
+    a.href = Office.safeHref('/Shares/Share?name=');
+    add.append(a, ' ', T('setup.place_name', { name: OFFICE_SHARE }));
+    det.appendChild(add);
+    det.appendChild(el('small', '', T('setup.place_back')));
+  }
   box.appendChild(det);
   return box;
 }
