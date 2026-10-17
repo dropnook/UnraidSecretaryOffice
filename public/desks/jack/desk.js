@@ -1561,6 +1561,15 @@ function renderSetup() {
   saveGate = null;
   if (!state) return;
   if (!form) initForm();
+  // every change goes into the bar at the bottom — the page tells it at each keystroke and click
+  if (!root.dataset.joBar) {
+    root.dataset.joBar = '1';
+    const bump = () => { if (page === 'setup') setTimeout(setupBar, 0); };
+    root.addEventListener('input', bump);
+    root.addEventListener('change', bump);
+    root.addEventListener('click', bump);
+  }
+  setTimeout(setupBar, 0);
   // the row of his setup's parts and under it the part chosen (none: every part in order)
   // «Save» right under his own parts: on the whole page between them and the optional «Take over an earlier install»
   // (drawn with that part — importStep()), under one part of his own after it (the slot under the switcher), none under
@@ -2279,12 +2288,49 @@ function sharePart() {
 const herRules = () => (state && (state.moverelli || (state.pool && state.pool.moverelli))) || null;
 /** The form as a string, as built from his settings at the visit's start — changed since? (leaving for her setup says so) */
 let formStart = '';
+/** The form in parts, each as a string: a server, a library or person chosen, a person's budget, a value */
+function formParts() {
+  if (!form) return {};
+  const out = {};
+  form.instances.forEach((x, i) => { out['i' + i] = JSON.stringify([x.type, x.servername, x.url, x.api_key, x.mappings, [...x.skip].sort()]); });
+  form.chosenLibs.forEach((n) => { out['l|' + n] = '1'; });
+  form.chosenUsers.forEach((n) => { out['u|' + n] = '1'; });
+  Object.entries(form.budgets).forEach(([k, v]) => { out['b|' + k] = JSON.stringify(v); });
+  Object.entries(form.values).forEach(([k, v]) => { out['v|' + k] = JSON.stringify(v); });
+  return out;
+}
 function formKey() {
   if (!form) return '';
-  return JSON.stringify({ i: form.instances.map((x) => [x.type, x.servername, x.url, x.api_key, x.mappings, [...x.skip].sort()]),
-    l: [...form.chosenLibs].sort(), u: [...form.chosenUsers].sort(), b: form.budgets, v: form.values });
+  const parts = formParts();
+  return JSON.stringify(Object.keys(parts).sort().map((k) => [k, parts[k]]));
 }
 const formChanged = () => !!form && formKey() !== formStart;
+/** How many parts differ from the visit's start (the bar's «n changes»): one per server, library, person, budget, value */
+function formChangeCount() {
+  if (!formChanged()) return 0;
+  const was = new Map(JSON.parse(formStart || '[]'));
+  const now = formParts();
+  return new Set([...was.keys(), ...Object.keys(now)]).size - [...was.keys()].filter((k) => k in now && now[k] === was.get(k)).length;
+}
+
+/**
+ * The change bar at the bottom (Mr. Backupsy's and Ms. Moverelli's: Office.selbar) while his setup differs from what
+ * is saved: «n changes · against what is saved · Discard · Save» — «Save» there too, grey with the same reason as the one
+ * under the parts (2026-10-17, silent controls: a field changed said nothing until «Save» was found)
+ */
+function setupBar() {
+  const n = page === 'setup' && view && state ? formChangeCount() : 0;
+  if (!n) { Office.selbar(null); return; }
+  const r = running() ? T('setup.save_running') : setupBlocked();
+  Office.selbar({
+    title: T('setup.bar_changes', { n }),
+    sub: r || T('setup.bar_sub'),
+    buttons: [
+      { text: T('setup.discard'), kind: 'plain', act: () => { form = null; renderSetup(); connectSaved(); } },
+      { text: T('setup.save'), disabled: !!r || !Office.agent.running, act: saveSetup },
+    ],
+  });
+}
 
 /** «More»: the way back and where to read from (both ways always rsync: Unraid's move binary is never his choice), from scratch */
 const folds = new Map();
@@ -2835,6 +2881,7 @@ Office.desk({
       connectSaved();
       return;
     }
+    Office.selbar(null);        // the setup's change bar stays on the setup page
     bars();
     // his tiles as places (CLAUDE.md «Tiles»): #/jack/<tile> (plans, pool, runs, shares, gather) picks it exactly like a
     // click and the address is his page's again; the Team Lead's findings #/jack/schedule, #/jack/gather-schedule land
@@ -2851,7 +2898,7 @@ Office.desk({
     await load(false);
     if (whole && view === root && state && sw.active()) sw.pick('', 'route');
   },
-  unmount() { if (page === 'setup' && formChanged()) Office.toast(T('setup.left_unsaved')); view = null; saveGate = null; clearTimeout(outTimer); clearTimeout(progTimer); progTimer = null; progBox = null; startKicks = 0; letGoNote = null; },
+  unmount() { if (page === 'setup' && formChanged()) Office.toast(T('setup.left_unsaved')); Office.selbar(null); view = null; saveGate = null; clearTimeout(outTimer); clearTimeout(progTimer); progTimer = null; progBox = null; startKicks = 0; letGoNote = null; },
   letGo: letGoPart,
   poll() { if (page === 'main') load(false); },
   agentChanged() { if (view) (page === 'setup' ? renderSetup() : render()); },
@@ -2929,7 +2976,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     historySection, plansSection, plansList, gatherSection, footer, scopeLine, lastRunTile, plansTile, poolTile, sharesTile, gatherTile, render,
     renderSetup, page: () => page, SETUP_TILES, setupTileData, setupTileList, setupStep, importSection, setupSwitcher, tileOf, setForm: (f) => { form = f; }, initForm, form: () => form,
     herRules, sharePart, ruleTexts, needsConnect, connectInst, resetDialog, budgetGb, budgetSplit, budgetState, budgetLine, setupBlocked, MIN_PERSON_GB, shareCase,
-    setupServers, mediaPick, newInstance, setupLibraries, setupUsers, setupScope, setupMore, saveSetup, saveBar, formKey, formChanged, derivedPool, poolsOfChoice, cacheable,
+    setupServers, mediaPick, newInstance, setupLibraries, setupUsers, setupScope, setupMore, saveSetup, saveBar, formKey, formChanged, formChangeCount, setupBar, derivedPool, poolsOfChoice, cacheable,
     letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog, gatherSettingsDialog, gatherRunDialog, gatherCacheWords,
     progressPanel, setProgress: (p, why) => { progress = p; stopping = why || null; }, etaText, tookText, nightPanel, livePanel, chooseRun, headActions,
     setNight: (n) => { nightNow = n; }, nightGoing };
