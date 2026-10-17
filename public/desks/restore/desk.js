@@ -412,6 +412,7 @@ function tileLine(sec) {
     const newest = Math.max(0, ...held.map((u) => u.newest || 0));
     const line = p.looked === null ? T(p.looking ? 'tile.partner_asking' : 'tile.partner_never')
       : held.length ? T('tile.partner_line', { n: held.length }) : T('tile.partner_none');
+    if (p.why === 'no_pair') return [T('tile.partner_no_pair'), ''];      // it no longer knows this pair: what it keeps is unknown now
     return [p.reachable === false ? T('tile.partner_as_of', { when: date(p.looked) }) : line, newest ? fmt.relative(newest) : ''];
   }
   return [T('tile.move_line'), ''];
@@ -1425,7 +1426,8 @@ async function partnerLook(p, btn) {
 function partnerMoments(p, u) {
   const box = el('div', 'box');
   if (!u.snaps.length) {
-    box.appendChild(el('p', 'empty', u.why ? T('pt.unit_why', { why: T('pt.why.' + u.why) }) : T('pt.unit_empty')));
+    box.appendChild(el('p', 'empty', p.why === 'no_pair' ? T('pt.no_pair_unit', { name: p.name })
+      : u.why ? T('pt.unit_why', { why: T('pt.why.' + u.why) }) : T('pt.unit_empty')));
     return box;
   }
   u.snaps.forEach((s, i) => {
@@ -1454,8 +1456,15 @@ function partnerSection(p) {
   again.disabled = !Office.agent.running || p.looking;
   const sub = p.kind === 'ticket' ? T('pt.sub_ticket', { name: p.name, of: p.of, until: date(p.expires) }) : T('pt.sub', { name: p.name });
   const s = sectionBox(T('pt.title', { name: p.name }), sub, again, { place: `pt:${p.id}` });
+  const noPair = p.why === 'no_pair';      // it answers but no longer knows this pair (set up anew): its copies unknown now
   if (p.looking) s.appendChild(el('p', 'callout running', T('pt.looking', { name: p.name })));
-  else if (p.looked === null) s.appendChild(el('p', 'callout', T(p.reachable === false ? 'pt.never_answered' : 'pt.never', { name: p.name, why: T('pt.why.' + (p.why || 'unreachable')) })));
+  else if (noPair) {
+    const c = el('p', 'callout warn', T('pt.no_pair', { name: p.name }) + ' ');
+    const a = el('a', '', T('pt.no_pair_link'));
+    a.href = '#/caretaker/partner';
+    c.appendChild(a);
+    s.appendChild(c);
+  } else if (p.looked === null) s.appendChild(el('p', 'callout', T(p.reachable === false ? 'pt.never_answered' : 'pt.never', { name: p.name, why: T('pt.why.' + (p.why || 'unreachable')) })));
   else if (p.reachable === false) s.appendChild(el('p', 'callout warn', T('pt.as_of', { name: p.name, when: date(p.looked), why: T('pt.why.' + (p.why || 'unreachable')) })));
   else s.appendChild(el('p', 'role', T('pt.looked', { when: date(p.looked) })));
   s.appendChild(el('p', 'role', T('pt.beside')));
@@ -1463,7 +1472,7 @@ function partnerSection(p) {
   p.units.forEach((u) => {
     const meta = el('div', 'row-meta');
     meta.appendChild(u.snaps.length ? chip(T('pt.moments', { n: u.snaps.length }), '', T('pt.moments_hint', { name: p.name }))
-      : chip(u.known ? T('pt.none') : T('pt.unknown'), 'quiet', u.why ? T('pt.why.' + u.why) : ''));
+      : chip(noPair ? T('pt.unknown_now') : u.known ? T('pt.none') : T('pt.unknown'), 'quiet', noPair ? T('pt.why.no_pair') : u.why ? T('pt.why.' + u.why) : ''));
     if (u.newest) meta.appendChild(el('span', '', T('pt.newest_at', { when: date(u.newest) })));
     if (u.snaps[0] && u.snaps[0].referenced) meta.appendChild(el('span', '', fmt.size(u.snaps[0].referenced)));
     box.appendChild(unfoldingRow(`pt:${p.id}:${u.unit}`, unitLabel(u.unit), meta, () => partnerMoments(p, u)));

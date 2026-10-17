@@ -24769,6 +24769,18 @@ function testRestorePartner(): void
         [$held2['reachable'] ?? null, $held2['why'] ?? null, $held2['looked'] ?? null, count($held2['units']['share:appdata'] ?? [])]);
     file_put_contents("$A[bin]/targets.json", json_encode($t));
     $as('rspLookJob([]); return true;');
+    // the partner answers but no longer knows the pair (set up anew, 1.65.6): what it said it keeps is from then — the
+    // units unknown now, no moment and no chip offered, a plan refused (its door would refuse the pull)
+    $heldFile = "$A[data]/partner/$id/held.json";
+    $heldOk = (string) file_get_contents($heldFile);
+    file_put_contents($heldFile, json_encode(['reachable' => false, 'why' => 'no_pair'] + json_decode($heldOk, true)));
+    $np = $as('return rspState();')[0] ?? [];
+    same('restore partner: no_pair — the units unknown now, no moment offered, the why for the page', ['no_pair', [[], [], []], [false, false, false]],
+        [$np['why'] ?? null, array_column($np['units'] ?? [], 'snaps'), array_column($np['units'] ?? [], 'known')]);
+    same('restore partner: no_pair — no chip «at <partner>», a plan refused with its own reason', [[], 'restore_partner_no_pair'],
+        [$as('return rspChips(rspState(), ["appdata", "media"]);'),
+         $as('return rsPlan(["kind" => "partner", "pair" => "' . $id . '", "unit" => "share:appdata", "snap" => "uso-backup-20261007-0200"]);')['blockers'][0]['key'] ?? null]);
+    file_put_contents($heldFile, $heldOk);
     // a look that throws: the pid file and the lock go all the same (review 2026-10-09)
     same('restore partner: the look job throws — no pid file left, the lock free again, the next look runs', [true, false, true, 0],
         $as('$GLOBALS["rspLookOne"] = function () { throw new RuntimeException("boom"); }; $threw = false;'

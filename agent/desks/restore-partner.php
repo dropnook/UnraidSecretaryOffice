@@ -352,17 +352,23 @@ function rspWantLook(): array
     return ['ok' => true, 'looking' => true];
 }
 
-/** His state's `partners`: per source what it holds of mine, newest moment first — never a key */
+/**
+ * His state's `partners`: per source what it holds of mine, newest moment first — never a key. A partner that answers
+ * but no longer knows the pair (`no_pair`: set up anew, the Team Lead's partner_no_pair): what it said it keeps is from
+ * then — its units unknown now, no moment offered (its door refuses every pull until the two are paired again).
+ */
 function rspState(): array
 {
     $out = [];
     $looking = rspLooking() || is_file(rspWantFile());
     foreach (rspSources() as $src) {
         $h = rspHeld($src['id']);
+        $gone = ($h['why'] ?? null) === 'no_pair';
         $units = [];
         foreach ($src['units'] as $u) {
-            $snaps = array_reverse((array) ($h['units'][$u] ?? []));
-            $units[] = ['unit' => $u, 'snaps' => $snaps, 'newest' => $snaps[0]['creation'] ?? null, 'why' => $h['unit_why'][$u] ?? null, 'known' => isset($h['units'][$u])];
+            $snaps = $gone ? [] : array_reverse((array) ($h['units'][$u] ?? []));
+            $units[] = ['unit' => $u, 'snaps' => $snaps, 'newest' => $snaps[0]['creation'] ?? null, 'why' => $h['unit_why'][$u] ?? null,
+                        'known' => !$gone && isset($h['units'][$u])];
         }
         usort($units, fn ($a, $b) => [$a['unit'] !== 'place', $a['unit']] <=> [$b['unit'] !== 'place', $b['unit']]);
         $out[] = ['id' => $src['id'], 'name' => $src['name'], 'kind' => $src['kind'], 'of' => $src['of'], 'expires' => $src['expires'],
@@ -567,6 +573,11 @@ function rsPlanPartner(array $r, string $stamp): array
         $moment = $s['name'] === $snap ? $s : $moment;
     }
     $plan['options'] = ['pools' => $src['kind'] === 'ticket' ? partnerPools() : null, 'kind' => $src['kind']];
+    if (($held['why'] ?? null) === 'no_pair') {
+        // it no longer knows this pair: its door would refuse the pull — what it keeps is unknown now (the Team Lead's finding)
+        $plan['blockers'][] = ['key' => 'restore_partner_no_pair', 'params' => ['name' => $src['name']]];
+        return $plan;
+    }
     if ($moment === null) {
         $plan['blockers'][] = ['key' => 'restore_partner_no_snap', 'params' => ['snap' => $snap, 'name' => $src['name'], 'when' => $held['looked'] ?? null]];
         return $plan;
