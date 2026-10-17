@@ -4195,6 +4195,74 @@ function testTipNeverKept(): void
         str_contains($core, "onClose: () => { if (cb.checked) Office.store('tip.never', '1'); } });"));
 }
 
+/**
+ * More controls that said nothing (2026-10-17, silent controls, the coordinator's list): Backupsy's «Set them to manual»
+ * says it holds for this Apply only; Snapshotini's and Dustdevil's wake switches say «next tour only» with the tour
+ * beside it; Jack Streamer's setup has the change bar (one change per server, library, person, budget, value);
+ * Backupsy's «also to {partner}» on a default not chosen says it waits for it
+ */
+function testSilentControlsMore(): void
+{
+    $lang = fn (string $desk, string $l) => json_decode((string) file_get_contents(OFFICE_WEB . "/desks/$desk/lang/$l.json"), true) ?: [];
+    $bk = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    $sp = (string) file_get_contents(OFFICE_WEB . '/desks/snapshot/desk.js');
+    $cl = (string) file_get_contents(OFFICE_WEB . '/desks/cleanup/desk.js');
+    $jk = (string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.js');
+    check('silent controls: «Set them to manual» says it holds for this Apply', str_contains($bk, "el('small', 'bk-once', T('setup.sources_manual_once'))"));
+    check('silent controls: «also to {partner}» on a default not chosen says it waits', str_contains($bk, "if (!on && !off) tickText.appendChild(el('small', '', T('setup.preset.kopia_partner_tick_wait')));"));
+    check('silent controls: Snapshotini\'s wake switch - its word and «Tour now» under it, shown only while on, off again after the tour',
+        str_contains($sp, "wakeNote.append(el('span', '', T('wake_once')), wakeGo);") && str_contains($sp, 'wakeNote.hidden = !wake.checked || wakeLabel.hidden;')
+        && str_contains($sp, '{ view.wake.checked = false; view.wakeSync(); }'));
+    check('silent controls: Dustdevil\'s the same', str_contains($cl, "wakeNote.append(el('span', '', T('where.wake_once')), wakeGo);")
+        && str_contains($cl, 'wakeNote.hidden = !v.wake.checked || v.wakeLabel.hidden;') && str_contains($cl, '{ view.wake.checked = false; view.wakeSync(); }'));
+    check('silent controls: Jack Streamer\'s bar - drawn from his setup, gone on his other page and on other desks',
+        str_contains($jk, 'setTimeout(setupBar, 0);') && substr_count($jk, 'Office.selbar(null)') >= 3);
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $b = $lang('backup', $l);
+        $s = $lang('snapshot', $l);
+        $c = $lang('cleanup', $l);
+        $j = $lang('jack', $l);
+        check("silent controls: the words ($l)", ($b['setup.sources_manual_once'] ?? '') !== '' && ($b['setup.preset.kopia_partner_tick_wait'] ?? '') !== ''
+            && ($s['wake_once'] ?? '') !== '' && ($c['where.wake_once'] ?? '') !== '' && ($c['where.scan_now'] ?? '') === ($s['scan_now'] ?? null)
+            && is_array($j['setup.bar_changes'] ?? null) && ($j['setup.bar_sub'] ?? '') !== '' && ($j['setup.discard'] ?? '') !== '');
+    }
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('silent controls: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('silent-more');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const el = () => ({ dataset: {}, style: {}, appendChild() {}, append() {}, setAttribute() {} });
+globalThis.Office = { sections: () => ({ el: {}, active: () => '', mount: () => false, places: () => [], note: () => ({ tile: '' }), render() {}, row() {}, pick() {}, clear() {} }), scope: () => T, t: T, el, fmt: {}, desk: () => {}, places: () => {},
+  placesFrom: () => {}, placesTook: () => {}, store: () => null, storeJson: () => null, agent: { running: true } };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const e = OFFICE_DESK_TESTS.jack;
+e.setState({ settings: { instances: [{ type: 'emby', servername: 'Emby', url: 'http://emby:8096', has_key: true, path_mappings: { '/data': '/mnt/user/Filme' } }],
+  libraries: ['Filme'], valid_users: ['u1'], cache_path: '/mnt/maple', cache_budget: '200G' }, pools: ['/mnt/maple'], emby: [], share_info: {},
+  jobs: { embycache: { running: false }, gather: { running: false } } });
+e.initForm();
+const f = e.form();
+const out = [e.formChangeCount()];
+f.values.cache_budget = '300';
+out.push(e.formChangeCount());
+f.chosenLibs.add('Serien');
+f.chosenUsers.delete('u1');
+out.push(e.formChangeCount());
+f.values.cache_budget = '200';
+f.chosenLibs.delete('Serien');
+f.chosenUsers.add('u1');
+out.push(e.formChangeCount());
+console.log(JSON.stringify(out));
+JS);
+    $raw = (string) shell_exec(implode(' ', array_map('escapeshellarg', [$node, "$tmp/t.js", OFFICE_WEB . '/desks/jack/desk.js'])) . ' 2>&1');
+    hardeningRm($tmp);
+    same('silent controls: Jack Streamer\'s «n changes» - none at the start, the budget 1, a library and a person more, all back none', [0, 1, 3, 0], json_decode($raw, true) ?? $raw);
+}
+
 function testBackup74Polish(): void
 {
     $tmp = sys_get_temp_dir() . '/office-tests-74polish-' . getmypid();
@@ -40160,7 +40228,7 @@ function testFirstHome(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
