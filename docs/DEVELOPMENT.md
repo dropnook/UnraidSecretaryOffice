@@ -505,7 +505,9 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   Other desks list storerooms as what they are; **only she writes there.**
 * **`advisor` — The Consultant.** Whether the needed tools are there (unbalanced never suggested); monitoring stack (keeps only
   the office's dashboard file current). Plugins via `plugin install <url>` (pinned) as atd job; containers via Unraid's Add
-  Container form — **the user clicks Apply**; refused while one of that kind/name exists; recorded for the watchman. Object Lock
+  Container form — **the user clicks Apply**; refused while one of that kind/name exists; recorded for the watchman. An old
+  `my-<Name>.xml` without its container: «Use the old one» (the form from it, `xmlTemplate=user:`, only his external's image)
+  or «Prepare anew» (that file into Ms. Dustdevil's storeroom first, her manifest entry) — never written over. Object Lock
   probe HTTPS only. Kopia secrets only after explicit confirmation, through RAM to `docker exec -i` stdin; recovery sheet only
   in the browser. **Never logs into a web UI or HTTP API.** Network settings he explains, never changes.
 * **`restore` — Mr. Restori.** **Never over something still there without asking; everything replaced is put aside first, never
