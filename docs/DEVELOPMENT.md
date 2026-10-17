@@ -520,7 +520,9 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   folder holding a running VM's disks; never starts containers; credentials only as variable names; partner pulls into a NEW
   dataset beside, never a `zfs clone`. **The drill:** throwaway containers only via `drillContainerArgs()` + `drillArgsSafe()`
   (`--network none`, no ports/binds/caps; too big = «not checked», never failed); refused during a parity check; a failed drill
-  = one warning. Partner look from his tick, never a page request.
+  = one warning. Partner look from his tick, never a page request. Its share step (`sharefile`) brings one small file from the
+  newest backup snapshot into a fresh `<share>/.uso-drill-<id>` on an awake pool or disk, compares it, and puts that folder into
+  Ms. Dustdevil's storeroom of the share through her helpers (`drillScratchAway()`; she finds it by `drillTrashRoots()`).
 * **`caretaker` — The Team Lead** (id stays `caretaker`). Hires, fires (no «Hire» while a needed colleague can't come),
   suggests, collects all checks, reports new red findings once. «I know, thanks» puts aside recommended findings and hints —
   **never musts**; params that grow on their own must be named `days`/`size`. **He only pairs partners**; what is sent is Mr.

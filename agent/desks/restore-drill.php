@@ -21,6 +21,9 @@ declare(strict_types=1);
  *   Kopia      L0  the newest snapshot per source (age, complete, failed files), its structure (snapshot verify)
  *              L1  a sample streamed back through `kopia show` (a fresh cache: from the bucket, not the local cache)
  *                  hashed here and compared with the same file in the local snapshot it was read from
+ *   a share    L1  one small file of a share brought back from the newest backup snapshot on an awake pool or disk
+ *                  into a fresh scratch folder in that share (.uso-drill-<id>, never over anything), compared (size,
+ *                  sha256), the folder then into Ms. Dustdevil's storeroom of that share (never deleted) — 2026-10-17
  *
  * Never: a port, a network, a bind of anything of the app, a Docker volume, the app's labels or passwords, a pull,
  * --privileged, devices; never a write to the app, its folders or Kopia's repository; never a sleeping disk woken
@@ -93,7 +96,11 @@ const DRILL_LOG_LINE       = 200;             // a client's line in the log: cut
 const DRILL_ENV_KEEP       = ['PGDATA', 'POSTGRES_INITDB_ARGS', 'DB_STORAGE_TYPE', 'LANG', 'LC_ALL'];
 // the main table of a media server's library (rows against the live database)
 const DRILL_SQLITE_TABLES  = ['MediaItems', 'TypedBaseItems', 'BaseItems', 'metadata_items'];
-const DRILL_STEP_KINDS     = ['package', 'dump', 'sqlite', 'vmdisk', 'kopia'];
+const DRILL_STEP_KINDS     = ['package', 'dump', 'sqlite', 'vmdisk', 'kopia', 'sharefile'];
+const DRILL_SCRATCH        = '.uso-drill-';   // a share file's scratch folder: <share top>/.uso-drill-<drill id>
+const DRILL_FILE_MIN       = 1024;            // the share file brought back: at least 1 KB …
+const DRILL_FILE_MAX       = 16 << 20;        // … at most 16 MB (it is written into the share)
+const DRILL_FILE_LOOKS     = 40;              // folders looked into for it
 
 define('DRILL_DATA', DATA_DIR . '/restore-drill');
 define('DRILL_CERT', DATA_DIR . '/restore-drill.json');           // the certificate (api part "drill")
@@ -517,6 +524,11 @@ function drillPlanBuild(string $scope): array
     if ($pk['flash']) {
         $steps[] = ['do' => 'package', 'kind' => 'flash', 'id' => 'flash', 'name' => 'flash', 'run' => (string) ($pk['run'] ?? ''), 'stale' => false];
     }
+    // one file of a share back into the share (2026-10-17): a share with a backup snapshot on an awake pool or disk
+    $shareFile = drillShareFilePick($settings, $ctx);
+    if ($shareFile['step']) {
+        $steps[] = $shareFile['step'];
+    }
     // Kopia: the apps' and VMs' own sources first (their whole package is the sample), then the shares
     $kopia = null;
     if ($engine['kopia']) {
@@ -592,6 +604,7 @@ function drillPlanBuild(string $scope): array
         'follow_up' => $followUp,
         'live'     => $live,
         'asleep'   => array_values(array_unique($asleep)),
+        'share_file' => $shareFile['wait'],      // null, or why no share file this time: {why: asleep|none, names}
         'too_big'  => array_values(array_map(fn ($s) => ['name' => $s['container'], 'need' => drillDumpNeed($s)],
                           array_filter($steps, fn ($s) => $s['do'] === 'dump' && ($s['copy'] ?? '') !== 'kopia' && $s['type'] !== 'mongodb' && drillDumpNeed($s) > $ram))),
         'next_backup' => $next,
@@ -655,6 +668,7 @@ function drillEstimate(array $s, array $set): int
                      + (($s['copy'] ?? '') === 'kopia' ? 30 + intdiv((int) $s['bytes'], 2 << 20) : 0),   // from Kopia: ~2 MB/s down
         'sqlite'  => 5 + intdiv((int) $s['bytes'], 200 << 20),
         'vmdisk'  => 2,
+        'sharefile' => 10,
         'kopia'   => 120 + ($s['kind'] === 'share' ? 30 : intdiv($set['kopia_mb'], 20)),
         default   => 5,
     };
@@ -1022,6 +1036,7 @@ function drillStep(array &$j, int $i, array &$env): array
         'sqlite'  => drillDoSqlite($j, $s, $env),
         'vmdisk'  => drillDoVmDisk($s, $env),
         'kopia'   => drillDoKopia($j, $i, $env),
+        'sharefile' => drillDoShareFile($j, $i, $env),
         default   => ['state' => 'failed', 'code' => 'drill_error', 'detail' => "unknown step {$s['do']}"],
     };
 }
@@ -2432,6 +2447,227 @@ function drillKopiaLocal(string $rel, string $run, array &$ctx): ?array
     return drillLocal("/mnt/user/$share/" . implode('/', $parts), $run, $ctx);
 }
 
+// --------------------------------------------------------------------- one file of a share back into the share (L1)
+
+/**
+ * The share a drill brings one file back into: of the shares the engine backs up (not the office's own), one with a
+ * backup snapshot on an awake pool or disk — a different one day by day. None: why it waits (`asleep`: every share
+ * with such a snapshot lies on a sleeping pool or disk — never woken; `none`: no share has one).
+ *
+ * @return array{step: ?array, wait: ?array{why: string, names: string}}
+ */
+function drillShareFilePick(array $settings, array &$ctx): array
+{
+    $shares = [];
+    foreach ($settings as $key => $_) {
+        if (str_starts_with((string) $key, 'share|') && backupSetting($settings, (string) $key, 'mode', 'off') !== 'off') {
+            $share = substr((string) $key, 6);
+            if (preg_match('/^[\w .-]+$/D', $share) && $share !== BACKUP_OFFICE_SHARE) {
+                $shares[] = $share;
+            }
+        }
+    }
+    sort($shares);
+    $ready = $asleep = [];
+    foreach ($shares as $share) {
+        foreach (rsLocate("/mnt/user/$share", $ctx) as $p) {
+            if ($p['asleep']) {
+                $asleep[$share] = true;
+            } elseif ($p['exists'] && array_filter($p['snaps'], fn ($x) => !empty($x['ours']))) {
+                $ready[] = ['share' => $share, 'base' => $p['base']];
+                break;
+            }
+        }
+    }
+    if ($ready) {
+        $c = $ready[intdiv(drillNow(), 86400) % count($ready)];
+        return ['step' => ['do' => 'sharefile', 'kind' => 'share', 'id' => $c['share'], 'name' => $c['share'], 'target' => $c['base'], 'run' => ''], 'wait' => null];
+    }
+    return ['step' => null, 'wait' => $asleep ? ['why' => 'asleep', 'names' => implode(', ', array_keys($asleep))] : ($shares ? ['why' => 'none', 'names' => ''] : null)];
+}
+
+/**
+ * The step: in the newest backup snapshot of the share on its pool or disk (asleep now: never woken) a small file
+ * (DRILL_FILE_MIN … DRILL_FILE_MAX, a plain file, never through a link, never the office's own folders), copied into
+ * the fresh folder <share top>/.uso-drill-<id> (written down first; there already: not checked, never over it), its
+ * size and sha256 compared with the snapshot's, then the folder into Ms. Dustdevil's storeroom of that share.
+ */
+function drillDoShareFile(array &$j, int $i, array &$env): array
+{
+    $s = $j['steps'][$i];
+    $share = (string) $s['id'];
+    $base = (string) $s['target'];
+    $out = ['level' => 0, 'copy' => 'snapshot', 'run' => '', 'params' => ['share' => $share, 'base' => $base]];
+    $part = null;
+    foreach (rsLocate("/mnt/user/$share", $env['ctx']) as $p) {
+        if ($p['base'] === $base) {
+            $part = $p;
+        }
+    }
+    if ($part !== null && $part['asleep']) {
+        return ['state' => 'asleep', 'code' => 'asleep'] + $out;
+    }
+    $snap = $part !== null ? (array_values(array_filter($part['snaps'], fn ($x) => !empty($x['ours'])))[0] ?? null) : null;
+    if ($snap === null || !is_dir($snap['path']) || is_link($snap['path'])) {
+        return ['state' => 'not_checked', 'code' => 'sharefile_no_snap'] + $out;
+    }
+    $out['state_time'] = (int) $snap['time'];
+    if (preg_match('/(\d{8}-\d{4})$/', (string) $snap['name'], $m)) {
+        $out['run'] = $m[1];
+    }
+    $pick = drillShareFilePickFile($snap['path']);
+    if ($pick === null) {
+        return ['state' => 'not_checked', 'code' => 'sharefile_none'] + $out;
+    }
+    [$rel, $src] = $pick;
+    $mnt = $env['ctx']['mnt'] ?? '/mnt';
+    $top = "$mnt/$base/$share";
+    $scratch = "$top/" . DRILL_SCRATCH . $j['id'];
+    $out['params'] += ['file' => $rel, 'folder' => basename($scratch)];
+    clearstatcache(true, $scratch);
+    if (!is_dir($top) || is_link($top) || file_exists($scratch) || is_link($scratch)) {
+        return ['state' => 'not_checked', 'code' => 'sharefile_taken'] + $out;
+    }
+    drillMade($j, ['kind' => 'scratch', 'name' => $scratch]);
+    $dest = "$scratch/" . basename($rel);
+    $copied = false;
+    if (@mkdir($scratch, 0700)) {
+        $in = @fopen($src, 'rb');
+        $to = $in ? @fopen($dest, 'xb') : false;          // x: never over anything
+        if ($in && $to) {
+            $copied = stream_copy_to_stream($in, $to) !== false && fflush($to);
+        }
+        if ($in) {
+            fclose($in);
+        }
+        if ($to) {
+            $copied = fclose($to) && $copied;
+        }
+    }
+    if (!$copied) {
+        $out = ['state' => 'failed', 'code' => 'sharefile_failed'] + $out;
+    } else {
+        clearstatcache();
+        [$want, $got] = [(int) @filesize($src), (int) @filesize($dest)];
+        $same = $want === $got && hash_equals((string) hash_file('sha256', $src), (string) hash_file('sha256', $dest));
+        $out['params'] += ['bytes' => $got, 'want' => $want];
+        $out = ($same ? ['state' => 'ok', 'code' => 'sharefile_ok', 'level' => 1] : ['state' => 'failed', 'code' => 'sharefile_differs']) + $out;
+        rsLog($j['id'], "  $share: $rel from {$snap['id']} into $scratch - " . ($same ? 'the same' : "differs ($got of $want bytes)"));
+    }
+    // the scratch folder into her storeroom right away (drillCleanup: also after a crash, by the sweeper)
+    drillCleanup($j, $env, true, false, [$scratch]);
+    foreach ($j['made'] as $x) {
+        if (($x['name'] ?? '') === $scratch && empty($x['gone'])) {
+            $out['params']['kept'] = $scratch;
+            if ($out['state'] === 'ok') {
+                $out = ['state' => 'warning', 'code' => 'sharefile_kept'] + $out;
+            }
+        }
+    }
+    return $out;
+}
+
+/**
+ * A small file in a snapshot folder: walk down from the top, a random folder at each level, a random fitting file
+ * where there is one (never a link, never the office's storeroom, set-aside or scratch folders). [rel, path] or null.
+ */
+function drillShareFilePickFile(string $root): ?array
+{
+    $skip = fn (string $n) => $n === '.' || $n === '..' || storeroomName($n) || str_starts_with($n, DRILL_SCRATCH) || str_starts_with($n, '.UnraidSecretaryOffice');
+    for ($try = 0, $looks = 0; $try < 6 && $looks < DRILL_FILE_LOOKS; $try++) {
+        $dir = $root;
+        $rel = '';
+        for ($depth = 0; $depth < 10 && $looks < DRILL_FILE_LOOKS; $depth++) {
+            $looks++;
+            $names = array_values(array_filter(@scandir($dir) ?: [], fn ($n) => !$skip($n)));
+            $files = $dirs = [];
+            foreach (array_slice($names, 0, 2000) as $n) {
+                $path = "$dir/$n";
+                if (is_link($path)) {
+                    continue;
+                }
+                if (is_file($path)) {
+                    $size = (int) @filesize($path);
+                    if ($size >= DRILL_FILE_MIN && $size <= DRILL_FILE_MAX && is_readable($path)) {
+                        $files[] = $n;
+                    }
+                } elseif (is_dir($path)) {
+                    $dirs[] = $n;
+                }
+            }
+            if ($files) {
+                $f = $files[random_int(0, count($files) - 1)];
+                return [ltrim("$rel/$f", '/'), "$dir/$f"];
+            }
+            if (!$dirs) {
+                break;
+            }
+            $d = $dirs[random_int(0, count($dirs) - 1)];
+            $dir .= "/$d";
+            $rel .= "/$d";
+        }
+    }
+    return null;
+}
+
+/**
+ * A scratch folder into Ms. Dustdevil's storeroom of its share (her own helpers: the storeroom on the folder's
+ * filesystem, a run with its manifest — kind leftover, «put back» refused, emptied by her). Only exactly this
+ * drill's folder: <mnt>/<base>/<share>/.uso-drill-<id>, a real folder. Gone already: done. The storeroom, or null.
+ */
+function drillScratchAway(string $path, string $id): ?string
+{
+    $mnt = $GLOBALS['drill']['mnt'] ?? '/mnt';
+    if (!preg_match('#^' . preg_quote($mnt, '#') . '/[^/]+/[^/]+/' . preg_quote(DRILL_SCRATCH . $id, '#') . '$#D', $path)) {
+        return null;
+    }
+    clearstatcache(true, $path);
+    if (!file_exists($path) && !is_link($path)) {
+        return dirname($path) . '/' . OFFICE_STOREROOM;     // gone already (put away earlier, or never made)
+    }
+    if (is_link($path) || !is_dir($path) || is_link(dirname($path)) || !function_exists('clLeftoverTrash')) {
+        return null;
+    }
+    try {
+        $trash = clLeftoverTrash($path, dirname($path));
+        if ($trash === null) {
+            return null;
+        }
+        $run = clRunCreate($trash);
+        $as = 'restore/' . substr(md5(dirname($path)), 0, 8) . '/' . basename($path);
+        clMove($path, $run['path'] . "/$as");
+        $run['items'][] = ['kind' => 'leftover', 'name' => basename($path), 'label' => $id, 'from' => $path, 'as' => $as];
+        clManifestWrite($run);
+        logLine("Mr. Restori: the drill's scratch folder $path into Ms. Dustdevil's storeroom {$run['path']}");
+        return $trash;
+    } catch (Throwable $e) {
+        logLine("Mr. Restori: the drill's scratch folder $path stays where it is: " . $e->getMessage());
+        return null;
+    }
+}
+
+/**
+ * The storerooms drills put a scratch folder into (their journals' `made`, the newest 60) on a pool or disk that is
+ * awake — for Ms. Dustdevil's tour, like the let-go's (her storerooms are found where something was put).
+ *
+ * @return list<string>
+ */
+function drillTrashRoots(array $asleep): array
+{
+    $mnt = $GLOBALS['drill']['mnt'] ?? '/mnt';
+    $roots = [];
+    foreach (array_slice(array_values(array_filter(@scandir(drillData(), SCANDIR_SORT_DESCENDING) ?: [], fn ($n) => (bool) preg_match(DRILL_ID_PATTERN, $n))), 0, 60) as $id) {
+        foreach ((array) ((drillJournal($id) ?? [])['made'] ?? []) as $x) {
+            $t = is_array($x) && ($x['kind'] ?? '') === 'scratch' ? ($x['trash'] ?? null) : null;
+            if (is_string($t) && preg_match('#^' . preg_quote($mnt, '#') . '/([^/]+)/[^/]+/' . preg_quote(OFFICE_STOREROOM, '#') . '$#D', $t, $m)
+                && !in_array($m[1], ['user', 'user0', 'addons', 'disks', 'remotes', 'rootshare'], true) && !baseAsleep($m[1], $asleep)) {
+                $roots[$t] = true;
+            }
+        }
+    }
+    return array_keys($roots);
+}
+
 // --------------------------------------------------------------------- what the drill made, and cleaning up
 
 /** Written down BEFORE it is created: in the journal (the sweeper) and in record.json (the night watchman) */
@@ -2467,6 +2703,12 @@ function drillCleanup(array &$j, ?array $env, bool $public = true, bool $fast = 
         } elseif ($x['kind'] === 'kopia_dump' && drillRamFileOk((string) $x['name'], $j['id'])) {
             clearstatcache(true, (string) $x['name']);
             $gone = !file_exists((string) $x['name']) || @unlink((string) $x['name']);
+        } elseif ($x['kind'] === 'scratch') {
+            $to = drillScratchAway((string) $x['name'], $j['id']);
+            $gone = $to !== null;
+            if ($to !== null) {
+                $j['made'][$n]['trash'] = $to;           // the storeroom it went into (Ms. Dustdevil finds it by this: drillTrashRoots())
+            }
         } elseif ($x['kind'] === 'kopia_tmp' && $x['name'] === "/tmp/uso-drill-{$j['id']}" && preg_match('/^[\w.-]+$/D', (string) ($x['container'] ?? ''))) {
             if (!empty($GLOBALS['rsStop'])) {
                 run(drillCmd(['docker', 'exec', (string) $x['container'], 'pkill', '-INT', '-f', "uso-drill-{$j['id']}"]), 15);

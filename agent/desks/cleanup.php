@@ -350,8 +350,9 @@ function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): arra
     $GLOBALS['clCtx']['volumes'] = $place && !$place['asleep'] ? $place['root'] : null;      // her storeroom for Docker's volumes
     $cache = clCache();
     $partners = clPartners();                    // what ended partnerships left (awake pools only)
-    // the storerooms Mr. Backupsy's let-go put his packages into (agent/desks/backup-letgo.php): also on array disks
-    $extraTrash = array_merge($leftovers['trash'], backupLetGoTrashRoots($asleep));
+    // the storerooms Mr. Backupsy's let-go put his packages into (agent/desks/backup-letgo.php): also on array disks; and those
+    // Mr. Restori's drill put a share's scratch folder into (drillTrashRoots(), 2026-10-17)
+    $extraTrash = array_merge($leftovers['trash'], backupLetGoTrashRoots($asleep), function_exists('drillTrashRoots') ? drillTrashRoots($asleep) : []);
     clTrashMigrate(array_keys(clTrashRoots($places, $vms, $extraTrash)));
     $raw = [
         'docker'    => $docker,
