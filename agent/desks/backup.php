@@ -1774,6 +1774,8 @@ function backupPackagesRead(string $base): array
                                         'user' => $str($n['user'] ?? '') ?: 'www-data', 'same_as' => $str($n['same_as'] ?? '')],
                                         array_filter((array) ($m['nextcloud'] ?? []), 'is_array'))),
                     'compose_dir' => $str($m['compose']['manager_dir'] ?? ''),
+                    // the folders it binds (<share>/<folder>, or a whole <share>) as the engine named them - who it is (backupGonePackages())
+                    'dirs'       => array_values(array_filter(array_map($str, (array) ($m['dirs'] ?? [])), fn ($d) => $d !== '' && !preg_match('/[\x00-\x1f]/', $d))),
                     // engine 2.19: consistent copies of the media servers' databases, the apps' own backups
                     'sqlite'     => array_values(array_map(fn ($q) => ['container' => $str($q['container'] ?? ''), 'file' => $str($q['file'] ?? ''),
                                         'source' => $str($q['source'] ?? ''), 'path' => $str($q['path'] ?? ''), 'state' => $str($q['state'] ?? ''),
@@ -2498,7 +2500,8 @@ function backupChecks(): array
         // 2026-10-17: a package whose app or VM is gone (the last look's, backupGoneList()) - a hint, «Into the storeroom» there
         $gone = $GLOBALS['backup']['packages_gone'] ?? null;
         if (is_array($gone)) {
-            $names = array_values(array_unique(array_map(fn ($g) => (string) ($g['name'] ?? ''), array_filter($gone, 'is_array'))));
+            // a package whose app is now backed up under another name (moved_to) is no gone app - only said on the page
+            $names = array_values(array_unique(array_map(fn ($g) => (string) ($g['name'] ?? ''), array_filter($gone, fn ($g) => is_array($g) && !isset($g['moved_to'])))));
             $out[] = finding('package_gone', 'hint', !$names, ['names' => implode(', ', array_slice($names, 0, 8)), 'n' => count($names)], '#/backup/prot');
         }
 
@@ -3451,12 +3454,12 @@ const BACKUP_ORPHANS_FILE = 'kopia-orphans.json';
 const BACKUP_ORPHANS_CHOSEN = 'kopia-orphans-chosen.json';
 
 /**
- * The engine's list of the office's own Kopia sources whose share, app or VM is gone (state/kopia-orphans.json) — only
- * entries in exactly its shape; `running` only while its pid lives and the engine's lock is held (else a run killed hard:
- * failed). Null before the first look.
+ * The engine's list of the office's own Kopia sources whose share, app or VM is gone or (engine 2.59) no longer goes
+ * offsite (state/kopia-orphans.json) — only entries in exactly its shape; `running` only while its pid lives and the
+ * engine's lock is held (else a run killed hard: failed). Null before the first look.
  *
  * @return ?array{mode: string, result: string, code: string, running: bool, started: int, finished: int, identity: string,
- *                sources: list<array{source: string, path: string, kind: string, name: string, snapshots: int, bytes: int, newest: string}>,
+ *                sources: list<array{source: string, path: string, kind: string, name: string, snapshots: int, bytes: int, newest: string, why: string}>,
  *                deleted: list<string>, failed: list<string>, refused: list<string>}
  */
 function backupOrphans(): ?array
@@ -3475,10 +3478,14 @@ function backupOrphans(): ?array
     $strs = fn ($l) => is_array($l) ? array_values(array_filter($l, $str)) : [];
     $sources = [];
     foreach (is_array($j['sources'] ?? null) ? $j['sources'] : [] as $x) {
-        if (is_array($x) && $str($x['source'] ?? null) && $str($x['path'] ?? null) && in_array($x['kind'] ?? '', ['share', 'app', 'vm'], true)
-            && $str($x['name'] ?? null) && is_int($x['snapshots'] ?? null) && is_int($x['bytes'] ?? null) && is_string($x['newest'] ?? null)) {
+        // engine 2.59: why gone | not_offsite (the unit is there, only its older snapshots lie in Kopia); an older engine
+        // lists only gone ones and writes no why; the flash is only ever not_offsite
+        $why = is_array($x) && array_key_exists('why', $x) ? $x['why'] : 'gone';
+        if (is_array($x) && $str($x['source'] ?? null) && $str($x['path'] ?? null) && in_array($x['kind'] ?? '', ['share', 'app', 'vm', 'flash'], true)
+            && $str($x['name'] ?? null) && is_int($x['snapshots'] ?? null) && is_int($x['bytes'] ?? null) && is_string($x['newest'] ?? null)
+            && in_array($why, ['gone', 'not_offsite'], true) && !($x['kind'] === 'flash' && $why !== 'not_offsite')) {
             $sources[] = ['source' => $x['source'], 'path' => $x['path'], 'kind' => $x['kind'], 'name' => $x['name'],
-                'snapshots' => $x['snapshots'], 'bytes' => $x['bytes'], 'newest' => $x['newest']];
+                'snapshots' => $x['snapshots'], 'bytes' => $x['bytes'], 'newest' => $x['newest'], 'why' => $why];
         }
     }
     return [
