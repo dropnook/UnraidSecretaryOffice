@@ -505,6 +505,8 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   Other desks list storerooms as what they are; **only she writes there.** Her room «On the flash» (share .cfg files) also
   marks a cfg whose pool is gone (`pool_gone` against `/boot/config/pools/*.cfg`; writes fail with ENOMEDIUM) — checks
   `office_share_pool` (required) and `share_pool`; the cfg is never changed by her.
+  A share whose folder on a ZFS pool is empty while its snapshots still hold ≥ 100 MB: hint `snap_only` (recommended,
+  awake pools only, never the office's share, the partners' copies or a backup place), linked to Ms. Snapshotini's datasets.
 * **`advisor` — The Consultant.** Whether the needed tools are there (unbalanced never suggested); monitoring stack (keeps only
   the office's dashboard file current). Plugins via `plugin install <url>` (pinned) as atd job; containers via Unraid's Add
   Container form — **the user clicks Apply**; refused while one of that kind/name exists; recorded for the watchman. An old

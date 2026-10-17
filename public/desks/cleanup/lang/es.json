@@ -25,6 +25,12 @@
     "one": "Un recurso compartido nombra un pool que Unraid ya no tiene: {shares}. Escribir ahí falla con «no medium found». Elige un pool en ⟦Shares⟧ → el recurso → ⟦Primary storage⟧ (o ⟦Secondary storage⟧).",
     "other": "{n} recursos compartidos nombran un pool que Unraid ya no tiene: {shares}. Escribir ahí falla con «no medium found». Elige un pool en ⟦Shares⟧ → cada recurso → ⟦Primary storage⟧ (o ⟦Secondary storage⟧)."
   },
+  "check.snap_only": "Ningún recurso compartido está vacío mientras sus instantáneas siguen ocupando espacio",
+  "check.snap_only_how": {
+    "one": "El recurso compartido {shares} está vacío aquí, pero sus instantáneas todavía ocupan {size} — los archivos antiguos se quedan en el pool hasta que ellas se vayan. Se van con la retención de su programación o de la copia, o a mano con la señora Snapshotini. Yo no borro nada.",
+    "other": "{n} recursos compartidos están vacíos aquí, pero sus instantáneas todavía ocupan {size}: {shares}. Los archivos antiguos se quedan en el pool hasta que esas instantáneas se vayan — con la retención de su programación o de la copia, o a mano con la señora Snapshotini. Yo no borro nada."
+  },
+  "check.snap_only_link": "Ver con la señora Snapshotini",
   "scan": "Ronda",
   "scan_title": "Volver a recorrer todo el servidor: dónde está todo y qué hay tirado",
   "scan_done": "Ronda terminada en {ms} ms.",

@@ -38634,6 +38634,71 @@ function testCleanupInUseLocked(): void
  * Ms. Moverelli's list and Smart Mover's loop skip it, and her room «On the flash» offers the file: into the flash's
  * storeroom as shares/<name>.cfg and back — never while Unraid knows the share or can't tell.
  */
+/**
+ * An empty share whose snapshots still hold space (2026-10-17): her tour lists a share's dataset `<pool>/<share>` on an awake
+ * pool whose live folder holds nothing but empty folders (or isn't mounted) while its snapshots hold ≥ 100 MB — never the
+ * office's own share, the partners' copies, a backup place, a dataset that is no share, a sleeping pool (never asked).
+ * The Team Lead's hint (recommended) says how much and where and links to Ms. Snapshotini's list by dataset; she
+ * deletes nothing.
+ */
+function testCleanupSnapOnly(): void
+{
+    $tmp = hardeningTmp('snaponly');
+    $mb = 1024 * 1024;
+    foreach (['Familienfilme/2019/Sommer', 'Fotos', 'Dokumente', 'Archiv', 'UnraidSecretaryOffice', 'backup-alt', 'Kleinkram', 'Viel'] as $d) {
+        @mkdir("$tmp/cache/$d", 0700, true);
+    }
+    file_put_contents("$tmp/cache/Dokumente/brief.txt", 'x');                 // a file: not empty
+    @symlink('/etc', "$tmp/cache/Archiv/link");                                 // a link: not empty (never followed)
+    for ($i = 0; $i < CL_SNAPONLY_WALK + 1; $i++) {
+        @mkdir("$tmp/cache/Viel/d$i");                                          // more than she looks at: not empty
+    }
+    $asked = [];
+    $zfs = function (array $args) use (&$asked, $tmp, $mb): array {
+        $asked[] = $args;
+        $row = fn (string $n, int $refer, int $snaps, string $mounted = 'yes') => implode("\t", [$n, $refer, $snaps, $mounted, "$tmp/$n"]);
+        return [0, implode("\n", [
+            $row('cache', 200000, 0),
+            $row('cache/Familienfilme', 150000, 12 * 1024 * $mb),               // empty but for folders: 12 GB held
+            $row('cache/Fotos', 100000, 300 * $mb),
+            $row('cache/Dokumente', 100000, 2048 * $mb),                        // a file in it
+            $row('cache/Archiv', 100000, 2048 * $mb),
+            $row('cache/Zu', 100000, 900 * $mb, 'no'),                          // not mounted: its folder gone, the snapshots hold
+            $row('cache/Gross', 40 * $mb, 9000 * $mb),                          // its live data counts: not empty
+            $row('cache/Kleinkram', 100000, 50 * $mb),                          // too little held to say
+            $row('cache/UnraidSecretaryOffice', 100000, 5000 * $mb),            // the office's own
+            $row('cache/backup-alt', 100000, 5000 * $mb),                       // a backup place
+            $row('cache/' . PARTNER_PARENT, 100000, 5000 * $mb),                 // the partners' copies
+            $row('cache/Viel', 100000, 5000 * $mb),
+            $row('cache/nichtshare', 100000, 5000 * $mb),                       // a dataset that is no share
+            $row('cache/Familienfilme/sub', 100000, 5000 * $mb),                // below a share: never
+            "garbage line",
+        ])];
+    };
+    $shares = ['Familienfilme', 'Fotos', 'Dokumente', 'Archiv', 'Zu', 'Gross', 'Kleinkram', 'UnraidSecretaryOffice', 'backup-alt', PARTNER_PARENT, 'Viel'];
+    $r = clSnapOnlyShares(['pools' => [['cache'], ['hdd']], 'zfs' => $zfs, 'shares' => $shares, 'known' => true]);
+    same('snap only: the empty shares (folders only, not mounted) whose snapshots hold ≥ 100 MB, most held first',
+        [['Familienfilme', 'cache', 12 * 1024 * $mb, true], ['Zu', 'cache', 900 * $mb, false], ['Fotos', 'cache', 300 * $mb, true]],
+        array_map(fn ($x) => [$x['share'], $x['pool'], $x['snaps'], $x['mounted']], $r['list']));
+    same('snap only: one zfs list -d 1 of the awake pools only (the sleeping one never asked), listed as asleep',
+        [[['list', '-Hp', '-t', 'filesystem', '-o', 'name,refer,usedbysnapshots,mounted,mountpoint', '-d', '1', 'cache']], ['hdd']], [$asked, $r['asleep']]);
+    $asked = [];
+    same('snap only: every pool asleep, or the array stopped — nothing asked, nothing said',
+        [[], [], []], [clSnapOnlyShares(['pools' => [[], ['cache']], 'zfs' => $zfs, 'shares' => $shares, 'known' => true])['list'],
+                       clSnapOnlyShares(['pools' => [['cache'], []], 'zfs' => $zfs, 'shares' => $shares, 'known' => false])['list'], $asked]);
+    $c = clSnapOnlyChecks($r);
+    same('snap only: the Team Lead\'s hint — recommended, how much and where, the link to Ms. Snapshotini\'s datasets',
+        [['snap_only', 'recommended', false, '#/snapshot/datasets'], ['n' => 3, 'shares' => 'Familienfilme (cache, 12.0 GB), Zu (cache, 900.0 MB), Fotos (cache, 300.0 MB)', 'size' => '13.2 GB']],
+        [[$c[0]['id'], $c[0]['level'], $c[0]['ok'], $c[0]['link']], $c[0]['params']]);
+    same('snap only: none — in place (also with a pool asleep); her tour before this look — nothing',
+        [[true], []], [array_column(clSnapOnlyChecks(['list' => [], 'asleep' => ['hdd']]), 'ok'), clSnapOnlyChecks(null)]);
+    check('snap only: she only looked — every folder and file still there', is_file("$tmp/cache/Dokumente/brief.txt") && is_dir("$tmp/cache/Familienfilme/2019/Sommer"));
+    $ct = (string) file_get_contents(OFFICE_WEB . '/desks/caretaker/desk.js');
+    check('snap only: the Team Lead\'s button says the desk\'s own words (check.<id>_link) where it has them',
+        str_contains($ct, "text(f, '_link') || T('open.office')"));
+    hardeningRm($tmp);
+}
+
 function testStaleShares(): void
 {
     $tmp = hardeningTmp('stale-shares');
@@ -39701,7 +39766,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of

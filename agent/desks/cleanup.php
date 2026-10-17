@@ -369,6 +369,7 @@ function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): arra
         'libvirt'   => clLibvirtOrphans($vms),
         'leftovers' => $leftovers,
         'partners'  => $partners,
+        'snaponly'  => clSnapOnlyShares(),               // empty shares whose snapshots still hold space (a hint, 2026-10-17)
         'drill'     => clDrillLeftovers($deep),           // what crashed drills of Mr. Restori's left (his sweeper's own look: quick, deep when asked/hourly)
         'trash'     => clTrashRuns($places, $vms, $extraTrash, $partners['there'], $partners['asleep']),
     ];
@@ -5711,7 +5712,117 @@ function clChecks(): array
     } else {
         $out[] = finding('trash_old', 'recommended', true, ['n' => 0, 'days' => 0, 'size' => ''], '#/cleanup/tidy');
     }
-    return [...$out, ...clPoolGoneChecks($s['flash'] ?? null)];
+    return [...$out, ...clPoolGoneChecks($s['flash'] ?? null), ...clSnapOnlyChecks($s['snaponly'] ?? null)];
+}
+
+const CL_SNAPONLY_MIN   = 100 * 1024 * 1024;   // what the snapshots must hold to be worth a word
+const CL_SNAPONLY_REFER = 8 * 1024 * 1024;     // a live folder above this holds something (an empty dataset: ~100 KB)
+const CL_SNAPONLY_WALK  = 5000;                // entries looked at to call a folder empty (more: not empty)
+
+/**
+ * Shares whose live folder on a ZFS pool is empty (or not mounted) while their snapshots there still hold space — e.g.
+ * the mover took everything to the array, or the user emptied the share, and the snapshots of a plan or a backup run keep
+ * the old files. One `zfs list -d 1` of the awake pools (a sleeping pool is never asked: `asleep` lists it, nothing is
+ * known of it), the share's dataset `<pool>/<share>` only: the office's own share, the partners' copies
+ * (`<pool>/UnraidSecretaryOffice-partners`) and backup places (anything called «backup») never. A folder counts as empty
+ * when it holds nothing but empty folders (looked at only below CL_SNAPONLY_REFER). Read only: she never deletes a snapshot.
+ * $host: tests only — pools [awake, asleep], zfs (callable), shares (names), known (bool).
+ *
+ * @return array{list: list<array{share:string, pool:string, dataset:string, snaps:int, mounted:bool}>, asleep: list<string>}
+ */
+function clSnapOnlyShares(?array $host = null): array
+{
+    $host ??= $GLOBALS['clSnapOnlyHost'] ?? [];
+    $none = ['list' => [], 'asleep' => []];
+    if (!($host['known'] ?? officeSharesKnown())) {
+        return $none;
+    }
+    $shares = array_flip(array_map('strval', $host['shares'] ?? array_keys(readCfg(OFFICE_SHARES_INI, true))));
+    if (isset($host['pools'])) {
+        [$awake, $asleep] = $host['pools'];
+    } else {
+        $zpool = bin('zpool');
+        [$exit, $out] = $zpool ? run([$zpool, 'list', '-H', '-o', 'name'], 30) : [1, ''];
+        $names = array_values(array_filter(array_map(fn ($f) => (string) ($f[0] ?? ''), $exit === 0 ? rows($out) : []),
+            fn ($n) => (bool) preg_match(PARTNER_POOL_RE, $n)));
+        $split = poolsBySleep($names);
+        [$awake, $asleep] = [$split['awake'], $split['asleep']];
+    }
+    if (!$awake || !$shares) {
+        return ['list' => [], 'asleep' => array_values($asleep)];
+    }
+    $zfs = $host['zfs'] ?? function (array $args): array {
+        $bin = bin('zfs');
+        return $bin ? run(array_merge([$bin], $args), 60) : [127, ''];
+    };
+    [$exit, $text] = $zfs(array_merge(['list', '-Hp', '-t', 'filesystem', '-o', 'name,refer,usedbysnapshots,mounted,mountpoint', '-d', '1'], $awake));
+    $list = [];
+    foreach ($exit === 0 ? explode("\n", (string) $text) : [] as $line) {
+        $f = explode("\t", rtrim($line, "\r"));
+        if (count($f) < 5 || !ctype_digit($f[1]) || !ctype_digit($f[2]) || substr_count($f[0], '/') !== 1) {
+            continue;
+        }
+        [$pool, $share] = explode('/', $f[0]);
+        [$refer, $snaps, $mounted, $mp] = [(int) $f[1], (int) $f[2], $f[3] === 'yes', $f[4]];
+        if (!in_array($pool, $awake, true) || !isset($shares[$share]) || $snaps < CL_SNAPONLY_MIN || $refer > CL_SNAPONLY_REFER
+            || $share === BACKUP_OFFICE_SHARE || str_starts_with($share, BACKUP_OFFICE_SHARE) || $share === PARTNER_PARENT || stripos($share, 'backup') !== false) {
+            continue;
+        }
+        if ($mounted && !clFolderEmpty($mp)) {
+            continue;
+        }
+        $list[] = ['share' => $share, 'pool' => $pool, 'dataset' => $f[0], 'snaps' => $snaps, 'mounted' => $mounted];
+    }
+    usort($list, fn ($a, $b) => $b['snaps'] <=> $a['snaps']);
+    return ['list' => $list, 'asleep' => array_values($asleep)];
+}
+
+/** Nothing but (empty) folders below $dir — up to CL_SNAPONLY_WALK entries, never through a link; more, or unreadable: not empty */
+function clFolderEmpty(string $dir): bool
+{
+    if ($dir === '' || $dir[0] !== '/' || is_link($dir) || !is_dir($dir)) {
+        return false;
+    }
+    $seen = 0;
+    $todo = [$dir];
+    while ($todo) {
+        $d = array_pop($todo);
+        $items = @scandir($d);
+        if ($items === false) {
+            return false;
+        }
+        foreach ($items as $x) {
+            if ($x === '.' || $x === '..') {
+                continue;
+            }
+            if (++$seen > CL_SNAPONLY_WALK) {
+                return false;
+            }
+            $path = "$d/$x";
+            if (is_link($path) || !is_dir($path)) {
+                return false;
+            }
+            $todo[] = $path;
+        }
+    }
+    return true;
+}
+
+/**
+ * The Team Lead's hint from her last tour: an empty share whose snapshots still hold space (recommended — nothing is
+ * wrong, space is just held), how much and where, with the way to Ms. Snapshotini's list by dataset. Her tour before
+ * this look (no `snaponly`): nothing said. Sleeping pools are not judged.
+ */
+function clSnapOnlyChecks(?array $snap): array
+{
+    if (!is_array($snap) || !is_array($snap['list'] ?? null)) {
+        return [];
+    }
+    $list = $snap['list'];
+    $ok = !$list;                       // a sleeping pool is not judged: never «unknown» for a hint that only says where space goes
+    $total = array_sum(array_map(fn ($x) => (int) $x['snaps'], $list));
+    $names = implode(', ', array_map(fn ($x) => "{$x['share']} ({$x['pool']}, " . clHuman((int) $x['snaps']) . ')', array_slice($list, 0, 8)));
+    return [finding('snap_only', 'recommended', $ok, ['n' => count($list), 'shares' => $names, 'size' => clHuman($total)], '#/snapshot/datasets')];
 }
 
 /**

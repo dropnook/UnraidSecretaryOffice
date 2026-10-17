@@ -25,6 +25,12 @@
     "one": "{n} partage nomme un pool qu'Unraid n'a plus : {shares}. Écrire là échoue avec « no medium found ». Choisis un pool sous ⟦Shares⟧ → le partage → ⟦Primary storage⟧ (ou ⟦Secondary storage⟧).",
     "other": "{n} partages nomment un pool qu'Unraid n'a plus : {shares}. Écrire là échoue avec « no medium found ». Choisis un pool sous ⟦Shares⟧ → chaque partage → ⟦Primary storage⟧ (ou ⟦Secondary storage⟧)."
   },
+  "check.snap_only": "Aucun partage n'est vide pendant que ses snapshots occupent encore de la place",
+  "check.snap_only_how": {
+    "one": "Le partage {shares} est vide ici, mais ses snapshots occupent encore {size} — les anciens fichiers restent sur le pool tant qu'ils sont là. Ils partent avec la rétention de leur planification ou de la sauvegarde, ou à la main chez Madame Snapshotini. Je ne supprime rien moi-même.",
+    "other": "{n} partages sont vides ici, mais leurs snapshots occupent encore {size} : {shares}. Les anciens fichiers restent sur le pool tant que ces snapshots sont là — ils partent avec la rétention de leur planification ou de la sauvegarde, ou à la main chez Madame Snapshotini. Je ne supprime rien moi-même."
+  },
+  "check.snap_only_link": "Voir chez Madame Snapshotini",
   "scan": "Tournée",
   "scan_title": "Refaire le tour de tout le serveur : où tout se trouve et ce qui traîne",
   "scan_done": "Tournée terminée en {ms} ms.",
