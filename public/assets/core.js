@@ -2067,7 +2067,9 @@ Office.tipJar = function openTipJar(ids) {
     } });
   }
   else if (CONFIG.tip_url) buttons.push({ text: t('office.tip_give'), kind: thanked ? undefined : '', act: give(CONFIG.tip_url) });
-  Office.dialog({ title: t(thanked ? 'office.supporter_thanks_title' : ids ? 'office.tip_title' : 'office.tip_title_team'), body: box, buttons });
+  // «don't ask again» counts however the dialog ends - Escape, a click outside, ✕ too (2026-10-17, silent controls)
+  Office.dialog({ title: t(thanked ? 'office.supporter_thanks_title' : ids ? 'office.tip_title' : 'office.tip_title_team'), body: box, buttons,
+    onClose: () => { if (cb.checked) Office.store('tip.never', '1'); } });
 };
 
 // ------------------------------------------------------------------ supporter key
