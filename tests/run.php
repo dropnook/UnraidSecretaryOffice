@@ -12687,8 +12687,27 @@ function testWatchman(): void
     same('watch page: what he keeps an eye on', [2, ['192.168.20.66', '203.0.113.9'], ['Media']],
         [count($page['watch']['ips']), $failing, array_column($page['watch']['shares']['open'], 'share')]);
     $m = watchmanMetrics($data);
-    same('watch metrics: open per kind, the last round', ['uso_watchman_open_findings', count(WATCH_KINDS), 1, 'uso_watchman_last_round_timestamp_seconds', $now + 300 + 600 + WATCH_NOTIFY_QUIET],
-        [$m[0]['name'], count($m[0]['samples']), array_column(array_map(fn ($s) => [$s[0]['kind'], $s[1]], $m[0]['samples']), 1, 0)['login_failures'], $m[1]['name'], $m[1]['samples'][0][1]]);
+    $bookKinds = array_values(array_filter(array_keys(WATCH_KINDS), fn ($k) => !str_starts_with($k, 'net_')
+        && in_array($k, array_column(readJson("$data/book.json")['entries'], 'kind'), true)));
+    same('watch metrics: open per kind (only the kinds in his book), the last round', ['uso_watchman_open_findings', $bookKinds, 1, 'uso_watchman_last_round_timestamp_seconds', $now + 300 + 600 + WATCH_NOTIFY_QUIET],
+        [$m[0]['name'], array_map(fn ($s) => $s[0]['kind'], $m[0]['samples']), array_column(array_map(fn ($s) => [$s[0]['kind'], $s[1]], $m[0]['samples']), 1, 0)['login_failures'], $m[1]['name'], $m[1]['samples'][0][1]]);
+    // nostromo 1.65.7: one series per kind (~70) made it the family the size cap over all files left out first
+    $mdir = sys_get_temp_dir() . '/uso-watch-metrics-' . getmypid();
+    @mkdir($mdir);
+    writeAtomic("$mdir/state.json", jsonEncode(['open' => ['login_failures' => 2, 'net_new_device' => 3], 'round' => ['time' => $now]]));
+    writeAtomic("$mdir/book.json", jsonEncode(['entries' => [['id' => 'a', 'kind' => 'flash_user'], ['id' => 'b', 'kind' => 'login_failures'],
+        ['id' => 'c', 'kind' => 'net_new_device'], 'odd']]));
+    $m = watchmanMetrics($mdir);
+    same('watch metrics: open, or in the book (noted: 0) — never the network kinds (uso_watchman_net_entries has them)',
+        ['flash_user' => 0, 'login_failures' => 2], (function () use ($m) {
+            $x = array_column(array_map(fn ($s) => [$s[0]['kind'], $s[1]], $m[0]['samples']), 1, 0);
+            ksort($x);
+            return $x;
+        })());
+    $net = array_column(array_map(fn ($s) => [$s[0]['kind'], $s[1]], array_values(array_filter($m, fn ($f) => $f['name'] === 'uso_watchman_net_entries'))[0]['samples']), 1, 0);
+    same('watch metrics: the network kind still counted in uso_watchman_net_entries', 3, $net['net_new_device']);
+    array_map('unlink', glob("$mdir/*"));
+    rmdir($mdir);
 
     // the switch (like the team lead's): off — nothing told, and what came meanwhile stays untold once it is on again
     $book2 = [watchmanEntry('flash_user', 'flash_user:zed', $now, ['user' => 'zed'])];

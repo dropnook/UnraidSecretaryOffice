@@ -8241,16 +8241,26 @@ function watchmanNotifySend(string $kind, array $entries, string $lang): bool
     );
 }
 
-/** For the office's metrics (Prometheus): open entries per kind, when the last round ended — from his state file only */
+/**
+ * For the office's metrics (Prometheus): open entries per kind, when the last round ended — from his state files only.
+ * Open entries only for the kinds that are open or in his book (a noted one goes back to 0), never the network's
+ * (uso_watchman_net_entries has those): one series for every kind (~70) made it the family with the most series, the
+ * first the size cap over all the office's files left out.
+ */
 function watchmanMetrics(?string $dir = null): array
 {
     if ($dir === null && watchmanHiredSince() === null) {
         return [];
     }
     $st = readJson(($dir ?? watchmanDir()) . '/state.json') ?? [];
+    $booked = metricsCached(($dir ?? watchmanDir()) . '/book.json', fn (string $file): array =>
+        array_fill_keys(array_column(array_filter((array) (readJson($file)['entries'] ?? []), 'is_array'), 'kind'), true));
     $samples = [];
     foreach (array_keys(WATCH_KINDS) as $kind) {
-        $samples[] = [['kind' => $kind], (int) ($st['open'][$kind] ?? 0)];
+        $n = (int) ($st['open'][$kind] ?? 0);
+        if (!str_starts_with($kind, 'net_') && ($n > 0 || isset($booked[$kind]))) {
+            $samples[] = [['kind' => $kind], $n];
+        }
     }
     $last = (int) ($st['round']['time'] ?? 0);
     $flow = (array) ($st['flow'] ?? []);
