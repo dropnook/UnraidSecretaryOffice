@@ -18,6 +18,13 @@
     "one": "Un lotto ({size}) è nel suo ripostiglio da {days} giorni. Se tutto funziona ancora, svuotalo.",
     "other": "{n} lotti ({size}) sono nel suo ripostiglio da fino a {days} giorni. Se tutto funziona ancora, svuotali."
   },
+  "check.office_share_pool": "La condivisione {share} della segreteria sta su un pool che Unraid ha",
+  "check.office_share_pool_how": "Le sue impostazioni nominano il pool «{pool}», che Unraid non ha più — scrivere lì fallisce con «no medium found», la segreteria non può tenerci i suoi dati. Scegli un pool in ⟦Shares⟧ → {share} → ⟦Primary storage⟧. Il file non lo cambio io.",
+  "check.share_pool": "Le impostazioni di ogni condivisione nominano solo pool che Unraid ha",
+  "check.share_pool_how": {
+    "one": "Una condivisione nomina un pool che Unraid non ha più: {shares}. Scrivere lì fallisce con «no medium found». Scegli un pool in ⟦Shares⟧ → la condivisione → ⟦Primary storage⟧ (o ⟦Secondary storage⟧).",
+    "other": "{n} condivisioni nominano un pool che Unraid non ha più: {shares}. Scrivere lì fallisce con «no medium found». Scegli un pool in ⟦Shares⟧ → ogni condivisione → ⟦Primary storage⟧ (o ⟦Secondary storage⟧)."
+  },
   "scan": "Giro",
   "scan_title": "Ripercorri tutto il server: dove sta tutto e cosa c'è in giro",
   "scan_done": "Giro finito in {ms} ms.",
@@ -699,6 +706,8 @@
   "flash.stale_text": "Unraid non elenca più nessuna condivisione «{name}» e /mnt/user/{name} non esiste — la condivisione è stata rimossa, il suo file di impostazioni è rimasto lì. Alcuni strumenti la contano ancora come condivisione. Nel mio ripostiglio; se ricrei la condivisione, Unraid ne scrive uno nuovo.",
   "flash.unknown_text": "L'array non è avviato — se «{name}» esiste ancora te lo dico appena riparte.",
   "flash.used_text": "Unraid conosce la condivisione «{name}» — sono le sue impostazioni, restano.",
+  "flash.pool_gone": "Il pool «{pool}» non c'è più",
+  "flash.pool_gone_text": "Unraid non ha più un pool «{pool}» — scrivere in «{name}» fallisce lì con «no medium found». Il file non lo cambio: scegli un pool in ⟦Shares⟧ → {name} → ⟦Primary storage⟧ (o ⟦Secondary storage⟧).",
   "why.share_known": "condivisione esistente",
   "why.share_known_text": "Unraid conosce questa condivisione — le sue impostazioni restano dove sono.",
   "why.shares_unknown": "array fermo",

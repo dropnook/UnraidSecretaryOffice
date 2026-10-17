@@ -1155,13 +1155,17 @@ function clShareCfgDir(): string
  * doesn't know that share any more (a share removed by hand leaves its .cfg; officeShareExists(): shares.ini, then
  * /mnt/user/<name>, never a disk), `used` while it does (why `share_known`: never put away), `unknown` while the array
  * isn't started (why `shares_unknown`: Unraid can't tell). Each with its mtime and its storage lines. Plain files only.
- * $known/$exists: the tests' stand-ins.
+ * `pool_gone`: the pools its storage lines name (shareCachePool, shareCachePool2 — not with shareUseCache="no") that Unraid
+ * has no more (/boot/config/pools/<name>.cfg): writing into the share there fails with «no medium found» (ENOMEDIUM) —
+ * whether the share is still there or not (a write to /mnt/user/<name> makes it again). Only said, never changed: the user
+ * picks a pool in Unraid's share settings. $known/$exists/$pools: the tests' stand-ins.
  */
-function clShareCfgs(?string $dir = null, ?bool $known = null, ?callable $exists = null): array
+function clShareCfgs(?string $dir = null, ?bool $known = null, ?callable $exists = null, ?array $pools = null): array
 {
     $dir ??= clShareCfgDir();
     $known ??= officeSharesKnown();
     $exists ??= fn (string $name): bool => officeShareExists($name);
+    $pools ??= clPoolNames();
     $list = [];
     foreach (glob("$dir/*.cfg") ?: [] as $file) {
         $name = basename($file, '.cfg');
@@ -1174,13 +1178,36 @@ function clShareCfgs(?string $dir = null, ?bool $known = null, ?callable $exists
             'id' => "sharecfg:$name", 'kind' => 'sharecfg', 'name' => $name, 'file' => "$name.cfg", 'path' => $file,
             'mtime' => (int) @filemtime($file) ?: null, 'bytes' => (int) @filesize($file),
             'use_cache' => $cfg['shareUseCache'] ?? null, 'pool' => $cfg['shareCachePool'] ?? null, 'pool2' => $cfg['shareCachePool2'] ?? null,
-            'comment' => (string) ($cfg['shareComment'] ?? ''), 'category' => $category,
+            'comment' => (string) ($cfg['shareComment'] ?? ''), 'category' => $category, 'pool_gone' => clShareCfgPoolsGone($cfg, $pools),
             'why' => match ($category) { 'stale' => null, 'used' => 'share_known', default => 'shares_unknown' },
             'force' => false, 'used_by' => [], 'notes' => [],
         ];
     }
     usort($list, fn ($a, $b) => strnatcasecmp($a['name'], $b['name']));
     return ['dir' => $dir, 'known' => $known, 'list' => $list];
+}
+
+/** Unraid's pools: the names of /boot/config/pools/<name>.cfg (plain files) — flash only, never a disk */
+function clPoolNames(string $dir = '/boot/config/pools'): array
+{
+    $names = [];
+    foreach (glob("$dir/*.cfg") ?: [] as $f) {
+        if (is_file($f) && !is_link($f)) {
+            $names[] = basename($f, '.cfg');
+        }
+    }
+    return $names;
+}
+
+/** The pools a share's settings use that aren't among $pools (none with shareUseCache="no": the array only; "only": no secondary) */
+function clShareCfgPoolsGone(array $cfg, array $pools): array
+{
+    $use = $cfg['shareUseCache'] ?? 'no';
+    if ($use === 'no') {
+        return [];
+    }
+    $named = array_unique(array_filter([(string) ($cfg['shareCachePool'] ?? ''), $use === 'only' ? '' : (string) ($cfg['shareCachePool2'] ?? '')], 'strlen'));
+    return array_values(array_diff($named, $pools));
 }
 
 // --------------------------------------------------------------------- pictures
@@ -5684,7 +5711,33 @@ function clChecks(): array
     } else {
         $out[] = finding('trash_old', 'recommended', true, ['n' => 0, 'days' => 0, 'size' => ''], '#/cleanup/tidy');
     }
-    return $out;
+    return [...$out, ...clPoolGoneChecks($s['flash'] ?? null)];
+}
+
+/**
+ * A share whose settings name a pool Unraid has no more (Tower after a rebuild: the office's share on «big», Kopia got
+ * «no medium found»): the office's own share as a must (the office writes there), any other as recommended — the share
+ * and the pool named, the way out in Unraid's share settings. Nothing while her room isn't there (an older look).
+ */
+function clPoolGoneChecks(?array $flash): array
+{
+    if (!is_array($flash['list'] ?? null)) {
+        return [];
+    }
+    $office = $others = [];
+    foreach ($flash['list'] as $e) {
+        foreach ((array) ($e['pool_gone'] ?? []) as $pool) {
+            if ($e['name'] === BACKUP_OFFICE_SHARE) {
+                $office[] = $pool;
+            } else {
+                $others[] = "{$e['name']} ({$pool})";
+            }
+        }
+    }
+    return [
+        finding('office_share_pool', 'required', !$office, ['share' => BACKUP_OFFICE_SHARE, 'pool' => implode(', ', $office)], '#/cleanup/flash'),
+        finding('share_pool', 'recommended', !$others, ['n' => count($others), 'shares' => implode(', ', $others)], '#/cleanup/flash'),
+    ];
 }
 
 function clHuman(int $bytes): string

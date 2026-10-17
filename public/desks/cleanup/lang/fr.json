@@ -18,6 +18,13 @@
     "one": "{n} lot ({size}) est dans son débarras depuis {days} jours. Si tout fonctionne encore, vide-le.",
     "other": "{n} lots ({size}) sont dans son débarras depuis jusqu'à {days} jours. Si tout fonctionne encore, vide-les."
   },
+  "check.office_share_pool": "Le partage {share} du secrétariat est sur un pool qu'Unraid a",
+  "check.office_share_pool_how": "Ses réglages nomment le pool « {pool} », qu'Unraid n'a plus — écrire là échoue avec « no medium found », le secrétariat ne peut pas y garder ses données. Choisis un pool sous ⟦Shares⟧ → {share} → ⟦Primary storage⟧. Je ne change pas le fichier moi-même.",
+  "check.share_pool": "Les réglages de chaque partage ne nomment que des pools qu'Unraid a",
+  "check.share_pool_how": {
+    "one": "{n} partage nomme un pool qu'Unraid n'a plus : {shares}. Écrire là échoue avec « no medium found ». Choisis un pool sous ⟦Shares⟧ → le partage → ⟦Primary storage⟧ (ou ⟦Secondary storage⟧).",
+    "other": "{n} partages nomment un pool qu'Unraid n'a plus : {shares}. Écrire là échoue avec « no medium found ». Choisis un pool sous ⟦Shares⟧ → chaque partage → ⟦Primary storage⟧ (ou ⟦Secondary storage⟧)."
+  },
   "scan": "Tournée",
   "scan_title": "Refaire le tour de tout le serveur : où tout se trouve et ce qui traîne",
   "scan_done": "Tournée terminée en {ms} ms.",
@@ -699,6 +706,8 @@
   "flash.stale_text": "Unraid ne liste plus de partage « {name} » et /mnt/user/{name} n'existe pas — le partage a été supprimé, son fichier de réglages est resté. Certains outils le comptent encore comme partage. Au débarras ; si tu recrées le partage, Unraid en écrit un nouveau.",
   "flash.unknown_text": "L'array n'est pas démarré — si « {name} » existe encore, je te le dirai dès qu'il tourne.",
   "flash.used_text": "Unraid connaît le partage « {name} » — ce sont ses réglages, ils restent.",
+  "flash.pool_gone": "Le pool « {pool} » n'existe plus",
+  "flash.pool_gone_text": "Unraid n'a plus de pool « {pool} » — écrire dans « {name} » échoue là avec « no medium found ». Je ne change pas le fichier : choisis un pool sous ⟦Shares⟧ → {name} → ⟦Primary storage⟧ (ou ⟦Secondary storage⟧).",
   "why.share_known": "partage existant",
   "why.share_known_text": "Unraid connaît ce partage — ses réglages restent où ils sont.",
   "why.shares_unknown": "array arrêté",

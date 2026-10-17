@@ -1083,6 +1083,8 @@ const shareCfgLines = (e) => [['shareUseCache', e.use_cache], ['shareCachePool',
   .filter(([, v]) => v !== null && v !== undefined && v !== '').map(([k, v]) => `${k}="${v}"`);
 
 function shareCfgMeta(e, meta) {
+  // a pool its settings name that Unraid has no more (an older agent's state has no pool_gone)
+  for (const pool of e.pool_gone || []) meta.appendChild(chip('⚠ ' + T('flash.pool_gone', { pool }), 'danger', T('flash.pool_gone_text', { pool, name: e.name })));
   const use = shareCfgLines(e);
   if (use.length) meta.appendChild(el('span', 'mono', use.join(' · ')));
   if (e.mtime) meta.appendChild(el('span', '', T('changed', { when: fmt.relative(e.mtime) })));
@@ -1097,6 +1099,7 @@ function shareCfgDetail(e) {
     [T('flash.d.storage'), shareCfgLines(e).length ? lines(shareCfgLines(e)) : null],
     [T('d.changed'), when(e.mtime)],
   ]));
+  for (const pool of e.pool_gone || []) box.appendChild(el('p', 'callout warn', T('flash.pool_gone_text', { pool, name: e.name })));
   box.appendChild(el('p', 'role', T('flash.' + e.category + '_text', { name: e.name })));
   return box;
 }

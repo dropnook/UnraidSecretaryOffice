@@ -18,6 +18,13 @@
     "one": "Un lote ({size}) lleva {days} días en su trastero. Si todo sigue funcionando, vacíalo.",
     "other": "{n} lotes ({size}) llevan hasta {days} días en su trastero. Si todo sigue funcionando, vacíalos."
   },
+  "check.office_share_pool": "El recurso compartido {share} de la secretaría está en un pool que Unraid tiene",
+  "check.office_share_pool_how": "Sus ajustes nombran el pool «{pool}», que Unraid ya no tiene — escribir ahí falla con «no medium found», la secretaría no puede guardar ahí sus datos. Elige un pool en ⟦Shares⟧ → {share} → ⟦Primary storage⟧. El archivo no lo cambio yo.",
+  "check.share_pool": "Los ajustes de cada recurso compartido nombran solo pools que Unraid tiene",
+  "check.share_pool_how": {
+    "one": "Un recurso compartido nombra un pool que Unraid ya no tiene: {shares}. Escribir ahí falla con «no medium found». Elige un pool en ⟦Shares⟧ → el recurso → ⟦Primary storage⟧ (o ⟦Secondary storage⟧).",
+    "other": "{n} recursos compartidos nombran un pool que Unraid ya no tiene: {shares}. Escribir ahí falla con «no medium found». Elige un pool en ⟦Shares⟧ → cada recurso → ⟦Primary storage⟧ (o ⟦Secondary storage⟧)."
+  },
   "scan": "Ronda",
   "scan_title": "Volver a recorrer todo el servidor: dónde está todo y qué hay tirado",
   "scan_done": "Ronda terminada en {ms} ms.",
@@ -699,6 +706,8 @@
   "flash.stale_text": "Unraid ya no lista ningún recurso compartido «{name}» y /mnt/user/{name} no existe — el recurso se eliminó, su archivo de ajustes se quedó atrás. Algunas herramientas aún lo cuentan como recurso compartido. Al trastero con él; si vuelves a crear el recurso, Unraid escribe uno nuevo.",
   "flash.unknown_text": "El array no está iniciado — si «{name}» todavía existe te lo digo en cuanto funcione.",
   "flash.used_text": "Unraid conoce el recurso compartido «{name}» — son sus ajustes, se quedan.",
+  "flash.pool_gone": "El pool «{pool}» ya no existe",
+  "flash.pool_gone_text": "Unraid ya no tiene un pool «{pool}» — escribir en «{name}» falla ahí con «no medium found». El archivo no lo cambio: elige un pool en ⟦Shares⟧ → {name} → ⟦Primary storage⟧ (o ⟦Secondary storage⟧).",
   "why.share_known": "el recurso existe",
   "why.share_known_text": "Unraid conoce este recurso compartido — sus ajustes se quedan donde están.",
   "why.shares_unknown": "array detenido",

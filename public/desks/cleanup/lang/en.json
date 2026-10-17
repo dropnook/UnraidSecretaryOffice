@@ -18,6 +18,13 @@
     "one": "One lot ({size}) has been in her storeroom for {days} days. If everything still works, empty it.",
     "other": "{n} lots ({size}) have been in her storeroom for up to {days} days. If everything still works, empty them."
   },
+  "check.office_share_pool": "The office's share {share} is on a pool Unraid has",
+  "check.office_share_pool_how": "Its settings name the pool «{pool}», which Unraid no longer has — writing there fails with «no medium found», so the office can't keep its data there. Pick a pool under ⟦Shares⟧ → {share} → ⟦Primary storage⟧. I don't change the file myself.",
+  "check.share_pool": "Every share's settings name only pools Unraid has",
+  "check.share_pool_how": {
+    "one": "One share names a pool Unraid no longer has: {shares}. Writing there fails with «no medium found». Pick a pool under ⟦Shares⟧ → the share → ⟦Primary storage⟧ (or ⟦Secondary storage⟧).",
+    "other": "{n} shares name a pool Unraid no longer has: {shares}. Writing there fails with «no medium found». Pick a pool under ⟦Shares⟧ → each share → ⟦Primary storage⟧ (or ⟦Secondary storage⟧)."
+  },
   "scan": "Tour",
   "scan_title": "Look around the whole server again: where everything is, and what lies around",
   "scan_done": "Tour done in {ms} ms.",
@@ -699,6 +706,8 @@
   "flash.stale_text": "Unraid lists no share «{name}» any more and there is no /mnt/user/{name} — the share was removed, its settings file stayed behind. Some tools still count it as a share. Into my storeroom with it; should you make the share again, Unraid writes a new one.",
   "flash.unknown_text": "The array isn't started — whether «{name}» still exists I can say once it runs.",
   "flash.used_text": "Unraid knows the share «{name}» — these are its settings, they stay.",
+  "flash.pool_gone": "Pool «{pool}» is gone",
+  "flash.pool_gone_text": "Unraid has no pool «{pool}» any more — writing into «{name}» fails there with «no medium found». I don't change the file: pick a pool under ⟦Shares⟧ → {name} → ⟦Primary storage⟧ (or ⟦Secondary storage⟧).",
   "why.share_known": "share exists",
   "why.share_known_text": "Unraid knows this share — its settings stay where they are.",
   "why.shares_unknown": "array stopped",

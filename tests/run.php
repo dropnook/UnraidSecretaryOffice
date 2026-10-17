@@ -38414,6 +38414,29 @@ function testStaleShares(): void
          $room['list'][0]['mtime'] > 0]);
     same('stale shares: … the array stopped — every file «unknown», nothing offered', [['unknown'], ['shares_unknown'], false],
         (function () use ($cfgs) { $x = clShareCfgs($cfgs, false, fn () => false); return [array_values(array_unique(array_column($x['list'], 'category'))), array_values(array_unique(array_column($x['list'], 'why'))), $x['known']]; })());
+    // a share on a pool that is gone (Tower after a rebuild: the office's share on «big», Kopia got «no medium found»)
+    $pg = "$tmp/poolgone";
+    @mkdir("$pg/pools", 0700, true);
+    file_put_contents("$pg/pools/cache.cfg", "diskFsType=\"zfs\"\n");
+    @mkdir("$pg/pools/odd.cfg");                                                                      // a folder is no pool
+    file_put_contents("$pg/UnraidSecretaryOffice.cfg", "shareUseCache=\"only\"\nshareCachePool=\"big\"\nshareCachePool2=\"gone2\"\n");
+    file_put_contents("$pg/Media.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\nshareCachePool2=\"fast\"\n");
+    file_put_contents("$pg/Old.cfg", "shareUseCache=\"no\"\nshareCachePool=\"big\"\n");          // the array only: the pool line unused
+    file_put_contents("$pg/Fine.cfg", "shareUseCache=\"prefer\"\nshareCachePool=\"cache\"\n");
+    $pools = clPoolNames("$pg/pools");
+    $pgRoom = clShareCfgs($pg, true, fn (string $n) => $n !== 'Media', $pools);
+    same('pool gone: Unraid\'s pools are the plain cfgs in its pools folder', ['cache'], $pools);
+    same('pool gone: per share the pools it uses that Unraid has no more — gone share or not, none for the array only, no secondary with «only»',
+        ['Fine' => [], 'Media' => ['fast'], 'Old' => [], 'UnraidSecretaryOffice' => ['big']], array_column($pgRoom['list'], 'pool_gone', 'name'));
+    $pgc = array_column(clPoolGoneChecks($pgRoom), null, 'id');
+    same('pool gone: the office\'s share a must, the others recommended — share and pool named, the link to her room',
+        [['required', false, ['share' => 'UnraidSecretaryOffice', 'pool' => 'big'], '#/cleanup/flash'], ['recommended', false, ['n' => 1, 'shares' => 'Media (fast)']]],
+        [[$pgc['office_share_pool']['level'], $pgc['office_share_pool']['ok'], $pgc['office_share_pool']['params'], $pgc['office_share_pool']['link']],
+         [$pgc['share_pool']['level'], $pgc['share_pool']['ok'], $pgc['share_pool']['params']]]);
+    same('pool gone: every pool there — both fine; an older look without her room — nothing', [[true, true], []],
+        [array_column(clPoolGoneChecks(clShareCfgs($pg, true, fn () => true, ['cache', 'big', 'fast', 'gone2'])), 'ok'), clPoolGoneChecks(['dir' => $pg])]);
+    check('pool gone: she only reads the settings file, never writes it', str_contains((string) file_get_contents("$pg/UnraidSecretaryOffice.cfg"), 'shareCachePool="big"'));
+
     $refused = function (array $e): ?string { try { clParkCheck($e, true); return null; } catch (Problem $p) { return $p->key; } };
     same('stale shares: never put away while Unraid knows the share or can\'t tell — not even with force',
         ['cleanup_share_known', 'cleanup_shares_unknown', null], [$refused($room['list'][1]), $refused(['why' => 'shares_unknown'] + $room['list'][0]), $refused($room['list'][0])]);

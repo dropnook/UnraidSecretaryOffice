@@ -18,6 +18,13 @@
     "one": "Ein Posten ({size}) liegt seit {days} Tagen in ihrer Abstellkammer. Wenn alles noch läuft, leere ihn.",
     "other": "{n} Posten ({size}) liegen seit bis zu {days} Tagen in ihrer Abstellkammer. Wenn alles noch läuft, leere sie."
   },
+  "check.office_share_pool": "Der Share {share} des Sekretariats liegt auf einem Pool, den Unraid hat",
+  "check.office_share_pool_how": "Seine Einstellungen nennen den Pool «{pool}», den Unraid nicht mehr hat — Schreiben dort scheitert mit «no medium found», das Sekretariat kann dort nichts ablegen. Wähle unter ⟦Shares⟧ → {share} → ⟦Primary storage⟧ einen Pool. Die Datei ändere ich nicht selbst.",
+  "check.share_pool": "Die Einstellungen aller Shares nennen nur Pools, die Unraid hat",
+  "check.share_pool_how": {
+    "one": "Ein Share nennt einen Pool, den Unraid nicht mehr hat: {shares}. Schreiben dort scheitert mit «no medium found». Wähle unter ⟦Shares⟧ → der Share → ⟦Primary storage⟧ (oder ⟦Secondary storage⟧) einen Pool.",
+    "other": "{n} Shares nennen einen Pool, den Unraid nicht mehr hat: {shares}. Schreiben dort scheitert mit «no medium found». Wähle unter ⟦Shares⟧ → jeweils der Share → ⟦Primary storage⟧ (oder ⟦Secondary storage⟧) einen Pool."
+  },
   "scan": "Rundgang",
   "scan_title": "Den ganzen Server nochmals ablaufen: wo alles liegt und was herumliegt",
   "scan_done": "Rundgang fertig in {ms} ms.",
@@ -699,6 +706,8 @@
   "flash.stale_text": "Unraid führt keinen Share «{name}» mehr, und /mnt/user/{name} gibt es nicht — der Share wurde entfernt, seine Einstellungsdatei blieb zurück. Manche Werkzeuge zählen sie noch als Share. Ab in meine Abstellkammer damit; legst du den Share wieder an, schreibt Unraid eine neue.",
   "flash.unknown_text": "Das Array ist nicht gestartet — ob es «{name}» noch gibt, sage ich, sobald es läuft.",
   "flash.used_text": "Unraid kennt den Share «{name}» — das sind seine Einstellungen, sie bleiben.",
+  "flash.pool_gone": "Pool «{pool}» fehlt",
+  "flash.pool_gone_text": "Unraid hat keinen Pool «{pool}» mehr — Schreiben in «{name}» scheitert dort mit «no medium found». Die Datei ändere ich nicht: Wähle unter ⟦Shares⟧ → {name} → ⟦Primary storage⟧ (oder ⟦Secondary storage⟧) einen Pool.",
   "why.share_known": "Share existiert",
   "why.share_known_text": "Unraid kennt diesen Share — seine Einstellungen bleiben, wo sie sind.",
   "why.shares_unknown": "Array gestoppt",
