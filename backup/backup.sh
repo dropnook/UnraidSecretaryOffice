@@ -4,8 +4,9 @@
 #   2.57 An app's package inside goes only into its configuration folder: inside Unraid's place for app configurations
 #        (docker.cfg DOCKER_APP_CONFIG_PATH: appdata/<app>, or a dataset only it binds inside appdata) - never a share's
 #        root (folder or dataset: an S3 gateway sees .uso-backup there as a bucket), never a folder of another share
-#        (the app's data); each place left out is one log line. A .uso-backup an earlier run wrote there (its
-#        README.txt the engine's) is moved away once into state/inside-aside/<run>/, said in the log
+#        (the app's data); each place left out is one log line. A .uso-backup an earlier run wrote there or into
+#        the root of a snapshotted share (its README.txt the engine's) is moved away once into
+#        state/inside-aside/<run>/, said in the log
 #   2.56 A repository suddenly empty holds the Kopia step: far fewer snapshots than at the last count (or than when the
 #        hold began) is an error (warning_items kopia_held), nothing goes offsite, the local part and the partners go on;
 #        state/kopia-held.json keeps it from run to run (an alert when it begins) until the snapshots are back, Kopia is
@@ -2079,28 +2080,45 @@ app_cfg_place() {
     return 1
 }
 
-# inside_leftover <name> <folder>  - (2.57) a package an earlier engine wrote into a place the app's package no longer
+# inside_leftover <who> <folder>  - (2.57) a package an earlier engine wrote into a place the app's package no longer
 # goes (<folder>/.uso-backup) is moved away once, into state/inside-aside/<run>/ (the engine's data folder, root's) -
 # only a real folder whose README.txt the engine wrote, only on a dataset of this run that is awake; nothing else touched
 inside_leftover() {
-    local n="$1" dir="${2%/}" d first ds to
+    local who="$1" dir="${2%/}" d first ds to
     d="$dir/$UB_INSIDE_DIR"
     ds="$(path_dataset "$dir")"
     [[ -n "$ds" && -z "${ASLEEP_DS[$ds]:-}" ]] || return 0
     [[ -d "$dir" && ! -L "$dir" && -d "$d" && ! -L "$d" && -f "$d/README.txt" && ! -L "$d/README.txt" ]] || return 0
     first=""; IFS= read -r first <"$d/README.txt" 2>/dev/null || true
     if [[ "$first" != "Written by the Unraid Secretary Office's backup engine"* ]]; then
-        log "  app '$n': $d isn't the backup engine's - left as it is"; return 0
+        log "  $who: $d isn't the backup engine's - left as it is"; return 0
     fi
     to="$UB_STATE/inside-aside/$TS"
-    mkdir -p -m 700 "$to" 2>>"$LOG_FILE" || { log "  app '$n': $to could not be made - $d stays"; return 0; }
+    mkdir -p -m 700 "$to" 2>>"$LOG_FILE" || { log "  $who: $to could not be made - $d stays"; return 0; }
     to="$to/$(printf '%s' "${dir#/}" | tr '/' '_')"
     [[ -e "$to" ]] && to="$to-$$"
     if mv -- "$d" "$to" 2>>"$LOG_FILE"; then
-        log "  app '$n': the package an earlier run wrote into $d moved away to $to"
+        log "  $who: the package an earlier run wrote into $d moved away to $to"
     else
-        log "  app '$n': the package an earlier run wrote into $d could not be moved away - it stays"
+        log "  $who: the package an earlier run wrote into $d could not be moved away - it stays"
     fi
+    return 0
+}
+
+# inside_leftover_roots  - (2.57) the roots of the run's shares (the mountpoints of its ZFS datasets that are a whole
+# share): a package never goes there (no VM's, no app's), so one an earlier engine wrote there is a leftover too (an app
+# that was once the only one binding appdata, a share only one app binds)
+inside_leftover_roots() {
+    local ds mp b
+    for ds in "${PLAN_ZFS[@]}"; do
+        mp="${ZDS_MP[$ds]:-}"
+        [[ "$mp" == /* ]] || continue
+        for b in "${INV_BASES[@]}"; do
+            [[ "$mp" == "${INV_BASE_PATH[$b]}/"* && "${mp#"${INV_BASE_PATH[$b]}"/}" != */* ]] || continue
+            [[ -z "${ASLEEP_DS[$ds]:-}" ]] && inside_leftover "share '${mp##*/}'" "$mp"
+            break
+        done
+    done
     return 0
 }
 
@@ -2113,7 +2131,7 @@ pkg_inside_app() {
             pkg_inside app "$n" "$src" "$dir"
         else
             log "  app '$n': $dir is a share's data, not the app's folder - $UB_INSIDE_DIR not written"
-            inside_leftover "$n" "$dir"
+            inside_leftover "app '$n'" "$dir"
         fi
     done < <(app_own_dirs "$f")
     return 0
@@ -2307,6 +2325,7 @@ pkg_commit_apps() {
         pkg_inside_app "$f" "$new"              # 2.43: its package also inside its own dataset (before the swap - the stage is complete)
         pkg_swap apps "$f" && pkg_count "apps/$f" "$old" "$kb"
     done
+    inside_leftover_roots                       # 2.57: what earlier engines left in a share's root goes aside
     if [[ -d "$PKG_STAGE/flash" ]]; then
         if kb="$(pkg_keep "$UB_DUMPS/flash" "$PKG_STAGE/flash" flash.tar.gz)"; then
             PKG_FILE_RUN[flash/flash.tar.gz]="$(jq -r '.files[]? | select(.path == "flash.tar.gz") | .run' "$UB_DUMPS/flash/manifest.json" 2>/dev/null)"

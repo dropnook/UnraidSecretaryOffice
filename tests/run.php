@@ -6944,10 +6944,10 @@ SH);
         touch("$tmp/boot/config/shares/$n.cfg");
     }
     $engine = "Written by the Unraid Secretary Office's backup engine: this app's package as of the last backup\nOverwritten by every backup run\n";
-    foreach (["$pool/s3-tom/.versions/.uso-backup", "$pool/s3-tom/.uso-backup", "$pool/drop/shares/.uso-backup", "$pool/drop/.uso-backup", "$pool/appdata/dn"] as $d) {
+    foreach (["$pool/s3-tom/.versions/.uso-backup", "$pool/s3-tom/.uso-backup", "$pool/drop/shares/.uso-backup", "$pool/drop/.uso-backup", "$pool/appdata/dn", "$pool/appdata/.uso-backup"] as $d) {
         @mkdir($d, 0700, true);
     }
-    foreach (["$pool/s3-tom/.versions/.uso-backup", "$pool/s3-tom/.uso-backup", "$pool/drop/shares/.uso-backup"] as $d) {
+    foreach (["$pool/s3-tom/.versions/.uso-backup", "$pool/s3-tom/.uso-backup", "$pool/drop/shares/.uso-backup", "$pool/appdata/.uso-backup"] as $d) {
         file_put_contents("$d/README.txt", $engine);
         file_put_contents("$d/manifest.json", '{"kind":"app","name":"old"}');
     }
@@ -6973,14 +6973,15 @@ SH);
     check('inside 2.57: one log line per place left out — no warning', str_contains($out, "app 's3': $pool/s3-tom is a share's data, not the app's folder - .uso-backup not written")
         && str_contains($out, "app 's3': $pool/s3-tom/.versions is a share's data") && str_contains($out, "app 'dn': $pool/drop is a share's data")
         && str_contains($out, "app 'dn': $pool/drop/shares is a share's data") && !preg_match('/WARN.*(s3-tom|drop)/', $out), $out);
-    same('inside 2.57: the engine\'s earlier packages moved away into state/inside-aside/<run>/ — three, each with its README', [3, true],
-        [count($aside), count(array_filter($aside, fn ($d) => str_starts_with((string) @file_get_contents("$d/README.txt"), 'Written by the Unraid')) ) === 3], json_encode($aside) . $out);
+    same('inside 2.57: the engine\'s earlier packages moved away into state/inside-aside/<run>/ — four (appdata\'s root too: no app\'s alone), each with its README', [4, true, false],
+        [count($aside), count(array_filter($aside, fn ($d) => str_starts_with((string) @file_get_contents("$d/README.txt"), 'Written by the Unraid'))) === 4, file_exists("$pool/appdata/.uso-backup")], json_encode($aside) . $out);
     check('inside 2.57: … said in the log', str_contains($out, "the package an earlier run wrote into $pool/s3-tom/.uso-backup moved away to $data/state/inside-aside/")
-        && str_contains($out, "wrote into $pool/s3-tom/.versions/.uso-backup moved away") && str_contains($out, "wrote into $pool/drop/shares/.uso-backup moved away"), $out);
+        && str_contains($out, "wrote into $pool/s3-tom/.versions/.uso-backup moved away") && str_contains($out, "wrote into $pool/drop/shares/.uso-backup moved away")
+        && str_contains($out, "share 'appdata': the package an earlier run wrote into $pool/appdata/.uso-backup moved away"), $out);
     same('inside 2.57: a .uso-backup that isn\'t the engine\'s stays as it is, said', ["my own notes\n", true],
         [(string) @file_get_contents("$pool/drop/.uso-backup/README.txt"), str_contains($out, "$pool/drop/.uso-backup isn't the backup engine's - left as it is")], $out);
     [$rc, $out] = $run();
-    same('inside 2.57: the next run moves nothing more and writes nothing there', [0, 3, false, false, true],
+    same('inside 2.57: the next run moves nothing more and writes nothing there', [0, 4, false, false, true],
         [$rc, count(glob("$data/state/inside-aside/*/*") ?: []), str_contains($out, 'the package an earlier run wrote into'), file_exists("$pool/s3-tom/.uso-backup"), is_file("$pool/appdata/dn/.uso-backup/manifest.json")], $out);
 
     // 2.48 (review 2026-10-15): keep_logs = 0 never removes the log of the run that is writing it - only the earlier ones go
