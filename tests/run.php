@@ -4263,6 +4263,31 @@ JS);
     same('silent controls: Jack Streamer\'s «n changes» - none at the start, the budget 1, a library and a person more, all back none', [0, 1, 3, 0], json_decode($raw, true) ?? $raw);
 }
 
+/**
+ * A must the office couldn't look at (its disk sleeps) is no must (2026-10-17, nostromo: «Nötig (2)», «? steht auf ?»):
+ * Nextcloud's data folder - one finding per folder, none while not looked at, never «?» in its words; the backup place
+ * while its disks sleep likewise
+ */
+function testBackupAsleepNoMust(): void
+{
+    $look = fn (array $map) => fn (string $ct): array => $map[$ct] ?? [null, null];
+    $ncs = [['container' => 'nextcloud'], ['container' => 'nextcloud-cron'], ['container' => 'nc2']];
+    same('asleep no must: Nextcloud\'s disk asleep (app and cron) - no finding at all', [], backupNextcloudFindings($ncs, $look([])));
+    $f = backupNextcloudFindings($ncs, $look(['nextcloud' => ['/mnt/user/nc', 040777], 'nextcloud-cron' => ['/mnt/user/nc', 040777], 'nc2' => ['/mnt/user/nc2', 040750]]));
+    same('asleep no must: awake - one per data folder (app and cron share it), others\' read judged, the mode as digits',
+        [['nextcloud_datadir', 'required', false, 'nextcloud', '/mnt/user/nc', '777'], ['nextcloud_datadir', 'required', true, 'nc2', '/mnt/user/nc2', '750']],
+        array_map(fn ($x) => [$x['id'], $x['level'], $x['ok'], $x['params']['name'], $x['params']['path'], $x['params']['mode']], $f));
+    same('asleep no must: a folder whose bits can\'t be read - not judged, nothing said', [], backupNextcloudFindings([['container' => 'nc']], $look(['nc' => ['/mnt/user/nc', null]])));
+    $bp = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
+    check('asleep no must: the backup place while its disks sleep - no must «couldn\'t check»',
+        str_contains($bp, "if (!\$dsSleeps) {\n            \$out[] = finding('dumps_share', 'required', !\$dsBad,"));
+    $desks = '';
+    foreach (glob(OFFICE_DIR . '/agent/desks/*.php') ?: [] as $file) {
+        $desks .= (string) file_get_contents($file);
+    }
+    check('asleep no must: no «?» put into a user text\'s parameter anywhere in the desks', !preg_match("/=> '\\?'/", $desks));
+}
+
 function testBackup74Polish(): void
 {
     $tmp = sys_get_temp_dir() . '/office-tests-74polish-' . getmypid();
@@ -11218,6 +11243,8 @@ function testRestoreVmForeign(): void
     same('vm foreign: another VM\'s name (its definition would be replaced) - refused', ['note' => 'vm_foreign_name', 'params' => ['other' => 'Windows11']], $r);
     [, , $r] = rspXmlForeign("<domain type='kvm'><name>W</name><os><kernel>/boot/bzimage</kernel></os></domain>", 'W', [$dir]);
     same('vm foreign: a kernel of this server - refused', 'vm_foreign_path', $r['note'] ?? null);
+    [, , $r] = rspXmlForeign('', 'W', [$dir]);
+    same('vm foreign: a configuration that can\'t be read - refused in its own words, never «?» as a path', ['note' => 'vm_xml_unreadable', 'params' => []], $r);
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore-partner.php');
     $rs = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore.php');
     $start = substr($src, (int) strpos($src, 'function rspStartVm('), 6000);
@@ -11229,7 +11256,7 @@ function testRestoreVmForeign(): void
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         $lj = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/restore/lang/$l.json"), true) ?: [];
         same("vm foreign: $l - its words", [], array_values(array_filter(['sa.qemu', 'sa.filesystem', 'sa.net_script', 'sa.passthrough', 'sa.emulator',
-            'sn.vm_foreign_path', 'sn.vm_foreign_name'], fn ($k) => !isset($lj[$k]))));
+            'sn.vm_foreign_path', 'sn.vm_foreign_name', 'sn.vm_xml_unreadable'], fn ($k) => !isset($lj[$k]))));
     }
 }
 
@@ -26397,6 +26424,10 @@ function testRestoreDrill(): void
         ['ok', 'vm_chain_ok', 1, 'snapshot', 2, 'mbr'], [$r['state'], $r['code'], $r['level'], $r['copy'], $r['params']['chain'] ?? null, $r['params']['look'] ?? null]);
     $r = $disk('/mnt/maple/domains/Lin/top.qcow2');
     same('drill VM disk: a backing file outside the run\'s snapshot — failed', ['failed', 'vm_chain_outside', '/mnt/maple/isos/base.img'], [$r['state'], $r['code'], $r['params']['file'] ?? null]);
+    file_put_contents("$snap/Lin/odd.qcow2", $qhead(3, '../base.img', 'raw'));
+    $r = $disk('/mnt/maple/domains/Lin/odd.qcow2');
+    same('drill VM disk: a backing name it won\'t follow («..») — failed with its own words, never «?» as the file', ['failed', 'vm_chain_unreadable', false],
+        [$r['state'], $r['code'], isset($r['params']['file'])]);
     same('drill VM disk: not in the snapshot — failed', ['failed', 'vm_disk_missing'], array_values(array_intersect_key($disk('/mnt/maple/domains/Gone/x.img'), ['state' => 1, 'code' => 1])));
     same('drill VM disk: all zero — a warning, not a failure', ['warning', 'vm_disk_empty'], array_values(array_intersect_key($disk('/mnt/maple/domains/Empty/vdisk1.img'), ['state' => 1, 'code' => 1])));
     same('drill VM disk: another size than the manifest — a warning', ['warning', 'vm_disk_size'], array_values(array_intersect_key($disk('/mnt/maple/domains/Win/vdisk2.S1qcow2', 12345), ['state' => 1, 'code' => 1])));
@@ -40228,7 +40259,7 @@ function testFirstHome(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

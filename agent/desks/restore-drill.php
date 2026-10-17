@@ -2092,7 +2092,8 @@ function drillDoVmDisk(array $s, array &$env): array
         }
         $b = $q['backing'];
         if ($b === '' || preg_match('/[\x00-\x1f]/', $b) || str_contains("/$b/", '/../')) {
-            return ['state' => 'failed', 'code' => 'vm_chain_outside', 'params' => $out['params'] + ['file' => '?']] + $out;
+            // a name that can't be shown (empty, control characters, «..»): said as such, never a «?» in the text
+            return ['state' => 'failed', 'code' => 'vm_chain_unreadable', 'params' => $out['params']] + $out;
         }
         if (str_starts_with($b, '/')) {
             // a path as the VM sees it: the same file in this run's snapshot (another dataset of it too), else outside

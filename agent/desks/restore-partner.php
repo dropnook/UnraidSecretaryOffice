@@ -1703,7 +1703,7 @@ function rspXmlForeign(string $xml, string $name, array $roots): array
     $no = fn (string $note, array $params = []): array => [$xml, [], ['note' => $note, 'params' => $params]];
     $doc = new DOMDocument();
     if (trim($xml) === '' || !@$doc->loadXML($xml, LIBXML_NONET) || $doc->documentElement?->localName !== 'domain') {
-        return $no('vm_foreign_path', ['path' => '?']);
+        return $no('vm_xml_unreadable');               // never «?» as a path in its text
     }
     $x = new DOMXPath($doc);
     $x->registerNamespace('q', RSP_XML_QEMU_NS);
