@@ -1506,6 +1506,8 @@
     "other": "{n} schlafende Disks wecken"
   },
   "where.wake_title": "Nur für diesen Rundgang: weckt alle schlafenden Disks gleichzeitig und liest alles — wo Shares wirklich liegen, ob Pfade auf dem Array existieren, VM-Disks dort. Unraid legt sie nach seiner Wartezeit wieder schlafen.",
+  "where.wake_once": "Gilt nur für den nächsten Rundgang, wird nicht gemerkt.",
+  "where.scan_now": "Jetzt Rundgang machen",
   "where.tour_done_woken": {
     "one": "Rundgang fertig in {ms} ms — 1 Disk geweckt.",
     "other": "Rundgang fertig in {ms} ms — {n} Disks geweckt."

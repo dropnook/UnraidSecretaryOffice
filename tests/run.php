@@ -3960,7 +3960,7 @@ function testBackupAppShare(): void
         'why' => 'writes', 'media' => '', 'binds' => array_map(fn ($b) => ['share' => $b[0], 'path' => $b[1], 'rw' => $b[2]], $binds)];
     $sh = fn (string $name, array $more = []) => $more + ['name' => $name, 'folders' => [], 'children' => [], 'app_share' => null];
     $plan = [
-        'shares' => [$sh('appdata', ['app_share' => ['docker'], 'folders' => [['dir' => 's3', 'container' => 'S3-Tom'], ['dir' => 'drop', 'container' => 'drop']]]),
+        'shares' => [$sh('appdata', ['app_share' => ['docker'], 'folders' => [['dir' => 's3', 'container' => 'S3-Tom'], ['dir' => 'drop', 'container' => 'drop'], ['dir' => 'EmbyServer', 'container' => 'EmbyServer']]]),
             $sh('s3-tom'), $sh('drop'), $sh('Filme'), $sh('photos'), $sh('system'), $sh('isos'), $sh('UnraidSecretaryOffice'), $sh('Backups'), $sh('tm_anna'), $sh('gone')],
         'containers' => [
             $ct('S3-Tom', 's3', [['appdata', 's3/iam', true], ['s3-tom', '', true], ['Filme', '', false]]),
@@ -4034,6 +4034,258 @@ function testBackupAppShare(): void
         backupAppShareGaps($s, $plan, $exists)['kopia']);
     $bp = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
     check('app share: the check is registered with the Team Lead', str_contains($bp, 'array_push($out, ...backupAppShareFindings($settings, $plan,'));
+    testBackupAppShareBoxes($ini, $base, $plan, $exists);
+}
+
+/**
+ * The setup's «… mitsichern» boxes (2026-10-17, the owner: unticked on every visit, a tick that changed nothing said
+ * nothing): depCovered() in desk.js answers like backupAppShareGaps() on the same servers (one rule), the box shows it
+ * on load, a tick on a share already there says so, an untick keeps the share where it is, a tick never lowers one
+ */
+function testBackupAppShareBoxes(callable $ini, string $base, array $plan, array $exists): void
+{
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('app share boxes: node is missing here - skipped', true);
+        return;
+    }
+    $p2 = $plan;
+    $p2['shares'][0]['children'] = ['pool/appdata/s3'];
+    $kopia = "[share \"s3-tom\"]\nmode = kopia\n[share \"drop\"]\nmode = kopia\n[share \"photos\"]\nmode = kopia\n";
+    $partner = "[share \"s3-tom\"]\nmode = kopia\n[share \"drop\"]\nmode = kopia\npartner = 0a1b2c3d\n[share \"photos\"]\nmode = kopia\n[app \"dropnook\"]\npartner = 0a1b2c3d\n";
+    $withAppdata = $ini($base . $partner);
+    $withAppdata['share|appdata']['partner'] = ['0a1b2c3d'];
+    $cases = [
+        'local shares' => [$ini($base . "[share \"s3-tom\"]\nmode = snapshot\n[share \"photos\"]\nmode = snapshot\n"), $plan],
+        'Kopia off' => [$ini(str_replace('enabled = yes', 'enabled = no', $base) . "[share \"s3-tom\"]\nmode = snapshot\n[share \"drop\"]\nmode = snapshot\n[share \"photos\"]\nmode = snapshot\n"), $plan],
+        'partner' => [$ini($base . $partner), $plan],
+        'appdata to the partner' => [$withAppdata, $plan],
+        '… s3 a dataset of its own' => [$withAppdata, $p2],
+        'all to Kopia' => [$ini($base . $kopia), $plan],
+        'own Kopia source' => [$ini(str_replace("[share \"appdata\"]\nmode = kopia", "[share \"appdata\"]\nmode = snapshot", $base) . "[share \"s3-tom\"]\nmode = snapshot\n[app \"s3\"]\nkopia = yes\n"
+            . "[share \"drop\"]\nmode = snapshot\n[share \"photos\"]\nmode = snapshot\n"), $plan],
+    ];
+    // the pairs the Team Lead looks at (a writable bind into a data share, no media library)
+    $pairs = ['s3|s3-tom', 'dropnook|drop', 'dropnook|photos', 'TimeMachine|tm_anna'];
+    $draft = function (array $settings): array {
+        $d = [];
+        foreach ($settings as $sec => $keys) {
+            foreach (is_array($keys) ? $keys : [] as $k => $v) {
+                // as the plan's P has them: lists for the list keys, one value for the rest
+                $d["$sec|$k"] = is_array($v) && !preg_match('/^(ignore|no_stop|known|skip|kopia_ignore|kopia_known|exclude_dataset|tar_exclude|folder|partner)$/', (string) $k) ? end($v) : $v;
+            }
+        }
+        return $d;
+    };
+    $in = [];
+    $want = [];
+    foreach ($cases as $name => [$s, $pl]) {
+        $g = backupAppShareGaps($s, $pl, $exists);
+        foreach ($pairs as $pair) {
+            [$app, $share] = explode('|', $pair);
+            $gap = in_array($share, $g['off'][$app] ?? [], true) || in_array($share, $g['kopia'][$app] ?? [], true)
+                || array_filter($g['partner'], fn ($apps) => in_array($share, $apps[$app] ?? [], true));
+            $want[$name][$pair] = !$gap;
+        }
+        $d = $draft($s);
+        $in[$name] = $pl + ['have_settings' => true, 'P' => $d, 'O' => $d, 'databases' => [], 'nextcloud' => [], 'vms' => [], 'partners' => [['id' => '0a1b2c3d', 'name' => 'Tower']]];
+    }
+    $tmp = hardeningTmp('app-share-boxes');
+    file_put_contents("$tmp/cases.json", json_encode(['cases' => $in, 'pairs' => $pairs]));
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now' }, desk: () => {}, places: () => {}, placesFrom: () => {},
+  placesTook: () => {}, selbar: () => {}, has: () => false, keepInPlace: () => {} };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const S = b.setup;
+const { cases, pairs } = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+const load = (plan) => {
+  S.plan = JSON.parse(JSON.stringify(plan));
+  S.plan.containers.forEach((c) => { c.volumes = []; });
+  S.draft = JSON.parse(JSON.stringify(plan.P));
+  S.model = b.setupModel(S.plan);
+  b.setupInitLevels();
+  b.setupDerive();
+};
+const app = (n) => S.model.apps.find((a) => a.name === n);
+const out = { covered: {} };
+Object.entries(cases).forEach(([name, plan]) => {
+  load(plan);
+  out.covered[name] = Object.fromEntries(pairs.map((p) => { const [a, s] = p.split('|'); return [p, b.depCovered(app(a), s, S.plan)]; }));
+});
+const mode = (s) => S.draft[`share|${s}|mode`];
+const view = (a, s) => [b.depTicked(app(a), s, S.plan), S.depNote.get(`${app(a).id}|${s}`) || null, mode(s)];
+// s3 to Kopia, s3-tom local: unticked; a tick raises it (and ties it), an untick keeps it there
+load(cases['local shares']);
+out.raise = [view('s3', 's3-tom')];
+b.depClick(app('s3'), 's3-tom', true, {}, S.plan, null);
+out.raise.push(view('s3', 's3-tom'), !!S.locks['s3-tom']);
+b.depClick(app('s3'), 's3-tom', false, {}, S.plan, null);
+out.raise.push(view('s3', 's3-tom'), !!S.locks['s3-tom']);
+// everything to Kopia: ticked on load; untick says «stays», nothing changes; a tick again says «already», nothing locked
+load(cases['all to Kopia']);
+const before = JSON.stringify(S.draft);
+out.same = [view('dropnook', 'photos')];
+b.depClick(app('dropnook'), 'photos', false, {}, S.plan, null);
+out.same.push(view('dropnook', 'photos'));
+b.depClick(app('dropnook'), 'photos', true, {}, S.plan, null);
+out.same.push(view('dropnook', 'photos'), !!S.locks.photos, JSON.stringify(S.draft) === before);
+// a new plan (a tour, measuring): the boxes clicked stay as clicked
+b.depClick(app('dropnook'), 'photos', false, {}, S.plan, null);
+S.base = JSON.parse(JSON.stringify(S.draft));
+b.setupDraftKeep();
+out.same.push(view('dropnook', 'photos'));
+// a tick never lowers: tm_anna at Kopia, TimeMachine only local but to the partner - ticked, the share stays at Kopia
+const p = JSON.parse(JSON.stringify(cases['local shares']));
+p.P['share|tm_anna|mode'] = 'kopia';
+p.P['app|TimeMachine|partner'] = ['0a1b2c3d'];
+load(p);
+out.lower = [view('TimeMachine', 'tm_anna')];
+b.depClick(app('TimeMachine'), 'tm_anna', true, {}, S.plan, null);
+out.lower.push(view('TimeMachine', 'tm_anna'));
+console.log(JSON.stringify(out));
+JS);
+    $cmd = escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' ' . escapeshellarg("$tmp/cases.json") . ' 2>&1';
+    $raw = (string) shell_exec($cmd);
+    $r = json_decode($raw, true);
+    exec('rm -rf ' . escapeshellarg($tmp));
+    if (!is_array($r)) {
+        check('app share boxes: ran under node', false, $raw);
+        return;
+    }
+    same('app share boxes: the page\'s box (depCovered) and the Team Lead\'s hint (backupAppShareGaps) agree on every server', $want, $r['covered'] ?? null);
+    same('app share boxes: s3-tom less far than s3 - unticked; a tick raises it to Kopia (tied to the app), an untick keeps it there («stays»)',
+        [[false, null, 'snapshot'], [true, null, 'kopia'], true, [false, 'kept', 'kopia'], false], $r['raise'] ?? null);
+    same('app share boxes: photos as far as dropnook - ticked on load; untick «stays», tick again «already», nothing changes, nothing tied; a new plan keeps the untick',
+        [[true, null, 'kopia'], [false, 'kept', 'kopia'], [true, 'same', 'kopia'], false, true, [false, 'kept', 'kopia']], $r['same'] ?? null);
+    same('app share boxes: a tick never lowers a share that goes further than its app on its own', [[false, null, 'kopia'], [true, null, 'kopia']], $r['lower'] ?? null);
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $j = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$l.json"), true) ?: [];
+        check("app share boxes: the rows' words ($l)", str_contains($j['setup.app_dep_same'] ?? '', '{share}') && str_contains($j['setup.app_dep_kept'] ?? '', '{mode}'));
+    }
+}
+
+/**
+ * Ms. Moverelli's and Jack Streamer's setup pages start from the saved settings on every visit: left with changes not
+ * saved (their other page, another desk), a word says so - never lost without one (2026-10-17, silent controls)
+ */
+function testSetupLeftUnsaved(): void
+{
+    $mo = (string) file_get_contents(OFFICE_WEB . '/desks/moverelli/desk.js');
+    $jk = (string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.js');
+    check('left unsaved: Ms. Moverelli says it when her setup is left - another page of hers and another desk',
+        str_contains($mo, "async mount(root, sub) {\n    leftSetup();") && str_contains($mo, 'unmount() { leftSetup();')
+        && str_contains($mo, "setupChangeRows(saved, formSettings(form)).length) Office.toast(T('setup.left_unsaved'))"));
+    check('left unsaved: Jack Streamer the same',
+        substr_count($jk, "if (page === 'setup' && formChanged()) Office.toast(T('setup.left_unsaved'));") === 2);
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $j = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/moverelli/lang/$l.json"), true) ?: [];
+        check("left unsaved: Ms. Moverelli's word ($l)", ($j['setup.left_unsaved'] ?? '') !== '');
+    }
+}
+
+/** The tip jar's «don't ask again»: kept however the dialog ends (Escape, a click outside), not only by its buttons */
+function testTipNeverKept(): void
+{
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    check('tip jar: «don\'t ask again» is stored when the dialog closes, whichever way',
+        str_contains($core, "onClose: () => { if (cb.checked) Office.store('tip.never', '1'); } });"));
+}
+
+/**
+ * More controls that said nothing (2026-10-17, silent controls, the coordinator's list): Backupsy's «Set them to manual»
+ * says it holds for this Apply only; Snapshotini's and Dustdevil's wake switches say «next tour only» with the tour
+ * beside it; Jack Streamer's setup has the change bar (one change per server, library, person, budget, value);
+ * Backupsy's «also to {partner}» on a default not chosen says it waits for it
+ */
+function testSilentControlsMore(): void
+{
+    $lang = fn (string $desk, string $l) => json_decode((string) file_get_contents(OFFICE_WEB . "/desks/$desk/lang/$l.json"), true) ?: [];
+    $bk = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    $sp = (string) file_get_contents(OFFICE_WEB . '/desks/snapshot/desk.js');
+    $cl = (string) file_get_contents(OFFICE_WEB . '/desks/cleanup/desk.js');
+    $jk = (string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.js');
+    check('silent controls: «Set them to manual» says it holds for this Apply', str_contains($bk, "el('small', 'bk-once', T('setup.sources_manual_once'))"));
+    check('silent controls: «also to {partner}» on a default not chosen says it waits', str_contains($bk, "if (!on && !off) tickText.appendChild(el('small', '', T('setup.preset.kopia_partner_tick_wait')));"));
+    check('silent controls: Snapshotini\'s wake switch - its word and «Tour now» under it, shown only while on, off again after the tour',
+        str_contains($sp, "wakeNote.append(el('span', '', T('wake_once')), wakeGo);") && str_contains($sp, 'wakeNote.hidden = !wake.checked || wakeLabel.hidden;')
+        && str_contains($sp, '{ view.wake.checked = false; view.wakeSync(); }'));
+    check('silent controls: Dustdevil\'s the same', str_contains($cl, "wakeNote.append(el('span', '', T('where.wake_once')), wakeGo);")
+        && str_contains($cl, 'wakeNote.hidden = !v.wake.checked || v.wakeLabel.hidden;') && str_contains($cl, '{ view.wake.checked = false; view.wakeSync(); }'));
+    check('silent controls: Jack Streamer\'s bar - drawn from his setup, gone on his other page and on other desks',
+        str_contains($jk, 'setTimeout(setupBar, 0);') && substr_count($jk, 'Office.selbar(null)') >= 3);
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $b = $lang('backup', $l);
+        $s = $lang('snapshot', $l);
+        $c = $lang('cleanup', $l);
+        $j = $lang('jack', $l);
+        check("silent controls: the words ($l)", ($b['setup.sources_manual_once'] ?? '') !== '' && ($b['setup.preset.kopia_partner_tick_wait'] ?? '') !== ''
+            && ($s['wake_once'] ?? '') !== '' && ($c['where.wake_once'] ?? '') !== '' && ($c['where.scan_now'] ?? '') === ($s['scan_now'] ?? null)
+            && is_array($j['setup.bar_changes'] ?? null) && ($j['setup.bar_sub'] ?? '') !== '' && ($j['setup.discard'] ?? '') !== '');
+    }
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('silent controls: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('silent-more');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const el = () => ({ dataset: {}, style: {}, appendChild() {}, append() {}, setAttribute() {} });
+globalThis.Office = { sections: () => ({ el: {}, active: () => '', mount: () => false, places: () => [], note: () => ({ tile: '' }), render() {}, row() {}, pick() {}, clear() {} }), scope: () => T, t: T, el, fmt: {}, desk: () => {}, places: () => {},
+  placesFrom: () => {}, placesTook: () => {}, store: () => null, storeJson: () => null, agent: { running: true } };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const e = OFFICE_DESK_TESTS.jack;
+e.setState({ settings: { instances: [{ type: 'emby', servername: 'Emby', url: 'http://emby:8096', has_key: true, path_mappings: { '/data': '/mnt/user/Filme' } }],
+  libraries: ['Filme'], valid_users: ['u1'], cache_path: '/mnt/maple', cache_budget: '200G' }, pools: ['/mnt/maple'], emby: [], share_info: {},
+  jobs: { embycache: { running: false }, gather: { running: false } } });
+e.initForm();
+const f = e.form();
+const out = [e.formChangeCount()];
+f.values.cache_budget = '300';
+out.push(e.formChangeCount());
+f.chosenLibs.add('Serien');
+f.chosenUsers.delete('u1');
+out.push(e.formChangeCount());
+f.values.cache_budget = '200';
+f.chosenLibs.delete('Serien');
+f.chosenUsers.add('u1');
+out.push(e.formChangeCount());
+console.log(JSON.stringify(out));
+JS);
+    $raw = (string) shell_exec(implode(' ', array_map('escapeshellarg', [$node, "$tmp/t.js", OFFICE_WEB . '/desks/jack/desk.js'])) . ' 2>&1');
+    hardeningRm($tmp);
+    same('silent controls: Jack Streamer\'s «n changes» - none at the start, the budget 1, a library and a person more, all back none', [0, 1, 3, 0], json_decode($raw, true) ?? $raw);
+}
+
+/**
+ * A must the office couldn't look at (its disk sleeps) is no must (2026-10-17, nostromo: «Nötig (2)», «? steht auf ?»):
+ * Nextcloud's data folder - one finding per folder, none while not looked at, never «?» in its words; the backup place
+ * while its disks sleep likewise
+ */
+function testBackupAsleepNoMust(): void
+{
+    $look = fn (array $map) => fn (string $ct): array => $map[$ct] ?? [null, null];
+    $ncs = [['container' => 'nextcloud'], ['container' => 'nextcloud-cron'], ['container' => 'nc2']];
+    same('asleep no must: Nextcloud\'s disk asleep (app and cron) - no finding at all', [], backupNextcloudFindings($ncs, $look([])));
+    $f = backupNextcloudFindings($ncs, $look(['nextcloud' => ['/mnt/user/nc', 040777], 'nextcloud-cron' => ['/mnt/user/nc', 040777], 'nc2' => ['/mnt/user/nc2', 040750]]));
+    same('asleep no must: awake - one per data folder (app and cron share it), others\' read judged, the mode as digits',
+        [['nextcloud_datadir', 'required', false, 'nextcloud', '/mnt/user/nc', '777'], ['nextcloud_datadir', 'required', true, 'nc2', '/mnt/user/nc2', '750']],
+        array_map(fn ($x) => [$x['id'], $x['level'], $x['ok'], $x['params']['name'], $x['params']['path'], $x['params']['mode']], $f));
+    same('asleep no must: a folder whose bits can\'t be read - not judged, nothing said', [], backupNextcloudFindings([['container' => 'nc']], $look(['nc' => ['/mnt/user/nc', null]])));
+    $bp = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
+    check('asleep no must: the backup place while its disks sleep - no must «couldn\'t check»',
+        str_contains($bp, "if (!\$dsSleeps) {\n            \$out[] = finding('dumps_share', 'required', !\$dsBad,"));
+    $desks = '';
+    foreach (glob(OFFICE_DIR . '/agent/desks/*.php') ?: [] as $file) {
+        $desks .= (string) file_get_contents($file);
+    }
+    check('asleep no must: no «?» put into a user text\'s parameter anywhere in the desks', !preg_match("/=> '\\?'/", $desks));
 }
 
 function testBackup74Polish(): void
@@ -10991,6 +11243,8 @@ function testRestoreVmForeign(): void
     same('vm foreign: another VM\'s name (its definition would be replaced) - refused', ['note' => 'vm_foreign_name', 'params' => ['other' => 'Windows11']], $r);
     [, , $r] = rspXmlForeign("<domain type='kvm'><name>W</name><os><kernel>/boot/bzimage</kernel></os></domain>", 'W', [$dir]);
     same('vm foreign: a kernel of this server - refused', 'vm_foreign_path', $r['note'] ?? null);
+    [, , $r] = rspXmlForeign('', 'W', [$dir]);
+    same('vm foreign: a configuration that can\'t be read - refused in its own words, never «?» as a path', ['note' => 'vm_xml_unreadable', 'params' => []], $r);
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore-partner.php');
     $rs = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore.php');
     $start = substr($src, (int) strpos($src, 'function rspStartVm('), 6000);
@@ -11002,7 +11256,7 @@ function testRestoreVmForeign(): void
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         $lj = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/restore/lang/$l.json"), true) ?: [];
         same("vm foreign: $l - its words", [], array_values(array_filter(['sa.qemu', 'sa.filesystem', 'sa.net_script', 'sa.passthrough', 'sa.emulator',
-            'sn.vm_foreign_path', 'sn.vm_foreign_name'], fn ($k) => !isset($lj[$k]))));
+            'sn.vm_foreign_path', 'sn.vm_foreign_name', 'sn.vm_xml_unreadable'], fn ($k) => !isset($lj[$k]))));
     }
 }
 
@@ -26170,6 +26424,10 @@ function testRestoreDrill(): void
         ['ok', 'vm_chain_ok', 1, 'snapshot', 2, 'mbr'], [$r['state'], $r['code'], $r['level'], $r['copy'], $r['params']['chain'] ?? null, $r['params']['look'] ?? null]);
     $r = $disk('/mnt/maple/domains/Lin/top.qcow2');
     same('drill VM disk: a backing file outside the run\'s snapshot — failed', ['failed', 'vm_chain_outside', '/mnt/maple/isos/base.img'], [$r['state'], $r['code'], $r['params']['file'] ?? null]);
+    file_put_contents("$snap/Lin/odd.qcow2", $qhead(3, '../base.img', 'raw'));
+    $r = $disk('/mnt/maple/domains/Lin/odd.qcow2');
+    same('drill VM disk: a backing name it won\'t follow («..») — failed with its own words, never «?» as the file', ['failed', 'vm_chain_unreadable', false],
+        [$r['state'], $r['code'], isset($r['params']['file'])]);
     same('drill VM disk: not in the snapshot — failed', ['failed', 'vm_disk_missing'], array_values(array_intersect_key($disk('/mnt/maple/domains/Gone/x.img'), ['state' => 1, 'code' => 1])));
     same('drill VM disk: all zero — a warning, not a failure', ['warning', 'vm_disk_empty'], array_values(array_intersect_key($disk('/mnt/maple/domains/Empty/vdisk1.img'), ['state' => 1, 'code' => 1])));
     same('drill VM disk: another size than the manifest — a warning', ['warning', 'vm_disk_size'], array_values(array_intersect_key($disk('/mnt/maple/domains/Win/vdisk2.S1qcow2', 12345), ['state' => 1, 'code' => 1])));
@@ -40001,7 +40259,7 @@ function testFirstHome(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

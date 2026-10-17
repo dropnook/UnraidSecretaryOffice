@@ -508,6 +508,7 @@
   "wake": "Sveglia i dischi in standby",
   "wake_n": "Sveglia {names}",
   "wake_title": "Solo per questo giro: sveglia i dischi btrfs e i pool ZFS in standby e legge anche i loro snapshot. Senza spunta li lascio dormire e mostro quello che sapevo di loro l'ultima volta. Unraid li rimette in standby dopo il suo tempo di attesa.",
+  "wake_once": "Vale solo per il prossimo giro, non viene ricordato.",
   "bubble.pools_asleep": {
     "one": "Il pool {names} dorme — mostro quello che ne ho visto l'ultima volta e non gli chiedo nulla.",
     "other": "I pool {names} dormono — mostro quello che ne ho visto l'ultima volta e non chiedo loro nulla."

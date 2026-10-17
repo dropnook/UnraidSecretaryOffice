@@ -283,10 +283,21 @@ function build(root) {
   const wakeText = el('span', '', T('wake'));
   wakeLabel.append(wake, wakeText);
   wakeLabel.title = T('wake_title');
+  // switched on: said right under it that it holds for the next tour only, with that tour one click away (2026-10-17,
+  // silent controls: a switch that changed nothing until «Tour» and was off again afterwards, said only in its tip)
+  const wakeNote = el('span', 'sp-wake-note');
+  const wakeGo = el('button', 'btn small', T('scan_now'));
+  wakeGo.type = 'button';
+  wakeGo.onclick = () => scan(true);
+  wakeNote.append(el('span', '', T('wake_once')), wakeGo);
+  const wakeBox = el('span', 'sp-wake');
+  wakeBox.append(wakeLabel, wakeNote);
+  const wakeSync = () => { wakeNote.hidden = !wake.checked || wakeLabel.hidden; wakeGo.disabled = scanBtn.disabled; };
+  wake.onchange = wakeSync;
   const newBtn = el('button', 'btn', T('new'));
   newBtn.type = 'button';
   newBtn.onclick = () => createDialog([]);
-  const head = Office.deskHead({ id: ID, icon: Office.desks.get(ID).icon }, { actions: [wakeLabel, scanBtn, newBtn] });
+  const head = Office.deskHead({ id: ID, icon: Office.desks.get(ID).icon }, { actions: [wakeBox, scanBtn, newBtn] });
   root.appendChild(head.head);
   root.appendChild(Office.pageHelp(ID, [
     [T('help.tiles'), T('help.tiles_text')],
@@ -306,7 +317,7 @@ function build(root) {
     [T('docker_layers'), T('help.docker')],
     [T('help.scan'), T('help.scan_text')],
   ]));
-  Object.assign(v, { scanBtn, newBtn, wakeLabel, wake, wakeText, bubble: head.bubble });
+  Object.assign(v, { scanBtn, newBtn, wakeLabel, wake, wakeText, wakeSync, bubble: head.bubble });
 
   // the row and the chosen section (the switcher, sw); her two sections are built once and drawn anew in place
   root.appendChild(sw.el);
@@ -394,6 +405,7 @@ function renderHead() {
   const sleeping = sleepingParts();
   view.wakeText.textContent = sleeping.length ? T('wake_n', { names: sleeping.join(', ') }) : T('wake');
   view.wakeLabel.hidden = !sleeping.length && !view.wake.checked;
+  view.wakeSync();
   view.bubble.innerHTML = '';
   view.bubble.append(Office.withGreeting(ID, bubbleText().join(' ')));
 }
@@ -402,6 +414,7 @@ function buttons() {
   if (!view) return;
   const off = !Office.agent.running || busy;
   view.scanBtn.disabled = off;
+  view.wakeSync();
   view.newBtn.disabled = off || !state;
 }
 
@@ -1240,7 +1253,7 @@ async function scan(wake) {
   if (wake) Office.toast(T('waking'));
   const j = await Office.api.post(`${ID}.scan`, { wake: !!wake });
   setBusy(false, view && view.scanBtn);
-  if (view) view.wake.checked = false;
+  if (view) { view.wake.checked = false; view.wakeSync(); }
   if (!j.ok) { if (view) drawTiles(); failed(j); return; }
   fresh = new Set(j.new || []);
   setState(j.state);

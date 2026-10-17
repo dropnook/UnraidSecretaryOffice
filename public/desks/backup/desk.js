@@ -1975,6 +1975,7 @@ const SETUP_POLL = 2000;
 const LIST_KEY = /\|(ignore|no_stop|known|skip|kopia_ignore|kopia_known|exclude_dataset|tar_exclude|folder)$/;
 let setup = { plan: null, draft: null, status: null, run: null, applied: null, open: new Set(), retire: true, asked: false, focus: null,
   model: null, levels: {}, held: {}, deps: new Set(), locks: {}, itemKeep: {},
+  depsOff: new Set(), depNote: new Map(),   // «… mitsichern» unticked by the user, and the word a click left on its row
   choice: null,              // the default chosen on this page, not applied yet: {kind: auto | local | kopia, all, items}
   newItems: new Set() };     // what is new since the last setup (setupNewItems()), as item keys
 let setupTimer = null;
@@ -2075,7 +2076,7 @@ function setupMigrated() {
  */
 function setupDraftKeep() {
   const old = setup.draft && setup.base ? { draft: setup.draft, base: setup.base, levels: setup.levels, held: setup.held,
-    baseLevels: setup.baseLevels || {}, baseHeld: setup.baseHeld || {} } : null;
+    baseLevels: setup.baseLevels || {}, baseHeld: setup.baseHeld || {}, deps: setup.deps, depsOff: setup.depsOff, depNote: setup.depNote } : null;
   setupDraftFromPlan();
   if (!old) return;
   const keys = new Set([...Object.keys(old.base), ...Object.keys(old.draft)]);
@@ -2092,6 +2093,11 @@ function setupDraftKeep() {
   Object.keys(old.held).forEach((k) => {
     if (old.held[k] !== old.baseHeld[k] && k in setup.held) { setup.held[k] = old.held[k]; kept++; }
   });
+  // the «… mitsichern» boxes clicked: kept while that app still uses that share
+  const there = new Set(setup.model.apps.flatMap((a) => a.deps.map((d) => `${a.id}|${d.share}`)));
+  old.deps.forEach((k) => { if (there.has(k)) { setup.deps.add(k); kept++; } });
+  old.depsOff.forEach((k) => { if (there.has(k)) setup.depsOff.add(k); });
+  old.depNote.forEach((v, k) => { if (there.has(k)) setup.depNote.set(k, v); });
   if (kept) setupDerive();
 }
 
@@ -3107,7 +3113,10 @@ function presetCards(current, onPick, measure, newOnly) {
       cb.checked = presetCards.partnerTick;
       cb.disabled = off;
       cb.onchange = () => { presetCards.partnerTick = cb.checked; if (on) onPick(kindOf(), c); };
-      line.append(cb, el('span', '', T('setup.preset.kopia_partner_tick', { partners: partnerNames })));
+      const tickText = el('span', '', T('setup.preset.kopia_partner_tick', { partners: partnerNames }));
+      // on a card not chosen the tick only waits for the card (2026-10-17, silent controls: a click that did nothing visible)
+      if (!on && !off) tickText.appendChild(el('small', '', T('setup.preset.kopia_partner_tick_wait')));
+      line.append(cb, tickText);
       c.appendChild(line);
     }
     const pick = (e) => {
@@ -4446,6 +4455,8 @@ function setupInitLevels() {
   setup.levels = {};
   setup.held = {};
   setup.deps = new Set();
+  setup.depsOff = new Set();
+  setup.depNote = new Map();
   m.apps.forEach((a) => {
     // every app has at least its template or compose file: "not" only when the user said so (docker|skip)
     // a Kopia source of its own (engine 2.19) says "local + Kopia" also for an app without folders of its own
@@ -4499,7 +4510,8 @@ function setupDerive() {
       dset(k, l > 0 ? (dget(k) || n.preexisting || 'abort') : undefined);
     }));
     a.folders.forEach((f) => want(f.share, l, a.name));
-    a.deps.forEach((d) => { if (setup.deps.has(`${a.id}|${d.share}`)) want(d.share, l, a.name); });
+    // a share ticked to follow the app is raised to it, never lowered (it may go further than the app on its own)
+    a.deps.forEach((d) => { if (setup.deps.has(`${a.id}|${d.share}`)) want(d.share, Math.max(l, LV.indexOf(dget(`share|${d.share}|mode`, 'off'))), a.name); });
   });
   const nostop = [...was.filter((n) => keep.includes(n)), ...keep.filter((n) => !was.includes(n))];
   dset('docker|no_stop', [...new Set(nostop)]);
@@ -4626,6 +4638,56 @@ function appPartner(a, plan) {
   const own = !!(f && ownDataset(plan, f.share, f.dir));
   const withShare = f && !own ? setupPartners().filter((p) => (dget(`share|${f.share}|partner`, []) || []).includes(p.id)) : [];
   return { f, own, withShare, key: `app|${a.name}|partner` };
+}
+
+/**
+ * An app's further share (a «… mitsichern» row) backed up at least as far as the app — the rule of the Team Lead's hint
+ * app_share_* (backupAppShareGaps() in agent/desks/backup.php) on the draft: not «off» (unless it goes to a partner), at
+ * Kopia when the app is, at every partner the app goes to (its own and, for a folder that is no dataset of its own, its
+ * share's). testBackupAppShare holds both to the same answers. (2026-10-17, the owner: the boxes started unticked on
+ * every visit although the share was backed up like the app)
+ */
+function depCovered(a, share, plan) {
+  const l = levelOf('app:' + a.id);
+  if (l === 0) return true;
+  const mode = dget(`share|${share}|mode`, 'off');
+  const has = dget(`share|${share}|partner`, []) || [];
+  if (mode === 'off' && !has.length) return false;
+  if (l === 2 && mode !== 'kopia') return false;
+  const partners = [...(dget(`app|${a.name}|partner`, []) || [])];
+  (a.folders || []).forEach((f) => { if (!ownDataset(plan, f.share, f.dir)) partners.push(...(dget(`share|${f.share}|partner`, []) || [])); });
+  return partners.every((p) => has.includes(p));
+}
+/** The box as shown: ticked by the user, or the share already as far as the app and not unticked here */
+const depTicked = (a, share, plan) => {
+  const key = `${a.id}|${share}`;
+  return setup.deps.has(key) || (!setup.depsOff.has(key) && depCovered(a, share, plan));
+};
+
+/**
+ * A «… mitsichern» box clicked. Ticked: a share already as far as the app only says so (`same`, nothing changes, so no
+ * bar); one that goes less far follows the app from now (raised, the bar counts it; 1.60.1: to the app's partners too
+ * when it can). Unticked: the share stays where it is (`kept`, never lowered) - step 3 is where it changes.
+ */
+function depClick(a, share, v, sh, plan, row) {
+  const key = `${a.id}|${share}`;
+  setup.depNote.delete(key);
+  if (v) {
+    setup.depsOff.delete(key);
+    if (depCovered(a, share, plan)) setup.depNote.set(key, 'same');
+    else {
+      setup.deps.add(key);
+      // 1.60.1 (a user, dropnook): ticked under an app that goes to partners, the share goes there too (when it can)
+      const ap = dget(`app|${a.name}|partner`, []) || [];
+      if (ap.length && sh && sh.partner_ok) dset(`share|${share}|partner`, [...new Set([...(dget(`share|${share}|partner`, []) || []), ...ap])]);
+    }
+  } else {
+    setup.deps.delete(key);
+    setup.depsOff.add(key);
+    setup.depNote.set(key, 'kept');
+  }
+  setupDerive();
+  Office.keepInPlace(row, () => renderSetup());
 }
 
 /**
@@ -5065,16 +5127,18 @@ function setupApps(plan) {
         const size = sh && sh.gb !== null ? (sh.gb < 0 ? '> ?' : fmt.size(sh.gb * 1073741824)) : T('setup.app_dep_unknown');
         const where = d.paths.length ? T('setup.app_dep_paths', { paths: d.paths.join(', ') }) : '';
         const mode = dget(`share|${d.share}|mode`, 'off');
-        const step3 = !setup.deps.has(key) && mode !== 'off' ? T('setup.app_dep_step3', { mode: T('setup.mode.' + mode) }) : '';
+        // its step-3 level in words, with its partners (as the level's own name says it)
+        const modeText = T('setup.mode.' + mode + (mode !== 'off' && (dget(`share|${d.share}|partner`, []) || []).length ? '_partner' : ''));
+        const ticked = depTicked(a, d.share, plan);
+        // a click's word while the box still shows what it did (the app's level changed since: the box speaks)
+        const note = [setup.depNote.get(key)].find((n) => n && (n === 'same') === ticked);
+        const step3 = !ticked && !note && mode !== 'off' ? T('setup.app_dep_step3', { mode: modeText }) : '';
         sub.title = step3 ? T('setup.app_dep_step3_hint') : '';
-        sub.appendChild(checkbox(T('setup.app_dep', { share: d.share }), setup.deps.has(key), (v) => {
-          if (v) setup.deps.add(key); else setup.deps.delete(key);
-          // 1.60.1 (a user, dropnook): ticked under an app that goes to partners, the share goes there too (when it can)
-          const ap = dget(`app|${a.name}|partner`, []) || [];
-          if (v && ap.length && sh && sh.partner_ok) dset(`share|${d.share}|partner`, [...new Set([...(dget(`share|${d.share}|partner`, []) || []), ...ap])]);
-          setupDerive();
-          Office.keepInPlace(sub, () => renderSetup());
-        }, [step3, size, where, T('setup.app_dep_hint')].filter(Boolean).join(' · ')));
+        const box = checkbox(T('setup.app_dep', { share: d.share }), ticked, (v) => depClick(a, d.share, v, sh, plan, sub),
+          [step3, size, where, T('setup.app_dep_hint')].filter(Boolean).join(' · '));
+        // what the click did, said on the row at once (2026-10-17, the owner: three ticks, «nothing happened»)
+        if (note) box.lastChild.appendChild(el('small', 'bk-dep-note', T('setup.app_dep_' + note, { share: d.share, mode: modeText })));
+        sub.appendChild(box);
         list.appendChild(sub);
       });
     }
@@ -5362,7 +5426,11 @@ function setupSources(old) {
   const ul = el('ul', 'shortlist');
   old.filter((o) => fitRow(o.source, false)).forEach((o) => ul.appendChild(el('li', '', o.source)));
   s.appendChild(ul);
-  s.appendChild(checkbox(T('setup.sources_manual'), setup.retire, (v) => { setup.retire = v; }, T('setup.sources_manual_hint')));
+  // a one-time order for the next Apply (setup.sh --apply _retire_sources), no setting of settings.ini: said so on the row
+  // (2026-10-17, silent controls: unticked, a reload ticked it again without a word)
+  const once = checkbox(T('setup.sources_manual'), setup.retire, (v) => { setup.retire = v; }, T('setup.sources_manual_hint'));
+  once.lastChild.appendChild(el('small', 'bk-once', T('setup.sources_manual_once')));
+  s.appendChild(once);
   // engine 2.51: the office's own sources under its mount root («orphan»; never «gone» - not the office's) can go in Kopia
   if (old.some((o) => o.state === 'orphan') && dget('kopia|enabled') === 'yes') {
     const b = button(T('setup.orphans.button'), 'small', orphansDialog);
@@ -5997,7 +6065,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     placeLines, placeIntro, setupDraftKeep, setupDerive, dset, setupEdits,
     PRESETS, presetChoose, presetForget, presetKeep, presetChanged, presetKopiaState, firstUpload, presetKeptList, presetStartText,
     presetCardsOf, presetCardOf, presetApply, presetPartners, levelPick, modeSelect, placeLevelPick, partnerListOf, partnerListSet, setupMigrated, LEVEL_FIELDS,
-    partnerNowText, partnerRateOf, runModeOf, progress, partnerUnits, partnerSectionRows, partnerApplyLines, setupChangeItems, listChangeText, knownText, diffMark, whyFold, folderOf, ownDataset, setupMakeDataset, appPartner, partnerShareLines, appDepGaps, setupDeclinedApply, declinedList, ownFoldersOf, setupModel, partnerApplyText, setupDecline, setupApplyChanges, minuteTaken, bubbleText, deskActions,
+    partnerNowText, partnerRateOf, runModeOf, progress, partnerUnits, partnerSectionRows, partnerApplyLines, setupChangeItems, listChangeText, knownText, diffMark, whyFold, folderOf, ownDataset, setupMakeDataset, appPartner, partnerShareLines, appDepGaps, depCovered, depTicked, depClick, setupInitLevels, setupDeclinedApply, declinedList, ownFoldersOf, setupModel, partnerApplyText, setupDecline, setupApplyChanges, minuteTaken, bubbleText, deskActions,
     presetKopiaMode, presetKopiaVm, draftMode, draftVm, setupNewItems, presetApplyNew, presetNow, presetChosen, presetNewMode, presetNewVm,
     letGoPart, letGoLines, letGoDoneLines, letGoResult, setLetGoClock: (c) => { letGoClock = c; }, setupUnfold, UNFOLD_OWN, setupDecisions, setupApplyChanges, changeLabel, valueText, setupSplit, setupDecline,
     warnLines, bubbleText, setupBarSpec, setupNoPlace, setupPlaceStart, bubblePlace,

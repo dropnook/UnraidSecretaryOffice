@@ -508,6 +508,7 @@
   "wake": "Despertar discos en reposo",
   "wake_n": "Despertar {names}",
   "wake_title": "Solo para esta ronda: despierta los discos btrfs y los pools ZFS en reposo y lee también sus instantáneas. Sin marcar, los dejo dormir y muestro lo último que sabía de ellos. Unraid los vuelve a poner en reposo tras su retardo.",
+  "wake_once": "Solo para la próxima ronda, no se recuerda.",
   "bubble.pools_asleep": {
     "one": "El pool {names} está en reposo — muestro lo último que vi de él y no le pido nada.",
     "other": "Los pools {names} están en reposo — muestro lo último que vi de ellos y no les pido nada."

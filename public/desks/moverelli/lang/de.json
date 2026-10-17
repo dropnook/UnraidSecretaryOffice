@@ -354,6 +354,7 @@
   "setup.bar_sub": "gegenüber dem Gespeicherten",
   "setup.bar_sub_new": "es wird nichts verschoben, bevor du es startest oder mein Zeitplan es tut",
   "setup.discard": "Verwerfen",
+  "setup.left_unsaved": "Einrichten von Frau Moverelli abgebrochen – nichts gespeichert.",
   "setup.apply_title": "Meine Regeln übernehmen?",
   "setup.apply_go": "Übernehmen",
   "setup.apply_text": {"one": "Eine Änderung:", "other": "{n} Änderungen:"},

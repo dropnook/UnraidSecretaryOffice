@@ -1506,6 +1506,8 @@
     "other": "Despertar {n} discos en reposo"
   },
   "where.wake_title": "Solo para esta ronda: despierta todos los discos en reposo a la vez y lo lee todo — dónde están de verdad los recursos compartidos, si existen las rutas del array, los discos de VM que haya allí. Unraid los vuelve a poner en reposo tras su retardo.",
+  "where.wake_once": "Solo para la próxima ronda, no se recuerda.",
+  "where.scan_now": "Ronda ahora",
   "where.tour_done_woken": {
     "one": "Ronda terminada en {ms} ms — 1 disco despertado.",
     "other": "Ronda terminada en {ms} ms — {n} discos despertados."

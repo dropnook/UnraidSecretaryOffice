@@ -354,6 +354,7 @@
   "setup.bar_sub": "par rapport à ce qui est enregistré",
   "setup.bar_sub_new": "rien ne bouge avant que tu le lances, ou que ma planification le fasse",
   "setup.discard": "Abandonner",
+  "setup.left_unsaved": "Configuration de Madame Moverelli annulée — rien n'a été enregistré.",
   "setup.apply_title": "Appliquer mes règles ?",
   "setup.apply_go": "Appliquer",
   "setup.apply_text": {"one": "{n} changement :", "other": "{n} changements :"},

@@ -354,6 +354,7 @@
   "setup.bar_sub": "against what is saved",
   "setup.bar_sub_new": "nothing moves until you start it, or my schedule does",
   "setup.discard": "Discard",
+  "setup.left_unsaved": "Setting up Ms. Moverelli cancelled — nothing saved.",
   "setup.apply_title": "Apply my rules?",
   "setup.apply_go": "Apply",
   "setup.apply_text": {"one": "One change:", "other": "{n} changes:"},

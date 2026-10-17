@@ -2505,7 +2505,11 @@ function backupChecks(): array
         $dsCfg = $dsName && preg_match('/^[\w .-]+$/', $ds) && is_file("/boot/config/shares/$ds.cfg");
         $dsSleeps = $dsName && !$dsCfg && backupShareAsleep($ds, $settings, sleepingDisks());
         $dsBad = !$dsName || (!$dsCfg && !$dsSleeps && !is_dir("/mnt/user/$ds"));
-        $out[] = finding('dumps_share', 'required', $dsSleeps ? null : !$dsBad, ['share' => $ds], '#/backup/setup');
+        // its disks asleep: not looked at, so neither judged nor counted as something to do - said at the next look
+        // while they are awake (2026-10-17: a must «couldn't check» stood under «Required» on the Team Lead's page)
+        if (!$dsSleeps) {
+            $out[] = finding('dumps_share', 'required', !$dsBad, ['share' => $ds], '#/backup/setup');
+        }
 
         // nothing of ours directly in /mnt (Fix Common Problems rightly complains): the mounts go to
         // /mnt/addons; the setup moves them once Kopia's mapping follows, the next run tidies up
@@ -2522,22 +2526,41 @@ function backupChecks(): array
         // Nextcloud refuses to work (and so its maintenance mode) when others can read its data folder —
         // and Unraid resets a share's root to 0777 nobody:users on saving share settings unless its group is
         // "users" (lasting fix: 33:100, 0750)
-        $seen = [];
-        foreach ($summary['nextcloud'] as $nc) {
-            $dir = backupNextcloudDataDir($nc['container'], $sleeps, $settings);
-            if ($sleeps) {                                  // its disk sleeps: not looked at, not judged
-                $out[] = finding('nextcloud_datadir', 'required', null, ['name' => $nc['container'], 'path' => '?', 'mode' => '?'], 'userscripts');
-                continue;
+        array_push($out, ...backupNextcloudFindings($summary['nextcloud'], function (string $ct) use ($settings): array {
+            $dir = backupNextcloudDataDir($ct, $sleeps, $settings);
+            if ($sleeps || $dir === null) {
+                return [null, null];
             }
-            if ($dir !== null && !isset($seen[$dir])) {     // app and cron of one Nextcloud share it
-                $seen[$dir] = true;
-                $mode = @fileperms($dir);
-                $out[] = finding('nextcloud_datadir', 'required', $mode === false ? null : ($mode & 0007) === 0,
-                    ['name' => $nc['container'], 'path' => $dir, 'mode' => $mode === false ? '?' : sprintf('%o', $mode & 0777)], 'userscripts');
-            }
-        }
+            $mode = @fileperms($dir);
+            return [$dir, $mode === false ? null : $mode];
+        }));
     }
 
+    return $out;
+}
+
+/**
+ * Nextcloud's data folder readable by others (it refuses to work then): one finding per data folder (app and cron of
+ * one Nextcloud share it). $look(container) → [the folder on the host, its permission bits] - [null, null] when it
+ * wasn't looked at (its disk sleeps, no folder found), a folder with null bits when they couldn't be read: neither
+ * judged nor counted as something to do (a must «couldn't check» with «?» in its text stood under «Required» on the
+ * Team Lead's page, once per container - 2026-10-17); the next look while it's awake says it.
+ *
+ * @param list<array{container: string}> $ncs
+ */
+function backupNextcloudFindings(array $ncs, callable $look): array
+{
+    $out = [];
+    $seen = [];
+    foreach ($ncs as $nc) {
+        [$dir, $mode] = $look((string) $nc['container']);
+        if ($dir === null || $mode === null || isset($seen[$dir])) {
+            continue;
+        }
+        $seen[$dir] = true;
+        $out[] = finding('nextcloud_datadir', 'required', ($mode & 0007) === 0,
+            ['name' => $nc['container'], 'path' => $dir, 'mode' => sprintf('%o', $mode & 0777)], 'userscripts');
+    }
     return $out;
 }
 

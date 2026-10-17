@@ -508,6 +508,7 @@
   "wake": "Réveiller les disques endormis",
   "wake_n": "Réveiller {names}",
   "wake_title": "Seulement pour cette tournée : réveille les disques btrfs et les pools ZFS endormis et lit aussi leurs snapshots. Décoché, je les laisse dormir et je montre ce que je savais d'eux en dernier. Unraid les rendort après son délai.",
+  "wake_once": "Seulement pour la prochaine tournée, pas mémorisé.",
   "bubble.pools_asleep": {
     "one": "Le pool {names} dort — je montre ce que j'en ai vu en dernier et je ne lui demande rien.",
     "other": "Les pools {names} dorment — je montre ce que j'en ai vu en dernier et je ne leur demande rien."

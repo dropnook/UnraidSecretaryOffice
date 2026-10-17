@@ -354,6 +354,7 @@
   "setup.bar_sub": "rispetto a ciò che è salvato",
   "setup.bar_sub_new": "non si sposta niente prima che tu lo avvii, o lo faccia la mia pianificazione",
   "setup.discard": "Scarta",
+  "setup.left_unsaved": "Configurazione della Signora Moverelli annullata — nulla salvato.",
   "setup.apply_title": "Applicare le mie regole?",
   "setup.apply_go": "Applica",
   "setup.apply_text": {"one": "Una modifica:", "other": "{n} modifiche:"},

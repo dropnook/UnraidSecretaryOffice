@@ -1766,6 +1766,14 @@ function setupChanged() {
 }
 
 /**
+ * Her setup page left (another page or desk; a visit there starts from her settings again) with changes not saved:
+ * said, never lost without a word (2026-10-17, silent controls)
+ */
+function leftSetup() {
+  if (page === 'setup' && form && saved && setupChangeRows(saved, formSettings(form)).length) Office.toast(T('setup.left_unsaved'));
+}
+
+/**
  * «Apply…»: every change with Mr. Backupsy's marks, and — while Unraid's own mover schedule is on — her taking it by
  * the hand as a section of its own (its schedule, the ⟦Move now⟧ warning, her let-go gives it back): one dialog,
  * «Apply» saves (with the consent when that section is there)
@@ -2228,6 +2236,7 @@ Office.desk({
   letGo: letGoPart,
   id: ID,
   async mount(root, sub) {
+    leftSetup();
     view = root;
     page = Office.pageFrom(PAGES(), sub) === 'setup' ? 'setup' : 'main';
     bars();
@@ -2250,7 +2259,7 @@ Office.desk({
     await load(false);
     if (sub === 'schedule') scheduleDialog();
   },
-  unmount() { view = null; clearTimeout(outTimer); clearTimeout(progTimer); progTimer = null; Office.selbar(null); },
+  unmount() { leftSetup(); view = null; clearTimeout(outTimer); clearTimeout(progTimer); progTimer = null; Office.selbar(null); },
   poll() { if (page === 'main') load(false); },
   agentChanged() { if (view) (page === 'setup' ? renderSetup() : render()); },
   menu() {
