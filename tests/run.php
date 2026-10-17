@@ -3953,6 +3953,89 @@ SH);
  * - the dataset dialog's last backup says whether this app is in it (packages.list); the Apply summary's level words
  *   carry the partner part
  */
+/** The Team Lead's hint: an app whose data share is backed up less far than the app (setup plan + settings.ini only) */
+function testBackupAppShare(): void
+{
+    $ct = fn (string $name, string $project, array $binds, array $more = []) => $more + ['name' => $name, 'project' => $project, 'kopia' => false,
+        'why' => 'writes', 'media' => '', 'binds' => array_map(fn ($b) => ['share' => $b[0], 'path' => $b[1], 'rw' => $b[2]], $binds)];
+    $sh = fn (string $name, array $more = []) => $more + ['name' => $name, 'folders' => [], 'children' => [], 'app_share' => null];
+    $plan = [
+        'shares' => [$sh('appdata', ['app_share' => ['docker'], 'folders' => [['dir' => 's3', 'container' => 'S3-Tom'], ['dir' => 'drop', 'container' => 'drop']]]),
+            $sh('s3-tom'), $sh('drop'), $sh('Filme'), $sh('photos'), $sh('system'), $sh('isos'), $sh('UnraidSecretaryOffice'), $sh('Backups'), $sh('tm_anna'), $sh('gone')],
+        'containers' => [
+            $ct('S3-Tom', 's3', [['appdata', 's3/iam', true], ['s3-tom', '', true], ['Filme', '', false]]),
+            $ct('drop', 'dropnook', [['appdata', 'drop', false], ['drop', '', true], ['system', 'docker', true], ['isos', '', true]]),
+            $ct('drop-share', 'dropnook', [['drop', 'shares', false], ['photos', 'in', true]]),
+            $ct('EmbyServer', '', [['appdata', 'EmbyServer', true], ['Filme', '', true]], ['media' => 'emby']),
+            $ct('TimeMachine', '', [['tm_anna', '', true]]),
+            $ct('Old', '', [['appdata', 'old', true], ['gone', '', true]]),
+            $ct('kopia', '', [['UnraidSecretaryOffice', 'restore/kopia', true], ['Backups', '', true]], ['kopia' => true]),
+        ],
+    ];
+    $exists = ['appdata', 's3-tom', 'drop', 'Filme', 'photos', 'system', 'isos', 'UnraidSecretaryOffice', 'Backups', 'tm_anna'];
+    $ini = fn (string $s) => (function () use ($s) {
+        $f = tempnam(sys_get_temp_dir(), 'office-appshare-');
+        file_put_contents($f, $s);
+        $r = backupReadSettings($f);
+        unlink($f);
+        return $r;
+    })();
+    $base = "[general]\ndumps_share = Backups\n[kopia]\nenabled = yes\n[share \"appdata\"]\nmode = kopia\n[share \"Filme\"]\nmode = snapshot\n"
+        . "[share \"tm_anna\"]\nmode = snapshot\n[share \"Backups\"]\nmode = kopia\n[partner \"0a1b2c3d\"]\nname = Tower\n";
+
+    // s3: the app goes to Kopia (its folder in appdata), its bucket share only local; dropnook: drop off, photos local
+    $s = $ini($base . "[share \"s3-tom\"]\nmode = snapshot\n[share \"photos\"]\nmode = snapshot\n");
+    $g = backupAppShareGaps($s, $plan, $exists);
+    same('app share: s3 to Kopia, s3-tom local - named; dropnook\'s drop not backed up at all (said once), photos local; the rest quiet',
+        ['kopia' => ['dropnook' => ['photos'], 's3' => ['s3-tom']], 'off' => ['dropnook' => ['drop']], 'partner' => []], $g);
+    same('app share: … ignored: a read-only bind (Filme at s3), appdata, system, isos, the office share and the backup place, a media server\'s libraries,'
+        . ' a share gone since the plan (Old), Kopia itself, an app only local with a local share (TimeMachine)',
+        [false, false, false], [isset($g['kopia']['EmbyServer']), isset($g['kopia']['Old']) || isset($g['off']['Old']), isset($g['off']['TimeMachine'])]);
+    $f = backupAppShareFindings($s, $plan, $exists);
+    same('app share: the findings - one per kind, every app listed, recommended, the link to the setup\'s shares',
+        [['app_share_off', 'recommended', false, 'dropnook (drop)', 1, '#/backup/setup/shares'], ['app_share_kopia', 'recommended', false, 'dropnook (photos), s3 (s3-tom)', 2, '#/backup/setup/shares']],
+        array_map(fn ($x) => [$x['id'], $x['level'], $x['ok'], $x['params']['apps'], $x['params']['n'], $x['link']], $f));
+    same('app share: … without the list of shares there are now, the share gone since the plan counts (in the plan, no settings: off)', ['gone'],
+        backupAppShareGaps($s, $plan)['off']['Old'] ?? null);
+
+    // Kopia off in [kopia]: the app goes nowhere offsite, so nothing about Kopia
+    $s = $ini(str_replace("enabled = yes", "enabled = no", $base) . "[share \"s3-tom\"]\nmode = snapshot\n[share \"drop\"]\nmode = snapshot\n[share \"photos\"]\nmode = snapshot\n");
+    same('app share: Kopia off - every app at «local», every data share local: in place', [['app_share', true]],
+        array_map(fn ($x) => [$x['id'], $x['ok']], backupAppShareFindings($s, $plan, $exists)));
+
+    // partner: dropnook to Tower (its own key), drop not; s3 through appdata's partner (its folder no dataset of its own)
+    $s = $ini($base . "[share \"s3-tom\"]\nmode = kopia\n[share \"drop\"]\nmode = kopia\npartner = 0a1b2c3d\n[share \"photos\"]\nmode = kopia\n"
+        . "[app \"dropnook\"]\npartner = 0a1b2c3d\n");
+    same('app share: dropnook to the partner, drop too, photos not - photos named for Tower', ['0a1b2c3d' => ['dropnook' => ['photos']]],
+        backupAppShareGaps($s, $plan, $exists)['partner']);
+    $s['share|appdata']['partner'] = ['0a1b2c3d'];
+    same('app share: … appdata to Tower: s3\'s folder travels with it, its s3-tom does not', ['dropnook' => ['photos'], 's3' => ['s3-tom']],
+        backupAppShareGaps($s, $plan, $exists)['partner']['0a1b2c3d'] ?? null);
+    $p2 = $plan;
+    $p2['shares'][0]['children'] = ['pool/appdata/s3'];
+    same('app share: … s3\'s folder a dataset of its own: it doesn\'t travel with appdata, nothing said about s3', ['dropnook' => ['photos']],
+        backupAppShareGaps($s, $p2, $exists)['partner']['0a1b2c3d'] ?? null);
+    $f = backupAppShareFindings($s, $plan, $exists);
+    same('app share: … the partner\'s finding with its name', [['app_share_partner', 'Tower', 'dropnook (photos), s3 (s3-tom)', 2]],
+        array_map(fn ($x) => [$x['id'], $x['params']['partner'] ?? null, $x['params']['apps'], $x['params']['n']], $f));
+
+    // all as far as the apps: nothing to say; an app the user skipped: nothing either
+    $s = $ini($base . "[share \"s3-tom\"]\nmode = kopia\n[share \"drop\"]\nmode = kopia\n[share \"photos\"]\nmode = kopia\n");
+    same('app share: every data share as far as its app - one finding, in place', [['app_share', 'recommended', true]],
+        array_map(fn ($x) => [$x['id'], $x['level'], $x['ok']], backupAppShareFindings($s, $plan, $exists)));
+    $s = $ini($base . "[docker]\nskip = drop\nskip = drop-share\n[share \"s3-tom\"]\nmode = kopia\n");
+    same('app share: … dropnook skipped (not backed up): its shares off say nothing', ['kopia' => [], 'off' => [], 'partner' => []],
+        backupAppShareGaps($s, $plan, $exists));
+    same('app share: no plan yet - in place, nothing guessed', [['app_share', true]], array_map(fn ($x) => [$x['id'], $x['ok']], backupAppShareFindings($s, [], $exists)));
+    // an app's own Kopia source (app|<name>|kopia) without folders in a Kopia share
+    $s = $ini(str_replace("[share \"appdata\"]\nmode = kopia", "[share \"appdata\"]\nmode = snapshot", $base) . "[share \"s3-tom\"]\nmode = snapshot\n[app \"s3\"]\nkopia = yes\n"
+        . "[share \"drop\"]\nmode = snapshot\n[share \"photos\"]\nmode = snapshot\n");
+    same('app share: s3 with a Kopia source of its own (appdata local) - s3-tom named; dropnook only local, quiet', ['s3' => ['s3-tom']],
+        backupAppShareGaps($s, $plan, $exists)['kopia']);
+    $bp = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
+    check('app share: the check is registered with the Team Lead', str_contains($bp, 'array_push($out, ...backupAppShareFindings($settings, $plan,'));
+}
+
 function testBackup74Polish(): void
 {
     $tmp = sys_get_temp_dir() . '/office-tests-74polish-' . getmypid();
@@ -39918,7 +40001,7 @@ function testFirstHome(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
