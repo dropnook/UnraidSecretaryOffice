@@ -272,6 +272,8 @@
   "check.kopia_lock_lapse_how": "Kopia last extended the locks on {last} — they run out on {until}, then the repository is no longer protected against ransomware. Kopia extends them only at its full maintenance, and only the maintenance owner runs it: now {owner}, this office's Kopia is {me}. Keep the Kopia server in «{name}» running; if the owner isn't {me}, in its console: kopia maintenance set --owner=me — then once right away: kopia maintenance run --full",
   "check.kopia_lock_late": "Kopia's full maintenance runs on time",
   "check.kopia_lock_late_how": "Kopia's full maintenance is late (it last extended the locks on {last}, they hold until {until}). Only it extends the Object Lock — if it stays away, the locks run out. Maintenance owner: {owner}, this office's Kopia: {me}. Keep the Kopia server in «{name}» running; if the owner isn't {me}, in its console: kopia maintenance set --owner=me",
+  "check.kopia_lock_never": "Kopia has extended the Object Lock at least once",
+  "check.kopia_lock_never_how": "Kopia has never extended the locks yet — its first full maintenance was due on {next} and hasn't run. Only it extends the Object Lock; without it the locks run out at the end of their retention period. Maintenance owner: {owner}, this office's Kopia: {me}. Keep the Kopia server in «{name}» running; if the owner isn't {me}, in its console: kopia maintenance set --owner=me",
   "check.drift": "settings.ini matches the server",
   "check.drift_how": {"one": "{n} change since the setup — take it over in Mr. Backupsy's «Set up…».", "other": "{n} changes since the setup — take them over in Mr. Backupsy's «Set up…»."},
   "check.share_no_snapshots": "Every share at «local snapshot» can be snapshotted",

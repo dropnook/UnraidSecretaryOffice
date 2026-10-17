@@ -8461,6 +8461,7 @@ function testKopiaLockGuard(): void
         [['kopia_lock_extend', 'required', true], ['kopia_lock_lapse', 'required', false]], $ids($lapse));
     same('lock judge: the words — when it was extended, when it runs out, owner and this office\'s Kopia', [date('Y-m-d H:i', $last), date('Y-m-d H:i', $last + 604800), 'root@kopia', 'root@kopia', 'kopia', 'COMPLIANCE'],
         [$lapse[1]['params']['last'], $lapse[1]['params']['until'], $lapse[1]['params']['owner'], $lapse[1]['params']['me'], $lapse[1]['params']['name'], $lapse[1]['params']['mode']]);
+    same('lock judge: … and the times beside them for the page', [$last, $last + 604800], [$lapse[1]['params']['last_t'] ?? null, $lapse[1]['params']['until_t'] ?? null]);
     same('lock judge: Kopia not answering for days — the last facts are the measure', [false],
         array_column(array_slice(backupKopiaLockJudge($r2, $last + 6 * 86400, 'kopia'), 1, 1), 'ok'));
     same('lock judge: extend off or the full maintenance off — a must, nothing else judged', [[['kopia_lock_extend', 'required', false]], [['kopia_lock_extend', 'required', false]]],
@@ -8473,9 +8474,11 @@ function testKopiaLockGuard(): void
         [backupKopiaLockJudge($p1, $last + 11 * 3600, 'k')[1]['ok'], backupKopiaLockJudge($p1, $last + 13 * 3600, 'k')[1]['ok']]);
     $fresh = $read($facts(['extend_runs' => [], 'full_runs' => []]));
     $nf = 1792268615;
-    same('lock judge: a fresh repository, never extended — only «late» once its first full maintenance is 12 hours overdue',
-        [[['kopia_lock_extend', 'required', true], ['kopia_lock_late', 'recommended', true]], [['kopia_lock_extend', 'required', true], ['kopia_lock_late', 'recommended', false]]],
+    same('lock judge: a fresh repository, never extended — its own words, said only once its first full maintenance is 12 hours overdue',
+        [[['kopia_lock_extend', 'required', true], ['kopia_lock_never', 'recommended', true]], [['kopia_lock_extend', 'required', true], ['kopia_lock_never', 'recommended', false]]],
         [$ids(backupKopiaLockJudge($fresh, $nf + 3600)), $ids(backupKopiaLockJudge($fresh, $nf + 13 * 3600))]);
+    same('lock judge: never extended — the due date written out and as a time (the page writes it in the reader\'s language)', [date('Y-m-d H:i', $nf), $nf],
+        [backupKopiaLockJudge($fresh, $nf + 13 * 3600)[1]['params']['next'] ?? null, backupKopiaLockJudge($fresh, $nf + 13 * 3600)[1]['params']['next_t'] ?? null]);
     same('lock judge: no Object Lock or nothing known — nothing said', [[], [], []],
         [backupKopiaLockJudge($read($facts([], null)), $last), backupKopiaLockJudge(null, $last), backupKopiaLockJudge($read(['v' => 1, 'ok' => false, 'why' => 'off', 'time' => 1]), $last)]);
     same('lock due: nothing known — at once; Object Lock — every 6 hours; none — every 3 days; Kopia not answering — after an hour',
@@ -8485,7 +8488,7 @@ function testKopiaLockGuard(): void
     $words = [];
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         $lang = json_decode((string) file_get_contents(OFFICE_DIR . "/public/desks/backup/lang/$l.json"), true);
-        foreach (['kopia_lock_extend', 'kopia_lock_lapse', 'kopia_lock_late', 'kopia_emptied'] as $id) {
+        foreach (['kopia_lock_extend', 'kopia_lock_lapse', 'kopia_lock_late', 'kopia_lock_never', 'kopia_emptied'] as $id) {
             $words[] = isset($lang["check.$id"], $lang["check.{$id}_how"]) ? '' : "$l:$id";
         }
         $words[] = str_contains((string) ($lang['check.kopia_lock_lapse_how'] ?? ''), 'kopia maintenance set --owner=me') ? '' : "$l:owner";
@@ -8498,7 +8501,8 @@ function testKopiaLockGuard(): void
     file_put_contents("$tmp/held.json", json_encode($h));
     $got = backupKopiaHeld("$tmp/held.json");
     same('held read: the engine\'s shape — the hold', [$repo, 48, 0, 1792000000, false], [$got['repo'] ?? null, $got['before'] ?? null, $got['now'] ?? null, $got['when'] ?? null, $got['gone'] ?? null]);
-    same('held read: the finding\'s words', ['before' => '48', 'now' => '0', 'when' => date('Y-m-d H:i', 1792000000), 'since' => date('Y-m-d H:i', 1792100000)], backupHeldParams($got));
+    same('held read: the finding\'s words — dates written out and as times', ['before' => '48', 'now' => '0', 'when' => date('Y-m-d H:i', 1792000000), 'since' => date('Y-m-d H:i', 1792100000),
+        'when_t' => 1792000000, 'since_t' => 1792100000], backupHeldParams($got));
     $bad = [];
     foreach ([['v' => 2], ['repo' => '../x'], ['before' => '48'], ['now' => -1], ['identity' => "a\nb"]] as $i => $change) {
         file_put_contents("$tmp/held.json", json_encode($change + $h));

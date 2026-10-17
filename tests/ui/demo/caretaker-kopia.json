@@ -144,7 +144,9 @@
      "before": "48",
      "now": "0",
      "when": "2026-10-16 03:12",
-     "since": "2026-10-17 03:00"
+     "since": "2026-10-17 03:00",
+     "when_t": 1791457474,
+     "since_t": 1791540274
     },
     "link": "#/backup",
     "sig": "backup:kopia_emptied:5f2a91c04e7d3b18"
@@ -172,7 +174,9 @@
      "owner": "admin@laptop",
      "me": "root@kopia",
      "last": "2026-10-11 02:40",
-     "until": "2026-10-18 02:40"
+     "until": "2026-10-18 02:40",
+     "last_t": 1791047074,
+     "until_t": 1791651874
     },
     "link": "docker",
     "sig": "backup:kopia_lock_lapse:3c7d0e51b2a94f86"

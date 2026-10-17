@@ -2463,7 +2463,7 @@ function backupKopiaHeld(?string $file = null): ?array
 function backupHeldParams(array $h): array
 {
     return ['before' => (string) $h['before'], 'now' => (string) $h['now'], 'when' => date('Y-m-d H:i', $h['when']),
-            'since' => date('Y-m-d H:i', $h['time'])];
+            'since' => date('Y-m-d H:i', $h['time']), 'when_t' => $h['when'], 'since_t' => $h['time']];
 }
 
 /**
@@ -2543,7 +2543,7 @@ function backupKopiaTime(mixed $s): ?int
  * extension or full maintenance off (`kopia_lock_extend`); the locks run out within the margin (`kopia_lock_lapse`:
  * the last extension + the period — Kopia's maintenance owner another user@host, the Kopia server stopped …).
  * A recommendation: the full maintenance late (`kopia_lock_late`: later than its interval by more than 12 hours, or never
- * done long after it was due) while the locks still hold. Facts once known stay the measure while Kopia can't be asked.
+ * `kopia_lock_never`: never extended yet, its first full maintenance long overdue) while the locks still hold. Facts once known stay the measure while Kopia can't be asked.
  *
  * @return list<array> the findings
  */
@@ -2565,15 +2565,16 @@ function backupKopiaLockJudge(?array $j, int $now, ?string $name = null): array
     if ($last !== null) {
         $until = $last + $period;
         $margin = min(max(BACKUP_LOCK_MARGIN, intdiv($period, 4)), intdiv($period, 2));
-        $p = $base + ['last' => date('Y-m-d H:i', $last), 'until' => date('Y-m-d H:i', $until)];
+        // the dates written out for a notification; *_t the times the Team Lead's page writes in the reader's language
+        $p = $base + ['last' => date('Y-m-d H:i', $last), 'until' => date('Y-m-d H:i', $until), 'last_t' => $last, 'until_t' => $until];
         $out[] = finding('kopia_lock_lapse', 'required', $until - $now >= $margin, $p, 'docker');
         if ($until - $now >= $margin) {
             $out[] = finding('kopia_lock_late', 'recommended', $now - $last <= $interval + BACKUP_LOCK_LATE, $p, 'docker');
         }
     } elseif ($m['next_full'] !== null) {
-        // never extended yet (a fresh repository): late only once its first full maintenance is long overdue
-        $out[] = finding('kopia_lock_late', 'recommended', $now - $m['next_full'] <= BACKUP_LOCK_LATE,
-            $base + ['last' => '–', 'until' => '–'], 'docker');
+        // never extended yet (a fresh repository): said only once its first full maintenance is long overdue
+        $out[] = finding('kopia_lock_never', 'recommended', $now - $m['next_full'] <= BACKUP_LOCK_LATE,
+            $base + ['next' => date('Y-m-d H:i', $m['next_full']), 'next_t' => $m['next_full']], 'docker');
     }
     return $out;
 }

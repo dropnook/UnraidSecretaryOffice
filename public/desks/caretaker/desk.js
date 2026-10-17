@@ -74,9 +74,18 @@ function findings() {
   return out;
 }
 
+/** A finding's words: a param <name>_t (a Unix time beside the agent's written-out <name>) is the date in the reader's language */
+const checkParams = (f) => {
+  const p = { ...(f.params || {}) };
+  Object.keys(p).forEach((k) => {
+    const m = /^(\w+)_t$/.exec(k);
+    if (m && typeof p[k] === 'number' && p[k] > 0) p[m[1]] = fmt.date(p[k]);
+  });
+  return p;
+};
 const text = (f, suffix) => {
   const key = `${f.desk}.check.${f.id}${suffix || ''}`;
-  return Office.has(key) ? Office.t(key, f.params || {}) : (suffix ? '' : f.id);
+  return Office.has(key) ? Office.t(key, checkParams(f)) : (suffix ? '' : f.id);
 };
 
 /** A recommendation or a note that isn't in place can be put aside — a must can't */
