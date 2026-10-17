@@ -29108,10 +29108,12 @@ function testPlgInstall(): void
     $pack = function (string $marker, array $leave = [], bool $broken = false) use ($tmp, $name, $flash): void {
         hardeningRm("$tmp/stage");
         $p = "$tmp/stage/$name";
-        foreach (['agent', 'scripts', 'backup'] as $d) {
+        foreach (['agent', 'scripts', 'backup', 'src'] as $d) {
             @mkdir("$p/$d", 0755, true);
         }
         file_put_contents("$p/marker", $marker);
+        // the menu step's php (place.php) as a stub: without it each run left a «Failed opening required» in Unraid's phplog
+        file_put_contents("$p/src/place.php", "<?php\nfunction officeMenuName(): string { return 'Sekretariat'; }\nfunction officeMenuPlace(): string { return 'tasks'; }\nfunction officeMenuPageApply(string \$d, string \$n, string \$p): void {}\n");
         file_put_contents("$p/agent/agent.php", "<?php\n");
         file_put_contents("$p/scripts/agent.sh", plgTestAgentSh());
         file_put_contents("$p/scripts/partner-door.sh", "#!/bin/bash\n");
