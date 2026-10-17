@@ -299,6 +299,8 @@ function external(id, x) {
     main.appendChild(line);
   }
   if (x.offer && x.offer.refuse) main.appendChild(el('div', 'row-detail ad-careful', Office.errorText(x.offer.refuse, ID)));
+  const old = !x.there && x.offer && x.offer.old;
+  if (old) main.appendChild(oldLine(id, old));
   row.appendChild(main);
 
   const acts = el('div', 'ad-acts');
@@ -310,6 +312,13 @@ function external(id, x) {
   // his own offer comes second: the manual way stays the first
   if (!x.there && x.offer === true) {
     acts.appendChild(job ? offerButton(T('installing'), () => jobDialog(state.job)) : offerButton(T('do.plugin'), () => { const now = (state.externals || {})[id]; if (now && !now.there) pluginDialog(id, now); }));
+  } else if (old) {
+    // an old template without its container: use it (only his external's image), or put it away and prepare anew —
+    // the old one first when it has everything his has (a reinstalled server keeps its paths and passwords)
+    const why = x.offer.refuse ? Office.errorText(x.offer.refuse, ID) : null;
+    const use = old.fits && old.openable ? offerButton(T('do.old_use'), () => oldDialog(id), why) : null;
+    const anew = offerButton(T('do.old_anew'), () => containerDialog(id, true), why);
+    if (use && !old.missing.length) acts.append(use, anew); else acts.append(...[anew, use].filter(Boolean));
   } else if (!x.there && x.offer && x.offer.template) {
     acts.appendChild(offerButton(T('do.container'), () => containerDialog(id), x.offer.refuse ? Office.errorText(x.offer.refuse, ID) : null));
   }
@@ -721,18 +730,71 @@ function templateRow(c) {
   }
 }
 
+/** On his card: the old template there is, what it is (its file, date, image — his external's or not, by him or not) */
+function oldLine(id, old) {
+  const line = el('div', 'row-detail ad-careful');
+  line.append(T('old.line', { file: old.file, date: fmt.date(old.installed || old.mtime) }), ' ');
+  const img = el('span', 'chip' + (old.fits ? '' : ' warn'), old.image || T('old.no_image'));
+  img.title = T(old.fits ? 'old.fits_tip' : 'old.foreign_tip', { name: T(`ext.${id}.name`) });
+  line.appendChild(img);
+  if (old.by_consultant) {
+    const chip = el('span', 'chip', T('by_me'));
+    chip.title = T('old.by_me_tip');
+    line.append(' ', chip);
+  }
+  line.append(' ', T(old.fits && old.openable ? (old.missing.length ? 'old.choose_anew' : 'old.choose_use') : 'old.only_anew'));
+  return line;
+}
+
+/** «Use the old one»: what Unraid's form will open with (the old template's own settings), then the form */
+function oldDialog(id) {
+  const x = (state.externals || {})[id];
+  const old = x && !x.there && x.offer && x.offer.old;
+  if (!old) { Office.toast(T('old.gone'), true); return; }
+  const box = el('div');
+  box.appendChild(el('p', '', T('old.text', { file: old.file, name: T(`ext.${id}.name`) })));
+  box.appendChild(callout(T('old.settings')));
+  const rows = [[T('f.file'), old.path], [T('f.name'), old.name], [T('f.repository'), old.image],
+    [T('f.date'), fmt.date(old.installed || old.mtime), true]];
+  old.paths.forEach((p) => rows.push([T('f.path'), `${p.host || T('f.empty')} → ${p.target}`]));
+  box.appendChild(props(rows));
+  if (old.missing.length) box.appendChild(callout(T('old.missing', { paths: old.missing.join(', ') }), true));
+  Office.dialog({
+    title: T('old.title', { name: T(`ext.${id}.name`) }),
+    body: box,
+    wide: true,
+    buttons: [
+      { text: Office.t('common.cancel') },
+      { text: T('old.go'), kind: '', act: async () => {
+        const r = await Office.api.post('advisor.install_old', { id });
+        if (!r.ok) { Office.toast(errorOf(r), true); return false; }
+        await afterAction(r);
+        const href = Office.safeHref(r.url);
+        if (!href) { Office.toast(T('ci.no_gui'), true); return true; }
+        Office.toast(T('ci.opened'));
+        location.href = href;
+        return true;
+      } },
+    ],
+  });
+}
+
 /**
  * Unraid's «Add Container» form, prepared: a preview of every field and of the
- * files written beforehand, then the form opens — the user clicks Apply there
+ * files written beforehand, then the form opens — the user clicks Apply there.
+ * anew: an old template of that name goes into Ms. Dustdevil's storeroom first (named in the dialog)
  */
-async function containerDialog(id) {
+async function containerDialog(id, anew = false) {
   let anon = false;
   const j = await Office.api.post('advisor.install_preview', { id });
   if (!j.ok) { Office.toast(errorOf(j), true); return; }
   const plan = j.plan;
+  const away = anew && plan.old && plan.refuse && plan.refuse.key === 'ad_template_taken' ? plan.old : null;
+  const refuse = away ? plan.refuse_rest : plan.refuse;
   const box = el('div');
   box.appendChild(el('p', '', T('ci.text', { name: plan.name })));
-  if (plan.refuse) box.appendChild(callout(Office.errorText(plan.refuse, ID), true));
+  if (away) box.appendChild(callout(T('ci.away', { file: away.file, path: plan.storeroom }), true));
+  if (refuse) box.appendChild(callout(Office.errorText(refuse, ID), true));
   if (Office.has(`${ID}.ci.${id}`)) box.appendChild(callout(T(`ci.${id}`)));
   const fields = el('div');
   const draw = () => {
@@ -775,7 +837,7 @@ async function containerDialog(id) {
     buttons: [
       { text: Office.t('common.cancel') },
       { text: T('ci.go'), kind: '', act: async () => {
-        const r = await Office.api.post('advisor.install_prepare', { id, anon });
+        const r = await Office.api.post('advisor.install_prepare', away ? { id, anon, away: away.file } : { id, anon });
         if (!r.ok) { Office.toast(errorOf(r), true); return false; }
         await afterAction(r);
         const href = Office.safeHref(r.url);
@@ -786,7 +848,7 @@ async function containerDialog(id) {
       } },
     ],
   });
-  if (plan.refuse) d.buttons[1].disabled = true;
+  if (refuse) d.buttons[1].disabled = true;
 }
 
 // ------------------------------------------------------------------ Grafana's provisioning

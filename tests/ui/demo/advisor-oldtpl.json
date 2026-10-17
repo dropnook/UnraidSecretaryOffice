@@ -1,0 +1,216 @@
+{
+ "time": 1791551073,
+ "gui": "http://192.168.178.10",
+ "ip": "192.168.178.10",
+ "media": "Emby",
+ "metrics_dir": "/mnt/addons/UnraidSecretaryOffice/metrics",
+ "metrics_there": true,
+ "dashboard": "https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/monitoring/grafana-dashboard.json",
+ "prometheus_yml": "global:\n  scrape_interval: 60s\n\nscrape_configs:\n  - job_name: prometheus\n    static_configs:\n      - targets: ['localhost:9090']\n  - job_name: node\n    static_configs:\n      - targets: ['{ip}:9100']",
+ "externals": {
+  "fcp": {
+   "kind": "plugin",
+   "there": true,
+   "version": "2026.05.16",
+   "icon": "/plugins/fix.common.problems/images/fix.common.problems.png",
+   "optional": false
+  },
+  "filesviewer": {
+   "kind": "plugin",
+   "there": true,
+   "version": "2026.08.24",
+   "icon": "/plugins/filesviewer/img/filesviewerplugin.png",
+   "optional": false
+  },
+  "kopia": {
+   "kind": "container",
+   "there": true,
+   "name": "kopia",
+   "image": "ghcr.io/imagegenius/kopia",
+   "running": true,
+   "icon": null,
+   "optional": false,
+   "webui": "http://192.168.178.10:51515",
+   "by_consultant": true,
+   "kopia": {
+    "config": "/mnt/cache/appdata/kopia",
+    "sources": {
+     "host": "/mnt/addons/UnraidSecretaryOffice/snapshots",
+     "target": "/uso",
+     "rw": false
+    },
+    "restore": {
+     "host": "/mnt/user/UnraidSecretaryOffice/restore/kopia",
+     "target": "/uso-restore"
+    },
+    "folders": [],
+    "root": true,
+    "repo": null
+   }
+  },
+  "streamviewer": {
+   "kind": "plugin",
+   "there": false,
+   "version": null,
+   "icon": null,
+   "optional": false,
+   "offer": true,
+   "author": "Lazaros Chalkidis",
+   "plg": "https://github.com/Lazaros-Chalkidis/unraid-streamviewer/raw/main/streamviewer.plg"
+  },
+  "unbalanced": {
+   "kind": "plugin",
+   "there": false,
+   "version": null,
+   "icon": null,
+   "optional": true
+  },
+  "nodeexporter": {
+   "kind": "container",
+   "there": true,
+   "name": "Node-Exporter",
+   "image": "quay.io/prometheus/node-exporter:latest-distroless",
+   "running": true,
+   "icon": null,
+   "optional": true,
+   "group": "monitoring",
+   "webui": "http://192.168.178.10:9100/metrics",
+   "by_consultant": true,
+   "textfile": true
+  },
+  "prometheus": {
+   "kind": "container",
+   "there": false,
+   "name": null,
+   "image": null,
+   "running": false,
+   "icon": null,
+   "optional": true,
+   "group": "monitoring",
+   "offer": {
+    "template": "prometheus",
+    "refuse": null,
+    "old": {
+     "file": "my-prometheus.xml",
+     "path": "/boot/config/plugins/dockerMan/templates-user/my-prometheus.xml",
+     "name": "prometheus",
+     "image": "linuxserver/nextcloud",
+     "fits": false,
+     "by_consultant": false,
+     "mtime": 1752000000,
+     "installed": 1752000000,
+     "paths": [
+      {
+       "host": "/mnt/user/appdata/nextcloud",
+       "target": "/config"
+      }
+     ],
+     "missing": [
+      "/prometheus",
+      "/etc/prometheus/"
+     ],
+     "openable": true
+    }
+   }
+  },
+  "grafana": {
+   "kind": "container",
+   "there": false,
+   "name": null,
+   "image": null,
+   "running": false,
+   "icon": null,
+   "optional": true,
+   "group": "monitoring",
+   "offer": {
+    "template": "Grafana",
+    "refuse": null,
+    "old": {
+     "file": "my-Grafana.xml",
+     "path": "/boot/config/plugins/dockerMan/templates-user/my-Grafana.xml",
+     "name": "Grafana",
+     "image": "grafana/grafana",
+     "fits": true,
+     "by_consultant": true,
+     "mtime": 1759830000,
+     "installed": 1759830000,
+     "paths": [
+      {
+       "host": "/mnt/user/appdata/grafana",
+       "target": "/var/lib/grafana"
+      }
+     ],
+     "missing": [],
+     "openable": true
+    }
+   }
+  },
+  "loki": {
+   "kind": "container",
+   "there": false,
+   "name": null,
+   "image": null,
+   "running": false,
+   "icon": null,
+   "optional": true,
+   "group": "monitoring",
+   "later": true
+  },
+  "syslogserver": {
+   "kind": "setting",
+   "there": true,
+   "syslog": {
+    "on": true,
+    "local": true,
+    "there": true,
+    "folder": "/mnt/user/syslog",
+    "share": "syslog",
+    "ident": "ip",
+    "protocol": "udp",
+    "port": 514,
+    "rotation": true,
+    "size": 52428800,
+    "files": 4,
+    "remote": null,
+    "loop": false,
+    "sleepy": [],
+    "exported": [],
+    "pools": [
+     "daten",
+     "cache"
+    ],
+    "array_ssd": false,
+    "asleep": false,
+    "senders": [
+     {
+      "sender": "192.168.178.190",
+      "mtime": 1791459040,
+      "size": 5866
+     }
+    ]
+   },
+   "optional": true,
+   "group": "network"
+  },
+  "unifi": {
+   "kind": "guide",
+   "there": null,
+   "optional": true,
+   "group": "network"
+  },
+  "neighbours": {
+   "kind": "guide",
+   "there": null,
+   "optional": true,
+   "group": "network"
+  },
+  "mikrotik": {
+   "kind": "guide",
+   "there": null,
+   "optional": true,
+   "group": "network"
+  }
+ },
+ "server": "FamilienServer",
+ "job": null
+}

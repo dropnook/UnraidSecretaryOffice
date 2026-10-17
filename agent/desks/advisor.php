@@ -55,7 +55,13 @@ declare(strict_types=1);
  *               own "Add Container" form opened with it — the user sees every
  *               field and clicks Apply; Unraid writes my-<Name>.xml and makes
  *               the container as if it came from Apps. Never over an existing
- *               container or template. Files the container needs at its first
+ *               container. An old my-<Name>.xml without its container (a
+ *               reinstalled server, a flash restored, a container removed): he
+ *               says what it is and the user chooses — «Use the old one» opens
+ *               Unraid's form from that template (as Previous Apps does; only
+ *               when its image is his external's), «Prepare anew» puts it into
+ *               Ms. Dustdevil's storeroom first (her run folder and manifest:
+ *               she lists it and can put it back). Files the container needs at its first
  *               start (prometheus.yml, Grafana's provisioning) are written
  *               beforehand, only where there are none.
  *   Kopia's repository  the user's keys and password reach the agent only
@@ -124,6 +130,10 @@ const ADVISOR_PREPARED_DIR   = RUN_DIR . '/templates';
 const ADVISOR_USER_TEMPLATES = '/boot/config/plugins/dockerMan/templates-user';
 /** Unraid's "Add Container" form; xmlTemplate=default:<file> is how Community Applications opens it (CreateDocker.php takes any file) */
 const ADVISOR_ADD_CONTAINER  = '/Docker/AddContainer?xmlTemplate=default:';
+/** …and from a user template as it is (Previous Apps' way: no «default:», whose /config Unraid would set to appdata/<Name>) */
+const ADVISOR_ADD_OLD        = '/Docker/AddContainer?xmlTemplate=user:';
+/** An old template read only up to this size (Unraid's own are a few KB) */
+const ADVISOR_OLD_MAX        = 1 << 20;
 /** Kopia: the office's snapshots read-only at /uso (its sources are named after it), restores into /uso-restore (Mr. Restori) */
 define('ADVISOR_SNAPSHOTS', '/mnt/addons/' . BACKUP_OFFICE_SHARE . '/snapshots');
 define('ADVISOR_RESTORE', '/mnt/user/' . BACKUP_OFFICE_SHARE . '/restore/kopia');
@@ -202,6 +212,7 @@ desk('advisor', [
         'job'              => fn (array $r) => ['ok' => true, 'job' => advisorJob()],
         // writing (after a preview and a confirmation on the page)
         'install_prepare'  => fn (array $r) => advisorInstallPrepare(advisorId($r), $r, advisorEnv()) + ['state' => advisorScan()],
+        'install_old'      => fn (array $r) => advisorInstallOld(advisorId($r), advisorEnv()) + ['state' => advisorScan()],
         'provision'        => fn (array $r) => advisorProvision(advisorEnv()) + ['state' => advisorScan()],
         'plugin_install'   => fn (array $r) => advisorPluginInstall(advisorId($r)),
         'kopia_repo'       => fn (array $r) => advisorKopiaRepo($r),
@@ -278,8 +289,10 @@ function advisorScan(): array
                 advisorDashboardCurrent($g);
             }
         } elseif (isset($how['template']) && empty($how['later'])) {
-            $refuse = advisorInstallRefusal($id, $how['template'], $env, false);
-            $x['offer'] = ['template' => $how['template'], 'refuse' => $refuse];
+            // an old template of that name: not a refusal any more, his card offers it or putting it away (the flash only)
+            $refuse = advisorInstallRefusal($id, $how['template'], $env, false, true);
+            $x['offer'] = ['template' => $how['template'], 'refuse' => $refuse,
+                           'old' => $refuse === null ? advisorOldTemplate($id, $how['template'], $env) : null];
         }
         $externals[$id] = $x;
     }
@@ -870,6 +883,7 @@ function advisorEnv(?array $containers = null): array
         'dashboard'      => ADVISOR_DASHBOARD_FILE,
         'snapshots'      => ADVISOR_SNAPSHOTS,
         'restore'        => ADVISOR_RESTORE,
+        'storeroom'      => CL_FLASH . '/' . CL_TRASH,
         'metrics'        => ADVISOR_METRICS_DIR,
         'uid'            => FILE_UID,
         'gid'            => FILE_GID,
@@ -914,11 +928,12 @@ function advisorTemplate(string $id, array $env, array $opts = []): array
  * there (by image), a container of that name exists (Unraid would replace it
  * on Apply), a template of that name exists (Unraid would write over it), no
  * appdata, no address where the container needs one. $look = false: without
- * looking at appdata itself (the scan: no disk is touched).
+ * looking at appdata itself (the scan: no disk is touched). $template = false:
+ * an old template of that name doesn't count (his card offers it instead).
  *
  * @return array{key:string, params:array}|null
  */
-function advisorInstallRefusal(string $id, string $name, array $env, bool $look = true): ?array
+function advisorInstallRefusal(string $id, string $name, array $env, bool $look = true, bool $ignoreTemplate = false): ?array
 {
     $found = advisorFindContainer(ADVISOR_EXTERNALS[$id], $env['containers']);
     if ($found !== null) {
@@ -929,7 +944,7 @@ function advisorInstallRefusal(string $id, string $name, array $env, bool $look 
             return ['key' => 'ad_name_taken', 'params' => ['name' => $c['name']]];
         }
     }
-    foreach (glob($env['user_templates'] . '/my-*.xml') ?: [] as $file) {
+    foreach ($ignoreTemplate ? [] : (glob($env['user_templates'] . '/my-*.xml') ?: []) as $file) {
         if (strcasecmp(basename($file), "my-$name.xml") === 0) {
             return ['key' => 'ad_template_taken', 'params' => ['file' => basename($file), 'name' => $name]];
         }
@@ -974,7 +989,10 @@ function advisorInstallPlan(string $id, array $env, array $opts = []): array
         $f['there'] = file_exists($f['path']) || is_link($f['path']);
     }
     unset($f);
-    return ['id' => $id, 'name' => $t['name'], 'template' => $t, 'files' => $files, 'refuse' => $refuse, 'dashboard' => $dashboard];
+    return ['id' => $id, 'name' => $t['name'], 'template' => $t, 'files' => $files, 'refuse' => $refuse, 'dashboard' => $dashboard,
+            'refuse_rest' => ($refuse['key'] ?? null) === 'ad_template_taken' ? advisorInstallRefusal($id, $t['name'], $env, true, true) : $refuse,
+            'old' => ($refuse['key'] ?? null) === 'ad_template_taken' ? advisorOldTemplate($id, $t['name'], $env) : null,
+            'storeroom' => $env['storeroom'] ?? CL_FLASH . '/' . CL_TRASH];
 }
 
 /** What the page shows of a plan: the template's fields (masked ones without a value), the files without their content */
@@ -983,6 +1001,7 @@ function advisorInstallPublic(array $plan): array
     $t = $plan['template'];
     return [
         'id' => $plan['id'], 'name' => $plan['name'], 'refuse' => $plan['refuse'], 'dashboard' => $plan['dashboard'],
+        'refuse_rest' => $plan['refuse_rest'], 'old' => $plan['old'], 'storeroom' => $plan['storeroom'],
         'repository' => $t['repository'], 'network' => $t['network'], 'extra' => $t['extra'], 'post' => $t['post'],
         'config' => array_map(fn ($c) => ['name' => $c['name'], 'target' => $c['target'], 'mode' => $c['mode'], 'type' => $c['type'],
                                           'value' => $c['mask'] ? '' : $c['value'], 'mask' => $c['mask']], $t['config']),
@@ -999,6 +1018,20 @@ function advisorInstallPublic(array $plan): array
 function advisorInstallPrepare(string $id, array $r, array $env): array
 {
     $plan = advisorInstallPlan($id, $env, $r);
+    // «Prepare anew» over an old template: the page names the file it showed (`away`); only that one, only when nothing
+    // else stands in the way, goes into Ms. Dustdevil's storeroom first — then he looks again
+    $away = optText($r, 'away');
+    $aside = null;
+    if ($away !== '' && ($plan['refuse']['key'] ?? null) === 'ad_template_taken') {
+        if ($plan['refuse_rest'] !== null) {
+            throw new Problem($plan['refuse_rest']['key'], $plan['refuse_rest']['params']);
+        }
+        if ($plan['old'] === null || $plan['old']['file'] !== $away) {
+            throw new Problem('ad_old_changed', ['file' => $away]);
+        }
+        $aside = advisorTemplateAway($plan['old'], $plan['name'], $env);
+        $plan = advisorInstallPlan($id, $env, $r);
+    }
     if ($plan['refuse'] !== null) {
         throw new Problem($plan['refuse']['key'], $plan['refuse']['params']);
     }
@@ -1029,7 +1062,121 @@ function advisorInstallPrepare(string $id, array $r, array $env): array
     logLine("Consultant: prepared Unraid's form for {$plan['name']}" . ($written ? ' (wrote ' . implode(', ', $written) . ')' : ''));
     advisorRecord(['kind' => 'container', 'id' => $id, 'name' => $plan['name'], 'image' => $plan['template']['repository']]);
     $GLOBALS['advisorPrepared'] = ['id' => $id, 'at' => time()];      // his tick looks whether it came (advisorRelookDue())
-    return ['ok' => true, 'url' => ADVISOR_ADD_CONTAINER . $file, 'name' => $plan['name'], 'written' => $written, 'kept' => $kept];
+    return ['ok' => true, 'url' => ADVISOR_ADD_CONTAINER . $file, 'name' => $plan['name'], 'written' => $written, 'kept' => $kept]
+        + ($aside !== null ? ['aside' => $aside] : []);
+}
+
+/** Whether an image is the external's (his match: 'image' — the image's own name; 'container' — the image contains it) */
+function advisorImageFits(array $how, string $image): bool
+{
+    if ($image === '') {
+        return false;
+    }
+    return isset($how['image']) ? preg_match($how['image'], advisorImageName($image)) === 1 : stripos($image, $how['container']) !== false;
+}
+
+/**
+ * An old template of his external's name in Unraid's user templates (my-<Name>.xml, any case) whose container is gone:
+ * what it is, read from the flash only — its image and whether that is the external's, its paths (host → inside), the
+ * paths his own template has and it lacks, his mark, its date; null when there is none (or no plain file). Variables
+ * (passwords among them) never leave it.
+ *
+ * @return array{file:string, path:string, name:string, image:string, fits:bool, by_consultant:bool, mtime:int,
+ *               installed:?int, paths:list<array{host:string, target:string}>, missing:list<string>, openable:bool}|null
+ */
+function advisorOldTemplate(string $id, string $name, array $env): ?array
+{
+    foreach (glob($env['user_templates'] . '/my-*.xml') ?: [] as $file) {
+        if (strcasecmp(basename($file), "my-$name.xml") !== 0) {
+            continue;
+        }
+        clearstatcache(true, $file);
+        $st = @lstat($file);
+        if (!$st || ($st['mode'] & 0170000) !== 0100000 || $st['size'] > ADVISOR_OLD_MAX) {
+            return null;
+        }
+        $raw = @file_get_contents($file, false, null, 0, ADVISOR_OLD_MAX);
+        $doc = is_string($raw) && $raw !== '' ? @simplexml_load_string($raw, 'SimpleXMLElement', LIBXML_NONET) : false;
+        $image = $doc ? trim((string) $doc->Repository) : '';
+        $paths = $targets = [];
+        $mark = false;
+        foreach ($doc ? $doc->Config : [] as $c) {
+            $type = (string) $c['Type'];
+            if ($type === 'Path') {
+                $paths[] = ['host' => trim((string) $c), 'target' => (string) $c['Target']];
+                $targets[rtrim((string) $c['Target'], '/') ?: '/'] = true;
+            } elseif ($type === 'Label' && (string) $c['Target'] === ADVISOR_LABEL && trim((string) $c) === 'consultant') {
+                $mark = true;
+            }
+        }
+        try {
+            $mine = array_values(array_unique(array_column(array_filter(advisorTemplate($id, $env)['config'], fn ($c) => $c['type'] === 'Path'), 'target')));
+        } catch (Problem) {
+            $mine = [];
+        }
+        $installed = $doc ? (int) trim((string) $doc->DateInstalled) : 0;
+        return ['file' => basename($file), 'path' => $file, 'name' => $doc ? (string) $doc->Name : '', 'image' => $image,
+                'fits' => advisorImageFits(ADVISOR_EXTERNALS[$id], $image), 'by_consultant' => $mark, 'mtime' => (int) $st['mtime'],
+                'installed' => $installed > 0 ? $installed : null, 'paths' => $paths,
+                'missing' => array_values(array_filter($mine, fn ($t) => !isset($targets[rtrim($t, '/') ?: '/']))),
+                // the form cuts its path at ; | & ? = (unscript): only a plain path opens it
+                'openable' => $doc !== false && preg_match('#^/[A-Za-z0-9/_.-]+\.xml$#D', $file) === 1];
+    }
+    return null;
+}
+
+/**
+ * «Use the old one»: Unraid's form opened from the old template as it is — its paths, ports and passwords the old ones;
+ * the user clicks Apply there. Only for a template whose image is the external's, never while a container of that kind
+ * or name is there. Nothing written; recorded like a form he prepared.
+ */
+function advisorInstallOld(string $id, array $env): array
+{
+    $name = ADVISOR_EXTERNALS[$id]['template'] ?? null;
+    if ($name === null || !empty(ADVISOR_EXTERNALS[$id]['later'])) {
+        throw new Problem('ad_unknown', ['id' => $id]);
+    }
+    $refuse = advisorInstallRefusal($id, $name, $env, false, true);
+    if ($refuse !== null && in_array($refuse['key'], ['ad_there', 'ad_name_taken'], true)) {
+        throw new Problem($refuse['key'], $refuse['params']);
+    }
+    $old = advisorOldTemplate($id, $name, $env) ?? throw new Problem('ad_old_gone', ['name' => $name]);
+    if (!$old['fits']) {
+        throw new Problem('ad_old_foreign', ['file' => $old['file'], 'image' => $old['image'] ?: '?']);
+    }
+    if (!$old['openable']) {
+        throw new Problem('ad_old_path', ['file' => $old['file']]);
+    }
+    logLine("Consultant: opened Unraid's form from the old template {$old['path']} ({$old['image']})");
+    advisorRecord(['kind' => 'container', 'id' => $id, 'name' => $old['name'] ?: $name, 'image' => $old['image'], 'old' => true]);
+    $GLOBALS['advisorPrepared'] = ['id' => $id, 'at' => time()];
+    return ['ok' => true, 'url' => ADVISOR_ADD_OLD . $old['path'], 'name' => $old['name'] ?: $name, 'file' => $old['file']];
+}
+
+/**
+ * «Prepare anew» over an old template: it goes into Ms. Dustdevil's storeroom on the flash — her run folder, the same
+ * entry she writes (kind template, from → as), so her page lists it and puts it back. Never deleted. Answers where it lies.
+ */
+function advisorTemplateAway(array $old, string $name, array $env): string
+{
+    $root = $env['storeroom'] ?? CL_FLASH . '/' . CL_TRASH;
+    try {
+        $run = clRunCreate($root);
+        $as = 'templates/' . $old['file'];
+        try {
+            clMove($old['path'], $run['path'] . "/$as");
+        } catch (Problem $p) {
+            clRunTidy($run['path'], $run['root']);
+            throw $p;
+        }
+        $run['items'][] = ['kind' => 'template', 'name' => $old['file'], 'label' => $old['name'], 'from' => $old['path'], 'as' => $as,
+                           'image' => $old['image']];
+        clManifestWrite($run);
+    } catch (Problem $p) {
+        throw new Problem('ad_away_failed', ['file' => $old['file'], 'path' => (string) ($p->params['path'] ?? $root)]);
+    }
+    logLine("Consultant: put the old template {$old['path']} into Ms. Dustdevil's storeroom ({$run['path']}/$as) before preparing Unraid's form for $name");
+    return $run['path'] . "/$as";
 }
 
 /**

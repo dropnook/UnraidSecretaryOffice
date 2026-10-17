@@ -15169,6 +15169,124 @@ function testAdvisorInstall(): void
 }
 
 /**
+ * An old my-<Name>.xml without its container (a reinstalled server, a flash restored): the Consultant offers it — «Use
+ * the old one» only for his external's image — or puts it into Ms. Dustdevil's storeroom and prepares anew
+ */
+function testAdvisorOldTemplate(): void
+{
+    $tmp = hardeningTmp('advisor-old');
+    $GLOBALS['advisorRecordFile'] = "$tmp/record/installs.json";
+    mkdir("$tmp/appdata");
+    mkdir("$tmp/flash");
+    mkdir("$tmp/tu");
+    $env = ['appdata' => "$tmp/appdata", 'ip' => '192.0.2.10', 'templates' => ADVISOR_TEMPLATE_DIR, 'user_templates' => "$tmp/tu",
+            'prepared' => "$tmp/prepared", 'containers' => [], 'dashboard' => ADVISOR_DASHBOARD_FILE, 'snapshots' => ADVISOR_SNAPSHOTS,
+            'restore' => ADVISOR_RESTORE, 'metrics' => ADVISOR_METRICS_DIR, 'uid' => posix_getuid(), 'gid' => posix_getgid(),
+            'storeroom' => "$tmp/flash/" . CL_TRASH];
+    $xml = fn (string $name, string $image, string $extra = '') => "<?xml version=\"1.0\"?>\n<Container version=\"2\">\n  <Name>$name</Name>\n"
+        . "  <Repository>$image</Repository>\n  <DateInstalled>1760000000</DateInstalled>\n"
+        . "  <Config Name=\"Config\" Target=\"/config\" Default=\"\" Mode=\"rw\" Type=\"Path\" Display=\"always\" Required=\"true\" Mask=\"false\">/mnt/user/appdata/prometheus/etc</Config>\n"
+        . "  <Config Name=\"Pass\" Target=\"PW\" Default=\"\" Mode=\"\" Type=\"Variable\" Display=\"always\" Required=\"false\" Mask=\"true\">s3cret-old</Config>\n$extra</Container>\n";
+    $file = "$tmp/tu/my-prometheus.xml";
+    file_put_contents($file, $xml('prometheus', 'prom/prometheus:latest',
+        "  <Config Name=\"m\" Target=\"" . ADVISOR_LABEL . "\" Default=\"\" Mode=\"\" Type=\"Label\" Display=\"always\" Required=\"false\" Mask=\"false\">consultant</Config>\n"));
+    touch($file, 1760000500);
+
+    // the plain prepare still refuses (a stale page): the refusal now says what to do on his card
+    same('advisor old: a plain prepare refuses over it', 'ad_template_taken', advisorInstallRefusal('prometheus', 'prometheus', $env)['key'] ?? null);
+    same('advisor old: his card — no refusal, the old one offered', null, advisorInstallRefusal('prometheus', 'prometheus', $env, false, true));
+    $old = advisorOldTemplate('prometheus', 'prometheus', $env);
+    same('advisor old: what it is, from its XML', ['my-prometheus.xml', 'prometheus', 'prom/prometheus:latest', true, true, 1760000000, 1760000500, true],
+        [$old['file'] ?? null, $old['name'] ?? null, $old['image'] ?? null, $old['fits'] ?? null, $old['by_consultant'] ?? null,
+         $old['installed'] ?? null, $old['mtime'] ?? null, $old['openable'] ?? null]);
+    same('advisor old: its paths', [['host' => '/mnt/user/appdata/prometheus/etc', 'target' => '/config']], $old['paths']);
+    check('advisor old: the paths his own has and it lacks', in_array('/etc/prometheus/', $old['missing'], true) && !in_array('/config', $old['missing'], true));
+    check('advisor old: no variable (password) ever in what the page gets', !str_contains(json_encode($old), 's3cret'));
+    same('advisor old: any case of the name', 'my-prometheus.xml', advisorOldTemplate('prometheus', 'Prometheus', $env)['file'] ?? null);
+    same('advisor old: none for another external', null, advisorOldTemplate('grafana', 'Grafana', $env));
+    $public = advisorInstallPublic(advisorInstallPlan('prometheus', $env));
+    same('advisor old: the preview — the refusal, nothing else in the way, the old one, the storeroom',
+        ['ad_template_taken', null, 'my-prometheus.xml', $env['storeroom']],
+        [$public['refuse']['key'] ?? null, $public['refuse_rest'], $public['old']['file'] ?? null, $public['storeroom']]);
+
+    // «Use the old one»: Unraid's form from that file as it is (user:, never default:), recorded, nothing written
+    $r = advisorInstallOld('prometheus', $env);
+    same('advisor old use: the form from the old template', ADVISOR_ADD_OLD . $file, $r['url']);
+    check('advisor old use: never default: (Unraid would set its /config)', !str_contains($r['url'], 'default:'));
+    same('advisor old use: nothing prepared, nothing written, the template where it was', [false, [], true],
+        [is_dir("$tmp/prepared"), array_values(array_diff(scandir("$tmp/appdata"), ['.', '..'])), is_file($file)]);
+    same('advisor old use: recorded like a form he prepared', ['container', 'prometheus', true],
+        [($last = array_slice(readJson($GLOBALS['advisorRecordFile'])['installs'], -1)[0])['kind'], $last['id'], $last['old'] ?? null]);
+    $there = ['containers' => ['prometheus' => ['name' => 'prometheus', 'image' => 'prom/prometheus', 'running' => true]]] + $env;
+    try {
+        advisorInstallOld('prometheus', $there);
+        check('advisor old use: refused while one is there', false);
+    } catch (Problem $p) {
+        same('advisor old use: refused while one is there', 'ad_there', $p->key);
+    }
+
+    // a template of that name with a foreign image: never opened, only put away and prepared anew
+    $foreign = "$tmp/tu/my-Grafana.xml";
+    file_put_contents($foreign, $xml('Grafana', 'linuxserver/nextcloud:latest'));
+    $g = advisorOldTemplate('grafana', 'Grafana', $env);
+    same('advisor old foreign: said, not by him, not his image', ['linuxserver/nextcloud:latest', false, false], [$g['image'], $g['fits'], $g['by_consultant']]);
+    try {
+        advisorInstallOld('grafana', $env);
+        check('advisor old foreign: never opened', false);
+    } catch (Problem $p) {
+        same('advisor old foreign: never opened', ['ad_old_foreign', 'my-Grafana.xml'], [$p->key, $p->params['file'] ?? null]);
+    }
+    same('advisor old: image fits by his match', [true, true, false, true, false],
+        [advisorImageFits(ADVISOR_EXTERNALS['kopia'], 'ghcr.io/imagegenius/kopia:latest'), advisorImageFits(ADVISOR_EXTERNALS['grafana'], 'grafana/grafana-oss'),
+         advisorImageFits(ADVISOR_EXTERNALS['grafana'], 'grafana/loki'), advisorImageFits(ADVISOR_EXTERNALS['nodeexporter'], 'quay.io/prometheus/node-exporter:latest-distroless'),
+         advisorImageFits(ADVISOR_EXTERNALS['kopia'], '')]);
+    file_put_contents("$tmp/tu/my-Node-Exporter.xml", 'not xml at all');
+    $n = advisorOldTemplate('nodeexporter', 'Node-Exporter', $env);
+    same('advisor old: no XML — said, never opened', [false, false, ''], [$n['fits'], $n['openable'], $n['image']]);
+
+    // «Prepare anew»: only the file the page named, only when nothing else is in the way
+    try {
+        advisorInstallPrepare('grafana', ['away' => 'my-Other.xml'], $env);
+        check('advisor old anew: another file named — refused', false);
+    } catch (Problem $p) {
+        same('advisor old anew: another file named — refused, nothing moved', ['ad_old_changed', true], [$p->key, is_file($foreign)]);
+    }
+    try {
+        advisorInstallPrepare('grafana', ['away' => 'my-Grafana.xml'], ['ip' => null] + $env);
+        check('advisor old anew: something else in the way — refused first', false);
+    } catch (Problem $p) {
+        same('advisor old anew: something else in the way — refused, nothing moved', ['ad_no_ip', true, false],
+            [$p->key, is_file($foreign), is_dir($env['storeroom'])]);
+    }
+    try {
+        advisorInstallPrepare('grafana', ['away' => ['x']], $env);
+        check('advisor old anew: a wrong type — refused', false);
+    } catch (Problem $p) {
+        same('advisor old anew: a wrong type — refused', ['bad_request', true], [$p->key, is_file($foreign)]);
+    }
+    $r = advisorInstallPrepare('grafana', ['away' => 'my-Grafana.xml'], $env);
+    $runs = glob($env['storeroom'] . '/*', GLOB_ONLYDIR);
+    $m = readJson($runs[0] . '/manifest.json');
+    same('advisor old anew: the old template in her storeroom, her own entry — then his form', [1, false, true, 'templates/my-Grafana.xml', $foreign, 'template', 'linuxserver/nextcloud:latest'],
+        [count($runs), is_file($foreign), is_file($runs[0] . '/templates/my-Grafana.xml'), $m['items'][0]['as'], $m['items'][0]['from'], $m['items'][0]['kind'], $m['items'][0]['image']]);
+    check('advisor old anew: her storeroom takes the entry as hers', clTrashAsOk($m['items'][0]['as'], 'template', basename($runs[0])));
+    same('advisor old anew: the form prepared from his template', [ADVISOR_ADD_CONTAINER . "$tmp/prepared/Grafana.xml", $runs[0] . '/templates/my-Grafana.xml'],
+        [$r['url'], $r['aside'] ?? null]);
+    check('advisor old anew: nothing deleted — the old content kept', str_contains((string) file_get_contents($runs[0] . '/templates/my-Grafana.xml'), 'linuxserver/nextcloud'));
+    same('advisor old anew: no old template any more, no refusal', [null, null],
+        [advisorOldTemplate('grafana', 'Grafana', $env), advisorInstallRefusal('grafana', 'Grafana', $env)]);
+    // without `away` the prepare still refuses over one (never over the user's template behind his back)
+    try {
+        advisorInstallPrepare('prometheus', [], $env);
+        check('advisor old: without away — refused', false);
+    } catch (Problem $p) {
+        same('advisor old: without away — refused, the template where it was', ['ad_template_taken', true], [$p->key, is_file($file)]);
+    }
+    unset($GLOBALS['advisorPrepared'], $GLOBALS['advisorRecordFile']);
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * The consultant's record of what he installed (root only, kept small) and his re-look after he prepared
  * Unraid's form; Grafana's admin password optional; Grafana's provisioning with the folders it looks for.
  */
@@ -39235,7 +39353,7 @@ function testFirstHome(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied', 'testBackup74Polish',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied', 'testBackup74Polish',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
