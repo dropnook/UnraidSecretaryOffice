@@ -585,6 +585,7 @@
   "setup.tile.sources_sub": "ancora in Kopia",
   "setup.sources_manual": "Impostale su «manuale»",
   "setup.sources_manual_hint": "Kopia non li pianifica più; i loro snapshot restano. «Elimina in Kopia…» elimina quelli di condivisioni, app e VM che non ci sono più; tutti gli altri nella KopiaUI.",
+  "setup.sources_manual_once": "Vale solo per questo «Applica» — non viene ricordato.",
   "setup.orphans.button": "Elimina in Kopia…",
   "setup.orphans.button_hint": "Mostra le vecchie sorgenti di condivisioni, app e VM che non ci sono più, con i loro snapshot — scegli tu quali eliminare.",
   "setup.orphans.title": "Elimina vecchie sorgenti in Kopia",

@@ -579,6 +579,7 @@
   "setup.tile.sources_sub": "still in Kopia",
   "setup.sources_manual": "Set them to «manual»",
   "setup.sources_manual_hint": "Kopia no longer schedules them; their snapshots stay. «Delete in Kopia…» deletes those of shares, apps and VMs that are gone; any others in the KopiaUI.",
+  "setup.sources_manual_once": "Applies to this Apply only — not remembered.",
   "setup.orphans.button": "Delete in Kopia…",
   "setup.orphans.button_hint": "Shows the old sources of shares, apps and VMs that are gone, with their snapshots — you tick which ones go.",
   "setup.orphans.title": "Delete old sources in Kopia",

@@ -1215,7 +1215,16 @@
    "storage": "",
    "host_is_container_id": false,
    "server_uid": "",
-   "sources": []
+   "sources": [
+    {
+     "source": "root@FamilienServer:/mnt/user/Schule-alt",
+     "state": "gone"
+    },
+    {
+     "source": "root@FamilienServer:/mnt/user/Familienfotos-2019",
+     "state": "gone"
+    }
+   ]
   },
   "messages": [
    {

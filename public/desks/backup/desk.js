@@ -5423,7 +5423,11 @@ function setupSources(old) {
   const ul = el('ul', 'shortlist');
   old.filter((o) => fitRow(o.source, false)).forEach((o) => ul.appendChild(el('li', '', o.source)));
   s.appendChild(ul);
-  s.appendChild(checkbox(T('setup.sources_manual'), setup.retire, (v) => { setup.retire = v; }, T('setup.sources_manual_hint')));
+  // a one-time order for the next Apply (setup.sh --apply _retire_sources), no setting of settings.ini: said so on the row
+  // (2026-10-17, silent controls: unticked, a reload ticked it again without a word)
+  const once = checkbox(T('setup.sources_manual'), setup.retire, (v) => { setup.retire = v; }, T('setup.sources_manual_hint'));
+  once.lastChild.appendChild(el('small', 'bk-once', T('setup.sources_manual_once')));
+  s.appendChild(once);
   // engine 2.51: the office's own sources under its mount root («orphan»; never «gone» - not the office's) can go in Kopia
   if (old.some((o) => o.state === 'orphan') && dget('kopia|enabled') === 'yes') {
     const b = button(T('setup.orphans.button'), 'small', orphansDialog);

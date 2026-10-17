@@ -585,6 +585,7 @@
   "setup.tile.sources_sub": "aún en Kopia",
   "setup.sources_manual": "Ponerlas en «manual»",
   "setup.sources_manual_hint": "Kopia ya no las programa; sus instantáneas se quedan. «Borrar en Kopia…» borra las de recursos compartidos, apps y VMs que ya no existen; todas las demás en la KopiaUI.",
+  "setup.sources_manual_once": "Vale solo para este «Aplicar» — no se recuerda.",
   "setup.orphans.button": "Borrar en Kopia…",
   "setup.orphans.button_hint": "Muestra las fuentes antiguas de recursos compartidos, apps y VMs que ya no existen, con sus instantáneas — tú marcas cuáles se van.",
   "setup.orphans.title": "Borrar fuentes antiguas en Kopia",

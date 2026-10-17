@@ -585,6 +585,7 @@
   "setup.tile.sources_sub": "encore dans Kopia",
   "setup.sources_manual": "Les passer en « manual »",
   "setup.sources_manual_hint": "Kopia ne les planifie plus ; leurs instantanés restent. « Supprimer dans Kopia… » supprime celles des partages, apps et VM qui n'existent plus ; toutes les autres dans la KopiaUI.",
+  "setup.sources_manual_once": "Vaut pour cet « Appliquer » seulement — pas mémorisé.",
   "setup.orphans.button": "Supprimer dans Kopia…",
   "setup.orphans.button_hint": "Montre les anciennes sources des partages, apps et VM qui n'existent plus, avec leurs instantanés — tu coches celles qui partent.",
   "setup.orphans.title": "Supprimer d'anciennes sources dans Kopia",

@@ -579,6 +579,7 @@
   "setup.tile.sources_sub": "noch in Kopia",
   "setup.sources_manual": "Auf «manuell» stellen",
   "setup.sources_manual_hint": "Kopia plant sie nicht mehr; ihre Snapshots bleiben. «In Kopia löschen…» löscht die von Shares, Apps und VMs, die es nicht mehr gibt; alle anderen in der KopiaUI.",
+  "setup.sources_manual_once": "Gilt für dieses Übernehmen — wird nicht gemerkt.",
   "setup.orphans.button": "In Kopia löschen…",
   "setup.orphans.button_hint": "Zeigt die alten Quellen von Shares, Apps und VMs, die es nicht mehr gibt, mit ihren Snapshots — du hakst an, welche gehen.",
   "setup.orphans.title": "Alte Quellen in Kopia löschen",
