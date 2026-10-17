@@ -5141,7 +5141,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.57'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.58'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -6795,9 +6795,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.57 everywhere it is named', ['2.57', '2.57', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.57"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.57** –')]);
+    same('data trust: the engine\'s version 2.58 everywhere it is named', ['2.58', '2.58', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.58"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.58** –')]);
     // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
     same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
         array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
@@ -7837,7 +7837,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.57', [1, '2.57'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.58', [1, '2.58'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -8445,7 +8445,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.57', [1, '2.57'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.58', [1, '2.58'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -33471,19 +33471,21 @@ function testSetupMessages(): void
 
     // --- the strings: every code the engine sends has the office's words
     $sh = (string) file_get_contents(OFFICE_DIR . '/backup/setup.sh');
-    preg_match_all('/\b(?:hint_as|wrn_as|wrn_code|hint_code) "?([a-z][a-z0-9_]*)/', $sh, $m);
+    // 2.58: the OK and error lines too (ok_as, bad_as)
+    preg_match_all('/\b(?:hint_as|wrn_as|wrn_code|hint_code|ok_as|bad_as) "?([a-z][a-z0-9_]*)/', $sh, $m);
     $codes = array_values(array_unique(array_filter($m[1], fn ($c) => !str_ends_with($c, '_'))));
-    preg_match_all('/\b(?:hint_as|wrn_as|hint_code) "([a-z_]+)_\$/', $sh, $dyn);
+    preg_match_all('/\b(?:hint_as|wrn_as|hint_code|bad_as) "([a-z_]+)_\$/', $sh, $dyn);
     $more = [];
     foreach (array_unique($dyn[1]) as $d) {
         $more = array_merge($more, match ($d) {
             'vm_no_snapshot' => ['vm_no_snapshot_block', 'vm_no_snapshot_live', 'vm_no_snapshot_missing', 'vm_no_snapshot_none'],
             'partner_cannot', 'partner_off', 'not_agreed' => ["{$d}_share", "{$d}_vm", "{$d}_place"],
+            'place' => ['place_missing', 'place_unknown', 'place_forbidden', 'place_off'],       // dumps_share_problem()'s
             default => ["?$d"],
         });
     }
-    $codes = array_values(array_diff(array_merge($codes, $more), ['more', 'docker_volumes', 'vm_no_snapshot', 'partner_cannot', 'partner_off', 'not_agreed']));
-    check('setup messages: the engine\'s codes found (hint_as, wrn_as, wrn_code, hint_code; the built ones expanded)', count($codes) > 80 && !preg_grep('/^\?/', $codes), implode(' ', $codes));
+    $codes = array_values(array_diff(array_merge($codes, $more), ['more', 'docker_volumes', 'vm_no_snapshot', 'partner_cannot', 'partner_off', 'not_agreed', 'place']));
+    check('setup messages: the engine\'s codes found (hint_as, wrn_as, wrn_code, hint_code, ok_as, bad_as; the built ones expanded)', count($codes) > 140 && !preg_grep('/^\?/', $codes), implode(' ', $codes));
     $langs = [];
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         $langs[$l] = langFile(OFFICE_WEB . "/desks/backup/lang/$l.json");
@@ -33621,8 +33623,11 @@ SH);
         [[['path' => '/uso/oldshare', 'source' => 'root@kopia:/uso/oldshare']], [['path' => '/backup-snapshots/olddata', 'source' => 'root@kopia:/backup-snapshots/olddata']], [['source' => 'admin@laptop:/home/x']]],
         [$by('source_orphan'), $by('source_gone'), $by('source_foreign')]);
     same('setup messages (engine): the live test that couldn\'t mount - coded with the root', [['root' => $root]], $by('kopia_probe_failed'));
-    same('setup messages (engine): no hint or warning without a code', [],
-        array_values(array_map(fn ($m) => $m['text'], array_filter($msgs, fn ($m) => in_array($m['level'] ?? '', ['hint', 'warn'], true) && ($m['code'] ?? '') === ''))));
+    same('setup messages (engine): no message without a code - hints, warnings and (2.58) the OK and error lines too', [],
+        array_values(array_map(fn ($m) => $m['text'], array_filter($msgs, fn ($m) => ($m['code'] ?? '') === ''))));
+    same('setup messages (engine): the OK lines as codes with their params (2.58) - the backup place, the file systems',
+        [true, true], [in_array(['level' => 'ok', 'code' => 'backup_place'], array_map(fn ($m) => array_intersect_key($m, ['level' => 1, 'code' => 1]), $msgs), true),
+         (bool) array_filter($msgs, fn ($m) => ($m['code'] ?? '') === 'fs_present' && in_array($m['params']['fs'] ?? '', ['zfs', 'btrfs'], true))]);
     $unknown = array_values(array_unique(array_filter(array_map(fn ($g) => $g['code'] ?? '', backupSetupNotes($msgs)), fn ($c) => $c !== '' && !isset($en["setup.msg.$c"]))));
     same('setup messages (engine): every code of this plan has the office\'s words', [], $unknown);
     $notes = array_column(array_filter(backupSetupNotes($msgs), fn ($g) => isset($g['code'])), null, 'code');

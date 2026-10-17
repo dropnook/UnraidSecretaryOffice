@@ -2920,9 +2920,9 @@ function backupSetupGet(): array
  * words (`setup.msg.<code>`, desk.js `setupNoteItems()`). Messages of the same level and code make ONE entry with an
  * item each (three apps with Docker volumes → one entry listing them), in the order they came; a message with the code
  * `more` is the second line of the one before it (kept as that item's `more`, shown only where the page falls back to
- * the English). Docker volumes are judged here (`backupVolumeItems()`): cache or real data. A message without a code
- * (ok and error lines, an older engine's plan, a code of an unknown shape) stays an entry of its own with its text —
- * never lost. Pure.
+ * the English). Docker volumes are judged here (`backupVolumeItems()`): cache or real data. Engine 2.58 codes the OK and
+ * error lines too. A message without a code (an older engine's OK and error lines or plan, a code of an unknown shape)
+ * stays an entry of its own with its text — never lost. Pure.
  *
  * @return list<array{level: string, step: string, code?: string, items: list<array{text: string, params?: array, more?: list<string>}>}>
  */

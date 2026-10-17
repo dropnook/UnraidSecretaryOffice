@@ -1,6 +1,7 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.57 - 2026-10-17
+# unraid-backup - backup.sh                       Version 2.58 - 2026-10-17
+#   2.58 No change here (the engine's version: setup.sh's OK and error lines as codes)
 #   2.57 An app's package inside goes only into its configuration folder: inside Unraid's place for app configurations
 #        (docker.cfg DOCKER_APP_CONFIG_PATH: appdata/<app>, or a dataset only it binds inside appdata) - never a share's
 #        root (folder or dataset: an S3 gateway sees .uso-backup there as a bucket), never a folder of another share
