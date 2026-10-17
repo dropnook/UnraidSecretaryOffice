@@ -3113,7 +3113,10 @@ function presetCards(current, onPick, measure, newOnly) {
       cb.checked = presetCards.partnerTick;
       cb.disabled = off;
       cb.onchange = () => { presetCards.partnerTick = cb.checked; if (on) onPick(kindOf(), c); };
-      line.append(cb, el('span', '', T('setup.preset.kopia_partner_tick', { partners: partnerNames })));
+      const tickText = el('span', '', T('setup.preset.kopia_partner_tick', { partners: partnerNames }));
+      // on a card not chosen the tick only waits for the card (2026-10-17, silent controls: a click that did nothing visible)
+      if (!on && !off) tickText.appendChild(el('small', '', T('setup.preset.kopia_partner_tick_wait')));
+      line.append(cb, tickText);
       c.appendChild(line);
     }
     const pick = (e) => {

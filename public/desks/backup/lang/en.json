@@ -1366,6 +1366,7 @@
   "setup.preset.partner_note": "A second copy in another house, readable there (the partner keeps it in plain form); the way there is encrypted. Only ZFS datasets of their own travel.",
   "setup.preset.kopia_partner": "Everything local + partner + offsite",
   "setup.preset.kopia_partner_tick": "also to {partners}",
+  "setup.preset.kopia_partner_tick_wait": "counts once you choose this default",
   "setup.preset.kopia_text": "Every share, app and VM locally and offsite as well — the full protection, at the price of a big first upload.",
   "setup.preset.kopia_repo": "Needs a Kopia container connected to a repository (S3, B2, SFTP …).",
   "setup.preset.kopia_none": "There is no Kopia container yet — so this start isn't possible.",

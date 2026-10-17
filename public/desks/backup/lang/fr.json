@@ -1387,6 +1387,7 @@
   "setup.preset.partner_note": "Une seconde copie dans une autre maison, lisible là-bas (le partenaire la garde en clair) ; le chemin jusque-là est chiffré. Seuls les datasets ZFS à part voyagent.",
   "setup.preset.kopia_partner": "Tout en local + partenaire + hors site",
   "setup.preset.kopia_partner_tick": "aussi vers {partners}",
+  "setup.preset.kopia_partner_tick_wait": "compte dès que tu choisis ce réglage par défaut",
   "setup.preset.kopia_text": "Chaque partage, app et VM en local et aussi hors site — la protection complète, au prix d'un gros premier envoi.",
   "setup.preset.kopia_repo": "Il faut un conteneur Kopia relié à un dépôt (S3, B2, SFTP …).",
   "setup.preset.kopia_none": "Il n'y a pas encore de conteneur Kopia — ce point de départ n'est donc pas encore possible.",

@@ -1366,6 +1366,7 @@
   "setup.preset.partner_note": "Eine zweite Kopie in einem anderen Haus, dort lesbar (der Partner bewahrt sie im Klartext auf); der Weg dorthin ist verschlüsselt. Nur eigene ZFS-Datasets reisen.",
   "setup.preset.kopia_partner": "Alles lokal + Partner + ausser Haus",
   "setup.preset.kopia_partner_tick": "auch an {partners}",
+  "setup.preset.kopia_partner_tick_wait": "gilt, sobald du diese Vorgabe wählst",
   "setup.preset.kopia_text": "Jeder Share, jede App und jede VM lokal und zusätzlich ausser Haus — der volle Schutz, zum Preis eines grossen ersten Uploads.",
   "setup.preset.kopia_repo": "Braucht einen Kopia-Container, der mit einem Repository verbunden ist (S3, B2, SFTP …).",
   "setup.preset.kopia_none": "Es gibt noch keinen Kopia-Container — darum geht dieser Start noch nicht.",
