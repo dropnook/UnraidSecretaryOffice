@@ -1305,7 +1305,9 @@ function protection() {
       tr.appendChild(name);
       const st = el('td');
       st.appendChild(pkChip(a));
-      if (goneOf('app', a.folder)) st.append(' ', chip(T('pk.gone'), 'warn', T('pk.gone_hint.app', { name: a.name })));
+      const ga = goneOf('app', a.folder);
+      if (ga && ga.moved_to) st.append(' ', chip(T('pk.moved'), 'warn', T('pk.moved_hint', { other: ga.moved_to })));
+      else if (ga) st.append(' ', chip(T('pk.gone'), 'warn', T('pk.gone_hint.app', { name: a.name })));
       if (a.files.some((f) => f.what === 'dump' && f.run && f.run !== a.run)) st.append(' ', chip(T('pk.kept'), 'warn', T('pk.kept_hint')));
       if (a.files.some((f) => f.what === 'sqlite' && f.run && f.run !== a.run)) st.append(' ', chip(T('pk.sq_kept'), 'warn', T('pk.sq_kept_hint')));
       const ai = kopiaOn ? itemOf('app', a.name) : null;
@@ -1374,20 +1376,33 @@ const goneOf = (kind, folder) => ((state && state.packages_gone) || []).find((g)
  * run): a line each with «Into the storeroom» - Ms. Dustdevil's, put back or emptied there, never deleted at once
  */
 function goneCallout() {
-  const gone = (state && state.packages_gone) || [];
-  if (!gone.length) return null;
+  const all = (state && state.packages_gone) || [];
+  if (!all.length) return null;
   const box = el('div', 'callout bk-gone');
-  box.appendChild(el('p', '', T('pk.gone_intro', { n: gone.length })));
-  const ul = el('ul', 'shortlist');
-  gone.forEach((g) => {
-    const li = el('li', '', T('pk.gone_line.' + g.kind, { name: g.name }));
-    const b = button(T('pk.gone_aside'), 'small', () => packageAside(g));
-    b.title = T('pk.gone_aside_tip');
-    b.disabled = !Office.agent.running || !!state.running;
-    li.appendChild(b);
-    ul.appendChild(li);
-  });
-  box.appendChild(ul);
+  const list = (gs, line) => {
+    const ul = el('ul', 'shortlist');
+    gs.forEach((g) => {
+      const li = el('li', '', line(g));
+      const b = button(T('pk.gone_aside'), 'small', () => packageAside(g));
+      b.title = T('pk.gone_aside_tip');
+      b.disabled = !Office.agent.running || !!state.running;
+      li.appendChild(b);
+      ul.appendChild(li);
+    });
+    box.appendChild(ul);
+  };
+  // gone, and (owner 2026-10-17) moved: a stale package whose app another app's current package backs up now - by the
+  // same containers or the same own folder, said which
+  const gone = all.filter((g) => !g.moved_to);
+  const moved = all.filter((g) => g.moved_to && (g.signal === 'containers' || g.signal === 'folders'));
+  if (gone.length) {
+    box.appendChild(el('p', '', T('pk.gone_intro', { n: gone.length })));
+    list(gone, (g) => T('pk.gone_line.' + g.kind, { name: g.name }));
+  }
+  if (moved.length) {
+    box.appendChild(el('p', '', T('pk.moved_intro', { n: moved.length })));
+    list(moved, (g) => T('pk.moved_line.' + g.signal, { name: g.name, other: g.moved_to }));
+  }
   return box;
 }
 
@@ -1397,7 +1412,8 @@ async function packageAside(g0) {
   const g = goneOf(g0.kind, g0.folder);
   if (!g) { Office.toast(Office.errorText({ key: 'package_aside_gone', params: { name: g0.name } }, ID), true); render(); return; }
   const box = el('div');
-  box.appendChild(el('p', '', T('pk.gone_text.' + g.kind, { name: g.name })));
+  box.appendChild(el('p', '', g.moved_to ? T('pk.moved_text', { name: g.name, other: g.moved_to, signal: T('pk.signal.' + (g.signal === 'folders' ? 'folders' : 'containers')) })
+    : T('pk.gone_text.' + g.kind, { name: g.name })));
   box.appendChild(el('p')).appendChild(copyCode(g.path));
   box.appendChild(el('p', 'role', T('pk.gone_back')));
   Office.dialog({
@@ -6243,7 +6259,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     presetKopiaMode, presetKopiaVm, draftMode, draftVm, setupNewItems, presetApplyNew, presetNow, presetChosen, presetNewMode, presetNewVm,
     letGoPart, letGoLines, letGoDoneLines, letGoResult, setLetGoClock: (c) => { letGoClock = c; }, setupUnfold, UNFOLD_OWN, setupDecisions, setupApplyChanges, changeLabel, valueText, setupSplit, setupDecline,
     warnLines, bubbleText, setupBarSpec, setupNoPlace, setupPlaceStart, bubblePlace, setupSearchItems,
-    oldSourceWords, oldUnit, orphansPick,
+    oldSourceWords, oldUnit, orphansPick, goneCallout,
   };
 }
 })();

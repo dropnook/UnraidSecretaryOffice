@@ -1774,6 +1774,8 @@ function backupPackagesRead(string $base): array
                                         'user' => $str($n['user'] ?? '') ?: 'www-data', 'same_as' => $str($n['same_as'] ?? '')],
                                         array_filter((array) ($m['nextcloud'] ?? []), 'is_array'))),
                     'compose_dir' => $str($m['compose']['manager_dir'] ?? ''),
+                    // the folders it binds (<share>/<folder>, or a whole <share>) as the engine named them - who it is (backupGonePackages())
+                    'dirs'       => array_values(array_filter(array_map($str, (array) ($m['dirs'] ?? [])), fn ($d) => $d !== '' && !preg_match('/[\x00-\x1f]/', $d))),
                     // engine 2.19: consistent copies of the media servers' databases, the apps' own backups
                     'sqlite'     => array_values(array_map(fn ($q) => ['container' => $str($q['container'] ?? ''), 'file' => $str($q['file'] ?? ''),
                                         'source' => $str($q['source'] ?? ''), 'path' => $str($q['path'] ?? ''), 'state' => $str($q['state'] ?? ''),
@@ -2498,7 +2500,8 @@ function backupChecks(): array
         // 2026-10-17: a package whose app or VM is gone (the last look's, backupGoneList()) - a hint, «Into the storeroom» there
         $gone = $GLOBALS['backup']['packages_gone'] ?? null;
         if (is_array($gone)) {
-            $names = array_values(array_unique(array_map(fn ($g) => (string) ($g['name'] ?? ''), array_filter($gone, 'is_array'))));
+            // a package whose app is now backed up under another name (moved_to) is no gone app - only said on the page
+            $names = array_values(array_unique(array_map(fn ($g) => (string) ($g['name'] ?? ''), array_filter($gone, fn ($g) => is_array($g) && !isset($g['moved_to'])))));
             $out[] = finding('package_gone', 'hint', !$names, ['names' => implode(', ', array_slice($names, 0, 8)), 'n' => count($names)], '#/backup/prot');
         }
 

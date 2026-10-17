@@ -1496,6 +1496,72 @@
     "engine_written": true
    },
    {
+    "name": "immich-alt",
+    "folder": "immich-alt",
+    "path": "/mnt/user/UnraidSecretaryOffice/backup/apps/immich-alt",
+    "run": "20260905-0200",
+    "time": 1788057000,
+    "result": "warnings",
+    "stale": true,
+    "bytes": 18628029,
+    "files": [
+     {
+      "path": "db/postgres_immich_postgres.sql.gz",
+      "bytes": 18628029,
+      "run": "20261009-0430",
+      "time": 1791513000,
+      "what": "dump",
+      "container": "immich_postgres"
+     }
+    ],
+    "type": "compose",
+    "containers": [
+     {
+      "name": "immich_server",
+      "image": "ghcr.io/immich-app/immich-server:release",
+      "digest": "ghcr.io/immich-app/immich-server@sha256:be56bc12c17a84617a979ad1eab1d9105bbec1955ffa7da09b3f9cf79d3bd09d",
+      "template": ""
+     },
+     {
+      "name": "immich_redis",
+      "image": "valkey/valkey:8-bookworm",
+      "digest": "valkey/valkey@sha256:fea8b3e67b15729d4bb70589eb03367bab9ad1ee89c876f54327fc7c6e618571",
+      "template": ""
+     },
+     {
+      "name": "immich_postgres",
+      "image": "ghcr.io/immich-app/postgres:14-vectorchord0.3.0-pgvectors0.2.0",
+      "digest": "ghcr.io/immich-app/postgres@sha256:c570d9e1c2494f65d2a0a379a7f6df66e8441964254a30aa62cc58e8ebf1dee0",
+      "template": ""
+     }
+    ],
+    "dumps": [
+     {
+      "container": "immich_postgres",
+      "type": "postgres",
+      "state": "ok",
+      "login": "user",
+      "user_var": "POSTGRES_USER",
+      "password_var": "POSTGRES_PASSWORD",
+      "client": "psql"
+     }
+    ],
+    "nextcloud": [],
+    "compose_dir": "",
+    "sqlite": [],
+    "own_backups": [
+     {
+      "kind": "immich",
+      "container": "immich_server",
+      "path": "/mnt/user/appdata/immich/upload/backups",
+      "files": 1,
+      "newest": 1791504001,
+      "asleep": false
+     }
+    ],
+    "engine_written": true
+   },
+   {
     "name": "kopia",
     "folder": "kopia",
     "path": "/mnt/user/UnraidSecretaryOffice/backup/apps/kopia",
@@ -1768,6 +1834,15 @@
    "name": "Fotobuch",
    "path": "/mnt/user/UnraidSecretaryOffice/backup/apps/Fotobuch",
    "time": 1788057000
+  },
+  {
+   "kind": "app",
+   "folder": "immich-alt",
+   "name": "immich-alt",
+   "path": "/mnt/user/UnraidSecretaryOffice/backup/apps/immich-alt",
+   "time": 1788057000,
+   "moved_to": "immich",
+   "signal": "containers"
   }
  ],
  "schedule": {

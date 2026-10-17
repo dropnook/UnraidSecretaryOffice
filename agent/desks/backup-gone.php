@@ -12,6 +12,11 @@ declare(strict_types=1);
  *   - Gone: an app none of whose containers is there (stopped is there) and none of whose images either (an image alone
  *     may be an app about to be made again); a VM without a definition in libvirt. Docker or libvirt not answering:
  *     nothing of that kind is gone (unknown is never gone).
+ *   - Moved (owner 2026-10-17): a stale package whose app is now backed up under another name - a Compose stack removed
+ *     and made again as another stack, a reinstall with renamed containers. Another app's package written by the last
+ *     run holds all its containers (by name: «same containers») or all its own folders (manifest `dirs` inside a share,
+ *     never a whole share alone: «same folder»). Its entry names that app (`moved_to`) and the signal; offered the same
+ *     way, never moved by itself.
  *   - Only a package the engine wrote (`engine_written`: its manifest.json in exactly the engine's shape), never anything
  *     else in the share. Never on a sleeping disk: a backup place that sleeps isn't looked at, nothing is listed.
  *   - Not while a run, the setup, a restore, a drill or a let-go's clearing is going on; the move holds the engine's lock
@@ -53,8 +58,9 @@ function backupGoneImageRef(string $ref): string
  * The packages whose app or VM is gone — pure. $pk: backupPackages(); $containers / $images / $vms: what Docker and
  * libvirt list now (null: not answering - nothing of that kind is gone). An app is gone when its manifest names
  * containers, none of them is there and none of their images (by id or name); a VM when libvirt has no VM of its name.
+ * Moved (the manifests alone, Docker not asked): a stale package whose app another app's current package now backs up.
  *
- * @return list<array{kind: string, folder: string, name: string, path: string, time: ?int}>
+ * @return list<array{kind: string, folder: string, name: string, path: string, time: ?int, moved_to?: string, signal?: string}>
  */
 function backupGonePackages(array $pk, ?array $containers, ?array $images, ?array $vms): array
 {
@@ -76,6 +82,30 @@ function backupGonePackages(array $pk, ?array $containers, ?array $images, ?arra
                 || (($c['image_id'] ?? '') !== '' && isset($imgs[$c['image_id']])) || (($c['image'] ?? '') !== '' && isset($imgs[backupGoneImageRef($c['image'])])));
             if (!$there) {
                 $out[] = $row('app', $a);
+            }
+        }
+    }
+    // moved: a stale package of the engine's whose containers or own folders another app's current package (itself not
+    // gone) holds now - said instead of gone (a reinstall with renamed containers leaves the old ones gone)
+    $goneApps = array_flip(array_map(fn ($g) => $g['folder'], $out));
+    $current = array_values(array_filter((array) ($pk['apps'] ?? []), fn ($b) => !empty($b['engine_written']) && empty($b['stale'])
+        && !isset($goneApps[(string) $b['folder']])));
+    foreach ((array) ($pk['apps'] ?? []) as $a) {
+        if (empty($a['engine_written']) || empty($a['stale'])) {
+            continue;
+        }
+        $names = array_values(array_unique(array_filter(array_map(fn ($c) => is_array($c) ? (string) ($c['name'] ?? '') : '', (array) ($a['containers'] ?? [])))));
+        $own = array_values(array_unique(array_filter((array) ($a['dirs'] ?? []), fn ($d) => is_string($d) && str_contains(trim($d, '/'), '/'))));
+        foreach ($current as $b) {
+            if ($b['folder'] === $a['folder']) {
+                continue;
+            }
+            $signal = $names && !array_diff($names, array_column((array) ($b['containers'] ?? []), 'name')) ? 'containers'
+                : ($own && !array_diff($own, (array) ($b['dirs'] ?? [])) ? 'folders' : null);
+            if ($signal !== null) {
+                $out = array_values(array_filter($out, fn ($g) => !($g['kind'] === 'app' && $g['folder'] === $a['folder'])));
+                $out[] = $row('app', $a) + ['moved_to' => (string) $b['name'], 'signal' => $signal];
+                break;
             }
         }
     }

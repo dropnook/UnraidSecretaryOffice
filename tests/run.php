@@ -40779,6 +40779,97 @@ function testBackupGonePackage(): void
 }
 
 /**
+ * A stale package whose app is now backed up under another name (owner 2026-10-17: the Compose stack «drop» removed and
+ * made again as «dropnook» with the same containers; apps/drop stayed «stale» and «Into the storeroom» wasn't offered,
+ * containers named drop being there). Offered when another app's package written by the last run holds all its
+ * containers (same containers) or all its own folders inside a share (same folder) - never a whole share's folder alone,
+ * never against a stale package, never when only part of it moved; the hint says which. The Team Lead's «gone» hint
+ * leaves it out; the page says it in its own words.
+ */
+function testBackupMovedPackage(): void
+{
+    $tmp = hardeningTmp('moved-package');
+    $pool = "$tmp/backup";
+    $man = fn (string $folder, string $run, array $cts, array $dirs) => ['interface' => 1, 'engine' => '2.59', 'kind' => 'app', 'name' => $folder, 'folder' => $folder,
+        'run' => $run, 'result' => 'ok', 'files' => [], 'dirs' => $dirs,
+        'containers' => array_map(fn ($c) => ['name' => $c, 'image' => "$c:1", 'image_id' => "sha256:$c", 'digests' => []], $cts)];
+    $old = '20261006-0200';
+    $now = '20261017-0200';
+    $packs = [
+        'drop'      => $man('drop', $old, ['drop', 'drop-share'], ['appdata/drop', 'drop']),
+        'dropnook'  => $man('dropnook', $now, ['drop', 'drop-share'], ['appdata/drop', 'drop']),           // moved: same containers
+        'half'      => $man('half', $old, ['half-a', 'half-b'], []),
+        'halfnew'   => $man('halfnew', $now, ['half-a'], []),                                             // only part of it
+        'oldsrc'    => $man('oldsrc', $old, ['src'], ['appdata/src']),
+        'oldsrc2'   => $man('oldsrc2', $old, ['src'], ['appdata/src']),                                    // the other one stale too
+        'renamed'   => $man('renamed', $old, ['r-old'], ['appdata/renamed', 'media']),
+        'renamed2'  => $man('renamed2', $now, ['r-new'], ['appdata/renamed', 'media', 'appdata/more']),    // moved: same folder
+        'shareonly' => $man('shareonly', $old, ['s-old'], ['drop2']),
+        'sharenew'  => $man('sharenew', $now, ['s-new'], ['drop2']),                                       // a whole share alone: no
+    ];
+    foreach ($packs as $d => $m) {
+        mkdir("$pool/apps/$d", 0700, true);
+        file_put_contents("$pool/apps/$d/manifest.json", json_encode($m));
+    }
+    mkdir("$pool/server", 0700);
+    file_put_contents("$pool/server/run.json", json_encode(['run' => $now]));
+    $pk = backupPackagesRead($pool);
+    same('moved package: the manifest\'s folders read (dirs)', ['appdata/drop', 'drop'], array_values(array_filter($pk['apps'], fn ($a) => $a['folder'] === 'drop'))[0]['dirs'] ?? null);
+    $all = ['drop', 'drop-share', 'half-a', 'half-b', 'src', 'r-old', 'r-new', 's-old', 's-new'];             // every container there: none gone
+    $got = backupGonePackages($pk, $all, [], []);
+    same('moved package: offered - the same containers in a current package (drop → dropnook), the same own folder (renamed → renamed2); '
+        . 'never when only part moved, against a stale package, by a whole share\'s folder alone',
+        [['drop', 'dropnook', 'containers'], ['renamed', 'renamed2', 'folders']],
+        array_map(fn ($g) => [$g['folder'], $g['moved_to'] ?? null, $g['signal'] ?? null], $got));
+    same('moved package: … each as a gone package\'s row (kind, folder, name, path) plus where to and why', ['app', 'drop', 'drop', "$pool/apps/drop"],
+        [$got[0]['kind'] ?? null, $got[0]['folder'] ?? null, $got[0]['name'] ?? null, $got[0]['path'] ?? null]);
+    same('moved package: Docker not answering - still said (the manifests alone); old containers gone (a reinstall under new names) - moved, not gone; '
+        . 'a current package that is gone itself takes nothing (drop and dropnook both gone)',
+        [['drop', 'renamed'], [['drop', null], ['dropnook', null], ['renamed', 'renamed2']]],
+        [array_column(backupGonePackages($pk, null, null, null), 'folder'),
+         array_map(fn ($g) => [$g['folder'], $g['moved_to'] ?? null], backupGonePackages($pk, ['half-a', 'half-b', 'src', 's-old', 's-new', 'r-new'], [], []))]);
+    // the Team Lead's hint names only what is gone
+    $GLOBALS['backup'] = ['packages_gone' => $got];
+    $f = array_values(array_filter(backupChecks(), fn ($x) => $x['id'] === 'package_gone'));
+    unset($GLOBALS['backup']);
+    same('moved package: the Team Lead\'s «gone» hint leaves a moved one out', is_file(BACKUP_DATA_DIR . '/settings.ini') ? [true, ''] : [null, null],
+        [$f[0]['ok'] ?? null, $f[0]['params']['names'] ?? null]);
+    hardeningRm($tmp);
+
+    $de = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/de.json'), true) ?: [];
+    check('moved package: German words as the owner wrote them - which signal matched',
+        str_contains($de['pk.moved_line.containers'] ?? '', 'seine Container werden jetzt als {other} gesichert') && str_contains($de['pk.moved_line.containers'] ?? '', 'das alte Paket kann in die Abstellkammer')
+        && ($de['pk.signal.containers'] ?? '') === 'gleiche Container' && ($de['pk.signal.folders'] ?? '') === 'gleicher Ordner');
+    $node = testsNode();
+    if ($node === '') {
+        check('moved package: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('moved-page');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const el = (tag, cls, text) => ({ tag, className: cls || '', textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {},
+  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, setAttribute() {}, focus() {} });
+globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => b + ' B', date: (t) => 'D' + t }, desk: () => {}, places: () => {}, placesFrom: () => {},
+  has: () => false, store: () => null, storeJson: () => null, agent: { running: true } };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const g = (folder, more) => ({ kind: 'app', folder, name: folder, path: '/x/' + folder, time: 1, ...more });
+b.setState({ running: false, packages_gone: [g('paperless'), g('drop', { moved_to: 'dropnook', signal: 'containers' }), g('renamed', { moved_to: 'renamed2', signal: 'folders' })] });
+const box = b.goneCallout();
+console.log(JSON.stringify(box.children.map((n) => (n.tag === 'ul' ? n.children.map((li) => li.textContent) : n.textContent))));
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' 2>&1');
+    hardeningRm($tmp);
+    same('moved package: the page - the gone ones, then the moved ones with their own intro, each line naming the other app and the signal',
+        ['pk.gone_intro {"n":1}', ['pk.gone_line.app {"name":"paperless"}'], 'pk.moved_intro {"n":2}',
+         ['pk.moved_line.containers {"name":"drop","other":"dropnook"}', 'pk.moved_line.folders {"name":"renamed","other":"renamed2"}']],
+        json_decode($raw, true) ?? $raw);
+}
+
+/**
  * The office's search finds Mr. Backupsy's setup rows (2026-10-17: «immich», «Mediathek» found the main page's rows only):
  * the plan the page loaded is handed to his one provider (Office.placesTook(ID, plan, 'setup')), which names every share,
  * VM and app of it with its step's tile and its row's place - no request of its own, nothing per keystroke
@@ -40919,7 +41010,7 @@ JS;
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
