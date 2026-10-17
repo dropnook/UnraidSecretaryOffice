@@ -3463,25 +3463,37 @@ function backupOrphansLook(): array
 }
 
 /**
+ * The ticked sources, when every one is in the list the page showed (`listed`: that list's start) — else orphans_stale.
+ * idList() gives a plain list (until 1.65.12 its keys were read: 0, 1 … never offered, so every delete was refused).
+ *
+ * @param list<string> $ids
+ * @return list<string>
+ */
+function backupOrphansChosen(array $ids, string $listed): array
+{
+    $o = backupOrphans();
+    if ($o === null || $o['mode'] !== 'list' || $o['result'] !== 'ok' || (string) $o['started'] !== $listed) {
+        throw new Problem('orphans_stale');
+    }
+    $chosen = array_values(array_unique(array_map('strval', $ids)));
+    if (!$chosen || array_diff($chosen, array_column($o['sources'], 'source'))) {
+        throw new Problem('orphans_stale');
+    }
+    return $chosen;
+}
+
+/**
  * Deletes the old sources the user ticked — every one of them must be in the list the page showed (`listed`: that list's
  * start, so a list made anew meanwhile is refused) and the engine lists anew and deletes only what it offers right then.
  * For good: all their snapshots in the Kopia repository.
  *
- * @param array<string, true> $ids the sources (user@host:path), as idList() gives them
+ * @param list<string> $ids the sources (user@host:path), as idList() gives them
  */
 function backupOrphansDelete(array $ids, string $listed): array
 {
     $dir = backupOrphansReady();
     $data = BACKUP_DATA_DIR;
-    $o = backupOrphans();
-    if ($o === null || $o['mode'] !== 'list' || $o['result'] !== 'ok' || (string) $o['started'] !== $listed) {
-        throw new Problem('orphans_stale');
-    }
-    $offered = array_column($o['sources'], 'source');
-    $chosen = array_keys($ids);
-    if (array_diff($chosen, $offered)) {
-        throw new Problem('orphans_stale');
-    }
+    $chosen = backupOrphansChosen($ids, $listed);
     writeAtomic("$data/state/" . BACKUP_ORPHANS_CHOSEN, jsonEncode(array_values($chosen)), 0600, 0, 0);
     backupLaunch(["$dir/setup.sh", "--orphans-delete=$data/state/" . BACKUP_ORPHANS_CHOSEN]);
     logLine('Backup: setup.sh --orphans-delete started via at — deleting in the Kopia repository: ' . implode(', ', $chosen));

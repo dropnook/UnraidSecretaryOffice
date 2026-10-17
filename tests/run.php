@@ -9014,7 +9014,11 @@ SH);
     $o = backupOrphans();
     same('kopia orphans: the agent reads only entries in exactly their shape', [[$src], 'ok', false], [$o['sources'] ?? null, $o['result'] ?? null, $o['running'] ?? null]);
     $refuse = function (array $ids, string $listed) { try { backupOrphansDelete($ids, $listed); return 'ran'; } catch (Problem $p) { return $p->key; } };
-    $stale = [$refuse(['root@kopia:/uso/old' => true], '999'), $refuse(['root@kopia:/uso/appdata' => true], '1000')];
+    $stale = [$refuse(['root@kopia:/uso/old'], '999'), $refuse(['root@kopia:/uso/appdata'], '1000')];
+    // what the page really sends goes through idList() (a plain list): an offered source of this list is chosen
+    // (until 1.65.12 the list's keys 0, 1 … were compared, so every delete was refused as stale)
+    same('kopia orphans: a ticked source of the shown list is chosen, as idList() hands it over',
+        ['root@kopia:/uso/old'], backupOrphansChosen(idList(['sources' => ['root@kopia:/uso/old']], 'sources'), '1000'));
     file_put_contents($mine, json_encode(['v' => 1, 'mode' => 'list', 'result' => 'running', 'pid' => 2147483000, 'started' => 1000, 'sources' => []]));
     $o = backupOrphans();
     same('kopia orphans: a delete of another list or of a source it didn\'t offer refused (orphans_stale); a list whose pid is gone has failed',
