@@ -471,7 +471,12 @@
     "partner": [],
     "partner_ok": true,
     "partner_why": null,
-    "place": [],
+    "place": [
+     {
+      "code": "no_redundancy",
+      "where": "daten"
+     }
+    ],
     "asleep_bases": [],
     "pool_asleep": false,
     "top": [],

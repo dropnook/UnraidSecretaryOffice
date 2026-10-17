@@ -10278,10 +10278,7 @@ globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => 
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const b = OFFICE_DESK_TESTS.backup;
 const out = {};
-out.lines = b.placeLines({ place: [{ code: 'same_pool', where: 'cache' }, { code: 'no_history', where: 'disk1' }, { code: 'no_history', where: '' },
-  { code: 'secondary', where: '' }, { code: 'no_redundancy', where: 'cache' }, { code: 'odd', where: 'x' }] });
-out.old = [b.placeLines({ method: 'live' }), b.placeLines({ method: 'snap' }), b.placeLines(null)];
-out.kopia = b.placeLines({ place: [{ code: 'same_pool', where: 'cache' }, { code: 'no_redundancy', where: 'cache' }] });
+// the place's lines: testBackupPlaceVerdict (2026-10-17, one question decides)
 const plan = (names) => ({ shares: names.map((name) => ({ name })) });
 out.intro = [b.placeIntro(plan(['appdata', 'system', 'domains', 'isos']), ''), b.placeIntro(plan(['appdata', 'isos', 'Backups']), ''),
   b.placeIntro(plan(['appdata', 'isos']), 'isos')];
@@ -10314,13 +10311,6 @@ JS;
         hardeningRm($tmp);
         return;
     }
-    same('backup place: the warnings\' texts - warn (the same pool: none), the array named, redundancy only as information, unknown codes left out', [
-        ['warn' => true, 'text' => 'setup.place_no_history {"where":"disk1"}'],
-        ['warn' => true, 'text' => 'setup.ds_no_history'], ['warn' => true, 'text' => 'setup.place_secondary {"where":"setup.place_array"}'],
-        ['warn' => false, 'text' => 'setup.place_no_redundancy {"where":"cache"}']], $r['lines']);
-    same('backup place: the same pool as appdata - no line under the field at all (2026-10-10, a concept on the parking lot)',
-        [['warn' => false, 'text' => 'setup.place_no_redundancy {"where":"cache"}']], $r['kopia']);
-    same('backup place: an older agent\'s plan (no place) - the plan\'s live still warns', [[['warn' => true, 'text' => 'setup.ds_no_history']], [], []], $r['old']);
     same('backup place: Mr. Backupsy\'s word - no share to choose (only isos), choose one, none once chosen', ['setup.place_none', 'setup.place_choose', null], $r['intro']);
     same('backup place: before the new plan - the user\'s levels in the draft', [['c2'], ['c2', 'c3']], $r['before']);
     same('backup place: a new plan keeps what the user chose (flash, a level, a hold); takes the engine\'s new proposals (the share made meanwhile, a retention)',
@@ -33520,7 +33510,7 @@ function testSetupMessages(): void
     same('setup messages: every step a message can come from has its name', [], array_values(array_filter(array_unique($st[1]), fn ($s) => !isset($en["setup.step.$s"]))));
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
     check('setup messages: the page renders the grouped notes (setup_get\'s notes) and falls back to the engine\'s text',
-        str_contains($js, 'function setupNoteItems(g, withStep)') && str_contains($js, "setupMessages(setupNotes(plan))") && str_contains($js, '[it.text, ...(it.more || [])]'));
+        str_contains($js, 'function setupNoteItems(g, withStep)') && str_contains($js, "setupMessages(placeNotes(setupNotes(plan)))") && str_contains($js, '[it.text, ...(it.more || [])]'));
     check('setup messages: setup_get answers the notes beside plan and run', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php'), "\$plan['notes'] = backupSetupNotes("));
 
     // --- setup.sh --plan on a fixture server
@@ -40594,9 +40584,94 @@ JS;
         str_contains($desk, "Office.place('setup:share:' + sh.name, el('tr'))") && str_contains($desk, "Office.place('setup:vm:' + v.name,") && str_contains($desk, "Office.place('setup:app:' + a.id,"));
 }
 
+/**
+ * The backup place's warnings: one question decides (owner 2026-10-17). A copy of the packages goes off-site (the place's
+ * share to Kopia, or the place to a partner) - same pool, no mirror, no snapshots are one grey line «just so you know»;
+ * not - one yellow line adding up the reasons that apply and what helps (none apply: a short «only local»). A secondary
+ * storage stays a warning either way. It follows the draft, and the engine's place_not_kopia / place_no_history give way
+ * to it in the setup's messages. Only in the setup: no new finding
+ */
+function testBackupPlaceVerdict(): void
+{
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('place verdict: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('place-verdict');
+    $js = <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => (p ? `${k}(${Object.values(p).join('|')})` : k);
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now' }, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {}, has: () => true };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const some = { name: 'Backups', partner_ok: true, place: [{ code: 'same_pool', where: 'cache' }, { code: 'no_redundancy', where: 'cache' }, { code: 'odd', where: 'x' }] };
+const none = { name: 'Backups', partner_ok: true, place: [] };
+const sec = { name: 'Backups', place: [{ code: 'secondary', where: '' }, { code: 'no_history', where: 'disk1' }] };
+const out = {
+  offsiteSome: b.placeVerdict(some, 'kopia'), offsiteNone: b.placeVerdict(none, 'kopia'), partnerSome: b.placeVerdict(some, { partner: 'Grosseltern' }),
+  localSome: b.placeVerdict(some, null), localNone: b.placeVerdict(none, null),
+  secLocal: b.placeVerdict(sec, null), secOffsite: b.placeVerdict(sec, 'kopia'),
+  array: b.placeVerdict({ place: [{ code: 'no_redundancy', where: '' }] }, null), live: b.placeVerdict({ method: 'live' }, null), nothing: b.placeVerdict(null, null),
+};
+// the draft decides: Kopia on and the place's share at «local + offsite», or a partner for the place
+b.setup.plan = { shares: [some], partners: [{ id: 'a1b2c3d4', name: 'Grosseltern' }], messages: [] };
+b.setup.draft = { 'general|dumps_share': 'Backups', 'share|Backups|mode': 'snapshot', 'kopia|enabled': 'yes' };
+out.draftLocal = b.placeOffsite(some);
+b.setup.draft['share|Backups|mode'] = 'kopia';
+out.draftKopia = b.placeOffsite(some);
+b.setup.draft['kopia|enabled'] = 'no';
+out.draftKopiaOff = b.placeOffsite(some);
+b.setup.draft['share|Backups|mode'] = 'snapshot';
+b.setup.draft['general|partner_place'] = ['a1b2c3d4'];
+out.draftPartner = b.placeOffsite(some);
+out.draftPartnerNotOk = b.placeOffsite({ ...some, partner_ok: false });
+// the setup's messages: the engine's two place words give way to the verdict, where the first stood
+delete b.setup.draft['general|partner_place'];
+out.notes = b.placeNotes([{ level: 'ok', step: 'general', code: 'backup_place', items: [] }, { level: 'warn', step: 'general', code: 'place_not_kopia', items: [] },
+  { level: 'warn', step: 'general', code: 'place_no_history', items: [] }, { level: 'hint', step: 'kopia', code: 'kopia_config', items: [] }])
+  .map((g) => [g.level, g.code, g.items.map((i) => i.text).join('')]);
+out.notesNone = b.placeNotes([{ level: 'ok', code: 'x', items: [] }]).length;
+console.log(JSON.stringify(out));
+JS;
+    file_put_contents("$tmp/t.js", $js);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' 2>&1');
+    hardeningRm($tmp);
+    $r = json_decode($raw, true);
+    if (!is_array($r)) {
+        check('place verdict: page ran under node', false, $raw);
+        return;
+    }
+    $reasons = 'setup.place_why.same_pool(cache), setup.place_why.no_redundancy(cache)';
+    same('place verdict: off-site, reasons - one grey line «just so you know», the reasons named (Kopia, a partner)',
+        [[['warn' => false, 'text' => "setup.place_info_kopia setup.place_info_reasons($reasons)"]],
+         [['warn' => false, 'text' => "setup.place_info_partner(Grosseltern) setup.place_info_reasons($reasons)"]]], [$r['offsiteSome'], $r['partnerSome']]);
+    same('place verdict: off-site, no reasons - nothing to say', [], $r['offsiteNone']);
+    same('place verdict: only local, reasons - ONE yellow line: the reasons, the worst risk (the same pool), what helps',
+        [['warn' => true, 'text' => "setup.place_only_here($reasons) setup.place_risk.same_pool setup.place_help"]], $r['localSome']);
+    same('place verdict: only local, no reasons - a short yellow «only local»', [['warn' => true, 'text' => 'setup.place_local_only']], $r['localNone']);
+    same('place verdict: a secondary storage stays a warning, off-site or not; the array without parity and a live share in words',
+        [[['warn' => true, 'text' => 'setup.place_only_here(setup.place_why.no_history(disk1)) setup.place_help'], ['warn' => true, 'text' => 'setup.place_secondary(setup.place_array)']],
+         [['warn' => false, 'text' => 'setup.place_info_kopia setup.place_info_reasons(setup.place_why.no_history(disk1))'], ['warn' => true, 'text' => 'setup.place_secondary(setup.place_array)']],
+         [['warn' => true, 'text' => 'setup.place_only_here(setup.place_why.no_parity) setup.place_risk.no_redundancy setup.place_help']],
+         [['warn' => true, 'text' => 'setup.place_only_here(setup.place_why.no_snapshots) setup.place_help']], []],
+        [$r['secLocal'], $r['secOffsite'], $r['array'], $r['live'], $r['nothing']]);
+    same('place verdict: it follows the draft - local; the share at «local + offsite» with Kopia on; Kopia off; a partner for the place (only a share that can travel)',
+        [null, 'kopia', null, ['partner' => 'Grosseltern'], null], [$r['draftLocal'], $r['draftKopia'], $r['draftKopiaOff'], $r['draftPartner'], $r['draftPartnerNotOk']]);
+    same('place verdict: the setup\'s messages - the engine\'s two place words give way to the verdict, where the first stood; without them nothing changes',
+        [[['ok', 'backup_place', ''], ['warn', 'place_verdict', "setup.place_only_here($reasons) setup.place_risk.same_pool setup.place_help"], ['hint', 'kopia_config', '']], 1],
+        [$r['notes'], $r['notesNone']]);
+    $desk = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('place verdict: on the place card (yellow or grey, never red), in the apply dialog, in the messages and their count, after an apply',
+        str_contains($desk, "l.warn ? 'bk-place-warn' : 'bk-place-info', l.text") && str_contains($desk, "placeLines(placeRow()).forEach((l) => box.appendChild(el('p', l.warn ? 'callout warn' : 'role', l.text)));")
+        && str_contains($desk, 'setupMessages(placeNotes(setupNotes(plan)))') && str_contains($desk, 'placeNotes(setupNotes(plan)).forEach') && str_contains($desk, 'placeNotes(setupNotes(run))'));
+    check('place verdict: only in the setup - no finding of it', !preg_match("/finding\\('place_/", (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php')));
+}
+
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testSetupSearch',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testSetupSearch', 'testBackupPlaceVerdict',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
