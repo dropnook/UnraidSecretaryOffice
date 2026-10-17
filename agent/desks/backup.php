@@ -86,6 +86,8 @@ desk('backup', [
         'letgo_look'  => fn (array $r) => backupLetGoLook(),
         'letgo_clear' => fn (array $r) => backupLetGoClear($r),          // hands the clearing to atd (job backup-letgo)
         'letgo_job'   => fn (array $r) => backupLetGoJobState($r),       // is a job that wrote nothing for a while still alive?
+        // a gone app's or VM's package into Ms. Dustdevil's storeroom (agent/desks/backup-gone.php)
+        'package_aside' => fn (array $r) => backupPackageAside($r),
         // «Make it a dataset of its own…» (1.60.1): the dialog's facts, then one of Mr. Restori's jobs (agent/desks/restore-dataset.php)
         'dataset_look' => fn (array $r) => mdLook(['kind' => optText($r, 'kind'), 'name' => optText($r, 'name'), 'share' => optText($r, 'share'), 'dir' => optText($r, 'dir'), 'stack' => optText($r, 'stack')]),
         'dataset_make' => fn (array $r) => mdStart(['kind' => optText($r, 'kind'), 'name' => optText($r, 'name'), 'share' => optText($r, 'share'), 'dir' => optText($r, 'dir'), 'stack' => optText($r, 'stack'),
@@ -270,7 +272,8 @@ function backupScan(): array
         'containers' => backupContainers($settings),
         'partners'   => backupPartners($settings, $history, $running ? $status : null),   // engine 2.27: the last transfer per partner
         'dumps'      => backupDumps(),           // run folders of engines before 2.18, until the first 2.18 run cleared them
-        'packages'   => backupPackages($settings),
+        'packages'   => $pk = backupPackages($settings),
+        'packages_gone' => backupGoneList($pk),     // 2026-10-17: packages whose app or VM is gone (agent/desks/backup-gone.php)
         'schedule'   => backupSchedule(),
         'logs'       => array_values(array_map(fn ($l) => ['name' => $l['name'], 'kind' => $l['kind'], 'time' => $l['time'], 'size' => $l['size']], $logs)),
         'mounted'    => backupMounted(backupSetting($settings, 'general', 'mount_root')),
@@ -1750,6 +1753,10 @@ function backupPackagesRead(string $base): array
                 'time'   => $time($run),
                 'result' => $str($m['result'] ?? ''),
                 'stale'  => $stale($run),
+                // the engine's own: its manifest in exactly the engine's shape (interface 1, this kind, this folder) - only
+                // such a package is ever moved aside by the office (backupPackageAside())
+                'engine_written' => ($m['interface'] ?? null) === 1 && ($m['kind'] ?? null) === substr($sub, 0, -1) && ($m['folder'] ?? null) === $folder
+                    && is_string($m['engine'] ?? null) && is_string($m['run'] ?? null),
                 'bytes'  => array_sum(array_column($list, 'bytes')),
                 'files'  => $list,
             ];
@@ -1757,6 +1764,7 @@ function backupPackagesRead(string $base): array
                 $p += [
                     'type'       => $str($m['type'] ?? ''),
                     'containers' => array_values(array_map(fn ($c) => ['name' => $str($c['name'] ?? ''), 'image' => $str($c['image'] ?? ''),
+                                        'image_id' => $str($c['image_id'] ?? ''),
                                         'digest' => $str(($c['digests'] ?? [])[0] ?? ''), 'template' => $str($c['template'] ?? '')],
                                         array_filter((array) ($m['containers'] ?? []), 'is_array'))),
                     'dumps'      => array_values(array_map(fn ($d) => array_map($str, array_intersect_key($d, array_flip(
@@ -2487,6 +2495,13 @@ function backupChecks(): array
         $drift = array_filter(backupDrift()['items'], fn ($d) => in_array($d['level'] ?? '', ['warn', 'error'], true));
         $out[] = finding('drift', 'recommended', !$drift, ['n' => count($drift)], '#/backup/setup');
 
+        // 2026-10-17: a package whose app or VM is gone (the last look's, backupGoneList()) - a hint, «Into the storeroom» there
+        $gone = $GLOBALS['backup']['packages_gone'] ?? null;
+        if (is_array($gone)) {
+            $names = array_values(array_unique(array_map(fn ($g) => (string) ($g['name'] ?? ''), array_filter($gone, 'is_array'))));
+            $out[] = finding('package_gone', 'hint', !$names, ['names' => implode(', ', array_slice($names, 0, 8)), 'n' => count($names)], '#/backup/prot');
+        }
+
         // engine 2.55: a share at «local» where no snapshot is possible (the plan's method live) is backed up by nothing
         $plan = readJson("$data/state/setup-plan.json") ?? [];
         $noSnap = backupLocalWithoutSnapshot($settings, $plan);
@@ -2883,6 +2898,7 @@ function backupSetupGet(): array
     $run = readJson("$data/state/setup-status.json");
     if (is_array($plan)) {
         $plan['notes'] = backupSetupNotes($plan['messages'] ?? null);   // the messages grouped, for the page
+        $plan = backupPlanVolumeCaches($plan);
         // the units the pairs sent up to 1.59 (the step partner-simple): proposed at «local + partner» until applied
         $plan['migrated'] = function_exists('partnerMigratedPending') ? (object) partnerMigratedPending() : (object) [];
         $plan['declined'] = (object) backupDeclined();     // 1.60.1: the proposals the user declined, with the value proposed
@@ -2904,9 +2920,9 @@ function backupSetupGet(): array
  * words (`setup.msg.<code>`, desk.js `setupNoteItems()`). Messages of the same level and code make ONE entry with an
  * item each (three apps with Docker volumes → one entry listing them), in the order they came; a message with the code
  * `more` is the second line of the one before it (kept as that item's `more`, shown only where the page falls back to
- * the English). Docker volumes are judged here (`backupVolumeItems()`): cache or real data. A message without a code
- * (ok and error lines, an older engine's plan, a code of an unknown shape) stays an entry of its own with its text —
- * never lost. Pure.
+ * the English). Docker volumes are judged here (`backupVolumeItems()`): cache or real data. Engine 2.58 codes the OK and
+ * error lines too. A message without a code (an older engine's OK and error lines or plan, a code of an unknown shape)
+ * stays an entry of its own with its text — never lost. Pure.
  *
  * @return list<array{level: string, step: string, code?: string, items: list<array{text: string, params?: array, more?: list<string>}>}>
  */
@@ -2940,9 +2956,11 @@ function backupSetupNotes(mixed $messages): array
         $items = $code === 'docker_volumes' ? backupVolumeItems($params, $text)
             : [[$code, ['text' => $text, 'params' => backupNoteParams($params)]]];
         foreach ($items as [$c, $item]) {
-            $k = "$level|$c";
+            // 2026-10-17: a cache that fills itself again is nothing to fix - a hint, never counted as a warning
+            $lv = $c === 'volumes_cache' && $level === 'warn' ? 'hint' : $level;
+            $k = "$lv|$c";
             if (!isset($at[$k])) {
-                $out[] = ['level' => $level, 'step' => $step, 'code' => $c, 'items' => []];
+                $out[] = ['level' => $lv, 'step' => $step, 'code' => $c, 'items' => []];
                 $at[$k] = array_key_last($out);
             }
             $out[$at[$k]]['items'][] = $item;
@@ -3012,6 +3030,41 @@ function backupVolumeIsCache(string $target, string $name): bool
         }
     }
     return $name !== '' && (bool) preg_match('/(^|[-_.])(cache|caches|tmp|temp)([-_.]|$)/D', strtolower($name));
+}
+
+/**
+ * The plan's containers with their cache volumes (2026-10-17, a user scared his photos were not backed up: the app row's
+ * red chip «Docker volumes: /cache» was immich's model cache): `volumes_cache` lists the paths of `volumes` (paths in the
+ * container) that are caches by `backupVolumeIsCache()` - the one rule; a volume's name comes from the plan's
+ * `docker_volumes` message of the same app (the plan's container lists paths only). The page shows those grey, the rest
+ * red. Pure.
+ */
+function backupPlanVolumeCaches(array $plan): array
+{
+    if (!is_array($plan['containers'] ?? null)) {
+        return $plan;
+    }
+    $names = [];            // app → path → volume name
+    foreach (is_array($plan['messages'] ?? null) ? $plan['messages'] : [] as $m) {
+        if (!is_array($m) || ($m['code'] ?? '') !== 'docker_volumes' || !is_array($m['params']['volumes'] ?? null) || !is_scalar($m['params']['app'] ?? null)) {
+            continue;
+        }
+        foreach ($m['params']['volumes'] as $v) {
+            if (is_array($v) && is_string($v['target'] ?? null) && is_string($v['name'] ?? null)) {
+                $names[(string) $m['params']['app']][$v['target']] = $v['name'];
+            }
+        }
+    }
+    foreach ($plan['containers'] as &$ct) {
+        if (!is_array($ct)) {
+            continue;
+        }
+        $name = is_string($ct['name'] ?? null) ? $ct['name'] : '';
+        $ct['volumes_cache'] = array_values(array_filter(is_array($ct['volumes'] ?? null) ? $ct['volumes'] : [],
+            fn ($t) => is_string($t) && $t !== '' && backupVolumeIsCache($t, $names[$name][$t] ?? '')));
+    }
+    unset($ct);
+    return $plan;
 }
 
 const BACKUP_REPLAN_FILE = 'setup-replan.json';     // in the engine's state/: the office's note of its plan anew after an update

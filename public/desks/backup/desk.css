@@ -242,3 +242,8 @@ td.bk-filter-none{padding:6px 10px; font-weight:400; white-space:normal}
 #sso .bk-orphans-open{margin:8px 0 0}
 #sso .bk-orphans-list{display:flex; flex-direction:column; gap:8px; margin:0 0 12px; max-height:320px; overflow:auto}
 #sso .bk-orphans-list label{overflow-wrap:anywhere}
+#sso .bk-gone p{margin:0 0 8px}
+#sso .bk-gone .shortlist{margin:0; background:var(--surface)}
+#sso .bk-gone .shortlist li{align-items:center; font-family:inherit}
+#sso .field small.bk-place-warn{color:var(--warn)}
+#sso .field small.bk-place-info{color:var(--muted)}

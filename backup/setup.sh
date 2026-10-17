@@ -1,6 +1,9 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.57 - 2026-10-17
+# unraid-backup - setup.sh                        Version 2.58 - 2026-10-17
+#   2.58 Every OK and error line a plan, an apply or a forget records has a code and its params (the helpers ok_as/
+#        bad_as, as the hints and warnings since 2.39): the office says them in its own words; the terminal and the log
+#        keep the English
 #   2.57 No change here (the engine's version: backup.sh writes an app's package only inside the appdata place)
 #   2.56 No change here (the engine's version: backup.sh holds the Kopia step of a repository suddenly empty, --kopia-lock)
 #   2.55 A share where no snapshot is possible is never proposed «local» (off, why no_snapshots); one set to local
@@ -324,6 +327,10 @@ msg_as() {
     msg "$l" "$t" "$c" "$(jq -nc "${a[@]}" "$f" 2>/dev/null || printf '{}')"
 }
 bad()  { ERRORS=$((ERRORS+1));     say "  ${C_R}ERROR${C_0}   $*"; msg error "$*"; }
+# ok_as / bad_as <code> <text> [<key> <value>]...: an OK or an error line the office says in its own words
+# (setup.msg.<code>, 2.61: every one a plan, an apply or a forget records) - the terminal and the log get the English text
+ok_as()  { local c="$1" t="$2"; shift 2; say "  ${C_G}OK${C_0}      $t"; msg_as ok "$c" "$t" "$@"; }
+bad_as() { local c="$1" t="$2"; shift 2; ERRORS=$((ERRORS+1)); say "  ${C_R}ERROR${C_0}   $t"; msg_as error "$c" "$t" "$@"; }
 # Collect messages for --plan/--apply: "level<US>step<US>text<US>code<US>params" (without colours; code and params - a
 # JSON object on one line - for messages the office translates: every hint and warning since 2.39)
 declare -a MSGS=()
@@ -482,33 +489,33 @@ TXT
     fi
     local t miss=0
     for t in jq flock timeout gzip numfmt mountpoint awk du; do
-        command -v "$t" >/dev/null 2>&1 || { bad "Tool '$t' is missing"; miss=1; }
+        command -v "$t" >/dev/null 2>&1 || { bad_as tool_missing "Tool '$t' is missing" tool "$t"; miss=1; }
     done
     (( miss )) && { say "Without these tools it cannot go on."; exit 1; }
-    [[ -f /etc/unraid-version ]] && ok "Unraid $(sed -n 's/version="\(.*\)"/\1/p' /etc/unraid-version)" \
-                                 || wrn_as no_unraid_version "/etc/unraid-version is missing - is this an Unraid server?"
+    if [[ -f /etc/unraid-version ]]; then t="$(sed -n 's/version="\(.*\)"/\1/p' /etc/unraid-version)"; ok_as unraid_version "Unraid $t" version "$t"
+    else wrn_as no_unraid_version "/etc/unraid-version is missing - is this an Unraid server?"; fi
     # 2.54: Docker switched off (or not there) is a server of shares and VMs - no apps, nothing offsite (Kopia runs in a
     # container); Docker switched on but silent stays an error: its apps would be left out without a word
     if ub_docker_service_off; then
         hint_as docker_off "Docker is switched off (Settings > Docker) - no apps to back up; shares, VMs and the flash as usual, offsite (Kopia) needs Docker"
     elif docker info >/dev/null 2>&1; then
-        ok "Docker $(docker version -f '{{.Server.Version}}' 2>/dev/null)"
+        t="$(docker version -f '{{.Server.Version}}' 2>/dev/null)"; ok_as docker_version "Docker $t" version "$t"
     else
         t="Docker is switched on but does not answer - restart it (Settings > Docker) and look again"
         ERRORS=$((ERRORS+1)); say "  ${C_R}ERROR${C_0}   $t"; msg error "$t" docker_silent '{}'; exit 1
     fi
-    mountpoint -q "$UB_MNT/user" && ok "$UB_MNT/user is mounted" \
-                                 || { bad "$UB_MNT/user is missing - start the array/pools first"; exit 1; }
-    command -v zfs   >/dev/null 2>&1 && ok "zfs present"   || hint_as fs_missing "zfs not present" fs zfs
-    command -v btrfs >/dev/null 2>&1 && ok "btrfs present" || hint_as fs_missing "btrfs not present" fs btrfs
+    mountpoint -q "$UB_MNT/user" && ok_as user_mounted "$UB_MNT/user is mounted" path "$UB_MNT/user" \
+                                 || { bad_as user_missing "$UB_MNT/user is missing - start the array/pools first" path "$UB_MNT/user"; exit 1; }
+    command -v zfs   >/dev/null 2>&1 && ok_as fs_present "zfs present" fs zfs     || hint_as fs_missing "zfs not present" fs zfs
+    command -v btrfs >/dev/null 2>&1 && ok_as fs_present "btrfs present" fs btrfs || hint_as fs_missing "btrfs not present" fs btrfs
     grep -qw overlay /proc/filesystems 2>/dev/null || modprobe overlay 2>/dev/null
-    grep -qw overlay /proc/filesystems 2>/dev/null && ok "overlayfs present (shares across several bases)" \
+    grep -qw overlay /proc/filesystems 2>/dev/null && ok_as overlayfs "overlayfs present (shares across several bases)" \
         || wrn_as no_overlayfs "overlayfs is missing - shares across several bases appear as one subfolder per base"
-    [[ -x "$UB_NOTIFY_BIN" ]] && ok "Unraid notifications available" || wrn_as no_notify "Unraid's notify is missing - no notifications"
+    [[ -x "$UB_NOTIFY_BIN" ]] && ok_as notify "Unraid notifications available" || wrn_as no_notify "Unraid's notify is missing - no notifications"
     if ub_is_plugin; then
-        ok "The office's plugin schedules the nightly run (no User Scripts needed)"
+        ok_as plugin_schedule "The office's plugin schedules the nightly run (no User Scripts needed)"
     else
-        [[ -d "$UB_BOOT/config/plugins/user.scripts" ]] && ok "User Scripts installed" \
+        [[ -d "$UB_BOOT/config/plugins/user.scripts" ]] && ok_as user_scripts "User Scripts installed" \
             || wrn_as no_user_scripts "Plugin 'User Scripts' not found - needed for the nightly run"
     fi
 }
@@ -527,7 +534,7 @@ You confirm or change; nothing is written until the end.
 TXT
     if load_settings; then
         HAVE_SETTINGS="yes"
-        ok "settings.ini read - the decisions so far are the defaults"
+        ok_as settings_read "settings.ini read - the decisions so far are the defaults"
         local e; for e in "${CFG_ERRORS[@]}"; do wrn_as settings_error "settings.ini: $e" error "$e"; done
     else
         CFG=(); CFG_SECTIONS=(); CFG_ERRORS=()
@@ -718,15 +725,15 @@ TXT
     if ask_yn "Set up offsite backup with Kopia?" "$dflt"; then
         pset "kopia|enabled" yes
         if [[ ! -d "$MOUNT_ROOT" ]]; then
-            if mkdir -p "$MOUNT_ROOT"; then ok "$MOUNT_ROOT created (target for the Kopia mapping)"
-            else bad "$MOUNT_ROOT could not be created"; fi
+            if mkdir -p "$MOUNT_ROOT"; then ok_as mount_root_created "$MOUNT_ROOT created (target for the Kopia mapping)" path "$MOUNT_ROOT"
+            else bad_as mount_root_failed "$MOUNT_ROOT could not be created" path "$MOUNT_ROOT"; fi
         else
-            ok "$MOUNT_ROOT exists"
+            ok_as mount_root_exists "$MOUNT_ROOT exists" path "$MOUNT_ROOT"
         fi
         hint_as mnt_in_ram "Unraid keeps /mnt in RAM: after a reboot Docker creates the folder again when the Kopia container starts."
     else
         pset "kopia|enabled" no
-        ok "Without Kopia: local snapshots and dumps. Shares can be 'snapshot' or 'off'."
+        ok_as kopia_without "Without Kopia: local snapshots and dumps. Shares can be 'snapshot' or 'off'."
     fi
     _apply_P
 }
@@ -1521,7 +1528,7 @@ TXT
         if [[ "$MODE" == "apply" ]]; then old_has "dump|$n" && dflt="y" || dflt="n"; fi
         if ask_yn "  Dump of '$n' (${dtype[$n]})?" "$dflt"; then
             P[dump|$n|type]="${dtype[$n]}"
-            ok "'$n': ${dtype[$n]} dump before every snapshot"
+            ok_as dump_planned "'$n': ${dtype[$n]} dump before every snapshot" name "$n" type "${dtype[$n]}"
             [[ "${CT_RUNNING[$n]}" == "true" ]] && dump_probe "$n" "${dtype[$n]}"
         else
             unset "P[dump|$n|type]"
@@ -1576,7 +1583,7 @@ TXT
                 P[nextcloud|$n|preexisting_maintenance]="$val"
                 NC_GROUP[$n]="$(printf '%s\n' "${m[@]}" | grep -Fxv -- "$n" | paste -sd' ' -)"
             done
-            ok "$names: maintenance mode during the backup (occ ${occ_of[${m[0]}]})"
+            ok_as nc_maintenance "$names: maintenance mode during the backup (occ ${occ_of[${m[0]}]})" names "$names"
         else
             for n in "${m[@]}"; do unset "P[nextcloud|$n|preexisting_maintenance]" "NC_GROUP[$n]"; done
         fi
@@ -1590,14 +1597,14 @@ dump_probe() { # a short access test, so that the first run does not fail on it
     case "$t" in
         mariadb)
             for v in MARIADB_ROOT_PASSWORD MYSQL_ROOT_PASSWORD MARIADB_PASSWORD MYSQL_PASSWORD; do
-                docker exec "$n" sh -c "[ -n \"\${$v:-}\" ]" 2>/dev/null && { ok "'$n': access through \$$v"; return; }
+                docker exec "$n" sh -c "[ -n \"\${$v:-}\" ]" 2>/dev/null && { ok_as dump_access "'$n': access through \$$v" name "$n" var "$v"; return; }
             done
             wrn_as dump_no_password "'$n': no password in the environment variables - the dump will fail" name "$n" ;;
         postgres)
-            if docker exec "$n" sh -c 'command -v pg_dumpall' >/dev/null 2>&1; then ok "'$n': pg_dumpall present"
+            if docker exec "$n" sh -c 'command -v pg_dumpall' >/dev/null 2>&1; then ok_as dump_tool "'$n': pg_dumpall present" name "$n" tool pg_dumpall
             else wrn_as dump_no_tool "'$n': pg_dumpall is missing in the container" name "$n" tool pg_dumpall; fi ;;
         mongodb)
-            if docker exec "$n" sh -c 'command -v mongodump' >/dev/null 2>&1; then ok "'$n': mongodump present"
+            if docker exec "$n" sh -c 'command -v mongodump' >/dev/null 2>&1; then ok_as dump_tool "'$n': mongodump present" name "$n" tool mongodump
             else wrn_as dump_no_tool "'$n': mongodump is missing in the container - the dump will fail" name "$n" tool mongodump; fi ;;
     esac
 }
@@ -1695,12 +1702,12 @@ TXT
         fi
         local prob; prob="$(dumps_share_problem "$ds" "$(pget "share|$ds|mode" off)")"
         [[ -z "$prob" ]] && break
-        bad "$(dumps_share_text "$prob" "$ds")"
+        bad_as "place_$prob" "$(dumps_share_text "$prob" "$ds")" share "$ds"
         interactive || break
     done
     pset "general|dumps_share" "$ds"
     if [[ -z "${prob:-}" ]]; then
-        ok "Backup place: $(dumps_path "$ds")"
+        ok_as backup_place "Backup place: $(dumps_path "$ds")" share "$ds" path "$(dumps_path "$ds")"
         is_yes "$KOPIA_ENABLED" && [[ "$(pget "share|$ds|mode")" != "kopia" ]] \
             && wrn_as place_not_kopia "Backup place '$ds' does not go to Kopia (mode=$(pget "share|$ds|mode")) - the packages would stay local only; set the share to kopia" share "$ds" mode "$(pget "share|$ds|mode")"
         [[ "$(share_method "$ds")" == "live" ]] \
@@ -1904,16 +1911,16 @@ TXT
     if [[ -z "$c" ]] || ! in_list "$c" "${CT_NAMES[@]}"; then
         for n in "${CT_NAMES[@]}"; do is_kopia_image "${CT_IMAGE[$n]}" && cands+=( "$n" ); done
         if [[ ${#cands[@]} -eq 0 ]]; then
-            KOPIA_FAIL="no_container"; bad "No Kopia container found (image with 'kopia' in its name)"; return 1
+            KOPIA_FAIL="no_container"; bad_as kopia_no_container "No Kopia container found (image with 'kopia' in its name)"; return 1
         elif [[ ${#cands[@]} -gt 1 ]]; then
             say "  Several Kopia containers: ${cands[*]}"
             ask "  Which one backs up this backup" "${cands[0]}"; c="$REPLY"
         else c="${cands[0]}"; fi
     fi
     pset "kopia|container" "$c"; _apply_P
-    in_list "$c" "${CT_NAMES[@]}" || { KOPIA_FAIL="no_container"; bad "Container '$c' does not exist"; return 1; }
-    ok "Container '$c' (${CT_IMAGE[$c]})"
-    [[ "${CT_RUNNING[$c]}" == "true" ]] || { KOPIA_FAIL="not_running"; bad "'$c' is not running - please start it and run 'setup.sh --kopia' again"; return 1; }
+    in_list "$c" "${CT_NAMES[@]}" || { KOPIA_FAIL="no_container"; bad_as kopia_container_missing "Container '$c' does not exist" name "$c"; return 1; }
+    ok_as kopia_container_ok "Container '$c' (${CT_IMAGE[$c]})" name "$c" image "${CT_IMAGE[$c]}"
+    [[ "${CT_RUNNING[$c]}" == "true" ]] || { KOPIA_FAIL="not_running"; bad_as kopia_not_running "'$c' is not running - please start it and run 'setup.sh --kopia' again" name "$c"; return 1; }
 
     # --- Mapping
     sub "Path mapping"
@@ -1932,22 +1939,22 @@ TXT
         pset "general|mount_root" "$legacy"; _apply_P
     fi
     if ! k_map "$MOUNT_ROOT"; then
-        KOPIA_FAIL="no_mapping"; bad "No mapping covers $MOUNT_ROOT"
+        KOPIA_FAIL="no_mapping"; bad_as kopia_no_mapping "No mapping covers $MOUNT_ROOT" root "$MOUNT_ROOT"
         mapping_help; return 1
     fi
     KOPIA_MAIN=$KMAP_IDX
     local msrc="${KM_SRC[$KOPIA_MAIN]}" mdst="${KM_DST[$KOPIA_MAIN]}"
-    if [[ "$msrc" == "$MOUNT_ROOT" && "$mdst" == "$MOUNT_ROOT" ]]; then ok "$MOUNT_ROOT -> $MOUNT_ROOT (the same paths inside and outside)"
-    elif [[ "$msrc" == "$MOUNT_ROOT" ]]; then ok "$MOUNT_ROOT -> $mdst (Kopia sources are called $mdst/<share>)"
+    if [[ "$msrc" == "$MOUNT_ROOT" && "$mdst" == "$MOUNT_ROOT" ]]; then ok_as kopia_mapping_same "$MOUNT_ROOT -> $MOUNT_ROOT (the same paths inside and outside)" root "$MOUNT_ROOT"
+    elif [[ "$msrc" == "$MOUNT_ROOT" ]]; then ok_as kopia_mapping "$MOUNT_ROOT -> $mdst (Kopia sources are called $mdst/<share>)" root "$MOUNT_ROOT" dst "$mdst"
     else hint_as kopia_wide_mapping "$MOUNT_ROOT is reached through the wider mapping $msrc -> $mdst - that works, only $MOUNT_ROOT is needed" root "$MOUNT_ROOT" src "$msrc" dst "$mdst"; fi
     case "${KM_PROP[$KOPIA_MAIN]}" in
-        slave|rslave) ok "Propagation ${KM_PROP[$KOPIA_MAIN]}" ;;
-        shared|rshared) ok "Propagation ${KM_PROP[$KOPIA_MAIN]} (slave is enough)" ;;
-        *) KOPIA_FAIL="propagation"; bad "Propagation '${KM_PROP[$KOPIA_MAIN]:-rprivate}' - new snapshot mounts stay invisible to Kopia"
+        slave|rslave) ok_as kopia_propagation "Propagation ${KM_PROP[$KOPIA_MAIN]}" prop "${KM_PROP[$KOPIA_MAIN]}" ;;
+        shared|rshared) ok_as kopia_propagation_shared "Propagation ${KM_PROP[$KOPIA_MAIN]} (slave is enough)" prop "${KM_PROP[$KOPIA_MAIN]}" ;;
+        *) KOPIA_FAIL="propagation"; bad_as kopia_propagation_bad "Propagation '${KM_PROP[$KOPIA_MAIN]:-rprivate}' - new snapshot mounts stay invisible to Kopia" prop "${KM_PROP[$KOPIA_MAIN]:-rprivate}"
            mapping_help; return 1 ;;
     esac
     [[ "${KM_RW[$KOPIA_MAIN]}" == "true" ]] && wrn_as kopia_mapping_rw "The mapping is writable - access mode 'Read Only - Slave' recommended" \
-                                             || ok "The mapping is read-only"
+                                             || ok_as kopia_mapping_ro "The mapping is read-only"
     for i in "${!KM_SRC[@]}"; do
         [[ $i -eq $KOPIA_MAIN ]] && continue
         [[ "${KM_SRC[$i]}" == "$UB_MNT"/* ]] || continue
@@ -1957,8 +1964,8 @@ TXT
     # --- Live test of the mount propagation
     kopia_probe_propagation; local pr=$?; KOPIA_PROBE=$pr
     case $pr in
-        0) ok "Live test: a new mount under $MOUNT_ROOT appears in the container at once" ;;
-        1) KOPIA_FAIL="probe"; bad "Live test: the container does NOT see new mounts under $MOUNT_ROOT - re-create the container after changing the template?"; return 1 ;;
+        0) ok_as kopia_probe_ok "Live test: a new mount under $MOUNT_ROOT appears in the container at once" root "$MOUNT_ROOT" ;;
+        1) KOPIA_FAIL="probe"; bad_as kopia_probe_unseen "Live test: the container does NOT see new mounts under $MOUNT_ROOT - re-create the container after changing the template?" root "$MOUNT_ROOT"; return 1 ;;
         *) wrn_as kopia_probe_failed "Live test not possible (the tmpfs mount under $MOUNT_ROOT failed)" root "$MOUNT_ROOT" ;;
     esac
 
@@ -1973,17 +1980,17 @@ TXT
         wrn_as kopia_submounts_rw "Writable inside the container despite a read-only mapping: $rwlist" paths "${rwlist% }"
         hint_as more "Docker applies 'ro' to sub-mounts too only from version 25 and kernel 5.12; disks mounted later (Unassigned Devices) stay writable"
     elif [[ "${KM_RW[$KOPIA_MAIN]}" != "true" ]]; then
-        ok "All sub-mounts are read-only inside the container"
+        ok_as kopia_submounts_ro "All sub-mounts are read-only inside the container"
     fi
 
     # --- Repository
     sub "Repository"
     if ! kopia_status_load; then
-        KOPIA_FAIL="no_repo"; bad "Kopia is not connected to a repository (or 'kopia' does not answer inside the container)"
+        KOPIA_FAIL="no_repo"; bad_as kopia_no_repo "Kopia is not connected to a repository (or 'kopia' does not answer inside the container)"
         hint_as kopia_connect "Connect in the KopiaUI, then 'setup.sh --kopia'. setup.sh deliberately creates no connection."
         return 1
     fi
-    ok "Kopia $KOPIA_VERSION, connected as $KOPIA_ID, storage: ${KOPIA_STORAGE:-?}"
+    ok_as kopia_connected "Kopia $KOPIA_VERSION, connected as $KOPIA_ID, storage: ${KOPIA_STORAGE:-?}" version "$KOPIA_VERSION" id "$KOPIA_ID" storage "${KOPIA_STORAGE:-?}"
     hint_as kopia_config "Config: $KOPIA_CONFIG_FILE" file "$KOPIA_CONFIG_FILE"
     if [[ "$KOPIA_HOST" =~ ^[0-9a-f]{12}$ ]]; then
         wrn_as kopia_host_container_id "The hostname in the repository is a container id ($KOPIA_HOST) - after re-creating the container all sources would be 'foreign'." host "$KOPIA_HOST" container "$c"
@@ -1993,9 +2000,9 @@ TXT
     [[ -n "$old_id" && "$old_id" != "$KOPIA_ID" ]] && wrn_as kopia_identity_changed "The identity was $old_id so far - new snapshots end up in new sources" old "$old_id" new "$KOPIA_ID"
     pset "kopia|identity" "$KOPIA_ID"
     if [[ "$KOPIA_SERVER_UID" == "0" ]]; then
-        ok "The Kopia server runs as root - script and server share cache and logs without permission trouble"
+        ok_as kopia_root "The Kopia server runs as root - script and server share cache and logs without permission trouble"
     else
-        KOPIA_FAIL="not_root"; bad "The Kopia server runs as UID $KOPIA_SERVER_UID - backup.sh does NOT start Kopia like this"
+        KOPIA_FAIL="not_root"; bad_as kopia_not_root "The Kopia server runs as UID $KOPIA_SERVER_UID - backup.sh does NOT start Kopia like this" uid "$KOPIA_SERVER_UID"
         explain <<'TXT'
 Snapshots have to run as root, otherwise every file that belongs only to its owner
 is missing (Nextcloud data, database folders, ...). Kopia writes to cache and logs
@@ -2310,15 +2317,16 @@ write_settings() {
     local tmp="$UB_SETTINGS.tmp.$$" prob
     prob="$(dumps_share_problem "$(pget "general|dumps_share")" "$(pget "share|$(pget "general|dumps_share")|mode" off)")"
     if [[ -n "$prob" ]]; then
-        bad "$(dumps_share_text "$prob" "$(pget "general|dumps_share")") - settings.ini is not written"
+        bad_as settings_place_bad "$(dumps_share_text "$prob" "$(pget "general|dumps_share")") - settings.ini is not written" share "$(pget "general|dumps_share")" problem "$prob"
         return 1
     fi
-    settings_render >"$tmp" || { bad "Cannot write $tmp"; return 1; }
+    settings_render >"$tmp" || { bad_as settings_tmp_failed "Cannot write $tmp" path "$tmp"; return 1; }
 
     # Cross-check: the new file must load without errors
     local keep_cfg; keep_cfg="$(declare -p CFG)"; keep_cfg="${keep_cfg/declare -A/declare -gA}"
     if ! UB_SETTINGS="$tmp" cfg_load "$tmp" || ! cfg_validate; then
-        bad "The settings.ini written has errors:"; local e; for e in "${CFG_ERRORS[@]}"; do say "    $e"; done
+        local e errs; errs="$(printf '%s; ' "${CFG_ERRORS[@]}")"
+        bad_as settings_invalid "The settings.ini written has errors:" errors "${errs%; }"; for e in "${CFG_ERRORS[@]}"; do say "    $e"; done
         mv "$tmp" "$UB_STATE/settings.ini.broken.$TS"; eval "$keep_cfg"; return 1
     fi
     if [[ -f "$UB_SETTINGS" ]]; then
@@ -2335,7 +2343,7 @@ write_settings() {
         echo "$was" >"$UB_STATE/dumps-previous"
         hint_as dumps_move "The next run moves the dumps from $was to $now" from "$was" to "$now"
     fi
-    ok "settings.ini written ($UB_SETTINGS)"
+    ok_as settings_written "settings.ini written ($UB_SETTINGS)" path "$UB_SETTINGS"
     [[ -f "$UB_STATE/settings.ini.$TS" ]] && hint_as settings_previous "Previous version: state/settings.ini.$TS" file "state/settings.ini.$TS"
     return 0
 }
@@ -2353,21 +2361,21 @@ apply_kopia_policies() {
         [[ -z "$kind" ]] && continue
         cpath="$(k_path "$hpath")" || { wrn_as policy_unmapped "$hpath is not mapped into the container" path "$hpath"; continue; }
         if kopia_policy_eval "$cpath" "$kind" "$(kopia_want_ignores "$kind" "$share")" "$(kopia_want_retention "$kind" "$share")"; then
-            ok "$cpath"
+            ok_as policy_ok "$cpath" path "$cpath"
         else
             say "  ${C_Y}change${C_0} $cpath"; printf '%s' "$KP_DIFF" | while IFS= read -r l; do say "    $l"; done
             todo+=( "$cpath" ); changes=$((changes+1))
             KPA["$cpath"]="$(printf '%q ' "${KP_ARGS[@]}")"
         fi
     done < <(kopia_targets)
-    (( changes == 0 )) && { ok "All policies match"; return 0; }
+    (( changes == 0 )) && { ok_as policies_match "All policies match"; return 0; }
     [[ "$MODE" == "check" ]] && return 0
     ask_yn "  Write $changes policy change(s) to Kopia?" y || { wrn_as policies_not_written "Policies not written - backup.sh will report it"; return 0; }
     for cpath in "${todo[@]}"; do
         eval "local -a args=( ${KPA[$cpath]} )"
         # shellcheck disable=SC2154
-        if kopia_x policy set "$KOPIA_ID:$cpath" "${args[@]}" >>"$LOG_FILE" 2>&1; then ok "set: $cpath"
-        else bad "policy set $cpath failed (see $LOG_FILE)"; fi
+        if kopia_x policy set "$KOPIA_ID:$cpath" "${args[@]}" >>"$LOG_FILE" 2>&1; then ok_as policy_set "set: $cpath" path "$cpath"
+        else bad_as policy_set_failed "policy set $cpath failed (see $LOG_FILE)" path "$cpath"; fi
     done
 }
 declare -A KPA=()
@@ -2390,7 +2398,7 @@ step_kopia_sources() {
         [[ -z "$src" ]] && continue
         u="${src%%@*}"; h="${src#*@}"; h="${h%%:*}"; p="${src#*:}"
         if [[ "$u@$h" != "$KOPIA_ID" ]]; then hint_as source_foreign "foreign   $src (another identity)" source "$src"; KOPIA_SOURCES+=( "foreign"$'\x1f'"$src" ); continue; fi
-        if grep -Fxq -- "$p" <<<"$want_paths"; then ok "active    $p"; KOPIA_SOURCES+=( "active"$'\x1f'"$src" ); continue; fi
+        if grep -Fxq -- "$p" <<<"$want_paths"; then ok_as source_active "active    $p" path "$p"; KOPIA_SOURCES+=( "active"$'\x1f'"$src" ); continue; fi
         if [[ "$p" == "$croot" || "$p" == "$croot/"* ]]; then
             wrn_as source_orphan "orphaned  $p (under $croot, but no longer a share)" path "$p" source "$src"; retire+=( "$src" ); KOPIA_SOURCES+=( "orphan"$'\x1f'"$src" ); continue
         fi
@@ -2424,7 +2432,7 @@ step_kopia_sources() {
     if [[ ${#tomanual[@]} -gt 0 ]] && \
        ask_yn "  Set ${#tomanual[@]} old/orphaned source(s) to 'manual' (Kopia no longer schedules them, the snapshots stay)?" y; then
         for src in "${tomanual[@]}"; do
-            if kopia_x policy set "$src" --manual >>"$LOG_FILE" 2>&1; then ok "manual: $src"; else wrn_as source_manual_failed "could not switch $src" source "$src"; fi
+            if kopia_x policy set "$src" --manual >>"$LOG_FILE" 2>&1; then ok_as source_manual "manual: $src" source "$src"; else wrn_as source_manual_failed "could not switch $src" source "$src"; fi
         done
     fi
     interactive || return 0
@@ -2434,7 +2442,7 @@ step_kopia_sources() {
         ask "  Delete '$src'? To delete, type DELETE" "no"
         if [[ "$REPLY" == "DELETE" ]]; then
             kopia_x snapshot delete --all-snapshots-for-source "$src" --delete >>"$LOG_FILE" 2>&1 \
-                && ok "deleted: $src" || bad "Deleting $src failed"
+                && ok_as source_deleted "deleted: $src" source "$src" || bad_as source_delete_failed "Deleting $src failed" source "$src"
         fi
     done
 }
@@ -2466,7 +2474,7 @@ TXT
                 && hint_as user_script_renamed "User Script '$UB_NAME' is now called '$UB_USER_SCRIPT' - check the schedule there" old "$UB_NAME" new "$UB_USER_SCRIPT"
         fi
         if [[ -f "$us_dir/script" ]] && grep -q "$upath/backup.sh" "$us_dir/script"; then
-            ok "User Script '$UB_USER_SCRIPT' present"
+            ok_as user_script_present "User Script '$UB_USER_SCRIPT' present" name "$UB_USER_SCRIPT"
         elif ask_yn "  Create the User Script '$UB_USER_SCRIPT'? (only a 3-line call on the flash, everything else stays in $upath)" y; then
             mkdir -p "$us_dir"
             cat >"$us_dir/script" <<EOF
@@ -2476,7 +2484,7 @@ TXT
 exec "$upath/backup.sh" "\$@"
 EOF
             echo "$UB_USER_SCRIPT" >"$us_dir/name"
-            ok "Created: $us_dir/script"
+            ok_as user_script_created "Created: $us_dir/script" name "$UB_USER_SCRIPT"
         fi
         hint_as user_script_schedule "Set the schedule in Settings > User Scripts: Custom, e.g. 0 3 * * *"
     fi
@@ -2571,12 +2579,12 @@ step_forget() {
     local dir="$UB_STATE/reset-$TS" f n=0
     [[ -e "$dir" ]] && dir="$dir-$$"
     if [[ ! -e "$UB_SETTINGS" && ! -e "$UB_STATE/setup-decisions.json" && ! -e "$UB_STATE/setup-plan.json" ]]; then
-        ok "Nothing to forget - there are no settings yet"; return 0
+        ok_as forget_nothing "Nothing to forget - there are no settings yet"; return 0
     fi
     if interactive && ! ask_yn "Forget the settings and start the setup anew (backups stop until you apply again)?" n; then
         say "Nothing changed."; return 0
     fi
-    mkdir -m 700 -p "$dir" || { bad "Cannot create $dir"; return 1; }
+    mkdir -m 700 -p "$dir" || { bad_as forget_dir_failed "Cannot create $dir" dir "$dir"; return 1; }
     # the [partner] sections are the Team Lead's agreement, not the setup's: they stay for the next setup (2.27)
     if [[ -f "$UB_SETTINGS" ]] && grep -q '^\[partner "' "$UB_SETTINGS"; then
         awk '/^\[/ { keep = ($0 ~ /^\[partner "[0-9a-f]{8}"\]$/) } keep' "$UB_SETTINGS" >"$UB_STATE/.partners-kept.ini.$$" \
@@ -2586,10 +2594,10 @@ step_forget() {
     fi
     for f in "$UB_SETTINGS" "$UB_STATE/setup-decisions.json" "$UB_STATE/setup-plan.json"; do
         [[ -e "$f" ]] || continue
-        mv -f "$f" "$dir/" || { bad "Cannot move $f to $dir"; return 1; }
+        mv -f "$f" "$dir/" || { bad_as forget_move_failed "Cannot move $f to $dir" file "$f" dir "$dir"; return 1; }
         n=$((n+1))
     done
-    ok "$n file(s) put aside in $dir - the next setup starts as on a new server"
+    ok_as forget_done "$n file(s) put aside in $dir - the next setup starts as on a new server" n "$n" dir "$dir"
     hint_as forget_backups_stop "Back up again only after the next apply; snapshots, dumps and Kopia stay as they are"
     [[ -e "$dir/settings.ini" ]] && hint_as forget_undo "To go back: mv $dir/settings.ini $UB_SETTINGS" file "$dir/settings.ini" to "$UB_SETTINGS"
     return 0
@@ -2606,8 +2614,8 @@ setup_end() {
 # Dumps and Nextclouds apply only if they are in the decisions.
 decisions_load() {
     local f="${UB_DECISIONS:-}" k v sec n=0
-    [[ -n "$f" && -r "$f" ]] || { bad "Decisions are missing: ${f:-?}"; exit 1; }
-    jq -e 'type == "object"' "$f" >/dev/null 2>&1 || { bad "The decisions are not a JSON object: $f"; exit 1; }
+    [[ -n "$f" && -r "$f" ]] || { bad_as decisions_missing "Decisions are missing: ${f:-?}" file "${f:-?}"; exit 1; }
+    jq -e 'type == "object"' "$f" >/dev/null 2>&1 || { bad_as decisions_bad "The decisions are not a JSON object: $f" file "$f"; exit 1; }
     # dumps, Nextclouds, apps and the VMs' own Kopia sources count only when they are in the decisions
     for k in "${!OLD[@]}"; do
         [[ "$k" == dump\|* || "$k" == nextcloud\|* || "$k" == app\|* || "$k" =~ ^vm\|.+\|(kopia|folder|kopia_retention|kopia_ignore)$ ]] && unset "OLD[$k]"
@@ -2621,7 +2629,7 @@ decisions_load() {
         sec="${k%|*}"; old_has "$sec" || OLD_SECTIONS+=( "$sec" )
         n=$((n+1))
     done < <(jq --raw-output0 'to_entries[] | .key, (if (.value | type) == "array" then (.value | map(tostring) | join("\u001f")) else (.value | tostring) end)' "$f")
-    ok "$n decisions taken over from the office"
+    ok_as decisions_taken "$n decisions taken over from the office" n "$n"
 }
 
 # The shares a container binds: "share|path in it|rw" joined by <RS> (for the office's apps step)
@@ -2840,8 +2848,8 @@ plan_write() {
                   connected: ($k_connected == "yes"), identity: $k_id, version: $k_version, storage: $k_storage,
                   host_is_container_id: ($k_host | test("^[0-9a-f]{12}$")), server_uid: $k_uid, sources: $k_sources},
           messages: map(select(.text != ""))}' >"$tmp" \
-        && mv -f "$tmp" "$UB_STATE/setup-plan.json" && ok "Plan written: $UB_STATE/setup-plan.json" \
-        || { rm -f "$tmp"; bad "The plan could not be written"; return 1; }
+        && mv -f "$tmp" "$UB_STATE/setup-plan.json" && ok_as plan_written "Plan written: $UB_STATE/setup-plan.json" path "$UB_STATE/setup-plan.json" \
+        || { rm -f "$tmp"; bad_as plan_write_failed "The plan could not be written" path "$UB_STATE/setup-plan.json"; return 1; }
 }
 
 ##############################################################################

@@ -4789,7 +4789,7 @@ function testBackupPackages(): void
     same('packages: a kept dump keeps its run', ['20261005-0200', 'immich_postgres'], [$dump['run'] ?? null, $dump['container'] ?? null]);
     same('packages: dump credentials as names only', ['container' => 'immich_postgres', 'type' => 'postgres', 'state' => 'failed', 'login' => 'user',
         'user_var' => 'POSTGRES_USER', 'password_var' => 'POSTGRES_PASSWORD', 'client' => 'psql'], $immich['dumps'][0] ?? null);
-    same('packages: no docker inspect for the page', ['name', 'image', 'digest', 'template'], array_keys($immich['containers'][0] ?? []));
+    same('packages: no docker inspect for the page', ['name', 'image', 'image_id', 'digest', 'template'], array_keys($immich['containers'][0] ?? []));
     same('packages: bytes from the manifest', 120, $immich['bytes']);
     $vm = $p['vms'][0] ?? [];
     same('packages: a VM with NVRAM and TPM', ['Win 11', ['u-1_VARS-pure-efi-tpm.fd'], true, true, false],
@@ -5141,7 +5141,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.57'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.58'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -6795,9 +6795,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.57 everywhere it is named', ['2.57', '2.57', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.57"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.57** –')]);
+    same('data trust: the engine\'s version 2.58 everywhere it is named', ['2.58', '2.58', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.58"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.58** –')]);
     // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
     same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
         array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
@@ -7837,7 +7837,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.57', [1, '2.57'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.58', [1, '2.58'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -8445,7 +8445,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.57', [1, '2.57'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.58', [1, '2.58'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -10282,10 +10282,7 @@ globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => 
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const b = OFFICE_DESK_TESTS.backup;
 const out = {};
-out.lines = b.placeLines({ place: [{ code: 'same_pool', where: 'cache' }, { code: 'no_history', where: 'disk1' }, { code: 'no_history', where: '' },
-  { code: 'secondary', where: '' }, { code: 'no_redundancy', where: 'cache' }, { code: 'odd', where: 'x' }] });
-out.old = [b.placeLines({ method: 'live' }), b.placeLines({ method: 'snap' }), b.placeLines(null)];
-out.kopia = b.placeLines({ place: [{ code: 'same_pool', where: 'cache' }, { code: 'no_redundancy', where: 'cache' }] });
+// the place's lines: testBackupPlaceVerdict (2026-10-17, one question decides)
 const plan = (names) => ({ shares: names.map((name) => ({ name })) });
 out.intro = [b.placeIntro(plan(['appdata', 'system', 'domains', 'isos']), ''), b.placeIntro(plan(['appdata', 'isos', 'Backups']), ''),
   b.placeIntro(plan(['appdata', 'isos']), 'isos')];
@@ -10318,13 +10315,6 @@ JS;
         hardeningRm($tmp);
         return;
     }
-    same('backup place: the warnings\' texts - warn (the same pool: none), the array named, redundancy only as information, unknown codes left out', [
-        ['warn' => true, 'text' => 'setup.place_no_history {"where":"disk1"}'],
-        ['warn' => true, 'text' => 'setup.ds_no_history'], ['warn' => true, 'text' => 'setup.place_secondary {"where":"setup.place_array"}'],
-        ['warn' => false, 'text' => 'setup.place_no_redundancy {"where":"cache"}']], $r['lines']);
-    same('backup place: the same pool as appdata - no line under the field at all (2026-10-10, a concept on the parking lot)',
-        [['warn' => false, 'text' => 'setup.place_no_redundancy {"where":"cache"}']], $r['kopia']);
-    same('backup place: an older agent\'s plan (no place) - the plan\'s live still warns', [[['warn' => true, 'text' => 'setup.ds_no_history']], [], []], $r['old']);
     same('backup place: Mr. Backupsy\'s word - no share to choose (only isos), choose one, none once chosen', ['setup.place_none', 'setup.place_choose', null], $r['intro']);
     same('backup place: before the new plan - the user\'s levels in the draft', [['c2'], ['c2', 'c3']], $r['before']);
     same('backup place: a new plan keeps what the user chose (flash, a level, a hold); takes the engine\'s new proposals (the share made meanwhile, a retention)',
@@ -33449,7 +33439,7 @@ function testSetupMessages(): void
     same('setup messages: a `more` with nothing before it is a line of its own', [['level' => 'hint', 'step' => 'x', 'items' => [['text' => 'first']]]], array_slice($n, 0, 1));
     $n = backupSetupNotes($msgs);
     same('setup messages: grouped by level and code in the order they came; ok and odd codes stay lines of their own',
-        [['ok', null, 1], ['warn', 'volumes_cache', 2], ['warn', 'volumes_data', 2], ['warn', 'source_orphan', 2], ['hint', 'source_orphan', 1], ['hint', null, 1]],
+        [['ok', null, 1], ['hint', 'volumes_cache', 2], ['warn', 'volumes_data', 2], ['warn', 'source_orphan', 2], ['hint', 'source_orphan', 1], ['hint', null, 1]],
         array_map(fn ($g) => [$g['level'], $g['code'] ?? null, count($g['items'])], $n));
     same('setup messages: Docker volumes judged - a cache (its path or name says so) apart from real data, an app with both in each; the names beside the paths',
         [[['app' => 'ml', 'paths' => '/cache (model-cache)', 'n' => 1], ['app' => 'db', 'paths' => '/tmp', 'n' => 1]],
@@ -33475,19 +33465,21 @@ function testSetupMessages(): void
 
     // --- the strings: every code the engine sends has the office's words
     $sh = (string) file_get_contents(OFFICE_DIR . '/backup/setup.sh');
-    preg_match_all('/\b(?:hint_as|wrn_as|wrn_code|hint_code) "?([a-z][a-z0-9_]*)/', $sh, $m);
+    // 2.58: the OK and error lines too (ok_as, bad_as)
+    preg_match_all('/\b(?:hint_as|wrn_as|wrn_code|hint_code|ok_as|bad_as) "?([a-z][a-z0-9_]*)/', $sh, $m);
     $codes = array_values(array_unique(array_filter($m[1], fn ($c) => !str_ends_with($c, '_'))));
-    preg_match_all('/\b(?:hint_as|wrn_as|hint_code) "([a-z_]+)_\$/', $sh, $dyn);
+    preg_match_all('/\b(?:hint_as|wrn_as|hint_code|bad_as) "([a-z_]+)_\$/', $sh, $dyn);
     $more = [];
     foreach (array_unique($dyn[1]) as $d) {
         $more = array_merge($more, match ($d) {
             'vm_no_snapshot' => ['vm_no_snapshot_block', 'vm_no_snapshot_live', 'vm_no_snapshot_missing', 'vm_no_snapshot_none'],
             'partner_cannot', 'partner_off', 'not_agreed' => ["{$d}_share", "{$d}_vm", "{$d}_place"],
+            'place' => ['place_missing', 'place_unknown', 'place_forbidden', 'place_off'],       // dumps_share_problem()'s
             default => ["?$d"],
         });
     }
-    $codes = array_values(array_diff(array_merge($codes, $more), ['more', 'docker_volumes', 'vm_no_snapshot', 'partner_cannot', 'partner_off', 'not_agreed']));
-    check('setup messages: the engine\'s codes found (hint_as, wrn_as, wrn_code, hint_code; the built ones expanded)', count($codes) > 80 && !preg_grep('/^\?/', $codes), implode(' ', $codes));
+    $codes = array_values(array_diff(array_merge($codes, $more), ['more', 'docker_volumes', 'vm_no_snapshot', 'partner_cannot', 'partner_off', 'not_agreed', 'place']));
+    check('setup messages: the engine\'s codes found (hint_as, wrn_as, wrn_code, hint_code, ok_as, bad_as; the built ones expanded)', count($codes) > 140 && !preg_grep('/^\?/', $codes), implode(' ', $codes));
     $langs = [];
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         $langs[$l] = langFile(OFFICE_WEB . "/desks/backup/lang/$l.json");
@@ -33522,7 +33514,7 @@ function testSetupMessages(): void
     same('setup messages: every step a message can come from has its name', [], array_values(array_filter(array_unique($st[1]), fn ($s) => !isset($en["setup.step.$s"]))));
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
     check('setup messages: the page renders the grouped notes (setup_get\'s notes) and falls back to the engine\'s text',
-        str_contains($js, 'function setupNoteItems(g, withStep)') && str_contains($js, "setupMessages(setupNotes(plan))") && str_contains($js, '[it.text, ...(it.more || [])]'));
+        str_contains($js, 'function setupNoteItems(g, withStep)') && str_contains($js, "setupMessages(placeNotes(setupNotes(plan)))") && str_contains($js, '[it.text, ...(it.more || [])]'));
     check('setup messages: setup_get answers the notes beside plan and run', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php'), "\$plan['notes'] = backupSetupNotes("));
 
     // --- setup.sh --plan on a fixture server
@@ -33625,8 +33617,11 @@ SH);
         [[['path' => '/uso/oldshare', 'source' => 'root@kopia:/uso/oldshare']], [['path' => '/backup-snapshots/olddata', 'source' => 'root@kopia:/backup-snapshots/olddata']], [['source' => 'admin@laptop:/home/x']]],
         [$by('source_orphan'), $by('source_gone'), $by('source_foreign')]);
     same('setup messages (engine): the live test that couldn\'t mount - coded with the root', [['root' => $root]], $by('kopia_probe_failed'));
-    same('setup messages (engine): no hint or warning without a code', [],
-        array_values(array_map(fn ($m) => $m['text'], array_filter($msgs, fn ($m) => in_array($m['level'] ?? '', ['hint', 'warn'], true) && ($m['code'] ?? '') === ''))));
+    same('setup messages (engine): no message without a code - hints, warnings and (2.58) the OK and error lines too', [],
+        array_values(array_map(fn ($m) => $m['text'], array_filter($msgs, fn ($m) => ($m['code'] ?? '') === ''))));
+    same('setup messages (engine): the OK lines as codes with their params (2.58) - the backup place, the file systems',
+        [true, true], [in_array(['level' => 'ok', 'code' => 'backup_place'], array_map(fn ($m) => array_intersect_key($m, ['level' => 1, 'code' => 1]), $msgs), true),
+         (bool) array_filter($msgs, fn ($m) => ($m['code'] ?? '') === 'fs_present' && in_array($m['params']['fs'] ?? '', ['zfs', 'btrfs'], true))]);
     $unknown = array_values(array_unique(array_filter(array_map(fn ($g) => $g['code'] ?? '', backupSetupNotes($msgs)), fn ($c) => $c !== '' && !isset($en["setup.msg.$c"]))));
     same('setup messages (engine): every code of this plan has the office\'s words', [], $unknown);
     $notes = array_column(array_filter(backupSetupNotes($msgs), fn ($g) => isset($g['code'])), null, 'code');
@@ -40261,9 +40256,426 @@ function testFirstHome(): void
     hardeningRm($tmp);
 }
 
+/**
+ * A settings.ini line the setup doesn't know (2026-10-17: `note = …` written by hand into a share's section showed as the raw
+ * key «backup.setup.key.note» in the apply dialog). setup.sh's settings_render() writes only the keys it knows, so Apply drops
+ * the line - every branch of changeLabel() says so in words, never a raw key; no «proposal»/«leave out» for it
+ */
+function testSetupUnknownKey(): void
+{
+    $setup = (string) file_get_contents(OFFICE_DIR . '/backup/setup.sh');
+    $render = substr($setup, (int) strpos($setup, 'settings_render() {'), 20000);
+    check('unknown key: settings_render() writes known keys only (no pass-through of what settings.ini had) - «goes» is true',
+        str_contains($render, 'w_kv mode "$(pget "share|$s|mode")"') && !preg_match('/\$\{!OLD\[@\]\}|\$\{OLD\[/', substr($render, 0, (int) strpos($render, "\n}\n"))));
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('unknown key: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('setup-unknown-key');
+    $general = ['general|dumps_share' => 'UnraidSecretaryOffice', 'kopia|enabled' => 'no', 'share|Mediathek|mode' => 'snapshot', 'share|UnraidSecretaryOffice|mode' => 'snapshot'];
+    file_put_contents("$tmp/plan.json", json_encode(['time' => 1000, 'have_settings' => true,
+        'P' => $general + ['docker|no_stop' => [], 'docker|skip' => [], 'docker|known' => []],
+        'O' => $general + ['share|Mediathek|note' => 'from hand', 'general|note' => 'x', 'kopia|colour' => 'blue', 'share|Mediathek|mode' => 'snapshot'],
+        'shares' => [['name' => 'Mediathek', 'exists' => true, 'folders' => [], 'waiting' => []], ['name' => 'UnraidSecretaryOffice', 'exists' => true, 'folders' => [], 'waiting' => []]],
+        'containers' => [], 'vms' => [], 'databases' => [], 'nextcloud' => [], 'missing_databases' => [], 'bases' => []]));
+    $js = <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const en = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+const T = (k, p) => String(en[k] ?? k).replace(/\{(\w+)\}/g, (m, n) => (p && n in p ? p[n] : m));
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now' }, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {},
+  has: (k) => k.replace(/^backup\./, '') in en };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+b.setup.draft = null; b.setup.base = null; b.setup.plan = JSON.parse(fs.readFileSync(process.argv[4], 'utf8')); b.setupDraftKeep();
+const saved = b.setupSaved();
+const { keys } = b.setupApplyChanges(saved);
+const out = { keys, labels: {} };
+['share|Mediathek|note', 'general|note', 'kopia|colour', 'app|immich|note', 'vm|Win11|note', 'dump|db|note', 'share|Mediathek|mode', 'share|Mediathek|retention'].forEach((k) => {
+  if (!(k in b.setup.plan.O) && !k.endsWith('mode') && !k.endsWith('retention')) b.setup.plan.O[k] = 'x';
+  out.labels[k] = b.changeLabel(k);
+});
+console.log(JSON.stringify(out));
+JS;
+    file_put_contents("$tmp/t.js", $js);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' '
+        . escapeshellarg(OFFICE_WEB . '/desks/backup/lang/en.json') . ' ' . escapeshellarg("$tmp/plan.json") . ' 2>&1');
+    $r = json_decode($raw, true);
+    hardeningRm($tmp);
+    if (!is_array($r)) {
+        check('unknown key: page ran under node', false, $raw);
+        return;
+    }
+    same('unknown key: the hand-written lines are in the apply dialog\'s list (Apply drops them)', ['general|note', 'kopia|colour', 'share|Mediathek|note'],
+        array_values(array_intersect($r['keys'], ['general|note', 'kopia|colour', 'share|Mediathek|note'])));
+    same('unknown key: each in words, the share\'s as the owner saw it', [
+        'share|Mediathek|note' => "Share Mediathek: the entry «note», which Mr. Backupsy doesn't know, goes",
+        'general|note' => "Section [general]: the entry «note», which Mr. Backupsy doesn't know, goes",
+        'kopia|colour' => "Section [kopia]: the entry «colour», which Mr. Backupsy doesn't know, goes",
+        'app|immich|note' => "App immich: the entry «note», which Mr. Backupsy doesn't know, goes",
+        'vm|Win11|note' => "VM Win11: the entry «note», which Mr. Backupsy doesn't know, goes",
+        'dump|db|note' => "Section [dump db]: the entry «note», which Mr. Backupsy doesn't know, goes",
+        'share|Mediathek|mode' => 'Share Mediathek: protection', 'share|Mediathek|retention' => 'Share Mediathek: local retention'], $r['labels']);
+    check('unknown key: never a raw key on screen', !preg_grep('/backup\.|setup\.key|\|/', array_values($r['labels'])), implode(' / ', $r['labels']));
+    $desk = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('unknown key: no «proposal» chip or «leave out» for it, its tip says why it goes',
+        str_contains($desk, "!/\\|kopia_known$/.test(k) && !unknownKey(k)) {") && str_contains($desk, "if (unknownKey(k)) li.title = T('setup.key_unknown_tip');"));
+}
+
+/**
+ * A Docker volume that is only a cache is not lost data (2026-10-17: immich's `model-cache:/cache` made the app row's chip
+ * red «Docker volumes … NOT in the backup», the owner feared for his photos). The agent tags each plan container's cache
+ * volumes (`backupPlanVolumeCaches()`, the one rule `backupVolumeIsCache()`, a volume's name from the docker_volumes
+ * message), the page shows those in a grey chip «Cache only, fills itself again», red only what may hold data; the
+ * setup's message for a cache is a hint, never a warning
+ */
+function testBackupVolumeCache(): void
+{
+    $plan = ['containers' => [
+        ['name' => 'immich', 'volumes' => ['/cache'], 'project' => ''],
+        ['name' => 'mixed', 'volumes' => ['/var/lib/postgresql/data', '/models', '/tmp'], 'project' => ''],
+        ['name' => 'plain', 'volumes' => [], 'project' => ''],
+        ['name' => 'old', 'project' => ''],
+        'junk'],
+        'messages' => [
+            ['level' => 'warn', 'code' => 'docker_volumes', 'params' => ['app' => 'immich', 'volumes' => [['name' => 'model-cache', 'target' => '/cache']]]],
+            ['level' => 'warn', 'code' => 'docker_volumes', 'params' => ['app' => 'mixed', 'volumes' => [['name' => 'pgdata', 'target' => '/var/lib/postgresql/data'],
+                ['name' => 'ml-cache', 'target' => '/models'], ['name' => '', 'target' => '/tmp']]]],
+            ['level' => 'warn', 'code' => 'docker_volumes', 'params' => ['app' => 'x', 'volumes' => 'odd']]]];
+    $out = backupPlanVolumeCaches($plan);
+    same('volume cache: per container the cache paths - by path (/cache, /tmp) or by the volume\'s name (ml-cache at /models); data stays out',
+        [['/cache'], ['/models', '/tmp'], [], []], array_map(fn ($c) => $c['volumes_cache'], array_slice($out['containers'], 0, 4)));
+    same('volume cache: a plan without containers or messages is left as it is', [['x' => 1], ['containers' => []]],
+        [backupPlanVolumeCaches(['x' => 1]), backupPlanVolumeCaches(['containers' => []])]);
+    $notes = backupSetupNotes($plan['messages']);
+    same('volume cache: the setup\'s messages - the cache ones a hint, the data one a warning',
+        [['hint', 'volumes_cache'], ['warn', 'volumes_data'], ['warn', 'docker_volumes']], array_map(fn ($g) => [$g['level'], $g['code']], $notes));
+    $agent = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
+    check('volume cache: the page\'s plan carries the tags', str_contains($agent, '$plan = backupPlanVolumeCaches($plan);'));
+
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('volume cache: page - node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('volume-cache');
+    $ct = fn ($name, $vols, $cache) => ['name' => $name, 'image' => "$name:1", 'running' => true, 'stop' => true, 'why' => 'volumes', 'binds' => [], 'volumes' => $vols]
+        + ($cache === null ? [] : ['volumes_cache' => $cache]);
+    file_put_contents("$tmp/plan.json", json_encode(['time' => 1, 'have_settings' => true, 'P' => [], 'O' => [], 'shares' => [],
+        'containers' => [$ct('immich', ['/cache'], ['/cache']), $ct('mixed', ['/data', '/tmp'], ['/tmp']), $ct('older', ['/cache'], null)],
+        'vms' => [], 'databases' => [], 'nextcloud' => [], 'missing_databases' => [], 'bases' => []]));
+    $js = <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now' }, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {}, has: () => true };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const m = b.setupModel(JSON.parse(fs.readFileSync(process.argv[3], 'utf8')));
+console.log(JSON.stringify(Object.fromEntries(m.apps.map((a) => [a.name, [a.volumes, a.volumesCache]]))));
+JS;
+    file_put_contents("$tmp/t.js", $js);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' ' . escapeshellarg("$tmp/plan.json") . ' 2>&1');
+    hardeningRm($tmp);
+    $r = json_decode($raw, true);
+    same('volume cache: the app row - immich grey only, a mixed app red for its data and grey for its cache; an older agent\'s plan (no tags): red as before',
+        ['immich' => [[], ['/cache']], 'mixed' => [['/data'], ['/tmp']], 'older' => [['/cache'], []]], $r);
+    $desk = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('volume cache: the grey chip beside the red one', str_contains($desk, "chip(T('setup.ct_volumes_cache', { list: a.volumesCache.join(', ') }), '', T('setup.ct_volumes_cache_hint'))")
+        && str_contains($desk, "chip(T('setup.ct_volumes', { list: a.volumes.join(', ') }), 'danger'"));
+}
+
+/**
+ * A package of an app or VM that no longer exists (2026-10-17: two such packages made Mr. Restori's drill say «image
+ * missing» on every run; agent/desks/backup-gone.php). Gone: an app none of whose containers (a stopped one is there)
+ * and none of whose images is left; a VM libvirt doesn't know; Docker or libvirt silent — none. Only a package the
+ * engine wrote. «Into the storeroom» moves it as the let-go does (backupLetGoMovePackage()), put back by clPackageHome();
+ * refused while busy or when it isn't gone (any more)
+ */
+function testBackupGonePackage(): void
+{
+    $tmp = hardeningTmp('gone-package');
+    $mnt = "$tmp/mnt";
+    $place = '/mnt/user/UnraidSecretaryOffice/backup';
+    $pool = "$mnt/pool/UnraidSecretaryOffice/backup";
+    $man = fn (string $kind, string $folder, array $more = []) => $more + ['interface' => 1, 'engine' => '2.60', 'kind' => $kind, 'name' => $folder, 'folder' => $folder,
+        'run' => '20261001-0200', 'time' => 1, 'result' => 'ok', 'files' => []];
+    $ct = fn (string $name, string $image, string $id) => ['name' => $name, 'image' => $image, 'image_id' => $id, 'digests' => []];
+    $packs = [
+        'apps/immich'   => $man('app', 'immich', ['containers' => [$ct('immich_server', 'ghcr.io/immich-app/immich-server:release', 'sha256:aaa')]]),
+        'apps/oldapp'   => $man('app', 'oldapp', ['containers' => [$ct('oldapp', 'postgres:16', 'sha256:bbb')]]),
+        'apps/redisapp' => $man('app', 'redisapp', ['containers' => [$ct('redisapp', 'docker.io/library/redis', 'sha256:ddd')]]),
+        'apps/zz-uso-test-db' => $man('app', 'zz-uso-test-db', ['containers' => [$ct('zz-uso-test-db', 'mariadb:11', 'sha256:ccc')]]),
+        'apps/foreign'  => ['name' => 'foreign', 'containers' => [$ct('foreign', 'x:1', 'sha256:eee')]],      // not the engine's shape
+        'apps/noct'     => $man('app', 'noct', ['containers' => []]),
+        'vms/win11'     => $man('vm', 'win11'),
+        'vms/oldvm'     => $man('vm', 'oldvm'),
+    ];
+    foreach ($packs as $d => $m) {
+        mkdir("$pool/$d/db", 0700, true);
+        file_put_contents("$pool/$d/manifest.json", json_encode($m));
+    }
+    file_put_contents("$pool/apps/zz-uso-test-db/db/mariadb.sql.gz", 'x');
+    mkdir("$pool/server", 0700);
+    file_put_contents("$pool/server/run.json", json_encode(['run' => '20261001-0200']));
+    $pk = backupPackagesRead($pool);
+    same('gone package: the engine\'s own by its manifest\'s shape (interface 1, kind, folder) - not a folder of another shape',
+        ['foreign' => false, 'immich' => true, 'noct' => true, 'oldapp' => true, 'redisapp' => true, 'zz-uso-test-db' => true],
+        array_column(array_map(fn ($a) => [$a['folder'], $a['engine_written']], $pk['apps']), 1, 0));
+    $containers = ['immich_server', 'plex'];                       // immich_server stopped: docker ps -a lists it
+    $images = ['sha256:aaa', 'ghcr.io/immich-app/immich-server:release', 'sha256:bbb', 'postgres:16', 'sha256:ddd', 'redis:latest'];
+    $gone = backupGonePackages($pk, $containers, $images, ['win11']);
+    same('gone package: only the app with neither a container nor an image, and the VM libvirt doesn\'t know - a stopped container and an image alone are not gone',
+        [['app', 'zz-uso-test-db'], ['vm', 'oldvm']], array_map(fn ($g) => [$g['kind'], $g['folder']], $gone));
+    same('gone package: an image named the long way (docker.io/library/redis) is the same as Docker\'s redis:latest', ['redis:latest', 'postgres:16', 'ghcr.io/a/b:1', 'redis:latest'],
+        [backupGoneImageRef('docker.io/library/redis'), backupGoneImageRef('postgres:16'), backupGoneImageRef('ghcr.io/a/b:1'), backupGoneImageRef('redis')]);
+    same('gone package: Docker not answering - no app gone; libvirt not answering - no VM gone; the place asleep - nothing at all',
+        [[['vm', 'oldvm']], [['app', 'zz-uso-test-db']], []],
+        [array_map(fn ($g) => [$g['kind'], $g['folder']], backupGonePackages($pk, null, null, ['win11'])),
+         array_map(fn ($g) => [$g['kind'], $g['folder']], backupGonePackages($pk, $containers, $images, null)),
+         backupGonePackages(['asleep' => true] + $pk, $containers, $images, [])]);
+    $asked = [];
+    $GLOBALS['goneHost'] = ['containers' => function () use (&$asked, $containers) { $asked[] = 'containers'; return $containers; },
+                            'images' => function () use (&$asked, $images) { $asked[] = 'images'; return $images; },
+                            'vms' => function () use (&$asked) { $asked[] = 'vms'; return ['win11']; }];
+    $list = backupGoneList($pk);
+    same('gone package: the look asks Docker for its images only when an app has none of its containers left', [2, ['containers', 'images', 'vms']], [count($list), $asked]);
+    $asked = [];
+    backupGoneList(['found' => true, 'apps' => [$pk['apps'][1]], 'vms' => []]);
+    same('gone package: … every container there - the images not asked, libvirt not asked without VM packages', ['containers'], $asked);
+
+    // the finding: a hint, never a must
+    $GLOBALS['backup'] = ['packages_gone' => $list];
+    $f = array_values(array_filter(backupChecks(), fn ($x) => $x['id'] === 'package_gone'));
+    $GLOBALS['backup'] = ['packages_gone' => []];
+    $f2 = array_values(array_filter(backupChecks(), fn ($x) => $x['id'] === 'package_gone'));
+    unset($GLOBALS['backup']);
+    same('gone package: the Team Lead\'s hint (only with settings.ini) - names, count, the link; none gone - ok',
+        is_file(BACKUP_DATA_DIR . '/settings.ini') ? [['hint', false, 'zz-uso-test-db, oldvm', 2, '#/backup/prot'], true] : [null, null],
+        is_file(BACKUP_DATA_DIR . '/settings.ini') ? [[$f[0]['level'] ?? null, $f[0]['ok'] ?? null, $f[0]['params']['names'] ?? null, $f[0]['params']['n'] ?? null, $f[0]['link'] ?? null], $f2[0]['ok'] ?? null]
+            : [$f[0] ?? null, $f2[0] ?? null]);
+
+    // «Into the storeroom»
+    $ub = "$tmp/ub";
+    mkdir("$ub/state", 0700, true);
+    mkdir("$tmp/data", 0700);
+    $GLOBALS['letgoUbData'] = $ub;
+    $GLOBALS['letgoDir'] = "$tmp/data/backup";
+    $GLOBALS['goneplace'] = $place;
+    $GLOBALS['gonePackages'] = $pk;
+    $GLOBALS['goneRoots'] = ['pool' => ['fs' => 'zfs', 'kind' => 'pool']];
+    $GLOBALS['disksIni'] = "$tmp/disks.ini";
+    file_put_contents($GLOBALS['disksIni'], '');
+    $err = function (array $r) use ($mnt): ?string {
+        try {
+            backupPackageAside($r, $mnt);
+            return null;
+        } catch (Problem $p) {
+            return $p->key;
+        }
+    };
+    same('gone package: refused - a package that isn\'t gone (a stopped app, an image alone, not the engine\'s), an odd kind or name',
+        ['package_aside_gone', 'package_aside_gone', 'package_aside_gone', 'package_aside_gone', 'bad_request', 'bad_request', 'missing_field'],
+        [$err(['kind' => 'app', 'folder' => 'immich']), $err(['kind' => 'app', 'folder' => 'oldapp']), $err(['kind' => 'app', 'folder' => 'foreign']),
+         $err(['kind' => 'vm', 'folder' => 'zz-uso-test-db']), $err(['kind' => 'share', 'folder' => 'x']), $err(['kind' => 'app', 'folder' => '../x']), $err(['kind' => 'app'])]);
+    $other = fopen("$ub/state/lock", 'a');
+    flock($other, LOCK_EX);
+    file_put_contents("$ub/state/lock-holder.json", json_encode(['holder' => 'restore', 'mode' => 'drill', 'what' => 'drill', 'pid' => getmypid(), 'started' => time()]));
+    same('gone package: refused while the engine\'s lock is held (a drill, a restore) - nothing moved', ['restore_running', true], [$err(['kind' => 'app', 'folder' => 'zz-uso-test-db']), is_dir("$pool/apps/zz-uso-test-db")]);
+    unlink("$ub/state/lock-holder.json");
+    flock($other, LOCK_UN);
+    fclose($other);
+    $GLOBALS['drill']['job_file'] = "$tmp/drill-job.json";
+    file_put_contents($GLOBALS['drill']['job_file'], json_encode(['id' => '20261017-020000', 'result' => 'queued', 'created' => time()]));
+    same('gone package: refused while a drill is going on', 'package_aside_drill', $err(['kind' => 'app', 'folder' => 'zz-uso-test-db']));
+    unlink($GLOBALS['drill']['job_file']);
+
+    $during = null;
+    $GLOBALS['letgoHost'] = ['move' => function (string $from, string $to) use (&$during, $ub): void {
+        $during ??= [flockHeld("$ub/state/lock"), readJson("$ub/state/lock-holder.json")['mode'] ?? null];
+        clMove($from, $to);
+    }];
+    $r = backupPackageAside(['kind' => 'app', 'folder' => 'zz-uso-test-db'], $mnt);
+    $trash = "$mnt/pool/UnraidSecretaryOffice/" . CL_TRASH;
+    $runs = glob("$trash/*", GLOB_ONLYDIR) ?: [];
+    $m = readJson(($runs[0] ?? '') . '/manifest.json') ?? [];
+    $it = $m['items'][0] ?? [];
+    same('gone package: moved under the engine\'s lock - one package, gone from the place, the others stay',
+        [true, 1, 0, false, true, true], [$during[0] ?? null, $r['moved'], $r['failed'], is_dir("$pool/apps/zz-uso-test-db"), is_dir("$pool/apps/immich"), is_dir("$pool/vms/oldvm")]);
+    same('gone package: in Ms. Dustdevil\'s storeroom at the share\'s top - kind package, from where it lay, its contents along, her shape check takes it',
+        [1, 'package', 'apps/zz-uso-test-db', "$pool/apps/zz-uso-test-db", true, true],
+        [count($runs), $it['kind'] ?? null, $it['name'] ?? null, $it['from'] ?? null, is_file(($runs[0] ?? '') . '/' . ($it['as'] ?? 'x') . '/db/mariadb.sql.gz'),
+         clTrashAsOk((string) ($it['as'] ?? ''), 'package', basename($runs[0] ?? ''))]);
+    same('gone package: put back only into the backup place\'s folder', "$pool/apps", clPackageHome("$pool/apps/zz-uso-test-db", $trash));
+    $jf = glob("$tmp/data/backup/letgo-*.json") ?: [];
+    $j = readJson($jf[0] ?? '') ?? [];
+    same('gone package: a journal of his let-go\'s kind (mode aside) names the storeroom - Ms. Dustdevil finds it there too; the lock given back',
+        [1, 'aside', 'done', [$trash], 1, false],
+        [count($jf), $j['mode'] ?? null, $j['result'] ?? null, $j['trash'] ?? null, preg_match(LETGO_JOURNAL, basename($jf[0] ?? '')), flockHeld("$ub/state/lock")]);
+    // Mr. Restori's drill reads the folder only: the package is no longer among them
+    same('gone package: the drill\'s list of packages no longer has it', false,
+        in_array('zz-uso-test-db', array_column(backupPackagesRead($pool)['apps'], 'folder'), true));
+    $GLOBALS['gonePackages'] = backupPackagesRead($pool);
+    same('gone package: a second time - not there any more, refused', 'package_aside_gone', $err(['kind' => 'app', 'folder' => 'zz-uso-test-db']));
+    $GLOBALS['gonePackages'] = $pk;
+    // the VM's package too
+    $r = backupPackageAside(['kind' => 'vm', 'folder' => 'oldvm'], $mnt);
+    same('gone package: a gone VM\'s package the same way', [1, false], [$r['moved'], is_dir("$pool/vms/oldvm")]);
+
+    // the page: a line each with «Into the storeroom», the app row's chip; the action registered
+    $desk = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    $agent = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
+    check('gone package: the page shows each with «Into the storeroom» on a fresh look, the action asked with kind and folder',
+        str_contains($desk, "Office.api.post(`\${ID}.package_aside`, { kind: g.kind, folder: g.folder })") && str_contains($desk, "if (!(await Office.freshState(ID))) return;\n  const g = goneOf(g0.kind, g0.folder);")
+        && str_contains($agent, "'package_aside' => fn (array \$r) => backupPackageAside(\$r),") && str_contains($agent, "'packages_gone' => backupGoneList(\$pk),"));
+    unset($GLOBALS['goneHost'], $GLOBALS['goneplace'], $GLOBALS['gonePackages'], $GLOBALS['goneRoots'], $GLOBALS['disksIni'], $GLOBALS['letgoUbData'], $GLOBALS['letgoDir'],
+        $GLOBALS['letgoHost'], $GLOBALS['drill']['job_file']);
+    hardeningRm($tmp);
+}
+
+/**
+ * The office's search finds Mr. Backupsy's setup rows (2026-10-17: «immich», «Mediathek» found the main page's rows only):
+ * the plan the page loaded is handed to his one provider (Office.placesTook(ID, plan, 'setup')), which names every share,
+ * VM and app of it with its step's tile and its row's place - no request of its own, nothing per keystroke
+ */
+function testSetupSearch(): void
+{
+    $desk = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('setup search: the plan as the page loads it goes to the search, once per plan',
+        str_contains($desk, "setupDraftKeep();\n    Office.placesTook(ID, j.plan, 'setup');") && substr_count($desk, 'Office.placesTook(ID, j.plan') === 1
+        && substr_count($desk, 'Office.placesFrom(ID, ') === 1 && str_contains($desk, "if (part === 'setup') return setupItems(s);"));
+    check('setup search: no new call to the agent for it', !preg_match('/function setupItems[\s\S]{0,1500}Office\.api/', $desk));
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('setup search: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('setup-search');
+    $plan = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/states/post/backup.setup_get.json'), true)['plan'];
+    $plan['vms'] = [['name' => 'Windows 11', 'disks' => [], 'own' => [], 'running' => false]];
+    file_put_contents("$tmp/plan.json", json_encode($plan));
+    $js = <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+let provider = null;
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now' }, desk: () => {}, places: () => {},
+  placesFrom: (d, f) => { provider = f; }, placesTook: () => {}, selbar: () => {}, has: () => true };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const plan = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+console.log(JSON.stringify({ setup: provider(plan, 'setup'), main: provider({ found: false }, null).length }));
+JS;
+    file_put_contents("$tmp/t.js", $js);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' ' . escapeshellarg("$tmp/plan.json") . ' 2>&1');
+    hardeningRm($tmp);
+    $r = json_decode($raw, true);
+    if (!is_array($r)) {
+        check('setup search: page ran under node', false, $raw);
+        return;
+    }
+    $by = array_column($r['setup'], null, 'text');
+    same('setup search: a share, a VM and an app (a stack) - each to its step\'s tile and its row, said as «Set up · <step>»', [
+        ['setup.page · setup.shares', 'setup:share:media', '#/backup/setup/shares'],
+        ['setup.page · setup.vms', 'setup:vm:Windows 11', '#/backup/setup/vms'],
+        ['setup.page · setup.apps', 'setup:app:stack:immich', '#/backup/setup/apps', 'immich_server immich_redis immich_postgres']],
+        [array_values(array_intersect_key($by['media'] ?? [], ['sub' => 1, 'anchor' => 1, 'route' => 1])), array_values(array_intersect_key($by['Windows 11'] ?? [], ['sub' => 1, 'anchor' => 1, 'route' => 1])),
+         array_values(array_intersect_key($by['immich'] ?? [], ['sub' => 1, 'anchor' => 1, 'route' => 1, 'words' => 1]))]);
+    same('setup search: every share that exists, every app; the main state\'s items unchanged (the provider\'s other part)',
+        [10, true, 0], [count(array_filter($r['setup'], fn ($x) => str_starts_with($x['anchor'], 'setup:share:'))), isset($by['Grafana']), $r['main']]);
+    // the rows carry those places
+    check('setup search: the rows are marked with the places the items name',
+        str_contains($desk, "Office.place('setup:share:' + sh.name, el('tr'))") && str_contains($desk, "Office.place('setup:vm:' + v.name,") && str_contains($desk, "Office.place('setup:app:' + a.id,"));
+}
+
+/**
+ * The backup place's warnings: one question decides (owner 2026-10-17). A copy of the packages goes off-site (the place's
+ * share to Kopia, or the place to a partner) - same pool, no mirror, no snapshots are one grey line «just so you know»;
+ * not - one yellow line adding up the reasons that apply and what helps (none apply: a short «only local»). A secondary
+ * storage stays a warning either way. It follows the draft, and the engine's place_not_kopia / place_no_history give way
+ * to it in the setup's messages. Only in the setup: no new finding
+ */
+function testBackupPlaceVerdict(): void
+{
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('place verdict: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('place-verdict');
+    $js = <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => (p ? `${k}(${Object.values(p).join('|')})` : k);
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now' }, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {}, has: () => true };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const some = { name: 'Backups', partner_ok: true, place: [{ code: 'same_pool', where: 'cache' }, { code: 'no_redundancy', where: 'cache' }, { code: 'odd', where: 'x' }] };
+const none = { name: 'Backups', partner_ok: true, place: [] };
+const sec = { name: 'Backups', place: [{ code: 'secondary', where: '' }, { code: 'no_history', where: 'disk1' }] };
+const out = {
+  offsiteSome: b.placeVerdict(some, 'kopia'), offsiteNone: b.placeVerdict(none, 'kopia'), partnerSome: b.placeVerdict(some, { partner: 'Grosseltern' }),
+  localSome: b.placeVerdict(some, null), localNone: b.placeVerdict(none, null),
+  secLocal: b.placeVerdict(sec, null), secOffsite: b.placeVerdict(sec, 'kopia'),
+  array: b.placeVerdict({ place: [{ code: 'no_redundancy', where: '' }] }, null), live: b.placeVerdict({ method: 'live' }, null), nothing: b.placeVerdict(null, null),
+};
+// the draft decides: Kopia on and the place's share at «local + offsite», or a partner for the place
+b.setup.plan = { shares: [some], partners: [{ id: 'a1b2c3d4', name: 'Grosseltern' }], messages: [] };
+b.setup.draft = { 'general|dumps_share': 'Backups', 'share|Backups|mode': 'snapshot', 'kopia|enabled': 'yes' };
+out.draftLocal = b.placeOffsite(some);
+b.setup.draft['share|Backups|mode'] = 'kopia';
+out.draftKopia = b.placeOffsite(some);
+b.setup.draft['kopia|enabled'] = 'no';
+out.draftKopiaOff = b.placeOffsite(some);
+b.setup.draft['share|Backups|mode'] = 'snapshot';
+b.setup.draft['general|partner_place'] = ['a1b2c3d4'];
+out.draftPartner = b.placeOffsite(some);
+out.draftPartnerNotOk = b.placeOffsite({ ...some, partner_ok: false });
+// the setup's messages: the engine's two place words give way to the verdict, where the first stood
+delete b.setup.draft['general|partner_place'];
+out.notes = b.placeNotes([{ level: 'ok', step: 'general', code: 'backup_place', items: [] }, { level: 'warn', step: 'general', code: 'place_not_kopia', items: [] },
+  { level: 'warn', step: 'general', code: 'place_no_history', items: [] }, { level: 'hint', step: 'kopia', code: 'kopia_config', items: [] }])
+  .map((g) => [g.level, g.code, g.items.map((i) => i.text).join('')]);
+out.notesNone = b.placeNotes([{ level: 'ok', code: 'x', items: [] }]).length;
+console.log(JSON.stringify(out));
+JS;
+    file_put_contents("$tmp/t.js", $js);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' 2>&1');
+    hardeningRm($tmp);
+    $r = json_decode($raw, true);
+    if (!is_array($r)) {
+        check('place verdict: page ran under node', false, $raw);
+        return;
+    }
+    $reasons = 'setup.place_why.same_pool(cache), setup.place_why.no_redundancy(cache)';
+    same('place verdict: off-site, reasons - one grey line «just so you know», the reasons named (Kopia, a partner)',
+        [[['warn' => false, 'text' => "setup.place_info_kopia setup.place_info_reasons($reasons)"]],
+         [['warn' => false, 'text' => "setup.place_info_partner(Grosseltern) setup.place_info_reasons($reasons)"]]], [$r['offsiteSome'], $r['partnerSome']]);
+    same('place verdict: off-site, no reasons - nothing to say', [], $r['offsiteNone']);
+    same('place verdict: only local, reasons - ONE yellow line: the reasons, the worst risk (the same pool), what helps',
+        [['warn' => true, 'text' => "setup.place_only_here($reasons) setup.place_risk.same_pool setup.place_help"]], $r['localSome']);
+    same('place verdict: only local, no reasons - a short yellow «only local»', [['warn' => true, 'text' => 'setup.place_local_only']], $r['localNone']);
+    same('place verdict: a secondary storage stays a warning, off-site or not; the array without parity and a live share in words',
+        [[['warn' => true, 'text' => 'setup.place_only_here(setup.place_why.no_history(disk1)) setup.place_help'], ['warn' => true, 'text' => 'setup.place_secondary(setup.place_array)']],
+         [['warn' => false, 'text' => 'setup.place_info_kopia setup.place_info_reasons(setup.place_why.no_history(disk1))'], ['warn' => true, 'text' => 'setup.place_secondary(setup.place_array)']],
+         [['warn' => true, 'text' => 'setup.place_only_here(setup.place_why.no_parity) setup.place_risk.no_redundancy setup.place_help']],
+         [['warn' => true, 'text' => 'setup.place_only_here(setup.place_why.no_snapshots) setup.place_help']], []],
+        [$r['secLocal'], $r['secOffsite'], $r['array'], $r['live'], $r['nothing']]);
+    same('place verdict: it follows the draft - local; the share at «local + offsite» with Kopia on; Kopia off; a partner for the place (only a share that can travel)',
+        [null, 'kopia', null, ['partner' => 'Grosseltern'], null], [$r['draftLocal'], $r['draftKopia'], $r['draftKopiaOff'], $r['draftPartner'], $r['draftPartnerNotOk']]);
+    same('place verdict: the setup\'s messages - the engine\'s two place words give way to the verdict, where the first stood; without them nothing changes',
+        [[['ok', 'backup_place', ''], ['warn', 'place_verdict', "setup.place_only_here($reasons) setup.place_risk.same_pool setup.place_help"], ['hint', 'kopia_config', '']], 1],
+        [$r['notes'], $r['notesNone']]);
+    $desk = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('place verdict: on the place card (yellow or grey, never red), in the apply dialog, in the messages and their count, after an apply',
+        str_contains($desk, "l.warn ? 'bk-place-warn' : 'bk-place-info', l.text") && str_contains($desk, "placeLines(placeRow()).forEach((l) => box.appendChild(el('p', l.warn ? 'callout warn' : 'role', l.text)));")
+        && str_contains($desk, 'setupMessages(placeNotes(setupNotes(plan)))') && str_contains($desk, 'placeNotes(setupNotes(plan)).forEach') && str_contains($desk, 'placeNotes(setupNotes(run))'));
+    check('place verdict: only in the setup - no finding of it', !preg_match("/finding\\('place_/", (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php')));
+}
+
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testSetupSearch', 'testBackupPlaceVerdict',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

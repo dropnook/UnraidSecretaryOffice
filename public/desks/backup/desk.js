@@ -1159,6 +1159,8 @@ function protection() {
   box.id = PROT_ID;
   protShown = [];
   if (!shares.length) { box.appendChild(el('p', 'empty', T('no_shares'))); return box; }
+  const gone = goneCallout();
+  if (gone) box.appendChild(gone);
 
   const bar = protFilterBar();
   box.appendChild(bar.el);
@@ -1303,6 +1305,7 @@ function protection() {
       tr.appendChild(name);
       const st = el('td');
       st.appendChild(pkChip(a));
+      if (goneOf('app', a.folder)) st.append(' ', chip(T('pk.gone'), 'warn', T('pk.gone_hint.app', { name: a.name })));
       if (a.files.some((f) => f.what === 'dump' && f.run && f.run !== a.run)) st.append(' ', chip(T('pk.kept'), 'warn', T('pk.kept_hint')));
       if (a.files.some((f) => f.what === 'sqlite' && f.run && f.run !== a.run)) st.append(' ', chip(T('pk.sq_kept'), 'warn', T('pk.sq_kept_hint')));
       const ai = kopiaOn ? itemOf('app', a.name) : null;
@@ -1362,6 +1365,54 @@ function placeLevel(kopiaOn) {
 }
 
 const vmPackage = (name) => { const pk = packages(); return pk ? pk.vms.find((x) => x.name === name) || null : null; };
+
+/** A package whose app or VM is gone (the agent's packages_gone, agent/desks/backup-gone.php) - or null */
+const goneOf = (kind, folder) => ((state && state.packages_gone) || []).find((g) => g.kind === kind && g.folder === folder) || null;
+
+/**
+ * The packages whose app or VM no longer exists (2026-10-17: Mr. Restori's drill said «image missing» for them on every
+ * run): a line each with «Into the storeroom» - Ms. Dustdevil's, put back or emptied there, never deleted at once
+ */
+function goneCallout() {
+  const gone = (state && state.packages_gone) || [];
+  if (!gone.length) return null;
+  const box = el('div', 'callout bk-gone');
+  box.appendChild(el('p', '', T('pk.gone_intro', { n: gone.length })));
+  const ul = el('ul', 'shortlist');
+  gone.forEach((g) => {
+    const li = el('li', '', T('pk.gone_line.' + g.kind, { name: g.name }));
+    const b = button(T('pk.gone_aside'), 'small', () => packageAside(g));
+    b.title = T('pk.gone_aside_tip');
+    b.disabled = !Office.agent.running || !!state.running;
+    li.appendChild(b);
+    ul.appendChild(li);
+  });
+  box.appendChild(ul);
+  return box;
+}
+
+/** «Into the storeroom»: on a fresh look, the package looked up again; a dialog says where it goes and how it comes back */
+async function packageAside(g0) {
+  if (!(await Office.freshState(ID))) return;
+  const g = goneOf(g0.kind, g0.folder);
+  if (!g) { Office.toast(Office.errorText({ key: 'package_aside_gone', params: { name: g0.name } }, ID), true); render(); return; }
+  const box = el('div');
+  box.appendChild(el('p', '', T('pk.gone_text.' + g.kind, { name: g.name })));
+  box.appendChild(el('p')).appendChild(copyCode(g.path));
+  box.appendChild(el('p', 'role', T('pk.gone_back')));
+  Office.dialog({
+    title: T('pk.gone_title', { name: g.name }),
+    body: box,
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('pk.gone_aside'), act: async () => {
+      const j = await Office.api.post(`${ID}.package_aside`, { kind: g.kind, folder: g.folder });
+      if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return false; }
+      if (j.state) state = j.state;
+      Office.toast(T('pk.gone_done', { name: g.name }));
+      render();
+      return true;
+    } }],
+  });
+}
 
 /** A package's state: written by the last run (ok / with warnings / with errors), or stale (an earlier run's) */
 function pkChip(p) {
@@ -2347,6 +2398,7 @@ async function setupLoad() {
   if (j.plan && (!setup.plan || j.plan.time !== setup.plan.time)) {
     setup.plan = j.plan;
     setupDraftKeep();
+    Office.placesTook(ID, j.plan, 'setup');     // its rows for the office's search (setupItems()) - the plan as it came
   }
   const finishedForget = was && was.running && was.mode === 'forget' && !j.status.running;
   if (finishedForget) {
@@ -2468,13 +2520,15 @@ function setupApply() {
       const touched = new Set(setupEdits());
       [...changes].sort((a, b) => general(a) - general(b)).slice(0, 80).forEach((k) => {
         const li = el('li', '', changeLabel(k));
+        if (unknownKey(k)) li.title = T('setup.key_unknown_tip');
         const what = el('span');
         what.append(...[].concat(/\|kopia_known$/.test(k) ? knownText(saved[k], view[k])
           : Array.isArray(saved[k]) && Array.isArray(view[k]) ? listChangeText(saved[k], view[k])
           : `${valueText(saved[k], k)} → ${valueText(view[k], k)}`));
         li.appendChild(what);
         // a proposal of mine (the user didn't touch it): said so, and it can stay out of this Apply
-        if (!touched.has(k) && !/\|kopia_known$/.test(k)) {
+        // (a line the setup doesn't know is no proposal: declined or not, Apply can't keep it)
+        if (!touched.has(k) && !/\|kopia_known$/.test(k) && !unknownKey(k)) {
           what.appendChild(document.createTextNode(' '));
           what.appendChild(chip(T('setup.proposal'), 'quiet', T('setup.proposal_tip')));
           const no = el('button', 'btn small plain', T('setup.decline'));
@@ -2540,6 +2594,8 @@ function setupApply() {
     box.appendChild(ul);
     partnerShareLines().forEach((t) => box.appendChild(el('p', 'role', t)));     // engine 2.45: what a share carries along
   }
+  // the backup place in one word (placeVerdict()): yellow while its packages stay only here, grey when a copy goes off-site
+  placeLines(placeRow()).forEach((l) => box.appendChild(el('p', l.warn ? 'callout warn' : 'role', l.text)));
   box.appendChild(el('p', 'role', T(!setup.plan.have_settings ? 'setup.apply_hint_new' : 'setup.apply_hint')));
   box.appendChild(el('p', 'role', T('setup.apply_responsibility')));
   Office.dialog({
@@ -2620,16 +2676,23 @@ function setupNewRows() {
   return out;
 }
 
+/** A settings.ini line the setup doesn't know (written by hand, e.g. `note = …` in a share's section): it is in the saved
+ *  settings but in no plan - setup.sh's settings_render() writes only what it knows, so Apply drops it (2026-10-17) */
+const unknownKey = (k) => !!setup.plan && k in (setup.plan.O || {}) && !(k in (setup.plan.P || {})) && !goneAppKey(k, setup.plan);
+
 function changeLabel(k) {
   const p = k.split('|');
+  // the word for a key; one unknown to the setup said so, a known one without a word of its own by its settings.ini name
+  const word = (w, key = p[2]) => (Office.has(`${ID}.${w}`) ? T(w) : unknownKey(k) ? T('setup.key_unknown', { key }) : key);
   if (p[0] === 'partner') return T('partner.ch_section', { name: partnerName(p[1], setup.plan) || p[1], key: p[2] });
-  if (p[0] === 'share') return T('setup.ch_share', { share: p[1], key: T('setup.key.' + p[2]) });
-  if (p[0] === 'app') return T('setup.ch_app', { name: p[1], key: Office.has(`${ID}.setup.key.item_${p[2]}`) ? T('setup.key.item_' + p[2]) : p[2] });
+  if (p[0] === 'share') return T('setup.ch_share', { share: p[1], key: word('setup.key.' + p[2]) });
+  if (p[0] === 'app') return T('setup.ch_app', { name: p[1], key: word('setup.key.item_' + p[2]) });
   if (p[0] === 'vm' && Office.has(`${ID}.setup.key.item_${p[2]}`)) return T('setup.ch_vm', { name: p[1], key: T('setup.key.item_' + p[2]) });
-  if (p[0] === 'dump') return T('setup.ch_dump', { name: p[1] });
-  if (p[0] === 'nextcloud') return T('setup.ch_nextcloud', { name: p[1] });
-  if (p[0] === 'vm') return T('setup.ch_vm', { name: p[1], key: Office.has(`${ID}.setup.key.vm_${p[2]}`) ? T('setup.key.vm_' + p[2]) : p[2] });
-  return Office.has(`${ID}.setup.key.${p.join('_')}`) ? T('setup.key.' + p.join('_')) : k;
+  if (p[0] === 'dump' && !unknownKey(k)) return T('setup.ch_dump', { name: p[1] });
+  if (p[0] === 'nextcloud' && !unknownKey(k)) return T('setup.ch_nextcloud', { name: p[1] });
+  if (p[0] === 'vm') return T('setup.ch_vm', { name: p[1], key: word('setup.key.vm_' + p[2]) });
+  if (Office.has(`${ID}.setup.key.${p.join('_')}`)) return T('setup.key.' + p.join('_'));
+  return T('setup.ch_section', { section: p.slice(0, -1).join(' '), key: unknownKey(k) ? T('setup.key_unknown', { key: p[p.length - 1] }) : p[p.length - 1] });
 }
 function valueText(v, k = '') {
   if (v === undefined || v === null) return '–';
@@ -3647,7 +3710,7 @@ function setupTileNode(d, a) {
 function setupStep(id, plan, ids) {
   const shown = setupSw && setupSw.active() ? [setupSw.active()] : ids;
   if (id === shown[0]) fitStart();
-  const s = id === 'messages' ? setupMessages(setupNotes(plan)) : fitStep(() => setupStepNode(id, plan));
+  const s = id === 'messages' ? setupMessages(placeNotes(setupNotes(plan))) : fitStep(() => setupStepNode(id, plan));
   if (id === shown[shown.length - 1]) setupFilterDone();
   return s;
 }
@@ -3736,7 +3799,7 @@ function setupTileData(plan) {
   if (old.length) out.push({ id: 'sources', key: 'setup.sources', value: String(old.length), sub: [T('setup.tile.sources_sub')], alert: false, fresh: 0 });
   // what the setup checked: its messages, errors and warnings
   const counts = { all: 0, error: 0, warn: 0 };
-  setupNotes(plan).forEach((g) => {
+  placeNotes(setupNotes(plan)).forEach((g) => {
     const n = (g.items || []).length;
     counts.all += n;
     if (counts[g.level] !== undefined) counts[g.level] += n;
@@ -3756,7 +3819,7 @@ function appliedCard(run) {
     b.disabled = !Office.agent.running;
     box.append(' ', T('schedule.after_setup'), ' ', b);
   }
-  const bad = setupNotes(run).filter((g) => g.level === 'error' || g.level === 'warn');
+  const bad = placeNotes(setupNotes(run)).filter((g) => g.level === 'error' || g.level === 'warn');
   if (bad.length) {
     const ul = el('ul', 'bk-msgs');
     bad.forEach((g) => setupNoteItems(g, false).forEach((li) => ul.appendChild(li)));
@@ -4416,7 +4479,10 @@ function setupModel(plan) {
       ...a, members, folders, deps: [...deps.values()], isNew: fresh, newMembers,
       dbs: plan.databases.filter((d) => members.includes(d.container)),
       ncs: plan.nextcloud.filter((n) => n.members.some((m) => members.includes(m))),
-      volumes: a.members.flatMap((c) => c.volumes.map((v) => (a.stack ? `${c.name}: ${v}` : v))),
+      // a cache that fills itself again apart from real data (the agent's volumes_cache, backupVolumeIsCache(); an older
+      // agent's plan has none: all count as data)
+      volumes: a.members.flatMap((c) => c.volumes.filter((v) => !(c.volumes_cache || []).includes(v)).map((v) => (a.stack ? `${c.name}: ${v}` : v))),
+      volumesCache: a.members.flatMap((c) => c.volumes.filter((v) => (c.volumes_cache || []).includes(v)).map((v) => (a.stack ? `${c.name}: ${v}` : v))),
     };
   }).sort((x, y) => (y.stack - x.stack) || x.name.localeCompare(y.name, undefined, { sensitivity: 'base' }));
   const vms = (plan.vms || []).map((v) => {
@@ -5060,6 +5126,7 @@ function setupApps(plan) {
     });
     if (a.ncs.length) meta.appendChild(chip(T('setup.app_nc'), l > 0 ? 'ok' : '', T('setup.nc_text')));
     if (a.volumes.length) meta.appendChild(chip(T('setup.ct_volumes', { list: a.volumes.join(', ') }), 'danger', T('setup.ct_volumes_hint')));
+    if (a.volumesCache.length) meta.appendChild(chip(T('setup.ct_volumes_cache', { list: a.volumesCache.join(', ') }), '', T('setup.ct_volumes_cache_hint')));
     if (!a.folders.length && !a.deps.length) {
       const flashOff = dget('flash|mode', 'off') === 'off';
       meta.appendChild(chip(T('setup.app_nodata'), flashOff ? 'warn' : '', T(flashOff ? 'setup.app_nodata_noflash' : 'setup.app_nodata_hint')));
@@ -5213,22 +5280,71 @@ const dumpsPath = (share) => (share === OFFICE_SHARE ? `/mnt/user/${share}/backu
 const placeShares = (plan) => plan.shares.map((x) => x.name).filter((n) => !['appdata', 'system', 'domains'].includes(n.toLowerCase()));
 
 /**
- * What speaks against the share chosen as the backup place (the agent's backupPlaceFacts(): same pool as
- * appdata, no snapshots, a secondary storage, no redundancy) - warnings only, the choice stays the user's
+ * Where the backup place's copies go besides this server, as the DRAFT says (ticking «local + offsite» or a partner for its
+ * share changes it at once): 'kopia' (its share to Kopia, Kopia on), a partner's name (general|partner_place, a share
+ * that can travel), or null - only local
  */
-function placeLines(sh) {
+function placeOffsite(sh) {
+  if (!sh || !setup.draft) return null;
+  if (dget('kopia|enabled') === 'yes' && dget(`share|${sh.name}|mode`, 'off') === 'kopia') return 'kopia';
+  const ids = (sh.partner_ok && dget(`share|${sh.name}|mode`, 'off') !== 'off' && dget('general|partner_place', [])) || [];
+  if (!ids.length) return null;
+  const p = setupPartners().find((x) => x.id === ids[0]);
+  return { partner: (p && p.name) || ids[0] };
+}
+
+/**
+ * What speaks against the share chosen as the backup place (the agent's backupPlaceFacts(): same pool as appdata,
+ * no snapshots, a secondary storage, no redundancy) - ONE question decides (owner 2026-10-17): does a copy of the
+ * packages go off-site? Yes - the risks are a grey line «just so you know»; no - one yellow line that adds up the
+ * reasons that apply and what helps (none: a short «only local»). A secondary storage stays a warning either way (the
+ * mover moves the packages - a practical problem). Never red, never blocked: the choice stays the user's.
+ * Pure but for the draft: sh the plan's share row, offsite placeOffsite()'s answer. → [{warn, text}]
+ */
+function placeVerdict(sh, offsite) {
   if (!sh) return [];
-  const place = sh.place || (sh.method === 'live' ? [{ code: 'no_history', where: '' }] : []);
-  const where = (w) => w || T('setup.place_array');
-  return place.map((p) => {
-    // the same pool as appdata: no line under the field (2026-10-10: «nicht sauber durchgedacht» — with Kopia no
-    // risk, without Kopia another pool of the same server is no backup either; a concept is on the parking lot)
-    if (p.code === 'same_pool') return null;
-    if (p.code === 'no_history') return { warn: true, text: p.where ? T('setup.place_no_history', { where: p.where }) : T('setup.ds_no_history') };
-    if (p.code === 'secondary') return { warn: true, text: T('setup.place_secondary', { where: where(p.where) }) };
-    if (p.code === 'no_redundancy') return { warn: false, text: T('setup.place_no_redundancy', { where: where(p.where) }) };
-    return null;
-  }).filter(Boolean);
+  const facts = sh.place || (sh.method === 'live' ? [{ code: 'no_history', where: '' }] : []);
+  const out = [];
+  const reasons = [];
+  let risk = '';
+  facts.forEach((p) => {
+    if (p.code === 'secondary') out.push({ warn: true, text: T('setup.place_secondary', { where: p.where || T('setup.place_array') }) });
+    else if (p.code === 'same_pool') { reasons.push(T('setup.place_why.same_pool', { where: p.where })); risk = 'same_pool'; }
+    else if (p.code === 'no_redundancy') {
+      reasons.push(p.where ? T('setup.place_why.no_redundancy', { where: p.where }) : T('setup.place_why.no_parity'));
+      risk = risk || 'no_redundancy';
+    } else if (p.code === 'no_history') reasons.push(p.where ? T('setup.place_why.no_history', { where: p.where }) : T('setup.place_why.no_snapshots'));
+  });
+  if (offsite) {
+    if (reasons.length) {
+      const head = offsite === 'kopia' ? T('setup.place_info_kopia') : T('setup.place_info_partner', { partner: offsite.partner });
+      out.unshift({ warn: false, text: `${head} ${T('setup.place_info_reasons', { reasons: reasons.join(', ') })}` });
+    }
+  } else if (reasons.length) {
+    out.unshift({ warn: true, text: [T('setup.place_only_here', { reasons: reasons.join(', ') }), risk ? T('setup.place_risk.' + risk) : '', T('setup.place_help')].filter(Boolean).join(' ') });
+  } else {
+    out.unshift({ warn: true, text: T('setup.place_local_only') });
+  }
+  return out;
+}
+/** The chosen backup place's lines as the draft has it now */
+const placeLines = (sh) => placeVerdict(sh, placeOffsite(sh));
+/** The plan's row of the backup place the draft chose (or null) */
+const placeRow = () => (setup.plan && setup.plan.shares.find((x) => x.name === dget('general|dumps_share', ''))) || null;
+
+/**
+ * The engine's two words about the place (place_not_kopia, place_no_history - of the settings saved) give way to the
+ * place's lines as the draft has them (placeVerdict()), at the place of the first: said once, the same as on the card
+ */
+const PLACE_CODES = ['place_not_kopia', 'place_no_history'];
+function placeNotes(notes) {
+  const at = notes.findIndex((g) => PLACE_CODES.includes(g.code));
+  if (at < 0) return notes;
+  const step = notes[at].step;
+  const lines = placeLines(placeRow()).map((l) => ({ level: l.warn ? 'warn' : 'hint', step, code: 'place_verdict', items: [{ text: l.text }] }));
+  const rest = notes.filter((g) => !PLACE_CODES.includes(g.code));
+  rest.splice(Math.min(at, rest.length), 0, ...lines);
+  return rest;
 }
 
 /** Mr. Backupsy's word above the guide while no backup place is chosen: none to choose (a fresh server: only isos), or choose one */
@@ -5284,7 +5400,7 @@ function dumpsShareField(plan) {
   const f = field(T('setup.ds_label'), sel);
   f.appendChild(hint);
   // what speaks against it (another pool than appdata, snapshots, one place, redundancy): said, never blocked
-  placeLines(plan.shares.find((x) => x.name === sel.value)).forEach((l) => f.appendChild(el('small', l.warn ? 'missing' : '', l.text)));
+  placeLines(plan.shares.find((x) => x.name === sel.value)).forEach((l) => f.appendChild(el('small', l.warn ? 'bk-place-warn' : 'bk-place-info', l.text)));
   return f;
 }
 
@@ -6028,10 +6144,29 @@ Office.places(ID, [
     ['setup.forget_short', 'help.forget']].map(([key, text]) => ({ kind: 'help', key, text, ...SETUP })),
 ]);
 
+/**
+ * The setup's rows for the office's search (2026-10-17: «immich», «Mediathek» should find the row to change): every share,
+ * VM and app of the plan the page loaded (setupLoad() hands it in, Office.placesTook(ID, plan, 'setup')) - never a request
+ * of its own, never per keystroke. Each leads to its step's tile and its row (setup:share|vm|app:…), which the search
+ * scrolls to and marks; an app is found by its containers' names too
+ */
+function setupItems(plan) {
+  if (!plan || !Array.isArray(plan.shares)) return [];
+  const m = setup.plan === plan && setup.model ? setup.model : setupModel(plan);
+  const sub = (step) => `${T('setup.page')} · ${T(step).replace(/^\d+\s*·\s*/, '')}`;     // the step's name without its number («2 · »)
+  const route = (step) => setupRoute(STEP_TILE[step]);
+  return [
+    ...plan.shares.filter((x) => x.exists).map((x) => ({ text: x.name, sub: sub('setup.shares'), anchor: `setup:share:${x.name}`, route: route('setup.shares') })),
+    ...m.vms.map((v) => ({ text: v.name, sub: sub('setup.vms'), anchor: `setup:vm:${v.name}`, route: route('setup.vms') })),
+    ...m.apps.map((a) => ({ text: a.name, sub: sub('setup.apps'), anchor: `setup:app:${a.id}`, route: route('setup.apps'), words: a.members.join(' ') })),
+  ];
+}
+
 // what his state holds for the search (core.js «items»): the main page's rows — every share, VM and app with how it is
-// protected (its row's «Change…» leads into the setup), the runs his history shows, the partner offices he sends to.
-// The setup's own rows come from its plan (asked for when the setup opens, not part of his state): not searched here.
-Office.placesFrom(ID, (s) => {
+// protected (its row's «Change…» leads into the setup), the runs his history shows, the partner offices he sends to;
+// the setup's own rows from its plan as the page loaded it (part «setup», setupItems())
+Office.placesFrom(ID, (s, part) => {
+  if (part === 'setup') return setupItems(s);
   const out = [];
   if (!s.found) return out;
   const kopiaOn = !!(s.settings && s.settings.kopia_enabled);
@@ -6062,13 +6197,13 @@ if (globalThis.OFFICE_DESK_TESTS) {
     overviewTiles, tileNode, tileList, protRows, protView, protTileCounts, historyRows, PROT_TILES, PROT_ID, TILES,
     setState: (s) => { state = s; },
     setupDraftFromPlan, setupNewLines, setupNewRows, setupChanges, setupSaved, waitingFolders, waitChoice, waitSet, levelOf, waitingText, appSharesText,
-    placeLines, placeIntro, setupDraftKeep, setupDerive, dset, setupEdits,
+    placeLines, placeVerdict, placeOffsite, placeNotes, placeIntro, setupDraftKeep, setupDerive, dset, setupEdits,
     PRESETS, presetChoose, presetForget, presetKeep, presetChanged, presetKopiaState, firstUpload, presetKeptList, presetStartText,
     presetCardsOf, presetCardOf, presetApply, presetPartners, levelPick, modeSelect, placeLevelPick, partnerListOf, partnerListSet, setupMigrated, LEVEL_FIELDS,
     partnerNowText, partnerRateOf, runModeOf, progress, partnerUnits, partnerSectionRows, partnerApplyLines, setupChangeItems, listChangeText, knownText, diffMark, whyFold, folderOf, ownDataset, setupMakeDataset, appPartner, partnerShareLines, appDepGaps, depCovered, depTicked, depClick, setupInitLevels, setupDeclinedApply, declinedList, ownFoldersOf, setupModel, partnerApplyText, setupDecline, setupApplyChanges, minuteTaken, bubbleText, deskActions,
     presetKopiaMode, presetKopiaVm, draftMode, draftVm, setupNewItems, presetApplyNew, presetNow, presetChosen, presetNewMode, presetNewVm,
     letGoPart, letGoLines, letGoDoneLines, letGoResult, setLetGoClock: (c) => { letGoClock = c; }, setupUnfold, UNFOLD_OWN, setupDecisions, setupApplyChanges, changeLabel, valueText, setupSplit, setupDecline,
-    warnLines, bubbleText, setupBarSpec, setupNoPlace, setupPlaceStart, bubblePlace,
+    warnLines, bubbleText, setupBarSpec, setupNoPlace, setupPlaceStart, bubblePlace, setupItems,
   };
 }
 })();

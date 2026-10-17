@@ -191,7 +191,8 @@ async function shootPage(browser, harness, route, theme, lang, width) {
 }
 
 // ------------------------------------------------------------------ the moments (--moments)
-const MOMENTS_FILE = path.join(REPO, 'tests', 'ui', 'demo', 'moments.json');
+// USO_MOMENTS=<file>: moments of one's own (a change's pictures for its report), in the same shape
+const MOMENTS_FILE = process.env.USO_MOMENTS ? path.resolve(process.env.USO_MOMENTS) : path.join(REPO, 'tests', 'ui', 'demo', 'moments.json');
 const MOMENT_WIDTH = 1280;
 // a moment's themes: those of --themes, else its own (black); the theme is in the name only when --themes was given
 const momentThemes = (m) => (opt.themesGiven ? opt.themes : [m.theme || 'black']);
