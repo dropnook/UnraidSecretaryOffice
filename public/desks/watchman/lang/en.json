@@ -538,6 +538,7 @@
   "src.line_gone": "{what} — deleted since: {size}",
   "src.line_new_gone": "{what} — new, deleted since: {size}",
   "src.guess": "No single source visible. Likely: {list} — a guess from the setup, not measured.",
+  "src.guess_short": "No single source visible. Likely: {list} (a guess).",
   "src.guess_more": {"one": "{list} and {n} more", "other": "{list} and {n} more"},
   "src.guess_ct": "container {name} ({how})",
   "src.guess_vm": "VM {name} ({how})",

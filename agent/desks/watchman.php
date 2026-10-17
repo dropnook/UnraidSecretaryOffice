@@ -4991,6 +4991,7 @@ const WATCH_DOCKER_LAYER  = '/^([0-9a-f]{64})(-init)?$/D';      // Docker on ZFS
 const WATCH_FLOW_BY       = 40;                 // sources of a share's pull kept (the smallest go into «the rest»)
 const WATCH_FLOW_SOURCES  = 5;                  // sources an entry names, then «the rest»
 const WATCH_FLOW_GUESS    = 3;                  // likely writers named where no source can be seen, then «and {n} more»
+const WATCH_FLOW_GUESS_SHORT = 2;              // … of them in the entry's line and the notification (names only)
 const WATCH_FLOW_GUESS_PATHS = 40;              // paths under /mnt kept per container, VM or stack for the guess
 const WATCH_FLOW_GUESS_VMS = 100;               // VMs (and Compose stacks) looked at for the guess
 const WATCH_FLOW_GUESS_AGAIN = 600;             // VMs and stacks for the guess looked at again after this long
@@ -6074,16 +6075,22 @@ function watchmanFlowGuessSetup(array $paths): array
 
 /**
  * The guess in words (src.guess): «No single source visible. Likely: container EmbyServer (maps /mnt/user/Media), … — a
- * guess from the setup, not measured.» — at most WATCH_FLOW_GUESS named, «and {n} more»; null without one. The page has
- * the same (desk.js guessText()).
+ * guess from the setup, not measured.» — at most WATCH_FLOW_GUESS named, «and {n} more»; null without one. $short: the
+ * entry's line and the notification (src.guess_short) — «Likely: EmbyServer, Win11 and 2 more (a guess).», names only.
+ * The page has the same (desk.js srcNone()); the full words only in its detail row.
  */
-function watchmanFlowGuessText(array $x, string $share, string $lang): ?string
+function watchmanFlowGuessText(array $x, string $share, string $lang, bool $short = false): ?string
 {
     $guess = array_values(array_filter((array) ($x['guess'] ?? []), 'is_array'));
     if (!$guess) {
         return null;
     }
     $t = fn (string $k, array $p = []) => officeNotifyText('watchman', $k, $p, $lang);
+    if ($short) {           // the entry's line and the notification: names only, two of them
+        $list = implode(', ', array_map(fn ($g) => (string) ($g['name'] ?? ''), array_slice($guess, 0, WATCH_FLOW_GUESS_SHORT)));
+        $more = count($guess) + (int) ($x['more'] ?? 0) - min(count($guess), WATCH_FLOW_GUESS_SHORT);
+        return $t('src.guess_short', ['list' => $more > 0 ? $t('src.guess_more', ['list' => $list, 'n' => $more]) : $list]);
+    }
     $name = (string) (explode('/', $share, 2)[1] ?? $share);
     $one = function (array $g) use ($t, $name): string {
         $how = [!empty($g['disk']) ? $t('src.guess_disk', ['share' => $name]) : $t('src.guess_maps', ['path' => (string) ($g['path'] ?? '')])];
@@ -6134,7 +6141,7 @@ function watchmanFlowFrom(array $p, ?string $lang): string
         return '';
     }
     if ($top['t'] === 'none') {
-        return ' ' . (watchmanFlowGuessText($top, (string) ($p['share'] ?? ''), $lang)
+        return ' ' . (watchmanFlowGuessText($top, (string) ($p['share'] ?? ''), $lang, true)
             ?? officeNotifyText('watchman', 'src.none', ['share' => (string) ($p['share'] ?? '')], $lang));
     }
     return ' ' . officeNotifyText('watchman', 'src.most', ['what' => watchmanFlowSourceWhat($top, $lang), 'size' => watchmanSize((int) ($top['b'] ?? 0), $lang)], $lang);

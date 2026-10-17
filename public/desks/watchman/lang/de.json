@@ -538,6 +538,7 @@
   "src.line_gone": "{what} — inzwischen gelöscht: {size}",
   "src.line_new_gone": "{what} — neu, inzwischen gelöscht: {size}",
   "src.guess": "Keine einzelne Quelle sichtbar. Wahrscheinlich: {list} — Vermutung aus der Einrichtung, nicht gemessen.",
+  "src.guess_short": "Keine einzelne Quelle sichtbar. Wahrscheinlich: {list} (Vermutung).",
   "src.guess_more": {"one": "{list} und noch {n}", "other": "{list} und noch {n}"},
   "src.guess_ct": "Container {name} ({how})",
   "src.guess_vm": "VM {name} ({how})",

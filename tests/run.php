@@ -14907,16 +14907,19 @@ function testWatchmanFlowGuess(): void
     $p = ['share' => 'maple/Media', 'src' => [['t' => 'none', 'b' => 1, 'guess' => [['t' => 'ct', 'name' => 'EmbyServer', 'path' => '/mnt/user/Media'],
         ['t' => 'vm', 'name' => 'Win11', 'path' => '/mnt/user/Media/vm/w.img', 'disk' => true],
         ['t' => 'stack', 'name' => 'tools', 'path' => '/mnt/maple/Media/x', 'ro' => true, 'off' => true]], 'more' => 2]]];
-    same('flow guess: in words — the same as the page\'s (tests/watchbook.js)',
-        ' No single source visible. Likely: container EmbyServer (maps /mnt/user/Media), VM Win11 (a disk in Media), Compose stack tools'
-        . ' (maps /mnt/maple/Media/x, read-only, not running) and 2 more — a guess from the setup, not measured.', watchmanFlowFrom($p, 'en'));
+    same('flow guess: in full words (the page\'s detail row, tests/watchbook.js) — kind, path, read-only, not running, three named',
+        'No single source visible. Likely: container EmbyServer (maps /mnt/user/Media), VM Win11 (a disk in Media), Compose stack tools'
+        . ' (maps /mnt/maple/Media/x, read-only, not running) and 2 more — a guess from the setup, not measured.', watchmanFlowGuessText($p['src'][0], 'maple/Media', 'en'));
+    same('flow guess: the entry\'s line (and the notification) — names only, two of them, the rest counted (the page\'s the same)',
+        ' No single source visible. Likely: EmbyServer, Win11 and 3 more (a guess).', watchmanFlowFrom($p, 'en'));
     $p['src'][0]['more'] = 0;
     array_splice($p['src'][0]['guess'], 2);
-    same('flow guess: in words (German), two named', ' Keine einzelne Quelle sichtbar. Wahrscheinlich: Container EmbyServer (mappt /mnt/user/Media), VM Win11 (Disk in Media)'
-        . ' — Vermutung aus der Einrichtung, nicht gemessen.', watchmanFlowFrom($p, 'de'));
+    same('flow guess: in words (German), two named — the line, the full words', [' Keine einzelne Quelle sichtbar. Wahrscheinlich: EmbyServer, Win11 (Vermutung).',
+        'Keine einzelne Quelle sichtbar. Wahrscheinlich: Container EmbyServer (mappt /mnt/user/Media), VM Win11 (Disk in Media) — Vermutung aus der Einrichtung, nicht gemessen.'],
+        [watchmanFlowFrom($p, 'de'), watchmanFlowGuessText($p['src'][0], 'maple/Media', 'de')]);
     $e = watchmanEntry('flow_written', 'flow_written:maple/Media', time(), $p + ['bytes' => 30 * 1024 ** 3, 'minutes' => 5, 'pct' => 30, 'learning' => true]);
     check('flow guess: the entry\'s line carries it (the notification\'s too)', str_ends_with(officeNotifyText('watchman', 'entry.flow_written', watchmanText($e, 'fr'), 'fr'),
-        "Probablement : conteneur EmbyServer (monte /mnt/user/Media), VM Win11 (un disque dans Media) — une supposition d'après la configuration, pas une mesure."),
+        "Aucune source distincte visible. Probablement : EmbyServer, Win11 (une supposition)."),
         officeNotifyText('watchman', 'entry.flow_written', watchmanText($e, 'fr'), 'fr'));
     same('flow guess: the round\'s look keeps the containers\' binds out of seen.json, like their pids', true,
         str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/watchman.php'), "'compose' => true, 'binds' => true]"));

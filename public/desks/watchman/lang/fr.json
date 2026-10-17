@@ -538,6 +538,7 @@
   "src.line_gone": "{what} — supprimé depuis : {size}",
   "src.line_new_gone": "{what} — nouveau, supprimé depuis : {size}",
   "src.guess": "Aucune source distincte visible. Probablement : {list} — une supposition d'après la configuration, pas une mesure.",
+  "src.guess_short": "Aucune source distincte visible. Probablement : {list} (une supposition).",
   "src.guess_more": {"one": "{list} et {n} autre", "other": "{list} et {n} autres"},
   "src.guess_ct": "conteneur {name} ({how})",
   "src.guess_vm": "VM {name} ({how})",

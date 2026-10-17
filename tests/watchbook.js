@@ -206,13 +206,18 @@ same('500: filtering by words < 100 ms', Number(process.hrtime.bigint() - t1) / 
 dict = JSON.parse(fs.readFileSync(path.join(path.dirname(file), 'lang/en.json'), 'utf8'));
 const none = (x) => W.srcFrom({ share: 'maple/Media', src: [{ t: 'none', b: 1, ...x }] });
 same('src line: no guess — none visible, as before', none({}), ' No single source visible — maple/Media is one dataset.');
-same('src line: a running container, a VM\'s disk, a stopped read-only stack, two more (the agent\'s words, testWatchmanFlowGuess)',
-  none({ guess: [{ t: 'ct', name: 'EmbyServer', path: '/mnt/user/Media' }, { t: 'vm', name: 'Win11', path: '/mnt/user/Media/vm/w.img', disk: true },
-    { t: 'stack', name: 'tools', path: '/mnt/maple/Media/x', ro: true, off: true }], more: 2 }),
-  ' No single source visible. Likely: container EmbyServer (maps /mnt/user/Media), VM Win11 (a disk in Media), Compose stack tools'
+const guess = { guess: [{ t: 'ct', name: 'EmbyServer', path: '/mnt/user/Media' }, { t: 'vm', name: 'Win11', path: '/mnt/user/Media/vm/w.img', disk: true },
+  { t: 'stack', name: 'tools', path: '/mnt/maple/Media/x', ro: true, off: true }], more: 2 };
+same('src line: the entry\'s line — names only, two of them, the rest counted (the agent\'s words, testWatchmanFlowGuess)', none(guess),
+  ' No single source visible. Likely: EmbyServer, Win11 and 3 more (a guess).');
+same('src line: the detail row — a running container, a VM\'s disk, a stopped read-only stack, two more, in full',
+  W.srcNone({ t: 'none', b: 1, ...guess }, 'maple/Media'),
+  'No single source visible. Likely: container EmbyServer (maps /mnt/user/Media), VM Win11 (a disk in Media), Compose stack tools'
   + ' (maps /mnt/maple/Media/x, read-only, not running) and 2 more — a guess from the setup, not measured.');
-same('src line: one read-only container', none({ guess: [{ t: 'ct', name: 'plex', path: '/mnt/user/Media/Movies', ro: true }] }),
-  ' No single source visible. Likely: container plex (maps /mnt/user/Media/Movies, read-only) — a guess from the setup, not measured.');
+same('src line: one read-only container — the line, the detail row', [none({ guess: [{ t: 'ct', name: 'plex', path: '/mnt/user/Media/Movies', ro: true }] }),
+  W.srcNone({ t: 'none', guess: [{ t: 'ct', name: 'plex', path: '/mnt/user/Media/Movies', ro: true }] }, 'maple/Media')],
+  [' No single source visible. Likely: plex (a guess).',
+    'No single source visible. Likely: container plex (maps /mnt/user/Media/Movies, read-only) — a guess from the setup, not measured.']);
 same('src line: an entry of an older office (no sources) says nothing', W.srcFrom({ share: 'maple/Media' }), '');
 dict = null;
 

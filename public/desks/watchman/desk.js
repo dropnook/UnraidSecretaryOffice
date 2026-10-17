@@ -1050,11 +1050,17 @@ function srcLine(x) {
 
 /**
  * Where no source can be seen (a share of one dataset): who likely wrote it, from the setup (agent: watchmanFlowGuess(),
- * watchmanFlowGuessText()) — at most three named, «and {n} more»; without a guess that none can be seen
+ * watchmanFlowGuessText()) — at most three named, «and {n} more»; without a guess that none can be seen. short: the
+ * entry's line — names only, two of them; the full words in its detail row
  */
-function srcNone(x, share) {
+function srcNone(x, share, short) {
   const guess = (Array.isArray(x.guess) ? x.guess : []).filter((g) => g && typeof g === 'object');
   if (!guess.length) return T('src.none', { share: share || '' });
+  if (short) {
+    const names = guess.slice(0, 2).map((g) => String(g.name || '')).join(', ');
+    const rest = guess.length + (Number(x.more) || 0) - Math.min(guess.length, 2);
+    return T('src.guess_short', { list: rest > 0 ? T('src.guess_more', { list: names, n: rest }) : names });
+  }
   const name = String(share || '').split('/').slice(1).join('/') || String(share || '');
   const one = (g) => {
     const how = [g.disk ? T('src.guess_disk', { share: name }) : T('src.guess_maps', { path: String(g.path || '') })];
@@ -1071,7 +1077,7 @@ function srcNone(x, share) {
 function srcFrom(p) {
   const top = Array.isArray(p.src) ? p.src[0] : null;
   if (!top || top.t === 'rest') return '';
-  return ' ' + (top.t === 'none' ? srcNone(top, p.share) : T('src.most', { what: srcWhat(top), size: fmt.size(top.b || 0) }));
+  return ' ' + (top.t === 'none' ? srcNone(top, p.share, true) : T('src.most', { what: srcWhat(top), size: fmt.size(top.b || 0) }));
 }
 
 /**
@@ -1988,6 +1994,6 @@ Office.placesFrom(ID, (s) => {
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.watchman = { setState: (s) => { state = s; }, bookView, entryArea, foldKind, plainWords, entryHay, foldName,
-    groupFit, fitTally, groupOpen, watchSection, srcFrom };
+    groupFit, fitTally, groupOpen, watchSection, srcFrom, srcNone };
 }
 })();

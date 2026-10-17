@@ -538,6 +538,7 @@
   "src.line_gone": "{what} — eliminato nel frattempo: {size}",
   "src.line_new_gone": "{what} — nuovo, eliminato nel frattempo: {size}",
   "src.guess": "Nessuna fonte singola visibile. Probabilmente: {list} — un'ipotesi dalla configurazione, non misurata.",
+  "src.guess_short": "Nessuna fonte singola visibile. Probabilmente: {list} (un'ipotesi).",
   "src.guess_more": {"one": "{list} e {n} altro", "other": "{list} e altri {n}"},
   "src.guess_ct": "container {name} ({how})",
   "src.guess_vm": "VM {name} ({how})",

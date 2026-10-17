@@ -538,6 +538,7 @@
   "src.line_gone": "{what} — borrado desde entonces: {size}",
   "src.line_new_gone": "{what} — nuevo, borrado desde entonces: {size}",
   "src.guess": "No se ve ninguna fuente concreta. Probablemente: {list} — una suposición a partir de la configuración, no medida.",
+  "src.guess_short": "No se ve ninguna fuente concreta. Probablemente: {list} (una suposición).",
   "src.guess_more": {"one": "{list} y {n} más", "other": "{list} y {n} más"},
   "src.guess_ct": "contenedor {name} ({how})",
   "src.guess_vm": "VM {name} ({how})",
