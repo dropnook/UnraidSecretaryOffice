@@ -40257,9 +40257,76 @@ function testFirstHome(): void
     hardeningRm($tmp);
 }
 
+/**
+ * A settings.ini line the setup doesn't know (2026-10-17: `note = …` written by hand into a share's section showed as the raw
+ * key «backup.setup.key.note» in the apply dialog). setup.sh's settings_render() writes only the keys it knows, so Apply drops
+ * the line - every branch of changeLabel() says so in words, never a raw key; no «proposal»/«leave out» for it
+ */
+function testSetupUnknownKey(): void
+{
+    $setup = (string) file_get_contents(OFFICE_DIR . '/backup/setup.sh');
+    $render = substr($setup, (int) strpos($setup, 'settings_render() {'), 20000);
+    check('unknown key: settings_render() writes known keys only (no pass-through of what settings.ini had) - «goes» is true',
+        str_contains($render, 'w_kv mode "$(pget "share|$s|mode")"') && !preg_match('/\$\{!OLD\[@\]\}|\$\{OLD\[/', substr($render, 0, (int) strpos($render, "\n}\n"))));
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('unknown key: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('setup-unknown-key');
+    $general = ['general|dumps_share' => 'UnraidSecretaryOffice', 'kopia|enabled' => 'no', 'share|Mediathek|mode' => 'snapshot', 'share|UnraidSecretaryOffice|mode' => 'snapshot'];
+    file_put_contents("$tmp/plan.json", json_encode(['time' => 1000, 'have_settings' => true,
+        'P' => $general + ['docker|no_stop' => [], 'docker|skip' => [], 'docker|known' => []],
+        'O' => $general + ['share|Mediathek|note' => 'from hand', 'general|note' => 'x', 'kopia|colour' => 'blue', 'share|Mediathek|mode' => 'snapshot'],
+        'shares' => [['name' => 'Mediathek', 'exists' => true, 'folders' => [], 'waiting' => []], ['name' => 'UnraidSecretaryOffice', 'exists' => true, 'folders' => [], 'waiting' => []]],
+        'containers' => [], 'vms' => [], 'databases' => [], 'nextcloud' => [], 'missing_databases' => [], 'bases' => []]));
+    $js = <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const en = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+const T = (k, p) => String(en[k] ?? k).replace(/\{(\w+)\}/g, (m, n) => (p && n in p ? p[n] : m));
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now' }, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {},
+  has: (k) => k.replace(/^backup\./, '') in en };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+b.setup.draft = null; b.setup.base = null; b.setup.plan = JSON.parse(fs.readFileSync(process.argv[4], 'utf8')); b.setupDraftKeep();
+const saved = b.setupSaved();
+const { keys } = b.setupApplyChanges(saved);
+const out = { keys, labels: {} };
+['share|Mediathek|note', 'general|note', 'kopia|colour', 'app|immich|note', 'vm|Win11|note', 'dump|db|note', 'share|Mediathek|mode', 'share|Mediathek|retention'].forEach((k) => {
+  if (!(k in b.setup.plan.O) && !k.endsWith('mode') && !k.endsWith('retention')) b.setup.plan.O[k] = 'x';
+  out.labels[k] = b.changeLabel(k);
+});
+console.log(JSON.stringify(out));
+JS;
+    file_put_contents("$tmp/t.js", $js);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' '
+        . escapeshellarg(OFFICE_WEB . '/desks/backup/lang/en.json') . ' ' . escapeshellarg("$tmp/plan.json") . ' 2>&1');
+    $r = json_decode($raw, true);
+    hardeningRm($tmp);
+    if (!is_array($r)) {
+        check('unknown key: page ran under node', false, $raw);
+        return;
+    }
+    same('unknown key: the hand-written lines are in the apply dialog\'s list (Apply drops them)', ['general|note', 'kopia|colour', 'share|Mediathek|note'],
+        array_values(array_intersect($r['keys'], ['general|note', 'kopia|colour', 'share|Mediathek|note'])));
+    same('unknown key: each in words, the share\'s as the owner saw it', [
+        'share|Mediathek|note' => "Share Mediathek: the entry «note», which Mr. Backupsy doesn't know, goes",
+        'general|note' => "Section [general]: the entry «note», which Mr. Backupsy doesn't know, goes",
+        'kopia|colour' => "Section [kopia]: the entry «colour», which Mr. Backupsy doesn't know, goes",
+        'app|immich|note' => "App immich: the entry «note», which Mr. Backupsy doesn't know, goes",
+        'vm|Win11|note' => "VM Win11: the entry «note», which Mr. Backupsy doesn't know, goes",
+        'dump|db|note' => "Section [dump db]: the entry «note», which Mr. Backupsy doesn't know, goes",
+        'share|Mediathek|mode' => 'Share Mediathek: protection', 'share|Mediathek|retention' => 'Share Mediathek: local retention'], $r['labels']);
+    check('unknown key: never a raw key on screen', !preg_grep('/backup\.|setup\.key|\|/', array_values($r['labels'])), implode(' / ', $r['labels']));
+    $desk = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('unknown key: no «proposal» chip or «leave out» for it, its tip says why it goes',
+        str_contains($desk, "!/\\|kopia_known$/.test(k) && !unknownKey(k)) {") && str_contains($desk, "if (unknownKey(k)) li.title = T('setup.key_unknown_tip');"));
+}
+
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

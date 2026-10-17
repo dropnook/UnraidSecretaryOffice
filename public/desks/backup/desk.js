@@ -2468,13 +2468,15 @@ function setupApply() {
       const touched = new Set(setupEdits());
       [...changes].sort((a, b) => general(a) - general(b)).slice(0, 80).forEach((k) => {
         const li = el('li', '', changeLabel(k));
+        if (unknownKey(k)) li.title = T('setup.key_unknown_tip');
         const what = el('span');
         what.append(...[].concat(/\|kopia_known$/.test(k) ? knownText(saved[k], view[k])
           : Array.isArray(saved[k]) && Array.isArray(view[k]) ? listChangeText(saved[k], view[k])
           : `${valueText(saved[k], k)} → ${valueText(view[k], k)}`));
         li.appendChild(what);
         // a proposal of mine (the user didn't touch it): said so, and it can stay out of this Apply
-        if (!touched.has(k) && !/\|kopia_known$/.test(k)) {
+        // (a line the setup doesn't know is no proposal: declined or not, Apply can't keep it)
+        if (!touched.has(k) && !/\|kopia_known$/.test(k) && !unknownKey(k)) {
           what.appendChild(document.createTextNode(' '));
           what.appendChild(chip(T('setup.proposal'), 'quiet', T('setup.proposal_tip')));
           const no = el('button', 'btn small plain', T('setup.decline'));
@@ -2620,16 +2622,23 @@ function setupNewRows() {
   return out;
 }
 
+/** A settings.ini line the setup doesn't know (written by hand, e.g. `note = …` in a share's section): it is in the saved
+ *  settings but in no plan - setup.sh's settings_render() writes only what it knows, so Apply drops it (2026-10-17) */
+const unknownKey = (k) => !!setup.plan && k in (setup.plan.O || {}) && !(k in (setup.plan.P || {})) && !goneAppKey(k, setup.plan);
+
 function changeLabel(k) {
   const p = k.split('|');
+  // the word for a key; one unknown to the setup said so, a known one without a word of its own by its settings.ini name
+  const word = (w, key = p[2]) => (Office.has(`${ID}.${w}`) ? T(w) : unknownKey(k) ? T('setup.key_unknown', { key }) : key);
   if (p[0] === 'partner') return T('partner.ch_section', { name: partnerName(p[1], setup.plan) || p[1], key: p[2] });
-  if (p[0] === 'share') return T('setup.ch_share', { share: p[1], key: T('setup.key.' + p[2]) });
-  if (p[0] === 'app') return T('setup.ch_app', { name: p[1], key: Office.has(`${ID}.setup.key.item_${p[2]}`) ? T('setup.key.item_' + p[2]) : p[2] });
+  if (p[0] === 'share') return T('setup.ch_share', { share: p[1], key: word('setup.key.' + p[2]) });
+  if (p[0] === 'app') return T('setup.ch_app', { name: p[1], key: word('setup.key.item_' + p[2]) });
   if (p[0] === 'vm' && Office.has(`${ID}.setup.key.item_${p[2]}`)) return T('setup.ch_vm', { name: p[1], key: T('setup.key.item_' + p[2]) });
-  if (p[0] === 'dump') return T('setup.ch_dump', { name: p[1] });
-  if (p[0] === 'nextcloud') return T('setup.ch_nextcloud', { name: p[1] });
-  if (p[0] === 'vm') return T('setup.ch_vm', { name: p[1], key: Office.has(`${ID}.setup.key.vm_${p[2]}`) ? T('setup.key.vm_' + p[2]) : p[2] });
-  return Office.has(`${ID}.setup.key.${p.join('_')}`) ? T('setup.key.' + p.join('_')) : k;
+  if (p[0] === 'dump' && !unknownKey(k)) return T('setup.ch_dump', { name: p[1] });
+  if (p[0] === 'nextcloud' && !unknownKey(k)) return T('setup.ch_nextcloud', { name: p[1] });
+  if (p[0] === 'vm') return T('setup.ch_vm', { name: p[1], key: word('setup.key.vm_' + p[2]) });
+  if (Office.has(`${ID}.setup.key.${p.join('_')}`)) return T('setup.key.' + p.join('_'));
+  return T('setup.ch_section', { section: p.slice(0, -1).join(' '), key: unknownKey(k) ? T('setup.key_unknown', { key: p[p.length - 1] }) : p[p.length - 1] });
 }
 function valueText(v, k = '') {
   if (v === undefined || v === null) return '–';
