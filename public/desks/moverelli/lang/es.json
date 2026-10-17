@@ -354,6 +354,7 @@
   "setup.bar_sub": "frente a lo guardado",
   "setup.bar_sub_new": "no se mueve nada hasta que lo inicies, o lo haga mi programación",
   "setup.discard": "Descartar",
+  "setup.left_unsaved": "Configuración de la Señora Moverelli cancelada — no se ha guardado nada.",
   "setup.apply_title": "¿Aplicar mis reglas?",
   "setup.apply_go": "Aplicar",
   "setup.apply_text": {"one": "Un cambio:", "other": "{n} cambios:"},

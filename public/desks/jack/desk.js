@@ -2816,6 +2816,8 @@ function bars() {
 Office.desk({
   id: ID,
   async mount(root, sub) {
+    // his setup page left with changes not saved (a visit there starts from his settings again): said, never silent
+    if (page === 'setup' && formChanged()) Office.toast(T('setup.left_unsaved'));
     view = root;
     page = Office.pageFrom(PAGES(), sub) === 'setup' ? 'setup' : 'main';
     if (page === 'setup') {
@@ -2849,7 +2851,7 @@ Office.desk({
     await load(false);
     if (whole && view === root && state && sw.active()) sw.pick('', 'route');
   },
-  unmount() { view = null; saveGate = null; clearTimeout(outTimer); clearTimeout(progTimer); progTimer = null; progBox = null; startKicks = 0; letGoNote = null; },
+  unmount() { if (page === 'setup' && formChanged()) Office.toast(T('setup.left_unsaved')); view = null; saveGate = null; clearTimeout(outTimer); clearTimeout(progTimer); progTimer = null; progBox = null; startKicks = 0; letGoNote = null; },
   letGo: letGoPart,
   poll() { if (page === 'main') load(false); },
   agentChanged() { if (view) (page === 'setup' ? renderSetup() : render()); },
