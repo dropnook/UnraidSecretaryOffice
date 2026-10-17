@@ -2267,6 +2267,137 @@ function backupLocalWithoutSnapshot(array $settings, array $plan): array
     return $out;
 }
 
+/**
+ * Apps whose data shares go less far than the app (a user, app «s3» to Kopia, its bucket share s3-tom only local): a
+ * restore elsewhere brings the app back without its data. The apps as the setup page sees them (setupModel in desk.js:
+ * a compose stack or a single container, Kopia's and the office's own left out), from the last plan's containers and
+ * their binds (setup-plan.json, nothing asked of Docker) and settings.ini. A data share: a writable bind into a share
+ * that is no app home (Unraid's app/VM shares, a share with folders of three or more containers), not appdata, system,
+ * domains, isos, the office's share or the backup place, a share that exists ($exists); read-only binds and a media
+ * server's libraries are not «its data». The app's level as the setup reads it (setupInitLevels): skipped = not backed
+ * up, Kopia when it has a source of its own or all its folders' shares go there; its partners its own and those of its
+ * folders' shares (a folder that is no dataset of its own travels with its share). Settings and plan only.
+ *
+ * @param list<string> $exists  the shares there are now (null: every share in the plan)
+ * @return array{kopia: array<string, list<string>>, off: array<string, list<string>>, partner: array<string, array<string, list<string>>>}
+ *         app => its shares; partner: partner id => app => shares
+ */
+function backupAppShareGaps(array $settings, array $plan, ?array $exists = null): array
+{
+    $out = ['kopia' => [], 'off' => [], 'partner' => []];
+    $shares = [];
+    foreach (is_array($plan['shares'] ?? null) ? $plan['shares'] : [] as $sh) {
+        if (is_array($sh) && is_string($sh['name'] ?? null)) {
+            $shares[$sh['name']] = $sh;
+        }
+    }
+    $list = fn (string $section, string $key): array => array_values(array_filter($settings[$section][$key] ?? [], 'is_string'));
+    $mode = fn (string $s): string => (string) backupSetting($settings, "share|$s", 'mode', 'off');
+    $kopiaOn = backupSetting($settings, 'kopia', 'enabled') === 'yes';
+    $skip = $list('docker', 'skip');
+    $place = (string) backupSetting($settings, 'general', 'dumps_share', '');
+    $never = array_map('strtolower', ['appdata', 'system', 'domains', 'isos', BACKUP_OFFICE_SHARE, $place]);
+    // an app's home: Unraid names it for app configs or VMs, or three or more containers keep folders in it
+    $home = [];
+    foreach ($shares as $n => $sh) {
+        $cts = array_unique(array_map(fn ($f) => is_array($f) ? (string) ($f['container'] ?? '') : '', is_array($sh['folders'] ?? null) ? $sh['folders'] : []));
+        $home[$n] = !empty($sh['app_share']) || count($cts) >= 3;
+    }
+    $apps = [];
+    foreach (is_array($plan['containers'] ?? null) ? $plan['containers'] : [] as $c) {
+        if (!is_array($c) || !is_string($c['name'] ?? null) || !empty($c['kopia']) || ($c['why'] ?? '') === 'office') {
+            continue;
+        }
+        $app = is_string($c['project'] ?? null) && $c['project'] !== '' ? $c['project'] : $c['name'];
+        $apps[$app][] = $c;
+    }
+    ksort($apps, SORT_NATURAL | SORT_FLAG_CASE);
+    foreach ($apps as $app => $members) {
+        if (!array_diff(array_column($members, 'name'), $skip)) {
+            continue;                                   // not backed up at all: nothing goes less far than it
+        }
+        $folders = [];
+        $data = [];
+        foreach ($members as $c) {
+            $media = is_string($c['media'] ?? null) && $c['media'] !== '';
+            foreach (is_array($c['binds'] ?? null) ? $c['binds'] : [] as $b) {
+                $s = is_array($b) && is_string($b['share'] ?? null) ? $b['share'] : null;
+                if ($s === null || !isset($shares[$s]) || strtolower($s) === 'system') {
+                    continue;
+                }
+                if ($home[$s]) {
+                    $dir = explode('/', (string) ($b['path'] ?? ''))[0];
+                    if ($dir !== '') {
+                        $folders["$s|$dir"] = [$s, $dir];
+                    }
+                } elseif (in_array(strtolower($s), $never, true)) {
+                    continue;
+                } elseif (($b['rw'] ?? false) === true && !$media && ($exists === null || in_array($s, $exists, true))) {
+                    $data[$s] = true;
+                }
+            }
+        }
+        if (!$data) {
+            continue;
+        }
+        $ignored = fn (string $s, string $dir): bool => in_array("/$dir/", $list("share|$s", 'kopia_ignore'), true);
+        $onKopia = $folders && !array_filter($folders, fn ($f) => $mode($f[0]) !== 'kopia' || $ignored($f[0], $f[1]));
+        $kopia = $kopiaOn && (backupSetting($settings, "app|$app", 'kopia') === 'yes' || $onKopia);
+        $partners = $list("app|$app", 'partner');
+        foreach ($folders as [$s, $dir]) {
+            $own = array_filter(is_array($shares[$s]['children'] ?? null) ? $shares[$s]['children'] : [], fn ($k) => basename((string) $k) === $dir);
+            if (!$own) {
+                array_push($partners, ...$list("share|$s", 'partner'));
+            }
+        }
+        $partners = array_values(array_unique($partners));
+        $names = array_keys($data);
+        sort($names, SORT_NATURAL | SORT_FLAG_CASE);
+        foreach ($names as $s) {
+            $has = $list("share|$s", 'partner');
+            if ($mode($s) === 'off' && !$has) {
+                $out['off'][$app][] = $s;               // the app backed up, its data not at all - said once, the strongest
+                continue;
+            }
+            if ($kopia && $mode($s) !== 'kopia') {
+                $out['kopia'][$app][] = $s;
+            }
+            foreach (array_diff($partners, $has) as $p) {
+                $out['partner'][$p][$app][] = $s;
+            }
+        }
+    }
+    ksort($out['partner']);
+    return $out;
+}
+
+/** «s3 (s3-tom), dropnook (drop, photos)»: app => shares as one line, the same in every language */
+function backupAppShareList(array $apps): string
+{
+    return implode(', ', array_map(fn ($a, $s) => "$a (" . implode(', ', $s) . ')', array_keys($apps), $apps));
+}
+
+/**
+ * The Team Lead's word on backupAppShareGaps(): one finding per kind (not offsite with Kopia, not to a partner - one per
+ * partner, not backed up at all), each listing every app concerned; all in place: one finding in place. Recommended,
+ * never a must: the user decides about the share (owner 2026-10-17). The link: the setup's step with the shares.
+ */
+function backupAppShareFindings(array $settings, array $plan, ?array $exists = null): array
+{
+    $gaps = backupAppShareGaps($settings, $plan, $exists);
+    $out = [];
+    foreach (['off', 'kopia'] as $kind) {
+        if ($gaps[$kind]) {
+            $out[] = finding("app_share_$kind", 'recommended', false, ['apps' => backupAppShareList($gaps[$kind]), 'n' => count($gaps[$kind])], '#/backup/setup/shares');
+        }
+    }
+    foreach ($gaps['partner'] as $id => $apps) {
+        $name = (string) backupSetting($settings, "partner|$id", 'name', (string) $id);
+        $out[] = finding('app_share_partner', 'recommended', false, ['apps' => backupAppShareList($apps), 'n' => count($apps), 'partner' => $name], '#/backup/setup/shares');
+    }
+    return $out ?: [finding('app_share', 'recommended', true, [], '#/backup/setup/shares')];
+}
+
 function backupChecks(): array
 {
     $data = BACKUP_DATA_DIR;
@@ -2357,8 +2488,15 @@ function backupChecks(): array
         $out[] = finding('drift', 'recommended', !$drift, ['n' => count($drift)], '#/backup/setup');
 
         // engine 2.55: a share at «local» where no snapshot is possible (the plan's method live) is backed up by nothing
-        $noSnap = backupLocalWithoutSnapshot($settings, readJson("$data/state/setup-plan.json"));
+        $plan = readJson("$data/state/setup-plan.json") ?? [];
+        $noSnap = backupLocalWithoutSnapshot($settings, $plan);
         $out[] = finding('share_no_snapshots', 'recommended', !$noSnap, ['shares' => implode(', ', $noSnap), 'n' => count($noSnap)], '#/backup/setup');
+
+        // an app's data share backed up less far than the app (the last plan's binds; the shares there now: Unraid's
+        // config on the flash, so a share renamed since that plan isn't named)
+        $cfgs = glob('/boot/config/shares/*.cfg') ?: [];
+        array_push($out, ...backupAppShareFindings($settings, $plan,
+            $cfgs ? array_map(fn ($f) => basename($f, '.cfg'), $cfgs) : null));
 
         // the packages in their own backup share, never in appdata — without one the engine refuses to run;
         // Unraid's share config (on the flash) says it exists, the share itself is only looked at while its disks are awake
