@@ -5141,7 +5141,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.58'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.59'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -6795,9 +6795,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.58 everywhere it is named', ['2.58', '2.58', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.58"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.58** –')]);
+    same('data trust: the engine\'s version 2.59 everywhere it is named', ['2.59', '2.59', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.59"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.59** –')]);
     // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
     same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
         array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
@@ -7837,7 +7837,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.58', [1, '2.58'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.59', [1, '2.59'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -8445,7 +8445,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.58', [1, '2.58'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.59', [1, '2.59'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -8949,8 +8949,9 @@ SH);
     foreach (glob("$tmp/bin/*") as $f) {
         chmod($f, 0755);
     }
-    file_put_contents("$tmp/data/settings.ini", "[general]\ndumps_share = UnraidSecretaryOffice\nmount_root = $root\n[kopia]\nenabled = yes\ncontainer = kopia\n"
-        . "[share \"appdata\"]\nmode = kopia\n[app \"nextcloud\"]\nkopia = yes\nfolder = appdata/nextcloud\n");
+    $ini = "[general]\ndumps_share = UnraidSecretaryOffice\nmount_root = $root\n[kopia]\nenabled = yes\ncontainer = kopia\n"
+        . "[share \"appdata\"]\nmode = kopia\n[app \"nextcloud\"]\nkopia = yes\nfolder = appdata/nextcloud\n[vm \"Debian\"]\nmode = snapshot\nkopia = yes\n";
+    file_put_contents("$tmp/data/settings.ini", $ini);
     file_put_contents("$tmp/fake/shares.ini", "[\"appdata\"]\nname=\"appdata\"\n[\"media\"]\nname=\"media\"\n[\"UnraidSecretaryOffice\"]\nname=\"UnraidSecretaryOffice\"\n");
     $k = fn ($path, $start, $size, $host = 'kopia', $more = []) => ['source' => ['host' => $host, 'userName' => 'root', 'path' => $path], 'startTime' => $start, 'stats' => ['totalSize' => $size]] + $more;
     file_put_contents("$tmp/fake/list.json", json_encode([
@@ -8969,29 +8970,46 @@ SH);
     $setup = fn (string $args, string $more = ':') => (int) shell_exec('bash -c ' . escapeshellarg("$env; $more; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null >/dev/null 2>&1; echo \$?"));
     $file = fn () => json_decode((string) @file_get_contents("$tmp/data/state/kopia-orphans.json"), true) ?: [];
     $paths = fn () => array_column($file()['sources'] ?? [], 'path');
+    $whys = fn () => array_column($file()['sources'] ?? [], 'why', 'path');
 
-    same('kopia orphans: listed - only the office\'s names of this identity whose share, app or VM is gone; root, flash, units there, '
-        . 'a second safe name, deeper paths, hidden ones, the user\'s own, another identity never',
-        [0, 'list', 'ok', ['/uso/.apps/paperless', '/uso/.vms/Win_11', '/uso/oldshare']], [$setup('--orphans'), $file()['mode'] ?? null, $file()['result'] ?? null, $paths()]);
+    // 2.59: a unit that is there but no longer at a Kopia level in settings.ini (the media share without mode = kopia, the
+    // app immich and its second safe name without kopia = yes, the flash not mode = snapshot) - only its older snapshots
+    // lie in Kopia: offered too, as not_offsite; a unit at a Kopia level (appdata, nextcloud, the VM Debian) never
+    same('kopia orphans: listed - the office\'s names of this identity whose unit is gone or no longer offsite; root, units at a Kopia level, '
+        . 'deeper paths, hidden ones, the user\'s own, another identity never',
+        [0, 'list', 'ok', ['/uso/.apps/immich' => 'not_offsite', '/uso/.apps/immich-0a1b2c' => 'not_offsite', '/uso/.apps/paperless' => 'gone',
+         '/uso/.vms/Win_11' => 'gone', '/uso/_flash' => 'not_offsite', '/uso/media' => 'not_offsite', '/uso/oldshare' => 'gone']],
+        [$setup('--orphans'), $file()['mode'] ?? null, $file()['result'] ?? null, $whys()]);
     $old = array_values(array_filter($file()['sources'] ?? [], fn ($s) => $s['path'] === '/uso/oldshare'))[0] ?? [];
-    same('kopia orphans: per source its kind and name, snapshots (checkpoints too), the newest complete one\'s size, the newest start',
-        ['source' => 'root@kopia:/uso/oldshare', 'path' => '/uso/oldshare', 'kind' => 'share', 'name' => 'oldshare', 'snapshots' => 3, 'bytes' => 900, 'newest' => '2026-09-03T01:00:00Z'], $old);
+    same('kopia orphans: per source its kind and name, snapshots (checkpoints too), the newest complete one\'s size, the newest start, why',
+        ['source' => 'root@kopia:/uso/oldshare', 'path' => '/uso/oldshare', 'kind' => 'share', 'name' => 'oldshare', 'snapshots' => 3, 'bytes' => 900, 'newest' => '2026-09-03T01:00:00Z', 'why' => 'gone'], $old);
+    same('kopia orphans: the flash as its own kind', ['flash', '_flash', 'not_offsite'],
+        array_values(array_intersect_key(array_values(array_filter($file()['sources'] ?? [], fn ($s) => $s['path'] === '/uso/_flash'))[0] ?? [], ['kind' => 1, 'name' => 1, 'why' => 1])));
     $noDocker = [$setup('--orphans', 'export FAKE_NODOCKER=1'), $paths()];
     $noShares = [$setup('--orphans', "export UB_SHARES_INI=$tmp/none"), $paths()];
     same('kopia orphans: what can\'t be asked offers nothing of its kind (Docker away: no app; no share list: no share)',
-        [[0, ['/uso/.vms/Win_11', '/uso/oldshare']], [0, ['/uso/.apps/paperless', '/uso/.vms/Win_11']]], [$noDocker, $noShares]);
+        [[0, ['/uso/.vms/Win_11', '/uso/_flash', '/uso/media', '/uso/oldshare']], [0, ['/uso/.apps/immich', '/uso/.apps/immich-0a1b2c', '/uso/.apps/paperless', '/uso/.vms/Win_11', '/uso/_flash']]],
+        [$noDocker, $noShares]);
+    file_put_contents("$tmp/data/settings.ini", $ini . "[flash]\nmode = snapshot\n[app \"immich\"]\nkopia = yes\n[share \"media\"]\nmode = kopia\n");
+    same('kopia orphans: set at a Kopia level (the flash mode = snapshot, the app kopia = yes - its second safe name too -, the share mode = kopia) - never offered, however old',
+        [0, ['/uso/.apps/paperless', '/uso/.vms/Win_11', '/uso/oldshare']], [$setup('--orphans'), $paths()]);
+    file_put_contents("$tmp/data/settings.ini", $ini);
     same('kopia orphans: Kopia switched off - nothing asked, said as a code', [1, 'failed', 'kopia_off', []],
         [$setup('--orphans', "export UB_DATA=$tmp/off; mkdir -p -m 700 $tmp/off; printf '[general]\\nmount_root = $root\\n[kopia]\\nenabled = no\\n' >$tmp/off/settings.ini"),
          ...array_map(fn ($k) => (json_decode((string) @file_get_contents("$tmp/off/state/kopia-orphans.json"), true) ?: [])[$k] ?? null, ['result', 'code', 'sources'])]);
 
     // --- the delete: the plan's list loses what went; a source not offered stays; a failure is said
     file_put_contents("$tmp/data/state/setup-plan.json", json_encode(['time' => 1, 'kopia' => ['sources' => [['state' => 'orphan', 'source' => 'root@kopia:/uso/oldshare'], ['state' => 'active', 'source' => 'root@kopia:/uso/appdata']]]]));
-    file_put_contents("$tmp/chosen.json", json_encode(['root@kopia:/uso/oldshare', 'root@kopia:/uso/appdata', 'root@kopia:/uso/.vms/Win_11', 'root@other:/uso/oldshare2']));
+    file_put_contents("$tmp/chosen.json", json_encode(['root@kopia:/uso/oldshare', 'root@kopia:/uso/appdata', 'root@kopia:/uso/.vms/Win_11', 'root@other:/uso/oldshare2',
+        'root@kopia:/uso/.apps/immich', 'root@kopia:/uso/media']));
+    // between the list and the delete the share media was set back to Kopia: refused, it stays
+    file_put_contents("$tmp/data/settings.ini", $ini . "[share \"media\"]\nmode = kopia\n");
     $rc = $setup("--orphans-delete=$tmp/chosen.json", 'export FAKE_FAIL=Win_11');
     $f = $file();
-    same('kopia orphans: delete - only what is offered right then goes to Kopia; the rest refused, a failure said (exit 1)',
-        [1, 'delete', 'failed', ['root@kopia:/uso/oldshare'], ['root@kopia:/uso/.vms/Win_11'], ['root@kopia:/uso/appdata', 'root@other:/uso/oldshare2'],
-         "root@kopia:/uso/.vms/Win_11\nroot@kopia:/uso/oldshare\n", ['/uso/.apps/paperless', '/uso/.vms/Win_11']],
+    same('kopia orphans: delete - only what is offered right then goes to Kopia (gone and not_offsite); the rest refused - a unit set back to Kopia meanwhile too -, a failure said (exit 1)',
+        [1, 'delete', 'failed', ['root@kopia:/uso/.apps/immich', 'root@kopia:/uso/oldshare'], ['root@kopia:/uso/.vms/Win_11'],
+         ['root@kopia:/uso/appdata', 'root@kopia:/uso/media', 'root@other:/uso/oldshare2'],
+         "root@kopia:/uso/.apps/immich\nroot@kopia:/uso/.vms/Win_11\nroot@kopia:/uso/oldshare\n", ['/uso/.apps/immich-0a1b2c', '/uso/.apps/paperless', '/uso/.vms/Win_11', '/uso/_flash']],
         [$rc, $f['mode'] ?? null, $f['result'] ?? null, $f['deleted'] ?? null, $f['failed'] ?? null, $f['refused'] ?? null,
          (string) @file_get_contents("$tmp/fake/deleted.log"), $paths()]);
     same('kopia orphans: the plan\'s old sources lose what was deleted, nothing else', ['root@kopia:/uso/appdata'],
@@ -9010,9 +9028,14 @@ SH);
     $had = is_file($mine) ? (string) file_get_contents($mine) : null;
     $src = ['source' => 'root@kopia:/uso/old', 'path' => '/uso/old', 'kind' => 'share', 'name' => 'old', 'snapshots' => 2, 'bytes' => 10, 'newest' => '2026-09-01T01:00:00Z'];
     file_put_contents($mine, json_encode(['v' => 1, 'mode' => 'list', 'result' => 'ok', 'code' => '', 'pid' => 1, 'started' => 1000, 'finished' => 1001, 'identity' => 'root@kopia',
-        'sources' => [$src, ['source' => 'x', 'kind' => 'disk'], array_merge($src, ['bytes' => '10'])], 'deleted' => [], 'failed' => [], 'refused' => []]));
+        'sources' => [$src, ['source' => 'x', 'kind' => 'disk'], array_merge($src, ['bytes' => '10']),
+                      $vm = array_merge($src, ['source' => 'root@kopia:/uso/.vms/W', 'path' => '/uso/.vms/W', 'kind' => 'vm', 'name' => 'W', 'why' => 'not_offsite']),
+                      $fl = array_merge($src, ['source' => 'root@kopia:/uso/_flash', 'path' => '/uso/_flash', 'kind' => 'flash', 'name' => '_flash', 'why' => 'not_offsite']),
+                      array_merge($src, ['why' => 'maybe']), array_merge($src, ['why' => null]), array_merge($fl, ['why' => 'gone'])],
+        'deleted' => [], 'failed' => [], 'refused' => []]));
     $o = backupOrphans();
-    same('kopia orphans: the agent reads only entries in exactly their shape', [[$src], 'ok', false], [$o['sources'] ?? null, $o['result'] ?? null, $o['running'] ?? null]);
+    same('kopia orphans: the agent reads only entries in exactly their shape - why gone (an older engine\'s: none written) or not_offsite (2.59), the flash only not_offsite',
+        [[$src + ['why' => 'gone'], $vm, $fl], 'ok', false], [$o['sources'] ?? null, $o['result'] ?? null, $o['running'] ?? null]);
     $refuse = function (array $ids, string $listed) { try { backupOrphansDelete($ids, $listed); return 'ran'; } catch (Problem $p) { return $p->key; } };
     $stale = [$refuse(['root@kopia:/uso/old'], '999'), $refuse(['root@kopia:/uso/appdata'], '1000')];
     // what the page really sends goes through idList() (a plain list): an offered source of this list is chosen
@@ -33713,7 +33736,9 @@ SH);
         . "dumps_share = UnraidSecretaryOffice\n[docker]\nstop = all\nknown = kopia\nknown = ml\nknown = pg\nknown = web\n[flash]\nmode = off\n[kopia]\nenabled = yes\ncontainer = kopia\nidentity = root@kopia\n"
         . "[share \"appdata\"]\nmode = kopia\nkopia_ignore = /kopia/\n[share \"UnraidSecretaryOffice\"]\nmode = kopia\n");
     $env = "export PATH=$tmp/bin:\$PATH UB_DATA=$data UB_MNT=$mnt UB_BOOT=$tmp/boot UB_SHARES_CFG=$tmp/boot/config/shares"
-         . " UB_DISKS_INI=$tmp/fake/disks.ini UB_NOTIFY_BIN=$tmp/bin/notify UB_MOUNTS_FILE=$tmp/fake/mounts FAKE=$tmp/fake FAKE_ROOT=$root";
+         . " UB_DISKS_INI=$tmp/fake/disks.ini UB_NOTIFY_BIN=$tmp/bin/notify UB_MOUNTS_FILE=$tmp/fake/mounts FAKE=$tmp/fake FAKE_ROOT=$root"
+         . " UB_SHARES_INI=$tmp/fake/shares.ini";
+    file_put_contents("$tmp/fake/shares.ini", "[\"appdata\"]\nname=\"appdata\"\n[\"UnraidSecretaryOffice\"]\nname=\"UnraidSecretaryOffice\"\n");
     $out = (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . ' --plan </dev/null') . ' 2>&1');
     $plan = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
     $msgs = is_array($plan['messages'] ?? null) ? $plan['messages'] : [];
@@ -33728,6 +33753,12 @@ SH);
     same('setup messages (engine): the Kopia sources - orphaned (under its root, no share any more), gone from the container, another identity',
         [[['path' => '/uso/oldshare', 'source' => 'root@kopia:/uso/oldshare']], [['path' => '/backup-snapshots/olddata', 'source' => 'root@kopia:/backup-snapshots/olddata']], [['source' => 'admin@laptop:/home/x']]],
         [$by('source_orphan'), $by('source_gone'), $by('source_foreign')]);
+    $ks = is_array($plan['kopia']['sources'] ?? null) ? $plan['kopia']['sources'] : [];
+    same('setup messages (engine): 2.59 the plan\'s old source under its root says what it is - kind, name, why, its snapshots and the newest; the others only state and source',
+        [[['state' => 'orphan', 'source' => 'root@kopia:/uso/oldshare', 'kind' => 'share', 'name' => 'oldshare', 'why' => 'gone', 'snapshots' => 1, 'newest' => '2026-10-01T02:00:00Z']],
+         [['source', 'state'], ['source', 'state'], ['source', 'state']]],
+        [array_values(array_filter($ks, fn ($x) => ($x['state'] ?? '') === 'orphan')),
+         array_values(array_map(function ($x) { $k = array_keys($x); sort($k); return $k; }, array_filter($ks, fn ($x) => ($x['state'] ?? '') !== 'orphan')))]);
     same('setup messages (engine): the live test that couldn\'t mount - coded with the root', [['root' => $root]], $by('kopia_probe_failed'));
     same('setup messages (engine): no message without a code - hints, warnings and (2.58) the OK and error lines too', [],
         array_values(array_map(fn ($m) => $m['text'], array_filter($msgs, fn ($m) => ($m['code'] ?? '') === ''))));

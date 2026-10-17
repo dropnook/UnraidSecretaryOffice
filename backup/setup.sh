@@ -1,6 +1,11 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.58 - 2026-10-17
+# unraid-backup - setup.sh                        Version 2.59 - 2026-10-17
+#   2.59 --orphans also lists the office's own sources of units that are still there but no longer at a Kopia level in
+#        settings.ini (an app or VM kopia = no, a share not mode = kopia, the flash not mode = snapshot): only their older
+#        snapshots lie in Kopia - each source with why gone | not_offsite; --orphans-delete takes both, listing anew right
+#        then (a unit set back to Kopia meanwhile is refused). The plan's old sources (kopia.sources, state orphan) carry
+#        kind, name, why (gone | not_offsite | unknown | other), snapshots and the newest one's start for the page's words
 #   2.58 Every OK and error line a plan, an apply or a forget records has a code and its params (the helpers ok_as/
 #        bad_as, as the hints and warnings since 2.39): the office says them in its own words; the terminal and the log
 #        keep the English
@@ -2379,7 +2384,37 @@ apply_kopia_policies() {
     done
 }
 declare -A KPA=()
-declare -a KOPIA_SOURCES=()   # "state<US>source" - active foreign orphan own gone
+declare -a KOPIA_SOURCES=()   # "state<US>source" - active foreign orphan own gone; an orphan also "<US>kind<US>name<US>why<US>snapshots<US>newest"
+SOURCES_UNITS="no"; SOURCES_COUNTED=0
+
+# sources_old_unit <path> <source>  -> "kind<US>name<US>why<US>snapshots<US>newest" of an old source under the mount root
+# (2.59, for the page's words): kind share|app|vm|flash and its name when the path is in exactly the office's shape (else
+# kind empty, why other); why gone | not_offsite (the unit is there - it just no longer goes to Kopia) | unknown (Docker,
+# libvirt or Unraid's share list couldn't be asked); its snapshots and the newest one's start (the first 30 such sources
+# counted; else 0 and empty)
+sources_old_unit() {
+    local p="$1" src="$2" u kind="" name="" there why="other" n=0 t="" js e=()
+    if [[ "$SOURCES_UNITS" != "yes" ]]; then
+        SOURCES_UNITS="yes"; ORPH_ROOT="$(k_path "$MOUNT_ROOT")" || ORPH_ROOT=""
+        orphans_units_load
+    fi
+    if u="$(orphans_unit "$p")"; then
+        IFS=$'\t' read -r kind name there <<<"$u"
+        case "$there" in no) why="gone" ;; yes) why="not_offsite" ;; *) why="unknown" ;; esac
+    fi
+    if (( SOURCES_COUNTED < 30 )); then
+        SOURCES_COUNTED=$((SOURCES_COUNTED + 1))
+        [[ "$KOPIA_RUN_UID" != "0" ]] && e=( -e HOME=/tmp )
+        js="$(timeout "${UB_KOPIA_LIST_TIMEOUT:-60}" docker exec -u "$KOPIA_RUN_UID" "${e[@]}" "$KOPIA_CONTAINER" \
+                  kopia --no-progress snapshot list "$src" --json 2>>"$LOG_FILE")"
+        if jq -e 'type == "array"' >/dev/null 2>&1 <<<"$js"; then
+            IFS=$'\t' read -r n t <<<"$(jq -r --arg p "$p" --arg u "$KOPIA_USER" --arg h "$KOPIA_HOST" '[.[]? | select(.source.path == $p
+                and .source.userName == $u and .source.host == $h)] | [length, (map(.startTime // "") | max // "")] | @tsv' <<<"$js" 2>/dev/null)"
+            [[ "$n" =~ ^[0-9]+$ ]] || { n=0; t=""; }
+        fi
+    fi
+    printf '%s\x1f%s\x1f%s\x1f%s\x1f%s' "$kind" "$name" "$why" "$n" "$t"
+}
 DECIDE_RETIRE="no"
 
 # Old and orphaned sources
@@ -2400,7 +2435,8 @@ step_kopia_sources() {
         if [[ "$u@$h" != "$KOPIA_ID" ]]; then hint_as source_foreign "foreign   $src (another identity)" source "$src"; KOPIA_SOURCES+=( "foreign"$'\x1f'"$src" ); continue; fi
         if grep -Fxq -- "$p" <<<"$want_paths"; then ok_as source_active "active    $p" path "$p"; KOPIA_SOURCES+=( "active"$'\x1f'"$src" ); continue; fi
         if [[ "$p" == "$croot" || "$p" == "$croot/"* ]]; then
-            wrn_as source_orphan "orphaned  $p (under $croot, but no longer a share)" path "$p" source "$src"; retire+=( "$src" ); KOPIA_SOURCES+=( "orphan"$'\x1f'"$src" ); continue
+            wrn_as source_orphan "orphaned  $p (under $croot, but no longer a share)" path "$p" source "$src"; retire+=( "$src" )
+            KOPIA_SOURCES+=( "orphan"$'\x1f'"$src"$'\x1f'"$(sources_old_unit "$p" "$src")" ); continue
         fi
         if docker exec "$KOPIA_CONTAINER" test -e "$p" 2>/dev/null; then
             hint_as source_own "your own $p (not managed by $UB_NAME - needs its own mapping)" path "$p" source "$src"
@@ -2804,7 +2840,9 @@ plan_write() {
     ncs="$(printf '%s\n' "${NC_ROWS[@]}" | us_json members occ preexisting \
          | jq 'map(select(.members != "") | .members = (.members | split(" ")))')"
     bases="$(for b in "${INV_BASES[@]}"; do printf '%s\x1f%s\x1f%s\n' "$b" "${INV_BASE_FS[$b]:-}" "${INV_BASE_KIND[$b]:-}"; done | us_json name fs kind)"
-    srcs="$(printf '%s\n' "${KOPIA_SOURCES[@]}" | us_json state source | jq 'map(select(.source != ""))')"
+    srcs="$(printf '%s\n' "${KOPIA_SOURCES[@]}" | us_json state source kind name why snapshots newest \
+         | jq 'map(select(.source != "") | if .state == "orphan" then .snapshots = ((.snapshots | tonumber?) // 0)
+                                           else del(.kind, .name, .why, .snapshots, .newest) end)')"
     maps="$(for k in "${!KM_SRC[@]}"; do printf '%s\x1f' "${KM_SRC[$k]}" "${KM_DST[$k]}" "${KM_RW[$k]}" "${KM_PROP[$k]:-}" "$([[ $k -eq $KOPIA_MAIN ]] && echo 1)"; echo; done \
          | us_json source target rw propagation main | jq 'map(select(.source != "") | .rw = (.rw == "true") | .main = (.main == "1"))')"
     # the [app] sections of settings.ini (2.40): each with its keys and whether its app is gone (then Apply removes it)
@@ -2853,21 +2891,23 @@ plan_write() {
 }
 
 ##############################################################################
-# Old Kopia sources of units that are gone (2.51): --orphans lists them, --orphans-delete=<file> deletes them
+# Old Kopia sources (2.51; 2.59 also of units still there): --orphans lists them, --orphans-delete=<file> deletes them
 ##############################################################################
 # Only the office's own sources are ever offered: this identity's, a path exactly as the engine names them under the
-# mount root in the container (<root>/<share>, <root>/.apps/<folder>, <root>/.vms/<folder>; never <root> itself or
-# <root>/_flash), of a unit that is no longer there - a share neither Unraid (shares.ini) nor settings.ini knows, an app
-# without a container or Compose project of that folder name, a VM libvirt doesn't list (and none settings.ini still
-# names). When Docker, libvirt or Unraid's share list can't be asked, nothing of that kind counts as gone. Another
-# identity's sources, paths of the user's own or an old script's are never offered, never deleted.
-# state/kopia-orphans.json {v, mode (list|delete), result (running|ok|failed|busy), code, sources [{source, path, kind,
-# name, snapshots, bytes (its newest complete snapshot), newest}], deleted, failed, refused}. A delete lists anew first
+# mount root in the container (<root>/<share>, <root>/.apps/<folder>, <root>/.vms/<folder>, <root>/_flash; never <root>
+# itself), of a unit that is no longer there (why gone) - a share neither Unraid (shares.ini) nor settings.ini knows, an
+# app without a container or Compose project of that folder name, a VM libvirt doesn't list (and none settings.ini still
+# names) - or (2.59, why not_offsite) of a unit that is there but no longer at a Kopia level in settings.ini: only its
+# older snapshots lie in Kopia. A unit at a Kopia level is never offered. When Docker, libvirt or Unraid's share list
+# can't be asked, nothing of that kind is offered. Another identity's sources, paths of the user's own or an old
+# script's are never offered, never deleted.
+# state/kopia-orphans.json {v, mode (list|delete), result (running|ok|failed|busy), code, sources [{source, path, kind
+# (share|app|vm|flash), name, snapshots, bytes (its newest complete snapshot), newest, why}], deleted, failed, refused}. A delete lists anew first
 # and deletes only what is offered right then; what it deleted leaves setup-plan.json's kopia.sources too.
 ORPH_FILE="$UB_STATE/kopia-orphans.json"
 ORPH_CODE=""; ORPH_ROOT=""; ORPH_JSON="[]"; ORPH_DELETED="[]"; ORPH_FAILED="[]"; ORPH_REFUSED="[]"
 ORPH_SHARES_OK="no"; ORPH_APPS_OK="no"; ORPH_VMS_OK="no"
-declare -gA ORPH_SHARE=() ORPH_APPF=() ORPH_VMF=()
+declare -gA ORPH_SHARE=() ORPH_APPF=() ORPH_VMF=() ORPH_KAPP=() ORPH_KVM=()
 UB_SHARES_INI="${UB_SHARES_INI:-/var/local/emhttp/shares.ini}"
 
 orphans_write() { # orphans_write <result>
@@ -2896,7 +2936,11 @@ orph_known() {
 # The units that are there: shares, apps (containers and Compose projects), VMs - and whatever settings.ini still names
 orphans_units_load() {
     local n p out
-    ORPH_SHARE=(); ORPH_APPF=(); ORPH_VMF=()
+    ORPH_SHARE=(); ORPH_APPF=(); ORPH_VMF=(); ORPH_KAPP=(); ORPH_KVM=()
+    while IFS='|' read -r n p out; do
+        [[ "$n" == app && -n "$out" ]] && { ORPH_KAPP[$out]=1; ORPH_KAPP[$(pkg_folder "$p")]=1; }
+        [[ "$n" == vm && -n "$out" ]] && { ORPH_KVM[$out]=1; ORPH_KVM[$(pkg_folder "$p")]=1; }
+    done < <(kopia_items)
     while IFS= read -r n; do [[ -n "$n" ]] && ORPH_SHARE[$n]=1; done < <(cfg_names share)
     while IFS= read -r n; do [[ -n "$n" ]] && ORPH_APPF[$(pkg_folder "$n")]=1; done < <(cfg_names app)
     while IFS= read -r n; do [[ -n "$n" ]] && ORPH_VMF[$(pkg_folder "$n")]=1; done < <(cfg_names vm)
@@ -2924,21 +2968,54 @@ orphans_units_load() {
     return 0
 }
 
-# orphans_kind <path in the container>  -> "kind<TAB>name" for an office source of a unit that is gone, else returns 1
-orphans_kind() {
+# orphans_unit <path in the container>  -> "kind<TAB>name<TAB>there" for a path in exactly the office's shape under the
+# mount root (<share>, .apps/<folder>, .vms/<folder>, _flash), else returns 1. there: yes | no | unknown (Docker,
+# libvirt or Unraid's share list couldn't be asked)
+orphans_unit() {
     local p="$1" rel f
     [[ -n "$ORPH_ROOT" && "$ORPH_ROOT" != "/" && "$p" == "$ORPH_ROOT/"* ]] || return 1
     rel="${p#"$ORPH_ROOT"/}"
     if [[ "$rel" =~ ^\.apps/([^/]+)$ ]]; then
         f="${BASH_REMATCH[1]}"
-        [[ "$ORPH_APPS_OK" == "yes" ]] && ! orph_known ORPH_APPF "$f" && { printf 'app\t%s' "$f"; return 0; }
+        if [[ "$ORPH_APPS_OK" != "yes" ]]; then printf 'app\t%s\tunknown' "$f"; elif orph_known ORPH_APPF "$f"; then printf 'app\t%s\tyes' "$f"; else printf 'app\t%s\tno' "$f"; fi
     elif [[ "$rel" =~ ^\.vms/([^/]+)$ ]]; then
         f="${BASH_REMATCH[1]}"
-        [[ "$ORPH_VMS_OK" == "yes" ]] && ! orph_known ORPH_VMF "$f" && { printf 'vm\t%s' "$f"; return 0; }
-    elif [[ "$rel" =~ ^[^/.][^/]*$ && "$rel" != "$FLASH_SOURCE_NAME" ]]; then
-        [[ "$ORPH_SHARES_OK" == "yes" && -z "${ORPH_SHARE[$rel]:-}" ]] && { printf 'share\t%s' "$rel"; return 0; }
+        if [[ "$ORPH_VMS_OK" != "yes" ]]; then printf 'vm\t%s\tunknown' "$f"; elif orph_known ORPH_VMF "$f"; then printf 'vm\t%s\tyes' "$f"; else printf 'vm\t%s\tno' "$f"; fi
+    elif [[ "$rel" == "$FLASH_SOURCE_NAME" ]]; then
+        printf 'flash\t%s\tyes' "$rel"
+    elif [[ "$rel" =~ ^[^/.][^/]*$ ]]; then
+        if [[ "$ORPH_SHARES_OK" != "yes" ]]; then printf 'share\t%s\tunknown' "$rel"; elif [[ -n "${ORPH_SHARE[$rel]:-}" ]]; then printf 'share\t%s\tyes' "$rel"; else printf 'share\t%s\tno' "$rel"; fi
+    else
+        return 1
     fi
-    return 1
+    return 0
+}
+
+# orphans_kopia_level <kind> <name>  -> 0 when settings.ini has the unit at a Kopia level (2.59: it is never offered,
+# however old its last snapshot): a share mode = kopia, an app/VM kopia = yes (a second of the same safe name counts
+# too), the flash mode = snapshot
+orphans_kopia_level() {
+    case "$1" in
+        share) [[ "$(share_mode "$2")" == "kopia" ]] ;;
+        app)   orph_known ORPH_KAPP "$2" ;;
+        vm)    orph_known ORPH_KVM "$2" ;;
+        flash) [[ "$(cfg "flash|mode" tar)" == "snapshot" ]] ;;
+        *)     return 0 ;;
+    esac
+}
+
+# orphans_kind <path in the container>  -> "kind<TAB>name<TAB>why" for an office source that may go, else returns 1.
+# why: gone (the unit is no longer there) | not_offsite (2.59: it is there but no longer at a Kopia level - only its
+# older snapshots lie in Kopia). What can't be asked offers nothing of its kind
+orphans_kind() {
+    local u kind name there
+    u="$(orphans_unit "$1")" || return 1
+    IFS=$'\t' read -r kind name there <<<"$u"
+    case "$there" in
+        no)  printf '%s\t%s\tgone' "$kind" "$name" ;;
+        yes) orphans_kopia_level "$kind" "$name" && return 1; printf '%s\t%s\tnot_offsite' "$kind" "$name" ;;
+        *)   return 1 ;;
+    esac
 }
 
 # Kopia asked, the sources sorted out -> ORPH_JSON; ORPH_CODE says why not
@@ -2955,7 +3032,7 @@ orphans_scan() {
         || { ORPH_CODE="not_mapped"; bad "$MOUNT_ROOT is not mapped into the Kopia container on its own"; return 1; }
     orphans_units_load
     say "Units that are there: ${#ORPH_SHARE[@]} share(s) (Unraid's list: $ORPH_SHARES_OK), ${#ORPH_APPF[@]} app(s) (Docker: $ORPH_APPS_OK), ${#ORPH_VMF[@]} VM(s) (libvirt: $ORPH_VMS_OK)"
-    local e=() js lines p n b t kn
+    local e=() js lines p n b t kn kk kname kwhy
     [[ "$KOPIA_RUN_UID" != "0" ]] && e=( -e HOME=/tmp )
     js="$(timeout "${UB_KOPIA_LIST_TIMEOUT:-60}" docker exec -u "$KOPIA_RUN_UID" "${e[@]}" "$KOPIA_CONTAINER" \
               kopia --no-progress snapshot list --all --json 2>>"$LOG_FILE")"
@@ -2965,8 +3042,9 @@ orphans_scan() {
     while IFS=$'\t' read -r p n b t; do
         [[ -z "$p" ]] && continue
         kn="$(orphans_kind "$p")" || continue
-        lines+="$KOPIA_ID:$p"$'\x1f'"$p"$'\x1f'"${kn%%$'\t'*}"$'\x1f'"${kn#*$'\t'}"$'\x1f'"$n"$'\x1f'"$b"$'\x1f'"$t"$'\n'
-        say "  orphaned  $KOPIA_ID:$p - $n snapshot(s), newest $t"
+        IFS=$'\t' read -r kk kname kwhy <<<"$kn"
+        lines+="$KOPIA_ID:$p"$'\x1f'"$p"$'\x1f'"$kk"$'\x1f'"$kname"$'\x1f'"$n"$'\x1f'"$b"$'\x1f'"$t"$'\x1f'"$kwhy"$'\n'
+        say "  old ($kwhy)  $KOPIA_ID:$p - $n snapshot(s), newest $t"
     done < <(jq -r --arg u "$KOPIA_USER" --arg h "$KOPIA_HOST" '
                  [.[]? | select(.source.userName == $u and .source.host == $h and (.source.path | type == "string")
                                 and (.source.path | explode | all(. >= 32 and . != 92)))]
@@ -2976,9 +3054,9 @@ orphans_scan() {
                     ((($c.stats.totalSize // $c.rootEntry.summ.size // 0) | if type == "number" then floor else 0 end) | tostring),
                     (map(.startTime // "") | max)] | @tsv' <<<"$js")
     ORPH_JSON="$(printf '%s' "$lines" | jq -Rn '[inputs | select(. != "") | split("\u001f")
-        | {source: .[0], path: .[1], kind: .[2], name: .[3], snapshots: (.[4] | tonumber), bytes: (.[5] | tonumber), newest: .[6]}]')" \
+        | {source: .[0], path: .[1], kind: .[2], name: .[3], snapshots: (.[4] | tonumber), bytes: (.[5] | tonumber), newest: .[6], why: .[7]}]')" \
         || { ORPH_CODE="list_failed"; ORPH_JSON="[]"; return 1; }
-    ok "$(jq length <<<"$ORPH_JSON") orphaned source(s) of the office in the repository"
+    ok "$(jq length <<<"$ORPH_JSON") old source(s) of the office in the repository that may go"
     return 0
 }
 
