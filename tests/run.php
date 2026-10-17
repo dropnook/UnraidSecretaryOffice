@@ -4806,7 +4806,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.56'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.57'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -6460,9 +6460,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.56 everywhere it is named', ['2.56', '2.56', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.56"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.56** –')]);
+    same('data trust: the engine\'s version 2.57 everywhere it is named', ['2.57', '2.57', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.57"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.57** –')]);
     // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
     same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
         array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
@@ -6794,12 +6794,15 @@ function testBackupInside(): void
     $ct = fn (string $n, string $img, string $id) => ['Name' => "/$n", 'Id' => $id, 'Config' => ['Image' => $img, 'Env' => [], 'Labels' => new stdClass()],
         'State' => ['Running' => true], 'HostConfig' => ['NetworkMode' => 'bridge'], 'Mounts' => [['Type' => 'bind', 'Source' => "$mnt/user/appdata/$n", 'Destination' => '/config', 'RW' => true]]];
     file_put_contents("$fake/inspect.json", json_encode([$ct('c1', 'mariadb', 'id1'), $ct('c2', 'nginx', 'id2'), $ct('c3', 'nginx', 'id3')]));
+    file_put_contents("$fake/ps-ids", "id1\nid2\nid3\n");
+    file_put_contents("$fake/ps", "c1\tmariadb\tUp\nc2\tnginx\tUp\nc3\tnginx\tUp\n");
+    file_put_contents("$fake/images", "/c1  mariadb  sha256:1\n/c2  nginx  sha256:2\n/c3  nginx  sha256:3\n");
     // docker: three containers; c1 is a MariaDB whose dump answers like the real client (one table, the closing line)
     file_put_contents("$tmp/bin/docker", <<<'SH'
 #!/bin/bash
 case "$1" in
   info|version) exit 0 ;;
-  ps) [[ "$*" == *q* ]] && printf 'id1\nid2\nid3\n' || printf 'c1\tmariadb\tUp\nc2\tnginx\tUp\nc3\tnginx\tUp\n'; exit 0 ;;
+  ps) [[ "$*" == *q* ]] && cat "$FAKE/ps-ids" || cat "$FAKE/ps"; exit 0 ;;
   compose) exit 1 ;;
   inspect)
     shift
@@ -6807,7 +6810,7 @@ case "$1" in
       case "$2" in *Health*) echo "true " ;; *State.Running*) echo true ;; *Mounts*) printf '%s\x1e/config\x1etrue\x1e\n' "$MNT/user/appdata/$3" ;; esac
       exit 0
     fi
-    [[ "$1" == --format ]] && { printf '/c1  mariadb  sha256:1\n/c2  nginx  sha256:2\n/c3  nginx  sha256:3\n'; exit 0; }
+    [[ "$1" == --format ]] && { cat "$FAKE/images"; exit 0; }
     cat "$FAKE/inspect.json"; exit 0 ;;
   exec)
     shift; shift; a="$*"
@@ -6865,12 +6868,12 @@ SH);
     testsClock("$tmp/bin", $clock);
     $env = "export PATH=$tmp/bin:\$PATH UB_DATA=$data UB_MNT=$mnt UB_BOOT=$tmp/boot UB_SHARES_CFG=$tmp/boot/config/shares UB_STAGE=$tmp/stage UB_LIBVIRT=$lv"
          . " UB_DISKS_INI=$fake/disks.ini UB_MOUNTS_FILE=$fake/mounts UB_NOTIFY_BIN=$tmp/bin/notify UB_VAR_INI=$fake/var.ini FAKE=$fake MNT=$mnt POOL=$pool LV=$lv UB_ARRAY_LOOK=1";
-    $settings = function (bool $dump = true) use ($mnt, $data): void {
+    $settings = function (bool $dump = true, string $more = '', string $known = '') use ($mnt, $data): void {
         file_put_contents("$data/settings.ini", "[general]\nserver = Test\nmount_root = $mnt/addons/UnraidSecretaryOffice/snapshots\nview_root = $mnt/addons/UnraidSecretaryOffice/btrfs-snap\n"
-            . "snap_prefix = uso-backup-\ndumps_share = UnraidSecretaryOffice\nmin_free_gb = 0\n[docker]\nstop = all\nknown = c1 c2 c3\n[flash]\nmode = off\n[libvirt]\nmode = off\n[kopia]\nenabled = no\n"
+            . "snap_prefix = uso-backup-\ndumps_share = UnraidSecretaryOffice\nmin_free_gb = 0\n[docker]\nstop = all\nknown = c1 c2 c3$known\n[flash]\nmode = off\n[libvirt]\nmode = off\n[kopia]\nenabled = no\n"
             . ($dump ? "[dump \"c1\"]\ntype = mariadb\n" : '')
             . "[share \"appdata\"]\nmode = snapshot\n[share \"domains\"]\nmode = snapshot\n[share \"UnraidSecretaryOffice\"]\nmode = snapshot\n"
-            . "[vm \"vm1\"]\nmode = snapshot\nprepare = pause\n[vm \"vm2\"]\nmode = snapshot\nprepare = none\n[vm \"vm3\"]\nmode = snapshot\nprepare = pause\n");
+            . "[vm \"vm1\"]\nmode = snapshot\nprepare = pause\n[vm \"vm2\"]\nmode = snapshot\nprepare = none\n[vm \"vm3\"]\nmode = snapshot\nprepare = pause\n" . $more);
     };
     $run = function () use ($env, $clock, $fake, $data): array {
         foreach (glob("$fake/{events,state.*}", GLOB_BRACE) ?: [] as $f) {
@@ -6932,6 +6935,54 @@ SH);
     [$rc, $out] = $run();
     same('inside: a run without dumps writes no dump, and the folder is overwritten whole', [0, true, false, false],
         [$rc, is_file("$app/my-c1.xml"), file_exists("$app/db"), file_exists("$app/stale.txt")], $out);
+
+    // 2.57: an app's package only inside Unraid's place for app configurations (docker.cfg). «s3» (an S3 gateway) binds the
+    // whole share s3-tom (a dataset only it binds) and s3-tom/.versions; «dn» binds the share drop, drop/shares and
+    // appdata/dn. Up to 2.56 the engine wrote .uso-backup into all of them - those go aside once (only the engine's)
+    file_put_contents("$tmp/boot/config/docker.cfg", "DOCKER_ENABLED=\"yes\"\nDOCKER_APP_CONFIG_PATH=\"/mnt/user/appdata/\"\n");
+    foreach (['s3-tom', 'drop'] as $n) {
+        touch("$tmp/boot/config/shares/$n.cfg");
+    }
+    $engine = "Written by the Unraid Secretary Office's backup engine: this app's package as of the last backup\nOverwritten by every backup run\n";
+    foreach (["$pool/s3-tom/.versions/.uso-backup", "$pool/s3-tom/.uso-backup", "$pool/drop/shares/.uso-backup", "$pool/drop/.uso-backup", "$pool/appdata/dn", "$pool/appdata/.uso-backup"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    foreach (["$pool/s3-tom/.versions/.uso-backup", "$pool/s3-tom/.uso-backup", "$pool/drop/shares/.uso-backup", "$pool/appdata/.uso-backup"] as $d) {
+        file_put_contents("$d/README.txt", $engine);
+        file_put_contents("$d/manifest.json", '{"kind":"app","name":"old"}');
+    }
+    file_put_contents("$pool/drop/.uso-backup/README.txt", "my own notes\n");       // a user's folder by that name: never touched
+    file_put_contents("$fake/mounts", "maple/s3-tom $pool/s3-tom zfs rw 0 0\nmaple/drop $pool/drop zfs rw 0 0\n", FILE_APPEND);
+    file_put_contents("$fake/zfs.txt", $z('maple/s3-tom', "$pool/s3-tom") . $z('maple/drop', "$pool/drop"), FILE_APPEND);
+    $bind = fn (string $src, string $dst) => ['Type' => 'bind', 'Source' => $src, 'Destination' => $dst, 'RW' => true];
+    $cts = json_decode((string) file_get_contents("$fake/inspect.json"));            // objects: the empty Labels stay {}
+    $cts[] = array_merge($ct('s3', 'versity/versitygw', 'id4'), ['Mounts' => [$bind("$mnt/user/s3-tom", '/data/s3'), $bind("$mnt/user/s3-tom/.versions", '/data/versions')]]);
+    $cts[] = array_merge($ct('dn', 'dropnook', 'id5'), ['Mounts' => [$bind("$mnt/user/drop", '/drop'), $bind("$mnt/user/drop/shares", '/shares'), $bind("$mnt/user/appdata/dn", '/config')]]);
+    file_put_contents("$fake/inspect.json", json_encode($cts));
+    file_put_contents("$fake/ps-ids", "id4\nid5\n", FILE_APPEND);
+    file_put_contents("$fake/ps", "s3\tversity/versitygw\tUp\ndn\tdropnook\tUp\n", FILE_APPEND);
+    file_put_contents("$fake/images", "/s3  versity/versitygw  sha256:4\n/dn  dropnook  sha256:5\n", FILE_APPEND);
+    $settings(false, "[share \"s3-tom\"]\nmode = snapshot\n[share \"drop\"]\nmode = snapshot\n", ' s3 dn');
+    [$rc, $out] = $run();
+    $aside = glob("$data/state/inside-aside/*/*") ?: [];
+    same('inside 2.57: the run went through', 0, $rc, $out);
+    same('inside 2.57: no package in a share\'s root (folder or dataset) nor in another share\'s folder — the earlier ones gone from there', [false, false, false],
+        [file_exists("$pool/s3-tom/.uso-backup"), file_exists("$pool/s3-tom/.versions/.uso-backup"), file_exists("$pool/drop/shares/.uso-backup")], $out);
+    same('inside 2.57: an app with data shares gets its package in appdata/<app>; appdata-only apps and a dataset inside appdata as before', [true, true, true],
+        [is_file("$pool/appdata/dn/.uso-backup/manifest.json"), is_file("$pool/appdata/c2/.uso-backup/manifest.json"), is_file("$pool/appdata/c1/.uso-backup/manifest.json")], $out);
+    check('inside 2.57: one log line per place left out — no warning', str_contains($out, "app 's3': $pool/s3-tom is a share's data, not the app's folder - .uso-backup not written")
+        && str_contains($out, "app 's3': $pool/s3-tom/.versions is a share's data") && str_contains($out, "app 'dn': $pool/drop is a share's data")
+        && str_contains($out, "app 'dn': $pool/drop/shares is a share's data") && !preg_match('/WARN.*(s3-tom|drop)/', $out), $out);
+    same('inside 2.57: the engine\'s earlier packages moved away into state/inside-aside/<run>/ — four (appdata\'s root too: no app\'s alone), each with its README', [4, true, false],
+        [count($aside), count(array_filter($aside, fn ($d) => str_starts_with((string) @file_get_contents("$d/README.txt"), 'Written by the Unraid'))) === 4, file_exists("$pool/appdata/.uso-backup")], json_encode($aside) . $out);
+    check('inside 2.57: … said in the log', str_contains($out, "the package an earlier run wrote into $pool/s3-tom/.uso-backup moved away to $data/state/inside-aside/")
+        && str_contains($out, "wrote into $pool/s3-tom/.versions/.uso-backup moved away") && str_contains($out, "wrote into $pool/drop/shares/.uso-backup moved away")
+        && str_contains($out, "share 'appdata': the package an earlier run wrote into $pool/appdata/.uso-backup moved away"), $out);
+    same('inside 2.57: a .uso-backup that isn\'t the engine\'s stays as it is, said', ["my own notes\n", true],
+        [(string) @file_get_contents("$pool/drop/.uso-backup/README.txt"), str_contains($out, "$pool/drop/.uso-backup isn't the backup engine's - left as it is")], $out);
+    [$rc, $out] = $run();
+    same('inside 2.57: the next run moves nothing more and writes nothing there', [0, 4, false, false, true],
+        [$rc, count(glob("$data/state/inside-aside/*/*") ?: []), str_contains($out, 'the package an earlier run wrote into'), file_exists("$pool/s3-tom/.uso-backup"), is_file("$pool/appdata/dn/.uso-backup/manifest.json")], $out);
 
     // 2.48 (review 2026-10-15): keep_logs = 0 never removes the log of the run that is writing it - only the earlier ones go
     file_put_contents("$data/settings.ini", "[general]\nkeep_logs = 0\n", FILE_APPEND);
@@ -7451,7 +7502,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.56', [1, '2.56'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.57', [1, '2.57'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -8059,7 +8110,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.56', [1, '2.56'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.57', [1, '2.57'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
