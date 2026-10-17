@@ -1398,7 +1398,7 @@ async function packageAside(g0) {
   if (!g) { Office.toast(Office.errorText({ key: 'package_aside_gone', params: { name: g0.name } }, ID), true); render(); return; }
   const box = el('div');
   box.appendChild(el('p', '', T('pk.gone_text.' + g.kind, { name: g.name })));
-  box.appendChild(el('p', '', copyCode(g.path)));
+  box.appendChild(el('p')).appendChild(copyCode(g.path));
   box.appendChild(el('p', 'role', T('pk.gone_back')));
   Office.dialog({
     title: T('pk.gone_title', { name: g.name }),
@@ -2398,6 +2398,7 @@ async function setupLoad() {
   if (j.plan && (!setup.plan || j.plan.time !== setup.plan.time)) {
     setup.plan = j.plan;
     setupDraftKeep();
+    Office.placesTook(ID, j.plan, 'setup');     // its rows for the office's search (setupItems()) - the plan as it came
   }
   const finishedForget = was && was.running && was.mode === 'forget' && !j.status.running;
   if (finishedForget) {
@@ -6092,10 +6093,29 @@ Office.places(ID, [
     ['setup.forget_short', 'help.forget']].map(([key, text]) => ({ kind: 'help', key, text, ...SETUP })),
 ]);
 
+/**
+ * The setup's rows for the office's search (2026-10-17: «immich», «Mediathek» should find the row to change): every share,
+ * VM and app of the plan the page loaded (setupLoad() hands it in, Office.placesTook(ID, plan, 'setup')) - never a request
+ * of its own, never per keystroke. Each leads to its step's tile and its row (setup:share|vm|app:…), which the search
+ * scrolls to and marks; an app is found by its containers' names too
+ */
+function setupItems(plan) {
+  if (!plan || !Array.isArray(plan.shares)) return [];
+  const m = setup.plan === plan && setup.model ? setup.model : setupModel(plan);
+  const sub = (step) => `${T('setup.page')} · ${T(step).replace(/^\d+\s*·\s*/, '')}`;     // the step's name without its number («2 · »)
+  const route = (step) => setupRoute(STEP_TILE[step]);
+  return [
+    ...plan.shares.filter((x) => x.exists).map((x) => ({ text: x.name, sub: sub('setup.shares'), anchor: `setup:share:${x.name}`, route: route('setup.shares') })),
+    ...m.vms.map((v) => ({ text: v.name, sub: sub('setup.vms'), anchor: `setup:vm:${v.name}`, route: route('setup.vms') })),
+    ...m.apps.map((a) => ({ text: a.name, sub: sub('setup.apps'), anchor: `setup:app:${a.id}`, route: route('setup.apps'), words: a.members.join(' ') })),
+  ];
+}
+
 // what his state holds for the search (core.js «items»): the main page's rows — every share, VM and app with how it is
-// protected (its row's «Change…» leads into the setup), the runs his history shows, the partner offices he sends to.
-// The setup's own rows come from its plan (asked for when the setup opens, not part of his state): not searched here.
-Office.placesFrom(ID, (s) => {
+// protected (its row's «Change…» leads into the setup), the runs his history shows, the partner offices he sends to;
+// the setup's own rows from its plan as the page loaded it (part «setup», setupItems())
+Office.placesFrom(ID, (s, part) => {
+  if (part === 'setup') return setupItems(s);
   const out = [];
   if (!s.found) return out;
   const kopiaOn = !!(s.settings && s.settings.kopia_enabled);
@@ -6132,7 +6152,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     partnerNowText, partnerRateOf, runModeOf, progress, partnerUnits, partnerSectionRows, partnerApplyLines, setupChangeItems, listChangeText, knownText, diffMark, whyFold, folderOf, ownDataset, setupMakeDataset, appPartner, partnerShareLines, appDepGaps, depCovered, depTicked, depClick, setupInitLevels, setupDeclinedApply, declinedList, ownFoldersOf, setupModel, partnerApplyText, setupDecline, setupApplyChanges, minuteTaken, bubbleText, deskActions,
     presetKopiaMode, presetKopiaVm, draftMode, draftVm, setupNewItems, presetApplyNew, presetNow, presetChosen, presetNewMode, presetNewVm,
     letGoPart, letGoLines, letGoDoneLines, letGoResult, setLetGoClock: (c) => { letGoClock = c; }, setupUnfold, UNFOLD_OWN, setupDecisions, setupApplyChanges, changeLabel, valueText, setupSplit, setupDecline,
-    warnLines, bubbleText, setupBarSpec, setupNoPlace, setupPlaceStart, bubblePlace,
+    warnLines, bubbleText, setupBarSpec, setupNoPlace, setupPlaceStart, bubblePlace, setupItems,
   };
 }
 })();

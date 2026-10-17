@@ -446,7 +446,8 @@
    "partner|c4d81e55|name": "Onkel",
    "partner|c4d81e55|address": "100.84.12.5",
    "partner|c4d81e55|port": "22",
-   "partner|c4d81e55|rate_mbit": "0"
+   "partner|c4d81e55|rate_mbit": "0",
+   "share|Familienvideos|note": "Liste von Vater"
   },
   "pending": [
    {
@@ -778,9 +779,7 @@
     "why_arg": "",
     "previous": true,
     "risk": true,
-    "volumes": [
-     "/data"
-    ],
+    "volumes": [],
     "project": "immich",
     "service": "immich-server",
     "kopia": false,
@@ -813,7 +812,8 @@
      "kind": "immich",
      "share": "appdata",
      "path": "immich/upload"
-    }
+    },
+    "volumes_cache": []
    },
    {
     "name": "immich_redis",
@@ -833,7 +833,31 @@
     "binds": [],
     "media": "",
     "offers": [],
-    "data": null
+    "data": null,
+    "volumes_cache": []
+   },
+   {
+    "name": "immich_machine_learning",
+    "image": "ghcr.io/immich-app/immich-machine-learning:release",
+    "running": true,
+    "stop": false,
+    "why": "volumes",
+    "why_arg": "",
+    "previous": true,
+    "risk": true,
+    "volumes": [
+     "/cache"
+    ],
+    "project": "immich",
+    "service": "immich-machine-learning",
+    "kopia": false,
+    "binds": [],
+    "media": "",
+    "offers": [],
+    "data": null,
+    "volumes_cache": [
+     "/cache"
+    ]
    },
    {
     "name": "immich_postgres",
@@ -857,7 +881,8 @@
     ],
     "media": "",
     "offers": [],
-    "data": null
+    "data": null,
+    "volumes_cache": []
    },
    {
     "name": "Nextcloud",
@@ -890,7 +915,8 @@
      "kind": "Dokumente",
      "share": "Dokumente",
      "path": ""
-    }
+    },
+    "volumes_cache": []
    },
    {
     "name": "mariadb-nextcloud",
@@ -914,7 +940,8 @@
     ],
     "media": "",
     "offers": [],
-    "data": null
+    "data": null,
+    "volumes_cache": []
    },
    {
     "name": "EmbyServer",
@@ -954,7 +981,8 @@
       "kind": "log"
      }
     ],
-    "data": null
+    "data": null,
+    "volumes_cache": []
    },
    {
     "name": "kopia",
@@ -991,7 +1019,8 @@
     ],
     "media": "",
     "offers": [],
-    "data": null
+    "data": null,
+    "volumes_cache": []
    },
    {
     "name": "Grafana",
@@ -1015,7 +1044,8 @@
     ],
     "media": "",
     "offers": [],
-    "data": null
+    "data": null,
+    "volumes_cache": []
    },
    {
     "name": "prometheus",
@@ -1044,7 +1074,8 @@
     ],
     "media": "",
     "offers": [],
-    "data": null
+    "data": null,
+    "volumes_cache": []
    },
    {
     "name": "Node-Exporter",
@@ -1062,7 +1093,8 @@
     "binds": [],
     "media": "",
     "offers": [],
-    "data": null
+    "data": null,
+    "volumes_cache": []
    }
   ],
   "databases": [
