@@ -16,6 +16,7 @@
   "bubble.eta": "Terminará hacia las {time}.",
   "bubble.eta_rough": "Terminará hacia las {time} — a ojo: es la primera copia, todavía no hay nada con qué comparar.",
   "bubble.eta_late": "Está tardando más de lo normal — la esperaba hacia las {time}.",
+  "bubble.eta_partner_unknown": "Terminará hacia las {time}, más el paso al socio: recibe algo por primera vez, todavía no sé cuánto tardará.",
   "bubble.first_eta": "Ay, ay — {share} sale fuera de casa por primerísima vez ({size}). Tarda muchas horas, no está colgado, ¡lo he comprobado tres veces! Se lee a ~{rate}/s — terminará hacia las {time}.",
   "bubble.first_soon": "Ay, ay — {share} sale fuera de casa por primerísima vez ({size}). Muchas horas — pero ya casi está, en cualquier momento (se lee a ~{rate}/s). ¡Estoy atento!",
   "bubble.first_measuring": "Ay, ay — {share} sale fuera de casa por primerísima vez ({size}). Tarda muchas horas, ¡no está colgado! Todavía estoy midiendo lo rápido que se lee…",
@@ -121,6 +122,7 @@
   "eta_late": "Más largo de lo normal — se esperaba a las {time}",
   "eta_unknown": "Todavía no hay estimación — la habrá después de la primera copia completa.",
   "eta_at": "Terminará hacia las {time}",
+  "eta_partner_unknown": "Terminará hacia las {time}, más el paso al socio — todavía no hay una transferencia anterior con qué comparar.",
   "eta_left": "faltan {left}",
   "hold.before": "Las apps y las VMs se detienen aquí un momento",
   "hold.now": {

@@ -37979,11 +37979,11 @@ function testBackupPartnerEta(): void
         'units' => $units, 'skipped' => array_map(fn ($u) => ['unit' => $u, 'why' => 'asleep'], $skipped)];
     $u = fn (string $unit, int $sec) => ['unit' => $unit, 'bytes' => $sec * 1000, 'seconds' => $sec, 'resumed' => false];
     $e = backupEstimates([
-        $run(5000, 5900, [$p('a1b2c3d4', [$u('place', 30), $u('vm:win', 500)], ['share:media'])]),
+        $run(5000, 5900, [$p('a1b2c3d4', [$u('place', 30), $u('vm:win', 500)], ['share:media', 'share:docs'])]),
         $run(1000, 1300, [$p('a1b2c3d4', [$u('place', 200), $u('share:docs', 60)])], 'aborted'),
     ]);
-    same('partner eta: each unit\'s newest transfer (an aborted run\'s too), a unit skipped last = 0',
-        ['a1b2c3d4|place' => 30, 'a1b2c3d4|vm:win' => 500, 'a1b2c3d4|share:media' => 0, 'a1b2c3d4|share:docs' => 60], $e['partner']);
+    same('partner eta: each unit\'s newest transfer (an aborted run\'s too), a real one before a newer skip, a unit only ever skipped = 0',
+        ['a1b2c3d4|place' => 30, 'a1b2c3d4|vm:win' => 500, 'a1b2c3d4|share:docs' => 60, 'a1b2c3d4|share:media' => 0], $e['partner']);
     same('partner eta: the part before the partner step = before Kopia less the run\'s partner seconds', [900, 370], [$e['before'], $e['prepare']]);
     same('partner eta: nothing known', [null, []], [backupEstimates([])['prepare'], backupEstimates([])['partner']]);
 
@@ -38016,9 +38016,22 @@ b.setState(st('snapshots', null));
 out.noPartner = left(b.progress());
 b.setState(st('snapshots', plan({ planned: [{ id: 'p1', unit: 'place' }, { id: 'p1', unit: 'share:new' }] })));
 p = b.progress();
-out.never = [p.eta, p.percent];
+out.never = [p.eta, p.percent, p.restEta === null ? null : Math.round(p.restEta - now)];
+b.setState(st('inventory', plan({ planned: [], partners: [{ id: 'p1', name: 'Office B' }] })));
+out.inventory = left(b.progress());
+b.setState(st('inventory', plan({ planned: [], partners: [{ id: 'p9', name: 'New office' }] })));
+p = b.progress();
+out.inventoryNew = [p.eta, p.restEta === null ? null : Math.round(p.restEta - now)];
 b.setState(st('partner', plan({ done: [{ id: 'p1', unit: 'place' }], current: { id: 'p1', unit: 'vm:win', since: now - 200, bytes: 1 } })));
 out.partnerNoRate = left(b.progress());
+b.setState(st('partner', plan({ done: [{ id: 'p1', unit: 'place' }], current: { id: 'p1', unit: 'vm:win', since: now - 900, bytes: 1 } })));
+p = b.progress();
+out.partnerLate = [left(p), p.overdue];
+b.setState(st('partner', plan({ planned: [{ id: 'p1', unit: 'share:new' }], current: { id: 'p1', unit: 'share:new', since: now - 30, bytes: 1 } })));
+p = b.progress();
+out.partnerFirst = [p.eta, p.percent, p.restEta === null ? null : Math.round(p.restEta - now)];
+b.setState(st('snapshots', plan({ planned: [{ id: 'p1', unit: 'share:new' }] })));
+out.bubble = b.bubbleText('main').filter((x) => x.startsWith('bubble.eta'));
 b.setState(st('partner', plan({ current: { id: 'p1', unit: 'place', since: now - 10, bytes: 1 } }),
   { partners: [{ id: 'p1', current: { unit: 'place', rate: 1000, eta: 40 } }] }));
 out.partnerRate = left(b.progress());
@@ -38028,8 +38041,15 @@ JS;
     $r = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/eta.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' 2>&1'), true);
     same('partner eta (page): in the step Snapshots the partner units count — 270 before + 30 + 500 + Kopia 100, 10 %', [900, 10], $r['snapshots'] ?? null);
     same('partner eta (page): a run without partners — before + Kopia as ever', 370, $r['noPartner'] ?? null);
-    same('partner eta (page): a unit never sent — unknown, no percent (never 99 %)', [null, null], $r['never'] ?? null);
+    same('partner eta (page): a unit never sent — no whole time, no percent (never 99 %); the rest\'s end (270 + 30 + Kopia 100) «plus the partner step»',
+        [null, null, 400], $r['never'] ?? null);
+    same('partner eta (page): the inventory, no plan yet — the units the partner got last time (270 + 30 + 500 + 100)', 900, $r['inventory'] ?? null);
+    same('partner eta (page): the inventory, a partner that never got anything — the rest only', [null, 370], $r['inventoryNew'] ?? null);
     same('partner eta (page): on the way without a rate yet — its last time less 200 s, then Kopia', 400, $r['partnerNoRate'] ?? null);
+    same('partner eta (page): past its last time without a rate — «longer than usual», Kopia still counted', [100, true], $r['partnerLate'] ?? null);
+    same('partner eta (page): its first transfer on the way, no rate yet — unknown, the rest (Kopia) known', [null, null, 100], $r['partnerFirst'] ?? null);
+    same('partner eta (page): the bubble says the rest\'s end «plus the partner step»', ['bubble.eta_partner_unknown {"time":"time(' . '<t>' . ')"}'],
+        array_map(fn ($x) => preg_replace('/time\(\d+(\.\d+)?\)/', 'time(<t>)', $x), $r['bubble'] ?? []));
     same('partner eta (page): with the rate — 40 s of this one, 500 for the next unit, Kopia 100', 640, $r['partnerRate'] ?? null);
     hardeningRm($tmp);
 }

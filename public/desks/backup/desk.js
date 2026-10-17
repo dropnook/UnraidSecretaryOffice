@@ -337,18 +337,28 @@ function progress() {
     return e;
   };
 
-  // the partner step (engine 2.27; status.json partner.planned from the run's start): every planned transfer not made yet
-  // at the seconds of its last one (agent: estimates.partner) — a unit never sent makes it unknown, never 99 % (2026-10-12)
+  // the partner step (engine 2.27; status.json partner.planned once the inventory is done): every planned transfer not made
+  // yet at the seconds of its last one (agent: estimates.partner) — a unit never sent makes that step unknown, never 99 %
+  // (2026-10-12); the rest still has its time (partnerUnknown, 2026-10-17). Before the plan (the inventory) the units the
+  // partners got last time (status.json partner.partners from the run's first line, engine 2.45)
   const sp = s.partner && Array.isArray(s.partner.planned) ? s.partner : null;
   const pest = est.partner || {};
   const unitKey = (x) => `${x.id}|${x.unit}`;
+  let partnerUnknown = false;
   const partnerLeft = () => {
     if (!sp) return 0;
+    if (!sp.planned.length) {
+      return (sp.partners || []).reduce((sum, x) => {
+        const last = Object.keys(pest).filter((k) => k.startsWith(x.id + '|'));
+        if (!last.length) partnerUnknown = true;
+        return last.reduce((a, k) => a + (typeof pest[k] === 'number' ? pest[k] : 0), sum);
+      }, 0);
+    }
     const over = new Set([...(sp.done || []), ...(sp.skipped || []), ...(sp.failed || []), ...(sp.current ? [sp.current] : [])].map(unitKey));
     return sp.planned.reduce((sum, x) => {
       if (over.has(unitKey(x))) return sum;
       const e = pest[unitKey(x)];
-      if (typeof e !== 'number') { known = false; return sum; }
+      if (typeof e !== 'number') { partnerUnknown = true; return sum; }
       return sum + e;
     }, 0);
   };
@@ -356,10 +366,14 @@ function progress() {
   if (s.phase === 'partner') {
     // a unit on its way to a partner (engine 2.42): what is left of this transfer at the measured rate — before the rate,
     // its last transfer's seconds less the time it is on its way —, then the partner units after it, then Kopia's sources
+    // — past that time without a rate: «longer than usual», never a 99 % that sits (2026-10-17)
     const pr = partnerRateOf(s);
     if (pr && pr.eta !== null && pr.rate) remaining += pr.eta;
-    else if (sp && sp.current && typeof pest[unitKey(sp.current)] === 'number') remaining += Math.max(0, pest[unitKey(sp.current)] - (now - (sp.current.since || now)));
-    else if (sp && sp.current) known = false;
+    else if (sp && sp.current && typeof pest[unitKey(sp.current)] === 'number') {
+      const left = pest[unitKey(sp.current)] - (now - (sp.current.since || now));
+      if (left < 0) overdue = true;
+      remaining += Math.max(0, left);
+    } else if (sp && sp.current) partnerUnknown = true;
     remaining += partnerLeft();
     planned.forEach((n) => { remaining += sourceLeft(n); });
   } else if (step < KOPIA_STEP) {
@@ -374,12 +388,15 @@ function progress() {
     planned.filter((n) => !done.has(n)).forEach((n) => { remaining += sourceLeft(n); });
   }
   const elapsed = now - s.started;
+  const whole = known && !partnerUnknown;
   return {
     step,
     planned,
     done,
-    eta: known ? now + remaining : null,
-    percent: known && elapsed + remaining > 0 ? Math.min(99, Math.round(elapsed / (elapsed + remaining) * 100)) : null,
+    eta: whole ? now + remaining : null,
+    percent: whole && elapsed + remaining > 0 ? Math.min(99, Math.round(elapsed / (elapsed + remaining) * 100)) : null,
+    // the rest known, the partner step not (a unit never sent): the rest's end — «plus the partner step»
+    restEta: known && partnerUnknown ? now + remaining : null,
     overdue,
     first,
     rough: firstRun && known,
@@ -408,6 +425,7 @@ function bubbleText(pg) {
     else if (s) out.push(T('bubble.running_phase', { step: T('step.' + STEPS[p ? p.step : 0][0]) }));
     else out.push(T('bubble.running_old', { step: state.step || '…' }));
     if (p && p.eta) out.push(T(p.overdue ? 'bubble.eta_late' : p.rough ? 'bubble.eta_rough' : 'bubble.eta', { time: fmt.time(p.eta) }));
+    else if (p && p.restEta) out.push(T('bubble.eta_partner_unknown', { time: fmt.time(p.restEta) }));
     if (newSkip()) out.push(T('bubble.skipped', { when: fmt.relative(newSkip().time) }));
     return out;
   }
@@ -714,6 +732,7 @@ function runningCard() {
   }
   const line = el('div', 'card-line');
   if (p.eta) line.append(T(p.overdue ? 'eta_late' : p.rough ? 'eta_rough' : 'eta_at', { time: fmt.time(p.eta) }));
+  else if (p.restEta) line.append(T('eta_partner_unknown', { time: fmt.time(p.restEta) }));
   // the very first backup before its upload: a rough estimate comes once that is measured (2026-10-15)
   else line.append(T(p.first ? 'eta_first' : p.firstRun && p.planned.length && p.step < KOPIA_STEP ? 'eta_first_wait' : 'eta_unknown'));
   if (s.downtime_s) line.append(' · ', T('downtime_was', { duration: fmt.duration(s.downtime_s) }));

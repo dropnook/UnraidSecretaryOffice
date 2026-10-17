@@ -987,7 +987,7 @@ function backupRunFromLog(string $path, string $run, int $started): array
  * with fewer than three simply the newest.
  * Partners (2026-10-12, Benj: 99 % in the step Snapshots, the partner step not yet counted): `partner` = per
  * "<id>|<unit>" the seconds of its newest transfer (history's partner block, engine 2.27: done[].seconds; skipped
- * there last = 0, a failed one says nothing), `prepare` = the part before the partner step (before Kopia less the
+ * there = 0 only without a real transfer, a failed one says nothing), `prepare` = the part before the partner step (before Kopia less the
  * run's partner seconds; a run without Kopia: up to its end) — the page adds the units this run plans on its own.
  */
 function backupEstimates(array $history): array
@@ -997,14 +997,16 @@ function backupEstimates(array $history): array
     $prepare = [];
     $total = [];
     $partner = [];
+    $skippedOnly = [];
     foreach ($history as $run) {
-        // a unit's newest transfer counts, whatever became of the run after it
+        // a unit's newest transfer counts, whatever became of the run after it — a real one before a newer skip (2026-10-17:
+        // skipped yesterday, it sends two runs' worth today, never «0 s»); a unit only ever skipped: 0 (it likely is again)
         foreach ($run['partner'] ?? [] as $p) {
             foreach ($p['units'] ?? [] as $u) {
                 $partner[$p['id'] . '|' . $u['unit']] ??= (int) $u['seconds'];
             }
             foreach ($p['skipped'] ?? [] as $u) {
-                $partner[$p['id'] . '|' . $u['unit']] ??= 0;
+                $skippedOnly[$p['id'] . '|' . $u['unit']] = 0;
             }
         }
         if ($run['result'] === 'failed' || $run['result'] === 'aborted') {
@@ -1044,7 +1046,7 @@ function backupEstimates(array $history): array
         'before'  => $median($before),
         'prepare' => $median($prepare),
         'total'   => $median($total),
-        'partner' => $partner,
+        'partner' => $partner + $skippedOnly,
     ];
 }
 
