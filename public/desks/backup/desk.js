@@ -5537,10 +5537,41 @@ function setupItems(plan) {
   return wrap;
 }
 
+/** Kopia's start time (nanoseconds) as the page's date, or «–» */
+function kopiaWhen(t) {
+  const at = Date.parse(String(t || '').replace(/(\.\d{3})\d+/, '$1'));      // Kopia's nanoseconds: milliseconds for every browser
+  return isNaN(at) ? '–' : fmt.date(Math.round(at / 1000));
+}
+const OLD_KINDS = ['share', 'app', 'vm', 'flash'];
+/** «App X», «VM Y», «Flash» — an old source's unit as the engine named it (kind, name), '' when it can't be said */
+const oldUnit = (o) => (OLD_KINDS.includes(o.kind) && typeof o.name === 'string' && o.name ? T('setup.orphans.kind_' + o.kind, { name: o.name }) : '');
+/**
+ * What an old Kopia source is, in words (engine 2.59: the plan's kind, name, why, snapshots, newest): its unit gone, there
+ * but no longer offsite (only older snapshots left), the flash as an archive in the backup place now, or not the office's
+ * (another path, an old script's). An older engine's entry without why: the source as it is.
+ */
+function oldSourceWords(o) {
+  if (o.state === 'gone') return T('setup.sources.row_other', { what: o.source });
+  if (o.state !== 'orphan' || typeof o.why !== 'string') return o.source;
+  const what = oldUnit(o);
+  if (!what || o.why === 'other') return T('setup.sources.row_other', { what: o.source });
+  if (o.why === 'gone') return T('setup.sources.row_gone', { what });
+  const n = Number.isInteger(o.snapshots) ? o.snapshots : 0;
+  const older = n > 0 ? T('setup.sources.older', { snapshots: T('setup.orphans.snapshots', { n }), when: kopiaWhen(o.newest) }) : T('setup.sources.older_bare');
+  if (o.kind === 'flash' && dget('flash|mode') === 'tar') return T('setup.sources.row_flash_tar', { older });
+  return T(o.why === 'not_offsite' ? 'setup.sources.row_not_offsite' : 'setup.sources.row_unknown', { what, older });
+}
+
 function setupSources(old) {
   const s = Office.place('setup.sources', setupSection(T('setup.sources'), T('setup.sources_sub')));
-  const ul = el('ul', 'shortlist');
-  old.filter((o) => fitRow(o.source, false)).forEach((o) => ul.appendChild(el('li', '', o.source)));
+  const ul = el('ul', 'shortlist bk-oldsrc');         // words, not paths: the page's own type (the path is each row's title)
+  old.forEach((o) => {
+    const words = oldSourceWords(o);
+    if (!fitRow(`${words} ${o.source}`, false)) return;
+    const li = el('li', '', words);
+    li.title = o.source;
+    ul.appendChild(li);
+  });
   s.appendChild(ul);
   // a one-time order for the next Apply (setup.sh --apply _retire_sources), no setting of settings.ini: said so on the row
   // (2026-10-17, silent controls: unticked, a reload ticked it again without a word)
@@ -5559,9 +5590,10 @@ function setupSources(old) {
   return s;
 }
 
-// ---- old Kopia sources (engine 2.51): the office's own sources of shares, apps and VMs that are gone. The engine lists
-// them (setup.sh --orphans: snapshots, the newest one's size and date), the user ticks, it lists anew and deletes for good
-// only what it offers then (--orphans-delete). Never another identity's, a path of the user's own, a unit still there.
+// ---- old Kopia sources (engine 2.51): the office's own sources of shares, apps and VMs that are gone — and (2.59) of
+// units still there that no longer go offsite (the flash too). The engine lists them (setup.sh --orphans: snapshots, the
+// newest one's size and date, why), the user ticks, it lists anew and deletes for good only what it offers then
+// (--orphans-delete). Never another identity's, a path of the user's own, a unit at a Kopia level.
 let orphansTurn = 0;               // the dialog's turn: a closed or newer one stops the older one's polling
 const ORPHANS_POLL = 1000;
 const orphansTitle = () => T('setup.orphans.title');
@@ -5609,7 +5641,8 @@ async function orphansDialog() {
   orphansPick(o);
 }
 
-/** The office's old sources with their snapshots, each with a tick (none ticked), and what deleting means */
+/** The office's old sources with their snapshots, each with a tick (none ticked), in two sections — gone, no longer
+ *  offsite (its own warning: the thing stays, no copy offsite afterwards) — and what deleting means */
 function orphansPick(o) {
   const turn = ++orphansTurn;
   const box = el('div', 'bk-orphans');
@@ -5626,17 +5659,23 @@ function orphansPick(o) {
     d.buttons[1].textContent = T('setup.orphans.go', { n: ticked.size });
     d.buttons[1].disabled = !ticked.size || !Office.agent.running;
   };
-  const list = el('div', 'bk-orphans-list');
-  o.sources.forEach((x) => {
-    const at = Date.parse(String(x.newest).replace(/(\.\d{3})\d+/, '$1'));      // Kopia's nanoseconds: milliseconds for every browser
-    const line = T('setup.orphans.line', { snapshots: T('setup.orphans.snapshots', { n: x.snapshots }),
-      when: isNaN(at) ? '–' : fmt.date(Math.round(at / 1000)), size: fmt.size(x.bytes) });
-    const label = checkbox(T('setup.orphans.kind_' + x.kind, { name: x.name }), false,
-      (v) => { if (v) ticked.add(x.source); else ticked.delete(x.source); sync(); }, line);
-    label.title = x.source;
-    list.appendChild(label);
-  });
-  box.appendChild(list);
+  const part = (why, head, warn) => {
+    const xs = o.sources.filter((x) => (x.why || 'gone') === why);
+    if (!xs.length) return;
+    box.appendChild(el('p', 'bk-orphans-head', T(head)));
+    if (warn) box.appendChild(el('p', 'callout warn', T(warn)));
+    const list = el('div', 'bk-orphans-list');
+    xs.forEach((x) => {
+      const line = T('setup.orphans.line', { snapshots: T('setup.orphans.snapshots', { n: x.snapshots }), when: kopiaWhen(x.newest), size: fmt.size(x.bytes) });
+      const label = checkbox(oldUnit(x) || x.source, false,
+        (v) => { if (v) ticked.add(x.source); else ticked.delete(x.source); sync(); }, line);
+      label.title = x.source;
+      list.appendChild(label);
+    });
+    box.appendChild(list);
+  };
+  part('gone', 'setup.orphans.gone_head', '');
+  part('not_offsite', 'setup.orphans.offsite_head', 'setup.orphans.offsite_warn');
   box.appendChild(el('p', 'callout warn', T('setup.orphans.warn')));
   d = Office.dialog({
     title: orphansTitle(),
@@ -6204,6 +6243,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     presetKopiaMode, presetKopiaVm, draftMode, draftVm, setupNewItems, presetApplyNew, presetNow, presetChosen, presetNewMode, presetNewVm,
     letGoPart, letGoLines, letGoDoneLines, letGoResult, setLetGoClock: (c) => { letGoClock = c; }, setupUnfold, UNFOLD_OWN, setupDecisions, setupApplyChanges, changeLabel, valueText, setupSplit, setupDecline,
     warnLines, bubbleText, setupBarSpec, setupNoPlace, setupPlaceStart, bubblePlace, setupSearchItems,
+    oldSourceWords, oldUnit, orphansPick,
   };
 }
 })();

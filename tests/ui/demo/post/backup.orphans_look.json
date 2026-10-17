@@ -1,0 +1,57 @@
+{
+ "started": true,
+ "orphans": {
+  "mode": "list",
+  "result": "ok",
+  "code": "",
+  "running": false,
+  "started": 1791551100,
+  "finished": 1791551104,
+  "identity": "root@kopia",
+  "sources": [
+   {
+    "source": "root@kopia:/uso/.apps/fotoalbum",
+    "path": "/uso/.apps/fotoalbum",
+    "kind": "app",
+    "name": "fotoalbum",
+    "snapshots": 6,
+    "bytes": 3221225472,
+    "newest": "2026-08-02T02:10:12.771200091Z",
+    "why": "gone"
+   },
+   {
+    "source": "root@kopia:/uso/Familienarchiv-alt",
+    "path": "/uso/Familienarchiv-alt",
+    "kind": "share",
+    "name": "Familienarchiv-alt",
+    "snapshots": 9,
+    "bytes": 48318382080,
+    "newest": "2026-07-14T02:20:40.118810551Z",
+    "why": "gone"
+   },
+   {
+    "source": "root@kopia:/uso/.vms/Windows-Spiele",
+    "path": "/uso/.vms/Windows-Spiele",
+    "kind": "vm",
+    "name": "Windows-Spiele",
+    "snapshots": 14,
+    "bytes": 85899345920,
+    "newest": "2026-09-20T02:14:07.512839104Z",
+    "why": "not_offsite"
+   },
+   {
+    "source": "root@kopia:/uso/_flash",
+    "path": "/uso/_flash",
+    "kind": "flash",
+    "name": "_flash",
+    "snapshots": 21,
+    "bytes": 1073741824,
+    "newest": "2026-09-20T02:03:51.004417532Z",
+    "why": "not_offsite"
+   }
+  ],
+  "deleted": [],
+  "failed": [],
+  "refused": []
+ }
+}

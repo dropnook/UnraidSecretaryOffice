@@ -1487,7 +1487,60 @@
    "storage": "",
    "host_is_container_id": false,
    "server_uid": "",
-   "sources": []
+   "sources": [
+    {
+     "state": "active",
+     "source": "root@kopia:/uso"
+    },
+    {
+     "state": "active",
+     "source": "root@kopia:/uso/Familienfotos"
+    },
+    {
+     "state": "active",
+     "source": "root@kopia:/uso/Dokumente"
+    },
+    {
+     "state": "orphan",
+     "source": "root@kopia:/uso/.vms/Windows-Spiele",
+     "kind": "vm",
+     "name": "Windows-Spiele",
+     "why": "not_offsite",
+     "snapshots": 14,
+     "newest": "2026-09-20T02:14:07.512839104Z"
+    },
+    {
+     "state": "orphan",
+     "source": "root@kopia:/uso/_flash",
+     "kind": "flash",
+     "name": "_flash",
+     "why": "not_offsite",
+     "snapshots": 21,
+     "newest": "2026-09-20T02:03:51.004417532Z"
+    },
+    {
+     "state": "orphan",
+     "source": "root@kopia:/uso/.apps/fotoalbum",
+     "kind": "app",
+     "name": "fotoalbum",
+     "why": "gone",
+     "snapshots": 6,
+     "newest": "2026-08-02T02:10:12.771200091Z"
+    },
+    {
+     "state": "orphan",
+     "source": "root@kopia:/uso/Familienarchiv-alt",
+     "kind": "share",
+     "name": "Familienarchiv-alt",
+     "why": "gone",
+     "snapshots": 9,
+     "newest": "2026-07-14T02:20:40.118810551Z"
+    },
+    {
+     "state": "gone",
+     "source": "root@kopia:/backup-alt/Dokumente"
+    }
+   ]
   },
   "messages": [
    {

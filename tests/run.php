@@ -9054,6 +9054,107 @@ SH);
 }
 
 /**
+ * Engine 2.59 on the page: each old Kopia source says what it is (its unit gone; there but no longer offsite, with its
+ * snapshots and the newest; the flash as an archive in the backup place now; not the office's - another path, an old
+ * script's), the path only as its title; «Delete in Kopia…» in two sections, gone and no longer offsite, the second
+ * with its own warning, nothing ticked. An older engine's entry (no why) keeps the source as it is.
+ */
+function testBackupOldSourcesPage(): void
+{
+    $keys = ['setup.sources.row_gone', 'setup.sources.row_not_offsite', 'setup.sources.row_unknown', 'setup.sources.row_flash_tar', 'setup.sources.row_other',
+             'setup.sources.older', 'setup.sources.older_bare', 'setup.orphans.kind_flash', 'setup.orphans.gone_head', 'setup.orphans.offsite_head', 'setup.orphans.offsite_warn'];
+    $langs = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $langs[$code] = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$code.json"), true) ?: [];
+        same("old sources page: the words ($code)", [], array_values(array_filter($keys, fn ($k) => !isset($langs[$code][$k]))));
+    }
+    $de = $langs['de'];
+    check('old sources page: the section says a true sentence - no «earlier backup script», no «no backed-up share»',
+        !str_contains($de['setup.sources_sub'], 'Backup-Script') && !str_contains($de['setup.sources_sub'], 'gesicherten Share')
+        && !str_contains($langs['en']['setup.sources_sub'], 'backup script'));
+    check('old sources page: German words as the owner wrote them', str_contains($de['setup.sources.row_gone'], 'gibt es nicht mehr')
+        && str_contains($de['setup.sources.row_not_offsite'], 'gibt es noch, geht nicht mehr ausser Haus') && str_contains($de['setup.sources.row_flash_tar'], 'als Archiv in die Backup-Ablage')
+        && str_contains($de['setup.sources.row_other'], 'nicht vom Sekretariat') && str_contains($de['setup.orphans.offsite_head'], 'Nicht mehr ausser Haus')
+        && str_contains($de['setup.orphans.offsite_warn'], 'keine Kopie ausser Haus mehr'));
+    $node = testsNode();
+    if ($node === '') {
+        check('old sources page: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('old-sources');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+const [bkFile] = process.argv.slice(2);
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const el = (tag, cls, text) => ({ tag, className: cls || '', textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {},
+  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, setAttribute() {}, focus() {} });
+let dialog = null;
+globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => b + ' B', date: (t) => 'D' + t },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, has: () => false, store: () => null, storeJson: () => null, agent: { running: true },
+  dialog: (o) => { dialog = { ...o, buttons: (o.buttons || []).map((b) => ({ ...b, textContent: b.text, focus() {} })) }; return dialog; } };
+(0, eval)(fs.readFileSync(bkFile, 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+b.setup.draft = { 'flash|mode': 'tar' };
+const o = (x) => ({ state: 'orphan', source: 'root@kopia:/uso/x', ...x });
+const out = {};
+out.rows = [
+  b.oldSourceWords(o({ kind: 'app', name: 'fotoalbum', why: 'gone', snapshots: 3, newest: '2026-09-01T02:00:00.123456789Z' })),
+  b.oldSourceWords(o({ kind: 'vm', name: 'Windows-Spiele', why: 'not_offsite', snapshots: 14, newest: '2026-09-01T02:00:00.123456789Z' })),
+  b.oldSourceWords(o({ kind: 'share', name: 'Archiv', why: 'not_offsite', snapshots: 0, newest: '' })),
+  b.oldSourceWords(o({ kind: 'flash', name: '_flash', why: 'not_offsite', snapshots: 2, newest: '2026-09-01T02:00:00Z' })),
+  b.oldSourceWords(o({ kind: 'app', name: 'x', why: 'unknown', snapshots: 1, newest: '2026-09-01T02:00:00Z' })),
+  b.oldSourceWords(o({ kind: '', name: '', why: 'other' })),
+  b.oldSourceWords({ state: 'gone', source: 'root@kopia:/backup-snapshots/olddata' }),
+  b.oldSourceWords(o({})),
+];
+b.setup.draft = { 'flash|mode': 'off' };
+out.flashOff = b.oldSourceWords(o({ kind: 'flash', name: '_flash', why: 'not_offsite', snapshots: 2, newest: '2026-09-01T02:00:00Z' }));
+// the dialog: two sections, each its head (the second its warning), its list of ticks, then what deleting means
+const src = (k, n, why) => ({ source: `root@kopia:/uso/${n}`, path: `/uso/${n}`, kind: k, name: n, snapshots: 2, bytes: 10, newest: '2026-09-01T02:00:00Z', why });
+b.orphansPick({ started: 5, sources: [src('app', 'fotoalbum', 'gone'), src('vm', 'Windows-Spiele', 'not_offsite'), src('flash', '_flash', 'not_offsite'), src('share', 'alt', 'gone')] });
+const flat = (n) => (n.className === 'bk-orphans-list'
+  ? [['list', n.children.map((l) => [l.title, l.children[1].textContent, l.children[1].children[0].textContent, l.children[0].checked])]]
+  : [[n.className, n.textContent]]);
+out.dialog = dialog.body.children.flatMap(flat);
+out.go = [dialog.buttons[1].textContent, dialog.buttons[1].disabled];
+b.orphansPick({ started: 6, sources: [src('vm', 'W', 'not_offsite')] });
+out.onlyOffsite = dialog.body.children.map((n) => n.className);
+console.log(JSON.stringify(out));
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' 2>&1');
+    $r = json_decode($raw, true);
+    hardeningRm($tmp);
+    if (!is_array($r)) {
+        check('old sources page: ran under node', false, substr($raw, 0, 2000));
+        return;
+    }
+    $when = 'D' . (int) round(strtotime('2026-09-01T02:00:00Z'));
+    $older = fn (int $n) => 'setup.sources.older ' . json_encode(['snapshots' => 'setup.orphans.snapshots ' . json_encode(['n' => $n]), 'when' => $when]);
+    same('old sources page: each row in words - gone; there, no longer offsite with its snapshots (none counted: bare); the flash as an archive; unknown; '
+        . 'not the office\'s (other shape, a path gone from the container); an older engine\'s entry as it is',
+        ['setup.sources.row_gone ' . json_encode(['what' => 'setup.orphans.kind_app {"name":"fotoalbum"}']),
+         'setup.sources.row_not_offsite ' . json_encode(['what' => 'setup.orphans.kind_vm {"name":"Windows-Spiele"}', 'older' => $older(14)]),
+         'setup.sources.row_not_offsite ' . json_encode(['what' => 'setup.orphans.kind_share {"name":"Archiv"}', 'older' => 'setup.sources.older_bare']),
+         'setup.sources.row_flash_tar ' . json_encode(['older' => $older(2)]),
+         'setup.sources.row_unknown ' . json_encode(['what' => 'setup.orphans.kind_app {"name":"x"}', 'older' => $older(1)]),
+         'setup.sources.row_other ' . json_encode(['what' => 'root@kopia:/uso/x'], JSON_UNESCAPED_SLASHES),
+         'setup.sources.row_other ' . json_encode(['what' => 'root@kopia:/backup-snapshots/olddata'], JSON_UNESCAPED_SLASHES),
+         'root@kopia:/uso/x'], $r['rows']);
+    same('old sources page: the flash not as tar (off) - no longer offsite like any other', 'setup.sources.row_not_offsite '
+        . json_encode(['what' => 'setup.orphans.kind_flash {"name":"_flash"}', 'older' => $older(2)]), $r['flashOff']);
+    $line = 'setup.orphans.line ' . json_encode(['snapshots' => 'setup.orphans.snapshots {"n":2}', 'when' => $when, 'size' => '10 B']);
+    same('old sources page: the delete dialog - gone first, then «no longer offsite» with its own warning; every one unticked, its path as title; then what deleting means',
+        [['', 'setup.orphans.intro'], ['bk-orphans-head', 'setup.orphans.gone_head'],
+         ['list', [['root@kopia:/uso/fotoalbum', 'setup.orphans.kind_app {"name":"fotoalbum"}', $line, false], ['root@kopia:/uso/alt', 'setup.orphans.kind_share {"name":"alt"}', $line, false]]],
+         ['bk-orphans-head', 'setup.orphans.offsite_head'], ['callout warn', 'setup.orphans.offsite_warn'],
+         ['list', [['root@kopia:/uso/Windows-Spiele', 'setup.orphans.kind_vm {"name":"Windows-Spiele"}', $line, false], ['root@kopia:/uso/_flash', 'setup.orphans.kind_flash {"name":"_flash"}', $line, false]]],
+         ['callout warn', 'setup.orphans.warn']], $r['dialog']);
+    same('old sources page: nothing ticked - the button off', ['setup.orphans.go {"n":0}', true], $r['go']);
+    same('old sources page: only units still there - only that section', ['', 'bk-orphans-head', 'callout warn', 'bk-orphans-list', 'callout warn'], $r['onlyOffsite']);
+}
+
+/**
  * Engine 2.28 in the office: Mr. Backupsy reads what a run left out because its pool slept - status.json/history
  * "asleep" (the shape kept, everything else dropped), the Kopia sources skipped asleep apart from those the array stop
  * skipped, the metrics, what Apply accepts for the key, the page's texts in all five languages and the setup's switch.
@@ -40818,7 +40919,7 @@ JS;
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
