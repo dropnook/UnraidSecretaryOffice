@@ -210,7 +210,15 @@
   "errors.moverelli_jack_list": "Des exécutions réelles seulement quand la liste de Jack Streamer fait partie des fichiers que je laisse en place — pour {shares}. Sinon je ramènerais sur l'array ce qu'il a préparé.",
   "errors.moverelli_mover_off_failed": "La planification du mover d'Unraid n'a pas pu être désactivée : {detail}",
   "notify.subject": "Madame Moverelli : {result}",
-  "notify.counts": "{moved} déplacés, {left} restés, {errors} erreurs.",
+  "notify.counts": "{moved}, {left}, {errors}.",
+  "notify.count.moved": {
+    "one": "{n} déplacé",
+    "other": "{n} déplacés"
+  },
+  "notify.count.left": {
+    "one": "{n} resté",
+    "other": "{n} restés"
+  },
   "notify.stopped_mover": "Le mover d'Unraid a démarré pendant mon exécution — je me suis arrêtée après le fichier en cours ({n} déplacés). Le reste suivra la prochaine fois.",
   "notify.no_status": "Mon exécution s'est arrêtée sans dire comment elle s'est passée (code de sortie {exit}).",
   "notify.see": "Ma page et le journal en disent plus.",

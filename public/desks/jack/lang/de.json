@@ -551,7 +551,7 @@
   "errors.jack_release_watching": "Gerade schaut jemand — solange jemand schaut, bringe ich nichts zurück.",
   "errors.jack_letgo_nothing": "Von mir liegt nichts auf dem Pool.",
   "errors.jack_letgo_python": "Auf dem Server fehlt Python 3 — ohne kann ich nicht laufen.",
-  "notify.subject_release": "{tool}: zurück aufs Array, was er bereitgelegt hat — {result}",
+  "notify.subject_release": "{tool}: Dateien vom Pool zurück aufs Array — {result}",
   "notify.released": {"one": "{n} Datei ist wieder auf dem Array.", "other": "{n} Dateien sind wieder auf dem Array."},
   "notify.released_left": {"one": "{n} Datei bleibt auf dem Pool (sie lief gerade oder liess sich nicht verschieben).", "other": "{n} Dateien bleiben auf dem Pool (sie liefen gerade oder liessen sich nicht verschieben)."},
   "notify.release_stay": "Was Jack Streamer bereitgelegt hat, bleibt auf dem Pool.",

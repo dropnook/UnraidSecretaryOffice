@@ -117,10 +117,10 @@ function officeBody(array $config): void
 <?php endif; ?>
 
 <header class="topbar">
-  <nav class="desk-tabs" id="sso-tabs" aria-label="Desks"></nav>
+  <nav class="desk-tabs" id="sso-tabs"></nav>
   <div class="topbar-right">
     <button class="agent-state" id="sso-state" type="button"><span class="agent-label" id="sso-state-label"></span><span class="dot" id="sso-dot"></span></button>
-    <button class="more" id="sso-more" type="button" aria-label="More">⋯</button>
+    <button class="more" id="sso-more" type="button">⋯</button>
   </div>
 </header>
 

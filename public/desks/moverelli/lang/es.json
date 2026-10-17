@@ -210,7 +210,15 @@
   "errors.moverelli_jack_list": "Ejecuciones reales solo cuando la lista de Jack Streamer esté entre los archivos que dejo en paz — para {shares}. Si no, devolvería al array lo que preparó.",
   "errors.moverelli_mover_off_failed": "No se ha podido apagar la programación del mover de Unraid: {detail}",
   "notify.subject": "Señora Moverelli: {result}",
-  "notify.counts": "{moved} movidos, {left} se quedaron, {errors} errores.",
+  "notify.counts": "{moved}, {left}, {errors}.",
+  "notify.count.moved": {
+    "one": "{n} movido",
+    "other": "{n} movidos"
+  },
+  "notify.count.left": {
+    "one": "{n} se quedó",
+    "other": "{n} se quedaron"
+  },
   "notify.stopped_mover": "Durante mi ejecución arrancó el mover de Unraid — paré después del archivo en curso ({n} movidos). El resto, la próxima vez.",
   "notify.no_status": "Mi ejecución se detuvo sin decir cómo fue (código de salida {exit}).",
   "notify.see": "Mi página y el registro dicen más.",

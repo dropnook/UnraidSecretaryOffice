@@ -210,7 +210,15 @@
   "errors.moverelli_jack_list": "Real runs only once Jack Streamer's list is among the files I leave alone — for {shares}. Otherwise I'd move what he laid out back to the array.",
   "errors.moverelli_mover_off_failed": "Unraid's mover schedule couldn't be switched off: {detail}",
   "notify.subject": "Ms. Moverelli: run {result}",
-  "notify.counts": "{moved} moved, {left} stayed, {errors} errors.",
+  "notify.counts": "{moved}, {left}, {errors}.",
+  "notify.count.moved": {
+    "one": "{n} moved",
+    "other": "{n} moved"
+  },
+  "notify.count.left": {
+    "one": "{n} stayed",
+    "other": "{n} stayed"
+  },
   "notify.stopped_mover": "Unraid's mover started during my run — I stopped after the file I was on ({n} moved). The rest follows next time.",
   "notify.no_status": "My run stopped without saying how it went (exit code {exit}).",
   "notify.see": "My page and the log say more.",

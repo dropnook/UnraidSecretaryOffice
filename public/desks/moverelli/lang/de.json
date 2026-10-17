@@ -210,7 +210,15 @@
   "errors.moverelli_jack_list": "Echte Läufe erst, wenn Jack Streamers Liste bei den Dateien steht, die ich liegen lasse — für {shares}. Sonst schiebe ich zurück aufs Array, was er bereitgelegt hat.",
   "errors.moverelli_mover_off_failed": "Unraids Mover-Zeitplan liess sich nicht ausschalten: {detail}",
   "notify.subject": "Frau Moverelli: Lauf {result}",
-  "notify.counts": "{moved} verschoben, {left} geblieben, {errors} Fehler.",
+  "notify.counts": "{moved}, {left}, {errors}.",
+  "notify.count.moved": {
+    "one": "{n} verschoben",
+    "other": "{n} verschoben"
+  },
+  "notify.count.left": {
+    "one": "{n} geblieben",
+    "other": "{n} geblieben"
+  },
   "notify.stopped_mover": "Während meines Laufs ist Unraids Mover gestartet — ich habe nach der Datei aufgehört, an der ich war ({n} verschoben). Der Rest folgt beim nächsten Mal.",
   "notify.no_status": "Mein Lauf hat aufgehört, ohne zu melden, wie er lief (Exit-Code {exit}).",
   "notify.see": "Meine Seite und das Protokoll sagen mehr.",

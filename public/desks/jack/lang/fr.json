@@ -551,7 +551,7 @@
   "errors.jack_release_watching": "Quelqu'un regarde en ce moment — je ne ramène rien tant que quelqu'un regarde.",
   "errors.jack_letgo_nothing": "Rien de moi ne se trouve sur le pool.",
   "errors.jack_letgo_python": "Python 3 manque sur le serveur — sans lui, je ne peux pas tourner.",
-  "notify.subject_release": "{tool} : retour sur l'array de ce qu'il a préparé — {result}",
+  "notify.subject_release": "{tool} : fichiers du pool de retour sur l'array — {result}",
   "notify.released": {"one": "{n} fichier est de retour sur l'array.", "other": "{n} fichiers sont de retour sur l'array."},
   "notify.released_left": {"one": "{n} fichier reste sur le pool (il était en lecture ou n'a pas pu être déplacé).", "other": "{n} fichiers restent sur le pool (ils étaient en lecture ou n'ont pas pu être déplacés)."},
   "notify.release_stay": "Ce que Jack Streamer a préparé reste sur le pool.",

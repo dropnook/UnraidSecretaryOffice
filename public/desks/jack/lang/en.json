@@ -551,7 +551,7 @@
   "errors.jack_release_watching": "Someone is watching right now — I don't bring anything back while someone watches.",
   "errors.jack_letgo_nothing": "Nothing of mine lies on the pool.",
   "errors.jack_letgo_python": "Python 3 is missing on the server — I can't run without it.",
-  "notify.subject_release": "{tool}: back to the array, what he laid out — {result}",
+  "notify.subject_release": "{tool}: files from the pool back to the array — {result}",
   "notify.released": {"one": "{n} file is back on the array.", "other": "{n} files are back on the array."},
   "notify.released_left": {"one": "{n} file stays on the pool (it was playing or couldn't be moved).", "other": "{n} files stay on the pool (they were playing or couldn't be moved)."},
   "notify.release_stay": "What Jack Streamer laid out stays on the pool.",

@@ -35133,6 +35133,19 @@ function testMoverelliRun(): void
     same('moverelli run: the move binary failing — result errors (Docs\' file; Back\'s finished before the stop above), the files stay, told as a warning', [0, 'errors', 1, true, 1],
         [$exit, readJson("$dir/status.json")['result'] ?? null, readJson("$dir/status.json")['errors'] ?? null, is_file("$tmp/mnt/cache/Docs/f.txt"), count($n)]);
     check('moverelli run: … the notification', str_contains($n[0] ?? '', '-i warning') && str_contains($n[0] ?? '', 'with problems'), $n[0] ?? '');
+    same('moverelli notify: each count its own plural (1 error / 2 errors), in every language', [
+            '3 moved, 1 stayed, 1 error.', '1 moved, 0 stayed, 2 errors.', '1 verschoben, 2 geblieben, 1 Fehler.', '2 spostati, 1 rimasto, 1 errore.',
+            '1 déplacé, 2 restés, 2 erreurs.', '2 movidos, 1 se quedó, 1 error.'],
+        [moverelliNotifyCounts(['moved' => 3, 'left' => 1, 'errors' => 1], 'en'), moverelliNotifyCounts(['moved' => 1, 'errors' => 2], 'en'),
+         moverelliNotifyCounts(['moved' => 1, 'left' => 2, 'errors' => 1], 'de'), moverelliNotifyCounts(['moved' => 2, 'left' => 1, 'errors' => 1], 'it'),
+         moverelliNotifyCounts(['moved' => 1, 'left' => 2, 'errors' => 2], 'fr'), moverelliNotifyCounts(['moved' => 2, 'left' => 1, 'errors' => 1], 'es')]);
+    same('jack notify: bringing everything back reads plainly', 'Jack Streamer: files from the pool back to the array — done',
+        officeNotifyText('jack', 'notify.subject_release', ['tool' => officeNotifyText('jack', 'notify.tool.embycache'), 'result' => officeNotifyText('jack', 'result.ok')]));
+    $pagePhp = (string) file_get_contents(OFFICE_DIR . '/src/page.php');
+    $coreJs = (string) file_get_contents(OFFICE_DIR . '/public/assets/core.js');
+    check('page: the ⋯ button and the desks\' tabs named in the office\'s language, no English label left in the page',
+        !str_contains($pagePhp, 'aria-label="More"') && !str_contains($pagePhp, 'aria-label="Desks"')
+        && str_contains($coreJs, "\$('#sso-more').setAttribute('aria-label', t('office.more'));") && str_contains($coreJs, "\$('#sso-tabs').setAttribute('aria-label', t('office.desks_nav'));"));
     same('moverelli outcome: what is told', ['failed', 'config', 'busy', 'errors', null, 'stopped_mover', null, 'errors', null, null],
         [moverelliNotifyOutcome('run', 'failed', []), moverelliNotifyOutcome('run', 'config', []), moverelliNotifyOutcome('run', 'busy', []),
          moverelliNotifyOutcome('run', 'errors', []), moverelliNotifyOutcome('run', 'ok', []), moverelliNotifyOutcome('run', 'stopped', [], 'mover'),

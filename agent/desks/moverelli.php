@@ -1436,6 +1436,14 @@ function moverelliNotifyOutcome(string $mode, string $result, array $status, ?st
     return null;
 }
 
+/** «3 moved, 1 stayed, 1 error.» — each count its own plural, the glue alone in notify.counts */
+function moverelliNotifyCounts(array $status, string $lang): string
+{
+    $n = fn (string $key, string $field): string => officeNotifyText('moverelli', $key, ['n' => (int) ($status[$field] ?? 0)], $lang);
+    return officeNotifyText('moverelli', 'notify.counts', ['moved' => $n('notify.count.moved', 'moved'), 'left' => $n('notify.count.left', 'left'),
+        'errors' => $n('count.errors', 'errors')], $lang);
+}
+
 /** A real run that went wrong goes to Unraid's notifications (warning) — from Smart Mover's status file, never its log */
 function moverelliNotify(string $mode, string $result, array $status, int $exit, ?string $why = null): bool
 {
@@ -1447,8 +1455,7 @@ function moverelliNotify(string $mode, string $result, array $status, int $exit,
     $detail = match (true) {
         !$status                     => officeNotifyText('moverelli', 'notify.no_status', ['exit' => $exit], $lang),
         $outcome === 'stopped_mover' => officeNotifyText('moverelli', 'notify.stopped_mover', ['n' => (int) ($status['moved'] ?? 0)], $lang),
-        default                      => officeNotifyText('moverelli', 'notify.counts', ['moved' => (int) ($status['moved'] ?? 0),
-                                            'left' => (int) ($status['left'] ?? 0), 'errors' => (int) ($status['errors'] ?? 0)], $lang)
+        default                      => moverelliNotifyCounts($status, $lang)
                                         . (trim((string) ($status['message'] ?? '')) !== '' ? ' ' . trim((string) $status['message']) : ''),
     };
     $sent = officeNotify(officeNotifyText('moverelli', 'notify.subject', ['result' => officeNotifyText('moverelli', "result.$outcome", [], $lang)], $lang),

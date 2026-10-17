@@ -329,6 +329,8 @@
   "dash.job_moved": {"one": "{n} fichier déplacé", "other": "{n} fichiers déplacés"},
   "dash.job_share": "Partage {share}",
   "office.menu_name": "Entrée dans Unraid ({name})…",
+  "office.more": "Plus",
+  "office.desks_nav": "Les bureaux de l'équipe",
   "office.menu_title": "L'entrée du secrétariat dans Unraid",
   "office.menu_text": "Le nom qu'il porte là-bas. Dans la barre de menu, Unraid affiche un nouveau nom tout de suite sur cette page, ailleurs après le prochain chargement de page.",
   "office.menu_where": "Où",

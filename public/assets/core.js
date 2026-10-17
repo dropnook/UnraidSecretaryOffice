@@ -4336,6 +4336,8 @@ async function start() {
   if (CONFIG.agent) Office.setAgent(CONFIG.agent);      // the array stopped, the night shift: said before any desk asks
   footer();
   $('#sso-more').onclick = officeMenu;
+  $('#sso-more').setAttribute('aria-label', t('office.more'));      // the page's labels in the office's language (src/page.php has none)
+  $('#sso-tabs').setAttribute('aria-label', t('office.desks_nav'));
   $('#sso-state').onclick = Office.help;
   searchButton();                      // the search: the magnifier and ⌘K / Ctrl+K — its index and words only when opened
   searchKeys();
