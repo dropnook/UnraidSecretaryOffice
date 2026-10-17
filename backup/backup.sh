@@ -1,6 +1,11 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.56 - 2026-10-17
+# unraid-backup - backup.sh                       Version 2.57 - 2026-10-17
+#   2.57 An app's package inside goes only into its configuration folder: inside Unraid's place for app configurations
+#        (docker.cfg DOCKER_APP_CONFIG_PATH: appdata/<app>, or a dataset only it binds inside appdata) - never a share's
+#        root (folder or dataset: an S3 gateway sees .uso-backup there as a bucket), never a folder of another share
+#        (the app's data); each place left out is one log line. A .uso-backup an earlier run wrote there (its
+#        README.txt the engine's) is moved away once into state/inside-aside/<run>/, said in the log
 #   2.56 A repository suddenly empty holds the Kopia step: far fewer snapshots than at the last count (or than when the
 #        hold began) is an error (warning_items kopia_held), nothing goes offsite, the local part and the partners go on;
 #        state/kopia-held.json keeps it from run to run (an alert when it begins) until the snapshots are back, Kopia is
@@ -2007,6 +2012,7 @@ APP_DIR_USERS_BUILT=""
 app_dirs_build() {
     local f c src dir rel b ds
     APP_DIR_USERS=()
+    app_cfg_rel_load
     for f in "${PKG_APPS[@]}"; do
         while IFS= read -r c; do
             [[ -n "$c" ]] || continue
@@ -2017,7 +2023,11 @@ app_dirs_build() {
                     [[ "$dir" == "${INV_BASE_PATH[$b]}/"* ]] || continue
                     rel="${dir#"${INV_BASE_PATH[$b]}"/}"
                     [[ "$rel" == */* ]] || { dir=""; break; }                   # a whole share: no folder of a unit
-                    dir="${INV_BASE_PATH[$b]}/${rel%%/*}/$(cut -d/ -f2 <<<"$rel")"
+                    if [[ "$APP_CFG_REL" == */* && "$rel" == "$APP_CFG_REL/"* ]]; then   # (2.57) appdata deeper in a share
+                        rel="${rel#"$APP_CFG_REL"/}"; dir="${INV_BASE_PATH[$b]}/$APP_CFG_REL/${rel%%/*}"
+                    else
+                        dir="${INV_BASE_PATH[$b]}/${rel%%/*}/$(cut -d/ -f2 <<<"$rel")"
+                    fi
                     break
                 done
                 [[ -n "$dir" ]] || continue
@@ -2039,12 +2049,72 @@ app_own_dirs() {
     return 0
 }
 
-# pkg_inside_app <folder> <stage dir>  - an app: its folders (app_own_dirs)
+# (2.57) An app's package goes only into the app's own CONFIGURATION folder: a folder inside Unraid's place for app
+# configurations (docker.cfg DOCKER_APP_CONFIG_PATH, e.g. /mnt/user/appdata -> appdata/<app>, or a dataset only this app
+# binds that lies inside it) - never a share's root (a folder or a dataset that is a whole share: an S3 gateway sees a
+# dot folder there as a bucket) and never a folder of another share (that is the app's data: a versioning store, a
+# drop folder). Up to 2.56 every folder and own dataset the app's containers bind got one.
+APP_CFG_REL=""                  # DOCKER_APP_CONFIG_PATH below its base (/mnt/user/appdata -> appdata; system/appdata)
+app_cfg_rel_load() {
+    [[ -n "$APP_CFG_REL" ]] && return 0
+    local p r
+    p="$(sed -n 's/^DOCKER_APP_CONFIG_PATH="\{0,1\}\([^"]*\)"\{0,1\}[[:space:]]*$/\1/p' "$UB_BOOT/config/docker.cfg" 2>/dev/null | tail -n 1)"
+    p="${p%/}"; r=""
+    if [[ "$p" == /mnt/*/* && "/$p/" != *"/../"* && "/$p/" != *"/./"* && "$p" != *//* ]] && ub_path_share_part "$p" >/dev/null; then
+        r="${p#/mnt/}"; r="${r#*/}"
+    fi
+    APP_CFG_REL="${r:-appdata}"         # docker.cfg unreadable or no share path: Unraid's default
+    return 0
+}
+
+# app_cfg_place <pool path>  -> 0 when it lies inside the app configurations' place (never that place itself)
+app_cfg_place() {
+    local p="${1%/}" b
+    app_cfg_rel_load
+    for b in "${INV_BASES[@]}"; do
+        [[ "$p" == "${INV_BASE_PATH[$b]}/"* ]] || continue
+        [[ "${p#"${INV_BASE_PATH[$b]}"/}" == "$APP_CFG_REL/"?* ]]
+        return
+    done
+    return 1
+}
+
+# inside_leftover <name> <folder>  - (2.57) a package an earlier engine wrote into a place the app's package no longer
+# goes (<folder>/.uso-backup) is moved away once, into state/inside-aside/<run>/ (the engine's data folder, root's) -
+# only a real folder whose README.txt the engine wrote, only on a dataset of this run that is awake; nothing else touched
+inside_leftover() {
+    local n="$1" dir="${2%/}" d first ds to
+    d="$dir/$UB_INSIDE_DIR"
+    ds="$(path_dataset "$dir")"
+    [[ -n "$ds" && -z "${ASLEEP_DS[$ds]:-}" ]] || return 0
+    [[ -d "$dir" && ! -L "$dir" && -d "$d" && ! -L "$d" && -f "$d/README.txt" && ! -L "$d/README.txt" ]] || return 0
+    first=""; IFS= read -r first <"$d/README.txt" 2>/dev/null || true
+    if [[ "$first" != "Written by the Unraid Secretary Office's backup engine"* ]]; then
+        log "  app '$n': $d isn't the backup engine's - left as it is"; return 0
+    fi
+    to="$UB_STATE/inside-aside/$TS"
+    mkdir -p -m 700 "$to" 2>>"$LOG_FILE" || { log "  app '$n': $to could not be made - $d stays"; return 0; }
+    to="$to/$(printf '%s' "${dir#/}" | tr '/' '_')"
+    [[ -e "$to" ]] && to="$to-$$"
+    if mv -- "$d" "$to" 2>>"$LOG_FILE"; then
+        log "  app '$n': the package an earlier run wrote into $d moved away to $to"
+    else
+        log "  app '$n': the package an earlier run wrote into $d could not be moved away - it stays"
+    fi
+    return 0
+}
+
+# pkg_inside_app <folder> <stage dir>  - an app: its folders (app_own_dirs) inside the app configurations' place
 pkg_inside_app() {
-    local f="$1" src="$2" dir
+    local f="$1" src="$2" dir n="${PKG_APP_NAME[$1]}"
     while IFS= read -r dir; do
         [[ -n "$dir" ]] || continue
-        pkg_inside app "${PKG_APP_NAME[$f]}" "$src" "$dir"
+        if app_cfg_place "$dir"; then
+            pkg_inside app "$n" "$src" "$dir"
+        else
+            log "  app '$n': $dir is a share's data, not the app's folder - $UB_INSIDE_DIR not written"
+            inside_leftover "$n" "$dir"
+        fi
     done < <(app_own_dirs "$f")
     return 0
 }

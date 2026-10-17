@@ -1,6 +1,7 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.56 - 2026-10-17
+# unraid-backup - setup.sh                        Version 2.57 - 2026-10-17
+#   2.57 No change here (the engine's version: backup.sh writes an app's package only inside the appdata place)
 #   2.56 No change here (the engine's version: backup.sh holds the Kopia step of a repository suddenly empty, --kopia-lock)
 #   2.55 A share where no snapshot is possible is never proposed «local» (off, why no_snapshots); one set to local
 #        there is warned about (share_no_snapshots)
