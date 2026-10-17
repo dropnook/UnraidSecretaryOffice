@@ -1312,8 +1312,8 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         if (isset($paths['docker_autostart'])) {
             $containers = watchmanContainerStarts($containers, $paths);      // a privileged one: runs, starts by itself, or neither
         }
-        $containers = array_map(fn ($c) => array_diff_key((array) $c, ['pid' => true, 'addrs' => true, 'macs' => true, 'ds' => true, 'restart' => true, 'compose' => true]),
-            $containers);     // the data flow's and the network's only (restart, compose: watchmanContainerStarts()'s)
+        $containers = array_map(fn ($c) => array_diff_key((array) $c, ['pid' => true, 'addrs' => true, 'macs' => true, 'ds' => true, 'restart' => true, 'compose' => true, 'binds' => true]),
+            $containers);     // the data flow's and the network's only (restart, compose: watchmanContainerStarts()'s; binds: the guess's)
     }
     $seen = [
         'containers' => $containers,
@@ -2014,6 +2014,7 @@ function watchmanContainers(): ?array
                 $macs[] = $nw['MacAddress'];
             }
         }
+        $binds = watchmanFlowBinds(is_array($mounts) ? $mounts : []);
         $out[$name] = ['image' => (string) json_decode($f[1]), 'tokens' => watchmanContainerTokens($hc, is_array($mounts) ? $mounts : []),
                        'pid' => (int) ($f[4] ?? 0), 'addrs' => array_slice($addrs, 0, 8), 'macs' => array_slice($macs, 0, 8)]
                     + (is_string($by) && preg_match('/^[a-z]{1,20}$/D', $by) ? ['by' => $by] : [])
@@ -2021,7 +2022,8 @@ function watchmanContainers(): ?array
                     + ($created !== false ? ['created' => $created] : [])
                     + ($ds !== null ? ['ds' => $ds] : [])
                     + (is_string($restart) && preg_match('/^[a-z-]{1,20}$/D', $restart) ? ['restart' => $restart] : [])
-                    + (is_string($project) && $project !== '' && strlen($project) <= 200 ? ['compose' => $project] : []);
+                    + (is_string($project) && $project !== '' && strlen($project) <= 200 ? ['compose' => $project] : [])
+                    + ($binds ? ['binds' => $binds] : []);
     }
     ksort($out);
     return $out;
@@ -4988,6 +4990,11 @@ const WATCH_DATASET       = '#^[A-Za-z0-9_.:-]+(?:/[^\x00-\x1F@/]+)*$#D';     //
 const WATCH_DOCKER_LAYER  = '/^([0-9a-f]{64})(-init)?$/D';      // Docker on ZFS: a layer's or a container's dataset (its -init beside it)
 const WATCH_FLOW_BY       = 40;                 // sources of a share's pull kept (the smallest go into «the rest»)
 const WATCH_FLOW_SOURCES  = 5;                  // sources an entry names, then «the rest»
+const WATCH_FLOW_GUESS    = 3;                  // likely writers named where no source can be seen, then «and {n} more»
+const WATCH_FLOW_GUESS_SHORT = 2;              // … of them in the entry's line and the notification (names only)
+const WATCH_FLOW_GUESS_PATHS = 40;              // paths under /mnt kept per container, VM or stack for the guess
+const WATCH_FLOW_GUESS_VMS = 100;               // VMs (and Compose stacks) looked at for the guess
+const WATCH_FLOW_GUESS_AGAIN = 600;             // VMs and stacks for the guess looked at again after this long
 const WATCH_FLOW_LAYERS   = 600;                // Docker layers whose image is remembered (per agent run)
 const WATCH_FLOW_LAYERS_AGAIN = 600;            // a layer no image named: asked again after this long
 
@@ -5068,7 +5075,8 @@ function watchmanFlowLook(array $paths, ?array $containers): array
     $place = (string) backupSetting($settings, 'general', 'dumps_share', '');
     $snapDirs = array_values(array_unique(['.btrfs-snap', basename((string) backupSetting($settings, 'general', 'btrfs_snap_dir', '.btrfs-snap'))]));
     // who wrote into a share (watchmanFlowSources()): every container's writable layer by its dataset (Docker on ZFS), the
-    // image layers named only when an entry asks for them (watchmanFlowLayers()), the folder libvirt's image lies in
+    // image layers named only when an entry asks for them (watchmanFlowLayers()), the folder libvirt's image lies in; a share
+    // of one dataset: who likely wrote it, from the setup, asked only for its entry (watchmanFlowGuess())
     $dockerDs = null;
     if (is_array($containers)) {
         $dockerDs = [];
@@ -5080,6 +5088,10 @@ function watchmanFlowLook(array $paths, ?array $containers): array
     }
     return ['conns' => $conns, 'smb' => $smb, 'containers' => $cts, 'zfs' => watchmanFlowZfs($paths), 'nfs' => ($var['shareNFSEnabled'] ?? 'no') === 'yes',
             'docker_ds' => $dockerDs, 'layers' => fn (array $ids): array => watchmanFlowLayers($ids),
+            'guess' => function (string $share) use ($paths, $containers): array {
+                $setup = watchmanFlowGuessSetup($paths);
+                return watchmanFlowGuess($share, $containers, $setup['vms'], $setup['stacks']);
+            },
             'libvirt' => isset($paths['domain_cfg']) ? watchmanFlowLibvirt(readCfg((string) $paths['domain_cfg'])) : null,
             'holder' => $holder['holder'] ?? null, 'kopia' => $kopia !== '' ? $kopia : null,
             'office_shares' => array_values(array_unique(array_filter([BACKUP_OFFICE_SHARE, $place]))),
@@ -5780,7 +5792,13 @@ function watchmanFlowSources(array $run, string $share, array $ctx): ?array
 {
     $total = (int) ($run['bytes'] ?? 0);
     if (!empty($ctx['single'])) {
-        return [['t' => 'none', 'b' => $total]];
+        $x = ['t' => 'none', 'b' => $total];
+        $guess = is_callable($ctx['guess'] ?? null) ? array_values((array) ($ctx['guess'])($share)) : [];
+        if ($guess) {               // none to be seen: who likely wrote it, from the setup (watchmanFlowGuess())
+            $x['guess'] = array_slice($guess, 0, WATCH_FLOW_GUESS);
+            $x += count($guess) > WATCH_FLOW_GUESS ? ['more' => count($guess) - WATCH_FLOW_GUESS] : [];
+        }
+        return [$x];
     }
     $by = (array) ($run['by'] ?? []);
     unset($by['*']);
@@ -5844,6 +5862,252 @@ function watchmanFlowSources(array $run, string $share, array $ctx): ?array
     return $out;
 }
 
+/**
+ * A container's bind mounts under /mnt (docker inspect's Mounts — never its Env): [host path, writes] each, for the guess
+ * who wrote into a share of one dataset (watchmanFlowGuess()). Volumes and paths elsewhere left out.
+ *
+ * @return list<array{0: string, 1: bool}>
+ */
+function watchmanFlowBinds(array $mounts): array
+{
+    $out = [];
+    foreach ($mounts as $m) {
+        $src = is_array($m) && ($m['Type'] ?? 'bind') === 'bind' && is_string($m['Source'] ?? null) ? rtrim($m['Source'], '/') : '';
+        if (count($out) < WATCH_FLOW_GUESS_PATHS && watchmanFlowGuessPath($src)) {
+            $out[] = [$src, ($m['RW'] ?? true) !== false];
+        }
+    }
+    return $out;
+}
+
+/** A host path the guess may name: /mnt/<root>/<share>[/…], no «.», «..» or control characters, not too long */
+function watchmanFlowGuessPath(string $p): bool
+{
+    return strlen($p) <= 300 && (bool) preg_match('#^/mnt/[^/\x00-\x1F]+/[^/\x00-\x1F]+(?:/[^\x00-\x1F]*)?$#D', $p)
+        && !preg_match('#(?:^|/)\.\.?(?:/|$)#', $p);
+}
+
+/** Whether a host path lies in a share ('<pool>/<name>', its dataset): through /mnt/user or through the pool itself */
+function watchmanFlowInShare(string $path, string $share): bool
+{
+    [$pool, $name] = explode('/', $share, 2) + [1 => ''];
+    if ($name === '' || str_contains($name, '/')) {
+        return false;
+    }
+    foreach (array_unique(['user', $pool]) as $root) {
+        if ($path === "/mnt/$root/$name" || str_starts_with($path, "/mnt/$root/$name/")) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Who likely wrote into a share of one dataset, where no single source can be seen (watchmanFlowSources()) — from the
+ * setup, not measured: containers that map a path in it (their binds: running or not, also a Compose stack's), VMs with
+ * a disk or a shared folder in it, Compose Manager's stacks without a container now whose files name a path in it.
+ * Running before stopped, writing before read-only, then containers, VMs, stacks, by name. Each with the path it maps
+ * (one that writes first, then the shortest).
+ *
+ * @param array|null $containers watchmanContainers() (pid, binds, compose)
+ * @param list<array>|null $vms    watchmanFlowGuessVms(): [{name, run, disks: [[path, writes]], dirs: [[path, writes]]}]
+ * @param list<array>|null $stacks watchmanFlowGuessStacks(): [{name, paths: [[path, writes]]}]
+ * @return list<array{t: string, name: string, path: string, ro?: true, off?: true, disk?: true}>
+ */
+function watchmanFlowGuess(string $share, ?array $containers, ?array $vms, ?array $stacks): array
+{
+    $pick = function (array $pairs) use ($share): ?array {
+        $in = array_values(array_filter($pairs, fn ($x) => is_array($x) && is_string($x[0] ?? null) && watchmanFlowInShare($x[0], $share)));
+        usort($in, fn ($a, $b) => [empty($a[1]), strlen($a[0]), $a[0]] <=> [empty($b[1]), strlen($b[0]), $b[0]]);
+        return $in[0] ?? null;
+    };
+    $name = fn ($n) => mb_substr((string) preg_replace('/[\x00-\x1F\x7F]/', '', (string) $n), 0, 100);
+    $out = [];
+    $composed = [];
+    foreach ((array) $containers as $ct => $c) {
+        if (!is_array($c)) {
+            continue;
+        }
+        if (is_string($c['compose'] ?? null)) {
+            $composed[strtolower($c['compose'])] = true;
+        }
+        if ($b = $pick((array) ($c['binds'] ?? []))) {
+            $out[] = ['t' => 'ct', 'name' => $name($ct), 'path' => $b[0], 'ro' => empty($b[1]), 'off' => (int) ($c['pid'] ?? 0) <= 0];
+        }
+    }
+    foreach ((array) $vms as $vm) {
+        if (!is_array($vm) || !is_string($vm['name'] ?? null)) {
+            continue;
+        }
+        $all = array_merge(array_map(fn ($x) => (array) $x + [2 => true], (array) ($vm['disks'] ?? [])),
+                           array_map(fn ($x) => (array) $x + [2 => false], (array) ($vm['dirs'] ?? [])));
+        if ($p = $pick($all)) {
+            $out[] = ['t' => 'vm', 'name' => $name($vm['name']), 'path' => $p[0], 'ro' => empty($p[1]), 'off' => empty($vm['run']), 'disk' => !empty($p[2])];
+        }
+    }
+    foreach ((array) $stacks as $st) {
+        if (!is_array($st) || !is_string($st['name'] ?? null) || isset($composed[strtolower($st['name'])])) {
+            continue;               // its containers are there: they are named
+        }
+        if ($p = $pick((array) ($st['paths'] ?? []))) {
+            $out[] = ['t' => 'stack', 'name' => $name($st['name']), 'path' => $p[0], 'ro' => empty($p[1]), 'off' => true];
+        }
+    }
+    $kind = ['ct' => 0, 'vm' => 1, 'stack' => 2];
+    usort($out, fn ($a, $b) => [$a['off'], $a['ro'], $kind[$a['t']], strtolower($a['name'])] <=> [$b['off'], $b['ro'], $kind[$b['t']], strtolower($b['name'])]);
+    return array_map(fn ($x) => array_filter($x, fn ($v) => $v !== false), $out);
+}
+
+/**
+ * The VMs' disks and shared folders for the guess (watchmanFlowGuess()), from libvirt itself (`virsh dumpxml`: it keeps
+ * every VM's definition in memory — never a look into libvirt.img, which may lie on the array). [] with the VM service
+ * off, null when libvirt doesn't answer.
+ */
+function watchmanFlowGuessVms(array $paths): ?array
+{
+    if (!isset($paths['libvirt_sock'], $paths['virsh'])) {
+        return null;
+    }
+    if (!file_exists($paths['libvirt_sock'])) {
+        return [];
+    }
+    $virsh = str_contains($paths['virsh'], '/') ? $paths['virsh'] : bin($paths['virsh']);
+    if ($virsh === null) {
+        return null;
+    }
+    $names = function (array $args) use ($virsh): ?array {
+        [$exit, $out] = run(array_merge([$virsh, 'list', '--name'], $args), 15);
+        return $exit === 0 ? array_values(array_filter(array_map('trim', explode("\n", $out)), fn ($n) => $n !== '')) : null;
+    };
+    $all = $names(['--all']);
+    $on = $names([]);
+    if ($all === null) {
+        return null;
+    }
+    $on = array_flip($on ?? []);
+    $out = [];
+    foreach (array_slice($all, 0, WATCH_FLOW_GUESS_VMS) as $name) {
+        [$exit, $xml] = run([$virsh, 'dumpxml', '--domain', $name], 15);
+        if ($exit === 0) {
+            $out[] = ['name' => $name, 'run' => isset($on[$name])] + watchmanFlowVmPaths($xml);
+        }
+    }
+    return $out;
+}
+
+/**
+ * A VM's disks and shared folders (virtiofs, 9p) under /mnt from its libvirt XML: [path, writes] each — a disk or folder
+ * marked <readonly/> only reads.
+ *
+ * @return array{disks: list<array{0: string, 1: bool}>, dirs: list<array{0: string, 1: bool}>}
+ */
+function watchmanFlowVmPaths(string $xml): array
+{
+    $out = ['disks' => [], 'dirs' => []];
+    $dom = $xml !== '' ? @simplexml_load_string($xml, 'SimpleXMLElement', LIBXML_NONET) : false;
+    if (!$dom || !isset($dom->devices)) {
+        return $out;
+    }
+    $add = function (string $to, $node, string $src) use (&$out): void {
+        $src = rtrim($src, '/');
+        if (count($out[$to]) < WATCH_FLOW_GUESS_PATHS && watchmanFlowGuessPath($src)) {
+            $out[$to][] = [$src, !isset($node->readonly)];
+        }
+    };
+    foreach ($dom->devices->disk as $d) {
+        $add('disks', $d, (string) ($d->source['file'] ?? '') ?: (string) ($d->source['dev'] ?? ''));
+    }
+    foreach ($dom->devices->filesystem as $f) {
+        $add('dirs', $f, (string) ($f->source['dir'] ?? ''));
+    }
+    return $out;
+}
+
+/**
+ * Compose Manager's stacks for the guess (watchmanFlowGuess()): each stack's name (its project) and the paths under /mnt
+ * its compose files name, [path, writes] — a short-form volume ending in `:ro` only reads. A stack whose files lie under
+ * /mnt (its «indirect» folder on a share) isn't read: no disk woken for a guess. Null without Compose Manager's folder.
+ */
+function watchmanFlowGuessStacks(array $paths): ?array
+{
+    $cfg = (string) ($paths['compose_cfg'] ?? '');
+    $root = $cfg !== '' ? (string) (readCfg($cfg)['PROJECTS_FOLDER'] ?? '') : '';
+    $root = $root !== '' && $root[0] === '/' ? $root : (string) ($paths['compose_projects'] ?? '');
+    if ($root === '' || str_starts_with(rtrim($root, '/') . '/', '/mnt/') || !is_dir($root)) {
+        return null;
+    }
+    $out = [];
+    foreach (array_slice(glob(rtrim($root, '/') . '/*', GLOB_ONLYDIR) ?: [], 0, WATCH_FLOW_GUESS_VMS) as $dir) {
+        $name = trim((string) @file_get_contents("$dir/project_name")) ?: trim((string) @file_get_contents("$dir/name")) ?: basename($dir);
+        $where = trim((string) @file_get_contents("$dir/indirect")) ?: $dir;
+        if (str_starts_with(rtrim($where, '/') . '/', '/mnt/')) {
+            continue;
+        }
+        $found = [];
+        foreach (['compose.yaml', 'compose.yml', 'docker-compose.yml', 'docker-compose.yaml',
+                  'compose.override.yaml', 'compose.override.yml', 'docker-compose.override.yml', 'docker-compose.override.yaml'] as $f) {
+            $text = is_file("$where/$f") ? (string) @file_get_contents("$where/$f", false, null, 0, 262144) : '';
+            preg_match_all('#(?<![\w$}])(/mnt/[^\s:"\'\#,\]]+)(?::[^\s:"\'\#,\]]+)?(:ro\b)?#', $text, $m, PREG_SET_ORDER);
+            foreach ($m as $x) {
+                $p = rtrim($x[1], '/');
+                if (watchmanFlowGuessPath($p) && (isset($found[$p]) || count($found) < WATCH_FLOW_GUESS_PATHS)) {
+                    $found[$p] = !empty($found[$p]) || empty($x[2]);
+                }
+            }
+        }
+        if ($found) {
+            $out[] = ['name' => $name, 'paths' => array_map(fn ($p, $w) => [(string) $p, $w], array_keys($found), array_values($found))];
+        }
+    }
+    return $out;
+}
+
+/** The VMs and stacks for the guess, looked at once in WATCH_FLOW_GUESS_AGAIN (a pull going on asks every round) */
+function watchmanFlowGuessSetup(array $paths): array
+{
+    static $at = 0, $kept = null;
+    if ($kept === null || time() - $at >= WATCH_FLOW_GUESS_AGAIN) {
+        $kept = ['vms' => watchmanFlowGuessVms($paths), 'stacks' => watchmanFlowGuessStacks($paths)];
+        $at = time();
+    }
+    return $kept;
+}
+
+/**
+ * The guess in words (src.guess): «No single source visible. Likely: container EmbyServer (maps /mnt/user/Media), … — a
+ * guess from the setup, not measured.» — at most WATCH_FLOW_GUESS named, «and {n} more»; null without one. $short: the
+ * entry's line and the notification (src.guess_short) — «Likely: EmbyServer, Win11 and 2 more (a guess).», names only.
+ * The page has the same (desk.js srcNone()); the full words only in its detail row.
+ */
+function watchmanFlowGuessText(array $x, string $share, string $lang, bool $short = false): ?string
+{
+    $guess = array_values(array_filter((array) ($x['guess'] ?? []), 'is_array'));
+    if (!$guess) {
+        return null;
+    }
+    $t = fn (string $k, array $p = []) => officeNotifyText('watchman', $k, $p, $lang);
+    if ($short) {           // the entry's line and the notification: names only, two of them
+        $list = implode(', ', array_map(fn ($g) => (string) ($g['name'] ?? ''), array_slice($guess, 0, WATCH_FLOW_GUESS_SHORT)));
+        $more = count($guess) + (int) ($x['more'] ?? 0) - min(count($guess), WATCH_FLOW_GUESS_SHORT);
+        return $t('src.guess_short', ['list' => $more > 0 ? $t('src.guess_more', ['list' => $list, 'n' => $more]) : $list]);
+    }
+    $name = (string) (explode('/', $share, 2)[1] ?? $share);
+    $one = function (array $g) use ($t, $name): string {
+        $how = [!empty($g['disk']) ? $t('src.guess_disk', ['share' => $name]) : $t('src.guess_maps', ['path' => (string) ($g['path'] ?? '')])];
+        if (!empty($g['ro'])) {
+            $how[] = $t('src.guess_ro');
+        }
+        if (!empty($g['off'])) {
+            $how[] = $t('src.guess_off');
+        }
+        $key = ['vm' => 'src.guess_vm', 'stack' => 'src.guess_stack'][(string) ($g['t'] ?? '')] ?? 'src.guess_ct';
+        return $t($key, ['name' => (string) ($g['name'] ?? ''), 'how' => implode(', ', $how)]);
+    };
+    $list = implode(', ', array_map($one, array_slice($guess, 0, WATCH_FLOW_GUESS)));
+    $more = (int) ($x['more'] ?? 0);
+    return $t('src.guess', ['list' => $more > 0 ? $t('src.guess_more', ['list' => $list, 'n' => $more]) : $list]);
+}
+
 /** A source of written bytes (watchmanFlowSources()) in words — the page has the same (desk.js srcWhat()) */
 function watchmanFlowSourceWhat(array $x, string $lang): string
 {
@@ -5877,7 +6141,8 @@ function watchmanFlowFrom(array $p, ?string $lang): string
         return '';
     }
     if ($top['t'] === 'none') {
-        return ' ' . officeNotifyText('watchman', 'src.none', ['share' => (string) ($p['share'] ?? '')], $lang);
+        return ' ' . (watchmanFlowGuessText($top, (string) ($p['share'] ?? ''), $lang, true)
+            ?? officeNotifyText('watchman', 'src.none', ['share' => (string) ($p['share'] ?? '')], $lang));
     }
     return ' ' . officeNotifyText('watchman', 'src.most', ['what' => watchmanFlowSourceWhat($top, $lang), 'size' => watchmanSize((int) ($top['b'] ?? 0), $lang)], $lang);
 }
@@ -6178,7 +6443,8 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
         }
         // who wrote it, for an entry (watchmanFlowSources()): the datasets there now, Docker's image layers asked only then
         $srcCtx = ['datasets' => array_fill_keys(array_map('strval', array_keys((array) $z['datasets'])), true),
-                   'layers' => is_callable($look['layers'] ?? null) ? $look['layers'] : null, 'libvirt' => $look['libvirt'] ?? null];
+                   'layers' => is_callable($look['layers'] ?? null) ? $look['layers'] : null, 'libvirt' => $look['libvirt'] ?? null,
+                   'guess' => is_callable($look['guess'] ?? null) ? $look['guess'] : null];
         foreach ($per as $share => $a) {
             if (!isset($flow['shares'][$share]) && count($flow['shares']) >= WATCH_FLOW_SHARES) {
                 continue;
