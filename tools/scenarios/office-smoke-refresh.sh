@@ -1,6 +1,7 @@
 #!/bin/bash
 # office-smoke-refresh — the toy scenario of wave 1: the three desks' fresh looks (what opening their pages asks the agent)
 # change nothing on the server and leave the standard invariants green. Any host.
+set -u
 . "$(dirname "$0")/lib.sh"
 scenario_begin office-smoke-refresh
 needs any

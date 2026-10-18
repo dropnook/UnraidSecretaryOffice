@@ -135,6 +135,7 @@ needs() {
         esac
     done
     ((${#why[@]})) || return 0
+    [[ -n $SC_NAME ]] || { say "needs: ${why[*]}"; return 1; }      # outside a scenario: just say so
     printf '%s\n' "${why[*]}" >"$KEEP/.skip"
     say "skipped: needs $* — ${why[*]}"
     scenario_end
@@ -197,19 +198,27 @@ share_asleep() {
 }
 
 # Does anybody hold an flock on the file? Looked up in /proc/locks, never by taking it (a run starting that moment
-# would skip). Through /mnt/user the lock lies on the disk's file: that one's id is looked for too (system.LOCATION).
+# would skip). /proc/locks names the file by MAJOR:MINOR:INODE of its filesystem: stat's device, and the mount's
+# (btrfs: stat shows the subvolume's own device, /proc/locks the filesystem's — mountinfo has that one). Through
+# /mnt/user the lock lies on the disk's file: that one's ids are looked for too (system.LOCATION).
+_lock_ids() {
+    local s dev ino mnt mm
+    s=$(stat -L -c '%d %i %m' -- "$1" 2>/dev/null) || return
+    read -r dev ino mnt <<<"$s"
+    printf '%02x:%02x:%d\n' $((((dev >> 8) & 0xfff) | ((dev >> 32) & ~0xfff))) $(((dev & 0xff) | ((dev >> 12) & ~0xff))) "$ino"
+    mm=$(awk -v m="$mnt" '$5==m{x=$3} END{print x}' /proc/self/mountinfo)
+    [[ $mm =~ ^([0-9]+):([0-9]+)$ ]] && printf '%02x:%02x:%d\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "$ino"
+}
 lock_held() {
-    local f=$1 ids=() loc real dev ino
+    local f=$1 ids loc real
     [[ -e $f ]] || return 1
-    _lock_id() { local s; s=$(stat -L -c '%d %i' -- "$1" 2>/dev/null) || return; read -r dev ino <<<"$s"
-        printf '%02x:%02x:%d' $((((dev >> 8) & 0xfff) | ((dev >> 32) & ~0xfff))) $(((dev & 0xff) | ((dev >> 12) & ~0xff))) "$ino"; }
-    ids+=("$(_lock_id "$f")")
+    ids=$(_lock_ids "$f")
     if [[ $f == /mnt/user/* ]]; then
         loc=$(getfattr -n system.LOCATION --only-values --absolute-names -- "$f" 2>/dev/null)
-        real=/mnt/${loc%% *}/${f#/mnt/user/}
-        [[ -n $loc && -e $real ]] && ids+=("$(_lock_id "$real")")
+        real=/mnt/${loc%%[ ,]*}/${f#/mnt/user/}
+        [[ -n $loc && -e $real ]] && ids+=$'\n'$(_lock_ids "$real")
     fi
-    awk -v ids="${ids[*]}" 'BEGIN{n=split(ids,a," "); for(i=1;i<=n;i++) w[a[i]]=1} $2=="FLOCK" && ($6 in w){f=1} END{exit !f}' /proc/locks
+    awk -v ids="${ids//$'\n'/ }" 'BEGIN{n=split(ids,a," "); for(i=1;i<=n;i++) w[a[i]]=1} $2=="FLOCK" && ($6 in w){f=1} END{exit !f}' /proc/locks
 }
 
 # --------------------------------------------------------------------------------------------------------------- report
@@ -230,7 +239,7 @@ say_cmd() {
 
 # a row of the verdict table: <kind> <name> <green|red|allowed|pending|n/a|info|skipped> <note>
 _row() {
-    [[ -n $KEEP ]] || return 0
+    [[ -n $SC_NAME ]] || return 0
     printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "${4//$'\n'/ }" >>"$KEEP/.rows"
 }
 
@@ -402,7 +411,7 @@ scenario_end() {
 # ask <desk.action> [json] [timeout]: the button's request (tools/scenarios/ask.php → askAgent()). Prints the answer
 # (without state); 1 on ok:false — the error key goes into the report. Each answer kept in $KEEP/ask/.
 ask() {
-    local action=$1 json=${2:-'{}'} wait=${3:-60} out rc t0 t1 n key
+    local action=$1 json=${2:-'{}'} wait=${3:-600} out rc t0 t1 n key      # 600 s: the page's wait (api.php)
     t0=$(date +%s%N)
     out=$(php "$SC_DIR/ask.php" --wait "$wait" ${ASK_SAVE_POST:+--save-post "$ASK_SAVE_POST"} "$action" "$json" 2>"$KEEP/ask/.stderr")
     rc=$?
@@ -1022,7 +1031,10 @@ check_inv_leftover() {
     fi
     grep -q ' /mnt/addons/UnraidSecretaryOffice/snapshots' /proc/mounts && ! grep -qs '^keep_mounts *= *yes' "$UB/settings.ini" &&
         bad+=("snapshot mounts under /mnt/addons/UnraidSecretaryOffice/snapshots")
-    [[ -n $(ls -A /mnt/addons/UnraidSecretaryOffice/btrfs-snap 2>/dev/null) ]] && bad+=("btrfs-snap not empty")
+    # the btrfs view (view_root): only symlinks belong there (backup.sh unmount_all) — never a mount, nothing else
+    x=$(find /mnt/addons/UnraidSecretaryOffice/btrfs-snap -mindepth 1 -maxdepth 1 -not -type l 2>/dev/null | head -2)
+    [[ -n $x ]] && bad+=("btrfs-snap holds more than links: ${x//$'\n'/ }")
+    grep -q ' /mnt/addons/UnraidSecretaryOffice/btrfs-snap/' /proc/mounts && bad+=("mounts under /mnt/addons/UnraidSecretaryOffice/btrfs-snap")
     x=$(find "$D/mailbox" -maxdepth 1 -type f -mmin +10 2>/dev/null | head -3)
     [[ -n $x ]] && bad+=("old mailbox files: ${x//$'\n'/ }")
     x=$(atq 2>/dev/null | head -3)
@@ -1223,6 +1235,14 @@ check_inv_cron_one() {
     if ((${#bad[@]})); then echo "${bad[*]}"; return 1; fi
     echo "one each"
 }
+
+# ------------------------------------------------------------------------------- facts at once, a KEEP outside scenarios
+# States, flows and base.sh may use the helpers without scenario_begin: the facts are read now, and what helpers keep
+# goes to /tmp/uso-keep/_lib until a scenario names its own KEEP.
+_facts
+KEEP=$SC_KEEPS/_lib
+KEEP_STASH=$KEEP/stash
+mkdir -p "$KEEP/ask" "$KEEP_STASH" 2>/dev/null
 
 # ------------------------------------------------------------------------- the other parts (H2 states, H5 flows/checks)
 for _f in "$SC_DIR"/states-*.sh "$SC_DIR"/flows.sh "$SC_DIR"/checks.sh; do
@@ -1481,6 +1501,17 @@ _self_test() {
     echo '{"packages":{"apps":[{"folder":"A","stale":false}],"vms":[]}}' >"$KEEP/d/backup.json"
     D=$KEEP/d PLACE=$KEEP/place _st 1 "INV-COUNTS a package unknown" check_inv_counts
     rm -rf "$KEEP/place" "$KEEP/d"
+
+    # ---- a restart the way a deploy makes one: a new agent (another start time), INV-AGENT lets it pass once marked
+    local was
+    was=$(_agent_field .started)
+    _st 0 "agent_restart" agent_restart
+    _st 0 "a new agent" test "$(_agent_field .started)" != "$was"
+    _st 0 "INV-AGENT after a marked restart" check_inv_agent
+    rm -f "$KEEP/.restart-from"
+    _st 0 "the doorbell of the new agent" doorbell_ok
+    ask office.ping >/dev/null
+    expect_ok "office.ping after the restart"
 
     # ---- the end: a fresh before/after, the standard set as a scenario sees it
     if has docker; then docker stop uso-wip-h1-st >/dev/null 2>&1; fi
