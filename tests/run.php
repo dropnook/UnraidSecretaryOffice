@@ -13210,7 +13210,8 @@ function testLogsRules(): void
     same('logs rules: read like Enhanced Log reads them', [['/foo, bar/i', 'error'], ['/qux/i', 'drive'], ['/spaced/i', 'network']], logsRules($tmp));
     @unlink($tmp);
 
-    // the tour: every line in a category (counted), skip not found, a kind keeps its category, kinds per category kept too
+    // the tour: every line in a category (counted), skip not found, a kind keeps its category; «Syslog»: per category
+    // its newest kinds (found or not, never skip or no rule), the newest first, at most LOGS_RULE_KINDS
     $acc = logsTally();
     $lines = ['Oct 18 10:00:00 Tower kernel: ata11.00: disabled', 'Oct 18 10:00:01 Tower kernel: ata11.00: disabled',
               'Oct 18 10:00:02 Tower kernel: AER: non-fatal error received', 'Oct 18 10:00:03 Tower kernel: br0: port 2(vnet1) entered blocking state',
@@ -13219,21 +13220,30 @@ function testLogsRules(): void
         array_push($lines, "Oct 18 10:01:00 Tower foo: $w failed", "Oct 18 10:01:01 Tower foo: $w failed", "Oct 18 10:01:02 Tower foo: $w failed");   // no rule
     }
     $lines[] = 'Oct 18 10:02:00 Tower kernel: ata3: hard resetting link';
+    for ($k = 1; $k <= LOGS_RULE_KINDS + 3; $k++) {
+        $lines[] = 'Oct 18 10:03:00 Tower kernel: br' . str_repeat('x', $k) . ': entered promiscuous mode';     // network kinds, each its own
+    }
     logsTallyLines($acc, $lines, 'syslog', null, [], true);
-    same('logs rules: the tour counts every line read per category (no rule: other)', ['error' => 2, 'skip' => 1, 'network' => 1, 'other' => 31, 'minor' => 1], $acc['cats']);
+    same('logs rules: the tour counts every line read per category (no rule: other)',
+        ['error' => 2, 'skip' => 1, 'network' => 1 + LOGS_RULE_KINDS + 3, 'other' => 31, 'minor' => 1], $acc['cats']);
     same('logs rules: … skip is not found, the rules\' error is', [32, 1], [$acc['errors'], $acc['warnings']]);
     $e = logsTourEntry('syslog', ['group' => 'unraid', 'label' => 'syslog', 'param' => '', 'kind' => 'file'], $acc);
-    $byCat = [];
-    foreach ($e['groups'] as $g) {
-        $byCat[$g['cat'] ?: 'other'][] = $g['top'];
-    }
-    same('logs rules: the most frequent kinds, and per category its most frequent ones beside them (top false)',
-        ['other' => array_fill(0, 8, true), 'error' => [false], 'minor' => [false]], $byCat);
-    same('logs rules: lines and kinds found per category', [['other' => 30, 'error' => 2, 'minor' => 1], ['other' => 10, 'error' => 1, 'minor' => 1]],
-        [$e['cat_found'], $e['cat_kinds']]);
+    same('logs rules: «Errors & warnings» as before — the most frequent kinds, each with its category', [LOGS_TOUR_TOP, ''], [count($e['groups']), $e['groups'][0]['cat'] ?? null]);
+    $cats = array_column($e['sorted'], 'cat');
+    same('logs rules: «Syslog» — per category its newest kinds (never skip or no rule), at most LOGS_RULE_KINDS',
+        ['network' => LOGS_RULE_KINDS, 'minor' => 1, 'error' => 1], array_count_values($cats));
+    same('logs rules: … the newest first (read order), found or not', [['network', ''], ['minor', 'warn'], ['error', 'error']],
+        [[$e['sorted'][0]['cat'], $e['sorted'][0]['level']], [$e['sorted'][LOGS_RULE_KINDS]['cat'], $e['sorted'][LOGS_RULE_KINDS]['level']],
+         [$e['sorted'][LOGS_RULE_KINDS + 1]['cat'], $e['sorted'][LOGS_RULE_KINDS + 1]['level']]]);
+    same('logs rules: … a kind is similar lines (count, its newest line, where in the reader)', [2, 'Oct 18 10:00:01 Tower kernel: ata11.00: disabled', 'syslog'],
+        [$e['sorted'][LOGS_RULE_KINDS + 1]['count'], $e['sorted'][LOGS_RULE_KINDS + 1]['sample'], $e['sorted'][LOGS_RULE_KINDS + 1]['src']]);
+    same('logs rules: … and how many kinds each category had', ['network' => LOGS_RULE_KINDS + 4, 'minor' => 1, 'error' => 1, 'other' => null],
+        ['network' => $e['sorted_kinds']['network'] ?? null, 'minor' => $e['sorted_kinds']['minor'] ?? null, 'error' => $e['sorted_kinds']['error'] ?? null, 'other' => $e['sorted_kinds']['other'] ?? null]);
     $acc = logsTally();
     logsTallyLines($acc, ['Oct 18 10:00:00 Tower kernel: ata11.00: disabled'], 'dmesg', null);
-    same('logs rules: another log has no categories', [0, null, false], [$acc['errors'], $acc['cats'], isset(logsTourEntry('dmesg', ['group' => 'unraid', 'label' => 'dmesg', 'param' => '', 'kind' => 'dmesg'], $acc)['cats'])]);
+    same('logs rules: another log has no categories', [0, null, false, false], [$acc['errors'], $acc['cats'],
+        isset(logsTourEntry('dmesg', ['group' => 'unraid', 'label' => 'dmesg', 'param' => '', 'kind' => 'dmesg'], $acc)['cats']),
+        isset(logsTourEntry('dmesg', ['group' => 'unraid', 'label' => 'dmesg', 'param' => '', 'kind' => 'dmesg'], $acc)['sorted'])]);
 
     // the page: the same levels for the syslog's lines, the rules from her state, a word and a chip per category, nothing the browser reads otherwise
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/logs/desk.js');
@@ -13242,17 +13252,26 @@ function testLogsRules(): void
     same('logs rules: desk.js RULE_LEVEL is the agent\'s', LOGS_RULE_LEVEL, array_column($pairs, 2, 1));
     preg_match("#const RULE_SOURCES = \[(.*?)\];#", $js, $m);
     same('logs rules: desk.js RULE_SOURCES are the agent\'s', ['syslog', 'syslog.1'], array_map(fn ($x) => trim($x, " '"), explode(',', $m[1] ?? '')));
-    preg_match("#const CAT_ORDER = \[(.*?)\];#", $js, $m);
+    preg_match("#const CAT_RANK = \[(.*?)\];#", $js, $m);
     $order = array_map(fn ($x) => trim($x, " '"), explode(',', $m[1] ?? ''));
+    check('logs rules: desk.js CAT_ORDER is CAT_RANK, then what no rule knows and the noise', str_contains($js, "const CAT_ORDER = [...CAT_RANK, 'other', 'skip'];"));
+    $order = array_merge($order, ['other', 'skip']);
     $want = array_merge(array_values(LOGS_RULE_CATS), ['other']);
     sort($want);
     $have = $order;
     sort($have);
-    same('logs rules: desk.js CAT_ORDER has every category', $want, $have);
+    same('logs rules: desk.js CAT_RANK and CAT_ORDER have every category', $want, $have);
     $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/logs/lang/en.json'), true);
     same('logs rules: a word per category', [], array_values(array_filter($order, fn ($c) => !isset($en['cat.' . $c]))));
     $css = (string) file_get_contents(OFFICE_WEB . '/desks/logs/desk.css');
     same('logs rules: a colour (a token) per category', [], array_values(array_filter($order, fn ($c) => !preg_match('/\.lg-cat-' . $c . '\b[^{]*\{--lg-cat:var\(--[a-z0-9-]+\)\}/', $css))));
+    preg_match("#const CAT_RANK = \[(.*?)\];#", $js, $m);
+    same('logs rules: desk.js CAT_RANK — every category but the noise, the most important first', ['error', 'warning', 'drive', 'fs'],
+        array_slice(array_map(fn ($x) => trim($x, " '"), explode(',', $m[1] ?? '')), 0, 4));
+    check('logs rules: her «Syslog» is a tile of its own (#/logs/syslog) with its own bar, and the credit under all',
+        str_contains($js, "{ id: 'syslog', key: 'syslog.title', place: 'tile.syslog', tile: (a) => syslogTile(a), section: () => syslogView() }")
+        && str_contains($js, "Office.filterBar({ key: 'logs.syslog'") && str_contains($js, "root.appendChild(credit());")
+        && str_contains($js, "'https://github.com/dkaser/unraid-enhancedlog'"));
     check('logs rules: the agent sends them with her state', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/logs.php'), "'varlog' => logsVarlog(), 'rules' => \$rules]"));
     same('logs rules: none uses what a browser\'s RegExp reads otherwise (lookbehind, inline flags, \\A \\z \\h, POSIX classes, possessive)', [],
         array_values(array_filter(array_column($rules, 0), fn ($p) => preg_match('~\(\?[<a-z]|\\\\[AzZhGKQ]|\[\[:|[*+?}]\+~', substr($p, 1, -2)))));
