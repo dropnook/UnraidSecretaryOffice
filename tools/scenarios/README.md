@@ -139,3 +139,28 @@ are rows `cell <name>` of the verdict table.
 
 | Cell | Scenario | Fixed in · red on | Time on Tower | Run |
 |---|---|---|---|---|
+| B1 | `backup-ct-stopped-nc-replan-apply` | 1.66.3 · v1.66.2 | 33 s (old: 39 s) | pre-release |
+| B2 | `backup-st-renamed-run` | 1.66.0 · v1.65.13 | ~110 s (old: 85 s) | pre-release |
+| B3 | `backup-kp-orphans-delete` | 1.65.13 · v1.65.12 | 15 s (old: 39 s) | pre-release |
+| B4 | `backup-ct-app-is-dataset-run` | 1.65.10 · v1.65.9 | ~95 s (old: 115 s) | pre-release |
+| B5 | `backup-sh-office-share-exists-first-setup` | 1.66.1 · v1.66.0 (page only, by hand) | 13 s | pre-release |
+| M1 | `moverelli-sh-prefer-array-files-run` | 1.66.1 · v1.66.0 | 17 s (old: 39 s) | pre-release |
+| M1 | `moverelli-sh-prefer-array-files-stop-after-file` | 1.66.1 · v1.66.0 | ~105 s (old: 335 s, the wait times out) | pre-release |
+| M2 | `moverelli-mo-own-rules-idle-setup` | 1.66.1 · v1.66.0 (page only, by hand) | 16 s | pre-release |
+| M2 | `moverelli-mo-own-rules-gone-setup` | 1.66.1 · v1.66.0 | 11 s (old: 31 s) | pre-release |
+| M3 | `moverelli-sh-yes-run-picture` (+ `moverelli-eta.mjs`) | 1.66.2 / 1.66.4 · v1.66.1 (page only, by hand) | ~70 s (old: 84 s) | pre-release |
+
+Times are the scenario alone on Tower; each needs a base reset before it (~27 s), and an older release adds its install.
+The whole batch takes ~10 min on the release (~25 min on the older ones).
+
+**Page-only fixes** (B5, M2's idle rules, M3): the agent's state is the same before and after the fix, and page.mjs draws
+this tree's desk.js. So the older release's red comes from drawing the scenario's own state files with that tag's page:
+`git archive <tag> public tests/ui src` into a scratch folder, today's `page.mjs` and `tests/ui/harness.mjs` beside it.
+For M3, the run's `m3-readings.jsonl` (evidence) is fed to `moverelli-eta.mjs <that tag's desk.js> <its core.js>`.
+The commands and their results: briefs folder `scenarios/2026-10-18/batch-a-red-before-by-hand.md`.
+**Pending until page.mjs opens folds:** B5's «no Create a share» sits in the guide, a closed `<details>` while a place is
+chosen; M2's «Remove rules» sits in a folded share row. innerText reads neither, so both are rows `pending: helper --open`.
+**Own helpers instead of the shared ones:** M1 writes its files per disk with `put_files` (SH-PREFER-ARRAY-FILES writes
+the same names on both disks). M1-stop waits for a file of uso-prefer itself (MV-STOP-AFTER-FILE stops at the run's
+first file, which belongs to a share earlier in her plan). M3 judges the time left on the server (`moverelli-eta.mjs`
+on this tree's desk.js), not from the card's text.
