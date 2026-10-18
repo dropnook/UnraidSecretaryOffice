@@ -343,7 +343,11 @@ check_inv_replan() {
     fi
     lock_held "$UB/state/lock" && { echo "a backup run holds the engine — no plan now${bad:+; ${bad[*]}}"; ((${#bad[@]})) && return 1; return 2; }
     # «Look at the server again» — straight through ask.php (the check's own look, not one of the scenario's requests)
-    php "$SC_DIR/ask.php" --wait 120 backup.setup_plan '{"measure":false}' >/dev/null 2>&1
+    _setup_done || WAIT_SOFT=1 wait_for 900 "a setup look to end" _setup_done >/dev/null 2>&1
+    local t0 out
+    t0=$(_sc_now)
+    out=$(php "$SC_DIR/ask.php" --wait 120 backup.setup_plan '{"measure":false}' 2>/dev/null)
+    jq -e .ok <<<"$out" >/dev/null 2>&1 || { echo "no plan now: setup_plan refused ($(jq -r '.error.key // "?"' <<<"$out"))${bad:+; ${bad[*]}}"; ((${#bad[@]})) && return 1; return 2; }
     sleep 2
     WAIT_SOFT=1 wait_for 900 "the replan to end" _setup_done >/dev/null 2>&1
     local i
@@ -354,6 +358,9 @@ check_inv_replan() {
         WAIT_SOFT=1 wait_for 600 "the replan to end" _setup_done >/dev/null 2>&1
     done
     jq -e '(.P | type) == "object"' "$plan" >/dev/null 2>&1 || { echo "no plan from setup_get${bad:+; ${bad[*]}}"; return 1; }
+    # the plan made for this check, not an older one (a refused or slow tour leaves the last plan in place)
+    jq -e --argjson t "$t0" '(.time // 0) >= $t - 5' "$plan" >/dev/null 2>&1 ||
+        { echo "no fresh plan (the newest is from $(jq -r '.time // 0' "$plan" | xargs -I{} date -d @{} +%T 2>/dev/null))${bad:+; ${bad[*]}}"; ((${#bad[@]})) && return 1; return 2; }
     cp "$UB/settings.ini" "$KEEP/after/replan-settings.ini"
     # the plan's messages: no code that says «something changed» unless the scenario announced a change
     codes=$(jq -r '[.messages[]?.code] | map(select(IN("app_gone","source_gone","dump_gone","partner_gone","settings_error","decision_invalid"))) | unique | join(",")' "$plan")

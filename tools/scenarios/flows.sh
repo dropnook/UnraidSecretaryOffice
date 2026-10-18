@@ -221,11 +221,15 @@ flow_bk_decline_undo() {
     rc=$?; _fl_end $rc
 }
 
+# a setup look at work (the base's own plan, a page's tour) refuses a start (setup_running): the page waits, so do we
+_bk_setup_free() { _setup_done || wait_for 900 "Mr. Backupsy's setup look to end" _setup_done; }
+
 # BK-RUN-MANUAL mode=…: «Back up now» (desk.js ~1946 start {mode}) — one real run a minute: the minute waited for first
 flow_bk_run_manual() {
     _fl_args "$@" || return 1
     local mode=${FL[mode]:-backup} rc
     [[ $mode =~ ^(backup|nokopia|dryrun|check)$ ]] || { say "BK-RUN-MANUAL: mode backup|nokopia|dryrun|check"; return 1; }
+    _bk_setup_free || return 1
     minute_wait || return 1
     _fl_ask backup.start "$(jq -cn --arg m "$mode" '{mode: $m}')" >/dev/null
     rc=$?; ((rc == 0)) || { _fl_end $rc; return; }
@@ -253,6 +257,7 @@ _bk_run_wait_with_look() {
 # BK-RUN-SCHED: the plugin's cron line's job (scripts/job.sh backup), as crond starts it at its time
 flow_bk_run_sched() {
     _fl_args "$@" || return 1
+    _bk_setup_free || return 1
     minute_wait || return 1
     job backup || return 1
     _bk_run_wait_with_look || return 1
@@ -266,7 +271,8 @@ flow_bk_run_queued() {
     _fl_args "$@" || return 1
     local i run=''
     for ((i = 0; i < 3; i++)); do
-        minute_wait || return 1
+        _bk_setup_free || return 1
+    minute_wait || return 1
         ask backup.start '{"mode":"backup"}' >/dev/null || return 1
         wait_backup 3600 || return 1
         run=$(jq -r '.run // ""' "$UB/state/status.json")
@@ -289,6 +295,7 @@ flow_bk_run_queued() {
 # BK-ABORT [after=s]: a run started, then «Stop the run» (desk.js ~1975 abort {}) once it is at work (+after s)
 flow_bk_abort() {
     _fl_args "$@" || return 1
+    _bk_setup_free || return 1
     minute_wait || return 1
     ask backup.start '{"mode":"backup"}' >/dev/null || return 1
     wait_for 120 "the backup run to be at work" lock_held "$UB/state/lock" || return 1
