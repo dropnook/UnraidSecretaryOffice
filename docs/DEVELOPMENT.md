@@ -496,8 +496,9 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   GPL-3.0-or-later, kept unchanged with its origin in the header): case-insensitive, the first rule that fits decides (as
   upstream); `skip` = neither error nor warning, `error` makes an error, `minor`/`warning` at least a warning, never lower
   than her words (`logsSyslogLevel()`, desk.js `syslogLevel()` from the rules in her state — `testLogsRules`). The tour keeps
-  per category the lines read/found and its most frequent kinds (`top` false beside the source's own); the page shows a chip
-  per category in the found list's bar. User rules: a later step.
+  per category the lines read (`cats`) and its newest `LOGS_RULE_KINDS` kinds (`sorted`, found or not; never skip or no
+  rule); her fifth tile «Syslog» (`#/logs/syslog`) shows them with a chip per category in its own bar, colours
+  `--logs-cat-*` (office.css). The credit to Enhanced Log's authors stands under all. User rules: a later step.
 * **`watchman` — The Night Watchman.** **The office's security department — no other desk gives security advice. Read only,
   never a command that changes anything.** Posture tips (never in the book or notified) and the watch book (what differs from
   normal; the office's own installs/drills adopted, never told). API keys: id, name, roles, a fingerprint — **never the key**;
