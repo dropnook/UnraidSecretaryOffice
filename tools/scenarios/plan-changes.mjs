@@ -6,6 +6,7 @@
 // list compared as the dialog compares it (docker|no_stop … as sets, «empty» and «missing» the same).
 //
 //   node tools/scenarios/plan-changes.mjs <plan.json> [<settings.ini>] [--items] [--desk <desk.js>]
+//   node tools/scenarios/plan-changes.mjs <plan.json> --decisions <auto|local|partner|kopia|kopia_partner> [--desk …]
 //
 // plan.json: the engine's state/setup-plan.json, or the answer of backup.setup_get (its `plan` - with `declined` and
 // `migrated`, as the page gets it; a bare setup-plan.json has neither: nothing declined, nothing migrated).
@@ -14,7 +15,10 @@
 // list written empty (`kopia_known =`) is the empty list.
 // Prints one JSON array, sorted by key: [{key, was, is, kind}] - `was` what settings.ini says (null: not there), `is` what
 // Apply would send, kind key | unit | partner | app_gone (the dialog's groups). --items: the dialog's rows instead
-// ([{id, kind, keys, yours}]). `[]` = Apply changes nothing. Exit 0, 2 on a wrong call or an unreadable file.
+// ([{id, kind, keys, yours}]). `[]` = Apply changes nothing. --decisions <default>: instead the body Apply sends when the
+// user picks that default «for everything» on the setup page and clicks Apply ({decisions, plan_time} for
+// backup.setup_apply - the scenarios' scripted first setup, tools/scenarios/base.sh --make). Exit 0, 2 on a wrong call
+// or an unreadable file.
 // Nothing here touches a server.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -24,10 +28,11 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..');
 
 const args = process.argv.slice(2);
-const opt = { plan: null, ini: null, items: false, desk: path.join(REPO, 'public', 'desks', 'backup', 'desk.js') };
+const opt = { plan: null, ini: null, items: false, decisions: null, desk: path.join(REPO, 'public', 'desks', 'backup', 'desk.js') };
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
   if (a === '--items') opt.items = true;
+  else if (a === '--decisions' && i + 1 < args.length) opt.decisions = args[++i];
   else if (a === '--desk' && i + 1 < args.length) opt.desk = args[++i];
   else if (a === '-h' || a === '--help') usage(0);
   else if (a.startsWith('-')) usage();
@@ -94,6 +99,14 @@ if (!B || typeof B.setupDraftFromPlan !== 'function' || typeof B.setupChangeItem
 }
 
 B.setup.plan = plan;
+if (opt.decisions !== null) {
+  // the page's presetChoose(kind) on a setup made anew: the default for every row, then Apply's body (setupDecisions)
+  if (!['auto', 'local', 'partner', 'kopia', 'kopia_partner'].includes(opt.decisions)) usage();
+  B.setup.choice = { kind: opt.decisions, all: true, items: null };
+  B.setupDraftFromPlan();
+  console.log(JSON.stringify({ decisions: B.setupDecisions(), plan_time: plan.time ?? null }));
+  process.exit(0);
+}
 B.setupDraftFromPlan();
 const { saved, view, items } = B.setupChangeItems();
 if (opt.items) {
