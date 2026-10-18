@@ -1,8 +1,8 @@
-# The test shares every base has (playbook §3 step 2), made by the states' share_make (H2) and filled by put_files -
-# skipped while those helpers aren't there. TAB-separated: name, use cache (no|only|yes|prefer), primary pool, files
-# (put_files: <base> <n>, names f0001…, 1 MB, half 1 day old, half 40 days).
-uso-arr	no	-	uso-arr 20
-uso-only	only	cache	uso-only 20
-uso-yes	yes	cache	uso-yes 20
-uso-prefer	prefer	cache	uso-prefer 20
-Fotos Ärger	yes	cache	fotos 10
+# The test shares every base has (playbook §3 step 2), made by the states' share_make and filled by put_files.
+# TAB-separated: name, use cache (no|only|yes|prefer), primary pool (- for the array), files: n of 1 MB on the share's
+# primary (f1d-0001.bin … half 1 day old, f40d-0001.bin … half 40 days).
+uso-arr	no	-	20
+uso-only	only	cache	20
+uso-yes	yes	cache	20
+uso-prefer	prefer	cache	20
+Fotos Ärger	yes	cache	10

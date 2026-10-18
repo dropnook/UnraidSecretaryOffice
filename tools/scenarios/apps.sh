@@ -138,6 +138,9 @@ app_Nextcloud() {
 _apps_nc_installed() { docker exec -u 33 Nextcloud php occ status --output=json 2>/dev/null | grep -q '"installed":true'; }
 _apps_nc_install() {
     _apps_nc_installed && return 0
+    # its data folder (the share's root) Nextcloud's own and closed - a root made anew is nobody's and 0777, and occ
+    # then refuses («Environment not properly prepared», 2026-10-18 on Tower when the container was already there)
+    local data; data=$(readlink -f /mnt/user/nextcloud) && chown 33:33 "$data" && chmod 0770 "$data" || return 1
     _st_until 300 docker exec Nextcloud test -f /var/www/html/version.php || { say "Nextcloud's code isn't there after 5 min"; return 1; }
     printf '%s\n%s\n' "$1" "$2" | docker exec -i -u 33 Nextcloud sh -c 'read -r db; read -r ad; php occ maintenance:install -n \
         --database mysql --database-host mariadb-nextcloud --database-name nextcloud --database-user nextcloud \
