@@ -151,7 +151,7 @@ const EST_PER_FILE_LO = 0.03;
 const EST_PER_FILE_HI = 0.12;
 const EST_BW = 100e6;             // the prior bandwidth, bytes a second: one HDD's stream, pool or array, parity or not …
 const EST_BW_LO = 50e6;           // … read/modify/write parity on a slow disk …
-const EST_BW_HI = 250e6;          // … a fast HDD or SSD to SSD (the bytes rate seen in any stretch is a floor on top)
+const EST_BW_HI = 250e6;          // … a fast HDD or SSD to SSD (the bytes rate seen is a floor on top; above this: unknown)
 const EST_ERR = 0.25;             // the fit's time per file and bandwidth each known within a quarter (standard error)
 const EST_SURE = 1.25;            // a range narrower than this (high ÷ low) is said as one time
 const estSeen = new Map();        // run|share -> [{t, files, bytes}, …]: the page's readings of the share (the first: its base)
@@ -160,24 +160,23 @@ const estLast = new Map();        // run|share -> {t, left, lo, hi}: the last ti
 /**
  * Seconds per file and bandwidth from readings, pure: {perFile, bw, fit} — fit true when least squares over the stretches
  * between readings could tell both apart, else the part the readings can't tell is the prior given (perFile0, bw0) and the
- * other follows from the whole stretch. Always: perFile ≤ the least seconds per file of any stretch, bw ≥ the most bytes a
- * second of any stretch (time ≥ each part alone).
+ * other follows from the whole stretch; unknown when the bytes already went faster than EST_BW_HI (perFile, bw then the
+ * two ends: the whole time the files', the whole time the bytes'). Always: perFile ≤ the whole stretch's seconds per file,
+ * bw ≥ its bytes a second (time ≥ each part alone).
  */
 function estModel(readings, perFile0, bw0) {
   const st = [];
-  let maxRate = 0, minPer = Infinity;
   for (let i = 1; i < readings.length; i++) {
     const t = readings[i].t - readings[i - 1].t;
     const f = Math.max(0, readings[i].files - readings[i - 1].files);
     const b = Math.max(0, readings[i].bytes - readings[i - 1].bytes) / 1e6;     // MB: keeps the sums in range
     if (t <= 0 || (!f && !b)) continue;
     st.push([f, b, t]);
-    if (b > 0) maxRate = Math.max(maxRate, b * 1e6 / t);
-    if (f > 0) minPer = Math.min(minPer, t / f);
   }
   const first = readings[0], last = readings[readings.length - 1];
   const T = last.t - first.t, F = Math.max(0, last.files - first.files), B = Math.max(0, last.bytes - first.bytes);
-  const clamp = (perFile, bw) => ({ perFile: Math.max(0, Math.min(perFile, minPer)), bw: Math.max(bw, maxRate, 1) });
+  // the whole stretch's bounds (not its fastest 5 s: a burst of bytes into a cache would make it all too quick)
+  const clamp = (perFile, bw) => ({ perFile: Math.max(0, F > 0 ? Math.min(perFile, T / F) : perFile), bw: Math.max(bw, T > 0 ? B / T : 0, 1) });
   // least squares t = a·f + c·b over the stretches, trusted only when both come out positive and each within EST_ERR of
   // itself (its standard error): a stretch of small files of varying size and a jittering fuser never make a bandwidth
   let ff = 0, fb = 0, bb = 0, ft = 0, bt = 0;
@@ -190,6 +189,8 @@ function estModel(readings, perFile0, bw0) {
     const s2 = st.length > 2 ? rss / (st.length - 2) : 0;
     if (a > 0 && c > 0 && Math.sqrt(s2 * bb / det) <= EST_ERR * a && Math.sqrt(s2 * ff / det) <= EST_ERR * c) return { ...clamp(a, 1e6 / c), fit: true };
   }
+  // bytes faster than the bandwidth's prior allows: the readings can't tell the time per file from the bandwidth at all
+  if (T > 0 && B / T > EST_BW_HI) return { perFile: F > 0 ? T / F : 0, bw: B / T, fit: false, unknown: true };
   // what the readings saw mostly: files (small ones) — the bandwidth unknown; else bytes — the time per file unknown
   if (F * EST_PER_FILE >= B / EST_BW) return { ...clamp(F > 0 ? Math.max(0, T - B / bw0) / F : perFile0, bw0), fit: false };
   const perFile = F > 0 ? Math.min(perFile0, 0.5 * T / F) : perFile0;
@@ -231,7 +232,11 @@ function runEstimate(p, d, now) {
   const time = (m) => filesLeft * m.perFile + bytesLeft / m.bw;
   const m = estModel(rs, EST_PER_FILE, EST_BW);
   let raw = time(m), lo = raw, hi = raw;
-  if (!m.fit) {
+  if (m.unknown) {
+    // the two ends: all the time so far the files' (m.perFile), all of it the bytes' (m.bw) — the larger said, as a range
+    const ends = [filesLeft * m.perFile, bytesLeft / m.bw];
+    [raw, lo, hi] = [Math.max(...ends), Math.min(...ends), Math.max(...ends)];
+  } else if (!m.fit) {
     // the part the readings can't tell, from its range: the other part follows from the same stretch each time
     const ends = [estModel(rs, EST_PER_FILE_LO, EST_BW_HI), estModel(rs, EST_PER_FILE_HI, EST_BW_LO)].map(time);
     lo = Math.min(raw, ...ends);
