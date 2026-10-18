@@ -15,6 +15,7 @@
 # (flock /tmp/uso-scenarios.lock, resilienz/wave1/_shared.md), at most --timeout s (default 3600), with
 #   USO_SC_OUT   the run's report folder - lib.sh writes <name>.md, <name>.result, <name>.pending there
 #   USO_SC_TREE  the tree the scenario runs from;   USO_SC_KEEP=1  with --keep (lib.sh: leave the state for a look)
+# (flock -o: the lock's fd is not handed down - an agent a scenario restarts would hold the lock for its whole life.)
 # Its output goes to <name>.out. A scenario run with an argument keeps its files as <name>@<arg>.* (one run may call the
 # same scenario with several). Without a result file from lib.sh one is made from the exit code: 0 green, 1 red,
 # 2 skipped, 3 dirty (undo failed: base.sh before the next), 124 timeout, 75 lock busy, else error (both dirty too).
@@ -208,7 +209,7 @@ run_one() {
         rm -f "$out/$name.result" "$out/$name.pending" "$out/$name.result-pre" "$out/$name.out" "$out/$name.md"
     fi
     t0=$SECONDS
-    ( cd / && timeout "$tmo" flock -w 1800 -E 75 "$LOCK" bash "$file" ${arg:+"$arg"} ) >> "$out/$name.out" 2>&1 < /dev/null
+    ( cd / && timeout "$tmo" flock -o -w 1800 -E 75 "$LOCK" bash "$file" ${arg:+"$arg"} ) >> "$out/$name.out" 2>&1 < /dev/null
     code=$?
     case $code in
         0) v=green ;; 1) v=red ;; 2) v=skipped ;; 3) v=dirty ;; 124) v=timeout; why="ran longer than $tmo s" ;;

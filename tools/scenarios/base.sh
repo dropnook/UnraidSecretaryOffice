@@ -32,6 +32,7 @@ SC=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 TREE=$(cd "$SC/../.." && pwd)
 
 dry=0 full=0 make=0 prune=0 made=0
+ARGS=("$@")
 while (($#)); do
     case $1 in
         --dry) dry=1 ;;
@@ -89,6 +90,15 @@ HIRE='' BACKUP_PRESET=auto BACKUP_CRON='' MOVERELLI_X=80 MOVERELLI_CRON='' MOVER
 D=$(sed -n 's/^DATA_DIR="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$CFG" 2>/dev/null | head -1)
 [[ $D == /mnt/*/* && $D != *..* ]] || { echo "base: no data folder in $CFG" >&2; exit 2; }
 DB=$D.base
+# the Tower lock for the whole reset, taken first (another worker's experiment holds it while its job runs; not for a
+# dry run: it changes nothing): base.sh runs again under `flock -o` - the lock's fd never reaches a child (the agent it
+# starts would hold the lock for its whole life). A caller holding the lock says USO_SC_LOCKED=1.
+if ((!dry)) && [[ ${USO_SC_LOCKED:-} != 1 ]]; then
+    USO_SC_LOCKED=1 flock -o -w 1800 -E 75 "$LOCK" bash "$0" "${ARGS[@]}"
+    code=$?
+    ((code == 75)) && echo "base: the Tower lock ($LOCK) stayed busy for 30 min - refused" >&2 && exit 2
+    exit $code
+fi
 log "$HOST ($(hostname)), data folder $D, base $DB$( ((dry)) && echo ' - dry run, nothing changes')"
 
 # the pools and disks mounted under /mnt (their share roots are where leftovers lie)
@@ -96,6 +106,7 @@ roots() { findmnt -rn -o TARGET | grep -E '^/mnt/[^/]+$' | grep -vE '^/mnt/(user
 array_started() { grep -q '^mdState="STARTED"' /var/local/emhttp/var.ini; }
 
 # ------------------------------------------------------------------------------------------------- 0. may it run?
+
 refuse=''
 array_started || refuse="${refuse}the array is not started; "
 pgrep -f "$JOBS" >/dev/null 2>&1 && refuse="${refuse}a job of the office runs ($(pgrep -af "$JOBS" | head -1 | cut -c1-120)); "
@@ -117,12 +128,6 @@ if ((!make && !prune)) && [[ ! -f $DB/data.tar ]]; then
 fi
 if [[ -n $refuse ]]; then
     if ((dry)); then warn "would refuse: ${refuse%; }"; else echo "base: refused - ${refuse%; }" >&2; exit 2; fi
-fi
-
-# the Tower lock for the whole reset (not for a dry run: it changes nothing); a caller holding it says USO_SC_LOCKED=1
-if ((!dry)) && [[ ${USO_SC_LOCKED:-} != 1 ]]; then
-    exec 9>>"$LOCK"
-    flock -w 1800 9 || { echo "base: the Tower lock ($LOCK) stayed busy for 30 min - refused" >&2; exit 2; }
 fi
 
 # -------------------------------------------------------------------------------------------------------- --prune
@@ -217,7 +222,16 @@ make_base() {
     st=$D/unraid-backup/state/setup-status.json
     sleep 2
     wait_json "$st" '.running != true and .mode == "plan" and .result != null' 600 || { warn "the plan did not finish"; return 1; }
-    ask backup.setup_get '{}' 60 | jq '.plan' > "/tmp/uso-base-plan.json" || return 1
+    # the page's look at the plan: on a fresh data folder the first one starts the plan anew (the engine's note isn't
+    # there yet) and answers without one - looked at again once that plan is done
+    local i
+    for ((i = 0; i < 5; i++)); do
+        ask backup.setup_get '{}' 60 | jq '.plan' > /tmp/uso-base-plan.json || return 1
+        jq -e '(.P | type) == "object" and .O != null' /tmp/uso-base-plan.json >/dev/null && break
+        log "Mr. Backupsy: the plan is made anew - waiting for it"
+        sleep 3
+        wait_json "$st" '.running != true and .mode == "plan" and .result != null' 600 || { warn "the plan did not finish"; return 1; }
+    done
     body=$(node "$TREE/tools/scenarios/plan-changes.mjs" /tmp/uso-base-plan.json --decisions "$BACKUP_PRESET") || { warn "no decisions from desk.js"; return 1; }
     rm -f /tmp/uso-base-plan.json
     log "Mr. Backupsy: Apply ($BACKUP_PRESET for everything, $(jq '.decisions | length' <<<"$body") keys)"
@@ -275,9 +289,16 @@ if [[ -f $DB/data.tar ]] || ((dry && make)); then
     # (just made: the data folder is the base already)
     ((made)) || act "unpack the base into $D ($(sed -n 's/^made=//p' "$DB/manifest" 2>/dev/null || echo 'made now'))" \
         bash -c 'mkdir -p "$1" && tar -C "$1" -xpf "$2"' _ "$D" "$DB/data.tar"
+    # from the data folder just set aside, else the newest aside that has it (a failed --make leaves a fresh one between)
     for c in $CARRY; do
-        if [[ -e $D.aside-$STAMP/$c ]] || ((dry)); then
-            act "carry $c over from the old data folder" bash -c 'rm -rf -- "$1/$2" && cp -a -- "$3/$2" "$1/$2"' _ "$D" "$c" "$D.aside-$STAMP"
+        from=$(ls -d "$D".aside-*/"$c" 2>/dev/null | sort -r | head -1)
+        [[ -e $D.aside-$STAMP/$c ]] && from=$D.aside-$STAMP/$c
+        if [[ -n $from ]]; then
+            act "carry $c over from ${from%/*}" bash -c 'rm -rf -- "$1/$2" && cp -a -- "$3" "$1/$2"' _ "$D" "$c" "$from"
+        elif ((dry)); then
+            log "would carry $c over from the data folder set aside"
+        else
+            log "nothing to carry for $c"
         fi
     done
     if [[ -f $DB/cron ]] && ! cmp -s "$DB/cron" "$CRON"; then
@@ -431,6 +452,14 @@ if ((dry)); then
     log "would start the agent and wait for its heartbeat"
 else
     act "start the agent" agent_start || warn "no heartbeat after 90 s"
+    # quiet before the base counts: what the agent starts on its first looks (a plan made anew - the engine's note, the
+    # partnerships carried over) finished, at most 5 min
+    sleep 5
+    q=$SECONDS
+    while pgrep -f "$JOBS" >/dev/null 2>&1 && ((SECONDS - q < 300)); do sleep 2; done
+    if pgrep -f "$JOBS" >/dev/null 2>&1; then warn "a job of the office still runs after 5 min: $(pgrep -af "$JOBS" | head -1 | cut -c1-120)"; fails=$((fails + 1))
+    elif ((SECONDS - q > 1)); then log "the agent's first jobs done in $((SECONDS - q)) s ($(grep -c 'started via at' "$D/agent.log" 2>/dev/null) started: $(grep 'started via at' "$D/agent.log" 2>/dev/null | tail -1 | cut -c21-140))"
+    else log "the office is quiet"; fi
 fi
 if real_fn scenario_begin && real_fn check && real_fn scenario_end; then
     if ((dry)); then log "would run check standard against the base (lib.sh)"
