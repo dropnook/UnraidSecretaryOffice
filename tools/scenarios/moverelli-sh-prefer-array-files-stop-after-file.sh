@@ -16,26 +16,7 @@ put_files M1S disk1 uso-prefer/m1s-d1 6 --size 192M && put_files M1S disk2 uso-p
 undo_push files_unput M1S
 track_share uso-prefer
 snap_before
-# MV-STOP-AFTER-FILE's «a file on its way» sees the previous run's last progress (file set) the moment the new run's pid
-# is there, and stops her before she looked (seen 2026-10-18; to the coordinator): the same requests here, the stop sent
-# once this run has a file of uso-prefer in flight
-moving_now() {
-    _mv_at_work || return 1
-    _ck_mv_progress | jq -e --argjson t "$1" '(.share // "") == "uso-prefer" and (.file // "") != "" and ((.started // 0) | tonumber) >= $t - 5' >/dev/null
-}
-if ask moverelli.start_run '{"mode":"run"}' >/dev/null; then
-    t0=$(date +%s)
-    touch "$KEEP/.mv-touched"
-    if wait_for 300 "a file of uso-prefer on its way" moving_now "$t0"; then
-        ask moverelli.stop '{}' >/dev/null && expect_ok "moverelli.stop"
-        wait_moverelli 3600
-        ask moverelli.refresh '{}' 120 >/dev/null
-        h=$(jq -r '.history[0] | "\(.result)/\(.why // "")"' "$D/moverelli.json" 2>/dev/null)
-        [[ $h == stopped/user ]] && cell stopped-by-user 1 "her last run: stopped by the user" || cell stopped-by-user 0 "her last run: $h"
-    fi
-else
-    cell started 0 "her run was refused: $(ask_last '.error.key // "?"')"
-fi
+flow MV-STOP-AFTER-FILE                      # her last run «stopped by the user»: the flow checks it
 a=$(( $(on disk1) + $(on disk2) )) c=$(on cache)
 ((c >= 1 && a >= 1 && a + c == 12)) && cell stopped-between 1 "$c of 12 files reached cache, $a stayed on the array — stopped after a file" \
     || cell stopped-between 0 "after the stop: $c on cache, $a on the array (of 12)"
