@@ -168,6 +168,76 @@ agent_wait() {
 agent_stop() { bash "$P/scripts/agent.sh" stop >/dev/null; }
 agent_start() { bash "$P/scripts/agent.sh" start >/dev/null && agent_wait 90; }
 
+# ------------------------------------------------------------------------------- steps 2 and 4 (run here or before --make)
+listed() { sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$1" 2>/dev/null; }
+# the form fields of Unraid's share page (the states' share_apply sets only these); other cfg keys are reported
+SHARE_FORM='^share(UseCache|CachePool|CachePool2|Allocator|SplitLevel|Include|Exclude|Floor|Comment|COW)$'
+shares_step() {
+    step "2 shares"
+    local s f k v use pool n fix=() other=() prim
+    base_shares=$(listed "$BASE/shares.list")
+    test_shares=$(listed "$SC/base/test-shares.list" | cut -f1)
+    while IFS= read -r s; do
+        [[ -n $s ]] || continue
+        if [[ -f $BASE/shares/$s.cfg ]]; then
+            if [[ ! -f /boot/config/shares/$s.cfg ]]; then warn "share $s: no cfg on the flash (the base has one)"
+            elif ! diff -q <(tr -d '\r' < "$BASE/shares/$s.cfg") <(tr -d '\r' < "/boot/config/shares/$s.cfg") >/dev/null; then
+                fix=() other=()
+                while IFS='=' read -r k v; do
+                    [[ -n $k ]] || continue
+                    tr -d '\r' < "/boot/config/shares/$s.cfg" | grep -qxF "$k=$v" && continue
+                    if [[ $k =~ $SHARE_FORM ]]; then fix+=("$k=${v//\"/}"); else other+=("$k"); fi
+                done < <(tr -d '\r' < "$BASE/shares/$s.cfg")
+                if ((${#fix[@]})) && real_fn share_apply; then act "share $s back to the base: ${fix[*]}" share_apply "$s" "${fix[@]}"
+                elif ((${#fix[@]})); then warn "share $s: ${fix[*]} differ from the base (left: no share_apply)"; fi
+                ((${#other[@]})) && warn "share $s: ${other[*]} differ from the base (not on Unraid's share form - left)"
+            fi
+        fi
+        [[ -d /mnt/user/$s ]] || warn "share $s: not there (/mnt/user/$s)"
+    done <<<"$base_shares"
+    log "base shares: $(echo $base_shares)"
+    # shares that aren't base (not the base's, not a test share, not uso-wip-*): an empty one removed by Unraid's own
+    # «Delete» (share_remove), one with files left and reported - never deleted
+    for f in /boot/config/shares/*.cfg; do
+        [[ -f $f ]] || continue
+        s=$(basename "$f" .cfg)
+        grep -qxF "$s" <<<"$base_shares" && continue
+        grep -qxF "$s" <<<"$test_shares" && continue
+        [[ $s == uso-wip-* ]] && continue
+        if find /mnt/*/"$s" -mindepth 1 -maxdepth 1 2>/dev/null | grep -q .; then
+            warn "share $s is not base and has files - left (set it aside yourself, or add it to $(basename "$BASE")/shares.list)"
+        elif real_fn share_remove; then act "remove the empty share $s (not base; Unraid's Delete)" share_remove "$s"
+        else warn "share $s is not base - left (no share_remove)"; fi
+    done
+    # the test shares and their files: n of 1 MB on the share's primary, half a day old, half 40 days (birth time too:
+    # put_files writes them with the clock set back)
+    if real_fn share_make && real_fn put_files && real_fn share_primary; then
+        while IFS=$'\t' read -r s use pool n; do
+            [[ -n $s ]] || continue
+            if [[ -f /boot/config/shares/$s.cfg ]]; then log "test share $s there"
+            else act "make the test share $s ($use${pool:+, $pool})" share_make "$s" "$use" $([[ $pool != - ]] && echo "$pool") || continue; fi
+            prim=$(share_primary "$s")
+            if ls /mnt/"$prim"/"$s"/f1d-0001.bin /mnt/"$prim"/"$s"/f40d-0001.bin >/dev/null 2>&1; then
+                log "test share $s: its files there"
+            else
+                act "test share $s: $((n / 2)) files 1 day old on $prim" put_files BASE "$prim" "$s" $((n / 2)) --age 1d
+                act "test share $s: $((n - n / 2)) files 40 days old on $prim" put_files BASE "$prim" "$s" $((n - n / 2)) --age 40d
+            fi
+        done < <(listed "$SC/base/test-shares.list")
+    else
+        log "skipped: test shares ($(echo $test_shares | tr '\n' ' ')) - not built yet (the states' share_make/put_files)"
+    fi
+}
+apps_step() {
+    step "4 apps, 5 VMs"
+    if [[ $DOCKER == yes ]]; then
+        if [[ -f $SC/apps.sh ]]; then act "the demo apps (apps.sh$( ((full)) && echo ' --recreate') all)" bash "$SC/apps.sh" $( ((full)) && echo --recreate) all
+        else log "skipped: apps - not built yet (apps.sh, H2)"; fi
+    fi
+    if real_fn vm_make; then act "the plain VM" vm_make plain
+    else log "skipped: VMs - not built yet (vm_make, wave 1b)"; fi
+}
+
 # ------------------------------------------------------------------------------------------------- 1a. the office down
 step() { echo; log "--- $*"; }
 step "1 the office"
@@ -323,65 +393,6 @@ if [[ -f $DB/data.tar ]] || ((dry && make)); then
 fi
 
 # ------------------------------------------------------------------------------------------------------- 2. shares
-listed() { sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$1" 2>/dev/null; }
-# the form fields of Unraid's share page (the states' share_apply sets only these); other cfg keys are reported
-SHARE_FORM='^share(UseCache|CachePool|CachePool2|Allocator|SplitLevel|Include|Exclude|Floor|Comment|COW)$'
-shares_step() {
-    step "2 shares"
-    local s f k v use pool n fix=() other=() prim
-    base_shares=$(listed "$BASE/shares.list")
-    test_shares=$(listed "$SC/base/test-shares.list" | cut -f1)
-    while IFS= read -r s; do
-        [[ -n $s ]] || continue
-        if [[ -f $BASE/shares/$s.cfg ]]; then
-            if [[ ! -f /boot/config/shares/$s.cfg ]]; then warn "share $s: no cfg on the flash (the base has one)"
-            elif ! diff -q <(tr -d '\r' < "$BASE/shares/$s.cfg") <(tr -d '\r' < "/boot/config/shares/$s.cfg") >/dev/null; then
-                fix=() other=()
-                while IFS='=' read -r k v; do
-                    [[ -n $k ]] || continue
-                    tr -d '\r' < "/boot/config/shares/$s.cfg" | grep -qxF "$k=$v" && continue
-                    if [[ $k =~ $SHARE_FORM ]]; then fix+=("$k=${v//\"/}"); else other+=("$k"); fi
-                done < <(tr -d '\r' < "$BASE/shares/$s.cfg")
-                if ((${#fix[@]})) && real_fn share_apply; then act "share $s back to the base: ${fix[*]}" share_apply "$s" "${fix[@]}"
-                elif ((${#fix[@]})); then warn "share $s: ${fix[*]} differ from the base (left: no share_apply)"; fi
-                ((${#other[@]})) && warn "share $s: ${other[*]} differ from the base (not on Unraid's share form - left)"
-            fi
-        fi
-        [[ -d /mnt/user/$s ]] || warn "share $s: not there (/mnt/user/$s)"
-    done <<<"$base_shares"
-    log "base shares: $(echo $base_shares)"
-    # shares that aren't base (not the base's, not a test share, not uso-wip-*): an empty one removed by Unraid's own
-    # «Delete» (share_remove), one with files left and reported - never deleted
-    for f in /boot/config/shares/*.cfg; do
-        [[ -f $f ]] || continue
-        s=$(basename "$f" .cfg)
-        grep -qxF "$s" <<<"$base_shares" && continue
-        grep -qxF "$s" <<<"$test_shares" && continue
-        [[ $s == uso-wip-* ]] && continue
-        if find /mnt/*/"$s" -mindepth 1 -maxdepth 1 2>/dev/null | grep -q .; then
-            warn "share $s is not base and has files - left (set it aside yourself, or add it to $(basename "$BASE")/shares.list)"
-        elif real_fn share_remove; then act "remove the empty share $s (not base; Unraid's Delete)" share_remove "$s"
-        else warn "share $s is not base - left (no share_remove)"; fi
-    done
-    # the test shares and their files: n of 1 MB on the share's primary, half a day old, half 40 days (birth time too:
-    # put_files writes them with the clock set back)
-    if real_fn share_make && real_fn put_files && real_fn share_primary; then
-        while IFS=$'\t' read -r s use pool n; do
-            [[ -n $s ]] || continue
-            if [[ -f /boot/config/shares/$s.cfg ]]; then log "test share $s there"
-            else act "make the test share $s ($use${pool:+, $pool})" share_make "$s" "$use" $([[ $pool != - ]] && echo "$pool") || continue; fi
-            prim=$(share_primary "$s")
-            if ls /mnt/"$prim"/"$s"/f1d-0001.bin /mnt/"$prim"/"$s"/f40d-0001.bin >/dev/null 2>&1; then
-                log "test share $s: its files there"
-            else
-                act "test share $s: $((n / 2)) files 1 day old on $prim" put_files BASE "$prim" "$s" $((n / 2)) --age 1d
-                act "test share $s: $((n - n / 2)) files 40 days old on $prim" put_files BASE "$prim" "$s" $((n - n / 2)) --age 40d
-            fi
-        done < <(listed "$SC/base/test-shares.list")
-    else
-        log "skipped: test shares ($(echo $test_shares | tr '\n' ' ')) - not built yet (the states' share_make/put_files)"
-    fi
-}
 ((make)) || shares_step
 
 # --------------------------------------------------------------------------------------------- 3. engine leftovers
@@ -442,15 +453,6 @@ done
 ((found)) || log "no leftovers in the shares"
 
 # -------------------------------------------------------------------------------------------------- 4. apps, 5. VMs
-apps_step() {
-    step "4 apps, 5 VMs"
-    if [[ $DOCKER == yes ]]; then
-        if [[ -f $SC/apps.sh ]]; then act "the demo apps (apps.sh$( ((full)) && echo ' --recreate') all)" bash "$SC/apps.sh" $( ((full)) && echo --recreate) all
-        else log "skipped: apps - not built yet (apps.sh, H2)"; fi
-    fi
-    if real_fn vm_make; then act "the plain VM" vm_make plain
-    else log "skipped: VMs - not built yet (vm_make, wave 1b)"; fi
-}
 ((make)) || apps_step
 
 # ------------------------------------------------------------------------------------------------------- 6. Unraid
