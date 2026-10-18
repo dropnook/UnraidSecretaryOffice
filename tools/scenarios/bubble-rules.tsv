@@ -51,3 +51,5 @@ moverelli	bubble.run_to_array	(.moverelli.running and .moverelli.to_array)	«I'm
 moverelli	bubble.run_back_from_array	(.moverelli.running and .moverelli.to_pool)	«I'm bringing … back from the array into pool» only while her run moves files array → pool
 moverelli	bubble.run_back_from_pool	.moverelli.running	«… from pool … into pool» only while her run goes
 moverelli	bubble.run_to_pool	.moverelli.running	«… on into pool …» only while her run goes
+moverelli	greet.2	((.moverelli.running | not) and (.moverelli.to_pool | not))	«what's old goes to the array» — the same as greet.1 (her filter treats both alike)
+restore	greet.2	(.restore.packages > 0)	«which state do you want? I'll bring it back» only with packages

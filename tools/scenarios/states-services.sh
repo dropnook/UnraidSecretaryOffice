@@ -195,7 +195,7 @@ varlog_fill() {
 varlog_unfill() { local f; f=$(_st_dir "$1")/varlog.made; [[ -f $f ]] || return 0; rm -f /var/log/uso-fill && rm -f "$f"; }
 
 # ------------------------------------------------------------------------------------------------------------ states
-state_sv_docker_off() { _st_need docker pgrep -x dockerd || return; docker_off SV-DOCKER-OFF "${1:-}"; }
+state_sv_docker_off() { docker_off SV-DOCKER-OFF "${1:-}"; }     # already off (test3): the state holds as it is
 undo_sv_docker_off() { docker_on SV-DOCKER-OFF; }
 state_sv_docker_hung() { docker_hang SV-DOCKER-HUNG; }
 undo_sv_docker_hung() { docker_unhang SV-DOCKER-HUNG; }
