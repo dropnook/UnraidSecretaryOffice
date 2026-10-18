@@ -1,6 +1,7 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.61 - 2026-10-18
+# unraid-backup - setup.sh                        Version 2.62 - 2026-10-18
+#   2.62 No change here (the engine's version: backup.sh goes on when Nextcloud's data folder is readable by others)
 #   2.61 No change here (the engine's version: backup.sh never writes .uso-backup into a database's data folder)
 #   2.60 Whether an app, a database, a Nextcloud or a VM runs right now never changes what is stored for it: a Nextcloud
 #        set up before whose container is stopped keeps its [nextcloud] section as it is (preexisting_maintenance, the

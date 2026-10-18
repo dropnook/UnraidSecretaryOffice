@@ -5458,7 +5458,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.61'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.62'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -6338,8 +6338,11 @@ case "\$1" in
       case "\$1" in
         test) exit 0 ;;
         stat) echo www-data; exit 0 ;;
+        id) echo 33; exit 0 ;;
         php)
           shift 2
+          # \$FAKE/nc.readable: its data folder readable by others - occ refuses everything, the complaint on stdout
+          [[ -e "\$FAKE/nc.readable" ]] && { ev "occ refused \$*"; printf 'Your data directory is readable by other people.\\nPlease change the permissions to 0770 so that the directory cannot be listed by other people.\\n\\nException: Environment not properly prepared.\\n'; exit 1; }
           case "\$*" in
             "config:system:get instanceid") echo inst1 ;;
             "config:system:get maintenance") cat "\$FAKE/nc.maint" 2>/dev/null || echo false ;;
@@ -6528,6 +6531,31 @@ SH);
         !preg_grep('/^zfs destroy maple\/(UnraidSecretaryOffice-partners|\.UnraidSecretaryOffice-trash)/', $n)
         && array_diff($foreign, file("$fake/snaps.txt", FILE_IGNORE_NEW_LINES) ?: []) === [], json_encode($n));
     check('array stop: a normal run — its mounts gone, no array-stop notification', $ours() === [] && !preg_grep('/array stop/', $notes()), json_encode([$ours(), $notes()]));
+
+    // --- engine 2.62: Unraid reset Nextcloud's data folder (a share root) to 0777 nobody:users when a share was added - occ
+    // refuses everything. Up to 2.61 the run failed (nc_datadir_readable) and nothing was backed up; now it goes on without
+    // the maintenance mode (Nextcloud stopped with the apps), one coded warning with the folder on the host (its config.php
+    // read there) and Nextcloud's user, one notification with the lasting fix; occ asked once, never changed by the engine
+    $night();
+    @mkdir("$pool/appdata/nc/config", 0700, true);
+    file_put_contents("$pool/appdata/nc/config/config.php", "<?php\n\$CONFIG = array (\n  'instanceid' => 'inst1',\n  'datadirectory' => '/var/www/html/ncdata/',\n);\n");
+    touch("$fake/nc.readable");
+    [$code, , $out] = $run();
+    @unlink("$fake/nc.readable");
+    $s = $status();
+    $n = $names();
+    same('nc 0777: the run went through with warnings, Kopia for every share', ['warnings', 0, 0, 3],
+        [$s['result'] ?? null, $code, $s['errors'] ?? null, count(array_filter($s['kopia']['done'] ?? [], fn ($d) => $d['ok']))]);
+    same('nc 0777: one coded warning — the data folder on the host, Nextcloud\'s user',
+        [['code' => 'nc_datadir_readable', 'params' => ['name' => 'nc', 'path' => "$mnt/user/appdata/nc/ncdata", 'uid' => '33']]],
+        array_values(array_filter($s['warning_items'] ?? [], fn ($i) => ($i['code'] ?? '') === 'nc_datadir_readable')));
+    check('nc 0777: no maintenance mode, nothing noted for it; Nextcloud stopped and started with the apps; occ asked once to switch',
+        !in_array('occ maintenance on', $n, true) && !in_array('occ maintenance off', $n, true) && !is_file("$data/state/maintenance")
+        && in_array('docker stop nc', $n, true) && in_array('docker start nc', $n, true) && count(preg_grep('/^occ refused maintenance:mode --on$/', $n)) === 1, json_encode($n));
+    check('nc 0777: a warning notification with the lasting fix', count(preg_grep('/Nextcloud refuses to work.*chown 33:users.*-i warning$/', $notes())) === 1, json_encode($notes()));
+    check('nc 0777: the office says it (warn_code.nc_datadir_readable with {name} {path} {uid}, five languages)', array_filter(['en', 'de', 'it', 'fr', 'es'],
+        fn ($l) => !preg_match('/\{name\}.*\{path\}.*\{uid\}/', (string) (langFile(OFFICE_WEB . "/desks/backup/lang/$l.json")['warn_code.nc_datadir_readable'] ?? ''))) === []);
+    @unlink("$pool/appdata/nc/config/config.php");
 
     $prunedRuns = fn () => count(json_decode((string) @file_get_contents("$data/state/pruned.json"), true)['runs'] ?? []);
     $pruned0 = $prunedRuns();
@@ -7112,9 +7140,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.61 everywhere it is named', ['2.61', '2.61', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.61"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.61** –')]);
+    same('data trust: the engine\'s version 2.62 everywhere it is named', ['2.62', '2.62', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.62"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.62** –')]);
     // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
     same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
         array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
@@ -8200,7 +8228,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.61', [1, '2.61'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.62', [1, '2.62'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -8808,7 +8836,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.61', [1, '2.61'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.62', [1, '2.62'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
