@@ -13,11 +13,11 @@
 #
 # INTERFACE (frozen after wave 1; H2 states-*.sh, H5 flows.sh/checks.sh build on it):
 #   Facts      P D UB PLACE RUN KEEP REPORT SC_NAME SC_DIR SC_START      host_is tower|test3|any   has <thing>
-#              needs <thing>…   (things: tower test3 any docker vm zfs btrfs kopia minio jack partner reboot vmagent)
+#              needs <thing>…   (things: tower test3 any docker vm vmagent hdd zfs btrfs kopia minio jack partner reboot)
 #              bases (disks and pools mounted under /mnt)   base_asleep <base>   disks_asleep   share_asleep <share>
 #              lock_held <file> (via /proc/locks, never by taking it)
 #   Report     say <text…>   say_cmd <cmd…> (runs it, its output into the report)   evidence <file|dir> [name]
-#   Mailbox    ask <desk.action> [json] [timeout]   ask_err <desk.action> [json] [timeout]   ask_save_post <file> <desk.action> [json]
+#   Mailbox    ask <desk.action> [json] [timeout]   ask_err <desk.action> [json] [timeout]   ask_save_post <desk.action> [json] [timeout]
 #              ask_last [jq filter] (the last answer, state stripped; works after `x=$(ask …)` too)
 #   Agent      agent_wait [s]   agent_mark_restart   agent_restart   agent_log_mark [name]   agent_log_since [name]   doorbell_ok
 #              state_json <desk>[-<part>] [jq filter] (after <desk>.refresh)
@@ -31,7 +31,10 @@
 #              expect_diff <spec>…   expect_changes <spec>…   expect_bubble <desk> <key>…   expect_no_text <desk> <key>…
 #              check_<inv_id> (INV-NO-WAKE → check_inv_no_wake): prints the violation in one line;
 #              returns 0 green · 1 red · 2 pending (reason printed) · 3 not applicable (reason printed)
+#              queue_mac <INV-ID> plan_changes|page_text <args…> (a Mac-side check for the runner)
 #   Exit codes 0 green · 1 red · 2 skipped (needs unmet) · 3 undo failed (the VM is dirty: the runner resets it)
+#   Runner     USO_SC_OUT (report folder of the run), `.git-describe` in the tree; writes <report>.result (verdict= red=
+#              pending= keep= why=) and <report>.pending (queue_mac lines)
 #
 # Helpers say what they do (into the report and stderr — stdout is only the data they print), return 0/1 and never
 # exit — except scenario_begin (wrong host / no plugin / not root) and needs (unmet → scenario_end → exit 2). Everything a
@@ -48,11 +51,13 @@ OFFICE_CFG=/boot/config/plugins/unraid-secretary-office/unraid-secretary-office.
 OFFICE_FLASH=/boot/config/plugins/unraid-secretary-office
 SCENARIOS_ENV=$OFFICE_FLASH/scenarios.env
 DISKS_INI=/var/local/emhttp/disks.ini
+SHARES_INI=/var/local/emhttp/shares.ini
 NOTIFY_DIR=/tmp/notifications
 TOWER_IP=192.168.7.111
 TEST3_IP=192.168.7.197
 SC_REPORTS=/tmp/uso-scenarios
 SC_KEEPS=/tmp/uso-keep
+SC_POST=$SC_REPORTS/post             # canned dialog answers for the page tool (page.sh copies it as the harness's post/)
 D= UB= PLACE= KEEP= REPORT= SC_NAME= SC_START= KEEP_STASH= SC_ENDED=
 
 # The standard and final sets (invarianten.md); H5's checks.sh may add to them. A check without its function is
@@ -91,6 +96,16 @@ host_is() {
     esac
 }
 
+# a rotating array disk that isn't QEMU's (only such a disk can really be spun down)
+_real_hdd() {
+    local dev
+    for dev in $(awk -F'"' 'function out(){if (r=="1" && t=="Data" && d!="") print d} /^\[/{out(); d=t=r=""} /^device=/{d=$2}
+        /^type=/{t=$2} /^rotational=/{r=$2} END{out()}' "$DISKS_INI" 2>/dev/null); do
+        grep -qi qemu "/sys/block/$dev/device/model" 2>/dev/null || return 0
+    done
+    return 1
+}
+
 _container_up() { docker ps --format '{{.Names}}' 2>/dev/null | grep -qix "$1"; }
 
 has() {
@@ -98,6 +113,7 @@ has() {
         docker) [[ -S /var/run/docker.sock ]] && timeout 10 docker info >/dev/null 2>&1 ;;
         vm) [[ -S /var/run/libvirt/libvirt-sock ]] && timeout 10 virsh list --all >/dev/null 2>&1 ;;
         vmagent) has vm && virsh list --all --name 2>/dev/null | grep -qx uso-vm-agent ;;   # H4 builds it
+        hdd) _real_hdd ;;      # a disk that really sleeps: QEMU's virtual disks ignore STANDBY (H2, 2026-10-18)
         zfs) grep -q '^fsType="zfs"' "$DISKS_INI" 2>/dev/null ;;
         btrfs) grep -q '^fsType="btrfs"' "$DISKS_INI" 2>/dev/null ;;
         kopia) has docker && _container_up kopia ;;
@@ -114,7 +130,7 @@ needs() {
         case $n in
             tower | test3 | any) host_is "$n" || why+=("not $n") ;;
             reboot) _row needs reboot info "the runner runs this scenario in halves" ;;
-            docker | vm | vmagent | zfs | btrfs | kopia | minio | jack | partner) has "$n" || why+=("no $n") ;;
+            docker | vm | vmagent | hdd | zfs | btrfs | kopia | minio | jack | partner) has "$n" || why+=("no $n") ;;
             *) why+=("unknown need $n") ;;
         esac
     done
@@ -156,7 +172,7 @@ base_asleep() {
 # include/exclude — no look at a disk). A share shares.ini doesn't know: any base asleep counts.
 share_asleep() {
     local sec use inc exc b parts=()
-    sec=$(awk -v s="[\"$1\"]" '$0==s{f=1; next} /^\[/{f=0} f' /var/local/emhttp/shares.ini 2>/dev/null)
+    sec=$(awk -v s="[\"$1\"]" '$0==s{f=1; next} /^\[/{f=0} f' "$SHARES_INI" 2>/dev/null)
     if [[ -z $sec ]]; then
         [[ -n $(disks_asleep) ]]
         return
@@ -248,14 +264,16 @@ scenario_begin() {
     SC_START=$(_sc_now)
     KEEP=$SC_KEEPS/$SC_NAME
     KEEP_STASH=$KEEP/stash
-    if [[ -d $KEEP_STASH ]] && [[ -n $(ls -A "$KEEP_STASH" 2>/dev/null) ]]; then
+    if [[ -n $(find "$KEEP_STASH" -mindepth 1 -not -type d 2>/dev/null | head -1) ]]; then
         echo "scenario_begin: $KEEP_STASH is not empty — an earlier run was not undone (the VM is dirty)" >&2
         exit 3
     fi
     rm -rf -- "$KEEP"
-    mkdir -p "$KEEP_STASH" "$KEEP/ask" "$SC_REPORTS/$(date +%F)"
+    # the runner's folder for this run (run.sh sets USO_SC_OUT), else one per day
+    REPORT=${USO_SC_OUT:-$SC_REPORTS/$(date +%F)}/$SC_NAME.md
+    mkdir -p "$KEEP_STASH" "$KEEP/ask" "$(dirname "$REPORT")"
     touch "$KEEP/.start" "$KEEP/.rows" "$KEEP/.undo"
-    REPORT=$SC_REPORTS/$(date +%F)/$SC_NAME.md
+    rm -f "${REPORT%.md}.result" "${REPORT%.md}.pending"
     _facts
     local role=other
     host_is tower && role=tower
@@ -285,6 +303,9 @@ scenario_begin() {
     fi
     agent_log_mark begin
     say "begin on $role"
+    if ! WAIT_SOFT=1 wait_for 120 "a settled agent" _agent_settled; then
+        _row scenario agent red "the agent isn't at work at the begin (heartbeat $(_agent_age) s old)"
+    fi
 }
 
 _sc_on_signal() {
@@ -338,7 +359,7 @@ scenario_end() {
             1) _row undo INV-LEFTOVER red "after undo: $out"; undo_fail=1 ;;
             *) _row undo INV-LEFTOVER n/a "$out" ;;
         esac
-        if [[ -n $(ls -A "$KEEP_STASH" 2>/dev/null) ]]; then
+        if [[ -n $(find "$KEEP_STASH" -mindepth 1 -not -type d 2>/dev/null | head -1) ]]; then
             _row undo stash red "$KEEP_STASH is not empty"
             undo_fail=1
         fi
@@ -365,6 +386,13 @@ scenario_end() {
             [[ -s $KEEP/undo.log ]] && printf -- '- %s\n' "$KEEP/undo.log"
             printf '\nVERDICT %s exit=%s red=%s\n' "$verdict" "$SC_EXIT" "${red_ids:-none}"
         } >>"$REPORT"
+        # for the runner (key=value, no secrets)
+        local why pending
+        pending=$(awk -F'\t' '$3=="pending"{print $2}' "$KEEP/.rows" | sort -u | paste -sd, -)
+        why=$(head -1 "$KEEP/.skip" 2>/dev/null)
+        [[ -n $why ]] || why=$(awk -F'\t' '$3=="red"{print $1 " " $2 ": " $4; exit}' "$KEEP/.rows")
+        printf 'verdict=%s\nred=%s\npending=%s\nkeep=%s\nwhy=%s\n' "$verdict" "$red_ids" "$pending" "$KEEP" "${why:0:300}" \
+            >"${REPORT%.md}.result"
     fi
     printf '[%s] verdict %s (exit %s)%s — %s\n' "$SC_NAME" "$verdict" "$SC_EXIT" "${red_ids:+, red: $red_ids}" "$REPORT" >&2
     exit "$SC_EXIT"
@@ -412,11 +440,20 @@ ask_err() {
     ask_last '.error.key // empty'
 }
 
-# the answer also as a canned dialog answer for the page tool (tests/ui/states/post/<desk>.<action>.json)
+# ask_save_post <desk.action> [json] [timeout]: ask, and keep the answer as the canned dialog answer for the page tool
+# ($SC_POST/<desk>.<action>.json — the harness's tests/ui/states/post/ shape)
 ask_save_post() {
-    local file=$1
+    mkdir -p "$SC_POST"
+    ASK_SAVE_POST=$SC_POST/$1.json ask "$@"
+}
+
+# queue_mac <INV-ID> <plan_changes|page_text> <args…>: a check only the Mac can do (node, the page): one TAB line in
+# ${REPORT%.md}.pending for the runner (H3's contract), «pending (mac)» in the verdict table until it ran
+queue_mac() {
+    local id=$1
     shift
-    ASK_SAVE_POST=$file ask "$@"
+    (IFS=$'\t'; printf '%s\t%s\n' "$id" "$*") >>"${REPORT%.md}.pending"
+    _row check "$id" pending "pending (mac): $1"
 }
 
 # ---------------------------------------------------------------------------------------------------------------- agent
@@ -433,6 +470,8 @@ _agent_ready() {
     [[ $(_agent_field .running) == true ]] && (($(_agent_age) < 70)) || return 1
     [[ -z $1 ]] || [[ "$(_agent_field .pid):$(_agent_field .started)" != "$1" ]]
 }
+
+_agent_settled() { _agent_ready "" && (($(_sc_now) - $(_agent_field .started) >= 15)); }
 
 agent_mark_restart() {
     printf '%s:%s\n' "$(_agent_field .pid)" "$(_agent_field .started)" >"$KEEP/.restart-from"
@@ -468,7 +507,13 @@ doorbell_ok() {
     st=$(stat -c '%u %a' "$bell")
     [[ $st == "0 600" || $st =~ ^0\ [67]00$ ]] || { say "doorbell: owner/mode $st"; return 1; }
     pid=$(_agent_field .pid)
-    [[ -n $pid ]] && ls -l "/proc/$pid/fd" 2>/dev/null | grep -q "$bell" || { say "doorbell: the agent ($pid) doesn't hold it open"; return 1; }
+    local real fd
+    real=$(readlink -f "$bell")
+    for fd in /proc/"$pid"/fd/*; do
+        [[ $(readlink "$fd" 2>/dev/null) == "$real" ]] && return 0
+    done
+    say "doorbell: the agent (${pid:-?}) doesn't hold it open"
+    return 1
 }
 
 # state_json <desk>[-<part>] [jq filter]: the desk's state file after its fresh look (<desk>.refresh)
@@ -729,7 +774,7 @@ _snap() {
     stat -c %s /var/log/syslog >"$dir/syslog.size" 2>/dev/null
     cp /proc/locks "$dir/locks.txt"
     if has kopia; then
-        timeout 30 docker exec kopia kopia policy list >"$dir/kopia-policies.txt" 2>/dev/null || echo 'kopia: no answer' >"$dir/kopia-policies.txt"
+        timeout 30 docker exec kopia kopia policy list --json >"$dir/kopia-policies.txt" 2>/dev/null || echo 'kopia: no answer' >"$dir/kopia-policies.txt"
     fi
     if [[ -s $KEEP/.shares ]]; then
         while IFS= read -r s; do
@@ -740,6 +785,7 @@ _snap() {
 }
 
 snap_before() {
+    rm -rf -- "$KEEP/after"
     _snap "$KEEP/before"
     agent_log_mark before
     # the heartbeat watched over the scenario (INV-TICK): its mtime every 2 s
@@ -849,7 +895,7 @@ check() {
         esac
     done
     [[ -d $KEEP/before ]] || { _row check snap_before red "the scenario took no snap_before"; return 1; }
-    [[ -d $KEEP/after && $KEEP/after -nt $KEEP/.ask-at ]] || snap_after
+    [[ -d $KEEP/after ]] && [[ ! -f $KEEP/.ask-at || $KEEP/after -nt $KEEP/.ask-at ]] || snap_after
     local bad=0
     for id in "${ids[@]}"; do
         [[ $id == INV-FILES && -f $KEEP/.strict ]] && id=INV-FILES-STRICT
@@ -988,10 +1034,11 @@ check_inv_leftover() {
             [[ -n $x ]] && bad+=("new empty folders in $s: ${x//$'\n'/ }")
         done <"$KEEP/.shares"
     fi
-    x=$(pgrep -af '[b]ackup\.sh|[s]etup\.sh|[c]ustommover_run|[r]estore-drill' | head -3)
+    x=$(pgrep -af "$P/backup/(backup|setup)\.sh|$P/agent/agent\.php job |[c]ustommover_run|/run/unraid-secretary-office/[a-z0-9_-]+\.sh" | head -3)
     [[ -n $x ]] && bad+=("processes: ${x//$'\n'/; }")
+    # /tmp: the scenarios' own folders and the suite's (tests/run.php: uso-tmp-<name>-<pid>, a worker's copy uso-<task>) apart
     x=$(find /tmp -maxdepth 1 -name '*uso*' -newer "$KEEP/.start" -not -name 'uso-keep' -not -name 'uso-scenarios*' \
-        -not -name "uso-wip-*" 2>/dev/null | head -3)
+        -not -name 'uso-wip-*' -not -name 'uso-tmp-*' -not -name 'uso-main' 2>/dev/null | head -3)
     [[ -n $x ]] && bad+=("/tmp: ${x//$'\n'/ }")
     if ((${#bad[@]})); then
         echo "${bad[*]}"
@@ -1123,7 +1170,7 @@ check_inv_no_secret() {
     local files=() hits f
     files+=("$D"/*.json "$D/agent.log" "$REPORT")
     while IFS= read -r -d '' f; do files+=("$f"); done < <(find "$UB/logs" -name '*.log' -newer "$KEEP/.start" -print0 2>/dev/null)
-    while IFS= read -r -d '' f; do files+=("$f"); done < <(find "$KEEP" -type f -print0 2>/dev/null)
+    while IFS= read -r -d '' f; do [[ $f != "$SCENARIOS_ENV" ]] && files+=("$f"); done < <(find "$KEEP" -type f -print0 2>/dev/null)
     hits=$( (
         [[ -r $SCENARIOS_ENV ]] && . "$SCENARIOS_ENV" >/dev/null 2>&1
         i=0
@@ -1184,8 +1231,262 @@ done
 unset _f
 
 # ------------------------------------------------------------------------------------------------------------ self-test
+# Run as `bash lib.sh --self-test` on a test VM, under flock /tmp/uso-scenarios.lock. Makes a uso-wip-h1-st share (files
+# on the first pool and the first array disk), a container (docker only), fake notifications; proves each check of
+# wave 1 green on the quiet state and red on its violation — real ones where they are cheap (files, leftovers,
+# notifications, locks, a container), edited snapshots where the VM can't (a disk asleep: QEMU ignores STANDBY);
+# undoes all and looks for leftovers.
+_st() {   # <expected rc> <what> <cmd…>: one assertion of the self-test
+    local want=$1 what=$2 out rc
+    shift 2
+    out=$("$@" 2>&1)
+    rc=$?
+    out=${out//$'\n'/; }
+    if [[ $rc == "$want" ]]; then
+        _row self-test "$what" green "rc $rc: ${out:0:160}"
+    else
+        _row self-test "$what" red "rc $rc, wanted $want: ${out:0:200}"
+    fi
+    say "self-test $what → rc $rc (want $want)"
+}
+
+_st_share_remove() {
+    local b
+    for b in $(bases); do
+        base_asleep "$b" && continue
+        [[ -d /mnt/$b/uso-wip-h1-st ]] && rm -rf -- "/mnt/$b/uso-wip-h1-st"
+    done
+    rm -f /tmp/uso-h1-st-leftover
+    [[ ! -e /mnt/user/uso-wip-h1-st ]]
+}
+
+_st_inv_asleep() { inventory uso-wip-h1-st | grep -qx "#asleep	$1"; }
+
+_st_notify_remove() { rm -f "$NOTIFY_DIR"/unread/Unraid_Secretary_Office_uso_wip_h1_st_*.notify; }
+
+_st_notify() {   # <n> <subject>
+    mkdir -p "$NOTIFY_DIR/unread"
+    printf 'timestamp=%s\nevent="Unraid Secretary Office"\nsubject="%s"\ndescription="self-test"\nimportance="normal"\n' \
+        "$(_sc_now)" "$2" >"$NOTIFY_DIR/unread/Unraid_Secretary_Office_uso_wip_h1_st_$1.notify"
+}
+
 _self_test() {
-    TODO_SELFTEST=1
+    scenario_begin lib-self-test
+    needs any
+    local pool disk b real_after
+    for b in $(bases); do
+        [[ -z ${pool:-} && ! $b =~ ^disk[0-9]+$ ]] && pool=$b
+        [[ -z ${disk:-} && $b =~ ^disk[0-9]+$ ]] && ! base_asleep "$b" && disk=$b
+    done
+    say "self-test on pool ${pool:-none}, array disk ${disk:-none}"
+    [[ -n ${pool:-} ]] || { _row self-test pool red "no pool to make the share on"; scenario_end; }
+
+    # ---- pure helpers
+    _st 0 "_sc_id" test "$(_sc_id INV-NO-WAKE)" = inv_no_wake
+    printf '[general]\nserver = A\n[share "media"]\nmode = local\nkeep = 3\n' >"$KEEP/a.ini"
+    printf '[general]\nserver = A\n[share "media"]\nmode = kopia\nkeep = 3\n' >"$KEEP/b.ini"
+    _st 0 "ini_diff" test "$(ini_diff "$KEEP/a.ini" "$KEEP/b.ini" | paste -sd' ' -)" = '-share|media|mode=local +share|media|mode=kopia'
+    _st 0 "bases" test -n "$(bases)"
+    _st 0 "host_is any" host_is any
+    _st 1 "has nonsense" has nonsense
+
+    # ---- the share, its files, a container
+    undo_push _st_share_remove
+    mkdir -p "/mnt/$pool/uso-wip-h1-st/sub"
+    local i
+    for i in 1 2 3 4 5; do
+        head -c 4096 /dev/urandom >"/mnt/$pool/uso-wip-h1-st/f000$i"
+        touch -d '2026-01-0'"$i"' 12:00' "/mnt/$pool/uso-wip-h1-st/f000$i"
+    done
+    touch "/mnt/$pool/uso-wip-h1-st/st.lock"
+    if [[ -n ${disk:-} ]]; then
+        mkdir -p "/mnt/$disk/uso-wip-h1-st"
+        echo disk >"/mnt/$disk/uso-wip-h1-st/f-disk"
+    fi
+    track_share uso-wip-h1-st
+    if has docker; then
+        local img
+        img=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -m1 '^alpine:' || docker images --format '{{.Repository}}:{{.Tag}}' | head -1)
+        if [[ -n $img ]]; then
+            undo_push docker rm -f uso-wip-h1-st
+            docker create --name uso-wip-h1-st --label net.unraid.docker.icon=/plugins/dynamix.docker.manager/images/question.png \
+                --entrypoint /bin/true "$img" >/dev/null
+            _st 0 "container made" docker inspect -f '{{.State.Status}}' uso-wip-h1-st
+        fi
+    else
+        say "self-test: no Docker here — the container part is left out"
+        _row self-test container n/a "Docker isn't running"
+    fi
+    snap_before
+
+    # ---- mailbox, agent
+    ask office.ping >/dev/null
+    expect_ok office.ping
+    ask_err nosuch.action >/dev/null
+    expect_err unknown_action
+    _st 0 "state_json" state_json backup '.interface'
+    _st 0 "agent_wait" agent_wait 30
+    _st 0 "doorbell_ok" doorbell_ok
+    _st 0 "agent_log_since" agent_log_since begin
+    _st 1 "lock_held (engine lock free)" lock_held "$UB/state/lock"
+    flock "/mnt/$pool/uso-wip-h1-st/st.lock" sleep 4 &
+    i=$!
+    sleep 1
+    _st 0 "lock_held through /mnt/user" lock_held /mnt/user/uso-wip-h1-st/st.lock
+    wait "$i"
+    _st 0 "where_is" test "$(where_is /mnt/user/uso-wip-h1-st/f0001)" = "$pool"
+    _st 0 "inventory" test "$(inventory uso-wip-h1-st | wc -l)" = "$((6 + ${disk:+1}+0))"
+
+    # ---- the quiet state: every check green
+    snap_after
+    for i in INV-SETTINGS INV-FILES INV-FILES-STRICT INV-LEFTOVER INV-NO-STALE-LOCK INV-AGENT INV-UNRAID-SAME INV-NOTIFY-ONCE \
+        INV-NO-SECRET INV-TICK INV-CRON-ONE; do
+        _st 0 "$i quiet" "check_$(_sc_id "$i")"
+    done
+
+    # ---- INV-FILES: a file gone (red), in the storeroom (green), moved to another disk (loose green, strict red)
+    mkdir -p "$KEEP_STASH/files"
+    mv "/mnt/$pool/uso-wip-h1-st/f0003" "$KEEP_STASH/files/"
+    snap_after
+    _st 1 "INV-FILES file gone" check_inv_files
+    mkdir -p "/mnt/$pool/uso-wip-h1-st/.UnraidSecretaryOffice-trash/st-run"
+    cp -p "$KEEP_STASH/files/f0003" "/mnt/$pool/uso-wip-h1-st/.UnraidSecretaryOffice-trash/st-run/"
+    _st 0 "INV-FILES file in the storeroom" check_inv_files
+    rm -rf "/mnt/$pool/uso-wip-h1-st/.UnraidSecretaryOffice-trash"
+    mv "$KEEP_STASH/files/f0003" "/mnt/$pool/uso-wip-h1-st/"
+    rmdir "$KEEP_STASH/files"
+    if [[ -n ${disk:-} ]]; then
+        cp -p "/mnt/$pool/uso-wip-h1-st/f0002" "/mnt/$disk/uso-wip-h1-st/f0002" && rm "/mnt/$pool/uso-wip-h1-st/f0002"
+        snap_after
+        _st 0 "INV-FILES moved to $disk" check_inv_files
+        _st 1 "INV-FILES-STRICT moved to $disk" check_inv_files_strict
+        cp -p "/mnt/$disk/uso-wip-h1-st/f0002" "/mnt/$pool/uso-wip-h1-st/f0002" && rm "/mnt/$disk/uso-wip-h1-st/f0002"
+    fi
+    echo x >"/mnt/$pool/uso-wip-h1-st/sub/f-changed"
+    snap_after
+    _st 1 "INV-FILES-STRICT a new file" check_inv_files_strict
+    rm -f "/mnt/$pool/uso-wip-h1-st/sub/f-changed"
+
+    # ---- INV-LEFTOVER: a .partial, a new empty folder, a /tmp file
+    touch "/mnt/$pool/uso-wip-h1-st/x.partial"
+    _st 1 "INV-LEFTOVER .partial" check_inv_leftover
+    rm -f "/mnt/$pool/uso-wip-h1-st/x.partial"
+    mkdir "/mnt/$pool/uso-wip-h1-st/empty-new"
+    _st 1 "INV-LEFTOVER empty folder" check_inv_leftover
+    rmdir "/mnt/$pool/uso-wip-h1-st/empty-new"
+    touch /tmp/uso-h1-st-leftover
+    _st 1 "INV-LEFTOVER /tmp file" check_inv_leftover
+    rm -f /tmp/uso-h1-st-leftover
+    _st 0 "INV-LEFTOVER clean again" check_inv_leftover
+
+    # ---- INV-NO-WAKE: a disk asleep before, awake after (the snapshot edited: the VM's disks can't sleep)
+    if [[ -n ${disk:-} ]]; then
+        snap_after
+        sed -i "s/^$disk rotational=\([^ ]*\) spundown=0$/$disk rotational=1 spundown=1/" "$KEEP/before/disks.txt"
+        _st 1 "INV-NO-WAKE woken" check_inv_no_wake
+        cp "$KEEP/before/disks.txt" "$KEEP/after/disks.txt"
+        _st 0 "INV-NO-WAKE still asleep" check_inv_no_wake
+        touch "$KEEP/.wake-sent"
+        sed -i "s/^$disk rotational=1 spundown=1$/$disk rotational=1 spundown=0/" "$KEEP/after/disks.txt"
+        _st 0 "INV-NO-WAKE woken on wake:true" check_inv_no_wake
+        rm -f "$KEEP/.wake-sent"
+        # Unraid's bookkeeping says asleep: the helpers never look at that disk
+        sed "/^\[\"$disk\"\]/,/^\[/ s/^spundown=\"0\"/spundown=\"1\"/; /^\[\"$disk\"\]/,/^\[/ s/^rotational=\"[01]\"/rotational=\"1\"/" "$DISKS_INI" >"$KEEP/disks-asleep.ini"
+        DISKS_INI=$KEEP/disks-asleep.ini _st 0 "base_asleep $disk (fixture)" base_asleep "$disk"
+        DISKS_INI=$KEEP/disks-asleep.ini _st 1 "base_asleep ${disk}0 (fixture)" base_asleep "${disk}0"
+        DISKS_INI=$KEEP/disks-asleep.ini _st 0 "inventory leaves $disk asleep alone" _st_inv_asleep "$disk"
+        printf '["uso-wip-h1-st"]\nname="uso-wip-h1-st"\nuseCache="yes"\ncachePool="%s"\ninclude=""\nexclude=""\n["uso-wip-h1-p"]\nuseCache="only"\ncachePool="%s"\n' \
+            "$pool" "$pool" >"$KEEP/shares.ini"
+        SHARES_INI=$KEEP/shares.ini DISKS_INI=$KEEP/disks-asleep.ini _st 0 "share_asleep on $disk (fixture)" share_asleep uso-wip-h1-st
+        SHARES_INI=$KEEP/shares.ini DISKS_INI=$KEEP/disks-asleep.ini _st 1 "share_asleep pool only (fixture)" share_asleep uso-wip-h1-p
+        _st 1 "base_asleep $disk (real)" base_asleep "$disk"
+    fi
+
+    # ---- INV-NOTIFY-ONCE: twice the same subject; a subject without the office's name
+    undo_push _st_notify_remove
+    _st_notify 1 'Unraid Secretary Office: self-test'
+    snap_after
+    _st 0 "INV-NOTIFY-ONCE once" check_inv_notify_once
+    _st_notify 2 'Unraid Secretary Office: self-test'
+    snap_after
+    _st 1 "INV-NOTIFY-ONCE twice" check_inv_notify_once
+    _st_notify_remove
+    _st_notify 3 'Self-test without the name'
+    snap_after
+    _st 1 "INV-NOTIFY-ONCE no prefix" check_inv_notify_once
+    _st_notify_remove
+
+    # ---- INV-NO-SECRET: a value of a (fake) scenarios.env in the kept evidence
+    printf 'USO_ST_FAKE=st-not-a-secret-4711\n' >"$KEEP/fake.env"
+    SCENARIOS_ENV=$KEEP/fake.env _st 0 "INV-NO-SECRET clean (fake env)" check_inv_no_secret
+    echo "leaked st-not-a-secret-4711" >"$KEEP/leak.txt"
+    SCENARIOS_ENV=$KEEP/fake.env _st 1 "INV-NO-SECRET leak" check_inv_no_secret
+    rm -f "$KEEP/leak.txt" "$KEEP/fake.env"
+
+    # ---- INV-NO-STALE-LOCK: an engine lock held (a fake engine folder)
+    mkdir -p "$KEEP/ub/state"
+    touch "$KEEP/ub/state/lock"
+    flock "$KEEP/ub/state/lock" sleep 4 &
+    i=$!
+    sleep 1
+    UB=$KEEP/ub _st 1 "INV-NO-STALE-LOCK held" check_inv_no_stale_lock
+    wait "$i"
+    UB=$KEEP/ub _st 0 "INV-NO-STALE-LOCK let go" check_inv_no_stale_lock
+
+    # ---- INV-SETTINGS / INV-DIFF-EXACT: a fake engine folder whose settings.ini changes
+    mkdir -p "$KEEP/ub"
+    cp "$KEEP/a.ini" "$KEEP/ub/settings.ini"
+    UB=$KEEP/ub snap_before
+    cp "$KEEP/b.ini" "$KEEP/ub/settings.ini"
+    UB=$KEEP/ub snap_after
+    _st 1 "INV-SETTINGS changed" check_inv_settings
+    expect_diff 'share|media|mode: local→kopia'
+    _st 0 "INV-DIFF-EXACT announced" check_inv_settings
+    printf 'extra = 1\n' >>"$KEEP/ub/settings.ini"
+    UB=$KEEP/ub snap_after
+    _st 1 "INV-DIFF-EXACT one more" check_inv_settings
+    rm -f "$KEEP/.expect-diff"
+    rm -rf "$KEEP/ub"
+
+    # ---- edited snapshots: another agent, a long tick, a changed container, cron twice
+    snap_before
+    snap_after
+    real_after=$KEEP/after.real
+    cp -a "$KEEP/after" "$real_after"
+    jq '.pid = 1' "$KEEP/before/agent.json" >"$KEEP/x.json" && mv "$KEEP/x.json" "$KEEP/before/agent.json"
+    _st 1 "INV-AGENT another agent" check_inv_agent
+    printf '%s\n' $(($(_sc_now) - 60)) $(($(_sc_now) - 20)) >"$KEEP/.pulse"
+    _st 1 "INV-TICK 40 s gap" check_inv_tick
+    printf '%s\n' $(($(_sc_now) - 15)) $(($(_sc_now) - 2)) >"$KEEP/.pulse"
+    _st 0 "INV-TICK 13 s gap" check_inv_tick
+    if has docker; then
+        docker start uso-wip-h1-st >/dev/null 2>&1
+        snap_after
+        _st 1 "INV-UNRAID-SAME container started" check_inv_unraid_same
+    fi
+    echo 'x' >>"$KEEP/after/crontab.txt"
+    _st 1 "INV-UNRAID-SAME root's crontab" check_inv_unraid_same
+    mkdir -p "$KEEP/flash"
+    printf '1 1 * * * bash %s/scripts/job.sh backup\n2 2 * * * bash %s/scripts/job.sh backup\n' "$P" "$P" >"$KEEP/flash/x.cron"
+    OFFICE_FLASH=$KEEP/flash _st 1 "INV-CRON-ONE twice" check_inv_cron_one
+    rm -rf "$KEEP/flash" "$real_after"
+
+    # ---- INV-COUNTS: a package on the place the state doesn't know (a fake place and state)
+    mkdir -p "$KEEP/place/apps/A" "$KEEP/place/apps/B" "$KEEP/place/server" "$KEEP/d"
+    echo '{"run":"20260101-0100"}' >"$KEEP/place/server/run.json"
+    echo '{"run":"20260101-0100"}' >"$KEEP/place/apps/A/manifest.json"
+    echo '{"run":"20251231-0100"}' >"$KEEP/place/apps/B/manifest.json"
+    echo '{"packages":{"apps":[{"folder":"A","stale":false},{"folder":"B","stale":true}],"vms":[]}}' >"$KEEP/d/backup.json"
+    D=$KEEP/d PLACE=$KEEP/place _st 0 "INV-COUNTS as on the place" check_inv_counts
+    echo '{"packages":{"apps":[{"folder":"A","stale":false}],"vms":[]}}' >"$KEEP/d/backup.json"
+    D=$KEEP/d PLACE=$KEEP/place _st 1 "INV-COUNTS a package unknown" check_inv_counts
+    rm -rf "$KEEP/place" "$KEEP/d"
+
+    # ---- the end: a fresh before/after, the standard set as a scenario sees it
+    if has docker; then docker stop uso-wip-h1-st >/dev/null 2>&1; fi
+    snap_before
+    check standard
+    scenario_end
 }
 
 if [[ ${BASH_SOURCE[0]} == "$0" && ${1:-} == --self-test ]]; then
