@@ -99,7 +99,7 @@ const LOGS_RULE_CATS  = ['skip' => 'skip', 'error' => 'error', 'warning' => 'war
                          'drive related' => 'drive', 'file system' => 'fs', 'array' => 'array', 'network' => 'network',
                          'login' => 'login', 'system' => 'system', 'lime tech' => 'limetech', 'emhttp' => 'emhttp'];
 const LOGS_RULE_LEVEL = ['error' => 'error', 'warning' => 'warn', 'minor' => 'warn'];
-const LOGS_RULE_TOP   = 8;              // kinds kept per category of the syslog beside its most frequent ones (the page's chips)
+const LOGS_RULE_KINDS = 15;             // kinds of the syslog kept per category for her «Syslog» (the newest first)
 
 /*
  * A time at the start of a line (first/last seen, the first tour's 24 hours):
@@ -654,7 +654,8 @@ function logsTourWanted(string $id): bool
 function logsTally(): array
 {
     return ['errors' => 0, 'warnings' => 0, 'groups' => [], 'other' => 0, 'lines' => 0, 'partial' => false,
-            'skipped' => 0, 'rotated' => false, 'unreadable' => false, 'grew' => null, 'cats' => null];
+            'skipped' => 0, 'rotated' => false, 'unreadable' => false, 'grew' => null, 'cats' => null, 'sorted' => [], 'sorted_other' => 0,
+            'sorted_seq' => 0];
 }
 
 /**
@@ -664,7 +665,8 @@ function logsTally(): array
  * is how many lines followed it in what was read (to find it in the reader).
  * $rules (Unraid's syslog): every line read gets its category by her syslog
  * rules (logsSyslogLevel()), counted in "cats" (no rule: "other"); a kind
- * keeps its line's category.
+ * keeps its line's category; every line with a category (not skip) also goes
+ * into "sorted" — similar ones as one kind per category, found or not.
  */
 function logsTallyLines(array &$acc, array $lines, string $src, ?int $after, array $kernel = [], bool $rules = false): void
 {
@@ -688,6 +690,9 @@ function logsTallyLines(array &$acc, array $lines, string $src, ?int $after, arr
             }
             [$level, $cat] = logsSyslogLevel($line, $level);
             $acc['cats'][$cat ?: 'other'] = ($acc['cats'][$cat ?: 'other'] ?? 0) + 1;
+            if ($cat !== '' && $cat !== 'skip') {
+                logsTallySorted($acc, $line, $cat, $level, $time, $prefix, $src, $n - 1 - $i);
+            }
             if ($level === '') {
                 continue;
             }
@@ -726,44 +731,71 @@ function logsTallyLines(array &$acc, array $lines, string $src, ?int $after, arr
     }
 }
 
+/** A syslog line with a category into "sorted": similar lines of one category as one kind, its newest line the sample */
+function logsTallySorted(array &$acc, string $line, string $cat, string $level, ?int $time, int $prefix, string $src, int $back): void
+{
+    $key = $cat . ':' . md5(logsNormalize($line, $prefix));
+    if (!isset($acc['sorted'][$key])) {
+        if (count($acc['sorted']) >= LOGS_TOUR_KINDS) {
+            $acc['sorted_other']++;
+            return;
+        }
+        $acc['sorted'][$key] = ['cat' => $cat, 'level' => '', 'count' => 0, 'first' => null, 'last' => null, 'n' => 0];
+    }
+    $g = &$acc['sorted'][$key];
+    $g['count']++;
+    if ($level === 'error' || ($level === 'warn' && $g['level'] === '')) {
+        $g['level'] = $level;
+    }
+    if ($time !== null) {
+        $g['first'] ??= $time;
+        $g['last'] = $time;
+    }
+    $g['n'] = ++$acc['sorted_seq'];     // read order: the newest first, also for lines without a time
+    $g['line'] = $line;
+    $g['skip'] = $prefix;
+    $g['src'] = $src;
+    $g['back'] = $back;
+}
+
 /**
  * What the page gets of a source: its counts and the most frequent kinds of lines, each with its newest line.
- * With her syslog rules on top: per category the lines read ("cats"), the lines found ("cat_found") and the kinds
- * found ("cat_kinds"), and its most frequent kinds too — those beyond the source's own most frequent ones carry
- * "top" false (the page shows them only under their category's chip).
+ * With her syslog rules on top (Unraid's syslog): per category the lines read ("cats") and the kinds ("sorted_kinds"),
+ * and per category its newest LOGS_RULE_KINDS kinds ("sorted", newest first — her «Syslog»).
  */
 function logsTourEntry(string $id, array $src, array $acc): array
 {
     $groups = array_values($acc['groups']);
     usort($groups, fn ($a, $b) => [$b['count'], $b['last'] ?? 0] <=> [$a['count'], $a['last'] ?? 0]);
     $top = [];
-    $perCat = [];
-    $byCat = $acc['cats'] !== null ? ['found' => [], 'kinds' => []] : null;
-    foreach ($groups as $i => $g) {
-        $cat = $g['cat'] ?? null;
-        if ($byCat !== null && $cat !== null) {
-            $c = $cat ?: 'other';
-            $byCat['found'][$c] = ($byCat['found'][$c] ?? 0) + $g['count'];
-            $byCat['kinds'][$c] = ($byCat['kinds'][$c] ?? 0) + 1;
-            $perCat[$c] = ($perCat[$c] ?? 0) + 1;
-        }
-        $first = $i < LOGS_TOUR_TOP;
-        if (!$first && ($byCat === null || $cat === null || $perCat[$cat ?: 'other'] > LOGS_RULE_TOP)) {
-            continue;
-        }
+    foreach (array_slice($groups, 0, LOGS_TOUR_TOP) as $g) {
         [$g['sample'], $g['cut']] = logsCut($g['line'], LOGS_TOUR_SAMPLE);
         $g['key'] = substr(md5($id . "\n" . $g['line']), 0, 12);
-        if ($byCat !== null) {
-            $g['top'] = $first;
-        }
         unset($g['line']);
         $top[] = $g;
     }
-    return ['id' => $id, 'group' => $src['group'], 'label' => $src['label'], 'param' => $src['param'], 'kind' => $src['kind'],
+    $out = ['id' => $id, 'group' => $src['group'], 'label' => $src['label'], 'param' => $src['param'], 'kind' => $src['kind'],
             'errors' => $acc['errors'], 'warnings' => $acc['warnings'], 'lines' => $acc['lines'],
             'kinds' => count($groups), 'other' => $acc['other'], 'partial' => $acc['partial'], 'skipped' => $acc['skipped'],
-            'rotated' => $acc['rotated'], 'unreadable' => $acc['unreadable'], 'grew' => $acc['grew'] ?? null, 'groups' => $top]
-        + ($byCat !== null ? ['cats' => $acc['cats'], 'cat_found' => $byCat['found'], 'cat_kinds' => $byCat['kinds']] : []);
+            'rotated' => $acc['rotated'], 'unreadable' => $acc['unreadable'], 'grew' => $acc['grew'] ?? null, 'groups' => $top];
+    if ($acc['cats'] === null) {
+        return $out;
+    }
+    $sorted = array_values($acc['sorted']);
+    usort($sorted, fn ($a, $b) => $b['n'] <=> $a['n']);
+    $kinds = [];
+    $kept = [];
+    foreach ($sorted as $g) {
+        $kinds[$g['cat']] = ($kinds[$g['cat']] ?? 0) + 1;
+        if ($kinds[$g['cat']] > LOGS_RULE_KINDS) {
+            continue;
+        }
+        [$g['sample'], $g['cut']] = logsCut($g['line'], LOGS_TOUR_SAMPLE);
+        $g['key'] = substr(md5("sorted\n" . $id . "\n" . $g['line']), 0, 12);
+        unset($g['line'], $g['n']);
+        $kept[] = $g;
+    }
+    return $out + ['cats' => $acc['cats'], 'sorted' => $kept, 'sorted_kinds' => $kinds, 'sorted_other' => $acc['sorted_other']];
 }
 
 /**
