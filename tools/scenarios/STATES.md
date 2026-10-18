@@ -81,7 +81,7 @@ processes. Container ids are reported, not compared (a re-created container can'
 
 Rules for whoever uses them: `state ID args` pushes `undo_<id> args` even when the state fails — every undo is idempotent
 and undoes only what its stash notes. A state returns 0 only when the state is really there, 2 when the server lacks what
-it needs (write `needs …` in the scenario, column «needs»). KEEP_STASH must be fresh per scenario (a failed undo's
+it needs (lib.sh then marks the scenario «skipped», exit 2, and still runs the undo; a scenario may also say `needs …` first, column «needs»). KEEP_STASH must be fresh per scenario (a failed undo's
 notes would be taken again). Long-lived helpers (holders, watchers, the agent) start through `_st_bg`/`_st_clean`: no
 inherited descriptor, so the scenario lock is never kept by a child (see «Other facts»).
 
@@ -168,7 +168,7 @@ against the expected layout, not runnable on today's VMs; *(2 on 3)* = the self-
 rotating disk passed through, for -POOL a pool `slow` on it), SH-PREFER-POOL2 / SH-YES-POOL2 (`needs pool2`: a second pool
 `fast`), ST-STACK-CM / ST-CM-FILE-UNREADABLE (`needs compose`: the Compose Manager plugin and `docker compose` — not on
 Tower), RN-HARD-RESET-MIDRUN / RN-REBOOT-CLEAN-MIDRUN (`needs reboot`: armed here, the runner's -pre/-post halves do the
-rest). Words for `needs` beyond H1's list, asked for: `pool2`, `compose`, `exclusive`, `nodocker`.
+rest). lib.sh knows the extra `needs` words `pool2`, `compose`, `exclusive`, `nodocker` (H1, dbfc035).
 
 ## apps.sh (Tower's demo apps)
 
