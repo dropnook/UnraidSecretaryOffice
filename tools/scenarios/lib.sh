@@ -777,7 +777,8 @@ _snap() {
     fi
     awk -F'"' '/^\[/{if (n!="") print n, "rotational=" r, "spundown=" s; n=r=s=""} /^name=/{n=$2} /^spundown=/{s=$2}
         /^rotational=/{r=$2} END{if (n!="") print n, "rotational=" r, "spundown=" s}' "$DISKS_INI" >"$dir/disks.txt" 2>/dev/null
-    ls -1 "$NOTIFY_DIR/unread" "$NOTIFY_DIR/archive" 2>/dev/null >"$dir/notify.txt"
+    # Unraid keeps each notification in unread/ and archive/ under the same name: one name each
+    ls -1 "$NOTIFY_DIR/unread" "$NOTIFY_DIR/archive" 2>/dev/null | grep '\.notify$' | LC_ALL=C sort -u >"$dir/notify.txt"
     cp "$RUN/agent.json" "$dir/agent.json" 2>/dev/null
     ls -la --time-style=+%s "$D/mailbox" >"$dir/mailbox.txt" 2>/dev/null
     stat -c %s /var/log/syslog >"$dir/syslog.size" 2>/dev/null
@@ -1076,9 +1077,26 @@ check_inv_no_stale_lock() {
     echo "free"
 }
 
-# INV-COUNTS (backup part) — Mr. Backupsy's package counts = the place on disk; a fresh run's counts = its status
+# INV-COUNTS — counters = the file system: every part that exists (check_inv_counts_<desk>: backup here, restore and
+# moverelli from H5's checks.sh); red when one is red, n/a when all are, «pending» names the parts not built yet
 check_inv_counts() {
+    local d out rc red=() ok=() na=() pend=()
+    for d in backup restore moverelli; do
+        if ! declare -F "check_inv_counts_$d" >/dev/null; then pend+=("$d"); continue; fi
+        out=$("check_inv_counts_$d" 2>&1)
+        rc=$?
+        case $rc in 0) ok+=("$d: $out") ;; 1) red+=("$d: $out") ;; *) na+=("$d: $out") ;; esac
+    done
+    if ((${#red[@]})); then echo "${red[*]}"; return 1; fi
+    ((${#ok[@]})) || { echo "${na[*]:-nothing to count}"; return 3; }
+    echo "${ok[*]}${na:+; n/a ${na[*]}}${pend:+; pending (H5): ${pend[*]}}"
+}
+
+# INV-COUNTS, backup part — Mr. Backupsy's package counts = the place on disk; a fresh run's counts = its status
+check_inv_counts_backup() {
     local bj=$D/backup.json bad=() kind on_disk in_state srv run share
+    # what the page would show: its fresh look first (straight through ask.php — not one of the scenario's requests)
+    [[ ${COUNTS_NO_LOOK:-} ]] || php "$SC_DIR/ask.php" --wait 120 backup.refresh '{}' >/dev/null 2>&1
     [[ -f $bj ]] || { echo "no backup.json"; return 3; }
     [[ -n $PLACE ]] || { echo "no backup place set"; return 3; }
     share=${PLACE#/mnt/user/}
@@ -1091,13 +1109,14 @@ check_inv_counts() {
         in_state=$(jq -r ".packages.$kind // [] | .[] | \"\(.folder) \(if .stale then \"stale\" else \"fresh\" end)\"" "$bj" | sort)
         [[ $on_disk == "$in_state" ]] || bad+=("$kind: place [$(paste -sd, <<<"$on_disk")] ≠ state [$(paste -sd, <<<"$in_state")]")
     done
-    # a run during the scenario: the page's history says what its status says
-    local st=$UB/state/status.json started
+    # a real run during the scenario (not a tour or dry run): its row in the page's history says what its status says
+    local st=$UB/state/status.json started mode
     started=$(jq -r '.started // 0' "$st" 2>/dev/null)
-    if [[ $started =~ ^[0-9]+$ ]] && ((started >= SC_START)); then
+    mode=$(jq -r '.mode // empty' "$st" 2>/dev/null)
+    if [[ $started =~ ^[0-9]+$ && $mode =~ ^(backup|nokopia)$ ]] && ((started >= SC_START)); then
         local a b2
         a=$(jq -c '{errors, warnings}' "$st")
-        b2=$(jq -c '.history[0] // {} | {errors, warnings}' "$bj")
+        b2=$(jq -c --arg r "$(jq -r .run "$st")" '[.history[]? | select(.run == $r)][0] // {} | {errors, warnings}' "$bj")
         [[ $a == "$b2" ]] || bad+=("run counts: status $a ≠ history $b2")
     fi
     if ((${#bad[@]})); then echo "${bad[*]}"; return 1; fi
@@ -1497,9 +1516,10 @@ _self_test() {
     echo '{"run":"20260101-0100"}' >"$KEEP/place/apps/A/manifest.json"
     echo '{"run":"20251231-0100"}' >"$KEEP/place/apps/B/manifest.json"
     echo '{"packages":{"apps":[{"folder":"A","stale":false},{"folder":"B","stale":true}],"vms":[]}}' >"$KEEP/d/backup.json"
-    D=$KEEP/d PLACE=$KEEP/place _st 0 "INV-COUNTS as on the place" check_inv_counts
+    COUNTS_NO_LOOK=1 D=$KEEP/d PLACE=$KEEP/place _st 0 "INV-COUNTS as on the place" check_inv_counts_backup
     echo '{"packages":{"apps":[{"folder":"A","stale":false}],"vms":[]}}' >"$KEEP/d/backup.json"
-    D=$KEEP/d PLACE=$KEEP/place _st 1 "INV-COUNTS a package unknown" check_inv_counts
+    COUNTS_NO_LOOK=1 D=$KEEP/d PLACE=$KEEP/place _st 1 "INV-COUNTS a package unknown" check_inv_counts_backup
+    COUNTS_NO_LOOK=1 D=$KEEP/d PLACE=$KEEP/place _st 1 "INV-COUNTS red through the whole" check_inv_counts
     rm -rf "$KEEP/place" "$KEEP/d"
 
     # ---- a restart the way a deploy makes one: a new agent (another start time), INV-AGENT lets it pass once marked
