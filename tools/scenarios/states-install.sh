@@ -5,8 +5,9 @@
 #   office_keep <id> / office_back <id>   everything an install touches kept first — the data folder, the plugin's RAM
 #                         folder (dev-synced code too), its flash folder (but scenarios.env), the installed .plg, root's
 #                         authorized_keys (a remove takes the partner lines away) — and put back exactly: the kept .plg
-#                         installed again (`forced`), the folders over it, the data folder (the one the state left set
-#                         aside as <data>.aside-<stamp> — base.sh --prune removes those), cron rebuilt, the agent started
+#                         installed again (`forced`), the folders over it, the data folder as kept (the state's own is
+#                         removed — never set aside as <data>.aside-*: base.sh's CARRY takes the newest of those),
+#                         cron rebuilt, the agent started
 #   plugin_install <id> <url|latest|previous|vX.Y.Z|worktree>   Unraid's `plugin install … forced` (a lower version too);
 #                         previous = the release before the newest on GitHub; worktree = this tree built by plugin/build.sh
 #                         (plugin version <today>z) with its package laid on the flash first, so nothing is downloaded
@@ -66,9 +67,8 @@ office_keep() {
     say "office_keep: the office as it is kept (plugin $(_st_plg_version), office $(_st_office_version))"
 }
 office_back() {
-    local id=$1 dir f k stamp; dir=$(_st_dir "$id")/office
+    local id=$1 dir f k; dir=$(_st_dir "$id")/office
     [[ -f $dir/kept ]] || return 0
-    stamp=$(date +%Y%m%d-%H%M%S)
     _st_agent_stop
     [[ -f /var/log/plugins/$ST_PLG_NAME.plg ]] && _st_plugin remove "$ST_PLG_NAME.plg"
     # the flash folder as it was (what the state's installs left there goes; scenarios.env stays)
@@ -80,13 +80,14 @@ office_back() {
     _st_agent_stop
     # the code as it ran (a dev-synced tree is not the package), the data folder as it was
     find "$P" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + && tar -C "$P" -xpf "$dir/plugin.tar" || return 1
-    [[ -e $D ]] && { mv -- "$D" "$D.aside-$stamp" || return 1; }
+    # the state's data folder goes (a <data>.aside-* would be taken for base.sh's: its CARRY picks the newest one)
+    [[ -e $D ]] && { rm -rf -- "$D" || return 1; }
     tar -C "$(dirname "$D")" -xpf "$dir/data.tar" || return 1
     tar -C "$ST_PLG_FLASH" -xpf "$dir/flash.tar"            # the install's script may have rewritten cfg or cron
     for f in "${ST_KEYS[@]}"; do k=$dir/keys.$(md5sum <<<"$f" | cut -c1-8); [[ -f $k ]] && cp -p "$k" "$f"; done
     /usr/local/sbin/update_cron >/dev/null 2>&1
     _st_agent_start || { say "office_back: no heartbeat after the restore"; return 1; }
-    say "office_back: the office back (plugin $(_st_plg_version), office $(_st_office_version)$( [[ -d $D.aside-$stamp ]] && echo ", the state's data folder aside as $(basename "$D").aside-$stamp"))"
+    say "office_back: the office back (plugin $(_st_plg_version), office $(_st_office_version))"
     rm -rf -- "$dir"
 }
 
@@ -134,7 +135,7 @@ data_fixture() {
     f=$(_st_fixture "$name") || { say "needs the data fixture $name (data_fixture_make on USOTest3VM): not on this server"; return 2; }
     office_keep "$id" || return 1
     _st_agent_stop
-    mv -- "$D" "$D.aside-$(date +%Y%m%d-%H%M%S)" && mkdir -p "$D" || return 1
+    rm -rf -- "$D" && mkdir -p "$D" || return 1          # it is in office_keep's tar
     tar -C "$D" -xpf "$f" || return 1
     say "data_fixture: the data folder of $name in place ($(basename "$f")), the agent stopped"
 }
@@ -151,7 +152,7 @@ _st_fixture_make() {
     local name=$1 tag=$2 out st plan d hired=() id=FIXTURE-${1^^}
     plugin_install "$id" "$tag" || return 1
     _st_agent_stop
-    mv -- "$D" "$D.aside-$(date +%Y%m%d-%H%M%S)" && mkdir -p "$D" || return 1
+    rm -rf -- "$D" && mkdir -p "$D" || return 1          # it is in office_keep's tar
     _st_agent_start || { say "data_fixture_make: no agent on a fresh data folder"; return 1; }
     # one by one: a desk still «in training» in that version (Ms. Moverelli in 1.60) is left out
     for d in advisor backup cleanup logs moverelli restore snapshot watchman; do
@@ -237,9 +238,8 @@ undo_os_74() { :; }
 
 # IN-FRESH [latest|vX.Y.Z] — removed, data folder and the flash folder's files away (scenarios.env stays), installed anew
 state_in_fresh() {
-    local stamp; stamp=$(date +%Y%m%d-%H%M%S)
     plugin_remove IN-FRESH || return 1
-    [[ -e $D ]] && { mv -- "$D" "$D.aside-$stamp" || return 1; }
+    [[ -e $D ]] && { rm -rf -- "$D" || return 1; }       # it is in office_keep's tar
     find "$ST_PLG_FLASH" -mindepth 1 -maxdepth 1 ! -name scenarios.env ! -name "$ST_PLG_NAME.cfg" -exec rm -rf -- {} +
     rm -f "$ST_PLG_FLASH/$ST_PLG_NAME.cfg"
     plugin_install IN-FRESH "${1:-latest}" || return 1
