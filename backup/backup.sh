@@ -1,6 +1,9 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.60 - 2026-10-18
+# unraid-backup - backup.sh                       Version 2.62 - 2026-10-18
+#   2.62 Nextcloud refusing to work because its data folder is readable by others (Unraid resets a share's root to
+#        0777 nobody:users when any share is added or saved) no longer fails the run: backed up without the
+#        maintenance mode (stopped with the apps), a warning nc_datadir_readable with the folder and the lasting fix
 #   2.60 No change here (the engine's version: setup.sh keeps what is stored for a stopped Nextcloud, database or VM)
 #   2.59 No change here (the engine's version: setup.sh --orphans offers the old sources of units no longer offsite)
 #   2.58 No change here (the engine's version: setup.sh's OK and error lines as codes)
@@ -1114,6 +1117,37 @@ nc_log_output() {
     done < <(head -20 <<<"$1")
 }
 
+# nc_datadir_open <container> (2.62) - occ refused because Nextcloud's data folder is readable by others. Unraid does
+#   that: saving any share's settings or adding a share resets the root of every share to 0777 nobody:users unless it
+#   belongs to the group users and an owner other than nobody (7.4.0-rc.1, emhttpd's «Restarting services»; exclusive
+#   shares and array shares alike). Nextcloud would chmod its folder back itself, but it no longer owns it - it refuses
+#   every request (its page too) until someone does. The run is not lost for that: Nextcloud is stopped with the
+#   apps for the dumps and snapshots, like apps without a maintenance mode, and refuses its users anyway - so the run
+#   goes on without the mode and says it as a warning (code nc_datadir_readable, the path and the lasting fix: owner
+#   Nextcloud's user, group users, 0770 - Unraid leaves such a root alone). The engine never changes it itself.
+#   Siblings of one Nextcloud (the same data folder) are said once.
+declare -A NC_OPEN_SAID=()      # host path of a data folder -> said this run
+nc_datadir_open() {
+    local c="$1" occd hp where dir="" uid st=""
+    occd="${NC_OCC[$c]%/occ}"
+    # the data folder from its config.php, read on the host (occ refuses everything now); else Nextcloud's default
+    if hp="$(ct_host_path "$c" "$occd/config/config.php")" && where="$(ub_path_where "$hp")" && [[ -f "$where" && ! -L "$where" ]]; then
+        dir="$(head -c 65536 -- "$where" 2>/dev/null | sed -n "s/.*'datadirectory'[[:space:]]*=>[[:space:]]*'\([^']*\)'.*/\1/p" | head -1)"
+    fi
+    dir="${dir:-$occd/data}"; dir="${dir%/}"
+    hp="$(ct_host_path "$c" "$dir")" || hp="$dir"
+    if [[ -n "${NC_OPEN_SAID[$hp]:-}" ]]; then
+        log "  Nextcloud '$c': its data folder $hp is readable by others too - said with '${NC_OPEN_SAID[$hp]}'"; return 0
+    fi
+    NC_OPEN_SAID[$hp]="$c"
+    uid="$(docker exec "$c" id -u "${NC_USER[$c]}" 2>/dev/null | tr -d '\r')"; is_uint "$uid" || uid=33
+    where="$(ub_path_where "$hp" 2>/dev/null)" && st="$(stat -c '%a %U:%G' -- "$where" 2>/dev/null)"
+    warn_code nc_datadir_readable "Nextcloud '$c': its data folder $hp${st:+ ($st)} is readable by others - Nextcloud refuses to work (its page too) and occ cannot switch on the maintenance mode; backed up without it (stopped with the apps). Unraid resets a share's root to 0777 nobody:users when a share is added or its settings are saved, unless the root belongs to the group users. Lasting fix (Unraid then leaves it alone): chown $uid:users '$hp' && chmod 0770 '$hp'" \
+        name="$c" path="$hp" uid="$uid"
+    ub_tell nc_datadir_readable warning "" "Nextcloud refuses to work" "Nextcloud '$c' refuses to work: its data folder is readable by others. Backed up without maintenance mode. (Lasting fix: chown $uid:users '$hp' && chmod 0770 '$hp')" \
+        "app=$c" "path=$hp" "uid=$uid"
+}
+
 nextcloud_maintenance_on() {
     local c was pre id out try on
     local -A inst=()           # instanceid -> first container of this instance
@@ -1129,6 +1163,7 @@ nextcloud_maintenance_on() {
         # "already on". The instanceid from config.php spots such siblings;
         # the first one's setting applies.
         id="$(nc_occ "$c" config:system:get instanceid 2>/dev/null | tr -d '\r')"
+        [[ "$id" =~ ^[A-Za-z0-9]+$ ]] || id=""      # 2.62: a refusing occ prints its complaint, not an id
         if [[ -n "$id" && -n "${inst[$id]:-}" ]]; then
             NC_SAME[$c]="${inst[$id]}"
             log "  Nextcloud '$c': same instance as '${inst[$id]}' - done there"
@@ -1153,6 +1188,7 @@ nextcloud_maintenance_on() {
         for try in 1 2 3; do
             if out="$(nc_occ "$c" maintenance:mode --on 2>&1)"; then on=1; break; fi
             nc_log_output "$out"
+            grep -q "readable by other people" <<<"$out" && break      # stays so until someone changes it (2.62)
             (( try < 3 )) && { warn "Nextcloud '$c': maintenance mode not switched on (attempt $try/3) - trying again in 5 s"; sleep 5; }
         done
         if (( on )); then
@@ -1162,10 +1198,8 @@ nextcloud_maintenance_on() {
             # reports a stuck maintenance mode that does not exist.
             [[ "$(nc_occ "$c" config:system:get maintenance 2>/dev/null | tr -d '\r')" == "true" ]] \
                 || { unset "NC_ON[$c]"; save_restore_state; }
-            # the most common cause: Unraid reset the data folder (a share root) to 0777 when share settings were saved
-            if grep -q "readable by other people" <<<"$out"; then
-                die_code nc_datadir_readable "Nextcloud '$c': the data directory is readable by others, occ refuses to work. Unraid sets the root of a share to 0777 nobody:users when share settings are saved, unless it belongs to the group users. Lasting fix: chown 33:100 and chmod 0750 on the data directory (www-data:users), then start again."
-            fi
+            # 2.62: the data folder readable by others - the run goes on without the maintenance mode (nc_datadir_open)
+            if grep -q "readable by other people" <<<"$out"; then nc_datadir_open "$c"; continue; fi
             die "Nextcloud '$c': maintenance mode could not be switched on (occ's message is in the log)"
         fi
     done < <(cfg_names nextcloud)
