@@ -3978,7 +3978,11 @@ case "$1" in
   info) exit 0 ;;
   version) echo 29.0; exit 0 ;;
   ps) cat "$FAKE/ids" 2>/dev/null; exit 0 ;;
-  compose) exit 1 ;;
+  compose)
+    shift; [[ "$1" == version ]] && { echo 'Docker Compose version v2.29'; exit 0; }
+    dir=""; while (( $# )); do [[ "$1" == --project-directory ]] && dir="$2"; shift; done
+    [[ -f "$dir/config.json" ]] && { cat "$dir/config.json"; exit 0; }
+    exit 1 ;;
   top) printf 'PID UID COMMAND\n7 0 /app/kopia server start\n'; exit 0 ;;
   inspect)
     shift
@@ -4201,6 +4205,58 @@ JS;
     same('stopped kept: running again - one Nextcloud through occ, as stored, nothing kept, nothing to change', [
             [['members' => ['nextcloud-app', 'nextcloud-cron'], 'occ' => '/var/www/html/occ', 'preexisting' => 'abort', 'running' => true]], [], []],
         [$plan['nextcloud'] ?? null, $codes($plan, 'stopped_kept'), $ours($plan)], $out);
+
+    // the owner's rule for every stack (2026-10-18): a Compose stack brought down (docker compose down - no container left)
+    // whose project the Compose Manager still has is stopped, not gone: its [app] section, dumps, Nextclouds and its
+    // containers in [docker] no_stop / skip / known stay as stored, said once for the stack. Its redis has no
+    // container_name: compose names it nextcloud-redis-1
+    $proj = "$tmp/boot/config/plugins/compose.manager/projects/nextcloud";
+    @mkdir($proj, 0700, true);
+    file_put_contents("$proj/compose.yaml", "services: {}\n");
+    file_put_contents("$proj/config.json", json_encode(['name' => 'nextcloud', 'services' => [
+        'app' => ['image' => 'nextcloud:30', 'container_name' => 'nextcloud-app'], 'cron' => ['image' => 'nextcloud:30', 'container_name' => 'nextcloud-cron'],
+        'db' => ['image' => 'mariadb:11', 'environment' => ['MARIADB_VERSION' => '11.4'], 'container_name' => 'nextcloud-db'], 'redis' => ['image' => 'redis:7']]]));
+    $stackIni = str_replace('nextcloud-redis', 'nextcloud-redis-1', $ini);
+    $stackIni = str_replace("[share \"appdata\"]", "[app \"nextcloud\"]\nkopia = yes\nfolder = appdata/nextcloud\n[share \"appdata\"]", $stackIni);
+    $stackIni = str_replace("known = nextcloud-redis-1\n", "known = nextcloud-redis-1\nskip = nextcloud-redis-1\n", $stackIni);
+    file_put_contents("$data/settings.ini", $stackIni);
+    file_put_contents("$tmp/fake/inspect.json", json_encode(array_values(array_filter($cts([]), fn ($c) => in_array($c['Name'], ['/kopia', '/nc2'], true)))));
+    file_put_contents("$tmp/fake/stopped", '');
+    $stack = fn (array $plan) => array_values(array_filter(array_map(fn ($p) => ($p['op'] ?? '') . ($p['section'] ?? '') . ' ' . ($p['line'] ?? ''), $plan['pending'] ?? []),
+        fn ($l) => (bool) preg_match('/nextcloud|dump|app|docker/', $l)));
+    $out = $setup('--plan');
+    $plan = $readPlan();
+    $P = $plan['P'] ?? [];
+    same('stack down: its Nextcloud, dump, [app] section and list entries stay in the proposals', [
+            'abort', 'abort', 'mariadb', 'yes', ['appdata/nextcloud'], true, true, true, true],
+        [$P['nextcloud|nextcloud-app|preexisting_maintenance'] ?? null, $P['nextcloud|nextcloud-cron|preexisting_maintenance'] ?? null,
+         $P['dump|nextcloud-db|type'] ?? null, $P['app|nextcloud|kopia'] ?? null, $P['app|nextcloud|folder'] ?? null,
+         in_array('nextcloud-redis-1', $P['docker|no_stop'] ?? [], true), in_array('nextcloud-redis-1', $P['docker|skip'] ?? [], true),
+         !array_diff(['nextcloud-app', 'nextcloud-cron', 'nextcloud-db', 'nextcloud-redis-1'], $P['docker|known'] ?? []), in_array('nc2', $P['docker|known'] ?? [], true)], $out);
+    same('stack down: said once for the stack, nothing gone, no «start the stack» warning; nothing for Apply to change', [
+            [['hint', ['name' => 'nextcloud']]], [], [], [], [false], []],
+        [$codes($plan, 'stopped_kept'), $codes($plan, 'app_gone'), $codes($plan, 'dump_gone'), $codes($plan, 'db_no_container'),
+         array_column(array_filter($plan['apps'] ?? [], fn ($a) => ($a['name'] ?? '') === 'nextcloud'), 'gone'), $stack($plan)], $out);
+    same('stack down: the plan lists its Nextcloud with running false', [['members' => ['nextcloud-app', 'nextcloud-cron'], 'occ' => '', 'preexisting' => 'abort', 'running' => false]],
+        $plan['nextcloud'] ?? null);
+    file_put_contents("$tmp/dec.json", json_encode($P + ['_retire_sources' => 'no']));
+    $out = $setup("--apply=$tmp/dec.json");
+    $ini3 = (string) @file_get_contents("$data/settings.ini");
+    check('stack down: Apply writes all of it again', str_contains($ini3, "[app \"nextcloud\"]\nkopia = yes\nfolder = appdata/nextcloud\n")
+        && str_contains($ini3, "[dump \"nextcloud-db\"]\ntype = mariadb\n") && str_contains($ini3, '[nextcloud "nextcloud-cron"]')
+        && str_contains($ini3, "no_stop = nextcloud-redis-1\n") && str_contains($ini3, "skip = nextcloud-redis-1\n") && str_contains($ini3, "known = nextcloud-db\n"), $ini3 . $out);
+    // the project removed too: gone, as before
+    check('stack down (page): a container in no app on the page (its stack brought down) keeps its place in [docker] skip',
+        str_contains((string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js'), "...wasSkip.filter((n) => skip.includes(n) || !inApps.has(n))"));
+    exec('rm -rf ' . escapeshellarg($proj));
+    file_put_contents("$data/settings.ini", $stackIni);
+    $out = $setup('--plan');
+    $plan = $readPlan();
+    $P = $plan['P'] ?? [];
+    same('stack gone (no container, no project): dropped as before, said as gone', [
+            [], [['hint', ['name' => 'nextcloud']]], [['warn', ['name' => 'nextcloud-db']]], [], false, false],
+        [array_values(array_filter(array_keys($P), fn ($k) => (bool) preg_match('/^(nextcloud|dump|app)\|/', $k))), $codes($plan, 'app_gone'), $codes($plan, 'dump_gone'),
+         $codes($plan, 'stopped_kept'), in_array('nextcloud-redis-1', $P['docker|no_stop'] ?? [], true), in_array('nextcloud-db', $P['docker|known'] ?? [], true)], $out);
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 

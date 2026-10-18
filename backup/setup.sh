@@ -6,7 +6,10 @@
 #        same-instance line from settings.ini), the plan lists it with running false, Apply writes it again; a stopped
 #        database's dump and a stopped VM's freeze stay too. What needs it running (occ, the dump's access test, the guest
 #        agent) is not checked - said once per unit as a hint (stopped_kept {name}). A container that is gone drops out as
-#        before. The plan carries known_keys (every settings.ini key some part of the engine knows, per section type)
+#        before. The plan carries known_keys (every settings.ini key some part of the engine knows, per section type).
+#        A Compose stack brought down (no container left) whose project the Compose Manager still has is stopped, not
+#        gone: its [app] section, dumps, Nextclouds and its containers in [docker] no_stop/skip/known stay as stored (by
+#        container_name or <project>-<service>-<n>), said once for the stack; gone only with its project gone too
 #   2.59 --orphans also lists the office's own sources of units that are still there but no longer at a Kopia level in
 #        settings.ini (an app or VM kopia = no, a share not mode = kopia, the flash not mode = snapshot): only their older
 #        snapshots lie in Kopia - each source with why gone | not_offsite; --orphans-delete takes both, listing anew right
@@ -647,6 +650,7 @@ TXT
     inv_scan
     docker_load
     vm_load
+    down_load
     apps_gone_drop
     if [[ -z "$(pget "kopia|container")" ]] || ! in_list "$(pget "kopia|container")" "${CT_NAMES[@]}"; then
         pset "kopia|container" "$(kopia_find_container)"
@@ -667,6 +671,8 @@ apps_gone_drop() {
     for c in "${CT_NAMES[@]}"; do have[$c]=1; have[${CT_PROJECT[$c]:-$c}]=1; done
     while IFS= read -r n; do
         [[ -z "$n" || -n "${have[$n]:-}" ]] && continue
+        # 2.60: a Compose stack brought down (no container) whose project is still there is stopped, not gone
+        if [[ -n "${DOWN_PROJ[$n]:-}" || -n "${DOWN_PROJ[${n,,}]:-}" ]]; then down_say "${DOWN_PROJ[$n]:-${DOWN_PROJ[${n,,}]}}"; continue; fi
         APPS_GONE+=( "$n" )
         for k in "${!P[@]}"; do
             if [[ "$k" == "app|$n|"* ]]; then unset "P[$k]"; fi
@@ -674,6 +680,71 @@ apps_gone_drop() {
         hint_as app_gone "App '$n' is in settings.ini, it no longer exists (no container, no Compose project) - its entry is removed" name "$n"
     done <<<"$(old_names app)"
     (( ${#APPS_GONE[@]} )) && _apply_P
+    return 0
+}
+
+# Compose stacks brought down (2.60): a stack of the Compose Manager with a compose file but not one container (docker
+# compose down removes them) is stopped, not gone - its [app] section, its dumps, its Nextclouds and its containers in
+# [docker] no_stop / skip / known stay exactly as stored, said once per stack (hint stopped_kept). Only a stack whose
+# project is gone too (no container AND no compose project) is gone. Docker not answering: nothing is known (as before).
+declare -A DOWN_PROJ=()      # project id (as Docker would label its containers) -> the stack's name
+declare -a DOWN_SVC=()       # "stack<US>service<US>container_name<US>ids (<RS>)" of the stacks brought down
+declare -A DOWN_SAID=()
+down_load() {
+    DOWN_PROJ=(); DOWN_SVC=(); DOWN_SAID=()
+    [[ "$DOCKER_SERVICE" == "yes" ]] && ub_docker_answers || return 0
+    compose_scan
+    local -A live=() down=() idsof=()
+    local c r st ids id up svc cname
+    for c in "${CT_NAMES[@]}"; do [[ -n "${CT_PROJECT[$c]}" ]] && live[${CT_PROJECT[$c],,}]=1; done
+    for r in "${COMPOSE_PROJ[@]}"; do
+        st="${r%%$'\x1f'*}"; ids="${r#*$'\x1f'}"; up=0
+        while IFS= read -r id; do [[ -n "$id" && -n "${live[${id,,}]:-}" ]] && up=1; done <<<"${ids//$'\x1e'/$'\n'}"
+        (( up )) && continue
+        down[$st]=1; idsof[$st]="$ids"
+        while IFS= read -r id; do [[ -n "$id" ]] && DOWN_PROJ[$id]="$st"; done <<<"${ids//$'\x1e'/$'\n'}"
+    done
+    for r in "${COMPOSE_SVC[@]}"; do
+        IFS=$'\x1f' read -r st svc cname <<<"$r"
+        [[ -n "${down[$st]:-}" ]] && DOWN_SVC+=( "$st"$'\x1f'"$svc"$'\x1f'"$cname"$'\x1f'"${idsof[$st]}" )
+    done
+    return 0
+}
+# down_ct <container> -> the stack brought down it belongs to (its service's container_name, or the name compose gives
+# it: <project>-<service>-<n> / <project>_<service>_<n>); 1 = none
+down_ct() {
+    local n="$1" r st svc cname ids id sep tail
+    [[ -n "$n" ]] || return 1
+    for r in "${DOWN_SVC[@]}"; do
+        IFS=$'\x1f' read -r st svc cname ids <<<"$r"
+        if [[ -n "$cname" ]]; then [[ "$n" == "$cname" ]] && { printf '%s' "$st"; return 0; }; continue; fi
+        while IFS= read -r id; do
+            [[ -z "$id" ]] && continue
+            for sep in - _; do
+                [[ "$n" == "$id$sep$svc$sep"* ]] || continue
+                tail="${n#"$id$sep$svc$sep"}"
+                is_uint "$tail" && { printf '%s' "$st"; return 0; }
+            done
+        done <<<"${ids//$'\x1e'/$'\n'}"
+    done
+    return 1
+}
+down_say() { # once per stack
+    [[ -n "$1" && -z "${DOWN_SAID[$1]:-}" ]] || return 0
+    DOWN_SAID[$1]=1
+    hint_as stopped_kept "$1: not running right now - checked when it runs; its settings stay as they are" name "$1"
+}
+# down_keep_list <key>: the stored entries of a [docker] list whose container belongs to a stack brought down -> DOWN_KEPT
+declare -a DOWN_KEPT=()
+down_keep_list() {
+    local n st
+    DOWN_KEPT=()
+    while IFS= read -r n; do
+        [[ -n "$n" ]] || continue
+        in_list "$n" "${CT_NAMES[@]}" && continue
+        st="$(down_ct "$n")" || continue
+        DOWN_KEPT+=( "$n" ); down_say "$st"
+    done <<<"$(old_list "$1")"
     return 0
 }
 
@@ -1317,14 +1388,20 @@ TXT
         [[ "$n" == "$KOPIA_CONTAINER" ]] && continue
         [[ "${CT_STOP[$n]}" == "no" ]] && plist_add "docker|no_stop" "$n"
     done
+    # 2.60: the containers of a Compose stack brought down keep their place in the lists, as stored
+    local -a downk=()
+    down_keep_list "docker|no_stop"
+    for n in "${DOWN_KEPT[@]}"; do plist_add "docker|no_stop" "$n"; done
+    down_keep_list "docker|known"; downk=( "${DOWN_KEPT[@]}" )
     if [[ "$MODE" == "apply" ]]; then
         # --apply: what the decisions name is known - a container that came after the plan stays new (2.21)
-        P[docker|known]="$(for n in "${CT_NAMES[@]}"; do in_list "$n" "${known[@]}" && printf '%s\n' "$n"; done)"
+        P[docker|known]="$(for n in "${CT_NAMES[@]}"; do in_list "$n" "${known[@]}" && printf '%s\n' "$n"; done; printf '%s\n' "${downk[@]}")"
     else
-        P[docker|known]="$(printf '%s\n' "${CT_NAMES[@]}")"
+        P[docker|known]="$(printf '%s\n' "${CT_NAMES[@]}" "${downk[@]}")"
     fi
-    # apps the user chose not to back up (the office's apps step); only containers that still exist
-    P[docker|skip]="$(old_list "docker|skip" | while IFS= read -r n; do in_list "$n" "${CT_NAMES[@]}" && printf '%s\n' "$n"; done)"
+    # apps the user chose not to back up (the office's apps step); only containers that still exist (or are down, 2.60)
+    down_keep_list "docker|skip"
+    P[docker|skip]="$(old_list "docker|skip" | while IFS= read -r n; do in_list "$n" "${CT_NAMES[@]}" && printf '%s\n' "$n"; done; printf '%s\n' "${DOWN_KEPT[@]}")"
 
     # --- Docker volumes
     local v vn vd vtxt
@@ -1525,6 +1602,7 @@ TXT
         done
         for r in "${missing[@]}"; do
             IFS='|' read -r stack svc img t <<<"$r"
+            [[ -n "${DOWN_SAID[$stack]:-}" ]] && continue      # 2.60: a stack brought down whose settings stay - said once
             wrn_as db_no_container "Stack '$stack': database service '$svc' ($t, $img) has no container - start the stack and run setup.sh again, then the dump is proposed" \
                 stack "$stack" service "$svc" kind "$t" image "$img"
         done
@@ -1532,9 +1610,15 @@ TXT
     local e
     for e in "${COMPOSE_ERR[@]}"; do hint_as compose_unreadable "Compose stack ${e%%|*} could not be read: ${e#*|}" stack "${e%%|*}" error "${e#*|}"; done
 
+    local dst
     while IFS= read -r n; do
-        [[ -n "$n" ]] && ! in_list "$n" "${dump_cands[@]}" && wrn_as dump_gone "Dump for '$n' is in settings.ini, the container no longer exists - the entry is removed" name "$n"
-    done < <(old_names dump)
+        [[ -n "$n" ]] && ! in_list "$n" "${dump_cands[@]}" || continue
+        # 2.60: its stack is only brought down - the dump stays as stored
+        if ! in_list "$n" "${CT_NAMES[@]}" && dst="$(down_ct "$n")"; then
+            P[dump|$n|type]="$(old "dump|$n|type")"; down_say "$dst"; continue
+        fi
+        wrn_as dump_gone "Dump for '$n' is in settings.ini, the container no longer exists - the entry is removed" name "$n"
+    done <<<"$(old_names dump)"
 
     for n in "${dump_cands[@]}"; do
         local dflt="y"
@@ -1611,6 +1695,10 @@ TXT
             for n in "${m[@]}"; do unset "P[nextcloud|$n|preexisting_maintenance]" "NC_GROUP[$n]"; done
         fi
     done
+    # 2.60: the Nextclouds of a stack brought down (no container at all) stay as stored too
+    while IFS= read -r n; do
+        [[ -n "$n" ]] && ! in_list "$n" "${CT_NAMES[@]}" && down_ct "$n" >/dev/null && kept+=( "$n" )
+    done <<<"$(old_names nextcloud)"
     nc_kept "${kept[@]}" && found=1
     (( found )) || hint_as no_nextcloud "No Nextcloud detected"
     _apply_P
@@ -1648,6 +1736,7 @@ nc_kept() {
         for o in "${m[@]}"; do seen[$o]=1; [[ "${P[nextcloud|$o|preexisting_maintenance]}" == "continue" ]] || val="abort"; done
         NC_ROWS+=( "${m[*]}"$'\x1f'""$'\x1f'"$val"$'\x1f'"false" )
         names="$(printf '%s + ' "${m[@]}")"; names="${names% + }"
+        if o="$(down_ct "$n")"; then down_say "$o"; continue; fi        # its stack brought down: said once for the stack
         hint_as stopped_kept "$names: not running right now - checked when it runs; its settings stay as they are" name "$names"
     done
     return 0

@@ -4609,7 +4609,8 @@ function setupDerive() {
   });
   const nostop = [...was.filter((n) => keep.includes(n)), ...keep.filter((n) => !was.includes(n))];
   dset('docker|no_stop', [...new Set(nostop)]);
-  dset('docker|skip', [...new Set([...wasSkip.filter((n) => skip.includes(n)), ...skip.filter((n) => !wasSkip.includes(n))])]);
+  // a container in no app here (its Compose stack brought down, engine 2.60) keeps its place, as stored
+  dset('docker|skip', [...new Set([...wasSkip.filter((n) => skip.includes(n) || !inApps.has(n)), ...skip.filter((n) => !wasSkip.includes(n))])]);
   // VMs: not backed up = not held (in a shared dataset it stays in the share's snapshot anyway)
   m.vms.forEach((x) => {
     const l = levelOf('vm:' + x.name);
