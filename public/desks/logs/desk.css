@@ -48,6 +48,20 @@
 & button.lg-src-chip:hover{border-color:var(--accent)}
 & button.lg-src-chip[aria-pressed=true]{border-color:var(--accent); background:var(--accent-soft); color:var(--accent-ink)}
 .lg-src-name{overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0}
+/* her syslog rules' categories: a chip per category in the bar, a chip on the kind's row, the counts under the syslog —
+   a colour per category only from the office's tokens */
+.lg-cat-error{--lg-cat:var(--danger)}
+.lg-cat-minor, .lg-cat-warning{--lg-cat:var(--warn)}
+.lg-cat-drive, .lg-cat-array, .lg-cat-fs{--lg-cat:var(--accent)}
+.lg-cat-network, .lg-cat-login{--lg-cat:var(--good)}
+.lg-cat-system, .lg-cat-limetech, .lg-cat-emhttp, .lg-cat-other, .lg-cat-skip{--lg-cat:var(--muted)}
+& button.lg-cat-chip{display:inline-flex; align-items:center; gap:6px; cursor:pointer; font:inherit; font-size:12.5px; padding:3px 10px; max-width:100%}
+& button.lg-cat-chip:hover{border-color:var(--accent)}
+& button.lg-cat-chip[aria-pressed=true]{border-color:var(--accent); background:var(--accent-soft); color:var(--accent-ink)}
+.lg-cat-dot{width:8px; height:8px; border-radius:50%; background:var(--lg-cat, var(--muted)); flex:none}
+.chip.lg-cat{border-color:var(--lg-cat, var(--line2)); color:var(--ink2)}
+.chip.lg-cat::before{content:''; display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--lg-cat, var(--muted)); margin-right:5px; vertical-align:1px}
+.lg-more.lg-cats-read{border-top:0; padding-top:4px; cursor:help}
 .lg-view{display:flex; flex-direction:column; gap:8px}
 .row.lg-readable{cursor:pointer}            /* the whole row reads its log out (it unfolds nothing) */
 .lg-note{margin:0 2px}

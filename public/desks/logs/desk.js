@@ -7,6 +7,8 @@
    /var/log is and its biggest files, the containers' logs and Docker's
    rotation, and per log the lines that sound like an error or a warning —
    similar ones as one entry; "Show in the log" opens the reader at that line.
+   Unraid's syslog also by her syslog rules (from Enhanced Log): a category per
+   line, a chip per category over «Errors & warnings», the reader colours by them.
    The agent part lives in agent/desks/logs.php; lines always go into the page
    as text, never as HTML. */
 (() => {
@@ -38,6 +40,7 @@ let shownKinds = [];            // the unfoldable rows of «Errors & warnings»:
 const unfolded = new Set();     // kinds unfolded on this visit
 let tourKnown = false;          // her last tour asked for once this visit (until then her tour's sections say «loading»)
 let src = '';                   // the chip of «Errors & warnings»: '' every log, 'src:<id>' one, 'more' the rest — a filter, never kept
+let cat = '';                   // the category chip of «Errors & warnings» (her syslog rules): '' every one, else its id — a filter, never kept
 let foundBar = null;            // the bar over «Errors & warnings» (core.js Office.filterBar, built once): the words, the chips, the note line
 const opts = {
   source: Office.store('logs.source') || '',          // nothing is read until a log is chosen
@@ -73,6 +76,37 @@ function level(line) {
   const text = line.replace(NOT_COUNTED, ' ');
   return ERROR.test(text) ? 'error' : WARN.test(text) ? 'warn' : '';
 }
+
+/* Unraid's syslog on top: her syslog rules (from Enhanced Log; the agent sends them with her state, logsRules()) —
+   the first that fits decides; skip is neither, error makes an error, minor/warning at least a warning
+   (logsSyslogLevel(), tests/run.php checks both). The categories: the tour's (cat.<id>). */
+const RULE_LEVEL = { error: 'error', warning: 'warn', minor: 'warn' };
+const RULE_SOURCES = ['syslog', 'syslog.1'];
+const CAT_ORDER = ['error', 'warning', 'minor', 'drive', 'array', 'fs', 'network', 'login', 'system', 'limetech', 'emhttp', 'other', 'skip'];
+let rulesFrom = null;           // the state's list they were built from
+let rules = [];                 // [[RegExp, category], …]
+function syslogRules() {
+  const list = Array.isArray(state?.rules) ? state.rules : [];
+  if (list !== rulesFrom) {
+    rulesFrom = list;
+    rules = [];
+    for (const r of list) {
+      if (!Array.isArray(r) || typeof r[0] !== 'string' || typeof r[1] !== 'string') continue;
+      try { rules.push([new RegExp(r[0], 'i'), r[1]]); } catch (e) { /* a rule the browser can't read: left out */ }
+    }
+  }
+  return rules;
+}
+function syslogLevel(line) {
+  const own = level(line);
+  const hit = syslogRules().find(([re]) => re.test(line));
+  const c = hit ? hit[1] : '';
+  if (c === 'skip') return '';
+  const by = RULE_LEVEL[c] || '';
+  return own === 'error' || !by ? own : by === 'error' ? 'error' : own || 'warn';
+}
+/** How the reader judges the lines of a log: her syslog rules for Unraid's syslog, her words for every other one */
+const levelOf = (s) => (s && RULE_SOURCES.includes(s.id) ? syslogLevel : level);
 
 // ------------------------------------------------------------------ loading
 /** Her state: as kept at once, a new look following on her page (core.js Office.loadState()); fresh waits for a new look */
@@ -173,6 +207,7 @@ function build(root) {
   root.appendChild(Office.pageHelp(ID, [
     [T('tour'), T('help.tour_text')],
     [T('help.counted'), T('help.counted_text')],
+    [T('help.rules'), T('help.rules_text')],
     [T('help.grouped'), T('help.grouped_text')],
     [T('help.since'), T('help.since_text')],
     [T('help.space'), T('help.space_text')],
@@ -575,17 +610,20 @@ function foundView() {
   const all = noisy();
   const { loud, rest } = chipSources(all);
   if (src && !(src === 'more' ? rest.length : loud.some((s) => 'src:' + s.id === src))) src = '';      // its log went quiet
-  const list = src === 'more' ? rest : src ? loud.filter((s) => 'src:' + s.id === src) : all;
+  const found = catsFound(all);
+  if (cat && !found[cat]) cat = '';                                                                   // its lines went
+  const list = (src === 'more' ? rest : src ? loud.filter((s) => 'src:' + s.id === src) : all).filter((s) => !cat || inCat(s).length);
   const bar = foundBarGet();
   fillChips(loud, rest);
+  fillCats(found);
   box.appendChild(bar.el);
   const f = bar.read();
   const kinds = el('div', 'box');
   let n = 0;
   let total = 0;
-  all.forEach((s) => { total += (s.groups || []).length; });       // «n of m fit»: of every log's kinds
+  all.forEach((s) => { total += topKinds(s).length; });       // «n of m fit»: of every log's kinds
   for (const s of list) {
-    const groups = (s.groups || []).filter((g) => Office.fits(f.words, [g.sample, sourceLabel(s)]));
+    const groups = (cat ? inCat(s) : topKinds(s)).filter((g) => Office.fits(f.words, [g.sample, sourceLabel(s), catName(g)]));
     n += groups.length;
     if (f.words.length && !groups.length) continue;
     const head = el('div', 'lg-subhead');
@@ -597,15 +635,17 @@ function foundView() {
     if (grew) head.appendChild(grew);
     head.appendChild(readButton(s.id));
     kinds.appendChild(head);
+    if (s.cats && !f.words.length && !cat) kinds.appendChild(catsRead(s.cats));
     for (const g of groups) kinds.appendChild(kindRow(g));
-    const more = (s.kinds || 0) - (s.groups || []).length;
+    const more = (cat ? (s.cat_kinds || {})[cat] || 0 : s.kinds || 0) - (cat ? inCat(s) : topKinds(s)).length;
     if (more > 0 && !f.words.length) kinds.appendChild(el('div', 'lg-more', T('more_kinds', { n: more })));
   }
   if (!all.length) kinds.appendChild(el('p', 'empty', T('found.none')));
   else if (!kinds.children.length) kinds.appendChild(el('p', 'empty', T('found.none_fit')));
   box.appendChild(kinds);
-  bar.done(n, total, { tile: src === 'more' ? T('tile.more_logs', { n: rest.length }) : src ? sourceLabel(list[0]) : '', clear: () => { src = ''; } });
-  if (!src) {
+  const srcName = src === 'more' ? T('tile.more_logs', { n: rest.length }) : src ? sourceLabel(loud.find((s) => 'src:' + s.id === src)) : '';
+  bar.done(n, total, { tile: [srcName, cat ? T('cat.' + cat) : ''].filter(Boolean).join(' · '), clear: () => { src = ''; cat = ''; } });
+  if (!src && !cat) {
     const quiet = (tour.sources || []).filter((s) => !s.errors && !s.warnings && !s.unreadable);
     if (quiet.length) {
       const p = el('p', 'role lg-note');
@@ -622,6 +662,55 @@ function foundView() {
   return box;
 }
 
+/** A log's kinds as shown without a category chip: its most frequent ones (a tour before the syslog rules: all) */
+const topKinds = (s) => (s.groups || []).filter((g) => g.top !== false);
+/** A log's kinds under the category chip that is pressed (only the syslog's kinds carry one) */
+const inCat = (s) => (s.groups || []).filter((g) => typeof g.cat === 'string' && (g.cat || 'other') === cat);
+/** A kind's category by her syslog rules, as a word (for the filter words); '' without one */
+const catName = (g) => (typeof g.cat === 'string' && g.cat ? T('cat.' + g.cat) : '');
+/** Lines found per category over every log (her syslog rules: only the syslog's), the categories she knows */
+function catsFound(all) {
+  const out = {};
+  for (const s of all) {
+    for (const [c, n] of Object.entries(s.cat_found || {})) if (CAT_ORDER.includes(c) && n > 0) out[c] = (out[c] || 0) + n;
+  }
+  return out;
+}
+
+/** «My syslog rules sorted the 23 712 lines I read: System 173 · Network 2 378 …» — every line read, per category */
+function catsRead(cats) {
+  const known = CAT_ORDER.filter((c) => (cats[c] || 0) > 0);
+  const ranked = known.filter((c) => c !== 'other' && c !== 'skip').sort((a, b) => cats[b] - cats[a]).concat(known.filter((c) => c === 'other' || c === 'skip'));
+  const sum = known.reduce((x, c) => x + cats[c], 0);
+  const p = el('div', 'lg-more lg-cats-read', T('cats.read', { n: sum, list: ranked.map((c) => `${T('cat.' + c)} ${fmt.number(cats[c])}`).join(' · ') }));
+  p.title = T('cats.read_title');
+  return p;
+}
+
+/** A chip per category found (her syslog rules), the number of lines beside its name — pressed while the list shows only it */
+function fillCats(found) {
+  const box = foundBarGet().cats;
+  box.replaceChildren();
+  const ids = CAT_ORDER.filter((c) => found[c]);
+  box.hidden = !ids.length;
+  for (const id of ids) {
+    const c = el('button', 'chip lg-cat-chip lg-cat-' + id);
+    c.type = 'button';
+    c.dataset.cat = id;
+    c.dataset.own = '1';          // its click filters (core.js: a chip with a title would only show its tip)
+    c.setAttribute('aria-pressed', cat === id ? 'true' : 'false');
+    c.append(el('span', 'lg-cat-dot'), el('span', 'lg-src-name', T('cat.' + id)), el('span', 'lg-counts', fmt.number(found[id])));
+    c.title = T('cats.chip_title', { n: found[id], name: T('cat.' + id) });
+    c.addEventListener('click', () => Office.keepInPlace(foundBarGet().el, () => {
+      cat = cat === id ? '' : id;
+      redraw();
+      const again = foundBarGet().cats.querySelector(`[data-cat="${CSS.escape(id)}"]`);
+      if (again) again.focus({ preventScroll: true });
+    }));
+    box.appendChild(c);
+  }
+}
+
 /** The logs with a chip of their own (the loudest), and the rest («n more») */
 function chipSources(all) {
   const loud = all.length > SRC_CHIPS ? all.slice(0, SRC_CHIPS - 1) : all;
@@ -634,8 +723,13 @@ function foundBarGet() {
   const box = el('div', 'lg-chips');
   box.setAttribute('role', 'group');
   box.setAttribute('aria-label', T('found.chips_label'));
-  foundBar = Office.filterBar({ key: 'logs.found', label: T('found.filter_label'), extra: [box], onChange: () => redraw() });
+  const cats = el('div', 'lg-chips lg-cats');
+  cats.setAttribute('role', 'group');
+  cats.setAttribute('aria-label', T('cats.label'));
+  cats.hidden = true;
+  foundBar = Office.filterBar({ key: 'logs.found', label: T('found.filter_label'), extra: [box, cats], onChange: () => redraw() });
   foundBar.chips = box;
+  foundBar.cats = cats;
   return foundBar;
 }
 
@@ -647,6 +741,7 @@ function fillChips(loud, rest) {
     const c = el('button', 'chip lg-src-chip');
     c.type = 'button';
     c.dataset.src = id;
+    c.dataset.own = '1';          // a chip with a title is an explanation to core.js (its click shows the tip) — this one filters
     c.setAttribute('aria-pressed', src === id ? 'true' : 'false');
     c.append(el('span', 'lg-src-name', name), counts(errors, warnings));
     if (tip) c.title = tip;
@@ -676,6 +771,9 @@ function kindRow(g) {
   name.title = T('details');
   const meta = el('div', 'row-meta');
   meta.appendChild(chip(T('kind.' + g.level), g.level === 'error' ? 'danger' : 'warn', T('kind.' + g.level + '_title')));
+  if (catName(g) && CAT_ORDER.includes(g.cat) && g.cat !== 'error' && g.cat !== 'warning') {       // error and warning: the chip before says it
+    meta.appendChild(chip(catName(g), 'lg-cat lg-cat-' + g.cat, T('cats.row_title', { name: catName(g) })));
+  }
   if (g.first && g.last) meta.appendChild(el('span', '', g.first === g.last ? fmt.date(g.last) : T('seen', { first: fmt.date(g.first), last: fmt.date(g.last) })));
   main.append(name, meta);
   const n = el('div', 'figures');
@@ -859,7 +957,8 @@ function sourceName(s) {
 
 function shown() {
   const q = opts.query.trim().toLowerCase();
-  return lines.filter((l) => (!opts.only || level(l)) && (!q || l.toLowerCase().includes(q)));
+  const lv = levelOf(source());
+  return lines.filter((l) => (!opts.only || lv(l)) && (!q || l.toLowerCase().includes(q)));
 }
 
 /** Lines into the page — as text nodes, coloured by level, the filter word marked, the tour's line (if any) marked */
@@ -869,8 +968,9 @@ function renderLines(toBottom) {
   const list = shown();
   const q = opts.query.trim();
   const frag = document.createDocumentFragment();
+  const lv = levelOf(source());
   for (const line of list) {
-    const row = el('span', 'lg-line ' + level(line) + (isMark(line) ? ' spot' : ''));
+    const row = el('span', 'lg-line ' + lv(line) + (isMark(line) ? ' spot' : ''));
     if (q) {
       const lower = line.toLowerCase();
       const ql = q.toLowerCase();
@@ -897,7 +997,7 @@ function renderLines(toBottom) {
   if (m.time) parts.push(T('changed', { when: fmt.relative(m.time) }));
   parts.push(list.length === lines.length ? T('count', { n: lines.length }) : T('count_filtered', { n: list.length, total: lines.length }));
   view.status.textContent = parts.join(' · ');
-  const problems = lines.filter((l) => level(l) === 'error').length;
+  const problems = lines.filter((l) => lv(l) === 'error').length;
   view.hint.textContent = problems ? T('errors_seen', { n: problems }) : '';
 }
 
@@ -938,6 +1038,7 @@ Office.desk({
     const s = String(sub || '');
     const one = /^src:(.+)$/.exec(s);
     src = one ? s : '';
+    cat = '';
     const rd = /^read\/(.+)$/.exec(s);
     if (rd) {
       let id = '';

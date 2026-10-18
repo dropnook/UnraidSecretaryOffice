@@ -600,5 +600,543 @@
   "pct": 0,
   "warn": 60,
   "full": 80
- }
+ },
+ "rules": [
+  [
+   "logger: [|+ #-]",
+   "skip"
+  ],
+  [
+   "non[ -]fatal error",
+   "skip"
+  ],
+  [
+   "correct gpt errors",
+   "skip"
+  ],
+  [
+   "dev error handler",
+   "skip"
+  ],
+  [
+   "not tainted",
+   "skip"
+  ],
+  [
+   ": connect from [0-9.]*",
+   "login"
+  ],
+  [
+   "(accepted password|ROOT LOGIN)",
+   "login"
+  ],
+  [
+   "preclear_disk",
+   "fs"
+  ],
+  [
+   "(invalid (password|user)|failed password)",
+   "minor"
+  ],
+  [
+   "sshd\\[\\d+\\]:",
+   "login"
+  ],
+  [
+   "(ACPI Warning|ACPI Exception|ACPI Error)",
+   "minor"
+  ],
+  [
+   "spurious",
+   "minor"
+  ],
+  [
+   "invalid signature",
+   "minor"
+  ],
+  [
+   "(soft|hard) resetting ",
+   "minor"
+  ],
+  [
+   " failed[ ,:]",
+   "minor"
+  ],
+  [
+   "prematurely closed",
+   "minor"
+  ],
+  [
+   "errno=[^0]",
+   "minor"
+  ],
+  [
+   " limiting speed to (PIO|UDM)",
+   "minor"
+  ],
+  [
+   ": replayed ",
+   "minor"
+  ],
+  [
+   "duplicate object",
+   "minor"
+  ],
+  [
+   " checksumming",
+   "system"
+  ],
+  [
+   " checksum",
+   "minor"
+  ],
+  [
+   "conflicts",
+   "minor"
+  ],
+  [
+   "(warning|warn:)",
+   "minor"
+  ],
+  [
+   "conflicts",
+   "minor"
+  ],
+  [
+   "killall",
+   "minor"
+  ],
+  [
+   "power is back",
+   "minor"
+  ],
+  [
+   "UPS self test",
+   "minor"
+  ],
+  [
+   "[ \\t]terror",
+   "error"
+  ],
+  [
+   "HPA detected: current [0-9]*168,",
+   "error"
+  ],
+  [
+   "kernel:  \\[mem .* page ",
+   "error"
+  ],
+  [
+   "(error[ :]|Emask )",
+   "error"
+  ],
+  [
+   "parity incorrect",
+   "error"
+  ],
+  [
+   "Fsck\\?",
+   "error"
+  ],
+  [
+   "invalid opcode: ",
+   "error"
+  ],
+  [
+   "nobody cared",
+   "warning"
+  ],
+  [
+   "Unknown boot option",
+   "error"
+  ],
+  [
+   "ata[0-9\\. ]+: disabled",
+   "error"
+  ],
+  [
+   "(DMA disabled|exit status 1 from user root)",
+   "error"
+  ],
+  [
+   "kernel BUG ",
+   "error"
+  ],
+  [
+   "Write Protect is on",
+   "error"
+  ],
+  [
+   "Call trace",
+   "error"
+  ],
+  [
+   "tainted:",
+   "error"
+  ],
+  [
+   "kernel:  \\[",
+   "error"
+  ],
+  [
+   "out[ _]of[ _]memory",
+   "error"
+  ],
+  [
+   "killed",
+   "error"
+  ],
+  [
+   "HPA detected: current [0-9]*055,",
+   "error"
+  ],
+  [
+   "(password mismatch|was not found in )",
+   "error"
+  ],
+  [
+   "unable to open primary script:",
+   "error"
+  ],
+  [
+   "(HPA|Host Protected Area)",
+   "minor"
+  ],
+  [
+   "power failure",
+   "error"
+  ],
+  [
+   "throttling rate",
+   "system"
+  ],
+  [
+   "get value of subfeature",
+   "system"
+  ],
+  [
+   "Linux version",
+   "system"
+  ],
+  [
+   "MHz processor",
+   "system"
+  ],
+  [
+   "CPU: Intel",
+   "system"
+  ],
+  [
+   "CPU[0-9]: Intel",
+   "system"
+  ],
+  [
+   "CPU: AMD",
+   "system"
+  ],
+  [
+   "CPU[0-9]: AMD",
+   "system"
+  ],
+  [
+   "kernel: Processors: ",
+   "system"
+  ],
+  [
+   "kernel: Memory: ",
+   "system"
+  ],
+  [
+   "kernel: SMP: ",
+   "system"
+  ],
+  [
+   "B HIGHMEM ",
+   "system"
+  ],
+  [
+   "LOWMEM ",
+   "system"
+  ],
+  [
+   "md: xor using",
+   "system"
+  ],
+  [
+   "BogoMIPS",
+   "system"
+  ],
+  [
+   "kernel: Console: ",
+   "system"
+  ],
+  [
+   " Thermal Zone",
+   "system"
+  ],
+  [
+   " Adding [0-9]+k swap on ",
+   "system"
+  ],
+  [
+   "Kernel command line:",
+   "system"
+  ],
+  [
+   "_sse",
+   "system"
+  ],
+  [
+   "found.*chip",
+   "system"
+  ],
+  [
+   "controller",
+   "system"
+  ],
+  [
+   " version ",
+   "system"
+  ],
+  [
+   "mouse|speaker|KBD port|AUX port|PS\\/2|keyboard]",
+   "system"
+  ],
+  [
+   "driver",
+   "system"
+  ],
+  [
+   "microcode",
+   "system"
+  ],
+  [
+   " mdcmd ",
+   "array"
+  ],
+  [
+   " md: ",
+   "array"
+  ],
+  [
+   "super.dat ",
+   "array"
+  ],
+  [
+   ": running, size:",
+   "array"
+  ],
+  [
+   "sas: ata[0-9].*dev error handler",
+   "drive"
+  ],
+  [
+   "Device inventory:",
+   "drive"
+  ],
+  [
+   ": pci-",
+   "drive"
+  ],
+  [
+   ", ATA DISK drive",
+   "drive"
+  ],
+  [
+   "Direct-Access ",
+   "drive"
+  ],
+  [
+   " attached scsi disk",
+   "drive"
+  ],
+  [
+   " attached scsi removable disk",
+   "drive"
+  ],
+  [
+   "SATA link up ",
+   "drive"
+  ],
+  [
+   " md[0-9][:) ]",
+   "drive"
+  ],
+  [
+   " md1[0-9][:) ]",
+   "drive"
+  ],
+  [
+   " md2[0-9][:) ]",
+   "drive"
+  ],
+  [
+   " [sh]d[a-z]1[: ]",
+   "drive"
+  ],
+  [
+   "kernel:  [sh]d[a-z][: ]",
+   "drive"
+  ],
+  [
+   " ide[0-9]: [^B]",
+   "drive"
+  ],
+  [
+   "hdparm ",
+   "drive"
+  ],
+  [
+   "scsi |[^d]ata|sas |ahci |[^a-z0-9]sd[a-z][^a-z]|usb",
+   "drive"
+  ],
+  [
+   "import disk[0-9]*: ",
+   "drive"
+  ],
+  [
+   "(ncq|trimmed on)",
+   "drive"
+  ],
+  [
+   "(spinup|spindown)",
+   "fs"
+  ],
+  [
+   "(reiserfs|xfs|btrfs|ext4)",
+   "fs"
+  ],
+  [
+   "mkdir.*\\/mnt\\/(disk|cache)",
+   "fs"
+  ],
+  [
+   "scst_",
+   "fs"
+  ],
+  [
+   "sending DHCP_REQUEST for",
+   "fs"
+  ],
+  [
+   "dhcpIPaddrLeaseTime=[0-9]* in DHCP server response.",
+   "fs"
+  ],
+  [
+   "dhcpT[12]value is missing in DHCP server response.",
+   "fs"
+  ],
+  [
+   "DHCP_ACK received from",
+   "fs"
+  ],
+  [
+   "kernel:[ \\t]*$",
+   "system"
+  ],
+  [
+   "rdevNumErrors\\.[0-9]*=0",
+   "fs"
+  ],
+  [
+   "sas eh calling libata port error handler",
+   "fs"
+  ],
+  [
+   "(entered blocking state|entered disabled state|entered forwarding state|entered listening state)",
+   "network"
+  ],
+  [
+   "(promiscuous mode|link is not ready|link becomes ready)",
+   "network"
+  ],
+  [
+   "(New relevant interface|no longer relevant|mDNS multicast|address record)",
+   "network"
+  ],
+  [
+   "(kvm:|docker[0-9])",
+   "fs"
+  ],
+  [
+   "ntpd.*Listening on interface",
+   "network"
+  ],
+  [
+   ": Listen normally on",
+   "network"
+  ],
+  [
+   "rc.inet1",
+   "network"
+  ],
+  [
+   "forcedeth",
+   "network"
+  ],
+  [
+   " r8169[ :]",
+   "network"
+  ],
+  [
+   " e1000[ :]",
+   "network"
+  ],
+  [
+   " e1000e[ :]",
+   "network"
+  ],
+  [
+   " sky2[ :]",
+   "network"
+  ],
+  [
+   " skge[ :]",
+   "network"
+  ],
+  [
+   " tg3[ :.]",
+   "network"
+  ],
+  [
+   " bcm5700[ :]",
+   "network"
+  ],
+  [
+   " sk98lin[ :]",
+   "network"
+  ],
+  [
+   "dhcp",
+   "network"
+  ],
+  [
+   "dnsmasq",
+   "network"
+  ],
+  [
+   "(bond[0-9]|eth[0-9]|vnet[0-9])",
+   "network"
+  ],
+  [
+   ": unRAID System",
+   "limetech"
+  ],
+  [
+   "Lime[ -]Tech",
+   "limetech"
+  ],
+  [
+   "key detected, registered",
+   "limetech"
+  ],
+  [
+   ": Unregistered",
+   "limetech"
+  ],
+  [
+   "emhttp[:[_]",
+   "emhttp"
+  ]
+ ]
 }
