@@ -30,7 +30,8 @@
 #    7 suite      rsync to <suite_host>:/tmp/uso-main/, php tests/run.php there ends «… passed, 0 failed»
 #                 (a red build, click test or suite puts the two version lines back)
 #    8 commit     «Version x.y.z» , push main, origin/main is that commit
-#    9 release    gh release create v<x.y.z> --target <that commit> --title «Version x.y» (x.y.z for a fix)
+#    9 release    gh release create v<x.y.z> --target <that commit> --title «Version x.y» (x.y.z for a fix) - step 11
+#                 retitles it to the plugin's date version (2026.10.18e) and puts «Unraid Secretary Office x.y.z» atop the notes
 #                 --notes-file <notes>; the tag points to the commit
 #   10 action     the Action plugin.yml for v<x.y.z> finished green (polled, at most 10 min)
 #   11 assets     the release has the .plg and the .txz; its .plg names office x.y.z; the public «latest» address
@@ -354,6 +355,14 @@ else
         red "the release's .plg says office '$plg_office', version '$plg_ver'"
     else
         ok ".plg $plg_ver (office $plg_office) and its .txz attached"
+        # the title is the plugin's date version (what Unraid's plugin manager shows), the office version heads the notes
+        # (owner 2026-10-18); the tag stays v<x.y.z>
+        if (( ! dry )) && [[ "$(gh release view "v$rel" --json name --jq .name 2>/dev/null)" != "$plg_ver" ]]; then
+            body=$(gh release view "v$rel" --json body --jq .body 2>/dev/null)
+            [[ "$body" == "Unraid Secretary Office $rel"* ]] || body=$(printf 'Unraid Secretary Office %s\n\n%s' "$rel" "$body")
+            if gh release edit "v$rel" --title "$plg_ver" --notes "$body" >/dev/null 2>&1; then ok "release v$rel titled '$plg_ver'"
+            else echo "   note: could not retitle v$rel to '$plg_ver' (gh release edit) - do it by hand"; fi
+        fi
         # the public «latest» address may answer 404 for a few seconds after the upload
         latest_url="https://github.com/$github/releases/latest/download/$name.plg"
         latest=''
