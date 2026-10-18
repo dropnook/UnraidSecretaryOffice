@@ -35824,20 +35824,19 @@ globalThis.Office = { sections: () => ({ el: {}, render() {}, mount: () => false
 const m = OFFICE_DESK_TESTS.moverelli;
 const texts = (n) => (typeof n === 'string' ? [n] : [n.text, ...n.children.flatMap(texts)].filter(Boolean));
 const p = (done) => ({ result: 'running', started: 1000, plan: ['Back', 'Docs'], phase: 'share', share: 'Docs', file: '/mnt/cache/Docs/c2.txt',
-  share_files: 4, share_bytes: 1000, share_done_files: 1, share_done_bytes: done, shares: [{ share: 'Back' }] });
+  share_files: 4, share_bytes: 1000, share_done_files: 1, share_done_bytes: done, done_files: 3, done_bytes: done + 300, shares: [{ share: 'Back' }] });
 const out = {};
 const d0 = m.runCardData(p(200), 2000);
 out.steps = d0.steps.map((s) => [s.name, s.state]);
-out.first = [d0.at, d0.percent, d0.left, d0.end];
+out.first = [d0.at, d0.percent, d0.left, d0.end, d0.estimating];
 const fl = m.runCardData({ ...p(200), file_bytes: 300, file_size: 500, started: 7 }, 2000);
 m.runCardData({ ...p(200), file_bytes: 400, file_size: 500, started: 7 }, 2010);
 const fl2 = m.runCardData({ ...p(200), file_bytes: 500, file_size: 500, started: 7 }, 2020);
-out.flight = [fl.dBytes, fl.percent, fl2.dBytes, fl2.rate, fl2.fileBytes, fl2.fileSize, fl2.fileRate];
+out.flight = [fl.dBytes, fl.percent, fl2.dBytes, fl2.fileBytes, fl2.fileSize, fl2.fileRate];
 out.waking = texts(m.runCard({ ...p(200), file_bytes: 0, file_size: 500, waking: true, started: 8 }, 2040)).filter((x) => /^rc\.(waking|file|on_way)/.test(x));
 out.flightCard = texts(m.runCard({ ...p(200), file_bytes: 500, file_size: 500, started: 7 }, 2030));
-m.runCardData(p(300), 2010);
-const d2 = m.runCardData(p(400), 2020);
-out.rate = [d2.percent, d2.left, d2.end];
+const d2 = m.runCardData(p(400), 2060);
+out.rate = [d2.percent, d2.rate, d2.left, d2.end];
 const look = m.runCardData({ result: 'running', started: 5, plan: ['Back'], phase: 'look', shares: [] }, 2020);
 out.look = [look.at, look.percent, look.steps.map((s) => s.state)];
 m.setProgress(p(400), null);
@@ -35865,16 +35864,17 @@ JS);
         $o = is_array($o) ? $o : [];
         same('run card: the steps — Looking around, a step per share of the run, Tidying up; Back done, Docs running', [['rc.look', 'done'], ['Back', 'done'], ['Docs', 'running'], ['Docs' === '' ? '' : 'rc.tidy', 'pending']],
             $o['steps'] ?? null);
-        same('run card: the first reading — the share\'s 20 % by bytes, no time yet (one reading), no end', [2, 20, null, null], $o['first'] ?? null);
-        same('run card: the file in flight counts with its .partial — 200 + 300 = 50 %; 10 B/s from the readings', [500, 50, 700, 10, 500, 500, 10], $o['flight'] ?? null);
+        same('run card: the first reading — the share\'s 20 % by bytes, the time left still estimated (Back moved before: since this page saw Docs), no end', [2, 20, null, null, true], $o['first'] ?? null);
+        same('run card: the file in flight counts with its .partial — 200 + 300 = 50 %; the file\'s own 10 B/s from the readings', [500, 50, 700, 500, 500, 10], $o['flight'] ?? null);
         same('run card: no .partial yet, the target disk asleep — «The target disk is waking up …» under the file', ['rc.on_way {"file":"c2.txt (rc.file_bytes {\\"done\\":\\"0 B\\",\\"size\\":\\"500 B\\"})","from":"pic.pool_name {\\"pool\\":\\"cache\\"}","to":"pic.array"}', 'rc.waking'],
             $o['waking'] ?? null);
         check('run card: … the rate in the bar\'s words like Mr. Backupsy\'s partner line, the file\'s bytes beside it',
-            (bool) preg_grep('/^70 % · rc\.rate \{"rate":"10 B"\}/', $o['flightCard'] ?? []) && (bool) preg_grep('/^rc\.on_way \{"file":"c2\.txt \(rc\.file_bytes \{\\\\"done\\\\":\\\\"500 B\\\\",\\\\"size\\\\":\\\\"500 B\\\\"\}\)",.* · rc\.rate \{"rate":"10 B"\}$/', $o['flightCard'] ?? []), json_encode($o['flightCard'] ?? null));
-        same('run card: three readings (10 B/s) — 40 %, 60 s left, the end (Docs is the run\'s last share)', [40, 60, 2080], $o['rate'] ?? null);
+            (bool) preg_grep('/^70 % · rc\.rate_avg \{"rate":"[0-9.]+ B"\}/', $o['flightCard'] ?? []) && (bool) preg_grep('/^rc\.on_way \{"file":"c2\.txt \(rc\.file_bytes \{\\\\"done\\\\":\\\\"500 B\\\\",\\\\"size\\\\":\\\\"500 B\\\\"\}\)",.* · rc\.rate \{"rate":"10 B"\}$/', $o['flightCard'] ?? []), json_encode($o['flightCard'] ?? null));
+        same('run card: a minute after this page first saw Docs, 200 B more — Ø 200/60 B/s, the larger of bytes (600 B ÷ 3.33 = 180 s) and files (3 ÷ 0 — none done yet: bytes only) = 180 s, the end at 2240', [40, 200 / 60, 180, 2240],
+            [$o['rate'][0] ?? null, $o['rate'][1] ?? null, isset($o['rate'][2]) ? round($o['rate'][2], 6) : null, isset($o['rate'][3]) ? round($o['rate'][3], 6) : null]);
         same('run card: looking around — the first step, no bar', [0, null, ['running', 'pending', 'pending']], $o['look'] ?? null);
         check('run card: its title, the steps, «40 % · about … left», the share\'s counts, the file in flight, the end',
-            in_array('rc.title', $o['card'] ?? [], true) && (bool) preg_grep('/^40 % · rc\.rate \{"rate":"10 B"\} · rc\.left/', $o['card'] ?? []) && (bool) preg_grep('/^rc\.share \{"share":"Docs","done":1/', $o['card'] ?? [])
+            in_array('rc.title', $o['card'] ?? [], true) && (bool) preg_grep('/^40 % · rc\.rate_avg \{"rate":"[0-9.]+ B"\} · rc\.left/', $o['card'] ?? []) && (bool) preg_grep('/^rc\.share \{"share":"Docs","done":1/', $o['card'] ?? [])
             && in_array('rc.on_way {"file":"c2.txt","from":"pic.pool_name {\\"pool\\":\\"cache\\"}","to":"pic.array"} · rc.rate {"rate":"10 B"}', $o['card'] ?? [], true) && (bool) preg_grep('/^rc\.end/', $o['card'] ?? []), json_encode($o['card'] ?? null));
         same('run card: the foot — «N errors, N warnings» left (as Mr. Backupsy\'s); right, in Jack Emby\'s order and style: «Log» as a quiet link, «Stop after this file»; no harder stop',
             ['card-foot mo-run-foot', 'rc.counts {"errors":"count.errors {\\"n\\":0}","warnings":"count.warnings {\\"n\\":0}"}', 'mo-run-right',
@@ -37844,6 +37844,130 @@ JS);
         && !in_array('pic.title_last', $j['section'] ?? [], true), json_encode([$hist, $j['section'] ?? null]));
     check('night picture: while the run goes — none in «My runs» (the live one under her run card)', !preg_grep('/^pic\./', (array) ($j['historyRun'] ?? ['x'])),
         json_encode($j['historyRun'] ?? null));
+    hardeningRm($tmp);
+}
+
+/**
+ * Ms. Moverelli's run card and picture as the owner watched a «prefer» share move array → another pool (2026-10-18):
+ * the time left from the share's average since it started (files and bytes, the larger; smoothed; «being estimated»
+ * before a minute or 1 %), the end with «tomorrow» / its day, and the target pool as a bar of its own in the picture
+ * (growing with what came), none for a yes share into the array. Pure parts under node.
+ */
+function testMoverelliRunPicture(): void
+{
+    $node = testsNode();
+    if ($node === '') {
+        check('run picture: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('run-picture');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, dataset: {}, style: {}, attrs: {},
+  set innerHTML(v) { this.children = []; }, append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; },
+  setAttribute(k, v) { this.attrs[k] = v; }, querySelector: () => null, querySelectorAll: () => [] });
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { sections: () => ({}), scope: () => T, t: T, el: mk, fmt: { size: (b) => Math.round(b / 1073741824) + ' GiB', number: (n, d) => n.toFixed(d), relative: (t) => 'R' + t,
+    cron: (c) => c, time: (t) => 'T' + t, date: (t, w) => 'D' + t + (w ? 'w' : ''), duration: (s) => s },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, sectionHead: () => mk('h'),
+  runSteps: () => mk('div'), runBar: (pct, words) => mk('div', 'bar', words), runRate: () => null, nightSteps: () => [], nightCard: () => mk('div', 'card') };
+for (const f of process.argv.slice(2)) (0, eval)(fs.readFileSync(f, 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
+const G = 1073741824;
+const out = {};
+// the owner's run: 27 min in, 17 584 of 122 876 files, 53 of 436 GB — the share is the run's only one (since the run's start)
+const own = (files, bytes, extra) => ({ result: 'running', started: 1000, plan: ['nc'], phase: 'share', share: 'nc', share_files: 122876, share_bytes: 436 * G,
+  share_done_files: files, share_done_bytes: bytes, done_files: files, done_bytes: bytes, shares: [], ...extra });
+const a = m.runCardData(own(17584, 53 * G), 1000 + 27 * 60);
+out.owner = [a.rate / G, a.left, a.estimating];
+// a stretch of small files: 5 s later 40 files and 2 MB more — the time left stays about 3 h (a short window said 27 h)
+const b = m.runCardData(own(17624, 53 * G + 2 * 1048576), 1000 + 27 * 60 + 5);
+out.stretch = b.left;
+// the larger of the two: bytes would be done in 100 s, files need 900 s
+const c = m.runCardData({ result: 'running', started: 100, plan: ['x'], phase: 'share', share: 'x', share_files: 1000, share_bytes: 1000 * G, share_done_files: 100,
+  share_done_bytes: 500 * G, done_files: 100, done_bytes: 500 * G, shares: [] }, 200);
+out.larger = [c.left, c.rate / G];
+// before a minute and 1 %: still estimated; 1 % within 30 s: shown; a share after another in the run: since this page saw it
+const youngP = (f, by) => ({ result: 'running', started: 5000, plan: ['y'], phase: 'share', share: 'y', share_files: 10000, share_bytes: 100 * G,
+  share_done_files: f, share_done_bytes: by, done_files: f, done_bytes: by, shares: [] });
+const young = (f, by, t) => m.runCardData(youngP(f, by), t);
+const y1 = young(10, 0.5 * G, 5030);
+out.young = [y1.left, y1.estimating, young(10, 2 * G, 5031).left !== null];
+const later = (f, by, t) => m.runCardData({ result: 'running', started: 7000, plan: ['a', 'z'], phase: 'share', share: 'z', share_files: 100, share_bytes: 100 * G,
+  share_done_files: f, share_done_bytes: by, done_files: f + 50, done_bytes: by + 30 * G, shares: [{ share: 'a' }] }, t);
+const l1 = later(10, 10 * G, 9000);
+const l2 = later(20, 20 * G, 9100);
+out.later = [l1.left, l1.estimating, +(l2.rate / G).toFixed(6), +l2.left.toFixed(6)];
+// smoothed: the next estimate moves the shown one by 30 % (it counted down between)
+const s1 = m.runCardData({ result: 'running', started: 100, plan: ['s'], phase: 'share', share: 's', share_files: 0, share_bytes: 1000, share_done_bytes: 500, done_bytes: 500, shares: [] }, 200);
+const s2 = m.runCardData({ result: 'running', started: 100, plan: ['s'], phase: 'share', share: 's', share_files: 0, share_bytes: 1000, share_done_bytes: 550, done_bytes: 550, shares: [] }, 300);
+out.smooth = [s1.left, s2.left];
+// the bar's words: «12 % · Ø … · about … left»; before the estimate «being estimated»; the end with its day
+out.bar = texts(m.runCard(own(17584, 53 * G), 1000 + 27 * 60 + 10)).filter((x) => /^12 %/.test(x));
+out.barYoung = texts(m.runCard(youngP(10, 0.5 * G), 5040)).filter((x) => /^0 %|^\d+ %/.test(x));
+const at = (d, h) => new Date(2026, 9, d, h, 0).getTime() / 1000;
+out.end = [m.endText(at(18, 17), at(18, 14)), m.endText(at(19, 3), at(18, 22)), m.endText(at(21, 3), at(18, 22))];
+// what moved where: a share done (2 of its 4 files: half its bytes) and the one at work with its file in flight
+const rows = [{ share: 'nc', from: 'array', to: 'nvme' }, { share: 'old', from: 'array', to: 'nvme' }, { share: 'Docs', from: 'cache', to: 'array' }, { share: 'v', from: 'fast', to: 'nvme' }];
+out.moved = m.movedByPlace({ phase: 'share', share: 'nc', share_done_bytes: 100, file_bytes: 50, shares: [{ share: 'old', files: 4, bytes: 400, moved: 2 }, { share: 'gone', files: 1, bytes: 9, moved: 1 }] }, rows);
+const smp = [[10, { x: 100 }], [20, { x: 300 }]];
+out.at = [m.movedAt(smp, 5, 0).x, m.movedAt(smp, 15, 0).x, m.movedAt(smp, 25, 0).x, m.movedAt(smp, -1, 0), m.movedAt([], 5, 0)];
+const pic = { pool: 'cache', x: 80, dest: { to: 'array', size: 8000 * G, used: 2000 * G }, phases: {}, files: [] };
+const ex = m.extraPlaces(pic, rows, ['Docs', 'nc'], { nvme: { size: 1000 * G, used: 300 * G } }, { nvme: 50 * G, array: -50 * G }, { nvme: 20 * G }, 200);
+out.extra = ex.map((x) => [x.place, x.measured, x.used / G, x.moved / G, x.segs.map((s) => [s.k, s.bytes / G])]);
+out.extraW = ex.map((x) => Math.round(x.segs.reduce((s, g) => s + g.w, 0) * 1e9) / 1e9);
+out.yesOnly = m.extraPlaces(pic, rows, ['Docs'], {}, {}, {}, 200);
+out.unmeasured = m.extraPlaces(pic, rows, ['nc'], { nvme: null }, { nvme: G }, {}, 200).map((x) => [x.place, x.measured, x.segs.length, x.moved / G]);
+out.pool2 = m.extraPlaces(pic, rows, ['v'], {}, {}, {}, 200).map((x) => x.place);
+out.intoPool = m.extraPlaces({ ...pic, pool: 'nvme' }, rows, ['nc'], {}, {}, {}, 200).map((x) => x.place);
+// the box while the run goes: «Pool nvme» with its use and what came; none for a yes share into the array
+const night = { running: true, started: 900, picture: { ...pic, phases: { check: { before: { size: 1000 * G, fixed: 300 * G, others: 200 * G, jack: 0, free: 500 * G } } },
+  files: [{ name: 'nc/a.jpg', bytes: G, from: 'array', to: 'nvme', who: 'her' }] } };
+m.setState({ time: 800, shares: rows, levels: { nvme: { size: 1000 * G, used: 300 * G } } });
+m.setProgress(own(17584, 53 * G, { started: 1000 }), null);
+out.box = texts(m.nightPicture(night));
+m.setProgress({ result: 'running', started: 1001, plan: ['Docs'], phase: 'share', share: 'Docs', share_files: 4, share_bytes: 4 * G, share_done_files: 1, share_done_bytes: G, shares: [] }, null);
+out.boxYes = texts(m.nightPicture({ ...night, started: 901 }));
+console.log(JSON.stringify(out));
+JS);
+    [, $out, $err] = run([$node, "$tmp/t.js", testsNightHelpersJs($tmp), OFFICE_WEB . '/desks/moverelli/desk.js'], 30);
+    $j = json_decode(trim((string) $out), true) ?? [];
+    check('run picture: it runs', $j !== [], $out . $err);
+    $G = 1 << 30;
+    // bytes: 383 GB ÷ (53 GB / 1620 s) = 11 707 s; files: 105 292 ÷ (17 584 / 1620 s) = 9 700 s — the larger
+    same('run picture: the owner\'s run (27 min, 53 of 436 GB, 17 584 of 122 876 files) — Ø 53 GB / 27 min, about 3 h 15 left (bytes the larger), never 27 h',
+        [round(53 / 1620, 6), round(383 * 1620 / 53), false], [isset($j['owner'][0]) ? round($j['owner'][0], 6) : null, isset($j['owner'][1]) ? round($j['owner'][1]) : null, $j['owner'][2] ?? null]);
+    check('run picture: a stretch of small files (5 s, 2 MB) — the time left stays about 3 h', ($j['stretch'] ?? 0) > 3 * 3600 && ($j['stretch'] ?? 0) < 3.5 * 3600, json_encode($j['stretch'] ?? null));
+    same('run picture: files the slower — 900 files left at 1 a second = 900 s, not the bytes\' 100 s; Ø 5 GB/s', [900, 5], $j['larger'] ?? null);
+    same('run picture: 30 s and 0.5 % — still estimated; 1 % reached — shown', [null, true, true], $j['young'] ?? null);
+    same('run picture: a share after another in the run — since this page first saw it (estimated at first), then 10 GB in 100 s: Ø 0.1 GB/s, 80 GB left = 800 s (files: 80 ÷ 0.1 = 800)',
+        [null, true, 0.1, 800], $j['later'] ?? null);
+    // s1: 500 B in 100 s → 100 s left; s2: 550 B in 200 s → 450 / 2.75 = 163.6 s; shown: 100 − 100 = 0 counted down, + 30 % of 163.6
+    same('run picture: smoothed — the next estimate moves the shown one (counted down meanwhile) by 30 %', [100, round(0.3 * 450 / 2.75, 6)],
+        [$j['smooth'][0] ?? null, isset($j['smooth'][1]) ? round($j['smooth'][1], 6) : null]);
+    check('run picture: the bar says the share\'s average «Ø … · about … left»', (bool) preg_grep('/^12 % · rc\.rate_avg \{"rate":"0 GiB"\} · rc\.left \{"left":\d+/', $j['bar'] ?? []), json_encode($j['bar'] ?? null));
+    check('run picture: … and before the estimate «being estimated»', (bool) preg_grep('/ · rc\.estimating$/', $j['barYoung'] ?? []), json_encode($j['barYoung'] ?? null));
+    same('run picture: the end — today its time, tomorrow «tomorrow at», later its day', [true, true, true],
+        [str_starts_with($j['end'][0] ?? '', 'rc.end {"time":'), str_starts_with($j['end'][1] ?? '', 'rc.end_tomorrow {"time":'), str_starts_with($j['end'][2] ?? '', 'rc.end_day {"day":"D')]);
+    same('run picture: what moved where — half of a done share\'s bytes (2 of 4 files) and the share at work with its file in flight; a share without a way left out',
+        ['nvme' => 350, 'array' => -350], $j['moved'] ?? null);
+    same('run picture: what had moved when the levels were measured — on the line between readings, the last after them, nothing before the run', [50, 200, 300, [], []], $j['at'] ?? null);
+    same('run picture: a «prefer» share into another pool — its own bar: 300 GB measured with 20 GB already come, 50 GB now: 280 before + 50 come = 330 GB of 1000; a yes share into the array none',
+        [['nvme', true, 330, 50, [['dest', 280], ['arrived', 50], ['free', 670]]]], $j['extra'] ?? null);
+    same('run picture: … its parts sum to the bar', [1], $j['extraW'] ?? null);
+    same('run picture: a yes share into the array alone — no extra bar', [], $j['yesOnly'] ?? null);
+    same('run picture: the pool asleep or not measured — its bar «not measured», what came still counted', [['nvme', false, 0, 1]], $j['unmeasured'] ?? null);
+    same('run picture: a second pool → its pool — both get a bar (neither in the picture)', ['nvme', 'fast'], $j['pool2'] ?? null);
+    same('run picture: into the picture\'s own pool — no extra bar', [], $j['intoPool'] ?? null);
+    $box = $j['box'] ?? [];
+    check('run picture: the box — «Pool nvme» beside the array, its use now and what came in this run (in the legend too)',
+        in_array('pic.pool_name {"pool":"nvme"}', $box, true) && (bool) preg_grep('/^pic\.dest_used \{"used":"\d+ GiB","size":"1000 GiB"\} · pic\.arrived \{"size":"53 GiB"\}$/', $box)
+        && (bool) preg_grep('/^pic\.pool_name \{"pool":"nvme"\} pic\.dest_used/', $box), json_encode($box));
+    check('run picture: a yes share into the array — no extra bar in the box', !in_array('pic.pool_name {"pool":"nvme"}', $j['boxYes'] ?? ['pic.pool_name {"pool":"nvme"}'], true)
+        && !preg_grep('/pic\.arrived/', $j['boxYes'] ?? []), json_encode($j['boxYes'] ?? null));
     hardeningRm($tmp);
 }
 
@@ -41268,7 +41392,7 @@ JS;
 }
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliPreferDisks', 'testMoverelliIdleRules', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliPreferDisks', 'testMoverelliIdleRules', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
