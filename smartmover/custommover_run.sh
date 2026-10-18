@@ -502,15 +502,19 @@ mover_waiting() {  # 0: the binary waits for the next path (read on fd 0), 1: bu
 }
 
 mover_send() {  # path — to the running binary; back once it is done with it (0), or the binary is gone (1)
-    local p="$1" d=0.001 w
+    local p="$1" d=0.001 w n=0
     printf '%s\n' "$p" >&"$MV_FD" 2>/dev/null || return 1
     while :; do
         [[ -e "$p" || -L "$p" ]] || return 0
         mover_waiting; w=$?
         (( w == 0 )) && return 0
         (( w == 2 )) && return 1
+        # a small file takes the binary ~10 ms (its fuser and losetup): look every 1–2 ms for the first 0.1 s, then
+        # every 10 ms, after 1 s every 50 ms (a big file)
+        (( ++n == 5 )) && d=0.002
+        (( n == 50 )) && d=0.01
+        (( n == 140 )) && d=0.05
         if [[ -n "$SLP_FD" ]]; then read -r -t "$d" -u "$SLP_FD" _ 2>/dev/null; else sleep "$d"; fi
-        case "$d" in 0.001) d=0.002 ;; 0.002) d=0.005 ;; 0.005) d=0.01 ;; 0.01) d=0.02 ;; *) d=0.05 ;; esac
     done
 }
 

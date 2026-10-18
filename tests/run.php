@@ -37655,6 +37655,8 @@ out.onto = [m.fileOnto(pic.files[1], 'cache'), m.fileOnto({ who: 'jack', from: '
 const box = m.nightPicture({ running: true, started: 5, picture: pic });
 out.box = texts(box);
 out.boxDone = texts(m.nightPicture({ running: false, started: 5, picture: pic }));      // after the run: «Last moved: …»
+// a «prefer» share into another pool than the picture's (2026-10-18): its file named by its own ends
+out.boxElse = texts(m.nightPicture({ running: false, started: 5, picture: { ...pic, files: [...pic.files, { name: 'nc/x.jpg', bytes: G, from: 'array', to: 'ripley', who: 'her' }] } }));
 out.x = all(box).filter((n) => n.cls === 'mo-pic-x').map((n) => n.style.left);
 out.segs = all(box).filter((n) => /mo-seg-/.test(n.cls || '') && n.style.width).map((n) => n.cls.replace('mo-pic-seg ', ''));
 const boxNone = m.nightPicture({ running: false, started: 5, picture: { pool: 'cache', x: 80, dest: { to: 'array', size: null, used: null }, phases: { check: { before: null } }, files: [] } });
@@ -37710,6 +37712,8 @@ JS);
         && in_array('pic.seg.others pic.change {"before":"150 GiB","after":"80 GiB"}', $box, true)
         && !preg_grep('/^pic\.(last_file|moving)/', $box)
         && in_array('pic.last_file {"file":"a.mkv","size":"7 GiB","from":"pic.array","to":"pic.pool_name {\"pool\":\"cache\"}"}', $j['boxDone'] ?? [], true), json_encode([$box, $j['boxDone'] ?? null]));
+    check('night picture: a «prefer» share into another pool (array → ripley, the picture the cache\'s) — «Last moved» names its own ends, never the picture\'s pool',
+        in_array('pic.last_file {"file":"x.jpg","size":"1 GiB","from":"pic.array","to":"pic.pool_name {\"pool\":\"ripley\"}"}', $j['boxElse'] ?? [], true), json_encode($j['boxElse'] ?? null));
     same('night picture without Jack Emby in the night: his part gone from the legend (not «0 B»); with him in it shown even at 0', [false, true],
         array_map(fn ($t) => (bool) preg_grep('/^pic\.seg\.jack /', (array) $t), $j['alone'] ?? [[], []]));
     same('night picture: X on both bars, seven parts each (the snapshots, his watched one and his reserve too) and the array\'s use (classes with the desk\'s prefix)', [['80.00%', '80.00%'], 15], [$j['x'] ?? null, count($j['segs'] ?? [])]);

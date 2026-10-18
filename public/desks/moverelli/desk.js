@@ -432,8 +432,14 @@ function nightPicture(n) {
   const files = () => (Array.isArray(pic.files) ? pic.files.filter((f) => f && typeof f.name === 'string') : []);
   const lastFile = () => files().slice(-1)[0] || null;
   const short = (name) => { const b = String(name).split('/').pop(); return b.length > 48 ? b.slice(0, 46) + '…' : b; };
+  /** A file of hers between two places neither of which is the picture's pool (2026-10-18: a «prefer» share into another
+   *  pool, array → ripley while the picture is the cache's) — named by its own ends, never flown across these bars */
+  const elsewhere = (f) => f.who !== 'jack' && typeof f.from === 'string' && typeof f.to === 'string' && f.from !== '' && f.to !== ''
+    && f.from !== pic.pool && f.to !== pic.pool;
+  const place = (p) => (p === 'array' ? T('pic.array') : T('pic.pool_name', { pool: p }));
   /** Where a file was and went in words: Jack Emby's between the pool and the array, hers between the pool and her target */
   function ends(f) {
+    if (elsewhere(f)) return [place(f.from), place(f.to)];
     const pool = T('pic.pool_name', { pool: pic.pool || '' });
     const to = f.who === 'jack' || !data || !data.dest || data.dest.to === 'array' ? T('pic.array') : T('pic.pool_name', { pool: data.dest.to });
     return fileOnto(f, pic.pool) ? [to, pool] : [pool, to];
@@ -451,14 +457,14 @@ function nightPicture(n) {
   const queue = [];
   const key = (f) => `${f.who}|${f.name}|${f.bytes}`;
   function feed() {
-    for (const f of files()) if (!seen.has(key(f))) { seen.add(key(f)); queue.push(f); }
+    for (const f of files()) if (!seen.has(key(f)) && !elsewhere(f)) { seen.add(key(f)); queue.push(f); }
   }
   let walking = false;
   async function walk() {
     if (walking) return;
     walking = true;
     while (box.isConnected && n.running && data && data.measured && !reducedMotion()) {
-      if (!queue.length) queue.push(...files().slice(-6));
+      if (!queue.length) queue.push(...files().filter((f) => !elsewhere(f)).slice(-6));
       if (!queue.length) break;
       await flyFile(queue.shift());
       await new Promise((r) => setTimeout(r, PIC_PAUSE_MS));
