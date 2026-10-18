@@ -5,7 +5,7 @@
 #   bash tools/scenarios/run.sh <tower|test3> [--all | --desk backup,… | --only name[:arg],…] [--no-sync] [--no-reset]
 #                               [--keep] [--no-nightly] [--dev-sync] [--timeout s]
 #
-#   1. rsync -a --delete --exclude .git ./ → <vm>:/tmp/uso-scenarios/tree/ (unless --no-sync), its git describe beside it;
+#   1. rsync -a --delete --exclude .git ./ → <vm>:/tmp/uso-scenarios/tree[-<worktree>]/ (unless --no-sync), its git describe beside it;
 #      --dev-sync: then plugin/dev-sync.sh there - the code under test into the plugin (off by default: wave 1 tests the
 #      released plugin; never on USOPartner).
 #   2. base.sh (unless --no-reset).
@@ -13,7 +13,7 @@
 #      run-local.sh --one there. Exit 3 (dirty), a timeout or an error → base.sh before the next (not with --keep).
 #      Reboot halves (<name>-pre.sh, <name>-post.sh): pre, the reports copied here, the reboot (the runner's when pre left
 #      the VM up), then wait for ssh, the array Started and a fresh heartbeat; the tree and the reports back; post.
-#   4. The reports to ~/Claude/UnraidSecretaryOffice-briefs/scenarios/<date>/<host>/ (<name>.md, .result, .pending, .out,
+#   4. The reports to ~/Claude/UnraidSecretaryOffice-briefs/scenarios/<date>/<host>[-<worktree>]/ (<name>.md, .result, .pending, .out,
 #      run.info, base-*.log); Mac-side checks of <name>.pending (plan_changes: tools/scenarios/plan-changes.mjs on the
 #      copied plan, page_text / page_clean: page.mjs on the copied state files) done here - a failing one turns the
 #      scenario red, and with all of them done a scenario whose other checks were green is green;
@@ -24,7 +24,12 @@ set -u
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo=$(cd "$here/../.." && pwd)
 VMDIR=/tmp/uso-scenarios
-TREE=$VMDIR/tree
+# a worktree (or USO_RUN_TAG) gets its own tree on the VM and its own report folder: two workers at once don't rsync
+# --delete under each other's running scenario or move each other's reports aside (the Tower lock still orders them)
+tag=${USO_RUN_TAG-}
+[[ -z $tag && $(basename "$repo") != UnraidSecretaryOffice-local ]] && tag=$(basename "$repo")
+tag=${tag//[^A-Za-z0-9_.-]/-}
+TREE=$VMDIR/tree${tag:+-$tag}
 
 host=${1:-}
 shift || true
@@ -66,8 +71,8 @@ guard() {
 guard
 
 stamp=$(date +%Y%m%d-%H%M)
-OUT=$VMDIR/$stamp-$host
-local_dir=$HOME/Claude/UnraidSecretaryOffice-briefs/scenarios/$(date +%Y-%m-%d)/$host
+OUT=$VMDIR/$stamp-$host${tag:+-$tag}
+local_dir=$HOME/Claude/UnraidSecretaryOffice-briefs/scenarios/$(date +%Y-%m-%d)/$host${tag:+-$tag}
 # an earlier run of the day: its reports beside, as <host>-<HHMM> (the summary is this run's alone)
 if [[ -n $(ls -A "$local_dir" 2>/dev/null) ]]; then
     was=$(sed -n 's/^stamp=.* \([0-9][0-9]\):\([0-9][0-9]\)$/\1\2/p' "$local_dir/run.info" 2>/dev/null | head -1)
