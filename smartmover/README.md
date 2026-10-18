@@ -119,6 +119,19 @@
 >   a time, arrived as one file with three links; a group with a link outside the share stays, as with Unraid's mover)
 >   — one process per file could never do that. Nothing else of the binary is relied on but what 7.3's mover uses too:
 >   absolute paths on stdin, one per line, read and moved as they come; a folder given moves when empty.
+> * **Trailing space** (2026-10-18, marked «USO «trailing space»», seen on a real server: 51 312 files of a prefer share
+>   moved, 57 empty folders left on the disk, every leaf named like «06 Juni »): Unraid's move binary drops the whitespace
+>   at the end of each path it reads (7.4.0-rc.1: «No such file or directory» for «…/06 Juni», exit 0; Unraid's own mover
+>   leaves such names the same way), and given «foo » it moves a file «foo» beside it — an excluded one too. A path ending
+>   in a space or tab never goes to the binary. Such a **file** whose destination is a pool (prefer, second pool, the fill
+>   to a second pool) is moved by the script: only when nothing is at the destination, not in use (`fuser`), no other
+>   hard link; `cp -a` to `<dest>.partial` (owner, mode, times), compared (content, size, owner, mode, mtime), renamed
+>   without replacing anything, the source removed only then; missing folders on the way made like their source. One for
+>   the array stays (WARN: the disk is the binary's choice — rename it), counted in `left`. After a prefer share's folder
+>   pass, every folder still on the array that is empty and whose counterpart is on the pool is removed (`rmdir`, deepest
+>   first, never one holding anything; one INFO line with the count); an empty one ending in whitespace without a
+>   counterpart is made there first (owner, mode, times), as the binary would. A prefer share with no file left to move
+>   gets its folder pass too (folders an earlier run left behind); a dry run touches none.
 >
 > **`prefer` shares** (array → pool): their source is the array disks the share may use (above), which may wake them.
 > That is accepted here on purpose (the owner's decision): the Dynamix Cache Directories plugin keeps the folder

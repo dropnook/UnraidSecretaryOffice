@@ -84,6 +84,10 @@
 #   has it, else ctime) and its mtime — something touched lately counts as new. A share's file goes only while the pool
 #   is at/above that share's target (per share its own X); one file per call, the pool re-read after each. The age rule
 #   stays per share. The status keeps `recent`: the last 50 files done [{name: <share>/<rel>, bytes, from, to}].
+# USO «trailing space» (2026-10-18): Unraid's move binary drops whitespace at the end of each path it reads, so a name
+#   ending in a space or tab never goes to it (given «foo » it moves a file «foo» beside it). Such a file to a pool is
+#   moved by this script (copy, compare, rename, then the source removed); to the array it stays with a WARN. After a
+#   prefer share's folder pass, an empty folder left on the array whose copy is on the pool is removed (rmdir).
 #
 # Exclude files: one entry per line, comments (#) and blank lines ignored, CRLF tolerated.
 #   /abs/path/dir          protects the directory and everything below it
@@ -658,6 +662,159 @@ array_dirs() {  # src (one root per line)
     return 0
 }
 
+# USO «trailing space» (2026-10-18, seen on a real server: 51 312 files of a share moved to the pool, 57 empty folders
+# left on the disk, every leaf named like «06 Juni »): Unraid's move binary drops the whitespace at the end of each path
+# it reads (7.4.0-rc.1 on Tower: «No such file or directory» for «…/06 Juni», exit 0) — a file or folder whose name ends
+# in a space or tab is never moved, and given «foo » it moves a file «foo» beside it (an excluded one too). Unraid's own
+# mover leaves them the same way. Such a name never goes to the binary: a file whose destination is a pool is moved here
+# (office_ws_move), one for the array stays (WARN: which disk is the binary's choice); the folders: office_dirs_left.
+ends_ws() { [[ "$1" == *[[:space:]] ]]; }
+
+# the folder dst made like src (owner, mode), each missing parent like its source counterpart; never above $MNT/<pool>
+# (the caller's) -> MADE_D/MADE_S, deepest first — their times set by office_made_times once their content is there
+office_mkdir_like() {  # dst src
+    local dst="$1" src="$2" i
+    local -a td=() ts=()
+    while [[ ! -d "$dst" || -L "$dst" ]]; do
+        [[ -e "$dst" || -L "$dst" ]] && return 1          # something else under that name
+        [[ -d "$src" && ! -L "$src" ]] || return 1
+        td+=("$dst"); ts+=("$src")
+        dst=$(dirname "$dst"); src=$(dirname "$src")
+        [[ "$dst" == "$MNT" || "$dst" == / || "$dst" == . ]] && return 1
+    done
+    for (( i = ${#td[@]} - 1; i >= 0; i-- )); do
+        mkdir -- "${td[i]}" 2>/dev/null || return 1
+        chown --reference="${ts[i]}" -- "${td[i]}" 2>/dev/null
+        chmod --reference="${ts[i]}" -- "${td[i]}" 2>/dev/null
+    done
+    MADE_D+=("${td[@]}"); MADE_S+=("${ts[@]}")
+    return 0
+}
+office_made_times() {
+    local i
+    for (( i = 0; i < ${#MADE_D[@]}; i++ )); do touch -r "${MADE_S[i]}" -- "${MADE_D[i]}" 2>/dev/null; done
+    MADE_D=(); MADE_S=()
+}
+
+# USO «trailing space»: one file (or symlink) to its place on a pool, as the move binary would take it — only when
+# nothing is there yet, it is not in use and has no other hard link; copied beside it as <name>.partial (owner, mode,
+# times, xattrs: cp -a; office_partial_leftovers knows that name), compared, renamed (never over something that came
+# meanwhile), the source removed only then. 0: moved; 1: left, WS_WHY says why
+office_ws_move() {  # file to
+    local f="$1" to="$2" tmp="$2.partial" a b
+    WS_WHY=""
+    if [[ ! -L "$f" ]]; then
+        [[ -f "$f" ]] || { WS_WHY="not a plain file"; return 1; }
+        [[ "$(stat -c %h -- "$f" 2>/dev/null)" == 1 ]] || { WS_WHY="it has hard links"; return 1; }
+    fi
+    [[ -e "$to" || -L "$to" ]] && { WS_WHY="already at the destination"; return 1; }
+    [[ -e "$tmp" || -L "$tmp" ]] && { WS_WHY="$tmp is in the way"; return 1; }
+    if command -v fuser >/dev/null 2>&1 && fuser -s "$f" >/dev/null 2>&1; then WS_WHY="in use"; return 1; fi
+    MADE_D=(); MADE_S=()
+    office_mkdir_like "$(dirname "$to")" "$(dirname "$f")" || { WS_WHY="no folder for it at the destination"; MADE_D=(); MADE_S=(); return 1; }
+    WS_WHY="the copy failed (no room?)"
+    if cp -a --no-target-directory -- "$f" "$tmp" 2>/dev/null; then
+        a=$(stat -c '%s %u %g %a %Y' -- "$f" 2>/dev/null); b=$(stat -c '%s %u %g %a %Y' -- "$tmp" 2>/dev/null)
+        if [[ -L "$f" ]]; then [[ -L "$tmp" && "$(readlink -- "$f")" == "$(readlink -- "$tmp")" ]] || WS_WHY="the copy differs"
+        else cmp -s -- "$f" "$tmp" || WS_WHY="the copy differs"; fi
+        [[ -n "$a" && "$a" == "$b" ]] || WS_WHY="the copy differs"
+        if [[ "$WS_WHY" == "the copy failed (no room?)" ]]; then
+            mv -n -T -- "$tmp" "$to" 2>/dev/null
+            if [[ -e "$tmp" || -L "$tmp" ]]; then WS_WHY="already at the destination"
+            elif [[ -e "$to" || -L "$to" ]]; then
+                rm -f -- "$f"
+                office_made_times
+                [[ -e "$f" || -L "$f" ]] && { WS_WHY="copied, but the source could not be removed"; return 1; }
+                WS_WHY=""; return 0
+            fi
+        fi
+    fi
+    rm -f -- "$tmp"
+    office_made_times
+    return 1
+}
+
+# USO «trailing space»: after a prefer share's folder pass (DIRS, deepest first) a folder still on the array that is
+# empty goes when its counterpart is on the pool already (its files went there: a name ending in whitespace the binary
+# could not take, or the parent that still held it when the binary came) — rmdir, never a folder holding anything;
+# an empty one ending in whitespace without a counterpart is made there first (owner, mode, times), as the binary would
+office_dirs_left() {  # share src dest
+    local name="$1" src="$2" dest="$3" d to r gone=0 made=0
+    local -A ROOT=()
+    while IFS= read -r r; do [[ -n "$r" ]] && ROOT[$r]=1; done <<< "$src"
+    [[ -d "$MNT/$dest" ]] || return 0
+    for d in "${DIRS[@]}"; do
+        [[ -d "$d" && ! -L "$d" ]] || continue
+        if [[ -n "${ROOT[$d]:-}" ]]; then to="$MNT/$dest/$name"; else rel_of "$d" "$src"; to="$MNT/$dest/$name/$REL"; fi
+        if [[ ! -d "$to" || -L "$to" ]]; then
+            ends_ws "$d" || continue
+            [[ -z "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]] || continue
+            MADE_D=(); MADE_S=()
+            office_mkdir_like "$to" "$d" || { MADE_D=(); MADE_S=(); continue; }
+            office_made_times
+            (( made++ )) || true
+        fi
+        rmdir -- "$d" 2>/dev/null && { (( gone++ )) || true; }
+    done
+    (( gone > 0 )) && log INFO "  $gone empty folders the move binary left on the array removed – they are on $dest$( (( made > 0 )) && printf ' (%s made there first: a name ending in a space or tab)' "$made")"
+    return 0
+}
+
+# USO «per disk»: the share's folders on the array side to the move binary (Unraid's mover's second pass), deepest first,
+# never one whose name ends in whitespace (USO «trailing space»), then office_dirs_left
+prefer_dirs_pass() {  # share src dest
+    local name="$1" src="$2" dest="$3" dirs_out gone=0 d rc line
+    local -a DIRS=() give=()
+    array_dirs "$src"
+    for d in "${DIRS[@]}"; do ends_ws "$d" || give+=("$d"); done
+    if (( ${#give[@]} > 0 )); then
+        dirs_out=$(mktemp)
+        printf '%s\n' "${give[@]}" | "${MOVER_CMD[@]}" >"$dirs_out" 2>&1
+        rc=$?
+        while IFS= read -r line; do log DEBUG "  mover: $line"; done < "$dirs_out"
+        rm -f "$dirs_out"
+        for d in "${give[@]}"; do [[ -e "$d" ]] || (( gone++ )) || true; done
+        (( rc != 0 )) && log WARN "  move binary exited with code $rc on the folders left on the array"
+        (( gone > 0 )) && log INFO "  $gone empty folders moved from the array to $dest"
+    fi
+    (( ${#DIRS[@]} > 0 )) && office_dirs_left "$name" "$src" "$dest"
+    return 0
+}
+
+# USO «trailing space»: the files of WS (names ending in whitespace, never given to the binary) — to a pool moved here,
+# to the array left; the stop file looked at before each -> WS_TRIED (handed on), the moved ones counted as done
+office_ws_files() {  # share src dest
+    local name="$1" src="$2" dest="$3" f sz ok=0 i=0
+    WS_TRIED=0
+    for f in "${WS[@]}"; do
+        [[ "$STOPPED" == true ]] && break
+        if [[ -n "$STOP_FILE" && -e "$STOP_FILE" ]]; then
+            STOPPED=true; STOP_SHARE="$name"
+            log WARN "stop requested ($STOP_FILE) – stopped after ${LAST_FILE:-the files before}; the rest of $name and the shares after it are left for the next run"
+            break
+        fi
+        (( WS_TRIED++ )) || true
+        if [[ "$dest" == array ]]; then
+            WS_WHY="its name ends in a space or tab, which Unraid's move binary drops, and the array disk is the binary's choice – rename it to move it"
+        else
+            rel_of "$f" "$src"
+            sz=$(stat -c %s -- "$f" 2>/dev/null); is_int "$sz" || sz=0
+            CUR_FILE="$f"; office_progress_tick
+            if office_ws_move "$f" "$MNT/$dest/$name/$REL"; then
+                LAST_FILE="$f"
+                (( ok++, SH_DONE_FILES++, RUN_DONE_FILES++, SH_DONE_BYTES += sz, RUN_DONE_BYTES += sz )) || true
+                continue
+            fi
+            LAST_FILE="$f"
+        fi
+        (( ++i <= 10 )) && log WARN "  left: $f – $WS_WHY"
+    done
+    CUR_FILE=""
+    (( i > 10 )) && log WARN "  ... $(( i - 10 )) more left whose name ends in a space or tab"
+    (( ok > 0 )) && log INFO "  $ok files whose name ends in a space or tab moved to $dest by the script itself (Unraid's move binary drops that space)"
+    return 0
+}
+
 # office: the array disks a share may use (its cfg's shareInclude, else all, less shareExclude) that sleep now —
 # read from emhttpd's disks.ini (RAM, no disk asked); prints them comma separated, nothing when none or no ini
 asleep_disks() {  # share
@@ -714,19 +871,28 @@ move_batch() {  # share src dest
     local -A SIZE_OF=()
     while IFS= read -r -d '' rec; do SIZE_OF[${rec#*$'\t'}]=${rec%%$'\t'*}; done \
         < <(printf '%s\0' "${FILES[@]:$(( ${#FILES[@]} > 50 ? ${#FILES[@]} - 50 : 0 ))}" | xargs -0 -r stat --printf '%s\t%n\0' 2>/dev/null)
+    # USO «trailing space»: a name ending in whitespace never goes to the move binary (WS: office_ws_files, after it)
+    local -a WS=() keep=()
+    for f in "${FILES[@]}"; do if ends_ws "$f"; then WS+=("$f"); else keep+=("$f"); fi; done
+    FILES=("${keep[@]}")
     mover_out=$(mktemp)
+    OFFICE_NOT_STARTED=0; rc=0
     if [[ -n "$STOP_FILE" ]]; then
         # office: one file at a time (see «one file at a time» above)
         : > "$mover_out"
         office_move_files "$name" "$src" "$dest" "$mover_out"
         rc=$OFFICE_RC
         # office: stopped — only the files handed over are verified; the files never started stay and count as left
-        OFFICE_NOT_STARTED=0
         [[ "$STOPPED" == true ]] && OFFICE_NOT_STARTED=$(( ${#FILES[@]} - OFFICE_TRIED ))
         [[ "$STOPPED" == true ]] && FILES=("${FILES[@]:0:OFFICE_TRIED}")
-    else
+    elif (( ${#FILES[@]} > 0 )); then
         printf '%s\n' "${FILES[@]}" | "${MOVER_CMD[@]}" >"$mover_out" 2>&1
         rc=$?
+    fi
+    if (( ${#WS[@]} > 0 )); then
+        office_ws_files "$name" "$src" "$dest"
+        (( OFFICE_NOT_STARTED += ${#WS[@]} - WS_TRIED )) || true
+        FILES+=("${WS[@]:0:WS_TRIED}")
     fi
     while IFS= read -r line; do log DEBUG "  mover: $line"; done < "$mover_out"
     if (( rc != 0 )); then
@@ -758,19 +924,7 @@ move_batch() {  # share src dest
     # USO «per disk»: the array side's folders as Unraid's mover leaves them (its second pass, one move binary for all);
     # after a stop only the empty parents of what moved, at once
     if [[ "${dirs_pass:-false}" == true && "$STOPPED" == false ]]; then
-        local -a DIRS=()
-        local dirs_out gone=0 d
-        array_dirs "$src"
-        if (( ${#DIRS[@]} > 0 )); then
-            dirs_out=$(mktemp)
-            printf '%s\n' "${DIRS[@]}" | "${MOVER_CMD[@]}" >"$dirs_out" 2>&1
-            rc=$?
-            while IFS= read -r line; do log DEBUG "  mover: $line"; done < "$dirs_out"
-            rm -f "$dirs_out"
-            for d in "${DIRS[@]}"; do [[ -e "$d" ]] || (( gone++ )) || true; done
-            (( rc != 0 )) && log WARN "  move binary exited with code $rc on the folders left on the array"
-            (( gone > 0 )) && log INFO "  $gone empty folders moved from the array to $dest"
-        fi
+        prefer_dirs_pass "$name" "$src" "$dest"
     elif (( ${#MOVED[@]} > 0 )); then
         remove_empty_parents "$src" "${MOVED[@]}"
     fi
@@ -921,13 +1075,24 @@ fill_pool() {  # pool
                 break
             fi
             CUR_SHARE="$own"; CUR_FILE="$f"; office_progress
-            printf '%s\n' "$f" | "${FILL_MOVER[@]}" >> "$FILL_OUT" 2>&1
-            local r=$?
+            local r=0
+            WS_WHY="in use, or already present at the destination"
+            if ends_ws "$f"; then
+                # USO «trailing space»: never to the move binary — to a second pool moved here, to the array left
+                if [[ "${FS_DEST[$own]}" == array ]]; then
+                    WS_WHY="its name ends in a space or tab, which Unraid's move binary drops, and the array disk is the binary's choice – rename it to move it"
+                else
+                    office_ws_move "$f" "$MNT/${FS_DEST[$own]}/$own/${f#"${FS_SRC[$own]}/"}"
+                fi
+            else
+                printf '%s\n' "$f" | "${FILL_MOVER[@]}" >> "$FILL_OUT" 2>&1
+                r=$?
+            fi
             if (( r != 0 )); then (( ERRORS++ )) || true; S_RC_FILL[$own]=$r; log ERROR "  move binary exited with code $r for $f"; fi
             LAST_FILE="$f"
             if [[ -e "$f" || -L "$f" ]]; then
                 (( F_LEFT[$own]++ )) || true
-                log WARN "  still on the source side (in use, or already present at the destination): $f"
+                log WARN "  still on the source side ($WS_WHY): $f"
             else
                 (( F_MOVED[$own]++, RUN_DONE_FILES++, RUN_DONE_BYTES += sz, freed += ph )) || true
                 F_GONE[$own]+="$f"$'\n'
@@ -1096,7 +1261,16 @@ process_share() {  # name mode pool pool2
     (( TOTAL_FILES += count, TOTAL_BYTES += bytes )) || true
     SH_FILES=$count; SH_BYTES=$bytes
     office_progress      # office: the share's counts on the card at once, before the first file (its disk may still wake)
-    if (( count == 0 )) && [[ "$fill" == false ]]; then SH_STATE=none; log INFO "  no files match"; return 0; fi
+    if (( count == 0 )) && [[ "$fill" == false ]]; then
+        SH_STATE=none; log INFO "  no files match"
+        # USO «trailing space»: the folders an earlier run left on the array (the folder pass ran only after files)
+        if [[ "$dirs_pass" == true && "$DRY_RUN" == false && "$STOPPED" == false ]]; then
+            local -a MOVER_CMD=("$MOVER_BIN")
+            (( MOVER_DEBUG > 0 )) && MOVER_CMD+=(-d "$MOVER_DEBUG")
+            prefer_dirs_pass "$name" "$src" "$pool"
+        fi
+        return 0
+    fi
     (( count == 0 )) && log INFO "  no files older than the age"
     for f in "${FILES[@]}"; do AGED_ALL[$f]=1; done
     local fdest
