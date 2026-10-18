@@ -469,7 +469,9 @@ fi
 if real_fn scenario_begin && real_fn check && real_fn scenario_end; then
     if ((dry)); then log "would run check standard against the base (lib.sh)"
     else
-        ( USO_SC_OUT=${USO_SC_OUT:-/tmp/uso-scenarios/base} scenario_begin office-base-verify && check standard; scenario_end ) \
+        # as a scenario that only looks: the «before» now, the desks' fresh looks, then the standard set against it
+        ( export USO_SC_OUT=${USO_SC_OUT:-/tmp/uso-scenarios/base}; scenario_begin office-base-verify && snap_before \
+            && for desk in backup restore moverelli; do ask "$desk.refresh" '{}' 120 >/dev/null; done; check standard; scenario_end ) \
             && log "check standard: green" || { warn "check standard against the base is red - the base is not clean"; fails=$((fails + 1)); }
     fi
 else

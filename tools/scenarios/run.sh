@@ -84,13 +84,13 @@ sync_tree() {
     vm "mkdir -p $TREE" || return 1
     rsync -a --delete --exclude .git -e "$SSH" "$repo/" "$alias:$TREE/" || return 1
     printf '%s\n' "$(cd "$repo" && git rev-parse --abbrev-ref HEAD 2>/dev/null) $(cd "$repo" && git describe --always --dirty 2>/dev/null)" \
-        | vm "cat > $TREE/.uso-describe"
+        | vm "cat > $TREE/.git-describe"
 }
 pull() { rsync -a --exclude '*.lock' -e "$SSH" "$alias:$OUT/" "$local_dir/" 2>/dev/null; }
 
 if ((sync)); then
     sync_tree || { say "could not copy the tree to $host"; exit 4; }
-    say "tree synced to $host:$TREE ($(vm "cat $TREE/.uso-describe"))"
+    say "tree synced to $host:$TREE ($(vm "cat $TREE/.git-describe"))"
 fi
 vm "test -f $TREE/tools/scenarios/run-local.sh" || { say "no tree on $host (run without --no-sync once)"; exit 2; }
 if ((devsync)); then

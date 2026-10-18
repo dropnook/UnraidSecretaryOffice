@@ -158,7 +158,7 @@ info() {
         echo "unraid=$(sed -n 's/^version="\(.*\)"$/\1/p' /etc/unraid-version 2>/dev/null)"
         echo "office=$(sed -n "s/.*const OFFICE_VERSION = '\([^']*\)'.*/\1/p" /usr/local/emhttp/plugins/unraid-secretary-office/src/bootstrap.php 2>/dev/null)"
         echo "engine=$(sed -n 's/^UB_VERSION="\{0,1\}\([0-9.]*\)"\{0,1\}.*/\1/p' /usr/local/emhttp/plugins/unraid-secretary-office/backup/lib/common.sh 2>/dev/null | head -1)"
-        echo "tree=$(cat "$TREE/.uso-describe" 2>/dev/null || echo '?')"
+        echo "tree=$(cat "$TREE/.git-describe" 2>/dev/null || echo '?')"
     } > "$f"
 }
 info

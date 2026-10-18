@@ -20,7 +20,7 @@ say() { echo "$*" | tee -a "$report"; }
 : > "$report"
 say "# $name ($mode)"
 say ""
-say "Host $(hostname), $(date '+%Y-%m-%d %H:%M:%S'), tree $(cat "${USO_SC_TREE:-/nonexistent}/.uso-describe" 2>/dev/null || echo '?')"
+say "Host $(hostname), $(date '+%Y-%m-%d %H:%M:%S'), tree $(cat "${USO_SC_TREE:-/nonexistent}/.git-describe" 2>/dev/null || echo '?')"
 
 pending() { printf '%s\n' "$(IFS=$'\t'; echo "$*")" >> "$out/$name.pending"; }
 states() {          # the page's state files now (+ the scenario's canned answers), for a page_text check
