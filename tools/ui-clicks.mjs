@@ -30,6 +30,10 @@
 // Every page in a context of its own (a fresh profile: nothing remembered from another page).
 //
 //   node tools/ui-clicks.mjs [--only advisor,backup/setup] [--themes dark,light] [--widths 1440,375] [--jobs 6] [-v]
+//                            [--states <folder>]
+//   --states: the desks' states from that folder instead of tests/ui/states (a server's real state files - the scenarios,
+//   tools/scenarios/page.sh); only the pages are clicked then (the routes walk, the dialog stack and the first start
+//   need the stub states and are left out).
 //   UC_DEBUG=1 …   prints every click and the state it left
 //
 // Needs node and playwright-core (USO_PLAYWRIGHT=<its folder>, else found in node's own paths or npx's cache) and a
@@ -48,7 +52,7 @@ const require = createRequire(import.meta.url);
 
 // ------------------------------------------------------------------ the call
 const ROUTES = ['caretaker', 'backup', 'backup/setup', 'restore', 'snapshot', 'cleanup/tidy', 'cleanup/where', 'logs', 'watchman', 'advisor', 'jack', 'jack/setup', 'moverelli', 'moverelli/setup'];
-const opt = { only: null, themes: ['dark', 'light'], widths: [1440, 375], jobs: 6, verbose: false, perGroup: 5, perPage: 60 };
+const opt = { only: null, themes: ['dark', 'light'], widths: [1440, 375], jobs: 6, verbose: false, perGroup: 5, perPage: 60, states: null };
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
@@ -58,16 +62,21 @@ for (let i = 0; i < args.length; i++) {
   else if (a === '--widths') opt.widths = val().split(',').map(Number).filter((n) => n >= 320);
   else if (a === '--jobs') opt.jobs = Math.max(1, Number(val()) || 1);
   else if (a === '-v' || a === '--verbose') opt.verbose = true;
+  else if (a === '--states') opt.states = path.resolve(val());
   else if (a === '-h' || a === '--help') usage(0);
   else usage();
 }
 function usage(code = 2) {
-  console.error('usage: node tools/ui-clicks.mjs [--only <route>,…] [--themes dark,light] [--widths 1440,375] [--jobs n] [-v]');
+  console.error('usage: node tools/ui-clicks.mjs [--only <route>,…] [--themes dark,light] [--widths 1440,375] [--jobs n] [-v] [--states <folder>]');
   console.error('routes: ' + ROUTES.join(' '));
   process.exit(code);
 }
 const routes = opt.only ? opt.only.map((r) => r.replace(/^#?\/?/, '')) : ROUTES;
 if (!routes.length || !opt.themes.length || !opt.widths.length) usage();
+if (opt.states && !fs.existsSync(opt.states)) {
+  console.error(`ui clicks: no states folder «${opt.states}»`);
+  usage();
+}
 for (const r of routes) {
   if (!/^[a-z][a-z0-9_-]*(\/[A-Za-z0-9:._-]+)*$/.test(r) || !fs.existsSync(path.join(REPO, 'public', 'desks', r.split('/')[0], 'desk.js'))) {
     console.error(`ui clicks: no desk page «${r}»`);
@@ -473,7 +482,7 @@ async function runPage(browser, harness, route, theme, width) {
 
 // ------------------------------------------------------------------ all of them
 const started = Date.now();
-const harness = await startHarness();
+const harness = await startHarness(opt.states ? { states: opt.states } : {});
 const browser = await pw.chromium.launch({ headless: true, executablePath: chrome, args: ['--no-first-run', '--no-default-browser-check'] });
 const jobs = [];
 for (const route of routes) for (const theme of opt.themes) for (const width of opt.widths) jobs.push({ route, theme, width });
@@ -699,10 +708,10 @@ async function routeWalk(browser, harness, desk) {
   res.ms = Date.now() - t0;
   return res;
 }
-const walks = WALK.filter((d) => !opt.only || routes.includes(d));
+const walks = opt.states ? [] : WALK.filter((d) => !opt.only || routes.includes(d));
 results.push(...await Promise.all(walks.map((d) => routeWalk(browser, harness, d))));
-if (!opt.only || routes.includes('jack/setup')) results.push(await dialogStack(browser, harness));
-if (!opt.only || routes.includes('caretaker')) results.push(await firstHome(browser));
+if (!opt.states && (!opt.only || routes.includes('jack/setup'))) results.push(await dialogStack(browser, harness));
+if (!opt.states && (!opt.only || routes.includes('caretaker'))) results.push(await firstHome(browser));
 await browser.close();
 await harness.close();
 
