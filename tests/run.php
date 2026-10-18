@@ -5458,7 +5458,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.60'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.61'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -7112,9 +7112,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.60 everywhere it is named', ['2.60', '2.60', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.60"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.60** –')]);
+    same('data trust: the engine\'s version 2.61 everywhere it is named', ['2.61', '2.61', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.61"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.61** –')]);
     // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
     same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
         array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
@@ -7407,7 +7407,7 @@ SH);
 /**
  * Engine 2.43 — every unit's copy is whole: a VM's package also inside its own dataset (<folder>/.uso-backup/, the VM
  * held, before the snapshots), an app's into its own dataset with this run's dumps; a shared dataset gets none; a run
- * without dumps writes no dump; the folder is no new folder to the drift check
+ * without dumps writes no dump; the folder is no new folder to the drift check; never a database's data folder (2.61)
  */
 function testBackupInside(): void
 {
@@ -7635,6 +7635,52 @@ SH);
     [$rc, $out] = $run();
     same('inside 2.57: the next run moves nothing more and writes nothing there', [0, 4, false, false, true],
         [$rc, count(glob("$data/state/inside-aside/*/*") ?: []), str_contains($out, 'the package an earlier run wrote into'), file_exists("$pool/s3-tom/.uso-backup"), is_file("$pool/appdata/dn/.uso-backup/manifest.json")], $out);
+
+    // 2.61 (resilience H5, 2026-10-18): an app folder that IS a database's data folder (the official MariaDB template binds
+    // appdata/<app> as /var/lib/mysql) gets no .uso-backup - MariaDB listed it as a database «#mysql50#.uso-backup» whose
+    // dump failed every run from the second on. Known by the bind's destination or by the marks at the folder's top; the
+    // one an earlier run wrote there goes aside once (2.57), the dump leaves that name out - existing installs heal
+    $more = "[share \"s3-tom\"]\nmode = snapshot\n[share \"drop\"]\nmode = snapshot\n";
+    $settings(true, $more, ' s3 dn');
+    $asides = fn () => count(glob("$data/state/inside-aside/*/*") ?: []);
+    $n0 = $asides();
+    check('inside 2.61: before - c1\'s folder holds the package an earlier run wrote', is_file("$app/README.txt"));
+    file_put_contents("$pool/appdata/c1/ibdata1", 'innodb');
+    file_put_contents("$pool/appdata/c1/aria_log_control", 'aria');
+    @mkdir("$pool/appdata/c1/mysql", 0700);
+    file_put_contents("$fake/schemas", "mydb\n#mysql50#.uso-backup\n");
+    [$rc, $out] = $run();
+    same('inside 2.61: a MariaDB data folder (ibdata1 at its top) - the run goes through, no .uso-backup there, the earlier one moved aside once',
+        [0, false, $n0 + 1], [$rc, file_exists($app), $asides()], $out);
+    check('inside 2.61: … said in the log, no warning', str_contains($out, "app 'c1': $pool/appdata/c1 is a database's data folder (it holds ibdata1) - .uso-backup not written there")
+        && str_contains($out, "app 'c1': the package an earlier run wrote into $app moved away to $data/state/inside-aside/") && !preg_match('/WARN.*c1/', $out), $out);
+    same('inside 2.61: the dump leaves the engine\'s own folder out (said, no error), the real database dumped', [false, true, true, false],
+        [str_contains($out, 'Dump c1/#mysql50#'), str_contains($out, "MariaDB 'c1': #mysql50#.uso-backup is the backup engine's own folder in the data folder, no database - not dumped"),
+         str_contains($out, "MariaDB 'c1' / mydb ..."), (bool) glob("$mnt/user/UnraidSecretaryOffice/backup/apps/c1/db/*mysql50*")], $out);
+    // by the bind's destination alone (an empty-looking folder), and Postgres's PG_VERSION (c2 had a package inside)
+    foreach (['ibdata1', 'aria_log_control'] as $x) {
+        @unlink("$pool/appdata/c1/$x");
+    }
+    @rmdir("$pool/appdata/c1/mysql");
+    file_put_contents("$pool/appdata/c2/PG_VERSION", "16\n");
+    $keep = (string) file_get_contents("$fake/inspect.json");
+    $cts = json_decode($keep);
+    $cts[0]->Mounts[0]->Destination = '/var/lib/mysql';
+    file_put_contents("$fake/inspect.json", json_encode($cts));
+    [$rc, $out] = $run();
+    same('inside 2.61: bound as /var/lib/mysql, or PG_VERSION at the top - nothing written there; c2\'s earlier package aside, nothing more',
+        [0, false, false, $n0 + 2, true, true],
+        [$rc, file_exists($app), file_exists("$pool/appdata/c2/.uso-backup"), $asides(), str_contains($out, "$pool/appdata/c1 is a database's data folder (container 'c1' binds it as /var/lib/mysql)"),
+         str_contains($out, "$pool/appdata/c2 is a database's data folder (it holds PG_VERSION)")], $out);
+    // an app folder like any other again: the package inside again (the marks one level down don't count)
+    file_put_contents("$fake/inspect.json", $keep);
+    @unlink("$pool/appdata/c2/PG_VERSION");
+    @mkdir("$pool/appdata/c2/db", 0700);
+    file_put_contents("$pool/appdata/c2/db/PG_VERSION", "16\n");
+    @unlink("$fake/schemas");
+    [$rc, $out] = $run();
+    same('inside 2.61: a folder that is no data folder (marks only deeper down) gets its package as before', [0, true, true, $n0 + 2],
+        [$rc, is_file("$app/manifest.json"), is_file("$pool/appdata/c2/.uso-backup/manifest.json"), $asides()], $out);
 
     // 2.48 (review 2026-10-15): keep_logs = 0 never removes the log of the run that is writing it - only the earlier ones go
     file_put_contents("$data/settings.ini", "[general]\nkeep_logs = 0\n", FILE_APPEND);
@@ -8154,7 +8200,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.60', [1, '2.60'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.61', [1, '2.61'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -8762,7 +8808,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.60', [1, '2.60'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.61', [1, '2.61'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
