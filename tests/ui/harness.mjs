@@ -22,6 +22,8 @@
 // in demo/post/ likewise when it has a `time`), the server called FamilienServer and «Report a problem» in the ⋯ menu.
 // opts.alias {name: file}: a desk's (or part's) state from another file of the folder - one desk in several demo states
 // (tests/ui/demo/backup-run.json for a run going on, while backup.json is a quiet day).
+// opts.states <folder>: a desk's state from that folder instead (a server's real state files, copied - the scenarios'
+// tools/scenarios/page.sh; its post/ for canned answers), served as they are; opts.host: the server's name the page shows.
 // No PHP, no dependencies: node's own http only. Nothing here touches a server.
 import http from 'node:http';
 import fs from 'node:fs';
@@ -121,16 +123,17 @@ function moveTimes(v, delta) {
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
 /**
- * Start the harness. opts: port (0 = any free one), statesDir (default tests/ui/states), demo (true: tests/ui/demo, its
+ * Start the harness. opts: port (0 = any free one), statesDir or states (default tests/ui/states), host (the server's
+ * name, default Tower), demo (true: tests/ui/demo, its
  * times moved to now), later (ms: the shown desk's look comes stale and the new one that many ms later - off by default).
  * alias: {name: file} (see above). agent: the messenger away (see agent()). Returns { url, posts, close(), setState(desk, state),
  * setAgent(agent) }.
  */
 export async function startHarness(opts = {}) {
-  const statesDir = opts.statesDir || (opts.demo ? DEMO : path.join(HERE, 'states'));
+  const statesDir = opts.states || opts.statesDir || (opts.demo ? DEMO : path.join(HERE, 'states'));
   const list = desks();
   const stamp = Math.floor(Date.now() / 1000);
-  const host = renamed(opts.demo ? 'FamilienServer' : 'Tower', opts.names);
+  const host = renamed(opts.host || (opts.demo ? 'FamilienServer' : 'Tower'), opts.names);
   const alias = opts.alias || {};
   // opts.agent / setAgent(a): the messenger as the page hears of him — away without his data folder (a fresh server's
   // welcome, tools/ui-clicks.mjs firstHome()); null: at work

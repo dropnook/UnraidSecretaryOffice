@@ -1,0 +1,13 @@
+# Tower's base shares: one name a line (its cfg in shares/<name>.cfg, none = Unraid's defaults, e.g. a dataset made by
+# the office's first setup). base.sh leaves every share on this list and every uso-wip-* share as it is and reports
+# any other (removed only by states' share_remove once H2's helpers are there - never deleted by base.sh itself).
+Filme
+UnraidSecretaryOffice
+appdata
+domains
+isos
+media
+system
+# the demo apps' shares (apps.sh, H2): Nextcloud's data, Immich's photos
+nextcloud
+photos

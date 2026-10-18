@@ -1,0 +1,7 @@
+# Mr. Backupsy's Apply change list on Tower's base (tools/scenarios/plan-changes.mjs on a plan made anew): exactly these
+# keys, one a line. Why not empty: the partner door's pairs are carried over (base.env CARRY) so the canary USOPartner can
+# still send to Tower, and the plan mirrors the Team Lead's pairs as a [partner] section the base office never applies.
+partner|b601d464|address
+partner|b601d464|name
+partner|b601d464|port
+partner|b601d464|rate_mbit
