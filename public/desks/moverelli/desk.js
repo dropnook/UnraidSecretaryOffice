@@ -1245,13 +1245,49 @@ function lastNightText(l) {
   return T(l.jack === false || l.jack_out ? 'night.last_mine' : 'night.last', { when, how }) + (Number(l.round) > 1 ? ' · ' + T('night.rounds', { n: Number(l.round) }) : '')
     + (l.mode === 'dry' ? ' · ' + T('mode.dry') : '') + (l.jack_out ? ' · ' + jackOutText(l.jack_out) : '');
 }
-/** «Shares»: how many move, the rules for all as its line — alert while Jack Emby's list isn't kept out for a share of his */
+/**
+ * The rules of the shares that move as they really are, pure (the owner, 2026-10-18: the tile said only the global rule
+ * while a «prefer» share moved everything back): one group per way and rule — into the array, into a second pool, back
+ * into the pool — biggest first: [{way, pool, n, rule, names}]. A share's own rules (state.shares: its age, its limit)
+ * put it in a group of its own.
+ */
+function shareGroups(st) {
+  const g = ((st && st.settings) || {}).global || {};
+  const num = (v) => (v !== '' && v != null && Number.isFinite(Number(v)) ? Number(v) : null);
+  const groups = [];
+  for (const x of ((st && st.shares) || []).filter((r) => r && r.state === 'moves')) {
+    const back = x.mode === 'prefer';
+    const way = back ? 'back' : x.to && x.to !== 'array' ? 'pool' : 'array';
+    const age = num(x.min_age) ?? (back ? 0 : num(g.min_age) ?? 0);
+    const fill = back ? null : num(x.threshold) ?? num(g.move_when_used_above) ?? 0;
+    const rule = back && !age ? T('tile.rule_all') : [T('rule_age', { n: age }), ...(back ? [] : [fillText(fill)])].join(' · ');
+    const pool = way === 'pool' ? String(x.to) : '';
+    let gr = groups.find((y) => y.way === way && y.pool === pool && y.rule === rule);
+    if (!gr) groups.push(gr = { way, pool, n: 0, rule, names: [] });
+    gr.n++;
+    gr.names.push(x.share);
+  }
+  return groups.sort((p, q) => q.n - p.n);
+}
+/**
+ * The tile's rule lines, pure: one group into the array — its rule alone (as ever); else a line per group «2 into the
+ * array: older than 60 days · …», a group of one named, at most three lines — beyond «… and 2 with rules of their own»
+ */
+function shareRuleLines(st) {
+  const groups = shareGroups(st);
+  if (!groups.length) return [];
+  if (groups.length === 1 && groups[0].way === 'array') return [groups[0].rule];
+  const line = (gr) => {
+    const t = T('tile.group_' + gr.way, { n: gr.n, pool: gr.pool, rule: gr.rule });
+    return gr.n === 1 && groups.length > 1 ? T('tile.group_named', { what: t, share: gr.names[0] }) : t;
+  };
+  if (groups.length <= 3) return groups.map(line);
+  return [...groups.slice(0, 2).map(line), T('tile.groups_more', { n: groups.slice(2).reduce((a, gr) => a + gr.n, 0) })];
+}
+/** «Shares»: how many move, their rules per group as its lines — alert while Jack Emby's list isn't kept out for a share of his */
 function sharesTile(a) {
   const shares = state.shares || [];
-  const g = (state.settings || {}).global || {};
-  const rule = [T('rule_age', { n: g.min_age ?? 0 }),
-    fillText(g.move_when_used_above)].join(' · ');
-  const sub = [T('shares_moving', { n: shares.filter((x) => x.state === 'moves').length }), rule];
+  const sub = [T('shares_moving', { n: shares.filter((x) => x.state === 'moves').length }), ...shareRuleLines(state)];
   return Office.stat({ label: T('shares'), value: `${shares.filter((x) => x.state === 'moves').length} / ${shares.length}`, sub, tip: sub.join('\n'),
     alert: !!(jack().uncovered || []).length, ...a });
 }
@@ -2560,7 +2596,7 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, onWayText, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
-    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runEstimate, endText, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, ownRulesText, idleRules, fillSetupShares, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, picFlight, fileOnto, movedByPlace, movedAt, extraPlaces, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, setJackLive: (x) => { jackLive = x; }, jackPanel, jackAtWork, redrawCard, schedText, scheduleSection, historySection, footer, hints,
+    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runEstimate, endText, shareGroups, shareRuleLines, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, ownRulesText, idleRules, fillSetupShares, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, picFlight, fileOnto, movedByPlace, movedAt, extraPlaces, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, setJackLive: (x) => { jackLive = x; }, jackPanel, jackAtWork, redrawCard, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
     setForm: (f) => { form = f; }, initForm, levelMath, levelSection, levelLines, levelNight, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }

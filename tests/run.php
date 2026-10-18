@@ -37931,6 +37931,16 @@ m.setProgress(own(17584, 53 * G, { started: 1000 }), null);
 out.box = texts(m.nightPicture(night));
 m.setProgress({ result: 'running', started: 1001, plan: ['Docs'], phase: 'share', share: 'Docs', share_files: 4, share_bytes: 4 * G, share_done_files: 1, share_done_bytes: G, shares: [] }, null);
 out.boxYes = texts(m.nightPicture({ ...night, started: 901 }));
+// the «Shares» tile's rules per group (part 3): the owner's — 2 into the array by the global rule, 1 prefer back into its pool
+const row = (share, mode, extra) => ({ share, mode, state: 'moves', from: mode === 'prefer' ? 'array' : 'cache', to: mode === 'prefer' ? 'ripley' : 'array', ...extra });
+const glob = { settings: { global: { min_age: 60, move_when_used_above: 75 } } };
+out.groups = m.shareRuleLines({ ...glob, shares: [row('a', 'yes', { min_age: 60, threshold: 75 }), row('nextcloud_data', 'prefer', { min_age: 0, threshold: null }),
+  row('b', 'yes', { min_age: 60, threshold: 75 }), row('off', 'yes', { state: 'skip' })] });
+out.groupsOne = m.shareRuleLines({ ...glob, shares: [row('a', 'yes', { min_age: 60, threshold: 75 }), row('b', 'yes', {})] });
+out.groupsOwn = m.shareRuleLines({ ...glob, shares: [row('a', 'yes', { min_age: 60, threshold: 75 }), row('b', 'yes', { min_age: 60, threshold: 75 }),
+  row('c', 'yes', { min_age: 7, threshold: 0 }), row('d', 'yes', { to: 'fast', min_age: 60, threshold: 75 }), row('e', 'prefer', { min_age: 30 })] });
+out.groupsFew = m.shareRuleLines({ ...glob, shares: [row('c', 'yes', { min_age: 7, threshold: 0 }), row('d', 'yes', { to: 'fast', min_age: 60, threshold: 75 })] });
+out.groupsNone = m.shareRuleLines({ ...glob, shares: [row('off', 'yes', { state: 'skip' })] });
 console.log(JSON.stringify(out));
 JS);
     [, $out, $err] = run([$node, "$tmp/t.js", testsNightHelpersJs($tmp), OFFICE_WEB . '/desks/moverelli/desk.js'], 30);
@@ -37966,6 +37976,19 @@ JS);
     check('run picture: the box — «Pool nvme» beside the array, its use now and what came in this run (in the legend too)',
         in_array('pic.pool_name {"pool":"nvme"}', $box, true) && (bool) preg_grep('/^pic\.dest_used \{"used":"\d+ GiB","size":"1000 GiB"\} · pic\.arrived \{"size":"53 GiB"\}$/', $box)
         && (bool) preg_grep('/^pic\.pool_name \{"pool":"nvme"\} pic\.dest_used/', $box), json_encode($box));
+    same('run picture: «Shares» says the rules per group — 2 into the array by the global rule, 1 back into the pool: everything (named: one of its kind)', [
+        'tile.group_array {"n":2,"pool":"","rule":"rule_age {\\"n\\":60} · rule_fill {\\"pct\\":75}"}',
+        'tile.group_named {"what":"tile.group_back {\\"n\\":1,\\"pool\\":\\"\\",\\"rule\\":\\"tile.rule_all\\"}","share":"nextcloud_data"}'], $j['groups'] ?? null);
+    same('run picture: «Shares» with every moving share by one rule into the array — that rule alone, as before (a missing value: the global one)',
+        ['rule_age {"n":60} · rule_fill {"pct":75}'], $j['groupsOne'] ?? null);
+    same('run picture: «Shares» beyond three groups — the two biggest, then «… and 2 with rules of their own» (a second pool, a prefer share of 30 days)', [
+        'tile.group_array {"n":2,"pool":"","rule":"rule_age {\\"n\\":60} · rule_fill {\\"pct\\":75}"}',
+        'tile.group_named {"what":"tile.group_array {\\"n\\":1,\\"pool\\":\\"\\",\\"rule\\":\\"rule_age {\\\\\\"n\\\\\\":7} · rule_always\\"}","share":"c"}',
+        'tile.groups_more {"n":2}'], $j['groupsOwn'] ?? null);
+    same('run picture: «Shares» — own rules in a group of their own, a second pool named', [
+        'tile.group_named {"what":"tile.group_array {\\"n\\":1,\\"pool\\":\\"\\",\\"rule\\":\\"rule_age {\\\\\\"n\\\\\\":7} · rule_always\\"}","share":"c"}',
+        'tile.group_named {"what":"tile.group_pool {\\"n\\":1,\\"pool\\":\\"fast\\",\\"rule\\":\\"rule_age {\\\\\\"n\\\\\\":60} · rule_fill {\\\\\\"pct\\\\\\":75}\\"}","share":"d"}'], $j['groupsFew'] ?? null);
+    same('run picture: «Shares» with none moving — no rule line', [], $j['groupsNone'] ?? null);
     check('run picture: a yes share into the array — no extra bar in the box', !in_array('pic.pool_name {"pool":"nvme"}', $j['boxYes'] ?? ['pic.pool_name {"pool":"nvme"}'], true)
         && !preg_grep('/pic\.arrived/', $j['boxYes'] ?? []), json_encode($j['boxYes'] ?? null));
     hardeningRm($tmp);
