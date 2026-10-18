@@ -612,12 +612,12 @@ check_inv_backup_after() {
     echo "result $r, errors $e, warnings $w: $(jq -r '.message // ""' "$st")"
     return 1
 }
-# the codes of the last run's warnings: the engine's drift codes and its WARNING lines' first words (a check may read
-# the log — the office itself never does)
+# the codes of the last run's warnings: the engine's drift codes, its coded warnings (warning_items, engine 2.42) and its
+# WARNING lines' first words (a check may read the log — the office itself never does)
 _ck_warning_codes() {
     local st=$UB/state/status.json log
     {
-        jq -r '[.drift[]?, .differences[]?] | .[] | (.code // empty)' "$st" 2>/dev/null
+        jq -r '[.drift[]?, .differences[]?, .warning_items[]?] | .[] | (.code // empty)' "$st" 2>/dev/null
         log=$UB/logs/run-$(jq -r '.run // ""' "$st").log
         grep -oE 'WARNING[: ]+\[?[a-z_]+' "$log" 2>/dev/null | sed -E 's/WARNING[: ]+\[?//'
     } | sort -u
