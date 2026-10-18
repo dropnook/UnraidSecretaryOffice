@@ -24,6 +24,9 @@ declare(strict_types=1);
  *            tour (by file offset, docker logs --since), on the first tour the
  *            last 24 hours. At most LOGS_TOUR_BYTES of a file, LOGS_TOUR_DOCKER
  *            lines of a container.
+ *            Unraid's syslog on top by her syslog rules (from Enhanced Log):
+ *            every line read in a category, counted per category; noise
+ *            ("skip") counts neither as an error nor as a warning.
  * The result goes to data/logs-tour.json (the page reads it as the part
  * "tour"), with what the next tour needs (offsets, sizes) under "memory".
  * The team lead's check (/var/log's fill level) only asks statvfs.
@@ -80,6 +83,23 @@ const LOGS_LEVEL_NAMES = ['error' => 'error', 'err' => 'error', 'eror' => 'error
 const LOGS_NOT_COUNTED = '/^[<>ch.*][fdlsp][.+?a-z]{9,10}\s.*|\b(?:0|no|zero|without|keine?)\s+(?:errors?|warnings?|failures?|failed|fehler|warnungen)\b|\b(?:errors?|warnings?|failures?|failed|fehler|err|warn)\s*[=:]\s*(?:0|none|nil|null|false)\b|\berror\.log\b|\berrors=remount-ro\b/i';
 const LOGS_ERROR = '/\b(?:error|err|eror|fail(?:s|ed|ure)?|fatal|panic|crit(?:ical)?|emerg|segfault|denied|oops|call trace|i\/o error|traceback|exception|fehler)\b|\bexit(?:ed)?(?: with)? (?:code|status)[ =:]*[1-9]/i';
 const LOGS_WARN  = '/\b(?:warn(?:ing)?|wrn|timeout|timed out|retry|retrying|warnung)\b/i';
+
+/*
+ * Unraid's syslog on top: her syslog rules (logs-rules/syslog_match.conf, from Enhanced Log by dlandon and
+ * Derek Kaser, GPL-3.0-or-later) sort every line into a category — the first rule that matches decides, as
+ * there (logsRules()). Only for Unraid's own syslog (and its older part): the rules know Unraid's lines.
+ *   skip              noise: neither an error nor a warning, whatever its words say
+ *   error             an error, also when her words find nothing ("ata11.00: disabled")
+ *   minor, warning    at least a warning (" limiting speed to UDMA/133")
+ *   every other one   only says what the line is about; her words decide as before
+ * The rule file's names => the office's ids (lang cat.<id>); a rule of another category is left out.
+ */
+const LOGS_RULES_FILE = __DIR__ . '/logs-rules/syslog_match.conf';
+const LOGS_RULE_CATS  = ['skip' => 'skip', 'error' => 'error', 'warning' => 'warning', 'minor issue' => 'minor',
+                         'drive related' => 'drive', 'file system' => 'fs', 'array' => 'array', 'network' => 'network',
+                         'login' => 'login', 'system' => 'system', 'lime tech' => 'limetech', 'emhttp' => 'emhttp'];
+const LOGS_RULE_LEVEL = ['error' => 'error', 'warning' => 'warn', 'minor' => 'warn'];
+const LOGS_RULE_TOP   = 8;              // kinds kept per category of the syslog beside its most frequent ones (the page's chips)
 
 /*
  * A time at the start of a line (first/last seen, the first tour's 24 hours):
@@ -214,15 +234,17 @@ function logsScan(): array
                    'size' => $src['kind'] === 'file' ? (int) @filesize($src['target']) : null,
                    'time' => $src['kind'] === 'file' ? (@filemtime($src['target']) ?: null) : null];
     }
-    // how loud is the syslog lately? (the last 1000 lines; she counts, she doesn't judge)
+    // how loud is the syslog lately? (the last 1000 lines, by her words and her syslog rules; she counts, she doesn't judge)
     $errors = $warnings = 0;
     foreach (logsTail('/var/log/syslog', 1000) as $line) {
-        $level = logsLevel($line);
+        [$level] = logsSyslogLevel($line);
         $errors += $level === 'error' ? 1 : 0;
         $warnings += $level === 'warn' ? 1 : 0;
     }
+    // her syslog rules for the page (it colours and filters the syslog's lines by them, as the tour counts): regex, category
+    $rules = array_map(fn (array $r): array => [substr($r[0], 1, -2), $r[1]], logsRules());
     $state = ['time' => time(), 'sources' => $list, 'syslog' => ['errors' => $errors, 'warnings' => $warnings],
-              'varlog' => logsVarlog()];
+              'varlog' => logsVarlog(), 'rules' => $rules];
     writeAtomic(deskFile('logs'), jsonEncode($state));
     return $state;
 }
@@ -245,6 +267,69 @@ function logsLevel(string $line): string
         return 'error';
     }
     return preg_match(LOGS_WARN, $text) ? 'warn' : '';
+}
+
+/**
+ * Her syslog rules, in their order: [[pattern, category id], …] — read once. As Enhanced Log reads them
+ * (LogReader.php): one rule a line, "<regex>", "<category>" in CSV quotes, # and empty lines aren't rules, a
+ * regex PCRE refuses is left out; the pattern is /<regex>/i. A category the office doesn't know is left out.
+ * @return list<array{0: string, 1: string}>
+ */
+function logsRules(?string $file = null): array
+{
+    static $cache = [];
+    $file ??= LOGS_RULES_FILE;
+    if (isset($cache[$file])) {
+        return $cache[$file];
+    }
+    $rules = [];
+    foreach (@file($file, FILE_IGNORE_NEW_LINES) ?: [] as $line) {
+        $line = trim($line);
+        if ($line === '' || $line[0] === '#') {
+            continue;
+        }
+        $f = str_getcsv($line, ',', '"', '');
+        $regex = (string) ($f[0] ?? '');
+        $cat = LOGS_RULE_CATS[strtolower(trim((string) ($f[1] ?? '')))] ?? null;
+        if ($regex === '' || $cat === null || @preg_match("/$regex/i", '') === false) {
+            continue;
+        }
+        $rules[] = ["/$regex/i", $cat];
+    }
+    return $cache[$file] = $rules;
+}
+
+/** The category of a syslog line by her rules (the first that matches), '' when none does */
+function logsRule(string $line, ?array $rules = null): string
+{
+    foreach ($rules ?? logsRules() as [$pattern, $cat]) {
+        if (preg_match($pattern, $line)) {
+            return $cat;
+        }
+    }
+    return '';
+}
+
+/**
+ * A syslog line: [level, category] — the category by her rules, the level by her words, raised by the
+ * rules (error, minor/warning) and none at all for skip. She never lowers what her words found.
+ * @return array{0: string, 1: string}
+ */
+function logsSyslogLevel(string $line, ?string $level = null): array
+{
+    $level ??= logsLevel($line);
+    $cat = logsRule($line);
+    if ($cat === 'skip') {
+        return ['', $cat];
+    }
+    $byRule = LOGS_RULE_LEVEL[$cat] ?? '';
+    return [$level === 'error' || $byRule === '' ? $level : ($byRule === 'error' ? 'error' : ($level ?: 'warn')), $cat];
+}
+
+/** Which sources her syslog rules are for: Unraid's own syslog and its older part */
+function logsRulesFor(string $id): bool
+{
+    return $id === 'syslog' || $id === 'syslog.1';
 }
 
 /** The last $n lines of a file, reading at most LOGS_MAX_BYTES from its end */
@@ -569,7 +654,7 @@ function logsTourWanted(string $id): bool
 function logsTally(): array
 {
     return ['errors' => 0, 'warnings' => 0, 'groups' => [], 'other' => 0, 'lines' => 0, 'partial' => false,
-            'skipped' => 0, 'rotated' => false, 'unreadable' => false, 'grew' => null];
+            'skipped' => 0, 'rotated' => false, 'unreadable' => false, 'grew' => null, 'cats' => null];
 }
 
 /**
@@ -577,21 +662,43 @@ function logsTally(): array
  * with a time after it (lines without one count too); $kernel: line => level
  * the kernel gave it (dmesg). The newest line of a kind is its sample; "back"
  * is how many lines followed it in what was read (to find it in the reader).
+ * $rules (Unraid's syslog): every line read gets its category by her syslog
+ * rules (logsSyslogLevel()), counted in "cats" (no rule: "other"); a kind
+ * keeps its line's category.
  */
-function logsTallyLines(array &$acc, array $lines, string $src, ?int $after, array $kernel = []): void
+function logsTallyLines(array &$acc, array $lines, string $src, ?int $after, array $kernel = [], bool $rules = false): void
 {
     $n = count($lines);
+    if ($rules) {
+        $acc['cats'] ??= [];
+    }
     foreach ($lines as $i => $line) {
         $level = logsLevel($line);
         if ($level !== 'error' && isset($kernel[$line])) {
             $level = $kernel[$line];
         }
-        if ($level === '') {
-            continue;
-        }
-        [$time, $prefix] = logsLineTime($line);
-        if ($after !== null && $time !== null && $time <= $after) {
-            continue;
+        $cat = null;
+        if ($rules) {
+            if (trim($line) === '') {
+                continue;
+            }
+            [$time, $prefix] = logsLineTime($line);
+            if ($after !== null && $time !== null && $time <= $after) {
+                continue;
+            }
+            [$level, $cat] = logsSyslogLevel($line, $level);
+            $acc['cats'][$cat ?: 'other'] = ($acc['cats'][$cat ?: 'other'] ?? 0) + 1;
+            if ($level === '') {
+                continue;
+            }
+        } else {
+            if ($level === '') {
+                continue;
+            }
+            [$time, $prefix] = logsLineTime($line);
+            if ($after !== null && $time !== null && $time <= $after) {
+                continue;
+            }
         }
         $acc[$level === 'error' ? 'errors' : 'warnings']++;
         $key = md5(logsNormalize($line, $prefix));
@@ -600,7 +707,7 @@ function logsTallyLines(array &$acc, array $lines, string $src, ?int $after, arr
                 $acc['other']++;
                 continue;
             }
-            $acc['groups'][$key] = ['level' => $level, 'count' => 0, 'first' => null, 'last' => null];
+            $acc['groups'][$key] = ['level' => $level, 'count' => 0, 'first' => null, 'last' => null] + ($cat !== null ? ['cat' => $cat] : []);
         }
         $g = &$acc['groups'][$key];
         $g['count']++;
@@ -619,22 +726,44 @@ function logsTallyLines(array &$acc, array $lines, string $src, ?int $after, arr
     }
 }
 
-/** What the page gets of a source: its counts and the most frequent kinds of lines, each with its newest line */
+/**
+ * What the page gets of a source: its counts and the most frequent kinds of lines, each with its newest line.
+ * With her syslog rules on top: per category the lines read ("cats"), the lines found ("cat_found") and the kinds
+ * found ("cat_kinds"), and its most frequent kinds too — those beyond the source's own most frequent ones carry
+ * "top" false (the page shows them only under their category's chip).
+ */
 function logsTourEntry(string $id, array $src, array $acc): array
 {
     $groups = array_values($acc['groups']);
     usort($groups, fn ($a, $b) => [$b['count'], $b['last'] ?? 0] <=> [$a['count'], $a['last'] ?? 0]);
     $top = [];
-    foreach (array_slice($groups, 0, LOGS_TOUR_TOP) as $g) {
+    $perCat = [];
+    $byCat = $acc['cats'] !== null ? ['found' => [], 'kinds' => []] : null;
+    foreach ($groups as $i => $g) {
+        $cat = $g['cat'] ?? null;
+        if ($byCat !== null && $cat !== null) {
+            $c = $cat ?: 'other';
+            $byCat['found'][$c] = ($byCat['found'][$c] ?? 0) + $g['count'];
+            $byCat['kinds'][$c] = ($byCat['kinds'][$c] ?? 0) + 1;
+            $perCat[$c] = ($perCat[$c] ?? 0) + 1;
+        }
+        $first = $i < LOGS_TOUR_TOP;
+        if (!$first && ($byCat === null || $cat === null || $perCat[$cat ?: 'other'] > LOGS_RULE_TOP)) {
+            continue;
+        }
         [$g['sample'], $g['cut']] = logsCut($g['line'], LOGS_TOUR_SAMPLE);
         $g['key'] = substr(md5($id . "\n" . $g['line']), 0, 12);
+        if ($byCat !== null) {
+            $g['top'] = $first;
+        }
         unset($g['line']);
         $top[] = $g;
     }
     return ['id' => $id, 'group' => $src['group'], 'label' => $src['label'], 'param' => $src['param'], 'kind' => $src['kind'],
             'errors' => $acc['errors'], 'warnings' => $acc['warnings'], 'lines' => $acc['lines'],
             'kinds' => count($groups), 'other' => $acc['other'], 'partial' => $acc['partial'], 'skipped' => $acc['skipped'],
-            'rotated' => $acc['rotated'], 'unreadable' => $acc['unreadable'], 'grew' => $acc['grew'] ?? null, 'groups' => $top];
+            'rotated' => $acc['rotated'], 'unreadable' => $acc['unreadable'], 'grew' => $acc['grew'] ?? null, 'groups' => $top]
+        + ($byCat !== null ? ['cats' => $acc['cats'], 'cat_found' => $byCat['found'], 'cat_kinds' => $byCat['kinds']] : []);
 }
 
 /**
@@ -673,7 +802,7 @@ function logsTourFileSource(string $id, array $src, ?array $last, ?int $after, i
                     }
                 }
                 [$lines, , $partial, $skipped] = logsTourSlice("$path.1", (int) $last['size'], (int) $old['size']);
-                logsTallyLines($acc, $lines, $sibling, null);
+                logsTallyLines($acc, $lines, $sibling, null, [], logsRulesFor($id));
                 $acc['lines'] += count($lines);
                 $acc['partial'] = $partial;
                 $acc['skipped'] += $skipped;
@@ -681,7 +810,7 @@ function logsTourFileSource(string $id, array $src, ?array $last, ?int $after, i
         }
     }
     [$lines, $end, $partial, $skipped] = logsTourSlice($path, $from, (int) $st['size']);
-    logsTallyLines($acc, $lines, $id, $after);
+    logsTallyLines($acc, $lines, $id, $after, [], logsRulesFor($id));
     $acc['lines'] += count($lines);
     if ($last !== null) {                // the first tour reads the newest part on purpose
         $acc['partial'] = $acc['partial'] || $partial;
