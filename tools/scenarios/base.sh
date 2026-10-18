@@ -537,8 +537,23 @@ elif ! command -v node >/dev/null 2>&1; then
     log "plan check: pending - no node on this VM (the runner's Mac-side check)"
 else
     st=$D/unraid-backup/state/setup-status.json
-    if ask backup.setup_plan '{}' 60 >/dev/null && sleep 3 && wait_json "$st" '.running != true and .mode == "plan" and .result != null' 600 \
-        && ask backup.setup_get '{}' 60 | jq '.plan' > /tmp/uso-base-plan.json \
+    # only a plan made after this ask counts: the base's data.tar holds a finished plan (status and setup-plan.json of the
+    # day it was made) - waiting for «a plan is done» alone read that one whenever the new plan started late
+    asked=$(date +%s)
+    fresh=".running != true and .mode == \"plan\" and .result != null and (.started // 0) >= $asked"
+    # the page's look (setup_get) may start the plan anew once more (as in make_base): looked at until the plan is fresh
+    fresh_plan() {
+        local i
+        ask backup.setup_plan '{}' 60 >/dev/null && wait_json "$st" "$fresh" 600 || return 1
+        for ((i = 0; i < 5; i++)); do
+            ask backup.setup_get '{}' 60 | jq '.plan' > /tmp/uso-base-plan.json || return 1
+            jq -e --argjson a "$asked" '(.P | type) == "object" and (.time // 0) >= $a' /tmp/uso-base-plan.json >/dev/null && return 0
+            sleep 3
+            wait_json "$st" "$fresh" 600 || return 1
+        done
+        return 1
+    }
+    if fresh_plan \
         && got=$(node "$TREE/tools/scenarios/plan-changes.mjs" /tmp/uso-base-plan.json "$D/unraid-backup/settings.ini" | jq -r '.[].key' | sort); then
         want=$(listed "$known" | sort)
         if [[ $got == "$want" ]]; then
