@@ -554,10 +554,18 @@ function moverelliCheck(mixed $in, array $shares, string $dir): array
         'patterns'             => $patterns,
     ], 'shares' => []];
     // (an older page's move_until_used_below / jack_min_percent: not read — only X since 2026-10-14)
+    $kept = null;                            // the saved rules: a share gone from Unraid keeps its own only exactly so
     foreach ($in['shares'] as $share => $s) {
         $share = (string) $share;            // JSON's «"2024": {…}» arrives as an int key
-        if (!preg_match(MOVERELLI_SHARE, $share) || !in_array($share, $shares, true)) {
+        if (!preg_match(MOVERELLI_SHARE, $share)) {
             throw new Problem('moverelli_bad_share', ['share' => mb_substr((string) $share, 0, 80)]);
+        }
+        $gone = !in_array($share, $shares, true);
+        if ($gone) {
+            $kept ??= (moverelliSettings($dir) ?? moverelliDefaults())['shares'];
+            if (!isset($kept[$share])) {
+                throw new Problem('moverelli_bad_share', ['share' => mb_substr($share, 0, 80)]);
+            }
         }
         if (!is_array($s) || !is_bool($s['skip'] ?? null)) {
             throw $bad("$share.skip");
@@ -570,6 +578,11 @@ function moverelliCheck(mixed $in, array $shares, string $dir): array
             'files'                => $files,
             'patterns'             => $patterns,
         ];
+        // 2026-10-18: a share Unraid no longer has — its own rules kept as they are (the owner may bring it back), never
+        // changed; «Remove rules» on her page leaves it out of what is sent
+        if ($gone && $row !== $kept[$share]) {
+            throw new Problem('moverelli_bad_share', ['share' => mb_substr($share, 0, 80)]);
+        }
         // a share without anything of its own needs no section
         if ($row['skip'] || $row['min_age'] !== null || $row['move_when_used_above'] !== null || $files || $patterns) {
             if ($share === 'GLOBAL') {       // its section would be a second [GLOBAL]: Smart Mover reads the first for both
@@ -839,6 +852,18 @@ function moverelliShares(array $set, string $sharesDir, ?array $h = null): array
     return $out;
 }
 
+/**
+ * The shares her settings have rules of their own for that Unraid no longer has (removed, or its cfg left behind) — the
+ * names, sorted; never removed by her: her setup page shows them with «Remove rules»
+ */
+function moverelliSharesGone(?array $set, array $h): array
+{
+    $names = array_map('strval', array_keys($set['shares'] ?? []));
+    $out = array_values(array_diff($names, moverelliShareNames($h['shares_dir'], $h)));
+    sort($out, SORT_STRING);
+    return $out;
+}
+
 // ===================================================================== the pool (agent/lib/poollevel.php)
 
 /** Jack Emby's pool: the pool of his cache_path (/mnt/<pool>) while he is hired, else null */
@@ -968,6 +993,8 @@ function moverelliScan(?array $h = null): array
         // shares as an object for the page: a share named «0» or «2024» must not turn the map into a list
         'settings'   => ['global' => ($settings ?? moverelliDefaults())['global'], 'shares' => (object) ($settings ?? moverelliDefaults())['shares']],
         'shares'     => moverelliShares($settings ?? moverelliDefaults(), $h['shares_dir'], $h),
+        // rules of her own for shares Unraid no longer has (2026-10-18): shown on her setup page, removed only on a click
+        'shares_gone' => moverelliSharesGone($settings, $h),
         // Unraid's own mover: its schedule (real runs only while «Disabled»), at work right now
         'mover'      => ['off' => jackMoverScheduleOff($own), 'schedule' => $own['cron'] ?? ($own['set'] !== '' ? $own['set'] : null),
                          'running' => ($h['mover_running'])($job['running'] ? (int) $job['pid'] : null)],     // her own run's move binary isn't Unraid's mover

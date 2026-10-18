@@ -36027,6 +36027,119 @@ SH);
     hardeningRm($t);
 }
 
+/**
+ * A share with nothing to move any more but rules of its own (2026-10-18, the owner: a prefer share set to its pool only
+ * after the move): her setup row says they don't apply and what they are, «Remove rules» takes them out of the form (the
+ * bar counts it, «Save» makes it so) — never removed by her. A share gone from Unraid: the same, its rules kept on every
+ * other save exactly as they are (a changed rule for it still refused).
+ */
+function testMoverelliIdleRules(): void
+{
+    $tmp = hardeningTmp('moverelli-idle');
+    $v = [];
+    moverelliFixture($tmp, $v);
+    $h = moverelliHost();
+    $dir = "$tmp/data";
+    file_put_contents("$tmp/shares/Arr.cfg", "shareUseCache=\"only\"\nshareCachePool=\"cache\"\n");   // nothing to move
+    file_put_contents("$tmp/shares/Alt.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\n");
+    @mkdir("$tmp/mnt/user/Alt", 0700, true);
+    $alt = ['skip' => true, 'min_age' => null, 'move_when_used_above' => null, 'files' => [], 'patterns' => []];
+    $arr = ['skip' => false, 'min_age' => 30, 'move_when_used_above' => null, 'files' => [], 'patterns' => ['*.tmp']];
+    moverelliSave(moverelliTestSettings([], ['Alt' => $alt, 'Arr' => $arr]), $h);
+    rmdir("$tmp/mnt/user/Alt");                                        // Alt removed in Unraid (its cfg left behind)
+    $st = moverelliScan($h);
+    $row = array_values(array_filter($st['shares'], fn ($x) => $x['share'] === 'Arr'))[0] ?? [];
+    same('idle rules: Arr (pool only) — mode none, its own rules still known; Alt gone — named apart, not a row of her overview',
+        ['none', true, ['Alt'], false], [$row['mode'] ?? null, $row['own'] ?? null, $st['shares_gone'] ?? null, in_array('Alt', array_column($st['shares'], 'share'), true)]);
+    $names = moverelliShareNames($h['shares_dir'], $h);
+    $set = moverelliSettings($dir);
+    $kept = moverelliCheck(['global' => $set['global'], 'shares' => $set['shares']], $names, $dir);
+    same('idle rules: another save keeps the gone share\'s rules exactly as they are', [$alt, $arr], [$kept['shares']['Alt'] ?? null, $kept['shares']['Arr'] ?? null]);
+    $changed = $set['shares'];
+    $changed['Alt']['min_age'] = 5;
+    try {
+        moverelliCheck(['global' => $set['global'], 'shares' => $changed], $names, $dir);
+        check('idle rules: a changed rule for a gone share is refused', false);
+    } catch (Problem $e) {
+        same('idle rules: a changed rule for a gone share is refused', 'moverelli_bad_share', $e->key);
+    }
+    try {
+        moverelliCheck(['global' => $set['global'], 'shares' => ['Neu' => $alt]], $names, $dir);
+        check('idle rules: rules for a share never there are refused', false);
+    } catch (Problem $e) {
+        same('idle rules: rules for a share never there are refused', 'moverelli_bad_share', $e->key);
+    }
+    $removed = moverelliCheck(['global' => $set['global'], 'shares' => array_diff_key($set['shares'], ['Alt' => 1, 'Arr' => 1])], $names, $dir);
+    moverelliSave($removed, $h);
+    same('idle rules: «Remove rules» saved — both sections gone, nothing gone left to show', [[], []],
+        [array_keys(moverelliSettings($dir)['shares'] ?? []), moverelliScan($h)['shares_gone'] ?? null]);
+
+    $node = testsNode();
+    if ($node === '') {
+        check('idle rules: page - node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, dataset: {}, style: {},
+  set innerHTML(v) { this.children = []; }, append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {}, addEventListener() {} });
+globalThis.document = { createTextNode: (t) => t };
+let bar = null;
+globalThis.Office = { sections: () => ({ el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }),
+  scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B' }, desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true },
+  place: (k, n) => n, selbar: (s) => { bar = s; }, toast: () => {}, api: { post: async () => ({ ok: true }) } };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+const texts = (n) => (typeof n === 'string' ? [n] : [n.text, ...n.children.flatMap(texts)].filter(Boolean));
+const find = (n, pred) => (typeof n === 'string' ? null : pred(n) ? n : n.children.map((c) => find(c, pred)).find(Boolean) || null);
+const g = { min_age: 0, move_when_used_above: 0, move_prefer_shares: true, mover_debug: 0, max_list: 50, files: [], patterns: [] };
+m.setState({ configured: true, settings: { global: g, shares: {
+    nc: { skip: false, min_age: 0, move_when_used_above: null, files: ['/mnt/user/appdata/x.txt'], patterns: ['*.tmp', 'cache'] },
+    Alt: { skip: true, min_age: null, move_when_used_above: 80, files: [], patterns: [] } } },
+  shares: [{ share: 'Filme', mode: 'yes', from: 'cache', to: 'array', own: false, state: 'moves' }, { share: 'nc', mode: 'none', own: true, state: 'none' }],
+  shares_gone: ['Alt'], mover: { off: true }, jack: { hired: false } });
+m.setPage('setup');
+m.setForm(null);
+m.initForm();
+const out = {};
+out.parts = [m.ownRulesText(m.form().shares.nc), m.ownRulesText(m.form().shares.Alt), m.ownRulesText(m.form().shares.Filme)];
+const box = mk('div');
+m.fillSetupShares(box);
+out.rows = box.children.map((d) => d.children[0].text);
+out.nc = texts(box.children.find((d) => d.children[0].text === 'nc'));
+out.alt = texts(box.children.find((d) => d.children[0].text === 'Alt'));
+out.filme = texts(box.children.find((d) => d.children[0].text === 'Filme'));
+out.noBar = m.setupBarSpec() === null;
+// «Remove rules» on nc: out of the form, the row says so, the bar counts one change (− rules of its own)
+const btn = find(box.children.find((d) => d.children[0].text === 'nc'), (n) => n.tag === 'button');
+btn.onclick();
+out.after = texts(box.children.find((d) => d.children[0].text === 'nc'));
+out.bar = bar && bar.title;
+out.sent = Object.keys(m.formSettings(m.form()).shares);
+out.change = m.setupChangeRows(m.formSettings({ global: g, shares: { nc: m.formSettings({ global: g, shares: { nc: { skip: false, min_age: 0, move_when_used_above: null, files: ['/mnt/user/appdata/x.txt'], patterns: ['*.tmp', 'cache'] } } }).shares.nc, Alt: m.form().shares.Alt } }), m.formSettings(m.form()))
+  .map((r) => [r.mark, r.label, r.what]);
+console.log(JSON.stringify(out));
+JS);
+    [, $out, $err] = run([$node, "$tmp/t.js", OFFICE_WEB . '/desks/moverelli/desk.js'], 30);
+    $j = json_decode(trim((string) $out), true) ?? [];
+    check('idle rules: page runs', $j !== [], $out . $err);
+    same('idle rules: what they are in words — age 0 days, a list, 2 lines; left out, at most 80 %; none',
+        ['setup.own_part.age {"days":"setup.tile.days {\"n\":0}"}, count.lists {"n":1}, count.lines {"n":2}', 'setup.own_part.skip, setup.own_part.limit {"pct":80}', ''], $j['parts'] ?? null);
+    same('idle rules: the rows — Alt (gone) among the others, by name', ['Alt', 'Filme', 'nc'], $j['rows'] ?? null);
+    check('idle rules: nc — nothing to move, its rules don\'t apply and what they are, «Remove rules»; Alt — gone, the same; Filme — none of it',
+        in_array('state_tip.none', $j['nc'] ?? [], true) && (bool) preg_grep('/^setup\.own_idle \{"share":"nc"\} setup\.own_part\.age/', $j['nc'] ?? []) && in_array('setup.own_remove', $j['nc'] ?? [], true)
+        && in_array('state.gone', $j['alt'] ?? [], true) && (bool) preg_grep('/^setup\.own_gone \{"share":"Alt"\} setup\.own_part\.skip/', $j['alt'] ?? []) && in_array('setup.own_remove', $j['alt'] ?? [], true)
+        && !in_array('state_tip.none', $j['alt'] ?? [], true) && !preg_grep('/^setup\.own_/', $j['filme'] ?? []), json_encode($j));
+    same('idle rules: nothing removed by itself — no change in the bar before the click', true, $j['noBar'] ?? null);
+    same('idle rules: after «Remove rules» — the row says so (Save makes it so, Discard brings them back), one change in the bar, nc no longer sent, Alt still',
+        [true, 'setup.bar_changes {"n":1}', ['Alt'], [['gone', 'setup.row_share {"share":"nc"}', 'setup.row_own']]],
+        [in_array('setup.own_removed {"save":"setup.save","discard":"setup.discard"}', $j['after'] ?? [], true), $j['bar'] ?? null, $j['sent'] ?? null, $j['change'] ?? null]);
+    hardeningRm($tmp);
+}
+
 function testMoverelliFit(): void
 {
     same('moverelli fit: versions', [false, true, true, false, false, true, true, true, false],
@@ -41155,7 +41268,7 @@ JS;
 }
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliPreferDisks', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliPreferDisks', 'testMoverelliIdleRules', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
