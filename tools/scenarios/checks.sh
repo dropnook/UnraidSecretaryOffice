@@ -183,12 +183,7 @@ bubble_look() {
     # her run at work: the card's live answer saved for the page (the harness serves it as the part «progress»), and
     # the card's lines judged against the disks now (INV-PAGE: its percent, the file's way)
     if [[ " ${desks[*]} " == *" moverelli "* ]] && [[ $(jq -r .moverelli.running <<<"$facts") == true ]]; then
-        local prog
-        prog=$(_ck_mv_state)
-        if [[ -n $prog ]]; then
-            printf '%s\n' "$prog" >"$dir/states/moverelli-progress.json"
-            _ck_tiles_moverelli "$label" "$prog" "$dir"
-        fi
+        _ck_tiles_moverelli "$label" "$dir"
     fi
     for d in "${desks[@]}"; do
         notkeys=()
@@ -235,29 +230,27 @@ bubble_look() {
 # points apart is a finding; and «On its way: file — from → to» (to: her state's share entry, else «array») against
 # where the share's files really go (prefer: its pool; yes: the array)
 _ck_tiles_moverelli() {
-    local label=$1 prog=$2 dir=$3 p share card real to want use pool
+    local label=$1 dir=$2 prog p share card real0 real1 to want use pool
+    # the share in flight from a first reading, the disks, her answer, the disks again: the card is judged against what
+    # was surely across before her answer and what was across after it (files move while we look)
+    share=$(_ck_mv_progress | jq -r '.share // empty' 2>/dev/null)
+    [[ -n $share && -s $KEEP/before/inventory/$share.tsv ]] && real0=$(_ck_moved_pct "$share" "$dir/inventory-$share-0.tsv")
+    prog=$(_ck_mv_state)
+    [[ -n $prog ]] || return 0
+    printf '%s\n' "$prog" >"$dir/states/moverelli-progress.json"
+    [[ -n $share && -s $KEEP/before/inventory/$share.tsv ]] && real1=$(_ck_moved_pct "$share" "$dir/inventory-$share-1.tsv")
     p=$(jq -c '.progress // empty' <<<"$prog")
-    [[ -n $p && $p != null ]] || return 0
-    share=$(jq -r '.share // empty' <<<"$p")
-    [[ -n $share ]] || return 0
+    [[ -n $p && $p != null && $(jq -r '.share // empty' <<<"$p") == "$share" ]] || return 0
     use=$(_ck_share_use "$share")
     pool=$(_ck_share_pool "$share")
     card=$(jq -r 'if (.phase // "look") != "share" then "" else
         ((.share_bytes // 0) | tonumber) as $b | ((.share_files // 0) | tonumber) as $f |
         (((.share_done_bytes // 0) | tonumber) + ((.file_bytes // 0) | tonumber)) as $db | ((.share_done_files // 0) | tonumber) as $df |
         if $b > 0 then ([100, (100 * $db / $b | floor)] | min) elif $f > 0 then ([100, (100 * $df / $f | floor)] | min) else "" end end' <<<"$p")
-    if [[ -n $card && -s $KEEP/before/inventory/$share.tsv ]]; then
-        # the bytes that were on the side her run takes from (prefer: the array; yes: the pool) and are on the other now
-        inventory "$share" >"$dir/inventory-$share.tsv"
-        real=$(awk -F'\t' -v pre="$use" 'function src(b) { return (pre == "prefer") ? (b ~ /^disk[0-9]+$/) : (b !~ /^disk[0-9]+$/) }
-            NR == FNR { if ($0 !~ /^#/ && src($5)) { size[$1] = $2; total += $2 } next }
-            ($0 !~ /^#/) && ($1 in size) && !src($5) { done += size[$1] }
-            END { if (total > 0) printf "%d", 100 * done / total }' "$KEEP/before/inventory/$share.tsv" "$dir/inventory-$share.tsv")
-        printf 'share=%s card=%s real=%s\n' "$share" "$card" "${real:-?}" >>"$dir/run-card.txt"
-        if [[ -n $real ]] && (( (card > real ? card - real : real - card) > 20 )); then
-            printf '%s\t%s\t%s\n' "$label" "moverelli run card" "it shows ${card} % for $share while ${real} % of its bytes are on the other side" >>"$KEEP/.page-red"
-            say "INV-PAGE ($label): the run card shows ${card} % for $share, the disks ${real} %"
-        fi
+    printf 'share=%s card=%s disks-before=%s disks-after=%s\n' "$share" "${card:-none}" "${real0:-?}" "${real1:-?}" >>"$dir/run-card.txt"
+    if [[ -n $card && -n ${real0:-} && -n ${real1:-} ]] && ((card < real0 - 20 || card > real1 + 20)); then
+        printf '%s\t%s\t%s\n' "$label" "moverelli run card" "it shows ${card} % for $share while ${real0}–${real1} % of its bytes were across (before / after its answer)" >>"$KEEP/.page-red"
+        say "INV-PAGE ($label): the run card shows ${card} % for $share, the disks ${real0}–${real1} %"
     fi
     if [[ -n $(jq -r '.file // empty' <<<"$p") ]]; then
         to=$(jq -r --arg s "$share" '[.shares[]? | select(.share == $s) | .to][0] // empty' "$dir/states/moverelli.json" 2>/dev/null)
@@ -268,6 +261,17 @@ _ck_tiles_moverelli() {
             say "INV-PAGE ($label): the file's way says → $to, $share's files go to $want"
         fi
     fi
+}
+# _ck_moved_pct <share> <file>: the share's inventory now (kept in file); the percent of the bytes that were on the side
+# her run takes from at snap_before (prefer: the array; yes: the pool) and are on the other side now
+_ck_moved_pct() {
+    local use
+    use=$(_ck_share_use "$1")
+    inventory "$1" >"$2"
+    awk -F'\t' -v pre="$use" 'function src(b) { return (pre == "prefer") ? (b ~ /^disk[0-9]+$/) : (b !~ /^disk[0-9]+$/) }
+        NR == FNR { if ($0 !~ /^#/ && src($5)) { size[$1] = $2; total += $2 } next }
+        ($0 !~ /^#/) && ($1 in size) && !src($5) { done += size[$1] }
+        END { if (total > 0) printf "%d", 100 * done / total }' "$KEEP/before/inventory/$1.tsv" "$2"
 }
 
 # the last look after the flow — once per check run (INV-PAGE and INV-BUBBLE share it)
