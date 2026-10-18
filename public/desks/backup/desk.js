@@ -2544,7 +2544,7 @@ function setupApply() {
         li.appendChild(what);
         // a proposal of mine (the user didn't touch it): said so, and it can stay out of this Apply
         // (a line the setup doesn't know is no proposal: declined or not, Apply can't keep it)
-        if (!touched.has(k) && !/\|kopia_known$/.test(k) && !unknownKey(k)) {
+        if (!touched.has(k) && !/\|kopia_known$/.test(k) && !droppedKey(k)) {
           what.appendChild(document.createTextNode(' '));
           what.appendChild(chip(T('setup.proposal'), 'quiet', T('setup.proposal_tip')));
           const no = el('button', 'btn small plain', T('setup.decline'));
@@ -2692,9 +2692,21 @@ function setupNewRows() {
   return out;
 }
 
-/** A settings.ini line the setup doesn't know (written by hand, e.g. `note = …` in a share's section): it is in the saved
- *  settings but in no plan - setup.sh's settings_render() writes only what it knows, so Apply drops it (2026-10-17) */
-const unknownKey = (k) => !!setup.plan && k in (setup.plan.O || {}) && !(k in (setup.plan.P || {})) && !goneAppKey(k, setup.plan);
+/** A settings.ini line Apply drops: in the saved settings but in no proposal - setup.sh's settings_render() writes only what
+ *  the plan carries (2026-10-17). No proposal of mine: declined or not, Apply can't keep it */
+const droppedKey = (k) => !!setup.plan && k in (setup.plan.O || {}) && !(k in (setup.plan.P || {})) && !goneAppKey(k, setup.plan);
+/** Some part of the engine knows this key (engine 2.60: the plan's known_keys, per section type - lib/common.sh UB_SCHEMA).
+ *  An older engine's plan names none: then nothing counts as known here */
+const engineKnows = (k, plan) => {
+  const kk = plan && plan.known_keys;
+  if (!kk || typeof kk !== 'object') return false;
+  const p = k.split('|');
+  return Array.isArray(kk[p[0]]) && kk[p[0]].includes(p[p.length - 1]);
+};
+/** A settings.ini line the setup doesn't know (written by hand, e.g. `colour = …` in a section): dropped by Apply and no key
+ *  any part of the engine knows. A known key is never «doesn't know» (2026-10-18: a stopped Nextcloud's
+ *  preexisting_maintenance was said so) */
+const unknownKey = (k) => droppedKey(k) && !engineKnows(k, setup.plan);
 
 function changeLabel(k) {
   const p = k.split('|');
@@ -6261,7 +6273,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     presetKopiaMode, presetKopiaVm, draftMode, draftVm, setupNewItems, presetApplyNew, presetNow, presetChosen, presetNewMode, presetNewVm,
     letGoPart, letGoLines, letGoDoneLines, letGoResult, setLetGoClock: (c) => { letGoClock = c; }, setupUnfold, UNFOLD_OWN, setupDecisions, setupApplyChanges, changeLabel, valueText, setupSplit, setupDecline,
     warnLines, bubbleText, setupBarSpec, setupNoPlace, setupPlaceStart, bubblePlace, setupSearchItems,
-    oldSourceWords, oldUnit, orphansPick, goneCallout,
+    oldSourceWords, oldUnit, orphansPick, goneCallout, unknownKey, droppedKey, engineKnows,
   };
 }
 })();
