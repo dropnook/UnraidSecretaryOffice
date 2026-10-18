@@ -360,6 +360,10 @@ function gatherSummary(s) {
     dirs: nOf('empty_dirs', s.dirs_deleted), kept: nOf('kept', s.dirs_kept) });
 }
 
+// greet.5 «Ms. Moverelli says I may touch my libraries now» only once his media servers and libraries are set up
+// (2026-10-18: a bubble is true right now — not on a server without a media server, e.g. with Docker off)
+const greetOk = (key) => key !== 'greet.5' || !!(state && state.configured && state.emby && state.emby.length);
+
 function bubbleText() {
   if (!state) return T('bubble.loading');
   const intro = T('bubble.intro');
@@ -2901,6 +2905,7 @@ Office.desk({
   unmount() { if (page === 'setup' && formChanged()) Office.toast(T('setup.left_unsaved')); Office.selbar(null); view = null; saveGate = null; clearTimeout(outTimer); clearTimeout(progTimer); progTimer = null; progBox = null; startKicks = 0; letGoNote = null; },
   letGo: letGoPart,
   poll() { if (page === 'main') load(false); },
+  greetOk,
   agentChanged() { if (view) (page === 'setup' ? renderSetup() : render()); },
   menu() {
     const items = [{ text: T('menu.refresh'), act: () => load(true) }, { text: T('import.title') + '…', act: importDialog }];
@@ -2972,7 +2977,7 @@ Office.places(ID, [
 ]);
 
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.jack = { setState: (s) => { state = s; }, roomWords, tonightText, rankItem, progFile, sizesLine, readyOf, poolTile, shareSection, poolView, poolHay, poolSection, bars, lastRuns, sw,
+  globalThis.OFFICE_DESK_TESTS.jack = { setState: (s) => { state = s; }, greetOk, roomWords, tonightText, rankItem, progFile, sizesLine, readyOf, poolTile, shareSection, poolView, poolHay, poolSection, bars, lastRuns, sw,
     historySection, plansSection, plansList, gatherSection, footer, scopeLine, lastRunTile, plansTile, poolTile, sharesTile, gatherTile, render,
     renderSetup, page: () => page, SETUP_TILES, setupTileData, setupTileList, setupStep, importSection, setupSwitcher, tileOf, setForm: (f) => { form = f; }, initForm, form: () => form,
     herRules, sharePart, ruleTexts, needsConnect, connectInst, resetDialog, budgetGb, budgetSplit, budgetState, budgetLine, setupBlocked, MIN_PERSON_GB, shareCase,

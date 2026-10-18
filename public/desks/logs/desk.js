@@ -405,6 +405,11 @@ function varlog() {
 const fillLevel = (v) => (v.pct >= v.full ? 'danger' : v.pct >= v.warn ? 'warn' : '');
 const noisy = () => (tour?.sources || []).filter((s) => s.errors || s.warnings);
 
+// greet.4 «It says "error" a lot» only when the count her bubble says found something like «error» (her tour's, else the
+// syslog's — 2026-10-18: a bubble is true right now)
+const errorsCounted = () => (tour && tour.time ? tour.errors || 0 : state?.syslog?.errors || 0);
+const greetOk = (key) => key !== 'greet.4' || errorsCounted() > 0;
+
 function bubbleText() {
   if (!state && !tour) return T('bubble.loading');
   const parts = [];
@@ -1509,6 +1514,7 @@ Office.desk({
     await loadTour();
     if (view && (tour && tour.time) !== before) renderTour();
   },
+  greetOk,
   agentChanged() { if (view) { renderHead(); wantSort(); } if (setupView) renderSetup(); },
   menu() {
     return [

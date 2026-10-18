@@ -1,0 +1,505 @@
+{
+  "time": 1791551074,
+  "python": "3.11.15",
+  "emby": [],
+  "versions": {
+    "embycache": "7.4.0 (2026-10-15)",
+    "gather": "V11.4"
+  },
+  "configured": false,
+  "settings": {
+    "instances": [
+      {
+        "servername": "EmbyServer",
+        "type": "emby",
+        "url": "http://192.168.1.111:8096",
+        "has_key": true,
+        "path_mappings": {
+          "/mnt/media/Filme": "/mnt/user/media/Filme",
+          "/mnt/media/Serien": "/mnt/user/media/Serien"
+        }
+      },
+      {
+        "servername": "Jellyfin",
+        "type": "jellyfin",
+        "url": "http://192.168.1.111:8097",
+        "has_key": true,
+        "path_mappings": {
+          "/mnt/media/Filme": "/mnt/user/media/Filme",
+          "/mnt/media/Serien": "/mnt/user/media/Serien"
+        }
+      },
+      {
+        "servername": "Plex",
+        "type": "plex",
+        "url": "http://192.168.1.111:32400",
+        "has_key": true,
+        "path_mappings": {
+          "/mnt/media/Filme": "/mnt/user/media/Filme",
+          "/mnt/media/Serien": "/mnt/user/media/Serien"
+        }
+      }
+    ],
+    "libraries": [
+      "Filme",
+      "Serien"
+    ],
+    "library_types": {
+      "Filme": "movies",
+      "Serien": "tvshows"
+    },
+    "valid_users": [],
+    "cache_path": "/mnt/big",
+    "cache_budget": "300G",
+    "number_episodes": 3,
+    "movie_share_percent": 50,
+    "max_episodes_per_series": 3,
+    "max_resume_items": 10,
+    "max_resume_movies": 10,
+    "max_resume_series": 10,
+    "max_favorite_series": 10,
+    "use_next_up": true,
+    "min_free_percent": 20,
+    "movie_mode": "folder",
+    "return_to_origin": true,
+    "array_source": "user0",
+    "array_path": "/mnt/user0",
+    "user_path": "/mnt/user",
+    "array_disks_glob": "/mnt/disk[0-9]*",
+    "mover_debug_level": 0
+  },
+  "shares": [
+    {
+      "share": "media",
+      "fit": "ok",
+      "root": true,
+      "use": "yes",
+      "primary": "big",
+      "secondary": "",
+      "include": "",
+      "sizes": null,
+      "live": []
+    }
+  ],
+  "cache": {
+    "files": 12,
+    "bytes": 41200000000,
+    "groups": [
+      {
+        "name": "Serien/Velotour Bodensee 2019",
+        "library": "Serien",
+        "share": "media",
+        "files": 8,
+        "bytes": 21000000000,
+        "since": 1791464674,
+        "disks": [
+          "disk2"
+        ]
+      },
+      {
+        "name": "Filme/Hochzeit Eltern 1989",
+        "library": "Filme",
+        "share": "media",
+        "files": 4,
+        "bytes": 20200000000,
+        "since": 1791291874,
+        "disks": [
+          "disk1"
+        ]
+      }
+    ],
+    "listed_at": 1791551014
+  },
+  "pool": {
+    "path": "/mnt/big",
+    "free_percent": 52.5,
+    "free": 2254857830400,
+    "min_free": 40,
+    "moverelli": {
+      "x": 70,
+      "y": 60,
+      "k": 50,
+      "min_age": 7
+    },
+    "level": {
+      "size": 4294967296000,
+      "used": 2040109465600,
+      "nm": 1288490188800,
+      "jack": 41200000000,
+      "others": 710419276800,
+      "shares": [
+        "Downloads"
+      ],
+      "pool": "big",
+      "x": 70,
+      "y": 60,
+      "k": 50,
+      "at": 1791551074
+    },
+    "keep": 644245094400,
+    "held": 41200000000,
+    "back": 0,
+    "never": false,
+    "waiting": 2
+  },
+  "gather": {
+    "settings": null,
+    "ready": false,
+    "last": null,
+    "waiting": null
+  },
+  "jobs": {
+    "embycache": {
+      "tool": "embycache",
+      "mode": "run",
+      "by": "office",
+      "started": 1791550654,
+      "pid": 4343,
+      "running": true,
+      "size": 18000,
+      "updated": 1791551071
+    },
+    "gather": {
+      "running": false,
+      "size": 0,
+      "updated": null
+    }
+  },
+  "last": {
+    "tool": "embycache",
+    "mode": "run",
+    "by": "schedule",
+    "started": 1791461074,
+    "finished": 1791463074,
+    "result": "ok",
+    "errors": 0,
+    "warnings": 1,
+    "cleanup": {
+      "planned": 5,
+      "done": 5,
+      "to_origin": 4,
+      "bytes_planned": 9800000000,
+      "bytes_done": 9800000000
+    },
+    "fill": {
+      "planned": 5,
+      "done": 5,
+      "bytes_planned": 8000000000,
+      "bytes_done": 8000000000
+    },
+    "protected": 0,
+    "incomplete": false
+  },
+  "history": [
+    {
+      "tool": "embycache",
+      "mode": "run",
+      "by": "night",
+      "from": "office",
+      "started": 1791461074,
+      "finished": 1791463074,
+      "exit": 0,
+      "result": "ok",
+      "status": {
+        "mode": "run",
+        "result": "ok",
+        "cleanup": {
+          "planned": 5,
+          "done": 5,
+          "to_origin": 4
+        },
+        "fill": {
+          "planned": 5,
+          "done": 5,
+          "bytes_planned": 8000000000
+        },
+        "errors": 0,
+        "warnings": 1
+      }
+    },
+    {
+      "tool": "gather",
+      "mode": "run",
+      "by": "schedule",
+      "started": 1791631800,
+      "finished": 1791633400,
+      "exit": 0,
+      "result": "ok",
+      "status": {
+        "result": "ok",
+        "moved": 14,
+        "duplicates": 2,
+        "conflicts": 0,
+        "dirs_deleted": 6,
+        "dirs_kept": 0,
+        "errors": 0,
+        "full": 0
+      }
+    }
+  ],
+  "schedules": {
+    "embycache": {
+      "script": true,
+      "frequency": "disabled",
+      "custom": null,
+      "enabled": false
+    },
+    "gather": {
+      "script": true,
+      "frequency": "disabled",
+      "custom": null,
+      "enabled": false
+    }
+  },
+  "foreign": [],
+  "pools": [
+    "/mnt/big",
+    "/mnt/cache"
+  ],
+  "share_info": {
+    "UnraidSecretaryOffice": {
+      "use": "only",
+      "primary": "big",
+      "secondary": ""
+    },
+    "appdata": {
+      "use": "only",
+      "primary": "cache",
+      "secondary": ""
+    },
+    "domains": {
+      "use": "only",
+      "primary": "cache",
+      "secondary": ""
+    },
+    "isos": {
+      "use": "no",
+      "primary": "",
+      "secondary": ""
+    },
+    "media": {
+      "use": "only",
+      "primary": "big",
+      "secondary": ""
+    },
+    "nextcloud": {
+      "use": "only",
+      "primary": "big",
+      "secondary": ""
+    },
+    "photos": {
+      "use": "only",
+      "primary": "big",
+      "secondary": ""
+    },
+    "syslog": {
+      "use": "only",
+      "primary": "big",
+      "secondary": ""
+    },
+    "system": {
+      "use": "only",
+      "primary": "cache",
+      "secondary": ""
+    }
+  },
+  "pool_dirs": {
+    "/mnt/big": [
+      "media",
+      "nextcloud",
+      "photos",
+      "syslog",
+      "UnraidSecretaryOffice"
+    ],
+    "/mnt/cache": [
+      "appdata",
+      "domains",
+      "nextcloud",
+      "speedtest",
+      "system"
+    ]
+  },
+  "old_clone": false,
+  "mover": {
+    "ok": false,
+    "way": null,
+    "why": "schedule",
+    "schedule": "40 3 * * *",
+    "running": false,
+    "tuning": {
+      "installed": false
+    }
+  },
+  "waiting": {
+    "embycache": null,
+    "gather": null
+  },
+  "progress": {
+    "mode": "run",
+    "phase": "fill",
+    "started": 1791550654,
+    "back": {
+      "files": 5,
+      "bytes": 9800000000,
+      "done_files": 5,
+      "done_bytes": 9800000000,
+      "eta": 0,
+      "ended": true,
+      "here": false,
+      "took": 80
+    },
+    "users": [
+      {
+        "name": "Felix",
+        "server": "HomeServer",
+        "files": 4,
+        "bytes": 12400000000,
+        "done_files": 1,
+        "done_bytes": 5100000000,
+        "eta": 3480,
+        "here": true,
+        "took": null
+      },
+      {
+        "name": "Kids",
+        "server": "HomeServer",
+        "files": 6,
+        "bytes": 3300000000,
+        "done_files": 0,
+        "done_bytes": 0,
+        "eta": 1560,
+        "here": false,
+        "took": null
+      },
+      {
+        "name": "Grandma",
+        "server": "HomeServer",
+        "files": 2,
+        "bytes": 4100000000,
+        "done_files": 2,
+        "done_bytes": 4100000000,
+        "eta": 0,
+        "took": 1950,
+        "here": false
+      }
+    ],
+    "total": {
+      "files": 17,
+      "bytes": 29600000000,
+      "done_files": 8,
+      "done_bytes": 19000000000,
+      "eta": 5040,
+      "running": 420
+    },
+    "speed": 2100000,
+    "current": {
+      "phase": "fill",
+      "rel": "Serien/Velotour Bodensee 2019/Season 01/Velotour Bodensee 2019 - S01E05 - Etappe Konstanz.mkv",
+      "size": 2600000000,
+      "done": 1150000000,
+      "source": "next_episode",
+      "title": "Velotour Bodensee 2019 – S01E05 Etappe Konstanz"
+    }
+  },
+  "stopping": null,
+  "night": {
+    "schedule": {
+      "script": true,
+      "frequency": "custom",
+      "custom": "15 5 * * *",
+      "enabled": true
+    },
+    "jack": true,
+    "plan": {
+      "measured": true,
+      "back": 0,
+      "goes": 0,
+      "age": 0,
+      "fill": 12884901888,
+      "wait": 0,
+      "first": "jack"
+    },
+    "last": {
+      "mode": "run",
+      "by": "schedule",
+      "started": 1791549154,
+      "phase": "fill",
+      "round": 1,
+      "who": "jack",
+      "jack": true,
+      "pool": "cache",
+      "plan": {
+        "measured": true,
+        "back": 0,
+        "goes": 0,
+        "age": 0,
+        "fill": 12884901888,
+        "wait": 0,
+        "first": "jack",
+        "used_pct": 62.3,
+        "x": 70,
+        "y": 60
+      },
+      "steps": [
+        {
+          "who": "jack",
+          "phase": "free",
+          "round": 1,
+          "exit": 0,
+          "result": "ok"
+        },
+        {
+          "who": "her",
+          "phase": "free",
+          "round": 1,
+          "exit": 0,
+          "result": "ok"
+        }
+      ],
+      "result": null,
+      "running": true
+    },
+    "now": {
+      "mode": "run",
+      "by": "schedule",
+      "started": 1791549154,
+      "phase": "fill",
+      "round": 1,
+      "who": "jack",
+      "jack": true,
+      "pool": "cache",
+      "plan": {
+        "measured": true,
+        "back": 0,
+        "goes": 0,
+        "age": 0,
+        "fill": 12884901888,
+        "wait": 0,
+        "first": "jack",
+        "used_pct": 62.3,
+        "x": 70,
+        "y": 60
+      },
+      "steps": [
+        {
+          "who": "jack",
+          "phase": "free",
+          "round": 1,
+          "exit": 0,
+          "result": "ok"
+        },
+        {
+          "who": "her",
+          "phase": "free",
+          "round": 1,
+          "exit": 0,
+          "result": "ok"
+        }
+      ],
+      "result": null,
+      "running": true,
+      "stopping": null,
+      "her": null
+    }
+  }
+}

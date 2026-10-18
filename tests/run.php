@@ -36975,6 +36975,155 @@ JS);
 }
 
 /**
+ * Greetings say what is true right now (the owner, 2026-10-18 — H5's resilience finding: Ms. Dustdevil greeted «A container
+ * without a picture?» on USOTest3VM, Docker off, no container at all). core.js Office.greet picks only among a desk's
+ * greetings its greetOk(key) doesn't refuse (the desk page and the reception's card alike; the random draw kept, so the pick
+ * stays while the facts do). Each desk's restricted greetings against the stub states (tests/ui/states) and a server like
+ * USOTest3VM (tests/ui/states/docker-off: Docker and the VM service off, no backup yet, no media server, quiet syslog, no
+ * pool share): Ms. Dustdevil greet.6 only with a container without a picture, greet.2 only with something found, and her
+ * bubble counts no room her page hides (templates, appdata, pictures with Docker off); Mr. Restori greet.2 only with
+ * packages; Ms. Protocolli greet.4 only with «error» counted; Jack Streamer greet.5 only set up with a media server;
+ * Ms. Moverelli greet.3 only with a pool share, greet.5 only with Jack Streamer hired; the Night Watchman greet.1
+ * «Evening.» only 17:00–05:59.
+ */
+function testGreetTruth(): void
+{
+    $node = testsNode();
+    if ($node === '') {
+        check('greet truth: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('greet-truth');
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    $a = strpos($core, 'const greetings = new Map();');
+    $b = strpos($core, '/** "Greeting. Text"');
+    check('greet truth: core.js has Office.greet', $a !== false && $b !== false && $b > $a);
+    file_put_contents("$tmp/greet.js", substr($core, (int) $a, (int) $b - (int) $a));
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+const [,, greetFile, statesDir, offDir, deskDir] = process.argv;
+const read = (dir, name) => { try { return JSON.parse(fs.readFileSync(`${dir}/${name}.json`, 'utf8')); } catch (e) { return null; } };
+// a stub for everything a desk's file touches at load: any property a callable that answers itself, '' as a string
+const any = () => new Proxy(function () {}, {
+  get: (t, k) => (k === Symbol.toPrimitive ? () => '' : k === 'then' ? undefined : k === Symbol.iterator ? function* () {} : k === 'length' ? 0 : any()),
+  apply: () => any(), construct: () => any() });
+const T = (k, p) => (p ? `${k}(${Object.values(p).join(',')})` : k);
+const registered = {};
+let states = {};
+const base = {
+  t: T, scope: () => T, has: () => false, desks: new Map(), desk: (d) => { registered[d.id] = d; }, agent: { running: true },
+  loadState: async (id, opts, took) => { const j = { ok: true, state: states[id] || null }; took(j); return j; },
+  api: { get: async (q) => ({ ok: true, part: states[`${q.desk}-${q.part}`] || null }), post: async () => ({ ok: true }) },
+  fmt: new Proxy({}, { get: () => (...a) => String(a[0]) }), store: () => null, storeJson: () => null,
+};
+globalThis.Office = new Proxy(base, { get: (t, k) => (k in t ? t[k] : (t[k] = any())), set: (t, k, v) => { t[k] = v; return true; } });
+for (const g of ['document', 'window', 'location', 'localStorage', 'sessionStorage', 'navigator', 'history', 'matchMedia', 'getComputedStyle', 'requestAnimationFrame', 'ResizeObserver', 'IntersectionObserver', 'MutationObserver']) {
+  if (!(g in globalThis)) globalThis[g] = any();
+}
+globalThis.OFFICE_DESK_TESTS = {};
+const out = {};
+const errs = [];
+for (const id of ['cleanup', 'restore', 'logs', 'jack', 'moverelli', 'watchman']) {
+  try { (0, eval)(fs.readFileSync(`${deskDir}/${id}/desk.js`, 'utf8')); } catch (e) { errs.push(`${id}: ${e.message}`); }
+}
+const ok = (id, keys) => Object.fromEntries(keys.map((k) => [k, registered[id] && registered[id].greetOk ? registered[id].greetOk(k) !== false : null]));
+const look = async (dir, extra = {}) => {
+  const at = {};
+  for (const id of ['cleanup', 'restore', 'logs', 'jack', 'moverelli']) {
+    at[id] = read(dir, id);
+    if (read(dir, `${id}-tour`)) at[`${id}-tour`] = read(dir, `${id}-tour`);
+  }
+  states = { ...at, ...extra };
+  for (const id of Object.keys(registered)) {
+    if (OFFICE_DESK_TESTS[id] && OFFICE_DESK_TESTS[id].setState && states[id]) OFFICE_DESK_TESTS[id].setState(states[id]);
+  }
+  // Ms. Protocolli has no test door: her poll looks again (her state and her tour)
+  try { await registered.logs.poll(); } catch (e) { errs.push(`logs poll: ${e.message}`); }
+};
+(async () => {
+  // core.js: the pick only among what greetOk allows; the draw kept; none allowed → ''
+  {
+    const tt = (k) => `text:${k}`;
+    const keys = new Set([1, 2, 3, 4, 5, 6, 7].map((i) => `cl.greet.${i}`));
+    const O = { has: (k) => keys.has(k), desks: new Map([['cl', { greetOk: (k) => k !== 'greet.6' }], ['none', { greetOk: () => false }], ['plain', {}]]) };
+    const run = new Function('Office', 't', 'Math', fs.readFileSync(greetFile, 'utf8') + '\nreturn { greet: Office.greet, greetings };');
+    const seen = new Set(), plain = new Set();
+    let r = 0;
+    const M = { random: () => r, floor: Math.floor };
+    const g = run(O, tt, M);
+    O.greet = g.greet;
+    for (let i = 0; i < 70; i++) {
+      r = i / 70;
+      g.greetings.clear();
+      seen.add(O.greet('cl'));
+      O.has = (k) => keys.has(k.replace(/^plain\./, 'cl.'));
+      plain.add(O.greet('plain'));
+      O.has = (k) => keys.has(k);
+    }
+    r = 0.99;
+    g.greetings.clear();
+    const first = O.greet('cl');
+    r = 0.01;
+    out.core = { allowed: [...seen].sort(), plainN: plain.size, kept: O.greet('cl') === first, none: (keys.add('none.greet.1'), O.greet('none')) };
+  }
+  // Mr. Backupsy's look-alike for the Team Lead's «hired» of Jack Streamer: Ms. Moverelli's greet.5
+  const jackHired = (h) => { base.desks = new Map([['jack', { id: 'jack', hired: h }]]); };
+  jackHired(true);
+  await look(statesDir);
+  const cl = OFFICE_DESK_TESTS.cleanup;
+  out.on = { cleanup: ok('cleanup', ['greet.1', 'greet.2', 'greet.6']), restore: ok('restore', ['greet.1', 'greet.2']), logs: ok('logs', ['greet.4']),
+    jack: ok('jack', ['greet.5']), moverelli: ok('moverelli', ['greet.1', 'greet.3', 'greet.5']), clBubble: cl.bubbleText() };
+  jackHired(false);
+  out.on.moverelliNoJack = ok('moverelli', ['greet.5']);
+  jackHired(true);
+  // logs without a tour: the syslog's count (0 in the stub) decides
+  await look(statesDir, { 'logs-tour': null });
+  out.on.logsNoTour = ok('logs', ['greet.4']);
+  await look(offDir);
+  out.off = { cleanup: ok('cleanup', ['greet.1', 'greet.2', 'greet.6']), restore: ok('restore', ['greet.1', 'greet.2']), logs: ok('logs', ['greet.4']),
+    jack: ok('jack', ['greet.5']), moverelli: ok('moverelli', ['greet.1', 'greet.2', 'greet.3', 'greet.4', 'greet.5']), clBubble: cl.bubbleText() };
+  // spotless: nothing found anywhere — «who left all this lying around?» not
+  const spot = read(offDir, 'cleanup');
+  for (const k of ['flash', 'scripts', 'leftovers', 'partners', 'templates', 'appdata']) if (spot[k] && Array.isArray(spot[k].list)) spot[k].list = [];
+  cl.setState(spot);
+  out.spotless = { cleanup: ok('cleanup', ['greet.2', 'greet.5']), clBubble: cl.bubbleText() };
+  const w = OFFICE_DESK_TESTS.watchman;
+  out.watchman = w ? [w.greetOk('greet.1', 10), w.greetOk('greet.1', 17), w.greetOk('greet.1', 23), w.greetOk('greet.1', 5), w.greetOk('greet.1', 6), w.greetOk('greet.2', 10)] : null;
+  out.registered = Object.keys(registered).filter((id) => typeof registered[id].greetOk === 'function').sort();
+  out.errs = errs;
+  console.log(JSON.stringify(out));
+})().catch((e) => console.log(JSON.stringify({ crash: String(e && e.stack || e) })));
+JS);
+    $raw = (string) shell_exec(implode(' ', array_map('escapeshellarg', [$node, "$tmp/t.js", "$tmp/greet.js", OFFICE_DIR . '/tests/ui/states',
+        OFFICE_DIR . '/tests/ui/states/docker-off', OFFICE_WEB . '/desks'])) . ' 2>&1');
+    $o = json_decode(trim((string) preg_replace('/^(?!\{).*$/m', '', $raw)), true);
+    check('greet truth: ran under node', is_array($o) && !isset($o['crash']), $raw);
+    $o = is_array($o) ? $o : [];
+    same('greet truth: the desks load and say which greetings are true', [[], ['cleanup', 'jack', 'logs', 'moverelli', 'restore', 'watchman']], [$o['errs'] ?? null, $o['registered'] ?? null]);
+    same('greet truth: core.js picks only what greetOk allows (6 of 7 — never greet.6), a desk without greetOk all 7, the draw kept while the facts are, none allowed → no greeting',
+        [['text:cl.greet.1', 'text:cl.greet.2', 'text:cl.greet.3', 'text:cl.greet.4', 'text:cl.greet.5', 'text:cl.greet.7'], 7, true, ''],
+        [$o['core']['allowed'] ?? null, $o['core']['plainN'] ?? null, $o['core']['kept'] ?? null, $o['core']['none'] ?? null]);
+    same('greet truth: the stub states (Docker on, containers without a picture, packages, «error» on the tour, Jack Streamer set up and hired, pool shares) — all true',
+        ['cleanup' => ['greet.1' => true, 'greet.2' => true, 'greet.6' => true], 'restore' => ['greet.1' => true, 'greet.2' => true], 'logs' => ['greet.4' => true],
+         'jack' => ['greet.5' => true], 'moverelli' => ['greet.1' => true, 'greet.3' => true, 'greet.5' => true], 'noJack' => ['greet.5' => false], 'logsNoTour' => ['greet.4' => false]],
+        ['cleanup' => $o['on']['cleanup'] ?? null, 'restore' => $o['on']['restore'] ?? null, 'logs' => $o['on']['logs'] ?? null, 'jack' => $o['on']['jack'] ?? null,
+         'moverelli' => $o['on']['moverelli'] ?? null, 'noJack' => $o['on']['moverelliNoJack'] ?? null, 'logsNoTour' => $o['on']['logsNoTour'] ?? null]);
+    check('greet truth: … her bubble counts the containers without a picture there', str_contains($o['on']['clBubble'] ?? '', 'bubble.icons(2,'), $o['on']['clBubble'] ?? '');
+    same('greet truth: a server like USOTest3VM (Docker and VMs off, no backup yet, no media server, quiet syslog, no pool share) — no container without a picture, no «which state?», no «error a lot», no libraries, no pool, «off to the array» neither; the character greetings stay',
+        ['cleanup' => ['greet.1' => true, 'greet.2' => true, 'greet.6' => false], 'restore' => ['greet.1' => true, 'greet.2' => false], 'logs' => ['greet.4' => false],
+         'jack' => ['greet.5' => false], 'moverelli' => ['greet.1' => false, 'greet.2' => false, 'greet.3' => false, 'greet.4' => true, 'greet.5' => true]],
+        ['cleanup' => $o['off']['cleanup'] ?? null, 'restore' => $o['off']['restore'] ?? null, 'logs' => $o['off']['logs'] ?? null, 'jack' => $o['off']['jack'] ?? null,
+         'moverelli' => $o['off']['moverelli'] ?? null]);
+    $bub = (string) ($o['off']['clBubble'] ?? '');
+    check('greet truth: … Ms. Dustdevil\'s bubble there names no room her page hides (templates, appdata, Docker\'s, pictures, VMs) and no «Docker doesn\'t answer» — only what is (the share settings files)',
+        str_contains($bub, 'bubble.found(bubble.flash(2,') && !preg_match('/bubble\.(templates|appdata|docker|docker_down|icons|icon_stacks|vms|stacks)\(/', $bub), $bub);
+    same('greet truth: … spotless there — «who left all this lying around?» not, «A place for everything» yes; the bubble «Spotless!»', [['greet.2' => false, 'greet.5' => true], true],
+        [$o['spotless']['cleanup'] ?? null, str_contains($o['spotless']['clBubble'] ?? '', 'bubble.spotless')]);
+    same('greet truth: the Night Watchman\'s «Evening.» at 10:00 not, at 17, 23 and 5 yes, at 6 not; «Lantern\'s lit» at any hour', [false, true, true, true, false, true], $o['watchman'] ?? null);
+    hardeningRm($tmp);
+}
+
+/**
  * Her page says what is true right now (the owner, 2026-10-18, nextcloud_data moved array → pool ripley, then set pool
  * only): the bubble while a real run moves a share follows that share's way (into the array, back into its pool, on into
  * a second pool) and says «older than N days» only with an age rule (0 = all files), no greeting while she works, her
@@ -42409,7 +42558,7 @@ JS;
 }
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],

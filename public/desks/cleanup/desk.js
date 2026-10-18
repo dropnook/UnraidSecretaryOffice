@@ -269,6 +269,7 @@ Office.desk({
   poll() { load(false); Where.load(false); },
 
   agentChanged() { if (view) render(); },
+  greetOk: (key) => greetOk(key),      // defined further down (her bubble's facts)
 
   menu() {
     return [{ text: T('scan'), act: () => tour(), disabled: !Office.agent.running || busy }];
@@ -426,10 +427,15 @@ function renderBubble() {
   view.wakeSync();
 }
 
-/** What she found per room for her bubble and facts: [key, entries] — pictures missing for containers and for stacks apart */
+/**
+ * What she found per room for her bubble and facts: [key, entries] — pictures missing for containers and for stacks apart;
+ * only the rooms her page shows (Docker's with Docker on, the VMs' with the VM service on — 2026-10-18: never a count of
+ * templates or pictures on a server whose Docker is off)
+ */
 function roomCounts() {
   const out = [];
   for (const sec of ROOMS) {
+    if (!state || !visible(sec)) continue;
     const c = candidates(sec);
     if (sec !== 'icons') { if (c.length) out.push([sec, c]); continue; }
     const stacks = c.filter(isStackIcon);
@@ -438,6 +444,17 @@ function roomCounts() {
   }
   return out;
 }
+
+/**
+ * Her greetings that say what lies around (2026-10-18, the owner: a bubble is true right now): greet.6 «A container without
+ * a picture?» only while a container of hers has none, greet.2 «who left all this lying around?» only while she found
+ * something; the others are her character
+ */
+const GREET_FACTS = {
+  'greet.2': () => roomCounts().length > 0,
+  'greet.6': () => roomCounts().some(([key]) => key === 'icons'),
+};
+const greetOk = (key) => !GREET_FACTS[key] || (!!state && GREET_FACTS[key]());
 
 function bubbleText() {
   if (!state) return Office.agent.running ? T('bubble.loading') : T('bubble.no_data');
@@ -3859,6 +3876,6 @@ if (globalThis.OFFICE_DESK_TESTS) {
   // query(): the rooms' words, and the corner's too where they differ (they never should)
   const both = () => { const a = words().join(' '), b = Where.words(); return a === b ? a : `${a}|${b}`; };
   globalThis.OFFICE_DESK_TESTS.cleanup = { query: both, setQuery: (q) => { roomBar().set({ text: q }); Where.setWords(q); }, setState: (s) => { state = s; },
-    findings: () => Where.findings(), where: Where.test, tidy: tidySw, page: () => (view ? view.page : null) };
+    findings: () => Where.findings(), where: Where.test, tidy: tidySw, page: () => (view ? view.page : null), greetOk, bubbleText };
 }
 })();
