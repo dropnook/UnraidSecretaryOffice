@@ -600,5 +600,61 @@
   "pct": 0,
   "warn": 60,
   "full": 80
+ },
+ "mine": {
+  "rules": [
+   {
+    "id": "a092ae4b1f15",
+    "re": "(spinup|spindown)",
+    "cat": "array",
+    "from": "el"
+   },
+   {
+    "id": "434dd409e40b",
+    "re": "Familienfotos-Immich",
+    "cat": "system",
+    "from": "el"
+   },
+   {
+    "id": "62e11f279d58",
+    "re": "ata[0-9]+: hard resetting link",
+    "cat": "minor",
+    "from": ""
+   }
+  ],
+  "hide": [
+   {
+    "id": "a848882deb4a",
+    "text": "wsdd2[",
+    "from": "el"
+   },
+   {
+    "id": "6da1feec6618",
+    "text": "avahi-daemon",
+    "from": ""
+   }
+  ],
+  "time": 1791246797,
+  "max": 100
+ },
+ "hide": [
+  "wsdd2[",
+  "avahi-daemon"
+ ],
+ "el": {
+  "rules": 2,
+  "hide": 1,
+  "new": {
+   "rules": 1,
+   "hide": 0
+  },
+  "bad": [
+   {
+    "list": "rules",
+    "line": "\"Familienfilme\", \"other\"",
+    "why": "other"
+   }
+  ],
+  "time": 1791246797
  }
 }

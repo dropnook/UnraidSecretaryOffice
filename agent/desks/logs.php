@@ -102,6 +102,40 @@ const LOGS_RULE_LEVEL = ['error' => 'error', 'warning' => 'warn', 'minor' => 'wa
 const LOGS_RULE_KINDS = 15;             // kinds of the syslog kept per category for her «Syslog» (the newest first)
 
 /*
+ * Her own rules and hide words (her page «Set up», data/logs-mine.json): a rule is a regex (as Enhanced Log's, without
+ * delimiters, case-insensitive) and one of her categories — her own rules come FIRST, then the shipped ones (as Enhanced
+ * Log really applies its custom rules, LogReader.php, whatever its help says). A hide word: a syslog line whose message
+ * contains it (case-sensitive, as rsyslog's «:msg, contains» there) counts as noise — it stays in the syslog, she only
+ * hides it in her view; hide words come before every rule. Checked before saving (logsMineRuleWhy(), logsMineHideWhy()):
+ * PCRE compiles it, it doesn't fit an empty line (or every line would be one kind), it doesn't run away on a long line,
+ * a browser's RegExp reads it the same; never a shell.
+ *
+ * Enhanced Log's own files (LOGS_EL_DIR on the flash, gone with the plugin when it is removed): while they are there she
+ * reads them (read only) and takes over what she understands — custom rules (custom_syslog.conf, «"<regex>", "<category>"»)
+ * as her own rules, its syslog filter (syslog_filter.conf, a text per line, quotes taken out) as hide words — the first
+ * time on her own (logsElTake()), later only on the user's click what is new since; what she took is remembered by key
+ * (el.seen), so nothing is taken twice and nothing the user removed comes back. A line she doesn't understand is listed,
+ * never guessed. What Enhanced Log ships in them as an example (LOGS_EL_EXAMPLES) isn't the user's: left out.
+ */
+const LOGS_MINE_MAX    = 100;           // own rules at most, and as many hide words
+const LOGS_MINE_LEN    = 300;           // bytes of a rule's regex or a hide word at most
+const LOGS_EL_DIR      = '/boot/config/plugins/enhanced.log';
+const LOGS_EL_MAX      = 65536;         // bytes of one of its files read at most (its page allowed 2048)
+const LOGS_EL_EXAMPLES = ['rules' => '"Recycle Bin", "other"', 'hide' => 'this is an example line'];
+const LOGS_EL_WORDS    = ['minor issues' => 'minor', 'minor' => 'minor', 'drive' => 'drive', 'drives' => 'drive', 'disk' => 'drive', 'disks' => 'drive',
+                          'file systems' => 'fs', 'filesystem' => 'fs', 'filesystems' => 'fs', 'fs' => 'fs', 'limetech' => 'limetech',
+                          'lime technology' => 'limetech', 'errors' => 'error', 'warnings' => 'warning', 'logins' => 'login', 'noise' => 'skip'];
+// what a browser's RegExp reads otherwise (inline flags, \A \z \h …, POSIX classes, possessive) — the page colours by the same rules
+const LOGS_MINE_PCRE_ONLY = '~\(\?[a-z]|\\\\[AzZhGKQ]|\[\[:|[*+?}]\+~';
+// a syslog line's message (what rsyslog calls msg): after its time, the server's name and its tag
+const LOGS_SYSLOG_MSG = '/^[A-Z][a-z]{2}\s+\d{1,2}\s+\d\d:\d\d:\d\d\s+\S+\s+[^:]*:(.*)$/s';
+// why a rule or a hide word is refused => its error (lang errors.logs_mine_<why>; the same words list what she left out)
+const LOGS_MINE_PROBLEMS = ['empty' => 'logs_mine_empty', 'long' => 'logs_mine_long', 'form' => 'logs_mine_form', 'regex' => 'logs_mine_regex',
+                            'every' => 'logs_mine_every', 'slow' => 'logs_mine_slow', 'browser' => 'logs_mine_browser', 'short' => 'logs_mine_short'];
+// her instant sort («Syslog» without a fresh tour): the newest lines of the syslog, at once (RAM only)
+const LOGS_SORT_LINES = 5000;
+
+/*
  * A time at the start of a line (first/last seen, the first tour's 24 hours):
  * ISO-like (the office, the engine, EmbyCache, libvirt, nginx, Samba, docker
  * --timestamps), syslog's "Oct  5 22:52:00", dmesg -T's
@@ -114,13 +148,23 @@ const LOGS_TIME_PHP    = '/^\[(\d\d)-([A-Z][a-z]{2})-(\d{4})\s+(\d\d:\d\d:\d\d)(
 
 desk('logs', [
     'fit'     => fn (): array => fit(true, 'yes'),
-    'start'   => fn () => logsTourRecover(),
+    'start'   => function (): void {
+        logsTourRecover();
+        logsElTake(true);           // Enhanced Log's rules and filter, the first time she sees them — before it may be removed
+    },
     'tick'    => fn () => logsTourTick(),
     'actions' => [
-        'refresh' => fn (array $r) => ['ok' => true, 'state' => logsScan()],
-        'read'    => fn (array $r) => logsRead(textField($r, 'source'), (int) ($r['lines'] ?? 500),
-                                               isset($r['offset']) ? (int) $r['offset'] : null),
-        'tour'    => fn (array $r) => logsTourStart(),
+        'refresh'     => fn (array $r) => ['ok' => true, 'state' => logsScan()],
+        'read'        => fn (array $r) => logsRead(textField($r, 'source'), (int) ($r['lines'] ?? 500),
+                                                   isset($r['offset']) ? (int) $r['offset'] : null),
+        'tour'        => fn (array $r) => logsTourStart(),
+        'sort'        => fn (array $r) => logsSortNow(),
+        // her «Set up»: each answers with her new state (the page draws it, her rules count from now on)
+        'rule_add'    => fn (array $r) => logsMineRuleAdd(textField($r, 're'), textField($r, 'cat')) + ['state' => logsScan()],
+        'rule_remove' => fn (array $r) => logsMineRemove('rules', textField($r, 'id')) + ['state' => logsScan()],
+        'hide_add'    => fn (array $r) => logsMineHideAdd(textField($r, 'text')) + ['state' => logsScan()],
+        'hide_remove' => fn (array $r) => logsMineRemove('hide', textField($r, 'id')) + ['state' => logsScan()],
+        'el_take'     => fn (array $r) => logsElTakeNew() + ['state' => logsScan()],
     ],
     'jobs'    => ['logs-tour' => fn (array $args) => logsTourRun()],
     'checks'  => fn (): array => logsChecks(),
@@ -234,6 +278,12 @@ function logsScan(): array
                    'size' => $src['kind'] === 'file' ? (int) @filesize($src['target']) : null,
                    'time' => $src['kind'] === 'file' ? (@filemtime($src['target']) ?: null) : null];
     }
+    // Enhanced Log's own rules and filter: taken over the first time she sees them (then only on a click: what is new)
+    logsRuleSet(true);
+    $el = logsElRead();
+    if ($el !== null && logsElTake(true, $el)) {
+        logsRuleSet(true);
+    }
     // how loud is the syslog lately? (the last 1000 lines, by her words and her syslog rules; she counts, she doesn't judge)
     $errors = $warnings = 0;
     foreach (logsTail('/var/log/syslog', 1000) as $line) {
@@ -241,10 +291,15 @@ function logsScan(): array
         $errors += $level === 'error' ? 1 : 0;
         $warnings += $level === 'warn' ? 1 : 0;
     }
-    // her syslog rules for the page (it colours and filters the syslog's lines by them, as the tour counts): regex, category
-    $rules = array_map(fn (array $r): array => [substr($r[0], 1, -2), $r[1]], logsRules());
+    // her syslog rules for the page (it colours and filters the syslog's lines by them, as the tour counts): regex,
+    // category — her own first, then the shipped ones; the hide words before them all
+    $set = logsRuleSet();
+    $rules = array_map(fn (array $r): array => [substr($r[0], 1, -2), $r[1]], $set['rules']);
+    $mine = logsMine();
     $state = ['time' => time(), 'sources' => $list, 'syslog' => ['errors' => $errors, 'warnings' => $warnings],
-              'varlog' => logsVarlog(), 'rules' => $rules];
+              'varlog' => logsVarlog(), 'rules' => $rules, 'hide' => $set['hide'],
+              'mine' => ['rules' => $mine['rules'], 'hide' => $mine['hide'], 'time' => $mine['time'], 'max' => LOGS_MINE_MAX],
+              'el' => $el === null ? null : logsElSummary($el, $mine)];
     writeAtomic(deskFile('logs'), jsonEncode($state));
     return $state;
 }
@@ -299,10 +354,10 @@ function logsRules(?string $file = null): array
     return $cache[$file] = $rules;
 }
 
-/** The category of a syslog line by her rules (the first that matches), '' when none does */
+/** The category of a syslog line by her rules — her own first, then the shipped ones (the first that matches), '' when none does */
 function logsRule(string $line, ?array $rules = null): string
 {
-    foreach ($rules ?? logsRules() as [$pattern, $cat]) {
+    foreach ($rules ?? logsRuleSet()['rules'] as [$pattern, $cat]) {
         if (preg_match($pattern, $line)) {
             return $cat;
         }
@@ -318,7 +373,11 @@ function logsRule(string $line, ?array $rules = null): string
 function logsSyslogLevel(string $line, ?string $level = null): array
 {
     $level ??= logsLevel($line);
-    $cat = logsRule($line);
+    $set = logsRuleSet();
+    if ($set['hide'] && logsHidden($line, $set['hide'])) {
+        return ['', 'skip'];            // a hide word of hers: noise, before every rule
+    }
+    $cat = logsRule($line, $set['rules']);
     if ($cat === 'skip') {
         return ['', $cat];
     }
@@ -330,6 +389,413 @@ function logsSyslogLevel(string $line, ?string $level = null): array
 function logsRulesFor(string $id): bool
 {
     return $id === 'syslog' || $id === 'syslog.1';
+}
+
+// ===================================================================== her own rules and hide words
+
+function logsMineFile(): string
+{
+    return $GLOBALS['logsMineFile'] ?? DATA_DIR . '/logs-mine.json';      // tests: a file of their own
+}
+
+/**
+ * Every rule she sorts by — her own first, then the shipped ones ([[pattern, category], …]) — and her hide words:
+ * built once a process (a tour, an instant sort, a look); $reset after her own changed (or to look again).
+ * @return array{rules: list<array{0: string, 1: string}>, hide: list<string>}
+ */
+function logsRuleSet(bool $reset = false): array
+{
+    static $set = null;
+    if ($reset) {
+        $set = null;
+    }
+    if ($set === null) {
+        $mine = logsMine();
+        $own = array_map(fn (array $r): array => ['/' . $r['re'] . '/i', $r['cat']], $mine['rules']);
+        $set = ['rules' => array_merge($own, logsRules()), 'hide' => array_column($mine['hide'], 'text')];
+    }
+    return $set;
+}
+
+/** Does a hide word fit this syslog line? In its message (after time, server and tag — rsyslog's msg), case-sensitive */
+function logsHidden(string $line, array $hide): bool
+{
+    $msg = preg_match(LOGS_SYSLOG_MSG, $line, $m) ? $m[1] : $line;
+    foreach ($hide as $h) {
+        if (str_contains($msg, $h)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** Why a regex can't be her rule ('' = it can): its code also names the error (errors.logs_mine_<why>) */
+function logsMineRuleWhy(string $re): string
+{
+    if (trim($re) === '') {
+        return 'empty';
+    }
+    if (strlen($re) > LOGS_MINE_LEN) {
+        return 'long';
+    }
+    if (preg_match('/[\x00-\x1f\x7f]/', $re) || !mb_check_encoding($re, 'UTF-8')) {
+        return 'form';
+    }
+    $pattern = "/$re/i";
+    $fits = @preg_match($pattern, '');
+    if ($fits === false) {
+        return 'regex';
+    }
+    if ($fits === 1 || @preg_match($pattern, ' ') === 1) {
+        return 'every';             // it fits an empty line: every line would be of its kind
+    }
+    if (@preg_match($pattern, str_repeat('a', 3000) . str_repeat(' 0', 1000) . '!') === false) {
+        return 'slow';              // it runs away on a long line (PCRE gives up)
+    }
+    return preg_match(LOGS_MINE_PCRE_ONLY, $re) ? 'browser' : '';
+}
+
+/** Why a text can't be her hide word ('' = it can) */
+function logsMineHideWhy(string $text): string
+{
+    if (strlen(trim($text)) < 2) {
+        return 'short';
+    }
+    if (strlen($text) > LOGS_MINE_LEN) {
+        return 'long';
+    }
+    return preg_match('/[\x00-\x1f\x7f]/', $text) || !mb_check_encoding($text, 'UTF-8') ? 'form' : '';
+}
+
+function logsMineId(string $kind, string $text, string $cat = ''): string
+{
+    return substr(md5("$kind\n$text\n$cat"), 0, 12);
+}
+
+/**
+ * Her own, as kept: rules [{id, re, cat, from}], hide words [{id, text, from}] — only entries in exactly their shape (and
+ * a rule only while it still passes her check); what she doesn't know stays in the file ($mine['keep'], logsMineWrite()).
+ * from: 'el' = taken over from Enhanced Log. el: what she took from there (keys) and since when; time: the last change.
+ */
+function logsMine(): array
+{
+    $raw = readJson(logsMineFile()) ?? [];
+    $mine = ['rules' => [], 'hide' => [], 'keep' => ['rules' => [], 'hide' => []],
+             'el' => ['seen' => [], 'time' => null], 'time' => is_int($raw['time'] ?? null) ? $raw['time'] : null, 'raw' => $raw];
+    $cats = array_values(LOGS_RULE_CATS);
+    $ids = [];
+    foreach (is_array($raw['rules'] ?? null) ? array_values($raw['rules']) : [] as $r) {
+        $ok = is_array($r) && is_string($r['re'] ?? null) && is_string($r['cat'] ?? null) && in_array($r['cat'], $cats, true)
+            && logsMineRuleWhy($r['re']) === '';
+        $id = $ok ? logsMineId('rule', $r['re']) : '';
+        if (!$ok) {
+            $mine['keep']['rules'][] = $r;     // not hers to judge: kept as it is
+            continue;
+        }
+        if (isset($ids[$id])) {
+            continue;                   // twice: once is enough
+        }
+        $ids[$id] = true;
+        $mine['rules'][] = ['id' => $id, 're' => $r['re'], 'cat' => $r['cat'], 'from' => ($r['from'] ?? '') === 'el' ? 'el' : ''];
+    }
+    foreach (is_array($raw['hide'] ?? null) ? array_values($raw['hide']) : [] as $h) {
+        $ok = is_array($h) && is_string($h['text'] ?? null) && logsMineHideWhy($h['text']) === '';
+        $id = $ok ? logsMineId('hide', $h['text']) : '';
+        if (!$ok) {
+            $mine['keep']['hide'][] = $h;     // not hers to judge: kept as it is
+            continue;
+        }
+        if (isset($ids[$id])) {
+            continue;                   // twice: once is enough
+        }
+        $ids[$id] = true;
+        $mine['hide'][] = ['id' => $id, 'text' => $h['text'], 'from' => ($h['from'] ?? '') === 'el' ? 'el' : ''];
+    }
+    $el = is_array($raw['el'] ?? null) ? $raw['el'] : [];
+    $mine['el']['seen'] = array_values(array_filter(is_array($el['seen'] ?? null) ? $el['seen'] : [],
+        fn ($k) => is_string($k) && preg_match('/^(?:rule|hide):[0-9a-f]{32}$/D', $k)));
+    $mine['el']['time'] = is_int($el['time'] ?? null) ? $el['time'] : null;
+    return $mine;
+}
+
+/** Write her own back: what she knows in its shape, what she doesn't as it was, every other key kept */
+function logsMineWrite(array $mine): void
+{
+    $raw = $mine['raw'];
+    $raw['v'] = 1;
+    $raw['time'] = time();
+    $raw['rules'] = array_merge(array_map(fn (array $r): array => ['re' => $r['re'], 'cat' => $r['cat']] + ($r['from'] === 'el' ? ['from' => 'el'] : []),
+        $mine['rules']), $mine['keep']['rules']);
+    $raw['hide'] = array_merge(array_map(fn (array $h): array => ['text' => $h['text']] + ($h['from'] === 'el' ? ['from' => 'el'] : []),
+        $mine['hide']), $mine['keep']['hide']);
+    $raw['el'] = is_array($raw['el'] ?? null) ? $raw['el'] : [];
+    $raw['el']['seen'] = array_slice(array_values(array_unique($mine['el']['seen'])), -1000);
+    $raw['el']['time'] = $mine['el']['time'];
+    writeAtomic(logsMineFile(), jsonEncode($raw));
+    logsRuleSet(true);
+}
+
+/** «Set up»: a rule of her own (at the end of hers — still before every shipped one) */
+function logsMineRuleAdd(string $re, string $cat): array
+{
+    if (!in_array($cat, array_values(LOGS_RULE_CATS), true)) {
+        throw new Problem('logs_mine_cat');
+    }
+    $why = logsMineRuleWhy($re);
+    if ($why !== '') {
+        throw new Problem(LOGS_MINE_PROBLEMS[$why]);
+    }
+    $mine = logsMine();                 // now, not what the page showed
+    $id = logsMineId('rule', $re);
+    if (in_array($id, array_column($mine['rules'], 'id'), true)) {
+        throw new Problem('logs_mine_twice');
+    }
+    if (count($mine['rules']) >= LOGS_MINE_MAX) {
+        throw new Problem('logs_mine_full', ['n' => LOGS_MINE_MAX]);
+    }
+    $mine['rules'][] = ['id' => $id, 're' => $re, 'cat' => $cat, 'from' => ''];
+    logsMineWrite($mine);
+    logLine("Ms. Protocolli: a rule of her own ($cat)");
+    return ['ok' => true, 'id' => $id];
+}
+
+/** «Set up»: a hide word of her own */
+function logsMineHideAdd(string $text): array
+{
+    $why = logsMineHideWhy($text);
+    if ($why !== '') {
+        throw new Problem(LOGS_MINE_PROBLEMS[$why]);
+    }
+    $mine = logsMine();
+    $id = logsMineId('hide', $text);
+    if (in_array($id, array_column($mine['hide'], 'id'), true)) {
+        throw new Problem('logs_mine_twice');
+    }
+    if (count($mine['hide']) >= LOGS_MINE_MAX) {
+        throw new Problem('logs_mine_full', ['n' => LOGS_MINE_MAX]);
+    }
+    $mine['hide'][] = ['id' => $id, 'text' => $text, 'from' => ''];
+    logsMineWrite($mine);
+    logLine('Ms. Protocolli: a hide word of her own');
+    return ['ok' => true, 'id' => $id];
+}
+
+/** «Set up»: a rule or a hide word out — by its id, as it is kept now (one taken from Enhanced Log never comes back) */
+function logsMineRemove(string $list, string $id): array
+{
+    $mine = logsMine();
+    $left = array_values(array_filter($mine[$list], fn (array $x): bool => $x['id'] !== $id));
+    if (count($left) === count($mine[$list])) {
+        throw new Problem('logs_mine_gone');
+    }
+    $mine[$list] = $left;
+    logsMineWrite($mine);
+    logLine('Ms. Protocolli: ' . ($list === 'rules' ? 'a rule' : 'a hide word') . ' of her own removed');
+    return ['ok' => true];
+}
+
+// ===================================================================== Enhanced Log's own files
+
+/** Enhanced Log's category words => hers: its own («minor issues», «Drive Related» …) and her ids, any case, - _ and spaces alike */
+function logsElCat(string $word): ?string
+{
+    $w = strtolower(trim(preg_replace('/[\s_-]+/', ' ', $word) ?? ''));
+    $known = LOGS_RULE_CATS + LOGS_EL_WORDS + array_combine(array_values(LOGS_RULE_CATS), array_values(LOGS_RULE_CATS));
+    return $known[$w] ?? (str_ends_with($w, 's') ? ($known[substr($w, 0, -1)] ?? null) : null);
+}
+
+/** One of its files: a real file (never through a link), not too big — its text, else null */
+function logsElFile(string $path): ?string
+{
+    clearstatcache(true, $path);
+    if (is_link($path) || !is_file($path) || (int) @filesize($path) > LOGS_EL_MAX) {
+        return null;
+    }
+    $text = @file_get_contents($path, false, null, 0, LOGS_EL_MAX);
+    return is_string($text) ? $text : null;
+}
+
+/**
+ * Enhanced Log's own files while its folder is on the flash (null when it isn't): what she understands of them and what
+ * not. Read as Enhanced Log reads them: custom rules by LogReader.php (trimmed, # and empty lines aren't rules, CSV
+ * quotes), the filter by rc.enhanced.log (every ' and " taken out, a line a text — empty ones aren't). Read only.
+ * @return ?array{rules: list<array{re: string, cat: string}>, hide: list<string>, bad: list<array{list: string, line: string, why: string, word?: string}>}
+ */
+function logsElRead(?string $dir = null): ?array
+{
+    $dir ??= $GLOBALS['logsElDir'] ?? LOGS_EL_DIR;          // tests: a folder of their own
+    clearstatcache(true, $dir);
+    if (is_link($dir) || !is_dir($dir)) {
+        return null;
+    }
+    $out = ['rules' => [], 'hide' => [], 'bad' => []];
+    $bad = function (string $list, string $line, string $why, ?string $word = null) use (&$out): void {
+        if (count($out['bad']) < 50) {
+            $out['bad'][] = ['list' => $list, 'line' => logsCut(mb_scrub($line, 'UTF-8'), 200)[0], 'why' => $why] + ($word !== null ? ['word' => logsCut($word, 40)[0]] : []);
+        }
+    };
+    $seen = [];
+    foreach (explode("\n", logsElFile("$dir/custom_syslog.conf") ?? '') as $line) {
+        $line = trim($line);
+        if ($line === '' || $line[0] === '#' || $line === LOGS_EL_EXAMPLES['rules']) {
+            continue;
+        }
+        $f = str_getcsv($line, ',', '"', '');
+        $re = (string) ($f[0] ?? '');
+        $word = trim((string) ($f[1] ?? ''));
+        if (count($f) < 2 || $re === '' || $word === '') {
+            $bad('rules', $line, 'line');
+            continue;
+        }
+        $cat = logsElCat($word);
+        if ($cat === null) {
+            $bad('rules', $line, strtolower($word) === 'other' ? 'other' : 'cat', $word);
+            continue;
+        }
+        $why = logsMineRuleWhy($re);
+        if ($why !== '') {
+            $bad('rules', $line, $why);
+            continue;
+        }
+        if (!isset($seen['rule:' . $re])) {
+            $seen['rule:' . $re] = true;
+            $out['rules'][] = ['re' => $re, 'cat' => $cat];
+        }
+    }
+    foreach (explode("\n", str_replace(["'", '"'], '', logsElFile("$dir/syslog_filter.conf") ?? '')) as $line) {
+        $line = rtrim($line, "\r");
+        if ($line === '' || $line === LOGS_EL_EXAMPLES['hide']) {
+            continue;
+        }
+        $why = logsMineHideWhy($line);
+        if ($why !== '') {
+            $bad('hide', $line, $why);
+            continue;
+        }
+        if (!isset($seen['hide:' . $line])) {
+            $seen['hide:' . $line] = true;
+            $out['hide'][] = $line;
+        }
+    }
+    return $out;
+}
+
+/** The key she remembers a taken item by (el.seen) */
+function logsElKey(string $kind, string $text, string $cat = ''): string
+{
+    return "$kind:" . md5("$text\n$cat");
+}
+
+/** What of Enhanced Log's she hasn't taken yet: [rules, hide words] (new since, never one the user removed) */
+function logsElNew(array $el, array $mine): array
+{
+    $seen = array_flip($mine['el']['seen']);
+    return [array_values(array_filter($el['rules'], fn (array $r): bool => !isset($seen[logsElKey('rule', $r['re'], $r['cat'])]))),
+            array_values(array_filter($el['hide'], fn (string $h): bool => !isset($seen[logsElKey('hide', $h)])))];
+}
+
+/**
+ * Take over what is new of Enhanced Log's — $auto: only the first time she sees its folder (later the user decides,
+ * logsElTakeNew()). A rule whose regex she has already (or a hide word) is only remembered; when her list is full
+ * the rest stays new. Returns whether she wrote. Never in the way of a look: a failure is logged.
+ */
+function logsElTake(bool $auto, ?array $el = null): bool
+{
+    try {
+        $el ??= logsElRead();
+        if ($el === null) {
+            return false;
+        }
+        $mine = logsMine();
+        if ($auto && $mine['el']['time'] !== null) {
+            return false;
+        }
+        [$rules, $hide] = logsElNew($el, $mine);
+        $have = array_flip(array_column($mine['rules'], 'id'));
+        $taken = [0, 0];
+        foreach ($rules as $r) {
+            $id = logsMineId('rule', $r['re']);
+            if (!isset($have[$id])) {
+                if (count($mine['rules']) >= LOGS_MINE_MAX) {
+                    continue;
+                }
+                $mine['rules'][] = ['id' => $id, 're' => $r['re'], 'cat' => $r['cat'], 'from' => 'el'];
+                $have[$id] = true;
+                $taken[0]++;
+            }
+            $mine['el']['seen'][] = logsElKey('rule', $r['re'], $r['cat']);
+        }
+        $have = array_flip(array_column($mine['hide'], 'id'));
+        foreach ($hide as $h) {
+            $id = logsMineId('hide', $h);
+            if (!isset($have[$id])) {
+                if (count($mine['hide']) >= LOGS_MINE_MAX) {
+                    continue;
+                }
+                $mine['hide'][] = ['id' => $id, 'text' => $h, 'from' => 'el'];
+                $have[$id] = true;
+                $taken[1]++;
+            }
+            $mine['el']['seen'][] = logsElKey('hide', $h);
+        }
+        $first = $mine['el']['time'] === null;
+        if (!$first && !$rules && !$hide) {
+            return false;
+        }
+        $mine['el']['time'] ??= time();
+        logsMineWrite($mine);
+        logLine(sprintf('Ms. Protocolli: took over %d rules and %d hide words from Enhanced Log%s', $taken[0], $taken[1], $first ? ' (the first time)' : ''));
+        return true;
+    } catch (Throwable $e) {
+        logLine('Ms. Protocolli: Enhanced Log\'s rules not taken over: ' . $e->getMessage());
+        return false;
+    }
+}
+
+/** «Take over»: what is new in Enhanced Log's files since she last took from them */
+function logsElTakeNew(): array
+{
+    $el = logsElRead();
+    if ($el === null) {
+        throw new Problem('logs_el_gone');
+    }
+    logsElTake(false, $el);
+    return ['ok' => true];
+}
+
+/** For the page while Enhanced Log's folder is there: what she took (still hers), what is new since, what she didn't understand */
+function logsElSummary(array $el, array $mine): array
+{
+    [$rules, $hide] = logsElNew($el, $mine);
+    return ['rules' => count(array_filter($mine['rules'], fn (array $r): bool => $r['from'] === 'el')),
+            'hide' => count(array_filter($mine['hide'], fn (array $h): bool => $h['from'] === 'el')),
+            'new' => ['rules' => count($rules), 'hide' => count($hide)], 'bad' => $el['bad'], 'time' => $mine['el']['time']];
+}
+
+// ===================================================================== her instant sort
+
+/**
+ * «Syslog» without a fresh tour: the newest LOGS_SORT_LINES lines of Unraid's syslog (RAM — /var/log), sorted at once by
+ * the same rules the tour uses, in the shape of the tour's syslog part — nothing kept, nothing that wakes a disk.
+ */
+function logsSortNow(?string $path = null): array
+{
+    $t0 = microtime(true);
+    $path ??= '/var/log/syslog';
+    logsRuleSet(true);
+    $lines = array_map('logsClean', logsTail($path, LOGS_SORT_LINES));
+    $acc = logsTally();
+    logsTallyLines($acc, $lines, 'syslog', null, [], true);
+    $acc['lines'] = count(array_filter($lines, fn (string $l): bool => trim($l) !== ''));
+    $since = null;
+    foreach ($lines as $l) {
+        if (($since = logsLineTime($l)[0]) !== null) {
+            break;
+        }
+    }
+    $entry = logsTourEntry('syslog', ['group' => 'unraid', 'label' => 'syslog', 'param' => '', 'kind' => 'file'], $acc);
+    return ['ok' => true, 'sorted' => $entry + ['time' => time(), 'since' => $since, 'max' => LOGS_SORT_LINES,
+            'duration_ms' => (int) round((microtime(true) - $t0) * 1000)]];
 }
 
 /** The last $n lines of a file, reading at most LOGS_MAX_BYTES from its end */

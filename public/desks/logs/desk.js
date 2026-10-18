@@ -7,8 +7,11 @@
    /var/log is and its biggest files, the containers' logs and Docker's
    rotation, and per log the lines that sound like an error or a warning —
    similar ones as one entry; "Show in the log" opens the reader at that line.
-   Unraid's syslog also by her syslog rules (from Enhanced Log): a category per
-   line, her tile «Syslog» with a chip per category, the reader colours by them.
+   Unraid's syslog also by her syslog rules (from Enhanced Log, her own first): a
+   category per line, her tile «Syslog» with a chip per category (without a fresh
+   tour she sorts the syslog's newest lines at once), the reader colours by them.
+   Her second page «Set up» (#/logs/setup): her own rules and hide words, and what
+   she took over from Enhanced Log's settings while it is installed.
    The agent part lives in agent/desks/logs.php; lines always go into the page
    as text, never as HTML. */
 (() => {
@@ -45,6 +48,14 @@ let sysBar = null;              // the bar over «Syslog» (core.js Office.filte
 /** Where her syslog rules come from (Enhanced Log's repository) — for the credit under all */
 const ORIGIN = ['unraid-enhancedlog', 'https://github.com/dkaser/unraid-enhancedlog'];
 let foundBar = null;            // the bar over «Errors & warnings» (core.js Office.filterBar, built once): the words, the chips, the note line
+let page = 'main';              // her two pages: 'main' (the tiles) or 'setup' (her own rules)
+let setupView = null;           // «Set up» while it is shown: {root, ruleForm, hideForm}
+/* Her instant sort: «Syslog» without a fresh tour (none, older than FRESH_S or from before her own rules changed) — the
+   syslog's newest lines sorted at once by the agent («sort», the tour's shape), for this visit */
+const FRESH_S = 3600;
+let instant = null;             // its answer: the tour's syslog part + time, since
+let sorting = false;
+let sortAsked = false;          // asked once this visit (again after her own rules changed)
 const opts = {
   source: Office.store('logs.source') || '',          // nothing is read until a log is chosen
   lines: Number(Office.store('logs.lines')) || 500,
@@ -85,31 +96,49 @@ function level(line) {
    (logsSyslogLevel(), tests/run.php checks both). The categories: the tour's (cat.<id>). */
 const RULE_LEVEL = { error: 'error', warning: 'warn', minor: 'warn' };
 const RULE_SOURCES = ['syslog', 'syslog.1'];
+// a syslog line's message (rsyslog's msg: after its time, the server and the tag) — her hide words look there (agent: LOGS_SYSLOG_MSG)
+const SYSLOG_MSG = /^[A-Z][a-z]{2}\s+\d{1,2}\s+\d\d:\d\d:\d\d\s+\S+\s+[^:]*:(.*)$/s;
 // the most important first (her tile «Syslog» names the first ones); then what no rule knows and the noise
 const CAT_RANK = ['error', 'warning', 'drive', 'fs', 'network', 'minor', 'array', 'login', 'system', 'limetech', 'emhttp'];
 const CAT_ORDER = [...CAT_RANK, 'other', 'skip'];
-let rulesFrom = null;           // the state's list they were built from
-let rules = [];                 // [[RegExp, category], …]
+let rulesFrom = null;           // the state's lists they were built from
+let rules = [];                 // [[RegExp, category], …] — her own first, then the shipped ones
+let hide = [];                  // her hide words
+const judged = new Map();       // line => [level, category] of the syslog's lines (built anew with the rules)
 function syslogRules() {
   const list = Array.isArray(state?.rules) ? state.rules : [];
   if (list !== rulesFrom) {
     rulesFrom = list;
     rules = [];
+    judged.clear();
     for (const r of list) {
       if (!Array.isArray(r) || typeof r[0] !== 'string' || typeof r[1] !== 'string') continue;
       try { rules.push([new RegExp(r[0], 'i'), r[1]]); } catch (e) { /* a rule the browser can't read: left out */ }
     }
+    hide = (Array.isArray(state?.hide) ? state.hide : []).filter((h) => typeof h === 'string' && h !== '');
   }
   return rules;
 }
-function syslogLevel(line) {
-  const own = level(line);
-  const hit = syslogRules().find(([re]) => re.test(line));
-  const c = hit ? hit[1] : '';
-  if (c === 'skip') return '';
-  const by = RULE_LEVEL[c] || '';
-  return own === 'error' || !by ? own : by === 'error' ? 'error' : own || 'warn';
+/** A syslog line: [level, category] — a hide word makes it noise, else the first rule that fits; '' no rule */
+function syslogSort(line) {
+  const all = syslogRules();
+  const known = judged.get(line);
+  if (known) return known;
+  let out;
+  const m = hide.length ? SYSLOG_MSG.exec(line) : null;
+  if (hide.length && hide.some((h) => (m ? m[1] : line).includes(h))) out = ['', 'skip'];
+  else {
+    const own = level(line);
+    const hit = all.find(([re]) => re.test(line));
+    const c = hit ? hit[1] : '';
+    const by = RULE_LEVEL[c] || '';
+    out = [c === 'skip' ? '' : own === 'error' || !by ? own : by === 'error' ? 'error' : own || 'warn', c];
+  }
+  if (judged.size > 30000) judged.clear();
+  judged.set(line, out);
+  return out;
 }
+const syslogLevel = (line) => syslogSort(line)[0];
 /** How the reader judges the lines of a log: her syslog rules for Unraid's syslog, her words for every other one */
 const levelOf = (s) => (s && RULE_SOURCES.includes(s.id) ? syslogLevel : level);
 
@@ -120,7 +149,8 @@ async function load(fresh) {
 }
 function took(j) {
   if (j.ok && j.state) state = j.state;
-  if (view) { renderHead(); fillSources(); redraw(); }
+  if (view) { renderHead(); fillSources(); redraw(); wantSort(); }
+  if (setupView) renderSetup();
 }
 
 /** Her last tour; while one runs, look again every 1.5 s */
@@ -482,6 +512,35 @@ function foundTile(a) {
 
 /** Unraid's syslog as her last tour sorted it by her syslog rules — null before (or a tour from before the rules) */
 const syslogEntry = () => (tour?.sources || []).find((s) => s && s.id === 'syslog' && s.cats && typeof s.cats === 'object') || null;
+/** Her last tour's sort is fresh enough: an hour at most, and none of her own rules changed since */
+const tourFresh = () => !!(syslogEntry() && tour.time >= Date.now() / 1000 - FRESH_S && tour.time >= (Number(state?.mine?.time) || 0));
+/**
+ * What «Syslog» shows: her fresh tour's sort, else her instant sort (the newest lines, sorted just now), else an older
+ * tour's — {s, from: 'tour'|'now'}, or null (nothing yet: she is sorting, or the messenger is away and there was no tour)
+ */
+function syslogNow() {
+  if (tourFresh()) return { s: syslogEntry(), from: 'tour' };
+  if (instant) return { s: instant, from: 'now' };
+  return syslogEntry() ? { s: syslogEntry(), from: 'tour' } : null;
+}
+/** Her instant sort, once a visit when her tour isn't fresh enough (the wave on the tile and in the section meanwhile) */
+function wantSort() {
+  if (sortAsked || sorting || !tourKnown || !state || touring() || tourFresh() || !Office.agent.running) return;
+  sortAsked = true;
+  sortNow();
+}
+async function sortNow() {
+  sorting = true;
+  redraw();
+  let j = null;
+  try { j = await Office.api.post(`${ID}.sort`, {}); } catch (e) { j = null; }
+  sorting = false;
+  const got = j && j.ok && j.sorted && typeof j.sorted === 'object' && j.sorted.cats && typeof j.sorted.cats === 'object' ? j.sorted : null;
+  if (got) instant = got;
+  if (view) redraw();
+}
+/** A line with the wave: something runs */
+const busyLine = (text) => { const d = el('div', 'card-line running lg-busy'); d.append(el('span', 'spin'), ' ', text); return d; };
 /** «512 × Disks» with its colour */
 function catCount(c, n) {
   const span = el('span', 'lg-cat-n lg-cat-' + c);
@@ -491,15 +550,19 @@ function catCount(c, n) {
 
 /** «Syslog»: its lines by her syslog rules — the most important categories first (never the noise), how many lines, since when */
 function syslogTile(a) {
-  const s = syslogEntry();
-  if (!s) return Office.tile({ name: T('syslog.title'), cls: 'empty-card', lines: [!tour || !tour.time ? T('tile.no_tour') : T('tile.syslog_none')], ...a });
+  const d = syslogNow();
+  if (!d) {
+    return Office.tile({ name: T('syslog.title'), cls: 'empty-card',
+      lines: [sorting || (!tourKnown && Office.agent.running) ? busyLine(T('tile.syslog_sorting')) : !tour || !tour.time ? T('tile.no_tour') : T('tile.syslog_none')], ...a });
+  }
+  const s = d.s;
   const line = el('div', 'card-line lg-cat-line');
   const top = CAT_RANK.filter((c) => (s.cats[c] || 0) > 0).slice(0, 3);
   top.forEach((c, i) => { if (i) line.append(' · '); line.appendChild(catCount(c, s.cats[c])); });
   if (!top.length) line.append(T('tile.syslog_quiet'));
   const read = Object.values(s.cats).reduce((x, n) => x + (Number(n) || 0), 0);
-  return Office.tile({ name: T('syslog.title'), lines: [line,
-    [T('tile.syslog_lines', { n: read }), tour.first ? T('tile.found_first') : T('tile.found_since', { when: fmt.date(tour.since) })]], ...a });
+  const when = d.from === 'now' ? T('tile.syslog_now') : tour.first ? T('tile.found_first') : T('tile.found_since', { when: fmt.date(tour.since) });
+  return Office.tile({ name: T('syslog.title'), lines: [line, [T('tile.syslog_lines', { n: read }), when]], ...a });
 }
 
 /** «Read out»: the log being read, live or not, how many lines — or that none is chosen */
@@ -698,6 +761,75 @@ function foundView() {
   return box;
 }
 
+/** What a category's tip adds: «Disks» is Enhanced Log's «Drive Related» — and it catches USB and SCSI lines, too */
+const catNote = (c) => (c === 'drive' ? ' ' + T('cat.drive_note') : '');
+
+/**
+ * «Coming from Enhanced Log?» — while its settings are on the flash (state.el): where its things are here, what she took
+ * over of its own rules and filter, what is new there since (taken over on a click), what she didn't understand; that
+ * its filter goes with it when it is removed (those lines are written into the syslog again — she only hides them).
+ */
+function elHint(onSetup) {
+  const e = state && state.el && typeof state.el === 'object' ? state.el : null;
+  if (!e) return null;
+  const n = (x) => Math.max(0, Number(x) || 0);
+  const rules = n(e.rules);
+  const hides = n(e.hide);
+  const fresh = { rules: n(e.new?.rules), hide: n(e.new?.hide) };
+  const bad = Array.isArray(e.bad) ? e.bad.length : 0;
+  const box = el('div', 'callout lg-el');
+  const first = el('div');
+  box.appendChild(first);
+  first.append(el('strong', '', T('el.title')), ' ');
+  if (!onSetup) first.append(T('el.where'), ' ');
+  first.append(rules && hides ? T('el.taken', { rules: nOf('own_rules', rules), hide: nOf('hides', hides) })
+    : rules ? T('el.taken_rules', { rules: nOf('own_rules', rules) }) : hides ? T('el.taken_hide', { hide: nOf('hides', hides) }) : T('el.taken_none'));
+  if (rules || hides) first.append(' ', hides ? T('el.remove_filter') : T('el.remove'));
+  if (fresh.rules || fresh.hide) {
+    const p = el('div', 'lg-el-new');
+    p.append(fresh.rules && fresh.hide ? T('el.new', { rules: nOf('own_rules', fresh.rules), hide: nOf('hides', fresh.hide) })
+      : fresh.rules ? T('el.new_rules', { rules: nOf('own_rules', fresh.rules) }) : T('el.new_hide', { hide: nOf('hides', fresh.hide) }), ' ');
+    const b = el('button', 'btn small', T('el.take'));
+    b.type = 'button';
+    b.disabled = !Office.agent.running;
+    b.onclick = () => elTake(b);
+    p.appendChild(b);
+    box.appendChild(p);
+  }
+  if (bad) {
+    const p = el('div', 'lg-el-new');
+    p.append(T('el.bad', { n: bad }), ' ');
+    if (!onSetup) {
+      const a = el('a', '', T('page.setup'));
+      a.href = `#/${ID}/setup`;
+      p.appendChild(a);
+    }
+    box.appendChild(p);
+  }
+  return box;
+}
+const nOf = (what, n) => T('count.' + what, { n: Number(n) || 0 });
+
+/** «Take over»: what is new in Enhanced Log's settings since she last took from them */
+async function elTake(b) {
+  if (!Office.agent.running) return;
+  b.disabled = true;
+  if (!(await Office.freshState(ID))) { b.disabled = false; return; }      // it couldn't look again (said there)
+  if (!state?.el || !(Number(state.el.new?.rules) || Number(state.el.new?.hide))) { Office.toast(T('el.nothing_new')); took({}); return; }
+  const j = await Office.api.post(`${ID}.el_take`, {});
+  if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); b.disabled = false; return; }
+  mineChanged(j.state);
+  Office.toast(T('el.taken_toast'));
+}
+
+/** Her own rules changed (a state from the answer): drawn anew, her instant sort asked again on «Syslog» */
+function mineChanged(st) {
+  if (st && typeof st === 'object') state = st;
+  instant = null;
+  sortAsked = false;
+  took({});
+}
+
 /** A kind's category by her syslog rules, as a word (for the filter words); '' without one */
 const catName = (g) => (typeof g.cat === 'string' && CAT_ORDER.includes(g.cat) && g.cat !== 'other' ? T('cat.' + g.cat) : '');
 
@@ -717,14 +849,32 @@ function catsRead(cats) {
  * what no rule knows only in the counts line). She sorts, she doesn't judge.
  */
 function syslogView() {
-  const sub = !tour || !tour.time || tour.first ? T('syslog.sub_first') : T('syslog.sub', { when: fmt.date(tour.since) });
-  const [box, none] = tourSection(T('syslog.title'), sub, 'syslog.title', readButton('syslog'));
-  if (none) return box;
+  const d = syslogNow();
+  const s = d ? d.s : null;
+  const now = !!d && d.from === 'now';
+  const sub = now ? T('syslog.sub_now', { n: Number(s.lines) || 0, when: s.since ? fmt.date(s.since) : '–' })
+    : !tour || !tour.time || tour.first ? T('syslog.sub_first') : T('syslog.sub', { when: fmt.date(tour.since) });
+  let hint = tourHint();
+  if (sorting) { hint = el('span', 'hint running'); hint.append(el('span', 'spin'), ' ', T('sorting')); }
+  else if (now) { hint = el('span', 'hint', T('sorted_at', { when: fmt.relative(s.time) })); hint.title = fmt.date(s.time); }
+  const box = el('section', 'section lg-view');
+  box.appendChild(Office.sectionHead(T('syslog.title'), sub, readButton('syslog'), hint, { place: 'syslog.title' }));
   Office.place('syslog.title', box);      // its rows are its own (a line can stand in «Errors & warnings», too)
-  const s = syslogEntry();
+  const hello = elHint();
+  if (hello) box.appendChild(hello);
   const inner = el('div', 'box');
   if (!s) {
-    inner.appendChild(el('p', 'empty', T('syslog.none')));
+    const e = el('div', 'empty');
+    if (sorting || (!tourKnown && Office.agent.running)) e.append(busyLine(T('syslog.sorting')));
+    else {
+      e.append(el('strong', '', T('no_tour_title')), T('syslog.no_sort'));
+      const b = el('button', 'btn', T('tour'));
+      b.type = 'button';
+      b.disabled = !Office.agent.running || touring();
+      b.onclick = startTour;
+      e.append(el('br'), b);
+    }
+    inner.appendChild(e);
     box.appendChild(inner);
     return box;
   }
@@ -770,7 +920,7 @@ function fillSysCats(counts) {
     c.dataset.own = '1';          // its click filters (core.js: a chip with a title would only show its tip)
     c.setAttribute('aria-pressed', cat === id ? 'true' : 'false');
     c.append(el('span', 'lg-cat-dot'), el('span', 'lg-src-name', T('cat.' + id)), el('span', 'lg-counts', fmt.number(counts[id])));
-    c.title = T('cats.chip_title', { n: counts[id], name: T('cat.' + id) });
+    c.title = T('cats.chip_title', { n: counts[id], name: T('cat.' + id) }) + catNote(id);
     c.addEventListener('click', () => Office.keepInPlace(sysBarGet().el, () => {
       cat = cat === id ? '' : id;
       redraw();
@@ -840,7 +990,7 @@ function kindRow(g, o = {}) {
   const meta = el('div', 'row-meta');
   if (g.level === 'error' || g.level === 'warn') meta.appendChild(chip(T('kind.' + g.level), g.level === 'error' ? 'danger' : 'warn', T('kind.' + g.level + '_title')));
   if (catName(g) && (o.cats || (g.cat !== 'error' && g.cat !== 'warning'))) {       // «Errors & warnings»: error and warning — the chip before says it
-    meta.appendChild(chip(catName(g), 'lg-cat lg-cat-' + g.cat, T('cats.row_title', { name: catName(g) })));
+    meta.appendChild(chip(catName(g), 'lg-cat lg-cat-' + g.cat, T('cats.row_title', { name: catName(g) }) + catNote(g.cat)));
   }
   if (g.first && g.last) meta.appendChild(el('span', '', g.first === g.last ? fmt.date(g.last) : T('seen', { first: fmt.date(g.first), last: fmt.date(g.last) })));
   main.append(name, meta);
@@ -1037,8 +1187,15 @@ function renderLines(toBottom) {
   const q = opts.query.trim();
   const frag = document.createDocumentFragment();
   const lv = levelOf(source());
+  // Unraid's syslog: each line its category's edge (as in «Syslog»), the noise quieter
+  const sys = RULE_SOURCES.includes(source()?.id);
+  const edge = (line) => {
+    if (!sys) return '';
+    const c = syslogSort(line)[1];
+    return c === 'skip' ? ' lg-ce lg-hush' : CAT_RANK.includes(c) ? ' lg-ce lg-cat-' + c : ' lg-ce';
+  };
   for (const line of list) {
-    const row = el('span', 'lg-line ' + lv(line) + (isMark(line) ? ' spot' : ''));
+    const row = el('span', 'lg-line ' + lv(line) + edge(line) + (isMark(line) ? ' spot' : ''));
     if (q) {
       const lower = line.toLowerCase();
       const ql = q.toLowerCase();
@@ -1097,12 +1254,231 @@ function restart(keepMark) {
   read(true).then(schedule);
 }
 
+// ------------------------------------------------------------------ «Set up»: her own rules and hide words
+/** Her two pages (CLAUDE.md «Tiles»: two tabs = two pages): the tiles, and «Set up» (#/logs/setup) */
+const PAGES = () => [{ id: '', text: Office.t('common.page_overview') }, { id: 'setup', text: T('page.setup') }];
+const RULE_CATS = [...CAT_RANK, 'skip'];          // what a rule of hers may say (her categories and the noise)
+/** Her own rules and hide words as the state has them — only in exactly their shape */
+function mine() {
+  const m = state && state.mine && typeof state.mine === 'object' ? state.mine : {};
+  const ok = (x) => x && typeof x === 'object' && typeof x.id === 'string';
+  return {
+    rules: (Array.isArray(m.rules) ? m.rules : []).filter((r) => ok(r) && typeof r.re === 'string' && RULE_CATS.includes(r.cat)),
+    hide: (Array.isArray(m.hide) ? m.hide : []).filter((h) => ok(h) && typeof h.text === 'string'),
+    max: Number(m.max) || 100,
+  };
+}
+
+/** «Set up» anew (a new state, an answer): the head with the two tabs, her own rules, her hide words, what she didn't understand */
+function renderSetup() {
+  const v = setupView;
+  if (!v) return;
+  const { head } = Office.deskHead(Office.desks.get(ID), { bubble: Office.withGreeting(ID, T('setup.bubble')), actions: [],
+    pages: { list: PAGES(), current: 'setup' } });
+  const help = Office.pageHelp(ID, [
+    [T('mine.title'), T('help.mine_text')],
+    [T('hide.title'), T('help.hide_text')],
+    [T('help.el'), T('help.el_text')],
+  ]);
+  const parts = [head, help];
+  const hello = elHint(true);
+  if (hello) parts.push(hello);
+  parts.push(mineSection(v), hideSection(v));
+  const bad = badSection();
+  if (bad) parts.push(bad);
+  parts.push(credit());
+  v.root.replaceChildren(...parts);
+}
+
+/** A row of her own: what it says, its chips, «Remove» (after asking) */
+function mineRow(text, chips, remove) {
+  const r = el('div', 'row nocheck lg-mine-row');
+  const main = el('div', 'row-main');
+  main.appendChild(el('div', 'row-name lg-mine-text', text));
+  const meta = el('div', 'row-meta');
+  chips.filter(Boolean).forEach((c) => meta.appendChild(c));
+  main.appendChild(meta);
+  const b = el('button', 'btn small plain', T('mine.remove'));
+  b.type = 'button';
+  b.disabled = !Office.agent.running;
+  b.onclick = remove;
+  r.append(main, b);
+  return r;
+}
+const fromEl = (x) => (x.from === 'el' ? chip(T('mine.from_el'), '', T('mine.from_el_title')) : null);
+
+/** «My rules»: hers first, then the ones I was given — the first that fits decides */
+function mineSection(v) {
+  const m = mine();
+  const box = el('section', 'section lg-view');
+  box.appendChild(Office.sectionHead(T('mine.title'), T('mine.sub'), el('span', 'hint', T('mine.count', { n: m.rules.length, max: m.max })), { place: 'mine.title' }));
+  const list = el('div', 'box');
+  m.rules.forEach((r, i) => {
+    const row = mineRow(r.re, [el('span', 'lg-mine-nth', '#' + (i + 1)), chip(T('cat.' + r.cat), 'lg-cat lg-cat-' + r.cat, T('mine.cat_title', { name: T('cat.' + r.cat) }) + catNote(r.cat)), fromEl(r)],
+      () => mineRemove('rule_remove', r.id, T('mine.remove_title'), r.re, T('mine.removed')));
+    row.classList.add('lg-cat-row', 'lg-cat-' + r.cat);
+    list.appendChild(row);
+  });
+  if (!m.rules.length) list.appendChild(el('p', 'empty', T('mine.none')));
+  box.appendChild(list);
+  v.ruleForm ??= ruleForm();
+  v.ruleForm.sync(m.rules.length >= m.max);
+  box.appendChild(v.ruleForm.el);
+  return box;
+}
+
+/** «Hide in my view»: lines whose message holds one of these count as noise — they stay in the syslog, I only hide them */
+function hideSection(v) {
+  const m = mine();
+  const box = el('section', 'section lg-view');
+  box.appendChild(Office.sectionHead(T('hide.title'), T('hide.sub'), el('span', 'hint', T('mine.count', { n: m.hide.length, max: m.max })), { place: 'hide.title' }));
+  const list = el('div', 'box');
+  m.hide.forEach((h) => list.appendChild(mineRow(h.text, [fromEl(h)], () => mineRemove('hide_remove', h.id, T('hide.remove_title'), h.text, T('hide.removed')))));
+  if (!m.hide.length) list.appendChild(el('p', 'empty', T('hide.none')));
+  box.appendChild(list);
+  v.hideForm ??= hideForm();
+  v.hideForm.sync(m.hide.length >= m.max);
+  box.appendChild(v.hideForm.el);
+  return box;
+}
+
+/** What she couldn't take over from Enhanced Log's settings: each line as it stands there and why — never guessed */
+function badSection() {
+  const bad = (Array.isArray(state?.el?.bad) ? state.el.bad : []).filter((b) => b && typeof b.line === 'string' && typeof b.why === 'string');
+  if (!bad.length) return null;
+  const box = el('section', 'section lg-view');
+  box.appendChild(Office.sectionHead(T('bad.title'), T('bad.sub'), { place: 'bad.title' }));
+  const list = el('div', 'box');
+  for (const b of bad) {
+    const why = b.why === 'cat' ? T('bad.cat', { word: typeof b.word === 'string' ? b.word : '?' }) : b.why === 'other' ? T('bad.other')
+      : b.why === 'line' ? T('bad.line') : Office.has(`${ID}.errors.logs_mine_${b.why}`) ? T('errors.logs_mine_' + b.why, { n: mine().max }) : b.why;
+    const r = el('div', 'row nocheck lg-mine-row');
+    const main = el('div', 'row-main');
+    const meta = el('div', 'row-meta');
+    meta.append(chip(b.list === 'hide' ? T('hide.title') : T('mine.title'), 'quiet'), el('span', '', why));
+    main.append(el('div', 'row-name lg-mine-text', b.line), meta);
+    r.appendChild(main);
+    list.appendChild(r);
+  }
+  box.appendChild(list);
+  return box;
+}
+
+/** The form under «My rules»: a regex and a category — built once (what is typed survives a new look), checked by the agent */
+function ruleForm() {
+  const f = el('form', 'toolbar lg-mine-form');
+  const re = el('input', 'search lg-mine-in');
+  re.type = 'text';
+  re.maxLength = 300;
+  re.spellcheck = false;
+  re.autocomplete = 'off';
+  re.placeholder = T('mine.re_placeholder');
+  re.setAttribute('aria-label', T('mine.re_label'));
+  re.dataset.keep = '1';
+  const cat = el('select', 'picker');
+  cat.setAttribute('aria-label', T('mine.cat_label'));
+  cat.dataset.keep = '1';
+  const pick = new Option(T('mine.cat_pick'), '');
+  pick.disabled = true;
+  cat.appendChild(pick);
+  RULE_CATS.forEach((c) => cat.appendChild(new Option(T('cat.' + c), c)));
+  cat.value = '';
+  const add = el('button', 'btn', T('mine.add'));
+  add.type = 'submit';
+  const note = el('p', 'role lg-mine-note');
+  const check = () => {
+    let broken = false;
+    try { if (re.value) new RegExp(re.value, 'i'); } catch (e) { broken = true; }
+    note.textContent = broken ? T('mine.re_broken') : '';
+    note.classList.toggle('lg-mine-bad', broken);
+  };
+  re.oninput = check;
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    if (!re.value.trim()) { re.focus(); return; }
+    if (!cat.value) { Office.toast(T('mine.cat_missing'), true); cat.focus(); return; }
+    add.disabled = true;
+    const ok = await mineAct('rule_add', { re: re.value, cat: cat.value }, T('mine.added'));
+    add.disabled = false;
+    if (ok) { re.value = ''; cat.value = ''; check(); }
+  };
+  f.append(re, cat, add, note);
+  return { el: f, sync(full) { add.disabled = !Office.agent.running || full; add.title = full ? T('errors.logs_mine_full', { n: mine().max }) : ''; } };
+}
+
+/** The form under «Hide in my view»: a text */
+function hideForm() {
+  const f = el('form', 'toolbar lg-mine-form');
+  const text = el('input', 'search lg-mine-in');
+  text.type = 'text';
+  text.maxLength = 300;
+  text.spellcheck = false;
+  text.autocomplete = 'off';
+  text.placeholder = T('hide.placeholder');
+  text.setAttribute('aria-label', T('hide.label'));
+  text.dataset.keep = '1';
+  const add = el('button', 'btn', T('hide.add'));
+  add.type = 'submit';
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    if (!text.value.trim()) { text.focus(); return; }
+    add.disabled = true;
+    const ok = await mineAct('hide_add', { text: text.value }, T('hide.added'));
+    add.disabled = false;
+    if (ok) text.value = '';
+  };
+  f.append(text, add);
+  return { el: f, sync(full) { add.disabled = !Office.agent.running || full; add.title = full ? T('errors.logs_mine_full', { n: mine().max }) : ''; } };
+}
+
+/** An action on her own: from a fresh look, the agent checks (and refuses with its reason); the answer's state drawn */
+async function mineAct(action, data, done) {
+  if (!Office.agent.running) return false;
+  if (!(await Office.freshState(ID))) return false;          // it couldn't look again (said there)
+  const j = await Office.api.post(`${ID}.${action}`, data);
+  if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return false; }
+  mineChanged(j.state);
+  Office.toast(done);
+  return true;
+}
+
+/** «Remove» one of hers — asked first (one from Enhanced Log isn't taken over again, its plugin may be gone) */
+function mineRemove(action, id, title, text, done) {
+  const body = el('div');
+  body.append(el('pre', 'code lg-kind-full', text), el('p', '', T('mine.remove_text')));
+  Office.dialog({
+    title,
+    body,
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('mine.remove'), kind: 'danger', act: async () => {
+      if (!(await Office.freshState(ID))) return true;
+      const list = action === 'rule_remove' ? mine().rules : mine().hide;
+      if (!list.some((x) => x.id === id)) { Office.toast(T('errors.logs_mine_gone'), true); took({}); return true; }
+      await mineAct(action, { id }, done);
+      return true;
+    } }],
+  });
+}
+
 // ------------------------------------------------------------------ desk
 Office.desk({
   id: ID,
   /** sub: a tile (#/logs/varlog, …/docker, …/found, …/syslog, …/read — the search's places); «src:<log>»: «Errors & warnings» with
       that log's chip; «read/<source>» (the search's items): that log in the reader, as a pick in the list would */
   async mount(root, sub) {
+    instant = null;               // a new visit: her instant sort anew (the newest lines)
+    sortAsked = false;
+    if (Office.pageFrom(PAGES(), sub) === 'setup') {
+      page = 'setup';
+      view = null;
+      setupView = { root, ruleForm: null, hideForm: null };
+      if (String(sub || '').includes('/')) Office.subroute('setup');
+      renderSetup();
+      await Promise.all([load(false), loadTour()]);
+      if (setupView && setupView.root === root) renderSetup();
+      return;
+    }
+    page = 'main';
+    setupView = null;
     const s = String(sub || '');
     const one = /^src:(.+)$/.exec(s);
     src = one ? s : '';
@@ -1123,16 +1499,17 @@ Office.desk({
     await Promise.all([load(false), loadTour()]);
     renderTour();
     restart();
+    wantSort();
   },
-  unmount() { clearTimeout(timer); clearTimeout(tourTimer); view = null; shownKinds = []; },
+  unmount() { clearTimeout(timer); clearTimeout(tourTimer); view = null; setupView = null; shownKinds = []; },
   async poll() {
     load(false);
-    if (touring()) return;
+    if (page === 'setup' || touring()) return;
     const before = tour && tour.time;
     await loadTour();
     if (view && (tour && tour.time) !== before) renderTour();
   },
-  agentChanged() { if (view) renderHead(); },
+  agentChanged() { if (view) { renderHead(); wantSort(); } if (setupView) renderSetup(); },
   menu() {
     return [
       { text: T('tour'), act: startTour, disabled: !Office.agent.running || touring() },
@@ -1162,6 +1539,11 @@ Office.places(ID, [
   { kind: 'help', key: 'only_problems', text: 'help.only' },
   { kind: 'help', key: 'help.red', text: 'help.colours' },
   ...['counted', 'rules', 'grouped', 'since', 'space', 'source', 'favorites', 'safe'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
+  // her «Set up» (#/logs/setup): her own rules, her hide words, what she left out of Enhanced Log's settings
+  { kind: 'section', key: 'mine.title', text: 'help.mine_text', route: `#/${ID}/setup`, crumb: 'page.setup' },
+  { kind: 'section', key: 'hide.title', text: 'help.hide_text', route: `#/${ID}/setup`, crumb: 'page.setup' },
+  { kind: 'section', key: 'bad.title', route: `#/${ID}/setup`, crumb: 'page.setup', shown: () => !!(state?.el?.bad?.length) },
+  { kind: 'help', key: 'help.el', text: 'help.el_text', route: `#/${ID}/setup`, crumb: 'page.setup' },
 ]);
 
 // what her state holds for the search (core.js «items»): every log she can read, by the name her list gives it (never a

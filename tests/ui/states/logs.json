@@ -1138,5 +1138,50 @@
    "emhttp[:[_]",
    "emhttp"
   ]
- ]
+ ],
+ "mine": {
+  "rules": [
+   {
+    "id": "a092ae4b1f15",
+    "re": "(spinup|spindown)",
+    "cat": "array",
+    "from": "el"
+   },
+   {
+    "id": "62e11f279d58",
+    "re": "ata[0-9]+: hard resetting link",
+    "cat": "minor",
+    "from": ""
+   }
+  ],
+  "hide": [
+   {
+    "id": "a848882deb4a",
+    "text": "wsdd2[",
+    "from": "el"
+   }
+  ],
+  "time": 1791419597,
+  "max": 100
+ },
+ "hide": [
+  "wsdd2["
+ ],
+ "el": {
+  "rules": 1,
+  "hide": 1,
+  "new": {
+   "rules": 1,
+   "hide": 0
+  },
+  "bad": [
+   {
+    "list": "rules",
+    "line": "\"Recycle\", \"purple\"",
+    "why": "cat",
+    "word": "purple"
+   }
+  ],
+  "time": 1791419597
+ }
 }

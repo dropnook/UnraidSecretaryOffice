@@ -52,15 +52,15 @@
    a colour per category only from the office's tokens */
 .lg-cat-error{--lg-cat:var(--logs-cat-error)}
 .lg-cat-minor{--lg-cat:var(--logs-cat-minor)}
-.lg-cat-warning{--lg-cat:var(--logs-cat-minor)}
+.lg-cat-warning{--lg-cat:var(--logs-cat-warning)}
 .lg-cat-drive{--lg-cat:var(--logs-cat-drive)}
 .lg-cat-fs{--lg-cat:var(--logs-cat-fs)}
 .lg-cat-array{--lg-cat:var(--logs-cat-array)}
 .lg-cat-network{--lg-cat:var(--logs-cat-network)}
 .lg-cat-login{--lg-cat:var(--logs-cat-login)}
-.lg-cat-system{--lg-cat:var(--logs-cat-quiet)}
-.lg-cat-limetech{--lg-cat:var(--logs-cat-quiet)}
-.lg-cat-emhttp{--lg-cat:var(--logs-cat-quiet)}
+.lg-cat-system{--lg-cat:var(--logs-cat-system)}
+.lg-cat-limetech{--lg-cat:var(--logs-cat-limetech)}
+.lg-cat-emhttp{--lg-cat:var(--logs-cat-emhttp)}
 .lg-cat-other{--lg-cat:var(--logs-cat-quiet)}
 .lg-cat-skip{--lg-cat:var(--logs-cat-quiet)}
 & button.lg-cat-chip{display:inline-flex; align-items:center; gap:6px; cursor:pointer; font:inherit; font-size:12.5px; padding:3px 10px; max-width:100%}
@@ -75,6 +75,21 @@
 .lg-cat-n{display:inline-flex; align-items:center; gap:5px; white-space:nowrap; font-variant-numeric:tabular-nums}
 .lg-cat-n b{font-weight:650; color:var(--ink)}
 .row.lg-cat-row{box-shadow:inset 3px 0 0 var(--lg-cat, var(--line2))}
+/* the reader: each line of Unraid's syslog with its category's edge (none: no rule), the noise quieter */
+.lg-line.lg-ce{border-left:3px solid var(--lg-cat, transparent); padding-left:6px; -webkit-box-decoration-break:clone; box-decoration-break:clone}
+.lg-line.lg-ce.lg-cat-other{border-left-color:transparent}
+.lg-line.lg-hush{opacity:.55; border-left-color:transparent}
+.lg-busy{display:inline-flex; align-items:center; gap:6px}
+/* «Coming from Enhanced Log?» */
+.callout.lg-el{display:flex; flex-direction:column; gap:6px; margin:0}
+.lg-el-new{display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px}
+/* «Set up»: her own rules and hide words */
+.lg-mine-text{font:12.5px var(--mono); overflow-wrap:anywhere; white-space:normal}
+.lg-mine-nth{font-size:11.5px; color:var(--muted); font-variant-numeric:tabular-nums}
+.lg-mine-form{display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:0}
+.lg-mine-form .lg-mine-in{flex:1 1 260px; min-width:0; font-family:var(--mono)}
+.lg-mine-note{flex:1 1 100%; margin:0}
+.lg-mine-note.lg-mine-bad{color:var(--danger)}
 /* under all: where her syslog rules come from */
 .lg-credit{margin:22px 0 4px; padding-top:10px; border-top:1px solid var(--line); max-width:980px; font-size:12.5px; line-height:1.5; color:var(--muted); overflow-wrap:anywhere}
 .lg-credit b{color:var(--ink2); font-weight:600}
