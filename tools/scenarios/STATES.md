@@ -45,9 +45,103 @@ stopped unless in autostart) — the states' «recreate» uses it for templated 
 
 ## States
 
-Legend: **T** = run and undone on Tower with INV-LEFTOVER green, **3** = on USOTest3VM, **needs X** = implemented
-against the expected layout, not run (missing hardware or a reboot the runner's halves do), **–** = not run yet.
+Self-test of one state on a VM (fingerprint before → state → undo → fingerprint; exit 0 green, 1 failed, 2 needs, 3 the
+undo left something — the diff is printed):
+
+```bash
+flock /tmp/uso-scenarios.lock bash tools/scenarios/states-common.sh --self-test SH-YES
+ST_SHOW='stat -c "%n %W %Y" /mnt/cache/uso-yes/*' ST_HOLD=30 flock … --self-test SH-YES    # look at it, hold it
+```
+
+The fingerprint (`_st_fp`, the states' own INV-LEFTOVER until H1's lands): containers (name, image, state, binds,
+network, ports, compose project), volumes, networks, images, templates (md5), every share cfg + docker/domain/share/
+dynamix cfg + parity history (md5), notification agents, Compose Manager projects, shares.ini (useCache, pools,
+exclusive, hasCfg), every pool's and disk's top folders and appdata's, every `uso-*` share part in full (name, size,
+type, mode), ZFS datasets (+ refreservation, mountpoint) and pool health, services (mdState, dockerd, libvirtd, atd, ntpd,
+crond, dockerd stopped?), notify's mode, mover.pid, parity check running, /var/log free (10 MB steps), `uso-*` holder
+processes. Container ids are reported, not compared (a re-created container can't get its id back).
+
+Rules for whoever uses them: `state ID args` pushes `undo_<id> args` even when the state fails — every undo is idempotent
+and undoes only what its stash notes. A state returns 0 only when the state is really there, 2 when the server lacks what
+it needs (write `needs …` in the scenario, column «needs»). KEEP_STASH must be fresh per scenario (a failed undo's
+notes would be taken again). Long-lived helpers (holders, watchers, the agent) start through `_st_bg`/`_st_clean`: no
+inherited descriptor, so the scenario lock is never kept by a child (see «Other facts»).
+
+Legend: **T** = run on Tower and undone with INV-LEFTOVER green, **3** = the same on USOTest3VM, **needs X** = written
+against the expected layout, not runnable on today's VMs; *(2 on 3)* = the self-test answered «needs» there, correctly.
 
 | State id | Helper / what it does | Proven |
 |---|---|---|
-(filled in below as the states are verified)
+| **A. Containers and stacks** | | |
+| CT-RUNNING | nothing (the base) | T 3 |
+| CT-STOPPED [names…] | `ct_note` + `ct_stop` (default EmbyServer); undo `ct_back` | @CT-STOPPED |
+| CT-STOPPED-NC | Nextcloud + mariadb-nextcloud stopped | @CT-STOPPED-NC |
+| CT-STOPPED-DB | mariadb-nextcloud stopped | @CT-STOPPED-DB |
+| CT-STOPPED-PLAIN | EmbyServer stopped | @CT-STOPPED-PLAIN |
+| CT-PAUSED [name] | `docker pause`; undo unpause | @CT-PAUSED |
+| CT-GONE [name] | `ct_remove` (template into the stash); undo template back + Unraid's rebuild_container | @CT-GONE |
+| CT-GONE-TEMPLATE-STAYS [name] | `ct_remove … keep-template`; undo rebuild_container | @CT-GONE-TEMPLATE-STAYS |
+| CT-IMAGE-GONE [name] | stopped, its image's tag removed (`docker rmi -f repo:tag`, the layers stay under the container); undo `docker tag <id> <repo:tag>` | @CT-IMAGE-GONE |
+| CT-RENAMED-DOCKER [old new] | `docker rename` | @CT-RENAMED-DOCKER |
+| CT-RENAMED-UNRAID [old new] | new template (Name changed), old container + template gone, rebuild_container of the new | @CT-RENAMED-UNRAID |
+| CT-RECREATED [name] | rebuild_container (new id); undo: the noted state | @CT-RECREATED |
+| CT-NEW | `ct_make uso-new` (alpine, appdata/uso-new) | @CT-NEW |
+| CT-BINDS-ROOT [all\|share] | `uso-wide` binds /mnt/user (or a share) | @CT-BINDS-ROOT |
+| CT-APP-IS-DATASET [ds dir] | looks only: appdata/jellyfin a dataset, appdata/emby a folder (Tower's base) | @CT-APP-IS-DATASET |
+| CT-VOLUME-ONLY | `uso-vol` with the named volume usovol | @CT-VOLUME-ONLY |
+| CT-MANY [n=40] | uso-m1 … uso-m40 | @CT-MANY |
+| CT-HEALTH-STARTING | `uso-sick`, health check `exit 1` | @CT-HEALTH-STARTING |
+| ST-STACK [project] | the Immich stack (compose labels); made by apps.sh when missing | @ST-STACK |
+| ST-STACK-CM | a Compose Manager project of the stack | needs compose.manager (Tower has no `docker compose`) |
+| ST-RENAMED [old new] | the members re-created with project label immich-new (apps.sh --project) | @ST-RENAMED |
+| ST-MEMBER-STOPPED [member] | immich_redis stopped | @ST-MEMBER-STOPPED |
+| ST-MEMBER-GONE [member] | immich_redis removed; undo apps.sh re-creates it | @ST-MEMBER-GONE |
+| ST-CM-FILE-UNREADABLE [project unreadable\|gone] | the project's compose file chmod 000 / moved aside | needs compose.manager |
+| **C. Shares** | | |
+| SH-ARRAY [share n] | `share_make uso-arr no`, 50 files on disk1 + 50 on disk2 | @SH-ARRAY |
+| SH-POOL-ONLY | `uso-only` only cache, 10 files (exclusive by itself on Tower) | @SH-POOL-ONLY |
+| SH-YES | `uso-yes` yes cache, 20 files 40 d old + 20 files 1 d old (birth too) | @SH-YES |
+| SH-PREFER-ARRAY-FILES | `uso-prefer` prefer cache, 10 files on disk1 + 10 on disk2 | @SH-PREFER-ARRAY-FILES |
+| SH-PREFER-POOL2 / SH-YES-POOL2 | secondary = pool `fast` | needs pool2 |
+| SH-EXCLUSIVE | `uso-ex` only cache, exclusive (symlink) checked | @SH-EXCLUSIVE |
+| SH-EXCLUSIVE-BROKEN | `uso-exb` exclusive, then a root with files on disk1 → shares.ini exclusive=no (array restart when Unraid looks only then) | @SH-EXCLUSIVE-BROKEN |
+| SH-ZFS / SH-BTRFS / SH-XFS | a share whose part lies on that filesystem (pool: only; array disk: include=diskN) | @SH-ZFS |
+| SH-MULTI-DISK | uso-arr/serie1 on disk1 and disk2 | @SH-MULTI-DISK |
+| SH-RENAMED [a b] | Unraid's form renames uso-a → uso-b (cfg, dataset with snapshots) | @SH-RENAMED |
+| SH-DELETED [share] | parts with files renamed aside, Unraid's «Delete»; undo renames back, cfg back | @SH-DELETED |
+| SH-CFG-ORPHAN [share] | every root aside, the cfg stays (Unraid stops listing it) | @SH-CFG-ORPHAN |
+| SH-CFG-POOL-GONE [share pool] | cfg by hand `shareCachePool="big"` + array stop/start | @SH-CFG-POOL-GONE |
+| SH-OFFICE-SHARE-EXISTS [placed\|unplaced] | looks; unplaced: settings.ini `dumps_share =` (copy put back) | @SH-OFFICE-SHARE-EXISTS |
+| SH-OFFICE-SHARE-MISSING | UnraidSecretaryOffice's roots and cfg aside | @SH-OFFICE-SHARE-MISSING |
+| SH-APPDATA-MISSING | appdata's roots and cfg aside, the agent stopped around it (Docker off only) | @SH-APPDATA-MISSING |
+| SH-NAMES [share] | share «Fotos Ärger» (hand-made root + Unraid's Apply) with `put_names` | @SH-NAMES |
+| SH-100K [share n] | `put_many` 100 000 empty files in uso-yes/many | @SH-100K |
+| SH-BIG-FILE [share GB=2] | `put_big` (dd of random data) | @SH-BIG-FILE |
+| SH-OPEN-FILE [share] | `open_file` /mnt/user/uso-yes/open.bin (holder `uso-open-hold`) | @SH-OPEN-FILE |
+| SH-STOREROOM [share] | `storeroom_put`: .UnraidSecretaryOffice-trash/<run>/appdata/uso-old-app + her manifest | @SH-STOREROOM |
+| **D. Disks and pools** | | |
+| DK-ASLEEP-DISK1 / -DISK2 | `disk_sleep diskN` (emcmd cmdSpindown) | needs hdd (2 on T and 3) |
+| DK-ASLEEP-POOL [pool=slow] | `disk_sleep <pool>` | needs hdd + a rotating pool |
+| DK-POOL-FULL [pool leaveMiB] | `pool_fill`: ZFS refreservation dataset / btrfs fallocate | @DK-POOL-FULL |
+| DK-POOL-DEGRADED [pool] | `zpool offline` the mirror's second device; undo online + healthy | @DK-POOL-DEGRADED |
+| DK-ARRAY-DISK-FULL [n] | `disk_fill n` (xfs/btrfs fallocate, zfs refreservation) | @DK-ARRAY-DISK-FULL |
+| DK-NO-ZFS | looks: no zpool | @DK-NO-ZFS |
+| **E. Services and array** | | |
+| SV-DOCKER-OFF [cfg] | `docker_off` (rc.docker stop; cfg: DOCKER_ENABLED="no") | @SV-DOCKER-OFF |
+| SV-DOCKER-HUNG | `docker_hang` (SIGSTOP dockerd) | @SV-DOCKER-HUNG |
+| SV-VM-OFF [cfg] | `vm_service_off` (rc.libvirt stop; cfg: SERVICE="disable") | @SV-VM-OFF |
+| SV-ARRAY-STOPPED | `array_stop` / `array_start` (+ containers/VMs that ran) | @SV-ARRAY-STOPPED |
+| SV-ARRAY-STOP-MIDRUN [bk\|mv\|rs\|drill] | = RN-ARRAY-STOP-MIDRUN-<run> | see F |
+| SV-ATD-OFF | `atd_off` | @SV-ATD-OFF |
+| SV-NOTIFY-OFF [bin\|agents] | `notify_off` | @SV-NOTIFY-OFF |
+| SV-LOG-FULL | `varlog_fill` | @SV-LOG-FULL |
+| **F. Interruptions and runs** | | |
+| RN-ARRAY-STOP-MIDRUN-BK / -MV / -RS / -DRILL [delay timeout] | `midrun_arm … stop`: a watcher stops the array <delay> s after the run is at work | @RN-ARRAY-STOP-MIDRUN-BK |
+| RN-HARD-RESET-MIDRUN [run delay] | `midrun_arm … reset` (sysrq b) | needs reboot (runner halves) |
+| RN-REBOOT-CLEAN-MIDRUN [run delay] | `midrun_arm … reboot` | needs reboot (runner halves) |
+| RN-TWO-RUNS [backup\|moverelli] | `second_run`: the cron's job started now; undo waits for its end | @RN-TWO-RUNS |
+| RN-SETUP-WHILE-RUN | `second_run backup` + the engine's lock held | @RN-SETUP-WHILE-RUN |
+| RN-PLAN-OLD | settings.ini touched (only its time; put back) | @RN-PLAN-OLD |
+| RN-AGENT-RESTART-MIDREQUEST | armed: agent.php touched when the next request lands in the mailbox; undo its time back + the agent's next restart waited for | @RN-AGENT-RESTART-MIDREQUEST |
+| RN-PARITY-CHECK | `parity_start` (mdcmd check NOCORRECT) / `parity_stop` (+ parity-checks.log as before) | @RN-PARITY-CHECK |
+| RN-UNRAID-MOVER-RUNNING | `unraid_mover_fake_running` (mover.pid → `uso-fake-mover`) | @RN-UNRAID-MOVER-RUNNING |

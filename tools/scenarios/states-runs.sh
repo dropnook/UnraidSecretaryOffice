@@ -87,6 +87,12 @@ second_run() {
     local id=$1 job=${2:-backup} run pid
     case $job in backup) run=bk ;; moverelli) run=mv ;; *) say "second_run: backup|moverelli, not $job"; return 1 ;; esac
     run_active "$run" && { say "second_run: a $job run is at work already"; return 1; }
+    # job.sh starts a job once a minute (a second start in the same minute ends quietly) — and the engine makes one real
+    # backup a minute: wait for a minute of its own
+    if [[ $(cat "$RUN/job-$job.minute" 2>/dev/null) == "$(date +%Y%m%d%H%M)" ]]; then
+        say "second_run: $job started this minute already — waiting for the next"
+        _st_until 65 bash -c "[[ \$(cat '$RUN/job-$job.minute' 2>/dev/null) != \$(date +%Y%m%d%H%M) ]]"
+    fi
     pid=$(_st_bg bash "$P/scripts/job.sh" "$job")
     printf '%s\n' "$pid" > "$(_st_dir "$id")/job.pid"
     _st_until 30 run_active "$run" || { say "second_run: the $job job (pid $pid) isn't at work after 30 s"; return 1; }
@@ -163,7 +169,7 @@ parity_stop() {
     local dir; dir=$(_st_dir "$1")
     [[ -f $dir/parity-checks.log || -f $dir/parity-checks.none ]] || return 0
     [[ $(_st_resync) == 0 ]] || /usr/local/sbin/mdcmd nocheck
-    _st_until 60 test "$(_st_resync)" = 0 || { say "parity_stop: still running"; return 1; }
+    _st_until 60 _st_is 0 _st_resync || { say "parity_stop: still running"; return 1; }
     sleep 2      # Unraid writes the history line just after the stop
     if [[ -f $dir/parity-checks.log ]]; then cp -p "$dir/parity-checks.log" /boot/config/parity-checks.log; else rm -f /boot/config/parity-checks.log; fi
     rm -f "$dir/parity-checks.log" "$dir/parity-checks.none"

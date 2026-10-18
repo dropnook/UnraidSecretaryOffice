@@ -29,6 +29,10 @@ _st_until() {
     local end=$((SECONDS + $1)); shift
     until "$@" >/dev/null 2>&1; do ((SECONDS >= end)) && return 1; sleep 0.5; done
 }
+# _st_is <want> <cmd…> — the command prints exactly that (for _st_until: re-run each time, unlike a "$(…)" argument)
+_st_is() { local want=$1; shift; [[ $("$@" 2>/dev/null) == "$want" ]]; }
+# _st_lt <n> <cmd…> — the command prints a number below n
+_st_lt() { local n=$1 v; shift; v=$("$@" 2>/dev/null); [[ $v =~ ^[0-9]+$ ]] && ((v < n)); }
 # _st_need <what> <test cmd…> — 0 when the test holds, else says so and returns 2 (a state returns that on)
 _st_need() { local what=$1; shift; "$@" >/dev/null 2>&1 && return 0; say "needs $what: not on this server"; return 2; }
 # _st_ini <file> <section> <key> — a value of Unraid's ["section"] ini files (shares.ini, disks.ini); var.ini: section ''
@@ -144,6 +148,9 @@ _st_fp() {
 _st_fp_check() {
     local before=$KEEP/states-fp.before after=$KEEP/states-fp.after
     _st_fp > "$after"
+    # lib.sh's scenario_end calls a stash that still holds a file «not undone» — the same here
+    local left; left=$(find "$KEEP_STASH" -mindepth 1 -not -type d 2>/dev/null | sed "s|^$KEEP_STASH/||")
+    [[ -n $left ]] && { say "INV-LEFTOVER (states): RED — the stash still holds: $(tr '\n' ' ' <<< "$left")"; return 1; }
     if diff <(sed '/^## ids/,$d' "$before") <(sed '/^## ids/,$d' "$after") > "$KEEP/states-fp.diff"; then
         say "INV-LEFTOVER (states): green — the server is as before the state"
         diff -q <(sed -n '/^## ids/,$p' "$before") <(sed -n '/^## ids/,$p' "$after") >/dev/null \

@@ -38,9 +38,9 @@ _st_root() {
     local d=$1 s=$2 src fs
     [[ -d /mnt/$d/$s ]] && return 0
     read -r src fs < <(findmnt -no SOURCE,FSTYPE "/mnt/$d")
-    if [[ $fs == zfs ]]; then
+    if [[ $fs == zfs && $s =~ ^[A-Za-z0-9_.:-]+$ ]]; then
         zfs create "$src/$s" || return 1
-    else
+    else                                   # (on ZFS too for a name no dataset may have: a plain folder, as a user's mkdir)
         mkdir "/mnt/$d/$s" || return 1
     fi
     chown nobody:users "/mnt/$d/$s"; chmod 0777 "/mnt/$d/$s"
@@ -73,7 +73,7 @@ share_make() {
     _st_share_seen "$name" || { say "share_make: $name not in shares.ini"; return 1; }
     _st_until 10 test -f "$ST_SHARES_CFG/$name.cfg" || { say "share_make: no $name.cfg"; return 1; }
     if [[ $excl == exclusive ]]; then
-        _st_until 10 test "$(_st_share_ini "$name" exclusive)" = yes \
+        _st_until 10 _st_is yes _st_share_ini "$name" exclusive \
             || { say "share_make: $name is not exclusive (shares.ini exclusive=$(_st_share_ini "$name" exclusive))"; return 1; }
     fi
     return 0
@@ -127,9 +127,10 @@ share_primary() {
 _st_dataset_of() { local src fs; read -r src fs < <(findmnt -no SOURCE,FSTYPE --mountpoint "$1" 2>/dev/null); [[ $fs == zfs ]] && printf '%s' "$src"; }
 
 share_aside() {
-    local id=$1 name=$2 dir d ds keep
+    local id=$1 name=$2 only=${3:-} dir d ds keep
     dir=$(_st_dir "$id") || return 1
     for d in $(share_roots "$name"); do
+        [[ $only == nonempty && -z $(ls -A "/mnt/$d/$name" 2>/dev/null) ]] && continue
         ds=$(_st_dataset_of "/mnt/$d/$name")
         if [[ -n $ds ]]; then
             keep="${ds%/*}/uso-keep-${id,,}-$name"
@@ -187,14 +188,22 @@ share_use() {
     return $rc
 }
 share_unuse() {
-    local id=$1 dir s rc=0
+    local id=$1 dir s d ds rc=0
     dir=$(_st_dir "$id") || return 1
     files_unput "$id" || rc=1
     if [[ -f $dir/made-shares ]]; then
         while IFS= read -r s; do
             [[ -n $s ]] || continue
             for d in $(share_roots "$s"); do find "/mnt/$d/$s" -mindepth 1 -delete; done
-            share_remove "$s" || rc=1
+            # right after the files went, `zfs destroy` can find the dataset busy (seen on Tower): Unraid then leaves it
+            # unmounted and refuses again — a second try a moment later, a dataset it left behind destroyed by us (ours)
+            share_remove "$s" || { sleep 3; _st_emcmd 'cmdStatus=Apply'; share_remove "$s"; } || rc=1
+            for d in $(_st_pools); do
+                read -r ds _ < <(findmnt -no SOURCE,FSTYPE "/mnt/$d")
+                zfs list -H "$ds/$s" >/dev/null 2>&1 && [[ $(zfs get -H -o value mounted "$ds/$s") == no ]] \
+                    && { say "share_unuse: Unraid left $ds/$s unmounted — destroyed"; zfs destroy "$ds/$s" || rc=1; }
+            done
+            [[ -f $ST_SHARES_CFG/$s.cfg ]] && ! share_exists "$s" && { say "share_unuse: Unraid left $s.cfg — removed"; rm -f "$ST_SHARES_CFG/$s.cfg"; }
         done < <(tac "$dir/made-shares")
         ((rc == 0)) && rm -f "$dir/made-shares"
     fi
@@ -256,7 +265,7 @@ state_sh_exclusive_broken() { local s=${1:-uso-exb}
     share_use SH-EXCLUSIVE-BROKEN "$s" only cache '' exclusive || return
     put_files SH-EXCLUSIVE-BROKEN disk1 "$s" 3 || return
     _st_emcmd 'cmdStatus=Apply'
-    _st_until 15 test "$(_st_share_ini "$s" exclusive)" = no && return 0
+    _st_until 15 _st_is no _st_share_ini "$s" exclusive && return 0
     say "SH-EXCLUSIVE-BROKEN: Unraid looks again only at the array's start — restarting the array"
     array_stop SH-EXCLUSIVE-BROKEN && array_start SH-EXCLUSIVE-BROKEN || return 1
     [[ $(_st_share_ini "$s" exclusive) == no ]] || { say "SH-EXCLUSIVE-BROKEN: still exclusive"; return 1; }
@@ -299,9 +308,11 @@ undo_sh_renamed() { local dir; dir=$(_st_dir SH-RENAMED)
     fi
     share_unuse SH-RENAMED; }
 
-# deleted by Unraid's «Delete» (cfg, shares.ini entry and roots gone); its files kept aside first (Unraid deletes only an
-# empty share). A ZFS share with snapshots can't be deleted by Unraid (day-1: «Delete» unmounts, `zfs destroy` fails,
-# a second «Delete» drops the cfg and leaves the dataset unmounted) — this state refuses then.
+# deleted by Unraid's «Delete» (cfg, shares.ini entry and roots gone). Unraid deletes only an empty share: the parts
+# with files are first moved aside on their own filesystem (share_aside nonempty — a dataset renamed, so births,
+# snapshots and ids stay), an empty root is left for Unraid to remove. A ZFS share with snapshots can't be deleted by
+# Unraid at all (day-1: «Delete» unmounts, `zfs destroy` fails, a second «Delete» drops the cfg and leaves the dataset
+# unmounted) — this state refuses then.
 state_sh_deleted() { local s=${1:-uso-yes} dir d ds
     dir=$(_st_dir SH-DELETED)
     if ! share_exists "$s"; then share_use SH-DELETED "$s" yes cache && put_files SH-DELETED cache "$s" 10 || return; fi
@@ -310,28 +321,22 @@ state_sh_deleted() { local s=${1:-uso-yes} dir d ds
         [[ -n $ds && -n $(zfs list -H -t snapshot -o name "$ds" 2>/dev/null) ]] && { say "SH-DELETED: $ds has snapshots — Unraid can't delete it"; return 1; }
     done
     cp "$ST_SHARES_CFG/$s.cfg" "$dir/deleted.cfg" && printf '%s\n' "$s" > "$dir/deleted" || return 1
-    for d in $(share_roots "$s"); do
-        mkdir -p "/mnt/$d/.uso-keep/sh-deleted" && find "/mnt/$d/$s" -mindepth 1 -maxdepth 1 -exec mv -t "/mnt/$d/.uso-keep/sh-deleted/" {} + || return 1
-        printf '%s\n' "$d" >> "$dir/deleted.disks"
-    done
+    share_roots "$s" > "$dir/deleted.roots"
+    share_aside SH-DELETED "$s" nonempty || return 1
+    [[ -n $(share_roots "$s") ]] || { _st_root "$(share_primary "$s")" "$s" && _st_share_seen "$s"; } || return 1
     share_remove "$s"; }
-undo_sh_deleted() { local dir s d u p p2; dir=$(_st_dir SH-DELETED)
+undo_sh_deleted() { local dir s d ds; dir=$(_st_dir SH-DELETED)
     if [[ -f $dir/deleted ]]; then
         s=$(cat "$dir/deleted")
-        if ! share_exists "$s"; then
-            u=$(_st_cfg_val "$dir/deleted.cfg" shareUseCache); p=$(_st_cfg_val "$dir/deleted.cfg" shareCachePool)
-            p2=$(_st_cfg_val "$dir/deleted.cfg" shareCachePool2)
-            share_make "$s" "$u" "$p" "$p2" || return 1
-        fi
-        cp "$dir/deleted.cfg" "$ST_SHARES_CFG/$s.cfg"
-        while IFS= read -r d; do
-            _st_root "$d" "$s" && find "/mnt/$d/.uso-keep/sh-deleted" -mindepth 1 -maxdepth 1 -exec mv -t "/mnt/$d/$s/" {} + || return 1
-            rmdir "/mnt/$d/.uso-keep/sh-deleted" "/mnt/$d/.uso-keep" 2>/dev/null
-        done < "$dir/deleted.disks"
-        # Unraid made the root on disk1 for a «yes» share; it held nothing before: away again
-        for d in $(share_roots "$s"); do grep -qx "$d" "$dir/deleted.disks" || rmdir "/mnt/$d/$s" 2>/dev/null; done
-        _st_emcmd 'cmdStatus=Apply'
-        rm -f "$dir/deleted" "$dir/deleted.cfg" "$dir/deleted.disks"
+        # a root Unraid (or anybody) made meanwhile is in the way of the renamed-back part: only an empty one goes
+        for d in $(share_roots "$s"); do
+            [[ -n $(ls -A "/mnt/$d/$s") ]] && { say "SH-DELETED: /mnt/$d/$s holds files — not put back"; return 1; }
+            ds=$(_st_dataset_of "/mnt/$d/$s"); if [[ -n $ds ]]; then zfs destroy "$ds"; else rmdir "/mnt/$d/$s"; fi || return 1
+        done
+        share_back SH-DELETED "$s" || return 1
+        while read -r d; do [[ -e /mnt/$d/$s ]] || _st_root "$d" "$s" || return 1; done < "$dir/deleted.roots"   # the empty ones
+        cp "$dir/deleted.cfg" "$ST_SHARES_CFG/$s.cfg" && _st_emcmd 'cmdStatus=Apply' && _st_share_seen "$s" || return 1
+        rm -f "$dir/deleted" "$dir/deleted.cfg" "$dir/deleted.roots"
     fi
     share_unuse SH-DELETED; }
 

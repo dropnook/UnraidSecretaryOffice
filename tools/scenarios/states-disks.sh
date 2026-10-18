@@ -31,7 +31,7 @@ disk_wake() {
     local n=$1
     [[ $(_st_disk_ini "$n" spundown) == 1 ]] || return 0
     _st_emcmd "cmdSpinup=$n" || return 1
-    _st_until 30 test "$(_st_disk_ini "$n" spundown)" = 0
+    _st_until 30 _st_is 0 _st_disk_ini "$n" spundown
 }
 
 # a pool or disk's own filesystem: zfs <dataset> | btrfs | xfs
@@ -53,7 +53,7 @@ _st_fill() { # <id> <name> <leave MiB>
     fi
     say "fill: $n full but $(( leave >> 20 )) MiB ($fs)"
     # Unraid's own bookkeeping follows (shares.ini free, disks.ini fsFree) — what the office reads beside zfs/df
-    _st_until 30 test "$(_st_disk_ini "$n" fsFree)" -lt $(( (leave >> 10) * 4 )) \
+    _st_until 30 _st_lt $(( (leave >> 10) * 4 )) _st_disk_ini "$n" fsFree \
         || say "note: disks.ini fsFree of $n is $(_st_disk_ini "$n" fsFree) KB after 30 s"
 }
 _st_unfill() {

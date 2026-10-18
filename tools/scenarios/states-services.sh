@@ -115,7 +115,7 @@ array_stop() {
     printf 'started\n' > "$dir/array.was"
     cd / || return 1
     _st_emcmd 'cmdStop=Stop' || return 1
-    _st_until 300 test "$(_st_var mdState)" = STOPPED || { say "array_stop: not stopped after 5 min (mdState=$(_st_var mdState))"; return 1; }
+    _st_until 300 _st_is STOPPED _st_var mdState || { say "array_stop: not stopped after 5 min (mdState=$(_st_var mdState))"; return 1; }
     say "array_stop: the array is stopped"
 }
 array_start() {
@@ -123,8 +123,8 @@ array_start() {
     [[ -f $dir/array.was ]] || return 0
     if [[ $(_st_var mdState) != STARTED ]]; then
         _st_emcmd 'cmdStart=Start' || return 1
-        _st_until 300 test "$(_st_var mdState)" = STARTED || { say "array_start: not started after 5 min"; return 1; }
-        _st_until 120 test "$(_st_var fsState)" = Started || { say "array_start: fsState=$(_st_var fsState)"; return 1; }
+        _st_until 300 _st_is STARTED _st_var mdState || { say "array_start: not started after 5 min"; return 1; }
+        _st_until 120 _st_is Started _st_var fsState || { say "array_start: fsState=$(_st_var fsState)"; return 1; }
     fi
     _st_ct_back "$id" && _st_vm_back "$id" || return 1
     # the agent comes back by itself (event/started); its heartbeat fresh again before the next step
