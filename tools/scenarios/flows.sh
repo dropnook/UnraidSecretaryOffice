@@ -414,8 +414,9 @@ _rs_go() {
     id=$(ask_last '.id // empty')
     printf '%s\n' "$id" >"$KEEP/.rs-last"
     _fl_note "restore $(jq -r .kind <<<"$req")" "$(jq -cn --arg i "$id" --argjson r "$req" '{id: $i, req: $r}')"
-    if WAIT_SOFT=1 wait_for 60 "the restore job to be at work" bash -c "[[ \$(jq -r .result '$D/restore/$id/journal.json' 2>/dev/null) == running ]]"; then
-        bubble_look mid-restore restore
+    # at work (a look at the bubbles then) or already done — atd starts it a moment after the answer
+    if WAIT_SOFT=1 wait_for 60 "the restore job to begin" bash -c "[[ \$(jq -r .result '$D/restore/$id/journal.json' 2>/dev/null) != queued ]]"; then
+        [[ $(jq -r .result "$D/restore/$id/journal.json" 2>/dev/null) == running ]] && bubble_look mid-restore restore
     fi
     r=$(wait_restore "$id" 7200) || return 1
     [[ $r =~ ^(ok|warnings)$ ]] || { say "restore $id ended $r"; return 1; }
