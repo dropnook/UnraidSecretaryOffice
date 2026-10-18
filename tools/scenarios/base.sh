@@ -169,9 +169,28 @@ agent_stop() { bash "$P/scripts/agent.sh" stop >/dev/null; }
 agent_start() { bash "$P/scripts/agent.sh" start >/dev/null && agent_wait 90; }
 
 # ------------------------------------------------------------------------------- steps 2 and 4 (run here or before --make)
+# aside_in <share root> <path inside it>: moved to <root>/.uso-base-aside/<stamp>/~<path with / as %>~ (the same
+# disk: a rename — used by step 2's test shares and step 3; the ~…~ name matches none of INV-LEFTOVER's patterns)
+aside_in() {
+    local root=$1 rel=$2 to
+    to=$root/.uso-base-aside/$STAMP/~${rel//\//%}~
+    act "set aside ${root}/${rel}" bash -c 'mkdir -p "$(dirname "$2")" && mv -- "$1" "$2"' _ "$root/$rel" "$to"
+}
 listed() { sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$1" 2>/dev/null; }
 # the form fields of Unraid's share page (the states' share_apply sets only these); other cfg keys are reported
 SHARE_FORM='^share(UseCache|CachePool|CachePool2|Allocator|SplitLevel|Include|Exclude|Floor|Comment|COW)$'
+# test_files_there <share> <primary> <n>: the share's base files (n/2 × f1d-NNNN.bin, the rest f40d-) all on its primary
+# and none of them on any other disk or pool — the whole share looked at (awake parts only), not just the primary
+test_files_there() {
+    local s=$1 prim=$2 n=$3 b on
+    [[ $(compgen -G "/mnt/$prim/$s/f1d-*.bin" | wc -l) == $((n / 2)) && $(compgen -G "/mnt/$prim/$s/f40d-*.bin" | wc -l) == $((n - n / 2)) ]] || return 1
+    for b in $(bases); do
+        [[ $b == "$prim" ]] && continue
+        base_asleep "$b" && continue
+        on=$(compgen -G "/mnt/$b/$s/f1d-*.bin"; compgen -G "/mnt/$b/$s/f40d-*.bin"; true)
+        [[ -z $on ]] || { log "test share $s: $(grep -c . <<<"$on") of its files on $b too (another copy of the primary's, or moved there)"; return 1; }
+    done
+}
 shares_step() {
     step "2 shares"
     local s f k v use pool n fix=() other=() prim
@@ -217,9 +236,21 @@ shares_step() {
             if [[ -f /boot/config/shares/$s.cfg ]]; then log "test share $s there"
             else act "make the test share $s ($use${pool:+, $pool})" share_make "$s" "$use" $([[ $pool != - ]] && echo "$pool") || continue; fi
             prim=$(share_primary "$s")
-            if ls /mnt/"$prim"/"$s"/f1d-0001.bin /mnt/"$prim"/"$s"/f40d-0001.bin >/dev/null 2>&1; then
+            if test_files_there "$s" "$prim" "$n"; then
                 log "test share $s: its files there"
             else
+                # anywhere else in the share (another disk or pool - Unraid's mover or a Move now took them there) or
+                # not all of them: every one of them set aside (never deleted), then made anew on the primary (moved
+                # back, a file would be born again there - Ms. Moverelli's age rule reads the birth)
+                local b x=()
+                for b in $(bases); do
+                    base_asleep "$b" && continue
+                    mapfile -t x < <(compgen -G "/mnt/$b/$s/f1d-*.bin"; compgen -G "/mnt/$b/$s/f40d-*.bin")
+                    ((${#x[@]})) || continue
+                    # as aside_in() does, one action for the disk's lot: <root>/.uso-base-aside/<stamp>/~<name>~
+                    act "set aside ${#x[@]} test file(s) of $s on $b" bash -c 'to=$1/.uso-base-aside/$2; shift 2
+                        mkdir -p "$to" && for f; do mv -- "$f" "$to/~${f##*/}~" || exit 1; done' _ "/mnt/$b/$s" "$STAMP" "${x[@]}"
+                done
                 act "test share $s: $((n / 2)) files 1 day old on $prim" put_files BASE "$prim" "$s" $((n / 2)) --age 1d
                 act "test share $s: $((n - n / 2)) files 40 days old on $prim" put_files BASE "$prim" "$s" $((n - n / 2)) --age 40d
             fi
@@ -421,13 +452,6 @@ fi
 
 # --------------------------------------------------------------------------------------------- 3. engine leftovers
 step "3 engine leftovers"
-# aside_in <share root> <path inside it>: moved to <root>/.uso-base-aside/<stamp>/~<path with / as %>~ (the same
-# disk: a rename; the ~…~ name matches none of INV-LEFTOVER's patterns)
-aside_in() {
-    local root=$1 rel=$2 to
-    to=$root/.uso-base-aside/$STAMP/~${rel//\//%}~
-    act "set aside ${root}/${rel}" bash -c 'mkdir -p "$(dirname "$2")" && mv -- "$1" "$2"' _ "$root/$rel" "$to"
-}
 if command -v zfs >/dev/null 2>&1; then
     snaps=$(zfs list -H -t snapshot -o name 2>/dev/null | grep -E '@uso-(backup|plan)-' | grep -v '/UnraidSecretaryOffice-partners' | grep -v 'uso-wip-')
     n=$(grep -c . <<<"$snaps")
