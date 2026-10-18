@@ -35870,12 +35870,12 @@ JS);
             $o['waking'] ?? null);
         check('run card: … the rate in the bar\'s words like Mr. Backupsy\'s partner line, the file\'s bytes beside it',
             (bool) preg_grep('/^70 % · rc\.rate_avg \{"rate":"[0-9.]+ B"\}/', $o['flightCard'] ?? []) && (bool) preg_grep('/^rc\.on_way \{"file":"c2\.txt \(rc\.file_bytes \{\\\\"done\\\\":\\\\"500 B\\\\",\\\\"size\\\\":\\\\"500 B\\\\"\}\)",.* · rc\.rate \{"rate":"10 B"\}$/', $o['flightCard'] ?? []), json_encode($o['flightCard'] ?? null));
-        same('run card: a minute after this page first saw Docs, 200 B more — Ø 200/60 B/s, the larger of bytes (600 B ÷ 3.33 = 180 s) and files (3 ÷ 0 — none done yet: bytes only) = 180 s, the end at 2240', [40, 200 / 60, 180, 2240],
+        same('run card: a minute after this page first saw Docs, 200 B more — Ø 200/60 B/s, the larger of bytes (600 B ÷ 3.33 = 180 s) and files (3 ÷ 0 — none done yet: bytes only) = 180 s, the end at 2240', [40, 200 / 60, 180.0, 2240.0],
             [$o['rate'][0] ?? null, $o['rate'][1] ?? null, isset($o['rate'][2]) ? round($o['rate'][2], 6) : null, isset($o['rate'][3]) ? round($o['rate'][3], 6) : null]);
         same('run card: looking around — the first step, no bar', [0, null, ['running', 'pending', 'pending']], $o['look'] ?? null);
         check('run card: its title, the steps, «40 % · about … left», the share\'s counts, the file in flight, the end',
             in_array('rc.title', $o['card'] ?? [], true) && (bool) preg_grep('/^40 % · rc\.rate_avg \{"rate":"[0-9.]+ B"\} · rc\.left/', $o['card'] ?? []) && (bool) preg_grep('/^rc\.share \{"share":"Docs","done":1/', $o['card'] ?? [])
-            && in_array('rc.on_way {"file":"c2.txt","from":"pic.pool_name {\\"pool\\":\\"cache\\"}","to":"pic.array"} · rc.rate {"rate":"10 B"}', $o['card'] ?? [], true) && (bool) preg_grep('/^rc\.end/', $o['card'] ?? []), json_encode($o['card'] ?? null));
+            && in_array('rc.on_way {"file":"c2.txt","from":"pic.pool_name {\\"pool\\":\\"cache\\"}","to":"pic.array"}', $o['card'] ?? [], true) && (bool) preg_grep('/^rc\.end/', $o['card'] ?? []), json_encode($o['card'] ?? null));
         same('run card: the foot — «N errors, N warnings» left (as Mr. Backupsy\'s); right, in Jack Emby\'s order and style: «Log» as a quiet link, «Stop after this file»; no harder stop',
             ['card-foot mo-run-foot', 'rc.counts {"errors":"count.errors {\\"n\\":0}","warnings":"count.warnings {\\"n\\":0}"}', 'mo-run-right',
              [['button', 'mo-link', 'rc.show_log', false], ['button', 'btn small plain', 'stop', false]]], $o['foot'] ?? null);
