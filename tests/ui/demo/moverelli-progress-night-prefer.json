@@ -1,0 +1,197 @@
+{
+ "time": 1791672002,
+ "running": true,
+ "real": true,
+ "stopping": null,
+ "progress": {
+  "mode": "run",
+  "result": "running",
+  "started": 1791670342,
+  "time": 1791672002,
+  "plan": [
+   "Familienvideos"
+  ],
+  "phase": "share",
+  "share": "Familienvideos",
+  "file": "/mnt/disk2/Familienvideos/2019/Sommerlager/Clip 0412.mp4",
+  "share_files": 122876,
+  "share_bytes": 468151435264,
+  "share_done_files": 17584,
+  "share_done_bytes": 56908316672,
+  "done_files": 17584,
+  "done_bytes": 56908316672,
+  "files": 122876,
+  "bytes": 468151435264,
+  "shares": [],
+  "file_bytes": 77594624,
+  "file_size": 222298112,
+  "recent": [
+   {
+    "name": "Familienvideos/2019/Sommerlager/Clip 0408.mp4",
+    "bytes": 157286400,
+    "from": "array",
+    "to": "nvme"
+   },
+   {
+    "name": "Familienvideos/2019/Sommerlager/Clip 0409.mp4",
+    "bytes": 178257920,
+    "from": "array",
+    "to": "nvme"
+   },
+   {
+    "name": "Familienvideos/2019/Sommerlager/Clip 0410.mp4",
+    "bytes": 199229440,
+    "from": "array",
+    "to": "nvme"
+   },
+   {
+    "name": "Familienvideos/2019/Sommerlager/Clip 0411.mp4",
+    "bytes": 220200960,
+    "from": "array",
+    "to": "nvme"
+   }
+  ]
+ },
+ "night": {
+  "mode": "run",
+  "by": "schedule",
+  "started": 1791670282,
+  "phase": "free",
+  "round": 1,
+  "who": "her",
+  "jack": true,
+  "pool": "cache",
+  "plan": {
+   "measured": true,
+   "back": 0,
+   "goes": 0,
+   "age": 0,
+   "fill": 12884901888,
+   "wait": 0,
+   "first": "jack"
+  },
+  "steps": [
+   {
+    "who": "jack",
+    "phase": "free",
+    "round": 1,
+    "exit": 0,
+    "result": "ok"
+   }
+  ],
+  "result": null,
+  "running": true,
+  "picture": {
+   "pool": "cache",
+   "x": 80,
+   "dest": {
+    "to": "array",
+    "size": 25769803776000,
+    "used": 16320875724800
+   },
+   "phases": {
+    "check": {
+     "before": {
+      "size": 2147483648000,
+      "fixed": 354334801920,
+      "others": 654982512640,
+      "jack": 816043786240,
+      "free": 225485783040,
+      "jack_watched": 150323855360,
+      "jack_reserve": 150323855360,
+      "snapshots": 96636764160
+     },
+     "forecast": {
+      "size": 2147483648000,
+      "fixed": 354334801920,
+      "others": 504658657280,
+      "jack": 762356695040,
+      "free": 429496729600,
+      "jack_watched": 0,
+      "jack_reserve": 204010946560,
+      "snapshots": 96636764160
+     },
+     "planned": {
+      "jack_back": 150323855360,
+      "others_back": 150323855360,
+      "jack_fetch": 96636764160,
+      "until": 1621350154240
+     }
+    },
+    "free": {
+     "before": {
+      "size": 2147483648000,
+      "fixed": 354334801920,
+      "others": 654982512640,
+      "jack": 665719930880,
+      "free": 375809638400,
+      "jack_watched": 0,
+      "jack_reserve": 300647710720,
+      "snapshots": 96636764160
+     },
+     "forecast": {
+      "size": 2147483648000,
+      "fixed": 354334801920,
+      "others": 504658657280,
+      "jack": 762356695040,
+      "free": 429496729600,
+      "jack_watched": 0,
+      "jack_reserve": 204010946560,
+      "snapshots": 96636764160
+     },
+     "planned": {
+      "jack_back": 150323855360,
+      "others_back": 150323855360,
+      "jack_fetch": 96636764160,
+      "until": 1621350154240
+     }
+    }
+   },
+   "files": [
+    {
+     "name": "Familienserien/Die Ritterburg/Staffel 1/Folge 01.mkv",
+     "bytes": 1825361100,
+     "from": "cache",
+     "to": "array",
+     "who": "jack"
+    },
+    {
+     "name": "Familienserien/Die Ritterburg/Staffel 1/Folge 02.mkv",
+     "bytes": 2147483648,
+     "from": "cache",
+     "to": "array",
+     "who": "jack"
+    },
+    {
+     "name": "Familienvideos/2019/Sommerlager/Clip 0408.mp4",
+     "bytes": 157286400,
+     "from": "array",
+     "to": "nvme",
+     "who": "her"
+    },
+    {
+     "name": "Familienvideos/2019/Sommerlager/Clip 0409.mp4",
+     "bytes": 178257920,
+     "from": "array",
+     "to": "nvme",
+     "who": "her"
+    },
+    {
+     "name": "Familienvideos/2019/Sommerlager/Clip 0410.mp4",
+     "bytes": 199229440,
+     "from": "array",
+     "to": "nvme",
+     "who": "her"
+    },
+    {
+     "name": "Familienvideos/2019/Sommerlager/Clip 0411.mp4",
+     "bytes": 220200960,
+     "from": "array",
+     "to": "nvme",
+     "who": "her"
+    }
+   ]
+  }
+ },
+ "jack": null
+}

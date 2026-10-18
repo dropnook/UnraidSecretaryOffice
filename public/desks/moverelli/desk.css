@@ -79,6 +79,11 @@
 .mo-pic-x.flip > span{left:auto; right:3px}
 .mo-pic-row:first-child .mo-pic-bar{margin-top:14px}
 .mo-pic-dest{margin:0 0 10px}
+/* the run's other places (2026-10-18: a «prefer» share into another pool): a bar each under the target's; what came in this
+   run lighter, in the colour of what flies to it */
+.mo-pic-extra{margin:10px 0 0}
+.mo-seg-arrived{background:color-mix(in srgb, var(--mo-dest) 45%, var(--surface)); box-shadow:inset 0 0 0 1px var(--mo-dest)}
+.mo-fly-arrived{color:color-mix(in srgb, var(--mo-dest) 60%, var(--surface))}
 .mo-pic-sub{margin:4px 0 0; font-size:12px; color:var(--muted)}
 .mo-pic-none{margin:4px 0 8px; font-size:12.5px; color:var(--muted)}
 .mo-pic-legend{display:flex; flex-wrap:wrap; gap:4px 16px; font-size:12px; color:var(--ink2)}

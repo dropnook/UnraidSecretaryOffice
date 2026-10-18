@@ -102,8 +102,8 @@ function jackPanel(nn) {
 /**
  * What her card shows of Smart Mover's live status, pure (tests/run.php under node): the steps — Umschauen, one per share
  * of the run, Aufräumen — with the current one, the share in flight by files and bytes, its percent (by bytes, else
- * files), the file in flight, the time left from the measured rate (core.js Office.runRate: two readings needed) and
- * the end once the share in flight is the run's last
+ * files), the file in flight with its own live rate (core.js Office.runRate), the time left from the share's average
+ * (runEstimate()) and the end once the share in flight is the run's last
  */
 function runCardData(p, now) {
   const plan = Array.isArray(p.plan) ? p.plan : [];
@@ -120,20 +120,67 @@ function runCardData(p, now) {
   const fileBytes = Number(p.file_bytes) || 0;
   const dBytes = (Number(p.share_done_bytes) || 0) + fileBytes;
   const percent = phase !== 'share' ? null : bytes > 0 ? Math.min(100, Math.floor(100 * dBytes / bytes)) : files > 0 ? Math.min(100, Math.floor(100 * dFiles / files)) : null;
-  let left = null;
-  let end = null;
-  let rate = null;
-  if (phase === 'share' && bytes > 0) {
-    rate = Office.runRate(`moverelli|${p.started}|${p.share}`, dBytes, now);
-    if (rate) {
-      left = Math.max(0, (bytes - dBytes) / rate);
-      if (plan[plan.length - 1] === p.share) end = now + left;
-    }
-  }
-  // the file's own rate too (its .partial growing): said beside it even before the share's bar has two readings
+  const est = phase === 'share' && (bytes > 0 || files > 0) ? runEstimate(p, { files, bytes, dFiles, dBytes }, now) : null;
+  const left = est && est.left !== null ? est.left : null;
+  const end = left !== null && plan[plan.length - 1] === p.share ? now + left : null;
+  // the file's own live rate (its .partial growing): said beside it
   const fileRate = fileBytes > 0 && p.file ? Office.runRate(`moverelli|${p.started}|${p.file}`, fileBytes, now) : null;
-  return { steps, at, percent, left, end, rate, fileRate, waking: !!p.waking && !fileBytes, fileBytes, fileSize: p.file_size == null ? null : Number(p.file_size), share: p.share || '', file: p.file || '', files, bytes, dFiles, dBytes, started: p.started || null,
+  return { steps, at, percent, left, end, rate: est ? est.rate : null, estimating: !!est && est.left === null, fileRate, waking: !!p.waking && !fileBytes, fileBytes,
+    fileSize: p.file_size == null ? null : Number(p.file_size), share: p.share || '', file: p.file || '', files, bytes, dFiles, dBytes, started: p.started || null,
     fill: phase === 'share' ? fillLine(p) : null };
+}
+
+// ---- the share's time left (the owner, 2026-10-18: «noch etwa 1 T 3 Std» after 27 min of 53 GB — a short window of a
+// stretch of small files): from the share's AVERAGE since it started, files and bytes both — the larger of files left ÷
+// files a second and bytes left ÷ bytes a second —, smoothed, and only once a minute went by or 1 % is done
+const EST_MIN_S = 60;             // shown after a minute …
+const EST_MIN_PART = 0.01;        // … or 1 % of the share's files or bytes
+const EST_SETTLE_S = 10;          // never from the first seconds
+const EST_BLEND = 0.3;            // each new estimate moves the shown one by this part (the shown one counts down between)
+const estSeen = new Map();        // run|share -> {t, files, bytes}: when this page first saw the share at work
+const estLast = new Map();        // run|share -> {t, left}: the last time left shown
+/**
+ * The share's estimate, pure but for its memory (estSeen, estLast): {rate (bytes a second, its average — «Ø»), fileRate
+ * (files a second), left (seconds; null while it is still estimated)}. Since when: the run's start while no share before
+ * it moved anything in this run (Smart Mover says no start of its own per share — what is done of the run then is the
+ * share's), else since this page first saw the share at work. d: {files, bytes, dFiles, dBytes} of runCardData().
+ */
+function runEstimate(p, d, now) {
+  const key = `moverelli|${p.started}|${p.share}`;
+  // what the run moved before this share (the run's counts hold the share's too)
+  const before = (Number(p.done_bytes) || 0) > (Number(p.share_done_bytes) || 0) || (Number(p.done_files) || 0) > d.dFiles;
+  if (!estSeen.has(key)) estSeen.set(key, { t: now, files: d.dFiles, bytes: d.dBytes });
+  const base = !before && Number(p.started) > 0 && Number(p.started) <= now ? { t: Number(p.started), files: 0, bytes: 0 } : estSeen.get(key);
+  const secs = now - base.t;
+  const dF = Math.max(0, d.dFiles - base.files);
+  const dB = Math.max(0, d.dBytes - base.bytes);
+  const rate = secs > 0 && dB > 0 ? dB / secs : null;
+  const fileRate = secs > 0 && dF > 0 ? dF / secs : null;
+  const enough = secs >= EST_MIN_S || (d.bytes > 0 && dB >= EST_MIN_PART * d.bytes) || (d.files > 0 && dF >= EST_MIN_PART * d.files);
+  if (secs < EST_SETTLE_S || !enough || (!rate && !fileRate)) return { rate, fileRate, left: null };
+  const byBytes = rate && d.bytes > 0 ? Math.max(0, d.bytes - d.dBytes) / rate : 0;
+  const byFiles = fileRate && d.files > 0 ? Math.max(0, d.files - d.dFiles) / fileRate : 0;
+  const raw = Math.max(byBytes, byFiles);
+  const last = estLast.get(key);
+  let left = raw;
+  if (last && now > last.t) {
+    const counted = Math.max(0, last.left - (now - last.t));
+    left = counted + EST_BLEND * (raw - counted);
+  } else if (last && now === last.t) left = last.left;
+  estLast.set(key, { t: now, left });
+  return { rate, fileRate, left };
+}
+
+/**
+ * The end in words, pure: «done at about 17:45» today, «done tomorrow at about 03:10», later with its day; $now, $end:
+ * seconds (the browser's own day)
+ */
+function endText(end, now) {
+  const day = (s) => { const x = new Date(s * 1000); return new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(); };
+  const days = Math.round((day(end) - day(now)) / 86400000);
+  if (days <= 0) return T('rc.end', { time: fmt.time(end) });
+  if (days === 1) return T('rc.end_tomorrow', { time: fmt.time(end) });
+  return T('rc.end_day', { day: fmt.date(end, true) });
 }
 
 /**
@@ -199,18 +246,19 @@ function runCard(p, now) {
     if (d.started && !nn) top.appendChild(el('span', 'status quiet', T('rc.since', { time: fmt.time(d.started), duration: fmt.duration(now - d.started) })));
     card.appendChild(Office.runSteps(d.steps, d.at, `moverelli|${p.started}`));
     if (d.percent !== null) {
-      card.appendChild(Office.runBar(d.percent, `${d.percent} %` + (d.rate ? ' · ' + T('rc.rate', { rate: fmt.size(d.rate) }) : '')
-        + (d.left !== null ? ' · ' + T('rc.left', { left: fmt.duration(d.left) }) : '')));
+      // the share's average (Ø) and the time left from it — «being estimated» before a minute or 1 % (runEstimate())
+      card.appendChild(Office.runBar(d.percent, `${d.percent} %` + (d.rate ? ' · ' + T('rc.rate_avg', { rate: fmt.size(d.rate) }) : '')
+        + (d.left !== null ? ' · ' + T('rc.left', { left: fmt.duration(d.left) }) : d.estimating ? ' · ' + T('rc.estimating') : '')));
       card.appendChild(el('div', 'card-line', T('rc.share', { share: d.share, done: d.dFiles, files: nOf('files', d.files), done_size: fmt.size(d.dBytes), size: fmt.size(d.bytes) })));
     }
     if (d.fill) card.appendChild(el('div', 'card-line', d.fill));
     if (d.file) {
       const sh = ((state && state.shares) || []).find((x) => x.share === d.share) || {};
       card.appendChild(el('div', 'card-line mo-run-file', onWayText({ name: d.file, done: d.fileBytes, size: d.fileSize, from: sh.from || nightPool(nn), to: sh.to || 'array' })
-        + (d.fileRate || d.rate ? ' · ' + T('rc.rate', { rate: fmt.size(d.fileRate || d.rate) }) : '')));
+        + (d.fileRate ? ' · ' + T('rc.rate', { rate: fmt.size(d.fileRate) }) : '')));
       if (d.waking) card.appendChild(el('div', 'card-line', T('rc.waking')));
     }
-    if (d.end) card.appendChild(el('div', 'card-line', T('rc.end', { time: fmt.time(d.end) })));
+    if (d.end) card.appendChild(el('div', 'card-line', endText(d.end, now)));
   }
   // Jack Streamer's file in flight while his step runs: the same one line, from his live view (his part below shows none)
   const cur = jackAtWork(nn) && jackLive.progress && jackLive.progress.current;
@@ -308,6 +356,110 @@ function pictureBars(pic, px, done, destPx) {
   return { measured: true, pool: pic.pool || '', x, before: bar(first), after: after ? bar(after) : null, forecast: !end, dest };
 }
 
+// ---- the places of a run the picture has no bar for (the owner, 2026-10-18: a «prefer» share moving array → ripley
+// while the picture is the cache's — nothing moved in it): each its own bar beside the target's, growing with what came
+// (shrinking with what left), the files flying to it; it stays until the run ends
+/**
+ * What her run moved per place so far, pure: {place: bytes in (+) and out (−)} — the shares done (their bytes in the
+ * part of their files that moved) and the share at work (its bytes done, the file in flight with them); rows: her
+ * state's share rows (from, to)
+ */
+function movedByPlace(p, rows) {
+  const out = {};
+  if (!p || typeof p !== 'object') return out;
+  const way = (share) => (Array.isArray(rows) ? rows : []).find((r) => r && r.share === share && r.from && r.to) || null;
+  const add = (share, b) => {
+    const r = way(share);
+    if (!r || !(b > 0)) return;
+    out[r.to] = (out[r.to] || 0) + b;
+    out[r.from] = (out[r.from] || 0) - b;
+  };
+  for (const x of Array.isArray(p.shares) ? p.shares : []) {
+    if (!x || x.share === p.share) continue;
+    const files = Number(x.files) || 0;
+    add(x.share, (Number(x.bytes) || 0) * (files > 0 ? Math.min(1, (Number(x.moved) || 0) / files) : 0));
+  }
+  if (p.phase === 'share' && p.share) add(p.share, (Number(p.share_done_bytes) || 0) + (Number(p.file_bytes) || 0));
+  return out;
+}
+/**
+ * What had moved when $t was, pure: samples [[time, {place: bytes}]] in time order, from 0 at $start (in between: on the
+ * line between two readings; after the last: the last)
+ */
+function movedAt(samples, t, start) {
+  const list = Array.isArray(samples) ? samples : [];
+  if (!list.length || !(t > start)) return {};
+  let a = [start, {}];
+  for (const s of list) {
+    if (s[0] >= t) {
+      const f = s[0] > a[0] ? (t - a[0]) / (s[0] - a[0]) : 1;
+      const out = {};
+      for (const k of new Set([...Object.keys(a[1]), ...Object.keys(s[1])])) out[k] = (a[1][k] || 0) + f * ((s[1][k] || 0) - (a[1][k] || 0));
+      return out;
+    }
+    a = s;
+  }
+  return { ...a[1] };
+}
+/**
+ * The run's places without a bar of their own in the picture, pure: [{place, measured, size, used (now), moved (+ in,
+ * − out), segs [{k: dest|arrived|free, bytes, w}]}] in the plan's order. pic: the picture (its pool, its dest's to), rows:
+ * her share rows, plan: the run's shares, levels: state.levels (a pool's size and use when her state was measured),
+ * moved: movedByPlace() summed over the run, then: what had moved when the levels were measured (movedAt()), px: the
+ * bar's width (the 10 px minimum)
+ */
+function extraPlaces(pic, rows, plan, levels, moved, then, px) {
+  if (!pic || typeof pic !== 'object') return [];
+  const drawn = new Set([pic.pool, pic.dest && typeof pic.dest === 'object' ? String(pic.dest.to || 'array') : null].filter(Boolean));
+  const places = [];
+  for (const share of Array.isArray(plan) ? plan : []) {
+    const r = (Array.isArray(rows) ? rows : []).find((x) => x && x.share === share);
+    // only a share moving INTO a place without a bar (a yes share into the array stays as it is): that place, and where
+    // it comes from when that has none either (a second pool → its pool)
+    if (!r || !r.from || !r.to || drawn.has(r.to)) continue;
+    for (const p of [r.to, r.from]) if (!drawn.has(p) && !places.includes(p)) places.push(p);
+  }
+  const min = PIC_MIN_PX / Math.max(40, Number(px) || 200);
+  return places.map((place) => {
+    const lv = levels && typeof levels === 'object' && place !== 'array' ? levels[place] : null;
+    const m = Math.round(Number((moved || {})[place]) || 0);
+    const ok = !!lv && Number(lv.size) > 0 && lv.used != null && Number.isFinite(Number(lv.used));
+    if (!ok) return { place, measured: false, size: null, used: null, moved: m, segs: [] };
+    const size = Number(lv.size);
+    // the pool before the run: its use when measured less what had arrived by then — now that plus what came since
+    const before = Math.min(size, Math.max(0, Number(lv.used) - (Number((then || {})[place]) || 0)));
+    const used = Math.min(size, Math.max(0, before + m));
+    const kept = Math.min(before, used);
+    const val = { dest: kept, arrived: used - kept, free: size - used };
+    const w = segWidths([val.dest, val.arrived, val.free], min);
+    return { place, measured: true, size, used, moved: m, segs: ['dest', 'arrived', 'free'].map((k, i) => ({ k, bytes: val[k], w: w[i] })) };
+  });
+}
+/** Her run's moves per place, kept while the run goes (a joint run calls her part more than once: each its own start) */
+let moveBook = { run: null, parts: {}, samples: [], plan: [] };
+/** The picture's extra places now (picture, the run going), from the page's state and her live status */
+function picExtras(n, px) {
+  const pic = n && n.picture;
+  if (!pic || !n.running) return [];
+  if (moveBook.run !== n.started) moveBook = { run: n.started, parts: {}, samples: [], plan: [] };
+  const rows = (state && state.shares) || [];
+  const now = Date.now() / 1000;
+  if (progress && progress.started) {
+    moveBook.parts[progress.started] = movedByPlace(progress, rows);
+    const sum = {};
+    for (const part of Object.values(moveBook.parts)) for (const [k, v] of Object.entries(part)) sum[k] = (sum[k] || 0) + v;
+    const last = moveBook.samples[moveBook.samples.length - 1];
+    if (!last || JSON.stringify(last[1]) !== JSON.stringify(sum)) moveBook.samples.push([now, sum]);
+    if (moveBook.samples.length > 500) moveBook.samples.splice(0, moveBook.samples.length - 500);
+  }
+  // every share her parts of this run named (one done stays with its bar until the run ends)
+  if (progress && Array.isArray(progress.plan)) for (const sh of progress.plan) if (typeof sh === 'string' && !moveBook.plan.includes(sh)) moveBook.plan.push(sh);
+  const plan = moveBook.plan;
+  const moved = moveBook.samples.length ? moveBook.samples[moveBook.samples.length - 1][1] : {};
+  const then = movedAt(moveBook.samples, Number(state && state.time) || 0, Number(n.started) || 0);
+  return extraPlaces(pic, rows, plan, state && state.levels, moved, then, px);
+}
+
 /**
  * Which way a file went, pure: onto the pool (Jack Emby fetching from the array; hers only for a share that moves back)
  * or off it — EmbyCache says «array»/«cache», Smart Mover the pool's name and where it moved to
@@ -338,6 +490,8 @@ function nightPicture(n) {
   const pct = (b, size) => fmt.number(size > 0 ? b * 100 / size : 0, 1);
   const segName = (k, b) => T(k === 'jack' && b && b.watched ? 'pic.seg.unwatched' : 'pic.seg.' + k);
   let data = null;
+  let extras = [];
+  const place = (p) => (p === 'array' ? T('pic.array') : T('pic.pool_name', { pool: p }));
   /** One bar with its title and X; its segments' words on hover (title) */
   function barRow(title, b, note) {
     const row = el('div', 'mo-pic-row');
@@ -427,6 +581,31 @@ function nightPicture(n) {
         legend.appendChild(it);
       }
     }
+    // the run's other places (a «prefer» share into another pool): a bar each under the target's, what came in this run
+    // in its own lighter part (what flies to it has that colour)
+    extras = picExtras(n, side.clientWidth || 200);
+    for (const x of extras) {
+      const wrap = el('div', 'mo-pic-extra');
+      wrap.dataset.place = x.place;
+      wrap.appendChild(el('div', 'mo-pic-label', place(x.place)));
+      const xbar = el('div', 'mo-pic-bar mo-pic-more');
+      xbar.setAttribute('role', 'img');
+      for (const sg of x.segs) {
+        const seg = el('i', 'mo-pic-seg mo-seg-' + sg.k);
+        seg.style.width = `${(sg.w * 100).toFixed(3)}%`;
+        xbar.appendChild(seg);
+      }
+      const came = x.moved > 0 ? T('pic.arrived', { size: fmt.size(x.moved) }) : x.moved < 0 ? T('pic.went', { size: fmt.size(-x.moved) }) : '';
+      const words = [x.measured ? T('pic.dest_used', { used: fmt.size(x.used), size: fmt.size(x.size) }) : T('pic.unmeasured'), came].filter(Boolean).join(' · ');
+      xbar.setAttribute('aria-label', `${place(x.place)}: ${words}`);
+      wrap.append(xbar, el('div', 'mo-pic-sub', words));
+      side.appendChild(wrap);
+      if (data.measured) {
+        const it = el('span', 'mo-pic-key');
+        it.append(el('i', 'mo-pic-seg mo-seg-arrived'), el('span', '', `${place(x.place)} ${words}`));
+        legend.appendChild(it);
+      }
+    }
     say(lastFile());
   }
   const files = () => (Array.isArray(pic.files) ? pic.files.filter((f) => f && typeof f.name === 'string') : []);
@@ -436,7 +615,9 @@ function nightPicture(n) {
    *  pool, array → ripley while the picture is the cache's) — named by its own ends, never flown across these bars */
   const elsewhere = (f) => f.who !== 'jack' && typeof f.from === 'string' && typeof f.to === 'string' && f.from !== '' && f.to !== ''
     && f.from !== pic.pool && f.to !== pic.pool;
-  const place = (p) => (p === 'array' ? T('pic.array') : T('pic.pool_name', { pool: p }));
+  /** A file of hers to or from one of the run's other places (their bars are drawn): it flies between its own ends */
+  const toExtra = (f) => f.who !== 'jack' && extras.some((x) => x.place === f.from || x.place === f.to);
+  const flies = (f) => !elsewhere(f) || toExtra(f);
   /** Where a file was and went in words: Jack Emby's between the pool and the array, hers between the pool and her target */
   function ends(f) {
     if (elsewhere(f)) return [place(f.from), place(f.to)];
@@ -457,14 +638,14 @@ function nightPicture(n) {
   const queue = [];
   const key = (f) => `${f.who}|${f.name}|${f.bytes}`;
   function feed() {
-    for (const f of files()) if (!seen.has(key(f)) && !elsewhere(f)) { seen.add(key(f)); queue.push(f); }
+    for (const f of files()) if (!seen.has(key(f)) && flies(f)) { seen.add(key(f)); queue.push(f); }
   }
   let walking = false;
   async function walk() {
     if (walking) return;
     walking = true;
     while (box.isConnected && n.running && data && data.measured && !reducedMotion()) {
-      if (!queue.length) queue.push(...files().filter((f) => !elsewhere(f)).slice(-6));
+      if (!queue.length) queue.push(...files().filter(flies).slice(-6));
       if (!queue.length) break;
       await flyFile(queue.shift());
       await new Promise((r) => setTimeout(r, PIC_PAUSE_MS));
@@ -487,7 +668,25 @@ function nightPicture(n) {
     }
     return bar.querySelector(`.mo-seg-${kinds[kinds.length - 1]}`);
   }
+  /** A place's bar in the picture: an extra one (its part that came, else the bar), the target, the pool */
+  function spotOf(p) {
+    const x = Array.from(box.querySelectorAll('.mo-pic-extra')).find((w) => w.dataset.place === p);
+    if (x) return spot(segOf(x.querySelector('.mo-pic-bar'), ['arrived', 'dest']) || x.querySelector('.mo-pic-bar'));
+    if (data && data.dest && data.dest.to === p) return spot(box.querySelector('.mo-pic-target'));
+    if (p === pic.pool) return spot(segOf(box.querySelector('.mo-pic-rowsBox .mo-pic-bar'), ['others']));
+    return null;
+  }
   function flyFile(f) {
+    if (toExtra(f)) {
+      // array → ripley (or a second pool → its pool): from its own end to its own end, in the colour of what came
+      const a = spotOf(f.from);
+      const b = spotOf(f.to);
+      if (!a || !b || !dot.animate) return Promise.resolve();
+      dot.className = 'mo-pic-dot mo-fly-arrived';
+      dot.innerHTML = picFlyer(false, b.x < a.x);
+      dot.getAnimations().forEach((x) => x.cancel());
+      return dot.animate(picFlight(a, b), { duration: PIC_FLIGHT_MS, easing: 'linear', fill: 'forwards' }).finished.catch(() => {});
+    }
     const onto = fileOnto(f, pic.pool);
     const rows = box.querySelectorAll('.mo-pic-rowsBox .mo-pic-bar');
     // Jack Streamer's off the pool: what was watched (green), onto it: his colour; hers: the other shares'
@@ -1046,13 +1245,49 @@ function lastNightText(l) {
   return T(l.jack === false || l.jack_out ? 'night.last_mine' : 'night.last', { when, how }) + (Number(l.round) > 1 ? ' · ' + T('night.rounds', { n: Number(l.round) }) : '')
     + (l.mode === 'dry' ? ' · ' + T('mode.dry') : '') + (l.jack_out ? ' · ' + jackOutText(l.jack_out) : '');
 }
-/** «Shares»: how many move, the rules for all as its line — alert while Jack Emby's list isn't kept out for a share of his */
+/**
+ * The rules of the shares that move as they really are, pure (the owner, 2026-10-18: the tile said only the global rule
+ * while a «prefer» share moved everything back): one group per way and rule — into the array, into a second pool, back
+ * into the pool — biggest first: [{way, pool, n, rule, names}]. A share's own rules (state.shares: its age, its limit)
+ * put it in a group of its own.
+ */
+function shareGroups(st) {
+  const g = ((st && st.settings) || {}).global || {};
+  const num = (v) => (v !== '' && v != null && Number.isFinite(Number(v)) ? Number(v) : null);
+  const groups = [];
+  for (const x of ((st && st.shares) || []).filter((r) => r && r.state === 'moves')) {
+    const back = x.mode === 'prefer';
+    const way = back ? 'back' : x.to && x.to !== 'array' ? 'pool' : 'array';
+    const age = num(x.min_age) ?? (back ? 0 : num(g.min_age) ?? 0);
+    const fill = back ? null : num(x.threshold) ?? num(g.move_when_used_above) ?? 0;
+    const rule = back && !age ? T('tile.rule_all') : [T('rule_age', { n: age }), ...(back ? [] : [fillText(fill)])].join(' · ');
+    const pool = way === 'pool' ? String(x.to) : '';
+    let gr = groups.find((y) => y.way === way && y.pool === pool && y.rule === rule);
+    if (!gr) groups.push(gr = { way, pool, n: 0, rule, names: [] });
+    gr.n++;
+    gr.names.push(x.share);
+  }
+  return groups.sort((p, q) => q.n - p.n);
+}
+/**
+ * The tile's rule lines, pure: one group into the array — its rule alone (as ever); else a line per group «2 into the
+ * array: older than 60 days · …», a group of one named, at most three lines — beyond «… and 2 with rules of their own»
+ */
+function shareRuleLines(st) {
+  const groups = shareGroups(st);
+  if (!groups.length) return [];
+  if (groups.length === 1 && groups[0].way === 'array') return [groups[0].rule];
+  const line = (gr) => {
+    const t = T('tile.group_' + gr.way, { n: gr.n, pool: gr.pool, rule: gr.rule });
+    return gr.n === 1 && groups.length > 1 ? T('tile.group_named', { what: t, share: gr.names[0] }) : t;
+  };
+  if (groups.length <= 3) return groups.map(line);
+  return [...groups.slice(0, 2).map(line), T('tile.groups_more', { n: groups.slice(2).reduce((a, gr) => a + gr.n, 0) })];
+}
+/** «Shares»: how many move, their rules per group as its lines — alert while Jack Emby's list isn't kept out for a share of his */
 function sharesTile(a) {
   const shares = state.shares || [];
-  const g = (state.settings || {}).global || {};
-  const rule = [T('rule_age', { n: g.min_age ?? 0 }),
-    fillText(g.move_when_used_above)].join(' · ');
-  const sub = [T('shares_moving', { n: shares.filter((x) => x.state === 'moves').length }), rule];
+  const sub = [T('shares_moving', { n: shares.filter((x) => x.state === 'moves').length }), ...shareRuleLines(state)];
   return Office.stat({ label: T('shares'), value: `${shares.filter((x) => x.state === 'moves').length} / ${shares.length}`, sub, tip: sub.join('\n'),
     alert: !!(jack().uncovered || []).length, ...a });
 }
@@ -2361,7 +2596,7 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, onWayText, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
-    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, ownRulesText, idleRules, fillSetupShares, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, picFlight, fileOnto, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, setJackLive: (x) => { jackLive = x; }, jackPanel, jackAtWork, redrawCard, schedText, scheduleSection, historySection, footer, hints,
+    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runEstimate, endText, shareGroups, shareRuleLines, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, ownRulesText, idleRules, fillSetupShares, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, picFlight, fileOnto, movedByPlace, movedAt, extraPlaces, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, setJackLive: (x) => { jackLive = x; }, jackPanel, jackAtWork, redrawCard, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
     setForm: (f) => { form = f; }, initForm, levelMath, levelSection, levelLines, levelNight, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }
