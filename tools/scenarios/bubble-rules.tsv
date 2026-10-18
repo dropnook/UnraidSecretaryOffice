@@ -23,7 +23,7 @@ backup	bubble.last_errors	(.backup.last_result == "errors")	«had errors» only 
 backup	bubble.last_failed	(.backup.last_result == "failed")	«didn't finish» only when the last run failed
 backup	bubble.last_aborted	(.backup.last_result == "aborted")	«was stopped» only when the last run was
 backup	bubble.no_schedule	(.backup.scheduled | not)	«no backup is scheduled» only without a cron line
-backup	bubble.waiting	(.backup.waiting_n > 0)	«a new thing waits for a decision» only when the engine lists one (new-local.json)
+backup	bubble.waiting	(.backup.waiting_n > 0)	«a new thing waits for a decision» only when one waits (new-local.json folders + new apps + VMs without a section, as backupWaiting())
 backup	bubble.asleep_left	.backup.asleep_last	«a share slept through the last backup» only when the last run left one out
 restore	bubble.no_packages	(.restore.packages == 0)	«no packages yet» only when the backup place has none
 restore	bubble.ready	(.restore.packages > 0)	«… can come back» only with packages on the place
