@@ -8,7 +8,7 @@
 # `expect_err <key>` then checks the key) — the flow returns 0 on it.
 #
 #   Mr. Backupsy   BK-FIRST-SETUP [measure=true] [preset=auto|local|kopia|partner|kopia_partner] [key=value…]
-#                  BK-REPLAN [measure=true]      BK-APPLY [plan=old] [key=value…]      BK-DECLINE key= [value=]
+#                  BK-REPLAN [measure=true]      BK-APPLY [plan=old] [key=value…]      BK-DECLINE key= [value=]  BK-DECLINE-UNDO key=
 #                  BK-RUN-MANUAL mode=backup|nokopia|dryrun|check     BK-RUN-SCHED     BK-RUN-QUEUED
 #                  BK-ABORT [after=s]    BK-UNMOUNT    BK-SCHEDULE cron='30 4 * * *'|cron=    BK-ORPHANS [delete=src,…|all]
 #                  BK-PACKAGE-ASIDE kind=app|vm folder=    BK-DATASET-MAKE kind= name= share= dir= [stack=] [no_fresh_ok=1]
@@ -190,8 +190,23 @@ flow_bk_apply() {
 flow_bk_decline() {
     _fl_args "$@" || return 1
     [[ -n ${FL[key]:-} ]] || { say "BK-DECLINE: key= missing"; return 1; }
+    local rc value
+    if [[ -n ${FL[value]+1} ]]; then
+        value=$(jq -cn --arg v "${FL[value]}" '$v')
+    else
+        # the page sends what the plan proposes for that key (null when it proposes nothing)
+        _bk_plan_get "$KEEP/plan-decline.json" || return 1
+        value=$(jq -c --arg k "${FL[key]}" '.P[$k] // null' "$KEEP/plan-decline.json")
+    fi
+    _fl_ask backup.setup_decline "$(jq -cn --arg k "${FL[key]}" --argjson v "$value" '{key: $k, value: $v}')" >/dev/null
+    rc=$?; _fl_end $rc
+}
+
+# BK-DECLINE-UNDO key=: «Propose it again» (desk.js ~2380 setup_decline_undo {key})
+flow_bk_decline_undo() {
+    _fl_args "$@" || return 1
     local rc
-    _fl_ask backup.setup_decline "$(jq -cn --arg k "${FL[key]}" --arg v "${FL[value]-}" --arg has "${FL[value]+1}" '{key: $k, value: (if $has == "1" then $v else null end)}')" >/dev/null
+    _fl_ask backup.setup_decline_undo "$(jq -cn --arg k "${FL[key]:-}" '{key: $k}')" >/dev/null
     rc=$?; _fl_end $rc
 }
 

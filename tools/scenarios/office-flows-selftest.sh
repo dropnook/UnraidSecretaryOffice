@@ -3,8 +3,13 @@
 # re-plan and a manual backup, Mr. Restori's restore beside, Ms. Moverelli's dry run), the standard and the final
 # checks — and the owner's bubble case: a real run of Ms. Moverelli's that moves a prefer share's files from the array
 # into the pool while her greeting may say «Old files packed and labelled — off to the array they go!» (moverelli.greet.1,
-# seen on 1.66.4 with nextcloud_data). Expected red today (INV-BUBBLE) until the product is fixed: a finding, not a
-# scenario bug — never «fixed» here by an allow.
+# seen on 1.66.4 with nextcloud_data). Red today with three documented findings (1.66.5, Tower, 2026-10-18) — findings,
+# not scenario bugs, never «fixed» here by an allow:
+#   INV-BUBBLE        moverelli.greet.1 can show while her run moves a prefer share array → pool
+#   INV-PAGE          her run card shows 50 % while 99 % of the share's bytes are on the pool (her live status lags and,
+#                     for array → pool, the file in flight is measured on the array side: always 0 bytes)
+#   INV-BACKUP-AFTER  `Dump mariadb-nextcloud/#mysql50#.uso-backup failed` — the engine's .uso-backup folder inside
+#                     MariaDB's datadir (appdata/mariadb-nextcloud) is listed as a database from the second run on
 set -u
 . "$(dirname "$0")/lib.sh"
 scenario_begin office-flows-selftest
