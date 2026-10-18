@@ -128,3 +128,14 @@ from=1.66.5 (remove, 1.66.5, back to 1.66.6 — INV-MIGRATE-IDEMPOTENT green).
 **Not run:** BK-PACKAGE-ASIDE was called and refused `package_aside_gone` — the page offers it only once a backup run
 lists the package as gone (run a backup after the app went); OF-REBOOT / OF-REBOOT-BACK — the runner's reboot halves
 (`<name>-pre.sh` / `-post.sh`), a reboot of Tower not made yet.
+
+## Batch A — the eight bugs from the owner's server (matrix ★ cells)
+
+Each scenario turns one bug the owner met on his own server into a scenario. Each must be green on the release and red on
+the release before its fix. Every one takes an older release as its argument (`name:v1.66.0`): `state IN-DOWNGRADE <tag>`
+installs that plugin for the scenario and the undo puts the current one back. So
+`run.sh tower --only backup-kp-orphans-delete:v1.65.12` is the same cell on the plugin before its fix. Own assertions
+are rows `cell <name>` of the verdict table.
+
+| Cell | Scenario | Fixed in · red on | Time on Tower | Run |
+|---|---|---|---|---|

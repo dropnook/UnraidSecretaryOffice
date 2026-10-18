@@ -14,6 +14,7 @@ state MO-OWN-RULES
 share_apply uso-mo-empty shareUseCache=only || _row state uso-mo-empty red "share_apply shareUseCache=only failed"
 nc_data_closed                               # Unraid's share form opened Nextcloud's data folder (0777)
 snap_before
+expect_changes 'share|uso-mo-empty|*'       # the scratch share is new for Mr. Backupsy too: his proposal for it
 flow MV-RESAVE
 ini=$D/moverelli/smart_mover.ini
 r=$(awk '$0 == "[uso-mo-empty]" { s = 1; next } /^\[/ { s = 0 } s && /^min_age=/ { sub(/^min_age=/, ""); print }' "$ini")
@@ -21,7 +22,10 @@ r=$(awk '$0 == "[uso-mo-empty]" { s = 1; next } /^\[/ { s = 0 } s && /^min_age=/
     || cell rules-kept 0 "smart_mover.ini has [uso-mo-empty] min_age «${r:-gone}» (her rule was 5)"
 bubble_look own-rules moverelli
 look=$(ls -d "$KEEP"/looks/*-own-rules | tail -1)
-queue_mac INV-BUBBLE page_text moverelli/setup "$look/states" "$PAGE_LANGS" want "moverelli.setup.own_idle moverelli.setup.own_remove"
+# her setup page: the share row says «own rules»; the rules themselves and «Remove rules» sit in the folded row, which
+# page.mjs (innerText) can't see — no proof until it opens folds (coordinator, 2026-10-18)
+queue_mac INV-BUBBLE page_text moverelli/setup "$look/states" "$PAGE_LANGS" want "moverelli.own_rules"
+_row cell remove-rules pending "pending: helper --open — «Remove rules» sits in the folded share row"
 queue_mac INV-PAGE page_clean moverelli/setup "$look/states" "$PAGE_LANGS"
 check standard
 scenario_end

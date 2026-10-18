@@ -16,8 +16,9 @@ cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || e
 [[ -n ${1:-} ]] && state IN-DOWNGRADE "$1"
 undo_push bash -c 'rm -rf /mnt/*/uso-yes/m3'        # what reached the array (runs last)
 share_exists uso-yes && [[ $(_st_share_ini uso-yes useCache) == yes ]] || _row state uso-yes red "the base has no yes share uso-yes"
-# 40 days old (her rule for uso-yes: 30): small ones first by name, the big ones last
-put_files M3 cache uso-yes/m3/a-small 1500 --size 4K --age 40d && put_files M3 cache uso-yes/m3/z-big 4 --size 256M --age 40d \
+# 40 days old (her rule for uso-yes: 30): small ones first by name, the big ones last — one folder (nested folders
+# leave their emptied parent on the pool: a finding of its own, reported 2026-10-18)
+put_files M3 cache uso-yes/m3 1500 --size 4K --age 40d --name a-small.bin && put_files M3 cache uso-yes/m3 4 --size 256M --age 40d --name z-big.bin \
     || _row state put_files red "the files could not be written"
 undo_push files_unput M3
 track_share uso-yes

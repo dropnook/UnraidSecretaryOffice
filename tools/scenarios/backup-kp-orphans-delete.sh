@@ -12,14 +12,14 @@ cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || e
 state KP-ORPHANS
 snap_before
 files_strict
-id=$(sed -n 's/^IDENTITY=//p' "$KEEP/state-KP-ORPHANS.env" 2>/dev/null)
-srcs=$(printf "$id:%s," "${ST_KOPIA_ORPHANS[@]}"); srcs=${srcs%,}
-say "the three sources to tick: $srcs"
-flow BK-ORPHANS "delete=$srcs"
-listed=$(jq -r --argjson want "$(jq -cn --arg s "$srcs" '$s | split(",")')" \
-    '[(.sources // [])[] | .source | select(IN($want[]))] | length' "$KEEP/orphans-list.json" 2>/dev/null)
-[[ $listed == 3 ]] && cell listed 1 "the look lists all three old sources" \
-    || cell listed 0 "the look lists ${listed:-none} of the three: $(jq -c '[(.sources // [])[] | .source]' "$KEEP/orphans-list.json" 2>/dev/null | head -c 300)"
+# the look first (what the page shows), then the three ticked — by their ids as the list names them (user@host:path)
+flow BK-ORPHANS
+want=$(printf '%s\n' "${ST_KOPIA_ORPHANS[@]}" | jq -R . | jq -sc .)
+srcs=$(jq -r --argjson w "$want" '[(.sources // [])[] | select(.path as $p | $w | index($p)) | .source] | join(",")' "$KEEP/orphans-list.json" 2>/dev/null)
+n=$(awk -F, '{print NF}' <<<"$srcs")
+[[ ${n:-0} == 3 ]] && cell listed 1 "the look lists all three old sources: $srcs" \
+    || cell listed 0 "the look lists ${n:-none} of the three: $(jq -c '[(.sources // [])[] | .source]' "$KEEP/orphans-list.json" 2>/dev/null | head -c 300)"
+[[ -n $srcs ]] && flow BK-ORPHANS "delete=$srcs"
 left=$(_st_kx snapshot list --all --json 2>/dev/null | jq -r --argjson p "$(printf '%s\n' "${ST_KOPIA_ORPHANS[@]}" | jq -R . | jq -sc .)" \
     '[.[].source | select(.path as $x | $p | index($x)) | .path] | unique | join(" ")')
 [[ -z $left ]] && cell deleted-in-kopia 1 "Kopia's repository holds no snapshot of the three any more" \

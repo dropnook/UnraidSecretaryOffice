@@ -24,7 +24,10 @@ g=$(state_json moverelli '(.shares_gone // []) | index("uso-mo-empty") != null')
     || cell shares-gone 0 "her state's shares_gone: $(state_json moverelli '.shares_gone // "missing"' | head -c 200)"
 bubble_look own-rules moverelli
 look=$(ls -d "$KEEP"/looks/*-own-rules | tail -1)
-queue_mac INV-BUBBLE page_text moverelli/setup "$look/states" "$PAGE_LANGS" want "moverelli.setup.own_gone moverelli.setup.own_remove"
+# her setup page: the share row says «own rules»; the rules themselves and «Remove rules» sit in the folded row, which
+# page.mjs (innerText) can't see — no proof until it opens folds (coordinator, 2026-10-18)
+queue_mac INV-BUBBLE page_text moverelli/setup "$look/states" "$PAGE_LANGS" want "moverelli.own_rules"
+_row cell remove-rules pending "pending: helper --open — «Remove rules» sits in the folded share row"
 queue_mac INV-PAGE page_clean moverelli/setup "$look/states" "$PAGE_LANGS"
 check standard
 scenario_end
