@@ -9,10 +9,16 @@ set -u
 . "$(dirname "$0")/lib.sh"
 scenario_begin office-flows-selftest
 needs tower
-# a prefer share of our own with files on the array (disk1, disk2) — big enough that her run is still at work when its
-# bubble is looked at; its undo removes the share and every file of it, wherever her run put them
-state SH-PREFER-ARRAY-FILES uso-wip-h5-prefer
-put_files SH-PREFER-ARRAY-FILES disk1 uso-wip-h5-prefer/big 6 --size 192M
+# the base's prefer share uso-prefer with a folder of ours on the array (disk1, disk2) — big enough that her run is still
+# at work when its bubble is looked at. Not a share of our own: Unraid's «Add Share» resets the exclusive nextcloud
+# share's root to 0777, and Nextcloud's backup then fails (nc_datadir_readable) — a finding of its own (H5 notes).
+# The undo removes the folder on every disk and pool, wherever her run put its files.
+_h5_prefer_gone() { local b; for b in $(bases); do rm -rf -- "/mnt/$b/uso-prefer/uso-wip-h5"; done; files_unput H5-PREFER; }
+undo_push _h5_prefer_gone
+# (a folder of its own per disk: the same name on two disks is a duplicate in the share, which Unraid's move leaves)
+put_files H5-PREFER disk1 uso-prefer/uso-wip-h5/d1 10 && put_files H5-PREFER disk2 uso-prefer/uso-wip-h5/d2 10 \
+    && put_files H5-PREFER disk1 uso-prefer/uso-wip-h5/big 6 --size 192M || _row state H5-PREFER red "put_files failed"
+track_share uso-prefer
 [[ -n $PLACE ]] && track_share "$(basename "$(dirname "$PLACE")")"
 snap_before
 

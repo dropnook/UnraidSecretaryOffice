@@ -31,7 +31,9 @@ _ck_cron_has() { cat "$OFFICE_FLASH"/*.cron 2>/dev/null | grep -v '^[[:space:]]*
 # ------------------------------------------------------------------------------------------------------------- facts
 # The server as it is now, for the bubble rules — never through the office's own state files where the server can say
 # it (a lock in /proc/locks, the containers' labels, the files on the disks), never a sleeping disk.
-_ck_mv_progress() { php "$SC_DIR/ask.php" --wait 20 moverelli.progress '{}' 2>/dev/null | jq -c '.progress // null' 2>/dev/null; }
+# her run card's live answer (moverelli.progress → its state: {time, running, real, stopping, progress, night, jack})
+_ck_mv_state() { php "$SC_DIR/ask.php" --wait 20 --raw moverelli.progress '{}' 2>/dev/null | jq -c '.state // empty' 2>/dev/null; }
+_ck_mv_progress() { _ck_mv_state | jq -c '.progress // null' 2>/dev/null; }
 _ck_pools() { awk -F'"' '/^\[/{n=""} /^name=/{n=$2} /^type=/{if ($2=="Cache") print n}' "$DISKS_INI" 2>/dev/null; }
 # a share's files on an awake array disk (prefer: what a run moves to the pool) — the first found
 _ck_on_array() {
@@ -91,6 +93,9 @@ bubble_facts() {
         fi
         for s in $(awk -F'"' '/^\[/{gsub(/^\["|"\]$/,""); n=$0} /^useCache=/{print n "\t" $2}' "$SHARES_INI" 2>/dev/null | awk -F'\t' '$2=="prefer"{print $1}'); do
             _ck_on_array "$s" && to_pool=true
+            # a prefer share in the run's plan still to come or at work (its files may be moved already — the run's
+            # way is array → pool all the same while it lasts)
+            jq -e --arg s "$s" '((.plan // []) | index($s)) != null and ((.shares // []) | map(.share) | index($s)) == null' <<<"${prog:-null}" >/dev/null 2>&1 && to_pool=true
         done
         for s in $(awk -F'"' '/^\[/{gsub(/^\["|"\]$/,""); n=$0} /^useCache=/{print n "\t" $2}' "$SHARES_INI" 2>/dev/null | awk -F'\t' '$2=="yes"{print $1}'); do
             pool=$(_ck_share_pool "$s")
@@ -178,7 +183,7 @@ bubble_look() {
     # the card's lines judged against the disks now (INV-PAGE: its percent, the file's way)
     if [[ " ${desks[*]} " == *" moverelli "* ]] && [[ $(jq -r .moverelli.running <<<"$facts") == true ]]; then
         local prog
-        prog=$(php "$SC_DIR/ask.php" --wait 20 moverelli.progress '{}' 2>/dev/null | jq -c '.state // empty' 2>/dev/null)
+        prog=$(_ck_mv_state)
         if [[ -n $prog ]]; then
             printf '%s\n' "$prog" >"$dir/states/moverelli-progress.json"
             _ck_tiles_moverelli "$label" "$prog" "$dir"
@@ -560,12 +565,14 @@ check_inv_counts_moverelli() {
     _ck_is_hired moverelli || { echo "not hired"; return 3; }
     [[ -f $KEEP/.mv-touched && -s $KEEP/.shares ]] || { echo "no run of hers with a tracked share"; return 3; }
     local started
-    started=$(jq -r '.last.started // .last.time // 0' "$mj" 2>/dev/null)
-    [[ $started =~ ^[0-9]+$ ]] && ((started >= SC_START)) || { echo "no run of hers in this scenario"; return 3; }
+    started=$(jq -r '.last.started // 0' "$mj" 2>/dev/null)
+    [[ $started =~ ^[0-9]+$ ]] && ((started >= SC_START)) && [[ $(jq -r '.last.mode // ""' "$mj") == run ]] ||
+        { echo "no real run of hers in this scenario"; return 3; }
     while IFS= read -r s; do
-        moved_fs=$(join -t $'\t' <(grep -v '^#' "$KEEP/before/inventory/$s.tsv" | awk -F'\t' '{print $1 "\t" $5}' | sort) \
-            <(grep -v '^#' "$KEEP/after/inventory/$s.tsv" | awk -F'\t' '{print $1 "\t" $5}' | sort) | awk -F'\t' '$2!=$3' | wc -l)
-        moved_her=$(jq -r --arg s "$s" '[.last.shares[]? | select(.name == $s or .share == $s) | (.moved // 0)] | add // empty' "$mj")
+        # the files of the share whose disk or pool changed between before and after
+        moved_fs=$(awk -F'\t' 'NR == FNR { if ($0 !~ /^#/) at[$1] = $5; next } ($0 !~ /^#/) && ($1 in at) && at[$1] != $5 { n++ } END { print n + 0 }' \
+            "$KEEP/before/inventory/$s.tsv" "$KEEP/after/inventory/$s.tsv")
+        moved_her=$(jq -r --arg s "$s" '[.last.shares[]? | select(.share == $s) | (.moved // 0)] | add // empty' "$mj")
         [[ -n $moved_her ]] || continue
         n=$((n + 1))
         [[ $moved_fs == "$moved_her" ]] || bad+=("$s: she says $moved_her moved, the disks show $moved_fs")
@@ -617,6 +624,8 @@ check_inv_drill_green() {
     out=$(php "$SC_DIR/ask.php" --wait 300 restore.drill_plan '{}' 2>/dev/null)
     jq -e '.ok' <<<"$out" >/dev/null 2>&1 || { echo "drill_plan refused: $(jq -r '.error.key // "?"' <<<"$out")"; return 1; }
     if [[ $(jq '(.preview.blockers // []) | length' <<<"$out") != 0 ]]; then
+        # nothing to practise on (no package, no Kopia snapshot yet): not applicable, not a failed drill
+        [[ $(jq -r '.preview.blockers[0].key' <<<"$out") == drill_nothing ]] && { echo "nothing to practise on yet (drill_nothing)"; return 3; }
         echo "the drill is blocked: $(jq -c '[.preview.blockers[].key]' <<<"$out")"
         return 1
     fi

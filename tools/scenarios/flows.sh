@@ -534,8 +534,8 @@ _mv_start() {
     _fl_ask moverelli.start_run "$(jq -cn --arg m "$mode" '{mode: $m}')" >/dev/null
     rc=$?; ((rc == 0)) || { _fl_end $rc; return; }
     _fl_note "moverelli.start_run $mode" null
-    if WAIT_SOFT=1 wait_for 90 "Ms. Moverelli's run to be at work" _mv_at_work; then
-        sleep "${FL[look]:-4}"
+    if WAIT_SOFT=1 wait_for 90 "Ms. Moverelli's run to be at work (or done)" _mv_begun; then
+        sleep "${FL[look]:-1}"
         _mv_at_work && bubble_look "mid-moverelli-$mode" moverelli
     fi
     wait_moverelli 7200 || return 1
@@ -544,6 +544,8 @@ _mv_start() {
     [[ -z $ex || $ex == 0 ]] || { say "Ms. Moverelli's $mode ended with exit $ex"; return 1; }
 }
 _mv_at_work() { local p; p=$(jq -r '.pid // 0' "$D/moverelli/office-run.json" 2>/dev/null); [[ $(jq -r '.finished // 0' "$D/moverelli/office-run.json" 2>/dev/null) == 0 ]] && kill -0 "$p" 2>/dev/null; }
+# her run started after the last ask (at work now, or already done — a dry run on a small server takes a second)
+_mv_begun() { _mv_at_work || _started_since "$D/moverelli/office-run.json" .started; }
 flow_mv_list() { _fl_args "$@" || return 1; _mv_start list; }
 flow_mv_dry() { _fl_args "$@" || return 1; _mv_start dry; }
 flow_mv_run() { _fl_args "$@" || return 1; _mv_start run; }
@@ -579,7 +581,7 @@ flow_mv_night_stop() { flow_mv_stop_after_file "$@"; }
 # a file in flight: her live progress (moverelli.progress) names one
 _mv_moving() {
     _mv_at_work || return 1
-    php "$SC_DIR/ask.php" --wait 20 moverelli.progress '{}' 2>/dev/null | jq -e '.progress.file // .progress.current // empty' >/dev/null
+    php "$SC_DIR/ask.php" --wait 20 --raw moverelli.progress '{}' 2>/dev/null | jq -e '.state.progress.file // empty' >/dev/null
 }
 
 # MV-SCHEDULE cron=…|cron=: her schedule dialog (desk.js ~1779 schedule {cron})
