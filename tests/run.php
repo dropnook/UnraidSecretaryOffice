@@ -38262,8 +38262,8 @@ JS);
 
 /**
  * Ms. Moverelli's run card and picture as the owner watched a «prefer» share move array → another pool (2026-10-18):
- * the time left from the share's average since it started (files and bytes, the larger; smoothed; «being estimated»
- * before a minute or 1 %), the end with «tomorrow» / its day, and the target pool as a bar of its own in the picture
+ * the time left from the share's readings since it started (files × time per file + bytes ÷ bandwidth — testMoverelliEta;
+ * smoothed; «being estimated» before a minute or 1 %), the end with «tomorrow» / its day, and the target pool as a bar of its own in the picture
  * (growing with what came), none for a yes share into the array. Pure parts under node.
  */
 function testMoverelliRunPicture(): void
@@ -38303,6 +38303,7 @@ out.stretch = b.left;
 const c = m.runCardData({ result: 'running', started: 100, plan: ['x'], phase: 'share', share: 'x', share_files: 1000, share_bytes: 1000 * G, share_done_files: 100,
   share_done_bytes: 500 * G, done_files: 100, done_bytes: 500 * G, shares: [] }, 200);
 out.larger = [c.left, c.rate / G];
+out.largerRange = c.range;
 // before a minute and 1 %: still estimated; 1 % within 30 s: shown; a share after another in the run: since this page saw it
 const youngP = (f, by) => ({ result: 'running', started: 5000, plan: ['y'], phase: 'share', share: 'y', share_files: 10000, share_bytes: 100 * G,
   share_done_files: f, share_done_bytes: by, done_files: f, done_bytes: by, shares: [] });
@@ -38360,11 +38361,16 @@ JS);
     $j = json_decode(trim((string) $out), true) ?? [];
     check('run picture: it runs', $j !== [], $out . $err);
     $G = 1 << 30;
-    // bytes: 383 GB ÷ (53 GB / 1620 s) = 11 707 s; files: 105 292 ÷ (17 584 / 1620 s) = 9 700 s — the larger
-    same('run picture: the owner\'s run (27 min, 53 of 436 GB, 17 584 of 122 876 files) — Ø 53 GB / 27 min, about 3 h 15 left (bytes the larger), never 27 h',
-        [round(53 / 1620, 6), round(383 * 1620 / 53), false], [isset($j['owner'][0]) ? round($j['owner'][0], 6) : null, isset($j['owner'][1]) ? round($j['owner'][1]) : null, $j['owner'][2] ?? null]);
-    check('run picture: a stretch of small files (5 s, 2 MB) — the time left stays about 3 h', ($j['stretch'] ?? 0) > 3 * 3600 && ($j['stretch'] ?? 0) < 3.5 * 3600, json_encode($j['stretch'] ?? null));
+    // one reading: time per file and bandwidth can't be told apart — mostly files (17 584 × 60 ms > 53 GB ÷ 100 MB/s): the
+    // bandwidth its prior 100 MB/s, the time per file the rest, (1620 s − 53 GB ÷ 100 MB/s) ÷ 17 584 = 60 ms; left: 105 292
+    // files × that + 383 GB ÷ 100 MB/s = 10 406 s (the old rule, bytes alone, said 11 707 s)
+    $per = (1620 - 53 * $G / 1e8) / 17584;
+    same('run picture: the owner\'s run (27 min, 53 of 436 GB, 17 584 of 122 876 files) — Ø 53 GB / 27 min, about 2 h 53 left (files × time per file + bytes ÷ bandwidth), never 27 h',
+        [round(53 / 1620, 6), round(105292 * $per + 383 * $G / 1e8), false], [isset($j['owner'][0]) ? round($j['owner'][0], 6) : null, isset($j['owner'][1]) ? round($j['owner'][1]) : null, $j['owner'][2] ?? null]);
+    check('run picture: a stretch of small files (5 s, 2 MB) — the time left stays about 3 h', ($j['stretch'] ?? 0) > 2.5 * 3600 && ($j['stretch'] ?? 0) < 3.5 * 3600, json_encode($j['stretch'] ?? null));
+    // 5 GB a second is beyond any bandwidth's prior: the split can't be told — the larger of the two ends, as a range
     same('run picture: files the slower — 900 files left at 1 a second = 900 s, not the bytes\' 100 s; Ø 5 GB/s', [900, 5], $j['larger'] ?? null);
+    same('run picture: … said as «100 s to 900 s» (unsure), no end', [100, 900], $j['largerRange'] ?? null);
     same('run picture: 30 s and 0.5 % — still estimated; 1 % reached — shown', [null, true, true], $j['young'] ?? null);
     same('run picture: a share after another in the run — since this page first saw it (estimated at first), then 10 GB in 100 s: Ø 0.1 GB/s, 80 GB left = 800 s (files: 80 ÷ 0.1 = 800)',
         [null, true, 0.1, 800], $j['later'] ?? null);
