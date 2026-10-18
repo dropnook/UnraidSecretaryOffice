@@ -498,7 +498,14 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   than her words (`logsSyslogLevel()`, desk.js `syslogLevel()` from the rules in her state — `testLogsRules`). The tour keeps
   per category the lines read (`cats`) and its newest `LOGS_RULE_KINDS` kinds (`sorted`, found or not; never skip or no
   rule); her fifth tile «Syslog» (`#/logs/syslog`) shows them with a chip per category in its own bar, colours
-  `--logs-cat-*` (office.css). The credit to Enhanced Log's authors stands under all. User rules: a later step.
+  `--logs-cat-*` (office.css, no two alike — `testLogsMine`). The credit to Enhanced Log's authors stands under all.
+  Without a tour of the last hour (or one older than her own rules) «Syslog» sorts the syslog's newest `LOGS_SORT_LINES`
+  lines at once (`sort`, RAM only, the tour's shape). Her second page «Set up» (`#/logs/setup`, data/logs-mine.json): her own
+  rules (regex + category, checked by `logsMineRuleWhy()`, applied **before** the shipped ones, as Enhanced Log applies its
+  custom rules) and hide words (in the message, case-sensitive: noise, before every rule — the line stays in the syslog).
+  While Enhanced Log's folder is on the flash she reads its `custom_syslog.conf` and `syslog_filter.conf` (read only,
+  never written) and takes over what she understands — the first time on her own, later what is new on «Take over»
+  (`el.seen`: nothing twice, a removed one never back); what she doesn't understand is listed, never guessed.
 * **`watchman` — The Night Watchman.** **The office's security department — no other desk gives security advice. Read only,
   never a command that changes anything.** Posture tips (never in the book or notified) and the watch book (what differs from
   normal; the office's own installs/drills adopted, never told). API keys: id, name, roles, a fingerprint — **never the key**;

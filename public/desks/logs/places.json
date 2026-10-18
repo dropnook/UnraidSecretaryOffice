@@ -1,8 +1,10 @@
 {
   "keys": [
+    "bad.title",
     "docker.title",
     "found.title",
     "help.counted",
+    "help.el",
     "help.favorites",
     "help.grouped",
     "help.red",
@@ -11,7 +13,9 @@
     "help.since",
     "help.source",
     "help.space",
+    "hide.title",
     "live",
+    "mine.title",
     "only_problems",
     "reading",
     "syslog.title",
@@ -22,9 +26,12 @@
   "texts": [
     "help.colours",
     "help.counted_text",
+    "help.el_text",
     "help.favorites_text",
     "help.grouped_text",
+    "help.hide_text",
     "help.live",
+    "help.mine_text",
     "help.only",
     "help.rules_text",
     "help.safe_text",

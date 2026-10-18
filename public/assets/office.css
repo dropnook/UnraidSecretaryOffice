@@ -46,14 +46,21 @@
   --warn-soft:color-mix(in srgb, var(--orange-200, #ff9900) 15%, var(--mild-background-color));
   --on-fill:var(--white, #fff);
   --data:color-mix(in srgb, var(--text-color) 30%, var(--mild-background-color));
-  /* Ms. Protocolli's syslog categories (her syslog rules, public/desks/logs): one hue each, the rest from the tokens above */
+  /* Ms. Protocolli's syslog categories (her syslog rules, public/desks/logs): no two alike, Enhanced Log's defaults where
+     they fit (error red, minor issue coral, logins salmon, array grey-green, Lime Technology lime, system grey, file
+     systems lilac, disks cornflower blue, network violet, emhttp cadet blue; a warning gold), mixed with the theme's
+     text so each reads in all four themes; what no rule knows and the noise stay quiet */
   --logs-cat-error:var(--danger);
-  --logs-cat-minor:var(--warn);
-  --logs-cat-drive:color-mix(in srgb, var(--blue-700, #0099ff) 75%, var(--text-color));
-  --logs-cat-fs:color-mix(in srgb, var(--blue-800, #486dba) 70%, var(--text-color));
-  --logs-cat-array:var(--accent);
-  --logs-cat-network:var(--good);
-  --logs-cat-login:color-mix(in srgb, var(--green-800, #4f8a10) 70%, var(--text-color));
+  --logs-cat-warning:color-mix(in srgb, #e0b400 80%, var(--text-color));
+  --logs-cat-minor:color-mix(in srgb, #ee6a8a 80%, var(--text-color));
+  --logs-cat-login:color-mix(in srgb, #f59a6c 80%, var(--text-color));
+  --logs-cat-array:color-mix(in srgb, #7fae86 80%, var(--text-color));
+  --logs-cat-limetech:color-mix(in srgb, #3cc43c 78%, var(--text-color));
+  --logs-cat-emhttp:color-mix(in srgb, #3aa6a6 80%, var(--text-color));
+  --logs-cat-drive:color-mix(in srgb, #4f8ff0 78%, var(--text-color));
+  --logs-cat-fs:color-mix(in srgb, #9a7cf2 78%, var(--text-color));
+  --logs-cat-network:color-mix(in srgb, #d46ad8 78%, var(--text-color));
+  --logs-cat-system:color-mix(in srgb, #8b95a5 80%, var(--text-color));
   --logs-cat-quiet:var(--muted);
   --shadow:none;
   --radius:4px;

@@ -13272,9 +13272,173 @@ function testLogsRules(): void
         str_contains($js, "{ id: 'syslog', key: 'syslog.title', place: 'tile.syslog', tile: (a) => syslogTile(a), section: () => syslogView() }")
         && str_contains($js, "Office.filterBar({ key: 'logs.syslog'") && str_contains($js, "root.appendChild(credit());")
         && str_contains($js, "'https://github.com/dkaser/unraid-enhancedlog'"));
-    check('logs rules: the agent sends them with her state', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/logs.php'), "'varlog' => logsVarlog(), 'rules' => \$rules]"));
+    check('logs rules: the agent sends them with her state', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/logs.php'), "'varlog' => logsVarlog(), 'rules' => \$rules, 'hide' => \$set['hide'],"));
     same('logs rules: none uses what a browser\'s RegExp reads otherwise (lookbehind, inline flags, \\A \\z \\h, POSIX classes, possessive)', [],
         array_values(array_filter(array_column($rules, 0), fn ($p) => preg_match('~\(\?[<a-z]|\\\\[AzZhGKQ]|\[\[:|[*+?}]\+~', substr($p, 1, -2)))));
+}
+
+/**
+ * Ms. Protocolli's own rules and hide words (her «Set up»): checked before she keeps them, her own before the shipped
+ * rules, hide words before both (in the message, case-sensitive); kept in exactly their shape, what she doesn't know
+ * kept as it was. Enhanced Log's own files (fixtures in its formats, read only): what she understands taken over once,
+ * the rest listed, never guessed; a re-read adds nothing twice, a changed file offers the difference, a removed one
+ * never comes back. Her instant sort (the tour's shape, without a tour); the page: the same message rule, «Set up» as
+ * her second page, colours no two categories share.
+ */
+function testLogsMine(): void
+{
+    $tmp = hardeningTmp('logsmine');
+    @mkdir("$tmp/el", 0700, true);
+    $GLOBALS['logsMineFile'] = "$tmp/mine.json";
+    $GLOBALS['logsElDir'] = "$tmp/el";
+    logsRuleSet(true);
+    $refused = function (callable $f): string {
+        try {
+            $f();
+            return '';
+        } catch (Problem $p) {
+            return $p->key;
+        }
+    };
+    try {
+        // checked before saving: readable by PCRE and a browser, never every line, never a runaway, one line, a cap
+        same('logs mine: a regex is checked before she keeps it',
+            ['', '', 'empty', 'regex', 'regex', 'every', 'every', 'every', 'form', 'long', 'browser', 'browser', 'slow'],
+            array_map('logsMineRuleWhy', ['(spinup|spindown)', 'usb [0-9-]+: new', '  ', '(', 'a/b', '.*', 'x?', '\s', "a\nb",
+                str_repeat('a', LOGS_MINE_LEN + 1), '(?i)foo', 'a++b', '(a+)+$']));
+        same('logs mine: a hide word too', ['', 'short', 'short', 'form', 'long'],
+            array_map('logsMineHideWhy', ['avahi-daemon', 'a', '   ', "x\ty", str_repeat('b', LOGS_MINE_LEN + 1)]));
+        same('logs mine: refused with its reason, a category of hers only', ['logs_mine_regex', 'logs_mine_every', 'logs_mine_cat', 'logs_mine_short'],
+            [$refused(fn () => logsMineRuleAdd('(', 'drive')), $refused(fn () => logsMineRuleAdd('.*', 'drive')),
+             $refused(fn () => logsMineRuleAdd('foo', 'other')), $refused(fn () => logsMineHideAdd('a'))]);
+        check('logs mine: nothing refused was kept', !is_file("$tmp/mine.json"));
+        $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/logs/lang/en.json'), true);
+        same('logs mine: a text for every reason', [], array_values(array_filter(LOGS_MINE_PROBLEMS, fn ($k) => !isset($en["errors.$k"]))));
+
+        // her own first, then the shipped rules; hide words before every rule, in the message only, case-sensitive
+        $disabled = 'Oct 18 10:00:00 Tower kernel: ata11.00: disabled';
+        same('logs mine: before her own, the shipped rule decides', ['error', ['error', 'error']], [logsRule($disabled), logsSyslogLevel($disabled)]);
+        logsMineRuleAdd('ata11\.00', 'drive');
+        same('logs mine: her own rule comes first (as Enhanced Log applies its custom rules)', ['drive', ['', 'drive']], [logsRule($disabled), logsSyslogLevel($disabled)]);
+        same('logs mine: … in the set the page gets, too', ['/ata11\.00/i', 'drive'], logsRuleSet()['rules'][0]);
+        same('logs mine: the same regex twice is refused', 'logs_mine_twice', $refused(fn () => logsMineRuleAdd('ata11\.00', 'error')));
+        logsMineHideAdd('ata11.00: dis');
+        same('logs mine: a hide word makes noise, before every rule', ['', 'skip'], logsSyslogLevel($disabled));
+        logsMineHideAdd('Tower');
+        same('logs mine: … only in the message (not the server\'s name), case-sensitive', [['', 'network'], ['error', 'drive']],
+            [logsSyslogLevel('Oct 18 10:00:00 Tower kernel: br0: port 2(vnet1) entered blocking state'),
+             logsSyslogLevel('Oct 18 10:00:00 Tower kernel: ATA11.00: DISabled error')]);
+        $acc = logsTally();
+        logsTallyLines($acc, [$disabled, 'Oct 18 10:00:01 Tower kernel: br0: port 2(vnet1) entered blocking state'], 'syslog', null, [], true);
+        same('logs mine: the tour counts a hidden line as noise, never found', [['skip' => 1, 'network' => 1], 0], [$acc['cats'], $acc['errors']]);
+
+        // exactly her shape; what she doesn't know stays in the file
+        $raw = json_decode((string) file_get_contents("$tmp/mine.json"), true);
+        $raw['later'] = ['x' => 1];
+        $raw['rules'][] = ['re' => 'foo', 'cat' => 'purple'];
+        $raw['rules'][] = 'junk';
+        $raw['hide'][] = ['text' => 5];
+        file_put_contents("$tmp/mine.json", json_encode($raw));
+        $m = logsMine();
+        same('logs mine: only entries in exactly her shape', [['ata11\.00'], ['ata11.00: dis', 'Tower']], [array_column($m['rules'], 're'), array_column($m['hide'], 'text')]);
+        logsMineRemove('hide', $m['hide'][1]['id']);
+        $raw = json_decode((string) file_get_contents("$tmp/mine.json"), true);
+        same('logs mine: a rewrite keeps what she doesn\'t know', [['x' => 1], 3, 2], [$raw['later'] ?? null, count($raw['rules']), count($raw['hide'])]);
+        same('logs mine: an id that isn\'t there (any more) is refused', 'logs_mine_gone', $refused(fn () => logsMineRemove('hide', $m['hide'][1]['id'])));
+        file_put_contents("$tmp/mine.json", '{}');
+        logsRuleSet(true);
+
+        // Enhanced Log's own files, as its formats are (default/custom_syslog.conf, syslog_filter.conf, rc.enhanced.log)
+        same('logs el: no folder, nothing', null, logsElRead("$tmp/none"));
+        $custom = "\"Recycle Bin\", \"other\"\n\"spin(up|down)\", \"minor issues\"\n\"usb [0-9-]+: new\", \"Drive Related\"\n\"foo\", \"purple\"\n"
+            . "\"(\", \"error\"\n\"just one field\"\n# a comment\n\n\"sshd.*Accepted\", \"LOGIN\"\n\"Familienfotos\", \"other\"\n\"spin(up|down)\", \"minor issues\"\n";
+        $filter = "\"this is an example line\"\n\"wsdd2[1234]: error\"\n'avahi-daemon'\n\"a\"\n\n";
+        file_put_contents("$tmp/el/custom_syslog.conf", $custom);
+        file_put_contents("$tmp/el/syslog_filter.conf", $filter);
+        $before = [md5_file("$tmp/el/custom_syslog.conf"), md5_file("$tmp/el/syslog_filter.conf"), scandir("$tmp/el")];
+        $el = logsElRead();
+        same('logs el: custom rules — read as Enhanced Log reads them, its categories mapped tolerantly («minor issues», any case)',
+            [['re' => 'spin(up|down)', 'cat' => 'minor'], ['re' => 'usb [0-9-]+: new', 'cat' => 'drive'], ['re' => 'sshd.*Accepted', 'cat' => 'login']], $el['rules']);
+        same('logs el: filter texts — quotes taken out, empty lines aren\'t texts, its example left out', ['wsdd2[1234]: error', 'avahi-daemon'], $el['hide']);
+        same('logs el: what she doesn\'t understand is listed, never guessed (its examples aren\'t the user\'s)',
+            [['rules', 'cat', 'purple'], ['rules', 'regex', null], ['rules', 'line', null], ['rules', 'other', 'other'], ['hide', 'short', null]],
+            array_map(fn ($b) => [$b['list'], $b['why'], $b['word'] ?? null], $el['bad']));
+        check('logs el: the first time she sees it, she takes it over', logsElTake(true));
+        $m = logsMine();
+        same('logs el: … as her own (from Enhanced Log), its order kept', [['spin(up|down)', 'usb [0-9-]+: new', 'sshd.*Accepted'], ['el', 'el', 'el'], ['wsdd2[1234]: error', 'avahi-daemon']],
+            [array_column($m['rules'], 're'), array_column($m['rules'], 'from'), array_column($m['hide'], 'text')]);
+        same('logs el: … a second look adds nothing twice', [false, false, 3, 2], [logsElTake(true), logsElTake(false), count(logsMine()['rules']), count(logsMine()['hide'])]);
+        same('logs el: … never written or added to on the flash', $before, [md5_file("$tmp/el/custom_syslog.conf"), md5_file("$tmp/el/syslog_filter.conf"), scandir("$tmp/el")]);
+        same('logs el: the page\'s summary', ['bad' => 5, 'rules' => 3, 'hide' => 2, 'new' => ['rules' => 0, 'hide' => 0]],
+            array_intersect_key(['bad' => count($el['bad'])] + logsElSummary($el, logsMine()), ['rules' => 1, 'hide' => 1, 'new' => 1, 'bad' => 1]));
+        // a changed file: the difference offered (never taken on her own), a click takes it; one the user removed never comes back
+        file_put_contents("$tmp/el/custom_syslog.conf", "\"nfs.*timed out\", \"network\"\n", FILE_APPEND);
+        $el = logsElRead();
+        same('logs el: a changed file — what is new is offered, not taken on her own', [['rules' => 1, 'hide' => 0], false, 3],
+            [logsElSummary($el, logsMine())['new'], logsElTake(true), count(logsMine()['rules'])]);
+        $m = logsMine();
+        logsMineRemove('rules', $m['rules'][0]['id']);
+        logsElTakeNew();
+        same('logs el: «Take over» takes what is new; one removed never comes back', ['usb [0-9-]+: new', 'sshd.*Accepted', 'nfs.*timed out'], array_column(logsMine()['rules'], 're'));
+        same('logs el: … and again: nothing twice', [false, 3], [logsElTake(false), count(logsMine()['rules'])]);
+        same('logs el: a link where its folder is: not read', null, (function () use ($tmp) { @symlink("$tmp/el", "$tmp/el-link"); return logsElRead("$tmp/el-link"); })());
+        hardeningRm("$tmp/el");
+        same('logs el: «Take over» after it was removed is refused', 'logs_el_gone', $refused(fn () => logsElTakeNew()));
+
+        // her instant sort: Unraid's syslog's newest lines, the tour's shape, nothing kept
+        logsRuleSet(true);
+        $now = time();
+        $lines = [];
+        foreach (range(30, 1) as $k) {
+            $t = date('M j H:i:s', $now - $k * 60);
+            $lines[] = sprintf('%s Tower kernel: br0: port %d(vnet1) entered blocking state', $t, $k % 3);
+            $lines[] = "$t Tower kernel: ata11.00: disabled";
+            $lines[] = "$t Tower root: hello $k";
+        }
+        file_put_contents("$tmp/syslog", implode("\n", $lines) . "\n");
+        $r = logsSortNow("$tmp/syslog");
+        $s = $r['sorted'] ?? [];
+        $acc = logsTally();
+        $tourKeys = array_keys(logsTourEntry('syslog', ['group' => 'unraid', 'label' => 'syslog', 'param' => '', 'kind' => 'file'], array_merge($acc, ['cats' => []])));
+        same('logs sort: the tour\'s syslog part, at once', [true, [], ['network' => 30, 'error' => 30, 'other' => 30], 90],
+            [$r['ok'] ?? null, array_values(array_diff($tourKeys, array_keys($s))), $s['cats'] ?? null, $s['lines'] ?? null]);
+        same('logs sort: … per category its kinds, newest first, with since and when', [['error', 'network'], true, true],
+            [array_values(array_unique(array_column($s['sorted'] ?? [], 'cat'))), ($s['since'] ?? 0) > 0 && $s['since'] < $now, ($s['time'] ?? 0) >= $now]);
+        same('logs sort: at most LOGS_SORT_LINES lines', true, LOGS_SORT_LINES <= 10000 && count(logsTail("$tmp/syslog", LOGS_SORT_LINES)) === 90);
+    } finally {
+        unset($GLOBALS['logsMineFile'], $GLOBALS['logsElDir']);
+        logsRuleSet(true);
+        hardeningRm($tmp);
+    }
+
+    // the agent: her actions answer with her state; the instant sort and «Take over» are actions of hers
+    $php = (string) file_get_contents(OFFICE_DIR . '/agent/desks/logs.php');
+    foreach (['sort', 'rule_add', 'rule_remove', 'hide_add', 'hide_remove', 'el_take'] as $a) {
+        check("logs mine: the action $a", str_contains($php, "'$a'"));
+    }
+    check('logs mine: she reads Enhanced Log\'s folder on the flash, never writes there', !preg_match('/(writeAtomic|file_put_contents|unlink|rename)\([^;]*LOGS_EL_DIR/', $php));
+
+    // the page: the same message rule, her own first (from the state), «Set up» as her second page, the instant sort
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/logs/desk.js');
+    preg_match('#^const SYSLOG_MSG = /(.*)/s;$#m', $js, $m);
+    same('logs mine: desk.js SYSLOG_MSG is the agent\'s', substr(LOGS_SYSLOG_MSG, 1, -2), $m[1] ?? null);
+    check('logs mine: her two pages, the instant sort, the hint for Enhanced Log\'s users',
+        str_contains($js, "const PAGES = () => [{ id: '', text: Office.t('common.page_overview') }, { id: 'setup', text: T('page.setup') }];")
+        && str_contains($js, "Office.api.post(`\${ID}.sort`, {})") && str_contains($js, 'const hello = elHint();'));
+
+    // colours: one token per category, no two alike (Enhanced Log's defaults where they fit), in office.css for every theme
+    $css = (string) file_get_contents(OFFICE_WEB . '/assets/office.css');
+    $desk = (string) file_get_contents(OFFICE_WEB . '/desks/logs/desk.css');
+    preg_match("#const CAT_RANK = \[(.*?)\];#", $js, $m);
+    $tokens = [];
+    foreach (array_map(fn ($x) => trim($x, " '"), explode(',', $m[1] ?? '')) as $c) {
+        preg_match('/\.lg-cat-' . $c . '\{--lg-cat:var\((--[a-z0-9-]+)\)\}/', $desk, $t);
+        preg_match('/^\s*' . preg_quote($t[1] ?? '-none-', '/') . ':([^;]+);/m', $css, $v);
+        $tokens[$c] = $v[1] ?? null;
+    }
+    same('logs colours: every category has a token of its own', [], array_keys(array_filter($tokens, 'is_null')));
+    same('logs colours: no two categories share a colour', [], array_keys(array_filter(array_count_values(array_filter($tokens)), fn ($n) => $n > 1)));
+    same('logs colours: never a colour of their own in desk.css', 0, preg_match_all('/#[0-9a-f]{3,8}\b|rgb\(/i', $desk));
 }
 
 /** Ms. Dustdevil's «Where is what»: which services of a compose file build their own image (her rebuild tip) */
@@ -42246,7 +42410,7 @@ JS;
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
