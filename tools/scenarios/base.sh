@@ -84,7 +84,7 @@ elif grep -qxF 192.168.7.197 <<<"$addrs"; then HOST=test3
 else echo "base: not a test VM (Tower 192.168.7.111, USOTest3VM 192.168.7.197) - refused" >&2; exit 2; fi
 BASE=$SC/base/$HOST
 [[ -f $BASE/base.env ]] || { echo "base: no $BASE/base.env" >&2; exit 2; }
-HIRE='' BACKUP_PRESET=auto BACKUP_CRON='' MOVERELLI_X=80 MOVERELLI_CRON='' MOVERELLI_RULES='' DRILL='' MOVER_SCHEDULE='' LOCALTIME='' CARRY='' DOCKER=no
+HIRE='' BACKUP_PRESET=auto BACKUP_CRON='' MOVERELLI_X='' MOVERELLI_CRON='' MOVERELLI_RULES='' DRILL='' MOVER_SCHEDULE='' LOCALTIME='' CARRY='' DOCKER=no
 # shellcheck disable=SC1090
 . "$BASE/base.env"
 D=$(sed -n 's/^DATA_DIR="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$CFG" 2>/dev/null | head -1)
@@ -240,7 +240,11 @@ make_base() {
     wait_json "$st" '.running != true and .mode == "apply" and .result != null' 900 || { warn "the apply did not finish"; return 1; }
     jq -e '.result == "ok" or .result == "warnings"' "$st" >/dev/null || { warn "the apply ended $(jq -r .result "$st")"; return 1; }
     if [[ -n $BACKUP_CRON ]]; then ask backup.schedule "$(jq -nc --arg c "$BACKUP_CRON" '{cron: $c}')" || return 1; fi
-    # Ms. Moverelli: her settings as her page has them, with X and the shares of MOVERELLI_RULES (those there)
+    # Ms. Moverelli: her settings as her page has them, with X and the shares of MOVERELLI_RULES (those there); no X:
+    # hired, not set up
+    if [[ -z $MOVERELLI_X ]]; then
+        log "Ms. Moverelli: not set up (this base keeps Unraid's mover)"
+    else
     ask moverelli.refresh >/dev/null || return 1
     body=$(jq -c --argjson x "$MOVERELLI_X" '.settings | .global.move_when_used_above = $x' "$D/moverelli.json") || return 1
     for sh in $MOVERELLI_RULES; do
@@ -252,6 +256,7 @@ make_base() {
     done
     ask moverelli.save "$(jq -nc --argjson s "$body" '{settings: $s}')" || return 1
     if [[ -n $MOVERELLI_CRON ]]; then ask moverelli.schedule "$(jq -nc --arg c "$MOVERELLI_CRON" '{cron: $c}')" || return 1; fi
+    fi
     if [[ -n $DRILL ]]; then ask restore.drill_set "$(jq -nc --arg s "$DRILL" '{schedule: $s}')" || return 1; fi
     sleep 3
     agent_stop
