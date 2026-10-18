@@ -61,7 +61,8 @@ Unraid **7.3.2 or a newer 7.x**; snapshots need ZFS or btrfs. In Unraid, go to *
 https://github.com/dropnook/UnraidSecretaryOffice/releases/latest/download/unraid-secretary-office.plg
 ```
 
-Then open **Sekretariat** in Unraid's menu bar; the Team Lead welcomes you.
+Then open **Sekretariat** in Unraid's menu bar; the Team Lead welcomes you. Coming soon to Community Applications;
+updates come through Unraid's plugin manager either way.
 
 ## Support
 
