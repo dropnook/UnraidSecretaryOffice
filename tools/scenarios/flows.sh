@@ -20,7 +20,7 @@
 #   Ms. Moverelli  MV-SETUP [x=80] [mover_off=1] [rule=<share>:<days>…]   MV-RESAVE   MV-LIST   MV-DRY   MV-RUN [look=s]
 #                  MV-RUN-SCHED   MV-STOP-AFTER-FILE (= MV-NIGHT-STOP)   MV-SCHEDULE cron=…|cron=   MV-MOVER-OFF
 #                  MV-IMPORT folder=   MV-LETGO
-#   The office     OF-UPDATE plg=<file|url>|worktree   OF-REMOVE-REINSTALL [plg=]   OF-ARRAY-STOP-START
+#   The office     OF-UPDATE plg=<file|url>|update|worktree | from=<version>   OF-REMOVE-REINSTALL [plg=]   OF-ARRAY-STOP-START
 #                  OF-REBOOT (the pre half: notes for the post half, the runner reboots)   OF-REBOOT-BACK (the post half)
 #                  OF-AGENT-RESTART   OF-HIRE desk=   OF-FIRE desk=
 #
@@ -41,7 +41,7 @@ _fl_args() {
     FL=() FL_LIST=() FL_KV=()
     local a
     for a in "$@"; do
-        if [[ $a =~ ^(refuse|measure|preset|plan|mode|after|cron|delete|kind|folder|name|share|dir|stack|no_fresh_ok|clear|path|moment|wake|app|file|version|container|vm|source|snapshot|of|x|mover_off|look|plg|desk|key|value)=(.*)$ ]]; then
+        if [[ $a =~ ^(refuse|measure|preset|plan|mode|after|cron|delete|kind|folder|name|share|dir|stack|no_fresh_ok|clear|path|moment|wake|app|file|version|container|vm|source|snapshot|of|x|mover_off|look|plg|desk|key|value|from)=(.*)$ ]]; then
             FL[${BASH_REMATCH[1]}]=${BASH_REMATCH[2]}
         elif [[ $a == rule=* ]]; then
             FL_LIST+=("${a#rule=}")
@@ -702,33 +702,48 @@ flow_of_agent_restart() { _fl_args "$@" || return 1; agent_restart; }
 # the office's version as the plugin's files say and as the agent says
 _of_versions() { printf '%s agent %s' "$(sed -n -E "s/^const OFFICE_VERSION = '([^']+)'.*/\1/p" "$P/src/bootstrap.php" 2>/dev/null)" "$(jq -r '.version // "?"' "$RUN/agent.json" 2>/dev/null)"; }
 
-# OF-UPDATE plg=<file|url>|worktree: the plugin manager's update (`plugin update`, or `plugin install <plg>` for a file
-# or address) — or worktree: the synced tree into the plugin (plugin/dev-sync.sh, the coordinator's deploy). Waited for
-# until a new agent is at work. The command is kept for INV-MIGRATE-IDEMPOTENT (it runs it a second time).
+# OF-UPDATE plg=<file|url>|update|worktree | from=<version>: the plugin manager's update — `plugin update` (update), a
+# release's .plg installed (plg=<address or file>; the manager installs only another version, never an older one),
+# the synced tree into the plugin (worktree: plugin/dev-sync.sh, the coordinator's deploy) — or from=<version>: the
+# whole way a user goes, from that older release to the one installed now: `plugin remove`, `plugin install` of
+# v<version>'s .plg (an older office starts on the newer one's data folder), then the release installed before
+# installed again (its .plg by its tag — an update from the older one). Waited for until a new agent is at work. The
+# last command is kept for INV-MIGRATE-IDEMPOTENT (it runs it a second time).
+OFFICE_RELEASES=https://github.com/dropnook/UnraidSecretaryOffice/releases/download
 flow_of_update() {
     _fl_args "$@" || return 1
-    local how=${FL[plg]:-update} cmd
+    local how=${FL[plg]:-update} cmd was
+    was=$(sed -n -E "s/^const OFFICE_VERSION = '([^']+)'.*/\1/p" "$P/src/bootstrap.php" 2>/dev/null)
+    say "OF-UPDATE: before $(_of_versions)"
+    if [[ -n ${FL[from]:-} ]]; then
+        [[ ${FL[from]} =~ ^[0-9]+\.[0-9]+\.[0-9]+[a-z]?$ && $was =~ ^[0-9]+\.[0-9]+\.[0-9]+[a-z]?$ ]] || { say "OF-UPDATE: from=<version> and an installed release (now ${was:-?})"; return 1; }
+        agent_mark_restart
+        _of_run 'plugin remove unraid-secretary-office.plg' || return 1
+        _of_run "plugin install $OFFICE_RELEASES/v${FL[from]}/unraid-secretary-office.plg" || { _of_run "plugin install $OFFICE_RELEASES/v$was/unraid-secretary-office.plg"; return 1; }
+        agent_wait 300 || return 1
+        say "OF-UPDATE: on the older release $(_of_versions)"
+        how=$OFFICE_RELEASES/v$was/unraid-secretary-office.plg
+    fi
     case $how in
         worktree) cmd="bash $(printf %q "$SC_TREE/plugin/dev-sync.sh")" ;;
         update) cmd='plugin update unraid-secretary-office.plg' ;;
         *) cmd="plugin install $(printf %q "$how")" ;;            # a release's .plg (its address or a file)
     esac
     printf '%s\n' "$cmd" >"$KEEP/.of-update"
-    say "OF-UPDATE: before $(_of_versions)"
     agent_log_mark update
     agent_mark_restart
     _of_run "$cmd" || return 1
-    # the plugin manager installs a version only when it differs (7.4: «not re-installing same plugin», no «forced»)
-    if grep -q 'not re-installing same plugin\|no update available\|up to date' "$(_of_last_log)" 2>/dev/null; then
-        say "OF-UPDATE: the plugin manager installed nothing — the same version ($(_of_versions))"
+    # the plugin manager installs a version only when it differs, never an older one (7.4: «not re-installing same
+    # plugin», «not installing older version» — no «forced»)
+    if grep -q 'not re-installing same plugin\|not installing older version\|no update available\|up to date' "$(_of_last_log)" 2>/dev/null; then
+        say "OF-UPDATE: the plugin manager installed nothing ($(grep -o 'not [a-z-]* [a-z]* [a-z]*' "$(_of_last_log)" | head -1)) — $(_of_versions)"
         rm -f "$KEEP/.restart-from"
         return 1
     fi
     agent_wait 300 || return 1
     say "OF-UPDATE: after $(_of_versions)"
-    _fl_note update "$(jq -cn --arg c "$cmd" --arg v "$(_of_versions)" '{cmd: $c, version: $v}')"
+    _fl_note update "$(jq -cn --arg c "$cmd" --arg v "$(_of_versions)" --arg f "${FL[from]:-}" '{cmd: $c, version: $v, from: $f}')"
 }
-# a command of the plugin manager's: run without the scenario lock's descriptor (it may start an agent), its output kept
 _of_last_log() { ls -t "$KEEP"/of-*.log 2>/dev/null | head -1; }
 _of_run() {
     local out=$KEEP/of-$(date +%s%N).log rc
