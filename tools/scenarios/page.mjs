@@ -15,6 +15,8 @@
 // the JSON). --want / --not (repeatable): a lang key that must / must not be on the page in every language asked
 // (`backup.bubble.last_ok`; `office.…` the office's own) - its text in that language, a plural any of its forms,
 // placeholders {…}, ⟦Unraid labels⟧ and markup matching anything; each result printed (and in the JSON's `checks`).
+// A greeting key (<desk>.greet.N) in --not: the page is drawn once per greeting with Math.random pinned, so whichever
+// greeting the desk's own logic could pick is seen.
 // --clean (INV-PAGE, tools/scenarios/checks.sh): the text holds no raw lang key (a key of the desk's or the office's
 // lang files as it is), no «undefined», «NaN», «[object», no placeholder left ({n}), no script name (setup.sh,
 // backup.sh, custommover), no «0 of 0» / «0 von 0», no «?» where a value belongs (alone, or before a unit), no «null» in
@@ -155,9 +157,13 @@ const harness = await startHarness({ states: opt.states, ...(opt.host ? { host: 
 const browser = await pw.chromium.launch({ headless: true, executablePath: chrome, args: ['--no-first-run', '--no-default-browser-check'] });
 const pages = [];
 let bad = 0;
-for (const lang of opt.langs) {
+// one drawing of the route in a language: the text once it settled, the errors, whether the desk drew. random (0…1):
+// Math.random pinned to it — a desk's greeting is picked at random, so a greeting key in --not is looked for in one
+// drawing per slot (greetSlots()), every greeting the page could pick seen once
+async function draw(lang, random) {
   const ctx = await browser.newContext({ viewport: { width: opt.width, height: 900 }, locale: lang === 'en' ? 'en-US' : lang });
   await ctx.addInitScript((t) => { try { localStorage.setItem('office.theme', t); } catch (e) { /* none */ } }, opt.theme);
+  if (random !== undefined) await ctx.addInitScript((r) => { Math.random = () => r; }, random);
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(`page error: ${String(e.message).slice(0, 200)}`));
@@ -174,19 +180,45 @@ for (const lang of opt.langs) {
     calm = now === text ? calm + 1 : 0;
     text = now;
   }
+  await ctx.close();
+  return { text, errors, drawn };
+}
+// how many greetings the desk has (greet.1 … greet.N in its en.json): that many drawings cover every pick
+function greetSlots() {
+  const j = readJson(path.join(REPO, 'public', 'desks', desk, 'lang', 'en.json')) || {};
+  let n = 0;
+  while (j[`greet.${n + 1}`] !== undefined) n++;
+  return n;
+}
+const greetNot = opt.not.filter((k) => /^[a-z][a-z0-9_-]*\.greet\.\d+$/.test(k));
+
+for (const lang of opt.langs) {
+  const { text, errors, drawn } = await draw(lang);
   if (!drawn) { bad++; errors.unshift(`the desk «${desk}» did not draw`); }
   for (const e of new Set(errors)) console.error(`page ${opt.route} ${lang}: ${e}`);
-  const checks = keyChecks(text, lang);
+  const checks = keyChecks(text, lang).filter((c) => !greetNot.includes(c.key));
+  // a greeting that must not show: one drawing per random slot — found in any of them is a FAIL
+  if (greetNot.length && drawn) {
+    const n = greetSlots();
+    const seen = new Set();
+    for (let i = 0; i < n; i++) {
+      const d = await draw(lang, (i + 0.5) / n);
+      for (const k of greetNot) {
+        const pats = keyPatterns(k, lang);
+        if (pats && pats.some((re) => re.test(d.text))) seen.add(k);
+      }
+    }
+    for (const k of greetNot) checks.push({ lang, key: k, want: false, found: keyPatterns(k, lang) ? seen.has(k) : null, ok: keyPatterns(k, lang) ? !seen.has(k) : false, slots: n });
+  }
   for (const c of checks) {
     if (!c.ok) bad++;
-    console.error(`page ${opt.route} ${lang}: ${c.ok ? 'ok  ' : 'FAIL'} ${c.want ? 'want' : 'not '} ${c.key}${c.found === null ? ' (no such key)' : ''}`);
+    console.error(`page ${opt.route} ${lang}: ${c.ok ? 'ok  ' : 'FAIL'} ${c.want ? 'want' : 'not '} ${c.key}${c.found === null ? ' (no such key)' : ''}${c.slots ? ` (${c.slots} drawings, one per greeting)` : ''}`);
   }
   const clean = opt.clean && drawn ? cleanChecks(text, lang) : [];
   for (const c of clean) console.error(`page ${opt.route} ${lang}: FAIL clean ${c}`);
   if (opt.clean && drawn && !clean.length) console.error(`page ${opt.route} ${lang}: ok   clean`);
   bad += clean.length;
   pages.push({ lang, text, errors: [...new Set(errors)], checks, clean });
-  await ctx.close();
 }
 await browser.close();
 await harness.close();

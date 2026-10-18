@@ -6,9 +6,9 @@
 # .backup.setup_running .backup.waiting_n .backup.asleep_last  .restore.packages .restore.running .restore.drill_running
 # .moverelli.configured .moverelli.running .moverelli.to_pool .moverelli.to_array .moverelli.others_on .moverelli.scheduled
 # .cleanup.without_picture .cleanup.stacks_without_picture .cleanup.docker_down  .snapshot.mounted .snapshot.asleep
-# A greeting (greet.N) is picked at random on every page: its rule is judged on the server at every look (red when it
-# could show now and isn't true). Every other key is handed to the page check (page.mjs --not) when its condition is
-# false: the page built from the real state files at that moment must not show it.
+# Every key whose condition is false is handed to the page check (page.mjs --not): the page built from the real state
+# files at that moment must not show it. A greeting (greet.N, picked at random) is looked for in one drawing per
+# greeting (Math.random pinned) — the desk's own filter decides, the rule says when the line would be untrue.
 backup	bubble.running_kopia	(.backup.running and (.backup.mode | IN("backup","nokopia")))	«taking a share offsite» only while a real run is at work
 backup	bubble.running_phase	(.backup.running and (.backup.mode | IN("backup","nokopia")))	«a backup is running» only while one is
 backup	bubble.running_old	(.backup.running and (.backup.mode | IN("backup","nokopia")))	«a backup is running» only while one is
@@ -34,7 +34,7 @@ restore	bubble.busy_dryrun	(.backup.running and .backup.mode == "dryrun")	«a dr
 restore	bubble.busy_setup	.backup.setup_running	«the setup is looking at the server» only while it does
 restore	bubble.busy_drill	.restore.drill_running	«I'm practising» only while a drill runs
 restore	bubble.asleep	.restore.place_asleep	«the disk with the packages is asleep» only when it is
-moverelli	greet.1	(.moverelli.to_pool | not)	«old files packed — off to the array» while her run moves files from the array to a pool (prefer)
+moverelli	greet.1	((.moverelli.running | not) and (.moverelli.to_pool | not))	«old files packed — off to the array» while her run goes (on 1.66.4: while it moved a prefer share array → pool)
 moverelli	bubble.running	.moverelli.running	«I'm at work» only while her run is
 moverelli	bubble.dry	.moverelli.others_on	«only dry runs, another mover runs on schedule» only when one does
 moverelli	bubble.no_schedule	(.moverelli.configured and (.moverelli.scheduled | not))	«I don't run on my own yet» only without her cron line
@@ -47,3 +47,7 @@ cleanup	bubble.docker_down	.cleanup.docker_down	«Docker doesn't answer» only w
 snapshot	bubble.mounted	(.snapshot.mounted > 0)	«n snapshots are mounted» only when some are
 snapshot	bubble.backup	(.backup.running)	«the backup engine is running» only while it is
 snapshot	bubble.asleep	(.snapshot.asleep > 0)	«n disks are asleep» only when some are
+moverelli	bubble.run_to_array	(.moverelli.running and .moverelli.to_array)	«I'm moving … into the array» only while her run moves files pool → array
+moverelli	bubble.run_back_from_array	(.moverelli.running and .moverelli.to_pool)	«I'm bringing … back from the array into pool» only while her run moves files array → pool
+moverelli	bubble.run_back_from_pool	.moverelli.running	«… from pool … into pool» only while her run goes
+moverelli	bubble.run_to_pool	.moverelli.running	«… on into pool …» only while her run goes

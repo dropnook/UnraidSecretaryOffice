@@ -711,20 +711,27 @@ flow_of_update() {
     case $how in
         worktree) cmd="bash $(printf %q "$SC_TREE/plugin/dev-sync.sh")" ;;
         update) cmd='plugin update unraid-secretary-office.plg' ;;
-        *) cmd="plugin install $(printf %q "$how") forced" ;;
+        *) cmd="plugin install $(printf %q "$how")" ;;            # a release's .plg (its address or a file)
     esac
     printf '%s\n' "$cmd" >"$KEEP/.of-update"
     say "OF-UPDATE: before $(_of_versions)"
     agent_log_mark update
     agent_mark_restart
     _of_run "$cmd" || return 1
-    agent_wait 300 || { [[ $how == update ]] && say "OF-UPDATE: no new agent — nothing newer to update to?"; return 1; }
+    # the plugin manager installs a version only when it differs (7.4: «not re-installing same plugin», no «forced»)
+    if grep -q 'not re-installing same plugin\|no update available\|up to date' "$(_of_last_log)" 2>/dev/null; then
+        say "OF-UPDATE: the plugin manager installed nothing — the same version ($(_of_versions))"
+        rm -f "$KEEP/.restart-from"
+        return 1
+    fi
+    agent_wait 300 || return 1
     say "OF-UPDATE: after $(_of_versions)"
     _fl_note update "$(jq -cn --arg c "$cmd" --arg v "$(_of_versions)" '{cmd: $c, version: $v}')"
 }
 # a command of the plugin manager's: run without the scenario lock's descriptor (it may start an agent), its output kept
+_of_last_log() { ls -t "$KEEP"/of-*.log 2>/dev/null | head -1; }
 _of_run() {
-    local out=$KEEP/of-$(date +%s).log rc
+    local out=$KEEP/of-$(date +%s%N).log rc
     _st_clean bash -c "$1" >"$out" 2>&1
     rc=$?
     say "\`$1\` → $rc ($(tail -1 "$out" 2>/dev/null | head -c 160))"
@@ -744,7 +751,8 @@ flow_of_remove_reinstall() {
         cp -p /boot/config/plugins/unraid-secretary-office.plg "$plg"
     fi
     # the data folder as it was (names, sizes, times — the agent's own log and heartbeat files left out)
-    listing=$(find "$D" -path "$D/mailbox" -prune -o -type f -not -name agent.log -printf '%P %s %T@\n' 2>/dev/null | LC_ALL=C sort)
+    # the data folder's files by name (their contents move on: the agent rewrites its state all the time)
+    listing=$(find "$D" -path "$D/mailbox" -prune -o -type f -printf '%P\n' 2>/dev/null | LC_ALL=C sort)
     printf '%s\n' "$listing" >"$KEEP/of-data-before.txt"
     say "OF-REMOVE-REINSTALL: $(_of_versions), .plg $(basename "$plg")"
     agent_mark_restart
@@ -754,13 +762,21 @@ flow_of_remove_reinstall() {
     agent_wait 300 || return 1
     [[ -f $OFFICE_CFG ]] || { say "OF-REMOVE-REINSTALL: the .cfg is gone"; return 1; }
     ls "$OFFICE_FLASH"/*.cron >/dev/null 2>&1 || { say "OF-REMOVE-REINSTALL: no cron file after the reinstall"; return 1; }
-    find "$D" -path "$D/mailbox" -prune -o -type f -not -name agent.log -printf '%P %s %T@\n' 2>/dev/null | LC_ALL=C sort >"$KEEP/of-data-after.txt"
+    find "$D" -path "$D/mailbox" -prune -o -type f -printf '%P\n' 2>/dev/null | LC_ALL=C sort >"$KEEP/of-data-after.txt"
     local gone
-    gone=$(comm -23 "$KEEP/of-data-before.txt" "$KEEP/of-data-after.txt" | awk '{print $1}' | head -5)
-    _fl_note reinstall "$(jq -cn --arg v "$(_of_versions)" --arg g "$gone" '{version: $v, changed_or_gone: $g}')"
-    [[ -z $gone ]] || say "OF-REMOVE-REINSTALL: files of the data folder changed or gone: ${gone//$'\n'/ }"
+    gone=$(comm -23 "$KEEP/of-data-before.txt" "$KEEP/of-data-after.txt" | head -5)
+    _fl_note reinstall "$(jq -cn --arg v "$(_of_versions)" --arg g "$gone" '{version: $v, gone: $g}')"
     rmdir "$keep" 2>/dev/null
-    return 0
+    [[ -z $gone ]] || { say "OF-REMOVE-REINSTALL: files of the data folder gone: ${gone//$'\n'/ }"; return 1; }
+    # its schedules live again: every line of its cron file in crond's (Unraid's update_cron, a moment after the install)
+    wait_for 120 "the office's cron lines in /etc/cron.d/root" _of_cron_live
+}
+_of_cron_live() {
+    local line
+    while IFS= read -r line; do
+        [[ -z $line || $line == '#'* ]] && continue
+        grep -qxF -- "$line" /etc/cron.d/root || return 1
+    done < <(cat "$OFFICE_FLASH"/*.cron 2>/dev/null)
 }
 
 # OF-ARRAY-STOP-START: ⟦Stop⟧ and ⟦Start⟧ on Unraid's Main page (emcmd, the states' array_stop/array_start); before the

@@ -8,8 +8,8 @@
 # The page (INV-PAGE, INV-BUBBLE) is looked at by `bubble_look <label> [desk…]`: the desks' fresh looks (what opening
 # the page asks), the real facts of the server at that moment (bubble_facts → facts.json), the data folder's state files
 # copied (the page is built from them on the Mac: page.mjs), and the rules of bubble-rules.tsv judged —
-#   * a greeting's rule on the server at once (a random greeting can show on any look: red when it isn't true now);
-#   * every other rule whose condition is false → the page must not show that line (queue_mac … page_text … not <keys>);
+#   * every rule whose condition is false → the page must not show that line (queue_mac … page_text … not <keys>) — a
+#     greeting too: page.mjs draws the page once per greeting (Math.random pinned), whatever the desk could pick;
 #   * INV-PAGE: the page's text clean (queue_mac … page_clean: no raw key, undefined, NaN, «{n}», script name, «0 of 0» …)
 #   * the scenario's expect_bubble / expect_no_text (want / not).
 # Flows call bubble_look while a run is at work; INV-PAGE/INV-BUBBLE take a last look after the flow. On the VM alone
@@ -195,15 +195,9 @@ bubble_look() {
                 continue
             fi
             [[ $ok == true ]] && continue
-            for k in $(_ck_keys "$d" "$key"); do
-                if [[ $k == greet.* ]]; then
-                    # a greeting shows at random on any look: false now = it can say nonsense now
-                    printf '%s\t%s\t%s\n' "$label" "$d.$k" "$why" >>"$KEEP/.bubble-red"
-                    say "INV-BUBBLE ($label): $d.$k can show and isn't true now — $why"
-                else
-                    notkeys+=("$d.$k")
-                fi
-            done
+            # every key the page must not show now — a greeting too: page.mjs draws the page once per greeting
+            # (Math.random pinned), so whatever the desk's own logic could pick is seen
+            for k in $(_ck_keys "$d" "$key"); do notkeys+=("$d.$k"); done
         done <"$BUBBLE_RULES"
         queue_mac INV-PAGE page_clean "$d" "$dir/states" "$PAGE_LANGS"
         ((${#notkeys[@]})) && queue_mac INV-BUBBLE page_text "$d" "$dir/states" "$PAGE_LANGS" not "${notkeys[*]}"
@@ -243,14 +237,18 @@ _ck_tiles_moverelli() {
     [[ -n $p && $p != null && $(jq -r '.share // empty' <<<"$p") == "$share" ]] || return 0
     use=$(_ck_share_use "$share")
     pool=$(_ck_share_pool "$share")
-    card=$(jq -r 'if (.phase // "look") != "share" then "" else
+    # what the card can show from her answer: its percent lies between the share's files % and bytes % (the file in
+    # flight's .partial counted) — desk.js's runCardData(): time done once estimated, before that the larger of the two
+    local lo hi
+    read -r lo hi < <(jq -r 'if (.phase // "look") != "share" then "" else
         ((.share_bytes // 0) | tonumber) as $b | ((.share_files // 0) | tonumber) as $f |
         (((.share_done_bytes // 0) | tonumber) + ((.file_bytes // 0) | tonumber)) as $db | ((.share_done_files // 0) | tonumber) as $df |
-        if $b > 0 then ([100, (100 * $db / $b | floor)] | min) elif $f > 0 then ([100, (100 * $df / $f | floor)] | min) else "" end end' <<<"$p")
-    printf 'share=%s card=%s disks-before=%s disks-after=%s\n' "$share" "${card:-none}" "${real0:-?}" "${real1:-?}" >>"$dir/run-card.txt"
-    if [[ -n $card && -n ${real0:-} && -n ${real1:-} ]] && ((card < real0 - 20 || card > real1 + 20)); then
-        printf '%s\t%s\t%s\n' "$label" "moverelli run card" "it shows ${card} % for $share while ${real0}–${real1} % of its bytes were across (before / after its answer)" >>"$KEEP/.page-red"
-        say "INV-PAGE ($label): the run card shows ${card} % for $share, the disks ${real0}–${real1} %"
+        [(if $b > 0 then ([100, (100 * $db / $b | floor)] | min) else empty end), (if $f > 0 then ([100, (100 * $df / $f | floor)] | min) else empty end)]
+        | if length == 0 then "" else "\(min) \(max)" end end' <<<"$p")
+    printf 'share=%s card=%s–%s disks-before=%s disks-after=%s\n' "$share" "${lo:-none}" "${hi:-}" "${real0:-?}" "${real1:-?}" >>"$dir/run-card.txt"
+    if [[ -n ${lo:-} && -n ${real0:-} && -n ${real1:-} ]] && ((hi < real0 - 20 || lo > real1 + 20)); then
+        printf '%s\t%s\t%s\n' "$label" "moverelli run card" "its numbers give ${lo}–${hi} % for $share while ${real0}–${real1} % of its bytes were across (before / after her answer)" >>"$KEEP/.page-red"
+        say "INV-PAGE ($label): the run card can show ${lo}–${hi} % for $share, the disks ${real0}–${real1} %"
     fi
     if [[ -n $(jq -r '.file // empty' <<<"$p") ]]; then
         to=$(jq -r --arg s "$share" '[.shares[]? | select(.share == $s) | .to][0] // empty' "$dir/states/moverelli.json" 2>/dev/null)
@@ -297,12 +295,12 @@ check_inv_page() {
 # INV-BUBBLE — bubbles, greetings and tiles say what is true now: the greetings judged here, the rest on the Mac
 check_inv_bubble() {
     _ck_final_look
-    if [[ -s $KEEP/.bubble-red ]]; then
+    if [[ -s $KEEP/.bubble-red ]]; then         # a rule that doesn't evaluate
         awk -F'\t' '{printf "%s%s (%s): %s", (NR>1?"; ":""), $2, $1, $3}' "$KEEP/.bubble-red" | head -c 500
         echo
         return 1
     fi
-    echo "greetings true on every look; pending (mac): $(_ck_mac_n INV-BUBBLE) page checks"
+    echo "pending (mac): $(_ck_mac_n INV-BUBBLE) page checks (greetings drawn once each)"
     return 2
 }
 
@@ -523,9 +521,11 @@ check_inv_migrate_idempotent() {
     v1=$(_of_versions)
     agent_log_mark second-update
     touch "$KEEP/.second-update"
-    agent_mark_restart
+    agent_mark_restart >/dev/null
     _st_clean bash -c "$cmd" >"$KEEP/of-second-update.log" 2>&1
-    agent_wait 300 >/dev/null 2>&1
+    # nothing newer: the plugin manager installs nothing and the agent goes on (no restart awaited — softly)
+    WAIT_SOFT=1 wait_for 60 "a new agent after the second update" _agent_ready "$(cat "$KEEP/.restart-from" 2>/dev/null)" >/dev/null 2>&1
+    sleep 5
     v2=$(_of_versions)
     mig=$(agent_log_since second-update | grep -E '→|Migrat' | head -2)
     before=$(find "$D" -name '*.before-*' -newer "$KEEP/.second-update" 2>/dev/null | head -2)
