@@ -123,8 +123,8 @@ and replace, RS-SQLITE, RS-DB (immich's postgres dump), RS-VM, RS-PUTBACK (of ea
 MV-STOP-AFTER-FILE, MV-SCHEDULE, MV-MOVER-OFF, MV-IMPORT, MV-LETGO (+ OF-HIRE) · OF-AGENT-RESTART, OF-UPDATE (`update`;
 a same/older .plg is refused by the plugin manager — `from=<version>` removes and installs the older release first),
 OF-ARRAY-STOP-START (stopped in 25 s, nothing open under /mnt), OF-REMOVE-REINSTALL.
+RS-KOPIA (after BK-APPLY `share|uso-only|mode=kopia` and a run: Tower's base sends nothing to Kopia), OF-UPDATE
+from=1.66.5 (remove, 1.66.5, back to 1.66.6 — INV-MIGRATE-IDEMPOTENT green).
 **Not run:** BK-PACKAGE-ASIDE was called and refused `package_aside_gone` — the page offers it only once a backup run
-lists the package as gone (run a backup after the app went); RS-KOPIA — Tower's base sends nothing to Kopia (a new setup
-proposes everything local): BK-APPLY a share to `kopia` and back it up first; OF-REBOOT / OF-REBOOT-BACK — the runner's
-reboot halves (`<name>-pre.sh` / `-post.sh`), a reboot of Tower not made yet; OF-UPDATE from=<version> — written after
-the plugin manager refused the older .plg.
+lists the package as gone (run a backup after the app went); OF-REBOOT / OF-REBOOT-BACK — the runner's reboot halves
+(`<name>-pre.sh` / `-post.sh`), a reboot of Tower not made yet.
