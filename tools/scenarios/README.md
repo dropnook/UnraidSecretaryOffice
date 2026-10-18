@@ -113,3 +113,18 @@ a run is at work (backup, restore, Moverelli); the checks take the last look.
 
 **Verdict:** a scenario is green only when every check ran green — with a Mac-side check still queued it is «pending»
 (row and total alike, run-local.sh's summary); run.sh completes them (plan_changes, page_text, page_clean).
+
+**Called for real once (Tower, 1.66.4/1.66.5, 2026-10-18, H5's scratch scenarios and office-flows-selftest):**
+BK-FIRST-SETUP (after BK-FORGET, preset=auto), BK-REPLAN, BK-APPLY (a share's mode and back), BK-DECLINE / -UNDO,
+BK-RUN-MANUAL (backup, check), BK-RUN-SCHED, BK-RUN-QUEUED, BK-ABORT, BK-UNMOUNT, BK-SCHEDULE, BK-ORPHANS (look;
+nothing to delete), BK-DATASET-MAKE (a scratch app's folder), BK-LETGO (+ OF-HIRE), BK-FORGET · RS-SCAN, RS-FILES beside
+and replace, RS-SQLITE, RS-DB (immich's postgres dump), RS-VM, RS-PUTBACK (of each), RS-DRILL, RS-CONFIG (refused
+`restore_config_same` — nothing differed, as it should) · MV-SETUP, MV-RESAVE, MV-LIST, MV-DRY, MV-RUN, MV-RUN-SCHED,
+MV-STOP-AFTER-FILE, MV-SCHEDULE, MV-MOVER-OFF, MV-IMPORT, MV-LETGO (+ OF-HIRE) · OF-AGENT-RESTART, OF-UPDATE (`update`;
+a same/older .plg is refused by the plugin manager — `from=<version>` removes and installs the older release first),
+OF-ARRAY-STOP-START (stopped in 25 s, nothing open under /mnt), OF-REMOVE-REINSTALL.
+**Not run:** BK-PACKAGE-ASIDE was called and refused `package_aside_gone` — the page offers it only once a backup run
+lists the package as gone (run a backup after the app went); RS-KOPIA — Tower's base sends nothing to Kopia (a new setup
+proposes everything local): BK-APPLY a share to `kopia` and back it up first; OF-REBOOT / OF-REBOOT-BACK — the runner's
+reboot halves (`<name>-pre.sh` / `-post.sh`), a reboot of Tower not made yet; OF-UPDATE from=<version> — written after
+the plugin manager refused the older .plg.
