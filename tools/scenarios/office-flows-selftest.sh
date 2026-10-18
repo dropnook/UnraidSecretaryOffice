@@ -38,8 +38,14 @@ flow BK-RUN-MANUAL mode=backup
 unit=$(state_json restore '[.apps[]? | (.folders // .parts // [])[]? | select((.snaps // 0) != 0 and (.whole | not)) | .path] | .[0] // empty')
 if [[ -n $unit ]]; then
     flow RS-FILES mode=beside path="$unit"
-    restored=$(jq -r '.target.dest // .target.to // empty' "$D/restore/$(fl_last_restore)/plan.json" 2>/dev/null)
-    [[ -n $restored && $restored == *.restored-* ]] && undo_push rm -rf -- "$restored"
+    # the copy beside (<folder>.restored-<stamp>, a dataset of its own when the restore made one) goes at the end
+    restored=$(jq -r '[.steps[]? | select(.do == "copy") | .to][0] // empty' "$D/restore/$(fl_last_restore)/plan.json" 2>/dev/null)
+    _h5_restored_gone() {
+        local ds
+        ds=$(jq -r '[.steps[]? | select(.do == "copy") | .dataset][0] // empty' "$D/restore/$1/plan.json" 2>/dev/null)
+        if [[ -n $ds ]] && zfs list -H "$ds" >/dev/null 2>&1; then zfs destroy -r "$ds"; else rm -rf -- "$2"; fi
+    }
+    [[ $restored == *.restored-* ]] && undo_push _h5_restored_gone "$(fl_last_restore)" "$restored"
 else
     say "no app folder with snapshots to restore from — RS-FILES left out"
     _row flow RS-FILES red "no folder with snapshots after the backup run"
