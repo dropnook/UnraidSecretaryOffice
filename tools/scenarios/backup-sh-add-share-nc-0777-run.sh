@@ -2,6 +2,8 @@
 # The user adds a share (Unraid's «Add Share»): emhttpd also resets the exclusive share nextcloud's root to 0777
 # nobody:users, Nextcloud refuses its data folder, and the next backup fails (result failed, nc_datadir_readable)
 # instead of going on with the others. Red until fixed (H5 finding, 1.66.6): the flow and INV-BACKUP-AFTER.
+# Also red, a separate question (not this cell's): INV-REPLAN — with the new share the page's Apply list would also send
+# the backup place UnraidSecretaryOffice to Kopia (snapshot → kopia; the «auto» default for what is new, 1.66.6).
 . "$(dirname "$0")/lib.sh"
 scenario_begin backup-sh-add-share-nc-0777-run
 needs tower docker exclusive
