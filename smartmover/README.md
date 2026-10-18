@@ -27,12 +27,13 @@
 >   still only warn. Ms. Moverelli sets it for real runs.
 > * `CUSTOMMOVER_DISKS_INI` (emhttpd's disks.ini): on a real run a share that reaches the array names its array disks
 >   that sleep (its `shareInclude`, else all, less `shareExclude`) in one INFO line — a prefer share before its scan of
->   `/mnt/user0`, a share moving to the array before the move binary starts. Nothing else changes.
+>   its disks, a share moving to the array before the move binary starts. Nothing else changes.
 > * Always: the share's own path in an exclude entry (`/mnt/user/<share>/…`, `/mnt/user0/<share>/…`) is replaced quoted —
 >   a share name with `[ ] * ?` is no pattern.
 > * One file at a time (2026-10-12, with `CUSTOMMOVER_STOP` set; marked «office: one file at a time» in the script):
 >   a real run hands Unraid's move binary one file per call instead of the share's whole list — the move binary reads
->   its stdin line by line and moves as it reads, but only one call per file lets the office know when a file is done.
+>   its stdin line by line and moves as it reads; the office hands the next file only once one is done (since 2026-10-18
+>   through one binary per share, «One move binary» below).
 >   The stop file is looked at before each file: the file in flight always finishes, no further one starts («Stop after
 >   this file»). There is no harder stop: Unraid's move catches TERM and finishes the file in flight anyway (seen
 >   2026-10-13), so the office never signals it.
@@ -97,10 +98,28 @@
 > * Not taken over: `setup_custommover.sh` (Ms. Moverelli is the setup). The office never passes `--force` or
 >   `--force-all`, and never `CUSTOMMOVER_IGNORE_MOVER`. The tests point `CUSTOMMOVER_ZFS` (upstream) at a stand-in.
 >
-> **`prefer` shares** (array → pool) are moved as upstream does: their source is `/mnt/user0/<share>` (or the second
-> pool), which reads the array disks and may wake them. That is accepted here on purpose (the owner's decision): the
-> Dynamix Cache Directories plugin keeps the folder structure in RAM, so the scan rarely spins a disk up. There is no
-> sleep gate; `move_prefer_shares=no`, or `skip=yes` per share, leaves them out.
+> * **Per disk** (2026-10-18, marked «USO «per disk»», seen on a real server: 436 GB that never moved): a `prefer` share
+>   without a second pool is scanned and handed over per disk — `/mnt/disk1/<share>` … `/mnt/disk29/<share>`, as Unraid's
+>   own mover does, only the disks the share may use (`shareInclude`, else all, less `shareExclude`; another disk is never
+>   asked). Upstream hands the move binary `/mnt/user0/<share>/…` paths, and the move binary moves none of them (it says
+>   «No such file or directory» and exits 0; Unraid 7.3 and 7.4). An exclude entry written as `/mnt/user/<share>/…` or
+>   `/mnt/user0/<share>/…` holds on every one of those disks. After the files, the share's folders there go to the move
+>   binary deepest first (Unraid's mover's second pass): an empty one moves to the pool — the share's folder on a disk
+>   too — one still holding something stays; never an excluded one; after a stop only the empty parents of what moved.
+>   The list (`--list-shares`) still looks at no disk. The second pool → pool case stays `/mnt/<pool2>/<share>`.
+> * **One move binary** (2026-10-18, marked «USO «one move binary»», with `CUSTOMMOVER_STOP`): «one file at a time» no
+>   longer starts a move process per file (with the move binary's own `fuser` and `losetup` per file: hours for 120 000
+>   small files). One binary per share reads the paths from a pipe, handed over one by one: a file is done once its
+>   source is gone, or once the binary waits on its stdin again (it skipped the file: in use, already there) — read from
+>   `/proc/<pid>/syscall` (a read on fd 0; also of its children, for a script around move), or once it is gone (then a new
+>   one for the next file). The stop file is still looked at before each file; the live status is written at most once a
+>   second (and for each share's first file). Without `/proc/<pid>/syscall`: one process per file, as before. The fill
+>   (pool → array, the pool re-read after each file) still calls the binary per file.
+>
+> **`prefer` shares** (array → pool): their source is the array disks the share may use (above), which may wake them.
+> That is accepted here on purpose (the owner's decision): the Dynamix Cache Directories plugin keeps the folder
+> structure in RAM, so the scan rarely spins a disk up. There is no sleep gate; `move_prefer_shares=no`, or `skip=yes`
+> per share, leaves them out.
 >
 > **Licence:** the original is by helmi1987; this copy is published under GPL-3.0-or-later, as part
 > of the office. (The upstream repository has no LICENSE file of its own at the commit above.)
