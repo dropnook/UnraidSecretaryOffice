@@ -388,6 +388,7 @@
   "rc.tidy": "Aufräumen",
   "rc.since": "seit {time} ({duration})",
   "rc.left": "noch etwa {left}",
+  "rc.left_range": "noch etwa {lo} bis {hi}",
   "rc.end": "fertig etwa um {time}",
   "rc.end_tomorrow": "fertig etwa morgen um {time}",
   "rc.end_day": "fertig etwa am {day}",

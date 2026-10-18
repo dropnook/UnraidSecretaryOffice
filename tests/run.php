@@ -36308,7 +36308,7 @@ JS);
             $o['waking'] ?? null);
         check('run card: … the rate in the bar\'s words like Mr. Backupsy\'s partner line, the file\'s bytes beside it',
             (bool) preg_grep('/^70 % · rc\.rate_avg \{"rate":"[0-9.]+ B"\}/', $o['flightCard'] ?? []) && (bool) preg_grep('/^rc\.on_way \{"file":"c2\.txt \(rc\.file_bytes \{\\\\"done\\\\":\\\\"500 B\\\\",\\\\"size\\\\":\\\\"500 B\\\\"\}\)",.* · rc\.rate \{"rate":"10 B"\}$/', $o['flightCard'] ?? []), json_encode($o['flightCard'] ?? null));
-        same('run card: a minute after this page first saw Docs, 200 B more — Ø 200/60 B/s, the larger of bytes (600 B ÷ 3.33 = 180 s) and files (3 ÷ 0 — none done yet: bytes only) = 180 s, the end at 2240', [40, 200 / 60, 180.0, 2240.0],
+        same('run card: a minute after this page first saw Docs, 200 B more — Ø 200/60 B/s; files × time per file + bytes ÷ bandwidth: no file done yet — 3 × 0.06 s (the prior) + 600 B ÷ 3.33 B/s = 180.18 s, the end at 2240.18', [40, 200 / 60, 180.18, 2240.18],
             [$o['rate'][0] ?? null, $o['rate'][1] ?? null, isset($o['rate'][2]) ? round($o['rate'][2], 6) : null, isset($o['rate'][3]) ? round($o['rate'][3], 6) : null]);
         same('run card: looking around — the first step, no bar', [0, null, ['running', 'pending', 'pending']], $o['look'] ?? null);
         check('run card: its title, the steps, «40 % · about … left», the share\'s counts, the file in flight, the end',
@@ -36323,6 +36323,102 @@ JS);
         same('run card: «Stop after this file» asks moverelli.stop', ['moverelli.stop'], $o['posts'] ?? null);
     }
     unset($GLOBALS['moverelliHost']);
+    hardeningRm($tmp);
+}
+
+/**
+ * Her card's time left (the owner, 2026-10-18: «about 6 days» for a run of under 2 h — after 535 s 8 667 of 72 880 small
+ * Nextcloud files done but only 319 MB of 359 GB): files × time per file + bytes ÷ bandwidth, from the page's readings
+ * under node — a share simulated file by file (a fixed time per file as Unraid's move's fuser, then its bytes at a
+ * bandwidth), the page polling every 3 s
+ */
+function testMoverelliEta(): void
+{
+    $node = testsNode();
+    if ($node === '') {
+        check('time left: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('moverelli-eta');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, className: cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, dataset: {}, style: {},
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, insertBefore(c) { this.children.unshift(c); }, setAttribute() {} });
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { sections: () => ({ el: {}, render() {}, mount: () => false, places: () => [], active: () => '' }), scope: () => T, t: T, el: mk,
+  fmt: { cron: (c) => c, size: (b) => b + ' B', date: (t) => 'D' + t, time: (t) => 'T' + t, duration: (s) => Math.round(s) + 's', relative: (t) => 'R' + t },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, errorText: (e) => 'err:' + e.key,
+  dialog: () => ({ buttons: [] }), toast: () => {}, selbar: () => null, api: { post: async () => ({ ok: true }) } };
+(0, eval)(fs.readFileSync(process.argv[3], 'utf8'));
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+const texts = (n) => (typeof n === 'string' ? [n] : [n.text, ...n.children.flatMap(texts)].filter(Boolean));
+// a share's files [size, per-file seconds] moved one after another at bw bytes a second; the page polls every `poll` s
+// until `until` seconds after the start (the last poll then); returns the last card data and the true time left
+let seed = 7;
+const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+function sim(name, files, bw, until, poll = 3) {
+  const started = 100000;
+  const total = files.reduce((x, [s]) => x + s, 0);
+  const ends = [];
+  let t = 0;
+  files.forEach(([s, a]) => { t += a + s / bw; ends.push([t, s, a]); });
+  let d = null;
+  for (let at = Math.min(poll, until); at <= until; at = at < until ? Math.min(at + poll, until) : until + 1) {
+    let i = 0, done = 0;
+    while (i < ends.length && ends[i][0] <= at) done += ends[i++][1];
+    let fb = 0;
+    if (i < ends.length) { const [e, s, a] = ends[i]; const st = e - a - s / bw; fb = Math.max(0, Math.min(s, (at - st - a) * bw)); }
+    const p = { result: 'running', started, plan: [name], phase: 'share', share: name, file: '/mnt/x/f', share_files: files.length, share_bytes: total,
+      share_done_files: i, share_done_bytes: done, done_files: i, done_bytes: done, file_bytes: fb, shares: [] };
+    d = m.runCardData(p, started + at);
+    d.card = at === until ? texts(m.runCard(p, started + at)).filter((x) => /rc\.(left|estim|end)/.test(x)) : null;
+  }
+  return { left: d.left && Math.round(d.left), range: d.range && d.range.map(Math.round), end: d.end, truth: Math.round(t - until), card: d.card };
+}
+const out = {};
+// the owner's nextcloud_data: 8 667 small files (37 KB) in 535 s, the rest 5.6 MB on average at 150 MB/s
+const nc = [];
+for (let i = 0; i < 8667; i++) nc.push([36800, 0.0617]);
+for (let i = 8667; i < 72880; i++) nc.push([358.7e9 / 64213, 0.0617]);
+out.nc = sim('nextcloud_data', nc, 150e6, 535);
+// … the small files of varying size, fuser 50–80 ms: no bandwidth from that noise
+const ncj = [];
+for (let i = 0; i < 8667; i++) ncj.push([Math.round(73600 * rnd() * rnd() * 2), 0.05 + 0.03 * rnd()]);
+for (let i = 8667; i < 72880; i++) ncj.push([358.7e9 / 64213, 0.065]);
+out.ncJitter = sim('nextcloud_j', ncj, 150e6, 535);
+// … 20 min in: the big files seen too — both known, one time
+out.ncLater = sim('nextcloud_l', ncj, 150e6, 1200);
+// big files only (20 × 10 GB at 150 MB/s) and small files only (50 000 × 20 KB, 65 ms each, 200 MB/s), 10 min in
+const big = [];
+for (let i = 0; i < 20; i++) big.push([10e9, 0.06]);
+out.big = sim('big', big, 150e6, 600);
+const small = [];
+for (let i = 0; i < 50000; i++) small.push([20000, 0.065]);
+out.small = sim('small', small, 200e6, 600);
+console.log(JSON.stringify(out));
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/moverelli/desk.js') . ' ' . escapeshellarg(testsRunHelpersJs($tmp)) . ' 2>&1');
+    $o = json_decode($raw, true);
+    check('time left: ran under node', is_array($o), $raw);
+    $o = is_array($o) ? $o : [];
+    $near = fn (array $x, float $part): bool => ($x['left'] ?? null) !== null && abs($x['left'] - $x['truth']) <= $part * $x['truth'];
+    foreach (['nc' => 'the owner\'s numbers', 'ncJitter' => '… small files of varying size, a jittering fuser'] as $k => $what) {
+        $x = $o[$k] ?? [];
+        check("time left, $what: between 1 h and 3 h (truth ~1.8 h), not days", ($x['left'] ?? 0) >= 3600 && ($x['left'] ?? 0) <= 10800, json_encode($x));
+        check("time left, $what: unsure (the bandwidth not seen yet) — a range around it, no end",
+            is_array($x['range'] ?? null) && $x['range'][0] < $x['left'] && $x['left'] < $x['range'][1] && $x['range'][0] >= 3600 && $x['range'][1] <= 4 * 3600 && array_key_exists('end', $x) && $x['end'] === null, json_encode($x));
+        check("time left, $what: the card says the range", (bool) preg_grep('/ · rc\.left_range \{"lo":"\d+s","hi":"\d+s"\}$/', $x['card'] ?? []) && !preg_grep('/^rc\.end/', $x['card'] ?? []), json_encode($x['card'] ?? null));
+    }
+    $x = $o['ncLater'] ?? [];
+    check('time left, 20 min in, the big files seen too: one time within 10 % of the truth, the end said', $near($x, 0.1) && array_key_exists('range', $x) && $x['range'] === null && ($x['end'] ?? null) !== null
+        && (bool) preg_grep('/ · rc\.left \{"left":"\d+s"\}$/', $x['card'] ?? []), json_encode($x));
+    foreach (['big' => 'big files only', 'small' => 'small files only'] as $k => $what) {
+        $x = $o[$k] ?? [];
+        check("time left, $what: one time within 10 % of the truth, the end said", $near($x, 0.1) && array_key_exists('range', $x) && $x['range'] === null && ($x['end'] ?? null) !== null, json_encode($x));
+    }
     hardeningRm($tmp);
 }
 
@@ -38287,8 +38383,8 @@ JS);
 
 /**
  * Ms. Moverelli's run card and picture as the owner watched a «prefer» share move array → another pool (2026-10-18):
- * the time left from the share's average since it started (files and bytes, the larger; smoothed; «being estimated»
- * before a minute or 1 %), the end with «tomorrow» / its day, and the target pool as a bar of its own in the picture
+ * the time left from the share's readings since it started (files × time per file + bytes ÷ bandwidth — testMoverelliEta;
+ * smoothed; «being estimated» before a minute or 1 %), the end with «tomorrow» / its day, and the target pool as a bar of its own in the picture
  * (growing with what came), none for a yes share into the array. Pure parts under node.
  */
 function testMoverelliRunPicture(): void
@@ -38328,6 +38424,7 @@ out.stretch = b.left;
 const c = m.runCardData({ result: 'running', started: 100, plan: ['x'], phase: 'share', share: 'x', share_files: 1000, share_bytes: 1000 * G, share_done_files: 100,
   share_done_bytes: 500 * G, done_files: 100, done_bytes: 500 * G, shares: [] }, 200);
 out.larger = [c.left, c.rate / G];
+out.largerRange = c.range;
 // before a minute and 1 %: still estimated; 1 % within 30 s: shown; a share after another in the run: since this page saw it
 const youngP = (f, by) => ({ result: 'running', started: 5000, plan: ['y'], phase: 'share', share: 'y', share_files: 10000, share_bytes: 100 * G,
   share_done_files: f, share_done_bytes: by, done_files: f, done_bytes: by, shares: [] });
@@ -38385,11 +38482,16 @@ JS);
     $j = json_decode(trim((string) $out), true) ?? [];
     check('run picture: it runs', $j !== [], $out . $err);
     $G = 1 << 30;
-    // bytes: 383 GB ÷ (53 GB / 1620 s) = 11 707 s; files: 105 292 ÷ (17 584 / 1620 s) = 9 700 s — the larger
-    same('run picture: the owner\'s run (27 min, 53 of 436 GB, 17 584 of 122 876 files) — Ø 53 GB / 27 min, about 3 h 15 left (bytes the larger), never 27 h',
-        [round(53 / 1620, 6), round(383 * 1620 / 53), false], [isset($j['owner'][0]) ? round($j['owner'][0], 6) : null, isset($j['owner'][1]) ? round($j['owner'][1]) : null, $j['owner'][2] ?? null]);
-    check('run picture: a stretch of small files (5 s, 2 MB) — the time left stays about 3 h', ($j['stretch'] ?? 0) > 3 * 3600 && ($j['stretch'] ?? 0) < 3.5 * 3600, json_encode($j['stretch'] ?? null));
+    // one reading: time per file and bandwidth can't be told apart — mostly files (17 584 × 60 ms > 53 GB ÷ 100 MB/s): the
+    // bandwidth its prior 100 MB/s, the time per file the rest, (1620 s − 53 GB ÷ 100 MB/s) ÷ 17 584 = 60 ms; left: 105 292
+    // files × that + 383 GB ÷ 100 MB/s = 10 406 s (the old rule, bytes alone, said 11 707 s)
+    $per = (1620 - 53 * $G / 1e8) / 17584;
+    same('run picture: the owner\'s run (27 min, 53 of 436 GB, 17 584 of 122 876 files) — Ø 53 GB / 27 min, about 2 h 53 left (files × time per file + bytes ÷ bandwidth), never 27 h',
+        [round(53 / 1620, 6), round(105292 * $per + 383 * $G / 1e8), false], [isset($j['owner'][0]) ? round($j['owner'][0], 6) : null, isset($j['owner'][1]) ? round($j['owner'][1]) : null, $j['owner'][2] ?? null]);
+    check('run picture: a stretch of small files (5 s, 2 MB) — the time left stays about 3 h', ($j['stretch'] ?? 0) > 2.5 * 3600 && ($j['stretch'] ?? 0) < 3.5 * 3600, json_encode($j['stretch'] ?? null));
+    // 5 GB a second is beyond any bandwidth's prior: the split can't be told — the larger of the two ends, as a range
     same('run picture: files the slower — 900 files left at 1 a second = 900 s, not the bytes\' 100 s; Ø 5 GB/s', [900, 5], $j['larger'] ?? null);
+    same('run picture: … said as «100 s to 900 s» (unsure), no end', [100, 900], $j['largerRange'] ?? null);
     same('run picture: 30 s and 0.5 % — still estimated; 1 % reached — shown', [null, true, true], $j['young'] ?? null);
     same('run picture: a share after another in the run — since this page first saw it (estimated at first), then 10 GB in 100 s: Ø 0.1 GB/s, 80 GB left = 800 s (files: 80 ÷ 0.1 = 800)',
         [null, true, 0.1, 800], $j['later'] ?? null);
@@ -41853,7 +41955,7 @@ JS;
 }
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliPreferDisks', 'testMoverelliIdleRules', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliIdleRules', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
