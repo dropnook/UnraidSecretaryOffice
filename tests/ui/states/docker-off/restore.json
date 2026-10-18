@@ -1,0 +1,105 @@
+{
+  "time": 1791551074,
+  "host": "Tower",
+  "engine": {
+    "found": true,
+    "settings": true,
+    "busy": false,
+    "holder": null,
+    "kopia": false,
+    "kopia_container": "kopia",
+    "mount_root": "/mnt/addons/UnraidSecretaryOffice/snapshots",
+    "view_root": "/mnt/addons/UnraidSecretaryOffice/btrfs-snap",
+    "prefix": "uso-backup-",
+    "flash": "tar"
+  },
+  "place": {
+    "share": "UnraidSecretaryOffice",
+    "base": "/mnt/user/UnraidSecretaryOffice/backup",
+    "asleep": false,
+    "found": true,
+    "partner": null,
+    "snaps": 0
+  },
+  "kopia": {
+    "enabled": false,
+    "container": null,
+    "running": false,
+    "root": null,
+    "restore": null
+  },
+  "compose_root": "/boot/config/plugins/compose.manager/projects",
+  "templates_dir": "/boot/config/plugins/dockerMan/templates-user",
+  "libvirt_img": "/mnt/user/system/libvirt/libvirt.img",
+  "vm_service": false,
+  "pools_asleep": [],
+  "shares": [
+    {
+      "name": "appdata",
+      "mode": "snapshot",
+      "last": null
+    },
+    {
+      "name": "domains",
+      "mode": "snapshot",
+      "last": null
+    },
+    {
+      "name": "isos",
+      "mode": "snapshot",
+      "last": null
+    },
+    {
+      "name": "media",
+      "mode": "snapshot",
+      "last": null
+    },
+    {
+      "name": "nextcloud",
+      "mode": "snapshot",
+      "last": null
+    },
+    {
+      "name": "photos",
+      "mode": "snapshot",
+      "last": null
+    },
+    {
+      "name": "speedtest",
+      "mode": "snapshot",
+      "last": null
+    },
+    {
+      "name": "system",
+      "mode": "off",
+      "last": null
+    },
+    {
+      "name": "UnraidSecretaryOffice",
+      "mode": "snapshot",
+      "last": null
+    }
+  ],
+  "apps": [],
+  "vms": [],
+  "server": {
+    "path": "/mnt/user/UnraidSecretaryOffice/backup/server",
+    "libvirt": "/mnt/user/UnraidSecretaryOffice/backup/server/libvirt.tar.gz",
+    "libvirt_time": 1791513000,
+    "libvirt_bytes": 30785,
+    "templates": 0,
+    "compose": [],
+    "shares": "/mnt/user/UnraidSecretaryOffice/backup/server/shares"
+  },
+  "flash": {
+    "path": "/mnt/user/UnraidSecretaryOffice/backup/flash/flash.tar.gz",
+    "time": 1791513000,
+    "bytes": 131136589
+  },
+  "run": null,
+  "run_time": null,
+  "running": null,
+  "restores": [],
+  "partners": [],
+  "kept": []
+}
