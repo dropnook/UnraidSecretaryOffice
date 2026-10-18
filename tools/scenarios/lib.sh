@@ -13,7 +13,8 @@
 #
 # INTERFACE (frozen after wave 1; H2 states-*.sh, H5 flows.sh/checks.sh build on it):
 #   Facts      P D UB PLACE RUN KEEP REPORT SC_NAME SC_DIR SC_START      host_is tower|test3|any   has <thing>
-#              needs <thing>…   (things: tower test3 any docker vm vmagent hdd zfs btrfs kopia minio jack partner reboot)
+#              needs <thing>…   (things: tower test3 any docker nodocker vm vmagent hdd zfs btrfs kopia minio jack partner
+#              pool2 compose exclusive reboot)
 #              bases (disks and pools mounted under /mnt)   base_asleep <base>   disks_asleep   share_asleep <share>
 #              lock_held <file> (via /proc/locks, never by taking it)
 #   Report     say <text…>   say_cmd <cmd…> (runs it, its output into the report)   evidence <file|dir> [name]
@@ -40,7 +41,8 @@
 # exit — except scenario_begin (wrong host / no plugin / not root) and needs (unmet → scenario_end → exit 2). Everything a
 # helper records goes into files under $KEEP, so a helper called as `x=$(ask …)` still counts. Secrets (scenarios.env)
 # are never printed; INV-NO-SECRET greps for them.
-# `bash lib.sh --self-test` makes a uso-wip-h1-st share, files, a container, sleeps a disk, undoes all.
+# `flock -o /tmp/uso-scenarios.lock bash lib.sh --self-test` makes a uso-wip-h1-st share, files, a container, undoes all.
+# Always `flock -o` (the lock's fd closed for the command): an agent started from a scenario would keep the lock for life.
 
 # ---------------------------------------------------------------------------------------------------------------- facts
 P=/usr/local/emhttp/plugins/unraid-secretary-office
@@ -114,6 +116,10 @@ has() {
         vm) [[ -S /var/run/libvirt/libvirt-sock ]] && timeout 10 virsh list --all >/dev/null 2>&1 ;;
         vmagent) has vm && virsh list --all --name 2>/dev/null | grep -qx uso-vm-agent ;;   # H4 builds it
         hdd) _real_hdd ;;      # a disk that really sleeps: QEMU's virtual disks ignore STANDBY (H2, 2026-10-18)
+        nodocker) ! has docker ;;
+        pool2) awk -v m="/mnt/${POOL2:-fast}" '$2==m{f=1} END{exit !f}' /proc/mounts ;;     # a second pool (H2's states)
+        compose) has docker && docker compose version >/dev/null 2>&1 && [[ -d /boot/config/plugins/compose.manager/projects ]] ;;
+        exclusive) tr -d '\r' </boot/config/share.cfg 2>/dev/null | grep -qx 'shareUserExclusive="yes"' ;;
         zfs) grep -q '^fsType="zfs"' "$DISKS_INI" 2>/dev/null ;;
         btrfs) grep -q '^fsType="btrfs"' "$DISKS_INI" 2>/dev/null ;;
         kopia) has docker && _container_up kopia ;;
@@ -130,7 +136,8 @@ needs() {
         case $n in
             tower | test3 | any) host_is "$n" || why+=("not $n") ;;
             reboot) _row needs reboot info "the runner runs this scenario in halves" ;;
-            docker | vm | vmagent | hdd | zfs | btrfs | kopia | minio | jack | partner) has "$n" || why+=("no $n") ;;
+            docker | nodocker | vm | vmagent | hdd | zfs | btrfs | kopia | minio | jack | partner | pool2 | compose | exclusive)
+                has "$n" || why+=("no $n") ;;
             *) why+=("unknown need $n") ;;
         esac
     done
@@ -663,7 +670,7 @@ wait_letgo() {
 _broken() { [[ -f $KEEP/.broken ]]; }
 
 # state <ID> [args]: state_<id> args; undo_<id> args on the stack — pushed even when the state fails (undos are
-# idempotent: they clean up whatever part was done)
+# idempotent: they clean up whatever part was done). A state returning 2 «needs what isn't here»: skipped (exit 2).
 state() {
     local id=$1 fn un rc
     shift
@@ -684,6 +691,11 @@ state() {
     rc=$?
     if ((rc == 0)); then
         _row state "$id${*:+ $*}" green ""
+    elif ((rc == 2)); then
+        # the state says what it needs isn't here (H2's states): skipped like an unmet `needs`, after the undo
+        printf 'state %s: needs what this server lacks\n' "$id" >"$KEEP/.skip"
+        say "skipped: state $id needs what this server lacks"
+        scenario_end
     else
         _row state "$id${*:+ $*}" red "$fn exit $rc — the flow is not run"
         touch "$KEEP/.broken"
