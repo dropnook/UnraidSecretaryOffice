@@ -66,9 +66,12 @@ summary() {
 }" | paste -sd, -)
             pend="${pend:+$pend,}$macs (mac)"
         fi
+        # the verdict as the row shows and the total counts it: green only when every check ran green (the Mac-side
+        # ones done) - a green verdict with a check still pending is «pending», never «green»
         case $v in
             red|dirty|error|timeout|busy) rank=0 ;;
-            *) if [[ -n $pend ]]; then rank=1; elif [[ $v == skipped ]]; then rank=2; else rank=3; fi ;;
+            skipped) rank=2 ;;
+            *) if [[ -n $pend ]]; then rank=1 v=pending; else rank=3; fi ;;
         esac
         lines="$lines$rank	$n	${v:-?}	${red:--}	${pend:--}	${secs:--}	${keep:--}
 "

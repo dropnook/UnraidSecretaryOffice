@@ -1,0 +1,49 @@
+# INV-BUBBLE's rules (tools/scenarios/checks.sh): what a desk's bubble, greeting or tile line may say, against the
+# server as it really is at that moment. One rule a line, TAB-separated:
+#   <desk>  <lang key or glob>  <jq condition over the facts: true = the line may show now>  <why, one line>
+# The facts are read from the server itself, not from the office's own state files (checks.sh bubble_facts; printed
+# into each look's facts.json): .backup.running .backup.mode .backup.history_n .backup.last_result .backup.scheduled
+# .backup.setup_running .backup.waiting_n .backup.asleep_last  .restore.packages .restore.running .restore.drill_running
+# .moverelli.configured .moverelli.running .moverelli.to_pool .moverelli.to_array .moverelli.others_on .moverelli.scheduled
+# .cleanup.without_picture .cleanup.stacks_without_picture .cleanup.docker_down  .snapshot.mounted .snapshot.asleep
+# A greeting (greet.N) is picked at random on every page: its rule is judged on the server at every look (red when it
+# could show now and isn't true). Every other key is handed to the page check (page.mjs --not) when its condition is
+# false: the page built from the real state files at that moment must not show it.
+backup	bubble.running_kopia	(.backup.running and (.backup.mode | IN("backup","nokopia")))	«taking a share offsite» only while a real run is at work
+backup	bubble.running_phase	(.backup.running and (.backup.mode | IN("backup","nokopia")))	«a backup is running» only while one is
+backup	bubble.running_old	(.backup.running and (.backup.mode | IN("backup","nokopia")))	«a backup is running» only while one is
+backup	bubble.running_vm_shutdown	(.backup.running and (.backup.mode | IN("backup","nokopia")))	«waiting for the VMs» only while a run is at work
+backup	bubble.running_check	(.backup.running and .backup.mode == "check")	«checking settings.ini» only during a check
+backup	bubble.running_dryrun	(.backup.running and .backup.mode == "dryrun")	«a dry run» only during one
+backup	bubble.no_runs	(.backup.history_n == 0)	«no backup run yet» only without a run in the history
+backup	bubble.last_ok	((.backup.running | not) and .backup.last_result == "ok")	«went through without problems» only after a run that did
+backup	bubble.last_ok_kopia	((.backup.running | not) and .backup.last_result == "ok")	«went through» only after a run that did
+backup	bubble.last_warnings	(.backup.last_result == "warnings")	«ended with warnings» only when the last run did
+backup	bubble.last_errors	(.backup.last_result == "errors")	«had errors» only when the last run had
+backup	bubble.last_failed	(.backup.last_result == "failed")	«didn't finish» only when the last run failed
+backup	bubble.last_aborted	(.backup.last_result == "aborted")	«was stopped» only when the last run was
+backup	bubble.no_schedule	(.backup.scheduled | not)	«no backup is scheduled» only without a cron line
+backup	bubble.waiting	(.backup.waiting_n > 0)	«a new thing waits for a decision» only when the engine lists one (new-local.json)
+backup	bubble.asleep_left	.backup.asleep_last	«a share slept through the last backup» only when the last run left one out
+restore	bubble.no_packages	(.restore.packages == 0)	«no packages yet» only when the backup place has none
+restore	bubble.ready	(.restore.packages > 0)	«… can come back» only with packages on the place
+restore	bubble.restoring	.restore.running	«I'm restoring» only while a restore job runs
+restore	bubble.busy_backup	(.backup.running and (.backup.mode | IN("backup","nokopia")))	«a backup run holds the engine» only while one does
+restore	bubble.busy_check	(.backup.running and .backup.mode == "check")	«Mr. Backupsy is on his tour» only during a check
+restore	bubble.busy_dryrun	(.backup.running and .backup.mode == "dryrun")	«a dry run» only during one
+restore	bubble.busy_setup	.backup.setup_running	«the setup is looking at the server» only while it does
+restore	bubble.busy_drill	.restore.drill_running	«I'm practising» only while a drill runs
+restore	bubble.asleep	.restore.place_asleep	«the disk with the packages is asleep» only when it is
+moverelli	greet.1	(.moverelli.to_pool | not)	«old files packed — off to the array» while her run moves files from the array to a pool (prefer)
+moverelli	bubble.running	.moverelli.running	«I'm at work» only while her run is
+moverelli	bubble.dry	.moverelli.others_on	«only dry runs, another mover runs on schedule» only when one does
+moverelli	bubble.no_schedule	(.moverelli.configured and (.moverelli.scheduled | not))	«I don't run on my own yet» only without her cron line
+moverelli	bubble.ready	(.moverelli.scheduled and (.moverelli.others_on | not) and (.moverelli.running | not))	«all in order, I move on my schedule» only when that holds
+moverelli	bubble.setup	(.moverelli.configured | not)	«let's set it up» only when she isn't
+cleanup	greet.6	(.cleanup.without_picture > 0)	«a container without a picture?» only when one has none
+cleanup	bubble.icons	(.cleanup.without_picture > 0)	«n containers without a picture» only when that many have none
+cleanup	bubble.icon_stacks	(.cleanup.stacks_without_picture > 0)	«n Compose stacks without a picture» only when the Compose Manager shows a stack without one
+cleanup	bubble.docker_down	.cleanup.docker_down	«Docker doesn't answer» only when it doesn't
+snapshot	bubble.mounted	(.snapshot.mounted > 0)	«n snapshots are mounted» only when some are
+snapshot	bubble.backup	(.backup.running)	«the backup engine is running» only while it is
+snapshot	bubble.asleep	(.snapshot.asleep > 0)	«n disks are asleep» only when some are
