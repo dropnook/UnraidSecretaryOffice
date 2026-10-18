@@ -5152,7 +5152,11 @@ function setupApps(plan) {
     a.dbs.forEach((d) => {
       if (d.dumpable) meta.appendChild(chip(T('setup.app_dump', { type: T('setup.dbtype.' + d.type) }), l > 0 ? 'ok' : '', T('setup.app_dump_hint')));
     });
-    if (a.ncs.length) meta.appendChild(chip(T('setup.app_nc'), l > 0 ? 'ok' : '', T('setup.nc_text')));
+    // engine 2.60: a Nextcloud stopped right now keeps its setting - its tip says so (occ is asked when it runs)
+    if (a.ncs.length) {
+      meta.appendChild(chip(T('setup.app_nc'), l > 0 ? 'ok' : '', [T('setup.nc_text'),
+        ...a.ncs.filter((n) => n.running === false).map((n) => T('setup.msg.stopped_kept', { name: n.members.join(' + ') }))].join(' ')));
+    }
     if (a.volumes.length) meta.appendChild(chip(T('setup.ct_volumes', { list: a.volumes.join(', ') }), 'danger', T('setup.ct_volumes_hint')));
     if (a.volumesCache.length) meta.appendChild(chip(T('setup.ct_volumes_cache', { list: a.volumesCache.join(', ') }), '', T('setup.ct_volumes_cache_hint')));
     if (!a.folders.length && !a.deps.length) {

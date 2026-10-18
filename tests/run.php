@@ -4165,6 +4165,9 @@ JS;
             check('stopped kept (page): the label of the stopped Nextcloud\'s key names it', str_contains($r['labels'][0][0] ?? '', 'nextcloud-app'), (string) ($r['labels'][0][0] ?? ''));
             same('stopped kept (page): an older engine\'s plan without known_keys - as before', true, $r['noKnown']);
         }
+        check('stopped kept (page): the app\'s maintenance-mode chip says in its tip that it isn\'t running and keeps its setting',
+            str_contains((string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js'),
+                "...a.ncs.filter((n) => n.running === false).map((n) => T('setup.msg.stopped_kept', { name: n.members.join(' + ') }))].join(' ')"));
     }
 
     // Apply with the office's draft: settings.ini keeps them exactly, the same-instance line too; the gone ones go
