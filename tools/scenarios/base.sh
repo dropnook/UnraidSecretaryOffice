@@ -25,7 +25,8 @@
 # the storeroom, *.aside-<n>, *.restored-<n>, *.partial, .uso-drill-*. 4 apps (Tower): apps.sh all - when there.
 # 5 VMs: vm_make - when there. 6 Unraid: the mover's schedule, Mover Tuning, User Scripts, parity check, disks spun up,
 # NTP, the time zone, unread notifications archived (Unraid's notify archive). 7 the agent started, its heartbeat,
-# then `check standard` against the base (lib.sh, once it is there).
+# then `check standard` against the base (lib.sh, once it is there) and the plan's change list against
+# base/<host>/plan-changes.known.
 # Facts per VM: base/<tower|test3>/base.env. Exit 0 the base is there, 1 a step failed (said), 2 refused / wrong call.
 set -u
 SC=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -294,16 +295,19 @@ if [[ -f $DB/data.tar ]] || ((dry && make)); then
     # (just made: the data folder is the base already)
     ((made)) || act "unpack the base into $D ($(sed -n 's/^made=//p' "$DB/manifest" 2>/dev/null || echo 'made now'))" \
         bash -c 'mkdir -p "$1" && tar -C "$1" -xpf "$2"' _ "$D" "$DB/data.tar"
-    # from the data folder just set aside, else the newest aside that has it (a failed --make leaves a fresh one between)
+    # CARRY names <folder>/<file that makes it real> (partner/pairs.json): the folder is carried from the newest data
+    # folder set aside that has that file - never from one without it (2026-10-18: a failed --make's fresh folder had a
+    # partner/ with only the door's log, and the pairing was gone)
     for c in $CARRY; do
+        dir=${c%%/*}
         from=$(ls -d "$D".aside-*/"$c" 2>/dev/null | sort -r | head -1)
-        [[ -e $D.aside-$STAMP/$c ]] && from=$D.aside-$STAMP/$c
-        if [[ -n $from ]]; then
-            act "carry $c over from ${from%/*}" bash -c 'rm -rf -- "$1/$2" && cp -a -- "$3" "$1/$2"' _ "$D" "$c" "$from"
+        from=${from%/"${c#*/}"}
+        if [[ -n $from && $c == */* ]]; then
+            act "carry $dir over from ${from%/*} (it has $c)" bash -c 'rm -rf -- "$1/$2" && cp -a -- "$3" "$1/$2"' _ "$D" "$dir" "$from"
         elif ((dry)); then
-            log "would carry $c over from the data folder set aside"
+            log "would carry $dir over from the newest data folder set aside that has $c"
         else
-            log "nothing to carry for $c"
+            warn "nothing to carry: no data folder set aside has $c"
         fi
     done
     if [[ -f $DB/cron ]] && ! cmp -s "$DB/cron" "$CRON"; then
@@ -476,6 +480,31 @@ if real_fn scenario_begin && real_fn check && real_fn scenario_end; then
     fi
 else
     log "check standard: pending - lib.sh's checks are not there yet (H1)"
+fi
+# the base's plan: made anew as the setup's tour makes it, its change list (plan-changes.mjs, the Apply dialog's) exactly
+# the base's known one (base/<host>/plan-changes.known) - anything else, or anything missing, and the base is not clean
+known=$BASE/plan-changes.known
+if ((dry)); then
+    log "would make Mr. Backupsy's plan anew and compare its change list with $(basename "$BASE")/plan-changes.known"
+elif ! command -v node >/dev/null 2>&1; then
+    log "plan check: pending - no node on this VM (the runner's Mac-side check)"
+else
+    st=$D/unraid-backup/state/setup-status.json
+    if ask backup.setup_plan '{}' 60 >/dev/null && sleep 3 && wait_json "$st" '.running != true and .mode == "plan" and .result != null' 600 \
+        && ask backup.setup_get '{}' 60 | jq '.plan' > /tmp/uso-base-plan.json \
+        && got=$(node "$TREE/tools/scenarios/plan-changes.mjs" /tmp/uso-base-plan.json "$D/unraid-backup/settings.ini" | jq -r '.[].key' | sort); then
+        want=$(listed "$known" | sort)
+        if [[ $got == "$want" ]]; then
+            log "plan check: the change list is the base's known one ($( [[ -n $want ]] && echo "$(grep -c . <<<"$want") keys" || echo 'none'))"
+        else
+            warn "plan check: the change list differs from $(basename "$BASE")/plan-changes.known - $(diff <(grep . <<<"$want") <(grep . <<<"$got") | grep '^[<>]' | tr '\n' ' ' | cut -c1-300)"
+            fails=$((fails + 1))
+        fi
+    else
+        warn "plan check: no plan to compare (setup_plan / setup_get / plan-changes failed)"
+        fails=$((fails + 1))
+    fi
+    rm -f /tmp/uso-base-plan.json
 fi
 
 echo
