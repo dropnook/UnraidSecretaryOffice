@@ -505,7 +505,7 @@ function syslogTile(a) {
 /** «Read out»: the log being read, live or not, how many lines — or that none is chosen */
 function readTile(a) {
   const cur = source();
-  if (!cur) return Office.tile({ name: T('tile.read'), cls: 'empty-card', lines: [T('tile.read_none')], ...a });
+  if (!cur) return Office.tile({ name: T('tile.read'), cls: 'empty-card', lines: [T('tile.read_pick'), [T('tile.read_live'), '']], ...a });     // what it is and what to do
   return Office.tile({ name: T('tile.read'), lines: [T('source.' + cur.label, { name: cur.param }),
     [opts.follow ? T('live') : '', T('lines', { n: opts.lines })]], ...a });
 }
