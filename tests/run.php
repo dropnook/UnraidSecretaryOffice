@@ -13156,6 +13156,108 @@ function testLogsTour(): void
     same("logs: desk.js LEVEL_NAMES are the agent's", $want, $names);
 }
 
+/**
+ * Ms. Protocolli's syslog rules (from Enhanced Log, agent/desks/logs-rules/): read as Enhanced Log reads them, the
+ * first rule that fits decides (case-insensitive), what a category does to a line's level (skip: none, error: an
+ * error, minor/warning: at least a warning, never lower than her words), the tour's counts per category and the
+ * kinds kept per category, and that the page judges the syslog's lines the same way.
+ */
+function testLogsRules(): void
+{
+    $rules = logsRules();
+    same('logs rules: every shipped rule is read (134, none refused, every category known)', 134, count($rules));
+    $head = (string) file_get_contents(LOGS_RULES_FILE);
+    check('logs rules: the file says where it comes from (authors, repository, commit, licence)', str_contains($head, 'dlandon')
+        && str_contains($head, 'Derek Kaser') && str_contains($head, 'github.com/dkaser/unraid-enhancedlog')
+        && str_contains($head, '3f6e83ec496ad1919276e8cb65fd910a7f1f742f') && str_contains($head, 'GPL-3.0-or-later'));
+
+    // the categories of known lines — the first rule that fits decides
+    $cats = [
+        'Oct 18 10:00:00 Tower kernel: ata11.00: disabled'                                   => 'error',
+        'Oct 18 10:00:00 Tower kernel: ata3: limiting speed to UDMA/133:6'                    => 'minor',
+        'Oct 18 10:00:00 Tower kernel: ata3: hard resetting link'                             => 'minor',
+        'Oct 18 10:00:00 Tower kernel: pcieport 0000:00:1c.0: AER: non-fatal error received'  => 'skip',
+        'Oct 18 10:00:00 Tower kernel: xor: automatically using best checksumming function'  => 'system',   // before " checksum"
+        'Oct 18 10:00:00 Tower kernel: BTRFS warning (device sdb1): checksum error at logical 1' => 'minor',
+        'Oct 18 10:00:00 Tower kernel: br0: port 2(vnet1) entered blocking state'             => 'network',
+        'Oct 18 10:00:00 Tower kernel: mdcmd (37): spindown 1'                                => 'array',
+        'Oct 18 10:00:00 Tower kernel: Out of memory: Killed process 1234 (php)'              => 'error',
+        'Oct 18 10:00:00 Tower emhttp: Starting emhttpd'                                      => 'emhttp',
+        'Oct 18 10:00:00 Tower emhttpd: Copyright (C) 2005-2026, Lime Technology, Inc.'       => 'limetech',
+        'Oct 18 10:00:00 Tower kernel: SGI XFS with ACLs, security attributes'                => 'fs',
+        'Oct 18 10:00:00 Tower kernel: NTFS-3G WARN: something'                               => 'minor',      // case-insensitive
+        'Oct 18 10:00:00 Tower root: hello'                                                   => '',
+    ];
+    foreach ($cats as $line => $want) {
+        same('logs rules: ' . substr($line, 31, 50), $want, logsRule($line));
+    }
+
+    // what a category does to the level her words gave
+    same('logs rules: an error her words don\'t find', ['', ['error', 'error']],
+        [logsLevel('Oct 18 10:00:00 Tower kernel: ata11.00: disabled'), logsSyslogLevel('Oct 18 10:00:00 Tower kernel: ata11.00: disabled')]);
+    same('logs rules: a minor issue is at least a warning', ['warn', 'minor'], logsSyslogLevel('Oct 18 10:00:00 Tower kernel: ata3: limiting speed to UDMA/133:6'));
+    same('logs rules: skip — neither, whatever the words say', ['error', ['', 'skip']],
+        [logsLevel('Oct 18 10:00:00 Tower kernel: AER: non-fatal error received'), logsSyslogLevel('Oct 18 10:00:00 Tower kernel: AER: non-fatal error received')]);
+    same('logs rules: never lower than her words (an error her rules call minor)', ['error', 'minor'],
+        logsSyslogLevel('Oct 18 10:00:00 Tower kernel: BTRFS: checksum error at logical 1'));
+    same('logs rules: a category without a level leaves hers', [['error', 'network'], ['', 'network']],
+        [logsSyslogLevel('Oct 18 10:00:00 Tower kernel: eth0: link error'), logsSyslogLevel('Oct 18 10:00:00 Tower kernel: br0: port 2(vnet1) entered blocking state')]);
+    same('logs rules: only for Unraid\'s syslog', [true, true, false, false], array_map('logsRulesFor', ['syslog', 'syslog.1', 'dmesg', 'router:x']));
+
+    // read as Enhanced Log reads them: CSV quotes, # and empty lines aren't rules, a broken regex or an unknown category left out
+    $tmp = sys_get_temp_dir() . '/office-tests-logsrules-' . getmypid() . '.conf';
+    file_put_contents($tmp, "# a comment\n\n\"foo, bar\", \"error\"\n\"(\", \"error\"\n\"baz\", \"purple\"\n\"qux\",\"Drive Related\"\n  \"spaced\", \"network\"  \n");
+    same('logs rules: read like Enhanced Log reads them', [['/foo, bar/i', 'error'], ['/qux/i', 'drive'], ['/spaced/i', 'network']], logsRules($tmp));
+    @unlink($tmp);
+
+    // the tour: every line in a category (counted), skip not found, a kind keeps its category, kinds per category kept too
+    $acc = logsTally();
+    $lines = ['Oct 18 10:00:00 Tower kernel: ata11.00: disabled', 'Oct 18 10:00:01 Tower kernel: ata11.00: disabled',
+              'Oct 18 10:00:02 Tower kernel: AER: non-fatal error received', 'Oct 18 10:00:03 Tower kernel: br0: port 2(vnet1) entered blocking state',
+              'Oct 18 10:00:04 Tower root: hello', ''];
+    foreach (['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot', 'golf', 'hotel', 'india', 'juliet'] as $w) {
+        array_push($lines, "Oct 18 10:01:00 Tower foo: $w failed", "Oct 18 10:01:01 Tower foo: $w failed", "Oct 18 10:01:02 Tower foo: $w failed");   // no rule
+    }
+    $lines[] = 'Oct 18 10:02:00 Tower kernel: ata3: hard resetting link';
+    logsTallyLines($acc, $lines, 'syslog', null, [], true);
+    same('logs rules: the tour counts every line read per category (no rule: other)', ['error' => 2, 'skip' => 1, 'network' => 1, 'other' => 31, 'minor' => 1], $acc['cats']);
+    same('logs rules: … skip is not found, the rules\' error is', [32, 1], [$acc['errors'], $acc['warnings']]);
+    $e = logsTourEntry('syslog', ['group' => 'unraid', 'label' => 'syslog', 'param' => '', 'kind' => 'file'], $acc);
+    $byCat = [];
+    foreach ($e['groups'] as $g) {
+        $byCat[$g['cat'] ?: 'other'][] = $g['top'];
+    }
+    same('logs rules: the most frequent kinds, and per category its most frequent ones beside them (top false)',
+        ['other' => array_fill(0, 8, true), 'error' => [false], 'minor' => [false]], $byCat);
+    same('logs rules: lines and kinds found per category', [['other' => 30, 'error' => 2, 'minor' => 1], ['other' => 10, 'error' => 1, 'minor' => 1]],
+        [$e['cat_found'], $e['cat_kinds']]);
+    $acc = logsTally();
+    logsTallyLines($acc, ['Oct 18 10:00:00 Tower kernel: ata11.00: disabled'], 'dmesg', null);
+    same('logs rules: another log has no categories', [0, null, false], [$acc['errors'], $acc['cats'], isset(logsTourEntry('dmesg', ['group' => 'unraid', 'label' => 'dmesg', 'param' => '', 'kind' => 'dmesg'], $acc)['cats'])]);
+
+    // the page: the same levels for the syslog's lines, the rules from her state, a word and a chip per category, nothing the browser reads otherwise
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/logs/desk.js');
+    preg_match('#const RULE_LEVEL = \{(.*?)\};#', $js, $m);
+    preg_match_all("#(\w+): '(\w+)'#", $m[1] ?? '', $pairs, PREG_SET_ORDER);
+    same('logs rules: desk.js RULE_LEVEL is the agent\'s', LOGS_RULE_LEVEL, array_column($pairs, 2, 1));
+    preg_match("#const RULE_SOURCES = \[(.*?)\];#", $js, $m);
+    same('logs rules: desk.js RULE_SOURCES are the agent\'s', ['syslog', 'syslog.1'], array_map(fn ($x) => trim($x, " '"), explode(',', $m[1] ?? '')));
+    preg_match("#const CAT_ORDER = \[(.*?)\];#", $js, $m);
+    $order = array_map(fn ($x) => trim($x, " '"), explode(',', $m[1] ?? ''));
+    $want = array_merge(array_values(LOGS_RULE_CATS), ['other']);
+    sort($want);
+    $have = $order;
+    sort($have);
+    same('logs rules: desk.js CAT_ORDER has every category', $want, $have);
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/logs/lang/en.json'), true);
+    same('logs rules: a word per category', [], array_values(array_filter($order, fn ($c) => !isset($en['cat.' . $c]))));
+    $css = (string) file_get_contents(OFFICE_WEB . '/desks/logs/desk.css');
+    same('logs rules: a colour (a token) per category', [], array_values(array_filter($order, fn ($c) => !preg_match('/\.lg-cat-' . $c . '\b[^{]*\{--lg-cat:var\(--[a-z0-9-]+\)\}/', $css))));
+    check('logs rules: the agent sends them with her state', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/logs.php'), "'varlog' => logsVarlog(), 'rules' => \$rules]"));
+    same('logs rules: none uses what a browser\'s RegExp reads otherwise (lookbehind, inline flags, \\A \\z \\h, POSIX classes, possessive)', [],
+        array_values(array_filter(array_column($rules, 0), fn ($p) => preg_match('~\(\?[<a-z]|\\\\[AzZhGKQ]|\[\[:|[*+?}]\+~', substr($p, 1, -2)))));
+}
+
 /** Ms. Dustdevil's «Where is what»: which services of a compose file build their own image (her rebuild tip) */
 /**
  * Ms. Dustdevil's room for Mr. Restori's leftovers: what his journals say he put aside (only in exactly his
@@ -41733,7 +41835,7 @@ JS;
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliPreferDisks', 'testMoverelliIdleRules', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
