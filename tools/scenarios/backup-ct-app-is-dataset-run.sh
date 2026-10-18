@@ -28,9 +28,15 @@ state CT-BINDS-ROOT share uso-arr
 snap_before
 before=$(stray)
 [[ -z $before ]] || say "before the run already: $before"
+printf '%s\n' "$before" >"$KEEP/stray-before.txt"
+# what an older engine writes into share roots goes again after the checks — only a folder new since snap_before whose
+# README.txt is the engine's (pushed last: it runs first)
+undo_push bash -c '[[ -f $2 ]] || exit 0; while IFS= read -r d; do [[ -n $d ]] || continue; grep -qxF -- "$d" "$1" && continue
+    head -1 "$d/README.txt" 2>/dev/null | grep -q "^Written by the Unraid Secretary Office" && rm -rf -- "$d"; done <"$2"' _ "$KEEP/stray-before.txt" "$KEEP/stray-after.txt"
 expect_changes 'app|uso-wide|*' 'docker|no_stop' 'docker|known'   # the new app: a real change (its proposal, kept running, known)
 flow BK-RUN-MANUAL mode=backup
 now=$(stray)
+printf '%s\n' "$now" >"$KEEP/stray-after.txt"
 [[ -z $now ]] && cell no-uso-backup-in-roots 1 "no .uso-backup outside appdata/<app>/ and domains/<vm>/" \
     || cell no-uso-backup-in-roots 0 "the run wrote .uso-backup into: $(paste -sd' ' <<<"$now")"
 [[ -d /mnt/cache/appdata/jellyfin/.uso-backup ]] && cell inside-dataset 1 "appdata/jellyfin (a dataset) has its package inside" \
