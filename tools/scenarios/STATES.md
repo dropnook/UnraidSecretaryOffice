@@ -43,6 +43,24 @@ undo that restarts Docker or the array starts again exactly what ran before). Un
 `dynamix.docker.manager/scripts/rebuild_container <name>` re-creates a container from its template (no pull; leaves it
 stopped unless in autostart) — the states' «recreate» uses it for templated containers.
 
+Found while building (worth a scenario of their own):
+- **Share cfgs are CRLF** (`/boot/config/shares/*.cfg`, share.cfg); docker/domain/dynamix.cfg are LF. Readers strip `\r`.
+- **7.4 renames a share in its form** (`shareNameOrig=a&shareName=b&cmdEditShare=Apply`): `mv /mnt/user/a /mnt/user/b`,
+  a ZFS dataset renamed with its snapshots, the cfg renamed — the real SH-RENAMED.
+- **Unraid can't delete a ZFS share that has snapshots**: «Delete» unmounts, `zfs destroy` fails (HTTP 500), the
+  dataset stays unmounted; a second «Delete» removes the cfg and leaves the unmounted dataset with its snapshots —
+  with the engine's `@uso-backup-*` snapshots a user can't delete a backed-up share (product question for Backupsy).
+  Right after files are removed `zfs destroy` can also find the dataset busy (same half-state); share_unuse retries.
+- **⟦Permit exclusive shares⟧**: Tower yes, USOTest3VM no (share.cfg `shareUserExclusive`) — SH-EXCLUSIVE* need it.
+- **A full ZFS pool breaks Docker on Tower** (its docker folder lives on cache): a pull during DK-POOL-FULL left 7 layer
+  records without their overlay folder («failed to register layer … file exists» on every later pull) — H2 removed those
+  broken records by hand. A scenario with DK-POOL-FULL on Tower must not pull images; the office's own Docker actions
+  in that state are a real cell (Backupsy stops/starts containers).
+- **job.sh starts a job once a minute** (`$RUN/job-<job>.minute`): `second_run` waits for a new minute.
+- **The scenario lock leaks into daemons** started inside `flock … <cmd>` (the descriptor is inherited): `_st_bg`/`_st_clean`.
+- Unraid's «Add Share» once failed on Tower with `mkdir /mnt/user/nextcloud: No medium found` (ENOMEDIUM) right after
+  DK-POOL-FULL's undo; a retry a minute later worked — shfs needed a moment after the refreservation went.
+
 ## States
 
 Self-test of one state on a VM (fingerprint before → state → undo → fingerprint; exit 0 green, 1 failed, 2 needs, 3 the

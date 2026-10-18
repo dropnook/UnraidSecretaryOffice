@@ -118,18 +118,32 @@ app_mariadb_nextcloud() {
 app_Nextcloud() {
     _apps_exists mariadb-nextcloud || app_mariadb_nextcloud || return 1
     _apps_running mariadb-nextcloud || docker start mariadb-nextcloud >/dev/null
-    _apps_skip Nextcloud && return 0
+    # Nextcloud's first start installs into the database at once: it must answer by then (a half install leaves the
+    # admin in the database and no installed config — seen on Tower)
+    _st_until 120 docker exec mariadb-nextcloud healthcheck.sh --connect --innodb_initialized \
+        || { say "mariadb-nextcloud doesn't answer"; return 1; }
     local nc admin; nc=$(_apps_secret MARIADB_NC_PASSWORD) && admin=$(_apps_secret NEXTCLOUD_ADMIN_PASSWORD) || return 1
+    _apps_exists Nextcloud && [[ $APPS_RECREATE == no ]] && { _apps_nc_install "$nc" "$admin"; return; }
     _apps_share nextcloud only cache || return 1
     mkdir -p /mnt/user/appdata/nextcloud && chown 33:33 /mnt/user/appdata/nextcloud /mnt/user/nextcloud
     _apps_tpl Nextcloud nextcloud:apache "$APPS_NET" 'http://[IP]:[PORT:8080]/' \
         https://raw.githubusercontent.com/nextcloud/server/master/core/img/favicon.png \
         'Nextcloud: your files, calendar, contacts.' 'Cloud: Productivity:' '' \
-        "$(_apps_cfg WebUI 80 8080 tcp Port 8080)$(_apps_cfg Config /var/www/html /mnt/user/appdata/nextcloud rw Path /mnt/user/appdata/nextcloud)$(_apps_cfg Data /var/www/html/data /mnt/user/nextcloud rw Path /mnt/user/nextcloud)$(_apps_cfg MYSQL_HOST MYSQL_HOST mariadb-nextcloud '' Variable mariadb-nextcloud)$(_apps_cfg MYSQL_DATABASE MYSQL_DATABASE nextcloud '' Variable nextcloud)$(_apps_cfg MYSQL_USER MYSQL_USER nextcloud '' Variable nextcloud)$(_apps_cfg MYSQL_PASSWORD MYSQL_PASSWORD '' '' Variable "$nc" true)$(_apps_cfg NEXTCLOUD_ADMIN_USER NEXTCLOUD_ADMIN_USER admin '' Variable admin)$(_apps_cfg NEXTCLOUD_ADMIN_PASSWORD NEXTCLOUD_ADMIN_PASSWORD '' '' Variable "$admin" true)$(_apps_cfg NEXTCLOUD_TRUSTED_DOMAINS NEXTCLOUD_TRUSTED_DOMAINS '*' '' Variable '*')"
+        "$(_apps_cfg WebUI 80 8080 tcp Port 8080)$(_apps_cfg Config /var/www/html /mnt/user/appdata/nextcloud rw Path /mnt/user/appdata/nextcloud)$(_apps_cfg Data /var/www/html/data /mnt/user/nextcloud rw Path /mnt/user/nextcloud)$(_apps_cfg MYSQL_HOST MYSQL_HOST mariadb-nextcloud '' Variable mariadb-nextcloud)$(_apps_cfg MYSQL_DATABASE MYSQL_DATABASE nextcloud '' Variable nextcloud)$(_apps_cfg MYSQL_USER MYSQL_USER nextcloud '' Variable nextcloud)$(_apps_cfg MYSQL_PASSWORD MYSQL_PASSWORD '' '' Variable "$nc" true)"
     _apps_from_tpl Nextcloud || return 1
-    # the first start installs Nextcloud (a minute or two): the office's occ needs it installed
-    _st_until 300 bash -c "docker exec -u 33 Nextcloud php occ status --output=json 2>/dev/null | grep -q '\"installed\":true'" \
-        && say "Nextcloud installed" || say "note: Nextcloud not installed after 5 min (occ status)"
+    _apps_nc_install "$nc" "$admin"
+}
+# Nextcloud installed by its own occ (the image's first-start install, given NEXTCLOUD_ADMIN_*, left a half install on
+# Tower — admin in the database, no `installed` in config.php): once the code is unpacked, the passwords through stdin
+_apps_nc_installed() { docker exec -u 33 Nextcloud php occ status --output=json 2>/dev/null | grep -q '"installed":true'; }
+_apps_nc_install() {
+    _apps_nc_installed && return 0
+    _st_until 300 docker exec Nextcloud test -f /var/www/html/version.php || { say "Nextcloud's code isn't there after 5 min"; return 1; }
+    printf '%s\n%s\n' "$1" "$2" | docker exec -i -u 33 Nextcloud sh -c 'read -r db; read -r ad; php occ maintenance:install -n \
+        --database mysql --database-host mariadb-nextcloud --database-name nextcloud --database-user nextcloud \
+        --database-pass "$db" --admin-user admin --admin-pass "$ad" --data-dir /var/www/html/data' >/dev/null 2>&1
+    docker exec -u 33 Nextcloud php occ config:system:set trusted_domains 1 --value='*' >/dev/null 2>&1
+    _apps_nc_installed && say "Nextcloud installed (occ)" || { say "Nextcloud's install failed (occ maintenance:install)"; return 1; }
 }
 
 # Immich: a compose stack as compose leaves it (labels), no template
@@ -181,7 +195,8 @@ apps_remove() {
 apps_status() {
     local n
     for n in EmbyServer mariadb-nextcloud Nextcloud "${IMMICH_MEMBERS[@]}"; do
-        printf '%-20s %s\n' "$n" "$(timeout 20 docker inspect -f '{{.State.Status}} {{index .Config.Labels "com.docker.compose.project"}}' "$n" 2>/dev/null || echo missing)"
+        local st; st=$(timeout 20 docker inspect -f '{{.State.Status}} {{index .Config.Labels "com.docker.compose.project"}}' "$n" 2>/dev/null) || st=missing
+        printf '%-20s %s\n' "$n" "$st"
     done
 }
 

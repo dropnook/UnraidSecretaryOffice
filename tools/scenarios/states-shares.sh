@@ -62,7 +62,10 @@ share_make() {
     [[ -n $pool2 ]] && ! mountpoint -q "/mnt/$pool2" && { say "needs pool2 $pool2: not on this server"; return 2; }
     say "share_make $name $mode ${pool:-array}${pool2:+ → $pool2}"
     if _st_name_ok "$name"; then
-        _st_emcmd "$(_st_share_form '' "$name" "$mode" "$pool" "$pool2" highwater '' '' '' '' '' auto 'Add Share')" || return 1
+        # Tower twice: «Add Share» refused because `mkdir /mnt/user/<n>` said «No medium found» (ENOMEDIUM) just after
+        # Docker made a container or network; the same a few seconds later worked — one more try
+        _st_emcmd "$(_st_share_form '' "$name" "$mode" "$pool" "$pool2" highwater '' '' '' '' '' auto 'Add Share')" \
+            || { sleep 5; _st_emcmd "$(_st_share_form '' "$name" "$mode" "$pool" "$pool2" highwater '' '' '' '' '' auto 'Add Share')"; } || return 1
     else
         # 7.4's emhttpd refuses this name: a root made by hand (what a user's terminal or SMB client does), then «Apply»
         prim=${pool:-disk1}
