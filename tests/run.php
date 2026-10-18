@@ -36562,6 +36562,141 @@ SH);
 }
 
 /**
+ * Smart Mover, names ending in a space or tab (2026-10-18, seen on a real server: 51 312 files of a prefer share on the
+ * pool, 57 empty folders left on the disk, every leaf like «06 Juni »): Unraid's move binary drops the whitespace at the
+ * end of each path it reads — such a name never goes to it (given «foo » it would move «foo»); a file to the pool is moved
+ * by the script (owner, mode, times; never over something there), one to the array stays; after the folder pass an
+ * empty folder whose copy is on the pool is removed (an empty one ending in a space made there first), never one holding
+ * anything; a share whose files all moved in an earlier run gets its folder pass too.
+ */
+function testMoverelliTrailingSpace(): void
+{
+    $t = hardeningTmp('moverelli-ws');
+    $mk = function (string $rel, string $body = 'x') use ($t): void {
+        @mkdir(dirname("$t/$rel"), 0700, true);
+        file_put_contents("$t/$rel", $body);
+    };
+    $reset = function () use ($t): void {
+        exec('rm -rf ' . escapeshellarg("$t/mnt") . ' ' . escapeshellarg("$t/log") . ' ' . escapeshellarg("$t/moved") . ' ' . escapeshellarg("$t/calls"));
+        foreach (['mnt/cache/Pics', 'mnt/user/Pics', 'mnt/user/Docs', 'mnt/cache/Docs', 'mnt/disk1', 'shares', 'bin'] as $d) {
+            @mkdir("$t/$d", 0700, true);
+        }
+    };
+    $reset();
+    file_put_contents("$t/shares/Pics.cfg", "shareUseCache=\"prefer\"\nshareCachePool=\"cache\"\n");
+    file_put_contents("$t/shares/Docs.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\n");
+    file_put_contents("$t/excl.txt", "$t/mnt/user/Docs/note\n$t/mnt/user/Pics/2019/keep\n");
+    file_put_contents("$t/ini", "[GLOBAL]\nmin_age=0\nglobal_excludes=$t/excl.txt\n");
+    file_put_contents("$t/bin/move", <<<'SH'
+#!/bin/bash
+# a stand-in for Unraid's move binary as it is (7.4.0-rc.1): the whitespace at the end of a line dropped; a data disk →
+# the pool, the pool → disk1; a folder created there, removed here when empty; a «busy» file skipped (in use); every
+# line noted as read
+echo x >> "$MOVE_CALLS"
+while IFS= read -r line; do
+    printf '%s\n' "$line" >> "$MOVE_LOG"
+    f="${line%"${line##*[![:space:]]}"}"
+    [[ -e "$f" || -L "$f" ]] || { echo "error: move: No such file or directory (2): lstat: $f"; continue; }
+    case "$f" in
+        "$MOVE_ROOT"/cache/*) to="$MOVE_ROOT/disk1/${f#"$MOVE_ROOT"/cache/}" ;;
+        "$MOVE_ROOT"/disk[0-9]*/*) r=${f#"$MOVE_ROOT"/disk}; to="$MOVE_ROOT/cache/${r#*/}" ;;
+        *) continue ;;
+    esac
+    if [[ -d "$f" && ! -L "$f" ]]; then mkdir -p "$to" && rmdir "$f" 2>/dev/null; continue; fi
+    [[ "$f" == *busy* ]] && continue
+    mkdir -p "$(dirname "$to")" && mv "$f" "$to" && echo "move: $f Success"
+done
+exit 0
+SH);
+    chmod("$t/bin/move", 0755);
+    $env = ['CUSTOMMOVER_INI' => "$t/ini", 'CUSTOMMOVER_SHARES_DIR' => "$t/shares", 'CUSTOMMOVER_MNT' => "$t/mnt", 'CUSTOMMOVER_LOG' => "$t/log",
+            'CUSTOMMOVER_LOCK' => "$t/lock", 'CUSTOMMOVER_STATUS' => "$t/st.json", 'CUSTOMMOVER_ZFS' => '/nonexistent-zfs', 'CUSTOMMOVER_MOVER_BIN' => "$t/bin/move",
+            'CUSTOMMOVER_STOP' => "$t/stop", 'CUSTOMMOVER_IGNORE_MOVER' => '1', 'MOVE_ROOT' => "$t/mnt", 'MOVE_LOG' => "$t/moved", 'MOVE_CALLS' => "$t/calls"];
+    $sm = OFFICE_DIR . '/smartmover/custommover_run.sh';
+    $handed = fn () => file_exists("$t/moved") ? file("$t/moved", FILE_IGNORE_NEW_LINES) : [];
+    $share = fn (array $st, string $n) => array_values(array_filter($st['shares'] ?? [], fn ($x) => $x['share'] === $n))[0] ?? [];
+    $d1 = "$t/mnt/disk1/Pics";
+    $c = "$t/mnt/cache/Pics";
+    $old = strtotime('2020-01-01 12:00:00');
+
+    // a prefer share: a folder ending in a space with its file, one still holding a file the binary skips, an empty one,
+    // files ending in a space or tab (one beside its twin without), one whose copy is on the pool already
+    $mk('mnt/disk1/Pics/06 Juni /a.jpg', 'a');
+    $mk('mnt/disk1/Pics/07 Juli /x.jpg', 'x');
+    $mk('mnt/disk1/Pics/07 Juli /busy.jpg', 'b');
+    @mkdir("$d1/leer ", 0750);
+    touch("$d1/leer ", $old);
+    $mk('mnt/disk1/Pics/plain/file end ', 'ws');
+    chmod("$d1/plain/file end ", 0640);
+    touch("$d1/plain/file end ", $old);
+    $mk("mnt/disk1/Pics/plain/tab\t", 'tab');
+    $mk('mnt/disk1/Pics/plain/foo', 'twin');
+    $mk('mnt/disk1/Pics/plain/foo ', 'space');
+    $mk('mnt/disk1/Pics/dup ', 'new');
+    $mk('mnt/cache/Pics/dup ', 'there');
+    // a yes share: «note» is excluded, «note » beside it — the binary given «note » would move «note»
+    $mk('mnt/cache/Docs/note', 'excluded');
+    $mk('mnt/cache/Docs/note ', 'ws');
+    $mk('mnt/disk1/Pics/open /held ', 'h');          // in use: never copied
+    $holder = proc_open(['tail', '-f', "$d1/open /held "], [1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes);
+    usleep(300000);
+    [$exit] = runEnv(['bash', $sm, '--run'], $env, 60);
+    proc_terminate($holder);
+    proc_close($holder);
+    $st = readJson("$t/st.json") ?? [];
+    $log = (string) file_get_contents("$t/log");
+    same('trailing space: no path ending in whitespace ever reaches the move binary', [],
+        array_values(array_filter($handed(), fn ($l) => preg_match('/\s$/', $l))));
+    same('trailing space: exit 0; Pics 9 files — 6 moved, busy.jpg, «dup » and «held » (in use) left; Docs 1 file («note » to the array), left',
+        [0, 9, 6, 3, 1, 0, 1],
+        [$exit, $share($st, 'Pics')['files'] ?? null, $share($st, 'Pics')['moved'] ?? null, $share($st, 'Pics')['left'] ?? null,
+         $share($st, 'Docs')['files'] ?? null, $share($st, 'Docs')['moved'] ?? null, $share($st, 'Docs')['left'] ?? null]);
+    same('trailing space: the files ending in a space or tab on the pool, by the script — content, mode, mtime kept; the twin «foo» its own',
+        ['ws', '640', $old, 'tab', 'space', 'twin', false, false, false, false],
+        [@file_get_contents("$c/plain/file end "), sprintf('%o', @fileperms("$c/plain/file end ") & 0777), @filemtime("$c/plain/file end "),
+         @file_get_contents("$c/plain/tab\t"), @file_get_contents("$c/plain/foo "), @file_get_contents("$c/plain/foo"),
+         file_exists("$d1/plain/file end "), file_exists("$d1/plain/foo "), file_exists("$d1/plain/foo"), file_exists("$c/plain/file end .partial")]);
+    same('trailing space: a file whose copy is on the pool already stays on the disk, the pool\'s untouched, named in a WARN',
+        ['new', 'there', true], [@file_get_contents("$d1/dup "), @file_get_contents("$c/dup "), str_contains($log, "left: $d1/dup  – already at the destination")]);
+    same('trailing space: a file in use stays where it is, named in a WARN, nothing of it on the pool',
+        [true, false, true], [is_file("$d1/open /held "), file_exists("$c/open /held "), str_contains($log, "left: $d1/open /held  – in use")]);
+    same('trailing space: «06 Juni » and «plain» gone from the disk (their copies on the pool); «leer » made on the pool (mode, mtime) and gone; «07 Juli » (busy.jpg) and the share\'s folder stay',
+        [false, true, false, false, true, '750', $old, true, true, true],
+        [is_dir("$d1/06 Juni "), is_file("$c/06 Juni /a.jpg"), is_dir("$d1/plain"), is_dir("$d1/leer "), is_dir("$c/leer "),
+         sprintf('%o', @fileperms("$c/leer ") & 0777), @filemtime("$c/leer "), is_file("$d1/07 Juli /busy.jpg"), is_file("$c/07 Juli /x.jpg"), is_dir($d1)]);
+    check('trailing space: one INFO line counts the folders removed (and the one made)',
+        str_contains($log, 'empty folders the move binary left on the array removed – they are on cache (1 made there first'), $log);
+    same('trailing space: pool → array — «note » stays (WARN: rename it), the excluded «note» was never moved',
+        [true, 'excluded', false, false, true],
+        [is_file("$t/mnt/cache/Docs/note "), @file_get_contents("$t/mnt/cache/Docs/note"), file_exists("$t/mnt/disk1/Docs/note"), file_exists("$t/mnt/disk1/Docs/note "),
+         str_contains($log, "left: $t/mnt/cache/Docs/note  – its name ends in a space or tab")]);
+
+    // the owner's state: every file moved in an earlier run, empty folders ending in a space left on the disk (their copies on
+    // the pool); an excluded folder with its file never touched
+    $reset();
+    foreach (['2019/06 Juni ', '2019/07 Juli ', '2020/01 Jan '] as $dir) {
+        @mkdir("$d1/$dir", 0700, true);
+        @mkdir("$c/$dir", 0700, true);
+    }
+    $mk('mnt/disk1/Pics/2019/keep/k.jpg', 'k');
+    [$exit] = runEnv(['bash', $sm, '--run'], $env, 60);
+    $st = readJson("$t/st.json") ?? [];
+    $log = (string) file_get_contents("$t/log");
+    same('trailing space: only empty folders left from an earlier run — exit 0, state none; the empty ones and 2020/ (emptied by them) gone, 2019/ (keep/, excluded) and the share\'s folder stay',
+        [0, 'none', false, false, false, true, true, true],
+        [$exit, $share($st, 'Pics')['state'] ?? null, is_dir("$d1/2019/06 Juni "), is_dir("$d1/2019/07 Juli "), is_dir("$d1/2020"), is_file("$d1/2019/keep/k.jpg"),
+         is_dir("$d1/2019"), is_dir("$c/2019/06 Juni ")]);
+    check('trailing space: … said in one line', str_contains($log, '4 empty folders the move binary left on the array removed – they are on cache'), $log);
+    // a dry run touches nothing
+    $reset();
+    @mkdir("$d1/2019/06 Juni ", 0700, true);
+    @mkdir("$c/2019/06 Juni ", 0700, true);
+    runEnv(['bash', $sm], $env, 60);
+    check('trailing space: a dry run leaves the folders', is_dir("$d1/2019/06 Juni "));
+    hardeningRm($t);
+}
+
+/**
  * A share with nothing to move any more but rules of its own (2026-10-18, the owner: a prefer share set to its pool only
  * after the move): her setup row says they don't apply and what they are, «Remove rules» takes them out of the form (the
  * bar counts it, «Save» makes it so) — never removed by her. A share gone from Unraid: the same, its rules kept on every
@@ -41955,7 +42090,7 @@ JS;
 }
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliIdleRules', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
