@@ -541,12 +541,15 @@ else
     elif ((SECONDS - q > 1)); then log "the agent's first jobs done in $((SECONDS - q)) s ($(grep -c 'started via at' "$D/agent.log" 2>/dev/null) started: $(grep 'started via at' "$D/agent.log" 2>/dev/null | tail -1 | cut -c21-140))"
     else log "the office is quiet"; fi
 fi
+# the base's own checks: the standard set without the page's truth (INV-PAGE, INV-BUBBLE) — a known product finding
+# belongs in the scenarios and must never fail a reset (coordinator, 2026-10-18)
+base_checks() { local i; for i in "${CHECK_STANDARD[@]}"; do [[ $i == INV-PAGE || $i == INV-BUBBLE ]] || printf '%s ' "$i"; done; }
 if real_fn scenario_begin && real_fn check && real_fn scenario_end; then
     if ((dry)); then log "would run check standard against the base (lib.sh)"
     else
         # as a scenario that only looks: the «before» now, the desks' fresh looks, then the standard set against it
         ( export USO_SC_OUT=${USO_SC_OUT:-/tmp/uso-scenarios/base}; scenario_begin office-base-verify && snap_before \
-            && for desk in backup restore moverelli; do ask "$desk.refresh" '{}' 120 >/dev/null; done; check standard; scenario_end ) \
+            && for desk in backup restore moverelli; do ask "$desk.refresh" '{}' 120 >/dev/null; done; check $(base_checks); scenario_end ) \
             && log "check standard: green" || { warn "check standard against the base is red - the base is not clean"; fails=$((fails + 1)); }
     fi
 else

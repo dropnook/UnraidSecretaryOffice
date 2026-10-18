@@ -33,6 +33,17 @@
 # INV-MIGRATE-IDEMPOTENT), .of-array (OF-ARRAY-STOP-START's INV-NO-MNT-OPEN look before the stop).
 
 # ------------------------------------------------------------------------------------------------------------- helpers
+# nc_data_closed: Tower's Nextcloud data folder as apps.sh leaves it (33:33 0770) — Unraid's «Add Share» of any share
+# resets an exclusive share's root to 0777 nobody:users, and the engine then fails every run (nc_datadir_readable,
+# backup-sh-add-share-nc-0777-run). A scenario that needs a working backup calls it before snap_before.
+nc_data_closed() {
+    local t
+    t=$(readlink -f /mnt/user/nextcloud 2>/dev/null) && [[ -d $t ]] || return 0
+    [[ $(stat -c '%u %a' "$t") == '33 770' ]] && return 0
+    say "Nextcloud's data folder $t was $(stat -c '%U:%G %a' "$t") — closed again (33:33 0770), as apps.sh made it"
+    chown 33:33 "$t" && chmod 0770 "$t"
+}
+
 # _fl_args key=value…: into the associative array FL (a key twice: the last; `rule` and bare keys collect in FL_LIST)
 declare -A FL=()
 FL_LIST=()
