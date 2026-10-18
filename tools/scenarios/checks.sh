@@ -407,7 +407,7 @@ check_inv_stopped_keeps() {
         done < <(_ini_flat "$ini" | sed -n "s/^app|$n|\([^=]*\)=.*/\1=/p" | sort -u)
     done
     if grep -qix nextcloud <<<"$stopped"; then
-        jq -e '[.nextcloud[]? | select((.running // true) == false)] | length > 0' "$plan" >/dev/null ||
+        jq -e '[.nextcloud[]? | select(.running == false)] | length > 0' "$plan" >/dev/null ||
             bad+=("the plan doesn't list the stopped Nextcloud with running:false")
         if _ini_flat "$ini" | grep -q '^nextcloud|.*|preexisting_maintenance='; then
             jq -e '.P | keys | map(select(test("^nextcloud\\|.*\\|preexisting_maintenance$"))) | length > 0' "$plan" >/dev/null ||
