@@ -10,6 +10,8 @@
 #                           Source scanned: /mnt/<pool>/<share>
 #   shareUseCache="prefer"  Primary: pool, Secondary: array/pool2, Mover: array (or pool2) -> pool
 #                           Source scanned: /mnt/user0/<share> (or /mnt/<pool2>/<share>)
+#                           USO «per disk»: /mnt/diskN/<share> of the disks the share may use — Unraid's move binary
+#                           moves nothing it is given through /mnt/user0
 #   "only" / "no"           nothing to move, skipped
 #
 # Usage:
@@ -40,7 +42,8 @@
 #   CUSTOMMOVER_STATUS        JSON file written when the script ends: mode, result, exit code,
 #                             totals and per share what was found, moved and left
 #   CUSTOMMOVER_STOP          a file: once it exists, no further file is started (exit 3) — with it set, a real run
-#                             hands the move binary one file at a time (the office block «one file at a time») and,
+#                             hands the move binary one file at a time (the office block «one file at a time»; USO «one
+#                             move binary»: through one long-running binary per share, not one process per file) and,
 #                             before a share's files, removes leftover <rel>.partial copies whose source still exists
 #   CUSTOMMOVER_EXCLUDES_REQUIRED  1 = on a real run (--run) an exclude file that is missing skips its
 #                             share with an ERROR (counted as an error) instead of a WARN
@@ -369,12 +372,16 @@ find_literal() {  # path -> FIND_LITERAL (no subshell: an EmbyCache list has man
 
 # Builds EXCL_ARGS (find expression fragments) for one share. Patterns pointing into
 # /mnt/user/<share> or /mnt/user0/<share> are rewritten to the scanned source root.
-build_excludes() {  # share_name source_root exclude_files(comma list)...
+# USO «per disk» (2026-10-18): the source may be several roots, one per line (a prefer share's /mnt/diskN/<share>) —
+# such a pattern then stands for each of them
+build_excludes() {  # share_name source_root(s) exclude_files(comma list)...
     local share="$1" src="$2"; shift 2
     EXCL_ARGS=(-false)
     EXCL_COUNT=0
     EXCL_MISSING=""
-    local f line
+    local f line one root
+    local -a roots=() alts=()
+    mapfile -t roots <<< "$src"
     for f in "$@"; do
         f="${f#"${f%%[![:space:]]*}"}"; f="${f%"${f##*[![:space:]]}"}"
         [[ -z "$f" ]] && continue
@@ -389,28 +396,38 @@ build_excludes() {  # share_name source_root exclude_files(comma list)...
             line="${line#"${line%%[![:space:]]*}"}"; line="${line%"${line##*[![:space:]]}"}"
             [[ -z "$line" || "$line" == \#* || "$line" == \;* ]] && continue
             line="${line%/}"
-            line="${line/#"$MNT/user/$share"/"$src"}"      # USO: quoted — a share or path with [ ] * ? is no pattern
-            line="${line/#"$MNT/user0/$share"/"$src"}"
-            case "$line" in
-                /*)  # absolute path: file or subtree, matched literally
-                    find_literal "$line"
-                    EXCL_ARGS+=(-o -path "$FIND_LITERAL" -o -path "$FIND_LITERAL/*") ;;
-                *[\*\?\[]*)  # glob
-                    if [[ "$line" == */* ]]; then EXCL_ARGS+=(-o -path "$line"); else EXCL_ARGS+=(-o -name "$line"); fi ;;
-                *)   # substring (legacy)
-                    EXCL_ARGS+=(-o -path "*$line*") ;;
-            esac
+            alts=("$line")
+            if [[ "$line" == "$MNT/user/$share"* || "$line" == "$MNT/user0/$share"* ]]; then
+                alts=()
+                for root in "${roots[@]}"; do
+                    one="${line/#"$MNT/user/$share"/"$root"}"      # USO: quoted — a share or path with [ ] * ? is no pattern
+                    one="${one/#"$MNT/user0/$share"/"$root"}"
+                    alts+=("$one")
+                done
+            fi
+            for one in "${alts[@]}"; do
+                case "$one" in
+                    /*)  # absolute path: file or subtree, matched literally
+                        find_literal "$one"
+                        EXCL_ARGS+=(-o -path "$FIND_LITERAL" -o -path "$FIND_LITERAL/*") ;;
+                    *[\*\?\[]*)  # glob
+                        if [[ "$one" == */* ]]; then EXCL_ARGS+=(-o -path "$one"); else EXCL_ARGS+=(-o -name "$one"); fi ;;
+                    *)   # substring (legacy)
+                        EXCL_ARGS+=(-o -path "*$one*") ;;
+                esac
+            done
             (( EXCL_COUNT++ )) || true
         done < "$f"
     done
 }
 
 # ------------------------------------------------------------------ Cleanup
-remove_empty_parents() {  # root file...
-    local root="$1"; shift
+remove_empty_parents() {  # root (USO «per disk»: one per line) file...
+    local roots="$1" root; shift
     local -A seen=()
     local f d
     for f in "$@"; do
+        rel_of "$f" "$roots"; root="${f%"/$REL"}"
         d=$(dirname "$f")
         while [[ "$d" == "$root/"* && -z "${seen[$d]:-}" ]]; do
             seen[$d]=1
@@ -432,6 +449,125 @@ TOTAL_FILES=0; TOTAL_BYTES=0; TOTAL_MOVED=0; TOTAL_LEFT=0
 # stop request is looked at — set, no further file starts and the file in flight has finished («stop after this file»).
 # There is no harder stop: Unraid's move catches TERM and finishes the file in flight anyway (seen 2026-10-13).
 # Without CUSTOMMOVER_STOP the share's list goes to the move binary at once, as upstream.
+# USO «one move binary» (2026-10-18): one file at a time no longer means one move process per file (a fork of move, and
+# move's own fuser and losetup, for each of 120 000 small files: hours). ONE move binary per share reads the paths from a
+# pipe, handed over one by one: a file is done once its source is gone, or once the binary waits on its stdin again
+# (it skipped the file: in use, already at the destination) — seen in /proc/<pid>/syscall (read on fd 0; its children
+# too, for a script around move), or once the binary is gone (then a new one for the next file). Without
+# /proc/<pid>/syscall (never on Unraid): one process per file, as before.
+
+MV_PID=""; MV_FD=""; MV_RC=0; SLP_FD=""; MV_READS=""
+MV_LONG=false
+{ read -r _ < /proc/self/syscall; } 2>/dev/null && MV_LONG=true
+
+mover_open() {  # out — the move binary started, reading paths from a pipe (MV_FD), its output to out
+    local d
+    d=$(mktemp -d) && mkfifo "$d/in" || { [[ -n "${d:-}" ]] && rm -rf "$d"; return 1; }
+    trap - PIPE
+    "${MOVER_CMD[@]}" < "$d/in" >> "$1" 2>&1 &
+    MV_PID=$!
+    exec {MV_FD}> "$d/in"
+    trap '' PIPE                      # the binary gone: a write fails (and is seen), never ends this script
+    rm -f "$d/in"; rmdir "$d"
+    if [[ -z "$SLP_FD" ]] && d=$(mktemp -d) && mkfifo "$d/s"; then
+        exec {SLP_FD}<> "$d/s"        # nothing ever written: read -t on it is a sleep without a process
+        rm -f "$d/s"; rmdir "$d"
+    fi
+    return 0
+}
+
+mover_close() {  # the pipe closed (the binary finishes what it read), its exit -> MV_RC
+    MV_RC=0
+    [[ -n "$MV_PID" ]] || return 0
+    exec {MV_FD}>&-
+    wait "$MV_PID"; MV_RC=$?
+    MV_PID=""; MV_FD=""
+    trap - PIPE
+    return 0
+}
+
+mover_reads() {  # -> MV_READS: the binary's own read syscalls so far (its thread's syscr — /proc/<pid>/io adds the reaped
+    # children's; empty when unknown)
+    local k v
+    MV_READS=""
+    { while read -r k v; do [[ "$k" == syscr: ]] && { MV_READS=$v; break; }; done < "/proc/$MV_PID/task/$MV_PID/io"; } 2>/dev/null
+    return 0
+}
+
+# 1: the binary looks idle — blocked in read(0) (or a child of it, for a script around move), its read count in MV_READS;
+# 0: busy; 2: gone. mover_send counts it as waiting only when seen twice in a row, ≥ 1 ms apart, without a read in
+# between, and more reads than before the path was written: right after the write the kernel may still show the old
+# read for a moment (a wakeup on another CPU), and a path can reach the binary in two pieces (seen on a VM).
+mover_waiting() {
+    local a b r k kids=""
+    { read -r a b r < "/proc/$MV_PID/syscall"; } 2>/dev/null || return 2
+    if [[ "$a" == 0 && "$b" == 0x0 ]]; then mover_reads; return 1; fi
+    if [[ "$a" == -1 ]]; then         # not in a syscall: a zombie?
+        { read -r r < "/proc/$MV_PID/stat"; } 2>/dev/null || return 2
+        r=${r##*) }; [[ "${r:0:1}" == [ZX] ]] && return 2
+    fi
+    { read -r kids < "/proc/$MV_PID/task/$MV_PID/children"; } 2>/dev/null
+    for k in $kids; do
+        if { read -r a b r < "/proc/$k/syscall"; } 2>/dev/null && [[ "$a" == 0 && "$b" == 0x0 ]]; then MV_READS="kid:$k"; return 1; fi
+    done
+    return 0
+}
+
+mover_send() {  # path — to the running binary; back once it is done with it (0), or the binary is gone (1)
+    local p="$1" d=0.001 w n=0 before seen=""
+    mover_reads; before=$MV_READS
+    printf '%s\n' "$p" >&"$MV_FD" 2>/dev/null || return 1
+    while :; do
+        [[ -e "$p" || -L "$p" ]] || return 0
+        mover_waiting; w=$?
+        (( w == 2 )) && return 1
+        if (( w == 1 )) && [[ "$MV_READS" == kid:* || -z "$before" || -z "$MV_READS" || "$MV_READS" -gt "$before" ]]; then
+            [[ -n "$seen" && "$seen" == "$MV_READS" ]] && return 0
+            seen=$MV_READS
+        else
+            seen=""
+        fi
+        # a small file takes the binary ~10 ms (its fuser and losetup): look every 1–2 ms for the first 0.1 s, then
+        # every 10 ms, after 1 s every 50 ms (a big file)
+        (( ++n == 5 )) && d=0.002
+        (( n == 50 )) && d=0.01
+        (( n == 140 )) && d=0.05
+        if [[ -n "$SLP_FD" ]]; then read -r -t "$d" -u "$SLP_FD" _ 2>/dev/null; else sleep "$d"; fi
+    done
+}
+
+PROGRESS_AT=0
+office_progress_tick() {  # office_progress at most once a second (it forks a few times; 120 000 files) — force: now
+    local now
+    printf -v now '%(%s)T' -1
+    [[ "${1:-}" == force || "$now" != "$PROGRESS_AT" ]] || return 0
+    PROGRESS_AT=$now
+    office_progress
+}
+
+# USO «per disk» (2026-10-18): a prefer share's array side as Unraid's mover scans it — /mnt/disk1/<share> …
+# /mnt/disk29/<share>, only the disks the share may use (its cfg's shareInclude, else all, less shareExclude; another
+# disk is never asked). Unraid's move binary moves nothing it is given through /mnt/user0 (it answers «No such file or
+# directory» and exits 0, seen on 7.4 and 7.3) — prints the roots, one per line
+prefer_disk_roots() {  # share
+    local cfg="$SHARES_DIR/$1.cfg" inc exc d n out=""
+    inc=$(sed -n 's/^shareInclude="\([^"]*\)".*/\1/p' "$cfg" 2>/dev/null | tr -d '\r' | head -1)
+    exc=$(sed -n 's/^shareExclude="\([^"]*\)".*/\1/p' "$cfg" 2>/dev/null | tr -d '\r' | head -1)
+    for d in "$MNT"/disk[1-9] "$MNT"/disk[1-9][0-9]; do
+        n=${d##*/}
+        [[ -n "$inc" && ",$inc," != *",$n,"* ]] && continue
+        [[ -n "$exc" && ",$exc," == *",$n,"* ]] && continue
+        [[ -d "$d/$1" && ! -L "$d/$1" ]] && out+="${out:+$'\n'}$d/$1"
+    done
+    printf '%s' "$out"
+}
+
+rel_of() {  # file src(one root per line) -> REL: the file's path below its root
+    local r
+    REL="$1"
+    while IFS= read -r r; do [[ -n "$r" && "$1" == "$r/"* ]] && { REL="${1#"$r/"}"; return 0; }; done <<< "$2"
+    return 0
+}
 
 office_disk_awake() {  # disk — not spun down in emhttpd's disks.ini (no ini: counted as awake)
     [[ -n "$DISKS_INI" && -r "$DISKS_INI" ]] || return 0
@@ -443,39 +579,57 @@ office_disk_awake() {  # disk — not spun down in emhttpd's disks.ini (no ini: 
 # still exists, only on the share's awake destinations (an awake array disk, or the target pool), only a plain file
 # named exactly so — never a file under its final name
 office_partial_leftovers() {  # share src dest(array|<pool>)
-    local share="$1" src="$2" dest="$3" d p rel
+    local share="$1" src="$2" dest="$3" d p rel s at
     local -a roots=()
     if [[ "$dest" == array ]]; then
         for d in "$MNT"/disk[0-9]*; do [[ -d "$d/$share" ]] && office_disk_awake "$(basename "$d")" && roots+=("$d"); done
     else
         [[ -d "$MNT/$dest/$share" ]] && office_disk_awake "$dest" && roots+=("$MNT/$dest")
     fi
+    local -a srcs=()
+    mapfile -t srcs <<< "$src"            # USO «per disk»: a prefer share's roots, one per line
     for d in "${roots[@]}"; do
         while IFS= read -r -d '' p; do
             rel="${p#"$d/$share"/}"; rel="${rel%.partial}"
             [[ -n "$rel" && "$rel" != *"/../"* && "$rel" != "../"* ]] || continue
-            [[ -e "$src/$rel" && ! -L "$p" ]] || continue
-            rm -f -- "$p" && log WARN "  removed a leftover partial copy $p – its file is still at $src/$rel"
+            [[ ! -L "$p" ]] || continue
+            at=""
+            for s in "${srcs[@]}"; do [[ -e "$s/$rel" ]] && { at="$s/$rel"; break; }; done
+            [[ -n "$at" ]] || continue
+            rm -f -- "$p" && log WARN "  removed a leftover partial copy $p – its file is still at $at"
         done < <(find "$d/$share" -xdev -type f -name '*.partial' -print0 2>/dev/null)
     done
     return 0
 }
 
-# The share's files to the move binary one by one; OFFICE_RC the last non-zero exit
+# The share's files to the move binary one by one (USO «one move binary»: through one binary while it lasts); OFFICE_RC
+# the last non-zero exit
 office_move_files() {  # share src dest out
-    local share="$1" src="$2" dest="$3" out="$4" f r size
+    local share="$1" src="$2" dest="$3" out="$4" f r size rec first=true
+    local -A SZ=()
     OFFICE_RC=0; OFFICE_TRIED=0
+    # the sizes in one go (a stat per file was a process per file)
+    while IFS= read -r -d '' rec; do SZ[${rec#*$'\t'}]=${rec%%$'\t'*}; done \
+        < <(printf '%s\0' "${FILES[@]}" | xargs -0 -r stat --printf '%s\t%n\0' 2>/dev/null)
     for f in "${FILES[@]}"; do
         if [[ -e "$STOP_FILE" ]]; then
             STOPPED=true; STOP_SHARE="$share"
             log WARN "stop requested ($STOP_FILE) – stopped after ${LAST_FILE:-the files before}; the rest of $share and the shares after it are left for the next run"
             break
         fi
-        size=$(stat -c %s -- "$f" 2>/dev/null || echo 0)
-        CUR_FILE="$f"; office_progress
+        size=${SZ[$f]:-0}
+        CUR_FILE="$f"
+        if [[ "$first" == true ]]; then office_progress_tick force; first=false; else office_progress_tick; fi
         (( OFFICE_TRIED++ )) || true
-        printf '%s\n' "$f" | "${MOVER_CMD[@]}" >>"$out" 2>&1
-        r=$?
+        r=0
+        if [[ "$MV_LONG" == true ]] && { [[ -n "$MV_PID" ]] || mover_open "$out"; }; then
+            if ! mover_send "$f"; then
+                mover_close; r=$MV_RC            # the binary gone in the middle: its exit; the next file gets a new one
+            fi
+        else
+            printf '%s\n' "$f" | "${MOVER_CMD[@]}" >>"$out" 2>&1
+            r=$?
+        fi
         (( r != 0 )) && OFFICE_RC=$r
         LAST_FILE="$f"
         if [[ ! -e "$f" && ! -L "$f" ]]; then
@@ -483,7 +637,25 @@ office_move_files() {  # share src dest out
             (( SH_DONE_BYTES += size, RUN_DONE_BYTES += size )) || true
         fi
     done
+    if [[ -n "$MV_PID" ]]; then
+        mover_close
+        (( MV_RC != 0 )) && OFFICE_RC=$MV_RC
+    fi
     CUR_FILE=""
+    office_progress
+}
+
+# USO «per disk»: a prefer share's folders on the array side, deepest first, for Unraid's mover's second pass (its
+# «find -depth -type d» to the move binary: an empty folder goes to the pool — owner, mode and times with it — one still
+# holding something stays); never an excluded one -> DIRS
+array_dirs() {  # src (one root per line)
+    local -a roots=() pre=()
+    local i
+    mapfile -t roots <<< "$1"
+    mapfile -d '' pre < <(find "${roots[@]}" \( "${EXCL_ARGS[@]}" \) -prune -o -type d -print0 2>/dev/null)
+    DIRS=()
+    for (( i = ${#pre[@]} - 1; i >= 0; i-- )); do [[ "${pre[i]}" == *$'\n'* ]] || DIRS+=("${pre[i]}"); done
+    return 0
 }
 
 # office: the array disks a share may use (its cfg's shareInclude, else all, less shareExclude) that sleep now —
@@ -507,13 +679,14 @@ asleep_disks() {  # share
 # ------------------------------------------------------------------ helpers of process_share (they see its locals)
 # The share's candidates: files and symlinks below src, the excludes (EXCL_ARGS) pruned, extra find tests (the age)
 # -> FOUND_FILES; names with a newline dropped (the move binary reads one path per line)
-find_candidates() {  # src [find tests...]
+find_candidates() {  # src (USO: one root per line) [find tests...]
     local src="$1"; shift
     local find_err f line
-    local -a raw=()
+    local -a raw=() roots=()
+    mapfile -t roots <<< "$src"
     FOUND_FILES=()
     find_err=$(mktemp)
-    mapfile -d '' raw < <(find "$src" \( "${EXCL_ARGS[@]}" \) -prune -o \( -type f -o -type l \) "$@" -print0 2>"$find_err")
+    mapfile -d '' raw < <(find "${roots[@]}" \( "${EXCL_ARGS[@]}" \) -prune -o \( -type f -o -type l \) "$@" -print0 2>"$find_err")
     if [[ -s "$find_err" ]]; then while IFS= read -r line; do log WARN "  find: $line"; done < "$find_err"; fi
     rm -f "$find_err"
     for f in "${raw[@]}"; do
@@ -581,8 +754,26 @@ move_batch() {  # share src dest
         for f in "${LEFT[@]}"; do (( i++ )) || true; (( i <= 10 )) && log WARN "     $f"; done
         (( ${#LEFT[@]} > 10 )) && log WARN "     ... $(( ${#LEFT[@]} - 10 )) more"
     fi
-    for f in "${MOVED[@]:$(( ${#MOVED[@]} > 50 ? ${#MOVED[@]} - 50 : 0 ))}"; do recent_add "$name/${f#"$src/"}" "${SIZE_OF[$f]:-0}" "$CUR_FROM" "$dest"; done
-    (( ${#MOVED[@]} > 0 )) && remove_empty_parents "$src" "${MOVED[@]}"
+    for f in "${MOVED[@]:$(( ${#MOVED[@]} > 50 ? ${#MOVED[@]} - 50 : 0 ))}"; do rel_of "$f" "$src"; recent_add "$name/$REL" "${SIZE_OF[$f]:-0}" "$CUR_FROM" "$dest"; done
+    # USO «per disk»: the array side's folders as Unraid's mover leaves them (its second pass, one move binary for all);
+    # after a stop only the empty parents of what moved, at once
+    if [[ "${dirs_pass:-false}" == true && "$STOPPED" == false ]]; then
+        local -a DIRS=()
+        local dirs_out gone=0 d
+        array_dirs "$src"
+        if (( ${#DIRS[@]} > 0 )); then
+            dirs_out=$(mktemp)
+            printf '%s\n' "${DIRS[@]}" | "${MOVER_CMD[@]}" >"$dirs_out" 2>&1
+            rc=$?
+            while IFS= read -r line; do log DEBUG "  mover: $line"; done < "$dirs_out"
+            rm -f "$dirs_out"
+            for d in "${DIRS[@]}"; do [[ -e "$d" ]] || (( gone++ )) || true; done
+            (( rc != 0 )) && log WARN "  move binary exited with code $rc on the folders left on the array"
+            (( gone > 0 )) && log INFO "  $gone empty folders moved from the array to $dest"
+        fi
+    elif (( ${#MOVED[@]} > 0 )); then
+        remove_empty_parents "$src" "${MOVED[@]}"
+    fi
     return 0
 }
 
@@ -791,7 +982,7 @@ fill_pool() {  # pool
 process_share() {  # name mode pool pool2
     local name="$1" mode="$2" pool="$3" pool2="$4"
     local src direction age_days age_stat threshold excludes skip until
-    local min_age_override
+    local min_age_override dirs_pass=false
 
     skip=$(get_ini_val "$name" skip)
     if [[ "$skip" == "yes" ]]; then SH_STATE=skip; log INFO "[$name] skip=yes in INI"; return 0; fi
@@ -802,7 +993,9 @@ process_share() {  # name mode pool pool2
             direction="$pool -> ${pool2:-array}" ;;
         prefer)
             if [[ "$MOVE_PREFER" != "yes" ]]; then SH_STATE=prefer_off; log INFO "[$name] prefer share, move_prefer_shares=no – skipped"; return 0; fi
-            if [[ -n "$pool2" ]]; then src="$MNT/$pool2/$name"; else src="$MNT/user0/$name"; fi
+            # USO «per disk»: the array side per disk, as Unraid's mover hands it over (move ignores /mnt/user0 paths)
+            # (the disks looked at only once the share is processed — never for the list)
+            if [[ -n "$pool2" ]]; then src="$MNT/$pool2/$name"; else src=""; dirs_pass=true; fi
             direction="${pool2:-array} -> $pool" ;;
         *)  return 0 ;;
     esac
@@ -835,13 +1028,15 @@ process_share() {  # name mode pool pool2
         return 0
     fi
 
-    log INFO "[$name] $direction  (source: $src)"
+    [[ "$dirs_pass" == true ]] && src=$(prefer_disk_roots "$name")
+    local shown="${src//$'\n'/, }"
+    log INFO "[$name] $direction  (source: ${shown:-no folder of it on its disks})"
     CUR_SHARE="$name"; PHASE=share; SH_DONE_FILES=0; SH_DONE_BYTES=0; office_progress
     local asleep=""
     [[ "$DRY_RUN" == false && -z "$pool2" ]] && asleep=$(asleep_disks "$name")
-    # office: a prefer share's scan reads the array (/mnt/user0) — its sleeping disks wake now
+    # office: a prefer share's scan reads its array disks — its sleeping disks wake now
     [[ -n "$asleep" && "$mode" == "prefer" ]] && log INFO "  array disks asleep: $asleep – this run wakes them"
-    if [[ ! -d "$src" ]]; then SH_STATE=no_source; log INFO "  nothing on the source side – skipped"; return 0; fi
+    if [[ -z "$src" || ( "$dirs_pass" == false && ! -d "$src" ) ]]; then SH_STATE=no_source; log INFO "  nothing on the source side – skipped"; return 0; fi
 
     # USO «fill»: a pool -> array share with a trigger (move_when_used_above): after the age moves, still at/above it,
     # the oldest of the rest go until the pool is below the target (move_until_used_below; 0 = below the trigger)

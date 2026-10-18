@@ -432,8 +432,14 @@ function nightPicture(n) {
   const files = () => (Array.isArray(pic.files) ? pic.files.filter((f) => f && typeof f.name === 'string') : []);
   const lastFile = () => files().slice(-1)[0] || null;
   const short = (name) => { const b = String(name).split('/').pop(); return b.length > 48 ? b.slice(0, 46) + '…' : b; };
+  /** A file of hers between two places neither of which is the picture's pool (2026-10-18: a «prefer» share into another
+   *  pool, array → ripley while the picture is the cache's) — named by its own ends, never flown across these bars */
+  const elsewhere = (f) => f.who !== 'jack' && typeof f.from === 'string' && typeof f.to === 'string' && f.from !== '' && f.to !== ''
+    && f.from !== pic.pool && f.to !== pic.pool;
+  const place = (p) => (p === 'array' ? T('pic.array') : T('pic.pool_name', { pool: p }));
   /** Where a file was and went in words: Jack Emby's between the pool and the array, hers between the pool and her target */
   function ends(f) {
+    if (elsewhere(f)) return [place(f.from), place(f.to)];
     const pool = T('pic.pool_name', { pool: pic.pool || '' });
     const to = f.who === 'jack' || !data || !data.dest || data.dest.to === 'array' ? T('pic.array') : T('pic.pool_name', { pool: data.dest.to });
     return fileOnto(f, pic.pool) ? [to, pool] : [pool, to];
@@ -451,14 +457,14 @@ function nightPicture(n) {
   const queue = [];
   const key = (f) => `${f.who}|${f.name}|${f.bytes}`;
   function feed() {
-    for (const f of files()) if (!seen.has(key(f))) { seen.add(key(f)); queue.push(f); }
+    for (const f of files()) if (!seen.has(key(f)) && !elsewhere(f)) { seen.add(key(f)); queue.push(f); }
   }
   let walking = false;
   async function walk() {
     if (walking) return;
     walking = true;
     while (box.isConnected && n.running && data && data.measured && !reducedMotion()) {
-      if (!queue.length) queue.push(...files().slice(-6));
+      if (!queue.length) queue.push(...files().filter((f) => !elsewhere(f)).slice(-6));
       if (!queue.length) break;
       await flyFile(queue.shift());
       await new Promise((r) => setTimeout(r, PIC_PAUSE_MS));
@@ -1473,9 +1479,10 @@ const filesOf = (text) => linesOf(text).map((x) => x.trim()).filter(Boolean);
 function initForm() {
   const set = JSON.parse(JSON.stringify(state.settings));
   const shares = {};
-  (state.shares || []).forEach((x) => {
-    const s = set.shares[x.share] || {};
-    shares[x.share] = { skip: !!s.skip, min_age: s.min_age ?? null, move_when_used_above: s.move_when_used_above ?? null,
+  // the shares Unraid has, and (2026-10-18) those it no longer has whose own rules are still saved: kept as they are
+  [...(state.shares || []).map((x) => x.share), ...(state.shares_gone || [])].forEach((name) => {
+    const s = set.shares[name] || {};
+    shares[name] = { skip: !!s.skip, min_age: s.min_age ?? null, move_when_used_above: s.move_when_used_above ?? null,
       files: s.files || [], patterns: s.patterns || [] };
   });
   // (an older agent's move_until_used_below / jack_min_percent: not carried — only X since 2026-10-14)
@@ -1973,15 +1980,51 @@ function setupShares() {
   s2.appendChild(box);
   return s2;
 }
+/** A share's own rules in a few words (pure): left out, its age, its limit, its lists and lines; '' when none */
+function ownRulesText(sv) {
+  if (!sv) return '';
+  const parts = [];
+  if (sv.skip) parts.push(T('setup.own_part.skip'));
+  if (sv.min_age !== null && sv.min_age !== undefined) parts.push(T('setup.own_part.age', { days: T('setup.tile.days', { n: Number(sv.min_age) || 0 }) }));
+  if (sv.move_when_used_above !== null && sv.move_when_used_above !== undefined) parts.push(T('setup.own_part.limit', { pct: Number(sv.move_when_used_above) || 0 }));
+  if ((sv.files || []).length) parts.push(nOf('lists', sv.files.length));
+  const lines = (sv.patterns || []).map((x) => x.trim()).filter(Boolean).length;
+  if (lines) parts.push(nOf('lines', lines));
+  return parts.join(', ');
+}
+
+/**
+ * A share whose own rules do nothing (2026-10-18): nothing to move with its storage, or gone from Unraid — what they
+ * are and «Remove rules»: they leave the form (the bar counts it, «Save» makes it so, «Discard» brings them back);
+ * never removed by her
+ */
+function idleRules(x, sv, redraw) {
+  const box = el('div', 'mo-idle-rules');
+  const what = ownRulesText(sv);
+  if (!what) {
+    box.appendChild(el('p', 'role', T('setup.own_removed', { save: T('setup.save'), discard: T('setup.discard') })));
+    return box;
+  }
+  box.appendChild(el('p', '', T(x.gone ? 'setup.own_gone' : 'setup.own_idle', { share: x.share }) + ' ' + what + '.'));
+  const b = button(T('setup.own_remove'), 'small plain', () => {
+    Object.assign(sv, { skip: false, min_age: null, move_when_used_above: null, files: [], patterns: [] });
+    redraw();
+    setupChanged();
+  });
+  box.appendChild(b);
+  return box;
+}
+
 function fillSetupShares(box) {
   box.innerHTML = '';
-  const shares = (state.shares || []).filter((x) => form.shares[x.share]);
+  const gone = (state.shares_gone || []).filter((n) => form.shares[n]).map((n) => ({ share: n, mode: 'none', state: 'gone', gone: true, own: true }));
+  const shares = [...(state.shares || []).filter((x) => form.shares[x.share]), ...gone].sort((a, b) => (a.share < b.share ? -1 : a.share > b.share ? 1 : 0));
   const fit = shares.filter((x) => fitsBar(setupBar, shareHay(x)));
   fit.forEach((x) => {
     const sv = form.shares[x.share];
     const det = keepFold(el('details', 'box mo-share'), x.share, false);
     const sum = el('summary', '', x.share);
-    sum.appendChild(chip(x.mode === 'none' ? T('state.none') : T('direction', { from: where(x.from), to: where(x.to) }), 'quiet'));
+    sum.appendChild(chip(x.gone ? T('state.gone') : x.mode === 'none' ? T('state.none') : T('direction', { from: where(x.from), to: where(x.to) }), 'quiet'));
     if (x.own) sum.appendChild(chip(T('own_rules'), 'quiet'));
     if (x.mode === 'yes') {
       const th = sv.move_when_used_above ?? form.global.move_when_used_above;
@@ -1989,7 +2032,8 @@ function fillSetupShares(box) {
     }
     det.appendChild(sum);
     if (x.mode === 'none') {
-      det.appendChild(el('p', 'role', T('state_tip.none')));
+      if (!x.gone) det.appendChild(el('p', 'role', T('state_tip.none')));
+      if (x.own) det.appendChild(idleRules(x, sv, () => fillSetupShares(box)));
     } else {
       const f = el('div', 'mo-form');
       f.append(check(T('setup.skip'), sv.skip, (on) => { sv.skip = on; }, T('setup.skip_hint')),
@@ -2317,7 +2361,7 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, onWayText, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
-    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, picFlight, fileOnto, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, setJackLive: (x) => { jackLive = x; }, jackPanel, jackAtWork, redrawCard, schedText, scheduleSection, historySection, footer, hints,
+    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, ownRulesText, idleRules, fillSetupShares, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, picFlight, fileOnto, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, setJackLive: (x) => { jackLive = x; }, jackPanel, jackAtWork, redrawCard, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
     setForm: (f) => { form = f; }, initForm, levelMath, levelSection, levelLines, levelNight, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }
