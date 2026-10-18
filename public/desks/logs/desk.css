@@ -48,6 +48,36 @@
 & button.lg-src-chip:hover{border-color:var(--accent)}
 & button.lg-src-chip[aria-pressed=true]{border-color:var(--accent); background:var(--accent-soft); color:var(--accent-ink)}
 .lg-src-name{overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0}
+/* her syslog rules' categories: a chip per category in the bar, a chip on the kind's row, the counts under the syslog —
+   a colour per category only from the office's tokens */
+.lg-cat-error{--lg-cat:var(--logs-cat-error)}
+.lg-cat-minor{--lg-cat:var(--logs-cat-minor)}
+.lg-cat-warning{--lg-cat:var(--logs-cat-minor)}
+.lg-cat-drive{--lg-cat:var(--logs-cat-drive)}
+.lg-cat-fs{--lg-cat:var(--logs-cat-fs)}
+.lg-cat-array{--lg-cat:var(--logs-cat-array)}
+.lg-cat-network{--lg-cat:var(--logs-cat-network)}
+.lg-cat-login{--lg-cat:var(--logs-cat-login)}
+.lg-cat-system{--lg-cat:var(--logs-cat-quiet)}
+.lg-cat-limetech{--lg-cat:var(--logs-cat-quiet)}
+.lg-cat-emhttp{--lg-cat:var(--logs-cat-quiet)}
+.lg-cat-other{--lg-cat:var(--logs-cat-quiet)}
+.lg-cat-skip{--lg-cat:var(--logs-cat-quiet)}
+& button.lg-cat-chip{display:inline-flex; align-items:center; gap:6px; cursor:pointer; font:inherit; font-size:12.5px; padding:3px 10px; max-width:100%}
+& button.lg-cat-chip:hover{border-color:var(--accent)}
+& button.lg-cat-chip[aria-pressed=true]{border-color:var(--accent); background:var(--accent-soft); color:var(--accent-ink)}
+.lg-cat-dot{width:8px; height:8px; border-radius:50%; background:var(--lg-cat, var(--muted)); flex:none}
+.chip.lg-cat{border-color:var(--lg-cat, var(--line2)); color:var(--ink2)}
+.chip.lg-cat::before{content:''; display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--lg-cat, var(--muted)); margin-right:5px; vertical-align:1px}
+.lg-cats-read{cursor:help}
+/* «Syslog»: its tile's counts, its rows in their category's colour */
+.lg-cat-line{display:flex; flex-wrap:wrap; gap:2px 8px; font-size:12.5px; color:var(--ink2)}
+.lg-cat-n{display:inline-flex; align-items:center; gap:5px; white-space:nowrap; font-variant-numeric:tabular-nums}
+.lg-cat-n b{font-weight:650; color:var(--ink)}
+.row.lg-cat-row{box-shadow:inset 3px 0 0 var(--lg-cat, var(--line2))}
+/* under all: where her syslog rules come from */
+.lg-credit{margin:22px 0 4px; padding-top:10px; border-top:1px solid var(--line); max-width:980px; font-size:12.5px; line-height:1.5; color:var(--muted); overflow-wrap:anywhere}
+.lg-credit b{color:var(--ink2); font-weight:600}
 .lg-view{display:flex; flex-direction:column; gap:8px}
 .row.lg-readable{cursor:pointer}            /* the whole row reads its log out (it unfolds nothing) */
 .lg-note{margin:0 2px}

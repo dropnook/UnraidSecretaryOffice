@@ -7,6 +7,8 @@
    /var/log is and its biggest files, the containers' logs and Docker's
    rotation, and per log the lines that sound like an error or a warning —
    similar ones as one entry; "Show in the log" opens the reader at that line.
+   Unraid's syslog also by her syslog rules (from Enhanced Log): a category per
+   line, her tile «Syslog» with a chip per category, the reader colours by them.
    The agent part lives in agent/desks/logs.php; lines always go into the page
    as text, never as HTML. */
 (() => {
@@ -38,6 +40,10 @@ let shownKinds = [];            // the unfoldable rows of «Errors & warnings»:
 const unfolded = new Set();     // kinds unfolded on this visit
 let tourKnown = false;          // her last tour asked for once this visit (until then her tour's sections say «loading»)
 let src = '';                   // the chip of «Errors & warnings»: '' every log, 'src:<id>' one, 'more' the rest — a filter, never kept
+let cat = '';                   // the category chip of «Syslog» (her syslog rules): '' every one, else its id — a filter, never kept
+let sysBar = null;              // the bar over «Syslog» (core.js Office.filterBar, built once): the words, the category chips, the note line
+/** Where her syslog rules come from (Enhanced Log's repository) — for the credit under all */
+const ORIGIN = ['unraid-enhancedlog', 'https://github.com/dkaser/unraid-enhancedlog'];
 let foundBar = null;            // the bar over «Errors & warnings» (core.js Office.filterBar, built once): the words, the chips, the note line
 const opts = {
   source: Office.store('logs.source') || '',          // nothing is read until a log is chosen
@@ -73,6 +79,39 @@ function level(line) {
   const text = line.replace(NOT_COUNTED, ' ');
   return ERROR.test(text) ? 'error' : WARN.test(text) ? 'warn' : '';
 }
+
+/* Unraid's syslog on top: her syslog rules (from Enhanced Log; the agent sends them with her state, logsRules()) —
+   the first that fits decides; skip is neither, error makes an error, minor/warning at least a warning
+   (logsSyslogLevel(), tests/run.php checks both). The categories: the tour's (cat.<id>). */
+const RULE_LEVEL = { error: 'error', warning: 'warn', minor: 'warn' };
+const RULE_SOURCES = ['syslog', 'syslog.1'];
+// the most important first (her tile «Syslog» names the first ones); then what no rule knows and the noise
+const CAT_RANK = ['error', 'warning', 'drive', 'fs', 'network', 'minor', 'array', 'login', 'system', 'limetech', 'emhttp'];
+const CAT_ORDER = [...CAT_RANK, 'other', 'skip'];
+let rulesFrom = null;           // the state's list they were built from
+let rules = [];                 // [[RegExp, category], …]
+function syslogRules() {
+  const list = Array.isArray(state?.rules) ? state.rules : [];
+  if (list !== rulesFrom) {
+    rulesFrom = list;
+    rules = [];
+    for (const r of list) {
+      if (!Array.isArray(r) || typeof r[0] !== 'string' || typeof r[1] !== 'string') continue;
+      try { rules.push([new RegExp(r[0], 'i'), r[1]]); } catch (e) { /* a rule the browser can't read: left out */ }
+    }
+  }
+  return rules;
+}
+function syslogLevel(line) {
+  const own = level(line);
+  const hit = syslogRules().find(([re]) => re.test(line));
+  const c = hit ? hit[1] : '';
+  if (c === 'skip') return '';
+  const by = RULE_LEVEL[c] || '';
+  return own === 'error' || !by ? own : by === 'error' ? 'error' : own || 'warn';
+}
+/** How the reader judges the lines of a log: her syslog rules for Unraid's syslog, her words for every other one */
+const levelOf = (s) => (s && RULE_SOURCES.includes(s.id) ? syslogLevel : level);
 
 // ------------------------------------------------------------------ loading
 /** Her state: as kept at once, a new look following on her page (core.js Office.loadState()); fresh waits for a new look */
@@ -173,6 +212,7 @@ function build(root) {
   root.appendChild(Office.pageHelp(ID, [
     [T('tour'), T('help.tour_text')],
     [T('help.counted'), T('help.counted_text')],
+    [T('help.rules'), T('help.rules_text')],
     [T('help.grouped'), T('help.grouped_text')],
     [T('help.since'), T('help.since_text')],
     [T('help.space'), T('help.space_text')],
@@ -187,7 +227,20 @@ function build(root) {
   // a click outside the open list of logs closes it
   root.addEventListener('click', (e) => { if (v.pop && !v.pop.hidden && !v.picker.contains(e.target)) closePicker(); });
   root.appendChild(sw.el);          // the row of tiles, under it the chosen section — or, nothing chosen, all of them
+  root.appendChild(credit());       // under all (no section)
   return v;
+}
+
+/** A quiet line under all: her syslog rules are Enhanced Log's, by dlandon and Derek Kaser */
+function credit() {
+  const box = el('div', 'lg-credit');
+  box.append(el('b', '', T('credit_title')), ' ', T('credit'), ' ');
+  const a = el('a', '', ORIGIN[0]);
+  a.href = ORIGIN[1];
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  box.appendChild(a);
+  return box;
 }
 
 /**
@@ -357,8 +410,8 @@ function counts(errors, warnings) {
 
 // ------------------------------------------------------------------ the row: her tour's three tiles and «Read out»
 /**
- * Her page on core's switcher (CLAUDE.md «Tiles», Office.sections): /var/log, the containers' logs, errors & warnings —
- * what her tour counted — and «Read out», the reader. No start tile: nothing chosen shows all four in the row's order;
+ * Her page on core's switcher (CLAUDE.md «Tiles», Office.sections): /var/log, the containers' logs, errors & warnings,
+ * the syslog by her rules — what her tour counted — and «Read out», the reader. No start tile: nothing chosen shows all five in the row's order;
  * «Read out» chosen gives the reader the whole page. Kept as logs.tile; #/logs/<tile> picks one like a click.
  */
 const sw = Office.sections({
@@ -370,6 +423,7 @@ const sw = Office.sections({
     { id: 'varlog', key: 'varlog.title', place: 'tile.varlog', tile: (a) => varlogTile(a), section: () => varlogView() },
     { id: 'docker', key: 'docker.title', place: 'tile.docker', tile: (a) => dockerTile(a), section: () => dockerView() },
     { id: 'found', key: 'found.title', place: 'tile.found', tile: (a) => foundTile(a), section: () => foundView() },
+    { id: 'syslog', key: 'syslog.title', place: 'tile.syslog', tile: (a) => syslogTile(a), section: () => syslogView() },
     { id: 'read', key: 'tile.read', place: 'tile.read', tile: (a) => readTile(a), section: () => readerSection() },
   ],
 });
@@ -426,10 +480,32 @@ function foundTile(a) {
     [T('tile.found_logs', { n: noisy().length }), tour.first ? T('tile.found_first') : T('tile.found_since', { when: fmt.date(tour.since) })]], ...a });
 }
 
+/** Unraid's syslog as her last tour sorted it by her syslog rules — null before (or a tour from before the rules) */
+const syslogEntry = () => (tour?.sources || []).find((s) => s && s.id === 'syslog' && s.cats && typeof s.cats === 'object') || null;
+/** «512 × Disks» with its colour */
+function catCount(c, n) {
+  const span = el('span', 'lg-cat-n lg-cat-' + c);
+  span.append(el('span', 'lg-cat-dot'), el('b', '', fmt.number(n)), ' × ' + T('cat.' + c));
+  return span;
+}
+
+/** «Syslog»: its lines by her syslog rules — the most important categories first (never the noise), how many lines, since when */
+function syslogTile(a) {
+  const s = syslogEntry();
+  if (!s) return Office.tile({ name: T('syslog.title'), cls: 'empty-card', lines: [!tour || !tour.time ? T('tile.no_tour') : T('tile.syslog_none')], ...a });
+  const line = el('div', 'card-line lg-cat-line');
+  const top = CAT_RANK.filter((c) => (s.cats[c] || 0) > 0).slice(0, 3);
+  top.forEach((c, i) => { if (i) line.append(' · '); line.appendChild(catCount(c, s.cats[c])); });
+  if (!top.length) line.append(T('tile.syslog_quiet'));
+  const read = Object.values(s.cats).reduce((x, n) => x + (Number(n) || 0), 0);
+  return Office.tile({ name: T('syslog.title'), lines: [line,
+    [T('tile.syslog_lines', { n: read }), tour.first ? T('tile.found_first') : T('tile.found_since', { when: fmt.date(tour.since) })]], ...a });
+}
+
 /** «Read out»: the log being read, live or not, how many lines — or that none is chosen */
 function readTile(a) {
   const cur = source();
-  if (!cur) return Office.tile({ name: T('tile.read'), cls: 'empty-card', lines: [T('tile.read_none')], ...a });
+  if (!cur) return Office.tile({ name: T('tile.read'), cls: 'empty-card', lines: [T('tile.read_pick')], ...a });     // what it is and what to do
   return Office.tile({ name: T('tile.read'), lines: [T('source.' + cur.label, { name: cur.param }),
     [opts.follow ? T('live') : '', T('lines', { n: opts.lines })]], ...a });
 }
@@ -585,7 +661,7 @@ function foundView() {
   let total = 0;
   all.forEach((s) => { total += (s.groups || []).length; });       // «n of m fit»: of every log's kinds
   for (const s of list) {
-    const groups = (s.groups || []).filter((g) => Office.fits(f.words, [g.sample, sourceLabel(s)]));
+    const groups = (s.groups || []).filter((g) => Office.fits(f.words, [g.sample, sourceLabel(s), catName(g)]));
     n += groups.length;
     if (f.words.length && !groups.length) continue;
     const head = el('div', 'lg-subhead');
@@ -622,6 +698,89 @@ function foundView() {
   return box;
 }
 
+/** A kind's category by her syslog rules, as a word (for the filter words); '' without one */
+const catName = (g) => (typeof g.cat === 'string' && CAT_ORDER.includes(g.cat) && g.cat !== 'other' ? T('cat.' + g.cat) : '');
+
+/** «My syslog rules sorted the 23 712 lines I read: Network 2 378 · Disks 984 …» — every line read, per category */
+function catsRead(cats) {
+  const known = CAT_ORDER.filter((c) => (cats[c] || 0) > 0);
+  const ranked = known.filter((c) => c !== 'other' && c !== 'skip').sort((a, b) => cats[b] - cats[a]).concat(known.filter((c) => c === 'other' || c === 'skip'));
+  const sum = known.reduce((x, c) => x + cats[c], 0);
+  const p = el('p', 'role lg-note lg-cats-read', T('cats.read', { n: sum, list: ranked.map((c) => `${T('cat.' + c)} ${fmt.number(cats[c])}`).join(' · ') }));
+  p.title = T('cats.read_title');
+  return p;
+}
+
+/**
+ * «Syslog»: Unraid's syslog since her previous tour by her syslog rules — a chip per category in its bar (the note line
+ * says which is on), then per category its newest kinds of lines, the newest first, coloured by category (noise and
+ * what no rule knows only in the counts line). She sorts, she doesn't judge.
+ */
+function syslogView() {
+  const sub = !tour || !tour.time || tour.first ? T('syslog.sub_first') : T('syslog.sub', { when: fmt.date(tour.since) });
+  const [box, none] = tourSection(T('syslog.title'), sub, 'syslog.title', readButton('syslog'));
+  if (none) return box;
+  Office.place('syslog.title', box);      // its rows are its own (a line can stand in «Errors & warnings», too)
+  const s = syslogEntry();
+  const inner = el('div', 'box');
+  if (!s) {
+    inner.appendChild(el('p', 'empty', T('syslog.none')));
+    box.appendChild(inner);
+    return box;
+  }
+  const sorted = (Array.isArray(s.sorted) ? s.sorted : []).filter((g) => g && CAT_RANK.includes(g.cat) && typeof g.sample === 'string');
+  if (cat && !((s.cats || {})[cat] > 0)) cat = '';                      // its lines went
+  const bar = sysBarGet();
+  fillSysCats(s.cats);
+  box.appendChild(bar.el);
+  box.appendChild(catsRead(s.cats));
+  const f = bar.read();
+  const rows = sorted.filter((g) => (!cat || g.cat === cat) && Office.fits(f.words, [g.sample, catName(g)]));
+  const kinds = [];
+  rows.forEach((g) => inner.appendChild(kindRow(g, { list: kinds, cats: true })));
+  if (!rows.length) inner.appendChild(el('p', 'empty', sorted.length ? T('found.none_fit') : T('syslog.none')));
+  const more = cat && !f.words.length ? ((s.sorted_kinds || {})[cat] || 0) - rows.length : 0;
+  if (more > 0) inner.appendChild(el('div', 'lg-more', T('more_kinds', { n: more })));
+  box.appendChild(inner);
+  bar.done(rows.length, sorted.length, { tile: cat ? T('cat.' + cat) : '', clear: () => { cat = ''; } });
+  return box;
+}
+
+/** The bar over «Syslog»: its words, a chip per category (an extra of the bar, filled anew at each drawing) */
+function sysBarGet() {
+  if (sysBar) return sysBar;
+  const cats = el('div', 'lg-chips lg-cats');
+  cats.setAttribute('role', 'group');
+  cats.setAttribute('aria-label', T('cats.label'));
+  sysBar = Office.filterBar({ key: 'logs.syslog', label: T('syslog.filter_label'), extra: [cats], onChange: () => redraw() });
+  sysBar.cats = cats;
+  return sysBar;
+}
+
+/** A chip per category with lines (never the noise or what no rule knows), how many lines beside — pressed while the list shows only it */
+function fillSysCats(counts) {
+  const box = sysBarGet().cats;
+  box.replaceChildren();
+  const ids = CAT_RANK.filter((c) => (counts[c] || 0) > 0);
+  box.hidden = !ids.length;
+  for (const id of ids) {
+    const c = el('button', 'chip lg-cat-chip lg-cat-' + id);
+    c.type = 'button';
+    c.dataset.cat = id;
+    c.dataset.own = '1';          // its click filters (core.js: a chip with a title would only show its tip)
+    c.setAttribute('aria-pressed', cat === id ? 'true' : 'false');
+    c.append(el('span', 'lg-cat-dot'), el('span', 'lg-src-name', T('cat.' + id)), el('span', 'lg-counts', fmt.number(counts[id])));
+    c.title = T('cats.chip_title', { n: counts[id], name: T('cat.' + id) });
+    c.addEventListener('click', () => Office.keepInPlace(sysBarGet().el, () => {
+      cat = cat === id ? '' : id;
+      redraw();
+      const again = sysBarGet().cats.querySelector(`[data-cat="${CSS.escape(id)}"]`);
+      if (again) again.focus({ preventScroll: true });
+    }));
+    box.appendChild(c);
+  }
+}
+
 /** The logs with a chip of their own (the loudest), and the rest («n more») */
 function chipSources(all) {
   const loud = all.length > SRC_CHIPS ? all.slice(0, SRC_CHIPS - 1) : all;
@@ -647,6 +806,7 @@ function fillChips(loud, rest) {
     const c = el('button', 'chip lg-src-chip');
     c.type = 'button';
     c.dataset.src = id;
+    c.dataset.own = '1';          // a chip with a title is an explanation to core.js (its click shows the tip) — this one filters
     c.setAttribute('aria-pressed', src === id ? 'true' : 'false');
     c.append(el('span', 'lg-src-name', name), counts(errors, warnings));
     if (tip) c.title = tip;
@@ -667,15 +827,21 @@ function fillChips(loud, rest) {
   }
 }
 
-/** One kind of line: how often, when, its newest line; a click unfolds the line in full and "Show in the log" */
-function kindRow(g) {
-  const r = el('div', 'row nocheck unfolds lg-kind');
+/**
+ * One kind of line: how often, when, its newest line; a click unfolds the line in full and "Show in the log".
+ * o.cats: «Syslog»'s rows — the category always, the row in its colour; o.list: where its fold is kept (shownKinds)
+ */
+function kindRow(g, o = {}) {
+  const r = el('div', 'row nocheck unfolds lg-kind' + (o.cats ? ' lg-cat-row lg-cat-' + g.cat : ''));
   const main = el('div', 'row-main');
   const msg = g.sample.slice(g.skip || 0).replace(/^[\s:|\]-]+/, '') || g.sample;        // without its time: that is in the meta line
   const name = el('div', 'row-name lg-kind-line', msg + (g.cut ? ' …' : ''));
   name.title = T('details');
   const meta = el('div', 'row-meta');
-  meta.appendChild(chip(T('kind.' + g.level), g.level === 'error' ? 'danger' : 'warn', T('kind.' + g.level + '_title')));
+  if (g.level === 'error' || g.level === 'warn') meta.appendChild(chip(T('kind.' + g.level), g.level === 'error' ? 'danger' : 'warn', T('kind.' + g.level + '_title')));
+  if (catName(g) && (o.cats || (g.cat !== 'error' && g.cat !== 'warning'))) {       // «Errors & warnings»: error and warning — the chip before says it
+    meta.appendChild(chip(catName(g), 'lg-cat lg-cat-' + g.cat, T('cats.row_title', { name: catName(g) })));
+  }
   if (g.first && g.last) meta.appendChild(el('span', '', g.first === g.last ? fmt.date(g.last) : T('seen', { first: fmt.date(g.first), last: fmt.date(g.last) })));
   main.append(name, meta);
   const n = el('div', 'figures');
@@ -707,7 +873,7 @@ function kindRow(g) {
     if (String(window.getSelection && window.getSelection()).length) return;      // selecting text
     Office.keepInPlace(r, () => set(!box));
   };
-  shownKinds.push({ open: () => !!box, set });
+  (o.list || shownKinds).push({ open: () => !!box, set });
   if (unfolded.has(g.key)) set(true);
   return r;
 }
@@ -859,7 +1025,8 @@ function sourceName(s) {
 
 function shown() {
   const q = opts.query.trim().toLowerCase();
-  return lines.filter((l) => (!opts.only || level(l)) && (!q || l.toLowerCase().includes(q)));
+  const lv = levelOf(source());
+  return lines.filter((l) => (!opts.only || lv(l)) && (!q || l.toLowerCase().includes(q)));
 }
 
 /** Lines into the page — as text nodes, coloured by level, the filter word marked, the tour's line (if any) marked */
@@ -869,8 +1036,9 @@ function renderLines(toBottom) {
   const list = shown();
   const q = opts.query.trim();
   const frag = document.createDocumentFragment();
+  const lv = levelOf(source());
   for (const line of list) {
-    const row = el('span', 'lg-line ' + level(line) + (isMark(line) ? ' spot' : ''));
+    const row = el('span', 'lg-line ' + lv(line) + (isMark(line) ? ' spot' : ''));
     if (q) {
       const lower = line.toLowerCase();
       const ql = q.toLowerCase();
@@ -897,7 +1065,7 @@ function renderLines(toBottom) {
   if (m.time) parts.push(T('changed', { when: fmt.relative(m.time) }));
   parts.push(list.length === lines.length ? T('count', { n: lines.length }) : T('count_filtered', { n: list.length, total: lines.length }));
   view.status.textContent = parts.join(' · ');
-  const problems = lines.filter((l) => level(l) === 'error').length;
+  const problems = lines.filter((l) => lv(l) === 'error').length;
   view.hint.textContent = problems ? T('errors_seen', { n: problems }) : '';
 }
 
@@ -932,12 +1100,13 @@ function restart(keepMark) {
 // ------------------------------------------------------------------ desk
 Office.desk({
   id: ID,
-  /** sub: a tile (#/logs/varlog, …/docker, …/found, …/read — the search's places); «src:<log>»: «Errors & warnings» with
+  /** sub: a tile (#/logs/varlog, …/docker, …/found, …/syslog, …/read — the search's places); «src:<log>»: «Errors & warnings» with
       that log's chip; «read/<source>» (the search's items): that log in the reader, as a pick in the list would */
   async mount(root, sub) {
     const s = String(sub || '');
     const one = /^src:(.+)$/.exec(s);
     src = one ? s : '';
+    cat = '';
     const rd = /^read\/(.+)$/.exec(s);
     if (rd) {
       let id = '';
@@ -947,6 +1116,7 @@ Office.desk({
     view = build(root);
     readerSection(view);
     foundBarGet().reset();      // a new visit: no words, no chip
+    sysBarGet().reset();
     if (!sw.mount(one ? 'found' : rd ? 'read' : s) && (one || rd)) Office.subroute('');
     renderHead();
     redraw();
@@ -986,12 +1156,12 @@ Office.desk({
 // her places for the search (core.js «places and the search»; places.json beside desk.json lists the same keys)
 Office.places(ID, [
   { kind: 'section', key: 'reading', route: '#/logs/read' },
-  ...sw.places(),             // her tiles: /var/log, the containers' logs, errors & warnings, «Read out»
+  ...sw.places(),             // her tiles: /var/log, the containers' logs, errors & warnings, the syslog, «Read out»
   { kind: 'help', key: 'tour', text: 'help.tour_text' },
   { kind: 'help', key: 'live', text: 'help.live' },
   { kind: 'help', key: 'only_problems', text: 'help.only' },
   { kind: 'help', key: 'help.red', text: 'help.colours' },
-  ...['counted', 'grouped', 'since', 'space', 'source', 'favorites', 'safe'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
+  ...['counted', 'rules', 'grouped', 'since', 'space', 'source', 'favorites', 'safe'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
 ]);
 
 // what her state holds for the search (core.js «items»): every log she can read, by the name her list gives it (never a

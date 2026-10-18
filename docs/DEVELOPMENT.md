@@ -491,7 +491,14 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   shares and whatever never moves are never pushed (they and what he keeps reach X → he fetches nothing new). Too big a budget
   or unwatched over X: told.
 * **`logs` — Ms. Protocolli.** Reads logs from a fixed source list (ids only, never paths); lines into the page as text only;
-  nothing read until chosen; routers' files only while their disks are awake. **Read only.**
+  nothing read until chosen; routers' files only while their disks are awake. **Read only.** Unraid's syslog (and
+  `syslog.1`) also by her syslog rules (`agent/desks/logs-rules/syslog_match.conf`, Enhanced Log's by dlandon and Derek Kaser,
+  GPL-3.0-or-later, kept unchanged with its origin in the header): case-insensitive, the first rule that fits decides (as
+  upstream); `skip` = neither error nor warning, `error` makes an error, `minor`/`warning` at least a warning, never lower
+  than her words (`logsSyslogLevel()`, desk.js `syslogLevel()` from the rules in her state — `testLogsRules`). The tour keeps
+  per category the lines read (`cats`) and its newest `LOGS_RULE_KINDS` kinds (`sorted`, found or not; never skip or no
+  rule); her fifth tile «Syslog» (`#/logs/syslog`) shows them with a chip per category in its own bar, colours
+  `--logs-cat-*` (office.css). The credit to Enhanced Log's authors stands under all. User rules: a later step.
 * **`watchman` — The Night Watchman.** **The office's security department — no other desk gives security advice. Read only,
   never a command that changes anything.** Posture tips (never in the book or notified) and the watch book (what differs from
   normal; the office's own installs/drills adopted, never told). API keys: id, name, roles, a fingerprint — **never the key**;

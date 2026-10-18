@@ -212,9 +212,9 @@
    "param": "",
    "kind": "file",
    "errors": 20,
-   "warnings": 10,
+   "warnings": 12,
    "lines": 5425,
-   "kinds": 7,
+   "kinds": 8,
    "other": 0,
    "partial": false,
    "skipped": 0,
@@ -232,7 +232,8 @@
      "back": 2221,
      "sample": "Oct  8 13:24:54 Tower emhttpd: shcmd (534): exit status: 1",
      "cut": false,
-     "key": "3bd3de26a264"
+     "key": "3bd3de26a264",
+     "cat": ""
     },
     {
      "level": "warn",
@@ -244,7 +245,8 @@
      "back": 2220,
      "sample": "Oct  8 13:24:54 Tower emhttpd: Retry unmounting disk share(s)...",
      "cut": false,
-     "key": "7ca9f4f9ab2c"
+     "key": "7ca9f4f9ab2c",
+     "cat": ""
     },
     {
      "level": "warn",
@@ -256,7 +258,8 @@
      "back": 4304,
      "sample": "Oct  8 13:01:55 Tower root: [PM2][WARN] Applications unraid-api not running, starting...",
      "cut": false,
-     "key": "e52f981f55d4"
+     "key": "e52f981f55d4",
+     "cat": ""
     },
     {
      "level": "warn",
@@ -268,7 +271,8 @@
      "back": 4303,
      "sample": "Oct  8 13:01:55 Tower root: [PM2][WARN] App unraid-api has option 'wait_ready' set, waiting for app to be ready...",
      "cut": false,
-     "key": "b03ad9739aaf"
+     "key": "b03ad9739aaf",
+     "cat": ""
     },
     {
      "level": "error",
@@ -280,7 +284,8 @@
      "back": 4291,
      "sample": "Oct  8 13:01:55 Tower root: error log : /var/log/graphql-api.log",
      "cut": false,
-     "key": "9af4497ba5c0"
+     "key": "9af4497ba5c0",
+     "cat": "error"
     },
     {
      "level": "warn",
@@ -292,7 +297,8 @@
      "back": 4716,
      "sample": "Oct  8 13:01:26 Tower rc.udev: udevadm settle --timeout=120",
      "cut": false,
-     "key": "bf87d1b452c3"
+     "key": "bf87d1b452c3",
+     "cat": ""
     },
     {
      "level": "warn",
@@ -304,9 +310,286 @@
      "back": 5422,
      "sample": "Oct  8 13:01:23 Tower kernel: x86/split lock detection: #DB: warning on user-space bus_locks",
      "cut": false,
-     "key": "02f19be49d04"
+     "key": "02f19be49d04",
+     "cat": "minor"
+    },
+    {
+     "level": "warn",
+     "count": 2,
+     "first": 1791458668,
+     "last": 1791458694,
+     "skip": 16,
+     "src": "syslog",
+     "back": 1200,
+     "sample": "Oct  8 13:24:50 Tower kernel: ata3: hard resetting link",
+     "cut": false,
+     "key": "c0ffee000001",
+     "cat": "minor"
     }
-   ]
+   ],
+   "cats": {
+    "other": 3012,
+    "network": 1480,
+    "drive": 512,
+    "system": 214,
+    "fs": 96,
+    "array": 41,
+    "error": 3,
+    "minor": 31,
+    "login": 22,
+    "limetech": 4,
+    "emhttp": 1,
+    "skip": 9
+   },
+   "sorted": [
+    {
+     "cat": "minor",
+     "level": "warn",
+     "count": 2,
+     "first": 1791457538,
+     "last": 1791457707,
+     "skip": 16,
+     "src": "syslog",
+     "back": 0,
+     "sample": "Oct  8 13:08:27 Tower kernel: ata3: hard resetting link",
+     "cut": false,
+     "key": "b82f4d02ff69"
+    },
+    {
+     "cat": "array",
+     "level": "",
+     "count": 2,
+     "first": 1791457626,
+     "last": 1791457640,
+     "skip": 16,
+     "src": "syslog",
+     "back": 1,
+     "sample": "Oct  8 13:07:20 Tower kernel: mdcmd (38): spindown 2",
+     "cut": false,
+     "key": "928df0160ac1"
+    },
+    {
+     "cat": "network",
+     "level": "",
+     "count": 2,
+     "first": 1791457457,
+     "last": 1791457633,
+     "skip": 16,
+     "src": "syslog",
+     "back": 2,
+     "sample": "Oct  8 13:07:13 Tower kernel: br0: port 1(eth0) entered forwarding state",
+     "cut": false,
+     "key": "1d70d42355d9"
+    },
+    {
+     "cat": "minor",
+     "level": "warn",
+     "count": 1,
+     "first": 1791457619,
+     "last": 1791457619,
+     "skip": 16,
+     "src": "syslog",
+     "back": 4,
+     "sample": "Oct  8 13:06:59 Tower kernel: BTRFS info (device sdc1): using crc32c checksum algorithm",
+     "cut": false,
+     "key": "f319cc970a47"
+    },
+    {
+     "cat": "error",
+     "level": "error",
+     "count": 1,
+     "first": 1791457612,
+     "last": 1791457612,
+     "skip": 16,
+     "src": "syslog",
+     "back": 5,
+     "sample": "Oct  8 13:06:52 Tower kernel: ata3.00: disabled",
+     "cut": false,
+     "key": "028e4b627834"
+    },
+    {
+     "cat": "minor",
+     "level": "warn",
+     "count": 1,
+     "first": 1791457605,
+     "last": 1791457605,
+     "skip": 16,
+     "src": "syslog",
+     "back": 6,
+     "sample": "Oct  8 13:06:45 Tower kernel: ata3: limiting speed to UDMA/133:6",
+     "cut": false,
+     "key": "a6fa5d4f7c56"
+    },
+    {
+     "cat": "network",
+     "level": "",
+     "count": 1,
+     "first": 1791457531,
+     "last": 1791457531,
+     "skip": 16,
+     "src": "syslog",
+     "back": 8,
+     "sample": "Oct  8 13:05:31 Tower kernel: vnet0: entered promiscuous mode",
+     "cut": false,
+     "key": "224ece884eee"
+    },
+    {
+     "cat": "network",
+     "level": "",
+     "count": 1,
+     "first": 1791457524,
+     "last": 1791457524,
+     "skip": 16,
+     "src": "syslog",
+     "back": 9,
+     "sample": "Oct  8 13:05:24 Tower kernel: docker0: port 1(veth3a1f) entered blocking state",
+     "cut": false,
+     "key": "e390633a5e58"
+    },
+    {
+     "cat": "login",
+     "level": "",
+     "count": 1,
+     "first": 1791457450,
+     "last": 1791457450,
+     "skip": 16,
+     "src": "syslog",
+     "back": 11,
+     "sample": "Oct  8 13:04:10 Tower sshd[2117]: Server listening on 0.0.0.0 port 22.",
+     "cut": false,
+     "key": "85d239875ff2"
+    },
+    {
+     "cat": "limetech",
+     "level": "",
+     "count": 1,
+     "first": 1791457443,
+     "last": 1791457443,
+     "skip": 16,
+     "src": "syslog",
+     "back": 12,
+     "sample": "Oct  8 13:04:03 Tower emhttpd: Copyright (C) 2005-2026, Lime Technology, Inc.",
+     "cut": false,
+     "key": "57619bb6bf54"
+    },
+    {
+     "cat": "emhttp",
+     "level": "",
+     "count": 1,
+     "first": 1791457436,
+     "last": 1791457436,
+     "skip": 16,
+     "src": "syslog",
+     "back": 13,
+     "sample": "Oct  8 13:03:56 Tower emhttp: Starting emhttpd",
+     "cut": false,
+     "key": "4e9694413ea7"
+    },
+    {
+     "cat": "array",
+     "level": "",
+     "count": 1,
+     "first": 1791457429,
+     "last": 1791457429,
+     "skip": 16,
+     "src": "syslog",
+     "back": 14,
+     "sample": "Oct  8 13:03:49 Tower kernel: md1p1: running, size: 33554400 blocks",
+     "cut": false,
+     "key": "432669760852"
+    },
+    {
+     "cat": "array",
+     "level": "",
+     "count": 1,
+     "first": 1791457422,
+     "last": 1791457422,
+     "skip": 16,
+     "src": "syslog",
+     "back": 15,
+     "sample": "Oct  8 13:03:42 Tower kernel: mdcmd (1): import 0 sdb 64 33554400 0 QEMU_HARDDISK_PARITY",
+     "cut": false,
+     "key": "5ec1b020776e"
+    },
+    {
+     "cat": "fs",
+     "level": "",
+     "count": 1,
+     "first": 1791457355,
+     "last": 1791457355,
+     "skip": 16,
+     "src": "syslog",
+     "back": 16,
+     "sample": "Oct  8 13:02:35 Tower kernel: XFS (md1p1): Mounting V5 Filesystem",
+     "cut": false,
+     "key": "657ca237ec85"
+    },
+    {
+     "cat": "drive",
+     "level": "",
+     "count": 1,
+     "first": 1791457348,
+     "last": 1791457348,
+     "skip": 16,
+     "src": "syslog",
+     "back": 17,
+     "sample": "Oct  8 13:02:28 Tower kernel: sd 1:0:0:0: [sdb] Attached SCSI disk",
+     "cut": false,
+     "key": "254a2707c47c"
+    },
+    {
+     "cat": "drive",
+     "level": "",
+     "count": 2,
+     "first": 1791457274,
+     "last": 1791457341,
+     "skip": 16,
+     "src": "syslog",
+     "back": 18,
+     "sample": "Oct  8 13:02:21 Tower kernel: ata2: SATA link up 6.0 Gbps (SStatus 133 SControl 300)",
+     "cut": false,
+     "key": "33a99025e03e"
+    },
+    {
+     "cat": "system",
+     "level": "",
+     "count": 1,
+     "first": 1791457267,
+     "last": 1791457267,
+     "skip": 16,
+     "src": "syslog",
+     "back": 20,
+     "sample": "Oct  8 13:01:07 Tower kernel: microcode: Updated early from: 0x00000121",
+     "cut": false,
+     "key": "bda1ed92c9ef"
+    },
+    {
+     "cat": "system",
+     "level": "",
+     "count": 1,
+     "first": 1791457260,
+     "last": 1791457260,
+     "skip": 16,
+     "src": "syslog",
+     "back": 21,
+     "sample": "Oct  8 13:01:00 Tower kernel: Linux version 6.12.54-Unraid (root@Develop) (gcc 14.2.0)",
+     "cut": false,
+     "key": "31425dbf96cc"
+    }
+   ],
+   "sorted_kinds": {
+    "minor": 3,
+    "array": 3,
+    "network": 3,
+    "error": 1,
+    "login": 1,
+    "limetech": 1,
+    "emhttp": 1,
+    "fs": 1,
+    "drive": 2,
+    "system": 2
+   },
+   "sorted_other": 0
   },
   {
    "id": "container:immich_postgres",
@@ -1267,7 +1550,7 @@
   }
  ],
  "errors": 47,
- "warnings": 247,
+ "warnings": 249,
  "job": {
   "running": false,
   "since": 1791465474,
