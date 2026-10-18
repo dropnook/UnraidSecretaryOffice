@@ -78,3 +78,53 @@ and `<name>.pending` (Mac-side checks). Evidence in `/tmp/uso-keep/<name>/` (`be
 first pool and the first array disk), a container (Docker only), fake notifications; shows every wave-1 check green on
 the quiet state and red on its violation; undoes all and checks INV-LEFTOVER on itself. `office-smoke-refresh.sh` is the
 toy scenario: the three desks' fresh looks, standard checks.
+
+## Flows and the remaining checks (wave 1b, H5: flows.sh, checks.sh, bubble-rules.tsv)
+
+`flow <ID> [key=value…]` runs `flow_<id>` of `flows.sh` — the request body the page's button sends (desk.js's line is
+named at each flow), through `ask`; a cron flow through the plugin's `scripts/job.sh` as crond starts it (`job <name>`,
+`job_wait`); each waits with lib.sh's waiters. `refuse=ok`: a refusal is the expected end (then `expect_err <key>`).
+Apply's body is desk.js's own `setupDecisions()` under node (`decisions_from_plan <plan> [key=value…]` =
+`plan-changes.mjs --apply`), so `setup_plan_old` and the change list behave as on the page.
+
+| Desk | Flows |
+|---|---|
+| Mr. Backupsy | `BK-FIRST-SETUP [preset=…] [key=value…]` · `BK-REPLAN` · `BK-APPLY [plan=old] key=value…` · `BK-DECLINE key= [value=]` · `BK-RUN-MANUAL mode=backup\|nokopia\|dryrun\|check` · `BK-RUN-SCHED` · `BK-RUN-QUEUED` · `BK-ABORT [after=s]` · `BK-UNMOUNT` · `BK-SCHEDULE cron=…` · `BK-ORPHANS [delete=…\|all]` · `BK-PACKAGE-ASIDE kind= folder=` · `BK-DATASET-MAKE kind= name= share= dir=` · `BK-LETGO [clear=yes]` · `BK-FORGET` |
+| Mr. Restori | `RS-SCAN` · `RS-FILES mode=beside\|replace path= [moment=]` (`RS-FILES-BESIDE`, `-REPLACE`) · `RS-DB app= file=` · `RS-SQLITE app= container=` · `RS-CONFIG app=` · `RS-VM vm=` · `RS-KOPIA source= [snapshot=]` · `RS-PUTBACK of=<id>\|last` · `RS-DRILL` |
+| Ms. Moverelli | `MV-SETUP [x=] [rule=<share>:<days>…] [mover_off=1]` · `MV-RESAVE` · `MV-LIST` · `MV-DRY` · `MV-RUN` · `MV-RUN-SCHED` · `MV-STOP-AFTER-FILE` · `MV-SCHEDULE cron=…` · `MV-MOVER-OFF` · `MV-IMPORT folder=` · `MV-LETGO` |
+| The office | `OF-UPDATE plg=<file\|url>\|update\|worktree` · `OF-REMOVE-REINSTALL [plg=]` · `OF-ARRAY-STOP-START` · `OF-REBOOT` (pre half) / `OF-REBOOT-BACK` (post half) · `OF-AGENT-RESTART` · `OF-HIRE desk=` · `OF-FIRE desk=` |
+
+Checks added to the standard set (n/a where they don't apply): INV-SETUP-MSGS, INV-STOPPED-KEEPS, INV-NC-MAINT-OFF,
+INV-MOUNTS-GONE, INV-NO-MNT-OPEN, INV-COMPARE, INV-MIGRATE-IDEMPOTENT; INV-REPLAN (the Apply list = the base's
+`base/<host>/plan-changes.known` + `expect_changes`, a trailing `*` matching the rest; Ms. Moverelli's settings saved
+unchanged after one of her flows), INV-COUNTS' restore and moverelli parts, INV-PAGE, INV-BUBBLE; the final set
+INV-BACKUP-AFTER (`expect_warnings` lists the codes a state may cause), INV-DRILL-GREEN.
+
+**The page (INV-PAGE, INV-BUBBLE):** `bubble_look <label> [desk…]` — the desks' fresh looks, the server's facts at that
+moment (`bubble_facts`: locks in /proc/locks, containers' icon labels, files on the disks — not the office's own state),
+the state files copied (`$KEEP/looks/<n>-<label>/`). `bubble-rules.tsv` says per desk which bubble, greeting or tile line
+needs which fact. A greeting is random on every page: its rule is judged on the VM at once (red). Every other line whose
+condition is false goes to the Mac (`page_text … not`), with the scenario's `expect_bubble` / `expect_no_text`, and each
+page is checked clean (`page_clean`: page.mjs `--clean` — no raw lang key, `undefined`, `NaN`, `{n}`, script name,
+«0 of 0», no «?» where a value belongs, no English in German). While Ms. Moverelli's run is at work the look also saves
+her live answer for the page and judges her run card on the VM: its percent (desk.js's own formula) against the bytes
+that really reached the other side, and «On its way … → to» against where the share's files really go. Flows look while
+a run is at work (backup, restore, Moverelli); the checks take the last look.
+
+**Verdict:** a scenario is green only when every check ran green — with a Mac-side check still queued it is «pending»
+(row and total alike, run-local.sh's summary); run.sh completes them (plan_changes, page_text, page_clean).
+
+**Called for real once (Tower, 1.66.4/1.66.5, 2026-10-18, H5's scratch scenarios and office-flows-selftest):**
+BK-FIRST-SETUP (after BK-FORGET, preset=auto), BK-REPLAN, BK-APPLY (a share's mode and back), BK-DECLINE / -UNDO,
+BK-RUN-MANUAL (backup, check), BK-RUN-SCHED, BK-RUN-QUEUED, BK-ABORT, BK-UNMOUNT, BK-SCHEDULE, BK-ORPHANS (look;
+nothing to delete), BK-DATASET-MAKE (a scratch app's folder), BK-LETGO (+ OF-HIRE), BK-FORGET · RS-SCAN, RS-FILES beside
+and replace, RS-SQLITE, RS-DB (immich's postgres dump), RS-VM, RS-PUTBACK (of each), RS-DRILL, RS-CONFIG (refused
+`restore_config_same` — nothing differed, as it should) · MV-SETUP, MV-RESAVE, MV-LIST, MV-DRY, MV-RUN, MV-RUN-SCHED,
+MV-STOP-AFTER-FILE, MV-SCHEDULE, MV-MOVER-OFF, MV-IMPORT, MV-LETGO (+ OF-HIRE) · OF-AGENT-RESTART, OF-UPDATE (`update`;
+a same/older .plg is refused by the plugin manager — `from=<version>` removes and installs the older release first),
+OF-ARRAY-STOP-START (stopped in 25 s, nothing open under /mnt), OF-REMOVE-REINSTALL.
+RS-KOPIA (after BK-APPLY `share|uso-only|mode=kopia` and a run: Tower's base sends nothing to Kopia), OF-UPDATE
+from=1.66.5 (remove, 1.66.5, back to 1.66.6 — INV-MIGRATE-IDEMPOTENT green).
+**Not run:** BK-PACKAGE-ASIDE was called and refused `package_aside_gone` — the page offers it only once a backup run
+lists the package as gone (run a backup after the app went); OF-REBOOT / OF-REBOOT-BACK — the runner's reboot halves
+(`<name>-pre.sh` / `-post.sh`), a reboot of Tower not made yet.

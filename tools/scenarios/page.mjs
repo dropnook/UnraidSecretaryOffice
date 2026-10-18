@@ -5,7 +5,7 @@
 // language: the page speaks it as for a user whose browser does).
 //
 //   node tools/scenarios/page.mjs --states <folder> <desk>[/<tab>…] [--lang de,en] [--host <name>] [--theme dark|light]
-//                                 [--width 1440] [--json] [--want <desk.key>]… [--not <desk.key>]…
+//                                 [--width 1440] [--json] [--want <desk.key>]… [--not <desk.key>]… [--clean]
 //
 // The folder holds <desk>.json and the parts (<desk>-<part>.json) as the data folder does, and post/<desk>.<action>.json
 // for canned answers to a dialog's post (a scenario's `ask … --save-post`). Prints, per language:
@@ -15,7 +15,16 @@
 // the JSON). --want / --not (repeatable): a lang key that must / must not be on the page in every language asked
 // (`backup.bubble.last_ok`; `office.…` the office's own) - its text in that language, a plural any of its forms,
 // placeholders {…}, ⟦Unraid labels⟧ and markup matching anything; each result printed (and in the JSON's `checks`).
-// Exit 0, 1 the desk didn't draw in a language or a --want/--not failed, 2 wrong call, 3 playwright-core or Chrome missing.
+// A greeting key (<desk>.greet.N) in --not: the page is drawn once per greeting with Math.random pinned, so whichever
+// greeting the desk's own logic could pick is seen.
+// --clean (INV-PAGE, tools/scenarios/checks.sh): the text holds no raw lang key (a key of the desk's or the office's
+// lang files as it is), no «undefined», «NaN», «[object», no placeholder left ({n}), no script name (setup.sh,
+// backup.sh, custommover), no «0 of 0» / «0 von 0», no «?» where a value belongs (alone, or before a unit), no «null» in
+// English, and German no English fallback (a line with two or more of «the of and is to», commands and code shown on
+// the page left out — and Protokolli's and the watchman's log lines);
+// each finding printed as «FAIL clean <lang>: …».
+// Exit 0, 1 the desk didn't draw in a language or a --want/--not/--clean check failed, 2 wrong call, 3 playwright-core or
+// Chrome missing.
 // Nothing here touches a server.
 import fs from 'node:fs';
 import os from 'node:os';
@@ -27,7 +36,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..');
 const require = createRequire(import.meta.url);
 
-const opt = { states: null, route: null, langs: ['en'], host: null, theme: 'dark', width: 1440, json: false, want: [], not: [] };
+const opt = { states: null, route: null, langs: ['en'], host: null, theme: 'dark', width: 1440, json: false, want: [], not: [], clean: false };
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
@@ -38,6 +47,7 @@ for (let i = 0; i < args.length; i++) {
   else if (a === '--theme') opt.theme = val();
   else if (a === '--width') opt.width = Number(val()) || 1440;
   else if (a === '--json') opt.json = true;
+  else if (a === '--clean') opt.clean = true;
   else if (a === '--want' || a === '--not') opt[a.slice(2)].push(val());
   else if (a === '-h' || a === '--help') usage(0);
   else if (!a.startsWith('-') && opt.route === null) opt.route = a.replace(/^#?\/?/, '');
@@ -111,14 +121,49 @@ function keyChecks(text, lang) {
   return out;
 }
 
+// INV-PAGE: what a page must never say (the text as innerText gives it)
+const langKeys = new Set();
+for (const [dir, pre] of [[path.join(REPO, 'public', 'desks', desk, 'lang'), ''], [path.join(REPO, 'public', 'lang'), '']]) {
+  const j = readJson(path.join(dir, 'en.json')) || {};
+  Object.keys(j).filter((k) => k.includes('.')).forEach((k) => { langKeys.add(pre + k); langKeys.add(`${desk}.${k}`); });
+}
+function cleanChecks(text, lang) {
+  const out = [];
+  const add = (what, m) => out.push(`${what}: «${String(m).slice(0, 80)}»`);
+  const raw = desk === 'logs' || desk === 'watchman';        // they show log lines as they are
+  for (const m of text.matchAll(/\b[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+\b/g)) if (langKeys.has(m[0])) add('raw key', m[0]);
+  for (const m of text.matchAll(/\{[a-z_]+\}/g)) add('placeholder', m[0]);
+  if (!raw) {
+    for (const re of [/\bundefined\b/, /\bNaN\b/, /\[object /, /\b(?:setup|backup)\.sh\b/, /custommover/i, /\b0 (?:of|von|di|sur|de) 0\b/]) {
+      const m = re.exec(text);
+      if (m) add('nonsense', m[0]);
+    }
+    // a «?» where a value belongs: standing alone (« ? », «(?)») or before a unit («? GB», «?%») — never a question
+    for (const m of text.matchAll(/(?:(?:^|[\s(:·])\?(?=[\s).,·]|$)|\?\s?(?:[KMGTP]i?B|B|%)(?![A-Za-z]))/gm)) add('a «?» for a value', text.slice(Math.max(0, m.index - 30), m.index + 6).replace(/\s+/g, ' '));
+    if (lang === 'en' && /\bnull\b/.test(text)) add('nonsense', 'null');
+    if (lang === 'de') {
+      for (const line of text.split('\n')) {
+        if (/[$|&<>`=]|\b(?:echo|mkdir|cat|docker|zfs)\b/.test(line)) continue;     // a command or code shown as it is
+        const w = (line.match(/\b(?:the|of|and|is|to)\b/g) || []).length;
+        if (w >= 2) add('English in German', line.trim());
+      }
+    }
+  }
+  return [...new Set(out)];
+}
+
 const { startHarness } = await import(path.join(REPO, 'tests', 'ui', 'harness.mjs'));
 const harness = await startHarness({ states: opt.states, ...(opt.host ? { host: opt.host } : {}) });
 const browser = await pw.chromium.launch({ headless: true, executablePath: chrome, args: ['--no-first-run', '--no-default-browser-check'] });
 const pages = [];
 let bad = 0;
-for (const lang of opt.langs) {
+// one drawing of the route in a language: the text once it settled, the errors, whether the desk drew. random (0…1):
+// Math.random pinned to it — a desk's greeting is picked at random, so a greeting key in --not is looked for in one
+// drawing per slot (greetSlots()), every greeting the page could pick seen once
+async function draw(lang, random) {
   const ctx = await browser.newContext({ viewport: { width: opt.width, height: 900 }, locale: lang === 'en' ? 'en-US' : lang });
   await ctx.addInitScript((t) => { try { localStorage.setItem('office.theme', t); } catch (e) { /* none */ } }, opt.theme);
+  if (random !== undefined) await ctx.addInitScript((r) => { Math.random = () => r; }, random);
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(`page error: ${String(e.message).slice(0, 200)}`));
@@ -135,15 +180,45 @@ for (const lang of opt.langs) {
     calm = now === text ? calm + 1 : 0;
     text = now;
   }
+  await ctx.close();
+  return { text, errors, drawn };
+}
+// how many greetings the desk has (greet.1 … greet.N in its en.json): that many drawings cover every pick
+function greetSlots() {
+  const j = readJson(path.join(REPO, 'public', 'desks', desk, 'lang', 'en.json')) || {};
+  let n = 0;
+  while (j[`greet.${n + 1}`] !== undefined) n++;
+  return n;
+}
+const greetNot = opt.not.filter((k) => /^[a-z][a-z0-9_-]*\.greet\.\d+$/.test(k));
+
+for (const lang of opt.langs) {
+  const { text, errors, drawn } = await draw(lang);
   if (!drawn) { bad++; errors.unshift(`the desk «${desk}» did not draw`); }
   for (const e of new Set(errors)) console.error(`page ${opt.route} ${lang}: ${e}`);
-  const checks = keyChecks(text, lang);
+  const checks = keyChecks(text, lang).filter((c) => !greetNot.includes(c.key));
+  // a greeting that must not show: one drawing per random slot — found in any of them is a FAIL
+  if (greetNot.length && drawn) {
+    const n = greetSlots();
+    const seen = new Set();
+    for (let i = 0; i < n; i++) {
+      const d = await draw(lang, (i + 0.5) / n);
+      for (const k of greetNot) {
+        const pats = keyPatterns(k, lang);
+        if (pats && pats.some((re) => re.test(d.text))) seen.add(k);
+      }
+    }
+    for (const k of greetNot) checks.push({ lang, key: k, want: false, found: keyPatterns(k, lang) ? seen.has(k) : null, ok: keyPatterns(k, lang) ? !seen.has(k) : false, slots: n });
+  }
   for (const c of checks) {
     if (!c.ok) bad++;
-    console.error(`page ${opt.route} ${lang}: ${c.ok ? 'ok  ' : 'FAIL'} ${c.want ? 'want' : 'not '} ${c.key}${c.found === null ? ' (no such key)' : ''}`);
+    console.error(`page ${opt.route} ${lang}: ${c.ok ? 'ok  ' : 'FAIL'} ${c.want ? 'want' : 'not '} ${c.key}${c.found === null ? ' (no such key)' : ''}${c.slots ? ` (${c.slots} drawings, one per greeting)` : ''}`);
   }
-  pages.push({ lang, text, errors: [...new Set(errors)], checks });
-  await ctx.close();
+  const clean = opt.clean && drawn ? cleanChecks(text, lang) : [];
+  for (const c of clean) console.error(`page ${opt.route} ${lang}: FAIL clean ${c}`);
+  if (opt.clean && drawn && !clean.length) console.error(`page ${opt.route} ${lang}: ok   clean`);
+  bad += clean.length;
+  pages.push({ lang, text, errors: [...new Set(errors)], checks, clean });
 }
 await browser.close();
 await harness.close();

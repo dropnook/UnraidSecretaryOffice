@@ -1031,10 +1031,12 @@ check_inv_leftover() {
     local b bad=() x
     for b in $(bases); do
         base_asleep "$b" && continue
-        x=$(find "/mnt/$b" -maxdepth 3 -name '.uso-backup*' 2>/dev/null |
+        # base.sh's asides (<share root>/.uso-base-aside/<stamp>/~…~) are kept on purpose, never leftovers: skipped
+        # (a drill's .uso-drill-* in a storeroom base.sh set aside is no leftover either — coordinator, 2026-10-18)
+        x=$(find "/mnt/$b" -maxdepth 3 -name .uso-base-aside -prune -o -name '.uso-backup*' -print 2>/dev/null |
             grep -Ev "^/mnt/$b/(appdata|domains)/[^/]+/\.uso-backup$" | head -3)
         [[ -n $x ]] && bad+=("${x//$'\n'/ }")
-        x=$(timeout 60 find "/mnt/$b" -path "/mnt/$b/system/docker" -prune -o -path '*/.UnraidSecretaryOffice-trash' -prune -o \
+        x=$(timeout 60 find "/mnt/$b" -path "/mnt/$b/system/docker" -prune -o -path '*/.UnraidSecretaryOffice-trash' -prune -o -name .uso-base-aside -prune -o \
             \( -name '*.partial' -o -name '.uso-drill-*' \) -print 2>/dev/null | head -3)
         [[ -n $x ]] && bad+=("${x//$'\n'/ }")
     done
@@ -1192,19 +1194,24 @@ check_inv_notify_once() {
     local new f bad=() subj x
     new=$(comm -13 <(sort "$KEEP/before/notify.txt") <(sort "$KEEP/after/notify.txt"))
     [[ -n $new ]] || { echo "none new"; return 0; }
-    local subjects=()
+    # «once» is once per event, not per subject: two runs may send the same subject (and the same summary). A
+    # notification carries no run id — its event is its time: one run a minute, so the same subject twice within 60 s
+    # is one event told twice (H5, 2026-10-18, the coordinator's rule)
+    local subjects=() lines=() ts
     for f in $new; do
         f=$(ls "$NOTIFY_DIR"/{unread,archive}/"$f" 2>/dev/null | head -1)
         [[ -f $f ]] || continue
         grep -q '^event="Unraid Secretary Office"' "$f" || [[ $(basename "$f") == Unraid_Secretary_Office* ]] || continue
         subj=$(_ini_value "$f" subject)
+        ts=$(_ini_value "$f" timestamp)
         [[ $subj == 'Unraid Secretary Office'* ]] || bad+=("subject without the office's name: $subj")
         subjects+=("$subj")
+        lines+=("${ts:-0}"$'\t'"$subj")
     done
-    x=$(printf '%s\n' "${subjects[@]}" | sort | uniq -d | head -2)
-    [[ -n ${subjects[*]} && -n $x ]] && bad+=("twice: ${x//$'\n'/ | }")
+    x=$(printf '%s\n' "${lines[@]}" | sort -t$'\t' -k2,2 -k1,1n | awk -F'\t' '$2 == s && $1 - t < 60 {print $2} {s = $2; t = $1}' | sort -u | head -2)
+    [[ -n ${subjects[*]} && -n $x ]] && bad+=("twice within a minute: ${x//$'\n'/ | }")
     if ((${#bad[@]})); then echo "${bad[*]}"; return 1; fi
-    echo "${#subjects[@]} new, each once"
+    echo "${#subjects[@]} new, each event once"
 }
 
 # INV-NO-SECRET — no value of scenarios.env (nor an AWS key) in the state, the logs, the report, the kept evidence.

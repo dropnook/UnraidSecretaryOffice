@@ -15,7 +15,8 @@
 #      the VM up), then wait for ssh, the array Started and a fresh heartbeat; the tree and the reports back; post.
 #   4. The reports to ~/Claude/UnraidSecretaryOffice-briefs/scenarios/<date>/<host>/ (<name>.md, .result, .pending, .out,
 #      run.info, base-*.log); Mac-side checks of <name>.pending (plan_changes: tools/scenarios/plan-changes.mjs on the
-#      copied plan, page_text: page.mjs on the copied state files) done here - a failing one turns the scenario red;
+#      copied plan, page_text / page_clean: page.mjs on the copied state files) done here - a failing one turns the
+#      scenario red, and with all of them done a scenario whose other checks were green is green;
 #      summary.md (red first) written and printed.
 # Hosts: tower (ssh uso-test, 192.168.7.111) and test3 (ssh uso-test3, 192.168.7.197) only; USOPartner and nostromo are
 # refused by the addresses the VM really has. Exit 0 nothing red, 1 something red/dirty, 2 wrong call, 4 VM unreachable.
@@ -211,6 +212,14 @@ for pf in "$local_dir"/*.pending; do
                 ((code == 0)) && ok=1
                 detail="page $a ($c) $d $e: $(grep -E 'FAIL|did not draw|error' <<<"$got" | head -3 | tr '\n' ';')"
                 ((ok)) && detail="page $a ($c) $d $e: ok" ;;
+            page_clean)
+                # INV-PAGE: the page from these state files says nothing a page never says (page.mjs --clean)
+                fetch "$b" "$work/$i/states"
+                got=$(node "$here/page.mjs" --states "$work/$i/states" "$a" --lang "$c" --clean 2>&1 >/dev/null)
+                code=$?
+                ((code == 0)) && ok=1
+                if ((ok)); then detail="page $a ($c) clean"
+                else detail="page $a ($c): $(grep -E 'FAIL|did not draw|error' <<<"$got" | head -4 | sed 's/^page [^ ]* //' | tr '\n' ';')"; fi ;;
             *) detail="unknown check «$kind»" ;;
         esac
         echo "- $inv $kind: $( ((ok)) && echo green || echo '**red**') - $detail" >> "$local_dir/$n.md"
