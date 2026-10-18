@@ -102,8 +102,9 @@ function jackPanel(nn) {
 /**
  * What her card shows of Smart Mover's live status, pure (tests/run.php under node): the steps — Umschauen, one per share
  * of the run, Aufräumen — with the current one, the share in flight by files and bytes, its percent (by bytes, else
- * files), the file in flight with its own live rate (core.js Office.runRate), the time left from the share's average
- * (runEstimate()) and the end once the share in flight is the run's last
+ * files), the file in flight with its own live rate (core.js Office.runRate), the time left from the page's readings
+ * (runEstimate(): files × time per file + bytes ÷ bandwidth; a range while unsure) and the end once the share in flight
+ * is the run's last and the time left sure
  */
 function runCardData(p, now) {
   const plan = Array.isArray(p.plan) ? p.plan : [];
@@ -122,53 +123,133 @@ function runCardData(p, now) {
   const percent = phase !== 'share' ? null : bytes > 0 ? Math.min(100, Math.floor(100 * dBytes / bytes)) : files > 0 ? Math.min(100, Math.floor(100 * dFiles / files)) : null;
   const est = phase === 'share' && (bytes > 0 || files > 0) ? runEstimate(p, { files, bytes, dFiles, dBytes }, now) : null;
   const left = est && est.left !== null ? est.left : null;
-  const end = left !== null && plan[plan.length - 1] === p.share ? now + left : null;
+  // unsure (the readings can't yet tell the time per file from the bandwidth): a range, no end
+  const range = left !== null && !est.sure ? [est.lo, est.hi] : null;
+  const end = left !== null && !range && plan[plan.length - 1] === p.share ? now + left : null;
   // the file's own live rate (its .partial growing): said beside it
   const fileRate = fileBytes > 0 && p.file ? Office.runRate(`moverelli|${p.started}|${p.file}`, fileBytes, now) : null;
-  return { steps, at, percent, left, end, rate: est ? est.rate : null, estimating: !!est && est.left === null, fileRate, waking: !!p.waking && !fileBytes, fileBytes,
+  return { steps, at, percent, left, range, end, rate: est ? est.rate : null, estimating: !!est && est.left === null, fileRate, waking: !!p.waking && !fileBytes, fileBytes,
     fileSize: p.file_size == null ? null : Number(p.file_size), share: p.share || '', file: p.file || '', files, bytes, dFiles, dBytes, started: p.started || null,
     fill: phase === 'share' ? fillLine(p) : null };
 }
 
-// ---- the share's time left (the owner, 2026-10-18: «noch etwa 1 T 3 Std» after 27 min of 53 GB — a short window of a
-// stretch of small files): from the share's AVERAGE since it started, files and bytes both — the larger of files left ÷
-// files a second and bytes left ÷ bytes a second —, smoothed, and only once a minute went by or 1 % is done
+// ---- the share's time left (the owner, 2026-10-18: «noch etwa 1 T 3 Std» after 27 min of 53 GB, then «6 days» for a run of
+// under 2 h — 8 667 of 72 880 small Nextcloud files done in 535 s, but only 319 MB of 359 GB). Unraid's move costs a fixed
+// time per file (fuser and the like, ~50–80 ms) plus the copy time of its bytes, so neither files a second nor bytes a
+// second alone says the rest: time ≈ files × perFile + bytes ÷ bandwidth. Both are fitted by least squares over the
+// page's readings once both come out known within a quarter (their mix of bytes per file varied); before that the part the readings can't tell is a prior
+// (EST_PER_FILE, EST_BW) and the card says a range (EST_BW_LO … EST_BW_HI, EST_PER_FILE_LO … _HI) instead of one number.
+// Smoothed; shown after a minute or 1 %.
 const EST_MIN_S = 60;             // shown after a minute …
 const EST_MIN_PART = 0.01;        // … or 1 % of the share's files or bytes
 const EST_SETTLE_S = 10;          // never from the first seconds
 const EST_BLEND = 0.3;            // each new estimate moves the shown one by this part (the shown one counts down between)
-const estSeen = new Map();        // run|share -> {t, files, bytes}: when this page first saw the share at work
-const estLast = new Map();        // run|share -> {t, left}: the last time left shown
+const EST_STEP_S = 5;             // a reading kept at most every 5 s …
+const EST_KEEP = 64;              // … this many (beyond: every second one merged — the sums stay)
+const EST_PER_FILE = 0.06;        // the prior per file: Unraid's move runs fuser and stats each file (~50–80 ms seen)
+const EST_PER_FILE_LO = 0.03;
+const EST_PER_FILE_HI = 0.12;
+const EST_BW = 100e6;             // the prior bandwidth, bytes a second: one HDD's stream, pool or array, parity or not …
+const EST_BW_LO = 50e6;           // … read/modify/write parity on a slow disk …
+const EST_BW_HI = 250e6;          // … a fast HDD or SSD to SSD (the bytes rate seen in any stretch is a floor on top)
+const EST_ERR = 0.25;             // the fit's time per file and bandwidth each known within a quarter (standard error)
+const EST_SURE = 1.25;            // a range narrower than this (high ÷ low) is said as one time
+const estSeen = new Map();        // run|share -> [{t, files, bytes}, …]: the page's readings of the share (the first: its base)
+const estLast = new Map();        // run|share -> {t, left, lo, hi}: the last time left shown
+
+/**
+ * Seconds per file and bandwidth from readings, pure: {perFile, bw, fit} — fit true when least squares over the stretches
+ * between readings could tell both apart, else the part the readings can't tell is the prior given (perFile0, bw0) and the
+ * other follows from the whole stretch. Always: perFile ≤ the least seconds per file of any stretch, bw ≥ the most bytes a
+ * second of any stretch (time ≥ each part alone).
+ */
+function estModel(readings, perFile0, bw0) {
+  const st = [];
+  let maxRate = 0, minPer = Infinity;
+  for (let i = 1; i < readings.length; i++) {
+    const t = readings[i].t - readings[i - 1].t;
+    const f = Math.max(0, readings[i].files - readings[i - 1].files);
+    const b = Math.max(0, readings[i].bytes - readings[i - 1].bytes) / 1e6;     // MB: keeps the sums in range
+    if (t <= 0 || (!f && !b)) continue;
+    st.push([f, b, t]);
+    if (b > 0) maxRate = Math.max(maxRate, b * 1e6 / t);
+    if (f > 0) minPer = Math.min(minPer, t / f);
+  }
+  const first = readings[0], last = readings[readings.length - 1];
+  const T = last.t - first.t, F = Math.max(0, last.files - first.files), B = Math.max(0, last.bytes - first.bytes);
+  const clamp = (perFile, bw) => ({ perFile: Math.max(0, Math.min(perFile, minPer)), bw: Math.max(bw, maxRate, 1) });
+  // least squares t = a·f + c·b over the stretches, trusted only when both come out positive and each within EST_ERR of
+  // itself (its standard error): a stretch of small files of varying size and a jittering fuser never make a bandwidth
+  let ff = 0, fb = 0, bb = 0, ft = 0, bt = 0;
+  st.forEach(([f, b, t]) => { ff += f * f; fb += f * b; bb += b * b; ft += f * t; bt += b * t; });
+  const det = ff * bb - fb * fb;
+  if (st.length >= 3 && ff > 0 && bb > 0 && det / (ff * bb) >= 1e-6) {
+    const a = (ft * bb - bt * fb) / det;          // seconds per file
+    const c = (bt * ff - ft * fb) / det;          // seconds per MB
+    const rss = st.reduce((x, [f, b, t]) => x + (t - a * f - c * b) ** 2, 0);
+    const s2 = st.length > 2 ? rss / (st.length - 2) : 0;
+    if (a > 0 && c > 0 && Math.sqrt(s2 * bb / det) <= EST_ERR * a && Math.sqrt(s2 * ff / det) <= EST_ERR * c) return { ...clamp(a, 1e6 / c), fit: true };
+  }
+  // what the readings saw mostly: files (small ones) — the bandwidth unknown; else bytes — the time per file unknown
+  if (F * EST_PER_FILE >= B / EST_BW) return { ...clamp(F > 0 ? Math.max(0, T - B / bw0) / F : perFile0, bw0), fit: false };
+  const perFile = F > 0 ? Math.min(perFile0, 0.5 * T / F) : perFile0;
+  return { ...clamp(perFile, B > 0 && T > F * perFile ? B / (T - F * perFile) : bw0), fit: false };
+}
+
 /**
  * The share's estimate, pure but for its memory (estSeen, estLast): {rate (bytes a second, its average — «Ø»), fileRate
- * (files a second), left (seconds; null while it is still estimated)}. Since when: the run's start while no share before
- * it moved anything in this run (Smart Mover says no start of its own per share — what is done of the run then is the
- * share's), else since this page first saw the share at work. d: {files, bytes, dFiles, dBytes} of runCardData().
+ * (files a second), left (seconds; null while it is still estimated), lo, hi (the range; equal when sure), sure}. Since
+ * when: the run's start while no share before it moved anything in this run (Smart Mover says no start of its own per
+ * share — what is done of the run then is the share's), else since this page first saw the share at work.
+ * d: {files, bytes, dFiles, dBytes} of runCardData().
  */
 function runEstimate(p, d, now) {
   const key = `moverelli|${p.started}|${p.share}`;
   // what the run moved before this share (the run's counts hold the share's too)
   const before = (Number(p.done_bytes) || 0) > (Number(p.share_done_bytes) || 0) || (Number(p.done_files) || 0) > d.dFiles;
-  if (!estSeen.has(key)) estSeen.set(key, { t: now, files: d.dFiles, bytes: d.dBytes });
-  const base = !before && Number(p.started) > 0 && Number(p.started) <= now ? { t: Number(p.started), files: 0, bytes: 0 } : estSeen.get(key);
+  if (!estSeen.has(key)) {
+    estSeen.set(key, [!before && Number(p.started) > 0 && Number(p.started) <= now ? { t: Number(p.started), files: 0, bytes: 0 } : { t: now, files: d.dFiles, bytes: d.dBytes }]);
+  }
+  const readings = estSeen.get(key);
+  const reading = { t: now, files: d.dFiles, bytes: d.dBytes };
+  // the newest reading moves along until it is 5 s past the one before: then it stays and the next one starts
+  if (readings.length > 1 && now - readings[readings.length - 2].t < EST_STEP_S) readings[readings.length - 1] = reading;
+  else readings.push(reading);
+  if (readings.length > EST_KEEP) estSeen.set(key, readings.filter((x, i) => i % 2 === 0 || i === readings.length - 1));
+  const base = readings[0];
   const secs = now - base.t;
   const dF = Math.max(0, d.dFiles - base.files);
   const dB = Math.max(0, d.dBytes - base.bytes);
   const rate = secs > 0 && dB > 0 ? dB / secs : null;
   const fileRate = secs > 0 && dF > 0 ? dF / secs : null;
+  const none = { rate, fileRate, left: null, lo: null, hi: null, sure: false };
   const enough = secs >= EST_MIN_S || (d.bytes > 0 && dB >= EST_MIN_PART * d.bytes) || (d.files > 0 && dF >= EST_MIN_PART * d.files);
-  if (secs < EST_SETTLE_S || !enough || (!rate && !fileRate)) return { rate, fileRate, left: null };
-  const byBytes = rate && d.bytes > 0 ? Math.max(0, d.bytes - d.dBytes) / rate : 0;
-  const byFiles = fileRate && d.files > 0 ? Math.max(0, d.files - d.dFiles) / fileRate : 0;
-  const raw = Math.max(byBytes, byFiles);
+  if (secs < EST_SETTLE_S || !enough || (!rate && !fileRate)) return none;
+  const rs = estSeen.get(key);
+  const filesLeft = d.files > 0 ? Math.max(0, d.files - d.dFiles) : 0;
+  const bytesLeft = d.bytes > 0 ? Math.max(0, d.bytes - d.dBytes) : 0;
+  const time = (m) => filesLeft * m.perFile + bytesLeft / m.bw;
+  const m = estModel(rs, EST_PER_FILE, EST_BW);
+  let raw = time(m), lo = raw, hi = raw;
+  if (!m.fit) {
+    // the part the readings can't tell, from its range: the other part follows from the same stretch each time
+    const ends = [estModel(rs, EST_PER_FILE_LO, EST_BW_HI), estModel(rs, EST_PER_FILE_HI, EST_BW_LO)].map(time);
+    lo = Math.min(raw, ...ends);
+    hi = Math.max(raw, ...ends);
+  }
   const last = estLast.get(key);
-  let left = raw;
-  if (last && now > last.t) {
-    const counted = Math.max(0, last.left - (now - last.t));
-    left = counted + EST_BLEND * (raw - counted);
-  } else if (last && now === last.t) left = last.left;
-  estLast.set(key, { t: now, left });
-  return { rate, fileRate, left };
+  const blend = (x, y) => {
+    if (!last || now < last.t) return x;
+    if (now === last.t) return y;
+    const counted = Math.max(0, y - (now - last.t));
+    return counted + EST_BLEND * (x - counted);
+  };
+  const left = blend(raw, last && last.left);
+  lo = Math.min(left, blend(lo, last && last.lo));
+  hi = Math.max(left, blend(hi, last && last.hi));
+  estLast.set(key, { t: now, left, lo, hi });
+  const sure = hi <= EST_SURE * Math.max(lo, 1);
+  return { rate, fileRate, left, lo: sure ? left : lo, hi: sure ? left : hi, sure };
 }
 
 /**
@@ -246,9 +327,10 @@ function runCard(p, now) {
     if (d.started && !nn) top.appendChild(el('span', 'status quiet', T('rc.since', { time: fmt.time(d.started), duration: fmt.duration(now - d.started) })));
     card.appendChild(Office.runSteps(d.steps, d.at, `moverelli|${p.started}`));
     if (d.percent !== null) {
-      // the share's average (Ø) and the time left from it — «being estimated» before a minute or 1 % (runEstimate())
+      // the share's average (Ø) and the time left — «being estimated» before a minute or 1 %, a range while unsure (runEstimate())
       card.appendChild(Office.runBar(d.percent, `${d.percent} %` + (d.rate ? ' · ' + T('rc.rate_avg', { rate: fmt.size(d.rate) }) : '')
-        + (d.left !== null ? ' · ' + T('rc.left', { left: fmt.duration(d.left) }) : d.estimating ? ' · ' + T('rc.estimating') : '')));
+        + (d.range ? ' · ' + T('rc.left_range', { lo: fmt.duration(d.range[0]), hi: fmt.duration(d.range[1]) })
+          : d.left !== null ? ' · ' + T('rc.left', { left: fmt.duration(d.left) }) : d.estimating ? ' · ' + T('rc.estimating') : '')));
       card.appendChild(el('div', 'card-line', T('rc.share', { share: d.share, done: d.dFiles, files: nOf('files', d.files), done_size: fmt.size(d.dBytes), size: fmt.size(d.bytes) })));
     }
     if (d.fill) card.appendChild(el('div', 'card-line', d.fill));
@@ -2596,7 +2678,7 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, onWayText, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
-    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runEstimate, endText, shareGroups, shareRuleLines, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, ownRulesText, idleRules, fillSetupShares, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, picFlight, fileOnto, movedByPlace, movedAt, extraPlaces, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, setJackLive: (x) => { jackLive = x; }, jackPanel, jackAtWork, redrawCard, schedText, scheduleSection, historySection, footer, hints,
+    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runEstimate, estModel, endText, shareGroups, shareRuleLines, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, ownRulesText, idleRules, fillSetupShares, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, picFlight, fileOnto, movedByPlace, movedAt, extraPlaces, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, setJackLive: (x) => { jackLive = x; }, jackPanel, jackAtWork, redrawCard, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
     setForm: (f) => { form = f; }, initForm, levelMath, levelSection, levelLines, levelNight, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }

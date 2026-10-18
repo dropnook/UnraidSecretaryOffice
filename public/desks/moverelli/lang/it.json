@@ -388,6 +388,7 @@
   "rc.tidy": "Riordinare",
   "rc.since": "da {time} ({duration})",
   "rc.left": "ancora circa {left}",
+  "rc.left_range": "ancora circa da {lo} a {hi}",
   "rc.end": "pronta verso le {time}",
   "rc.end_tomorrow": "pronta domani verso le {time}",
   "rc.end_day": "pronta verso {day}",

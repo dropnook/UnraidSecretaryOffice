@@ -388,6 +388,7 @@
   "rc.tidy": "Ordenar",
   "rc.since": "desde las {time} ({duration})",
   "rc.left": "faltan unos {left}",
+  "rc.left_range": "faltan entre {lo} y {hi}",
   "rc.end": "lista hacia las {time}",
   "rc.end_tomorrow": "lista mañana hacia las {time}",
   "rc.end_day": "lista hacia {day}",
