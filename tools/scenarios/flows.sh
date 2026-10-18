@@ -433,7 +433,7 @@ flow_rs_files() {
 # _rs_compare <journal id>: one line of $KEEP/compare.tsv — id, the moment's folder, the target, ok | the difference
 _rs_compare() {
     local id=$1 plan_f=$D/restore/$1/plan.json pair src dst d res=ok
-    pair=$(jq -r '([.steps[]? | select(.do == "copy" and ((.from // "") | test("/[.]zfs/snapshot/|[.]btrfs-snap|/snapshots/"))))][0] as $c
+    pair=$(jq -r '([.steps[]? | select(.do == "copy" and ((.from // "") | test("/[.]zfs/snapshot(/|$)|[.]btrfs-snap|/snapshots/"))))][0] as $c
         | if $c == null then empty else
             ([.steps[]? | select(.do == "move" and .from == $c.to) | .to][0] // $c.to) as $to | "\($c.from)\t\($to)" end' "$plan_f" 2>/dev/null)
     [[ -n $pair ]] || { say "INV-COMPARE: no copy out of a moment in $id's plan"; return 0; }
