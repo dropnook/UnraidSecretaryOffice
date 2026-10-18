@@ -617,7 +617,7 @@ check_inv_backup_after() {
 _ck_warning_codes() {
     local st=$UB/state/status.json log
     {
-        jq -r '[.drift[]?, .differences[]?, .warning_items[]?] | .[] | (.code // empty)' "$st" 2>/dev/null
+        jq -r '[.drift[]?, .differences[]?, .warning_items[]?] | .[] | objects | (.code // empty)' "$st" 2>/dev/null   # (.drift is counts)
         log=$UB/logs/run-$(jq -r '.run // ""' "$st").log
         grep -oE 'WARNING[: ]+\[?[a-z_]+' "$log" 2>/dev/null | sed -E 's/WARNING[: ]+\[?//'
     } | sort -u
