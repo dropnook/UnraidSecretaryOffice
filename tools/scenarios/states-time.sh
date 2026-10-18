@@ -92,6 +92,7 @@ clock_restore() {
     [[ -f $dir/clock.guard ]] && kill "$(cat "$dir/clock.guard")" 2>/dev/null
     pkill -f "[u]so-clock-guard.sh $note" 2>/dev/null
     rm -f "$dir/clock.note" "$dir/clock.guard"
+    ls /tmp/uso-clock-*.set >/dev/null 2>&1 || rm -f /tmp/uso-clock-guard.sh
     _st_until 15 pgrep -x ntpd || [[ ${ntp:-no} != yes ]] || { say "clock_restore: ntpd doesn't run"; return 1; }
 }
 
