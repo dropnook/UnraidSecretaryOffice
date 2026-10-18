@@ -456,7 +456,7 @@ TOTAL_FILES=0; TOTAL_BYTES=0; TOTAL_MOVED=0; TOTAL_LEFT=0
 # too, for a script around move), or once the binary is gone (then a new one for the next file). Without
 # /proc/<pid>/syscall (never on Unraid): one process per file, as before.
 
-MV_PID=""; MV_FD=""; MV_RC=0; SLP_FD=""
+MV_PID=""; MV_FD=""; MV_RC=0; SLP_FD=""; MV_READS=""
 MV_LONG=false
 { read -r _ < /proc/self/syscall; } 2>/dev/null && MV_LONG=true
 
@@ -486,29 +486,47 @@ mover_close() {  # the pipe closed (the binary finishes what it read), its exit 
     return 0
 }
 
-mover_waiting() {  # 0: the binary waits for the next path (read on fd 0), 1: busy, 2: gone
+mover_reads() {  # -> MV_READS: the binary's own read syscalls so far (its thread's syscr — /proc/<pid>/io adds the reaped
+    # children's; empty when unknown)
+    local k v
+    MV_READS=""
+    { while read -r k v; do [[ "$k" == syscr: ]] && { MV_READS=$v; break; }; done < "/proc/$MV_PID/task/$MV_PID/io"; } 2>/dev/null
+    return 0
+}
+
+# 1: the binary looks idle — blocked in read(0) (or a child of it, for a script around move), its read count in MV_READS;
+# 0: busy; 2: gone. mover_send counts it as waiting only when seen twice in a row, ≥ 1 ms apart, without a read in
+# between, and more reads than before the path was written: right after the write the kernel may still show the old
+# read for a moment (a wakeup on another CPU), and a path can reach the binary in two pieces (seen on a VM).
+mover_waiting() {
     local a b r k kids=""
     { read -r a b r < "/proc/$MV_PID/syscall"; } 2>/dev/null || return 2
-    [[ "$a" == 0 && "$b" == 0x0 ]] && return 0
+    if [[ "$a" == 0 && "$b" == 0x0 ]]; then mover_reads; return 1; fi
     if [[ "$a" == -1 ]]; then         # not in a syscall: a zombie?
         { read -r r < "/proc/$MV_PID/stat"; } 2>/dev/null || return 2
         r=${r##*) }; [[ "${r:0:1}" == [ZX] ]] && return 2
     fi
     { read -r kids < "/proc/$MV_PID/task/$MV_PID/children"; } 2>/dev/null
     for k in $kids; do
-        { read -r a b r < "/proc/$k/syscall"; } 2>/dev/null && [[ "$a" == 0 && "$b" == 0x0 ]] && return 0
+        if { read -r a b r < "/proc/$k/syscall"; } 2>/dev/null && [[ "$a" == 0 && "$b" == 0x0 ]]; then MV_READS="kid:$k"; return 1; fi
     done
-    return 1
+    return 0
 }
 
 mover_send() {  # path — to the running binary; back once it is done with it (0), or the binary is gone (1)
-    local p="$1" d=0.001 w n=0
+    local p="$1" d=0.001 w n=0 before seen=""
+    mover_reads; before=$MV_READS
     printf '%s\n' "$p" >&"$MV_FD" 2>/dev/null || return 1
     while :; do
         [[ -e "$p" || -L "$p" ]] || return 0
         mover_waiting; w=$?
-        (( w == 0 )) && return 0
         (( w == 2 )) && return 1
+        if (( w == 1 )) && [[ "$MV_READS" == kid:* || -z "$before" || -z "$MV_READS" || "$MV_READS" -gt "$before" ]]; then
+            [[ -n "$seen" && "$seen" == "$MV_READS" ]] && return 0
+            seen=$MV_READS
+        else
+            seen=""
+        fi
         # a small file takes the binary ~10 ms (its fuser and losetup): look every 1–2 ms for the first 0.1 s, then
         # every 10 ms, after 1 s every 50 ms (a big file)
         (( ++n == 5 )) && d=0.002

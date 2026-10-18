@@ -36005,6 +36005,10 @@ SH);
          is_file("$t/mnt/disk1/Docs/d.txt"), ($f = (string) ($st['stop_file'] ?? '')) !== '' && !file_exists($f) && is_file(str_replace("$t/mnt/disk1/", "$t/mnt/cache/", $f))]);
     same('prefer per disk: … after a stop no folder pass (only the empty parents of what moved), the rest stays on disk1', [true, 37],
         [is_dir("$t/mnt/disk1/Pics/emptydir"), $on('disk1/Pics/a/*.jpg')]);
+    $picsHanded = array_values(array_filter($handed(), fn ($l) => str_contains($l, '/Pics/')));
+    same('prefer per disk: … stop asked while file 3 is in flight — file 3 finishes (the last named), file 4 is never handed over: 3 paths of Pics given to the binary, all three moved',
+        [3, ($st['stop_file'] ?? null), [true, true, true]],
+        [count($picsHanded), $picsHanded[2] ?? null, array_map(fn ($l) => !file_exists($l), $picsHanded)]);
 
     // a share whose disks have no folder of it: nothing on the source side
     $reset();

@@ -114,7 +114,11 @@
 >   `/proc/<pid>/syscall` (a read on fd 0; also of its children, for a script around move), or once it is gone (then a new
 >   one for the next file). The stop file is still looked at before each file; the live status is written at most once a
 >   second (and for each share's first file). Without `/proc/<pid>/syscall`: one process per file, as before. The fill
->   (pool → array, the pool re-read after each file) still calls the binary per file.
+>   (pool → array, the pool re-read after each file) still calls the binary per file. Hard links: the move binary of
+>   Unraid 7.4 keeps a group's links together within one process (seen on 7.4.0-rc.1: a group of three, fed one path at
+>   a time, arrived as one file with three links; a group with a link outside the share stays, as with Unraid's mover)
+>   — one process per file could never do that. Nothing else of the binary is relied on but what 7.3's mover uses too:
+>   absolute paths on stdin, one per line, read and moved as they come; a folder given moves when empty.
 >
 > **`prefer` shares** (array → pool): their source is the array disks the share may use (above), which may wake them.
 > That is accepted here on purpose (the owner's decision): the Dynamix Cache Directories plugin keeps the folder
