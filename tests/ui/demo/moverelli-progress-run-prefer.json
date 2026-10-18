@@ -1,0 +1,32 @@
+{
+ "time": 1791672002,
+ "running": true,
+ "real": true,
+ "stopping": null,
+ "progress": {
+  "mode": "run",
+  "result": "running",
+  "started": 1791671402,
+  "time": 1791672002,
+  "phase": "share",
+  "share": "Familienarchiv",
+  "plan": [
+   "Familienarchiv"
+  ],
+  "file": "/mnt/disk1/Familienarchiv/Fotos 2019/Ausflug/IMG_5406.jpg",
+  "file_bytes": 0,
+  "file_size": 4194304,
+  "share_files": 51312,
+  "share_bytes": 353255342080,
+  "share_done_files": 5405,
+  "share_done_bytes": 1073741824,
+  "done_files": 5405,
+  "done_bytes": 1073741824,
+  "files": 51312,
+  "bytes": 353255342080,
+  "shares": [],
+  "errors": 0,
+  "warnings": 0
+ },
+ "night": null
+}
