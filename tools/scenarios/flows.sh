@@ -233,15 +233,31 @@ flow_bk_run_sched() {
     job_wait backup 600
 }
 
-# BK-RUN-QUEUED: «Back up now» twice in one minute, the second one queued — then «Don't start it» (desk.js ~475 start_cancel)
+# BK-RUN-QUEUED: «Back up now» again in the minute of a run that just ended — one real run a minute, so the page
+# queues it for the next (desk.js ~1946 → queued {at}); then «Don't start it» (desk.js ~475 start_cancel). A start while
+# a run is still at work is refused (backup_running), not queued: the first run must end within its minute.
 flow_bk_run_queued() {
     _fl_args "$@" || return 1
-    minute_wait || return 1
+    local i run=''
+    for ((i = 0; i < 3; i++)); do
+        minute_wait || return 1
+        ask backup.start '{"mode":"backup"}' >/dev/null || return 1
+        wait_backup 3600 || return 1
+        run=$(jq -r '.run // ""' "$UB/state/status.json")
+        [[ $run == "$(date +%Y%m%d-%H%M)" ]] && break
+        say "BK-RUN-QUEUED: the run outlasted its minute — again"
+        run=''
+    done
+    [[ -n $run ]] || { say "BK-RUN-QUEUED: no run ended within its minute (3 tries)"; return 1; }
     ask backup.start '{"mode":"backup"}' >/dev/null || return 1
-    ask backup.start '{"mode":"backup"}' >/dev/null || return 1
-    [[ -n $(ask_last '.queued // empty') ]] || say "BK-RUN-QUEUED: the second start was not queued: $(ask_last '{started, queued, skipped} | tostring')"
+    if [[ -z $(ask_last '.queued // empty') ]]; then
+        say "BK-RUN-QUEUED: a start in the run's minute was not queued: $(ask_last '{started, queued, skipped} | tostring')"
+        return 1
+    fi
+    _fl_note queued "$(ask_last '.queued')"
     ask backup.start_cancel '{}' >/dev/null || return 1
-    wait_backup 7200
+    wait_for 90 "the queued minute to pass" bash -c "[[ \$(date +%Y%m%d-%H%M) > $run ]] && (( \$(date +%-S) > 20 ))" || return 1
+    [[ $(jq -r '.run // ""' "$UB/state/status.json") == "$run" ]] || { say "BK-RUN-QUEUED: a run started although it was cancelled"; return 1; }
 }
 
 # BK-ABORT [after=s]: a run started, then «Stop the run» (desk.js ~1975 abort {}) once it is at work (+after s)
@@ -409,13 +425,28 @@ flow_rs_files() {
     fi
     [[ -n $snap ]] && req=$(jq -c --arg s "$snap" '. + {snap: $s}' <<<"$req")
     _rs_go "$req" || return 1
-    # INV-COMPARE: what came back next to (or in place of) the original, and the moment it came from
-    local id plan_f
-    id=$(fl_last_restore)
-    plan_f=$D/restore/$id/plan.json
-    jq -r '.steps[]? | select(.from? and .to?) | "\(.from)\t\(.to)"' "$plan_f" 2>/dev/null >>"$KEEP/compare.tsv"
-    [[ -s $KEEP/compare.tsv ]] || jq -r --arg p "$path" '"\(.target.from // .target.source // "")\t\(.target.to // .target.dest // "")"' "$plan_f" 2>/dev/null | grep -v '^	' >>"$KEEP/compare.tsv"
+    # INV-COMPARE, right when the job ended (an app started again changes its files): the copy out of the moment (a
+    # snapshot's folder) against where it ended up (beside: the copy; replace: the step moving the copy into place)
+    _rs_compare "$(fl_last_restore)"
     return 0
+}
+# _rs_compare <journal id>: one line of $KEEP/compare.tsv — id, the moment's folder, the target, ok | the difference
+_rs_compare() {
+    local id=$1 plan_f=$D/restore/$1/plan.json pair src dst d res=ok
+    pair=$(jq -r '([.steps[]? | select(.do == "copy" and ((.from // "") | test("/[.]zfs/snapshot/|[.]btrfs-snap|/snapshots/"))))][0] as $c
+        | if $c == null then empty else
+            ([.steps[]? | select(.do == "move" and .from == $c.to) | .to][0] // $c.to) as $to | "\($c.from)\t\($to)" end' "$plan_f" 2>/dev/null)
+    [[ -n $pair ]] || { say "INV-COMPARE: no copy out of a moment in $id's plan"; return 0; }
+    IFS=$'\t' read -r src dst <<<"$pair"
+    if [[ ! -e $src ]]; then res="the moment's $src is gone"
+    elif [[ ! -e $dst ]]; then res="$dst isn't there"
+    else
+        d=$(diff -rq --no-dereference "$src" "$dst" 2>&1 | head -2)
+        [[ -n $d ]] && res=${d//$'\n'/; }
+        [[ $(stat -c '%U:%G %a' "$src") == "$(stat -c '%U:%G %a' "$dst")" ]] || res+="; owner/mode $(stat -c '%U:%G %a' "$dst") ≠ $(stat -c '%U:%G %a' "$src")"
+    fi
+    printf '%s\t%s\t%s\t%s\n' "$id" "$src" "$dst" "$res" >>"$KEEP/compare.tsv"
+    say "INV-COMPARE $id: $dst vs $src — $res"
 }
 flow_rs_files_beside() { flow_rs_files mode=beside "$@"; }
 flow_rs_files_replace() { flow_rs_files mode=replace "$@"; }
@@ -478,15 +509,24 @@ flow_rs_drill() {
     fi
     stamp=$(ask_last '.preview.stamp')
     token=$(ask_last '.preview.token')
+    local t0
+    t0=$(_sc_now)
     _fl_ask restore.drill_start "$(jq -cn --arg s "$stamp" --arg t "$token" '{stamp: $s, token: $t}')" 300 >/dev/null
     rc=$?; ((rc == 0)) || { _fl_end $rc; return; }
     _fl_note drill "$(ask_last '{id}')"
+    # atd starts it a moment later: until then drill_state says nothing runs (and would read as «done»)
+    WAIT_SOFT=1 wait_for 120 "the drill to begin" _drill_begun "$t0" || say "RS-DRILL: no sign of the drill after 120 s"
     wait_drill 7200 || return 1
     local r
     r=$(ask_last '.certificate.result // empty')
     [[ $r =~ ^(ok|warning|not_checked)$ ]] || { say "RS-DRILL: certificate $r"; return 1; }
 }
 flow_rs_drill_manual() { flow_rs_drill "$@"; }
+# the drill started at or after <t>: running now, or its certificate finished since
+_drill_begun() {
+    php "$SC_DIR/ask.php" --wait 30 restore.drill_state '{}' 2>/dev/null |
+        jq -e --argjson t "$1" '.running != null or ((.certificate.finished // 0) >= $t)' >/dev/null
+}
 
 # ============================================================================================================ Ms. Moverelli
 # her settings as her page holds them (moverelli.json .settings after a fresh look)

@@ -19,6 +19,16 @@ undo_push _h5_prefer_gone
 put_files H5-PREFER disk1 uso-prefer/uso-wip-h5/d1 10 && put_files H5-PREFER disk2 uso-prefer/uso-wip-h5/d2 10 \
     && put_files H5-PREFER disk1 uso-prefer/uso-wip-h5/big 6 --size 192M || _row state H5-PREFER red "put_files failed"
 track_share uso-prefer
+# Tower's Nextcloud data folder as apps.sh leaves it (33:33 0770): any «Add Share» on the server resets it to 0777 and
+# the engine then fails every run (nc_datadir_readable — H5 notes, a base/state finding until base.sh keeps it closed)
+_h5_nc_closed() {
+    local t
+    t=$(readlink -f /mnt/user/nextcloud 2>/dev/null) && [[ -d $t ]] || return 0
+    [[ $(stat -c '%u %a' "$t") == '33 770' ]] && return 0
+    say "Nextcloud's data folder $t was $(stat -c '%U:%G %a' "$t") — closed again (33:33 0770), as apps.sh made it"
+    chown 33:33 "$t" && chmod 0770 "$t"
+}
+_h5_nc_closed
 [[ -n $PLACE ]] && track_share "$(basename "$(dirname "$PLACE")")"
 snap_before
 
