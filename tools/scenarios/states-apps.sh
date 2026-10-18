@@ -26,7 +26,8 @@
 
 ST_CM_PROJECTS=/boot/config/plugins/compose.manager/projects
 
-ct_status() { timeout 20 docker inspect -f '{{.State.Status}}' "$1" 2>/dev/null || echo missing; }
+# (docker inspect prints an empty line for a container that isn't there: the exit code decides)
+ct_status() { local s; s=$(timeout 20 docker inspect -f '{{.State.Status}}' "$1" 2>/dev/null) && [[ -n $s ]] || s=missing; printf '%s\n' "$s"; }
 _st_ct_health() { timeout 20 docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$1" 2>/dev/null; }
 _st_ct_need() { local n; for n; do [[ $(ct_status "$n") != missing ]] || { say "needs container $n (apps.sh $n)"; return 2; }; done; }
 

@@ -137,7 +137,10 @@ share_aside() {
         ds=$(_st_dataset_of "/mnt/$d/$name")
         if [[ -n $ds ]]; then
             keep="${ds%/*}/uso-keep-${id,,}-$name"
-            zfs set mountpoint=none "$ds" && rmdir "/mnt/$d/$name" 2>/dev/null; zfs rename "$ds" "$keep" || return 1
+            # unmounted first (a container binding it keeps it busy — then nothing moves): a mounted dataset renamed
+            # would mount at its new name and make a share of it
+            zfs set mountpoint=none "$ds" || { zfs inherit mountpoint "$ds"; say "share_aside: $ds is busy"; return 1; }
+            rmdir "/mnt/$d/$name" 2>/dev/null; zfs rename "$ds" "$keep" || return 1
             printf 'zfs\t%s\t%s\t%s\n' "$d" "$ds" "$keep" >> "$dir/aside.$name"
         else
             keep="/mnt/$d/.uso-keep/${id,,}"
@@ -382,12 +385,22 @@ undo_sh_office_share_exists() { local dir; dir=$(_st_dir SH-OFFICE-SHARE-EXISTS)
     [[ -f $dir/settings.ini ]] || return 0
     cp -p "$dir/settings.ini" "$UB/settings.ini" && rm -f "$dir/settings.ini"; }
 
-# no office share: its roots (with the backup place) and its cfg aside — as if never made
-state_sh_office_share_missing() { local s=UnraidSecretaryOffice
+# _st_binders <share> — the containers that bind something of the share (by /mnt/user or a pool/disk path)
+_st_binders() {
+    timeout 10 docker info >/dev/null 2>&1 || return 0
+    timeout 20 docker ps -q | xargs -r timeout 20 docker inspect | jq -r --arg s "$1" \
+        '.[] | select(any(.Mounts[]; .Source | test("^/mnt/[^/]+/" + ($s | gsub("[.]"; "\\.")) + "(/|$)"))) | .Name | ltrimstr("/")'
+}
+# no office share: its roots (with the backup place) and its cfg aside — as if never made; a container binding a folder
+# of it (Tower's Kopia: …/restore/kopia) is stopped around it, as the share couldn't be there for it either
+state_sh_office_share_missing() { local s=UnraidSecretaryOffice b
     share_exists "$s" || { say "SH-OFFICE-SHARE-MISSING: already missing"; return 0; }
+    b=$(_st_binders "$s")
+    if [[ -n $b ]]; then ct_note SH-OFFICE-SHARE-MISSING $b; ct_stop $b || return 1; fi
     share_cfg_aside SH-OFFICE-SHARE-MISSING "$s" && share_aside SH-OFFICE-SHARE-MISSING "$s" || return 1
     _st_share_gone "$s" || { say "SH-OFFICE-SHARE-MISSING: Unraid still lists it"; return 1; }; }
-undo_sh_office_share_missing() { share_back SH-OFFICE-SHARE-MISSING UnraidSecretaryOffice && share_cfg_back SH-OFFICE-SHARE-MISSING UnraidSecretaryOffice; }
+undo_sh_office_share_missing() { share_back SH-OFFICE-SHARE-MISSING UnraidSecretaryOffice \
+    && share_cfg_back SH-OFFICE-SHARE-MISSING UnraidSecretaryOffice && ct_back SH-OFFICE-SHARE-MISSING; }
 
 # no appdata (Docker never on): the office's data folder lies there, so the agent is stopped around the move
 # (needs test3 — on Tower Docker's containers live in appdata)

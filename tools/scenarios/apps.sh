@@ -166,7 +166,9 @@ app_immich_redis() {
     _apps_image "$img" && _apps_net immich_default || return 1
     mapfile -d '' labels < <(_immich_labels redis)
     docker rm -f immich_redis >/dev/null 2>&1
-    docker run -d --name immich_redis --net immich_default "${labels[@]}" "$img" >/dev/null && say "immich_redis up (project $APPS_PROJECT)"
+    # the image's VOLUME /data as a named volume: a re-created member keeps it (as compose keeps a stack's volumes)
+    docker run -d --name immich_redis --net immich_default "${labels[@]}" -v immich_redis-data:/data "$img" >/dev/null \
+        && say "immich_redis up (project $APPS_PROJECT)"
 }
 app_immich_server() {
     _apps_skip immich_server && return 0
@@ -181,7 +183,7 @@ app_immich_server() {
         --label net.unraid.docker.icon=https://raw.githubusercontent.com/immich-app/immich/main/design/immich-logo.svg \
         -e DB_HOSTNAME=immich_postgres -e DB_USERNAME=postgres -e DB_PASSWORD="$pw" -e DB_DATABASE_NAME=immich \
         -e REDIS_HOSTNAME=immich_redis -e MACHINE_LEARNING_ENABLED=false \
-        -v /mnt/user/appdata/immich/upload:/usr/src/app/upload -v /mnt/user/photos:/mnt/photos:ro \
+        -v /mnt/user/appdata/immich/upload:/data -v /mnt/user/photos:/mnt/photos:ro \
         "$img" >/dev/null && say "immich_server up (project $APPS_PROJECT)"
 }
 app_Immich() { app_immich_postgres && app_immich_redis && app_immich_server; }

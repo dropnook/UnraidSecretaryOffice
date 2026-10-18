@@ -178,7 +178,11 @@ _st_self_test() {
         2) say "state $id: needs what this server lacks" ;;
         *) say "state $id: FAILED ($rc)" ;;
     esac
-    [[ -n ${ST_SHOW:-} ]] && { say "ST_SHOW:"; eval "$ST_SHOW" 2>&1 | while IFS= read -r l; do say "  $l"; done; }
+    # ST_SHOW runs in this shell (not a pipe's subshell): it may add `state …` of its own (their undos are stacked too)
+    if [[ -n ${ST_SHOW:-} ]]; then
+        say "ST_SHOW:"; eval "$ST_SHOW" > "$KEEP/st-show.out" 2>&1
+        while IFS= read -r l; do say "  $l"; done < "$KEEP/st-show.out"
+    fi
     [[ -n ${ST_HOLD:-} ]] && { say "holding the state for $ST_HOLD s (ST_HOLD)"; sleep "$ST_HOLD"; }
     if declare -F undo_all >/dev/null; then
         undo_all; local u=$?
