@@ -97,8 +97,11 @@ EOF
         fi
         echo
         echo "$total scenarios: $r red, $p pending, $s skipped, $g green."
+        grep -q '^base=.*failed' "$info" 2>/dev/null && echo "**A base reset failed** ($(grep '^base=' "$info" | sed 's/^base=//' | paste -sd'|' - | sed 's/|/ · /g')) - see base-*.log."
     } > "$dir/summary.md"
     cat "$dir/summary.md"
+    # red: a red row, or a base reset that failed (then nothing after it ran on a known state)
+    grep -q '^base=.*failed' "$info" 2>/dev/null && return 1
     [[ -z $lines ]] || ! printf '%s' "$lines" | grep -q '^0	'
 }
 if [[ $mode == summary ]]; then
@@ -247,7 +250,11 @@ for spec in $list; do
     code=$?
     case $code in
         0|1|2) ;;
-        *) ((keep)) || base ;;
+        *) if ((!keep)) && ! base; then
+               echo "run-local: the base reset after $spec failed - no further scenario runs on an unknown state" >&2
+               summary "$out"
+               exit 1
+           fi ;;
     esac
 done
 summary "$out"

@@ -83,7 +83,8 @@ t_start=$SECONDS
 sync_tree() {
     vm "mkdir -p $TREE" || return 1
     rsync -a --delete --exclude .git -e "$SSH" "$repo/" "$alias:$TREE/" || return 1
-    printf '%s\n' "$(cd "$repo" && git rev-parse --abbrev-ref HEAD 2>/dev/null) $(cd "$repo" && git describe --always --dirty 2>/dev/null)" \
+    # the branch and the version as tools/release.sh names it (the last v1.* tag, commits since, the commit)
+    printf '%s\n' "$(cd "$repo" && git rev-parse --abbrev-ref HEAD 2>/dev/null) $(cd "$repo" && { git describe --tags --match 'v1.*' --dirty 2>/dev/null || git describe --always --dirty; })" \
         | vm "cat > $TREE/.git-describe"
 }
 pull() { rsync -a --exclude '*.lock' -e "$SSH" "$alias:$OUT/" "$local_dir/" 2>/dev/null; }
@@ -122,7 +123,7 @@ wait_back() {
     done
 }
 
-reds=0
+reds=0 base_failed=0
 for spec in $names; do
     n=${spec%%:*}
     if vm "test -f $TREE/tools/scenarios/$n-pre.sh -a -f $TREE/tools/scenarios/$n-post.sh"; then
@@ -152,7 +153,12 @@ for spec in $names; do
         0|2) ;;
         1) reds=$((reds + 1)) ;;
         255) say "$n: the connection broke"; reds=$((reds + 1)) ;;
-        *) reds=$((reds + 1)); ((keep)) || base ;;
+        *) reds=$((reds + 1))
+           if ((!keep)) && ! base; then
+               say "the base reset after $n failed - no further scenario runs on an unknown state"
+               base_failed=1
+               break
+           fi ;;
     esac
 done
 pull
@@ -228,5 +234,5 @@ echo
 bash "$here/run-local.sh" --summary "$local_dir"
 sum=$?
 say "reports in $local_dir ($(( (SECONDS - t_start) / 60 )) min)"
-((sum == 0 && reds == 0)) && exit 0
+((sum == 0 && reds == 0 && !base_failed)) && exit 0
 exit 1
