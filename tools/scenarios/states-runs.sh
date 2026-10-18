@@ -126,19 +126,22 @@ undo_rn_plan_old() { local dir; dir=$(_st_dir RN-PLAN-OLD)
     touch -d "@$(cat "$dir/settings.mtime")" "$UB/settings.ini" && rm -f "$dir/settings.mtime"; }
 
 # the agent restarts (a changed file of its own) while a request waits in the mailbox: armed, fires on the next request
-_st_agent_pid() { jq -r '.pid // empty' "$RUN/agent.json" 2>/dev/null; }
+# the agent restarts in place (exec: the same pid) — its heartbeat's `started` says a restart happened
+_st_agent_pid() { jq -r '.started // empty' "$RUN/agent.json" 2>/dev/null; }
 state_rn_agent_restart_midrequest() { local dir pid f=$P/agent/agent.php
     dir=$(_st_dir RN-AGENT-RESTART-MIDREQUEST)
     [[ -f $f ]] || { say "RN-AGENT-RESTART-MIDREQUEST: no $f"; return 1; }
     stat -c %Y "$f" > "$dir/agent.mtime"; _st_agent_pid > "$dir/agent.pid"; rm -f "$dir/fired"
+    # the agent takes a request within milliseconds (its doorbell): inotify sees the request land (the page writes
+    # .<id>.tmp and renames it to <id>.request), polling would miss it
+    command -v inotifywait >/dev/null || { say "needs inotifywait"; return 2; }
     pid=$(_st_bg bash -c '
-        box=$1 f=$2 dir=$3 end=$((SECONDS + 1800))
-        mark=$(date +%s)
-        until [[ -n $(find "$box" -maxdepth 1 -type f -newermt "@$mark" 2>/dev/null | head -1) ]]; do
-            ((SECONDS >= end)) && exit 0; sleep 0.2
-        done
-        touch "$f"; date +%s > "$dir/fired"; logger -t uso-scenarios "agent restart while a request waits"' \
-        uso-midreq-watch "$D/mailbox" "$f" "$dir")
+        box=$1 f=$2 dir=$3
+        while read -r n; do
+            [[ $n == *.request ]] || continue
+            touch "$f"; date +%s > "$dir/fired"; logger -t uso-scenarios "agent restart while a request waits"; break
+        done < <(timeout 1800 inotifywait -q -m -e moved_to -e create --format %f "$box")
+        pkill -f "inotifywait -q -m -e moved_to -e create --format %f $box"' uso-midreq-watch "$D/mailbox" "$f" "$dir")
     printf '%s\n' "$pid" > "$dir/watch.pid"
     say "RN-AGENT-RESTART-MIDREQUEST: armed (watcher pid $pid) — agent.php is touched when the next request arrives"; }
 undo_rn_agent_restart_midrequest() { local dir pid; dir=$(_st_dir RN-AGENT-RESTART-MIDREQUEST)
@@ -147,7 +150,7 @@ undo_rn_agent_restart_midrequest() { local dir pid; dir=$(_st_dir RN-AGENT-RESTA
         pid=$(_st_agent_pid)
         touch -d "@$(cat "$dir/agent.mtime")" "$P/agent/agent.php"
         # the agent sees its file change again and restarts once more: wait for that one
-        _st_until 90 bash -c "p=\$(jq -r '.pid // empty' '$RUN/agent.json' 2>/dev/null); [[ -n \$p && \$p != '$pid' ]] && (( \$(date +%s) - \$(stat -c %Y '$RUN/agent.json') < 30 ))" \
+        _st_until 90 bash -c "p=\$(jq -r '.started // empty' '$RUN/agent.json' 2>/dev/null); [[ -n \$p && \$p != '$pid' ]] && (( \$(date +%s) - \$(stat -c %Y '$RUN/agent.json') < 30 ))" \
             || say "note: no new agent heartbeat after agent.php got its time back"
     elif [[ -f $dir/agent.mtime ]]; then
         touch -d "@$(cat "$dir/agent.mtime")" "$P/agent/agent.php"

@@ -31,10 +31,18 @@ _st_ct_back() {
     local dir c rc=0; dir=$(_st_dir "$1")
     [[ -f $dir/ct.running ]] || return 0
     _st_until 120 _st_docker_up || { say "Docker doesn't answer"; return 1; }
+    # databases first (an app started before its database exits again — immich_server did), then a second look a
+    # moment later for one that stopped again
+    local order; order=$(cat "$dir/ct.running" "$dir/ct.paused" | awk 'NF && /mariadb|postgres|redis|valkey|db/ { print; next } NF { r = r $0 "\n" } END { printf "%s", r }')
     while read -r c; do
         [[ -z $c ]] && continue
         [[ $(docker inspect -f '{{.State.Status}}' "$c" 2>/dev/null) == running ]] || docker start "$c" >/dev/null || rc=1
-    done < <(cat "$dir/ct.running" "$dir/ct.paused")
+    done <<< "$order"
+    sleep 15
+    while read -r c; do
+        [[ -z $c ]] && continue
+        [[ $(docker inspect -f '{{.State.Status}}' "$c" 2>/dev/null) == running ]] || { say "$c stopped again — started once more"; docker start "$c" >/dev/null || rc=1; }
+    done <<< "$order"
     while read -r c; do [[ -n $c ]] && { docker pause "$c" >/dev/null || rc=1; }; done < "$dir/ct.paused"
     ((rc == 0)) && rm -f "$dir/ct.running" "$dir/ct.paused"
     return $rc

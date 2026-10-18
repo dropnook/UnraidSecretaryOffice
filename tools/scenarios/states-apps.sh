@@ -113,19 +113,29 @@ _st_templates_back() {
 ct_rename() { [[ $(ct_status "$2") == missing ]] || { say "ct_rename: $2 exists"; return 1; }; docker rename "$1" "$2" && say "ct_rename: $1 → $2"; }
 
 ct_image_remove() {
-    local id=$1 n=$2 img iid dir; dir=$(_st_dir "$id")
+    local id=$1 n=$2 img iid dir keep pool; dir=$(_st_dir "$id")
     img=$(docker inspect -f '{{.Config.Image}}' "$n") && iid=$(docker inspect -f '{{.Image}}' "$n") || return 1
+    # `docker rmi -f` on an image only a stopped container uses deletes it (Tower, 2026-10-18): the container keeps an
+    # image id nobody has, `docker start` fails. The way back without the net: the image saved first, on Docker's own
+    # pool beside the shares (a dot folder is no share), loaded again by the undo — the same id.
+    pool=$(findmnt -no SOURCE /var/lib/docker | sed 's|/.*||'); pool=${pool:-cache}
+    mountpoint -q "/mnt/$pool" || pool=cache
+    keep=/mnt/$pool/.uso-keep/${id,,}; mkdir -p "$keep" || return 1
+    (( $(df --output=avail -B1G "/mnt/$pool" | tail -1) > 5 )) || { say "ct_image_remove: no room on $pool to keep the image"; return 1; }
     ct_note "$id" "$n"; ct_stop "$n" || return 1
-    printf '%s %s\n' "$iid" "$img" > "$dir/image.untagged"
+    printf '%s %s %s\n' "$iid" "$img" "$keep/image.tar" > "$dir/image.untagged"
+    docker save -o "$keep/image.tar" "$img" || return 1
     docker rmi -f "$img" >/dev/null || return 1
     ! docker image inspect "$img" >/dev/null 2>&1 || { say "ct_image_remove: $img is still there"; return 1; }
-    say "ct_image_remove: $img untagged — $n points at an image nobody names"
+    say "ct_image_remove: $img gone — $n points at an image id nobody has"
 }
 _st_image_back() {
-    local f iid img; f=$(_st_dir "$1")/image.untagged
+    local f iid img tar; f=$(_st_dir "$1")/image.untagged
     [[ -f $f ]] || return 0
-    read -r iid img < "$f"
+    read -r iid img tar < "$f"
+    if ! docker image inspect "$iid" >/dev/null 2>&1; then docker load -q -i "$tar" >/dev/null || return 1; fi
     docker image inspect "$img" >/dev/null 2>&1 || docker tag "$iid" "$img" || return 1
+    rm -f "$tar"; rmdir "${tar%/*}" "${tar%/*/*}" 2>/dev/null
     rm -f "$f"
 }
 

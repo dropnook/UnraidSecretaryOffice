@@ -164,6 +164,8 @@ share_back() {
         say "share_back: $name on $d"
     done < "$dir/aside.$name"
     ((rc == 0)) && rm -f "$dir/aside.$name"
+    # Unraid lists a share again only after it looked (a dataset mounted back is seen some seconds later)
+    _st_emcmd 'cmdStatus=Apply' >/dev/null; _st_share_seen "$name" 30 || say "note: Unraid doesn't list $name again yet"
     return $rc
 }
 share_cfg_aside() { local dir; dir=$(_st_dir "$1"); [[ -f $ST_SHARES_CFG/$2.cfg ]] && mv "$ST_SHARES_CFG/$2.cfg" "$dir/$2.cfg"; return 0; }

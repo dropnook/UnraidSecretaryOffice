@@ -94,7 +94,10 @@ undo_dk_pool_degraded() { local f pool dev; f=$(_st_dir DK-POOL-DEGRADED)/offlin
     [[ -f $f ]] || return 0
     IFS=$'\t' read -r pool dev < "$f"
     zpool online "$pool" "$dev" || return 1
-    _st_until 300 bash -c "zpool status -x '$pool' | grep -q 'is healthy'" || { say "DK-POOL-DEGRADED: $pool not healthy after 5 min"; return 1; }
+    # healthy only once the resilver that `online` starts (a few seconds later) is done — `status -x` says «healthy» before
+    sleep 5
+    _st_until 1800 bash -c "zpool status -x '$pool' | grep -q 'is healthy' && ! zpool status '$pool' | grep -q 'in progress'" \
+        || { say "DK-POOL-DEGRADED: $pool not healthy after 30 min"; return 1; }
     rm -f "$f"; }
 
 state_dk_array_disk_full() { disk_fill DK-ARRAY-DISK-FULL "${1:-1}" "${2:-100}"; }
