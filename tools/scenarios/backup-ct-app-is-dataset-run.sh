@@ -28,7 +28,7 @@ state CT-BINDS-ROOT share uso-arr
 snap_before
 before=$(stray)
 [[ -z $before ]] || say "before the run already: $before"
-expect_changes 'app|uso-wide|*' 'docker|no_stop'     # the new app: a real change (its proposal, kept running as no_stop)
+expect_changes 'app|uso-wide|*' 'docker|no_stop' 'docker|known'   # the new app: a real change (its proposal, kept running, known)
 flow BK-RUN-MANUAL mode=backup
 now=$(stray)
 [[ -z $now ]] && cell no-uso-backup-in-roots 1 "no .uso-backup outside appdata/<app>/ and domains/<vm>/" \

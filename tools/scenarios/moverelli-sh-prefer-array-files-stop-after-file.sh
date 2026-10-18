@@ -16,11 +16,14 @@ put_files M1S disk1 uso-prefer/m1s-d1 6 --size 192M && put_files M1S disk2 uso-p
 undo_push files_unput M1S
 track_share uso-prefer
 snap_before
+log=$D/moverelli/smart_mover.log
+lines0=$(wc -l <"$log" 2>/dev/null || echo 0)
 flow MV-STOP-AFTER-FILE                      # her last run «stopped by the user»: the flow checks it
 a=$(( $(on disk1) + $(on disk2) )) c=$(on cache)
 ((c >= 1 && a >= 1 && a + c == 12)) && cell stopped-between 1 "$c of 12 files reached cache, $a stayed on the array — stopped after a file" \
     || cell stopped-between 0 "after the stop: $c on cache, $a on the array (of 12)"
 part=$(find /mnt/cache/uso-prefer /mnt/disk1/uso-prefer /mnt/disk2/uso-prefer -name '*.partial' 2>/dev/null | head -2)
 [[ -z $part ]] && cell no-partial 1 "no half-moved file" || cell no-partial 0 "left half-moved: ${part//$'\n'/ }"
+tail -n +"$((lines0 + 1))" "$log" 2>/dev/null >"$KEEP/smart_mover-run.log"; evidence "$KEEP/smart_mover-run.log" >/dev/null
 check standard
 scenario_end
