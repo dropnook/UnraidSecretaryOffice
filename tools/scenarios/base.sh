@@ -234,8 +234,27 @@ apps_step() {
         if [[ -f $SC/apps.sh ]]; then act "the demo apps (apps.sh$( ((full)) && echo ' --recreate') all)" bash "$SC/apps.sh" $( ((full)) && echo --recreate) all
         else log "skipped: apps - not built yet (apps.sh, H2)"; fi
     fi
-    if real_fn vm_make; then act "the plain VM" vm_make plain
-    else log "skipped: VMs - not built yet (vm_make, wave 1b)"; fi
+    # 4 (H4): Tower's MinIO for the KP-S3-* states and the kopia container without anonymous volumes (a re-made one is
+    # the same) - both when missing; Kopia stays on its filesystem repository
+    if [[ $DOCKER == yes ]] && real_fn minio_make; then
+        if docker inspect kopia >/dev/null 2>&1 && docker inspect -f '{{range .Mounts}}{{.Type}} {{end}}' kopia | grep -qw volume; then
+            act "kopia: the image's /backups and /source bound (kopia_bind)" kopia_bind
+        fi
+        if [[ $(docker inspect -f '{{.State.Running}}' uso-minio 2>/dev/null) == true ]]; then log "MinIO (uso-minio) runs"
+        else act "MinIO (uso-minio, bucket uso with Object Lock)" minio_make; fi
+    fi
+    # 5 (H4): the two VMs of the base, shut off - when the VM service runs and they are missing
+    if real_fn vm_make && virsh version >/dev/null 2>&1; then
+        local v
+        for v in plain agent; do
+            if virsh domstate "uso-vm-$v" >/dev/null 2>&1; then
+                [[ $(virsh domstate "uso-vm-$v" | head -1) == "shut off" ]] && log "VM uso-vm-$v there, shut off" \
+                    || act "VM uso-vm-$v shut off (it was $(virsh domstate "uso-vm-$v" | head -1))" vm_shutdown "uso-vm-$v"
+            else
+                act "VM uso-vm-$v (vm_make $v)" vm_make "$v"
+            fi
+        done
+    else log "skipped: VMs - no VM service here"; fi
 }
 
 # ------------------------------------------------------------------------------------------------- 1a. the office down

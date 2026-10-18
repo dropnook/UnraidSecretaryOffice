@@ -11,10 +11,10 @@
 #                         previous = the release before the newest on GitHub; worktree = this tree built by plugin/build.sh
 #                         (plugin version <today>z) with its package laid on the flash first, so nothing is downloaded
 #   plugin_remove <id>    Unraid's `plugin remove` (the office's own remove script runs)
-#   data_fixture <id> <name>   the data folder of an old install (<data>.base/fixtures/data-<name>.tar, else the tree's
-#                         base/fixtures/data-<name>.tar.gz) in place of the current one, the agent stopped
-#   data_fixture_make <name> <tag>   (USOTest3VM) that release installed, a fresh data folder, desks hired, Mr. Backupsy's
-#                         plan applied as proposed (its P), schedules — tarred into <data>.base/fixtures/, office put back
+#   data_fixture <id> <name>   the data folder of an old install (scenarios-cache/fixtures/data-<name>.tar beside the
+#                         data folder) in place of the current one, the agent stopped
+#   data_fixture_make <name> <tag>   (Tower: 1.60's engine can't plan with Docker off) that release installed, a fresh data folder, desks hired, Mr. Backupsy's
+#                         plan applied as proposed (its P), schedules — tarred into scenarios-cache/fixtures/, office put back
 #   ini_edit <id> <variant> / ini_restore <id>    settings.ini by hand: unknown crlf bom dup gone-section zero-ret
 #                         preset-bad mode-off-by-hand perms owner
 #   mv_ini_edit <id> / mv_ini_restore <id>        smart_mover.ini by hand: a value out of range, a foreign key, `mover_bin =`
@@ -125,7 +125,10 @@ plugin_remove() {
     say "plugin_remove: the office removed (its own remove script ran)"
 }
 
-_st_fixture() { local f=${D}.base/fixtures/data-$1.tar; [[ -f $f ]] || f=$SC_DIR/base/fixtures/data-$1.tar.gz; [[ -f $f ]] && printf '%s' "$f"; }
+# fixtures beside the data folder (scenarios-cache/fixtures/: base.sh --make sets <data>.base aside) — never in git (the
+# repository is public; a copy lies in the briefs folder, resilienz/fixtures/)
+_st_cache() { printf '%s/scenarios-cache/%s' "$(dirname "$D")" "$1"; }
+_st_fixture() { local f; f=$(_st_cache fixtures)/data-$1.tar; [[ -f $f ]] && printf '%s' "$f"; }
 data_fixture() {
     local id=$1 name=$2 f
     f=$(_st_fixture "$name") || { say "needs the data fixture $name (data_fixture_make on USOTest3VM): not on this server"; return 2; }
@@ -138,27 +141,43 @@ data_fixture() {
 
 # data_fixture_make <name> <tag> — once, on USOTest3VM (never USOPartner): see the header
 data_fixture_make() {
-    local name=$1 tag=$2 out st plan id=FIXTURE-${1^^}
-    host_is test3 || { say "data_fixture_make: on USOTest3VM only"; return 2; }
+    local id=FIXTURE-${1^^}
+    # USOTest3VM was the plan, but 1.60's engine (2.44) ends every plan with «Docker does not answer» where Docker is
+    # off (2026-10-18) — the fixture is made on Tower; never on USOPartner (host_is knows only the two test VMs)
+    host_is tower || host_is test3 || { say "data_fixture_make: on Tower or USOTest3VM only"; return 2; }
+    _st_fixture_make "$@" || { say "data_fixture_make: failed — the office put back"; office_back "$id"; return 1; }
+}
+_st_fixture_make() {
+    local name=$1 tag=$2 out st plan d hired=() id=FIXTURE-${1^^}
     plugin_install "$id" "$tag" || return 1
     _st_agent_stop
     mv -- "$D" "$D.aside-$(date +%Y%m%d-%H%M%S)" && mkdir -p "$D" || return 1
     _st_agent_start || { say "data_fixture_make: no agent on a fresh data folder"; return 1; }
-    php "$SC_DIR/ask.php" office.hire '{"desks":["advisor","backup","cleanup","logs","moverelli","restore","snapshot","watchman"]}' >/dev/null \
-        || { say "data_fixture_make: hire refused"; return 1; }
+    # one by one: a desk still «in training» in that version (Ms. Moverelli in 1.60) is left out
+    for d in advisor backup cleanup logs moverelli restore snapshot watchman; do
+        php "$SC_DIR/ask.php" office.hire "{\"desks\":[\"$d\"]}" >/dev/null && hired+=("$d")
+    done
+    [[ " ${hired[*]} " == *" backup "* ]] || { say "data_fixture_make: Mr. Backupsy not hired"; return 1; }
+    say "data_fixture_make: hired ${hired[*]}"
     st=$D/unraid-backup/state/setup-status.json
     php "$SC_DIR/ask.php" --wait 60 backup.setup_plan '{}' >/dev/null || return 1
     sleep 2; _st_until 600 jq -e '.running != true and .mode == "plan" and .result != null' "$st" || { say "data_fixture_make: no plan"; return 1; }
-    plan=$(php "$SC_DIR/ask.php" --raw --wait 60 backup.setup_get '{}' | jq -c '.plan') || return 1
-    jq -e '(.P | type) == "object"' <<<"$plan" >/dev/null || { sleep 5; plan=$(php "$SC_DIR/ask.php" --raw --wait 60 backup.setup_get '{}' | jq -c '.plan'); }
+    # on a fresh data folder the page's first look starts the plan anew (base.sh knows it): looked at until one is there
+    local i
+    for ((i = 0; i < 6; i++)); do
+        plan=$(php "$SC_DIR/ask.php" --raw --wait 60 backup.setup_get '{}' | jq -c '.plan')
+        jq -e '(.P | type) == "object" and (.P | length) > 0' <<<"$plan" >/dev/null 2>&1 && [[ -f $D/unraid-backup/state/setup-plan.json ]] && break
+        sleep 3; _st_until 600 jq -e '.running != true and .result != null' "$st"
+    done
+    jq -e '(.P | type) == "object"' <<<"$plan" >/dev/null 2>&1 || { say "data_fixture_make: no plan to apply"; return 1; }
     out=$(jq -c '{decisions: .P, plan_time: .time}' <<<"$plan")
     php "$SC_DIR/ask.php" --wait 60 backup.setup_apply "$out" >/dev/null || { say "data_fixture_make: apply refused: $(php "$SC_DIR/ask.php" --wait 60 backup.setup_apply "$out" | jq -c .error)"; return 1; }
     sleep 2; _st_until 900 jq -e '.running != true and .mode == "apply" and .result != null' "$st" || { say "data_fixture_make: apply didn't end"; return 1; }
     php "$SC_DIR/ask.php" backup.schedule '{"cron":"30 4 * * *"}' >/dev/null
     php "$SC_DIR/ask.php" restore.drill_set '{"schedule":"weekly"}' >/dev/null
     sleep 3; _st_agent_stop
-    mkdir -p "$D.base/fixtures" && tar -C "$D" -cpf "$D.base/fixtures/data-$name.tar" . || return 1
-    say "data_fixture_make: $D.base/fixtures/data-$name.tar ($(du -h "$D.base/fixtures/data-$name.tar" | cut -f1), setup $(jq -r .result "$st"))"
+    mkdir -p "$(_st_cache fixtures)" && tar -C "$D" -cpf "$(_st_cache fixtures)/data-$name.tar" . || return 1
+    say "data_fixture_make: $(_st_cache fixtures)/data-$name.tar (setup $(jq -r .result "$st"))"
     office_back "$id"
 }
 

@@ -1,9 +1,9 @@
 #!/bin/bash
 # tools/scenarios/vm-alpine.sh — the agent VM's disk, made once (H4, resilience wave 1b). On Tower as root.
 #
-#   bash vm-alpine.sh [--force]     → <data>.base/iso/alpine-agent.qcow2 (printed), cached: a second call only prints it
+#   bash vm-alpine.sh [--force]     → <data folder>/../scenarios-cache/iso/alpine-agent.qcow2 (printed), cached: a second call only prints it
 #
-# Alpine's own cloud image (nocloud, BIOS, cloud-init) is downloaded once into <data>.base/iso/ and checked against the
+# Alpine's own cloud image (nocloud, BIOS, cloud-init) is downloaded once into scenarios-cache/iso/ (beside the data folder) and checked against the
 # sha512 pinned here; a throwaway VM `uso-wip-h4-alpine-build` (libvirt's NAT network «default», 512 MiB, transient)
 # boots it with a CIDATA seed disk (vfat — Unraid has no genisoimage): cloud-init installs qemu-guest-agent from Alpine's
 # repository, enables it, switches cloud-init off for good and powers off. The result is booted once more without the
@@ -24,7 +24,7 @@ msg() { echo "vm-alpine: $*" >&2; }
 [[ -S /var/run/libvirt/libvirt-sock ]] && virsh version >/dev/null 2>&1 || { msg "needs the VM service (libvirt)"; exit 2; }
 D=$(sed -n 's/^DATA_DIR="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$CFG" 2>/dev/null | head -1)
 [[ $D == /mnt/*/* && $D != *..* ]] || { msg "no data folder in $CFG"; exit 2; }
-ISO=${USO_VM_ISO:-${D%/}.base/iso}
+ISO=${USO_VM_ISO:-$(dirname "${D%/}")/scenarios-cache/iso}     # beside the data folder: base.sh --make sets <data>.base aside
 OUT=$ISO/alpine-agent.qcow2
 
 if [[ -s $OUT && ${1:-} != --force ]]; then echo "$OUT"; exit 0; fi

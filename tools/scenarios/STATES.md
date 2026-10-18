@@ -179,3 +179,110 @@ appdata/immich/upload → /data), Nextcloud installed by `occ maintenance:instal
 left a half install twice). Needs the shares media, nextcloud, photos (made by «Add Share» when missing) and
 scenarios.env with MARIADB_ROOT_PASSWORD, MARIADB_NC_PASSWORD, NEXTCLOUD_ADMIN_PASSWORD, IMMICH_DB_PASSWORD (set on
 Tower). Plex, Jellyfin, kopia and Node-Exporter on Tower are not apps.sh's — left alone.
+
+# Scenario states part 2 (H4): VMs, Kopia/offsite, time, install, mover environment
+
+Sections B, G, I, J, K of `resilienz/zustaende.md`, in `states-vm.sh`, `states-kopia.sh`, `states-time.sh`,
+`states-install.sh`, `states-mover.sh` (+ `vm-alpine.sh`), the same conventions as above (`state` pushes the undo, 0 made
+· 1 failed · 2 needs, stash under `$KEEP_STASH/<id>/`). Each state also writes what H5's checks need to
+`$KEEP/state-<id>.env` (`KEY=value` lines — the keys are in the table). The self-test's fingerprint learns these files'
+parts through `_st_fp_add` (VMs and their XML, snapshotdb, loop devices; Kopia's repository, its sources, MinIO and its
+quota; time zone, a set clock; the office's plugin/code/flash/authorized_keys/ini md5s; movers, plugins, User Scripts).
+
+## Base additions (base.sh steps 4 and 5, Tower)
+
+- **VMs:** `uso-vm-plain` (empty 1 GiB qcow2, no OS, no agent channel, 128 MiB) and `uso-vm-agent` (Alpine 3.22 +
+  qemu-guest-agent, NAT network «default», 256 MiB), both **shut off**, folders `domains/uso-vm-*` (datasets on cache).
+  `vm-alpine.sh` builds the agent's disk once from Alpine's cloud image (sha512 pinned) with a vfat CIDATA seed (no
+  genisoimage on Unraid), cloud-init installs the agent, a second boot must answer `guest-ping`; cached as
+  `scenarios-cache/iso/alpine-agent.qcow2` beside the data folder (base.sh --make sets `<data>.base` aside; ~170 MB, ~3 min to build, seconds to copy).
+- **MinIO:** `uso-minio` (`pgsty/minio:RELEASE.2026-08-04T00-00-00Z` — MinIO's own images are gone from Docker Hub and
+  quay.io, dl.min.io answers 410), port 9010, data `appdata/uso-minio`, bucket `uso` with Object Lock; user
+  `uso-minio-root`, `MINIO_ROOT_PASSWORD` in scenarios.env (made when missing).
+- **Kopia:** its template binds the image's VOLUMEs `/backups` and `/source` to `appdata/kopia/volumes/*` (`kopia_bind`,
+  once): before, every re-made container got new anonymous volumes (the fingerprint can't come back). The repository
+  stays `/config/test-repo` (filesystem); `kopia_use s3|s3-lock` switches to MinIO (prefix `plain/` or `lock/`,
+  GOVERNANCE 7 d, `--extend-object-locks` on), always back by the undo. Secrets go into `docker exec -i` on stdin only.
+- **USOTest3VM:** office 1.66.4 (the release), its base made anew (`base.sh --make`).
+- **Fixture 1.60:** `scenarios-cache/fixtures/data-1.60.tar` (beside the data folder) on Tower and USOTest3VM (copy in the briefs folder
+  `resilienz/fixtures/` — not in git: the repository is public). Made on **Tower**, not USOTest3VM: 1.60's engine (2.44)
+  ends every plan with «Docker does not answer» where Docker is off.
+
+## States
+
+| State id | What it does · notes (`state-<id>.env`) | Proven |
+|---|---|---|
+| **B. VMs** | | |
+| VM-RUNNING-AGENT | uso-vm-agent started, its agent answers · VM, VM_AGENT=yes | T |
+| VM-RUNNING-NOAGENT | uso-vm-plain started · VM, VM_AGENT=no | T |
+| VM-SHUTOFF [plain\|agent] [shutdown\|destroy] | started, then shut down (through the agent) / destroyed · VM, HOW | T (agent) |
+| VM-PAUSED-BY-USER [plain\|agent] | `virsh suspend` (Unraid's ⟦Pause⟧) · VM, VM_PAUSED | T |
+| VM-GONE [plain] | `virsh undefine --nvram`, folder and disk stay; undo defines the kept XML · VM, VM_FOLDER | T |
+| VM-DISK-MISSING [plain] | its disk file moved into the stash (≤ 512 MiB) · VM, DISK | T |
+| VM-DISK-ON-XFS | uso-vm-xfs, disk on share `uso-vmxfs` (array, disk1 xfs) · VM, SHARE, DISK, FS | T |
+| VM-DISK-BLOCK | uso-vm-block, disk a loop device (type=block) · VM, DEV | T |
+| VM-HOSTDEV | uso-vm-hostdev with a PCI hostdev at an address no device has (defined, never started) · VM, HOSTDEV | T |
+| VM-SERVICE-OFF [cfg] | = SV-VM-OFF | T |
+| VM-MANY-SNAPSHOTS [n=3] [plain] | Unraid's own `vm_snapshot()` n times: qcow2 overlays, snapshotdb · VM, SNAPSHOTS, OVERLAY | T |
+| **G. Kopia and offsite** | | |
+| KP-CONTAINER-STOPPED | `docker stop kopia` · CONTAINER | T |
+| KP-CONTAINER-GONE | removed, template stays; undo: Unraid's rebuild_container · CONTAINER, TEMPLATE | T |
+| KP-DISCONNECTED | `repository disconnect`, container restarted (its server without a repository) · WAS | T |
+| KP-S3-UNREACHABLE | Kopia on MinIO (plain/), MinIO stopped · STORAGE, ENDPOINT | T |
+| KP-S3-QUOTA-FULL [size=1MiB] | Kopia on MinIO, bucket hard quota · STORAGE, QUOTA | T |
+| KP-OBJECT-LOCK [ok\|extend\|lapse\|late\|never] | Kopia on MinIO's locked repository; `backup.sh --kopia-lock`, then state/kopia-lock.json rewritten for the variant (time can't be made; the office's next look rewrites it) · VARIANT, LOCK_MODE, LOCK_PERIOD_S, EXPECT | T (all five) |
+| KP-EMPTIED | the filesystem repository's files moved aside (Tower's throwaway repository only) · REPO | T |
+| KP-ORPHANS | three old sources `/uso/uso-gone-share`, `/uso/.apps/uso-gone-app`, `/uso/.vms/uso-gone-vm`, one snapshot each (`--override-source`) · SOURCES, IDENTITY | T |
+| KP-LOCKED-REPO | Kopia's maintenance lock (`repository.config.mlock`) held by `uso-kopia-mlock` · MLOCK | T |
+| KP-MAPPING-CHANGED [/uso2] | template's `/uso` target changed, container re-made · FROM, TO | T |
+| **I. Time** | | |
+| TM-UTC-BROKEN [zone] | /etc/localtime and ident.cfg → Europe/Zurich (missing on 7.4: UTC); USOTest3VM's base: only looked at · TZ_FILE, TZ_ABBR, BASE | T 3 |
+| TM-DST [autumn\|spring] | clock 2 min before 2026-10-25 03:00 CEST (or 2027-03-28 02:00 CET); needs a zone with DST · DST, ZONE, SWITCH_AT, CLOCK_SET | T *(2 on 3: UTC)* |
+| TM-CLOCK-BACK [hours=2] | clock set back · CLOCK_SET, CLOCK_SET_AT | T 3 |
+| TM-YEAR-ROLL [year] | clock 2026-12-31 23:58 local · CLOCK_SET | T |
+| **J. Version and install** | | |
+| OS-73 / OS-74 | looks only (Unraid's version) · UNRAID | OS-74 T; OS-73 needs 73 |
+| IN-FRESH [latest\|vX.Y.Z] | plugin removed, data folder aside, flash folder emptied (scenarios.env stays), installed anew · FRESH | T |
+| IN-UPDATE-PREV [previous] | the release before the newest installed on today's data folder · PLG, OFFICE, FROM, SOURCE | T |
+| IN-DOWNGRADE [previous] | the same install (older on a newer's data folder) · PLG, OFFICE, FROM, SOURCE | T |
+| IN-UPDATE-OLD [1.60] | v1.60.0 installed with the 1.60 fixture as data folder · FIXTURE | T |
+| IN-TAKEOVER | User Scripts «unraid-backup» on a schedule, `snap_prefix = unraidbackup-`, `@unraidbackup-20260101-0300` on appdata (ZFS) · SCRIPT, SNAP_PREFIX, OLD_SNAPSHOT | T |
+| IN-HANDEDIT-UNKNOWN, -CRLF, -BOM, -DUP, -GONE-SECTION, -ZERO-RET, -PRESET-BAD, -MODE-OFF-BY-HAND, -PERMS, -OWNER | settings.ini by hand (`ini_edit`) · VARIANT | T (all ten) |
+| IN-INI-MISSING | settings.ini moved into the stash · SETTINGS | T |
+| IN-MOVERELLI-INI-HANDEDIT | smart_mover.ini: `move_when_used_above=150`, `uso_foreign_key=1`, `mover_bin=` · X, FOREIGN, MOVER_BIN | T |
+| **K. Jack Streamer and the movers** | | |
+| JK-HIRED-LIST | hired, set up on Tower's Emby (its «MediaCache» key → scenarios.env EMBY_API_KEY, sent only on stdin), the 3 smallest media files moved disk → pool, his list as MediaCache's `write_exclude()` writes it, her ini naming it for media · JACK, LIST, LIST_FILES, SHARE, LIBRARIES, USERS | T |
+| JK-LIST-PENDING | hired, not set up, her ini names his (missing) list · LIST, EXPECT=moverelli_jack_list_pending | T |
+| JK-LIST-GONE | JK-HIRED-LIST + `mediacache_origin.json` (he ran), his list gone — **until his next look** (see findings) · LIST_GONE | T |
+| MO-UNRAID-SCHEDULE-ON [cron] | Unraid's mover schedule through its form (emcmd); USOTest3VM's base: only looked at · SCHEDULE, WAS | T 3 |
+| MO-TUNING [plg] | Mover Tuning (masterwishx fork, CA) + a schedule line in its cron file · TUNING, SCHEDULE | T |
+| MO-FOREIGN-SCRIPT | User Scripts installed, «uso-mover-now» runs `mover start` at 15 2 * * * · SCRIPT, WHEN, EXPECT=foreign_mover | T |
+| MO-OWN-RULES | her rules: uso-yes 30 (base), uso-prefer 14 + `*.part`, an empty share uso-mo-empty 5 · RULES, EMPTY_SHARE | T |
+| MO-X-ZERO | her X 0 · X | T |
+
+Not runnable today: OS-73 (`needs 73`: USOTest3VM on 7.3.3 later), VM-* on USOTest3VM (no VMs there by design).
+Section H (partner) is batch G's.
+
+## Findings while building (worth a scenario)
+
+- **Unraid's VM snapshots** (`vm_snapshot()`): overlays are named `vdisk1.<name>qcow2` (no dot before qcow2), and Unraid
+  drops libvirt's snapshot metadata once its own `snapshotdb/<vm>/snapshots.db` is written — `virsh snapshot-list` is
+  empty; only the db and the disk's backing chain tell. The engine's «VM disk on an overlay» must read those.
+- **rc.libvirt start rewrites a VM's metadata namespace** (`xmlns='unraid'` → `'http://unraid'`): XML hashes differ
+  across a VM-service restart unless the VM was defined with Unraid's own namespace.
+- **The kopia image's anonymous volumes** (`/backups`, `/source`): the Consultant's template binds neither; a
+  re-made container (Unraid's Apply, an update) gets new empty volumes — a user whose filesystem repository sits at the
+  image's default `/backups` loses sight of it on the next re-create (the data stays in a dangling volume).
+- **A Kopia repository made with Object Lock has `extendObjectLocks` off** (Kopia 0.23): the office's
+  `kopia_lock_extend` is the first thing such a user sees — KP-OBJECT-LOCK extend is the default, not a corner case.
+- **MediaCache's dry run never writes his list** (only real runs and give-backs: `write_exclude` under `run_mode`) —
+  zustaende.md's «ein MediaCache-Lauf (dry) → Liste» was a guess; JK-HIRED-LIST writes it as MediaCache would.
+- **A gone list heals itself empty:** Jack Streamer's next look (`jackScan` → `jackListEnsure`) writes an EMPTY list when
+  his settings are there — her next joint run then gives back everything he had fetched (no ERROR from Smart Mover).
+- **1.60's engine can't plan with Docker off** («Docker does not answer», setup result failed) — an old install on a
+  NAS without Docker never had a plan; IN-UPDATE-OLD on USOTest3VM uses Tower's fixture.
+- **A clock that went forward and back** leaves files with mtimes in the future (agent.json, logs written meanwhile):
+  `now − mtime` is negative afterwards — the heartbeat's «fresh» and every «last run … ago» should be checked after
+  TM-YEAR-ROLL / TM-CLOCK-BACK.
+- **Mover Tuning** (masterwishx fork) installs without a schedule line of its own until its settings are saved — MO-TUNING
+  writes the line its page would.
