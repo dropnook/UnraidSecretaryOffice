@@ -706,6 +706,7 @@
   "setup.msg.app_gone": "The app {name} was set up, but it no longer exists (no container, no Compose stack) — its entry goes.",
   "setup.msg.nextcloud_stopped": "Nextcloud {name} isn't running — I can't check its maintenance mode.",
   "setup.msg.nextcloud_no_occ": "{name} looks like Nextcloud but has no occ — left out.",
+  "setup.msg.stopped_kept": "{name} isn't running right now — I'll check it when it runs; its settings stay.",
   "setup.msg.nextcloud_shared": "{names} are the same Nextcloud (one config.php) — one maintenance mode for all.",
   "setup.msg.no_nextcloud": "No Nextcloud found.",
   "setup.msg.dump_no_password": "{name}: no password in its environment variables — its dump will fail.",

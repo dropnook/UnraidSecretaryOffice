@@ -3944,6 +3944,323 @@ SH);
 }
 
 /**
+ * Engine 2.60: whether an app, a database, a Nextcloud or a VM runs right now never changes what is stored for it (2026-10-18:
+ * the owner stopped his Nextcloud stack to move its data; the setup's plan dropped both [nextcloud] sections, the apply list
+ * said «an entry Mr. Backupsy doesn't know goes» - applied, the next backup would have run without maintenance mode).
+ * setup.sh --plan / --apply on a fixture server (docker, virsh stand-ins): a stopped Nextcloud set up before keeps its key and
+ * its same-instance line, the plan lists it with running false, nothing is asked of the stopped containers; a stopped
+ * database keeps its dump, a stopped VM its freeze; one hint stopped_kept per unit; Apply writes them again. A gone container
+ * drops out as before; a stopped Nextcloud never set up is warned about as before; the user's «not backed up» still drops
+ * it. Started again: the same settings, nothing to change. The page: the draft keeps them, no change rows; «doesn't know»
+ * only for a key no part of the engine knows (the plan's known_keys).
+ */
+function testSetupStoppedKept(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-stoppedkept-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $mnt = "$tmp/mnt";
+    $root = "$mnt/addons/UnraidSecretaryOffice/snapshots";
+    $pool = "$mnt/maple";
+    foreach (["$tmp/bin", "$tmp/fake", "$tmp/data/unraid-backup/state", "$tmp/boot/config/shares", $root, "$mnt/user",
+              "$pool/appdata/kopia", "$pool/appdata/nextcloud/config", "$pool/appdata/nextcloud-db", "$pool/appdata/nc2", "$pool/UnraidSecretaryOffice/backup"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    file_put_contents("$pool/appdata/nextcloud/config/config.php", "<?php\n\$CONFIG = array (\n  'instanceid' => 'oc1',\n  'datadirectory' => '/var/www/html/data',\n);\n");
+    foreach (['appdata', 'UnraidSecretaryOffice'] as $n) {
+        touch("$tmp/boot/config/shares/$n.cfg");
+    }
+    $env = "export PATH=$tmp/bin:\$PATH UB_DATA=$tmp/data/unraid-backup UB_MNT=$mnt UB_BOOT=$tmp/boot UB_SHARES_CFG=$tmp/boot/config/shares"
+         . " UB_DISKS_INI=$tmp/fake/disks.ini UB_NOTIFY_BIN=$tmp/bin/notify UB_MOUNTS_FILE=$tmp/fake/mounts FAKE=$tmp/fake FAKE_ROOT=$root";
+    // a stopped container answers no exec (as Docker does); every exec is noted
+    file_put_contents("$tmp/bin/docker", <<<'SH'
+#!/bin/bash
+case "$1" in
+  info) exit 0 ;;
+  version) echo 29.0; exit 0 ;;
+  ps) cat "$FAKE/ids" 2>/dev/null; exit 0 ;;
+  compose)
+    shift; [[ "$1" == version ]] && { echo 'Docker Compose version v2.29'; exit 0; }
+    dir=""; while (( $# )); do [[ "$1" == --project-directory ]] && dir="$2"; shift; done
+    [[ -f "$dir/config.json" ]] && { cat "$dir/config.json"; exit 0; }
+    exit 1 ;;
+  top) printf 'PID UID COMMAND\n7 0 /app/kopia server start\n'; exit 0 ;;
+  inspect)
+    shift
+    if [[ "$1" == -f ]]; then
+      case "$2" in
+        *State.Running*) grep -qx "$3" "$FAKE/stopped" && echo false || echo true ;;
+        *Mounts*) printf '%s\x1e/uso\x1efalse\x1erslave\n' "$FAKE_ROOT" ;;
+      esac
+      exit 0
+    fi
+    cat "$FAKE/inspect.json"; exit 0 ;;
+  exec)
+    shift
+    while [[ "$1" == -* ]]; do case "$1" in -u|-e) shift 2 ;; *) shift ;; esac; done
+    c="$1"; shift
+    echo "$c $*" >>"$FAKE/exec.log"
+    grep -qx "$c" "$FAKE/stopped" && { echo "Error response from daemon: container $c is not running" >&2; exit 1; }
+    case "$1" in
+      cat) exit 0 ;;
+      test) [[ "$c" == nextcloud-app || "$c" == nextcloud-cron ]] && [[ "${3:-}" == /var/www/html/occ ]] && exit 0; exit 1 ;;
+      stat) echo www-data; exit 0 ;;
+      php) case "$*" in *instanceid*) echo oc1 ;; *datadirectory*) echo /var/www/html/data ;; *maintenance*) echo false ;; esac; exit 0 ;;
+      sh) exit 0 ;;
+      kopia)
+        shift; [[ "$1" == --no-progress ]] && shift
+        case "$1 ${2:-}" in
+          "repository status") cat "$FAKE/repo.json" ;;
+          "policy list") echo '[]' ;;
+          "snapshot list") echo '[]' ;;
+          --version*) echo "0.23.0 build" ;;
+        esac
+        exit 0 ;;
+    esac
+    exit 1 ;;
+esac
+exit 0
+SH);
+    // one VM, shut off, with a guest agent channel and no disk
+    file_put_contents("$tmp/bin/virsh", <<<'SH'
+#!/bin/bash
+case "$1" in
+  list) echo Win11 ;;
+  domstate) cat "$FAKE/vmstate" ;;
+  dominfo) echo "Autostart:      disable" ;;
+  dumpxml) echo "<domain><devices><channel type='unix'><target type='virtio' name='org.qemu.guest_agent.0'/></channel></devices></domain>" ;;
+  qemu-agent-command) exit 1 ;;
+esac
+exit 0
+SH);
+    file_put_contents("$tmp/bin/zfs", "#!/bin/bash\n[[ \"\$*\" == *'-t filesystem'* ]] && cat \"\$FAKE/zfs.txt\"\nexit 0\n");
+    file_put_contents("$tmp/bin/mountpoint", "#!/bin/bash\n[[ \"\${@: -1}\" == */user ]]\n");
+    file_put_contents("$tmp/bin/mount", "#!/bin/bash\nmkdir -p \"\${@: -1}\"\n");
+    file_put_contents("$tmp/bin/umount", "#!/bin/bash\nexit 0\n");
+    file_put_contents("$tmp/bin/notify", "#!/bin/bash\nexit 0\n");
+    foreach (glob("$tmp/bin/*") as $f) {
+        chmod($f, 0755);
+    }
+    file_put_contents("$tmp/fake/mounts", "maple $pool zfs rw 0 0\nmaple/appdata $pool/appdata zfs rw 0 0\nmaple/UnraidSecretaryOffice $pool/UnraidSecretaryOffice zfs rw 0 0\n"
+        . "shfs $mnt/user fuse.shfs rw 0 0\n");
+    $z = fn ($n, $mp, $ref) => "$n\t$mp\ton\t" . crc32($n) . "\t$ref\t-\n";
+    file_put_contents("$tmp/fake/zfs.txt", $z('maple', $pool, 1) . $z('maple/appdata', "$pool/appdata", 5000) . $z('maple/UnraidSecretaryOffice', "$pool/UnraidSecretaryOffice", 10));
+    file_put_contents("$tmp/fake/disks.ini", "[\"maple\"]\nname=\"maple\"\nspundown=\"0\"\n");
+    file_put_contents("$tmp/fake/repo.json", json_encode(['configFile' => '/config/repository.config', 'storage' => ['type' => 'filesystem'], 'clientOptions' => ['username' => 'root', 'hostname' => 'kopia']]));
+    file_put_contents("$tmp/fake/ids", "id1\nid2\nid3\nid4\nid5\nid6\n");
+    $nc = ['com.docker.compose.project' => 'nextcloud'];
+    $cts = function (array $stopped) use ($mnt, $root, $nc): array {
+        $ct = fn ($name, $img, $binds, $labels = [], $env = []) => ['Name' => "/$name", 'Id' => "id-$name",
+            'Config' => ['Image' => $img, 'Env' => $env, 'Labels' => $labels ?: new stdClass()],
+            'State' => ['Running' => !in_array($name, $stopped, true)], 'HostConfig' => ['NetworkMode' => 'bridge'],
+            'Mounts' => array_map(fn ($b) => ['Type' => 'bind', 'Source' => $b[0], 'Destination' => $b[1], 'RW' => true], $binds)];
+        return [
+            $ct('kopia', 'imagegenius/kopia', [["$mnt/user/appdata/kopia", '/config'], [$root, '/uso']]),
+            $ct('nextcloud-app', 'nextcloud:30', [["$mnt/user/appdata/nextcloud", '/var/www/html']], $nc + ['com.docker.compose.service' => 'app']),
+            $ct('nextcloud-cron', 'nextcloud:30', [["$mnt/user/appdata/nextcloud", '/var/www/html']], $nc + ['com.docker.compose.service' => 'cron']),
+            $ct('nextcloud-db', 'mariadb:11', [["$mnt/user/appdata/nextcloud-db", '/var/lib/mysql']], $nc + ['com.docker.compose.service' => 'db'], ['MARIADB_VERSION=11.4']),
+            $ct('nextcloud-redis', 'redis:7', [], $nc + ['com.docker.compose.service' => 'redis']),
+            // a Nextcloud never set up (not in [docker] known), stopped too
+            $ct('nc2', 'nextcloud:30', [["$mnt/user/appdata/nc2", '/var/www/html']])];
+    };
+    $stop = function (array $names) use ($tmp, $cts): void {
+        file_put_contents("$tmp/fake/stopped", $names ? implode("\n", $names) . "\n" : '');
+        file_put_contents("$tmp/fake/inspect.json", json_encode($cts($names)));
+        @unlink("$tmp/fake/exec.log");
+    };
+    $all = ['nextcloud-app', 'nextcloud-cron', 'nextcloud-db', 'nextcloud-redis', 'nc2'];
+    $stop($all);
+    file_put_contents("$tmp/fake/vmstate", "shut off\n");
+    $data = "$tmp/data/unraid-backup";
+    $sections = "[nextcloud \"nextcloud-app\"]\n# the same Nextcloud as: nextcloud-cron (shared config.php) - maintenance mode only once\n"
+        . "# abort = abort the run if maintenance mode was already on; continue = back up anyway\npreexisting_maintenance = abort\n"
+        . "[nextcloud \"nextcloud-cron\"]\n# the same Nextcloud as: nextcloud-app (shared config.php) - maintenance mode only once\npreexisting_maintenance = abort\n"
+        . "[dump \"nextcloud-db\"]\ntype = mariadb\n[vm \"Win11\"]\nmode = snapshot\nprepare = freeze\n";
+    $settings = "[general]\nserver = Test\nmount_root = $root\nview_root = $mnt/addons/UnraidSecretaryOffice/btrfs-snap\nsnap_prefix = uso-backup-\n"
+        . "dumps_share = UnraidSecretaryOffice\n[docker]\nstop = all\nno_stop = nextcloud-redis\nknown = kopia\nknown = nextcloud-app\nknown = nextcloud-cron\n"
+        . "known = nextcloud-db\nknown = nextcloud-redis\n[flash]\nmode = off\n[kopia]\nenabled = yes\ncontainer = kopia\n"
+        . "identity = root@kopia\nignore = _UnraidSecretaryOffice-trash*/\nignore = .UnraidSecretaryOffice-trash*/\n"
+        . $sections
+        // gone: no such container any more - dropped as before
+        . "[nextcloud \"old-nc\"]\npreexisting_maintenance = continue\n[dump \"old-db\"]\ntype = postgres\n"
+        . "[share \"appdata\"]\nmode = kopia\nkopia_ignore = /kopia/\n[share \"UnraidSecretaryOffice\"]\nmode = kopia\n";
+    file_put_contents("$data/settings.ini", $settings);
+    $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
+    $readPlan = fn () => json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
+    $codes = fn (array $plan, string $code) => array_values(array_map(fn ($m) => [$m['level'] ?? null, $m['params'] ?? null],
+        array_filter($plan['messages'] ?? [], fn ($m) => ($m['code'] ?? '') === $code)));
+    $ours = fn (array $plan) => array_values(array_filter(array_map(fn ($p) => ($p['op'] ?? '') . ($p['section'] ?? '') . ' ' . ($p['line'] ?? ''), $plan['pending'] ?? []),
+        fn ($l) => (bool) preg_match('/nextcloud|dump|vm Win11/', $l)));
+
+    $out = $setup('--plan');
+    $plan = $readPlan();
+    $P = $plan['P'] ?? [];
+    same('stopped kept: the stopped Nextcloud\'s keys, the stopped database\'s dump and the stopped VM\'s freeze stay in the proposals',
+        ['abort', 'abort', 'mariadb', 'freeze', 'snapshot'],
+        [$P['nextcloud|nextcloud-app|preexisting_maintenance'] ?? null, $P['nextcloud|nextcloud-cron|preexisting_maintenance'] ?? null,
+         $P['dump|nextcloud-db|type'] ?? null, $P['vm|Win11|prepare'] ?? null, $P['vm|Win11|mode'] ?? null], $out);
+    same('stopped kept: gone containers drop out as before (no proposal, dump_gone said)', [[], [['warn', ['name' => 'old-db']]]],
+        [array_values(array_filter(array_keys($P), fn ($k) => str_contains($k, 'old-'))), $codes($plan, 'dump_gone')]);
+    same('stopped kept: the plan lists the stopped Nextcloud as one, with its stored setting, running false, no occ', [[
+            'members' => ['nextcloud-app', 'nextcloud-cron'], 'occ' => '', 'preexisting' => 'abort', 'running' => false]], $plan['nextcloud'] ?? null);
+    same('stopped kept: said once per unit, a hint - never a warning; no «No Nextcloud detected», no «not running» for the ones set up',
+        [[['hint', ['name' => 'Win11']], ['hint', ['name' => 'nextcloud-db']], ['hint', ['name' => 'nextcloud-app + nextcloud-cron']]], [], [['warn', ['name' => 'nc2']]]],
+        [$codes($plan, 'stopped_kept'), $codes($plan, 'no_nextcloud'), $codes($plan, 'nextcloud_stopped')]);
+    $log = (string) @file_get_contents("$tmp/fake/exec.log");
+    check('stopped kept: nothing asked of a stopped container (no occ, no access test)', !preg_match('/^(nextcloud-|nc2)/m', $log), $log);
+    $ctd = array_column($plan['containers'] ?? [], null, 'name');
+    same('stopped kept: where the stopped Nextcloud keeps its files, read on the host from its config.php (the office\'s data warning)',
+        ['kind' => 'nextcloud', 'share' => 'appdata', 'path' => 'nextcloud/data'], $ctd['nextcloud-app']['data'] ?? null);
+    same('stopped kept: what Apply would change - only the gone entries, nothing of the stopped ones', [
+        '-dump "old-db" type = postgres', '-nextcloud "old-nc" preexisting_maintenance = continue'], $ours($plan));
+    same('stopped kept: the plan names every key the engine knows (known_keys, lib/common.sh UB_SCHEMA)',
+        [['preexisting_maintenance'], ['type'], true, true],
+        [$plan['known_keys']['nextcloud'] ?? null, $plan['known_keys']['dump'] ?? null, in_array('note', $plan['known_keys']['share'] ?? [], true), in_array('prepare', $plan['known_keys']['vm'] ?? [], true)]);
+
+    // the page with this plan: the draft keeps them, sends them, lists no change for them; «doesn't know» only for a key no part
+    // of the engine knows
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    $dec = $P + ['_retire_sources' => 'no'];
+    if ($node === '') {
+        check('stopped kept: page - node is missing here - skipped', true);
+    } else {
+        file_put_contents("$tmp/plan.json", json_encode($plan));
+        $js = <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const en = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+const T = (k, p) => String(en[k] ?? k).replace(/\{(\w+)\}/g, (m, n) => (p && n in p ? p[n] : m));
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now' }, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {},
+  has: (k) => k.replace(/^backup\./, '') in en };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const load = (plan) => { b.setup.draft = null; b.setup.base = null; b.setup.plan = plan; b.setupDraftKeep(); };
+const plan = JSON.parse(fs.readFileSync(process.argv[4], 'utf8'));
+load(plan);
+const sent = b.setupDecisions();
+const { keys } = b.setupApplyChanges(b.setupSaved());
+const out = { sent: ['nextcloud|nextcloud-app|preexisting_maintenance', 'nextcloud|nextcloud-cron|preexisting_maintenance', 'dump|nextcloud-db|type', 'vm|Win11|prepare'].map((k) => sent[k] ?? null),
+  rows: keys.filter((k) => /nextcloud-|Win11/.test(k)) };
+// an older engine's plan (2.59) dropped them: known keys are said as what they are, a key nobody knows as unknown
+const old = JSON.parse(JSON.stringify(plan));
+delete old.P['nextcloud|nextcloud-app|preexisting_maintenance'];
+old.O['kopia|colour'] = 'blue';
+old.O['share|appdata|note'] = 'by hand';
+load(old);
+out.labels = ['nextcloud|nextcloud-app|preexisting_maintenance', 'kopia|colour', 'share|appdata|note'].map((k) => [b.changeLabel(k), b.unknownKey(k), b.droppedKey(k)]);
+delete old.known_keys;
+load(old);
+out.noKnown = b.unknownKey('share|appdata|note');
+console.log(JSON.stringify(out));
+JS;
+        file_put_contents("$tmp/t.js", $js);
+        $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' '
+            . escapeshellarg(OFFICE_WEB . '/desks/backup/lang/en.json') . ' ' . escapeshellarg("$tmp/plan.json") . ' 2>&1');
+        $r = json_decode($raw, true);
+        if (!is_array($r)) {
+            check('stopped kept: page ran under node', false, $raw);
+        } else {
+            same('stopped kept (page): the draft keeps and sends the stopped units\' settings', ['abort', 'abort', 'mariadb', 'freeze'], $r['sent']);
+            same('stopped kept (page): no change row for them', [], $r['rows']);
+            same('stopped kept (page): a known key Apply drops is said as what it is, never «doesn\'t know»; a key nobody knows is', [
+                ['Nextcloud nextcloud-app: maintenance mode during the backup', false, true],
+                ["Section [kopia]: the entry «colour», which Mr. Backupsy doesn't know, goes", true, true],
+                ['Share appdata: note', false, true]],
+                array_map(fn ($l) => [str_contains($l[0], 'Nextcloud') ? 'Nextcloud nextcloud-app: maintenance mode during the backup' : $l[0], $l[1], $l[2]], $r['labels']));
+            check('stopped kept (page): the label of the stopped Nextcloud\'s key names it', str_contains($r['labels'][0][0] ?? '', 'nextcloud-app'), (string) ($r['labels'][0][0] ?? ''));
+            same('stopped kept (page): an older engine\'s plan without known_keys - as before', true, $r['noKnown']);
+        }
+        check('stopped kept (page): the app\'s maintenance-mode chip says in its tip that it isn\'t running and keeps its setting',
+            str_contains((string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js'),
+                "...a.ncs.filter((n) => n.running === false).map((n) => T('setup.msg.stopped_kept', { name: n.members.join(' + ') }))].join(' ')"));
+    }
+
+    // Apply with the office's draft: settings.ini keeps them exactly, the same-instance line too; the gone ones go
+    file_put_contents("$tmp/dec.json", json_encode($dec));
+    $out = $setup("--apply=$tmp/dec.json");
+    $ini = (string) @file_get_contents("$data/settings.ini");
+    check('stopped kept: Apply writes the stopped Nextcloud\'s sections again, with their same-instance line',
+        (bool) preg_match('/\[nextcloud "nextcloud-app"\]\n# the same Nextcloud as: nextcloud-cron \(shared config\.php\)[^\n]*\n(#[^\n]*\n)*preexisting_maintenance = abort\n/', $ini)
+        && (bool) preg_match('/\[nextcloud "nextcloud-cron"\]\n# the same Nextcloud as: nextcloud-app \(shared config\.php\)[^\n]*\n(#[^\n]*\n)*preexisting_maintenance = abort\n/', $ini), $ini . $out);
+    check('stopped kept: Apply keeps the dump and the VM\'s freeze, drops the gone ones',
+        str_contains($ini, "[dump \"nextcloud-db\"]\ntype = mariadb\n") && (bool) preg_match('/\[vm "Win11"\]\nmode = snapshot\nprepare = freeze\n/', $ini)
+        && !str_contains($ini, 'old-nc') && !str_contains($ini, 'old-db'), $ini);
+    $log = (string) @file_get_contents("$tmp/fake/exec.log");
+    check('stopped kept: Apply asks nothing of a stopped container either', !preg_match('/^(nextcloud-|nc2)/m', $log), $log);
+
+    // the user sets the app to «not backed up» meanwhile (the decisions leave its keys out): that still drops them
+    $setup('--plan');
+    $P2 = $readPlan()['P'] ?? [];
+    file_put_contents("$tmp/dec.json", json_encode(array_filter($P2, fn ($k) => !str_starts_with($k, 'nextcloud|') && !str_starts_with($k, 'dump|'), ARRAY_FILTER_USE_KEY) + ['_retire_sources' => 'no']));
+    $setup("--apply=$tmp/dec.json");
+    $ini2 = (string) @file_get_contents("$data/settings.ini");
+    check('stopped kept: the user\'s «not backed up» still removes them (only the decisions count under --apply)',
+        !str_contains($ini2, '[nextcloud ') && !str_contains($ini2, '[dump '), $ini2);
+
+    // started again: the same Nextcloud found through occ, the same settings - nothing to change, nothing said
+    file_put_contents("$data/settings.ini", $ini);
+    $stop(['nc2']);
+    file_put_contents("$tmp/fake/vmstate", "running\n");
+    $out = $setup('--plan');
+    $plan = $readPlan();
+    same('stopped kept: running again - one Nextcloud through occ, as stored, nothing kept, nothing to change', [
+            [['members' => ['nextcloud-app', 'nextcloud-cron'], 'occ' => '/var/www/html/occ', 'preexisting' => 'abort', 'running' => true]], [], []],
+        [$plan['nextcloud'] ?? null, $codes($plan, 'stopped_kept'), $ours($plan)], $out);
+
+    // the owner's rule for every stack (2026-10-18): a Compose stack brought down (docker compose down - no container left)
+    // whose project the Compose Manager still has is stopped, not gone: its [app] section, dumps, Nextclouds and its
+    // containers in [docker] no_stop / skip / known stay as stored, said once for the stack. Its redis has no
+    // container_name: compose names it nextcloud-redis-1
+    $proj = "$tmp/boot/config/plugins/compose.manager/projects/nextcloud";
+    @mkdir($proj, 0700, true);
+    file_put_contents("$proj/compose.yaml", "services: {}\n");
+    file_put_contents("$proj/config.json", json_encode(['name' => 'nextcloud', 'services' => [
+        'app' => ['image' => 'nextcloud:30', 'container_name' => 'nextcloud-app'], 'cron' => ['image' => 'nextcloud:30', 'container_name' => 'nextcloud-cron'],
+        'db' => ['image' => 'mariadb:11', 'environment' => ['MARIADB_VERSION' => '11.4'], 'container_name' => 'nextcloud-db'], 'redis' => ['image' => 'redis:7']]]));
+    $stackIni = str_replace('nextcloud-redis', 'nextcloud-redis-1', $ini);
+    $stackIni = str_replace("[share \"appdata\"]", "[app \"nextcloud\"]\nkopia = yes\nfolder = appdata/nextcloud\n[share \"appdata\"]", $stackIni);
+    $stackIni = str_replace("known = nextcloud-redis-1\n", "known = nextcloud-redis-1\nskip = nextcloud-redis-1\n", $stackIni);
+    file_put_contents("$data/settings.ini", $stackIni);
+    file_put_contents("$tmp/fake/inspect.json", json_encode(array_values(array_filter($cts([]), fn ($c) => in_array($c['Name'], ['/kopia', '/nc2'], true)))));
+    file_put_contents("$tmp/fake/stopped", '');
+    $stack = fn (array $plan) => array_values(array_filter(array_map(fn ($p) => ($p['op'] ?? '') . ($p['section'] ?? '') . ' ' . ($p['line'] ?? ''), $plan['pending'] ?? []),
+        fn ($l) => (bool) preg_match('/nextcloud|dump|app|docker/', $l)));
+    $out = $setup('--plan');
+    $plan = $readPlan();
+    $P = $plan['P'] ?? [];
+    same('stack down: its Nextcloud, dump, [app] section and list entries stay in the proposals', [
+            'abort', 'abort', 'mariadb', 'yes', ['appdata/nextcloud'], true, true, true, true],
+        [$P['nextcloud|nextcloud-app|preexisting_maintenance'] ?? null, $P['nextcloud|nextcloud-cron|preexisting_maintenance'] ?? null,
+         $P['dump|nextcloud-db|type'] ?? null, $P['app|nextcloud|kopia'] ?? null, $P['app|nextcloud|folder'] ?? null,
+         in_array('nextcloud-redis-1', $P['docker|no_stop'] ?? [], true), in_array('nextcloud-redis-1', $P['docker|skip'] ?? [], true),
+         !array_diff(['nextcloud-app', 'nextcloud-cron', 'nextcloud-db', 'nextcloud-redis-1'], $P['docker|known'] ?? []), in_array('nc2', $P['docker|known'] ?? [], true)], $out);
+    same('stack down: said once for the stack, nothing gone, no «start the stack» warning; nothing for Apply to change', [
+            [['hint', ['name' => 'nextcloud']]], [], [], [], [false], []],
+        [$codes($plan, 'stopped_kept'), $codes($plan, 'app_gone'), $codes($plan, 'dump_gone'), $codes($plan, 'db_no_container'),
+         array_column(array_filter($plan['apps'] ?? [], fn ($a) => ($a['name'] ?? '') === 'nextcloud'), 'gone'), $stack($plan)], $out);
+    same('stack down: the plan lists its Nextcloud with running false', [['members' => ['nextcloud-app', 'nextcloud-cron'], 'occ' => '', 'preexisting' => 'abort', 'running' => false]],
+        $plan['nextcloud'] ?? null);
+    file_put_contents("$tmp/dec.json", json_encode($P + ['_retire_sources' => 'no']));
+    $out = $setup("--apply=$tmp/dec.json");
+    $ini3 = (string) @file_get_contents("$data/settings.ini");
+    check('stack down: Apply writes all of it again', str_contains($ini3, "[app \"nextcloud\"]\nkopia = yes\nfolder = appdata/nextcloud\n")
+        && str_contains($ini3, "[dump \"nextcloud-db\"]\ntype = mariadb\n") && str_contains($ini3, '[nextcloud "nextcloud-cron"]')
+        && str_contains($ini3, "no_stop = nextcloud-redis-1\n") && str_contains($ini3, "skip = nextcloud-redis-1\n") && str_contains($ini3, "known = nextcloud-db\n"), $ini3 . $out);
+    // the project removed too: gone, as before
+    check('stack down (page): a container in no app on the page (its stack brought down) keeps its place in [docker] skip',
+        str_contains((string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js'), "...wasSkip.filter((n) => skip.includes(n) || !inApps.has(n))"));
+    exec('rm -rf ' . escapeshellarg($proj));
+    file_put_contents("$data/settings.ini", $stackIni);
+    $out = $setup('--plan');
+    $plan = $readPlan();
+    $P = $plan['P'] ?? [];
+    same('stack gone (no container, no project): dropped as before, said as gone', [
+            [], [['hint', ['name' => 'nextcloud']]], [['warn', ['name' => 'nextcloud-db']]], [], false, false],
+        [array_values(array_filter(array_keys($P), fn ($k) => (bool) preg_match('/^(nextcloud|dump|app)\|/', $k))), $codes($plan, 'app_gone'), $codes($plan, 'dump_gone'),
+         $codes($plan, 'stopped_kept'), in_array('nextcloud-redis-1', $P['docker|no_stop'] ?? [], true), in_array('nextcloud-db', $P['docker|known'] ?? [], true)], $out);
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * Engine 2.55, the 7.4 test's Mr. Backupsy findings (2026-10-16, Tower: Plex 1.43, shares on XFS and ZFS):
  * - Plex's database copy is checked by Plex's own SQLite (media_sqlite_check): a fixture container root under UB_PROC
  *   with a stand-in loader that answers like «Plex Media Server --sqlite»; a sound copy «ok», a broken one its message,
@@ -5141,7 +5458,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.59'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.60'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -6795,9 +7112,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.59 everywhere it is named', ['2.59', '2.59', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.59"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.59** –')]);
+    same('data trust: the engine\'s version 2.60 everywhere it is named', ['2.60', '2.60', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.60"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.60** –')]);
     // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
     same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
         array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
@@ -7837,7 +8154,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.59', [1, '2.59'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.60', [1, '2.60'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -8445,7 +8762,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.59', [1, '2.59'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.60', [1, '2.60'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -40970,7 +41287,7 @@ JS;
     check('unknown key: never a raw key on screen', !preg_grep('/backup\.|setup\.key|\|/', array_values($r['labels'])), implode(' / ', $r['labels']));
     $desk = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
     check('unknown key: no «proposal» chip or «leave out» for it, its tip says why it goes',
-        str_contains($desk, "!/\\|kopia_known$/.test(k) && !unknownKey(k)) {") && str_contains($desk, "if (unknownKey(k)) li.title = T('setup.key_unknown_tip');"));
+        str_contains($desk, "!/\\|kopia_known$/.test(k) && !droppedKey(k)) {") && str_contains($desk, "if (unknownKey(k)) li.title = T('setup.key_unknown_tip');"));
 }
 
 /**
@@ -41416,7 +41733,7 @@ JS;
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliPreferDisks', 'testMoverelliIdleRules', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

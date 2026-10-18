@@ -712,6 +712,7 @@
   "setup.msg.app_gone": "La app {name} estaba configurada, pero ya no existe (ningún contenedor, ningún stack de compose) — su entrada se va.",
   "setup.msg.nextcloud_stopped": "Nextcloud {name} no está en marcha — no puedo comprobar su modo de mantenimiento.",
   "setup.msg.nextcloud_no_occ": "{name} parece Nextcloud pero no tiene occ — se deja fuera.",
+  "setup.msg.stopped_kept": "{name} no está en marcha ahora — lo compruebo cuando esté en marcha; sus ajustes se quedan.",
   "setup.msg.nextcloud_shared": "{names} son el mismo Nextcloud (un solo config.php) — un modo de mantenimiento para todos.",
   "setup.msg.no_nextcloud": "No se encontró ningún Nextcloud.",
   "setup.msg.dump_no_password": "{name}: no hay contraseña en sus variables de entorno — su volcado fallará.",

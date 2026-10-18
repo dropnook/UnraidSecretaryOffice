@@ -1,6 +1,7 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.59 - 2026-10-17
+# unraid-backup - backup.sh                       Version 2.60 - 2026-10-18
+#   2.60 No change here (the engine's version: setup.sh keeps what is stored for a stopped Nextcloud, database or VM)
 #   2.59 No change here (the engine's version: setup.sh --orphans offers the old sources of units no longer offsite)
 #   2.58 No change here (the engine's version: setup.sh's OK and error lines as codes)
 #   2.57 An app's package inside goes only into its configuration folder: inside Unraid's place for app configurations

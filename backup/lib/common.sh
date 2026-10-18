@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.59"
+UB_VERSION="2.60"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -1121,15 +1121,31 @@ is_nextcloud_image() {
 # config" makes of them - so .env and variables included.
 #   COMPOSE_DB  lines "stack|service|image|kind|feature|container_name"
 #   COMPOSE_ERR lines "stack|reason" (stack could not be read)
-declare -ga COMPOSE_DB=() COMPOSE_ERR=()
+#   COMPOSE_PROJ   (2.60) every stack with a compose file: "stack<US>ids" - ids: the names Docker may label its containers
+#                  with (com.docker.compose.project), joined by <RS>: its name file or folder, the name docker compose
+#                  config gives it, each also lower-cased and normalised as compose does ([a-z0-9_-])
+#   COMPOSE_SVC    (2.60) every service of a stack that could be read: "stack<US>service<US>container_name"
+# Read once per run of the script (compose_scan again returns at once).
+declare -ga COMPOSE_DB=() COMPOSE_ERR=() COMPOSE_PROJ=() COMPOSE_SVC=()
+COMPOSE_SCANNED="no"
+compose_ids() { # compose_ids <name>... -> the ids, one per line, each once
+    local n l
+    for n in "$@"; do
+        [[ -z "$n" ]] && continue
+        l="${n,,}"
+        printf '%s\n' "$n" "$l" "$(tr -cd 'a-z0-9_-' <<<"$l")"
+    done | awk 'length && !seen[$0]++'
+}
 compose_scan() {
-    COMPOSE_DB=(); COMPOSE_ERR=()
-    local root="$UB_BOOT/config/plugins/compose.manager/projects" d dir f js stack svc img envk ports cname r
+    [[ "$COMPOSE_SCANNED" == "yes" ]] && return 0
+    COMPOSE_SCANNED="yes"
+    COMPOSE_DB=(); COMPOSE_ERR=(); COMPOSE_PROJ=(); COMPOSE_SVC=()
+    local root="$UB_BOOT/config/plugins/compose.manager/projects" d dir f js stack svc img envk ports cname r folder pname
     [[ -d "$root" ]] || return 0
     docker compose version >/dev/null 2>&1 || { COMPOSE_ERR+=( "*|docker compose is missing" ); return 0; }
     for d in "$root"/*/; do
         [[ -d "$d" ]] || continue
-        stack="$(basename "$d")"; dir="${d%/}"
+        stack="$(basename "$d")"; dir="${d%/}"; folder="$stack"
         # "indirect": the stack lives in another folder
         [[ -s "$dir/indirect" ]] && dir="$(head -1 "$dir/indirect" | tr -d '\r')"
         f=""
@@ -1137,11 +1153,16 @@ compose_scan() {
             [[ -f "$dir/$r" ]] && { f="$dir/$r"; break; }
         done
         [[ -n "$f" ]] || { COMPOSE_ERR+=( "$stack|no compose file in $dir" ); continue; }
+        if [[ -s "$dir/name" ]]; then stack="$(head -1 "$dir/name" | tr -d '\r')"
+        elif [[ -s "${d%/}/name" ]]; then stack="$(head -1 "${d%/}/name" | tr -d '\r')"; fi
         js="$(cd "$dir" && timeout 30 docker compose --project-directory "$dir" -f "$f" config --format json 2>/dev/null)" \
-            || { COMPOSE_ERR+=( "$stack|docker compose config fails (missing variables?)" ); continue; }
-        [[ -s "$dir/name" ]] && stack="$(head -1 "$dir/name" | tr -d '\r')"
+            || { COMPOSE_ERR+=( "$stack|docker compose config fails (missing variables?)" )
+                 COMPOSE_PROJ+=( "$stack"$'\x1f'"$(compose_ids "$stack" "$folder" | paste -sd $'\x1e' -)" ); continue; }
+        pname="$(jq -r '.name // ""' <<<"$js" 2>/dev/null)"
+        COMPOSE_PROJ+=( "$stack"$'\x1f'"$(compose_ids "$stack" "$folder" "$pname" | paste -sd $'\x1e' -)" )
         while IFS=$'\x1e' read -r svc img envk ports cname; do
             [[ -z "$svc" ]] && continue
+            COMPOSE_SVC+=( "$stack"$'\x1f'"$svc"$'\x1f'"$cname" )
             r="$(db_detect "$img" "${envk//$'\x1f'/$'\n'}" "$ports")"
             [[ -n "$r" ]] && COMPOSE_DB+=( "$stack|$svc|$img|${r%%|*}|${r#*|}|$cname" )
         done < <(jq -r '.name as $p | .services | to_entries[] | [

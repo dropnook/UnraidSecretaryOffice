@@ -1,6 +1,15 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.59 - 2026-10-17
+# unraid-backup - setup.sh                        Version 2.60 - 2026-10-18
+#   2.60 Whether an app, a database, a Nextcloud or a VM runs right now never changes what is stored for it: a Nextcloud
+#        set up before whose container is stopped keeps its [nextcloud] section as it is (preexisting_maintenance, the
+#        same-instance line from settings.ini), the plan lists it with running false, Apply writes it again; a stopped
+#        database's dump and a stopped VM's freeze stay too. What needs it running (occ, the dump's access test, the guest
+#        agent) is not checked - said once per unit as a hint (stopped_kept {name}). A container that is gone drops out as
+#        before. The plan carries known_keys (every settings.ini key some part of the engine knows, per section type).
+#        A Compose stack brought down (no container left) whose project the Compose Manager still has is stopped, not
+#        gone: its [app] section, dumps, Nextclouds and its containers in [docker] no_stop/skip/known stay as stored (by
+#        container_name or <project>-<service>-<n>), said once for the stack; gone only with its project gone too
 #   2.59 --orphans also lists the office's own sources of units that are still there but no longer at a Kopia level in
 #        settings.ini (an app or VM kopia = no, a share not mode = kopia, the flash not mode = snapshot): only their older
 #        snapshots lie in Kopia - each source with why gone | not_offsite; --orphans-delete takes both, listing anew right
@@ -641,6 +650,7 @@ TXT
     inv_scan
     docker_load
     vm_load
+    down_load
     apps_gone_drop
     if [[ -z "$(pget "kopia|container")" ]] || ! in_list "$(pget "kopia|container")" "${CT_NAMES[@]}"; then
         pset "kopia|container" "$(kopia_find_container)"
@@ -661,6 +671,8 @@ apps_gone_drop() {
     for c in "${CT_NAMES[@]}"; do have[$c]=1; have[${CT_PROJECT[$c]:-$c}]=1; done
     while IFS= read -r n; do
         [[ -z "$n" || -n "${have[$n]:-}" ]] && continue
+        # 2.60: a Compose stack brought down (no container) whose project is still there is stopped, not gone
+        if [[ -n "${DOWN_PROJ[$n]:-}" || -n "${DOWN_PROJ[${n,,}]:-}" ]]; then down_say "${DOWN_PROJ[$n]:-${DOWN_PROJ[${n,,}]}}"; continue; fi
         APPS_GONE+=( "$n" )
         for k in "${!P[@]}"; do
             if [[ "$k" == "app|$n|"* ]]; then unset "P[$k]"; fi
@@ -668,6 +680,71 @@ apps_gone_drop() {
         hint_as app_gone "App '$n' is in settings.ini, it no longer exists (no container, no Compose project) - its entry is removed" name "$n"
     done <<<"$(old_names app)"
     (( ${#APPS_GONE[@]} )) && _apply_P
+    return 0
+}
+
+# Compose stacks brought down (2.60): a stack of the Compose Manager with a compose file but not one container (docker
+# compose down removes them) is stopped, not gone - its [app] section, its dumps, its Nextclouds and its containers in
+# [docker] no_stop / skip / known stay exactly as stored, said once per stack (hint stopped_kept). Only a stack whose
+# project is gone too (no container AND no compose project) is gone. Docker not answering: nothing is known (as before).
+declare -A DOWN_PROJ=()      # project id (as Docker would label its containers) -> the stack's name
+declare -a DOWN_SVC=()       # "stack<US>service<US>container_name<US>ids (<RS>)" of the stacks brought down
+declare -A DOWN_SAID=()
+down_load() {
+    DOWN_PROJ=(); DOWN_SVC=(); DOWN_SAID=()
+    [[ "$DOCKER_SERVICE" == "yes" ]] && ub_docker_answers || return 0
+    compose_scan
+    local -A live=() down=() idsof=()
+    local c r st ids id up svc cname
+    for c in "${CT_NAMES[@]}"; do [[ -n "${CT_PROJECT[$c]}" ]] && live[${CT_PROJECT[$c],,}]=1; done
+    for r in "${COMPOSE_PROJ[@]}"; do
+        st="${r%%$'\x1f'*}"; ids="${r#*$'\x1f'}"; up=0
+        while IFS= read -r id; do [[ -n "$id" && -n "${live[${id,,}]:-}" ]] && up=1; done <<<"${ids//$'\x1e'/$'\n'}"
+        (( up )) && continue
+        down[$st]=1; idsof[$st]="$ids"
+        while IFS= read -r id; do [[ -n "$id" ]] && DOWN_PROJ[$id]="$st"; done <<<"${ids//$'\x1e'/$'\n'}"
+    done
+    for r in "${COMPOSE_SVC[@]}"; do
+        IFS=$'\x1f' read -r st svc cname <<<"$r"
+        [[ -n "${down[$st]:-}" ]] && DOWN_SVC+=( "$st"$'\x1f'"$svc"$'\x1f'"$cname"$'\x1f'"${idsof[$st]}" )
+    done
+    return 0
+}
+# down_ct <container> -> the stack brought down it belongs to (its service's container_name, or the name compose gives
+# it: <project>-<service>-<n> / <project>_<service>_<n>); 1 = none
+down_ct() {
+    local n="$1" r st svc cname ids id sep tail
+    [[ -n "$n" ]] || return 1
+    for r in "${DOWN_SVC[@]}"; do
+        IFS=$'\x1f' read -r st svc cname ids <<<"$r"
+        if [[ -n "$cname" ]]; then [[ "$n" == "$cname" ]] && { printf '%s' "$st"; return 0; }; continue; fi
+        while IFS= read -r id; do
+            [[ -z "$id" ]] && continue
+            for sep in - _; do
+                [[ "$n" == "$id$sep$svc$sep"* ]] || continue
+                tail="${n#"$id$sep$svc$sep"}"
+                is_uint "$tail" && { printf '%s' "$st"; return 0; }
+            done
+        done <<<"${ids//$'\x1e'/$'\n'}"
+    done
+    return 1
+}
+down_say() { # once per stack
+    [[ -n "$1" && -z "${DOWN_SAID[$1]:-}" ]] || return 0
+    DOWN_SAID[$1]=1
+    hint_as stopped_kept "$1: not running right now - checked when it runs; its settings stay as they are" name "$1"
+}
+# down_keep_list <key>: the stored entries of a [docker] list whose container belongs to a stack brought down -> DOWN_KEPT
+declare -a DOWN_KEPT=()
+down_keep_list() {
+    local n st
+    DOWN_KEPT=()
+    while IFS= read -r n; do
+        [[ -n "$n" ]] || continue
+        in_list "$n" "${CT_NAMES[@]}" && continue
+        st="$(down_ct "$n")" || continue
+        DOWN_KEPT+=( "$n" ); down_say "$st"
+    done <<<"$(old_list "$1")"
     return 0
 }
 
@@ -1311,14 +1388,20 @@ TXT
         [[ "$n" == "$KOPIA_CONTAINER" ]] && continue
         [[ "${CT_STOP[$n]}" == "no" ]] && plist_add "docker|no_stop" "$n"
     done
+    # 2.60: the containers of a Compose stack brought down keep their place in the lists, as stored
+    local -a downk=()
+    down_keep_list "docker|no_stop"
+    for n in "${DOWN_KEPT[@]}"; do plist_add "docker|no_stop" "$n"; done
+    down_keep_list "docker|known"; downk=( "${DOWN_KEPT[@]}" )
     if [[ "$MODE" == "apply" ]]; then
         # --apply: what the decisions name is known - a container that came after the plan stays new (2.21)
-        P[docker|known]="$(for n in "${CT_NAMES[@]}"; do in_list "$n" "${known[@]}" && printf '%s\n' "$n"; done)"
+        P[docker|known]="$(for n in "${CT_NAMES[@]}"; do in_list "$n" "${known[@]}" && printf '%s\n' "$n"; done; printf '%s\n' "${downk[@]}")"
     else
-        P[docker|known]="$(printf '%s\n' "${CT_NAMES[@]}")"
+        P[docker|known]="$(printf '%s\n' "${CT_NAMES[@]}" "${downk[@]}")"
     fi
-    # apps the user chose not to back up (the office's apps step); only containers that still exist
-    P[docker|skip]="$(old_list "docker|skip" | while IFS= read -r n; do in_list "$n" "${CT_NAMES[@]}" && printf '%s\n' "$n"; done)"
+    # apps the user chose not to back up (the office's apps step); only containers that still exist (or are down, 2.60)
+    down_keep_list "docker|skip"
+    P[docker|skip]="$(old_list "docker|skip" | while IFS= read -r n; do in_list "$n" "${CT_NAMES[@]}" && printf '%s\n' "$n"; done; printf '%s\n' "${DOWN_KEPT[@]}")"
 
     # --- Docker volumes
     local v vn vd vtxt
@@ -1426,6 +1509,9 @@ TXT
             && hint_as vm_share_off "VM '$n': its share is not backed up (mode=off) - the VM isn't either" vm "$n"
         [[ "${VM_SNAP[$n]}" == "yes" ]] || wrn_as "vm_no_snapshot_$(case "${VM_SNAP[$n]}" in block|live|missing) echo "${VM_SNAP[$n]}";; *) echo none;; esac)" \
             "VM '$n': $(case "${VM_SNAP[$n]}" in block) echo "a whole device as a disk";; live) echo "a disk on a file system without snapshots";; missing) echo "a disk file was not found";; *) echo "no disk";; esac) - no snapshot holds it" vm "$n"
+        # 2.60: a VM not running can't answer for its guest agent - freeze stays as it was set, checked when it runs
+        [[ "$(pget "vm|$n|prepare")" == "freeze" && "${VM_STATE[$n]}" != "running" ]] && old_has "vm|$n" \
+            && hint_as stopped_kept "$n: not running right now - checked when it runs; its settings stay as they are" name "$n"
         [[ "$(pget "vm|$n|prepare")" == "freeze" && "${VM_AGENT[$n]}" == "no" ]] \
             && wrn_as vm_freeze_no_agent "VM '$n': set to freeze, but its guest agent does not answer - a run pauses it instead" vm "$n"
     done
@@ -1516,6 +1602,7 @@ TXT
         done
         for r in "${missing[@]}"; do
             IFS='|' read -r stack svc img t <<<"$r"
+            [[ -n "${DOWN_SAID[$stack]:-}" ]] && continue      # 2.60: a stack brought down whose settings stay - said once
             wrn_as db_no_container "Stack '$stack': database service '$svc' ($t, $img) has no container - start the stack and run setup.sh again, then the dump is proposed" \
                 stack "$stack" service "$svc" kind "$t" image "$img"
         done
@@ -1523,9 +1610,15 @@ TXT
     local e
     for e in "${COMPOSE_ERR[@]}"; do hint_as compose_unreadable "Compose stack ${e%%|*} could not be read: ${e#*|}" stack "${e%%|*}" error "${e#*|}"; done
 
+    local dst
     while IFS= read -r n; do
-        [[ -n "$n" ]] && ! in_list "$n" "${dump_cands[@]}" && wrn_as dump_gone "Dump for '$n' is in settings.ini, the container no longer exists - the entry is removed" name "$n"
-    done < <(old_names dump)
+        [[ -n "$n" ]] && ! in_list "$n" "${dump_cands[@]}" || continue
+        # 2.60: its stack is only brought down - the dump stays as stored
+        if ! in_list "$n" "${CT_NAMES[@]}" && dst="$(down_ct "$n")"; then
+            P[dump|$n|type]="$(old "dump|$n|type")"; down_say "$dst"; continue
+        fi
+        wrn_as dump_gone "Dump for '$n' is in settings.ini, the container no longer exists - the entry is removed" name "$n"
+    done <<<"$(old_names dump)"
 
     for n in "${dump_cands[@]}"; do
         local dflt="y"
@@ -1534,7 +1627,10 @@ TXT
         if ask_yn "  Dump of '$n' (${dtype[$n]})?" "$dflt"; then
             P[dump|$n|type]="${dtype[$n]}"
             ok_as dump_planned "'$n': ${dtype[$n]} dump before every snapshot" name "$n" type "${dtype[$n]}"
-            [[ "${CT_RUNNING[$n]}" == "true" ]] && dump_probe "$n" "${dtype[$n]}"
+            if [[ "${CT_RUNNING[$n]}" == "true" ]]; then dump_probe "$n" "${dtype[$n]}"
+            elif old_has "dump|$n"; then        # 2.60: set up before - the access test waits until it runs, the dump stays
+                hint_as stopped_kept "$n: not running right now - checked when it runs; its settings stay as they are" name "$n"
+            fi
         else
             unset "P[dump|$n|type]"
         fi
@@ -1546,11 +1642,17 @@ TXT
     # shared config.php). They are recognised by the instanceid and
     # asked about together - backup.sh switches the maintenance mode only once.
     local found=0 occ u id g ndf val names
-    local -a groups=() m=()
+    local -a groups=() m=() kept=()
     local -A members=() occ_of=()
     for n in "${CT_NAMES[@]}"; do
         is_nextcloud_image "${CT_IMAGE[$n]}" || old_has "nextcloud|$n" || continue
-        [[ "${CT_RUNNING[$n]}" == "true" ]] || { wrn_as nextcloud_stopped "Nextcloud '$n' is not running - occ cannot be checked" name "$n"; continue; }
+        if [[ "${CT_RUNNING[$n]}" != "true" ]]; then
+            # 2.60: whether it runs right now never changes what is stored for it - set up before, it stays as it is
+            # (checked when it runs again); never set up, nothing to keep: said as before
+            if old_has "nextcloud|$n"; then kept+=( "$n" )
+            else wrn_as nextcloud_stopped "Nextcloud '$n' is not running - occ cannot be checked" name "$n"; fi
+            continue
+        fi
         occ=""
         for t in /var/www/html/occ /app/www/public/occ /config/www/nextcloud/occ /var/www/nextcloud/occ; do
             docker exec "$n" test -f "$t" 2>/dev/null && { occ="$t"; break; }
@@ -1582,7 +1684,7 @@ TXT
         if [[ "$MODE" == "apply" ]]; then
             ndf="n"; for n in "${m[@]}"; do old_has "nextcloud|$n" && ndf="y"; done
         fi
-        NC_ROWS+=( "${m[*]}"$'\x1f'"${occ_of[${m[0]}]}"$'\x1f'"$val" )
+        NC_ROWS+=( "${m[*]}"$'\x1f'"${occ_of[${m[0]}]}"$'\x1f'"$val"$'\x1f'"true" )
         if ask_yn "  Put Nextcloud $names (occ ${occ_of[${m[0]}]}) into maintenance mode during dump and snapshot?" "$ndf"; then
             for n in "${m[@]}"; do
                 P[nextcloud|$n|preexisting_maintenance]="$val"
@@ -1593,8 +1695,66 @@ TXT
             for n in "${m[@]}"; do unset "P[nextcloud|$n|preexisting_maintenance]" "NC_GROUP[$n]"; done
         fi
     done
+    # 2.60: the Nextclouds of a stack brought down (no container at all) stay as stored too
+    while IFS= read -r n; do
+        [[ -n "$n" ]] && ! in_list "$n" "${CT_NAMES[@]}" && down_ct "$n" >/dev/null && kept+=( "$n" )
+    done <<<"$(old_names nextcloud)"
+    nc_kept "${kept[@]}" && found=1
     (( found )) || hint_as no_nextcloud "No Nextcloud detected"
     _apply_P
+}
+
+# The stored line «the same Nextcloud as: a b» of a [nextcloud "<name>"] section in settings.ini (a comment setup.sh writes;
+# the file as it is, also under --apply) -> "a b"
+nc_group_stored() {
+    [[ -f "$UB_SETTINGS" ]] || return 0
+    awk -v want="[nextcloud \"$1\"]" '
+        /^[[:space:]]*\[/ { sub(/^[[:space:]]+/, ""); sub(/[[:space:]]+$/, ""); sec = $0; next }
+        sec == want && /^[[:space:]]*#[[:space:]]*the same Nextcloud as: / {
+            sub(/^[[:space:]]*#[[:space:]]*the same Nextcloud as: /, ""); sub(/ \(shared config\.php\).*$/, ""); print; exit }' "$UB_SETTINGS"
+}
+
+# nc_kept <container...>: Nextclouds set up before whose container exists but isn't running right now (2.60): occ can't be
+# asked, so nothing is checked - their settings stay exactly as stored (preexisting_maintenance, the same-instance line), the
+# plan lists them as before with running false, said once per Nextcloud (hint stopped_kept). A container that is gone is not
+# here (it is no container any more): it drops out as before. 1 = none
+nc_kept() {
+    (( $# )) || return 1
+    local n o val names
+    local -a m=()
+    local -A seen=()
+    for n in "$@"; do
+        P[nextcloud|$n|preexisting_maintenance]="$(old "nextcloud|$n|preexisting_maintenance" abort)"
+        NC_GROUP[$n]="$(nc_group_stored "$n")"
+        nc_data_stored "$n"
+    done
+    for n in "$@"; do
+        [[ -n "${seen[$n]:-}" ]] && continue
+        m=( "$n" )
+        for o in ${NC_GROUP[$n]}; do in_list "$o" "$@" && [[ -z "${seen[$o]:-}" && "$o" != "$n" ]] && m+=( "$o" ); done
+        val="continue"
+        for o in "${m[@]}"; do seen[$o]=1; [[ "${P[nextcloud|$o|preexisting_maintenance]}" == "continue" ]] || val="abort"; done
+        NC_ROWS+=( "${m[*]}"$'\x1f'""$'\x1f'"$val"$'\x1f'"false" )
+        names="$(printf '%s + ' "${m[@]}")"; names="${names% + }"
+        if o="$(down_ct "$n")"; then down_say "$o"; continue; fi        # its stack brought down: said once for the stack
+        hint_as stopped_kept "$names: not running right now - checked when it runs; its settings stay as they are" name "$names"
+    done
+    return 0
+}
+
+# Where a stopped Nextcloud keeps its files (2.60, for the office's warning): its config.php read on the host through the
+# container's binds - only on a pool or disk that is awake (nothing woken), nothing asked of the container
+nc_data_stored() {
+    local n="$1" c hp where dir
+    for c in /var/www/html/config/config.php /config/www/nextcloud/config/config.php /app/www/public/config/config.php /var/www/nextcloud/config/config.php; do
+        hp="$(ct_host_path "$n" "$c")" || continue
+        where="$(ub_path_where "$hp")" || continue
+        [[ -f "$where" && ! -L "$where" ]] || continue
+        dir="$(head -c 65536 -- "$where" 2>/dev/null | sed -n "s/.*'datadirectory'[[:space:]]*=>[[:space:]]*'\([^']*\)'.*/\1/p" | head -1)"
+        [[ -n "$dir" ]] && NC_DATA[$n]="${dir%/}"
+        return 0
+    done
+    return 0
 }
 
 dump_probe() { # a short access test, so that the first run does not fail on it
@@ -2837,8 +2997,8 @@ plan_write() {
     dbs="$(printf '%s\n' "${DB_ROWS[@]}" | us_json container stack type detected where \
          | jq 'map(select(.container != "") | .dumpable = (.type | test("^(mariadb|postgres|mongodb)$")))')"
     miss="$(printf '%s\n' "${DB_MISSING[@]}" | us_json stack service image type | jq 'map(select(.stack != ""))')"
-    ncs="$(printf '%s\n' "${NC_ROWS[@]}" | us_json members occ preexisting \
-         | jq 'map(select(.members != "") | .members = (.members | split(" ")))')"
+    ncs="$(printf '%s\n' "${NC_ROWS[@]}" | us_json members occ preexisting running \
+         | jq 'map(select(.members != "") | .members = (.members | split(" ")) | .running = (.running != "false"))')"
     bases="$(for b in "${INV_BASES[@]}"; do printf '%s\x1f%s\x1f%s\n' "$b" "${INV_BASE_FS[$b]:-}" "${INV_BASE_KIND[$b]:-}"; done | us_json name fs kind)"
     srcs="$(printf '%s\n' "${KOPIA_SOURCES[@]}" | us_json state source kind name why snapshots newest \
          | jq 'map(select(.source != "") | if .state == "orphan" then .snapshots = ((.snapshots | tonumber?) // 0)
@@ -2855,6 +3015,12 @@ plan_write() {
                 '{name: $n, gone: ($gone == "1"), keys: ($k | with_entries(.key |= (split("|") | last)))}'
         done <<<"$(old_names app)" | jq -sc '.')" || apps="[]"
     [[ -n "$apps" ]] || apps="[]"
+    # 2.60: every key some part of the engine knows, per section type (lib/common.sh UB_SCHEMA) - a settings.ini line not
+    # among them is the user's own; one among them that Apply drops is said as what it is, never as «unknown»
+    local known
+    known="$(for k in "${!UB_SCHEMA[@]}"; do printf '%s\x1f%s\n' "$k" "${UB_SCHEMA[$k]}"; done \
+        | jq -Rn '[inputs | select(length > 0) | split("\u001f") | {key: .[0], value: (.[1] | split(" ") | map(select(length > 0)))}] | from_entries')" \
+        || known="null"
     local kc="${KOPIA_CONTAINER:-}" cands=""
     for n in "${CT_NAMES[@]}"; do is_kopia_image "${CT_IMAGE[$n]}" && cands+="$n"$'\x1e'; done
     msgs_json | jq -c \
@@ -2871,8 +3037,8 @@ plan_write() {
         --argjson k_sources "$srcs" --arg mount_root "$MOUNT_ROOT" \
         --argjson partners "${partners:-[]}" --argjson place_partner "${place_partner:-null}" \
         --arg asleep_pools "$(pget "general|asleep_pools" wake)" --argjson asleep_nights "$UB_ASLEEP_NIGHTS" \
-        --arg preset_new "$(pget "general|preset_new" auto)" \
-        '{interface: $interface, version: $version, time: $time, have_settings: ($have == "yes"),
+        --arg preset_new "$(pget "general|preset_new" auto)" --argjson known_keys "${known:-null}" \
+        '{interface: $interface, version: $version, time: $time, have_settings: ($have == "yes"), known_keys: $known_keys,
           asleep_pools: $asleep_pools, asleep_nights: $asleep_nights, preset_new: $preset_new,
           sizes_measured: ($size_timeout != "0"), P: $P, O: $O, pending: $pending, shares: $shares, containers: $containers,
           databases: $databases, missing_databases: $missing, nextcloud: $nextcloud,
