@@ -8,3 +8,6 @@ domains
 isos
 media
 system
+# the demo apps' shares (apps.sh, H2): Nextcloud's data, Immich's photos
+nextcloud
+photos
