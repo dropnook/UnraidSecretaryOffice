@@ -391,11 +391,14 @@ flow_bk_forget() { _fl_args "$@" || return 1; local rc; _fl_ask backup.setup_for
 flow_rs_scan() { _fl_args "$@" || return 1; ask restore.refresh '{}' 300 >/dev/null; }
 
 fl_last_restore() { cat "$KEEP/.rs-last" 2>/dev/null; }
+# his page's fresh look — the page always has one before it shows a button (a source, a package, a moment comes from it)
+_rs_look() { ask restore.refresh '{}' 300 >/dev/null; }
 
 # _rs_go <request json>: the restore dialog (desk.js ~1793 preview {…ask, stamp?}; ~1832 start {…ask, stamp, token})
 # — a plan with blockers is refused as the dialog's grey «Restore» button refuses it; the job waited for
 _rs_go() {
     local req=$1 rc plan stamp token id r
+    _rs_look || return 1
     _fl_ask restore.preview "$req" 300 >/dev/null
     rc=$?; ((rc == 0)) || { _fl_end $rc; return; }
     plan=$(ask_last '.preview')
@@ -432,6 +435,7 @@ flow_rs_files() {
     req=$(jq -cn --arg p "$path" --arg m "$mode" --arg w "${FL[wake]:-}" '{kind: "files", path: $p, mode: $m} + (if $w != "" then {wake: true} else {} end)')
     snap=${FL[moment]:-}
     if [[ -z $snap ]]; then
+        _rs_look || return 1
         _fl_ask restore.preview "$req" 300 >/dev/null
         rc=$?; ((rc == 0)) || { _fl_end $rc; return; }
         plan=$(ask_last '.preview')
@@ -493,6 +497,7 @@ flow_rs_kopia() {
     _fl_args "$@" || return 1
     local src=${FL[source]:-} snap=${FL[snapshot]:-} rc
     [[ -n $src ]] || { say "RS-KOPIA: source= missing"; return 1; }
+    _rs_look || return 1
     if [[ -z $snap ]]; then
         _fl_ask restore.kopia_list "$(jq -cn --arg s "$src" '{source: $s}')" 300 >/dev/null
         rc=$?; ((rc == 0)) || { _fl_end $rc; return; }
