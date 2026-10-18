@@ -319,9 +319,14 @@ make_base() {
     else
     ask moverelli.refresh >/dev/null || return 1
     body=$(jq -c --argjson x "$MOVERELLI_X" '.settings | .global.move_when_used_above = $x' "$D/moverelli.json") || return 1
-    for sh in $MOVERELLI_RULES; do
+    # MOVERELLI_RULES: <share>:<days> - a rule of its own moves that share's files only once they are that old (a row
+    # with nothing of its own isn't kept: she saves it as no rule)
+    local rule days
+    for rule in $MOVERELLI_RULES; do
+        sh=${rule%%:*} days=${rule#*:}
+        [[ $days =~ ^[0-9]+$ && $rule == *:* ]] || { warn "Ms. Moverelli: rule «$rule» is not <share>:<days>"; return 1; }
         if [[ -f /boot/config/shares/$sh.cfg ]]; then
-            body=$(jq -c --arg s "$sh" '.shares[$s] = {skip: false, min_age: null, move_when_used_above: null, files: [], patterns: []}' <<<"$body")
+            body=$(jq -c --arg s "$sh" --argjson d "$days" '.shares[$s] = {skip: false, min_age: $d, move_when_used_above: null, files: [], patterns: []}' <<<"$body")
         else
             warn "Ms. Moverelli: no rule for $sh - the share is not there (the states' share_make makes it)"
         fi
