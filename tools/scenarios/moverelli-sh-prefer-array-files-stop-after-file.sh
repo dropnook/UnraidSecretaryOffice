@@ -18,7 +18,25 @@ track_share uso-prefer
 snap_before
 log=$D/moverelli/smart_mover.log
 lines0=$(wc -l <"$log" 2>/dev/null || echo 0)
-flow MV-STOP-AFTER-FILE                      # her last run «stopped by the user»: the flow checks it
+# MV-STOP-AFTER-FILE stops at the first file of the run, which is another share's (her plan goes Filme, «Fotos Ärger»,
+# … before uso-prefer): the same requests here, the stop sent once a file of uso-prefer is in flight in this run
+moving_now() {
+    _mv_at_work || return 1
+    _ck_mv_progress | jq -e --argjson t "$1" '(.share // "") == "uso-prefer" and (.file // "") != "" and ((.started // 0) | tonumber) >= $t' >/dev/null
+}
+t0=$(( $(date +%s) - 1 ))
+if ask moverelli.start_run '{"mode":"run"}' >/dev/null; then
+    touch "$KEEP/.mv-touched"
+    if wait_for 300 "a file of uso-prefer on its way" moving_now "$t0"; then
+        ask moverelli.stop '{}' >/dev/null && expect_ok "moverelli.stop"
+        wait_moverelli 3600
+        ask moverelli.refresh '{}' 120 >/dev/null
+        h=$(jq -r '.history[0] | "\(.result)/\(.why // "")"' "$D/moverelli.json" 2>/dev/null)
+        [[ $h == stopped/user ]] && cell stopped-by-user 1 "her last run: stopped by the user" || cell stopped-by-user 0 "her last run: $h"
+    fi
+else
+    cell started 0 "her run was refused: $(ask_last '.error.key // "?"')"
+fi
 a=$(( $(on disk1) + $(on disk2) )) c=$(on cache)
 ((c >= 1 && a >= 1 && a + c == 12)) && cell stopped-between 1 "$c of 12 files reached cache, $a stayed on the array — stopped after a file" \
     || cell stopped-between 0 "after the stop: $c on cache, $a on the array (of 12)"
