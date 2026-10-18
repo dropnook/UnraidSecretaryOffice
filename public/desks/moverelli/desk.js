@@ -34,6 +34,12 @@ function took(j) {
   scheduleProgress();
 }
 
+/** A fresh look (the agent scans her shares anew), the wave while it takes; the page as it was when the agent is away */
+async function lookAgain() {
+  Office.busy('look.' + ID, true);
+  try { await load(true); } catch (e) { /* the shown state stays */ } finally { Office.busy('look.' + ID, false); }
+}
+
 // ------------------------------------------------------------------ her run card (2026-10-12, like Mr. Restori's)
 let progress = null;          // Smart Mover's live status while a real run goes (the part «progress»)
 let nightNow = null;          // the night run's short state while it goes (the part «progress»: phase, round, who works)
@@ -72,6 +78,9 @@ function redrawCard() {
   if (!old || !old.replaceWith) return;
   const card = runCard(progress, Date.now() / 1000);
   old.replaceWith(card);
+  // her bubble follows the share in flight (runningText()): its way and which files
+  const words = view.querySelector('.deskhead .bubble-text');
+  if (words) { const now = withGreeting(bubbleText()); if (words.textContent !== now) words.textContent = now; }
   // Jack Streamer's panel under it: drawn anew, comes with his step, goes with it
   const was = view.querySelector('.mo-jack');
   const panel = jackPanel(nightNow);
@@ -120,15 +129,22 @@ function runCardData(p, now) {
   // the file in flight counts with what of its .partial is written (the agent measures it: moverelliInFlight())
   const fileBytes = Number(p.file_bytes) || 0;
   const dBytes = (Number(p.share_done_bytes) || 0) + fileBytes;
-  const percent = phase !== 'share' ? null : bytes > 0 ? Math.min(100, Math.floor(100 * dBytes / bytes)) : files > 0 ? Math.min(100, Math.floor(100 * dFiles / files)) : null;
   const est = phase === 'share' && (bytes > 0 || files > 0) ? runEstimate(p, { files, bytes, dFiles, dBytes }, now) : null;
+  // the percent (the owner, 2026-10-18: «0 %» while 5 405 of 51 312 small files were done, 1 of 329 GB): what of the
+  // share's time is done once the time left is known (runEstimate(): files and bytes each by their cost); before that
+  // files and bytes both — the bar as far as the further of them
+  const pct = (x, all) => (all > 0 ? Math.min(100, Math.floor(100 * x / all)) : null);
+  const filesPct = phase === 'share' ? pct(dFiles, files) : null;
+  const bytesPct = phase === 'share' ? pct(dBytes, bytes) : null;
+  const byTime = est && est.left !== null && est.part !== null ? Math.min(100, Math.floor(100 * est.part)) : null;
+  const percent = phase !== 'share' ? null : byTime !== null ? byTime : Math.max(filesPct ?? -1, bytesPct ?? -1) >= 0 ? Math.max(filesPct ?? 0, bytesPct ?? 0) : null;
   const left = est && est.left !== null ? est.left : null;
   // unsure (the readings can't yet tell the time per file from the bandwidth): a range, no end
   const range = left !== null && !est.sure ? [est.lo, est.hi] : null;
   const end = left !== null && !range && plan[plan.length - 1] === p.share ? now + left : null;
   // the file's own live rate (its .partial growing): said beside it
   const fileRate = fileBytes > 0 && p.file ? Office.runRate(`moverelli|${p.started}|${p.file}`, fileBytes, now) : null;
-  return { steps, at, percent, left, range, end, rate: est ? est.rate : null, estimating: !!est && est.left === null, fileRate, waking: !!p.waking && !fileBytes, fileBytes,
+  return { steps, at, percent, byTime: byTime !== null, filesPct, bytesPct, left, range, end, rate: est ? est.rate : null, estimating: !!est && est.left === null, fileRate, waking: !!p.waking && !fileBytes, fileBytes,
     fileSize: p.file_size == null ? null : Number(p.file_size), share: p.share || '', file: p.file || '', files, bytes, dFiles, dBytes, started: p.started || null,
     fill: phase === 'share' ? fillLine(p) : null };
 }
@@ -223,7 +239,7 @@ function runEstimate(p, d, now) {
   const dB = Math.max(0, d.dBytes - base.bytes);
   const rate = secs > 0 && dB > 0 ? dB / secs : null;
   const fileRate = secs > 0 && dF > 0 ? dF / secs : null;
-  const none = { rate, fileRate, left: null, lo: null, hi: null, sure: false };
+  const none = { rate, fileRate, left: null, lo: null, hi: null, sure: false, part: null };
   const enough = secs >= EST_MIN_S || (d.bytes > 0 && dB >= EST_MIN_PART * d.bytes) || (d.files > 0 && dF >= EST_MIN_PART * d.files);
   if (secs < EST_SETTLE_S || !enough || (!rate && !fileRate)) return none;
   const rs = estSeen.get(key);
@@ -232,10 +248,13 @@ function runEstimate(p, d, now) {
   const time = (m) => filesLeft * m.perFile + bytesLeft / m.bw;
   const m = estModel(rs, EST_PER_FILE, EST_BW);
   let raw = time(m), lo = raw, hi = raw;
+  // what of the share's time is done by the same model (files × time per file + bytes ÷ bandwidth): the card's percent
+  let doneT = d.dFiles * m.perFile + d.dBytes / m.bw;
   if (m.unknown) {
     // the two ends: all the time so far the files' (m.perFile), all of it the bytes' (m.bw) — the larger said, as a range
     const ends = [filesLeft * m.perFile, bytesLeft / m.bw];
     [raw, lo, hi] = [Math.max(...ends), Math.min(...ends), Math.max(...ends)];
+    doneT = ends[0] >= ends[1] ? d.dFiles * m.perFile : d.dBytes / m.bw;
   } else if (!m.fit) {
     // the part the readings can't tell, from its range: the other part follows from the same stretch each time
     const ends = [estModel(rs, EST_PER_FILE_LO, EST_BW_HI), estModel(rs, EST_PER_FILE_HI, EST_BW_LO)].map(time);
@@ -254,7 +273,8 @@ function runEstimate(p, d, now) {
   hi = Math.max(left, blend(hi, last && last.hi));
   estLast.set(key, { t: now, left, lo, hi });
   const sure = hi <= EST_SURE * Math.max(lo, 1);
-  return { rate, fileRate, left, lo: sure ? left : lo, hi: sure ? left : hi, sure };
+  const part = doneT + left > 0 ? Math.min(1, doneT / (doneT + left)) : null;
+  return { rate, fileRate, left, lo: sure ? left : lo, hi: sure ? left : hi, sure, part };
 }
 
 /**
@@ -302,6 +322,15 @@ function onWayText(f) {
   return T('rc.on_way', { file: name + size, from: placeName(f.from), to: placeName(f.to) });
 }
 
+/**
+ * The run bar's percent, pure: «42 %» (of the share's time, with its tip) once the time left is known; before that files
+ * and bytes each when the share has both — «10 % of the files · 0 % of the data» — else the one it has
+ */
+function percentText(d) {
+  if (d.byTime || d.filesPct === null || d.bytesPct === null || d.filesPct === d.bytesPct) return `${d.percent} %`;
+  return T('rc.parts', { files: d.filesPct, bytes: d.bytesPct });
+}
+
 /** The card above the tiles while a real run goes: the steps, the bar, the file in flight, the end; «Stop after this file» */
 function runCard(p, now) {
   const nn = nightNow || (nightGoing() ? night().last : null);
@@ -333,9 +362,11 @@ function runCard(p, now) {
     card.appendChild(Office.runSteps(d.steps, d.at, `moverelli|${p.started}`));
     if (d.percent !== null) {
       // the share's average (Ø) and the time left — «being estimated» before a minute or 1 %, a range while unsure (runEstimate())
-      card.appendChild(Office.runBar(d.percent, `${d.percent} %` + (d.rate ? ' · ' + T('rc.rate_avg', { rate: fmt.size(d.rate) }) : '')
+      const bar = Office.runBar(d.percent, percentText(d) + (d.rate ? ' · ' + T('rc.rate_avg', { rate: fmt.size(d.rate) }) : '')
         + (d.range ? ' · ' + T('rc.left_range', { lo: fmt.duration(d.range[0]), hi: fmt.duration(d.range[1]) })
-          : d.left !== null ? ' · ' + T('rc.left', { left: fmt.duration(d.left) }) : d.estimating ? ' · ' + T('rc.estimating') : '')));
+          : d.left !== null ? ' · ' + T('rc.left', { left: fmt.duration(d.left) }) : d.estimating ? ' · ' + T('rc.estimating') : ''));
+      if (d.byTime) bar.title = T('rc.percent_tip');
+      card.appendChild(bar);
       card.appendChild(el('div', 'card-line', T('rc.share', { share: d.share, done: d.dFiles, files: nOf('files', d.files), done_size: fmt.size(d.dBytes), size: fmt.size(d.bytes) })));
     }
     if (d.fill) card.appendChild(el('div', 'card-line', d.fill));
@@ -1023,11 +1054,40 @@ function bubbleText() {
   const intro = T('bubble.intro');
   if (!unraidOk()) return `${intro} ${T('bubble.unraid_old', { version: state.unraid.version || '?', needed: state.unraid.needed })}`;
   if (!state.configured) return `${intro} ${T('bubble.setup')}`;
-  if (running()) return T('bubble.running');
+  if (running() || nightGoing()) return runningText();
   if (!othersOff()) return T('bubble.dry');
   if (!state.schedule.enabled) return T('bubble.no_schedule');
   return T('bubble.ready');
 }
+
+/**
+ * Her bubble while a real run moves a share (the owner, 2026-10-18: «off to the array!» while nextcloud_data went from the
+ * array into the pool ripley), pure: the way of the share in flight (Smart Mover's live status, `progress.share`) as her
+ * share table has it — into the array, back into its pool (prefer), on into its second pool — and which files: older than
+ * its age rule, the oldest first (a fill rule only), else all of them (but what her lists keep). No share in flight yet (looking around, tidying up,
+ * a list or a dry run): «I'm at work».
+ */
+function runningText() {
+  const sh = realRun() && progress && progress.share ? ((state && state.shares) || []).find((x) => x.share === progress.share) : null;
+  if (!sh || !sh.to) return T('bubble.running');
+  const age = Number(sh.min_age) || 0;
+  const what = age > 0 ? T('bubble.what_old', { n: age }) : Number(sh.threshold) > 0 ? T('bubble.what_oldest')
+    : T(Number(sh.excludes) > 0 ? 'bubble.what_all_but' : 'bubble.what_all');
+  const way = sh.to === 'array' ? 'to_array' : sh.use === 'prefer' ? (sh.from === 'array' ? 'back_from_array' : 'back_from_pool') : 'to_pool';
+  return T('bubble.run_' + way, { what, share: sh.share, from: sh.from || '', to: sh.to });
+}
+
+// her greetings that say files go into the array (greet.1 «old files … off to the array», greet.2): only while none of her
+// runs goes and one of her shares really goes that way by age or fill — never beside a run into a pool (the bubble says
+// that run's way then: no greeting at all while she works)
+const GREET_TO_ARRAY = ['greet.1', 'greet.2'];
+function greeting() {
+  if (running() || nightGoing()) return '';
+  const g = Office.greet(ID);
+  const toArray = ((state && state.shares) || []).some((x) => x.state === 'moves' && x.to === 'array' && (Number(x.min_age) > 0 || Number(x.threshold) > 0));
+  return GREET_TO_ARRAY.some((k) => g === T(k)) && !toArray ? '' : g;
+}
+const withGreeting = (text) => { const g = greeting(); return g ? `${g} ${text}` : text; };
 
 // ------------------------------------------------------------------ Unraid's mover
 /**
@@ -1155,7 +1215,7 @@ function headActions() {
 }
 /** Her head with the two tabs (Office.pages()) */
 function deskHead() {
-  return Office.deskHead(Office.desks.get(ID), { bubble: Office.withGreeting(ID, bubbleText()), actions: headActions(),
+  return Office.deskHead(Office.desks.get(ID), { bubble: withGreeting(bubbleText()), actions: headActions(),
     pages: { list: PAGES(), current: page === 'setup' ? 'setup' : '' } }).head;
 }
 
@@ -1484,7 +1544,7 @@ function fillShares(box) {
     const main = el('div', 'row-main');
     main.appendChild(el('div', 'row-name', x.share));
     const meta = el('div', 'row-meta');
-    meta.appendChild(chip(T('state.' + x.state), STATE_CLASS[x.state] || 'quiet', T('state_tip.' + x.state)));
+    meta.appendChild(chip(T('state.' + x.state), STATE_CLASS[x.state] || 'quiet', x.state === 'none' ? idleText(x) : T('state_tip.' + x.state)));
     if (x.mode !== 'none') meta.appendChild(el('span', '', T('direction', { from: where(x.from), to: where(x.to) })));
     else meta.appendChild(el('span', '', T('share_where', { primary: x.use === 'no' || !x.use ? T('array') : (x.primary || '–') })));
     if (x.own) meta.appendChild(chip(T('own_rules'), 'quiet'));
@@ -2337,6 +2397,16 @@ function idleRules(x, sv, redraw) {
   return box;
 }
 
+/**
+ * Why a share has nothing to move, as Unraid has it set up (the owner, 2026-10-18), pure: only on its pool (`only`), only
+ * on the array (`no`) — neither has a ⟦Secondary storage⟧ —, else (an older agent's row without `use`) that it has none
+ */
+function idleText(x) {
+  if (x.use === 'only') return T('state_tip.none_pool', { share: x.share, pool: x.primary || 'cache' });
+  if (x.use === 'no') return T('state_tip.none_array', { share: x.share });
+  return T('state_tip.none', { share: x.share });
+}
+
 function fillSetupShares(box) {
   box.innerHTML = '';
   const gone = (state.shares_gone || []).filter((n) => form.shares[n]).map((n) => ({ share: n, mode: 'none', state: 'gone', gone: true, own: true }));
@@ -2354,7 +2424,7 @@ function fillSetupShares(box) {
     }
     det.appendChild(sum);
     if (x.mode === 'none') {
-      if (!x.gone) det.appendChild(el('p', 'role', T('state_tip.none')));
+      if (!x.gone) det.appendChild(el('p', 'role', idleText(x)));
       if (x.own) det.appendChild(idleRules(x, sv, () => fillSetupShares(box)));
     } else {
       const f = el('div', 'mo-form');
@@ -2611,7 +2681,9 @@ Office.desk({
       // page; else the step chosen last (moverelli.setup.tile), none = every step
       if (setupSwitcher().mount(String(sub || '').split('/').slice(1).join('/'))) Office.subroute('setup');
       if (!state) await load(false);
-      await Office.freshState(ID);      // the form starts from her settings: a fresh look, never a stale one
+      // the form starts from her settings and Unraid's shares as they are now: a fresh look, never a stale one (the owner,
+      // 2026-10-18: a share set pool-only in Unraid still showed as «back into the pool» — her state up to 5 min old)
+      await lookAgain();
       if (view !== root || page !== 'setup') return;
       form = null;
       renderSetup();
@@ -2624,6 +2696,9 @@ Office.desk({
     render();
     await load(false);
     if (sub === 'schedule') scheduleDialog();
+    // show first, then look: her shares as Unraid has them now (a share's ⟦Primary storage⟧ or ⟦Secondary storage⟧
+    // changed since her last look) — the agent's tick looks too once a share's cfg changes (moverelliTick())
+    if (view === root && page === 'main') lookAgain();
   },
   unmount() { leftSetup(); view = null; clearTimeout(outTimer); clearTimeout(progTimer); progTimer = null; Office.selbar(null); },
   poll() { if (page === 'main') load(false); },
@@ -2683,7 +2758,7 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, onWayText, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
-    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runEstimate, estModel, endText, shareGroups, shareRuleLines, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, ownRulesText, idleRules, fillSetupShares, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, picFlight, fileOnto, movedByPlace, movedAt, extraPlaces, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, setJackLive: (x) => { jackLive = x; }, jackPanel, jackAtWork, redrawCard, schedText, scheduleSection, historySection, footer, hints,
+    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, percentText, runningText, greeting, idleText, runEstimate, estModel, endText, shareGroups, shareRuleLines, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, ownRulesText, idleRules, fillSetupShares, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, picFlight, fileOnto, movedByPlace, movedAt, extraPlaces, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, setJackLive: (x) => { jackLive = x; }, jackPanel, jackAtWork, redrawCard, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
     setForm: (f) => { form = f; }, initForm, levelMath, levelSection, levelLines, levelNight, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }

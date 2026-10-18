@@ -36302,17 +36302,18 @@ JS);
         $o = is_array($o) ? $o : [];
         same('run card: the steps — Looking around, a step per share of the run, Tidying up; Back done, Docs running', [['rc.look', 'done'], ['Back', 'done'], ['Docs', 'running'], ['Docs' === '' ? '' : 'rc.tidy', 'pending']],
             $o['steps'] ?? null);
-        same('run card: the first reading — the share\'s 20 % by bytes, the time left still estimated (Back moved before: since this page saw Docs), no end', [2, 20, null, null, true], $o['first'] ?? null);
+        same('run card: the first reading — the time left still estimated (Back moved before: since this page saw Docs): the bar as far as the further of files (1 of 4: 25 %) and bytes (20 %), no end', [2, 25, null, null, true], $o['first'] ?? null);
         same('run card: the file in flight counts with its .partial — 200 + 300 = 50 %; the file\'s own 10 B/s from the readings', [500, 50, 700, 500, 500, 10], $o['flight'] ?? null);
         same('run card: no .partial yet, the target disk asleep — «The target disk is waking up …» under the file', ['rc.on_way {"file":"c2.txt (rc.file_bytes {\\"done\\":\\"0 B\\",\\"size\\":\\"500 B\\"})","from":"pic.pool_name {\\"pool\\":\\"cache\\"}","to":"pic.array"}', 'rc.waking'],
             $o['waking'] ?? null);
         check('run card: … the rate in the bar\'s words like Mr. Backupsy\'s partner line, the file\'s bytes beside it',
-            (bool) preg_grep('/^70 % · rc\.rate_avg \{"rate":"[0-9.]+ B"\}/', $o['flightCard'] ?? []) && (bool) preg_grep('/^rc\.on_way \{"file":"c2\.txt \(rc\.file_bytes \{\\\\"done\\\\":\\\\"500 B\\\\",\\\\"size\\\\":\\\\"500 B\\\\"\}\)",.* · rc\.rate \{"rate":"10 B"\}$/', $o['flightCard'] ?? []), json_encode($o['flightCard'] ?? null));
-        same('run card: a minute after this page first saw Docs, 200 B more — Ø 200/60 B/s; files × time per file + bytes ÷ bandwidth: no file done yet — 3 × 0.06 s (the prior) + 600 B ÷ 3.33 B/s = 180.18 s, the end at 2240.18', [40, 200 / 60, 180.18, 2240.18],
+            (bool) preg_grep('/^\d+ % · rc\.rate_avg \{"rate":"[0-9.]+ B"\}/', $o['flightCard'] ?? []) && (bool) preg_grep('/^rc\.on_way \{"file":"c2\.txt \(rc\.file_bytes \{\\\\"done\\\\":\\\\"500 B\\\\",\\\\"size\\\\":\\\\"500 B\\\\"\}\)",.* · rc\.rate \{"rate":"10 B"\}$/', $o['flightCard'] ?? []), json_encode($o['flightCard'] ?? null));
+        // the percent: the share's time done by the same model — 1 × 0.06 + 400 ÷ 3.33 = 120.06 s of 120.06 + 180.18: 39 %
+        same('run card: a minute after this page first saw Docs, 200 B more — Ø 200/60 B/s; files × time per file + bytes ÷ bandwidth: no file done yet — 3 × 0.06 s (the prior) + 600 B ÷ 3.33 B/s = 180.18 s, the end at 2240.18; 39 % of the time done', [39, 200 / 60, 180.18, 2240.18],
             [$o['rate'][0] ?? null, $o['rate'][1] ?? null, isset($o['rate'][2]) ? round($o['rate'][2], 6) : null, isset($o['rate'][3]) ? round($o['rate'][3], 6) : null]);
         same('run card: looking around — the first step, no bar', [0, null, ['running', 'pending', 'pending']], $o['look'] ?? null);
-        check('run card: its title, the steps, «40 % · about … left», the share\'s counts, the file in flight, the end',
-            in_array('rc.title', $o['card'] ?? [], true) && (bool) preg_grep('/^40 % · rc\.rate_avg \{"rate":"[0-9.]+ B"\} · rc\.left/', $o['card'] ?? []) && (bool) preg_grep('/^rc\.share \{"share":"Docs","done":1/', $o['card'] ?? [])
+        check('run card: its title, the steps, «39 % · about … left», the share\'s counts, the file in flight, the end',
+            in_array('rc.title', $o['card'] ?? [], true) && (bool) preg_grep('/^39 % · rc\.rate_avg \{"rate":"[0-9.]+ B"\} · rc\.left/', $o['card'] ?? []) && (bool) preg_grep('/^rc\.share \{"share":"Docs","done":1/', $o['card'] ?? [])
             && in_array('rc.on_way {"file":"c2.txt","from":"pic.pool_name {\\"pool\\":\\"cache\\"}","to":"pic.array"}', $o['card'] ?? [], true) && (bool) preg_grep('/^rc\.end/', $o['card'] ?? []), json_encode($o['card'] ?? null));
         same('run card: the foot — «N errors, N warnings» left (as Mr. Backupsy\'s); right, in Jack Emby\'s order and style: «Log» as a quiet link, «Stop after this file»; no harder stop',
             ['card-foot mo-run-foot', 'rc.counts {"errors":"count.errors {\\"n\\":0}","warnings":"count.warnings {\\"n\\":0}"}', 'mo-run-right',
@@ -36799,13 +36800,167 @@ JS);
         ['setup.own_part.age {"days":"setup.tile.days {\"n\":0}"}, count.lists {"n":1}, count.lines {"n":2}', 'setup.own_part.skip, setup.own_part.limit {"pct":80}', ''], $j['parts'] ?? null);
     same('idle rules: the rows — Alt (gone) among the others, by name', ['Alt', 'Filme', 'nc'], $j['rows'] ?? null);
     check('idle rules: nc — nothing to move, its rules don\'t apply and what they are, «Remove rules»; Alt — gone, the same; Filme — none of it',
-        in_array('state_tip.none', $j['nc'] ?? [], true) && (bool) preg_grep('/^setup\.own_idle \{"share":"nc"\} setup\.own_part\.age/', $j['nc'] ?? []) && in_array('setup.own_remove', $j['nc'] ?? [], true)
+        in_array('state_tip.none {"share":"nc"}', $j['nc'] ?? [], true) && (bool) preg_grep('/^setup\.own_idle \{"share":"nc"\} setup\.own_part\.age/', $j['nc'] ?? []) && in_array('setup.own_remove', $j['nc'] ?? [], true)
         && in_array('state.gone', $j['alt'] ?? [], true) && (bool) preg_grep('/^setup\.own_gone \{"share":"Alt"\} setup\.own_part\.skip/', $j['alt'] ?? []) && in_array('setup.own_remove', $j['alt'] ?? [], true)
-        && !in_array('state_tip.none', $j['alt'] ?? [], true) && !preg_grep('/^setup\.own_/', $j['filme'] ?? []), json_encode($j));
+        && !preg_grep('/^state_tip\.none/', $j['alt'] ?? []) && !preg_grep('/^setup\.own_/', $j['filme'] ?? []), json_encode($j));
     same('idle rules: nothing removed by itself — no change in the bar before the click', true, $j['noBar'] ?? null);
     same('idle rules: after «Remove rules» — the row says so (Save makes it so, Discard brings them back), one change in the bar, nc no longer sent, Alt still',
         [true, 'setup.bar_changes {"n":1}', ['Alt'], [['gone', 'setup.row_share {"share":"nc"}', 'setup.row_own']]],
         [in_array('setup.own_removed {"save":"setup.save","discard":"setup.discard"}', $j['after'] ?? [], true), $j['bar'] ?? null, $j['sent'] ?? null, $j['change'] ?? null]);
+    hardeningRm($tmp);
+}
+
+/**
+ * Her page says what is true right now (the owner, 2026-10-18, nextcloud_data moved array → pool ripley, then set pool
+ * only): the bubble while a real run moves a share follows that share's way (into the array, back into its pool, on into
+ * a second pool) and says «older than N days» only with an age rule (0 = all files), no greeting while she works, her
+ * «off to the array» greetings only when a share of hers goes there by age or fill; the run bar's percent is the share's
+ * time done once the time left is known (files × time per file + bytes ÷ bandwidth), files and bytes both before — never a
+ * «0 %» while thousands of small files are done; an idle share's row says where it lies (pool only, array only); a share
+ * changed in Unraid (its cfg, shares.ini) is looked at again by her tick within seconds, not after refresh_after's 5 min.
+ */
+function testMoverelliPageTruth(): void
+{
+    $tmp = hardeningTmp('moverelli-truth');
+    $v = [];
+    moverelliFixture($tmp, $v);
+    $h = moverelliHost();
+    // the tick: the first stamp remembered, a changed cfg looked at once calm (2 s), never twice for the same stamp
+    $memo = [];
+    $stamp = moverelliSharesStamp($h['shares_dir'], $h['shares_ini']);
+    same('page truth: the stamp stays while nothing changes', $stamp, moverelliSharesStamp($h['shares_dir'], $h['shares_ini']));
+    $due = [moverelliSharesDue($memo, $stamp, 100.0), moverelliSharesDue($memo, $stamp, 110.0)];
+    touch("$tmp/shares/Docs.cfg", time() + 5);
+    clearstatcache();
+    $new = moverelliSharesStamp($h['shares_dir'], $h['shares_ini']);
+    $due = [...$due, $new !== $stamp, moverelliSharesDue($memo, $new, 111.0), moverelliSharesDue($memo, $new, 112.5), moverelliSharesDue($memo, $new, 113.1),
+        moverelliSharesDue($memo, $new, 120.0)];
+    same('page truth: the first stamp only remembered; a cfg changed — a new stamp, looked at once 2 s calm, then not again', [false, false, true, false, false, true, false], $due);
+    file_put_contents("$tmp/shares.ini", "[Docs]\nname=\"Docs\"\n");
+    clearstatcache();
+    same('page truth: shares.ini changed — a new stamp too', true, moverelliSharesStamp($h['shares_dir'], $h['shares_ini']) !== $new);
+    // the tick itself: Docs set pool only in Unraid — her state says so within the tick's calm, not after 5 min
+    $GLOBALS['moverelliSharesMemo'] = [];
+    $hh = ['hired' => fn (): bool => true] + $h;
+    $rowOf = fn (?array $st, string $s): array => array_values(array_filter($st['shares'] ?? [], fn ($x) => $x['share'] === $s))[0] ?? [];
+    $was = $rowOf(moverelliScan($hh), 'Docs')['mode'] ?? null;
+    $t0 = moverelliTick($hh, 1000.0);
+    file_put_contents("$tmp/shares/Docs.cfg", "shareUseCache=\"only\"\nshareCachePool=\"cache\"\n");
+    touch("$tmp/shares/Docs.cfg", time() + 10);
+    clearstatcache();
+    $t1 = moverelliTick($hh, 1001.0);
+    $t2 = moverelliTick($hh, 1003.5);
+    same('page truth: the tick — nothing at first, the change seen, her state anew 2 s later: Docs yes → only (nothing to move)',
+        ['yes', null, null, 'none', 'only'], [$was, $t0, $t1, $rowOf($t2, 'Docs')['mode'] ?? null, $rowOf($t2, 'Docs')['use'] ?? null]);
+    $GLOBALS['moverelliSharesMemo'] = [];
+    moverelliTick(['hired' => fn (): bool => false] + $h, 2000.0);
+    touch("$tmp/shares/Docs.cfg", time() + 20);
+    clearstatcache();
+    moverelliTick(['hired' => fn (): bool => false] + $h, 2001.0);
+    same('page truth: not hired — no look of hers', null, moverelliTick(['hired' => fn (): bool => false] + $h, 2004.0));
+    same('page truth: her tick is registered', true, is_callable(desks()['moverelli']['tick'] ?? null));
+    unset($GLOBALS['moverelliSharesMemo']);
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/moverelli/desk.js');
+    check('page truth: opening her page and her setup asks for a fresh look (lookAgain: load(true))',
+        substr_count($js, 'lookAgain();') >= 2 && str_contains($js, 'async function lookAgain() {') && str_contains($js, 'try { await load(true); }'));
+
+    $node = testsNode();
+    if ($node === '') {
+        check('page truth: page - node is missing here - skipped', true);
+        unset($GLOBALS['moverelliHost']);
+        hardeningRm($tmp);
+        return;
+    }
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, className: cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, dataset: {}, style: {},
+  set innerHTML(v) { this.children = []; }, append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, insertBefore(c) { this.children.unshift(c); },
+  setAttribute() {}, addEventListener() {} });
+globalThis.document = { createTextNode: (t) => t };
+let greet = '';
+globalThis.Office = { sections: () => ({ el: {}, render() {}, mount: () => false, places: () => [], active: () => '', note: () => ({ tile: '' }), pick() {}, clear() {} }),
+  scope: () => T, t: T, el: mk, greet: () => greet,
+  fmt: { cron: (c) => c, size: (b) => b + ' B', date: (t) => 'D' + t, time: (t) => 'T' + t, duration: (s) => Math.round(s) + 's', relative: (t) => 'R' + t },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, errorText: (e) => 'err:' + e.key,
+  dialog: () => ({ buttons: [] }), toast: () => {}, selbar: () => null, api: { post: async () => ({ ok: true }) } };
+(0, eval)(fs.readFileSync(process.argv[3], 'utf8'));
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+const texts = (n) => (typeof n === 'string' ? [n] : [n.text, ...n.children.flatMap(texts)].filter(Boolean));
+const out = {};
+const sh = (share, use, from, to, more) => ({ share, use, mode: use === 'yes' || use === 'prefer' ? use : 'none', from, to, primary: use === 'prefer' ? to : from, own: false, state: 'moves', min_age: 0, threshold: use === 'yes' ? 0 : null, excludes: 0, ...more });
+const shares = [sh('nextcloud_data', 'prefer', 'array', 'ripley'), sh('Filme', 'yes', 'cache', 'array', { min_age: 30 }), sh('Fotos', 'yes', 'cache', 'ripley'),
+  sh('Back', 'prefer', 'ripley', 'cache'), sh('Docs', 'yes', 'cache', 'array', { threshold: 80 }), sh('Mails', 'prefer', 'array', 'cache', { excludes: 2 }),
+  sh('Spiele', 'prefer', 'array', 'cache', { min_age: 1 })];
+const base = { configured: true, unraid: { ok: true, version: '7.3.2', needed: '7.3.2' }, schedule: { enabled: true }, history: [], mover: { off: true },
+  foreign: { tuning: { installed: false, active: false, lines: [] }, movers: [], scripts: [] }, night: {}, jack: {} };
+const running = { ...base, shares, job: { running: true, mode: 'run' } };
+m.setState(running);
+const prog = (share) => ({ result: 'running', started: 1000, plan: [share], phase: 'share', share, share_files: 10, share_bytes: 100, share_done_files: 1, share_done_bytes: 1, shares: [] });
+out.bubble = ['nextcloud_data', 'Filme', 'Fotos', 'Back', 'Docs', 'Mails', 'Spiele', 'Gone'].map((s) => { m.setProgress(prog(s), null); return m.bubbleText(); });
+m.setProgress({ result: 'running', started: 1000, plan: ['Filme'], phase: 'look', shares: [] }, null);
+out.looking = m.bubbleText();
+m.setProgress(prog('nextcloud_data'), null);
+m.setState({ ...running, job: { running: true, mode: 'dry' } });
+out.dry = m.bubbleText();
+// the greetings: none while she works; «off to the array» only with a share going there by age or fill
+greet = 'greet.1';
+m.setState(running);
+out.greetRunning = m.greeting();
+m.setState({ ...base, shares: [shares[0], shares[3]], job: {} });
+out.greetPreferOnly = [m.greeting(), (greet = 'greet.2', m.greeting()), (greet = 'greet.3', m.greeting())];
+greet = 'greet.1';
+m.setState({ ...base, shares: [shares[0], shares[1]], job: {} });
+out.greetAged = m.greeting();
+m.setState({ ...base, shares: [shares[0], sh('Alles', 'yes', 'cache', 'array')], job: {} });
+out.greetAgeZero = m.greeting();
+// the percent: the owner's numbers — 5 405 of 51 312 small files, 1 of 329 GB after 10 min (not «0 %»)
+const own = (at, files, bytes) => ({ result: 'running', started: 1000, plan: ['nc'], phase: 'share', share: 'nc', file: '/mnt/disk1/nc/f', share_files: 51312, share_bytes: 329e9,
+  share_done_files: files, share_done_bytes: bytes, done_files: files, done_bytes: bytes, file_bytes: 0, shares: [] });
+const early = m.runCardData({ ...own(0, 5405, 1e9), started: 2000 }, 2005);
+out.early = [early.percent, early.byTime, early.filesPct, early.bytesPct, m.percentText(early)];
+let d = null;
+for (let t = 30; t <= 600; t += 30) d = m.runCardData(own(t, Math.round(5405 * t / 600), 1e9 * t / 600), 1000 + t);
+out.owner = [d.percent, d.byTime, d.filesPct, d.bytesPct, m.percentText(d), d.left !== null];
+const card = m.runCard(own(600, 5405, 1e9), 1600);
+out.card = texts(card).filter((x) => / % /.test(x) || /^rc\.parts/.test(x));
+// big files only: files and bytes go together — one percent
+const big = m.runCardData({ ...own(0, 0, 0), share: 'big', plan: ['big'], share_files: 4, share_bytes: 4000, share_done_files: 1, share_done_bytes: 1000 }, 1002);
+out.big = [big.percent, m.percentText(big)];
+// an idle share unfolded / its chip: where it lies, without ⟦Secondary storage⟧
+out.idle = [m.idleText({ share: 'nextcloud_data', use: 'only', primary: 'ripley' }), m.idleText({ share: 'isos', use: 'no', primary: '' }), m.idleText({ share: 'x', use: 'only', primary: '' }),
+  m.idleText({ share: 'old' })];
+console.log(JSON.stringify(out));
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/moverelli/desk.js') . ' ' . escapeshellarg(testsRunHelpersJs($tmp)) . ' 2>&1');
+    $o = json_decode($raw, true);
+    check('page truth: ran under node', is_array($o), $raw);
+    $o = is_array($o) ? $o : [];
+    same('page truth: the bubble follows the share in flight — back from the array into ripley (all files: a prefer share\'s age 0), into the array (older than 30 days), on into a second pool, back from a pool, the oldest first (a fill rule), all but what stays (lists), older than 1 day; a share she doesn\'t know: «at work»', [
+        'bubble.run_back_from_array {"what":"bubble.what_all","share":"nextcloud_data","from":"array","to":"ripley"}',
+        'bubble.run_to_array {"what":"bubble.what_old {\"n\":30}","share":"Filme","from":"cache","to":"array"}',
+        'bubble.run_to_pool {"what":"bubble.what_all","share":"Fotos","from":"cache","to":"ripley"}',
+        'bubble.run_back_from_pool {"what":"bubble.what_all","share":"Back","from":"ripley","to":"cache"}',
+        'bubble.run_to_array {"what":"bubble.what_oldest","share":"Docs","from":"cache","to":"array"}',
+        'bubble.run_back_from_array {"what":"bubble.what_all_but","share":"Mails","from":"array","to":"cache"}',
+        'bubble.run_back_from_array {"what":"bubble.what_old {\"n\":1}","share":"Spiele","from":"array","to":"cache"}',
+        'bubble.running'], $o['bubble'] ?? null);
+    same('page truth: looking around, a dry run — «at work», no way named', ['bubble.running', 'bubble.running'], [$o['looking'] ?? null, $o['dry'] ?? null]);
+    same('page truth: no greeting while she works; «off to the array» (greet.1, greet.2) not with prefer shares only — the others stay; with an aged share into the array yes, with age 0 and no fill rule not',
+        ['', ['', '', 'greet.3'], 'greet.1', ''], [$o['greetRunning'] ?? null, $o['greetPreferOnly'] ?? null, $o['greetAged'] ?? null, $o['greetAgeZero'] ?? null]);
+    same('page truth: the time left not known yet — files and bytes both («10 % of the files · 0 % of the data», never a lone «0 %»), the bar as far as the files', [10, false, 10, 0, 'rc.parts {"files":10,"bytes":0}'],
+        array_slice($o['early'] ?? [], 0, 5));
+    $ow = $o['owner'] ?? [];
+    check('page truth: the owner\'s numbers after 10 min — the time left known, the percent the time done (files cost too): above the bytes\' 0 %, below the files\' 10 %, said as «N %»',
+        ($ow[5] ?? false) && ($ow[1] ?? false) && ($ow[0] ?? 0) >= 2 && ($ow[0] ?? 99) < 10 && ($ow[2] ?? null) === 10 && ($ow[3] ?? null) === 0 && ($ow[4] ?? '') === ($ow[0] ?? '') . ' %', json_encode($ow));
+    check('page truth: … the card\'s bar says it, never «0 %»', (bool) preg_grep('/^[1-9] % · rc\.rate_avg/', $o['card'] ?? []) && !preg_grep('/^0 % /', $o['card'] ?? []), json_encode($o['card'] ?? null));
+    same('page truth: big files — files and bytes alike: one percent', [25, '25 %'], $o['big'] ?? null);
+    same('page truth: an idle share says where it lies — pool only (its pool), array only, a pool unnamed (Smart Mover\'s cache), an older agent\'s row', [
+        'state_tip.none_pool {"share":"nextcloud_data","pool":"ripley"}', 'state_tip.none_array {"share":"isos"}', 'state_tip.none_pool {"share":"x","pool":"cache"}', 'state_tip.none {"share":"old"}'],
+        $o['idle'] ?? null);
+    unset($GLOBALS['moverelliHost']);
     hardeningRm($tmp);
 }
 
@@ -38576,7 +38731,7 @@ const s1 = m.runCardData({ result: 'running', started: 100, plan: ['s'], phase: 
 const s2 = m.runCardData({ result: 'running', started: 100, plan: ['s'], phase: 'share', share: 's', share_files: 0, share_bytes: 1000, share_done_bytes: 550, done_bytes: 550, shares: [] }, 300);
 out.smooth = [s1.left, s2.left];
 // the bar's words: «12 % · Ø … · about … left»; before the estimate «being estimated»; the end with its day
-out.bar = texts(m.runCard(own(17584, 53 * G), 1000 + 27 * 60 + 10)).filter((x) => /^12 %/.test(x));
+out.bar = texts(m.runCard(own(17584, 53 * G), 1000 + 27 * 60 + 10)).filter((x) => /^\d+ % · rc\.rate_avg/.test(x));
 out.barYoung = texts(m.runCard(youngP(10, 0.5 * G), 5040)).filter((x) => /^0 %|^\d+ %/.test(x));
 const at = (d, h) => new Date(2026, 9, d, h, 0).getTime() / 1000;
 out.end = [m.endText(at(18, 17), at(18, 14)), m.endText(at(19, 3), at(18, 22)), m.endText(at(21, 3), at(18, 22))];
@@ -38633,7 +38788,7 @@ JS);
     // s1: 500 B in 100 s → 100 s left; s2: 550 B in 200 s → 450 / 2.75 = 163.6 s; shown: 100 − 100 = 0 counted down, + 30 % of 163.6
     same('run picture: smoothed — the next estimate moves the shown one (counted down meanwhile) by 30 %', [100, round(0.3 * 450 / 2.75, 6)],
         [$j['smooth'][0] ?? null, isset($j['smooth'][1]) ? round($j['smooth'][1], 6) : null]);
-    check('run picture: the bar says the share\'s average «Ø … · about … left»', (bool) preg_grep('/^12 % · rc\.rate_avg \{"rate":"0 GiB"\} · rc\.left \{"left":\d+/', $j['bar'] ?? []), json_encode($j['bar'] ?? null));
+    check('run picture: the bar says the share\'s average «Ø … · about … left» (its percent: the time done)', (bool) preg_grep('/^\d+ % · rc\.rate_avg \{"rate":"0 GiB"\} · rc\.left \{"left":\d+/', $j['bar'] ?? []), json_encode($j['bar'] ?? null));
     check('run picture: … and before the estimate «being estimated»', (bool) preg_grep('/ · rc\.estimating$/', $j['barYoung'] ?? []), json_encode($j['barYoung'] ?? null));
     same('run picture: the end — today its time, tomorrow «tomorrow at», later its day', [true, true, true],
         [str_starts_with($j['end'][0] ?? '', 'rc.end {"time":'), str_starts_with($j['end'][1] ?? '', 'rc.end_tomorrow {"time":'), str_starts_with($j['end'][2] ?? '', 'rc.end_day {"day":"D')]);
@@ -39531,7 +39686,7 @@ globalThis.document = { createTextNode: (t) => t };
 globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { cron: (c) => 'C' + c, relative: (t) => 'R' + t, size: (b) => b + ' B', date: (t) => 'D' + t, duration: (s) => s + 's' },
   desk: () => {}, places: (id, p) => places.push(...p), placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => { n.dataset.place = k; return n; },
   go: () => {}, sectionHead: (title) => mk('h', 'section-head', title), errorText: (e) => 'err:' + e.key, fits: (w, hay) => w.every((x) => [].concat(hay).join(' ').toLowerCase().includes(x)),
-  pageHelp: () => mk('div', 'help'), withGreeting: (id, b) => b, desks: { get: () => ({ id: 'moverelli' }) },
+  pageHelp: () => mk('div', 'help'), withGreeting: (id, b) => b, greet: () => '', desks: { get: () => ({ id: 'moverelli' }) },
   deskHead: (d, o) => ({ head: mk('div', 'deskhead', o.pages ? 'tabs:' + o.pages.list.map((p) => p.id).join(',') + ':' + o.pages.current : 'notabs') }),
   pageFrom: (list, sub) => (String(sub || '').split('/')[0] === 'setup' ? 'setup' : ''),
   stat: (o) => ({ tag: o.on ? 'button' : 'div', o, children: [] }),
@@ -39706,7 +39861,7 @@ const mk = (tag, cls, text) => { const n = { tag, cls, text, textContent: text =
 globalThis.document = { createTextNode: (t) => t };
 globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { cron: (c) => 'C' + c, relative: (t) => 'R' + t, size: (b) => b + ' B' },
   desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {},
-  sectionHead: (title) => mk('h', 'section-head', title), errorText: (e) => 'err:' + e.key, pageHelp: () => mk('div', 'help'), withGreeting: (id, b) => b,
+  sectionHead: (title) => mk('h', 'section-head', title), errorText: (e) => 'err:' + e.key, pageHelp: () => mk('div', 'help'), withGreeting: (id, b) => b, greet: () => '',
   desks: { get: () => ({ id: 'moverelli' }) }, deskHead: () => ({ head: mk('div', 'deskhead') }), stat: (o) => ({ tag: 'button', o, children: [] }),
   sections: () => ({ el: mk('div', 'sections'), render() {}, mount: () => false }), selbar: () => null };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
@@ -42090,7 +42245,7 @@ JS;
 }
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
