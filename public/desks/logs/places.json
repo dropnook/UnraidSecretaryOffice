@@ -6,6 +6,7 @@
     "help.favorites",
     "help.grouped",
     "help.red",
+    "help.rules",
     "help.safe",
     "help.since",
     "help.source",
@@ -13,6 +14,7 @@
     "live",
     "only_problems",
     "reading",
+    "syslog.title",
     "tile.read",
     "tour",
     "varlog.title"
@@ -24,6 +26,7 @@
     "help.grouped_text",
     "help.live",
     "help.only",
+    "help.rules_text",
     "help.safe_text",
     "help.since_text",
     "help.source_text",

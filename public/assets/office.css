@@ -46,6 +46,15 @@
   --warn-soft:color-mix(in srgb, var(--orange-200, #ff9900) 15%, var(--mild-background-color));
   --on-fill:var(--white, #fff);
   --data:color-mix(in srgb, var(--text-color) 30%, var(--mild-background-color));
+  /* Ms. Protocolli's syslog categories (her syslog rules, public/desks/logs): one hue each, the rest from the tokens above */
+  --logs-cat-error:var(--danger);
+  --logs-cat-minor:var(--warn);
+  --logs-cat-drive:color-mix(in srgb, var(--blue-700, #0099ff) 75%, var(--text-color));
+  --logs-cat-fs:color-mix(in srgb, var(--blue-800, #486dba) 70%, var(--text-color));
+  --logs-cat-array:var(--accent);
+  --logs-cat-network:var(--good);
+  --logs-cat-login:color-mix(in srgb, var(--green-800, #4f8a10) 70%, var(--text-color));
+  --logs-cat-quiet:var(--muted);
   --shadow:none;
   --radius:4px;
   --mono:bitstream,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
