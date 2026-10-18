@@ -513,19 +513,27 @@ flow_rs_drill() {
     t0=$(_sc_now)
     _fl_ask restore.drill_start "$(jq -cn --arg s "$stamp" --arg t "$token" '{stamp: $s, token: $t}')" 300 >/dev/null
     rc=$?; ((rc == 0)) || { _fl_end $rc; return; }
-    _fl_note drill "$(ask_last '{id}')"
+    local id r
+    id=$(ask_last '.id // empty')
+    _fl_note drill "$(jq -cn --arg i "$id" '{id: $i}')"
     # atd starts it a moment later: until then drill_state says nothing runs (and would read as «done»)
     WAIT_SOFT=1 wait_for 120 "the drill to begin" _drill_begun "$t0" || say "RS-DRILL: no sign of the drill after 120 s"
-    wait_drill 7200 || return 1
-    local r
-    r=$(ask_last '.certificate.result // empty')
-    [[ $r =~ ^(ok|warning|not_checked)$ ]] || { say "RS-DRILL: certificate $r"; return 1; }
+    wait_drill 7200 >/dev/null || return 1
+    r=$(_drill_result "$id")
+    say "RS-DRILL $id: $r"
+    [[ $r == passed* ]] || return 1
 }
 flow_rs_drill_manual() { flow_rs_drill "$@"; }
 # the drill started at or after <t>: running now, or its certificate finished since
 _drill_begun() {
     php "$SC_DIR/ask.php" --wait 30 restore.drill_state '{}' 2>/dev/null |
-        jq -e --argjson t "$1" '.running != null or ((.certificate.finished // 0) >= $t)' >/dev/null
+        jq -e --argjson t "$1" '.running != null or ([.drills[]? | select((.started // 0) >= $t)] | length > 0)' >/dev/null
+}
+# _drill_result <id>: «passed|failed|aborted …» with the steps not checked and why (its journal)
+_drill_result() {
+    local j=$D/restore-drill/$1/journal.json
+    [[ -f $j ]] || { echo "no journal"; return 1; }
+    jq -r '"\(.result)\([.steps[]? | select(.state == "not_checked") | .code] | if length > 0 then " — not checked: " + (group_by(.) | map("\(.[0]) ×\(length)") | join(", ")) else "" end)\([.steps[]? | select(.state == "failed") | "\(.name) \(.code)"] | if length > 0 then " — failed: " + join(", ") else "" end)"' "$j"
 }
 
 # ============================================================================================================ Ms. Moverelli
@@ -614,8 +622,12 @@ flow_mv_stop_after_file() {
     rc=$?; ((rc == 0)) || { _fl_end $rc; return; }
     _fl_note "moverelli.stop" "$(ask_last '{stopping: (.state.stopping // null)}')"
     wait_moverelli 3600 || return 1
-    [[ $(jq -r '.why // empty' "$D/moverelli/office-stop.json" 2>/dev/null) == user || -n $(grep -l '"user"' "$D/moverelli/office-run.json" 2>/dev/null) ]] ||
-        say "MV-STOP-AFTER-FILE: no trace of the user's stop in her files (office-stop.json / office-run.json)"
+    # her history's newest row: stopped by the user (the file in flight finished, no further one begun)
+    ask moverelli.refresh '{}' 120 >/dev/null
+    local h
+    h=$(jq -c '.history[0] | {result, why, exit}' "$D/moverelli.json" 2>/dev/null)
+    say "MV-STOP-AFTER-FILE: her last run $h"
+    [[ $(jq -r '.result + "/" + (.why // "")' <<<"$h") == stopped/user ]] || return 1
 }
 flow_mv_night_stop() { flow_mv_stop_after_file "$@"; }
 # a file in flight: her live progress (moverelli.progress) names one
