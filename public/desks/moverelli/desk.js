@@ -1079,13 +1079,23 @@ function runningText() {
 
 // her greetings that say files go into the array (greet.1 «old files … off to the array», greet.2): only while none of her
 // runs goes and one of her shares really goes that way by age or fill — never beside a run into a pool (the bubble says
-// that run's way then: no greeting at all while she works)
+// that run's way then: no greeting at all while she works). 2026-10-18: greet.3 «it stays on the fast pool» only with a
+// share of hers on a pool, greet.5 «Jack Streamer! Hands off the pool» only while Jack Streamer works here. core.js
+// Office.greet picks only among those true now (her page and the reception's card alike)
 const GREET_TO_ARRAY = ['greet.1', 'greet.2'];
+const onPool = (x) => [x.from, x.to, x.primary].some((p) => typeof p === 'string' && p !== '' && p !== 'array');
+function greetOk(key) {
+  if (running() || nightGoing()) return false;
+  const shares = (state && state.shares) || [];
+  if (GREET_TO_ARRAY.includes(key)) return shares.some((x) => x.state === 'moves' && x.to === 'array' && (Number(x.min_age) > 0 || Number(x.threshold) > 0));
+  if (key === 'greet.3') return shares.some(onPool);
+  if (key === 'greet.5') return !!((Office.desks && Office.desks.get && Office.desks.get('jack')) || {}).hired;
+  return true;
+}
 function greeting() {
-  if (running() || nightGoing()) return '';
   const g = Office.greet(ID);
-  const toArray = ((state && state.shares) || []).some((x) => x.state === 'moves' && x.to === 'array' && (Number(x.min_age) > 0 || Number(x.threshold) > 0));
-  return GREET_TO_ARRAY.some((k) => g === T(k)) && !toArray ? '' : g;
+  const key = [1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => `greet.${i}`).find((k) => g === T(k));
+  return g && key && !greetOk(key) ? '' : g;
 }
 const withGreeting = (text) => { const g = greeting(); return g ? `${g} ${text}` : text; };
 
@@ -2702,6 +2712,7 @@ Office.desk({
   },
   unmount() { leftSetup(); view = null; clearTimeout(outTimer); clearTimeout(progTimer); progTimer = null; Office.selbar(null); },
   poll() { if (page === 'main') load(false); },
+  greetOk,
   agentChanged() { if (view) (page === 'setup' ? renderSetup() : render()); },
   menu() {
     const items = [{ text: T('menu.refresh'), act: () => load(true) }];
@@ -2758,7 +2769,7 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, onWayText, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
-    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, percentText, runningText, greeting, idleText, runEstimate, estModel, endText, shareGroups, shareRuleLines, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, ownRulesText, idleRules, fillSetupShares, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, picFlight, fileOnto, movedByPlace, movedAt, extraPlaces, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, setJackLive: (x) => { jackLive = x; }, jackPanel, jackAtWork, redrawCard, schedText, scheduleSection, historySection, footer, hints,
+    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, percentText, runningText, greeting, greetOk, idleText, runEstimate, estModel, endText, shareGroups, shareRuleLines, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, ownRulesText, idleRules, fillSetupShares, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, picFlight, fileOnto, movedByPlace, movedAt, extraPlaces, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, setJackLive: (x) => { jackLive = x; }, jackPanel, jackAtWork, redrawCard, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
     setForm: (f) => { form = f; }, initForm, levelMath, levelSection, levelLines, levelNight, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }

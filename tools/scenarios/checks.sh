@@ -67,6 +67,25 @@ bubble_facts() {
     _ck_cron_has backup && sched=true
     _setup_done || setup_run=true
     waiting=$(jq '[.. | objects | select(has("folder"))] | length' "$UB/state/new-local.json" 2>/dev/null || echo 0)
+    # and what the agent's backupWaiting() adds: new apps (a compose project or a single container, none of its containers
+    # in [docker] known; Kopia's own container left out - only once known lists any) and VMs without a [vm "<name>"] section
+    local ini=$UB/settings.ini known kopia_ct newapps=0 newvms=0
+    if [[ -f $ini ]]; then
+        known=$(_ini_flat "$ini" | sed -n 's/^docker|known=//p')
+        kopia_ct=$(_ini_flat "$ini" | sed -n 's/^kopia|container=//p' | head -1)
+        if [[ -n $known ]] && has docker; then
+            newapps=$(docker ps -a --format '{{.Names}}	{{.Label "com.docker.compose.project"}}' 2>/dev/null |
+                awk -F'	' -v k="$known" -v kc="$kopia_ct" 'BEGIN{n=split(k,a,"
+"); for(i=1;i<=n;i++) K[a[i]]=1}
+                    $1!="" && $1!=kc {app=($2!=""?$2:$1); if(!(app in seen)){seen[app]=1; new[app]=1} if($1 in K) new[app]=0}
+                    END{c=0; for(x in new) c+=new[x]; print c}')
+        fi
+        if has vm; then
+            newvms=$(virsh list --all --name 2>/dev/null | grep -v '^$' | while IFS= read -r v; do
+                _ini_flat "$ini" | grep -q "^vm|$v|" || echo "$v"; done | grep -c .)
+        fi
+    fi
+    waiting=$(( ${waiting:-0} + ${newapps:-0} + ${newvms:-0} ))
     [[ $(jq -r 'if .asleep == null then "no" else "yes" end' "$st" 2>/dev/null) == yes ]] && asleep_last=true
 
     # Mr. Restori: packages on the place (folders with a manifest), a restore job or a drill running
@@ -407,7 +426,7 @@ check_inv_stopped_keeps() {
         done < <(_ini_flat "$ini" | sed -n "s/^app|$n|\([^=]*\)=.*/\1=/p" | sort -u)
     done
     if grep -qix nextcloud <<<"$stopped"; then
-        jq -e '[.nextcloud[]? | select((.running // true) == false)] | length > 0' "$plan" >/dev/null ||
+        jq -e '[.nextcloud[]? | select(.running == false)] | length > 0' "$plan" >/dev/null ||
             bad+=("the plan doesn't list the stopped Nextcloud with running:false")
         if _ini_flat "$ini" | grep -q '^nextcloud|.*|preexisting_maintenance='; then
             jq -e '.P | keys | map(select(test("^nextcloud\\|.*\\|preexisting_maintenance$"))) | length > 0' "$plan" >/dev/null ||

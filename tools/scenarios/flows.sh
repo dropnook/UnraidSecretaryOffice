@@ -655,8 +655,9 @@ flow_mv_stop_after_file() {
     _fl_args "$@" || return 1
     local rc
     touch "$KEEP/.mv-touched"
+    local t0; t0=$(date +%s)
     ask moverelli.start_run '{"mode":"run"}' >/dev/null || return 1
-    wait_for 120 "a file on its way" _mv_moving || return 1
+    wait_for 120 "a file of this run on its way" _mv_moving "$t0" || return 1
     _fl_ask moverelli.stop '{}' >/dev/null
     rc=$?; ((rc == 0)) || { _fl_end $rc; return; }
     _fl_note "moverelli.stop" "$(ask_last '{stopping: (.state.stopping // null)}')"
@@ -670,9 +671,12 @@ flow_mv_stop_after_file() {
 }
 flow_mv_night_stop() { flow_mv_stop_after_file "$@"; }
 # a file in flight: her live progress (moverelli.progress) names one
+# [since]: only a run started then or later (the previous run's last progress still names its file the moment the new
+# run's pid exists - batch A, 2026-10-18)
 _mv_moving() {
     _mv_at_work || return 1
-    php "$SC_DIR/ask.php" --wait 20 --raw moverelli.progress '{}' 2>/dev/null | jq -e '.state.progress.file // empty' >/dev/null
+    php "$SC_DIR/ask.php" --wait 20 --raw moverelli.progress '{}' 2>/dev/null |
+        jq -e --argjson t "${1:-0}" '.state.progress | select((.started // 0) >= $t) | .file // empty' >/dev/null
 }
 
 # MV-SCHEDULE cron=…|cron=: her schedule dialog (desk.js ~1779 schedule {cron})

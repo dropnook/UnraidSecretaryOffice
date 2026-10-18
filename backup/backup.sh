@@ -4,6 +4,11 @@
 #   2.62 Nextcloud refusing to work because its data folder is readable by others (Unraid resets a share's root to
 #        0777 nobody:users when any share is added or saved) no longer fails the run: backed up without the
 #        maintenance mode (stopped with the apps), a warning nc_datadir_readable with the folder and the lasting fix
+#   2.61 An app's package inside never goes into a database's data folder (an app folder bound as /var/lib/mysql,
+#        /var/lib/mariadb or /var/lib/postgresql/data, or holding ibdata1, aria_log_control, mysql.ibd or PG_VERSION at
+#        its top: MariaDB listed .uso-backup there as a database «#mysql50#.uso-backup» and its dump failed every run
+#        from the second on) - one log line, no warning; a .uso-backup an earlier run wrote there is moved away once
+#        into state/inside-aside/<run>/ (2.57); the MariaDB dump leaves out the engine's own folder (#mysql50#.uso-backup)
 #   2.60 No change here (the engine's version: setup.sh keeps what is stored for a stopped Nextcloud, database or VM)
 #   2.59 No change here (the engine's version: setup.sh --orphans offers the old sources of units no longer offsite)
 #   2.58 No change here (the engine's version: setup.sh's OK and error lines as codes)
@@ -1269,6 +1274,11 @@ dump_mariadb() { # dump_mariadb <container>
     # SQL quote below (/ ' \ - the batch mode writes a tab or newline as \t \n) is said, never dumped
     while IFS= read -r -u 3 db; do
         [[ -n "$db" ]] || continue
+        # (2.61) the engine's own folder an earlier run wrote into the data folder (MariaDB lists every folder there as a
+        # database) is no database - left out; this run moves it away (pkg_inside_app)
+        if [[ "$db" == "#mysql50#$UB_INSIDE_DIR" || "$db" == "#mysql50#$UB_INSIDE_DIR.new-"* ]]; then
+            log "  MariaDB '$c': $db is the backup engine's own folder in the data folder, no database - not dumped"; continue
+        fi
         if [[ "$db" == */* || "$db" == *\'* || "$db" == *\\* ]]; then
             err "Dump $c/$db: a database name with / ' or \\ - not dumped (rename it, or dump it yourself)"; rc=1; continue
         fi
@@ -2159,12 +2169,37 @@ inside_leftover_roots() {
     return 0
 }
 
-# pkg_inside_app <folder> <stage dir>  - an app: its folders (app_own_dirs) inside the app configurations' place
+# app_db_datadir <package folder> <pool path>  -> (2.61) 0 when the folder is a database's data folder: a container of the
+# app binds exactly it as MariaDB's/MySQL's or Postgres's data folder (the official images' paths), or it holds their
+# marks at its top (ibdata1, aria_log_control, mysql.ibd; PG_VERSION). A .uso-backup there is no app folder's: MariaDB
+# lists every folder of its data folder as a database (#mysql50#.uso-backup - its dump fails), and Postgres's PGDATA is
+# no place for foreign files either. Printed: why, for the log line
+app_db_datadir() {
+    local f="$1" dir="${2%/}" c src dst x
+    while IFS= read -r c; do
+        [[ -n "$c" ]] || continue
+        while IFS='|' read -r src dst _; do
+            [[ -n "$src" ]] || continue
+            case "${dst%/}" in /var/lib/mysql|/var/lib/mariadb|/var/lib/postgresql/data) ;; *) continue ;; esac
+            [[ "$(ub_pool_path "$src")" == "$dir" ]] && { printf '%s\n' "container '$c' binds it as ${dst%/}"; return 0; }
+        done <<<"${CT_BINDS[$c]:-}"
+    done <<<"${PKG_APP_MEMBERS[$f]:-}"
+    for x in ibdata1 aria_log_control mysql.ibd PG_VERSION; do
+        [[ -f "$dir/$x" && ! -L "$dir/$x" ]] && { printf '%s\n' "it holds $x"; return 0; }
+    done
+    return 1
+}
+
+# pkg_inside_app <folder> <stage dir>  - an app: its folders (app_own_dirs) inside the app configurations' place, never
+# a database's data folder (2.61)
 pkg_inside_app() {
-    local f="$1" src="$2" dir n="${PKG_APP_NAME[$1]}"
+    local f="$1" src="$2" dir n="${PKG_APP_NAME[$1]}" why
     while IFS= read -r dir; do
         [[ -n "$dir" ]] || continue
-        if app_cfg_place "$dir"; then
+        if app_cfg_place "$dir" && why="$(app_db_datadir "$f" "$dir")"; then
+            log "  app '$n': $dir is a database's data folder ($why) - $UB_INSIDE_DIR not written there"
+            inside_leftover "app '$n'" "$dir"
+        elif app_cfg_place "$dir"; then
             pkg_inside app "$n" "$src" "$dir"
         else
             log "  app '$n': $dir is a share's data, not the app's folder - $UB_INSIDE_DIR not written"

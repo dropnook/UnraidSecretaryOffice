@@ -2864,16 +2864,21 @@ Office.reportDialog = function reportDialog(deskId) {
 
 /**
  * A desk's greeting: one of its lang keys greet.1, greet.2, … picked at random,
- * the same one until the page changes. '' if the desk has none.
+ * the same one until the page changes. '' if the desk has none. Only a greeting
+ * that is true now (2026-10-18): a desk's greetOk('greet.N') === false leaves it
+ * out (Ms. Dustdevil's «a container without a picture?» only when one has none) —
+ * the desk page and the reception's card alike; the random draw is kept, so the
+ * pick changes only when what is true changes.
  */
 const greetings = new Map();
 Office.greet = function greet(id) {
-  if (!greetings.has(id)) {
-    const all = [];
-    for (let i = 1; Office.has(`${id}.greet.${i}`); i++) all.push(t(`${id}.greet.${i}`));
-    greetings.set(id, all.length ? all[Math.floor(Math.random() * all.length)] : '');
+  if (!greetings.has(id)) greetings.set(id, Math.random());
+  const ok = (Office.desks.get(id) || {}).greetOk;
+  const all = [];
+  for (let i = 1; Office.has(`${id}.greet.${i}`); i++) {
+    if (typeof ok !== 'function' || ok(`greet.${i}`) !== false) all.push(t(`${id}.greet.${i}`));
   }
-  return greetings.get(id);
+  return all.length ? all[Math.floor(greetings.get(id) * all.length)] : '';
 };
 /** "Greeting. Text" — for bubbles */
 Office.withGreeting = (id, text) => {

@@ -166,7 +166,9 @@ agent_wait() {
     return 1
 }
 agent_stop() { bash "$P/scripts/agent.sh" stop >/dev/null; }
-agent_start() { bash "$P/scripts/agent.sh" start >/dev/null && agent_wait 90; }
+# the agent started with no descriptor above 2 (a caller's `flock <lock>` without -o would hand it the Tower lock for its
+# whole life - seen on Tower 2026-10-18 22:30)
+agent_start() { (cd / && exec bash -c 'for f in /proc/$$/fd/*; do f=${f##*/}; ((f > 2)) && eval "exec $f>&-"; done 2>/dev/null; exec bash "$1" start' _ "$P/scripts/agent.sh" </dev/null >/dev/null) && agent_wait 90; }
 
 # ------------------------------------------------------------------------------- steps 2 and 4 (run here or before --make)
 # aside_in <share root> <path inside it>: moved to <root>/.uso-base-aside/<stamp>/~<path with / as %>~ (the same

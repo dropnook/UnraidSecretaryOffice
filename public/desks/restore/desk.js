@@ -272,6 +272,10 @@ function protectionOf(folders) {
 }
 
 // ------------------------------------------------------------------ bubble
+// greet.2 «Which state do you want? I'll bring it back as it was.» only with packages to bring back (2026-10-18: a bubble
+// is true right now — never on a server without a backup yet)
+const greetOk = (key) => key !== 'greet.2' || apps().length + vms().length > 0;
+
 function bubbleText() {
   if (!state) return T('bubble.loading');
   const e = engine();
@@ -2399,6 +2403,7 @@ Office.desk({
   poll() { load(false); },
   // every answer carries the agent's info: draw anew only when it comes or goes (the buttons depend on it) — not on
   // each answer, which would fold what is open (earlier nights asked for when a fold opens)
+  greetOk,
   agentChanged() {
     const running = !!Office.agent.running;
     if (view && running !== agentWas) render();
@@ -2455,7 +2460,7 @@ Office.placesFrom(ID, (s, part) => {
 
 // tests/run.php runs the databases tile's logic and the preview's sizes under node
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.restore = { setState: (s) => { state = s; }, dbGroups, dbName, dbRequest, earlierOf, tileLine, sizesDone,
+  globalThis.OFFICE_DESK_TESTS.restore = { setState: (s) => { state = s; }, greetOk, dbGroups, dbName, dbRequest, earlierOf, tileLine, sizesDone,
     setJob: (j) => { job = j; }, runCardData, runCard, shortStep, liveJob, runCardShort, bubbleText };
 }
 })();

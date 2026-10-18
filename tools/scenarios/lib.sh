@@ -825,7 +825,8 @@ snap_after() {
 
 # The office's own folders inside a share (left out of an inventory: INV-LEFTOVER looks at them)
 _INV_PRUNE=(-name .uso-backup -o -name '.uso-backup.new-*' -o -name '.uso-drill-*' -o -name .UnraidSecretaryOffice-trash
-    -o -name '*.aside-*' -o -name '*.restored-*' -o -name '*.putback-*' -o -name .btrfs-snap -o -name .zfs)
+    -o -name '*.aside-*' -o -name '*.restored-*' -o -name '*.putback-*' -o -name .btrfs-snap -o -name .zfs
+    -o -name .uso-base-aside)   # base.sh's asides: a pool's and a disk's may hold the same names (batch A: INV-COUNTS)
 
 # inventory <share>…: one line per file of the share on every awake disk and pool — rel-path, size, mtime, inode, place
 # — read on the disk or pool itself (never through /mnt/user: no look at a disk that sleeps); a base asleep: `#asleep`

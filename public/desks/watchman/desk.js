@@ -224,6 +224,10 @@ function renderAt(...selectors) {
 }
 
 // ------------------------------------------------------------------ rendering
+// greet.1 «Evening.» only in the evening and the night (17:00–05:59 on the reader's clock — 2026-10-18: a bubble is true
+// right now); the others are his round's, said at any hour
+const greetOk = (key, hour = new Date().getHours()) => key !== 'greet.1' || hour >= 17 || hour < 6;
+
 function bubbleText() {
   if (!state) return T('bubble.loading');
   if (running()) return T('bubble.touring');
@@ -1927,6 +1931,7 @@ Office.desk({
   unmount() { clearTimeout(timer); view = null; bookRows = []; watchGroups = []; wanted = null; },
   poll() { if (!running()) load(false); },
   started() { if (hired() && !state) load(false); },      // his picture shows the mark on every page
+  greetOk: (key) => greetOk(key),
   agentChanged() { if (view) render(); },
   menu() {
     return [
@@ -1993,7 +1998,7 @@ Office.placesFrom(ID, (s) => {
 });
 
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.watchman = { setState: (s) => { state = s; }, bookView, entryArea, foldKind, plainWords, entryHay, foldName,
+  globalThis.OFFICE_DESK_TESTS.watchman = { setState: (s) => { state = s; }, greetOk, bookView, entryArea, foldKind, plainWords, entryHay, foldName,
     groupFit, fitTally, groupOpen, watchSection, srcFrom, srcNone };
 }
 })();
