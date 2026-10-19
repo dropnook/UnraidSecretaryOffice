@@ -68,7 +68,9 @@ for f in "${ELEVEN[@]}"; do
     r=$(find "/mnt/cache/$S" -maxdepth 1 -name "$(printf '%s' "$f" | sed 's/[][*?\\]/\\&/g').restored-*" 2>/dev/null | head -1)
     [[ -n $r && $(md5sum <"$r") == "${SUM[$f]}" ]] || bad+=" «$f»"
 done
-[[ -z $bad ]] && cell beside 1 "the 11 names back beside, the same bytes" || cell beside 0 "not back (or other bytes) beside:$bad"
+offered=$(jq -r '.target.items // [] | length' "$KEEP/rs-preview.json" 2>/dev/null)
+[[ -z $bad ]] && cell beside 1 "the 11 names back beside, the same bytes" \
+    || cell beside 0 "not back (or other bytes) beside:$bad — his plan took $offered of the 11 ticked (a name with a control character is left out of the share's entries, unsaid)"
 # the copies beside go (the user deletes them) before the swap — else they'd be entries of the share too
 find "/mnt/cache/$S" -maxdepth 1 -name '*.restored-*' -exec rm -rf {} +
 # 2. replace: one deleted, one changed — both as in the moment, the live one aside
