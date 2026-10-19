@@ -224,3 +224,103 @@ app_gone without an [app] section (the Apply list says it); a gone app's package
 its image is gone too (backup-gone.php); the drill needs an image only for a dump; RS-VM defines a gone VM and leaves a
 disk that is still there alone (after.vm_disks names its moment); his files restore takes the share Nextcloud binds whole.
 The whole batch: ~50 min of scenarios plus a base reset (~3 min) on a shared Tower.
+
+## Batch C — shares (wave 2)
+
+Scratch shares `uso-wip-c-…` (SH-NAMES: `uso-wip-c Ärger 's`, `uso-wip-c Fotos Ärger`), scratch apps `uso-wip-c-…app`
+(alpine, `sleep`). Mr. Restori restores only what an app or VM binds (`rsUnitOwner()`), so every restore cell binds its
+folder with a scratch app. A scenario that sets Mr. Backupsy's settings (Apply of its scratch share) keeps a copy of
+settings.ini and puts it back in its undo, and destroys its scratch datasets' engine snapshots before Unraid removes
+the share (Unraid can't delete a ZFS share with snapshots). Notes found while building them: two backup runs inside
+one flow end ≥ 61 s apart (INV-NOTIFY-ONCE reads one subject twice within 60 s as one event); a file a flow moved goes
+with the share's undo (`files_gone`, never a red undo); the drill picks one share a day (sorted, day number modulo
+their count) — R1 and R15 add empty pad shares `uso-wip-c-a<n>`/`-z<n>` until today's pick is theirs.
+
+| Cell | Scenario | Verdict on 1.66.8 / engine 2.64 (Tower, final run 2026-10-19 19:43) | Time on Tower | Run |
+|---|---|---|---|---|
+| B9 | `backup-sh-renamed-run` | green | 5.5 min | pre-release |
+| B10 | `backup-sh-names-run` | red: INV-FILES only (helper `task/scenarios-helper-files-escape`) — its cells green | 3 min | pre-release |
+| B29 | `backup-sh-array-xfs-replan-run` | red: `run-says-vm` (new_vm claims a snapshot for a VM disk on xfs) | 4 min | pre-release |
+| B30 | `backup-sh-exclusive-run` | green | 3 min | pre-release |
+| B31 | `backup-sh-100k-run` | green (replan 5 s, run 30 s, Kopia 100 000 files) | 9 min | nightly |
+| M4 | `moverelli-sh-names-run` | red: `trailing-space-folder` + INV-LEFTOVER (yes direction), INV-PAGE (run card lags), INV-FILES (helper) | 45 s | pre-release |
+| M5 | `moverelli-sh-open-file-run` | green | 20 s | pre-release |
+| M9 | `moverelli-sh-storeroom-run` | red: `dustdevil-finds` (the storeroom on the array is lost to her) | 20 s | pre-release |
+| M12 | `moverelli-sh-pool2-run` | needs pool2 (skipped) | — | pre-release |
+| M13 | `moverelli-sh-asleep-disk1-run` | needs hdd (skipped) | — | pre-release |
+| M14 | `moverelli-sh-100k-run` | green cells (list 2 s, dry 7 s, run 40 min at ~42 files/s); INV-AGENT red: another worker's dev-sync restarted the agent | 48 min | nightly |
+| M16 | `moverelli-sh-renamed-setup-run` | red: `renamed-said` (her reason for the binary's «No medium found»), INV-REPLAN (a cfg-only share in Mr. Backupsy's plan) | 30 s | pre-release |
+| R1 | `restore-sh-names-files` | red: `long-name` (a 255-byte name can't be restored), `beside` (a name with a tab silently left out), INV-FILES (helper) | 2.5 min | pre-release |
+| R2 | `restore-sh-open-file-replace` | red: `asks-open` (a file held open by a process: no word) | 4 min | pre-release |
+| R8 | `restore-sh-renamed-files` | green | 4.5 min | pre-release |
+| R15 | `restore-sh-exclusive-replace` | green | 4 min | pre-release |
+| R16 | `restore-sh-multi-disk-files` | green | 2.5 min | pre-release |
+
+Times are the scenario alone on Tower; each needs a base reset before it (~27 s), and an older release adds its install.
+The whole batch takes ~10 min on the release (~25 min on the older ones).
+
+**Page-only fixes** (B5, M2, M3): the agent's state is the same before and after the fix, so the older release's red
+comes from its page. run.sh's Mac-side step draws every page of a scenario that installed an older release (state
+IN-DOWNGRADE <tag>: `SOURCE=` of its `state-in-downgrade.env`) with that tag's page — `page.mjs --tree <tag>` (`git
+archive <tag> public src tests/ui` once into `$TMPDIR/uso-page-tree/<commit>/`, today's harness beside it); the
+report's «Mac-side checks» names the tag. `USO_PAGE_TREE=<tag>` sets it for a whole run (empty: this tree's page). The
+Mac needs the tags (`git fetch --tags`).
+- B5 `no-create-share`, M2 `remove-rules`: `queue_mac <cell> page_text --open …` — `--open` opens every `<details>` and
+  folded row (`.row.unfolds`) before the text is read (the guide and the share row are folded).
+- M3 `card-left`: a page-value check. Her progress read every 3 s during the run, each reading with the seconds the
+  share really still took (`expect`), is replayed into the drawn page (`queue_mac card-left page_value --factor 3
+  --slack 30 moverelli <look> en <replay.jsonl> "moverelli.rc.left:left moverelli.rc.left_range:lo..hi"`): page.mjs
+  `--replay` runs the page's own clock to each reading, the part «progress» answered with it, and reads the time left
+  off her run card (`--value <key>:<placeholder>`, a duration in the language's own words). `eta-honest` stays the
+  server's cross-check on this tree's code (info on an older release).
+- `queue_mac <id> page_value [--factor f] [--slack s] <route> <states> <langs> <readings|-> "<key>:<ph>[..<ph2>][=<n>] …"`
+  also reads one value off a static page (`=<n>`: the server's number, e.g. a count on a tile).
+
+The red-before check is automatic now (Tower, 2026-10-19, reports `scenarios/2026-10-19/tower-scenarios-helpers*`):
+each page-only cell red on its older release, green on main — the same as the by-hand table of 2026-10-18. Run a
+scenario and its older release in two runs (one name per run: the second wipes the first's evidence before the
+Mac-side step).
+
+**MV-STOP-AFTER-FILE share=<share>** waits for a file of that share in flight (her plan may take other shares
+first: up to 5 min); M1-stop uses it. **SH-PREFER-ARRAY-FILES** puts its files in a folder per disk
+(`sh-paf-d1` on disk1, `sh-paf-d2` on disk2 — the same path on two disks would be duplicates Unraid never moves); its
+undo takes them from wherever a run put them; M1-run uses it again.
+**INV-TICK** (checks.sh overrides lib.sh's): the gaps between the pulses the sampler saw, and at the end the
+heartbeat's age right now — lib.sh took «now − the last pulse the sampler saw», but the sampler stops at snap_after and
+the checks before INV-TICK take seconds (B5 and M1-stop: 26/28 s = a pulse 20 s before snap_after + 6/8 s of checks,
+the agent fine).
+
+## Batch C — shares (wave 2)
+
+Scratch shares `uso-wip-c-…` (SH-NAMES: `uso-wip-c Ärger 's`, `uso-wip-c Fotos Ärger`), scratch apps `uso-wip-c-…app`
+(alpine, `sleep`). Mr. Restori restores only what an app or VM binds (`rsUnitOwner()`), so every restore cell binds its
+folder with a scratch app. A scenario that sets Mr. Backupsy's settings (Apply of its scratch share) keeps a copy of
+settings.ini and puts it back in its undo, and destroys its scratch datasets' engine snapshots before Unraid removes
+the share (Unraid can't delete a ZFS share with snapshots). Notes found while building them: two backup runs inside
+one flow end ≥ 61 s apart (INV-NOTIFY-ONCE reads one subject twice within 60 s as one event); a file a flow moved goes
+with the share's undo (`files_gone`, never a red undo); the drill picks one share a day (sorted, day number modulo
+their count) — R1 and R15 add empty pad shares `uso-wip-c-a<n>`/`-z<n>` until today's pick is theirs.
+
+| Cell | Scenario | Verdict on 1.66.8 (Tower) | Time on Tower | Run |
+|---|---|---|---|---|
+| B9 | `backup-sh-renamed-run` | green | ~4 min | pre-release |
+| B10 | `backup-sh-names-run` | red: INV-FILES only (helper: `task/scenarios-helper-files-escape`) — its cells green | ~2.5 min | pre-release |
+| B29 | `backup-sh-array-xfs-replan-run` | red: `run-says-vm` (new_vm claims a snapshot for a disk on xfs) | ~2–4 min | pre-release |
+| B30 | `backup-sh-exclusive-run` | green | ~4 min | pre-release |
+| B31 | `backup-sh-100k-run` | see below | — | nightly |
+| M4 | `moverelli-sh-names-run` | red: `trailing-space-folder` + INV-LEFTOVER (yes direction), INV-PAGE (run card lags), INV-FILES (helper) | ~1.5 min | pre-release |
+| M5 | `moverelli-sh-open-file-run` | green | ~1 min | pre-release |
+| M9 | `moverelli-sh-storeroom-run` | red: `dustdevil-finds` (the storeroom on the array is lost to her) | ~1 min | pre-release |
+| M12 | `moverelli-sh-pool2-run` | needs pool2 (skipped) | — | pre-release |
+| M13 | `moverelli-sh-asleep-disk1-run` | needs hdd (skipped) | — | pre-release |
+| M14 | `moverelli-sh-100k-run` | see below | — | nightly |
+| M16 | `moverelli-sh-renamed-setup-run` | red: `renamed-said` (wrong reason for the binary's «No medium found»), INV-REPLAN (a cfg-only share in Mr. Backupsy's plan) | ~1.5 min | pre-release |
+| R1 | `restore-sh-names-files` | red: `long-name` (a 255-byte name can't be restored), INV-FILES (helper) | ~5 min | pre-release |
+| R2 | `restore-sh-open-file-replace` | red: `asks-open` (a file held open by a process: no word) | ~3.5 min | pre-release |
+| R8 | `restore-sh-renamed-files` | green | ~2.5 min | pre-release |
+| R15 | `restore-sh-exclusive-replace` | green | ~3 min | pre-release |
+| R16 | `restore-sh-multi-disk-files` | green (cells; run 4's undo fixed since) | ~4.5 min | pre-release |
+
+Times are the scenario alone (each also waits for Tower's lock and needs a base reset before it, ~1–2 min); the whole
+batch took 117 min (pre-release part ~45 min). Each red
+row is a finding with its cause in the batch's report to the coordinator; reds stay red until their fix.
