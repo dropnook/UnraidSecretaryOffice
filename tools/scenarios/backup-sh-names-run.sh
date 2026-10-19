@@ -21,6 +21,10 @@ flow BK-APPLY "share|$S|mode=kopia" "share|$S|kopia_ignore=[\"/it's here.mkv\",\
     || _row state prepare red "Apply of «$S» as local + Kopia failed: $(ask_last '.error // empty')"
 ig=$(_ini_flat "$UB/settings.ini" | grep -F "share|$S|kopia_ignore=" | paste -sd'|')
 say "settings.ini: ${ig:-no kopia_ignore for the share}"
+# On the page a share set to Kopia takes the backup place along in the same Apply (desk.js setupDerive(): «the backup
+# place followed it to Kopia», the place_not_kopia words) — decisions_from_plan changes only the keys it is given, so
+# the next look lists share|UnraidSecretaryOffice|mode. Not sent here: it would upload the whole backup place to Tower's Kopia.
+expect_changes "share|UnraidSecretaryOffice|mode"     # derived by the page (desk.js setupDerive()), not by the flow's body
 track_share "$S"
 snap_before
 flow BK-RUN-MANUAL mode=backup

@@ -25,6 +25,9 @@ mkdir -p "$KEEP_STASH/C-R16-INI" && cp -p "$UB/settings.ini" "$KEEP_STASH/C-R16-
 undo_push bash -c 'mv -f "$1/settings.ini" "$2" && rmdir "$1"' _ "$KEEP_STASH/C-R16-INI" "$UB/settings.ini"
 nc_data_closed
 share_use C-R16 "$S" yes cache && share_apply "$S" shareInclude=disk2 || _row state share red "$S could not be made"
+# «Add Share» of a yes share leaves an empty root on disk1 (STATES.md day-1 finding 1) — on xfs that would make the whole
+# share «live» (no snapshot); disk1 is excluded now, so its empty root goes (rmdir: only an empty one)
+rmdir "/mnt/disk1/$S" 2>/dev/null
 put_files C-R16 cache "$S/serie1" 3 --size 64K --name p.bin && put_files C-R16 disk2 "$S/serie1" 3 --size 64K --name d.bin \
     || _row state files red "serie1/ could not be written on both parts"
 undo_push share_unuse C-R16
