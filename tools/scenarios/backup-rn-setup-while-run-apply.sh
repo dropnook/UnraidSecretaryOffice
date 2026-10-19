@@ -1,0 +1,37 @@
+#!/bin/bash
+# Cell B45 of matrix.md, its first state: Apply (and «Look at the server again») while a backup run holds the engine's
+# lock (RN-SETUP-WHILE-RUN: the cron's run). Both are refused with backup_running and nothing is written — settings.ini
+# byte for byte as before (INV-SETTINGS). The page keeps the user's draft in the browser (setupDraftKeep) — not
+# visible from the server. After the run the same Apply goes through: exactly the one change (INV-DIFF-EXACT), put back
+# in the undo. Pre-release (~3 min).
+. "$(dirname "$0")/lib.sh"
+scenario_begin backup-rn-setup-while-run-apply
+needs tower docker
+cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
+nc_data_closed
+# the engine's own bookkeeping first: an Apply also writes the shares' ids anew (share|<name>|id — a dataset made again
+# by an earlier scenario has a new one); an Apply without a change settles them, so the cell's diff is its one key
+flow BK-APPLY
+plan=$KEEP/plan-old.json
+_bk_plan_get "$plan" || _row state plan red "no plan from backup.setup_get"
+was=$(_ini_flat "$UB/settings.ini" | sed -n 's/^general|min_free_gb=//p'); was=${was:-8}
+to=$((was + 1))   # one key, one line: the room kept free in the backup place (a share's mode would also write its method);
+# the value as the page sends it — a string (plan-changes.mjs reads key=value as JSON: "9", not 9)
+md0=$(md5sum <"$UB/settings.ini")
+state RN-SETUP-WHILE-RUN
+snap_before
+ask backup.setup_apply "$(decisions_from_plan "$plan" "general|min_free_gb=\"$to\"")" 120 >/dev/null
+expect_err backup_running
+ask backup.setup_plan '{"measure":false}' 120 >/dev/null
+expect_err backup_running
+[[ $(md5sum <"$UB/settings.ini") == "$md0" ]] && cell nothing-written 1 "settings.ini unchanged while the run held the lock" \
+    || cell nothing-written 0 "settings.ini changed although Apply was refused"
+second_run_wait RN-SETUP-WHILE-RUN 1800
+wait_backup 1800
+# after the run: the same Apply on a fresh look goes through
+undo_push flow BK-APPLY "general|min_free_gb=\"$was\""
+expect_diff "general|min_free_gb: $was→$to"
+
+flow BK-APPLY "general|min_free_gb=\"$to\""
+check standard
+scenario_end

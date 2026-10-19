@@ -292,3 +292,85 @@ undo takes them from wherever a run put them; M1-run uses it again.
 heartbeat's age right now — lib.sh took «now − the last pulse the sampler saw», but the sampler stops at snap_after and
 the checks before INV-TICK take seconds (B5 and M1-stop: 26/28 s = a pulse 20 s before snap_after + 6/8 s of checks,
 the agent fine).
+
+## Batch D — interruptions and full (USOTest4)
+
+Array stops, power cuts and reboots in the middle of a run, two runs at once, a full pool, atd off. Run on
+**USOTest4** (192.168.7.193, Unraid 7.3.3, Tower's twin — `run.sh test4`), the only worker there: its reboots and
+resets disturb nobody. Reboot cells are two halves (`<name>-pre.sh` / `-post.sh`, the runner reboots or the pre half's
+power cut does): a power cut is `sysrq b` after a sync, armed by the pre half and fired once its report is written
+(a detached starter clicks the button 3 s after the pre half's result, RN-HARD-RESET-MIDRUN's watcher cuts the power
+when the run is at work), so the runner has the report before the server goes. The pre half notes what must come back
+(OF-REBOOT, `<name>.reboot`, `<name>.prenotes`); the post half compares (OF-REBOOT-BACK) and undoes what the pre half
+made. Unraid's own parity check after an unclean stop is cancelled in the post half (its history line put back).
+
+What the base lacks and the cells add: **Docker's autostart** for the demo set (CT-AUTOSTART, helper branch
+`task/scenarios-helper-ct-autostart` — the array-stop and reboot cells skip until it merges: without it nothing comes
+back after an array stop, the databases stay down); Nextcloud's data folder closed again after an array start (Unraid's
+array start opens an exclusive share's root to 0777 unless its group is users — the cells about something else close it,
+B11/B12 are about it); Nextcloud's maintenance mode switched off in the undo (base.sh doesn't). Unraid's array start
+queues an at job of its own (`sleep 10; reload_services`): the cells wait for it before INV-LEFTOVER looks at atd's
+queue. R9 needs `task/scenarios-helper-rs-measuring` (the restore flow waits for the measured sizes, as the dialog's
+«Restore» does) and skips without it. After a power cut INV-BUBBLE needs `task/scenarios-helper-bubble-interrupted`
+(the bubble facts read a status.json left «running» by the killed run as failed, as the office does — the «didn't
+finish» bubble is right). One reboot cell per run.sh call: a later reboot clears /tmp/uso-keep, and the runner's
+Mac-side page checks of the earlier one find no state files; a pre half makes no page look of its own for the same
+reason (R4's pre halves back up through the cron's job, not «Back up now»).
+
+| Cell | Scenario | Verdict on 1.66.8 (USOTest4) | Time on USOTest4 | Run |
+|---|---|---|---|---|
+| B11 | `backup-rn-hard-reset-midrun-run` (`-pre`/`-post`; `:users`) | **red** F2 (green with `:users`) | ~8 min (a reboot) | nightly |
+| B12 | `backup-rn-array-stop-midrun-bk-run` (`:users`) | **red** F2 (cells green with `:users`) | 8 min (`:users` 2 min) | pre-release |
+| B13 | `backup-dk-pool-full-run` | **red** F1 | 1.5 min | pre-release |
+| B20 | `backup-rn-two-runs-run` | green | 3 min | pre-release |
+| B45 | `backup-rn-setup-while-run-apply`, `backup-rn-plan-old-apply`, `backup-rn-agent-restart-midrequest-replan`, `-apply` | green | 45 s, 20 s, 70 s, 40 s | pre-release |
+| B46 | `backup-sv-atd-off-run-apply` | **red** F3 | 2 min | pre-release |
+| B48 | `backup-rn-abort-nc-maint-run` | green | 2 min | pre-release |
+| R3 | `restore-rn-changes-between-putback` | green | 1 min | pre-release |
+| R4 | `restore-rn-hard-reset-midrun-files`, `-drill` (halves) | files **red** F10, F5; drill green | ~5 min each (a reboot) | nightly |
+| R5 | `restore-rn-array-stop-midrun-rs-files`, `-drill-drill` | **red** F5, F4 (a race: red in 3 of 5 runs) | 2.5 min each | pre-release |
+| R9 | `restore-dk-pool-full-files-drill` | green (needs `task/scenarios-helper-rs-measuring`) | 2 min | pre-release |
+| R20 | `restore-rn-two-runs-files-drill`, `restore-rn-parity-check-drill` | green | 4 min, 1 min | pre-release |
+| M6 | `moverelli-rn-array-stop-midrun-mv-run`; `moverelli-rn-hard-reset-midrun-run` (halves) | **red** F8; power cut **red** F11 | 2.5 min; ~5 min (a reboot) | pre-release; nightly |
+| M8 | `moverelli-dk-pool-full-run-sched` | cells green (INV-PAGE F7 when a run moved nothing) | 20 s | pre-release |
+| M11 | `moverelli-rn-unraid-mover-running-run` | green | 40 s | pre-release |
+| M27 | `moverelli-rn-two-runs-run` (a), `moverelli-rn-two-runs-sched` (b) | green | 30 s, 2 min | pre-release |
+| O3 | `office-of-reboot-all-hired` (halves) | green | ~4 min (a reboot) | nightly |
+
+Findings on 1.66.8 (engine 2.63), USOTest4, 2026-10-19 — red stays red until fixed:
+- **F1** (B13) the min_free_gb refusal is a sentence, not a code: backup/backup.sh:3873 `die "Not enough space for the
+  packages…"` (no die_code) — his history shows the English text on every language.
+- **F2** (B11, B12) Unraid's array start (every boot too) chmods an exclusive share root not of group users to 0777
+  (`/mnt/user/nextcloud`); Nextcloud then refuses occ, the --recover can't take it out of maintenance mode and keeps
+  the note — Nextcloud stays in maintenance mode after an array stop or a power cut during a run. Green with `:users`.
+- **F3** (B46) atd off: agent/lib/house.php:249 hostLaunch checks only `at`'s exit code (it queues without atd) — the
+  page says «Handed over — it should start any moment», never that it can't start; the job runs when atd comes back.
+- **F4** (R5, a race — 2 of 3 runs) the office's own array-stop hook TERMs the restore/drill (plugin/scripts/agent.sh:434)
+  before Unraid says Stopping: the reason reads restore_stopped / «stopped» («the server shut down?»), not array_stopping.
+- **F5** (R4, R5) a copy beside cut by the stop or a power cut leaves a half `<folder>.restored-<stamp>` (1 of 2 GB) with
+  no undo step: nothing offers to take it away, it looks like a finished restore.
+- **F6** (INV-PAGE of backup cells) Ms. Dustdevil's «Where is what» shows the engine's last log line as the backup's step
+  while the lock is held (agent/lib/backupscript.php:52 lastLogStep()) — English on the German page.
+- **F7** (INV-PAGE of Moverelli cells) her history row of a real run that moved nothing: «0 of 0 moved (0 B)».
+- **F8** (M6, array stop) a run the array stop cut short (1079 of 3000 moved) is «ok» (exit 0) in her history.
+- **F9** (R9) the agent's restore.start takes a plan whose sizes are still measured (only the dialog waits): the copy
+  filled cache to 0 B, the job died, its journal stays «running» — reached through a flow that didn't wait (fixed in
+  `task/scenarios-helper-rs-measuring`); defence in depth for the agent.
+- **F10** (R4) after a power cut his journal's cut step still says «running» (rsJournals rewrites only the result to
+  interrupted): the page draws it with the wave for a job that is gone (public/desks/restore/desk.js:2291).
+- **F11** (M6, power cut) 2 of 3000 files gone after a power cut during her run (twice: f40d-2099/-2275 — neither on
+  cache nor on the array, no .partial), and no history line for the cut run. Root cause not found (Unraid's move
+  binary, files in flight around the cut).
+- **F12** (found by M11/M27's own setup) a clock stepped back freezes the agent until a request rings its doorbell:
+  agentNap() waits a relative stream_select timeout computed from wall-clock time (agent/agent.php:423, nextTick at
+  :350) — stepped back by Δ while it naps, it sleeps Δ; no heartbeat meanwhile (the page's dot, agent-watch after 10
+  min). Seen: put_files --age (the clock 40 days back for ~20 s) → no heartbeat 45 s after the clock was back
+  (`test4-scenarios-batch-d-2119`). The Moverelli cells now ring the doorbell after writing aged files.
+The batch: 56 min pre-release (21 scenarios incl. base and the Mac-side checks, run 20:05 —
+`scenarios/2026-10-19/test4-scenarios-batch-d-2005`) + ~30 min nightly (five reboots, one run.sh call each:
+`test4-scenarios-batch-d-reboot*`).
+
+Not covered: R9's DK-ARRAY-DISK-FULL half (an app folder's moment lives on the pool; the array's disks hold none of
+Mr. Restori's units on this base), B48's paused VM (USOTest4 has no VM service: `needs vm`).
+Two runs of a scenario with and without an argument in one run.sh call wipe the first one's report (run-local's
+`--one` clears `<name>.*`): B11/B12 `:users` run apart.
