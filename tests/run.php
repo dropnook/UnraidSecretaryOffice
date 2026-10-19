@@ -13841,6 +13841,107 @@ function testRestoreMeasuring(): void
 }
 
 /**
+ * Open item of batch B's fix (R11 for the put back): «Put back» of a database restore started the database (its plan's
+ * steps before and after the safety dump said «start … need») even when someone had stopped it since — the desk's rule is
+ * «never starts a container». Now a database stopped since blocks the put back (restore_db_stopped, as the restore's own
+ * plan does), the step before reads «make sure it runs» (db_running, failing — never starting — when it was stopped in
+ * the seconds between), and after the fresh way's swap it starts only when this put back stopped it. What a restore left
+ * stopped itself is still started again; what it started again and someone stopped since is not (rsLeftStopped()).
+ */
+function testRestorePutbackDb(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-rspbdb-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    @mkdir("$tmp/data", 0700, true);
+    @mkdir("$tmp/bin", 0700, true);
+    $GLOBALS['rs']['data'] = "$tmp/data/restore";
+    $GLOBALS['rs']['job_file'] = "$tmp/data/restore-job.json";
+    // docker: «ps» lists $tmp/ps, «inspect» says running for the names in $tmp/up, anything else is written down
+    file_put_contents("$tmp/bin/docker", "#!/bin/sh\ncase \"\$1\" in\n  ps) cat \"$tmp/ps\" ;;\n  inspect) grep -qx \"\$4\" \"$tmp/up\" && echo true || echo false ;;\n"
+        . "  *) echo \"\$*\" >>\"$tmp/docker.log\" ;;\nesac\nexit 0\n");
+    chmod("$tmp/bin/docker", 0755);
+    $state = function (array $up) use ($tmp): void {
+        file_put_contents("$tmp/ps", implode('', array_map(fn ($c) => "$c\t" . (in_array($c, $up, true) ? 'running' : 'exited') . "\n", ['zz-db', 'zz-app'])));
+        file_put_contents("$tmp/up", implode("\n", $up) . "\n");
+    };
+    $oldPath = getenv('PATH');
+    putenv("PATH=$tmp/bin:$oldPath");
+    $base = ['type' => 'mariadb', 'container' => 'zz-db', 'db' => 'zz', 'login' => 'root', 'user_var' => '', 'password_var' => 'MARIADB_ROOT_PASSWORD', 'client' => 'mariadb'];
+    $safety = "$tmp/place/restore/zz/20261019-120000/mariadb_zz-db_zz.sql.gz";
+    $journal = function (string $id, string $method, array $steps, array $stopped) use ($base): void {
+        $pre = $method === 'fresh' ? [['do' => 'stop', 'containers' => ['zz-app']], ['do' => 'stop', 'containers' => ['zz-db']]]
+            : [['do' => 'start', 'containers' => ['zz-db'], 'need' => true], ['do' => 'ready'] + $base + ['timeout' => 180], ['do' => 'stop', 'containers' => ['zz-app']]];
+        $post = $method === 'fresh' ? [['do' => 'start', 'containers' => ['zz-db'], 'need' => true], ['do' => 'ready'] + $base + ['timeout' => 300], ['do' => 'start', 'containers' => ['zz-app'], 'only_stopped' => true]]
+            : [['do' => 'start', 'containers' => ['zz-app'], 'only_stopped' => true]];
+        // the plan as 1.66.8 wrote it (its put back's steps «start … need»)
+        $plan = rsPlanBase('db', 'zz', ['app' => 'zz', 'file' => 'db/x.sql.gz', 'version' => null, 'container' => 'zz-db', 'type' => 'mariadb']);
+        $plan['putback_pre'] = $pre;
+        $plan['putback_post'] = $post;
+        $plan['method'] = $method;
+        $plan['steps'] = $steps;
+        rsPrivateDir(rsData());
+        rsPrivateDir(rsDir($id));
+        writeAtomic(rsDir($id) . '/plan.json', jsonEncode($plan), 0600, 0, 0);
+        $j = rsJournalNew($id, $plan);
+        $j['steps'] = $steps;
+        $j['stopped'] = $stopped;
+        $j['result'] = 'ok';
+        rsJournalWrite($j, false);
+    };
+    $play = ['do' => 'play', 'state' => 'ok', 'undo' => [['do' => 'dump', 'file' => "$tmp/place/restore/zz/{T}/x.sql.gz"] + $base, ['do' => 'play', 'file' => $safety, 'method' => 'inplace'] + $base]];
+    $starts = fn (array $p, string $c) => array_values(array_filter($p['steps'], fn ($s) => $s['do'] === 'start' && in_array($c, $s['containers'] ?? [], true)));
+    try {
+        @mkdir(dirname($safety), 0700, true);
+        file_put_contents($safety, gzencode('-- dump'));
+        // in place: the restore stopped the app and started it again; the database ran throughout
+        $journal('20261019-120000-aa11', 'inplace', [['do' => 'dump', 'state' => 'ok'], ['do' => 'stop', 'state' => 'ok', 'containers' => ['zz-app'], 'stopped' => ['zz-app']],
+            $play, ['do' => 'verify', 'state' => 'ok'], ['do' => 'start', 'state' => 'ok', 'containers' => ['zz-app'], 'only_stopped' => true, 'started' => ['zz-app']]], ['zz-app']);
+        $state(['zz-db', 'zz-app']);
+        $p = rsPlanPutback(['id' => '20261019-120000-aa11'], '20261019-130000');
+        same('restore put back db: the database runs — it must run (never started), the app stops and starts again (only what the put back stopped)',
+            [[], ['db_running', 'ready', 'stop', 'dump', 'play', 'start'], [], ['zz-app']],
+            [$p['blockers'], array_column($p['steps'], 'do'), $starts($p, 'zz-db'), $starts($p, 'zz-app')[0]['containers'] ?? null]);
+        same('restore put back db: the app\'s start is only of what this put back stops — the restore started it again itself', [true, []],
+            [$starts($p, 'zz-app')[0]['only_stopped'] ?? null, $starts($p, 'zz-app')[0]['also'] ?? null]);
+        // someone stopped the database since: blocked, said which (as the restore's own plan); no step starts it
+        $state(['zz-app']);
+        $p = rsPlanPutback(['id' => '20261019-120000-aa11'], '20261019-130000');
+        same('restore put back db: the database stopped since — blocked, said which; no step starts it', [['restore_db_stopped'], 'zz-db', []],
+            [array_column($p['blockers'], 'key'), $p['blockers'][0]['params']['container'] ?? null, $starts($p, 'zz-db')]);
+        // stopped in the seconds between the plan and the job: the step fails, nothing started
+        $j = ['id' => '20261019-130000-bb22', 'stopped' => [], 'steps' => [['do' => 'db_running', 'container' => 'zz-db']]];
+        $r = rsStep($j, 0);
+        same('restore put back db: stopped right before — the step says so and starts nothing', ['failed', 'db_stopped', false],
+            [$r['state'], $r['note'] ?? null, str_contains((string) @file_get_contents("$tmp/docker.log"), 'start')]);
+        // the fresh way: the put back stops the database, swaps its folder back, starts it again — only because it stopped it
+        $journal('20261019-140000-cc33', 'fresh', [['do' => 'dump', 'state' => 'ok'], ['do' => 'stop', 'state' => 'ok', 'containers' => ['zz-app'], 'stopped' => ['zz-app']],
+            ['do' => 'stop', 'state' => 'ok', 'containers' => ['zz-db'], 'stopped' => ['zz-db']], ['do' => 'aside', 'state' => 'ok', 'undo' => [['do' => 'move', 'from' => "$tmp/db.aside", 'to' => "$tmp/db"]]],
+            ['do' => 'start', 'state' => 'ok', 'containers' => ['zz-db'], 'need' => true, 'started' => ['zz-db']], $play,
+            ['do' => 'start', 'state' => 'ok', 'containers' => ['zz-app'], 'only_stopped' => true, 'started' => ['zz-app']]], ['zz-app', 'zz-db']);
+        mkdir("$tmp/db.aside");
+        $state(['zz-db', 'zz-app']);
+        $p = rsPlanPutback(['id' => '20261019-140000-cc33'], '20261019-150000');
+        $dbStart = $starts($p, 'zz-db')[0] ?? [];
+        same('restore put back db: the fresh way — the database starts again only if this put back stopped it', [[], true, [], true],
+            [$p['blockers'], $dbStart['only_stopped'] ?? null, $dbStart['also'] ?? null, $dbStart['need'] ?? null]);
+        // a restore that failed after stopping the database left it stopped itself: that one the put back starts again
+        $journal('20261019-160000-dd44', 'fresh', [['do' => 'dump', 'state' => 'ok'], ['do' => 'stop', 'state' => 'ok', 'containers' => ['zz-app'], 'stopped' => ['zz-app']],
+            ['do' => 'stop', 'state' => 'ok', 'containers' => ['zz-db'], 'stopped' => ['zz-db']], ['do' => 'aside', 'state' => 'ok', 'undo' => [['do' => 'move', 'from' => "$tmp/db.aside", 'to' => "$tmp/db"]]],
+            ['do' => 'fresh', 'state' => 'failed']], ['zz-app', 'zz-db']);
+        $state([]);
+        $p = rsPlanPutback(['id' => '20261019-160000-dd44'], '20261019-170000');
+        same('restore put back db: what the restore left stopped itself — no blocker, started again after', [[], ['zz-app', 'zz-db']],
+            [$p['blockers'], $starts($p, 'zz-db')[0]['also'] ?? null]);
+        check('restore put back db: the words for the step and its note', (fn ($l) => isset($l['step.db_running'], $l['ss.db_running'], $l['sn.db_stopped']))(
+            json_decode((string) file_get_contents(OFFICE_WEB . '/desks/restore/lang/en.json'), true)));
+    } finally {
+        putenv("PATH=$oldPath");
+        unset($GLOBALS['rs']['data'], $GLOBALS['rs']['job_file']);
+        exec('rm -rf ' . escapeshellarg($tmp));
+    }
+}
+
+/**
  * Scenario batch B, R13 (restore-ct-renamed-config-drill): a renamed container's package holds no template (no my-<new>.xml
  * exists) — its configuration plan says so (restore_config_none; a stack without compose files: _compose) and never
  * «Everything is the same» (restore_config_same, which only a package whose files all match the server's says).
@@ -44448,7 +44549,7 @@ JS;
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

@@ -1694,7 +1694,47 @@ function rsCanPutback(array $j): bool
     if (is_array($j['putback'] ?? null) && !in_array($j['putback']['result'] ?? '', ['refused'], true)) {
         return false;
     }
-    return rsUndoSteps($j) !== [] || !empty($j['stopped']);
+    return rsUndoSteps($j) !== [] || rsLeftStopped($j) !== [];
+}
+
+/**
+ * The containers a restore stopped and didn't start again (its stop steps' `stopped` less its start steps' `started`,
+ * in their order): what its «Put back» starts — never one it started again that someone stopped since.
+ *
+ * @return list<string>
+ */
+function rsLeftStopped(array $j): array
+{
+    $left = [];
+    foreach ((array) ($j['steps'] ?? []) as $s) {
+        if (!is_array($s) || !in_array($s['state'] ?? '', ['ok', 'warning', 'failed'], true)) {
+            continue;
+        }
+        foreach (($s['do'] ?? '') === 'stop' ? (array) ($s['stopped'] ?? []) : [] as $c) {
+            $left[(string) $c] = true;
+        }
+        foreach (($s['do'] ?? '') === 'start' ? (array) ($s['started'] ?? []) : [] as $c) {
+            unset($left[(string) $c]);
+        }
+    }
+    return array_values(array_intersect(array_map('strval', (array) ($j['stopped'] ?? [])), array_keys($left)));
+}
+
+/**
+ * A database's put back, from its restore's plan (any version): the steps before and after the safety dump is played back
+ * never start the database — it must run (step db_running) unless the restore itself left it stopped; after the fresh way's
+ * swap of its folder it starts again only when this put back stopped it (only_stopped). Plans of 1.66.8 and before said
+ * «start» there (item 7 of the wave-2 fixes: a database someone stopped in between was started).
+ *
+ * @return array{0: list<array>, 1: list<array>}
+ */
+function rsPutbackDbSteps(array $pre, array $post, string $db, array $also): array
+{
+    $mine = fn (array $s): bool => ($s['do'] ?? '') === 'start' && empty($s['only_stopped']);
+    $pre = array_map(fn (array $s): array => !$mine($s) ? $s : (in_array($db, (array) $s['containers'], true) && !in_array($db, $also, true)
+        ? ['do' => 'db_running', 'container' => $db] : ['only_stopped' => true] + $s), $pre);
+    $post = array_map(fn (array $s): array => $mine($s) ? ['only_stopped' => true] + $s : $s, $post);
+    return [$pre, $post];
 }
 
 /** A journal for the page: its steps and the end of its log */
@@ -3117,14 +3157,21 @@ function rsPlanPutback(array $r, string $stamp): array
         return is_array($v) ? array_map($fill, $v) : (is_string($v) ? str_replace('{T}', $stamp, $v) : $v);
     };
     $undo = $fill(rsUndoSteps($j));
-    $also = array_values((array) ($j['stopped'] ?? []));
+    // what the restore stopped and left stopped (never what it started again and someone stopped since — he never starts
+    // a container the user stopped)
+    $also = rsLeftStopped($j);
     $withAlso = fn (array $s): array => $s['do'] === 'start' && !empty($s['only_stopped']) ? $s + ['also' => $also] : $s;
+    $pre = $fill((array) ($orig['putback_pre'] ?? []));
+    $post = $fill((array) ($orig['putback_post'] ?? []));
+    if (($j['kind'] ?? '') === 'db') {
+        [$pre, $post] = rsPutbackDbSteps($pre, $post, (string) ($orig['target']['container'] ?? ''), $also);
+    }
     $onlyLeft = $undo && !array_filter($undo, fn ($s) => $s['do'] !== 'unfinished');
     if ($onlyLeft) {
         // only a copy cut midway to take away: nothing was replaced, nothing stops for it
         $plan['steps'] = array_merge($undo, $also ? [['do' => 'start', 'containers' => $also, 'only_stopped' => true, 'also' => $also]] : []);
     } elseif ($undo) {
-        $plan['steps'] = array_merge($fill((array) ($orig['putback_pre'] ?? [])), $undo, array_map($withAlso, $fill((array) ($orig['putback_post'] ?? []))));
+        $plan['steps'] = array_merge(array_map($withAlso, $pre), $undo, array_map($withAlso, $post));
     } elseif ($also) {
         $plan['steps'] = [['do' => 'start', 'containers' => $also, 'only_stopped' => true, 'also' => $also]];
     }
@@ -3195,6 +3242,14 @@ function rsPlanPutback(array $r, string $stamp): array
         }
     }
     $now = rsContainersNow();
+    // a database's put back plays the safety dump into it: only into a running one, and he never starts it (scenario batch
+    // B, R11, for the put back): stopped since the restore — not by him — blocks, as the restore's own plan does
+    $db = ($j['kind'] ?? '') === 'db' && $undo ? (string) ($orig['target']['container'] ?? '') : '';
+    if ($db !== '' && !isset($now[$db])) {
+        $plan['blockers'][] = ['key' => 'restore_container_missing', 'params' => ['container' => $db]];
+    } elseif ($db !== '' && !$now[$db] && !in_array($db, $also, true)) {
+        $plan['blockers'][] = ['key' => 'restore_db_stopped', 'params' => ['container' => $db]];
+    }
     $plan['stops'] = array_values(array_unique(array_merge(...array_map(fn ($s) => $s['do'] === 'stop' ? array_values(array_filter($s['containers'], fn ($n) => $now[$n] ?? false)) : [],
         $plan['steps'] ?: [['do' => '']]))));
     $plan['downtime'] = $plan['stops'] ? (int) ($orig['downtime'] ?? 30) : 0;
@@ -3535,6 +3590,7 @@ function rsStep(array &$j, int $i): array
         'autostart' => rsDoVirsh($j, ['autostart', (string) $s['name']]),
         'kopia'     => rsDoKopia($j, $i),
         'vms_off'   => rsDoVmsOff($s),
+        'db_running' => rsIsRunning((string) ($s['container'] ?? '')) ? ['state' => 'ok'] : rsFail('db_stopped', ['container' => (string) ($s['container'] ?? '')]),
         'unfinished' => rsDoUnfinished($j, $s),
         'not_open'  => rsDoNotOpen($s),
         'maintenance_off' => rsDoMaintenanceOff($j, $s),
