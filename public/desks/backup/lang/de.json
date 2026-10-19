@@ -1361,7 +1361,7 @@
   "own.kind.immich": "Immichs Datenbank-Backups",
   "restore.kopia_items": "Apps und VMs mit eigener Quelle: {list} unter {root} — darin liegt jeder Teil, wo er auf dem Server liegt (<share>/<Ordner>, und ihr Paket).",
   "help.items": "Ausser Haus pro App und VM",
-  "help.items_text": "Eine App oder VM auf «lokal + ausser Haus» ist eine eigene Kopia-Quelle (in Kopia .apps/<Name> bzw. .vms/<Name>): ihre Ordner und ihr Paket, mit eigener Aufbewahrung. Der Chip in ihrer Zeile sagt, wann sie zuletzt ausser Haus ging. Medienserver, die während des Snapshots weiterlaufen, bekommen eine konsistente Kopie ihrer Datenbanken in ihr Paket.",
+  "help.items_text": "Eine App oder VM auf «lokal + ausser Haus» ist eine eigene Kopia-Quelle (in Kopia .apps/<Name> bzw. .vms/<Name>): ihre Ordner und ihr Paket, mit eigener Aufbewahrung. Das Schildchen in ihrer Zeile sagt, wann sie zuletzt ausser Haus ging. Medienserver, die während des Snapshots weiterlaufen, bekommen eine konsistente Kopie ihrer Datenbanken in ihr Paket.",
   "pd.own_sources": "Eigene Kopia-Quellen",
   "pd.own_sources_hint": "— ihre Ordner und Pakete gehen dort ausser Haus, mit eigener Aufbewahrung; dieser Share lässt sie aus.",
   "restore.restori": "Herr Restori holt daraus Apps und VMs zurück: pro App und VM, was woher zurückkommt, mit Datum und fertigen Befehlen.",

@@ -389,7 +389,7 @@
   "help.mounted": "Irgendwo eingehängt: Beim Löschen wird er auf Wunsch vorher ausgehängt.",
   "help.backup": "Das Backup von Herrn Backupsi benutzt ihn gerade (der Upload ausser Haus liest daraus) — Finger weg, bis es fertig ist.",
   "help.asleep": "In der Mount-Tabelle gesehen, während seine Disk schläft — die Disk wird dafür nicht geweckt.",
-  "help.sources": "Quellen-Chips",
+  "help.sources": "Quellen-Schildchen",
   "help.sources_text": "Wer ihn gemacht hat: die Backup-Engine (Herr Backupsi), Docker, eine VM, von Hand oder ein anderes Werkzeug.",
   "help.docker": "Dockers eigene Image-Ebenen (ZFS) — Hunderte davon, von Docker verwaltet. Ausgeblendet, ausser eingeschaltet; hier nie löschbar.",
   "help.scan": "Rundgang · Aufwecken & Rundgang",
