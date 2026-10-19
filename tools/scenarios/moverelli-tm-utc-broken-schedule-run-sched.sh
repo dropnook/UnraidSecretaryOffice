@@ -34,7 +34,7 @@ say "the server: $(date '+%F %T %Z'), ident.cfg timeZone $(tr -d '\r' </boot/con
 snap_before
 flow MV-SCHEDULE cron='0 3 * * *'
 ask moverelli.refresh '{}' 120 >/dev/null
-n=$(jq -r '[.. | objects | select(has("next")) | .next | select(type == "number")] | first // empty' "$D/moverelli.json"); c=$(cron_next 0 3)
+n=$(jq -r '.schedule.next // empty' "$D/moverelli.json"); c=$(cron_next 0 3)
 [[ $n == "$c" ]] && cell next-is-cron 1 "her next run $(date -d @"$n" '+%F %T %Z') = when crond starts it" \
     || cell next-is-cron 0 "her page says the next run is $( [[ -n $n ]] && date -d @"$n" '+%F %T %Z' || echo nothing), crond starts it at $(date -d @"$c" '+%F %T %Z')"
 flow MV-RUN-SCHED
