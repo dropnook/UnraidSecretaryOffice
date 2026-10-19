@@ -399,6 +399,8 @@
   "rc.since": "da {time} ({duration})",
   "rc.left": "ancora circa {left}",
   "rc.left_range": "ancora circa da {lo} a {hi}",
+  "rc.left_few": "ancora pochi secondi",
+  "rc.left_upto": "ancora al massimo {hi}",
   "rc.end": "pronta verso le {time}",
   "rc.end_tomorrow": "pronta domani verso le {time}",
   "rc.end_day": "pronta verso {day}",

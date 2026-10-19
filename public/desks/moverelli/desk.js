@@ -169,6 +169,15 @@ const EST_BW = 100e6;             // the prior bandwidth, bytes a second: one HD
 const EST_BW_LO = 50e6;           // … read/modify/write parity on a slow disk …
 const EST_BW_HI = 250e6;          // … a fast HDD or SSD to SSD (the bytes rate seen is a floor on top; above this: unknown)
 const EST_ERR = 0.25;             // the fit's time per file and bandwidth each known within a quarter (standard error)
+// the time left in words: a range whose low end rounds to nothing says only its high end, under a minute «a few seconds»
+// (never «about 0 min to 3 s», 2026-10-19)
+function leftText(d) {
+  const [lo, hi] = d.range || [d.left, d.left];
+  if (hi < 60 && (d.range || hi < 1)) return T('rc.left_few');
+  if (d.range && Math.round(lo) < 1) return T('rc.left_upto', { hi: fmt.duration(hi) });
+  return d.range ? T('rc.left_range', { lo: fmt.duration(lo), hi: fmt.duration(hi) }) : T('rc.left', { left: fmt.duration(d.left) });
+}
+
 const EST_SURE = 1.25;            // a range narrower than this (high ÷ low) is said as one time
 const estSeen = new Map();        // run|share -> [{t, files, bytes}, …]: the page's readings of the share (the first: its base)
 const estLast = new Map();        // run|share -> {t, left, lo, hi}: the last time left shown
@@ -363,8 +372,7 @@ function runCard(p, now) {
     if (d.percent !== null) {
       // the share's average (Ø) and the time left — «being estimated» before a minute or 1 %, a range while unsure (runEstimate())
       const bar = Office.runBar(d.percent, percentText(d) + (d.rate ? ' · ' + T('rc.rate_avg', { rate: fmt.size(d.rate) }) : '')
-        + (d.range ? ' · ' + T('rc.left_range', { lo: fmt.duration(d.range[0]), hi: fmt.duration(d.range[1]) })
-          : d.left !== null ? ' · ' + T('rc.left', { left: fmt.duration(d.left) }) : d.estimating ? ' · ' + T('rc.estimating') : ''));
+        + (d.range || d.left !== null ? ' · ' + leftText(d) : d.estimating ? ' · ' + T('rc.estimating') : ''));
       if (d.byTime) bar.title = T('rc.percent_tip');
       card.appendChild(bar);
       card.appendChild(el('div', 'card-line', T('rc.share', { share: d.share, done: d.dFiles, files: nOf('files', d.files), done_size: fmt.size(d.dBytes), size: fmt.size(d.bytes) })));
@@ -2769,7 +2777,7 @@ Office.places(ID, [
 ]);
 
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, onWayText, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
+  globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, leftText, onWayText, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
     importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, percentText, runningText, greeting, greetOk, idleText, runEstimate, estModel, endText, shareGroups, shareRuleLines, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, ownRulesText, idleRules, fillSetupShares, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, picFlight, fileOnto, movedByPlace, movedAt, extraPlaces, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, setJackLive: (x) => { jackLive = x; }, jackPanel, jackAtWork, redrawCard, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
     setForm: (f) => { form = f; }, initForm, levelMath, levelSection, levelLines, levelNight, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };

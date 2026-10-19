@@ -399,6 +399,8 @@
   "rc.since": "since {time} ({duration})",
   "rc.left": "about {left} left",
   "rc.left_range": "about {lo} to {hi} left",
+  "rc.left_few": "a few seconds left",
+  "rc.left_upto": "at most {hi} left",
   "rc.end": "done at about {time}",
   "rc.end_tomorrow": "done tomorrow at about {time}",
   "rc.end_day": "done at about {day}",

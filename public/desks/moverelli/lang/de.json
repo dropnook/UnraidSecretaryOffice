@@ -399,6 +399,8 @@
   "rc.since": "seit {time} ({duration})",
   "rc.left": "noch etwa {left}",
   "rc.left_range": "noch etwa {lo} bis {hi}",
+  "rc.left_few": "noch wenige Sekunden",
+  "rc.left_upto": "noch höchstens {hi}",
   "rc.end": "fertig etwa um {time}",
   "rc.end_tomorrow": "fertig etwa morgen um {time}",
   "rc.end_day": "fertig etwa am {day}",

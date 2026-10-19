@@ -37119,6 +37119,9 @@ out.big = sim('big', big, 150e6, 600);
 const small = [];
 for (let i = 0; i < 50000; i++) small.push([20000, 0.065]);
 out.small = sim('small', small, 200e6, 600);
+// the words for short times (the owner, 2026-10-19: «etwa 0 Min. bis 3 s»)
+out.words = [m.leftText({ range: [0.2, 3], left: 1 }), m.leftText({ range: [0.3, 400], left: 90 }), m.leftText({ range: [70, 400], left: 200 }),
+  m.leftText({ range: null, left: 0.4 }), m.leftText({ range: null, left: 40 })];
 console.log(JSON.stringify(out));
 JS);
     $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/moverelli/desk.js') . ' ' . escapeshellarg(testsRunHelpersJs($tmp)) . ' 2>&1');
@@ -37140,6 +37143,8 @@ JS);
         $x = $o[$k] ?? [];
         check("time left, $what: one time within 10 % of the truth, the end said", $near($x, 0.1) && array_key_exists('range', $x) && $x['range'] === null && ($x['end'] ?? null) !== null, json_encode($x));
     }
+    same('time left in words: a range under a minute «a few seconds», a low end of nothing only the high end, never «0 s to …»',
+        ['rc.left_few', 'rc.left_upto {"hi":"400s"}', 'rc.left_range {"lo":"70s","hi":"400s"}', 'rc.left_few', 'rc.left {"left":"40s"}'], $o['words'] ?? null);
     hardeningRm($tmp);
 }
 

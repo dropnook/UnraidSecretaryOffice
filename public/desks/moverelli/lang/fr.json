@@ -399,6 +399,8 @@
   "rc.since": "depuis {time} ({duration})",
   "rc.left": "encore environ {left}",
   "rc.left_range": "encore environ {lo} à {hi}",
+  "rc.left_few": "encore quelques secondes",
+  "rc.left_upto": "encore {hi} au plus",
   "rc.end": "terminé vers {time}",
   "rc.end_tomorrow": "terminé demain vers {time}",
   "rc.end_day": "terminé vers {day}",
