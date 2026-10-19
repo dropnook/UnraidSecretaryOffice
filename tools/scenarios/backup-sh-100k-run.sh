@@ -21,6 +21,7 @@ state SH-100K "$S"
 nc_data_closed
 undo_push snaps_drop
 flow BK-APPLY "share|$S|mode=kopia" || _row state prepare red "Apply of $S as local + Kopia failed"
+expect_changes "share|UnraidSecretaryOffice|mode"     # derived by the page with a share's Kopia (desk.js setupDerive()), not by the flow's body
 track_share "$S"
 snap_before
 t0=$SECONDS
@@ -31,7 +32,7 @@ gb=$(jq -r --arg s "$S" '.shares[]? | select(.name == $s) | .gb // "null"' "$KEE
 [[ $gb != null && -n $gb ]] && cell measured 1 "the plan measured $S: $gb GB" || cell measured 0 "the plan has no size for $S"
 # the page's estimate while the run is at work: sampled
 est=$KEEP/estimates.jsonl
-( while :; do sleep 10; lock_held "$UB/state/lock" || { [[ -s $est ]] && break; continue; }
+( while :; do sleep 3; lock_held "$UB/state/lock" || { [[ -s $est ]] && break; continue; }
     php "$SC_DIR/ask.php" --wait 30 backup.refresh '{}' >/dev/null 2>&1
     jq -c --arg t "$(date +%s)" '{t: ($t | tonumber), rough, total: (.estimates.total // null), phase: (.status.phase // .step // null)}' "$D/backup.json" >>"$est" 2>/dev/null
     ((SECONDS - t0 > 3600)) && break; done ) &
@@ -42,6 +43,9 @@ trun=$((SECONDS - t1))
 kill "$smp" 2>/dev/null; wait "$smp" 2>/dev/null
 evidence "$est" >/dev/null
 ((trun <= 2700)) && cell run-time 1 "the run took $trun s" || cell run-time 0 "the run took $trun s (> 2700)"
+# Kopia really walked the 100 000 (its snapshot's own file count)
+fc=$(timeout 120 docker exec kopia kopia snapshot list --all --json 2>/dev/null | jq -r --arg s "$S" '[.[] | select((.source.path // "") | endswith("/" + $s))] | sort_by(.startTime) | last | .stats.fileCount // empty')
+[[ $fc == 100000 ]] && cell kopia-files 1 "Kopia's snapshot of $S holds 100000 files" || cell kopia-files 0 "Kopia's snapshot of $S: ${fc:-none} files (want 100000)"
 n=$(wc -l <"$est" 2>/dev/null || echo 0); bad=$(jq -s '[.[] | select(((.rough // .total) | type) as $t | ($t != "null" and $t != "number" and $t != "object"))] | length' "$est" 2>/dev/null)
 any=$(jq -s '[.[] | select(.rough != null or .total != null)] | length' "$est" 2>/dev/null)
 ((n > 0 && ${bad:-1} == 0)) && cell estimate 1 "$n samples while at work, ${any:-0} with an estimate (rough or from history), none garbled" \
