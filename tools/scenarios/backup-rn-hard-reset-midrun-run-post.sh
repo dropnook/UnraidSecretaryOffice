@@ -10,6 +10,9 @@
 scenario_begin backup-rn-hard-reset-midrun-run
 needs tower docker
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
+# Unraid's array start queues an at job of its own (`sleep 10; …/reload_services`): no leftover of the office's
+# (INV-LEFTOVER looks at atd's queue) — waited for before the checks
+atq_quiet() { [[ -z $(atq 2>/dev/null) ]]; }
 notes_gone() { [[ ! -s $UB/state/stopped && ! -s $UB/state/maintenance && ! -s $UB/state/vms ]] && ! lock_held "$UB/state/lock"; }
 resync() { /usr/local/sbin/mdcmd status | awk -F= '$1 == "mdResyncPos" { print $2 }'; }
 parity_cancel() {   # Unraid's own check after an unclean stop: cancelled, its history line put back (the states' parity_stop)
@@ -40,7 +43,7 @@ fi
 st=$UB/state/status.json
 raw=$(jq -r '"\(.run)/\(.result)/\(.message // "")"' "$st" 2>/dev/null)
 say "status.json as the engine left it: $raw"
-wait_for 600 "the office's backup.sh --recover to bring back what the run left" notes_gone
+WAIT_SOFT=1 wait_for 300 "the office's backup.sh --recover to bring back what the run left" notes_gone
 snap_before
 o=$(state_json backup '"\(.status.result // "")/\(.status.message // "")/\(.status.interrupted // false)"' 2>/dev/null)
 [[ $o == failed/interrupted/true ]] && cell interrupted 1 "his page: the run «interrupted» (status.json left at $raw)" \
@@ -56,6 +59,7 @@ for c in ${was//,/ }; do [[ $(ct_status "$c") == running ]] || miss+=("$c ($(ct_
 left=$(cat "$UB/state/stopped" "$UB/state/maintenance" "$UB/state/vms" 2>/dev/null | sed '/^$/d' | paste -sd' ' -)
 [[ -z $left ]] && cell nothing-noted 1 "nothing left noted" || cell nothing-noted 0 "still noted: $left"
 flow OF-REBOOT-BACK
+WAIT_SOFT=1 wait_for 90 "Unraid's own at job after the array start" atq_quiet
 check standard
 check final
 scenario_end

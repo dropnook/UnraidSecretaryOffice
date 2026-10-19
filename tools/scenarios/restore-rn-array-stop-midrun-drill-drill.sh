@@ -9,6 +9,9 @@
 scenario_begin restore-rn-array-stop-midrun-drill-drill
 needs tower docker
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
+# Unraid's array start queues an at job of its own (`sleep 10; …/reload_services`): no leftover of the office's
+# (INV-LEFTOVER looks at atd's queue) — waited for before the checks
+atq_quiet() { [[ -z $(atq 2>/dev/null) ]]; }
 declare -F state_ct_autostart >/dev/null || { printf 'needs the helper CT-AUTOSTART (task/scenarios-helper-ct-autostart): without Docker autostart nothing comes back after an array stop\n' >"$KEEP/.skip"; scenario_end; }
 nc_data_closed
 state CT-AUTOSTART
@@ -38,6 +41,7 @@ else
     cell ended 0 "the array was never stopped while the drill worked (watcher: $(cat "$dir/fired" 2>/dev/null || echo 'never fired'))"
     wait "$fpid"
 fi
+WAIT_SOFT=1 wait_for 90 "Unraid's own at job after the array start" atq_quiet
 for j in $(atq 2>/dev/null | cut -f1); do say "atd's queue after the start: $(atq | grep "^$j" | tr '\t' ' ') — $(at -c "$j" 2>/dev/null | tail -2 | head -1 | cut -c1-160)"; done
 # the agent stops with the array by design (CLAUDE.md: «event/started starts, event/stopping stops»): no heartbeat meanwhile
 allow INV-TICK "the array stop ends the agent by design (CLAUDE.md: the agent — event/started starts, event/stopping stops); its heartbeat pauses until the start"

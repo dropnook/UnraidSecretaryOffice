@@ -15,6 +15,9 @@
 scenario_begin backup-rn-array-stop-midrun-bk-run
 needs tower docker
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
+# Unraid's array start queues an at job of its own (`sleep 10; …/reload_services`): no leftover of the office's
+# (INV-LEFTOVER looks at atd's queue) — waited for before the checks
+atq_quiet() { [[ -z $(atq 2>/dev/null) ]]; }
 notes_gone() { [[ ! -s $UB/state/stopped && ! -s $UB/state/maintenance && ! -s $UB/state/vms ]] && ! lock_held "$UB/state/lock"; }
 snaps_dup() { zfs list -H -t snapshot -o name 2>/dev/null | grep '@uso-backup-' | sort | uniq -d; }
 declare -F state_ct_autostart >/dev/null || { printf 'needs the helper CT-AUTOSTART (task/scenarios-helper-ct-autostart): without Docker autostart nothing comes back after an array stop\n' >"$KEEP/.skip"; scenario_end; }
@@ -42,7 +45,7 @@ if wait_for 300 "the array stop mid-run" _st_is STOPPED _st_var mdState; then
     _st_emcmd cmdStart=Start
     wait_for 300 "the array started again" _st_is Started _st_var fsState
     agent_wait 300
-    WAIT_SOFT=1 wait_for 600 "the office's backup.sh --recover to bring back what the run left" notes_gone
+    WAIT_SOFT=1 wait_for 300 "the office's backup.sh --recover to bring back what the run left" notes_gone
     left=$(cat "$UB/state/stopped" "$UB/state/maintenance" "$UB/state/vms" 2>/dev/null | sed '/^$/d' | paste -sd' ' -)
     nc=$(stat -c '%U:%G %a' "$(readlink -f /mnt/user/nextcloud)" 2>/dev/null)
     [[ -z $left ]] && cell nc-out 1 "the --recover brought everything back, nothing noted (Nextcloud's data folder $nc)" \
@@ -65,6 +68,7 @@ if wait_for 300 "the array stop mid-run" _st_is STOPPED _st_var mdState; then
 else
     cell aborted 0 "the array was never stopped mid-run (watcher: $(cat "$dir/fired" 2>/dev/null || echo 'never fired'))"
 fi
+WAIT_SOFT=1 wait_for 90 "Unraid's own at job after the array start" atq_quiet
 for j in $(atq 2>/dev/null | cut -f1); do say "atd's queue after the start: $(atq | grep "^$j" | tr '\t' ' ') — $(at -c "$j" 2>/dev/null | tail -2 | head -1 | cut -c1-160)"; done
 # the agent stops with the array by design (CLAUDE.md: «event/started starts, event/stopping stops»): no heartbeat meanwhile
 allow INV-TICK "the array stop ends the agent by design (CLAUDE.md: the agent — event/started starts, event/stopping stops); its heartbeat pauses until the start"

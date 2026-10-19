@@ -10,6 +10,9 @@
 scenario_begin office-of-reboot-all-hired
 needs tower docker
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
+# Unraid's array start queues an at job of its own (`sleep 10; …/reload_services`): no leftover of the office's
+# (INV-LEFTOVER looks at atd's queue) — waited for before the checks
+atq_quiet() { [[ -z $(atq 2>/dev/null) ]]; }
 out=${USO_SC_OUT:-$SC_REPORTS}
 reb=$out/office-of-reboot-all-hired.reboot
 prenote=$out/office-of-reboot-all-hired.prenotes
@@ -32,6 +35,7 @@ left=$(cat "$UB/state/stopped" "$UB/state/maintenance" "$UB/state/vms" 2>/dev/nu
 [[ -z $left ]] && cell nothing-noted 1 "nothing noted for a --recover" || cell nothing-noted 0 "noted after a clean reboot: $left"
 (( $(/usr/local/sbin/mdcmd status | awk -F= '$1 == "mdResyncPos" { print $2 }') == 0 )) && cell no-parity 1 "no parity check after the clean reboot" \
     || cell no-parity 0 "Unraid checks parity after the reboot (an unclean stop?)"
+WAIT_SOFT=1 wait_for 90 "Unraid's own at job after the array start" atq_quiet
 check standard
 check final
 scenario_end

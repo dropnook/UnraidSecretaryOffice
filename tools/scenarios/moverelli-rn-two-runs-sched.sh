@@ -27,7 +27,8 @@ if wait_for 300 "her page's run moving a file" _mv_moving "$t0"; then
 fi
 wait "$fpid"
 ask moverelli.refresh '{}' 120 >/dev/null
-h=$(jq -c '[.history[]? | select((.started // 0) >= '"$t0"' and .by == "office")][0] | {result, why}' "$D/moverelli.json" 2>/dev/null)
+# «Run now» is the joint run: her part of it is recorded «by night» (nightrun.php) — the newest that isn't the refusal
+h=$(jq -c '[.history[]? | select((.started // 0) >= '"$t0"' and .result != "refused")][0] // {} | {result, why, by}' "$D/moverelli.json" 2>/dev/null)
 c=$(on cache) a=$(( $(on disk1) + $(on disk2) ))
 [[ $(jq -r '.result' <<<"$h") == ok ]] && ((c == 0 && a == 6)) && cell page-run-ends 1 "her page's run ended ok, the 6 files on the array" \
     || cell page-run-ends 0 "her page's run: $h; $c on cache, $a on the array (of 6)"

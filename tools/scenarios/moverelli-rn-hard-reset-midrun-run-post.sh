@@ -9,6 +9,9 @@
 scenario_begin moverelli-rn-hard-reset-midrun-run
 needs tower docker
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
+# Unraid's array start queues an at job of its own (`sleep 10; …/reload_services`): no leftover of the office's
+# (INV-LEFTOVER looks at atd's queue) — waited for before the checks
+atq_quiet() { [[ -z $(atq 2>/dev/null) ]]; }
 parity_cancel() { local d; d=$(_st_dir UNCLEAN-PARITY)
     if [[ -f /boot/config/parity-checks.log ]]; then cp -p /boot/config/parity-checks.log "$d/parity-checks.log"; else : >"$d/parity-checks.none"; fi
     parity_stop UNCLEAN-PARITY; }
@@ -48,6 +51,7 @@ flow MV-RUN
 p=$(partials | paste -sd' ' -)
 [[ -z $p ]] && cell partial-cleared 1 "no .partial after her next run" || cell partial-cleared 0 "after her next run still: $p"
 c=$(on cache) a=$(( $(on disk1) + $(on disk2) ))
-((c == 0 && a == 6)) && cell all-moved 1 "all 6 files on the array now, once each" || cell all-moved 0 "after her next run: $c on cache, $a on the array (of 6)"
+((c == 0 && a == 3000)) && cell all-moved 1 "all 3000 files on the array now, once each" || cell all-moved 0 "after her next run: $c on cache, $a on the array (of 3000)"
+WAIT_SOFT=1 wait_for 90 "Unraid's own at job after the array start" atq_quiet
 check standard
 scenario_end

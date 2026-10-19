@@ -1,7 +1,7 @@
 #!/bin/bash
 # Cell M11 of matrix.md: Unraid's own mover at work (RN-UNRAID-MOVER-RUNNING: /var/run/mover.pid names a living
 # process whose command line says «mover»). (start) «Run now» is refused with moverelli_mover_running — nothing moves.
-# (middle) her real run moves 6 × 512 MB (40 days old, uso-yes → the array) and Unraid's mover starts while a file is
+# (middle) her real run moves 6 × 1.25 GiB (40 days old, uso-yes → the array) and Unraid's mover starts while a file is
 # on its way: she stops after that file, for real — once her look (every 5 s, JACK_MOVER_LOOK) has seen the mover and
 # written her stop file, only the file in flight arrives (whole), no further one is begun; no .partial, her history
 # says «stopped» why mover. Pre-release (~4 min).
@@ -11,7 +11,10 @@ needs tower
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
 on() { find /mnt/"$1"/uso-yes/uso-wip-d-m11 -type f ! -name '*.partial' 2>/dev/null | wc -l; }
 arr() { echo $(( $(on disk1) + $(on disk2) )); }
-put_files M11 cache uso-yes/uso-wip-d-m11 6 --size 512M --age 40d || _row state put_files red "the files could not be written"
+# 6 × 1.25 GiB (two batches: --age stays ≤ 4 GiB each) — 512 MB files each took about a second: all were moved before
+# her look (every 5 s) saw the mover
+put_files M11 cache uso-yes/uso-wip-d-m11/a 3 --size 1280M --age 40d && put_files M11 cache uso-yes/uso-wip-d-m11/b 3 --size 1280M --age 40d \
+    || _row state put_files red "the files could not be written"
 undo_push files_unput M11
 undo_push bash -c 'rm -rf /mnt/*/uso-yes/uso-wip-d-m11'
 track_share uso-yes

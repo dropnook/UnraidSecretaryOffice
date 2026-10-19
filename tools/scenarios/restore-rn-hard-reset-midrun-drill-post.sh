@@ -8,6 +8,9 @@
 scenario_begin restore-rn-hard-reset-midrun-drill
 needs tower docker
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
+# Unraid's array start queues an at job of its own (`sleep 10; …/reload_services`): no leftover of the office's
+# (INV-LEFTOVER looks at atd's queue) — waited for before the checks
+atq_quiet() { [[ -z $(atq 2>/dev/null) ]]; }
 parity_cancel() { local d; d=$(_st_dir UNCLEAN-PARITY)
     if [[ -f /boot/config/parity-checks.log ]]; then cp -p /boot/config/parity-checks.log "$d/parity-checks.log"; else : >"$d/parity-checks.none"; fi
     parity_stop UNCLEAN-PARITY; }
@@ -36,6 +39,7 @@ c=$(ask_last '.certificate.result // "none"')
 left=$(timeout 20 docker ps -a --filter name=uso-drill- --format '{{.Names}}' | paste -sd' ' -)
 [[ -z $left ]] && cell swept 1 "no uso-drill-* container after the agent's start" || cell swept 0 "left after the boot: $left"
 lock_held "$UB/state/lock" && cell lock-free 0 "the engine's lock is held after the boot" || cell lock-free 1 "the engine's lock is free"
+WAIT_SOFT=1 wait_for 90 "Unraid's own at job after the array start" atq_quiet
 check standard
 check final
 scenario_end

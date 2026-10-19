@@ -1,5 +1,5 @@
 #!/bin/bash
-# Cell M6 of matrix.md, the power cut, pre half (nightly): Ms. Moverelli's real run moves 6 × 1.25 GiB (40 days old,
+# Cell M6 of matrix.md, the power cut, pre half (nightly): Ms. Moverelli's real run moves 3000 × 1 MB (40 days old,
 # uso-yes → the array) when the power goes (RN-HARD-RESET-MIDRUN mv: 3 s after Smart Mover is at work, after a sync).
 # This half writes the files, notes what must come back (OF-REBOOT), puts the demo set on Docker's autostart
 # (CT-AUTOSTART — undone by the post half), arms the cut and ends; a detached «Run now» starts her run once this half's
@@ -11,8 +11,9 @@ declare -F state_ct_autostart >/dev/null || { printf 'needs the helper CT-AUTOST
 note=${USO_SC_OUT:-$SC_REPORTS}/moverelli-rn-hard-reset-midrun-run.prenotes
 { [[ -f /var/lib/docker/unraid-autostart ]] && echo autostart=had || echo autostart=none; } >"$note"
 [[ -f /var/lib/docker/unraid-autostart ]] && cp -p /var/lib/docker/unraid-autostart "$note.autostart"
-put_files M6R cache uso-yes/uso-wip-d-m6r/a 3 --size 1280M --age 40d && put_files M6R cache uso-yes/uso-wip-d-m6r/b 3 --size 1280M --age 40d \
-    || _row state put_files red "the files could not be written"
+# 3000 × 1 MB: she hands Unraid's move one file at a time, so many small files make a long run (big files were all
+# moved within seconds)
+put_files M6R cache uso-yes/uso-wip-d-m6r 3000 --age 40d || _row state put_files red "the files could not be written"
 state_ct_autostart
 flow OF-REBOOT
 midrun_arm RN-HARD-RESET-MIDRUN mv 3 180
