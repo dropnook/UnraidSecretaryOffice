@@ -16511,6 +16511,52 @@ JS;
     hardeningRm($tmp);
 }
 
+/**
+ * Docker off: the Consultant can't bring in a container, so his bubble names what is missing without «— or I do it for
+ * you» (2026-10-19, seen on USOTest3VM); his look says whether Docker answers (`docker`, an older state without it reads
+ * as before). INV-BUBBLE's rule (tools/scenarios/bubble-rules.tsv) holds it on a server.
+ */
+function testAdvisorDockerOff(): void
+{
+    $tmp = hardeningTmp('advisor-docker');
+    file_put_contents("$tmp/up", "#!/bin/sh\necho 27.5.1\n");
+    file_put_contents("$tmp/down", "#!/bin/sh\necho 'Cannot connect to the Docker daemon' >&2\nexit 1\n");
+    chmod("$tmp/up", 0755);
+    chmod("$tmp/down", 0755);
+    $seen = [];
+    foreach (['up', 'down'] as $bin) {
+        putenv("OFFICE_ADVISOR_DOCKER=$tmp/$bin");
+        $seen[] = advisorDockerUp();
+    }
+    putenv('OFFICE_ADVISOR_DOCKER');
+    same('advisor docker off: his look hears whether Docker answers', [true, false], $seen);
+    $src = (string) file_get_contents(__DIR__ . '/../agent/desks/advisor.php');
+    check('advisor docker off: his state carries it', str_contains($src, "'docker' => advisorDockerUp(),"));
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('advisor docker off: bubble - node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: {}, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, has: () => false };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const a = OFFICE_DESK_TESTS.advisor;
+const ext = { kopia: { kind: 'container', there: false }, fcp: { kind: 'plugin', there: true } };
+const out = [false, true, undefined].map((docker) => { a.setState({ externals: ext, docker }); return a.bubbleText(); });
+console.log(JSON.stringify(out));
+JS);
+    $cmd = escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/advisor/desk.js') . ' 2>&1';
+    $r = json_decode((string) shell_exec($cmd), true);
+    same('advisor docker off: the bubble without «I do it for you»; Docker on, or an older state without the flag: as before',
+        ['bubble.missing_docker_off {"names":"ext.kopia.name","n":1}', 'bubble.missing {"names":"ext.kopia.name","n":1}', 'bubble.missing {"names":"ext.kopia.name","n":1}'],
+        $r, is_array($r) ? '' : (string) shell_exec($cmd));
+    hardeningRm($tmp);
+}
+
 /** The Consultant installs: his templates, what he refuses, what he writes beforehand (only where nothing is), the facts he reads */
 function testAdvisorInstall(): void
 {
@@ -22990,6 +23036,110 @@ JS);
     same('look page: a render that throws on an old-shape state — the new look asked for all the same, the page healed at once',
         [['a=state&desk=snapshot', 'a=state&desk=snapshot&wait=1'], [[700, true]]], [$r['heals']['calls'] ?? null, $r['heals']['healed'] ?? null]);
     same('look page: … the error reaches the caller once, nothing logged twice', [['old shape'], []], [$r['heals']['thrown'] ?? null, $r['heals']['errors'] ?? null]);
+    hardeningRm($tmp);
+}
+
+/**
+ * An old kept state never shows a run going (nostromo 2026-10-19: after an update's reload a tab drew Mr. Backupsy's
+ * «running, 99 %» from a 40 min old state, 17 min after the run had ended): a state older than core.js's OLD_RUN that
+ * the desk's runs() reads as a run going is held back while the new look is on its way, the new look drawn instead; no
+ * new look to be had → the held one after all (its «as of» line says how old); a young one, an old one without a run
+ * and a desk without runs() as before. The desks with a run card (backup, restore, moverelli, jack) register runs():
+ * true on their running demo states, false on idle ones. Run by node (skipped where node is missing).
+ */
+function testLookOldRun(): void
+{
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('look old run: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('lookoldrun');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+const mk = () => ({ style: {}, dataset: {}, hidden: true, textContent: '', offsetHeight: 0, children: [],
+  classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, remove() {}, prepend() {},
+  setAttribute() {}, removeAttribute() {}, getAttribute: () => null, hasAttribute: () => false, addEventListener() {},
+  querySelector: () => null, querySelectorAll: () => [], contains: () => false, closest: () => null, matches: () => false,
+  getBoundingClientRect: () => ({ top: 0, bottom: 0, left: 0 }), focus() {}, select() {} });
+globalThis.window = globalThis;
+globalThis.innerHeight = 800; globalThis.scrollY = 0; globalThis.scrollBy = () => {}; globalThis.scrollTo = () => {};
+globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+globalThis.navigator = { languages: ['en'] };
+globalThis.history = { replaceState() {} };
+globalThis.location = { hash: '', reload() {} };
+const CONFIG = { desks: [{ id: 'backup', refresh_after: 30 }, { id: 'snapshot', refresh_after: 60 }], languages: [{ code: 'en' }], base: '', staff_order: [] };
+globalThis.document = { getElementById: (id) => (id === 'sso-config' ? { textContent: JSON.stringify(CONFIG) } : mk()),
+  querySelector: () => mk(), querySelectorAll: () => [], createElement: () => mk(), addEventListener() {},
+  documentElement: { scrollHeight: 0 }, activeElement: null, hidden: false, body: mk() };
+let answers = {};
+globalThis.fetch = async (url) => {
+  let a = { ok: false };
+  for (const [k, v] of Object.entries(answers)) if (new RegExp(k).test(url)) { a = v; break; }
+  if (typeof a === 'function') a = await a();
+  return { redirected: false, url, ok: true, status: 200, json: async () => a, text: async () => JSON.stringify(a) };
+};
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const O = globalThis.Office;
+O.desk({ id: 'backup', runs: (s) => !!s.running });
+O.desk({ id: 'snapshot' });
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const later = (ms, a) => () => sleep(ms).then(() => a);
+const ans = (time, running, age, refreshing) => ({ ok: true, state: { time, running }, age, stale: age > 30, refreshing: !!refreshing, refresh_after: 30 });
+const out = {};
+const got = [];
+const took = (j, l) => got.push([j.state ? j.state.time : null, j.state ? !!j.state.running : null, !!l]);
+(async () => {
+  const step = async (desk, first, follow) => {
+    O.current = { id: desk };
+    answers = { 'wait=1': later(60, follow), [`desk=${desk}$`]: first };
+    await O.loadState(desk, {}, took);
+    const at = got.splice(0);
+    await sleep(250);
+    return [at, got.splice(0)];
+  };
+  out.held = await step('backup', ans(100, true, 2400, true), ans(200, false, 0));
+  out.failed = await step('backup', ans(300, true, 2400, true), { ok: false, error: { key: 'agent_away' } });
+  out.young = await step('backup', ans(500, true, 60, true), ans(600, true, 0));
+  out.idle = await step('backup', ans(700, false, 2400, true), ans(800, false, 0));
+  out.noRuns = await step('snapshot', ans(100, true, 2400, true), ans(200, false, 0));
+  // the desks with a run card: their runs() on demo states
+  const reg = {};
+  const fn = new Proxy(function () {}, { get: (t, k) => (k === Symbol.toPrimitive ? () => '' : fn), apply: () => fn, construct: () => fn });
+  const real = globalThis.Office;
+  globalThis.Office = new Proxy({}, { get: (t, k) => (k === 'desk' ? (d) => { reg[d.id] = d; } : k === 'scope' ? () => (x) => x : fn) });
+  for (const d of ['backup', 'restore', 'moverelli', 'jack']) {
+    try { (0, eval)(fs.readFileSync(`${process.argv[3]}/desks/${d}/desk.js`, 'utf8')); } catch (e) { out[`load_${d}`] = String(e && e.message); }
+  }
+  globalThis.Office = real;
+  const demo = (f) => JSON.parse(fs.readFileSync(`${process.argv[4]}/${f}.json`, 'utf8'));
+  const runs = (d, s) => (reg[d] && typeof reg[d].runs === 'function' ? reg[d].runs(s) : 'none');
+  out.desks = {
+    backup: [runs('backup', demo('backup-run')), runs('backup', demo('backup')), runs('backup', { setup: { running: true } })],
+    restore: [runs('restore', { running: { id: 'r1', kind: 'app' } }), runs('restore', demo('restore'))],
+    moverelli: [runs('moverelli', demo('moverelli-run')), runs('moverelli', demo('moverelli-night-her')), runs('moverelli', demo('moverelli-idle'))],
+    jack: [runs('jack', demo('jack-live')), runs('jack', demo('jack-night-her')), runs('jack', { jobs: { embycache: { running: false }, gather: { running: false } }, night: { now: null } })],
+  };
+  process.stdout.write(JSON.stringify(out) + '\n', () => process.exit(0));
+})().catch((e) => { process.stdout.write(JSON.stringify({ error: String(e && e.stack || e) }) + '\n', () => process.exit(1)); });
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' '
+        . escapeshellarg(OFFICE_WEB) . ' ' . escapeshellarg(__DIR__ . '/ui/demo') . ' 2>&1');
+    $r = json_decode($raw, true);
+    if (!is_array($r) || isset($r['error'])) {
+        check('look old run: ran under node', false, $raw);
+        hardeningRm($tmp);
+        return;
+    }
+    same('look old run: a 40 min old state saying «running» is never drawn — the new look (run ended) instead', [[], [[200, false, true]]], $r['held']);
+    same('look old run: … no new look to be had: the held one after all (with its «as of» line)', [[], [[300, true, true]]], $r['failed']);
+    same('look old run: a young running state is drawn at once, as before', [[[500, true, false]], [[600, true, true]]], $r['young']);
+    same('look old run: an old state without a run is drawn at once, as before', [[[700, false, false]], [[800, false, true]]], $r['idle']);
+    same('look old run: a desk without runs() as before', [[[100, true, false]], [[200, false, true]]], $r['noRuns']);
+    same('look old run: the desks with a run card read their states (running … idle)',
+        ['backup' => [true, false, true], 'restore' => [true, false], 'moverelli' => [true, true, false], 'jack' => [true, true, false]], $r['desks'] ?? null,
+        json_encode(array_filter($r, fn ($k) => str_starts_with($k, 'load_'), ARRAY_FILTER_USE_KEY)));
     hardeningRm($tmp);
 }
 
@@ -42633,8 +42783,8 @@ JS;
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];

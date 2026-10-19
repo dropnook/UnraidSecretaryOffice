@@ -220,7 +220,8 @@ ${js.map((f) => `<script src="${esc(BASE + f)}?v=${stamp}"></script>`).join('\n'
     // opts.later (ms): the shown desk's look is stale, the agent looks again - the page asks once more (wait=1) and
     // draws that new look once the user is calm (core.js followLook()), like a real state older than refresh_after
     const later = !!(opts.later && !q.get('stored') && !q.get('wait') && !q.get('fresh'));
-    const r = { ok: true, agent: agent(), age: data ? (later ? after + 5 : 5) : null, stale: !data || later, refreshing: later, refresh_after: after };
+    // opts.laterAge (s): that stale state's age (default just past refresh_after)
+    const r = { ok: true, agent: agent(), age: data ? (later ? opts.laterAge ?? after + 5 : 5) : null, stale: !data || later, refreshing: later, refresh_after: after };
     r[part ? 'part' : 'state'] = data ?? null;
     return r;
   }

@@ -14,6 +14,10 @@
     "one": "{names} n'est pas encore là. Ci-dessous : à quoi ça sert, comment le faire venir — ou je m'en occupe pour toi.",
     "other": "{names} ne sont pas encore là. Ci-dessous : à quoi ils servent, comment les faire venir — ou je m'en occupe pour toi."
   },
+  "bubble.missing_docker_off": {
+    "one": "{names} n'est pas encore là. Ci-dessous : à quoi ça sert et comment le faire venir. Docker ne tourne pas, je ne peux donc pas faire venir un conteneur pour toi pour l'instant.",
+    "other": "{names} ne sont pas encore là. Ci-dessous : à quoi ils servent et comment les faire venir. Docker ne tourne pas, je ne peux donc pas faire venir un conteneur pour toi pour l'instant."
+  },
   "look_again": "Tournée",
   "looked": "Tournée terminée.",
   "looked_at": "Regardé {when}.",
