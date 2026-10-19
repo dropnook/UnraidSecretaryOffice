@@ -143,12 +143,12 @@ are rows `cell <name>` of the verdict table.
 | B2 | `backup-st-renamed-run` | 1.66.0 · v1.65.13 | ~110 s (old: 85 s) | pre-release |
 | B3 | `backup-kp-orphans-delete` | 1.65.13 · v1.65.12 | 15 s (old: 39 s) | pre-release |
 | B4 | `backup-ct-app-is-dataset-run` | 1.65.10 · v1.65.9 | ~95 s (old: 115 s) | pre-release |
-| B5 | `backup-sh-office-share-exists-first-setup` | 1.66.1 · v1.66.0 (page only, by hand) | 13 s | pre-release |
-| M1 | `moverelli-sh-prefer-array-files-run` | 1.66.1 · v1.66.0 | 17 s (old: 39 s) | pre-release |
-| M1 | `moverelli-sh-prefer-array-files-stop-after-file` | 1.66.1 · v1.66.0 | ~105 s (old: 335 s, the wait times out) | pre-release |
-| M2 | `moverelli-mo-own-rules-idle-setup` | 1.66.1 · v1.66.0 (page only, by hand) | 16 s | pre-release |
-| M2 | `moverelli-mo-own-rules-gone-setup` | 1.66.1 · v1.66.0 | 11 s (old: 31 s) | pre-release |
-| M3 | `moverelli-sh-yes-run-picture` (+ `moverelli-eta.mjs`) | 1.66.2 / 1.66.4 · v1.66.1 (page only, by hand) | ~70 s (old: 84 s) | pre-release |
+| B5 | `backup-sh-office-share-exists-first-setup` | 1.66.1 · v1.66.0 (page only: `no-create-share`) | 8 s (old: 16 s) | pre-release |
+| M1 | `moverelli-sh-prefer-array-files-run` | 1.66.1 · v1.66.0 | 16 s (old: 40 s) | pre-release |
+| M1 | `moverelli-sh-prefer-array-files-stop-after-file` | 1.66.1 · v1.66.0 | ~105 s (old: 334 s, the wait times out) | pre-release |
+| M2 | `moverelli-mo-own-rules-idle-setup` | 1.66.1 · v1.66.0 (page only: `remove-rules`) | 11 s (old: 33 s) | pre-release |
+| M2 | `moverelli-mo-own-rules-gone-setup` | 1.66.1 · v1.66.0 (+ `remove-rules`) | 8 s (old: 29 s) | pre-release |
+| M3 | `moverelli-sh-yes-run-picture` (+ `moverelli-eta.mjs`) | 1.66.2 / 1.66.4 · v1.66.1 (page only: `card-left`) | ~70 s (old: 84 s) | pre-release |
 | M3 | `moverelli-sh-yes-nested-tidy` (an emptied parent folder left on the pool) | the release after 1.66.7 · v1.66.7 | ~1 min | pre-release |
 
 Times are the scenario alone on Tower; each needs a base reset before it (~27 s), and an older release adds its install.
@@ -171,7 +171,10 @@ Mac needs the tags (`git fetch --tags`).
 - `queue_mac <id> page_value [--factor f] [--slack s] <route> <states> <langs> <readings|-> "<key>:<ph>[..<ph2>][=<n>] …"`
   also reads one value off a static page (`=<n>`: the server's number, e.g. a count on a tile).
 
-Results of the red-before check (Tower, 2026-10-19): see the table below.
+The red-before check is automatic now (Tower, 2026-10-19, reports `scenarios/2026-10-19/tower-scenarios-helpers*`):
+each page-only cell red on its older release, green on main — the same as the by-hand table of 2026-10-18. Run a
+scenario and its older release in two runs (one name per run: the second wipes the first's evidence before the
+Mac-side step).
 
 **MV-STOP-AFTER-FILE share=<share>** waits for a file of that share in flight (her plan may take other shares
 first: up to 5 min); M1-stop uses it. **SH-PREFER-ARRAY-FILES** puts its files in a folder per disk
