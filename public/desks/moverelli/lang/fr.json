@@ -80,6 +80,7 @@
   "run_summary": "{moved} sur {files} déplacés ({size}), {left}",
   "stopped_mover": "Le mover d'Unraid a été lancé à la main — je me suis arrêtée après ce fichier. Il ne connaît pas mes exceptions.",
   "stopped_user": "Arrêtée après {file}, comme demandé",
+  "stopped_array": "Arrêtée après {file} : l'array a été arrêté",
   "waited": "a attendu {min} min le mover d'Unraid",
   "refused": "pas lancé : {why}",
   "refused_times": "{n} fois de suite",

@@ -246,6 +246,11 @@ write_status() {  # exit code
     return 0
 }
 [[ -n "$STATUS_FILE" ]] && trap 'write_status $?' EXIT
+# USO «array stop» (2026-10-19, D-F8): ended by a signal it says so — bash runs the EXIT trap of an untrapped TERM with the
+# last command's status ($? = 0: «ok» for a run cut short); these end it with the signal's own code (failed)
+trap 'exit 143' TERM
+trap 'exit 130' INT
+trap 'exit 129' HUP
 
 # office: while a real run goes, the same file says how far it is (result «running»): the shares it will look at
 # (plan), the phase (look, share, tidy), the share and file in flight, what of the share and of the run is done

@@ -37126,7 +37126,7 @@ function testMoverelliStop(): void
             [$r['exit'], $r['why'], $r['by'], isset((readJson($stop) ?? [])['now']), (readJson($stop) ?? [])['by'] ?? null]);
     }
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php');
-    check('mover started: «by hand» = Unraid\'s own schedule off', str_contains($src, "(int) \$h['look_every'],\n            fn (): bool => jackMoverScheduleOff((\$h['unraid'])()));"));
+    check('mover started: «by hand» = Unraid\'s own schedule off', str_contains($src, "(int) \$h['look_every'],\n            fn (): bool => jackMoverScheduleOff((\$h['unraid'])()), \$arrayStopping);"));
     $sh = (string) file_get_contents(OFFICE_DIR . '/smartmover/custommover_run.sh');
     check('smart mover: one file at a time only with CUSTOMMOVER_STOP (the office); without it the share\'s list at once, as upstream',
         str_contains($sh, "if [[ -n \"\$STOP_FILE\" ]]; then\n        # office: one file at a time") && str_contains($sh, "printf '%s\\n' \"\${FILES[@]}\" | \"\${MOVER_CMD[@]}\" >\"\$mover_out\" 2>&1"));
@@ -37216,6 +37216,112 @@ JS);
             [array_slice($o['stopping'][0] ?? [], 0, 2), $o['stopping'][1] ?? null]);
         same('run card: «Stop after this file» asks moverelli.stop', ['moverelli.stop'], $o['posts'] ?? null);
     }
+    unset($GLOBALS['moverelliHost']);
+    hardeningRm($tmp);
+}
+
+/**
+ * D-F8 (scenario M6, 2026-10-19): Unraid's ⟦Stop⟧ while her real run moves — the run cut short (1079 of 3000 moved) read
+ * «ok» in her history. Now: she looks at var.ini's fsState (every 2 s at most) while she runs and stops after the file in
+ * flight once the array is being stopped (her stop file, why array — as Unraid stops its own mover at ⟦Stop⟧); a run that
+ * ends otherwise while the array goes (Smart Mover killed, its move binary refused) is «stopped», why array, never «ok»;
+ * Smart Mover killed by TERM says so (exit 143, «failed») instead of its EXIT trap's «ok» ($? of the last command).
+ */
+function testMoverelliArrayStop(): void
+{
+    $tmp = hardeningTmp('moverelli-arraystop');
+    $v = [];
+    moverelliFixture($tmp, $v);
+    $h = moverelliHost();
+    $dir = "$tmp/data";
+    moverelliSave(moverelliTestSettings(), $h);
+    foreach (['c2.txt', 'c3.txt', 'c4.txt'] as $f) {
+        file_put_contents("$tmp/mnt/cache/Docs/$f", "docs-$f");
+    }
+    $hist = fn () => moverelliHistory($dir)[0] ?? [];
+    $var = "$tmp/var.ini";
+    // the array goes while she moves: the stand-in sets fsState «Stopping» at its first file, takes ~0.6 s per file
+    file_put_contents("$tmp/bin/move-stopping", "#!/bin/bash\nwhile IFS= read -r f; do\n  printf 'fsState=\"Stopping\"\\n' > " . escapeshellarg($var)
+        . "\n  printf '%s\\n' \"\$f\" | " . escapeshellarg("$tmp/bin/move") . "\n  sleep 0.6\ndone\nexit 0\n");
+    chmod("$tmp/bin/move-stopping", 0755);
+    $GLOBALS['moverelliHost']['env']['CUSTOMMOVER_MOVER_BIN'] = "$tmp/bin/move-stopping";
+    $exit = moverelliJob(['run', '--office'], moverelliHost());
+    $st = readJson("$dir/status.json") ?? [];
+    same('array stop: she stops after the file in flight — exit 3, stopped, why array, some of Docs still on cache',
+        [3, 'stopped', 'stopped', 'array', true], [$exit, $st['result'] ?? null, $hist()['result'] ?? null, $hist()['why'] ?? null, count(glob("$tmp/mnt/cache/Docs/*")) > 0]);
+    check('array stop: said in the office\'s log', str_contains((string) @file_get_contents(AGENT_LOG), "Ms. Moverelli: the array is being stopped — she stops after the file in flight"));
+    // Smart Mover killed by TERM (its EXIT trap saw $? = 0 and wrote «ok»): the array still started — failed, never ok
+    file_put_contents($var, "fsState=\"Started\"\n");
+    file_put_contents("$tmp/bin/move-term", "#!/bin/bash\nkill -TERM \$PPID\nsleep 0.3\nexit 0\n");
+    chmod("$tmp/bin/move-term", 0755);
+    $GLOBALS['moverelliHost']['env']['CUSTOMMOVER_MOVER_BIN'] = "$tmp/bin/move-term";
+    $exit = moverelliJob(['run', '--office'], moverelliHost());
+    usleep(600000);                                          // the move binary in flight (holding Smart Mover's lock) ends
+    $st = readJson("$dir/status.json") ?? [];
+    same('TERM: Smart Mover says it — exit 143, failed (its status and her history), never ok', [143, 'failed', 143, 'failed'],
+        [$exit, $st['result'] ?? null, $st['exit'] ?? null, $hist()['result'] ?? null]);
+    // … killed while the array is being stopped: stopped, why array
+    file_put_contents("$tmp/bin/move-term", "#!/bin/bash\nprintf 'fsState=\"Stopping\"\\n' > " . escapeshellarg($var) . "\nkill -TERM \$PPID\nsleep 0.3\nexit 0\n");
+    moverelliJob(['run', '--office'], moverelliHost());
+    usleep(600000);
+    same('TERM while the array is being stopped: stopped, why array', ['stopped', 'array'], [$hist()['result'] ?? null, $hist()['why'] ?? null]);
+    // a run that ended «ok» with files left while the array goes (the move binary refused them, shfs gone): stopped, array
+    file_put_contents($var, "fsState=\"Started\"\n");
+    file_put_contents("$tmp/bin/move-gone", "#!/bin/bash\nprintf 'fsState=\"Stopping\"\\n' > " . escapeshellarg($var) . "\nwhile IFS= read -r f; do echo \"move: \$f No such file or directory\"; done\nexit 0\n");
+    chmod("$tmp/bin/move-gone", 0755);
+    $GLOBALS['moverelliHost']['env']['CUSTOMMOVER_MOVER_BIN'] = "$tmp/bin/move-gone";
+    $GLOBALS['moverelliHost']['look_every'] = 3600;          // the watch never looks: only her end sees the array going
+    moverelliJob(['run', '--office'], moverelliHost());
+    same('files left, Smart Mover «ok», the array being stopped at her end: stopped, why array', ['stopped', 'array'], [$hist()['result'] ?? null, $hist()['why'] ?? null]);
+    // … and a run that moved all it had while the array starts to go a moment later stays «ok»
+    file_put_contents($var, "fsState=\"Started\"\n");
+    file_put_contents("$tmp/mnt/cache/Docs/last.txt", 'last');
+    file_put_contents("$tmp/bin/move-late", "#!/bin/bash\n" . escapeshellarg("$tmp/bin/move") . "\nprintf 'fsState=\"Stopping\"\\n' > " . escapeshellarg($var) . "\nexit 0\n");
+    chmod("$tmp/bin/move-late", 0755);
+    $GLOBALS['moverelliHost']['env']['CUSTOMMOVER_MOVER_BIN'] = "$tmp/bin/move-late";
+    moverelliJob(['run', '--office'], moverelliHost());
+    same('everything moved, the array stopped right after: ok', ['ok', 0], [$hist()['result'] ?? null, (int) ($hist()['status']['left'] ?? -1)]);
+    // her watch: the stop file's why array (written by her or anyone) is kept
+    $stop = "$tmp/watch-stop.json";
+    $null = [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']];
+    @unlink($stop);
+    $p = proc_open(['bash', '-c', 'for i in $(seq 30); do [ -e "$1" ] && exit 3; sleep 0.1; done; exit 0', 'x', $stop], $null, $pipes);
+    $r = moverelliRunWatch($p, $stop, fn () => false, 0, null, fn () => true);
+    same('watch: the array being stopped — the stop file, why array, exit 3', [3, 'array', 'array'], [$r['exit'], $r['why'], (readJson($stop) ?? [])['why'] ?? null]);
+    // her page: «Stopped after {file}: the array was stopped»
+    $node = testsNode();
+    if ($node === '') {
+        check('array stop: page - node is missing here - skipped', true);
+    } else {
+        file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, className: cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, dataset: {}, style: {},
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, insertBefore(c) { this.children.unshift(c); }, setAttribute() {} });
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { sections: () => ({ el: {}, render() {}, mount: () => false, places: () => [], active: () => '' }), scope: () => T, t: T, el: mk,
+  fmt: { cron: (c) => c, size: (b) => b + ' B', date: (t) => 'D' + t, time: (t) => 'T' + t, duration: (s) => Math.round(s) + 's', relative: (t) => 'R' + t },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, errorText: (e) => 'err:' + e.key,
+  dialog: () => ({ buttons: [] }), toast: () => {}, selbar: () => null, api: { post: async () => ({ ok: true }) } };
+(0, eval)(fs.readFileSync(process.argv[3], 'utf8'));
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+console.log(JSON.stringify({ array: m.runSummary({ mode: 'run', result: 'stopped', why: 'array', stop_file: '/mnt/cache/Docs/c2.txt',
+  status: { mode: 'run', result: 'stopped', files: 3000, moved: 1079, bytes: 3000, left: 1921, stop_share: 'Docs' } }) }));
+JS);
+        $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/moverelli/desk.js') . ' ' . escapeshellarg(testsRunHelpersJs($tmp)) . ' 2>&1');
+        $lines = explode("\n", trim($raw));
+        $o = json_decode((string) end($lines), true);
+        same('array stop: her history row — «Stopped after c2.txt: the array was stopped», then the counts', 'stopped_array {"file":"c2.txt"} · run_summary {"moved":1079,"files":3000,"size":"3000 B","left":"count.left {\"n\":1921}"}',
+            $o['array'] ?? $raw);
+    }
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $lang = readJson(OFFICE_WEB . "/desks/moverelli/lang/$l.json") ?? [];
+        check("array stop: the words in $l", str_contains((string) ($lang['stopped_array'] ?? ''), '{file}'));
+    }
+    $sh = (string) file_get_contents(OFFICE_DIR . '/smartmover/custommover_run.sh');
+    check('smart mover: TERM, INT and HUP end it with their own code (the EXIT trap writes it), never 0', str_contains($sh, "trap 'exit 143' TERM") && str_contains($sh, "trap 'exit 130' INT") && str_contains($sh, "trap 'exit 129' HUP"));
     unset($GLOBALS['moverelliHost']);
     hardeningRm($tmp);
 }
@@ -43938,7 +44044,7 @@ JS;
 }
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],

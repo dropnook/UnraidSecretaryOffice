@@ -80,6 +80,7 @@
   "run_summary": "{moved} de {files} movidos ({size}), {left}",
   "stopped_mover": "El mover de Unraid se puso en marcha a mano — paré después de este archivo. No conoce mis excepciones.",
   "stopped_user": "Parada después de {file}, como pediste",
+  "stopped_array": "Parada después de {file}: se detuvo el array",
   "waited": "esperó {min} min al mover de Unraid",
   "refused": "no iniciado: {why}",
   "refused_times": "{n} veces seguidas",
