@@ -9,6 +9,9 @@
 scenario_begin moverelli-rn-unraid-mover-running-run
 needs tower
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
+# put_files --age writes with the clock set back (states' clock_back): the agent's heartbeat in that time is dated 40
+# days back — a fresh one waited for before snap_before, else INV-TICK sees the scenario's own clock as a gap
+fresh_beat() { local t; t=$(_sc_now); wait_for 45 "a heartbeat after the files were written" bash -c "(( \$(stat -c %Y $RUN/agent.json) >= $t ))"; }
 on() { find /mnt/"$1"/uso-yes/uso-wip-d-m11 -type f ! -name '*.partial' 2>/dev/null | wc -l; }
 arr() { echo $(( $(on disk1) + $(on disk2) )); }
 # 6 × 1.25 GiB (two batches: --age stays ≤ 4 GiB each) — 512 MB files each took about a second: all were moved before
@@ -19,6 +22,7 @@ undo_push files_unput M11
 undo_push bash -c 'rm -rf /mnt/*/uso-yes/uso-wip-d-m11'
 track_share uso-yes
 state RN-UNRAID-MOVER-RUNNING
+fresh_beat
 snap_before
 flow MV-RUN refuse=ok
 expect_err moverelli_mover_running
