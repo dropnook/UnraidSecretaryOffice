@@ -39,7 +39,7 @@
 nc_data_closed() {
     local t
     t=$(readlink -f /mnt/user/nextcloud 2>/dev/null) && [[ -d $t ]] || return 0
-    [[ $(stat -c '%u %a' "$t") == '33 770' ]] && return 0
+    [[ $(stat -c '%u:%g %a' "$t") == '33:33 770' ]] && return 0      # the group too: 33:users is the one-click's (Unraid leaves it)
     say "Nextcloud's data folder $t was $(stat -c '%U:%G %a' "$t") — closed again (33:33 0770), as apps.sh made it"
     chown 33:33 "$t" && chmod 0770 "$t"
 }
