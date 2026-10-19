@@ -121,7 +121,7 @@
   "tile.syslog_quiet": "nada que mis reglas conozcan",
   "tile.syslog_lines": {"one": "{n} línea leída", "other": "{n} líneas leídas"},
   "credit_title": "¡Gracias, dlandon y Derek Kaser!",
-  "credit": "Las reglas con las que ordeno las líneas del syslog vienen de su Enhanced Log. Bajo GPL-3.0.",
+  "credit": "Las reglas con las que ordeno las líneas del syslog vienen de su Enhanced Log. Bajo la GPL (versión 2 o posterior).",
   "found.none_fit": "Ninguna línea coincide con el filtro.",
   "found.sub": "Líneas que suenan a error o aviso desde mi ronda anterior ({when}); las parecidas como una sola entrada, las más frecuentes primero.",
   "found.sub_first": "Líneas que suenan a error o aviso en las últimas 24 horas (mi primera ronda); las parecidas como una sola entrada, las más frecuentes primero.",

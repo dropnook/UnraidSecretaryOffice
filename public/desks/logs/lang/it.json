@@ -121,7 +121,7 @@
   "tile.syslog_quiet": "niente che le mie regole conoscano",
   "tile.syslog_lines": {"one": "{n} riga letta", "other": "{n} righe lette"},
   "credit_title": "Grazie, dlandon e Derek Kaser!",
-  "credit": "Le regole con cui ordino le righe del syslog vengono dal loro Enhanced Log. Sotto GPL-3.0.",
+  "credit": "Le regole con cui ordino le righe del syslog vengono dal loro Enhanced Log. Sotto la GPL (versione 2 o successiva).",
   "found.none_fit": "Nessuna riga corrisponde al filtro.",
   "found.sub": "Righe che suonano come errore o avviso dal mio giro precedente ({when}); quelle simili come una voce, le più frequenti prima.",
   "found.sub_first": "Righe che suonano come errore o avviso nelle ultime 24 ore (il mio primo giro); quelle simili come una voce, le più frequenti prima.",

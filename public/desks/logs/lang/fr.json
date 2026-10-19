@@ -121,7 +121,7 @@
   "tile.syslog_quiet": "rien que mes règles connaissent",
   "tile.syslog_lines": {"one": "{n} ligne lue", "other": "{n} lignes lues"},
   "credit_title": "Merci, dlandon et Derek Kaser !",
-  "credit": "Les règles avec lesquelles je range les lignes du syslog viennent de leur Enhanced Log. Sous GPL-3.0.",
+  "credit": "Les règles avec lesquelles je range les lignes du syslog viennent de leur Enhanced Log. Sous la GPL (version 2 ou ultérieure).",
   "found.none_fit": "Aucune ligne ne correspond au filtre.",
   "found.sub": "Les lignes qui ressemblent à une erreur ou à un avertissement depuis ma tournée précédente ({when}) ; les lignes semblables en une seule entrée, les plus fréquentes d'abord.",
   "found.sub_first": "Les lignes qui ressemblent à une erreur ou à un avertissement des dernières 24 heures (ma première tournée) ; les lignes semblables en une seule entrée, les plus fréquentes d'abord.",

@@ -121,7 +121,7 @@
   "tile.syslog_quiet": "nichts, was meine Regeln kennen",
   "tile.syslog_lines": {"one": "{n} Zeile gelesen", "other": "{n} Zeilen gelesen"},
   "credit_title": "Danke, dlandon und Derek Kaser!",
-  "credit": "Die Regeln, mit denen ich Syslog-Zeilen einordne, stammen aus ihrem Enhanced Log. Unter GPL-3.0.",
+  "credit": "Die Regeln, mit denen ich Syslog-Zeilen einordne, stammen aus ihrem Enhanced Log. Unter der GPL (Version 2 oder später).",
   "found.none_fit": "Keine Zeile passt zum Filter.",
   "found.sub": "Zeilen, die nach Fehler oder Warnung klingen, seit meinem vorigen Rundgang ({when}); ähnliche als ein Eintrag, die häufigsten zuerst.",
   "found.sub_first": "Zeilen, die nach Fehler oder Warnung klingen, aus den letzten 24 Stunden (mein erster Rundgang); ähnliche als ein Eintrag, die häufigsten zuerst.",
