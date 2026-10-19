@@ -26,7 +26,8 @@ if grep -qx autostart=had "$prenote" 2>/dev/null; then undo_push cp -p "$prenote
 else undo_push rm -f /var/lib/docker/unraid-autostart; fi
 # Nextcloud left in maintenance mode by the office (its checks red then) switched off at the end: base.sh doesn't
 # reset it, every later run would refuse — no helper for it, occ as Nextcloud's own user
-nc_maint_off() { timeout 60 docker exec -u 33 Nextcloud php occ maintenance:mode 2>/dev/null | grep -qi enabled || return 0
+nc_maint_off() { nc_data_closed       # Unraid's array start opens its data folder (0777): occ refuses until it is closed
+    timeout 60 docker exec -u 33 Nextcloud php occ maintenance:mode 2>/dev/null | grep -qi enabled || return 0
     say "undo: Nextcloud was left in maintenance mode — switched off"; timeout 60 docker exec -u 33 Nextcloud php occ maintenance:mode --off >/dev/null; }
 undo_push nc_maint_off
 undo_push ct_start ${was//,/ }

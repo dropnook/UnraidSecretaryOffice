@@ -12,7 +12,8 @@ cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || e
 nc_data_closed
 # the base again when the office left Nextcloud in maintenance mode (its checks are red then): base.sh doesn't reset it, and
 # every later run would refuse («already in maintenance mode») — no helper for it, occ as Nextcloud's own user
-nc_maint_off() { timeout 60 docker exec -u 33 Nextcloud php occ maintenance:mode 2>/dev/null | grep -qi enabled || return 0
+nc_maint_off() { nc_data_closed       # Unraid's array start opens its data folder (0777): occ refuses until it is closed
+    timeout 60 docker exec -u 33 Nextcloud php occ maintenance:mode 2>/dev/null | grep -qi enabled || return 0
     say "undo: Nextcloud was left in maintenance mode — switched off"; timeout 60 docker exec -u 33 Nextcloud php occ maintenance:mode --off >/dev/null; }
 undo_push nc_maint_off
 _ct_note_now() { timeout 20 docker ps --filter status=running --format '{{.Names}}' | sort; }
