@@ -1493,14 +1493,16 @@ const putInto = (node, x) => {
  *         × takes that part away, «Show all» all of them (the pick too); the active control carries .on
  *         (2026-10-11, Benj: a pick narrowed the list to «1 of 325» and nothing said how to get back);
  *         parts: [[name, clear], …] — more of the desk's own that narrow the list (Ms. Protocolli's time filter), a chip
- *         each after the tile's: its × calls clear() and draws (onChange what 'part'); «Show all» clears them through clear
+ *         each after the tile's: its × calls clear() and draws (onChange what 'part'); «Show all» clears them through clear;
+ *         order: [name, back] — the list's order while it isn't the list's default (it narrows nothing): said at the end of
+ *         the note line, its × calls back() and draws (onChange what 'order'); «Show all» leaves it (a choice, not a filter)
  *   bar.options([[value, text, n], …]), bar.reset(), bar.tile(name | ''), bar.set({text, only, pick})
  */
 Office.filterBar = function filterBar(opts) {
   const o = opts || {};
   const min = typeof o.min === 'number' ? o.min : Office.FILTER_MIN;
   const pickKey = o.key && o.select ? o.key + '.pick' : null;
-  const s = { pick: (pickKey && Office.store(pickKey)) || '', tile: '', clear: null, focus: null, range: null, parts: [] };
+  const s = { pick: (pickKey && Office.store(pickKey)) || '', tile: '', clear: null, focus: null, range: null, parts: [], order: null };
   const box = el('div', 'toolbar filterbar');
   const input = el('input', 'search filter-words');
   input.type = 'search';
@@ -1540,7 +1542,9 @@ Office.filterBar = function filterBar(opts) {
   noteHits.setAttribute('aria-live', 'polite');
   const all = el('button', 'btn small plain filter-all', t('common.show_all'));
   all.type = 'button';
-  note.append(el('span', 'filter-note-text', t('common.filter_only')), chips, noteHits, all);
+  const noteText = el('span', 'filter-note-text', t('common.filter_only'));
+  const order = el('span', 'filter-order');
+  note.append(noteText, chips, noteHits, order, all);
   box.appendChild(note);
   const pickText = new Map();                       // option value → its text (for the pick's chip)
 
@@ -1569,6 +1573,7 @@ Office.filterBar = function filterBar(opts) {
   const chipClick = (what, part) => {
     if (what === 'tile') { cleared('tile'); return; }
     if (what === 'part') { s.parts = s.parts.filter((x) => x !== part); part[1](); change(box, 'part'); return; }
+    if (what === 'order') { const back = s.order && s.order[1]; s.order = null; if (back) back(); change(box, 'order'); return; }
     if (what === 'pick') { setPick(''); change(sel || box, 'pick'); return; }
     if (what === 'only') { if (cb) cb.checked = false; change(sw || box, 'only'); return; }
     input.value = '';
@@ -1616,6 +1621,7 @@ Office.filterBar = function filterBar(opts) {
       if ('tile' in x) s.tile = x.tile || '';
       if (x.clear) s.clear = x.clear;
       if ('parts' in x) s.parts = (Array.isArray(x.parts) ? x.parts : []).filter((p) => Array.isArray(p) && p[0] && typeof p[1] === 'function');
+      if ('order' in x) s.order = Array.isArray(x.order) && x.order[0] && typeof x.order[1] === 'function' ? x.order : null;
       const avail = x.onlyAvail !== false;
       if (sw && !avail && cb.checked) { cb.checked = false; later('gone', box); }    // nothing to switch to: off, drawn anew
       const f = read();
@@ -1629,7 +1635,10 @@ Office.filterBar = function filterBar(opts) {
       box.hidden = quiet && !extras.length;
       const said = t('common.filter_hits', { n, total });
       hits.textContent = '';
-      note.hidden = !filtering;
+      note.hidden = !filtering && !s.order;
+      noteText.hidden = !filtering;
+      all.hidden = !filtering;
+      order.replaceChildren(...(s.order ? [filtering ? '· ' : '', chipOf('order', s.order[0])] : []));
       const parts = [];
       if (f.tile) parts.push(['tile', f.tile]);
       s.parts.forEach((p) => parts.push(['part', p[0], p]));
