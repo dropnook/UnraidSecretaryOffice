@@ -36,7 +36,11 @@ state TM-DST autumn Europe/Berlin
 say "the server: $(date '+%F %T %Z') ($(date -u '+%T UTC'))"
 snap_before
 h0=$(hist)
-wait_for 240 "crond's first 02:59 (CEST) joint run to start" bash -c "pgrep -f '[a]gent\.php job moverelli' >/dev/null || [[ \$(jq -r '.phase // \"\"' '$D/moverelli/night.json' 2>/dev/null) =~ ^(check|free|recheck|fill|tell|done)\$ && \$(stat -c %Y '$D/moverelli/night.json') -gt $(date +%s) ]]"
+# the first 02:59 (CEST): crond's own start, or — when crond, one minute after the clock was set, lets that minute pass
+# (seen 2026-10-19 with Mr. Backupsy's line: dcron skips the minute after a jump of days) — the job as crond starts it
+wait_for 180 "02:59:20 CEST" bash -c '[[ $(date +%H%M%S%Z) > 025919CEST && $(date +%Z) == CEST ]]'
+if pgrep -f '[a]gent\.php job moverelli' >/dev/null || [[ $(stat -c %Y "$D/moverelli/night.json" 2>/dev/null || echo 0) -ge $(( $(date +%s) - 30 )) ]]; then say "crond started the first 02:59 itself"
+else say "crond let the first 02:59 pass — the job started as crond would"; flow MV-RUN-SCHED; fi
 wait_night 1200
 h1=$(hist)
 wait_for 4200 "the second 02:59 (CET) to pass" bash -c "[[ \$(date +%H%M%Z) == 0301CET ]]"
@@ -46,5 +50,6 @@ say "her history rows: $h0 → $h1 (after the first 02:59) → $h2 (after the se
 (( h1 == h0 + 1 && h2 == h1 )) && cell one-run 1 "one joint run for the night" || cell one-run 0 "her runs: $((h1 - h0)) at the first 02:59, $((h2 - h1)) at the second"
 r=$(jq -c '(.history // [])[0] | {result, why}' "$D/moverelli.json" 2>/dev/null)
 [[ $(jq -r '.result // ""' <<<"$r") != failed ]] && cell not-failed 1 "her last run: $r" || cell not-failed 0 "her last run: $r"
+allow INV-LEFTOVER "the clock state's own note and guard (/tmp/uso-clock-*.set, uso-clock-guard.sh — states-time.sh) live while the clock is set; its undo removes them (INV-LEFTOVER after the undo)"
 check standard
 scenario_end

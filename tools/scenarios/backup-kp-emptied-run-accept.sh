@@ -11,7 +11,9 @@ needs docker kopia
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
 S=uso-only
 H=$UB/state/kopia-held.json
-alarms() { grep -l 'Unraid Secretary Office' "$NOTIFY_DIR"/unread/*.notify "$NOTIFY_DIR"/archive/*.notify 2>/dev/null | xargs -r grep -l -i 'suddenly empty\|was emptied' 2>/dev/null | wc -l; }
+# the alarm by its subject (a run's own result quotes the same words), each notification once (Unraid keeps it in unread/
+# and archive/ alike)
+alarms() { grep -l -i '^subject=.*Unraid Secretary Office.*\(suddenly empty\|was emptied\)' "$NOTIFY_DIR"/unread/*.notify "$NOTIFY_DIR"/archive/*.notify 2>/dev/null | xargs -rn1 basename | sort -u | wc -l; }
 run_now() {      # «Back up now», waited for; prints the run's result and codes
     minute_wait
     ask backup.start '{"mode":"backup"}' >/dev/null || { echo "refused $(ask_last '.error.key')"; return 1; }
@@ -27,10 +29,10 @@ undo_push rm -f "$H"                      # a hold left by a red run is no base 
 nc_data_closed
 flow BK-APPLY "share|$S|mode=kopia" "share|UnraidSecretaryOffice|mode=kopia" || _row state prepare red "Apply of $S as local + offsite failed"
 say "the first run (prepare): $(run_now first)"
+a0=$(alarms)                              # before the emptying: the agent's own look may alarm before any run
 state KP-EMPTIED
 track_share "$S"
 snap_before
-a0=$(alarms)
 r1=$(run_now held)
 say "the run after the emptying: $r1"
 jq -e '.codes | (index("kopia_held") or index("kopia_gone"))' <<<"$r1" >/dev/null 2>&1 && [[ -f $H ]] \
@@ -40,8 +42,8 @@ a1=$(alarms)
 r2=$(run_now again)
 a2=$(alarms)
 say "a second run while held: $r2 — alarms $a0 → $a1 → $a2"
-(( a1 - a0 == 1 && a2 == a1 )) && cell one-alarm 1 "one alarm for the hold, none for the second run" \
-    || cell one-alarm 0 "alarms: $((a1 - a0)) for the first held run, $((a2 - a1)) for the second (one in all must be)"
+(( a2 - a0 == 1 )) && cell one-alarm 1 "one alarm for the emptied repository ($((a1 - a0)) by the first held run's end, none more by the second)" \
+    || cell one-alarm 0 "alarms: $((a1 - a0)) by the first held run's end, $((a2 - a1)) more by the second (one in all must be)"
 ask backup.refresh '{}' 120 >/dev/null
 repo=$(jq -r '.repo // empty' "$H" 2>/dev/null)
 bubble_look held backup caretaker
@@ -54,5 +56,6 @@ else
     cell accept-lifts 0 "«Yes, it is new» refused or no repository shown: ${repo:-none} $(ask_last '.error.key // empty' 2>/dev/null)"
 fi
 expect_warnings kopia_held kopia_gone kopia_emptied
+allow INV-NOTIFY-ONCE "two runs a minute apart each send their own result («Backup with errors» once per run) — not one event twice; the alarm itself is cell one-alarm"
 check standard
 scenario_end
