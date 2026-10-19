@@ -1,9 +1,8 @@
 #!/bin/bash
 # Cell R4 of matrix.md, the restore, post half (nightly): back after the power cut that hit Mr. Restori's copy. What
-# must hold: his journal no longer says «running» — his page reads it as interrupted (rsJournals: the job is gone) —
-# and names the step it stopped at; «Put back» is offered and undoes what the copy had begun (the half copy set
-# aside, nothing of the live folder touched); no job of his «running», the engine's lock free, a new restore not
-# blocked. Unraid's own parity check after the unclean stop is cancelled. The undo removes the folder and what the
+# must hold: his page reads the restore as interrupted (rsJournals: the job is gone) and its journal names the step it
+# stopped at (no step left «running» — the page draws that with the wave); no job of his «running», the engine's lock
+# free; the half copy beside the folder doesn't stay looking like a restore (removed, or «Put back» offered). Unraid's own parity check after the unclean stop is cancelled. The undo removes the folder and what the
 # restore put beside it, takes the demo set off Docker's autostart again and starts any container still missing.
 . "$(dirname "$0")/lib.sh"
 scenario_begin restore-rn-hard-reset-midrun-files
@@ -35,20 +34,23 @@ rid=$(ls -1 "$D/restore" 2>/dev/null | grep -E '^[0-9]{8}-' | sort | tail -1)
 j=$D/restore/$rid/journal.json
 say "the restore the cut hit: $rid — journal as the disk kept it: $(jq -c '{result, steps: [.steps[]? | .state]}' "$j" 2>/dev/null)"
 evidence "$j" journal-after-boot.json >/dev/null 2>&1
-row=$(state_json restore '[.restores[]? | select(.id == "'"$rid"'")][0] | "\(.result) step=\(.step // "?") can_putback=\(.can_putback)"' 2>/dev/null)
+row=$(state_json restore '[.restores[]? | select(.id == "'"$rid"'")][0] | "\(.result) can_putback=\(.can_putback)"' 2>/dev/null)
 [[ $row == interrupted* ]] && cell interrupted 1 "his page: $row" || cell interrupted 0 "his page: ${row:-no row for $rid}"
-[[ $row =~ step=[0-9] ]] && cell stopped-at-step 1 "the row names the step: ${row#* }" || cell stopped-at-step 0 "no step named: $row"
+# the step it stopped at, as his page's journal shows it (rsJournalGet: the journal as rsJournals left it) — a step
+# still «running» is drawn with the wave (desk.js: s.state === 'running' → waving) for a job that is gone
+st=$(jq -r '[.steps | to_entries[] | select(.value.state != "ok" and .value.state != "skipped" and .value.state != "pending")][0] | "\(.key + 1) \(.value.do) \(.value.state)"' "$j" 2>/dev/null)
+[[ -n $st && $st != null* && $st != *running ]] && cell stopped-at-step 1 "the journal names the step it stopped at: $st" \
+    || cell stopped-at-step 0 "the journal's step $st after the power cut — his page draws it «running» with the wave, nothing runs"
 run=$(state_json restore '.running // null | tostring' 2>/dev/null)
 [[ $run == null ]] && cell nothing-running 1 "no restore of his «running»" || cell nothing-running 0 "his page says a restore runs: $run"
 lock_held "$UB/state/lock" && cell lock-free 0 "the engine's lock is held after the boot" || cell lock-free 1 "the engine's lock is free"
-if [[ $row == *can_putback=true ]]; then
-    flow RS-PUTBACK of="$rid"
-    live=$(find /mnt/cache/appdata/emby/uso-wip-d-r4f -type f | wc -l)
-    ((live == 4)) && cell putback 1 "«Put back» done, the live folder untouched (4 files)" || cell putback 0 "after «Put back» the live folder has $live files (4 before)"
-else
-    cell putback 0 "«Put back» isn't offered for the interrupted copy ($row)"
-fi
-WAIT_SOFT=1 wait_for 90 "Unraid's own at job after the array start" atq_quiet
+# a copy beside replaces nothing: what the cut leaves is a half copy <folder>.restored-<stamp> — removed, or «Put
+# back» offered to take it away, never left looking like a finished restore
+half=$(find /mnt/cache/appdata -maxdepth 1 -name 'emby.restored-*' -printf '%f ' 2>/dev/null)
+hs=$(du -sm /mnt/cache/appdata/emby.restored-* 2>/dev/null | awk '{s+=$1} END {print s+0}'); ws=$(du -sm /mnt/cache/appdata/emby | awk '{print $1}')
+if [[ -z $half ]]; then cell half-copy 1 "no half copy left beside the folder"
+elif [[ $row == *can_putback=true ]]; then flow RS-PUTBACK of="$rid"; cell half-copy 1 "the half copy $half — «Put back» offered and done"
+else cell half-copy 0 "the half copy ${half}(${hs} of ${ws} MiB) stays beside the folder, named like a restore, and nothing offers to take it away ($row)"; fi
 check standard
 check final
 scenario_end

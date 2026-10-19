@@ -12,7 +12,9 @@ note=${USO_SC_OUT:-$SC_REPORTS}/restore-rn-hard-reset-midrun-drill.prenotes
 [[ -f /var/lib/docker/unraid-autostart ]] && cp -p /var/lib/docker/unraid-autostart "$note.autostart"
 nc_data_closed
 state_ct_autostart
-flow BK-RUN-MANUAL mode=backup               # the packages the drill tries
+# the moment/packages from the cron's run (job.sh backup, no look at the page): a pre half's page looks would live in
+# /tmp/uso-keep and be gone after the reboot before the runner's Mac-side checks read them
+minute_wait && job backup && job_wait backup 1800 && wait_backup 1800
 flow OF-REBOOT
 midrun_arm RN-HARD-RESET-MIDRUN drill 3 reset 180 && armed=green || armed=red
 pid=$(_st_bg bash -c 'r=$1; for i in $(seq 1 240); do [[ -s $r ]] && break; sleep 0.5; done; sleep 3; . "$2"; flow_rs_drill >/dev/null 2>&1' \

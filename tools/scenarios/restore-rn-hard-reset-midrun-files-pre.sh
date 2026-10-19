@@ -16,7 +16,9 @@ note=${USO_SC_OUT:-$SC_REPORTS}/restore-rn-hard-reset-midrun-files.prenotes
 put_files R4F cache appdata/emby/uso-wip-d-r4f 4 --size 512M || _row state put_files red "the files could not be written"
 nc_data_closed
 state_ct_autostart                           # not `state`: its undo is the post half's
-flow BK-RUN-MANUAL mode=backup               # the moment
+# the moment/packages from the cron's run (job.sh backup, no look at the page): a pre half's page looks would live in
+# /tmp/uso-keep and be gone after the reboot before the runner's Mac-side checks read them
+minute_wait && job backup && job_wait backup 1800 && wait_backup 1800
 flow OF-REBOOT
 midrun_arm RN-HARD-RESET-MIDRUN rs 0 reset 180 && armed=green || armed=red
 pid=$(_st_bg bash -c 'r=$1; for i in $(seq 1 240); do [[ -s $r ]] && break; sleep 0.5; done; sleep 3; . "$2"; flow_rs_files mode=beside path=/mnt/user/appdata/emby >/dev/null 2>&1' \
