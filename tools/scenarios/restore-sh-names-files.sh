@@ -57,7 +57,9 @@ track_share "$S"
 snap_before
 # the dialog's ticked entries (desk.js ~2044 sends {snap, items}): the long name apart (its own cell), the eleven others
 long=$(printf 'n%.0s' {1..251}).txt
-rs_items() { local mode=$1; shift; _fl_args; _rs_go "$(jq -cn --arg p "/mnt/user/$S" --arg m "$mode" '{kind: "files", path: $p, mode: $m, items: $ARGS.positional}' --args "$@")"; }
+rs_items() { local mode=$1 it; shift; _fl_args      # the names through stdin: «-dash» as an argument would be an option of jq
+    it=$(printf '%s\0' "$@" | jq -Rsc 'split("\u0000") | .[:-1]')
+    _rs_go "$(jq -cn --arg p "/mnt/user/$S" --arg m "$mode" --argjson i "$it" '{kind: "files", path: $p, mode: $m, items: $i}')"; }
 ELEVEN=(); for f in "${NAMES[@]}"; do [[ $f == "$long" ]] || ELEVEN+=("$f"); done
 # 1. beside: the eleven back next to themselves
 rs_items copy "${ELEVEN[@]}" || say "the restore beside of the eleven: $(ask_last '.error // empty')"
