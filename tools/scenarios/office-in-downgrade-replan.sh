@@ -24,5 +24,6 @@ d=$(agent_log_since down | grep -m1 'downgrade')
 m1=$(jq -c '.done' "$D/office.json" 2>/dev/null)
 [[ -n $d && $m1 == "$m0" ]] && cell marker 1 "${d:0:200}" || cell marker 0 "the log: ${d:-no «downgrade» line}; steps done $m0 → $m1"
 flow BK-REPLAN
+allow INV-AGENT "the downgrade installs the older office: its agent is another one by design (states-install.sh plugin_install)"
 check standard
 scenario_end

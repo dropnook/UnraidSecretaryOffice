@@ -2,7 +2,7 @@
 # Cell M22 of matrix.md (batch E): an old install updated (IN-UPDATE-OLD: v1.60.0 with the 1.60 fixture), then the
 # plugin manager's update to the release installed here (OF-UPDATE). The fixture has no Ms. Moverelli (in training in
 # 1.60, hired by none): her ini as a 1.61 install left it — the halves (X and her target Y, move_until_used_below), Jack
-# Emby's slice and floor, age_stat=mtime — is laid into the old data folder before the update, Unraid's mover switched
+# Emby's slice and floor, age_stat=mtime, in her writer's own form — is laid into the old data folder before the update, Unraid's mover switched
 # off as her 1.61 setup did (put back by the undo). After the update: Y, the slice and the floor are gone, X stays,
 # age_stat=newest, the ini of before kept as smart_mover.ini.before-<version> (cell halves-gone), the night-run step
 # leaves one line of hers at most and none of Jack Streamer's EmbyCache (INV-CRON-ONE, cell night-run); hired, her
@@ -18,15 +18,20 @@ m0=$(mover_now)
 state IN-UPDATE-OLD 1.60
 undo_push unraid_schedule_set "$m0"
 unraid_schedule_set '' || _row state prepare red "Unraid's mover schedule not switched off"
-mkdir -p "$D/moverelli" && cat >"$INI" <<'INI'
+mkdir -p "$D/moverelli" && cat >"$INI" <<INI
+# Ms. Moverelli (Unraid Secretary Office) - written by the office; change it on her setup page
 [GLOBAL]
+log_file=$D/moverelli/smart_mover.log
 min_age=30
 move_when_used_above=80
 move_until_used_below=70
 jack_slice_percent=30
 jack_min_percent=20
 age_stat=mtime
-mover_bin=/usr/libexec/unraid/move
+move_prefer_shares=yes
+mover_debug=0
+max_list=50
+
 [uso-yes]
 min_age=30
 move_until_used_below=60
@@ -44,5 +49,7 @@ grep -v '^#' "$OFFICE_FLASH"/*.cron 2>/dev/null | grep -q 'job\.sh embycache' &&
     || cell night-run 1 "no EmbyCache line of its own; her lines: $c"
 flow OF-HIRE desk=moverelli
 flow MV-RESAVE
+allow INV-SETTINGS "the update's migration rewrites her ini (cell halves-gone) and the Team Lead hires her (OF-HIRE) — both this scenario's flow; her re-save is MV-RESAVE's own check"
+allow INV-SETUP-MSGS "docker_volumes is the engine's coded warning (setup.sh:1420 wrn_code — its text is not a setup.msg key) and «more» a continuation line (setup.sh:1423 hint_as more): the check's gap, a helper follow-up"
 check standard
 scenario_end

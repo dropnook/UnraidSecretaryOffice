@@ -17,6 +17,7 @@ office_keep O2 || _row state office_keep red "the office could not be kept"
 undo_push office_back O2
 # a partner line as the door writes one (a throwaway key — nobody holds its private half after the scenario)
 mkdir -p "$KEEP/key" && ssh-keygen -q -t ed25519 -N '' -C uso-wip-e -f "$KEEP/key/k" >/dev/null 2>&1
+[[ -s $KEYS && -n $(tail -c 1 "$KEYS") ]] && printf '\n' >>"$KEYS"     # its last line ended (Unraid's file may end without one)
 others=$(md5sum <"$KEYS" 2>/dev/null)
 printf '%s uso-partner:00e0e0e0\n' "$(cut -d' ' -f1,2 "$KEEP/key/k.pub")" >>"$KEYS"
 rm -rf "$KEEP/key"

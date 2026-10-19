@@ -26,6 +26,7 @@ uso2_drop() {
 }
 undo_push uso2_drop
 state KP-MAPPING-CHANGED
+expect_changes 'kopia|*'          # the old /uso sources are gone in the new mapping: the plan says source_gone (zustaende.md: «alte Quellen als Waisen»)
 track_share "$S"
 snap_before
 k0=$(kstate)
