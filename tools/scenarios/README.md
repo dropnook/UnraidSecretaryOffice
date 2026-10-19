@@ -317,20 +317,20 @@ reason (R4's pre halves back up through the cron's job, not «Back up now»).
 | Cell | Scenario | Verdict on 1.66.8 (USOTest4) | Time on USOTest4 | Run |
 |---|---|---|---|---|
 | B11 | `backup-rn-hard-reset-midrun-run` (`-pre`/`-post`; `:users`) | **red** F2 (green with `:users`) | ~8 min (a reboot) | nightly |
-| B12 | `backup-rn-array-stop-midrun-bk-run` (`:users`) | **red** F2 (green with `:users`) | ~8 min (`:users` 2 min) | pre-release |
+| B12 | `backup-rn-array-stop-midrun-bk-run` (`:users`) | **red** F2 (cells green with `:users`) | 8 min (`:users` 2 min) | pre-release |
 | B13 | `backup-dk-pool-full-run` | **red** F1 | 1.5 min | pre-release |
 | B20 | `backup-rn-two-runs-run` | green | 3 min | pre-release |
-| B45 | `backup-rn-setup-while-run-apply`, `backup-rn-plan-old-apply`, `backup-rn-agent-restart-midrequest-replan`, `-apply` | green | 40 s, 16 s, 70 s, 20 s | pre-release |
+| B45 | `backup-rn-setup-while-run-apply`, `backup-rn-plan-old-apply`, `backup-rn-agent-restart-midrequest-replan`, `-apply` | green | 45 s, 20 s, 70 s, 40 s | pre-release |
 | B46 | `backup-sv-atd-off-run-apply` | **red** F3 | 2 min | pre-release |
 | B48 | `backup-rn-abort-nc-maint-run` | green | 2 min | pre-release |
-| R3 | `restore-rn-changes-between-putback` | green | 35 s | pre-release |
+| R3 | `restore-rn-changes-between-putback` | green | 1 min | pre-release |
 | R4 | `restore-rn-hard-reset-midrun-files`, `-drill` (halves) | files **red** F10, F5; drill green | ~5 min each (a reboot) | nightly |
-| R5 | `restore-rn-array-stop-midrun-rs-files`, `-drill-drill` | **red** F5, F4 (a race: 2 of 3 runs) | 2.5 min each | pre-release |
+| R5 | `restore-rn-array-stop-midrun-rs-files`, `-drill-drill` | **red** F5, F4 (a race: red in 3 of 5 runs) | 2.5 min each | pre-release |
 | R9 | `restore-dk-pool-full-files-drill` | green (needs `task/scenarios-helper-rs-measuring`) | 2 min | pre-release |
-| R20 | `restore-rn-two-runs-files-drill`, `restore-rn-parity-check-drill` | green | 2 min, 1 min | pre-release |
+| R20 | `restore-rn-two-runs-files-drill`, `restore-rn-parity-check-drill` | green | 4 min, 1 min | pre-release |
 | M6 | `moverelli-rn-array-stop-midrun-mv-run`; `moverelli-rn-hard-reset-midrun-run` (halves) | **red** F8; power cut **red** F11 | 2.5 min; ~5 min (a reboot) | pre-release; nightly |
-| M8 | `moverelli-dk-pool-full-run-sched` | green (INV-PAGE F7 when a run moved nothing) | 20 s | pre-release |
-| M11 | `moverelli-rn-unraid-mover-running-run` | cells green; INV-TICK **red** F12 | 40 s | pre-release |
+| M8 | `moverelli-dk-pool-full-run-sched` | cells green (INV-PAGE F7 when a run moved nothing) | 20 s | pre-release |
+| M11 | `moverelli-rn-unraid-mover-running-run` | green | 40 s | pre-release |
 | M27 | `moverelli-rn-two-runs-run` (a), `moverelli-rn-two-runs-sched` (b) | green | 30 s, 2 min | pre-release |
 | O3 | `office-of-reboot-all-hired` (halves) | green | ~4 min (a reboot) | nightly |
 
@@ -358,8 +358,14 @@ Findings on 1.66.8 (engine 2.63), USOTest4, 2026-10-19 — red stays red until f
 - **F11** (M6, power cut) 2 of 3000 files gone after a power cut during her run (twice: f40d-2099/-2275 — neither on
   cache nor on the array, no .partial), and no history line for the cut run. Root cause not found (Unraid's move
   binary, files in flight around the cut).
-- **F12** (M11; once in M27) INV-TICK: a 31–33 s heartbeat gap while she moves 1.25 GiB files — cause not found.
-The batch: ~45 min pre-release + ~30 min nightly (five reboots, one per run.sh call).
+- **F12** (found by M11/M27's own setup) a clock stepped back freezes the agent until a request rings its doorbell:
+  agentNap() waits a relative stream_select timeout computed from wall-clock time (agent/agent.php:423, nextTick at
+  :350) — stepped back by Δ while it naps, it sleeps Δ; no heartbeat meanwhile (the page's dot, agent-watch after 10
+  min). Seen: put_files --age (the clock 40 days back for ~20 s) → no heartbeat 45 s after the clock was back
+  (`test4-scenarios-batch-d-2119`). The Moverelli cells now ring the doorbell after writing aged files.
+The batch: 56 min pre-release (21 scenarios incl. base and the Mac-side checks, run 20:05 —
+`scenarios/2026-10-19/test4-scenarios-batch-d-2005`) + ~30 min nightly (five reboots, one run.sh call each:
+`test4-scenarios-batch-d-reboot*`).
 
 Two runs of a scenario with and without an argument in one run.sh call wipe the first one's report (run-local's
 `--one` clears `<name>.*`): B11/B12 `:users` run apart.
