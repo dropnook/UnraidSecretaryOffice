@@ -21,9 +21,11 @@ bubble_look scan restore
 if flow RS-DRILL; then
     j=$(ls -t "$D"/restore-drill/*/journal.json 2>/dev/null | head -1)
     evidence "$j" drill-journal.json >/dev/null
-    n=$(jq '[.steps[]? | select((.kind // .type // .name // "" | tostring) | test("container|docker|app"; "i")) | select(.state == "ok" or .state == "failed")] | length' "$j" 2>/dev/null)
-    ((${n:-0} == 0)) && cell no-container-steps 1 "the drill ran no container step ($(_drill_result "$(basename "$(dirname "$j")")"))" \
-        || cell no-container-steps 0 "the drill ran $n container step(s) with Docker off: $(jq -c '[.steps[]? | select((.kind // .type // .name // "" | tostring) | test("container|docker|app"; "i")) | {name, state, code}]' "$j" | head -c 300)"
+    # the steps that need a container: the dumps (verified in a throwaway database container) — with Docker off each is
+    # «not checked» with its reason; packages, SQLite files and share files are read from disk and may pass
+    n=$(jq '[.steps[]? | select(.do == "dump") | select(.state != "not_checked" or ((.code // "") | length) == 0)] | length' "$j" 2>/dev/null)
+    ((${n:-1} == 0)) && cell no-container-steps 1 "no dump step ran a container ($(_drill_result "$(basename "$(dirname "$j")")"))" \
+        || cell no-container-steps 0 "dump steps with Docker off: $(jq -c '[.steps[]? | select(.do == "dump") | {name, state, code}]' "$j" | head -c 300)"
 fi
 check standard
 scenario_end
