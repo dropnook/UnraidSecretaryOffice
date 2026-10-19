@@ -176,6 +176,9 @@ each page-only cell red on its older release, green on main — the same as the 
 scenario and its older release in two runs (one name per run: the second wipes the first's evidence before the
 Mac-side step).
 
+**RS-* (the restore dialog)** waits while the plan's sizes are measured in the background, as the dialog's «Restore»
+does (desk.js ready(): `!sizes.measuring`) — the preview asked again every 2 s; a start while measuring skipped the room
+check (batch D, R9: 1.5 GB copied into a pool with 1 GiB free).
 **MV-STOP-AFTER-FILE share=<share>** waits for a file of that share in flight (her plan may take other shares
 first: up to 5 min); M1-stop uses it. **SH-PREFER-ARRAY-FILES** puts its files in a folder per disk
 (`sh-paf-d1` on disk1, `sh-paf-d2` on disk2 — the same path on two disks would be duplicates Unraid never moves); its
