@@ -16,8 +16,8 @@ nc_data_closed
 kopia_use KP-S3-UNREACHABLE s3 || _row state prepare red "Kopia not on MinIO"     # the state below finds it there and only stops MinIO
 flow BK-APPLY "share|$S|mode=kopia" "share|UnraidSecretaryOffice|mode=kopia" || _row state prepare red "Apply of $S as local + offsite failed"
 flow BK-RUN-MANUAL mode=backup || _row state prepare red "the run that puts $S offsite failed"
-src=$(ask restore.refresh '{}' 300 >/dev/null; jq -r --arg s "$S" '[.. | objects | select(has("source")) | .source | select(type == "string" and test("/" + $s + "$"))] | first // empty' "$D/restore.json" 2>/dev/null)
-say "the offsite source of $S as Mr. Restori lists it: ${src:-none}"
+src=$(ask restore.refresh '{}' 300 >/dev/null; jq -r --arg s "$S" '[.shares[]? | objects | select(.name == $s) | (.kopia // [])[]? | .source // empty] | first // $s' "$D/restore.json" 2>/dev/null)
+say "the offsite source of $S (Mr. Restori's name for it, as his drill names it): ${src:-none}"
 state KP-S3-UNREACHABLE
 snap_before
 files_strict
@@ -37,9 +37,9 @@ flow RS-DRILL
 td=$((SECONDS - t0))
 j=$(ls -t "$D"/restore-drill/*/journal.json 2>/dev/null | head -1)
 evidence "$j" drill-journal.json >/dev/null
-ks=$(jq -c '[.steps[]? | select((.kind // .type // .name // "" | tostring) | test("kopia|offsite"; "i")) | {name, state, code}] | .[0:4]' "$j" 2>/dev/null)
+ks=$(jq -c '[.steps[]? | select(.do == "kopia") | {name, state, code}] | .[0:4]' "$j" 2>/dev/null)
 ((td <= 1200)) && cell drill-budget 1 "the drill took $td s" || cell drill-budget 0 "the drill took $td s (> 1200)"
-jq -e '[.steps[]? | select((.kind // .type // .name // "" | tostring) | test("kopia|offsite"; "i"))] | length > 0 and all(.state == "not_checked" and ((.code // "") | length > 0))' "$j" >/dev/null 2>&1 \
+jq -e '[.steps[]? | select(.do == "kopia")] | length > 0 and all(.state == "not_checked" and ((.code // "") | length > 0))' "$j" >/dev/null 2>&1 \
     && cell drill-not-checked 1 "Kopia's step: $ks" || cell drill-not-checked 0 "Kopia's step(s): ${ks:-none}"
 check standard
 scenario_end
