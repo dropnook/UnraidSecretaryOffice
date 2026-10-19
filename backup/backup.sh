@@ -1,6 +1,7 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.63 - 2026-10-19
+# unraid-backup - backup.sh                       Version 2.64 - 2026-10-19
+#   2.64 No change here yet (the engine's version: setup.sh keeps the VMs' settings while the VM service is off)
 #   2.63 The btrfs emergency brake says what it did, in codes: each early delete is a warning btrfs_brake (base,
 #        free_gb, floor_gb, snap) - up to 2.62 a plain warning. status.json "btrfs" says per base what holds (kept,
 #        oldest, released, none_left - the brake reached with none of ours left, still no warning (2.23) -, brake_last,
