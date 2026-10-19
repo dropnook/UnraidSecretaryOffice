@@ -56,7 +56,7 @@ if zfs list -H "cache/$S/app" >/dev/null 2>&1 && [[ $(zfs get -H -o value mountp
 else
     cell dataset-made 0 "no dataset cache/$S/app after «Own dataset…» ($(ask_last '.error // empty'))"
 fi
-[[ -L /mnt/user/$S && $(readlink "/mnt/user/$S") == "/mnt/cache/$S" ]] && cell symlink-kept 1 "/mnt/user/$S still the symlink to the pool" \
+[[ -L /mnt/user/$S && $(readlink -f "/mnt/user/$S") == "/mnt/cache/$S" ]] && cell symlink-kept 1 "/mnt/user/$S still the symlink to the pool" \
     || cell symlink-kept 0 "/mnt/user/$S: $(stat -c %F "/mnt/user/$S" 2>&1) → $(readlink "/mnt/user/$S")"
 [[ $(ct_status "$APP") == running ]] && cell app-runs 1 "$APP runs again" || cell app-runs 0 "$APP is $(ct_status "$APP")"
 # 3. the next run: .uso-backup only inside the app's own dataset

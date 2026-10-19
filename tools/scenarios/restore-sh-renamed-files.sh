@@ -55,7 +55,7 @@ k=$(jq -r '((.preview.blockers // [])[0].key) // .error.key // "none"' <<<"$pv" 
 flow RS-FILES-BESIDE path="/mnt/user/$B/album"
 mid=$(jq -r '.moment.id // .target.snap // empty' "$KEEP/rs-preview.json" 2>/dev/null)
 all=$(jq -c '[.options.moments[]?.id]' "$KEEP/rs-preview.json" 2>/dev/null)
-[[ $all == *"${first#*@}"* ]] && cell moment-new-name 1 "the moment ${first#*@} (taken as $A) is offered for $B: $all" \
+[[ $all == *"${first##*@uso-backup-}"* ]] && cell moment-new-name 1 "the moment ${first#*@} (taken as $A) is offered for $B: $all" \
     || cell moment-new-name 0 "the moments offered for $B: ${all:-none} — the one from before the rename: ${first#*@}"
 r=$(ls -d /mnt/cache/"$B"/album.restored-* 2>/dev/null | head -1)
 n=$(find "${r:-/nonexistent}" -type f 2>/dev/null | wc -l)

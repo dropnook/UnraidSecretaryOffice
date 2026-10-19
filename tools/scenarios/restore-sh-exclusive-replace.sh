@@ -8,14 +8,15 @@
 #   into Ms. Dustdevil's storeroom of the share at once (cell drill-sharefile). The drill picks one share a day from the
 #   shares backed up locally (sorted, day number modulo their count — restore-drill.php drillShareFilePick), so empty
 #   scratch shares uso-wip-c-a<n> / uso-wip-c-z<n> are added around this one until today's pick is it.
+# The app uso-wip-c-rexapp binds /mnt/user/uso-wip-c-rex/dir (he restores what an app binds).
 # Preparation (before snap_before): the shares set to «local» by Apply and one run; settings.ini put back by the undo,
 # the scratch datasets' engine snapshots destroyed before Unraid removes them. Pre-release (~5 min).
 . "$(dirname "$0")/lib.sh"
 scenario_begin restore-sh-exclusive-replace
-needs tower zfs exclusive
+needs tower zfs docker exclusive
 files_gone() { files_unput "$1" >/dev/null 2>&1; rm -f "$KEEP_STASH/$1/files"; return 0; }
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
-S=uso-wip-c-rex
+S=uso-wip-c-rex APP=uso-wip-c-rexapp
 snaps_drop() { local s ds; for s in "$@"; do [[ $s == uso-wip-c-* ]] || continue; ds=cache/$s
     zfs list -H -t snapshot -o name "$ds" 2>/dev/null | grep -E '@uso-(backup|plan)-' | while read -r x; do zfs destroy "$x" && say "undo: destroyed $x"; done; done; }
 mkdir -p "$KEEP_STASH/C-R15-INI" && cp -p "$UB/settings.ini" "$KEEP_STASH/C-R15-INI/settings.ini"
@@ -43,6 +44,9 @@ for p in "${pads[@]}"; do share_use C-R15-PAD "$p" only cache >/dev/null && put_
 undo_push share_unuse C-R15-PAD
 nc_data_closed
 undo_push snaps_drop "$S" "${pads[@]}"
+ct_make C-R15 "$APP" alpine:latest -v "/mnt/user/$S/dir:/data" -- sleep 86400 || _row state app red "$APP could not be made"
+undo_push ct_unmake C-R15
+expect_changes 'docker|*'                    # the scratch app is a new container for Mr. Backupsy's setup
 apply=("share|$S|mode=snapshot"); for p in "${pads[@]}"; do apply+=("share|$p|mode=snapshot"); done
 flow BK-APPLY "${apply[@]}" || _row state prepare red "Apply of $S (and pads) as local failed"
 flow BK-RUN-MANUAL mode=backup || _row state prepare red "the run failed"
@@ -51,7 +55,7 @@ track_share "$S"
 snap_before
 # 1. the swap through the symlink
 flow RS-FILES-REPLACE path="/mnt/user/$S/dir"
-l=$(readlink "/mnt/user/$S")
+l=$(readlink -f "/mnt/user/$S")              # Unraid's link is relative (../cache/<share>)
 [[ -L /mnt/user/$S && $l == "/mnt/cache/$S" ]] && cell symlink-kept 1 "/mnt/user/$S is still the symlink to /mnt/cache/$S" \
     || cell symlink-kept 0 "/mnt/user/$S: $(stat -c %F "/mnt/user/$S" 2>&1) → «$l»"
 a=$(ls -d /mnt/cache/"$S"/dir.aside-* 2>/dev/null | head -1)
