@@ -512,6 +512,9 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   in the note line, a chip with its ×, core.js `bar.done({parts})`). **Saved filters** (data/logs-filters.json,
   agent/desks/logs-filters.php): what a bar has set under a name, per list — a preset stays relative; a click applies one,
   **never by itself** (desk.js `APPLY_ON_OPEN = false`; the entry's `open` is kept, never set); tolerant reader and writer.
+  «Syslog», «Errors & warnings» and the reader sort newest / oldest first or by service (a syslog line's program,
+  desk.js `SERVICE`) — a choice kept per browser (`logs.<list>.sort`), named in the note line only when not the list's own
+  (core.js `bar.done({order})`); a click on a line's service filters to exactly it, and a saved filter keeps it (`svc`).
 * **`watchman` — The Night Watchman.** **The office's security department — no other desk gives security advice. Read only,
   never a command that changes anything.** Posture tips (never in the book or notified) and the watch book (what differs from
   normal; the office's own installs/drills adopted, never told). API keys: id, name, roles, a fingerprint — **never the key**;

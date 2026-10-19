@@ -384,5 +384,17 @@
   "errors.logs_filter_nothing": "Rien n'est réglé que je pourrais enregistrer.",
   "errors.logs_filter_twice": "Il y a déjà un filtre « {name} » dans cette liste — choisissez un autre nom.",
   "errors.logs_filter_full": "Je garde {n} filtres par liste au plus — supprimez-en d'abord un.",
-  "errors.logs_filter_gone": "Ce filtre enregistré n'est plus là."
+  "errors.logs_filter_gone": "Ce filtre enregistré n'est plus là.",
+  "sort.label": "Ordre",
+  "sort.newest": "Les plus récentes d'abord",
+  "sort.oldest": "Les plus anciennes d'abord",
+  "sort.service": "Par service",
+  "sort.newest_note": "les plus récentes d'abord",
+  "sort.oldest_note": "les plus anciennes d'abord",
+  "sort.service_note": "triée par service",
+  "svc.chip": "Service : {name}",
+  "svc.only_title": "N'afficher que les lignes de « {name} »",
+  "svc.all_title": "Afficher de nouveau tous les services (maintenant seulement « {name} »)",
+  "help.sort": "Ordre et service",
+  "help.sort_text": "« Syslog », « Erreurs et avertissements » et les lignes que je lis se trient par heure (les plus récentes ou les plus anciennes d'abord ; un genre de ligne selon sa ligne la plus récente) ou par service — le programme d'une ligne du syslog comme emhttpd, sshd ou kernel. Un clic sur le service d'une ligne n'affiche que celui-ci (encore une fois : tous de nouveau) ; un filtre enregistré le garde. Ce navigateur retient l'ordre ; la ligne de note le nomme quand ce n'est pas celui habituel de la liste."
 }

@@ -384,5 +384,17 @@
   "errors.logs_filter_nothing": "Non c'è niente di impostato che potrei salvare.",
   "errors.logs_filter_twice": "In questa lista c'è già un filtro «{name}» — scegli un altro nome.",
   "errors.logs_filter_full": "Tengo al massimo {n} filtri per lista — eliminane prima uno.",
-  "errors.logs_filter_gone": "Questo filtro salvato non c'è più."
+  "errors.logs_filter_gone": "Questo filtro salvato non c'è più.",
+  "sort.label": "Ordine",
+  "sort.newest": "Prima i più recenti",
+  "sort.oldest": "Prima i più vecchi",
+  "sort.service": "Per servizio",
+  "sort.newest_note": "prima i più recenti",
+  "sort.oldest_note": "prima i più vecchi",
+  "sort.service_note": "ordinato per servizio",
+  "svc.chip": "Servizio: {name}",
+  "svc.only_title": "Mostra solo le righe di «{name}»",
+  "svc.all_title": "Mostra di nuovo tutti i servizi (ora solo «{name}»)",
+  "help.sort": "Ordine e servizio",
+  "help.sort_text": "«Syslog», «Errori e avvisi» e le righe che leggo si ordinano per orario (prima i più recenti o i più vecchi; un tipo di riga per la sua riga più recente) o per servizio — il programma di una riga del syslog come emhttpd, sshd o kernel. Un clic sul servizio di una riga mostra solo quello (di nuovo: tutti); un filtro salvato lo tiene. L'ordine lo ricorda questo browser; la riga della nota lo dice quando non è quello solito della lista."
 }

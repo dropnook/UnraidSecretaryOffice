@@ -6,6 +6,9 @@
  * and stands in the note line like any filter, its × and «Show all» take it away; her saved filters stand above their
  * list and apply only by a click — opening the desk shows everything, also with a filter marked `open` (APPLY_ON_OPEN
  * is off); «Save filter…» sends what the bar has set, «⋯» offers rename and delete; a new visit empties every bar.
+ * The order (newest / oldest first, by service) in «Syslog», «Errors & warnings» and the reader: a choice kept per browser,
+ * named in the note line only when it isn't the list's own; a click on a line's service shows only that one, a saved
+ * filter keeps it.
  *
  *   node tests/logsfilters.js public/assets/core.js public/desks/logs/desk.js [tests/ui/states]   → one JSON line {pass, fail: [[name, got, want], …]}
  *
@@ -208,12 +211,14 @@ const freshState = () => {
     { id: 'a1b2c3d4e5f6', list: 'syslog', name: 'Disks today', words: '', cat: 'drive', src: '', only: false, time: { preset: 'today' }, open: true },
     { id: '0f1e2d3c4b5a', list: 'syslog', name: 'Network, last hour', words: 'br0', cat: 'network', src: '', only: false, time: { preset: 'hour' }, open: false },
     { id: '1234567890ab', list: 'varlog', name: 'Since the start', words: '', cat: '', src: '', only: false, time: { preset: 'boot' }, open: false },
+    { id: 'abcabcabcabc', list: 'syslog', name: 'Kernel only', words: '', cat: '', src: '', svc: 'kernel', only: false, time: null },
     { id: 'ffffffffffff', list: 'syslog', name: 5, words: '', cat: '', src: '', only: false, time: null },          // not in her shape: left out
   ];
   return s;
 };
 const iso = (t) => new Date(t * 1000).toISOString().replace('.000Z', 'Z');
-const readLines = [`${iso(now - 7200)} old line`, `${iso(now - 1800)} newer error here`, '    at the next line of its trace', `${iso(now - 60)} newest line`];
+const readLines = [`${iso(now - 7200)} Tower sshd[12]: old line`, `${iso(now - 1800)} Tower kernel: newer error here`, '    at the next line of its trace',
+  `${iso(now - 60)} Tower emhttpd: newest line`];
 const posts = [];
 O.loadState = async (id, o, took) => { took({ ok: true, state }); };
 O.freshState = async () => true;
@@ -248,7 +253,7 @@ function sectionOf(root, place) {
 }
 const barIn = (s) => (s ? s.querySelector('.filterbar') : null);
 const note = (bar) => (bar ? bar.querySelector('.filter-note') : null);
-const noteChips = (bar) => (bar ? bar.querySelectorAll('.filter-chip-name').map(tx) : null);
+const noteChips = (bar) => (bar ? bar.querySelector('.filter-chips').querySelectorAll('.filter-chip-name').map(tx) : null);      // what filters (the order apart)
 const rowsIn = (s, cls) => (s ? s.querySelectorAll(cls).length : -1);
 const pick = (bar) => bar.querySelector('.lg-time-pick');
 const setPick = (bar, v) => { const p = pick(bar); p.value = v; p.dispatch('change'); };
@@ -274,7 +279,7 @@ async function run() {
     Object.values(bars).map(() => [true, '', '']));
   same('opening: her saved filters stand above their lists, none pressed', [sec.syslog.querySelectorAll('.lg-saved-btn').map(tx),
     sec.varlog.querySelectorAll('.lg-saved-btn').map(tx), root.querySelectorAll('.lg-saved-btn').filter((b) => b.getAttribute('aria-pressed') === 'true').length],
-  [['Disks today', 'Network, last hour'], ['Since the start'], 0]);
+  [['Disks today', 'Network, last hour', 'Kernel only'], ['Since the start'], 0]);
   same('opening: «Save filter…» only while something is set', root.querySelectorAll('.lg-saved-save').length, 0);
   same('opening: nothing asked of the agent about her filters', posts.filter(([a]) => a.startsWith('logs.filter_')).length, 0);
 
@@ -319,13 +324,13 @@ async function run() {
   same('saved: its click sets what it says — the words, the category, the time', [barIn(s).querySelector('.filter-words').value, pick(barIn(s)).value,
     noteChips(barIn(s))], ['br0', 'hour', [T('cat.network'), T('time.hour'), '«br0»']]);
   same('saved: … the rows narrowed by it', s.querySelectorAll('.lg-kind').length, sorted);
-  same('saved: … its button pressed, the other not, no «Save filter…» (it is saved)', [s.querySelectorAll('.lg-saved-btn').map((x) => x.getAttribute('aria-pressed')),
-    s.querySelectorAll('.lg-saved-save').length], [['false', 'true'], 0]);
+  same('saved: … its button pressed, the others not, no «Save filter…» (it is saved)', [s.querySelectorAll('.lg-saved-btn').map((x) => x.getAttribute('aria-pressed')),
+    s.querySelectorAll('.lg-saved-save').length], [['false', 'true', 'false'], 0]);
   same('saved: the lists without a click stay as they were', [note(barIn(sectionOf(root, 'found.title'))).hidden, note(barIn(sectionOf(root, 'varlog.title'))).hidden], [true, true]);
   barIn(s).querySelector('.filter-all').click();
   s = sectionOf(root, 'syslog.title');
   same('saved: «Show all» — everything again, the button no longer pressed', [s.querySelectorAll('.lg-kind').length, note(barIn(s)).hidden,
-    s.querySelectorAll('.lg-saved-btn').map((x) => x.getAttribute('aria-pressed'))], [kinds, true, ['false', 'false']]);
+    s.querySelectorAll('.lg-saved-btn').map((x) => x.getAttribute('aria-pressed'))], [kinds, true, ['false', 'false', 'false']]);
   s.querySelector('.lg-saved-more').click();
   same('saved: «⋯» offers rename and delete', (menus[0] || []).map((m) => m.text), [T('saved.rename'), T('saved.delete')]);
   menus[0][1].act();
@@ -338,6 +343,73 @@ async function run() {
   ren.body.querySelector('input').value = 'Disks, today';
   await ren.buttons[1].act();
   same('saved: rename sends its id and the new name', posts.filter(([a]) => a === 'logs.filter_rename').map(([, x]) => x), [{ id: 'a1b2c3d4e5f6', name: 'Disks, today' }]);
+
+  // ---- the order: newest first (the list's own), oldest first, by service — a choice, named only when not the list's own
+  const svcOf = (g) => (/^\S+\s+\d+\s+[\d:]+\s+\S+\s+([^\s:[\]]+)/.exec(g.sample) || [])[1] || '';
+  const sysKinds = (tour.sources.find((x) => x.id === 'syslog').sorted || []);
+  const lastOf = new Map(sysKinds.map((g) => [g.sample.slice(g.skip).replace(/^[\s:|\]-]+/, ''), g]));
+  const shownKinds = () => sectionOf(root, 'syslog.title').querySelectorAll('.lg-kind-line').map((n) => lastOf.get(tx(n).replace(/ …$/, '')));
+  const lasts = () => shownKinds().map((g) => g.last);
+  same('order: «Syslog» newest first by default, nothing said', [lasts(), note(barIn(sectionOf(root, 'syslog.title'))).hidden],
+    [sysKinds.map((g) => g.last).sort((x, y) => y - x), true]);
+  let sortSel = barIn(sectionOf(root, 'syslog.title')).querySelector('.lg-sort');
+  same('order: a choice of three in the bar', sortSel.options.map((o) => o.val), ['newest', 'oldest', 'service']);
+  sortSel.value = 'oldest';
+  sortSel.dispatch('change');
+  s = sectionOf(root, 'syslog.title');
+  same('order: oldest first — the rows by their newest line, said in the note line, kept per browser', [lasts(), note(barIn(s)).hidden,
+    tx(barIn(s).querySelector('.filter-order')), barIn(s).querySelector('.filter-note-text').hidden, stored['office.logs.syslog.sort']],
+  [sysKinds.map((g) => g.last).sort((x, y) => x - y), false, T('sort.oldest_note') + '×', true, 'oldest']);
+  barIn(s).querySelector('.filter-order').querySelector('.filter-chip').click();
+  s = sectionOf(root, 'syslog.title');
+  same('order: its × — back to the list\'s own, nothing said, nothing kept', [lasts()[0], note(barIn(s)).hidden, stored['office.logs.syslog.sort']],
+    [Math.max(...sysKinds.map((g) => g.last)), true, undefined]);
+  sortSel = barIn(s).querySelector('.lg-sort');
+  sortSel.value = 'service';
+  sortSel.dispatch('change');
+  const bySvc = shownKinds().map(svcOf);
+  same('order: by service — A to Z', bySvc, bySvc.slice().sort((x, y) => x.localeCompare(y, undefined, { sensitivity: 'base' })));
+  same('order: … more than one service in the demo', new Set(bySvc).size > 2, true);
+
+  // ---- a click on a line's service: only that one, said in the note line, again: all
+  s = sectionOf(root, 'syslog.title');
+  const svcBtn = s.querySelectorAll('.lg-svc').find((b) => tx(b) === 'emhttpd');
+  same('service: each row\'s service a button with its own tip', [!!svcBtn, svcBtn && svcBtn.title], [true, T('svc.only_title', { name: 'emhttpd' })]);
+  svcBtn.click();
+  s = sectionOf(root, 'syslog.title');
+  same('service: its click shows only that service, in the note line', [[...new Set(shownKinds().map(svcOf))], noteChips(barIn(s)),
+    s.querySelectorAll('.lg-svc').every((b) => b.getAttribute('aria-pressed') === 'true')], [['emhttpd'], [T('svc.chip', { name: 'emhttpd' })], true]);
+  same('service: … the order still said after the filter', tx(barIn(s).querySelector('.filter-order')), '· ' + T('sort.service_note') + '×');
+  s.querySelector('.lg-svc').click();
+  s = sectionOf(root, 'syslog.title');
+  same('service: the same one again — every service', [shownKinds().length, noteChips(barIn(s))], [kinds, []]);
+  s.querySelectorAll('.lg-saved-btn').find((x) => x.dataset.saved === 'abcabcabcabc').click();
+  s = sectionOf(root, 'syslog.title');
+  same('service: a saved filter keeps it — its click sets the service', [[...new Set(shownKinds().map(svcOf))], noteChips(barIn(s))],
+    [['kernel'], [T('svc.chip', { name: 'kernel' })]]);
+  barIn(s).querySelector('.filter-all').click();
+  s = sectionOf(root, 'syslog.title');
+  same('service: «Show all» takes it away, the order stays (a choice)', [note(barIn(s)).hidden, tx(barIn(s).querySelector('.filter-order')), shownKinds().length],
+    [false, T('sort.service_note') + '×', kinds]);
+  barIn(s).querySelector('.filter-order').querySelector('.filter-chip').click();
+  s = sectionOf(root, 'syslog.title');
+  s.querySelectorAll('.lg-svc').find((b) => tx(b) === 'kernel').click();
+  s = sectionOf(root, 'syslog.title');
+  same('service: kernel alone is «Kernel only» — its button pressed, nothing to save', [s.querySelectorAll('.lg-saved-btn').filter((x) => x.getAttribute('aria-pressed') === 'true').map(tx),
+    s.querySelectorAll('.lg-saved-save').length], [['Kernel only'], 0]);
+  s.querySelector('.lg-svc').click();
+  s = sectionOf(root, 'syslog.title');
+  s.querySelectorAll('.lg-svc').find((b) => tx(b) === 'emhttpd').click();
+  s = sectionOf(root, 'syslog.title');
+  s.querySelector('.lg-saved-save').click();
+  const kdlg = dialogs.pop();
+  kdlg.body.querySelector('input').value = 'Web UI';
+  await kdlg.buttons[1].act();
+  same('service: «Save filter…» sends it', posts.filter(([a]) => a === 'logs.filter_save').map(([, x]) => [x.list, x.svc]), [['syslog', 'emhttpd']]);
+  barIn(sectionOf(root, 'syslog.title')).querySelector('.filter-all').click();
+  let fd = sectionOf(root, 'found.title');
+  same('order: «Errors & warnings» has its own (newest first)', barIn(fd).querySelector('.lg-sort').value, 'newest');
+  posts.splice(0, posts.length, ...posts.filter(([a]) => a !== 'logs.filter_save'));
 
   // ---- «Save filter…»: what the bar has set, for its list
   let f = sectionOf(root, 'found.title');
@@ -359,7 +431,7 @@ async function run() {
   dlg.body.querySelector('input').value = '  Samba today ';
   await dlg.buttons[1].act();
   same('save: the agent gets the list, the name and exactly what is set (a preset stays relative)', posts.filter(([a]) => a === 'logs.filter_save').map(([, x]) => x),
-    [{ list: 'found', name: 'Samba today', words: 'smbd', cat: '', src: '', only: false, time: 'day', from: null, to: null }]);
+    [{ list: 'found', name: 'Samba today', words: 'smbd', cat: '', src: '', only: false, svc: '', time: 'day', from: null, to: null }]);
 
   // ---- the reader: its lines by their own time, a line without one by the one before
   const r = sectionOf(root, 'reading');
@@ -373,6 +445,26 @@ async function run() {
   only.dispatch('change');
   same('reader: «only errors & warnings» is its bar\'s switch, with the time', [r.querySelectorAll('.lg-line').map(tx), noteChips(barIn(r))],
     [[readLines[1]], [T('time.hour'), T('only_problems')]]);
+
+  only.checked = false;
+  only.dispatch('change');
+  barIn(r).querySelector('.filter-all').click();
+  same('reader: the order of the file by default (the oldest first), nothing said', [r.querySelectorAll('.lg-line').map(tx), note(barIn(r)).hidden], [readLines, true]);
+  r.querySelectorAll('.lg-svc-in').find((x) => x.dataset.svc === 'kernel').click();
+  same('reader: a click on a line\'s service — only its lines (a trace\'s next line with it), in the note line',
+    [r.querySelectorAll('.lg-line').map(tx), noteChips(barIn(r))], [[readLines[1], readLines[2]], [T('svc.chip', { name: 'kernel' })]]);
+  r.querySelector('.lg-svc-in').click();
+  same('reader: the same again — every line', r.querySelectorAll('.lg-line').length, 4);
+  const rs = barIn(r).querySelector('.lg-sort');
+  rs.value = 'newest';
+  rs.dispatch('change');
+  same('reader: newest first — the lines turned, said in the note line', [r.querySelectorAll('.lg-line').map(tx), tx(barIn(r).querySelector('.filter-order'))],
+    [readLines.slice().reverse(), T('sort.newest_note') + '×']);
+  rs.value = 'service';
+  rs.dispatch('change');
+  same('reader: by service — A to Z, a trace\'s next line with its line', r.querySelectorAll('.lg-line').map(tx), [readLines[3], readLines[1], readLines[2], readLines[0]]);
+  rs.value = 'oldest';
+  rs.dispatch('change');
 
   // ---- a new visit: every bar empty again, nothing applied
   logs.unmount();

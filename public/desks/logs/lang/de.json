@@ -384,5 +384,17 @@
   "errors.logs_filter_nothing": "Es ist nichts gesetzt, das ich speichern könnte.",
   "errors.logs_filter_twice": "Einen Filter «{name}» gibt es in dieser Liste schon — wähl einen anderen Namen.",
   "errors.logs_filter_full": "Ich behalte höchstens {n} Filter pro Liste — lösch zuerst einen.",
-  "errors.logs_filter_gone": "Diesen gespeicherten Filter gibt es nicht mehr."
+  "errors.logs_filter_gone": "Diesen gespeicherten Filter gibt es nicht mehr.",
+  "sort.label": "Reihenfolge",
+  "sort.newest": "Neueste zuerst",
+  "sort.oldest": "Älteste zuerst",
+  "sort.service": "Nach Dienst",
+  "sort.newest_note": "neueste zuerst",
+  "sort.oldest_note": "älteste zuerst",
+  "sort.service_note": "nach Dienst sortiert",
+  "svc.chip": "Dienst: {name}",
+  "svc.only_title": "Nur Zeilen von «{name}» zeigen",
+  "svc.all_title": "Wieder alle Dienste zeigen (jetzt nur «{name}»)",
+  "help.sort": "Reihenfolge und Dienst",
+  "help.sort_text": "«Syslog», «Fehler & Warnungen» und die Zeilen, die ich vorlese, ordnen sich nach Zeit (neueste oder älteste zuerst; eine Art von Zeile nach ihrer neuesten Zeile) oder nach Dienst — dem Programm einer Syslog-Zeile wie emhttpd, sshd oder kernel. Ein Klick auf den Dienst einer Zeile zeigt nur diesen (nochmals: wieder alle); ein gespeicherter Filter behält ihn. Die Reihenfolge merkt sich dieser Browser; die Hinweiszeile nennt sie, wenn sie nicht die übliche der Liste ist."
 }

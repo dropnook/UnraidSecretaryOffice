@@ -29043,7 +29043,7 @@ function testCleanupPartner(): void
 /**
  * Ms. Protocolli's saved filters (agent/desks/logs-filters.php, data/logs-filters.json): saved per list under a name
  * (what a bar has set, a preset kept as a preset — it stays relative), renamed and deleted by id; a bad name, nothing
- * set, a name twice in a list, too many, an unknown list, category, log or time refused with its reason — and nothing of
+ * set, a name twice in a list, too many, an unknown list, category, log, service or time refused with its reason — and nothing of
  * it kept; request fields read, never cast (a missing «only» or a time as text is bad_request); the file read in exactly
  * its shape, a rewrite keeps every entry and key it doesn't know (`open` too: never set here); the page gets them with
  * her state, with the server's last start and its time offset; a container's log has its last write.
@@ -29061,12 +29061,13 @@ function testLogsFilters(): void
             return $p->key;
         }
     };
-    $req = fn (array $x = []): array => $x + ['words' => '', 'cat' => '', 'src' => '', 'only' => false, 'time' => '', 'from' => null, 'to' => null];
+    $req = fn (array $x = []): array => $x + ['words' => '', 'cat' => '', 'src' => '', 'svc' => '', 'only' => false, 'time' => '', 'from' => null, 'to' => null];
     $act = fn (string $action, array $r) => desks()['logs']['actions'][$action]($r);
     try {
         // refused with its reason, nothing kept
         same('logs filters: refused with its reason', ['logs_filter_name_empty', 'logs_filter_name_long', 'logs_filter_name_form', 'bad_request',
-            'logs_filter_nothing', 'bad_request', 'bad_request', 'bad_request', 'logs_filter_range', 'logs_filter_range', 'logs_filter_words'], [
+            'logs_filter_nothing', 'bad_request', 'bad_request', 'bad_request', 'logs_filter_range', 'logs_filter_range', 'logs_filter_words',
+            'bad_request', 'bad_request'], [
             $refused(fn () => logsFilterSave('syslog', '   ', $req(['cat' => 'drive']))),
             $refused(fn () => logsFilterSave('syslog', str_repeat('ä', LOGS_FILTER_NAME + 1), $req(['cat' => 'drive']))),
             $refused(fn () => logsFilterSave('syslog', "Disks\ntoday", $req(['cat' => 'drive']))),
@@ -29078,6 +29079,8 @@ function testLogsFilters(): void
             $refused(fn () => logsFilterSave('syslog', 'Back', $req(['time' => 'range', 'from' => 2000000000, 'to' => 1900000000]))),
             $refused(fn () => logsFilterSave('syslog', 'Open', $req(['time' => 'range']))),
             $refused(fn () => logsFilterSave('syslog', 'Tab', $req(['words' => "a\tb"]))),
+            $refused(fn () => logsFilterSave('syslog', 'Two words', $req(['svc' => 'php fpm']))),
+            $refused(fn () => logsFilterSave('syslog', 'Pid', $req(['svc' => 'sshd[12]']))),
         ]);
         same('logs filters: request fields read, never cast — a missing «only», a time as text, a list as a number',
             ['bad_request', 'bad_request', 'missing_field', 'missing_field'], [
@@ -29091,12 +29094,12 @@ function testLogsFilters(): void
         // saved per list, a preset as a preset, a range as seconds (either end open)
         $a = logsFilterSave('syslog', ' Disks today ', $req(['cat' => 'drive', 'time' => 'today']));
         $b = logsFilterSave('found', 'Samba', $req(['words' => ' smbd ', 'src' => 'src:syslog', 'time' => 'range', 'from' => 1900000000]));
-        $c = logsFilterSave('read', 'Problems', $req(['only' => true]));
+        $c = logsFilterSave('read', 'Problems', $req(['only' => true, 'svc' => 'sshd-session']));
         same('logs filters: an id each', [true, true, true], array_map(fn ($x) => (bool) preg_match('/^[0-9a-f]{12}$/D', $x['id'] ?? ''), [$a, $b, $c]));
         same('logs filters: what the page gets — per list, the name trimmed, a preset stays a preset, open never set', [
-            ['id' => $a['id'], 'list' => 'syslog', 'name' => 'Disks today', 'words' => '', 'cat' => 'drive', 'src' => '', 'only' => false, 'time' => ['preset' => 'today'], 'open' => false],
-            ['id' => $b['id'], 'list' => 'found', 'name' => 'Samba', 'words' => 'smbd', 'cat' => '', 'src' => 'src:syslog', 'only' => false, 'time' => ['from' => 1900000000, 'to' => null], 'open' => false],
-            ['id' => $c['id'], 'list' => 'read', 'name' => 'Problems', 'words' => '', 'cat' => '', 'src' => '', 'only' => true, 'time' => null, 'open' => false],
+            ['id' => $a['id'], 'list' => 'syslog', 'name' => 'Disks today', 'words' => '', 'cat' => 'drive', 'src' => '', 'svc' => '', 'only' => false, 'time' => ['preset' => 'today'], 'open' => false],
+            ['id' => $b['id'], 'list' => 'found', 'name' => 'Samba', 'words' => 'smbd', 'cat' => '', 'src' => 'src:syslog', 'svc' => '', 'only' => false, 'time' => ['from' => 1900000000, 'to' => null], 'open' => false],
+            ['id' => $c['id'], 'list' => 'read', 'name' => 'Problems', 'words' => '', 'cat' => '', 'src' => '', 'svc' => 'sshd-session', 'only' => true, 'time' => null, 'open' => false],
         ], logsFiltersForPage());
         same('logs filters: a name once per list (any case) — the same name in another list is fine',
             ['logs_filter_twice', ''], [$refused(fn () => logsFilterSave('syslog', 'disks TODAY', $req(['cat' => 'fs']))),
@@ -29126,14 +29129,16 @@ function testLogsFilters(): void
         $raw['filters'][] = 'junk';
         $raw['filters'][] = ['id' => 'abcdefabcdef', 'list' => 'elsewhere', 'name' => 'Not hers', 'words' => 'x'];
         $raw['filters'][] = ['id' => 'abcdefabcde0', 'list' => 'syslog', 'name' => 'A week', 'words' => '', 'cat' => '', 'src' => '', 'only' => false, 'time' => ['preset' => 'week']];
+        $raw['filters'][] = ['id' => 'abcdefabcde1', 'list' => 'docker', 'name' => 'From before', 'words' => 'x', 'cat' => '', 'src' => '', 'only' => false, 'time' => null];
         file_put_contents($file, json_encode($raw));
         $page = logsFiltersForPage();
         same('logs filters: only entries in exactly her shape (a list, a time she doesn\'t know left out)', [$a['id'], $b['id']], array_slice(array_column($page, 'id'), 0, 2));
         check('logs filters: … none of the unknown ones', !array_intersect(['abcdefabcdef', 'abcdefabcde0'], array_column($page, 'id')));
+        same('logs filters: an entry from before the services — read with none', '', array_column($page, 'svc', 'id')['abcdefabcde1'] ?? null);
         same('logs filters: `open` read (a later «apply when opening»), never set by her', [true, false], [$page[0]['open'], $page[1]['open']]);
         logsFilterRename($b['id'], 'Samba logs');
         $raw = json_decode((string) file_get_contents($file), true);
-        $last = array_slice($raw['filters'], -3);
+        $last = array_slice(array_values(array_filter($raw['filters'], fn ($f) => !is_array($f) || ($f['id'] ?? '') !== 'abcdefabcde1')), -3);
         same('logs filters: a rewrite keeps what she doesn\'t know — keys, entries, open', [['x' => 1], 'kept', true, 'junk', 'elsewhere', ['preset' => 'week'], 1],
             [$raw['later'] ?? null, $raw['filters'][0]['later'] ?? null, $raw['filters'][0]['open'] ?? null, $last[0], $last[1]['list'] ?? null, $last[2]['time'] ?? null, $raw['v'] ?? null]);
         file_put_contents($file, '{"filters": "nonsense", "later": 2}');
@@ -29165,6 +29170,7 @@ function testLogsFilters(): void
 /**
  * Ms. Protocolli's lists on the page (tests/logsfilters.js under node): every list's bar with a time filter, the time in
  * the note line, a saved filter applied by its click only, «Save filter…», rename / delete, a new visit empties every bar;
+ * the order (newest / oldest / by service, named only when not the list's own) and a click on a line's service;
  * and in desk.js: «apply when opening» stays off, nothing of a filter in Office.store.
  */
 function testLogsFiltersPage(): void
@@ -29172,7 +29178,7 @@ function testLogsFiltersPage(): void
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/logs/desk.js');
     check('logs filters page: «apply when opening» is off (decided 2026-10-19: a page never opens with a hidden filter)', str_contains($js, 'const APPLY_ON_OPEN = false;'));
     check('logs filters page: the time filter and saved filters never in the browser\'s store', !preg_match("/Office\\.store(?:Json)?\\('logs\\.(?:time|saved|filter|only|query)/", $js));
-    check('logs filters page: every bar emptied at a visit', str_contains($js, 'Object.values(bars).forEach((b) => { b.reset(); b.time.clear(); });'));
+    check('logs filters page: every bar emptied at a visit', str_contains($js, "Object.values(bars).forEach((b) => { b.reset(); b.time.clear(); b.svc = ''; });"));
     $node = testsNode();
     if ($node === '') {
         check('logs filters page: node is missing here - skipped', true);
@@ -29187,7 +29193,7 @@ function testLogsFiltersPage(): void
         check('logs filters page: ran under node', false, $raw);
         return;
     }
-    check("logs filters page: her lists under node ({$r['pass']} checks)", $r['pass'] >= 34 && !$r['fail']);
+    check("logs filters page: her lists under node ({$r['pass']} checks)", $r['pass'] >= 54 && !$r['fail']);
     foreach ($r['fail'] as $f) {
         check('logs filters page: ' . ($f[0] ?? '?'), false, 'got ' . json_encode($f[1] ?? null) . ', want ' . json_encode($f[2] ?? null));
     }

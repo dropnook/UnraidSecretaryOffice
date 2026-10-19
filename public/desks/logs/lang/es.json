@@ -384,5 +384,17 @@
   "errors.logs_filter_nothing": "No hay nada puesto que pueda guardar.",
   "errors.logs_filter_twice": "Ya hay un filtro «{name}» en esta lista — elige otro nombre.",
   "errors.logs_filter_full": "Guardo como máximo {n} filtros por lista — borra primero uno.",
-  "errors.logs_filter_gone": "Este filtro guardado ya no está."
+  "errors.logs_filter_gone": "Este filtro guardado ya no está.",
+  "sort.label": "Orden",
+  "sort.newest": "Primero las más recientes",
+  "sort.oldest": "Primero las más antiguas",
+  "sort.service": "Por servicio",
+  "sort.newest_note": "primero las más recientes",
+  "sort.oldest_note": "primero las más antiguas",
+  "sort.service_note": "ordenada por servicio",
+  "svc.chip": "Servicio: {name}",
+  "svc.only_title": "Mostrar solo las líneas de «{name}»",
+  "svc.all_title": "Mostrar de nuevo todos los servicios (ahora solo «{name}»)",
+  "help.sort": "Orden y servicio",
+  "help.sort_text": "«Syslog», «Errores y avisos» y las líneas que leo se ordenan por hora (primero las más recientes o las más antiguas; un tipo de línea por su línea más reciente) o por servicio — el programa de una línea del syslog como emhttpd, sshd o kernel. Un clic en el servicio de una línea muestra solo ese (otra vez: todos de nuevo); un filtro guardado lo guarda. Este navegador recuerda el orden; la línea de nota lo dice cuando no es el habitual de la lista."
 }

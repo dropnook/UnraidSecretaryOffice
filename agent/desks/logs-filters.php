@@ -7,7 +7,7 @@ declare(strict_types=1);
  * logs.php's constants at its top level.
  *
  * What a list's filter bar has set — the words, a Schildchen (a category of «Syslog», a log of «Errors & warnings»),
- * «only errors & warnings» (the reader), the time (a preset that stays relative: the last hour, the last 24 hours,
+ * «only errors & warnings» (the reader), a service (a syslog line's program, chosen by a click on it), the time (a preset that stays relative: the last hour, the last 24 hours,
  * today, since the last start; or a range «from … to …», either end open) — kept under a name the user typed, per
  * list, in data/logs-filters.json: on the server, so every browser and the phone see the same (never Office.store).
  * **Never applied by itself** (the office's rule: a page never opens with a hidden filter) — only by a click on its
@@ -25,6 +25,8 @@ const LOGS_FILTER_PRESETS = ['hour', 'day', 'today', 'boot'];
 const LOGS_FILTER_CATS    = ['error', 'warning', 'drive', 'fs', 'network', 'minor', 'array', 'login', 'system', 'limetech', 'emhttp'];
 // a log's Schildchen in «Errors & warnings»: one log (src:<its id>) or the rest («n more»)
 const LOGS_FILTER_SRC     = '/^(?:more|src:[A-Za-z0-9][A-Za-z0-9:._@-]{0,199})$/D';
+// a service: a syslog line's program as the page reads it (desk.js SERVICE: no space, colon or bracket, 64 at most)
+const LOGS_FILTER_SVC     = '/^[^\s:\[\]\x00-\x1f\x7f]{1,64}$/uD';
 
 function logsFiltersFile(): string
 {
@@ -73,13 +75,17 @@ function logsFilterTime(mixed $t): ?array
 }
 
 /**
- * What a filter sets, in exactly its shape — or null: {words, cat, src, only, time}; cat one of her categories (or ''),
- * src a log's Schildchen (or ''), words one line, at least one of them set
+ * What a filter sets, in exactly its shape — or null: {words, cat, src, svc, only, time}; cat one of her categories (or
+ * ''), src a log's Schildchen (or ''), svc a service (or ''; an entry from before has none), words one line, at least
+ * one of them set
  */
 function logsFilterWhat(array $f): ?array
 {
-    $w = ['words' => $f['words'] ?? '', 'cat' => $f['cat'] ?? '', 'src' => $f['src'] ?? '', 'only' => $f['only'] ?? false];
-    if (!is_string($w['words']) || !is_string($w['cat']) || !is_string($w['src']) || !is_bool($w['only'])) {
+    $w = ['words' => $f['words'] ?? '', 'cat' => $f['cat'] ?? '', 'src' => $f['src'] ?? '', 'svc' => $f['svc'] ?? '', 'only' => $f['only'] ?? false];
+    if (!is_string($w['words']) || !is_string($w['cat']) || !is_string($w['src']) || !is_string($w['svc']) || !is_bool($w['only'])) {
+        return null;
+    }
+    if ($w['svc'] !== '' && !preg_match(LOGS_FILTER_SVC, $w['svc'])) {
         return null;
     }
     if (strlen($w['words']) > LOGS_FILTER_WORDS || !mb_check_encoding($w['words'], 'UTF-8') || preg_match('/[\x00-\x1f\x7f]/', $w['words'])
@@ -91,11 +97,11 @@ function logsFilterWhat(array $f): ?array
     if (array_key_exists('time', $f) && $f['time'] !== null && $w['time'] === null) {
         return null;                    // a time she doesn't know: not hers to judge
     }
-    return $w['words'] === '' && $w['cat'] === '' && $w['src'] === '' && !$w['only'] && $w['time'] === null ? null : $w;
+    return $w['words'] === '' && $w['cat'] === '' && $w['src'] === '' && $w['svc'] === '' && !$w['only'] && $w['time'] === null ? null : $w;
 }
 
 /**
- * Her saved filters as kept: [{id, list, name, words, cat, src, only, time, open, made}] — only entries in exactly their
+ * Her saved filters as kept: [{id, list, name, words, cat, src, svc, only, time, open, made}] — only entries in exactly their
  * shape; what she doesn't know stays in the file ($all['keep'], logsFiltersWrite()), so do keys she doesn't know.
  */
 function logsFilters(): array
@@ -122,7 +128,7 @@ function logsFilters(): array
 /** What the page gets: per filter what it sets and its name, never more */
 function logsFiltersForPage(): array
 {
-    return array_map(fn (array $f): array => array_intersect_key($f, array_flip(['id', 'list', 'name', 'words', 'cat', 'src', 'only', 'time', 'open'])),
+    return array_map(fn (array $f): array => array_intersect_key($f, array_flip(['id', 'list', 'name', 'words', 'cat', 'src', 'svc', 'only', 'time', 'open'])),
         logsFilters()['filters']);
 }
 
@@ -135,7 +141,7 @@ function logsFiltersWrite(array $all): void
     $raw['filters'] = array_merge(array_map(function (array $f): array {
         $keep = is_array($f['raw'] ?? null) ? $f['raw'] : [];
         $mine = ['id' => $f['id'], 'list' => $f['list'], 'name' => $f['name'], 'words' => $f['words'], 'cat' => $f['cat'], 'src' => $f['src'],
-                 'only' => $f['only'], 'time' => $f['time'], 'made' => $f['made']];
+                 'svc' => $f['svc'], 'only' => $f['only'], 'time' => $f['time'], 'made' => $f['made']];
         if ($f['open'] ?? false) {
             $mine['open'] = true;
         }
@@ -175,11 +181,11 @@ function logsFilterFromRequest(array $r): array
         }
         $time = ['preset' => $preset];
     }
-    $f = ['words' => $words, 'cat' => optText($r, 'cat'), 'src' => optText($r, 'src'), 'only' => $only, 'time' => $time];
-    if (trim($words) === '' && $f['cat'] === '' && $f['src'] === '' && !$only && $time === null) {
+    $f = ['words' => $words, 'cat' => optText($r, 'cat'), 'src' => optText($r, 'src'), 'svc' => optText($r, 'svc'), 'only' => $only, 'time' => $time];
+    if (trim($words) === '' && $f['cat'] === '' && $f['src'] === '' && $f['svc'] === '' && !$only && $time === null) {
         throw new Problem('logs_filter_nothing');
     }
-    return logsFilterWhat($f) ?? throw new Problem('bad_request');      // a category or a log she doesn't know
+    return logsFilterWhat($f) ?? throw new Problem('bad_request');      // a category, a log or a service she doesn't know
 }
 
 /** «Save filter…»: what the bar has set now, under a name, for one list (a name once per list) */

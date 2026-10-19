@@ -384,5 +384,17 @@
   "errors.logs_filter_nothing": "Nothing is set that I could save.",
   "errors.logs_filter_twice": "There already is a filter «{name}» in this list — pick another name.",
   "errors.logs_filter_full": "I keep at most {n} filters per list — delete one first.",
-  "errors.logs_filter_gone": "This saved filter isn't there any more."
+  "errors.logs_filter_gone": "This saved filter isn't there any more.",
+  "sort.label": "Order",
+  "sort.newest": "Newest first",
+  "sort.oldest": "Oldest first",
+  "sort.service": "By service",
+  "sort.newest_note": "newest first",
+  "sort.oldest_note": "oldest first",
+  "sort.service_note": "sorted by service",
+  "svc.chip": "Service: {name}",
+  "svc.only_title": "Show only the lines of «{name}»",
+  "svc.all_title": "Show every service again (now only «{name}»)",
+  "help.sort": "Order and service",
+  "help.sort_text": "«Syslog», «Errors & warnings» and the lines I read out sort by time (newest or oldest first; a kind of line by its newest line) or by service — a syslog line's program like emhttpd, sshd or kernel. A click on a line's service shows only that one (once more: all of them again); a saved filter keeps it. This browser remembers the order; the note line names it when it isn't the list's usual one."
 }

@@ -115,6 +115,13 @@
 & input.lg-time-day{flex:none; min-width:0; width:auto}
 & input.lg-time-clock{flex:none; min-width:0; width:4.6em; text-align:center; font-variant-numeric:tabular-nums}
 & input.lg-time-clock.lg-time-bad{border-color:var(--danger)}
+/* a line's service: a Schildchen on a row, the word in the reader's line — a click shows only that service */
+& button.lg-svc{cursor:pointer; font:inherit; font-size:11.5px; font-family:var(--mono); padding:1px 8px}
+& button.lg-svc:hover{border-color:var(--accent)}
+& button.lg-svc.on{border-color:var(--accent); background:var(--accent-soft); color:var(--accent-ink)}
+.lg-svc-in{cursor:pointer; text-decoration:underline dotted var(--muted); text-underline-offset:3px}
+.lg-svc-in:hover{text-decoration-color:var(--accent); color:var(--accent-ink)}
+.lg-svc-in.on{text-decoration-style:solid; text-decoration-color:var(--accent)}
 /* her saved filters above a list: a button each (pressed while the bar has exactly what it says), «⋯» beside */
 .lg-saved{display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; margin:0 2px}
 .lg-saved[hidden]{display:none}

@@ -252,6 +252,7 @@ function build(root) {
     [T('live'), T('help.live')],
     [T('only_problems'), T('help.only')],
     [T('help.time'), T('help.time_text')],
+    [T('help.sort'), T('help.sort_text')],
     [T('help.saved'), T('help.saved_text')],
     [T('help.favorites'), T('help.favorites_text')],
     [el('span', 'lg-sample error', T('help.red')), T('help.colours')],
@@ -349,6 +350,11 @@ function readerSection(v = view) {
 
   v.out = el('pre', 'code lg-out' + (opts.wrap ? ' wrap' : ''));
   v.out.setAttribute('tabindex', '0');
+  v.out.addEventListener('click', (e) => {
+    const sv = e.target && e.target.closest ? e.target.closest('.lg-svc-in') : null;
+    if (!sv || String(window.getSelection && window.getSelection()).length) return;      // selecting text
+    pickService('read', sv.dataset.svc, v.out);
+  });
   v.status = el('p', 'role lg-status');
   s.append(v.out, v.status);
   readerWatch(v);
@@ -743,7 +749,7 @@ function foundView() {
   box.append(bar.el, savedRow('found'));
   const f = bar.read();
   const span = timeSpan(bar.time.read());
-  const narrowed = f.words.length > 0 || !!span;
+  const narrowed = f.words.length > 0 || !!span || !!bar.svc;
   const kinds = el('div', 'box');
   let n = 0;
   let total = 0;
@@ -751,7 +757,8 @@ function foundView() {
   bar.time.avail(all.some((s) => (s.groups || []).some((g) => Number(g.last) > 0)));
   for (const s of list) {
     // a kind by its newest line (a «×n» in the time filter when its last one is)
-    const groups = (s.groups || []).filter((g) => Office.fits(f.words, [g.sample, sourceLabel(s), catName(g)]) && inSpan(span, g.last));
+    const groups = sortKinds((s.groups || []).filter((g) => Office.fits(f.words, [g.sample, sourceLabel(s), catName(g)]) && inSpan(span, g.last)
+      && (!bar.svc || serviceOf(g.sample) === bar.svc)), bar.sort.value());
     n += groups.length;
     if (narrowed && !groups.length) continue;
     const head = el('div', 'lg-subhead');
@@ -763,7 +770,7 @@ function foundView() {
     if (grew) head.appendChild(grew);
     head.appendChild(readButton(s.id));
     kinds.appendChild(head);
-    for (const g of groups) kinds.appendChild(kindRow(g));
+    for (const g of groups) kinds.appendChild(kindRow(g, { of: 'found' }));
     const more = (s.kinds || 0) - (s.groups || []).length;
     if (more > 0 && !narrowed) kinds.appendChild(el('div', 'lg-more', T('more_kinds', { n: more })));
   }
@@ -915,11 +922,12 @@ function syslogView() {
   const span = timeSpan(bar.time.read());
   bar.time.avail(sorted.some((g) => Number(g.last) > 0));
   // a kind by its newest line (a «×n» in the time filter when its last one is)
-  const rows = sorted.filter((g) => (!cat || g.cat === cat) && Office.fits(f.words, [g.sample, catName(g)]) && inSpan(span, g.last));
+  const rows = sortKinds(sorted.filter((g) => (!cat || g.cat === cat) && (!bar.svc || serviceOf(g.sample) === bar.svc)
+    && Office.fits(f.words, [g.sample, catName(g)]) && inSpan(span, g.last)), bar.sort.value());
   const kinds = [];
-  rows.forEach((g) => inner.appendChild(kindRow(g, { list: kinds, cats: true })));
+  rows.forEach((g) => inner.appendChild(kindRow(g, { list: kinds, cats: true, of: 'syslog' })));
   if (!rows.length) inner.appendChild(el('p', 'empty', sorted.length ? T('found.none_fit') : T('syslog.none')));
-  const more = cat && !f.words.length && !span ? ((s.sorted_kinds || {})[cat] || 0) - rows.length : 0;
+  const more = cat && !f.words.length && !span && !bar.svc ? ((s.sorted_kinds || {})[cat] || 0) - rows.length : 0;
   if (more > 0) inner.appendChild(el('div', 'lg-more', T('more_kinds', { n: more })));
   box.appendChild(inner);
   barDone('syslog', rows.length, sorted.length, { tile: cat ? T('cat.' + cat) : '', clear: () => { cat = ''; } });
@@ -932,7 +940,7 @@ function sysBarGet() {
   const cats = el('div', 'lg-chips lg-cats');
   cats.setAttribute('role', 'group');
   cats.setAttribute('aria-label', T('cats.label'));
-  sysBar = listBar('syslog', { label: T('syslog.filter_label'), extra: [cats] });
+  sysBar = listBar('syslog', { label: T('syslog.filter_label'), extra: [cats], sort: 'newest' });
   sysBar.cats = cats;
   return sysBar;
 }
@@ -973,7 +981,7 @@ function foundBarGet() {
   const box = el('div', 'lg-chips');
   box.setAttribute('role', 'group');
   box.setAttribute('aria-label', T('found.chips_label'));
-  foundBar = listBar('found', { label: T('found.filter_label'), extra: [box] });
+  foundBar = listBar('found', { label: T('found.filter_label'), extra: [box], sort: 'newest' });
   foundBar.chips = box;
   return foundBar;
 }
@@ -1027,10 +1035,14 @@ let openedWith = null;          // the saved filters set when this visit opened 
 /** A list's bar (built once a page, held across drawings): the words, its extras, the time filter; o only when made */
 function listBar(list, o = {}) {
   if (bars[list]) return bars[list];
-  const time = timeCtl(list, () => (list === 'read' ? renderLines(false) : redraw()));
+  const draw = () => (list === 'read' ? renderLines(false) : redraw());
+  const time = timeCtl(list, draw);
+  const sort = o.sort ? sortCtl(list, o.sort, draw) : null;
   const bar = Office.filterBar({ key: 'logs.' + list, label: o.label, only: o.only,
-    extra: [...(o.extra || []), time.el], onChange: o.onChange || (() => redraw()) });
+    extra: [...(o.extra || []), ...(sort ? [sort.el] : []), time.el], onChange: o.onChange || (() => redraw()) });
   bar.time = time;
+  bar.sort = sort;
+  bar.svc = '';                 // the service filter (a click on a line's service): a filter, never kept
   bar.list = list;
   bars[list] = bar;
   return bar;
@@ -1039,15 +1051,80 @@ const varlogBar = () => listBar('varlog', { label: T('varlog.filter_label') });
 const dockerBar = () => listBar('docker', { label: T('docker.filter_label') });
 /** The reader's bar: its words, «only errors & warnings», the time by the lines' own */
 const readBar = () => listBar('read', { label: T('read.filter_label'), only: { text: T('only_problems'), hint: T('help.only') },
-  onChange: () => renderLines(false) });
+  sort: 'oldest', onChange: () => renderLines(false) });
 
 /** After the rows: «n of m fit», the note line with the time filter as one of its parts (its × takes the time away) */
 function barDone(list, n, total, d = {}) {
   const bar = bars[list];
   const t = bar.time.read();
   const clear = d.clear;
-  bar.done(n, total, { ...d, clear: (what) => { if (clear) clear(what); if (what === 'all') bar.time.clear(); },
-    parts: t ? [[timeName(t), () => bar.time.clear()]] : [] });
+  const parts = [];
+  if (bar.svc) parts.push([T('svc.chip', { name: bar.svc }), () => { bar.svc = ''; }]);
+  if (t) parts.push([timeName(t), () => bar.time.clear()]);
+  const sorted = bar.sort && bar.sort.value() !== bar.sort.start ? bar.sort : null;
+  bar.done(n, total, { ...d, clear: (what) => { if (clear) clear(what); if (what === 'all') { bar.time.clear(); bar.svc = ''; } },
+    parts, order: sorted ? [T('sort.' + sorted.value() + '_note'), () => sorted.set(sorted.start)] : null });
+}
+
+/*
+ * The service of a line (Enhanced Log's «Service» column): in a syslog line the program after the time and the server
+ * — `emhttpd`, `sshd`, `kernel` … (the part before «[pid]:» or «:»); '' for lines without one. A click on it (a row's
+ * Schildchen, the word in the reader's line) shows only that service; the reader's lines without one go with the line
+ * before (a trace's next lines).
+ */
+const SERVICE = /^(?:[A-Z][a-z]{2}\s+\d{1,2}\s+\d\d:\d\d:\d\d|\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:?\d\d)?)\s+\S+\s+([^\s:[\]]{1,64})(?:\[\d+\])?:/d;
+const serviceOf = (line) => { const m = SERVICE.exec(String(line || '')); return m ? m[1] : ''; };
+/** Where a line's service stands in it: [from, to] — null without one */
+const serviceAt = (line) => { const m = SERVICE.exec(line); return m && m.indices ? m.indices[1] : null; };
+let svcsOf = null;              // [the lines, their services]
+function lineServices(list) {
+  if (svcsOf && svcsOf[0] === list) return svcsOf[1];
+  let last = '';
+  const out = list.map((l) => { const x = serviceOf(l); if (x) last = x; else if (!/^\s/.test(l) || !last) last = x; return last; });
+  svcsOf = [list, out];
+  return out;
+}
+/** A list's service filter: only that one, a click on another takes it, on the same one shows all again */
+function pickService(list, name, anchor) {
+  const bar = bars[list];
+  if (!bar) return;
+  bar.svc = bar.svc === name ? '' : name;
+  Office.keepInPlace(anchor, () => (list === 'read' ? renderLines(false) : redraw()));
+}
+
+/*
+ * The order of a list («Syslog», «Errors & warnings», the reader): newest first, oldest first (a «×n» by its newest
+ * line), or by service (A–Z, the newest first in each). A choice — kept per browser — said in the note line only when it
+ * isn't the list's own (the reader reads like the file: the oldest first, the newest at the bottom).
+ */
+const SORTS = ['newest', 'oldest', 'service'];
+function sortCtl(list, start, onChange) {
+  const box = el('select', 'picker lg-sort');
+  box.setAttribute('aria-label', T('sort.label'));
+  box.title = T('sort.label');
+  box.dataset.keep = '1';
+  SORTS.forEach((x) => box.appendChild(new Option(T('sort.' + x), x)));
+  const kept = Office.store(`logs.${list}.sort`);
+  box.value = SORTS.includes(kept) ? kept : start;
+  const ctl = {
+    el: box,
+    start,
+    value: () => (SORTS.includes(box.value) ? box.value : start),
+    set(x) { box.value = SORTS.includes(x) ? x : start; Office.store(`logs.${list}.sort`, box.value === start ? null : box.value); },
+  };
+  box.addEventListener('change', () => { ctl.set(box.value); Office.keepInPlace(box, () => onChange()); });
+  return ctl;
+}
+/** Kinds of lines in a list's order: by their newest line, or by service (none last), the newest first in each */
+function sortKinds(rows, how) {
+  const t = (g) => Number(g.last) || 0;
+  const out = rows.slice();
+  if (how === 'oldest') out.sort((a, b) => t(a) - t(b));
+  else if (how === 'service') {
+    out.sort((a, b) => { const x = serviceOf(a.sample), y = serviceOf(b.sample);
+      return x === y ? t(b) - t(a) : !x ? 1 : !y ? -1 : x.localeCompare(y, undefined, { sensitivity: 'base' }); });
+  } else out.sort((a, b) => t(b) - t(a));
+  return out;
 }
 
 /** A time filter's span now: [from, to] in seconds (either null) — a preset counted from now (it stays relative), a range as set */
@@ -1227,7 +1304,8 @@ function savedOf(list) {
   const all = Array.isArray(state?.filters) ? state.filters : [];
   return all.filter((f) => f && typeof f === 'object' && f.list === list && typeof f.id === 'string' && typeof f.name === 'string'
     && typeof f.words === 'string' && typeof f.cat === 'string' && typeof f.src === 'string' && typeof f.only === 'boolean'
-    && (f.time === null || (f.time && typeof f.time === 'object')));
+    && (f.time === null || (f.time && typeof f.time === 'object')) && (f.svc === undefined || typeof f.svc === 'string'))
+    .map((f) => ({ ...f, svc: f.svc || '' }));          // an older agent's: no service
 }
 /** What a list's bar has set now: {words, cat, src, only, time} */
 function current(list) {
@@ -1235,11 +1313,11 @@ function current(list) {
   if (!bar) return null;
   const input = bar.el.querySelector('.filter-words');
   return { words: input ? input.value.trim() : '', cat: list === 'syslog' ? cat : '', src: list === 'found' ? src : '',
-    only: list === 'read' ? bar.read().only : false, time: bar.time.read() };
+    only: list === 'read' ? bar.read().only : false, svc: bar.svc || '', time: bar.time.read() };
 }
-const isSet = (f) => !!f && !!(f.words || f.cat || f.src || f.only || f.time);
+const isSet = (f) => !!f && !!(f.words || f.cat || f.src || f.only || f.svc || f.time);
 const timeKey = (t) => (!t ? '' : t.preset ? 'p:' + t.preset : `r:${Number(t.from) || 0}-${Number(t.to) || 0}`);
-const sameFilter = (a, b) => !!a && !!b && a.words === b.words && a.cat === b.cat && a.src === b.src && !!a.only === !!b.only && timeKey(a.time) === timeKey(b.time);
+const sameFilter = (a, b) => !!a && !!b && a.words === b.words && a.cat === b.cat && a.src === b.src && !!a.only === !!b.only && (a.svc || '') === (b.svc || '') && timeKey(a.time) === timeKey(b.time);
 
 /** What a filter sets, as words: «drive» · Disks · Last hour */
 function filterWhat(list, f) {
@@ -1250,6 +1328,7 @@ function filterWhat(list, f) {
     parts.push(f.src === 'more' ? T('saved.more_logs') : s ? sourceLabel(s) : one ? one[1] : f.src);
   }
   if (f.cat) parts.push(T('cat.' + f.cat));
+  if (f.svc) parts.push(T('svc.chip', { name: f.svc }));
   if (f.only) parts.push(T('only_problems'));
   if (f.words) parts.push('«' + f.words + '»');
   if (f.time) parts.push(timeName(f.time));
@@ -1263,6 +1342,7 @@ function applySaved(list, f) {
   bar.set({ text: f.words, only: f.only });
   if (list === 'syslog') cat = f.cat;
   if (list === 'found') src = f.src;
+  bar.svc = f.svc || '';
   bar.time.set(f.time);
   if (list === 'read') renderLines(false); else redraw();
 }
@@ -1363,7 +1443,7 @@ function savedSave(list) {
     go: T('saved.save_go'),
     send: async (name) => {
       const t = f.time;
-      const j = await Office.api.post(`${ID}.filter_save`, { list, name, words: f.words, cat: f.cat, src: f.src, only: f.only,
+      const j = await Office.api.post(`${ID}.filter_save`, { list, name, words: f.words, cat: f.cat, src: f.src, only: f.only, svc: f.svc,
         time: !t ? '' : t.preset ? t.preset : 'range', from: t && !t.preset ? t.from : null, to: t && !t.preset ? t.to : null });
       if (j.ok) { savedChanged(j.state); Office.toast(T('saved.saved', { name })); }
       return j;
@@ -1424,6 +1504,17 @@ function kindRow(g, o = {}) {
   if (g.level === 'error' || g.level === 'warn') meta.appendChild(chip(T('kind.' + g.level), g.level === 'error' ? 'danger' : 'warn', T('kind.' + g.level + '_title')));
   if (catName(g) && (o.cats || (g.cat !== 'error' && g.cat !== 'warning'))) {       // «Errors & warnings»: error and warning — the chip before says it
     meta.appendChild(chip(catName(g), 'lg-cat lg-cat-' + g.cat, T('cats.row_title', { name: catName(g) }) + catNote(g.cat)));
+  }
+  const svc = o.of ? serviceOf(g.sample) : '';
+  if (svc) {
+    const on = bars[o.of] && bars[o.of].svc === svc;
+    const b = el('button', 'chip lg-svc' + (on ? ' on' : ''), svc);
+    b.type = 'button';
+    b.dataset.own = '1';          // its click filters (core.js: a chip with a title would only show its tip)
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    b.title = on ? T('svc.all_title', { name: svc }) : T('svc.only_title', { name: svc });
+    b.addEventListener('click', () => pickService(o.of, svc, b.closest('section') || b));
+    meta.appendChild(b);
   }
   if (g.first && g.last) meta.appendChild(el('span', '', g.first === g.last ? fmt.date(g.last) : T('seen', { first: fmt.date(g.first), last: fmt.date(g.last) })));
   main.append(name, meta);
@@ -1613,7 +1704,27 @@ function shown() {
   const lv = levelOf(source());
   const span = timeSpan(readBar().time.read());
   const at = span ? lineTimes(lines) : null;
-  return lines.filter((l, i) => (!f.only || lv(l)) && Office.fits(f.words, l) && (!at || inSpan(span, at[i])));
+  const bar = readBar();
+  const sv = bar.svc || bar.sort.value() === 'service' ? lineServices(lines) : null;
+  const idx = [];
+  lines.forEach((l, i) => { if ((!f.only || lv(l)) && Office.fits(f.words, l) && (!at || inSpan(span, at[i])) && (!bar.svc || sv[i] === bar.svc)) idx.push(i); });
+  const how = bar.sort.value();
+  if (how === 'newest') idx.reverse();
+  else if (how === 'service') idx.sort((a, b) => (sv[a] === sv[b] ? a - b : !sv[a] ? 1 : !sv[b] ? -1 : sv[a].localeCompare(sv[b], undefined, { sensitivity: 'base' })));
+  return idx.map((i) => lines[i]);
+}
+
+/** A piece of a line into a node: the text from a to b, the bar's words in it marked */
+function putMarked(node, line, a, b, marks) {
+  let i = a;
+  for (const [x, y] of marks) {
+    const from = Math.max(x, a), to = Math.min(y, b);
+    if (from >= to) continue;
+    if (from > i) node.append(line.slice(i, from));
+    node.appendChild(el('mark', '', line.slice(from, to)));
+    i = to;
+  }
+  if (i < b) node.append(line.slice(i, b));
 }
 
 /** Where the bar's words stand in a line: [[from, to], …] in order, overlaps joined (lower case, as the browser folds it) */
@@ -1635,6 +1746,7 @@ function renderLines(toBottom) {
   const out = view.out;
   const list = shown();
   const words = readBar().read().words;
+  const svcAt = list.length <= 20000;          // the services clickable (each line's own span)
   const frag = document.createDocumentFragment();
   const lv = levelOf(source());
   // Unraid's syslog: each line its category's edge (as in «Syslog»), the noise quieter
@@ -1647,10 +1759,18 @@ function renderLines(toBottom) {
   for (const line of list) {
     const row = el('span', 'lg-line ' + lv(line) + edge(line) + (isMark(line) ? ' spot' : ''));
     const marks = words.length ? wordSpans(line, words) : [];
-    if (marks.length) {
-      let i = 0;
-      for (const [a, b] of marks) { row.append(line.slice(i, a), el('mark', '', line.slice(a, b))); i = b; }
-      row.append(line.slice(i));
+    const sat = svcAt ? serviceAt(line) : null;
+    if (sat) {
+      // its service: a click shows only that one (data-svc; the reader's one listener)
+      putMarked(row, line, 0, sat[0], marks);
+      const sv = el('span', 'lg-svc-in' + (readBar().svc ? ' on' : ''));
+      sv.dataset.svc = line.slice(sat[0], sat[1]);
+      sv.title = readBar().svc ? T('svc.all_title', { name: sv.dataset.svc }) : T('svc.only_title', { name: sv.dataset.svc });
+      putMarked(sv, line, sat[0], sat[1], marks);
+      row.appendChild(sv);
+      putMarked(row, line, sat[1], line.length, marks);
+    } else if (marks.length) {
+      putMarked(row, line, 0, line.length, marks);
     } else {
       row.textContent = line;
     }
@@ -1659,7 +1779,7 @@ function renderLines(toBottom) {
   out.innerHTML = '';
   if (!list.length) out.appendChild(el('span', 'lg-empty', lines.length ? T('nothing_matches') : T('empty')));
   out.appendChild(frag);
-  if (toBottom) out.scrollTop = out.scrollHeight;
+  if (toBottom) out.scrollTop = readBar().sort.value() === 'newest' ? 0 : out.scrollHeight;     // newest first: they come in at the top
   const src = source();
   const m = view.meta || {};
   const parts = [];
@@ -1947,7 +2067,7 @@ Office.desk({
     sysBarGet();
     varlogBar();
     dockerBar();
-    Object.values(bars).forEach((b) => { b.reset(); b.time.clear(); });      // a new visit: no words, no Schildchen, no time
+    Object.values(bars).forEach((b) => { b.reset(); b.time.clear(); b.svc = ''; });      // a new visit: no words, no Schildchen, no time, no service
     openedWith = null;
     if (!sw.mount(one ? 'found' : rd ? 'read' : s) && (one || rd)) Office.subroute('');
     renderHead();
@@ -1995,7 +2115,7 @@ Office.places(ID, [
   { kind: 'help', key: 'live', text: 'help.live' },
   { kind: 'help', key: 'only_problems', text: 'help.only' },
   { kind: 'help', key: 'help.red', text: 'help.colours' },
-  ...['counted', 'rules', 'grouped', 'since', 'space', 'source', 'time', 'saved', 'favorites', 'safe'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
+  ...['counted', 'rules', 'grouped', 'since', 'space', 'source', 'time', 'sort', 'saved', 'favorites', 'safe'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
   // her «Set up» (#/logs/setup): her own rules, her hide words, what she left out of Enhanced Log's settings
   { kind: 'section', key: 'mine.title', text: 'help.mine_text', route: `#/${ID}/setup`, crumb: 'page.setup' },
   { kind: 'section', key: 'hide.title', text: 'help.hide_text', route: `#/${ID}/setup`, crumb: 'page.setup' },
