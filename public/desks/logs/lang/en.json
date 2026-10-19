@@ -121,7 +121,7 @@
   "tile.syslog_quiet": "nothing my rules know",
   "tile.syslog_lines": {"one": "{n} line read", "other": "{n} lines read"},
   "credit_title": "Thank you, dlandon and Derek Kaser!",
-  "credit": "The rules I sort syslog lines by come from their Enhanced Log. Under GPL-3.0.",
+  "credit": "The rules I sort syslog lines by come from their Enhanced Log. Under the GPL (version 2 or later).",
   "found.none_fit": "No line fits the filter.",
   "found.sub": "Lines that sound like an error or a warning since my previous tour ({when}); similar ones as one entry, the most frequent first.",
   "found.sub_first": "Lines that sound like an error or a warning in the last 24 hours (my first tour); similar ones as one entry, the most frequent first.",

@@ -3,8 +3,8 @@
 # uso-mo-empty (a rule of 5 days, MO-OWN-RULES) set to its pool only in Unraid's form, so no second storage.
 # Her settings saved unchanged keep them byte for byte (MV-RESAVE, INV-REPLAN's part of hers), and her setup page shows
 # them with «Remove rules» (nothing removed by itself). Fixed in 1.66.1. $1 = an older release (v1.66.0): the same
-# scenario on that plugin, which must be red — 1.66.0's page showed no way to see or remove them (desk.js only: its red is drawn with the older tag's page, see README).
-# Pre-release (~2 min).
+# scenario on that plugin, which must be red — 1.66.0's page showed no way to see or remove them (desk.js only: run.sh
+# draws its state files with that tag's page). Pre-release (~2 min).
 . "$(dirname "$0")/lib.sh"
 scenario_begin moverelli-mo-own-rules-idle-setup
 needs tower
@@ -22,10 +22,10 @@ r=$(awk '$0 == "[uso-mo-empty]" { s = 1; next } /^\[/ { s = 0 } s && /^min_age=/
     || cell rules-kept 0 "smart_mover.ini has [uso-mo-empty] min_age «${r:-gone}» (her rule was 5)"
 bubble_look own-rules moverelli
 look=$(ls -d "$KEEP"/looks/*-own-rules | tail -1)
-# her setup page: the share row says «own rules»; the rules themselves and «Remove rules» sit in the folded row, which
-# page.mjs (innerText) can't see — no proof until it opens folds (coordinator, 2026-10-18)
+# her setup page: the share row says «own rules»; the rules themselves and «Remove rules» sit in the folded row,
+# opened by page.mjs --open (cell remove-rules)
 queue_mac INV-BUBBLE page_text moverelli/setup "$look/states" "$PAGE_LANGS" want "moverelli.own_rules"
-_row cell remove-rules pending "pending: helper --open — «Remove rules» sits in the folded share row"
+queue_mac remove-rules page_text --open moverelli/setup "$look/states" "$PAGE_LANGS" want "moverelli.setup.own_idle moverelli.setup.own_remove"
 queue_mac INV-PAGE page_clean moverelli/setup "$look/states" "$PAGE_LANGS"
 check standard
 scenario_end

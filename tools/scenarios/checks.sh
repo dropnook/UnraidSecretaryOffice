@@ -302,6 +302,35 @@ _ck_final_look() {
 }
 _ck_mac_n() { grep -c "^$1	" "${REPORT%.md}.pending" 2>/dev/null || echo 0; }
 
+# INV-TICK — lib.sh's check, its end measured anew (scenarios-helpers, 2026-10-19). lib.sh took the gap from the last
+# pulse its sampler saw to «now»; the sampler stops at snap_after and the checks before INV-TICK take seconds (INV-REPLAN
+# a replan), so a pulse 20 s before snap_after and 6–8 s of checks read as a 26–28 s gap (batch A, B5 and M1-stop at
+# 22:43:01 / 22:44:23, 6 and 8 s after snap_after) while the agent beat every 20 s. Now: the gaps between the pulses the
+# sampler saw, and at the end the heartbeat's age right now (its own mtime) — a stuck agent still shows, a stopped
+# sampler doesn't
+check_inv_tick() {
+    local gap ms t0 age
+    [[ -s $KEEP/.pulse ]] || { echo "no heartbeat samples (snap_before starts them)"; return 3; }
+    gap=$(awk 'NR==1{p=$1} $1!=p{if ($1-p>g) g=$1-p; p=$1} END{print g+0}' "$KEEP/.pulse")
+    age=$(_agent_age)
+    t0=$(date +%s%N)
+    php "$SC_DIR/ask.php" --wait 5 office.ping '{}' >/dev/null 2>&1
+    ms=$((($(date +%s%N) - t0) / 1000000))
+    if ((gap > 25)); then
+        echo "heartbeat gap ${gap} s"
+        return 1
+    fi
+    if ((age > 25)); then
+        echo "heartbeat ${age} s old now"
+        return 1
+    fi
+    if ((ms > 1000)); then
+        echo "office.ping ${ms} ms"
+        return 1
+    fi
+    echo "heartbeat gap ≤ ${gap} s, now ${age} s old, ping ${ms} ms"
+}
+
 # INV-PAGE — the page says no «?», no raw key, no contradiction: built on the Mac from each look's state files
 check_inv_page() {
     _ck_final_look

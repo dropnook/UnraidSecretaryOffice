@@ -143,25 +143,44 @@ are rows `cell <name>` of the verdict table.
 | B2 | `backup-st-renamed-run` | 1.66.0 · v1.65.13 | ~110 s (old: 85 s) | pre-release |
 | B3 | `backup-kp-orphans-delete` | 1.65.13 · v1.65.12 | 15 s (old: 39 s) | pre-release |
 | B4 | `backup-ct-app-is-dataset-run` | 1.65.10 · v1.65.9 | ~95 s (old: 115 s) | pre-release |
-| B5 | `backup-sh-office-share-exists-first-setup` | 1.66.1 · v1.66.0 (page only, by hand) | 13 s | pre-release |
-| M1 | `moverelli-sh-prefer-array-files-run` | 1.66.1 · v1.66.0 | 17 s (old: 39 s) | pre-release |
-| M1 | `moverelli-sh-prefer-array-files-stop-after-file` | 1.66.1 · v1.66.0 | ~105 s (old: 335 s, the wait times out) | pre-release |
-| M2 | `moverelli-mo-own-rules-idle-setup` | 1.66.1 · v1.66.0 (page only, by hand) | 16 s | pre-release |
-| M2 | `moverelli-mo-own-rules-gone-setup` | 1.66.1 · v1.66.0 | 11 s (old: 31 s) | pre-release |
-| M3 | `moverelli-sh-yes-run-picture` (+ `moverelli-eta.mjs`) | 1.66.2 / 1.66.4 · v1.66.1 (page only, by hand) | ~70 s (old: 84 s) | pre-release |
+| B5 | `backup-sh-office-share-exists-first-setup` | 1.66.1 · v1.66.0 (page only: `no-create-share`) | 8 s (old: 16 s) | pre-release |
+| M1 | `moverelli-sh-prefer-array-files-run` | 1.66.1 · v1.66.0 | 16 s (old: 40 s) | pre-release |
+| M1 | `moverelli-sh-prefer-array-files-stop-after-file` | 1.66.1 · v1.66.0 | ~105 s (old: 334 s, the wait times out) | pre-release |
+| M2 | `moverelli-mo-own-rules-idle-setup` | 1.66.1 · v1.66.0 (page only: `remove-rules`) | 11 s (old: 33 s) | pre-release |
+| M2 | `moverelli-mo-own-rules-gone-setup` | 1.66.1 · v1.66.0 (+ `remove-rules`) | 8 s (old: 29 s) | pre-release |
+| M3 | `moverelli-sh-yes-run-picture` (+ `moverelli-eta.mjs`) | 1.66.2 / 1.66.4 · v1.66.1 (page only: `card-left`) | ~70 s (old: 84 s) | pre-release |
 | M3 | `moverelli-sh-yes-nested-tidy` (an emptied parent folder left on the pool) | the release after 1.66.7 · v1.66.7 | ~1 min | pre-release |
 
 Times are the scenario alone on Tower; each needs a base reset before it (~27 s), and an older release adds its install.
 The whole batch takes ~10 min on the release (~25 min on the older ones).
 
-**Page-only fixes** (B5, M2's idle rules, M3): the agent's state is the same before and after the fix, and page.mjs draws
-this tree's desk.js. So the older release's red comes from drawing the scenario's own state files with that tag's page:
-`git archive <tag> public tests/ui src` into a scratch folder, today's `page.mjs` and `tests/ui/harness.mjs` beside it.
-For M3, the run's `m3-readings.jsonl` (evidence) is fed to `moverelli-eta.mjs <that tag's desk.js> <its core.js>`.
-The commands and their results: briefs folder `scenarios/2026-10-18/batch-a-red-before-by-hand.md`.
-**Pending until page.mjs opens folds:** B5's «no Create a share» sits in the guide, a closed `<details>` while a place is
-chosen; M2's «Remove rules» sits in a folded share row. innerText reads neither, so both are rows `pending: helper --open`.
-**Own helpers instead of the shared ones:** M1 writes its files per disk with `put_files` (SH-PREFER-ARRAY-FILES writes
-the same names on both disks). M1-stop waits for a file of uso-prefer itself (MV-STOP-AFTER-FILE stops at the run's
-first file, which belongs to a share earlier in her plan). M3 judges the time left on the server (`moverelli-eta.mjs`
-on this tree's desk.js), not from the card's text.
+**Page-only fixes** (B5, M2, M3): the agent's state is the same before and after the fix, so the older release's red
+comes from its page. run.sh's Mac-side step draws every page of a scenario that installed an older release (state
+IN-DOWNGRADE <tag>: `SOURCE=` of its `state-in-downgrade.env`) with that tag's page — `page.mjs --tree <tag>` (`git
+archive <tag> public src tests/ui` once into `$TMPDIR/uso-page-tree/<commit>/`, today's harness beside it); the
+report's «Mac-side checks» names the tag. `USO_PAGE_TREE=<tag>` sets it for a whole run (empty: this tree's page). The
+Mac needs the tags (`git fetch --tags`).
+- B5 `no-create-share`, M2 `remove-rules`: `queue_mac <cell> page_text --open …` — `--open` opens every `<details>` and
+  folded row (`.row.unfolds`) before the text is read (the guide and the share row are folded).
+- M3 `card-left`: a page-value check. Her progress read every 3 s during the run, each reading with the seconds the
+  share really still took (`expect`), is replayed into the drawn page (`queue_mac card-left page_value --factor 3
+  --slack 30 moverelli <look> en <replay.jsonl> "moverelli.rc.left:left moverelli.rc.left_range:lo..hi"`): page.mjs
+  `--replay` runs the page's own clock to each reading, the part «progress» answered with it, and reads the time left
+  off her run card (`--value <key>:<placeholder>`, a duration in the language's own words). `eta-honest` stays the
+  server's cross-check on this tree's code (info on an older release).
+- `queue_mac <id> page_value [--factor f] [--slack s] <route> <states> <langs> <readings|-> "<key>:<ph>[..<ph2>][=<n>] …"`
+  also reads one value off a static page (`=<n>`: the server's number, e.g. a count on a tile).
+
+The red-before check is automatic now (Tower, 2026-10-19, reports `scenarios/2026-10-19/tower-scenarios-helpers*`):
+each page-only cell red on its older release, green on main — the same as the by-hand table of 2026-10-18. Run a
+scenario and its older release in two runs (one name per run: the second wipes the first's evidence before the
+Mac-side step).
+
+**MV-STOP-AFTER-FILE share=<share>** waits for a file of that share in flight (her plan may take other shares
+first: up to 5 min); M1-stop uses it. **SH-PREFER-ARRAY-FILES** puts its files in a folder per disk
+(`sh-paf-d1` on disk1, `sh-paf-d2` on disk2 — the same path on two disks would be duplicates Unraid never moves); its
+undo takes them from wherever a run put them; M1-run uses it again.
+**INV-TICK** (checks.sh overrides lib.sh's): the gaps between the pulses the sampler saw, and at the end the
+heartbeat's age right now — lib.sh took «now − the last pulse the sampler saw», but the sampler stops at snap_after and
+the checks before INV-TICK take seconds (B5 and M1-stop: 26/28 s = a pulse 20 s before snap_after + 6/8 s of checks,
+the agent fine).

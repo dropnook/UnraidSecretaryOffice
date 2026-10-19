@@ -15,7 +15,8 @@
 #      the VM up), then wait for ssh, the array Started and a fresh heartbeat; the tree and the reports back; post.
 #   4. The reports to ~/Claude/UnraidSecretaryOffice-briefs/scenarios/<date>/<host>[-<worktree>]/ (<name>.md, .result, .pending, .out,
 #      run.info, base-*.log); Mac-side checks of <name>.pending (plan_changes: tools/scenarios/plan-changes.mjs on the
-#      copied plan, page_text / page_clean: page.mjs on the copied state files) done here - a failing one turns the
+#      copied plan, page_text / page_clean / page_value: page.mjs on the copied state files — with the page of the release
+#      the scenario installed (IN-DOWNGRADE <tag>; USO_PAGE_TREE=<tag> for all) — done here - a failing one turns the
 #      scenario red, and with all of them done a scenario whose other checks were green is green;
 #      summary.md (red first) written and printed.
 # Hosts: tower (ssh uso-test, 192.168.7.111) and test3 (ssh uso-test3, 192.168.7.197) only; USOPartner and nostromo are
@@ -44,14 +45,14 @@ while (($#)); do
         --no-nightly) nightly=0; shift ;;
         --dev-sync) devsync=1; shift ;;
         --timeout) tmo=${2:-3600}; shift 2 ;;
-        -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
         *) echo "run: unknown argument $1" >&2; exit 2 ;;
     esac
 done
 case $host in
     tower) alias=uso-test ip=192.168.7.111 ;;
     test3) alias=uso-test3 ip=192.168.7.197 ;;
-    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
     *) echo "usage: run.sh <tower|test3> [--all | --desk … | --only …] [--no-sync] [--no-reset] [--keep] [--no-nightly] [--dev-sync]" >&2; exit 2 ;;
 esac
 
@@ -193,10 +194,31 @@ for pf in "$local_dir"/*.pending; do
     [[ $(rkey "$rf" mac) == done ]] && continue
     work=$(mktemp -d "${TMPDIR:-/tmp}/uso-mac.XXXXXX")
     macred='' i=0
-    { echo; echo "## Mac-side checks"; echo; } >> "$local_dir/$n.md"
+    # the page drawn: the release the scenario installed (state IN-DOWNGRADE <tag>: its page, not this tree's — a page-only
+    # fix is red on its older release), USO_PAGE_TREE=<tag> for all, a line's own --tree <tag> for that line
+    ptree=${USO_PAGE_TREE-}
+    if [[ -z ${USO_PAGE_TREE+x} ]]; then
+        keep=$(rkey "$rf" keep)
+        [[ $keep == /tmp/uso-keep/* ]] && ptree=$(vm "sed -n 's/^SOURCE=//p' '$keep/state-in-downgrade.env' 2>/dev/null" | tail -1)
+        [[ $ptree =~ ^v[0-9]+\.[0-9]+\.[0-9]+[A-Za-z0-9.-]*$ ]] || ptree=''
+    fi
+    { echo; echo "## Mac-side checks${ptree:+ (the page of $ptree)}"; echo; } >> "$local_dir/$n.md"
     # read from fd 3: ssh in the loop would eat the lines from stdin
-    while IFS=$'\t' read -r -u 3 inv kind a b c d e; do
+    while IFS=$'\t' read -r -u 3 -a f; do
+        inv=${f[0]:-} kind=${f[1]:-}
         [[ -n $inv ]] || continue
+        # options before the fields (queue_mac <INV> page_text --open …): --open, --tree <tag>, --factor <f>, --slack <s>
+        f=("${f[@]:2}") popts=() ltree=$ptree
+        while ((${#f[@]})) && [[ ${f[0]} == --* ]]; do
+            case ${f[0]} in
+                --open) popts+=(--open); f=("${f[@]:1}") ;;
+                --tree) ltree=${f[1]:-}; f=("${f[@]:2}") ;;
+                --factor|--slack) popts+=("${f[0]}" "${f[1]:-}"); f=("${f[@]:2}") ;;
+                *) break ;;
+            esac
+        done
+        [[ -n $ltree ]] && popts+=(--tree "$ltree")
+        a=${f[0]:-} b=${f[1]:-} c=${f[2]:-} d=${f[3]:-} e=${f[*]:4}
         i=$((i + 1)) ok=0 detail=''
         case $kind in
             plan_changes)
@@ -212,19 +234,31 @@ for pf in "$local_dir"/*.pending; do
                 fetch "$b" "$work/$i/states"
                 args=''
                 for k in $e; do args="$args --$d $k"; done
-                got=$(node "$here/page.mjs" --states "$work/$i/states" "$a" --lang "$c" $args 2>&1 >/dev/null)
+                got=$(node "$here/page.mjs" --states "$work/$i/states" "$a" --lang "$c" $args ${popts[@]+"${popts[@]}"} 2>&1 >/dev/null)
                 code=$?
                 ((code == 0)) && ok=1
-                detail="page $a ($c) $d $e: $(grep -E 'FAIL|did not draw|error' <<<"$got" | head -3 | tr '\n' ';')"
+                detail="page $a ($c) $d $e: $(grep -E 'FAIL|did not draw|error|no tag' <<<"$got" | head -3 | tr '\n' ';')"
                 ((ok)) && detail="page $a ($c) $d $e: ok" ;;
             page_clean)
                 # INV-PAGE: the page from these state files says nothing a page never says (page.mjs --clean)
                 fetch "$b" "$work/$i/states"
-                got=$(node "$here/page.mjs" --states "$work/$i/states" "$a" --lang "$c" --clean 2>&1 >/dev/null)
+                got=$(node "$here/page.mjs" --states "$work/$i/states" "$a" --lang "$c" --clean ${popts[@]+"${popts[@]}"} 2>&1 >/dev/null)
                 code=$?
                 ((code == 0)) && ok=1
                 if ((ok)); then detail="page $a ($c) clean"
-                else detail="page $a ($c): $(grep -E 'FAIL|did not draw|error' <<<"$got" | head -4 | sed 's/^page [^ ]* //' | tr '\n' ';')"; fi ;;
+                else detail="page $a ($c): $(grep -E 'FAIL|did not draw|error|no tag' <<<"$got" | head -4 | sed 's/^page [^ ]* //' | tr '\n' ';')"; fi ;;
+            page_value)
+                # a value read off the drawn page against the server's number (page.mjs --value), with d a readings
+                # file (or -): replayed as the desk's live part, judged reading by reading
+                fetch "$b" "$work/$i/states"
+                args=''
+                for k in $e; do args="$args --value $k"; done
+                if [[ $d != - && -n $d ]]; then fetch "$d" "$work/$i/replay.jsonl"; args="$args --replay $work/$i/replay.jsonl"; fi
+                got=$(node "$here/page.mjs" --states "$work/$i/states" "$a" --lang "$c" $args ${popts[@]+"${popts[@]}"} 2>&1 >/dev/null)
+                code=$?
+                ((code == 0)) && ok=1
+                printf '%s\n' "$got" > "$local_dir/$n.value-$i.txt"
+                detail="page $a ($c): $(grep -E '(ok  |FAIL) value|did not draw|error|no tag' <<<"$got" | tail -2 | sed 's/^page [^ ]* //' | tr '\n' ';') ($n.value-$i.txt)" ;;
             *) detail="unknown check «$kind»" ;;
         esac
         echo "- $inv $kind: $( ((ok)) && echo green || echo '**red**') - $detail" >> "$local_dir/$n.md"

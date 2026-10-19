@@ -28,6 +28,11 @@
 # SH-OFFICE-SHARE-MISSING SH-APPDATA-MISSING SH-NAMES SH-100K SH-BIG-FILE SH-OPEN-FILE SH-STOREROOM
 
 ST_SHARES_CFG=/boot/config/shares
+declare -F _st_keep_env >/dev/null || _st_keep_env() {
+    local f=${KEEP:-/tmp/uso-keep/states}/state-${1,,}.env kv; shift
+    mkdir -p "$(dirname "$f")"
+    for kv in "$@"; do printf '%s\n' "$kv" >> "$f"; done
+}
 
 share_exists() { grep -qxF "[\"$1\"]" "$ST_SHARES_INI"; }
 _st_share_ini() { _st_ini "$ST_SHARES_INI" "$1" "$2"; }
@@ -238,10 +243,21 @@ state_sh_yes() { local s=${1:-uso-yes} pool=${2:-cache}
     put_files SH-YES "$pool" "$s" 20 --age 40d && put_files SH-YES "$pool" "$s" 20 --age 1d; }
 undo_sh_yes() { share_unuse SH-YES; }
 
+# the files in a folder of their own per disk (sh-paf-d1 on disk1, sh-paf-d2 on disk2): the same path on two disks would
+# be duplicates, which Unraid's mover never moves. The undo takes them from wherever a run put them (the pool, mostly)
 state_sh_prefer_array_files() { local s=${1:-uso-prefer}
     share_use SH-PREFER-ARRAY-FILES "$s" prefer cache || return
-    put_files SH-PREFER-ARRAY-FILES disk1 "$s" 10 && put_files SH-PREFER-ARRAY-FILES disk2 "$s" 10; }
-undo_sh_prefer_array_files() { share_unuse SH-PREFER-ARRAY-FILES; }
+    printf '%s\n' "$s" > "$(_st_dir SH-PREFER-ARRAY-FILES)/share"
+    put_files SH-PREFER-ARRAY-FILES disk1 "$s/sh-paf-d1" 10 && put_files SH-PREFER-ARRAY-FILES disk2 "$s/sh-paf-d2" 10 || return
+    _st_keep_env SH-PREFER-ARRAY-FILES SHARE="$s" DIRS="sh-paf-d1 sh-paf-d2" FILES=20; }
+undo_sh_prefer_array_files() { local s b dir
+    dir=$(_st_dir SH-PREFER-ARRAY-FILES) || return 1
+    s=$(cat "$dir/share" 2>/dev/null)
+    if [[ -n $s ]]; then
+        for b in $(bases); do rm -rf -- "/mnt/$b/$s/sh-paf-d1" "/mnt/$b/$s/sh-paf-d2"; done
+        rm -f "$dir/share"
+    fi
+    share_unuse SH-PREFER-ARRAY-FILES; }
 
 # a second pool (default «fast») as secondary storage — needs pool2 (Tower has one pool today)
 state_sh_prefer_pool2() { local s=${1:-uso-p2} pool2=${2:-fast}

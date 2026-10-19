@@ -79,7 +79,8 @@ Jack Streamer's tools [MediaCache](https://github.com/helmi1987/mediacache-for-u
 with our changes listed in their READMEs. Thank you — a share of the tips goes to him.
 
 The syslog rules of Ms. Protocolli come from [Enhanced Log](https://github.com/dkaser/unraid-enhancedlog) by
-**dlandon** and **Derek Kaser (EDACerton)**, GPL-3.0-or-later; they ship unchanged in `agent/desks/logs-rules/`. Thank you.
+**dlandon** and **Derek Kaser (EDACerton)**, GPL-2.0-or-later (used here under GPL-3.0-or-later); they ship unchanged
+in `agent/desks/logs-rules/`. Thank you.
 
 ## License
 
