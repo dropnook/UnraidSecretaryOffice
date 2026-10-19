@@ -8,6 +8,9 @@
 scenario_begin backup-rn-plan-old-apply
 needs tower
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
+# the engine's own bookkeeping first: an Apply also writes the shares' ids anew (share|<name>|id — a dataset made again
+# by an earlier scenario has a new one); an Apply without a change settles them, so the cell's diff is its one key
+flow BK-APPLY
 plan=$KEEP/plan-old.json
 _bk_plan_get "$plan" || _row state plan red "no plan from backup.setup_get"
 was=$(_ini_flat "$UB/settings.ini" | sed -n 's/^general|min_free_gb=//p'); was=${was:-8}
