@@ -88,6 +88,8 @@ desk('backup', [
         'letgo_job'   => fn (array $r) => backupLetGoJobState($r),       // is a job that wrote nothing for a while still alive?
         // a gone app's or VM's package into Ms. Dustdevil's storeroom (agent/desks/backup-gone.php)
         'package_aside' => fn (array $r) => backupPackageAside($r),
+        // engine 2.62's nc_datadir_readable: Nextcloud's data folder root closed again after the dialog (agent/desks/backup-ncopen.php)
+        'nc_open_close' => fn (array $r) => backupNcClose($r),
         // «Make it a dataset of its own…» (1.60.1): the dialog's facts, then one of Mr. Restori's jobs (agent/desks/restore-dataset.php)
         'dataset_look' => fn (array $r) => mdLook(['kind' => optText($r, 'kind'), 'name' => optText($r, 'name'), 'share' => optText($r, 'share'), 'dir' => optText($r, 'dir'), 'stack' => optText($r, 'stack')]),
         'dataset_make' => fn (array $r) => mdStart(['kind' => optText($r, 'kind'), 'name' => optText($r, 'name'), 'share' => optText($r, 'share'), 'dir' => optText($r, 'dir'), 'stack' => optText($r, 'stack'),
@@ -274,6 +276,7 @@ function backupScan(): array
         'dumps'      => backupDumps(),           // run folders of engines before 2.18, until the first 2.18 run cleared them
         'packages'   => $pk = backupPackages($settings),
         'packages_gone' => backupGoneList($pk),     // 2026-10-17: packages whose app or VM is gone (agent/desks/backup-gone.php)
+        'nc_open'    => backupNcOpen($history, $settings),    // 2026-10-19: Nextcloud data folders the last run found open, still open (backup-ncopen.php)
         'schedule'   => backupSchedule(),
         'logs'       => array_values(array_map(fn ($l) => ['name' => $l['name'], 'kind' => $l['kind'], 'time' => $l['time'], 'size' => $l['size']], $logs)),
         'mounted'    => backupMounted(backupSetting($settings, 'general', 'mount_root')),

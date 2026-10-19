@@ -443,7 +443,7 @@ function bubbleText(pg) {
     if (last.result === 'ok') out.push(k.length ? T('bubble.last_ok_kopia', { when, ok, total: k.length }) : T('bubble.last_ok', { when }));
     else if (arrayStopped(last)) out.push(T('bubble.last_array_stop', { when }));
     else out.push(T('bubble.last_' + last.result, { when, errors: last.errors, warnings: last.warnings, n: last.result === 'errors' ? last.errors : last.warnings }));
-    out.push(...warnLines(last));
+    out.push(...warnLines(last, true));
     if (asleepUnits(last)) out.push(T('bubble.asleep_left', { n: asleepUnits(last), pools: (last.asleep.pools || []).join(', ') }));
     const age = Date.now() / 1000 - (last.finished || last.started);
     if (age > 36 * 3600) out.push(T('bubble.old', { days: Math.floor(age / 86400) }));
@@ -589,6 +589,13 @@ function notices() {
     more.appendChild(ok);
     callout(T('held.callout', { when: fmt.date(held.when), before: String(held.before), now: String(held.now), since: fmt.date(held.time) }), true, more);
   }
+  // engine 2.62 (nc_datadir_readable): Nextcloud's data folder readable by others, still so now (agent backupNcOpen()) -
+  // one click closes it after a dialog that shows what changes (2026-10-19: instead of a command to type)
+  ncOpen().forEach((o) => {
+    const b = button(T('nc_open.close'), 'small', () => ncOpenClose(o.name));
+    b.disabled = !canAct();
+    callout(T('nc_open.callout', { name: o.name, path: o.path }), true, b);
+  });
   const sc = state.schedule || {};
   if (sc.script && !sc.enabled) {     // no settings yet: "no settings" says it all
     const b = button(T('schedule.open'), 'small', scheduleDialog);
@@ -1747,10 +1754,13 @@ function driftText(d) {
  * partner.why_short) - warn_code.<code>; a code unknown here or a sentence missing a parameter is left out
  * (the count stays in the run's line, the log has the engine's English)
  */
-function warnLines(r) {
+function warnLines(r, now) {
   return ((r && r.warning_items) || []).map((w) => {
     const key = `${ID}.warn_code.${w && w.code}`;
     if (!w || typeof w.code !== 'string' || !Office.has(key)) return '';
+    // now (the bubble): Nextcloud's open data folder is said by its callout with «Close the folder…» while open, and not
+    // at all once closed - the run's row keeps it (an agent before 1.66.8 lists no nc_open: said as before)
+    if (now && w.code === 'nc_datadir_readable' && state && Array.isArray(state.nc_open)) return '';
     const p = {};
     Object.entries(w.params && typeof w.params === 'object' ? w.params : {}).forEach(([k, v]) => { if (typeof v === 'string') p[k] = v; });
     if (p.why !== undefined) p.why = partnerWhyShort(p.why);      // engine 2.46 partner_missed: the reason in the office's words
@@ -2007,6 +2017,44 @@ async function heldAccept() {
   d.buttons[0].focus();           // safe default: Enter cancels
 }
 
+/** The Nextcloud data folders the last run found readable by others and still open now (agent backupNcOpen()); null: an older agent */
+const ncOpen = () => (state && Array.isArray(state.nc_open) ? state.nc_open : []);
+const ncOwner = (x) => `${x.user}:${x.group}`;
+
+/** «Close the folder…»: on a fresh look, what changes - the folder's root only, owner and permissions before → after */
+async function ncOpenClose(name) {
+  if (!(await Office.freshState(ID))) return;
+  const o = ncOpen().find((x) => x.name === name);
+  if (!o) { Office.toast(Office.errorText({ key: 'nc_open_gone', params: { name } }, ID), true); render(); return; }
+  const box = el('div');
+  box.appendChild(el('p', '', T('nc_open.text', { name: o.name })));
+  const ul = el('ul', 'shortlist');
+  [[T('nc_open.folder'), o.path], [T('nc_open.owner'), `${ncOwner(o.now)} → ${ncOwner(o.after)}`], [T('nc_open.mode'), `${o.now.mode} → ${o.after.mode}`]].forEach(([k, v]) => {
+    const li = el('li', '', k);
+    li.appendChild(el('span', '', v));
+    ul.appendChild(li);
+  });
+  box.appendChild(ul);
+  // Unraid 7.4 leaves a share's root alone only when it belongs to the group users and to someone other than nobody
+  box.appendChild(o.comes_back ? el('p', 'callout warn', T('nc_open.comes_back', { owner: ncOwner(o.after) })) : el('p', 'role', T('nc_open.stays')));
+  const d = Office.dialog({
+    title: T('nc_open.title', { name: o.name }),
+    body: box,
+    buttons: [
+      { text: Office.t('common.cancel') },
+      { text: T('nc_open.go'), kind: '', act: async () => {
+        const j = await Office.api.post(`${ID}.nc_open_close`, { name: o.name });
+        if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); load(true); return true; }
+        if (j.state) state = j.state;
+        Office.toast(T('nc_open.done', { path: j.path, owner: ncOwner(j.after), mode: j.after.mode }));
+        render();
+        return true;
+      } },
+    ],
+  });
+  d.buttons[0].focus();           // safe default: Enter cancels
+}
+
 async function unmount() {
   if (!(await Office.freshState(ID))) return;
   const j = await Office.api.post(`${ID}.unmount`, {});
@@ -2088,6 +2136,14 @@ function setupDraftFromPlan() {
   if (!setup.plan.have_settings) {
     // a new setup sends nothing to Kopia unasked: every share starts local, the user picks what goes to Kopia
     Object.keys(setup.draft).forEach((k) => { if (/^share\|.+\|mode$/.test(k) && setup.draft[k] === 'kopia') setup.draft[k] = shareLocal(k.slice(6, -5)); });
+  } else {
+    // a share new since the last setup goes to Kopia only when asked, like a new app or VM (the engine proposes «new»
+    // as kopia): unasked, the backup place followed it to Kopia too (setupDerive()) - two changes nobody chose
+    // (2026-10-19, a share added in Unraid). The default for new things («local + Kopia») still sends it (presetApplyNew())
+    setupNewItems(setup.plan, setupSaved()).forEach((it) => {
+      const k = /^share:(.+)$/.test(it) ? `share|${it.slice(6)}|mode` : null;
+      if (k && setup.draft[k] === 'kopia') setup.draft[k] = shareLocal(it.slice(6));
+    });
   }
   // a default chosen on this page and not applied yet - Apply stores it (only an engine that knows the key, 2.31)
   if (setup.choice && setup.plan.preset_new !== undefined) setup.draft['general|preset_new'] = setup.choice.kind;
@@ -2196,6 +2252,8 @@ function setupSaved() {
   // a key with a default of the engine's own: missing means that default, whatever the plan proposes (asleep_pools
   // missing = wake - a plan's «skip» must show as a change, not as what is saved)
   Object.entries(ENGINE_DEFAULTS).forEach(([k, v]) => { if (!(k in O) && (k in P || k in saved)) saved[k] = v; });
+  // a share's method missing is auto (the engine writes only live): a new share's «auto» is nothing Apply writes
+  Object.keys(P).forEach((k) => { if (/^share\|.+\|method$/.test(k) && !(k in O) && !(k in saved)) saved[k] = 'auto'; });
   return saved;
 }
 
@@ -2215,6 +2273,12 @@ const ONLY_CHOSEN = ['general|asleep_pools'];
 const goneApps = (plan) => ((plan && Array.isArray(plan.apps)) ? plan.apps : []).filter((a) => a && a.gone && typeof a.name === 'string' && a.name !== '');
 /** Is this key one of a gone app's section? */
 const goneAppKey = (k, plan) => goneApps(plan).some((a) => k.startsWith(`app|${a.name}|`));
+/** The [share] sections Apply removes: a share that no longer exists, or one renamed (its settings went to the new name) -
+ *  setup.sh writes no section for them, whatever is sent (2026-10-19: removed without a word in the dialog) */
+const goneShares = (plan) => ((plan && Array.isArray(plan.shares)) ? plan.shares : [])
+  .filter((sh) => sh && (sh.why === 'gone' || sh.why === 'renamed_to') && typeof sh.name === 'string' && sh.name !== '');
+/** Is this key one of a gone share's section? */
+const goneShareKey = (k, plan) => goneShares(plan).some((sh) => k.startsWith(`share|${sh.name}|`));
 
 /** The decisions Apply sends: the draft, without the keys of ONLY_CHOSEN the user didn't choose here, never a gone app's */
 function setupDecisions() {
@@ -2233,7 +2297,7 @@ function setupApplyChanges(saved) {
   const sent = setupDecisions();
   const view = { ...setup.draft };
   ONLY_CHOSEN.forEach((k) => { if (!(k in sent)) { if (saved[k] === undefined) delete view[k]; else view[k] = saved[k]; } });
-  Object.keys(view).forEach((k) => { if (goneAppKey(k, setup.plan)) delete view[k]; });
+  Object.keys(view).forEach((k) => { if (goneAppKey(k, setup.plan) || goneShareKey(k, setup.plan)) delete view[k]; });
   return { view, keys: setupChanges(saved, view) };
 }
 
@@ -2311,7 +2375,7 @@ const UNIT_PARTNER_KEY = /^(share\|.+\|partner|vm\|.+\|partner|app\|.+\|partner|
  * What Apply changes, as the bar and the dialog both count it (1.60.1, a user: the bar said «9 changes», the dialog showed
  * two partnership rows and a unit): a key each, but a gone app's section once (engine 2.40), a [partner] section once
  * per partner (partnerSectionRows()), a unit's partner line once per unit (the dialog's «To <partner>» group).
- * {saved, view, keys, items: [{id, kind: key|app_gone|partner|unit, keys, yours}]} - yours: the user touched one of its keys
+ * {saved, view, keys, items: [{id, kind: key|app_gone|share_gone|partner|unit, keys, yours}]} - yours: the user touched one of its keys
  */
 function setupChangeItems() {
   const saved = setupSaved();
@@ -2320,7 +2384,7 @@ function setupChangeItems() {
   const groups = new Map();
   keys.forEach((k) => {
     const p = k.split('|');
-    const [id, kind] = goneAppKey(k, setup.plan) ? [`app|${p[1]}|`, 'app_gone'] : p[0] === 'partner' ? [`partner|${p[1]}|`, 'partner']
+    const [id, kind] = goneAppKey(k, setup.plan) ? [`app|${p[1]}|`, 'app_gone'] : goneShareKey(k, setup.plan) ? [`share|${p[1]}|`, 'share_gone'] : p[0] === 'partner' ? [`partner|${p[1]}|`, 'partner']
       : UNIT_PARTNER_KEY.test(k) ? [k, 'unit'] : [k, 'key'];
     if (!groups.has(id)) groups.set(id, { id, kind, keys: [] });
     groups.get(id).keys.push(k);
@@ -2519,6 +2583,8 @@ function setupApply() {
     const { view, keys, items } = setupChangeItems();
     // a gone app's section (engine 2.40): one line «gone — entry will be removed», never key by key, never declined
     const gone = goneApps(setup.plan).filter((a) => keys.some((k) => k.startsWith(`app|${a.name}|`)));
+    // a gone share's section the same way, said with why: gone, or renamed (its settings went along) - never declined
+    const goneSh = goneShares(setup.plan).filter((sh) => keys.some((k) => k.startsWith(`share|${sh.name}|`)));
     // the [partner] sections mirror the Team Lead's pairs: one row per partner (partnerSectionRows()), never key by key
     // what is new on the server stands once, in its own group below with its proposal (Benj 2026-10-12: «Share Schule»
     // was in the changes AND under «New on the server») - its keys (own: `share|<name>|` …) leave the changes list;
@@ -2560,6 +2626,12 @@ function setupApply() {
         const li = el('li', 'bk-marked');
         li.append(diffMark('gone'), T('setup.ch_app_gone', { name: a.name }));
         li.appendChild(el('span', '', T('setup.why.gone')));
+        ul.appendChild(li);
+      });
+      goneSh.forEach((sh) => {
+        const li = el('li', 'bk-marked');
+        li.append(diffMark('gone'), T('setup.ch_share_gone', { name: sh.name }));
+        li.appendChild(el('span', '', sh.why === 'renamed_to' && sh.why_arg ? T('setup.ch_share_renamed', { name: sh.why_arg }) : T('setup.ch_share_gone_why')));
         ul.appendChild(li);
       });
       if (ul.children.length) box.appendChild(ul);      // units only: they stand in «To partners» below
@@ -2694,7 +2766,7 @@ function setupNewRows() {
 
 /** A settings.ini line Apply drops: in the saved settings but in no proposal - setup.sh's settings_render() writes only what
  *  the plan carries (2026-10-17). No proposal of mine: declined or not, Apply can't keep it */
-const droppedKey = (k) => !!setup.plan && k in (setup.plan.O || {}) && !(k in (setup.plan.P || {})) && !goneAppKey(k, setup.plan);
+const droppedKey = (k) => !!setup.plan && k in (setup.plan.O || {}) && !(k in (setup.plan.P || {})) && !goneAppKey(k, setup.plan) && !goneShareKey(k, setup.plan);
 /** Some part of the engine knows this key (engine 2.60: the plan's known_keys, per section type - lib/common.sh UB_SCHEMA).
  *  An older engine's plan names none: then nothing counts as known here */
 const engineKnows = (k, plan) => {
@@ -6278,7 +6350,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     presetKopiaMode, presetKopiaVm, draftMode, draftVm, setupNewItems, presetApplyNew, presetNow, presetChosen, presetNewMode, presetNewVm,
     letGoPart, letGoLines, letGoDoneLines, letGoResult, setLetGoClock: (c) => { letGoClock = c; }, setupUnfold, UNFOLD_OWN, setupDecisions, setupApplyChanges, changeLabel, valueText, setupSplit, setupDecline,
     warnLines, bubbleText, setupBarSpec, setupNoPlace, setupPlaceStart, bubblePlace, setupSearchItems,
-    oldSourceWords, oldUnit, orphansPick, goneCallout, unknownKey, droppedKey, engineKnows,
+    oldSourceWords, oldUnit, orphansPick, goneCallout, unknownKey, droppedKey, engineKnows, goneShares, goneShareKey,
   };
 }
 })();
