@@ -35464,7 +35464,7 @@ function testMoverelliFill(): void
         file_put_contents("$t/bin/zfs", $zfs ? "#!/bin/bash\n[[ \"\$*\" == 'list -H -o name '* ]] && { echo tank; exit 0; }\nu=$count; echo \"\$u \$(( ZSIZE - u ))\"\n"
             : "#!/bin/bash\nexit 1\n");
         file_put_contents("$t/bin/df", "#!/bin/bash\nu=$count; a=\$(( ZSIZE - u )); echo 'Used Avail Use%'; echo \"\$u \$a \$(( (u * 100 + ZSIZE - 1) / ZSIZE ))%\"\n");
-        file_put_contents("$t/bin/move", "#!/bin/bash\nwhile IFS= read -r f; do r=\${f#\"\$ZROOT\"/}; mkdir -p \"\$(dirname \"\$DISK/\$r\")\"; mv \"\$f\" \"\$DISK/\$r\"; done\n");
+        file_put_contents("$t/bin/move", "#!/bin/bash\nwhile IFS= read -r f; do r=\${f#\"\$ZROOT\"/}; [[ -d \"\$f\" ]] && { mkdir -p \"\$DISK/\$r\" && rmdir \"\$f\"; continue; }; mkdir -p \"\$(dirname \"\$DISK/\$r\")\"; mv \"\$f\" \"\$DISK/\$r\"; done\n");
         foreach (['zfs', 'df', 'move'] as $b) {
             chmod("$t/bin/$b", 0755);
         }
@@ -35520,6 +35520,15 @@ function testMoverelliFill(): void
     $st = $run($env, true);
     check('fill: X out of reach — all but the excluded e moved, not reached, said', $on($t, 'cache') === ['e'] && ($st['shares'][0]['reached'] ?? null) === false
         && str_contains((string) file_get_contents("$t/log"), 'target not reached: pool cache at 20% after all 3 further files'), json_encode([$on($t, 'cache'), $st]));
+    // 3b. USO «share root»: the fill empties the share — its folder on the pool goes to the move binary too (as Unraid's mover);
+    // the dry run keeps it
+    [$t, $env] = $tree(['Docs/a' => [5, false], 'Docs/b' => [5, false]], "min_age=365\nage_stat=mtime\nmove_when_used_above=10", 500);
+    $run($env, false);
+    $dryKept = is_dir("$t/mnt/cache/Docs");
+    $run($env, true);
+    same('fill: the fill empties Docs — both files on the array, the share\'s folder on the pool gone (the dry run kept it), said',
+        [true, ['a', 'b'], false, true], [$dryKept, $on($t, 'disk1'), is_dir("$t/mnt/cache/Docs"),
+         str_contains((string) file_get_contents("$t/log"), "share folder $t/mnt/cache/Docs removed (empty)")]);
 
     // 4. below X: the age alone
     [$t, $env] = $tree($files, $ini, 1000);
@@ -36078,7 +36087,7 @@ function testStreamerReset(): void
     touch("$t/mnt/cache/Filme/film.mkv", time() - 40 * 86400);
     file_put_contents("$t/embycache/mediacache_exclude.txt", "$t/mnt/cache/Filme/film.mkv\n");
     file_put_contents("$t/embycache/mediacache_settings.json", '{}');
-    file_put_contents("$t/bin/move", "#!/bin/bash\nwhile IFS= read -r f; do r=\${f#\"\$ZROOT\"/}; mkdir -p \"\$(dirname \"\$DISK/\$r\")\"; mv \"\$f\" \"\$DISK/\$r\"; done\n");
+    file_put_contents("$t/bin/move", "#!/bin/bash\nwhile IFS= read -r f; do r=\${f#\"\$ZROOT\"/}; [[ -d \"\$f\" ]] && { mkdir -p \"\$DISK/\$r\" && rmdir \"\$f\"; continue; }; mkdir -p \"\$(dirname \"\$DISK/\$r\")\"; mv \"\$f\" \"\$DISK/\$r\"; done\n");
     file_put_contents("$t/bin/zfs", "#!/bin/bash\nexit 1\n");
     file_put_contents("$t/bin/df", "#!/bin/bash\necho 'Used Avail Use%'; echo '100 900 10%'\n");
     foreach (['move', 'zfs', 'df'] as $b) {
@@ -36343,7 +36352,7 @@ function testPoolBytes(): void
     }
     $count = '$(find "$ZROOT" -type f -printf \'%s\n\' | awk \'{s+=$1} END {print int(s/2)}\')';
     file_put_contents("$m/bin/zfs", "#!/bin/bash\n[[ \"\$*\" == 'list -H -o name '* ]] && { echo tank; exit 0; }\nu=$count; echo \"\$u \$(( 1000 - u ))\"\n");
-    file_put_contents("$m/bin/move", "#!/bin/bash\nwhile IFS= read -r f; do r=\${f#\"\$ZROOT\"/}; mkdir -p \"\$(dirname \"\$DISK/\$r\")\"; mv \"\$f\" \"\$DISK/\$r\"; done\n");
+    file_put_contents("$m/bin/move", "#!/bin/bash\nwhile IFS= read -r f; do r=\${f#\"\$ZROOT\"/}; [[ -d \"\$f\" ]] && { mkdir -p \"\$DISK/\$r\" && rmdir \"\$f\"; continue; }; mkdir -p \"\$(dirname \"\$DISK/\$r\")\"; mv \"\$f\" \"\$DISK/\$r\"; done\n");
     chmod("$m/bin/zfs", 0755);
     chmod("$m/bin/move", 0755);
     file_put_contents("$m/ini", "[GLOBAL]\nmin_age=365\nage_stat=mtime\nmove_when_used_above=30\n");
@@ -37243,13 +37252,13 @@ SH);
         [count($pics) > 41 && count(array_filter($pics, fn ($l) => preg_match('#^' . preg_quote("$t/mnt/disk", '#') . '[12]/Pics(/|$)#', $l))) === count($pics),
          (bool) array_filter($handed(), fn ($l) => str_contains($l, '/user0/')), (bool) array_filter($handed(), fn ($l) => str_contains($l, '/disk3/')),
          (bool) array_filter($pics, fn ($l) => str_contains($l, '/keep'))]);
-    same('prefer per disk: ONE move binary for the share\'s 41 files, one for its folders, one for Docs — 3 in all (was one per file)', 3, $calls());
+    same('prefer per disk: ONE move binary for the share\'s 41 files, one for its folders, two for Docs (its file, its emptied folder) — 4 in all (was one per file)', 4, $calls());
     same('prefer per disk: the folders as Unraid\'s mover leaves them — a/ and the empty ones gone from disk1, created on the pool; disk1/Pics (keep/) stays, disk2/Pics too',
         [false, false, true, true, true, true],
         [is_dir("$t/mnt/disk1/Pics/a"), is_dir("$t/mnt/disk1/Pics/emptydir"), is_dir("$t/mnt/cache/Pics/emptydir/inner"), is_dir("$t/mnt/disk1/Pics/keep"),
          is_dir("$t/mnt/disk1/Pics"), is_dir("$t/mnt/disk2/Pics")]);
-    same('pool → array as before: Docs\' file handed over by its pool path, now on disk1, the share\'s folder on the pool kept',
-        [true, true, true], [in_array("$t/mnt/cache/Docs/d.txt", $handed(), true), is_file("$t/mnt/disk1/Docs/d.txt"), is_dir("$t/mnt/cache/Docs")]);
+    same('pool → array as before: Docs\' file handed over by its pool path, now on disk1; the share\'s emptied folder on the pool handed over too (gone), as with Unraid\'s mover',
+        [true, true, true, false], [in_array("$t/mnt/cache/Docs/d.txt", $handed(), true), is_file("$t/mnt/disk1/Docs/d.txt"), in_array("$t/mnt/cache/Docs", $handed(), true), is_dir("$t/mnt/cache/Docs")]);
     $recent = array_column($st['recent'] ?? [], 'name');
     check('prefer per disk: the last files done named by share and the path below the disk', in_array('Pics/a/40.jpg', $recent, true) && in_array('Docs/d.txt', $recent, true),
         json_encode($recent));
@@ -37259,8 +37268,8 @@ SH);
     $reset();
     [$exit] = runEnv(['bash', $sm, '--run'], $env + ['MOVE_STOP_AT' => '3'], 60);
     $st = readJson("$t/st.json") ?? [];
-    same('prefer per disk: stop after the 3rd file — exit 3, stopped in Pics, 3 moved, 38 left, one move binary for Pics (and Docs\' before), the last file named',
-        [3, 'stopped', 'Pics', 3, 38, 3, 2, true, true],
+    same('prefer per disk: stop after the 3rd file — exit 3, stopped in Pics, 3 moved, 38 left, one move binary for Pics (and Docs\' two before), the last file named',
+        [3, 'stopped', 'Pics', 3, 38, 3, 3, true, true],
         [$exit, $st['result'] ?? null, $st['stop_share'] ?? null, $share($st, 'Pics')['moved'] ?? null, $share($st, 'Pics')['left'] ?? null, $on('cache/Pics/a/*.jpg'), $calls(),
          is_file("$t/mnt/disk1/Docs/d.txt"), ($f = (string) ($st['stop_file'] ?? '')) !== '' && !file_exists($f) && is_file(str_replace("$t/mnt/disk1/", "$t/mnt/cache/", $f))]);
     same('prefer per disk: … after a stop no folder pass (only the empty parents of what moved), the rest stays on disk1', [true, 37],
@@ -37363,12 +37372,12 @@ SH);
         [false, false, true, true, true, false, false, false],
         [is_dir("$t/mnt/cache/Yes/e1"), is_dir("$t/mnt/cache/Yes/e2"), is_dir("$t/mnt/disk1/Yes/e1"), is_dir("$t/mnt/disk1/Yes/e2/e3"), is_dir("$t/mnt/cache/Yes/keepdir"),
          in_array("$t/mnt/cache/Yes", $dirs, true), in_array("$t/mnt/cache/Yes/m4", $dirs, true), in_array("$t/mnt/cache/Yes/keepdir", $dirs, true)]);
-    // everything moved: the share's folder on the pool still stays (a share's root is Unraid's)
+    // everything moved: the share's folder on the pool goes too, as Unraid's mover hands it over (USO «share root»)
     $reset();
     $mk('mnt/cache/Yes/m3/a/1.bin');
     file_put_contents("$t/excl.txt", "");
     runEnv(['bash', $sm, '--run'], $env, 60);
-    same('tidy, a yes run: all of the share moved — m3 gone, the share\'s folder on the pool kept (empty)', [false, true, true],
+    same('tidy, a yes run: all of the share moved — m3 gone, the share\'s emptied folder on the pool too (to the array)', [false, false, true],
         [is_dir("$t/mnt/cache/Yes/m3"), is_dir("$t/mnt/cache/Yes"), is_file("$t/mnt/disk1/Yes/m3/a/1.bin")]);
 
     // as Unraid's mover, every run, whatever her rules: a yes share with an age rule, only an empty folder (an app's .tmp)
@@ -37378,8 +37387,8 @@ SH);
     file_put_contents("$t/ini", "[GLOBAL]\nmin_age=0\n[Yes]\nmin_age=30\nexcludes=$t/excl.txt\n");
     [$exit] = runEnv(['bash', $sm, '--run'], $env, 60);
     file_put_contents("$t/ini", "[GLOBAL]\nmin_age=0\n[Yes]\nexcludes=$t/excl.txt\n");
-    same('tidy, a yes share with an age rule and nothing to move: its empty folder goes to the array, as with Unraid\'s mover',
-        [0, false, true], [$exit, is_dir("$t/mnt/cache/Yes/.tmp"), is_dir("$t/mnt/disk1/Yes/.tmp")]);
+    same('tidy, a yes share with an age rule and nothing to move: its empty folder goes to the array, the share\'s folder too (empty is empty, whatever the age), as with Unraid\'s mover',
+        [0, false, true, false], [$exit, is_dir("$t/mnt/cache/Yes/.tmp"), is_dir("$t/mnt/disk1/Yes/.tmp"), is_dir("$t/mnt/cache/Yes")]);
 
     // a prefer share from a second pool (fast → cache): its emptied and its empty folders go to the pool, its folder on fast stays
     $reset();
@@ -37388,8 +37397,8 @@ SH);
     $mk('mnt/fast/Pics/a/1.jpg');
     @mkdir("$t/mnt/fast/Pics/empty/inner", 0700, true);
     [$exit] = runEnv(['bash', $sm, '--run'], $env, 60);
-    same('tidy, prefer from a second pool: exit 0 — a/ (emptied) and empty/inner (empty before) gone from fast, on the pool; fast/Pics stays',
-        [0, false, false, true, true, true], [$exit, is_dir("$t/mnt/fast/Pics/a"), is_dir("$t/mnt/fast/Pics/empty"), is_file("$t/mnt/cache/Pics/a/1.jpg"),
+    same('tidy, prefer from a second pool: exit 0 — a/ (emptied) and empty/inner (empty before) gone from fast, on the pool; fast/Pics emptied: gone too',
+        [0, false, false, true, true, false], [$exit, is_dir("$t/mnt/fast/Pics/a"), is_dir("$t/mnt/fast/Pics/empty"), is_file("$t/mnt/cache/Pics/a/1.jpg"),
          is_dir("$t/mnt/cache/Pics/empty/inner"), is_dir("$t/mnt/fast/Pics")]);
 
     // a prefer share, stopped while its 3rd file moves: disk1's two files and disk2's first on the pool — disk1/Pics/d1 and
@@ -37417,6 +37426,132 @@ SH);
     [$exit] = runEnv(['bash', $sm, '--run'], $env + ['MOVE_STOP_AT' => '2'], 60);
     same('tidy, a stopped prefer run: a folder whose copy is not on the pool stays (disk1/Pics/d1, so disk1/Pics)', [3, true, true],
         [$exit, is_dir("$t/mnt/disk1/Pics/d1"), is_dir("$t/mnt/disk1/Pics")]);
+    hardeningRm($t);
+}
+
+/**
+ * Smart Mover, the share's own folder (USO «share root», 2026-10-19, seen on a real server: a prefer share's dataset on
+ * its second pool stayed, empty and without snapshots — Unraid's mover removes it). As Unraid's mover, the share's
+ * folder on the source side goes to the move binary once nothing below it is held, in every direction — a pool's (yes,
+ * prefer from a second pool) as well as a disk's (prefer per disk); never one holding a file or an entry an exclude
+ * keeps, never in a dry run, never after a stop; a dataset with snapshots the binary leaves is said in one line.
+ */
+function testMoverelliShareRoot(): void
+{
+    $t = hardeningTmp('moverelli-root');
+    $mk = function (string $rel, string $body = 'x') use ($t): void {
+        @mkdir(dirname("$t/$rel"), 0700, true);
+        file_put_contents("$t/$rel", $body);
+    };
+    $reset = function () use ($t): void {
+        exec('rm -rf ' . escapeshellarg("$t/mnt") . ' ' . escapeshellarg("$t/log") . ' ' . escapeshellarg("$t/stop") . ' ' . escapeshellarg("$t/dirs")
+            . ' ' . escapeshellarg("$t/shares"));
+        foreach (['mnt/user/Yes', 'mnt/user/Zed', 'mnt/user/Pics', 'mnt/cache', 'mnt/disk1', 'shares', 'bin'] as $d) {
+            @mkdir("$t/$d", 0700, true);
+        }
+        file_put_contents("$t/excl.txt", '');
+    };
+    $reset();
+    file_put_contents("$t/bin/move", <<<'SH'
+#!/bin/bash
+# a stand-in for Unraid's move binary: the pool → disk1, a data disk or the second pool fast → the pool; a folder made
+# there and removed here when empty — never $MOVE_KEEP (a dataset with snapshots); every folder handed over noted; the
+# stop file written while the n-th file moves
+n=0
+while IFS= read -r f; do
+    case "$f" in
+        "$MOVE_ROOT"/cache/*) to="$MOVE_ROOT/disk1/${f#"$MOVE_ROOT"/cache/}" ;;
+        "$MOVE_ROOT"/fast/*) to="$MOVE_ROOT/cache/${f#"$MOVE_ROOT"/fast/}" ;;
+        "$MOVE_ROOT"/disk[0-9]*/*) r=${f#"$MOVE_ROOT"/disk}; to="$MOVE_ROOT/cache/${r#*/}" ;;
+        *) continue ;;
+    esac
+    if [[ -d "$f" && ! -L "$f" ]]; then
+        printf '%s\n' "$f" >> "$MOVE_DIRS"; mkdir -p "$to"; [[ "$f" == "${MOVE_KEEP:-}" ]] || rmdir "$f" 2>/dev/null; continue
+    fi
+    (( ++n == ${MOVE_STOP_AT:-0} )) && printf '{"why":"user"}' > "$CUSTOMMOVER_STOP"
+    mkdir -p "$(dirname "$to")" && mv "$f" "$to"
+done
+exit 0
+SH);
+    // a zfs that knows one dataset, cache/Yes mounted on the share's folder, with a snapshot
+    file_put_contents("$t/bin/zfs", "#!/bin/bash\ncase \"\$*\" in\n  'list -H -o name,mountpoint '*) [[ \"\${@: -1}\" == \"\$MOVE_ROOT/cache/Yes\" ]] && printf 'cache/Yes\\t%s\\n' \"\$MOVE_ROOT/cache/Yes\" && exit 0; exit 1 ;;\n"
+        . "  'list -H -t snapshot -o name -d 1 cache/Yes') echo 'cache/Yes@uso-plan-x'; exit 0 ;;\nesac\nexit 1\n");
+    chmod("$t/bin/move", 0755);
+    chmod("$t/bin/zfs", 0755);
+    file_put_contents("$t/ini", "[GLOBAL]\nmin_age=0\nglobal_excludes=$t/excl.txt\n");
+    $env = ['CUSTOMMOVER_INI' => "$t/ini", 'CUSTOMMOVER_SHARES_DIR' => "$t/shares", 'CUSTOMMOVER_MNT' => "$t/mnt", 'CUSTOMMOVER_LOG' => "$t/log",
+            'CUSTOMMOVER_LOCK' => "$t/lock", 'CUSTOMMOVER_STATUS' => "$t/st.json", 'CUSTOMMOVER_ZFS' => "$t/bin/zfs", 'CUSTOMMOVER_MOVER_BIN' => "$t/bin/move",
+            'CUSTOMMOVER_STOP' => "$t/stop", 'CUSTOMMOVER_IGNORE_MOVER' => '1', 'MOVE_ROOT' => "$t/mnt", 'MOVE_DIRS' => "$t/dirs"];
+    $sm = OFFICE_DIR . '/smartmover/custommover_run.sh';
+    $dirs = fn () => file_exists("$t/dirs") ? file("$t/dirs", FILE_IGNORE_NEW_LINES) : [];
+    $log = fn () => (string) @file_get_contents("$t/log");
+    $yes = fn () => file_put_contents("$t/shares/Yes.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\n");
+
+    // a yes share, pool → array: its only file goes, then its emptied folder on the pool (the share's root) — said
+    $reset(); $yes();
+    $mk('mnt/cache/Yes/sub/a.bin');
+    [$exit] = runEnv(['bash', $sm, '--run'], $env, 60);
+    same('share root, yes pool → array: exit 0 — the file on disk1, the share\'s folder on the pool handed to the move binary and gone, said',
+        [0, true, true, false, true], [$exit, is_file("$t/mnt/disk1/Yes/sub/a.bin"), in_array("$t/mnt/cache/Yes", $dirs(), true), is_dir("$t/mnt/cache/Yes"),
+         str_contains($log(), "share folder $t/mnt/cache/Yes removed (empty)")]);
+
+    // the same, the folder a dataset with a snapshot: the binary leaves it — said in one line, no warning
+    $reset(); $yes();
+    $mk('mnt/cache/Yes/a.bin');
+    [$exit] = runEnv(['bash', $sm, '--run'], $env + ['MOVE_KEEP' => "$t/mnt/cache/Yes"], 60);
+    same('share root, a dataset with snapshots: handed over, the binary leaves it — «kept: cache/Yes has snapshots» once, no WARN, exit 0',
+        [0, true, true, 1, false], [$exit, in_array("$t/mnt/cache/Yes", $dirs(), true), is_dir("$t/mnt/cache/Yes"), substr_count($log(), 'kept: cache/Yes has snapshots'),
+         str_contains($log(), '[WARN]')]);
+
+    // a prefer share from a second pool (the owner's server: fast → cache): its emptied folder on fast goes
+    $reset();
+    file_put_contents("$t/shares/Pics.cfg", "shareUseCache=\"prefer\"\nshareCachePool=\"cache\"\nshareCachePool2=\"fast\"\n");
+    $mk('mnt/fast/Pics/a/1.jpg');
+    [$exit] = runEnv(['bash', $sm, '--run'], $env, 60);
+    same('share root, prefer second pool → pool: exit 0 — the file on the pool, fast/Pics handed over and gone, said',
+        [0, true, true, false, true], [$exit, is_file("$t/mnt/cache/Pics/a/1.jpg"), in_array("$t/mnt/fast/Pics", $dirs(), true), is_dir("$t/mnt/fast/Pics"),
+         str_contains($log(), "share folder $t/mnt/fast/Pics removed (empty)")]);
+
+    // a prefer share per disk (array → pool): each disk's emptied folder goes, as before
+    $reset();
+    file_put_contents("$t/shares/Pics.cfg", "shareUseCache=\"prefer\"\nshareCachePool=\"cache\"\n");
+    $mk('mnt/disk1/Pics/1.jpg');
+    $mk('mnt/disk2/Pics/d/2.jpg');
+    [$exit] = runEnv(['bash', $sm, '--run'], $env, 60);
+    same('share root, prefer per disk: exit 0 — both files on the pool, disk1/Pics and disk2/Pics gone',
+        [0, true, true, false, false], [$exit, is_file("$t/mnt/cache/Pics/1.jpg"), is_file("$t/mnt/cache/Pics/d/2.jpg"), is_dir("$t/mnt/disk1/Pics"), is_dir("$t/mnt/disk2/Pics")]);
+
+    // held: an excluded file, or an excluded empty folder, keeps the share's folder — never handed over
+    foreach (['file' => 'mnt/cache/Yes/keep/k.bin', 'folder' => 'mnt/cache/Yes/keepdir'] as $what => $kept) {
+        $reset(); $yes();
+        $mk('mnt/cache/Yes/a.bin');
+        $what === 'file' ? $mk($kept) : @mkdir("$t/$kept", 0700, true);
+        file_put_contents("$t/excl.txt", "$t/" . $kept . "\n");
+        [$exit] = runEnv(['bash', $sm, '--run'], $env, 60);
+        same("share root, an excluded $what keeps it: exit 0 — a.bin moved, $kept and the share's folder stay, never handed over",
+            [0, true, true, true, false], [$exit, is_file("$t/mnt/disk1/Yes/a.bin"), file_exists("$t/$kept"), is_dir("$t/mnt/cache/Yes"), in_array("$t/mnt/cache/Yes", $dirs(), true)]);
+    }
+
+    // a dry run: nothing handed over, the folder stays
+    $reset(); $yes();
+    @mkdir("$t/mnt/cache/Yes/empty", 0700, true);
+    $mk('mnt/cache/Yes/a.bin');
+    [$exit] = runEnv(['bash', $sm], $env, 60);
+    same('share root, a dry run: exit 0 — the file, its empty folder and the share\'s folder stay, nothing handed over',
+        [0, true, true, []], [$exit, is_file("$t/mnt/cache/Yes/a.bin"), is_dir("$t/mnt/cache/Yes/empty"), $dirs()]);
+
+    // an empty share with nothing to move goes too (the «no files match» path) — not after a stop: Yes' file stops the run,
+    // Zed (after it) keeps its empty folder; without the stop it goes
+    foreach ([true, false] as $stop) {
+        $reset(); $yes();
+        file_put_contents("$t/shares/Zed.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\n");
+        $mk('mnt/cache/Yes/a.bin');
+        @mkdir("$t/mnt/cache/Zed", 0700, true);
+        [$exit] = runEnv(['bash', $sm, '--run'], $env + ($stop ? ['MOVE_STOP_AT' => '1'] : []), 60);
+        same($stop ? 'share root, a stop during Yes: exit 3 — Zed\'s empty folder stays, never handed over'
+                   : 'share root, no stop: exit 0 — Zed\'s empty folder (nothing to move) handed over and gone',
+            $stop ? [3, true, false] : [0, false, true], [$exit, is_dir("$t/mnt/cache/Zed"), in_array("$t/mnt/cache/Zed", $dirs(), true)]);
+    }
     hardeningRm($t);
 }
 
@@ -38193,8 +38328,8 @@ function testMoverelliRun(): void
     // a real run to the end: what the rules allow moves, her list keeps the .nfo
     $exit = moverelliJob(['run', '--office'], $h);
     $st = readJson("$dir/status.json") ?? [];
-    same('moverelli run: real run — Docs and Filme moved to the array, the .nfo stays, the share folder too, no notification',
-        [0, 'ok', 2, 0, true, true, true, true, []],
+    same('moverelli run: real run — Docs and Filme moved to the array, the .nfo stays (so does Filme\'s folder); Docs\' emptied folder on the pool goes, as with Unraid\'s mover; no notification',
+        [0, 'ok', 2, 0, true, true, true, false, []],
         [$exit, $st['result'] ?? null, $st['moved'] ?? null, $st['left'] ?? null, is_file("$tmp/mnt/disk1/Docs/c.txt"), is_file("$tmp/mnt/disk1/Filme/A/a.mkv"),
          is_file("$tmp/mnt/cache/Filme/A/a.nfo"), is_dir("$tmp/mnt/cache/Docs"), $notified()]);
     $run = readJson("$dir/office-run.json") ?? [];
@@ -38203,6 +38338,7 @@ function testMoverelliRun(): void
     // Unraid's mover starts during a run: the stop file, why mover; told to Unraid (normal)
     @mkdir("$tmp/mnt/disk1/Back", 0700, true);         // the run before took the empty folder to the pool, as Unraid's mover does
     file_put_contents("$tmp/mnt/disk1/Back/e.txt", 'e');
+    @mkdir("$tmp/mnt/cache/Docs", 0700, true);         // … and Docs' emptied folder on the pool to the array
     file_put_contents("$tmp/mnt/cache/Docs/f.txt", 'f');
     $v['mover_self'] = true;
     $GLOBALS['moverelliHost']['env']['MOVE_SLEEP'] = '3';           // Back's move takes 3 s, the job looks after 1 s
@@ -43409,7 +43545,7 @@ JS;
 }
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],

@@ -145,8 +145,16 @@
 >   gets the folder pass that «per disk» brought for prefer shares — yes (pool → array or second pool) and prefer from a
 >   second pool too. Only the folders holding no file below them (empty, or holding only empty folders) go to the move
 >   binary, deepest first, as Unraid's mover's second pass hands them; never one an exclude keeps, nor a folder above it;
->   never a pool's share root (a prefer share's folder on a disk does go). A share with no file to move gets it too; a
->   dry run and a stopped run don't (a stop: «tidy» above).
+>   the share's own folder only as «share root» below says. A share with no file to move gets it too; a dry run and a
+>   stopped run don't (a stop: «tidy» above).
+> * **Share root** (2026-10-19, marked «USO «share root»», seen on a real server: a prefer share's dataset on its second
+>   pool stayed, empty and without snapshots — Unraid's mover removes it): Unraid's mover hands the share's own folder to
+>   the move binary too, in every direction. So does this script now: the share's folder on the source side — on a pool
+>   (yes; prefer from a second pool) as well as on a disk (prefer per disk) — goes with the folder pass once nothing
+>   below it is held (a file, or an entry an exclude keeps), and after the fill once the fill emptied it. On ZFS that
+>   folder is a dataset: the binary destroys it (a plain `rmdir` fails «busy»); one with snapshots it leaves, said in one
+>   line («kept: <dataset> has snapshots»). Never `zfs destroy` or `rm` here. Each one gone: «share folder <path>
+>   removed (empty)». Never in a dry run, never after a stop.
 >
 > **`prefer` shares** (array → pool): their source is the array disks the share may use (above), which may wake them.
 > That is accepted here on purpose (the owner's decision): the Dynamix Cache Directories plugin keeps the folder
