@@ -96,6 +96,7 @@
   "errors.bad_answer": "El servidor respondió de forma extraña (HTTP {status}).",
   "errors.rejected": "Petición rechazada.",
   "errors.host_launch_failed": "No se pudo pasar la tarea al servicio at del servidor: {detail}",
+  "errors.atd_off": "No se puede iniciar: el servicio at del servidor (atd) no está en marcha — nada arrancaría, así que no se ha pasado nada. Un reinicio lo vuelve a arrancar; ya mismo: /etc/rc.d/rc.atd start en el terminal de Unraid.",
   "errors.office_storage": "La secretaría no puede guardar quién trabaja aquí — la carpeta data/office falta o no se puede escribir. ¿Está aquí el mensajero?",
   "errors.supporter_invalid": "Esta no es una clave de apoyo válida — ¿la copiaste entera?",
   "errors.supporter_other_server": "Esta clave es de otro servidor ({id}). El ID de este servidor es {server}.",

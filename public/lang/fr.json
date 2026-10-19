@@ -96,6 +96,7 @@
   "errors.bad_answer": "Le serveur a répondu bizarrement (HTTP {status}).",
   "errors.rejected": "Demande refusée.",
   "errors.host_launch_failed": "La tâche n'a pas pu être confiée au service at du serveur : {detail}",
+  "errors.atd_off": "Impossible de démarrer : le service at du serveur (atd) ne tourne pas — rien ne démarrerait, donc rien n'a été confié. Un redémarrage le relance ; tout de suite : /etc/rc.d/rc.atd start dans le terminal d'Unraid.",
   "errors.office_storage": "Le secrétariat ne peut pas enregistrer qui travaille ici — le dossier data/office manque ou n'est pas accessible en écriture. Le coursier est-il là ?",
   "errors.supporter_invalid": "Ce n'est pas une clé de soutien valide — l'as-tu copiée en entier ?",
   "errors.supporter_other_server": "Cette clé est pour un autre serveur ({id}). L'ID de ce serveur est {server}.",

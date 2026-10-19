@@ -96,6 +96,7 @@
   "errors.bad_answer": "The server answered strangely (HTTP {status}).",
   "errors.rejected": "Request rejected.",
   "errors.host_launch_failed": "The job could not be handed to the server's at service: {detail}",
+  "errors.atd_off": "Can't start: the server's at service (atd) isn't running — nothing would start, so nothing was handed over. A reboot starts it again; at once: /etc/rc.d/rc.atd start in Unraid's terminal.",
   "errors.office_storage": "The office can't save who works here — the folder data/office is missing or not writable. Is the messenger in?",
   "errors.supporter_invalid": "That isn't a valid supporter key — was it copied completely?",
   "errors.supporter_other_server": "This key is for another server ({id}). This server's ID is {server}.",
