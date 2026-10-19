@@ -13605,6 +13605,143 @@ function testRestoreSettled(): void
 }
 
 /**
+ * Scenario batch D, F5 (restore-rn-hard-reset-midrun-files, restore-rn-array-stop-midrun-rs-files): a copy beside cut by an
+ * array stop or a power cut left a half «<folder>.restored-<stamp>» with no undo step — it looked like a finished restore.
+ * Now the copy is noted in the journal before it starts (forgotten once done); cut, the journal says it is unfinished,
+ * and «Put back» becomes «Remove the unfinished copy»: only that, nothing stopped for it, into Ms. Dustdevil's storeroom
+ * through her helpers (her manifest names it, she can put it back) — never deleted.
+ */
+function testRestoreUnfinished(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-rsleft-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $mnt = "$tmp/mnt";
+    @mkdir("$tmp/data/unraid-backup/state", 0700, true);
+    $GLOBALS['rs']['data'] = "$tmp/data/restore";
+    $GLOBALS['rs']['job_file'] = "$tmp/data/restore-job.json";
+    $GLOBALS['rs']['ub_data'] = "$tmp/data/unraid-backup";
+    $GLOBALS['rs']['sizes_file'] = "$tmp/data/restore-sizes.json";
+    $GLOBALS['rs']['users'] = fn (array $paths, array $roots): array => [['zz-app'], []];
+    $GLOBALS['rs']['ratios'] = fn (array $snaps): array => [];
+    $GLOBALS['rs']['compresses'] = fn (string $ds): bool => false;
+    $GLOBALS['rs']['var_ini'] = "$tmp/var.ini";
+    file_put_contents("$tmp/var.ini", "fsState=\"Started\"\n");
+    $snap = "$mnt/hazel/zzleft/.zfs/snapshot/manual-l";
+    @mkdir("$snap/data", 0755, true);
+    @mkdir("$mnt/hazel/zzleft/data", 0755, true);
+    @mkdir("$mnt/user", 0755, true);
+    exec('head -c 40000000 /dev/urandom > ' . escapeshellarg("$snap/data/big.bin"));
+    file_put_contents("$mnt/hazel/zzleft/data/live.txt", 'live');
+    symlink("$mnt/hazel/zzleft", "$mnt/user/zzleft");
+    $ctx = [
+        'fs' => ['hazel' => 'zfs'], 'zfs' => ["$mnt/hazel/zzleft" => 'zz-hazel/zzleft'],
+        'snaps' => ['zz-hazel/zzleft' => [['name' => 'manual-l', 'time' => (int) strtotime('2026-10-19 15:00')]]],
+        'asleep' => [], 'prefixes' => ['uso-backup-'], 'btrfs_dir' => '.btrfs-snap', 'settings' => [],
+        'cfg' => ['zzleft' => ['shareUseCache' => 'only', 'shareCachePool' => 'hazel']],
+        'mnt' => $mnt, 'user' => "$mnt/user", 'disks' => ['hazel' => ['name' => 'hazel', 'fsFree' => '100000000']],
+        'shares_ini' => ['zzleft' => ['exclusive' => 'yes']], 'old_shares' => "$tmp/none", 'now' => [],
+    ];
+    $owner = ['kind' => 'app', 'name' => 'zz', 'id' => 'zz', 'vm_state' => null];
+    // where the half copy lies, as Ms. Dustdevil would look (her look needs the real /mnt): its pool's part, her storeroom
+    $GLOBALS['rs']['unfinished_place'] = function (string $path) use ($mnt): array {
+        $p = str_replace("$mnt/user/", "$mnt/hazel/", $path);
+        $trash = clLeftoverTrash($p, dirname($p));
+        return ['known' => true, 'parts' => file_exists($p) ? [['root' => 'hazel', 'path' => $p, 'dataset' => null, 'trash' => $trash, 'file' => false, 'bytes' => null]] : [],
+                'asleep' => [], 'why' => null, 'trash' => [$trash]];
+    };
+    $run = function (array $plan, string $id): array {
+        rsPrivateDir(rsData());
+        rsPrivateDir(rsDir($id));
+        writeAtomic(rsDir($id) . '/plan.json', jsonEncode($plan), 0600, 0, 0);
+        return rsJournalNew($id, $plan);
+    };
+    try {
+        // 1. the array stop ends the copy beside midway (the job's stop flag, as rsWatch sets it): failed, the half copy noted
+        $stamp = '20261019-200000';
+        $c = $ctx;
+        $p = rsPlanFilesFor('/mnt/user/zzleft/data', 'name:manual-l', 'copy', false, $owner, $stamp, $c);
+        $p['stamp'] = $stamp;
+        $id = "$stamp-aa11";
+        $j = $run($p, $id);
+        $to = "$mnt/user/zzleft/data.restored-$stamp";
+        $GLOBALS['rsStop'] = true;
+        $j['steps'][0]['state'] = 'running';
+        $res = rsStep($j, 0);                         // as the job does: the step's own notes first, then its result
+        $j['steps'][0] = array_merge($j['steps'][0], $res);
+        $GLOBALS['rsStop'] = false;
+        $j['result'] = 'failed';
+        $j['reason'] = 'restore_array_stopping';
+        rsJournalWrite($j);
+        clearstatcache();
+        $row = rsJournalRow($j);
+        same('restore unfinished: the copy cut midway — failed, its folder there, the journal knows it is unfinished, «Put back» offered',
+            ['failed', true, [$to], true], [$j['steps'][0]['state'], is_dir($to), $row['unfinished'] ?? null, $row['can_putback']]);
+        $back = rsPlanPutback(['id' => $id], '20261019-201000');
+        same('restore unfinished: «Remove the unfinished copy» — only that, nothing stopped for it, said where it goes',
+            [['unfinished'], [], [], [['what' => 'unfinished', 'from' => $to, 'to' => '']], true],
+            [array_column($back['steps'], 'do'), $back['blockers'], $back['stops'], $back['aside'], $back['unfinished'] ?? null]);
+        $back = rsPlanSeal($back, '20261019-201000');
+        $pb = $run($back, '20261019-201000-bb22');
+        rsMarkPutback($id, $pb['id'], 'running');
+        $r = rsStep($pb, 0);
+        clearstatcache();
+        $trashRun = glob("$mnt/hazel/zzleft/" . OFFICE_STOREROOM . '/*', GLOB_ONLYDIR)[0] ?? '';
+        $manifest = readJson("$trashRun/manifest.json") ?? [];
+        $item = $manifest['items'][0] ?? [];
+        same('restore unfinished: into Ms. Dustdevil\'s storeroom — gone from the share, in her run, her manifest names it (his restore, the way back)',
+            ['ok', 'unfinished_away', false, true, 'leftover', $id, "$mnt/hazel/zzleft/data.restored-$stamp"],
+            [$r['state'], $r['note'] ?? null, file_exists("$mnt/hazel/zzleft/data.restored-$stamp"), is_dir("$trashRun/" . ($item['as'] ?? '-')), $item['kind'] ?? null, $item['label'] ?? null, $item['from'] ?? null]);
+        rsMarkPutback($id, $pb['id'], 'ok');
+        same('restore unfinished: removed — no longer said unfinished, nothing more to put back', [[], false],
+            [rsJournalRow(rsJournal($id))['unfinished'] ?? null, rsJournalRow(rsJournal($id))['can_putback']]);
+        // 2. a power cut during the copy of a swap: the journal settles «interrupted» — the same offer, nothing stopped (the
+        //    containers stop only after the copy)
+        $stamp = '20261019-210000';
+        $c = $ctx;
+        $p = rsPlanFilesFor('/mnt/user/zzleft/data', 'name:manual-l', 'swap', false, $owner, $stamp, $c);
+        $p['stamp'] = $stamp;
+        $id = "$stamp-cc33";
+        $j = $run($p, $id);
+        $to = "$mnt/user/zzleft/data.restored-$stamp";
+        mkdir($to);
+        file_put_contents("$to/big.bin", 'half');
+        $j['result'] = 'running';
+        $j['pid'] = 999999999;
+        $j['steps'][0]['state'] = 'running';
+        $j['steps'][0]['unfinished'] = ['path' => $to, 'dataset' => null];      // what rsDoCopy writes before rsync starts
+        rsJournalWrite($j);
+        $row = array_values(array_filter(rsJournals(), fn ($x) => $x['id'] === $id))[0] ?? [];
+        $back = rsPlanPutback(['id' => $id], '20261019-211000');
+        same('restore unfinished: after a power cut — interrupted, said unfinished; removing it stops nothing (no stop, no start)',
+            ['interrupted', [$to], true, ['unfinished']], [$row['result'] ?? null, $row['unfinished'] ?? null, $row['can_putback'] ?? null, array_column($back['steps'], 'do')]);
+        // 3. a copy that finished: forgotten — nothing unfinished, a copy beside has nothing to put back
+        $stamp = '20261019-220000';
+        $c = $ctx;
+        $p = rsPlanFilesFor('/mnt/user/zzleft/data', 'name:manual-l', 'copy', false, $owner, $stamp, $c);
+        $p['stamp'] = $stamp;
+        $j = $run($p, "$stamp-dd44");
+        $res = rsStep($j, 0);
+        $j['steps'][0] = array_merge($j['steps'][0], $res);
+        $j['result'] = 'ok';
+        same('restore unfinished: a copy that finished — nothing noted, nothing to put back', ['ok', false, [], false],
+            [$j['steps'][0]['state'], isset($j['steps'][0]['unfinished']), rsJournalRow($j)['unfinished'] ?? null, rsJournalRow($j)['can_putback']]);
+        // 4. where it can't go now (a sleeping disk): said in the plan, never woken
+        $GLOBALS['rs']['unfinished_place'] = fn (string $path): array => ['known' => true, 'parts' => [], 'asleep' => ['disk2'], 'why' => 'asleep', 'trash' => []];
+        same('restore unfinished: on a sleeping disk — the plan says so, nothing woken', [['key' => 'restore_unfinished_asleep', 'params' => ['path' => $to, 'base' => 'disk2']]],
+            rsPlanPutback(['id' => $id], '20261019-212000')['blockers']);
+        $desk = (string) file_get_contents(OFFICE_WEB . '/desks/restore/desk.js');
+        check('restore unfinished: the page says it is unfinished and offers «Remove the unfinished copy…»',
+            str_contains($desk, "T('j.unfinished', { paths: left.join(', ') })") && str_contains($desk, "restoreButton(T('j.remove_unfinished')"));
+    } finally {
+        $GLOBALS['rsStop'] = false;
+        unset($GLOBALS['rs']['data'], $GLOBALS['rs']['job_file'], $GLOBALS['rs']['ub_data'], $GLOBALS['rs']['sizes_file'], $GLOBALS['rs']['users'],
+              $GLOBALS['rs']['ratios'], $GLOBALS['rs']['compresses'], $GLOBALS['rs']['unfinished_place'], $GLOBALS['rs']['var_ini']);
+        $GLOBALS['rs']['du'] = ['queue' => [], 'running' => []];
+        exec('rm -rf ' . escapeshellarg($tmp));
+    }
+}
+
+/**
  * Scenario batch B, R13 (restore-ct-renamed-config-drill): a renamed container's package holds no template (no my-<new>.xml
  * exists) — its configuration plan says so (restore_config_none; a stack without compose files: _compose) and never
  * «Everything is the same» (restore_config_same, which only a package whose files all match the server's says).
@@ -44212,7 +44349,7 @@ JS;
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

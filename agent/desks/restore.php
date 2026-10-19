@@ -1656,6 +1656,9 @@ function rsJournalRow(array $j): array
         'putback'    => rsPutbackInfo($j),
         'can_putback' => rsCanPutback($j),
         'after'      => (array) ($j['after'] ?? []),
+        // a copy cut midway, not removed yet: said on the page, «Put back» removes it
+        'unfinished' => in_array($j['result'] ?? '', ['failed', 'interrupted'], true) && !in_array($j['putback']['result'] ?? '', ['ok', 'warnings'], true)
+            ? array_column(rsUnfinishedOf((array) ($j['steps'] ?? [])), 'path') : [],
     ];
 }
 
@@ -3116,7 +3119,11 @@ function rsPlanPutback(array $r, string $stamp): array
     $undo = $fill(rsUndoSteps($j));
     $also = array_values((array) ($j['stopped'] ?? []));
     $withAlso = fn (array $s): array => $s['do'] === 'start' && !empty($s['only_stopped']) ? $s + ['also' => $also] : $s;
-    if ($undo) {
+    $onlyLeft = $undo && !array_filter($undo, fn ($s) => $s['do'] !== 'unfinished');
+    if ($onlyLeft) {
+        // only a copy cut midway to take away: nothing was replaced, nothing stops for it
+        $plan['steps'] = array_merge($undo, $also ? [['do' => 'start', 'containers' => $also, 'only_stopped' => true, 'also' => $also]] : []);
+    } elseif ($undo) {
         $plan['steps'] = array_merge($fill((array) ($orig['putback_pre'] ?? [])), $undo, array_map($withAlso, $fill((array) ($orig['putback_post'] ?? []))));
     } elseif ($also) {
         $plan['steps'] = [['do' => 'start', 'containers' => $also, 'only_stopped' => true, 'also' => $also]];
@@ -3137,7 +3144,14 @@ function rsPlanPutback(array $r, string $stamp): array
         if ($s['do'] === 'drop') {
             $plan['aside'][] = ['what' => 'drop', 'from' => $s['dataset'], 'to' => ''];      // what a pull made — removed, nothing else
         }
+        if ($s['do'] === 'unfinished') {
+            $plan['aside'][] = ['what' => 'unfinished', 'from' => $s['path'], 'to' => ''];   // into Ms. Dustdevil's storeroom
+            if ($b = rsUnfinishedBlocker($s['path'], rsUnfinishedPlace($s['path']))) {
+                $plan['blockers'][] = $b;
+            }
+        }
     }
+    $plan['unfinished'] = $onlyLeft;
     $vm = $orig['target']['vm'] ?? ($j['kind'] === 'vm' ? ($orig['target']['name'] ?? null) : null);
     $blockedVm = [];
     if (is_string($vm)) {
@@ -3204,8 +3218,70 @@ function rsUndoSteps(array $j): array
         if ($u && in_array($s['state'] ?? '', ['ok', 'warning', 'failed', 'running', 'interrupted'], true)) {
             array_push($undo, ...array_map('rsUndoPaths', $u));
         }
+        foreach (rsUnfinishedOf([$s]) as $left) {
+            $undo[] = ['do' => 'unfinished'] + $left;           // a copy cut midway: into Ms. Dustdevil's storeroom
+        }
     }
     return $undo;
+}
+
+/**
+ * The copies of his these steps started and never finished (scenario batch D, F5: an array stop or a power cut left a half
+ * «<folder>.restored-<stamp>» that looked like a finished restore): a copy step failed, running or interrupted with its
+ * note `unfinished` — only paths of his own shape (<name>.restored-<stamp>).
+ *
+ * @return list<array{path: string, dataset: ?string}>
+ */
+function rsUnfinishedOf(array $steps): array
+{
+    $out = [];
+    foreach ($steps as $s) {
+        $left = is_array($s) && ($s['do'] ?? '') === 'copy' && in_array($s['state'] ?? '', ['failed', 'running', 'interrupted'], true) ? ($s['unfinished'] ?? null) : null;
+        $path = is_array($left) && is_string($left['path'] ?? null) ? $left['path'] : '';
+        if (str_starts_with($path, '/') && preg_match('/\.restored-\d{8}-\d{6}$/D', $path) && rsCleanPath(dirname($path))) {
+            $ds = $left['dataset'] ?? null;
+            $out[] = ['path' => $path, 'dataset' => is_string($ds) && preg_match('/^[A-Za-z0-9_.:\/ -]+$/D', $ds) ? $ds : null];
+        }
+    }
+    return $out;
+}
+
+/**
+ * Where an unfinished copy lies now — each part on its pool or disk, the storeroom it goes into, why it can't go
+ * (asleep, a filesystem of its own) — looked at as Ms. Dustdevil looks at what he left (her clLeftoverPlace()), never
+ * waking a disk. Null: her helpers aren't there.
+ */
+function rsUnfinishedPlace(string $path): ?array
+{
+    if (isset($GLOBALS['rs']['unfinished_place'])) {
+        return ($GLOBALS['rs']['unfinished_place'])($path);       // tests: a fixture's parts
+    }
+    if (!function_exists('clLeftoverPlace') || !function_exists('clRoots')) {
+        return null;
+    }
+    $keep = $GLOBALS['clCtx'] ?? null;
+    try {
+        $GLOBALS['clCtx'] = ['roots' => clRoots(), 'asleep' => sleepingDisks()];
+        $mounts = [];
+        foreach (mountTable() as $m) {
+            $mounts[$m['mount']] = $m;
+        }
+        return clLeftoverPlace(['path' => $path], false, $mounts);
+    } finally {
+        $GLOBALS['clCtx'] = $keep;
+    }
+}
+
+/** An unfinished copy, said in the plan when it can't go now: why — or null */
+function rsUnfinishedBlocker(string $path, ?array $place): ?array
+{
+    if ($place === null || !($place['known'] ?? false)) {
+        return ['key' => 'restore_unfinished_stays', 'params' => ['path' => $path]];
+    }
+    if (($place['why'] ?? null) === 'asleep') {
+        return ['key' => 'restore_unfinished_asleep', 'params' => ['path' => $path, 'base' => implode(', ', (array) $place['asleep'])]];
+    }
+    return ($place['why'] ?? null) !== null ? ['key' => 'restore_unfinished_stays', 'params' => ['path' => $path]] : null;
 }
 
 /** An undo step's paths (path, from, to, putback_to) where his set-aside folder lies now — nothing else of it touched */
@@ -3453,6 +3529,7 @@ function rsStep(array &$j, int $i): array
         'autostart' => rsDoVirsh($j, ['autostart', (string) $s['name']]),
         'kopia'     => rsDoKopia($j, $i),
         'vms_off'   => rsDoVmsOff($s),
+        'unfinished' => rsDoUnfinished($j, $s),
         'not_open'  => rsDoNotOpen($s),
         'maintenance_off' => rsDoMaintenanceOff($j, $s),
         'pull'      => rsDoPull($j, $i),
@@ -4264,6 +4341,12 @@ function rsDoCopy(array &$j, int $i): array
     } elseif (!rsMkdirs(dirname($to)) || !@mkdir($to, 0700)) {
         return rsFail('mkdir_failed', ['path' => $to]);
     }
+    // a copy he makes (not one that fills or replaces something in place): noted before it starts — cut by an array stop
+    // or a power cut, the half copy would look like a finished restore; «Put back» then offers to remove it (rsUndoSteps())
+    if (empty($s['replaces']) && empty($s['into_empty'])) {
+        $j['steps'][$i]['unfinished'] = ['path' => $to, 'dataset' => $ds];
+        rsJournalWrite($j);
+    }
     $log = rsDir($j['id']) . '/log.txt';
     // rsync 3.5.1 (Unraid 7.3.3) refuses a path through a symlink another user owns («refusing to follow a symlink owned by
     // an untrusted user», exit 3, 2026-10-11 on a large server): /mnt/user/<share> of an exclusive share is Unraid's link
@@ -4301,13 +4384,11 @@ function rsDoCopy(array &$j, int $i): array
     $j['steps'][$i]['progress'] = $prog;
     $undo = !empty($s['replaces']) && !rsAsideOf($j, $to)
         ? [['do' => 'aside', 'path' => $to, 'to' => ($s['putback_to'] ?? '') !== '' ? $s['putback_to'] : rsBeside($to, 'putback-{T}'), 'optional' => true]] : [];
-    if ($exit === 24) {
-        return ['state' => 'warning', 'note' => 'copy_vanished', 'undo' => $undo];
-    }
-    if ($exit !== 0) {
+    if ($exit !== 0 && $exit !== 24) {
         return rsFail('copy_failed', ['path' => $to, 'exit' => $exit], 'rsync exit ' . $exit) + ['undo' => $undo];
     }
-    return ['state' => 'ok', 'undo' => $undo];
+    unset($j['steps'][$i]['unfinished']);
+    return $exit === 24 ? ['state' => 'warning', 'note' => 'copy_vanished', 'undo' => $undo] : ['state' => 'ok', 'undo' => $undo];
 }
 
 /**
@@ -4365,6 +4446,46 @@ function rsDoVmsOff(array $s): array
         return rsFail('vm_running', ['names' => implode(', ', array_map(fn ($v) => "{$v['name']} ({$v['state']})", $on))]);
     }
     return ['state' => 'ok'];
+}
+
+/**
+ * A copy of his cut midway goes into Ms. Dustdevil's storeroom through her helpers (as the drill's scratch folder,
+ * drillScratchAway()) — each part on its own filesystem, a dataset of its own next to it with zfs rename, written into
+ * her run's manifest so she lists it and can put it back; never deleted. Gone already: fine.
+ */
+function rsDoUnfinished(array &$j, array $s): array
+{
+    $path = (string) ($s['path'] ?? '');
+    $place = rsUnfinishedPlace($path);
+    if ($place !== null && ($place['known'] ?? false) && !$place['parts'] && !$place['asleep']) {
+        return ['state' => 'ok', 'note' => 'unfinished_gone', 'params' => ['path' => $path]];
+    }
+    if (rsUnfinishedBlocker($path, $place) !== null || !function_exists('clRunCreate')) {
+        return rsFail('unfinished_stays', ['path' => $path]);
+    }
+    $runs = [];
+    try {
+        foreach ($place['parts'] as $p) {
+            $root = (string) $p['trash'];
+            $runs[$root] ??= clRunCreate($root);
+            if ($p['dataset']) {
+                $to = dirname((string) $p['dataset']) . '/' . OFFICE_STOREROOM . '-' . $runs[$root]['stamp'] . '-' . basename((string) $p['dataset']);
+                clZfsRename((string) $p['dataset'], $to, (string) $p['path']);
+                $as = "@$to";
+            } else {
+                $as = 'restore/' . substr(md5(dirname((string) $p['path'])), 0, 8) . '/' . basename((string) $p['path']);
+                clMove((string) $p['path'], $runs[$root]['path'] . "/$as");
+            }
+            $runs[$root]['items'][] = ['kind' => 'leftover', 'name' => basename($path), 'label' => (string) ($j['putback_of'] ?? $j['id']), 'from' => (string) $p['path'], 'as' => $as,
+                                       'dataset' => $p['dataset'], 'bytes' => $p['bytes'] ?? null];
+            clManifestWrite($runs[$root]);
+            rsLog($j['id'], "  {$p['path']} into Ms. Dustdevil's storeroom {$runs[$root]['path']}");
+        }
+    } catch (Problem $e) {
+        return rsFail('unfinished_stays', ['path' => $path], (string) ($e->params['detail'] ?? $e->key));
+    }
+    $j['aside'][] = ['from' => $path, 'to' => implode(', ', array_column($runs, 'path')), 'what' => 'unfinished'];
+    return ['state' => 'ok', 'note' => 'unfinished_away', 'params' => ['path' => $path, 'trash' => implode(', ', array_keys($runs))]];
 }
 
 /** Nothing (but a container that stops next) holds a file of it open — right before anything is replaced */

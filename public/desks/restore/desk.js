@@ -2284,6 +2284,9 @@ function journalDetail(r) {
     box.innerHTML = '';
     if (r.putback_of) box.appendChild(el('p', 'role', T('j.putback_of')));
     if (r.reason) box.appendChild(el('p', 'callout warn', problemText({ key: r.reason, params: r.reason_params })));
+    // a copy an array stop or a power cut cut midway: never a finished restore — «Remove the unfinished copy…» below
+    const left = r.unfinished || [];
+    if (left.length) box.appendChild(el('p', 'callout warn', T('j.unfinished', { paths: left.join(', ') })));
     const ol = el('ol', 'rs-pv-steps rs-j-steps');
     (j.steps || []).forEach((s) => {
       const li = el('li', 'rs-j-' + (s.state || 'pending'));
@@ -2311,8 +2314,12 @@ function journalDetail(r) {
     if (log && log.length) box.appendChild(fold(`log:${r.id}`, T('j.log'), el('pre', 'code rs-j-log', log.join('\n'))));
     if (r.can_putback) {
       const p = el('div', 'rs-act');
-      p.append(restoreButton(T(r.kind === 'partner' ? 'j.drop' : 'j.putback'), { kind: 'putback', id: r.id }, T('rd.title.putback', { what: journalTitle(r) })), ' ',
-        el('span', 'role', T(r.kind === 'partner' ? 'j.drop_hint' : r.kind === 'partner_start' ? 'j.start_putback_hint' : 'j.putback_hint')));
+      if (left.length) {
+        p.append(restoreButton(T('j.remove_unfinished'), { kind: 'putback', id: r.id }, T('rd.title.unfinished', { what: journalTitle(r) })), ' ', el('span', 'role', T('j.remove_unfinished_hint')));
+      } else {
+        p.append(restoreButton(T(r.kind === 'partner' ? 'j.drop' : 'j.putback'), { kind: 'putback', id: r.id }, T('rd.title.putback', { what: journalTitle(r) })), ' ',
+          el('span', 'role', T(r.kind === 'partner' ? 'j.drop_hint' : r.kind === 'partner_start' ? 'j.start_putback_hint' : 'j.putback_hint')));
+      }
       box.appendChild(p);
     } else if (!live && ['ok', 'warnings'].includes(r.result) && !r.putback && r.kind !== 'putback') box.appendChild(el('p', 'role', T(r.kind === 'kopia' ? 'j.no_putback_kopia' : 'j.no_putback')));
   };
