@@ -2865,6 +2865,7 @@ function bars() {
 
 Office.desk({
   id: ID,
+  runs: (s) => !!((s.jobs && Object.values(s.jobs).some((x) => x && x.running)) || (s.night && s.night.now)),       // core.js: an old kept state saying so isn't shown
   async mount(root, sub) {
     // his setup page left with changes not saved (a visit there starts from his settings again): said, never silent
     if (page === 'setup' && formChanged()) Office.toast(T('setup.left_unsaved'));

@@ -386,6 +386,18 @@ const lookKey = (desk, part) => (part ? `${desk}/${part}` : desk);
 const lookAge = (look) => (typeof look.age === 'number' ? look.age + (Date.now() - look.at) / 1000 : look.age === null ? Infinity : null);
 const lookStale = (look) => typeof look.after === 'number' && lookAge(look) > look.after;
 
+/**
+ * Older than OLD_RUN seconds and the desk's runs(data, part) says a run is going (its Office.desk registration: the
+ * desks with a run card) — such a kept state isn't shown while a new look follows
+ */
+const OLD_RUN = 300;
+function oldRun(desk, part, j) {
+  const d = Office.desks.get(desk);
+  const data = 'part' in j ? j.part : j.state;
+  if (!d || typeof d.runs !== 'function' || !data || !(typeof j.age === 'number' && j.age > OLD_RUN)) return false;
+  try { return !!d.runs(data, part || null); } catch (e) { return false; }
+}
+
 /** Note an answer; 'older' (than what was shown: drop it), 'same' (that very state), 'new', or null (no state answer) */
 function noteLook(look, j) {
   if (!j || !j.ok) return null;
@@ -414,7 +426,11 @@ Office.loadState = async function loadState(desk, opts, took) {
   // state in an older version's shape, right after an update) doesn't stop the new look: it is asked for all the
   // same and heals the page at once; the error still reaches the caller (and so the console) once, afterwards
   let failed = null;
-  if (seen !== 'older' && !(seen === 'same' && j.refreshing)) {
+  // a kept state older than a few minutes that says a run is going (the desk's runs()): held back while the new look is
+  // on its way — never «running» from a run that ended long ago (nostromo 2026-10-19: a 40 min old state, «99 %»)
+  const hold = j.ok && j.refreshing && oldRun(desk, part, j);
+  look.held = hold ? j : null;
+  if (!hold && seen !== 'older' && !(seen === 'same' && j.refreshing)) {
     try { took(j, false); } catch (e) { failed = e; }
   }
   if (j.ok && j.refreshing && !look.pending) followLook(desk, look, base);
@@ -435,6 +451,10 @@ function followLook(desk, look, base) {
 function tookLater(desk, look, p, k) {
   if (look.pending !== p) return;          // handed over already (Office.freshState())
   look.pending = null;
+  // a held state and no new one came (the agent busy or gone): the held one after all — its «as of» line says how old
+  const held = look.held;
+  look.held = null;
+  if (held && !(k && k.ok)) k = held;
   const seen = noteLook(look, k);
   if (seen !== 'older' && look.took) {
     if (Office.current && Office.current.id === desk) Office.keepInPlace(null, () => look.took(k, true));
@@ -519,7 +539,7 @@ function paintAsOf(desk, node) {
   if (!node) return;
   const look = deskLook(desk);
   const waiting = look && look.pending && Date.now() - look.since < ASOF_PATIENCE;
-  const show = !!look && lookStale(look) && isFinite(lookAge(look)) && !waiting;
+  const show = !!look && !look.held && lookStale(look) && isFinite(lookAge(look)) && !waiting;      // held: nothing of it shows
   node.hidden = !show;
   node.textContent = show ? asOfText(look) : '';
   node.title = show ? t('office.as_of_tip') : '';

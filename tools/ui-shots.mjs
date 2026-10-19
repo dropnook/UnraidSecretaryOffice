@@ -68,13 +68,15 @@ for (let i = 0; i < args.length; i++) {
   else if (a === '--out') { opt.out = path.resolve(val()); opt.outGiven = true; }
   else if (a === '--alias') opt.alias = Object.fromEntries(list().map((x) => x.split('=')));    // a desk's demo state from another file (moverelli=moverelli-alone)
   else if (a === '-v' || a === '--verbose') opt.verbose = true;
+  // --old <seconds>: the shown desk's kept state that old, the agent's new look not back yet (core.js «show first, then look»)
+  else if (a === '--old') opt.old = Number(val());
   else if (a === '--moments') opt.moments = i + 1 < args.length && /^\d+(,\d+)*$/.test(args[i + 1]) ? list().map(Number) : [];
   else if (a === '-h' || a === '--help') usage(0);
   else usage();
 }
 function usage(code = 2) {
   console.error('usage: node tools/ui-shots.mjs [--routes jack] [--themes black,white] [--langs de,en] [--widths 1440,390]');
-  console.error('                               [--shot full|until:<css>|clip:<css>]… [--out <folder>] [-v]');
+  console.error('                               [--shot full|until:<css>|clip:<css>]… [--old <seconds>] [--out <folder>] [-v]');
   console.error('       node tools/ui-shots.mjs --moments [1,3,…] [--themes black,white] [--langs de,en] [--out <folder>] [-v]');
   process.exit(code);
 }
@@ -147,7 +149,9 @@ async function shootPage(browser, harness, route, theme, lang, width) {
   const out = [];
   try {
     await page.goto(`${harness.url}?theme=${theme}#/${route}`, { waitUntil: 'load' });
-    await page.waitForFunction(() => window.Office && Office.current && document.querySelector('#sso-desk .section, #sso-desk section, #sso-desk .box'), null, { timeout: 15000 });
+    // --old: a kept state that says a run is going isn't drawn while the new look is on its way — the head is the paint
+    await page.waitForFunction((old) => window.Office && Office.current && document.querySelector(old ? '#sso-desk > *' : '#sso-desk .section, #sso-desk section, #sso-desk .box'), !!opt.old, { timeout: 15000 });
+    if (opt.old) await page.waitForTimeout(2000);        // past core.js's ASOF_PATIENCE: the page as it stays until the new look
     for (const shot of shotsOf(route)) {
       const file = path.join(opt.out, `${route.replace(/\//g, '-')}-${shot.name}-${theme}-${lang}-${width}.png`);
       const res = { file, route, shot: shot.name, theme, lang, width, fails: [] };
@@ -431,7 +435,7 @@ if (opt.moments) await runMoments();
 const started = Date.now();
 fs.mkdirSync(opt.out, { recursive: true });
 const harnesses = {};
-for (const lang of opt.langs) harnesses[lang] = await startHarness({ demo: true, alias: opt.alias, names: namesFor(lang) });
+for (const lang of opt.langs) harnesses[lang] = await startHarness({ demo: true, alias: opt.alias, names: namesFor(lang), ...(opt.old ? { later: 600000, laterAge: opt.old } : {}) });
 const browser = await pw.chromium.launch({ headless: true, executablePath: chrome, args: ['--no-first-run', '--no-default-browser-check', '--font-render-hinting=none'] });
 const jobs = [];
 for (const route of opt.routes) for (const theme of opt.themes) for (const lang of opt.langs) for (const width of opt.widths) jobs.push({ route, theme, lang, width });

@@ -2681,6 +2681,7 @@ function letGoDoneLines(r) {
 Office.desk({
   letGo: letGoPart,
   id: ID,
+  runs: (s) => !!((s.job && s.job.running) || (s.night && s.night.last && s.night.last.running)),       // core.js: an old kept state saying so isn't shown
   async mount(root, sub) {
     leftSetup();
     view = root;
