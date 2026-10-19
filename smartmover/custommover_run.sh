@@ -88,6 +88,9 @@
 #   ending in a space or tab never goes to it (given «foo » it moves a file «foo» beside it). Such a file to a pool is
 #   moved by this script (copy, compare, rename, then the source removed); to the array it stays with a WARN. After a
 #   prefer share's folder pass, an empty folder left on the array whose copy is on the pool is removed (rmdir).
+# USO «tidy» (2026-10-19): the emptied folders above moved files are removed deepest first once all are known (upstream
+#   kept a parent whose sibling folder emptied later); never the share's root. After a stop a prefer share's emptied
+#   folders on its disks go too — its folder there as well — only those whose copy is on the pool (rmdir, nothing else).
 #
 # Exclude files: one entry per line, comments (#) and blank lines ignored, CRLF tolerated.
 #   /abs/path/dir          protects the directory and everything below it
@@ -426,23 +429,33 @@ build_excludes() {  # share_name source_root(s) exclude_files(comma list)...
 }
 
 # ------------------------------------------------------------------ Cleanup
-remove_empty_parents() {  # root (USO «per disk»: one per line) file...
-    local roots="$1" root; shift
-    local -A seen=()
+# USO «tidy» (2026-10-19, seen on Tower): every folder above a moved file is looked at once, deepest first, after all
+# of them are known — upstream gave up on a parent the first time it still held a sibling folder, so an emptied parent
+# (uso-yes/m3 once m3/a and m3/b were gone) stayed. Never the share's root; with `to` (a prefer share's folder on its
+# pool, per disk: «per disk» above) a folder goes only when its copy is there — the disk's share folder too, as the
+# folder pass would move it (a stopped run skips that pass).
+remove_empty_parents() {  # root (USO «per disk»: one per line) to ('' or the share's folder on the target) file...
+    local roots="$1" to="$2" root; shift 2
+    local -A seen=() top=()
     local f d
     for f in "$@"; do
         rel_of "$f" "$roots"; root="${f%"/$REL"}"
-        d=$(dirname "$f")
-        while [[ "$d" == "$root/"* && -z "${seen[$d]:-}" ]]; do
-            seen[$d]=1
-            if [[ -d "$d" ]] && rmdir "$d" 2>/dev/null; then
-                log INFO "  removed empty directory: $d"
-            else
-                break
-            fi
-            d=$(dirname "$d")
-        done
+        d="${f%/*}"
+        while [[ "$d" == "$root/"* && -z "${seen[$d]:-}" ]]; do seen[$d]=1; top[$d]="$root"; d="${d%/*}"; done
+        [[ -n "$to" && "$d" == "$root" && -z "${seen[$d]:-}" ]] && { seen[$d]=1; top[$d]="$root"; }
     done
+    (( ${#seen[@]} > 0 )) || return 0
+    # deepest first: in C order a folder sorts before everything below it
+    while IFS= read -r -d '' d; do
+        [[ -d "$d" && ! -L "$d" ]] || continue
+        if [[ -n "$to" ]]; then
+            root="${top[$d]}"
+            if [[ "$d" == "$root" ]]; then [[ -d "$to" ]] || continue
+            else [[ -d "$to/${d#"$root/"}" ]] || continue; fi
+        fi
+        rmdir -- "$d" 2>/dev/null && log INFO "  removed empty directory: $d"
+    done < <(printf '%s\0' "${!seen[@]}" | LC_ALL=C sort -rz)
+    return 0
 }
 
 # ------------------------------------------------------------------ Share processing
@@ -926,7 +939,9 @@ move_batch() {  # share src dest
     if [[ "${dirs_pass:-false}" == true && "$STOPPED" == false ]]; then
         prefer_dirs_pass "$name" "$src" "$dest"
     elif (( ${#MOVED[@]} > 0 )); then
-        remove_empty_parents "$src" "${MOVED[@]}"
+        # USO «tidy»: after a stop a prefer share's emptied folders on its disks go too (their copy on the pool)
+        if [[ "${dirs_pass:-false}" == true ]]; then remove_empty_parents "$src" "$MNT/$dest/$name" "${MOVED[@]}"
+        else remove_empty_parents "$src" "" "${MOVED[@]}"; fi
     fi
     return 0
 }
@@ -1120,7 +1135,7 @@ fill_pool() {  # pool
             if [[ -n "${F_GONE[$name]:-}" ]]; then
                 local -a gone=()
                 mapfile -t gone <<< "${F_GONE[$name]%$'\n'}"
-                remove_empty_parents "${FS_SRC[$name]}" "${gone[@]}"
+                remove_empty_parents "${FS_SRC[$name]}" "" "${gone[@]}"
             fi
             [[ "$SH_STATE" == none && ${F_N[$name]:-0} -gt 0 ]] && SH_STATE=moved
         else

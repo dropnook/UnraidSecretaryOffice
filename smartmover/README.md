@@ -133,6 +133,13 @@
 >   counterpart is made there first (owner, mode, times), as the binary would. A prefer share with no file left to move
 >   gets its folder pass too (folders an earlier run left behind); a dry run touches none.
 >
+> * **Tidy** (2026-10-19, marked «USO «tidy»», seen in the office's scenarios): upstream's cleanup gave up on a parent
+>   folder the first time it still held a sibling folder, so a parent emptied only later stayed (a yes run of
+>   `m3/a-small/…` and `m3/z-big/…` left `m3` on the pool). Every folder above a moved file is now looked at once, deepest
+>   first, after all of them are known; never the share's root. A stopped prefer run (no folder pass) also removes its
+>   emptied folders on the disks — the share's folder on a disk too, as the folder pass would move it — but only those
+>   whose copy is on the pool; nothing but `rmdir`.
+>
 > **`prefer` shares** (array → pool): their source is the array disks the share may use (above), which may wake them.
 > That is accepted here on purpose (the owner's decision): the Dynamix Cache Directories plugin keeps the folder
 > structure in RAM, so the scan rarely spins a disk up. There is no sleep gate; `move_prefer_shares=no`, or `skip=yes`

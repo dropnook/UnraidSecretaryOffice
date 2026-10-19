@@ -36801,6 +36801,106 @@ SH);
 }
 
 /**
+ * Smart Mover, emptied folders (2026-10-19, scenarios on Tower): a yes run left the emptied parent uso-yes/m3 on the pool
+ * once m3/a-small and m3/z-big were gone (upstream gave up on a parent the first time a sibling still held files), and a
+ * stopped prefer run left the emptied disk1/uso-prefer on the array (no folder pass after a stop). Now every folder above
+ * a moved file is looked at deepest first; never the share's root on the pool; a prefer share's folder on a disk only
+ * when its copy is on the pool; a folder still holding something always stays.
+ */
+function testMoverelliTidy(): void
+{
+    $t = hardeningTmp('moverelli-tidy');
+    $mk = function (string $rel, string $body = 'x') use ($t): void {
+        @mkdir(dirname("$t/$rel"), 0700, true);
+        file_put_contents("$t/$rel", $body);
+    };
+    $reset = function () use ($t): void {
+        exec('rm -rf ' . escapeshellarg("$t/mnt") . ' ' . escapeshellarg("$t/log") . ' ' . escapeshellarg("$t/stop"));
+        foreach (['mnt/user/Pics', 'mnt/user/Yes', 'mnt/cache/Pics', 'mnt/cache/Yes', 'shares', 'bin'] as $d) {
+            @mkdir("$t/$d", 0700, true);
+        }
+    };
+    $reset();
+    file_put_contents("$t/bin/move", <<<'SH'
+#!/bin/bash
+# a stand-in for Unraid's move binary: a data disk → the pool, the pool → disk1 (the parents made there); a folder
+# created there, removed here when empty; the stop file written while the n-th file of a binary moves
+n=0
+while IFS= read -r f; do
+    case "$f" in
+        "$MOVE_ROOT"/cache/*) to="$MOVE_ROOT/disk1/${f#"$MOVE_ROOT"/cache/}" ;;
+        "$MOVE_ROOT"/disk[0-9]*/*) r=${f#"$MOVE_ROOT"/disk}; to="$MOVE_ROOT/cache/${r#*/}" ;;
+        *) continue ;;
+    esac
+    if [[ -d "$f" && ! -L "$f" ]]; then mkdir -p "$to" && rmdir "$f" 2>/dev/null; continue; fi
+    (( ++n == ${MOVE_STOP_AT:-0} )) && printf '{"why":"user"}' > "$CUSTOMMOVER_STOP"
+    mkdir -p "$(dirname "$to")" && mv "$f" "$to"
+done
+exit 0
+SH);
+    chmod("$t/bin/move", 0755);
+    file_put_contents("$t/excl.txt", "$t/mnt/user/Yes/m3/kept/k.bin\n");
+    file_put_contents("$t/ini", "[GLOBAL]\nmin_age=0\n[Yes]\nexcludes=$t/excl.txt\n");
+    $env = ['CUSTOMMOVER_INI' => "$t/ini", 'CUSTOMMOVER_SHARES_DIR' => "$t/shares", 'CUSTOMMOVER_MNT' => "$t/mnt", 'CUSTOMMOVER_LOG' => "$t/log",
+            'CUSTOMMOVER_LOCK' => "$t/lock", 'CUSTOMMOVER_STATUS' => "$t/st.json", 'CUSTOMMOVER_ZFS' => '/nonexistent-zfs', 'CUSTOMMOVER_MOVER_BIN' => "$t/bin/move",
+            'CUSTOMMOVER_STOP' => "$t/stop", 'CUSTOMMOVER_IGNORE_MOVER' => '1', 'MOVE_ROOT' => "$t/mnt"];
+    $sm = OFFICE_DIR . '/smartmover/custommover_run.sh';
+    $share = fn (array $st, string $n) => array_values(array_filter($st['shares'] ?? [], fn ($x) => $x['share'] === $n))[0] ?? [];
+
+    // a yes share: m3/a-small/… and m3/z-big/… go to the array — m3 emptied goes too, the share's folder on the pool stays;
+    // m3/deep/1/2/f.bin: the whole chain; m4/kept holds an excluded file: m4/kept and m4 stay, m4/gone goes
+    $reset();
+    file_put_contents("$t/shares/Yes.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\n");
+    foreach (['m3/a-small/1.bin', 'm3/a-small/2.bin', 'm3/z-big/1.bin', 'm3/deep/1/2/f.bin', 'm4/gone/g.bin', 'm4/kept/k.bin'] as $f) {
+        $mk("mnt/cache/Yes/$f");
+    }
+    file_put_contents("$t/excl.txt", "$t/mnt/user/Yes/m4/kept/k.bin\n");
+    [$exit] = runEnv(['bash', $sm, '--run'], $env, 60);
+    $st = readJson("$t/st.json") ?? [];
+    same('tidy, a yes run: exit 0, 5 moved — the emptied m3 (and m3/deep/1/2 up to it) gone from the pool, the share\'s folder kept',
+        [0, 5, false, false, true, 5],
+        [$exit, $share($st, 'Yes')['moved'] ?? null, is_dir("$t/mnt/cache/Yes/m3"), is_dir("$t/mnt/cache/Yes/m3/deep"), is_dir("$t/mnt/cache/Yes"),
+         count(glob("$t/mnt/disk1/Yes/m3/*/*.bin") ?: []) + count(glob("$t/mnt/disk1/Yes/m3/deep/1/2/*.bin") ?: []) + count(glob("$t/mnt/disk1/Yes/m4/gone/*.bin") ?: [])]);
+    same('tidy, a yes run: … a folder still holding something stays (m4/kept with its excluded file, so m4), its emptied sibling goes',
+        [true, true, false], [is_file("$t/mnt/cache/Yes/m4/kept/k.bin"), is_dir("$t/mnt/cache/Yes/m4"), is_dir("$t/mnt/cache/Yes/m4/gone")]);
+    // everything moved: the share's folder on the pool still stays (a share's root is Unraid's)
+    $reset();
+    $mk('mnt/cache/Yes/m3/a/1.bin');
+    file_put_contents("$t/excl.txt", "");
+    runEnv(['bash', $sm, '--run'], $env, 60);
+    same('tidy, a yes run: all of the share moved — m3 gone, the share\'s folder on the pool kept (empty)', [false, true, true],
+        [is_dir("$t/mnt/cache/Yes/m3"), is_dir("$t/mnt/cache/Yes"), is_file("$t/mnt/disk1/Yes/m3/a/1.bin")]);
+
+    // a prefer share, stopped while its 3rd file moves: disk1's two files and disk2's first on the pool — disk1/Pics/d1 and
+    // disk1/Pics emptied: gone (their copies on the pool), disk2/Pics/d2 still holds two: stays
+    $reset();
+    unlink("$t/shares/Yes.cfg");
+    file_put_contents("$t/shares/Pics.cfg", "shareUseCache=\"prefer\"\nshareCachePool=\"cache\"\n");
+    foreach (['disk1/Pics/d1/1.jpg', 'disk1/Pics/d1/2.jpg', 'disk2/Pics/d2/1.jpg', 'disk2/Pics/d2/2.jpg', 'disk2/Pics/d2/3.jpg'] as $f) {
+        $mk("mnt/$f");
+    }
+    [$exit] = runEnv(['bash', $sm, '--run'], $env + ['MOVE_STOP_AT' => '3'], 60);
+    $st = readJson("$t/st.json") ?? [];
+    same('tidy, a stopped prefer run: exit 3, 3 moved, 2 left — disk1/Pics/d1 and disk1/Pics emptied: gone; disk2/Pics/d2 (2 files) stays; the pool has them',
+        [3, 'stopped', 3, 2, false, false, true, 2, 3],
+        [$exit, $st['result'] ?? null, $share($st, 'Pics')['moved'] ?? null, $share($st, 'Pics')['left'] ?? null, is_dir("$t/mnt/disk1/Pics/d1"), is_dir("$t/mnt/disk1/Pics"),
+         is_dir("$t/mnt/disk2/Pics/d2"), count(glob("$t/mnt/disk2/Pics/d2/*.jpg") ?: []), count(glob("$t/mnt/cache/Pics/d*/*.jpg") ?: [])]);
+    // a stopped prefer run never removes a folder on a disk whose copy is not on the pool
+    $reset();
+    foreach (['disk1/Pics/d1/1.jpg', 'disk1/Pics/d1/2.jpg', 'disk2/Pics/d2/1.jpg'] as $f) {
+        $mk("mnt/$f");
+    }
+    file_put_contents("$t/bin/move.real", (string) file_get_contents("$t/bin/move"));
+    chmod("$t/bin/move.real", 0755);
+    // the pool's copy of d1 vanishes before the tidy (someone removed it): disk1/Pics/d1 stays, so does disk1/Pics
+    file_put_contents("$t/bin/move", "#!/bin/bash\n\"\$(dirname \"\$0\")/move.real\"; rc=\$?\n[[ -e \"\$CUSTOMMOVER_STOP\" ]] && rm -rf \"\$MOVE_ROOT/cache/Pics/d1\"\nexit \$rc\n");
+    [$exit] = runEnv(['bash', $sm, '--run'], $env + ['MOVE_STOP_AT' => '2'], 60);
+    same('tidy, a stopped prefer run: a folder whose copy is not on the pool stays (disk1/Pics/d1, so disk1/Pics)', [3, true, true],
+        [$exit, is_dir("$t/mnt/disk1/Pics/d1"), is_dir("$t/mnt/disk1/Pics")]);
+    hardeningRm($t);
+}
+
+/**
  * Smart Mover, names ending in a space or tab (2026-10-18, seen on a real server: 51 312 files of a prefer share on the
  * pool, 57 empty folders left on the disk, every leaf like «06 Juni »): Unraid's move binary drops the whitespace at the
  * end of each path it reads — such a name never goes to it (given «foo » it would move «foo»); a file to the pool is moved
@@ -42632,7 +42732,7 @@ JS;
 }
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
