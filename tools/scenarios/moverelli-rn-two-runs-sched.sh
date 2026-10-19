@@ -7,9 +7,11 @@
 scenario_begin moverelli-rn-two-runs-sched
 needs tower
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
-# put_files --age writes with the clock set back (states' clock_back): the agent's heartbeat in that time is dated 40
-# days back — a fresh one waited for before snap_before, else INV-TICK sees the scenario's own clock as a gap
-fresh_beat() { local t; t=$(_sc_now); wait_for 45 "a heartbeat after the files were written" bash -c "(( \$(stat -c %Y $RUN/agent.json) >= $t ))"; }
+# put_files --age writes with the clock set back (states' clock_back): an agent napping across that step back sleeps
+# until a request rings its doorbell (agent/agent.php agentNap: a relative wait from wall-clock time — the batch's F12),
+# its heartbeat stops meanwhile. Not this cell's: her page's look rings it, then a fresh heartbeat before snap_before
+fresh_beat() { local t; t=$(_sc_now); ask moverelli.refresh '{}' 60 >/dev/null
+    wait_for 45 "a heartbeat after the files were written" bash -c "(( \$(stat -c %Y $RUN/agent.json) >= $t ))"; }
 on() { find /mnt/"$1"/uso-yes/uso-wip-d-m27b -type f ! -name '*.partial' 2>/dev/null | wc -l; }
 put_files M27B cache uso-yes/uso-wip-d-m27b 6 --size 512M --age 40d || _row state put_files red "the files could not be written"
 undo_push files_unput M27B
