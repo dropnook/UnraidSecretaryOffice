@@ -283,7 +283,9 @@ state_ct_autostart() { local f=/var/lib/docker/unraid-autostart dir n names=() d
         grep -qE "^$n( |$)" "$f" 2>/dev/null && continue
         if _st_ct_is_db "$n"; then db+=("$n"); else rest+=("$n"); fi
     done
-    { [[ -f $f ]] && cat "$f"; ((${#db[@]})) && printf '%s\n' "${db[@]}"; ((${#rest[@]})) && printf '%s\n' "${rest[@]}"; } > "$f.uso-new" && mv -f "$f.uso-new" "$f" || return 1
+    # a database's line with a wait (rc.docker sleeps that long after starting it): an app started at once after its
+    # database may find it not ready and exit (immich_server did after a reboot)
+    { [[ -f $f ]] && cat "$f"; ((${#db[@]})) && printf '%s 5\n' "${db[@]}"; ((${#rest[@]})) && printf '%s\n' "${rest[@]}"; } > "$f.uso-new" && mv -f "$f.uso-new" "$f" || return 1
     say "CT-AUTOSTART: $(wc -l < "$f") container(s) on Docker's autostart (databases first: ${db[*]:-none})"; }
 undo_ct_autostart() { local f=/var/lib/docker/unraid-autostart dir; dir=$(_st_dir CT-AUTOSTART)
     if [[ -f $dir/autostart.before ]]; then cp -p "$dir/autostart.before" "$f" && rm -f "$dir/autostart.before"
