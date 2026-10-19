@@ -1,6 +1,7 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.62 - 2026-10-18
+# unraid-backup - setup.sh                        Version 2.63 - 2026-10-19
+#   2.63 No change here (the engine's version: backup.sh's btrfs emergency brake says what it did, in codes)
 #   2.62 No change here (the engine's version: backup.sh goes on when Nextcloud's data folder is readable by others)
 #   2.61 No change here (the engine's version: backup.sh never writes .uso-backup into a database's data folder)
 #   2.60 Whether an app, a database, a Nextcloud or a VM runs right now never changes what is stored for it: a Nextcloud

@@ -851,6 +851,8 @@ function backupRunFromStatus(array $j): array
         'kopia_first' => null,
         // engine 2.27: the partner phase per partner (null: the run sent to no partner)
         'partner'    => backupPartnerRun($j['partner'] ?? null),
+        // engine 2.63: per btrfs disk or pool what holds after the retention and the emergency brake (null: not looked)
+        'btrfs'      => backupBtrfsRun($j['btrfs'] ?? null),
         'log'        => (string) ($j['log'] ?? ''),
         'version'    => (string) ($j['version'] ?? ''),
         'source'     => 'status',
@@ -896,6 +898,40 @@ function backupKopiaSkipped(mixed $kopia, bool $asleep): array
 }
 
 /**
+ * Per btrfs disk or pool what holds after a run's retention and emergency brake (engine 2.63, status.json "btrfs"):
+ * {base, asleep: true} for one not looked at, else the retention (keep_days), the brake's floor, what is free, how many
+ * of the engine's snapshots are left and the oldest, how many the brake released in this run, whether none was left
+ * to release, the newest it ever released there and whether the retention holds. Only entries in exactly that shape,
+ * at most 40; null when the run never got to its retention (or an older engine)
+ *
+ * @return list<array<string, mixed>>|null
+ */
+function backupBtrfsRun(mixed $b): ?array
+{
+    if (!is_array($b) || !array_is_list($b)) {
+        return null;
+    }
+    $snap = fn ($v) => is_string($v) && preg_match('/^(\d{8}-\d{4})?$/D', $v);
+    $out = [];
+    foreach (array_slice($b, 0, 40) as $e) {
+        if (!is_array($e) || !is_string($e['base'] ?? null) || !preg_match('/^[A-Za-z0-9_-]{1,40}$/D', $e['base'])) {
+            continue;
+        }
+        if (($e['asleep'] ?? null) === true) {
+            $out[] = ['base' => $e['base'], 'asleep' => true];
+            continue;
+        }
+        $ints = ['keep_days', 'floor_gb', 'free_gb', 'kept', 'released'];
+        if (($e['asleep'] ?? null) !== false || array_filter($ints, fn ($k) => !is_int($e[$k] ?? null) || $e[$k] < 0)
+            || !$snap($e['oldest'] ?? null) || !$snap($e['brake_last'] ?? null) || !is_bool($e['none_left'] ?? null) || !is_bool($e['held'] ?? null)) {
+            continue;
+        }
+        $out[] = ['base' => $e['base'], 'asleep' => false] + array_intersect_key($e, array_flip([...$ints, 'oldest', 'brake_last', 'none_left', 'held']));
+    }
+    return $out;
+}
+
+/**
  * What a run left out because it slept (engine 2.28, status.json "asleep" - [general] asleep_pools = skip): the pools
  * and disks, the shares with a part there (units: how many), the VMs not held, the containers kept running, the pools
  * woken all the same (the backup place's), per share the nights in a row it was left out, and those at or past
@@ -936,7 +972,7 @@ function backupAsleepRun(mixed $a): ?array
 function backupRunFromLog(string $path, string $run, int $started): array
 {
     $r = ['run' => $run, 'started' => $started, 'finished' => 0, 'result' => 'failed', 'message' => 'interrupted',
-          'errors' => 0, 'warnings' => 0, 'warning_items' => [], 'downtime' => 0, 'dump_bytes' => 0, 'packages' => null, 'kopia' => [], 'kopia_skipped' => [], 'kopia_asleep' => [], 'asleep' => null,
+          'errors' => 0, 'warnings' => 0, 'warning_items' => [], 'downtime' => 0, 'dump_bytes' => 0, 'packages' => null, 'kopia' => [], 'kopia_skipped' => [], 'kopia_asleep' => [], 'asleep' => null, 'btrfs' => null,
           'kopia_interrupted' => null, 'kopia_first' => null,
           'log' => basename($path), 'version' => '', 'source' => 'log'];
     $h = @fopen($path, 'r');
