@@ -24,8 +24,11 @@ if flow BK-REPLAN; then
         [[ -z $ch ]] && cell no-vm-change 1 "the Apply list names no [vm] key" \
             || cell no-vm-change 0 "the Apply list names VM keys while the service is off: $ch"
     fi
+    # the setup page on this plan (its setup_get answer is the page's data; --open: the VM part may be folded)
+    ask_save_post backup.setup_get '{}' 120 >/dev/null
     bubble_look vm-off-setup backup
-    queue_mac B27-setup-says page_text backup/setup "$KEEP/looks/$(printf %02d "$(cat "$KEEP/.looks")")-vm-off-setup/states" en,de want backup.setup.vm_service_off
+    look=$(ls -d "$KEEP"/looks/*-vm-off-setup | tail -1)
+    queue_mac B27-setup-says page_text --open backup/setup "$look/states" en,de want backup.setup.vm_service_off
 fi
 flow BK-RUN-MANUAL mode=backup
 r=$(jq -r '.result // empty' "$UB/state/status.json" 2>/dev/null)
