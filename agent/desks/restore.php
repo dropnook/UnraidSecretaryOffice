@@ -2354,7 +2354,7 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
     }
 
     // per item: where it goes (onto the share, or as the dataset it is), what goes aside, what stops
-    $copies = $swaps = $userPaths = $restored = $asides = $emptyAsides = $targets = $union = $uncovered = $paths = $snapOf = $itemPaths = [];
+    $copies = $swaps = $userPaths = $restored = $asides = $emptyAsides = $targets = $union = $uncovered = $paths = $snapOf = $itemPaths = $openPaths = [];
     $userItems = false;
     $dsPlace = null;
     foreach ($chosen as $n) {
@@ -2428,6 +2428,7 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
                 }
             }
             $swaps[] = ['do' => 'move', 'from' => $to, 'to' => $T, 'dataset' => $rds, 'to_dataset' => $ds];
+            array_push($openPaths, $T, ...array_map(fn ($p) => (string) $p['live'], $it['live']));
             $userPaths[] = "/mnt/user/$share/$n";
             foreach ($it['places'] as $p) {
                 $userPaths[] = "/mnt/{$p['base']}/$share/$n";
@@ -2511,12 +2512,22 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
         if ($off) {
             $plan['notes'][] = ['key' => 'note.files_vms_off', 'params' => ['names' => implode(', ', $off)]];
         }
+        // a process (not a container's) holding a file of it open would keep writing into what goes aside: he never ends
+        // a process — the user does; looked at again right before anything is replaced
+        $openPaths = array_values(array_unique($openPaths));
+        $holders = $openPaths ? rsOpenHolders($openPaths) : [];
+        if ($holders) {
+            $plan['blockers'][] = ['key' => 'restore_in_use', 'params' => ['names' => implode(', ', $holders), 'path' => implode(', ', $targets)]];
+        }
         // what binds an item (or, for a whole share, the share itself) stops; what binds a folder above it keeps running
         $roots = $whole ? array_merge(["/mnt/user/$share"], array_map(fn ($p) => "/mnt/{$p['base']}/$share", $places)) : [];
         [$users, $parents] = rsUsers(array_values(array_unique($userPaths)), $roots);
         if ($vms) {
             // the copy takes a while: right before anything is replaced, once more — a VM started meanwhile stops the restore
             $steps[] = ['do' => 'vms_off', 'paths' => array_values(array_unique($itemPaths)), 'names' => array_column($vms, 'name')];
+        }
+        if ($openPaths) {
+            $steps[] = ['do' => 'not_open', 'paths' => $openPaths];      // likewise a file opened meanwhile
         }
         if ($users) {
             $steps[] = ['do' => 'stop', 'containers' => $users];
@@ -2781,6 +2792,58 @@ function rsUsers(array $paths, array $roots = []): array
         }
     }
     return [array_keys($users), array_keys(array_diff_key($parents, $users))];
+}
+
+/**
+ * The processes (not a container's) that hold a file open at or below one of these paths — its open files read from
+ * /proc/<pid>/fd, the way fuser looks, without touching a disk: «sleep (4711)». A share's path stands for every way to
+ * it (/mnt/user/<share>/x is /mnt/cache/<share>/x and /mnt/disk1/<share>/x too: shfs, an exclusive share's link, a
+ * process that opened it on its pool). A container's processes live in a
+ * mount namespace of their own (their paths are the container's): what binds the folder is stopped by the plan
+ * (rsUsers()), those are left out here. Scenario batch C, R2: a writer holding a file open kept writing into what
+ * he had put aside, and nothing said so.
+ *
+ * @return list<string>
+ */
+function rsOpenHolders(array $paths): array
+{
+    if (isset($GLOBALS['rs']['open'])) {
+        return ($GLOBALS['rs']['open'])($paths);             // tests: a stand-in
+    }
+    $paths = array_values(array_filter(array_map(fn ($p) => rtrim((string) $p, '/'), $paths), fn ($p) => str_starts_with($p, '/') && strlen($p) > 1));
+    // a path through a link (an exclusive share's /mnt/user/<share>): its fds name where it leads
+    $paths = array_values(array_unique(array_merge($paths, array_filter(array_map(fn ($p) => @realpath($p) ?: null, $paths)))));
+    // /mnt/<pool, disk or user>/<share>/… → <share>/… (never /mnt/addons and the like: no share there)
+    $rel = fn (string $p): ?string => preg_match('#^/mnt/([^/]+)/([^/]+(?:/.*)?)$#D', $p, $m)
+        && (!in_array($m[1], RS_NOT_BASES, true) || in_array($m[1], ['user', 'user0'], true)) ? $m[2] : null;
+    $rels = array_values(array_filter(array_map($rel, $paths), 'is_string'));
+    $proc = $GLOBALS['rs']['proc'] ?? '/proc';
+    $mine = @readlink("$proc/self/ns/mnt");
+    $self = getmypid();
+    $out = [];
+    foreach ($paths ? (glob("$proc/[0-9]*", GLOB_ONLYDIR) ?: []) : [] as $dir) {
+        $pid = (int) basename($dir);
+        if ($pid === $self || ($mine !== false && @readlink("$dir/ns/mnt") !== $mine)) {
+            continue;
+        }
+        foreach (@scandir("$dir/fd") ?: [] as $fd) {
+            $to = ctype_digit($fd) ? @readlink("$dir/fd/$fd") : false;
+            if (!is_string($to) || !str_starts_with($to, '/')) {
+                continue;                                    // a pipe, a socket, anon_inode:…
+            }
+            $to = (string) preg_replace('/ \(deleted\)$/D', '', $to);
+            $toRel = $rels ? $rel($to) : null;
+            foreach ($toRel !== null ? array_merge($paths, $rels) : $paths as $k => $p) {
+                if (under($k < count($paths) ? $to : $toRel, $p)) {
+                    $name = trim((string) @file_get_contents("$dir/comm"));
+                    $out["$pid"] = (preg_match('/^[\x20-\x7e]{1,32}$/D', $name) ? $name : '?') . " ($pid)";
+                    continue 3;
+                }
+            }
+        }
+    }
+    ksort($out, SORT_NUMERIC);
+    return array_values($out);
 }
 
 /** Where a file he replaces goes aside: on the flash into RS_FLASH_ASIDE/<stamp>/…, elsewhere next to it */
@@ -3079,6 +3142,14 @@ function rsPlanPutback(array $r, string $stamp): array
                 $plan['blockers'][] = ['key' => 'restore_vm_uses', 'params' => ['name' => $v['name'], 'state' => $v['state'], 'path' => $v['path']]];
             }
         }
+        // a process holding a file of it open (scenario batch C, R2): blocks, and is looked for again right before
+        $holders = $touched ? rsOpenHolders(array_values(array_unique($touched))) : [];
+        if ($holders) {
+            $plan['blockers'][] = ['key' => 'restore_in_use', 'params' => ['names' => implode(', ', $holders), 'path' => implode(', ', array_values(array_unique($touched)))]];
+        }
+        if ($touched) {
+            array_unshift($plan['steps'], ['do' => 'not_open', 'paths' => array_values(array_unique($touched))]);
+        }
         if ($vms) {
             array_unshift($plan['steps'], ['do' => 'vms_off', 'paths' => array_values(array_unique($touched)), 'names' => array_column($vms, 'name')]);
             $off = array_values(array_map(fn ($v) => $v['name'], array_filter($vms, fn ($v) => $v['state'] === 'shut off')));
@@ -3360,6 +3431,7 @@ function rsStep(array &$j, int $i): array
         'autostart' => rsDoVirsh($j, ['autostart', (string) $s['name']]),
         'kopia'     => rsDoKopia($j, $i),
         'vms_off'   => rsDoVmsOff($s),
+        'not_open'  => rsDoNotOpen($s),
         'maintenance_off' => rsDoMaintenanceOff($j, $s),
         'pull'      => rsDoPull($j, $i),
         'mount'     => rsDoMount($j, $s),
@@ -4271,6 +4343,13 @@ function rsDoVmsOff(array $s): array
         return rsFail('vm_running', ['names' => implode(', ', array_map(fn ($v) => "{$v['name']} ({$v['state']})", $on))]);
     }
     return ['state' => 'ok'];
+}
+
+/** Nothing (but a container that stops next) holds a file of it open — right before anything is replaced */
+function rsDoNotOpen(array $s): array
+{
+    $holders = rsOpenHolders((array) ($s['paths'] ?? []));
+    return $holders ? rsFail('in_use', ['names' => implode(', ', $holders)]) : ['state' => 'ok'];
 }
 
 /** A VM's definition as libvirt keeps it, put aside before another one is defined */

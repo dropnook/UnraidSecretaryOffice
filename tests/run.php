@@ -12420,7 +12420,7 @@ function testRestoreJobs(): void
     // «Put back»: from the journal, newest step first; what he restored goes aside itself
     check('restore: it can be put back', rsCanPutback($j));
     $back = rsPlanSeal(rsPlanPutback(['id' => $id], '20261006-130000'), '20261006-130000');
-    same('restore: the put back\'s steps', ['aside', 'aside', 'move', 'aside', 'move'], array_column($back['steps'], 'do'));
+    same('restore: the put back\'s steps (first a look for a file held open)', ['not_open', 'aside', 'aside', 'move', 'aside', 'move'], array_column($back['steps'], 'do'));
     same('restore: nothing blocks the put back', [], $back['blockers']);
     $p = rsJournalNew('20261006-130000-cd34', $back);
     rsPrivateDir(rsDir($p['id']));
@@ -12429,7 +12429,7 @@ function testRestoreJobs(): void
         $p['steps'][$i] = array_merge($p['steps'][$i], rsStep($p, $i));
         $states[] = $p['steps'][$i]['state'];
     }
-    same('restore: the put back ran', ['ok', 'ok', 'ok', 'ok', 'ok'], $states);
+    same('restore: the put back ran', ['ok', 'ok', 'ok', 'ok', 'ok', 'ok'], $states);
     clearstatcache();
     same('restore: everything as before, the restored aside', ['current', 'live', 'new', 'from the snapshot', false],
         [@file_get_contents("$live/db.sqlite"), @file_get_contents("$live/folder/f.txt"), @file_get_contents("$live/db.sqlite.putback-20261006-130000"),
@@ -12602,8 +12602,8 @@ function testRestoreShares(): void
     $c = $ctx;
     $p = rsPlanFilesFor('/mnt/user/zzdrop', 'name:manual-x', 'swap', false, $owner, $stamp, $c, ['texts', 'files', 'nope']);
     same('restore shares: only chosen entries that are there, in their order', ['files', 'texts'], $p['target']['items']);
-    same('restore shares: the swap\'s steps', ['copy', 'copy', 'stop', 'aside', 'move', 'aside', 'move', 'start'], array_column($p['steps'], 'do'));
-    same('restore shares: what binds the share stops', [['zz-drop'], ['zz-drop']], [$p['steps'][2]['containers'], $p['stops']]);
+    same('restore shares: the swap\'s steps', ['copy', 'copy', 'not_open', 'stop', 'aside', 'move', 'aside', 'move', 'start'], array_column($p['steps'], 'do'));
+    same('restore shares: what binds the share stops', [['zz-drop'], ['zz-drop']], [$p['steps'][3]['containers'], $p['stops']]);
     same('restore shares: aside on the share', ["$mnt/user/zzdrop/files" => "$mnt/user/zzdrop/files.aside-$stamp", "$mnt/user/zzdrop/texts" => "$mnt/user/zzdrop/texts.aside-$stamp"],
         array_column($p['aside'], 'to', 'from'));
     same('restore shares: nothing blocks it', [], $p['blockers']);
@@ -12624,7 +12624,7 @@ function testRestoreShares(): void
         $j['steps'][$i] = array_merge($j['steps'][$i], rsStep($j, $i));
         $states[] = $j['steps'][$i]['state'];
     }
-    same('restore shares: the swap ran', array_fill(0, 8, 'ok'), $states);
+    same('restore shares: the swap ran', array_fill(0, 9, 'ok'), $states);
     clearstatcache();
     same('restore shares: the snapshot\'s state in place, the live one aside', ['png1', 'old text', 'live text'],
         [@file_get_contents("$mnt/hazel/zzdrop/files/f1.png"), @file_get_contents("$mnt/hazel/zzdrop/texts/t1.txt"), @file_get_contents("$mnt/hazel/zzdrop/texts.aside-$stamp/t1.txt")]);
@@ -12632,7 +12632,7 @@ function testRestoreShares(): void
     writeAtomic(rsDir($id) . '/plan.json', jsonEncode($p), 0600, 0, 0);
     rsJournalWrite($j);
     $back = rsPlanSeal(rsPlanPutback(['id' => $id], '20261006-170000'), '20261006-170000');
-    same('restore shares: the put back\'s steps', [['stop', 'aside', 'move', 'aside', 'move', 'start'], []], [array_column($back['steps'], 'do'), $back['blockers']]);
+    same('restore shares: the put back\'s steps', [['not_open', 'stop', 'aside', 'move', 'aside', 'move', 'start'], []], [array_column($back['steps'], 'do'), $back['blockers']]);
     $pb = rsJournalNew('20261006-170000-cd34', $back);
     rsPrivateDir(rsDir($pb['id']));
     $states = [];
@@ -12641,7 +12641,7 @@ function testRestoreShares(): void
         $states[] = $pb['steps'][$i]['state'];
     }
     clearstatcache();
-    same('restore shares: put back — as before, the restored state aside', [array_fill(0, 6, 'ok'), 'live text', false, 'old text', 'png1'],
+    same('restore shares: put back — as before, the restored state aside', [array_fill(0, 7, 'ok'), 'live text', false, 'old text', 'png1'],
         [$states, @file_get_contents("$mnt/hazel/zzdrop/texts/t1.txt"), file_exists("$mnt/hazel/zzdrop/files/f1.png"),
          @file_get_contents("$mnt/hazel/zzdrop/texts.putback-20261006-170000/t1.txt"), @file_get_contents("$mnt/hazel/zzdrop/files.putback-20261006-170000/f1.png")]);
 
@@ -12739,7 +12739,7 @@ function testRestoreShares(): void
     // an empty share: straight in — nothing to put aside, «put in place» by default
     $c = $ctx;
     $p = rsPlanFilesFor('/mnt/user/zzempty', '', '', false, $owner, $stamp, $c);
-    same('restore shares: an empty share is filled straight in', ['empty', 'swap', ['copy', 'stop', 'move', 'start'], [], 'after.files_place'],
+    same('restore shares: an empty share is filled straight in', ['empty', 'swap', ['copy', 'not_open', 'stop', 'move', 'start'], [], 'after.files_place'],
         [$p['share_now']['state'], $p['target']['mode'], array_column($p['steps'], 'do'), $p['aside'], $p['after'][0]['key'] ?? null]);
     check('restore shares: and says so', in_array('note.files_share_empty', array_column($p['notes'], 'key'), true));
     same('restore shares: an exclusive share is placed on its pool only', ['note.files_place', 'hazel'],
@@ -12841,7 +12841,7 @@ function testRestoreNextcloud(): void
     };
     $p = $plan('/mnt/user/zzapps/zz-nc', 'run:20261011-0300', 'swap', $owner);
     same('restore nextcloud: swapped from the engine\'s snapshot — maintenance off after the containers\' start, nothing blocks',
-        [['copy', 'stop', 'aside', 'move', 'start', 'maintenance_off'], [], ['container' => 'zz-nc-app', 'occ' => '/var/www/html/occ', 'user' => 'www-data']],
+        [['copy', 'not_open', 'stop', 'aside', 'move', 'start', 'maintenance_off'], [], ['container' => 'zz-nc-app', 'occ' => '/var/www/html/occ', 'user' => 'www-data']],
         [array_column($p['steps'], 'do'), array_column($p['blockers'], 'key'), array_intersect_key(end($p['steps']), array_flip(['container', 'occ', 'user']))]);
     same('restore nextcloud: said under «Afterwards», with the command', ['after.files_swap', 'after.nextcloud_maintenance', 'zz-nc-app', 'www-data', '/var/www/html/occ'],
         [$p['after'][0]['key'] ?? null, $p['after'][1]['key'] ?? null, $p['after'][1]['params']['container'] ?? null, $p['after'][1]['params']['user'] ?? null,
@@ -12961,7 +12961,7 @@ function testRestoreFindings(): void
     $p = rsPlanFilesFor('/mnt/user/domains/VM1', '', '', false, $owner, $stamp, $c);
     $notes = array_column($p['notes'], 'key');
     same('restore findings: an empty folder — put in place by default, as a dataset, the empty one aside',
-        [true, 'swap', ['copy', 'vms_off', 'aside', 'move'], 'empty', 'zz-maple/domains/VM1.restored-' . $stamp],
+        [true, 'swap', ['copy', 'vms_off', 'not_open', 'aside', 'move'], 'empty', 'zz-maple/domains/VM1.restored-' . $stamp],
         [$p['options']['nothing_live'], $p['target']['mode'], array_column($p['steps'], 'do'), $p['aside'][0]['what'] ?? null, $p['steps'][0]['dataset'] ?? null]);
     check('restore findings: and says so (place, the empty folder aside)', in_array('note.files_place_empty', $notes, true)
         && in_array('after.files_empty_aside', array_column($p['after'], 'key'), true) && ($p['after'][0]['key'] ?? '') === 'after.files_place', json_encode([$notes, $p['after']]));
@@ -13428,6 +13428,115 @@ function testRestoreNames(): void
     } finally {
         unset($GLOBALS['rs']['data'], $GLOBALS['rs']['job_file'], $GLOBALS['rs']['ub_data'], $GLOBALS['rs']['sizes_file'], $GLOBALS['rs']['users'],
               $GLOBALS['rs']['ratios'], $GLOBALS['rs']['compresses']);
+        $GLOBALS['rs']['du'] = ['queue' => [], 'running' => []];
+        exec('rm -rf ' . escapeshellarg($tmp));
+    }
+}
+
+/**
+ * Scenario batch C, R2 (restore-sh-open-file-replace): «Replace» of a folder in which a process (no container) holds a
+ * file open went through without a word — the writer kept writing into what he had put aside. Now such a process blocks
+ * the plan (restore_in_use, with its name), is looked for again right before anything is replaced (step not_open), and
+ * blocks a put back the same way; a copy beside replaces nothing and isn't held up. A real `tail -f` holds the file.
+ */
+function testRestoreInUse(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-rsinuse-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $mnt = "$tmp/mnt";
+    @mkdir("$tmp/data/unraid-backup/state", 0700, true);
+    $GLOBALS['rs']['data'] = "$tmp/data/restore";
+    $GLOBALS['rs']['job_file'] = "$tmp/data/restore-job.json";
+    $GLOBALS['rs']['ub_data'] = "$tmp/data/unraid-backup";
+    $GLOBALS['rs']['sizes_file'] = "$tmp/data/restore-sizes.json";
+    $GLOBALS['rs']['users'] = fn (array $paths, array $roots): array => [[], []];
+    $GLOBALS['rs']['ratios'] = fn (array $snaps): array => [];
+    $GLOBALS['rs']['compresses'] = fn (string $ds): bool => false;
+    @mkdir("$mnt/hazel/zzopen/.zfs/snapshot/manual-o/data", 0755, true);
+    @mkdir("$mnt/hazel/zzopen/data", 0755, true);
+    @mkdir("$mnt/user", 0755, true);
+    file_put_contents("$mnt/hazel/zzopen/.zfs/snapshot/manual-o/data/open.bin", 'old');
+    file_put_contents("$mnt/hazel/zzopen/data/open.bin", 'live');
+    symlink("$mnt/hazel/zzopen", "$mnt/user/zzopen");
+    $ctx = [
+        'fs' => ['hazel' => 'zfs'], 'zfs' => ["$mnt/hazel/zzopen" => 'zz-hazel/zzopen'],
+        'snaps' => ['zz-hazel/zzopen' => [['name' => 'manual-o', 'time' => (int) strtotime('2026-10-19 15:00')]]],
+        'asleep' => [], 'prefixes' => ['uso-backup-'], 'btrfs_dir' => '.btrfs-snap', 'settings' => [],
+        'cfg' => ['zzopen' => ['shareUseCache' => 'only', 'shareCachePool' => 'hazel']],
+        'mnt' => $mnt, 'user' => "$mnt/user", 'disks' => ['hazel' => ['name' => 'hazel', 'fsFree' => '1000000']],
+        'shares_ini' => ['zzopen' => ['exclusive' => 'yes']], 'old_shares' => "$tmp/none", 'now' => [],
+    ];
+    $owner = ['kind' => 'app', 'name' => 'zz', 'id' => 'zz', 'vm_state' => null];
+    $stamp = '20261019-170000';
+    $hold = fn (string $file) => proc_open(['tail', '-f', $file], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pp);
+    $free = function ($p): void {
+        if (is_resource($p)) {
+            proc_terminate($p);
+            proc_close($p);
+        }
+    };
+    $holder = null;
+    try {
+        $holder = $hold("$mnt/user/zzopen/data/open.bin");        // opened through the share: its fd names the pool's file
+        usleep(300000);
+        $tailPid = proc_get_status($holder)['pid'];
+        $c = $ctx;
+        $p = rsPlanFilesFor('/mnt/user/zzopen/data', 'name:manual-o', 'swap', false, $owner, $stamp, $c);
+        $b = array_values(array_filter($p['blockers'], fn ($x) => $x['key'] === 'restore_in_use'))[0] ?? null;
+        same('restore in use: a process holding a file open blocks the swap, named with its pid, the folder said',
+            ["tail ($tailPid)", "$mnt/user/zzopen/data"], [$b['params']['names'] ?? null, $b['params']['path'] ?? null]);
+        $do = array_column($p['steps'], 'do');
+        same('restore in use: looked for again right before anything is replaced', ['copy', 'not_open', 'aside', 'move'], $do);
+        $c = $ctx;
+        same('restore in use: a copy beside replaces nothing — not held up', [], rsPlanFilesFor('/mnt/user/zzopen/data', 'name:manual-o', 'copy', false, $owner, $stamp, $c)['blockers']);
+        $not = ['do' => 'not_open', 'paths' => ["$mnt/user/zzopen/data", "$mnt/hazel/zzopen/data"]];
+        same('restore in use: the step finds it (and says who)', ['failed', 'in_use', "tail ($tailPid)"],
+            (fn ($r) => [$r['state'], $r['note'] ?? null, $r['params']['names'] ?? null])(function_exists('rsDoNotOpen') ? rsDoNotOpen($not) : ['state' => 'ok']));
+        $free($holder);
+        $holder = null;
+        usleep(200000);
+        same('restore in use: closed — the step goes on', 'ok', function_exists('rsDoNotOpen') ? rsDoNotOpen($not)['state'] : null);
+        $c = $ctx;
+        $p = rsPlanFilesFor('/mnt/user/zzopen/data', 'name:manual-o', 'swap', false, $owner, $stamp, $c);
+        same('restore in use: closed — nothing blocks the swap', [], $p['blockers']);
+        // the swap, then a writer on the restored state: «Put back» is held up the same way
+        $id = "$stamp-cd34";
+        rsPrivateDir(rsData());
+        rsPrivateDir(rsDir($id));
+        $p['stamp'] = $stamp;
+        $j = rsJournalNew($id, $p);
+        foreach (array_keys($j['steps']) as $i) {
+            $j['steps'][$i] = array_merge($j['steps'][$i], rsStep($j, $i));
+        }
+        $j['result'] = 'ok';
+        writeAtomic(rsDir($id) . '/plan.json', jsonEncode($p), 0600, 0, 0);
+        rsJournalWrite($j);
+        clearstatcache();
+        same('restore in use: the swap ran, the old state in place', ['ok', 'old'], [implode(',', array_unique(array_column($j['steps'], 'state'))), @file_get_contents("$mnt/hazel/zzopen/data/open.bin")]);
+        $holder = $hold("$mnt/hazel/zzopen/data/open.bin");        // this time on its pool's path
+        usleep(300000);
+        $back = rsPlanPutback(['id' => $id], '20261019-180000');
+        same('restore in use: a put back is held up too, and looks again first', [['restore_in_use'], 'not_open'],
+            [array_column($back['blockers'], 'key'), $back['steps'][0]['do'] ?? null]);
+        // a share's path stands for every pool and disk; a container's process (a mount namespace of its own) is left out
+        $proc = "$tmp/proc";
+        foreach (['self' => 'mnt:[1]', '123' => 'mnt:[1]', '124' => 'mnt:[2]'] as $pid => $ns) {
+            @mkdir("$proc/$pid/ns", 0755, true);
+            @mkdir("$proc/$pid/fd", 0755, true);
+            symlink($ns, "$proc/$pid/ns/mnt");
+            file_put_contents("$proc/$pid/comm", "$pid" === '123' ? "writer\n" : "inside\n");
+            symlink("$pid" === '124' ? '/mnt/cache/zzshare/data/x' : '/mnt/disk1/zzshare/data/x (deleted)', "$proc/$pid/fd/3");
+            symlink('pipe:[42]', "$proc/$pid/fd/4");
+        }
+        $GLOBALS['rs']['proc'] = $proc;
+        same('restore in use: /mnt/user/<share>/x is the same file on each pool and disk; a container\'s process left out; elsewhere nothing',
+            [['writer (123)'], ['writer (123)'], [], []],
+            function_exists('rsOpenHolders') ? [rsOpenHolders(['/mnt/user/zzshare/data']), rsOpenHolders(['/mnt/disk1/zzshare']), rsOpenHolders(['/mnt/user/zzshare/other']),
+                rsOpenHolders(['/mnt/addons/zzshare/data'])] : null);
+    } finally {
+        $free($holder);
+        unset($GLOBALS['rs']['data'], $GLOBALS['rs']['job_file'], $GLOBALS['rs']['ub_data'], $GLOBALS['rs']['sizes_file'], $GLOBALS['rs']['users'],
+              $GLOBALS['rs']['ratios'], $GLOBALS['rs']['compresses'], $GLOBALS['rs']['proc']);
         $GLOBALS['rs']['du'] = ['queue' => [], 'running' => []];
         exec('rm -rf ' . escapeshellarg($tmp));
     }
@@ -44041,7 +44150,7 @@ JS;
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
