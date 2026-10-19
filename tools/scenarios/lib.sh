@@ -1400,7 +1400,7 @@ _self_test() {
     _st 0 "lock_held through /mnt/user" lock_held /mnt/user/uso-wip-h1-st/st.lock
     wait "$i"
     _st 0 "where_is" test "$(where_is /mnt/user/uso-wip-h1-st/f0001)" = "$pool"
-    _st 0 "inventory" test "$(inventory uso-wip-h1-st | wc -l)" = "$((7 + ${disk:+1}+0))"   # f0001–f0005, st.lock, back\\slash
+    _st 0 "inventory" test "$(inventory uso-wip-h1-st | wc -l)" = "$((7 + ${disk:+1}+0))"   # f0001–f0005, st.lock, back\slash
 
     # ---- the quiet state: every check green
     snap_after
