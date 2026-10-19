@@ -16,6 +16,7 @@ nc_data_closed
 state SH-PREFER-ARRAY-FILES "$S"
 nc_data_closed
 state DK-ASLEEP-DISK1
+expect_changes "share|$S|*"                 # a new share for Mr. Backupsy's setup too
 track_share "$S"
 snap_before
 log=$D/moverelli/smart_mover.log

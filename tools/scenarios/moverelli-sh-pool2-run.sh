@@ -14,6 +14,7 @@ nc_data_closed
 state SH-PREFER-POOL2 "$SP" "$P2"
 state SH-YES-POOL2 "$SY" "$P2"
 nc_data_closed
+expect_changes "share|$SP|*" "share|$SY|*"   # new shares for Mr. Backupsy's setup too
 track_share "$SP" "$SY"
 snap_before
 flow MV-RUN

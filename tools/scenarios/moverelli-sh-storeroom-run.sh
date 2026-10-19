@@ -20,6 +20,7 @@ found() { ask cleanup.refresh '{}' 300 >/dev/null || return 1
     jq -c --arg s "$S" --arg r "$RUNID" '[.trash.runs[]? | select(((.stamp // .id // .name // "") | tostring | contains($r)) and (tostring | contains($s)))] | first // empty' "$D/cleanup.json"; }
 r0=$(found)
 [[ -n $r0 ]] && say "Ms. Dustdevil lists it before the run: $(head -c 300 <<<"$r0")" || _row state SH-STOREROOM red "Ms. Dustdevil doesn't list the storeroom's run before the run: $(jq -c '[.trash.runs[]? | .stamp // .id // .name]' "$D/cleanup.json" 2>/dev/null | head -c 300)"
+expect_changes "share|$S|*"                 # a new share for Mr. Backupsy's setup too
 track_share "$S"
 snap_before
 flow MV-RUN

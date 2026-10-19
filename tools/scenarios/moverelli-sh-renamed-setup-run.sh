@@ -31,6 +31,7 @@ share_rename "$A" "$B" && undo_push share_rename "$B" "$A" || _row state SH-RENA
 state SH-DELETED "$DEL"
 state SH-CFG-ORPHAN "$O"
 nc_data_closed
+expect_changes "share|$B|*"                 # the renamed share is new for Mr. Backupsy's setup
 track_share "$B"
 snap_before
 ini=$D/moverelli/smart_mover.ini

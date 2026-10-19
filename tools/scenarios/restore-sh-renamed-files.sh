@@ -39,6 +39,7 @@ nc_data_closed
 ct_make C-R8N "$NEW" alpine:latest -v "/mnt/user/$B/album:/data" -- sleep 86400 || _row state app red "$NEW could not be made"
 undo_push ct_unmake C-R8N
 expect_changes 'docker|*'                    # the scratch apps are new containers for Mr. Backupsy's setup
+expect_changes "share|$A|*" "share|$B|*"   # the rename: his setup lists it (Apply follows by the user)
 track_share "$B"
 snap_before
 flow BK-RUN-MANUAL mode=backup               # the next run: the new app's package names its folder in $B

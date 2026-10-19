@@ -15,6 +15,7 @@ share_use C-M14 "$S" yes cache || _row state share red "$S could not be made"
 undo_push share_unuse C-M14
 state SH-100K "$S"
 nc_data_closed
+expect_changes "share|$S|*"                 # a new share for Mr. Backupsy's setup too
 track_share "$S"
 snap_before
 max=$(jq -r '.settings.global.max_list // 50' "$D/moverelli.json" 2>/dev/null)

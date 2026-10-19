@@ -17,6 +17,7 @@ undo_push files_unput C-M5
 where=$(disk_of_file "/mnt/user/$S/open.bin")
 sum=$(md5sum <"/mnt/cache/$S/open.bin")
 say "open.bin lies on ${where:-?}, held open by $(cat "$KEEP_STASH/SH-OPEN-FILE/open.pids" 2>/dev/null)"
+expect_changes "share|$S|*"                 # a new share for Mr. Backupsy's setup too
 track_share "$S"
 snap_before
 flow MV-RUN
