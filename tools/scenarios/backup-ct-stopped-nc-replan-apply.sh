@@ -22,6 +22,7 @@ expect_apply_list() {
 [[ -n ${1:-} ]] && state IN-DOWNGRADE "$1"
 nc_data_closed
 state CT-STOPPED-NC
+expect_warnings dump_stopped          # engine 2.64: the stopped database's skipped dump is coded (up to 2.63 a plain warning)
 snap_before
 if flow BK-REPLAN; then
     plan=$KEEP/plan-replan.json
