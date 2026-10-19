@@ -72,7 +72,7 @@ if [[ -n $look && -f $look/states/moverelli-progress.json ]]; then
     queue_mac INV-BUBBLE page_text moverelli "$look/states" "$PAGE_LANGS" want "moverelli.bubble.run_to_array"
     # her card's time left off the drawn page, reading by reading, against the seconds really left (look's state the frame)
     if ((n >= 5)) && [[ -s $replay ]]; then
-        queue_mac card-left page_value --factor 3 --slack 30 moverelli "$look/states" en "$replay" "moverelli.rc.left:left moverelli.rc.left_range:lo..hi"
+        queue_mac card-left page_value --factor 3 --slack 30 moverelli "$look/states" en "$replay" "moverelli.rc.left:left moverelli.rc.left_range:lo..hi moverelli.rc.left_upto:..hi moverelli.rc.left_few@30"
     else
         cell card-left 0 "only $n readings of her run — too short to judge the card's time left"
     fi

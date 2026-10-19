@@ -7,6 +7,7 @@
 //   node tools/scenarios/page.mjs --states <folder> <desk>[/<tab>…] [--lang de,en] [--host <name>] [--theme dark|light]
 //                                 [--width 1440] [--json] [--want <desk.key>]… [--not <desk.key>]… [--clean] [--open]
 //                                 [--tree <tag>] [--value <desk.key>:<ph>[..<ph2>][=<number>]]… [--replay <readings.jsonl>]
+//                                 (also --value <desk.key>:..<ph> a range from 0, <desk.key>@<n> a text that stands for n)
 //                                 [--factor 1] [--slack 0]
 //
 // The folder holds <desk>.json and the parts (<desk>-<part>.json) as the data folder does, and post/<desk>.<action>.json
@@ -120,10 +121,13 @@ for (const k of [...opt.want, ...opt.not]) {
   if (!/^[a-z][a-z0-9_-]*\.[A-Za-z0-9_.-]+$/.test(k)) { console.error(`page: «${k}» is no lang key (desk.key)`); usage(); }
 }
 // --value specs: {key, ph, ph2, expect}
+// `<key>:..<ph>` a range from 0 («at most {hi}»); `<key>@<n>` a text without a number that stands for n («a few seconds»)
 const valueSpecs = opt.value.map((v) => {
-  const m = /^([a-z][a-z0-9_-]*\.[A-Za-z0-9_.-]+):([a-z_][a-z0-9_]*)(?:\.\.([a-z_][a-z0-9_]*))?(?:=(-?\d+(?:\.\d+)?))?$/.exec(v);
-  if (!m) { console.error(`page: «${v}» is no value spec (<desk.key>:<placeholder>[..<placeholder>][=<number>])`); usage(); }
-  return { spec: v, key: m[1], ph: m[2], ph2: m[3] || null, expect: m[4] === undefined ? null : Number(m[4]) };
+  const f = /^([a-z][a-z0-9_-]*\.[A-Za-z0-9_.-]+)@(\d+(?:\.\d+)?)$/.exec(v);
+  if (f) return { spec: v, key: f[1], ph: null, ph2: null, fixed: Number(f[2]), expect: null };
+  const m = /^([a-z][a-z0-9_-]*\.[A-Za-z0-9_.-]+):([a-z_][a-z0-9_]*)?(?:\.\.([a-z_][a-z0-9_]*))?(?:=(-?\d+(?:\.\d+)?))?$/.exec(v);
+  if (!m || (!m[2] && !m[3])) { console.error(`page: «${v}» is no value spec (<desk.key>:<placeholder>[..<placeholder>][=<number>], <desk.key>:..<placeholder>, <desk.key>@<number>)`); usage(); }
+  return { spec: v, key: m[1], ph: m[2] || null, ph2: m[3] || null, expect: m[4] === undefined ? null : Number(m[4]) };
 });
 if (opt.replay && !fs.existsSync(opt.replay)) { console.error(`page: no readings «${opt.replay}»`); usage(); }
 if (!fs.existsSync(opt.states)) {
@@ -273,15 +277,16 @@ function asNumber(text, lang) {
 /** The first value spec found in the text: {spec, shown, value | lo, hi} or null */
 function readValue(text, lang) {
   for (const v of valueSpecs) {
-    const phs = v.ph2 ? [v.ph, v.ph2] : [v.ph];
+    const phs = [v.ph, v.ph2].filter(Boolean);
     for (const p of valuePatterns(v.key, lang, phs) || []) {
       const m = p.re.exec(text);
       if (!m) continue;
+      if (v.fixed !== undefined) return { spec: v, shown: m[0].trim(), value: v.fixed };
       const got = {};
       p.order.forEach((ph, i) => { got[ph] = m[i + 1].trim(); });
-      if (got[v.ph] === undefined || (v.ph2 && got[v.ph2] === undefined)) continue;
-      const r = { spec: v, shown: v.ph2 ? `${got[v.ph]} … ${got[v.ph2]}` : got[v.ph] };
-      if (v.ph2) { r.lo = asNumber(got[v.ph], lang); r.hi = asNumber(got[v.ph2], lang); if (r.lo === null || r.hi === null) continue; }
+      if ((v.ph && got[v.ph] === undefined) || (v.ph2 && got[v.ph2] === undefined)) continue;
+      const r = { spec: v, shown: v.ph2 ? `${v.ph ? got[v.ph] : '0'} … ${got[v.ph2]}` : got[v.ph] };
+      if (v.ph2) { r.lo = v.ph ? asNumber(got[v.ph], lang) : 0; r.hi = asNumber(got[v.ph2], lang); if (r.lo === null || r.hi === null) continue; }
       else { r.value = asNumber(got[v.ph], lang); if (r.value === null) continue; }
       return r;
     }
