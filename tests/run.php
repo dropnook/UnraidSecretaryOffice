@@ -36805,7 +36805,9 @@ SH);
  * once m3/a-small and m3/z-big were gone (upstream gave up on a parent the first time a sibling still held files), and a
  * stopped prefer run left the emptied disk1/uso-prefer on the array (no folder pass after a stop). Now every folder above
  * a moved file is looked at deepest first; never the share's root on the pool; a prefer share's folder on a disk only
- * when its copy is on the pool; a folder still holding something always stays.
+ * when its copy is on the pool; a folder still holding something always stays. And folders empty BEFORE the run (a real
+ * server: .tmp/, shares/counters/ left on the pool) go to the target as Unraid's mover takes them — in every direction,
+ * never one an exclude keeps.
  */
 function testMoverelliTidy(): void
 {
@@ -36815,7 +36817,7 @@ function testMoverelliTidy(): void
         file_put_contents("$t/$rel", $body);
     };
     $reset = function () use ($t): void {
-        exec('rm -rf ' . escapeshellarg("$t/mnt") . ' ' . escapeshellarg("$t/log") . ' ' . escapeshellarg("$t/stop"));
+        exec('rm -rf ' . escapeshellarg("$t/mnt") . ' ' . escapeshellarg("$t/log") . ' ' . escapeshellarg("$t/stop") . ' ' . escapeshellarg("$t/dirs"));
         foreach (['mnt/user/Pics', 'mnt/user/Yes', 'mnt/cache/Pics', 'mnt/cache/Yes', 'shares', 'bin'] as $d) {
             @mkdir("$t/$d", 0700, true);
         }
@@ -36823,16 +36825,17 @@ function testMoverelliTidy(): void
     $reset();
     file_put_contents("$t/bin/move", <<<'SH'
 #!/bin/bash
-# a stand-in for Unraid's move binary: a data disk → the pool, the pool → disk1 (the parents made there); a folder
-# created there, removed here when empty; the stop file written while the n-th file of a binary moves
+# a stand-in for Unraid's move binary: a data disk → the pool, the pool → disk1, the second pool fast → the pool (the
+# parents made there); a folder created there, removed here when empty; every folder handed over noted; the stop file written while the n-th file of a binary moves
 n=0
 while IFS= read -r f; do
     case "$f" in
         "$MOVE_ROOT"/cache/*) to="$MOVE_ROOT/disk1/${f#"$MOVE_ROOT"/cache/}" ;;
+        "$MOVE_ROOT"/fast/*) to="$MOVE_ROOT/cache/${f#"$MOVE_ROOT"/fast/}" ;;
         "$MOVE_ROOT"/disk[0-9]*/*) r=${f#"$MOVE_ROOT"/disk}; to="$MOVE_ROOT/cache/${r#*/}" ;;
         *) continue ;;
     esac
-    if [[ -d "$f" && ! -L "$f" ]]; then mkdir -p "$to" && rmdir "$f" 2>/dev/null; continue; fi
+    if [[ -d "$f" && ! -L "$f" ]]; then printf '%s\n' "$f" >> "$MOVE_DIRS"; mkdir -p "$to" && rmdir "$f" 2>/dev/null; continue; fi
     (( ++n == ${MOVE_STOP_AT:-0} )) && printf '{"why":"user"}' > "$CUSTOMMOVER_STOP"
     mkdir -p "$(dirname "$to")" && mv "$f" "$to"
 done
@@ -36843,7 +36846,7 @@ SH);
     file_put_contents("$t/ini", "[GLOBAL]\nmin_age=0\n[Yes]\nexcludes=$t/excl.txt\n");
     $env = ['CUSTOMMOVER_INI' => "$t/ini", 'CUSTOMMOVER_SHARES_DIR' => "$t/shares", 'CUSTOMMOVER_MNT' => "$t/mnt", 'CUSTOMMOVER_LOG' => "$t/log",
             'CUSTOMMOVER_LOCK' => "$t/lock", 'CUSTOMMOVER_STATUS' => "$t/st.json", 'CUSTOMMOVER_ZFS' => '/nonexistent-zfs', 'CUSTOMMOVER_MOVER_BIN' => "$t/bin/move",
-            'CUSTOMMOVER_STOP' => "$t/stop", 'CUSTOMMOVER_IGNORE_MOVER' => '1', 'MOVE_ROOT' => "$t/mnt"];
+            'CUSTOMMOVER_STOP' => "$t/stop", 'CUSTOMMOVER_IGNORE_MOVER' => '1', 'MOVE_ROOT' => "$t/mnt", 'MOVE_DIRS' => "$t/dirs"];
     $sm = OFFICE_DIR . '/smartmover/custommover_run.sh';
     $share = fn (array $st, string $n) => array_values(array_filter($st['shares'] ?? [], fn ($x) => $x['share'] === $n))[0] ?? [];
 
@@ -36854,7 +36857,12 @@ SH);
     foreach (['m3/a-small/1.bin', 'm3/a-small/2.bin', 'm3/z-big/1.bin', 'm3/deep/1/2/f.bin', 'm4/gone/g.bin', 'm4/kept/k.bin'] as $f) {
         $mk("mnt/cache/Yes/$f");
     }
-    file_put_contents("$t/excl.txt", "$t/mnt/user/Yes/m4/kept/k.bin\n");
+    // folders empty before the run (a real server: .tmp/, shares/counters/ left on the pool): e1, e2/e3 to the array;
+    // keepdir (her exclude) stays, so does the share's folder
+    foreach (['e1', 'e2/e3', 'keepdir'] as $d) {
+        @mkdir("$t/mnt/cache/Yes/$d", 0700, true);
+    }
+    file_put_contents("$t/excl.txt", "$t/mnt/user/Yes/m4/kept/k.bin\n$t/mnt/user/Yes/keepdir\n");
     [$exit] = runEnv(['bash', $sm, '--run'], $env, 60);
     $st = readJson("$t/st.json") ?? [];
     same('tidy, a yes run: exit 0, 5 moved — the emptied m3 (and m3/deep/1/2 up to it) gone from the pool, the share\'s folder kept',
@@ -36863,6 +36871,11 @@ SH);
          count(glob("$t/mnt/disk1/Yes/m3/*/*.bin") ?: []) + count(glob("$t/mnt/disk1/Yes/m3/deep/1/2/*.bin") ?: []) + count(glob("$t/mnt/disk1/Yes/m4/gone/*.bin") ?: [])]);
     same('tidy, a yes run: … a folder still holding something stays (m4/kept with its excluded file, so m4), its emptied sibling goes',
         [true, true, false], [is_file("$t/mnt/cache/Yes/m4/kept/k.bin"), is_dir("$t/mnt/cache/Yes/m4"), is_dir("$t/mnt/cache/Yes/m4/gone")]);
+    $dirs = file_exists("$t/dirs") ? file("$t/dirs", FILE_IGNORE_NEW_LINES) : [];
+    same('tidy, a yes run: … folders empty before the run (e1, e2/e3) moved to the array; the excluded empty keepdir stays on the pool; never the share\'s folder or one holding a file handed over',
+        [false, false, true, true, true, false, false, false],
+        [is_dir("$t/mnt/cache/Yes/e1"), is_dir("$t/mnt/cache/Yes/e2"), is_dir("$t/mnt/disk1/Yes/e1"), is_dir("$t/mnt/disk1/Yes/e2/e3"), is_dir("$t/mnt/cache/Yes/keepdir"),
+         in_array("$t/mnt/cache/Yes", $dirs, true), in_array("$t/mnt/cache/Yes/m4", $dirs, true), in_array("$t/mnt/cache/Yes/keepdir", $dirs, true)]);
     // everything moved: the share's folder on the pool still stays (a share's root is Unraid's)
     $reset();
     $mk('mnt/cache/Yes/m3/a/1.bin');
@@ -36871,10 +36884,20 @@ SH);
     same('tidy, a yes run: all of the share moved — m3 gone, the share\'s folder on the pool kept (empty)', [false, true, true],
         [is_dir("$t/mnt/cache/Yes/m3"), is_dir("$t/mnt/cache/Yes"), is_file("$t/mnt/disk1/Yes/m3/a/1.bin")]);
 
+    // a prefer share from a second pool (fast → cache): its emptied and its empty folders go to the pool, its folder on fast stays
+    $reset();
+    unlink("$t/shares/Yes.cfg");
+    file_put_contents("$t/shares/Pics.cfg", "shareUseCache=\"prefer\"\nshareCachePool=\"cache\"\nshareCachePool2=\"fast\"\n");
+    $mk('mnt/fast/Pics/a/1.jpg');
+    @mkdir("$t/mnt/fast/Pics/empty/inner", 0700, true);
+    [$exit] = runEnv(['bash', $sm, '--run'], $env, 60);
+    same('tidy, prefer from a second pool: exit 0 — a/ (emptied) and empty/inner (empty before) gone from fast, on the pool; fast/Pics stays',
+        [0, false, false, true, true, true], [$exit, is_dir("$t/mnt/fast/Pics/a"), is_dir("$t/mnt/fast/Pics/empty"), is_file("$t/mnt/cache/Pics/a/1.jpg"),
+         is_dir("$t/mnt/cache/Pics/empty/inner"), is_dir("$t/mnt/fast/Pics")]);
+
     // a prefer share, stopped while its 3rd file moves: disk1's two files and disk2's first on the pool — disk1/Pics/d1 and
     // disk1/Pics emptied: gone (their copies on the pool), disk2/Pics/d2 still holds two: stays
     $reset();
-    unlink("$t/shares/Yes.cfg");
     file_put_contents("$t/shares/Pics.cfg", "shareUseCache=\"prefer\"\nshareCachePool=\"cache\"\n");
     foreach (['disk1/Pics/d1/1.jpg', 'disk1/Pics/d1/2.jpg', 'disk2/Pics/d2/1.jpg', 'disk2/Pics/d2/2.jpg', 'disk2/Pics/d2/3.jpg'] as $f) {
         $mk("mnt/$f");

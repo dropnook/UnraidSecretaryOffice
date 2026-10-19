@@ -105,7 +105,8 @@
 >   «No such file or directory» and exits 0; Unraid 7.3 and 7.4). An exclude entry written as `/mnt/user/<share>/…` or
 >   `/mnt/user0/<share>/…` holds on every one of those disks. After the files, the share's folders there go to the move
 >   binary deepest first (Unraid's mover's second pass): an empty one moves to the pool — the share's folder on a disk
->   too — one still holding something stays; never an excluded one; after a stop only the empty parents of what moved.
+>   too — one still holding something stays (since «empty folders» below: never handed over); never an excluded one; after
+>   a stop only the empty parents of what moved.
 >   The list (`--list-shares`) still looks at no disk. The second pool → pool case stays `/mnt/<pool2>/<share>`.
 > * **One move binary** (2026-10-18, marked «USO «one move binary»», with `CUSTOMMOVER_STOP`): «one file at a time» no
 >   longer starts a move process per file (with the move binary's own `fuser` and `losetup` per file: hours for 120 000
@@ -139,6 +140,13 @@
 >   first, after all of them are known; never the share's root. A stopped prefer run (no folder pass) also removes its
 >   emptied folders on the disks — the share's folder on a disk too, as the folder pass would move it — but only those
 >   whose copy is on the pool; nothing but `rmdir`.
+> * **Empty folders** (2026-10-19, marked «USO «empty folders»», seen on a real server: a share moved off its pool left
+>   `.tmp/`, `shares/counters/`, `shares/files/` — empty before the run, so no file took them along): every direction now
+>   gets the folder pass that «per disk» brought for prefer shares — yes (pool → array or second pool) and prefer from a
+>   second pool too. Only the folders holding no file below them (empty, or holding only empty folders) go to the move
+>   binary, deepest first, as Unraid's mover's second pass hands them; never one an exclude keeps, nor a folder above it;
+>   never a pool's share root (a prefer share's folder on a disk does go). A share with no file to move gets it too; a
+>   dry run and a stopped run don't (a stop: «tidy» above).
 >
 > **`prefer` shares** (array → pool): their source is the array disks the share may use (above), which may wake them.
 > That is accepted here on purpose (the owner's decision): the Dynamix Cache Directories plugin keeps the folder
