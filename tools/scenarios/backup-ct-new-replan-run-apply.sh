@@ -20,6 +20,9 @@ apply_list_diff() {
 started() { docker inspect -f '{{.State.StartedAt}}' uso-new 2>/dev/null; }
 runlog() { echo "$UB/logs/run-$(jq -r '.run // empty' "$UB/state/status.json" 2>/dev/null).log"; }
 nc_data_closed
+# the package the scenario's own scratch name got goes again at the end (never the engine's way — a test's leftover:
+# the drill and the packages tile of the next scenario would list it)
+undo_push bash -c '[[ -n $1 && -d $1 ]] && rm -rf -- "$1"; exit 0' _ "$PLACE/apps/uso-new"
 mkdir -p "$KEEP_STASH/ini" && cp -p "$UB/settings.ini" "$KEEP_STASH/ini/settings.ini"
 undo_push bash -c '[[ -f $1 ]] && cp -p "$1" "$2" && rm -f "$1"' _ "$KEEP_STASH/ini/settings.ini" "$UB/settings.ini"
 state CT-NEW

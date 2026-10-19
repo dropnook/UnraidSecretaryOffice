@@ -1,6 +1,6 @@
 #!/bin/bash
 # Cell R12 of matrix.md: Nextcloud and its database are stopped (CT-STOPPED-NC) and the user restores (a) its database
-# and (b) a folder of its data folder (the share nextcloud, beside), from a run made first. Mr. Restori leaves the
+# and (b) its data folder (the share nextcloud it binds whole — the unit his page offers — beside), from a run made first. Mr. Restori leaves the
 # maintenance mode alone when Nextcloud doesn't run: neither plan has a maintenance step (restore.php: maintenance_off
 # only for a config folder from the engine's snapshot), config.php stays byte for byte, both containers stay stopped.
 # (a) is judged on the dialog's preview only (restore.preview) — the plan's start of the stopped database is R11's
@@ -14,11 +14,12 @@ DB=mariadb-nextcloud
 CFG=/mnt/user/appdata/nextcloud/config/config.php
 # the copy beside (<folder>.restored-<stamp>, a dataset of its own when the restore made one) goes at the end
 restored_gone() {
-    local ds to
-    to=$(jq -r '[.steps[]? | select(.do == "copy") | .to][0] // empty' "$D/restore/$1/plan.json" 2>/dev/null)
-    [[ $to == *.restored-* ]] || return 0
-    ds=$(jq -r '[.steps[]? | select(.do == "copy") | .dataset][0] // empty' "$D/restore/$1/plan.json" 2>/dev/null)
-    if [[ -n $ds ]] && zfs list -H "$ds" >/dev/null 2>&1; then zfs destroy -r "$ds"; else rm -rf -- "$to"; fi
+    local to ds
+    while IFS=$'\t' read -r to ds; do
+        [[ $to == *.restored-* ]] || continue
+        if [[ -n $ds ]] && zfs list -H "$ds" >/dev/null 2>&1; then zfs destroy -r "$ds"; else rm -rf -- "$to"; fi
+    done < <(jq -r '.steps[]? | select(.do == "copy") | "\(.to)\t\(.dataset // "")"' "$D/restore/$1/plan.json" 2>/dev/null)
+    return 0
 }
 nc_data_closed
 flow BK-RUN-MANUAL mode=backup               # the dump and the snapshot to restore from
@@ -37,9 +38,9 @@ if [[ -n $file ]] && ask restore.preview "$(jq -cn --arg a "$DB" --arg f "$file"
 else
     cell db-no-maintenance 0 "no preview of $DB's dump «$file»: $(ask_last '.error.key')"
 fi
+restored_gone_last() { local id; id=$(fl_last_restore); [[ -z $id ]] || restored_gone "$id"; }
 undo_push restored_gone_last
-restored_gone_last() { local id; id=$(fl_last_restore); [[ -n $id ]] && restored_gone "$id"; }
-if flow RS-FILES mode=beside path=/mnt/user/nextcloud/admin; then
+if flow RS-FILES mode=beside path=/mnt/user/nextcloud; then
     id=$(fl_last_restore)
     j=$D/restore/$id/journal.json
     evidence "$j" journal-files.json
