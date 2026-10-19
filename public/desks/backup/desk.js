@@ -87,10 +87,19 @@ function button(text, kind, act) {
   return b;
 }
 
-/** Why a run ended: known codes translated, the script's own words otherwise */
-function messageText(m) {
+/** Why a run ended: known codes translated (engine 2.65: with the run's message_params - sizes as sizes - when the
+ *  words need them, else the code's words without them: message.<code>_plain), the script's own words otherwise */
+function messageText(m, params) {
   const code = String(m).replace(/^exit \d+$/, 'exit');
-  return Office.has(`${ID}.message.${code}`) ? T('message.' + code, { detail: m }) : m;
+  if (!Office.has(`${ID}.message.${code}`)) return m;
+  const p = { detail: m };
+  Object.entries(params && typeof params === 'object' ? params : {}).forEach(([k, v]) => {
+    p[k] = (k === 'free' || k === 'need') && /^\d+$/.test(String(v)) ? fmt.size(Number(v)) : String(v);
+  });
+  const raw = Office.strings[`${ID}.message.${code}`];
+  const need = typeof raw === 'string' ? [...raw.matchAll(/\{(\w+)\}/g)].map((x) => x[1]) : [];
+  if (need.every((k) => p[k] !== undefined)) return T('message.' + code, p);
+  return Office.has(`${ID}.message.${code}_plain`) ? T(`message.${code}_plain`) : m;
 }
 
 /** A Kopia source as the run names it: a share, "flash", or app:<name> / vm:<name> (a source of its own, engine 2.19) */
@@ -1655,7 +1664,7 @@ function historyRows() {
   return [...runs.slice(0, 20).map((r) => ({ t: r.started, r })), ...skips.map((skip) => ({ t: skip.time, skip }))]
     .sort((a, b) => b.t - a.t).slice(0, 20).map((x) => ({ ...x, hay: x.skip
       ? [fmt.date(x.skip.time, true), T('result.skipped'), messageText(x.skip.reason)]
-      : [fmt.date(x.r.started, true), T('result.' + x.r.result), x.r.message && x.r.result !== 'ok' ? messageText(x.r.message) : '',
+      : [fmt.date(x.r.started, true), T('result.' + x.r.result), x.r.message && x.r.result !== 'ok' ? messageText(x.r.message, x.r.message_params) : '',
         asleepUnits(x.r) ? T('asleep.left_out', { n: asleepUnits(x.r) }) : ''] }));
 }
 /** The history's bar: words only (no «only …», no tile) — not kept */
@@ -1697,7 +1706,7 @@ function historySection() {
     if (r.downtime) meta.appendChild(el('span', '', T('downtime_short', { duration: fmt.duration(r.downtime) })));
     if (r.packages && (r.packages.apps || r.packages.vms)) meta.appendChild(el('span', '', T('pk.history', { apps: nOf('apps', r.packages.apps), vms: nOf('vms', r.packages.vms) })));
     if (r.errors || r.warnings) meta.appendChild(el('span', '', T('counts', { errors: nOf('errors', r.errors), warnings: nOf('warnings', r.warnings) })));
-    if (r.message && r.result !== 'ok') meta.append(el('span', 'note', messageText(r.message)));
+    if (r.message && r.result !== 'ok') meta.append(el('span', 'note', messageText(r.message, r.message_params)));
     warnLines(r).forEach((w) => meta.append(el('span', 'note', w)));
     main.appendChild(meta);
     row.appendChild(main);
@@ -6394,7 +6403,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     get sf() { const f = setupFilter().read(); return { text: f.words.join(' '), onlyNew: f.only }; },
     setupFilter,
     setupFits, setupFirstNew, setupFocus, setupTileData, setupTileList, setupNewCounts, setupSwitcher, SETUP_TILES, STEP_TILE,
-    driftText, driftParams,
+    driftText, driftParams, messageText,
     overviewTiles, tileNode, tileList, protRows, protView, protTileCounts, historyRows, PROT_TILES, PROT_ID, TILES,
     setState: (s) => { state = s; },
     setupDraftFromPlan, setupNewLines, setupNewRows, setupChanges, setupSaved, waitingFolders, waitChoice, waitSet, levelOf, waitingText, appSharesText,

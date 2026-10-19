@@ -6111,6 +6111,10 @@ function testBackupVmWarn(): void
         [['code' => 'vm_not_shut_down', 'params' => ['name' => 'Windows11', 'seconds' => '300']], ['code' => 'vm_not_frozen', 'params' => []]],
         $run['warning_items']);
     same('vm warn: an older engine\'s run — none', [], backupRunFromStatus(['run' => 'x'])['warning_items']);
+    // engine 2.65: a coded message's params - only in a warning's shape (an older engine's run: none)
+    same('message params: an older engine\'s run none, the engine\'s kept, anything else dropped', [[], ['place' => '/mnt/cache/b', 'need' => '8589934592']],
+        [backupRunFromStatus(['run' => 'x'])['message_params'], backupRunFromStatus(['run' => 'x', 'message_params' => ['place' => '/mnt/cache/b', 'need' => '8589934592',
+         'Bad' => 'x', 'nl' => "a\nb", 'n' => 5]])['message_params']]);
     $codes = ['vm_not_shut_down', 'vm_shutdown_refused', 'vm_not_frozen', 'vm_not_paused'];
     $engine = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh');
     foreach ($codes as $c) {
@@ -6871,6 +6875,24 @@ SH);
     check('nc folder closed but occ refuses: the next --recover (occ answering) switches it off', !is_file("$data/state/maintenance") && !is_file("$data/state/nc-datadir"));
     @unlink("$fake/nc.datadir");
     exec('rm -rf ' . escapeshellarg($ncd));
+
+    // --- engine 2.65: too little room in the backup place for the packages (min_free_gb) - up to 2.64 an English sentence on
+    // every page (die without a code); now the code no_space_packages with what it found: the place, free and needed in bytes
+    $night();
+    $ini0 = (string) file_get_contents("$data/settings.ini");
+    file_put_contents("$data/settings.ini", str_replace("min_free_gb = 0\n", "min_free_gb = 999999\n", $ini0));
+    [$code, , $out] = $run();
+    file_put_contents("$data/settings.ini", $ini0);
+    $s = $status();
+    $mp = $s['message_params'] ?? [];
+    same('no space: refused before the packages, coded — no_space_packages with place, free and need', ['failed', 'no_space_packages', 1, true, (string) (999999 * 1073741824), true],
+        [$s['result'] ?? null, $s['message'] ?? null, $code, is_string($mp['place'] ?? null) && str_starts_with($mp['place'], "$mnt/"), $mp['need'] ?? null,
+         ctype_digit((string) ($mp['free'] ?? 'x'))], $out . $log());
+    check('no space: the history line carries the params too, nothing stopped or snapshotted',
+        ($lastHistory()['message_params']['need'] ?? null) === $mp['need'] && !preg_grep('/^(docker stop|zfs snapshot)/', $names()), json_encode($names()));
+    $nt = $notes();
+    check('no space: the alert in the office\'s words, the sizes readable', count($nt) === 1 && str_contains($nt[0], 'Not enough free space in the backup place')
+        && str_contains($nt[0], 'at least 977T') && !str_contains($nt[0], '{need}') && !str_contains($nt[0], (string) (999999 * 1073741824)), json_encode($nt));
 
     // --- at Nextcloud's maintenance mode: its container still runs - the mode goes off at once, nothing stopped
     $night('maintenance');
@@ -34909,7 +34931,10 @@ for (const lang of ['de', 'en']) {
   Object.keys(strings).forEach((k) => delete strings[k]);
   const l = JSON.parse(fs.readFileSync(`${langDir}/${lang}.json`, 'utf8'));
   Object.keys(l).forEach((k) => { strings['backup.' + k] = l[k]; });
-  out[lang] = { items: items.map((d) => b.driftText(d)), cases: cases.map((d) => b.driftText(d)) };
+  out[lang] = { items: items.map((d) => b.driftText(d)), cases: cases.map((d) => b.driftText(d)),
+    // engine 2.65: why a run ended, with its params (sizes as sizes), without them, and the engine's own words
+    msgs: [['no_space_packages', { place: '/mnt/cache/UnraidSecretaryOffice/backup', free: '1073741824', need: '8589934592', free_h: '1.0GiB' }],
+      ['no_space_packages', {}], ['no_space_packages', null], ['Cannot create /x', {}], ['array_stopping', {}]].map(([m, p]) => b.messageText(m, p)) };
 }
 console.log(JSON.stringify(out));
 JS);
@@ -34939,6 +34964,10 @@ JS);
         array_slice($c, 4, 4));
     $l = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/de.json'), true);
     same('drift codes (node): the backup place\'s problem as its message', $l['message.dumps_missing'] ?? '', $c[8]);
+    // engine 2.65 (D-F1, scenario B13): too little room for the packages - up to 2.64 the engine's English sentence on the German page
+    same('message (node): no room for the packages in German — the place, the sizes as sizes; without params the words without them; the engine\'s own words as they are',
+        ['Zu wenig freier Platz in der Backup-Ablage /mnt/cache/UnraidSecretaryOffice/backup: 1 GB frei, die Einrichtung hält mindestens 8 GB frei — nichts wurde gesichert. Dort Platz schaffen oder bei «Einrichten…» den «Freien Platz in der Backup-Ablage» senken, dann das Backup neu starten.',
+         $l['message.no_space_packages_plain'] ?? '?', $l['message.no_space_packages_plain'] ?? '?', 'Cannot create /x', $l['message.array_stopping'] ?? '?'], $r['de']['msgs'] ?? null);
     hardeningRm($tmp);
 }
 

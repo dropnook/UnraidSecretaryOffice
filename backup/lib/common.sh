@@ -2716,6 +2716,7 @@ ST_MODE=""                # that was turned away would overwrite the running one
 ST_PHASE=""
 ST_RESULT="running"       # running | ok | warnings | errors | failed | aborted
 ST_MESSAGE=""
+ST_MESSAGE_PARAMS=""      # since 2.65: the coded message's params, "\x1fkey=value..." (die_code) - status.json message_params
 ST_STARTED=0
 ST_FINISHED=0
 ST_ABORTED="no"
@@ -2761,6 +2762,10 @@ status_json() {
     witems="$(printf '%s\n' "${WARN_ITEMS[@]}" | jq -R 'select(length > 0) | split("\u001f")
         | {code: .[0], params: ([.[1:][] | capture("^(?<k>[^=]+)=(?<v>.*)$"; "s") | {(.k): .v}] | add // {})}' | jq -sc .)" || witems='[]'
     [[ -n "$why" ]] || why='{}'
+    local mparams
+    mparams="$(printf '%s' "$ST_MESSAGE_PARAMS" | jq -Rsc 'split("\u001f") | [.[] | select(length > 0) | capture("^(?<k>[^=]+)=(?<v>.*)$"; "s") | {(.k): .v}] | add // {}')" \
+        || mparams='{}'
+    [[ -n "$mparams" ]] || mparams='{}'
     local btrfs="null"
     if [[ -n "$ST_BTRFS_LOOKED" ]]; then
         btrfs="$(printf '%s\n' "${ST_BTRFS[@]}" | jq -R 'select(length > 0) | split("|")
@@ -2785,10 +2790,10 @@ status_json() {
         --argjson packages "${ST_PACKAGES:-null}" --argjson new_local "${ST_NEW_LOCAL:-null}" \
         --argjson partner "${partner:-null}" --argjson p_ok "${#ST_PARTNER_DONE[@]}" --argjson p_failed "${#ST_PARTNER_FAILED[@]}" \
         --argjson p_skipped "${#ST_PARTNER_SKIPPED[@]}" --argjson asleep "${asleep:-null}" --argjson skipped_why "$why" \
-        --arg skipk "${SKIPK:-0}" --argjson btrfs "$btrfs" \
+        --arg skipk "${SKIPK:-0}" --argjson btrfs "$btrfs" --argjson message_params "$mparams" \
         '{interface: $interface, name: $name, version: $version, mode: $mode, run: $run, pid: $pid, skip_kopia: ($skipk == "1"),
           started: $started, updated: $updated, finished: $finished, phase: $phase, result: $result,
-          message: $message, errors: $errors, warnings: $warnings, warning_items: $warning_items, downtime_s: $downtime,
+          message: $message, message_params: $message_params, errors: $errors, warnings: $warnings, warning_items: $warning_items, downtime_s: $downtime,
           snapshot: $snapshot, dump_bytes: $dump_bytes, log: $log, drift: $drift, vms: $vms, packages: $packages,
           new_local: $new_local, partner: $partner, partner_ok: $p_ok, partner_failed: $p_failed, partner_skipped: $p_skipped,
           asleep: $asleep, btrfs: $btrfs,

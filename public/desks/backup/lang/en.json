@@ -949,6 +949,8 @@
   "message.dumps_unknown": "The backup place doesn't exist as a share (any more). Choose another one in \"Set up…\".",
   "message.dumps_forbidden": "The backup place is in appdata, system or domains — backups don't belong there. Choose a share of its own in \"Set up…\".",
   "message.dumps_off": "The backup place isn't backed up itself — the dumps would be safe nowhere. Let the share be backed up in \"Set up…\".",
+  "message.no_space_packages": "Not enough free space in the backup place {place}: {free} free, the setup keeps at least {need} free — nothing was backed up. Make room there or lower «Free space kept in the backup place» in \"Set up…\", then start the run again.",
+  "message.no_space_packages_plain": "Not enough free space in the backup place — nothing was backed up. Make room there or lower «Free space kept in the backup place» in \"Set up…\", then start the run again.",
   "details": "Show details",
   "unfold_all": "Unfold all",
   "fold_all": "Fold all",

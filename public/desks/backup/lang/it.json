@@ -955,6 +955,8 @@
   "message.dumps_unknown": "Il deposito dei backup non esiste (più) come condivisione. Scegline un altro in «Configura…».",
   "message.dumps_forbidden": "Il deposito dei backup è in appdata, system o domains — lì i backup non vanno. Scegli una condivisione a sé in «Configura…».",
   "message.dumps_off": "Il deposito dei backup non ha a sua volta un backup — i dump non sarebbero al sicuro da nessuna parte. Fai fare il backup della condivisione in «Configura…».",
+  "message.no_space_packages": "Spazio libero insufficiente nel deposito dei backup {place}: {free} liberi, la configurazione ne tiene liberi almeno {need} — non è stato salvato nulla. Fai spazio lì o abbassa «Spazio libero da tenere nel deposito dei backup» in «Configura…», poi avvia di nuovo il backup.",
+  "message.no_space_packages_plain": "Spazio libero insufficiente nel deposito dei backup — non è stato salvato nulla. Fai spazio lì o abbassa «Spazio libero da tenere nel deposito dei backup» in «Configura…», poi avvia di nuovo il backup.",
   "details": "Mostra dettagli",
   "unfold_all": "Apri tutto",
   "fold_all": "Chiudi tutto",

@@ -949,6 +949,8 @@
   "message.dumps_unknown": "Die Backup-Ablage gibt es nicht (mehr) als Share. Bei «Einrichten…» eine andere wählen.",
   "message.dumps_forbidden": "Die Backup-Ablage liegt in appdata, system oder domains — dort gehören keine Backups hin. Bei «Einrichten…» einen eigenen Share wählen.",
   "message.dumps_off": "Die Backup-Ablage wird selbst nicht gesichert — die Dumps wären nirgends sicher. Bei «Einrichten…» den Share sichern lassen.",
+  "message.no_space_packages": "Zu wenig freier Platz in der Backup-Ablage {place}: {free} frei, die Einrichtung hält mindestens {need} frei — nichts wurde gesichert. Dort Platz schaffen oder bei «Einrichten…» den «Freien Platz in der Backup-Ablage» senken, dann das Backup neu starten.",
+  "message.no_space_packages_plain": "Zu wenig freier Platz in der Backup-Ablage — nichts wurde gesichert. Dort Platz schaffen oder bei «Einrichten…» den «Freien Platz in der Backup-Ablage» senken, dann das Backup neu starten.",
   "details": "Details zeigen",
   "unfold_all": "Alle aufklappen",
   "fold_all": "Alle zuklappen",

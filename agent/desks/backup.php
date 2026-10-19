@@ -831,6 +831,8 @@ function backupRunFromStatus(array $j): array
         'finished'   => (int) ($j['finished'] ?? 0),
         'result'     => (string) ($j['result'] ?? 'failed'),
         'message'    => (string) ($j['message'] ?? ''),
+        // engine 2.65: the coded message's params (no_space_packages: place, free, need) - the shape of a warning's
+        'message_params' => backupWarningItems([['code' => 'm', 'params' => $j['message_params'] ?? null]])[0]['params'],
         'errors'     => (int) ($j['errors'] ?? 0),
         'warnings'   => (int) ($j['warnings'] ?? 0),
         // engine 2.42: the warnings the office says in its own words (the VMs held otherwise than set up)

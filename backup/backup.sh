@@ -7,6 +7,9 @@
 #        run notes the data folder's root as it found it before the mode went on (state/nc-datadir: owner, group, mode -
 #        closed, since occ answered); when occ refuses for it, --recover (and the run's own end) closes exactly that root
 #        again - only the folder itself, never looser than the owner had - and switches the mode off.
+#        Too little room in the backup place for the packages (min_free_gb) is coded: no_space_packages {place, free,
+#        need - bytes; free_h, need_h readable}, status.json message_params (die_code's params) - up to 2.64 an English
+#        sentence on every page.
 #   2.64 A container the user paused (docker pause, Unraid's Pause) is left exactly as it is: never stopped, never
 #        started, so it is still paused after the run - up to 2.63 docker's State.Running (true for a paused one) had it
 #        stopped and started, and it ran afterwards. Its files hold still for the snapshot; a paused database gets no
@@ -501,14 +504,17 @@ die() {
     ub_tell failed alert "Log: $LOG_FILE" "Backup failed" "The backup failed - Mr. Backupsy's page in the office says what to do: $*" "why=$*"
     exit 1
 }
-# die_code <code> <text>: like die, but status.json carries the code - the office translates it
+# die_code <code> <text> [key=value]...: like die, but status.json carries the code - the office translates it - and,
+# since 2.65, its params (message_params: {key: value}), which the office's words and the notification fill in
 die_code() {
-    local code="$1"; shift
-    [[ "$CLEANUP_ARMED" == "yes" && "$CLEANUP_DONE" != "yes" ]] && array_stopping && { log "  ($*)"; array_stop_abort; }
-    err "$*"
+    local code="$1" text="$2" kv; shift 2
+    [[ "$CLEANUP_ARMED" == "yes" && "$CLEANUP_DONE" != "yes" ]] && array_stopping && { log "  ($text)"; array_stop_abort; }
+    err "$text"
+    ST_MESSAGE_PARAMS=""; for kv in "$@"; do ST_MESSAGE_PARAMS+=$'\x1f'"$kv"; done
     status_finish failed "$code"
-    local why
-    why="$(ub_say "message.$code")" || why="$*"
+    local why; local -a say=()
+    for kv in "$@"; do [[ "${kv%%=*}" == *_h ]] && say+=( "${kv%%_h=*}=${kv#*=}" ); done   # <key>_h: <key> readable
+    why="$(ub_say "message.$code" "${say[@]}" "$@")" || why="$text"
     ub_tell failed alert "Log: $LOG_FILE" "Backup failed" "The backup failed - Mr. Backupsy's page in the office says what to do: $why" "why=$why"
     exit 1
 }
@@ -557,12 +563,12 @@ save_restore_state() {
     RUN_NOTED="yes"
     if [[ ${#STOPPED[@]} -gt 0 ]]; then printf '%s\n' "${STOPPED[@]}" >"$UB_STATE/stopped"; else rm -f "$UB_STATE/stopped"; fi
     if [[ ${#NC_ON[@]} -gt 0 ]]; then printf '%s\n' "${!NC_ON[@]}" >"$UB_STATE/maintenance"; else rm -f "$UB_STATE/maintenance"; fi
-    local v; : >"$UB_STATE/.vms.$$"
-    for v in "${!VM_HELD[@]}"; do printf '%s|%s\n' "$v" "${VM_HELD[$v]}" >>"$UB_STATE/.vms.$$"; done
     # 2.65: their data folders as the run found them (lib/common.sh nc_reclose) - written after state/maintenance, never older
     local c; : >"$UB_STATE/.nc-datadir.$$"
     for c in "${!NC_ON[@]}"; do [[ -n "${NC_DIR[$c]:-}" ]] && printf '%s\t%s\n' "$c" "${NC_DIR[$c]}" >>"$UB_STATE/.nc-datadir.$$"; done
     if [[ -s "$UB_STATE/.nc-datadir.$$" ]]; then mv -f "$UB_STATE/.nc-datadir.$$" "$UB_STATE/nc-datadir"; else rm -f "$UB_STATE/.nc-datadir.$$" "$UB_STATE/nc-datadir"; fi
+    local v; : >"$UB_STATE/.vms.$$"
+    for v in "${!VM_HELD[@]}"; do printf '%s|%s\n' "$v" "${VM_HELD[$v]}" >>"$UB_STATE/.vms.$$"; done
     if [[ -s "$UB_STATE/.vms.$$" ]]; then mv -f "$UB_STATE/.vms.$$" "$UB_STATE/vms"; else rm -f "$UB_STATE/.vms.$$" "$UB_STATE/vms"; fi
 }
 
@@ -1295,9 +1301,9 @@ nextcloud_maintenance_on() {
         # Note it before switching on: if occ sets the mode and only fails
         # afterwards, the abort still switches it off again. Another attempt
         # after such a half success reports "already enabled" with 0.
+        nc_dir_look "$c"
         NC_ON[$c]=1; save_restore_state
         on=0
-        nc_dir_look "$c"
         for try in 1 2 3; do
             if out="$(nc_occ "$c" maintenance:mode --on 2>&1)"; then on=1; break; fi
             nc_log_output "$out"
@@ -3990,7 +3996,13 @@ fi
 
 array_stop_check "before the packages are begun"
 FREE_MB=$(df -Pm "$UB_DUMPS" 2>/dev/null | awk 'NR==2{print $4}')
-(( ${FREE_MB:-0} >= MIN_FREE_GB * 1024 )) || die "Not enough space for the packages in $UB_DUMPS (${FREE_MB} MB free)"
+# 2.65: coded with what it found (up to 2.64 an English sentence on every page) - need/free in bytes for the page, the
+# notification's words with them readable
+if (( ${FREE_MB:-0} < MIN_FREE_GB * 1024 )); then
+    die_code no_space_packages "Not enough space for the packages in $UB_DUMPS (${FREE_MB:-0} MB free, min_free_gb = $MIN_FREE_GB)" \
+        place="$UB_DUMPS" free="$(( ${FREE_MB:-0} * 1048576 ))" need="$(( MIN_FREE_GB * 1073741824 ))" \
+        free_h="$(human $(( ${FREE_MB:-0} * 1048576 )))" need_h="$(human $(( MIN_FREE_GB * 1073741824 )))"
+fi
 pkg_begin || die "Cannot create $PKG_STAGE"
 
 # Release what an earlier run left behind
