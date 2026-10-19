@@ -24,8 +24,9 @@ if flow BK-REPLAN; then
     m=$(jq -r '[.messages[]? | select(.code == "kopia_host_container_id") | .code] | join(",")' "$plan")
     [[ -z $m ]] && cell no-host-id-hint 1 "the plan has no kopia_host_container_id hint" \
         || cell no-host-id-hint 0 "the plan says kopia_host_container_id after kopia was re-created: $(jq -c '[.messages[]? | select(.code == "kopia_host_container_id") | .params]' "$plan")"
-    nw=$(jq -r '[.apps[]? | select((.new // false) == true or (.status // "") == "new") | .name] | join(",")' "$plan" 2>/dev/null)
-    [[ -z $nw ]] && cell plan-nothing-new 1 "the plan names no app as new" || cell plan-nothing-new 0 "the plan names as new: $nw"
+    # (new would be an Apply list naming docker|known/no_stop or an app|… key for them — the page's own list)
+    nw=$(node "$SC_DIR/plan-changes.mjs" "$plan" "$UB/settings.ini" 2>/dev/null | jq -r '[.[].key | select(startswith("partner|") | not)] | join(" ")')
+    [[ -z $nw ]] && cell plan-nothing-new 1 "the Apply list names nothing (neither is new)" || cell plan-nothing-new 0 "the Apply list names: $nw"
 fi
 flow BK-RUN-MANUAL mode=backup
 run1=$(jq -r '.run // empty' "$UB/state/status.json" 2>/dev/null)

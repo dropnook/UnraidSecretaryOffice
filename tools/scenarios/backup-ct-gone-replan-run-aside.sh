@@ -40,14 +40,22 @@ snap_before
 if flow BK-REPLAN; then
     plan=$KEEP/plan-replan.json
     cp "$plan" "$KEEP/plan-gone.json"
-    n=$(jq '[.messages[]? | select(.code == "app_gone" and ((.params | tostring) | test("EmbyServer")))] | length' "$plan")
-    l=$(node "$SC_DIR/plan-changes.mjs" "$plan" "$UB/settings.ini" 2>/dev/null | jq -r '[.[].key] | join(" ")')
-    [[ $n == 1 ]] && cell gone-said 1 "the plan says app_gone for EmbyServer once; the Apply list: $l" \
-        || cell gone-said 0 "app_gone for EmbyServer $n times in the plan; the Apply list: $l"
+    # Tower's base has no [app "EmbyServer"] section (an app follows its share's level), so no hint app_gone (setup.sh
+    # says it only for an [app] entry, ~683): what says it is the Apply list — EmbyServer leaves [docker] known/no_stop
+    l=$(node "$SC_DIR/plan-changes.mjs" "$plan" "$UB/settings.ini" 2>/dev/null | jq -c '[.[] | select(.key | startswith("partner|") | not)
+        | {key, gone: (((.was // []) | if type == "array" then . else [.] end) - ((.is // []) | if type == "array" then . else [.] end))}]')
+    ok=$(jq -r '(map(select(.key == "docker|known" or .key == "docker|no_stop")) | length == 2 and all(.gone == ["EmbyServer"])) and length == 2' <<<"$l")
+    [[ $ok == true ]] && cell gone-said 1 "the Apply list says EmbyServer goes from [docker] known and no_stop, nothing else: $l" \
+        || cell gone-said 0 "the Apply list for the gone EmbyServer: $l"
 fi
 expect_diff "$(apply_list_diff "$KEEP/plan-gone.json")"
 say "the Apply list's diff: $(apply_list_diff "$KEEP/plan-gone.json" | paste -sd' ' -)"
+cp -p "$UB/settings.ini" "$KEEP/settings-pre-apply.ini"
 flow BK-APPLY plan=old
+# + a share's id and locations as the engine found them at Apply: desk.js leaves them out of the list on purpose («a
+# share's id and locations the engine writes itself from what it finds - not a decision of the user's», ~2299)
+f=$(ini_diff "$KEEP/settings-pre-apply.ini" "$UB/settings.ini" | grep -E '^[-+]share\|[^|]+\|(id|locations)=')
+[[ -n $f ]] && { say "Apply also wrote the shares' facts: $(paste -sd' ' <<<"$f")"; expect_diff "$f"; }
 if flow BK-REPLAN; then
     n=$(jq '[.messages[]? | select(.code == "app_gone")] | length' "$KEEP/plan-replan.json")
     l=$(node "$SC_DIR/plan-changes.mjs" "$KEEP/plan-replan.json" "$UB/settings.ini" 2>/dev/null | jq -r '[.[].key | select(startswith("partner|") | not)] | join(" ")')

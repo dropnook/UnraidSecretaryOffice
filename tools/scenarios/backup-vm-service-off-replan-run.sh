@@ -14,10 +14,10 @@ state SV-VM-OFF
 snap_before
 if flow BK-REPLAN; then
     plan=$KEEP/plan-replan.json
-    vs=$(jq -r '.vm_service // .facts.vm_service // empty' "$plan")
+    vs=$(jq -r '.vm_service | tostring' "$plan")          # a boolean (setup.sh): false while libvirt is off
     vk=$(jq -r '[.P | to_entries[] | select(.key | startswith("vm|"))] | from_entries | tostring' "$plan")
     say "plan: vm_service «$vs», its vm keys $vk"
-    [[ $vs == no ]] && cell plan-says-off 1 "the plan says the VM service is off" \
+    [[ $vs == false ]] && cell plan-says-off 1 "the plan says the VM service is off" \
         || cell plan-says-off 0 "the plan's vm_service is «${vs:-missing}» while libvirt is stopped"
     if command -v node >/dev/null 2>&1; then
         ch=$(node "$SC_DIR/plan-changes.mjs" "$plan" "$UB/settings.ini" 2>/dev/null | jq -r '[.[].key | select(startswith("vm|"))] | join(" ")')

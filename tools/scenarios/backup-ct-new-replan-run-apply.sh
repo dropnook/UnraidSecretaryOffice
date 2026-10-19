@@ -40,7 +40,12 @@ grep -qE 'New, keep running:.*\buso-new\b' "$(runlog)" && cell run1-says-new 1 "
 bubble_look waiting backup
 expect_diff "$(apply_list_diff "$KEEP/plan-new.json")"
 say "the Apply list's diff: $(apply_list_diff "$KEEP/plan-new.json" | paste -sd' ' -)"
+cp -p "$UB/settings.ini" "$KEEP/settings-pre-apply.ini"
 flow BK-APPLY plan=old                         # the page's draft as it is: the user takes the proposal
+# + a share's id and locations as the engine found them at Apply: desk.js leaves them out of the list on purpose («a
+# share's id and locations the engine writes itself from what it finds - not a decision of the user's», ~2299)
+f=$(ini_diff "$KEEP/settings-pre-apply.ini" "$UB/settings.ini" | grep -E '^[-+]share\|[^|]+\|(id|locations)=')
+[[ -n $f ]] && { say "Apply also wrote the shares' facts: $(paste -sd' ' <<<"$f")"; expect_diff "$f"; }
 grep -qx 'known = uso-new' "$UB/settings.ini" && cell apply-known 1 "settings.ini [docker] knows uso-new" \
     || cell apply-known 0 "after Apply settings.ini has no «known = uso-new»"
 nostop=no; grep -qx 'no_stop = uso-new' "$UB/settings.ini" && nostop=yes
@@ -49,6 +54,10 @@ if flow BK-REPLAN; then
     [[ -z $l ]] && cell replan-quiet 1 "the plan after Apply names nothing of uso-new" || cell replan-quiet 0 "after Apply the plan still lists: $l"
 fi
 t1=$(started)
+# INV-NOTIFY-ONCE tells two runs' notifications apart by 60 s (one run a minute): the second run ends at least a minute
+# after the first one's notification
+end1=$(stat -c %Y "$UB/state/status.json" 2>/dev/null || echo 0)
+w=$((end1 + 45 - $(date +%s))); ((w > 0)) && { say "waiting ${w} s: the second run's end a minute after the first's"; sleep "$w"; }
 flow BK-RUN-MANUAL mode=backup
 evidence "$(runlog)" run-2.log
 if grep -qE 'New, keep running:.*\buso-new\b' "$(runlog)"; then
