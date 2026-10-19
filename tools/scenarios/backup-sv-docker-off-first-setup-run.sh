@@ -1,6 +1,7 @@
 #!/bin/bash
-# Cell B26 of matrix.md (batch E): Docker switched off (SV-DOCKER-OFF — on USOTest3VM the base runs Docker since
-# 2026-10-19, the state stops it). Mr. Backupsy's setup (plan, the page's draft as it is, Apply) says «Docker is switched
+# Cell B26 of matrix.md (batch E): Docker switched off by the user (SV-DOCKER-OFF cfg: ⟦Enable Docker⟧ No in docker.cfg and
+# the service stopped — only stopped, with docker.cfg still «yes», is «switched on but silent», which by design ends a run
+# as an error: engine 2.54, ub_docker_service_off). Mr. Backupsy's setup (plan, the page's draft as it is, Apply) says «Docker is switched
 # off» (setup.msg docker_off) and keeps every [app "…"] and [docker] line as it was («Docker not answering: nobody
 # knows - kept as it is», engine 2.54: cell apps-kept); the run backs up shares and the flash, no apps, ends ok or with
 # announced warnings; the page says «Docker isn't running» (common.docker_off), never «0 of 0» (INV-PAGE). settings.ini
@@ -13,7 +14,7 @@ apps() { _ini_flat "$1" | grep -E '^(app|docker)\|' ; }
 mkdir -p "$KEEP_STASH/E-INI" && cp -p "$UB/settings.ini" "$KEEP_STASH/E-INI/settings.ini"
 undo_push bash -c 'cp -p "$1/settings.ini" "$2" && rm -rf "$1"' _ "$KEEP_STASH/E-INI" "$UB/settings.ini"
 nc_data_closed
-state SV-DOCKER-OFF
+state SV-DOCKER-OFF cfg
 snap_before
 apps "$UB/settings.ini" >"$KEEP/apps-before.txt"
 if flow BK-FIRST-SETUP; then

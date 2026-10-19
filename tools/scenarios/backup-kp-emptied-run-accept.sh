@@ -20,11 +20,12 @@ run_now() {      # «Back up now», waited for; prints the run's result and code
     evidence "$UB/logs/run-$(jq -r '.run // ""' "$st").log" "run-$1.log" >/dev/null 2>&1
     jq -c '{result, errors, warnings, codes: ([.warning_items[]? | .code] | unique)}' "$st"
 }
+undo_push wait_for 180 "the engine at rest" bash -c '! pgrep -f "[b]ackup/(backup|setup)\.sh"'     # last: the agent's look after Kopia came back (--kopia-count)
 mkdir -p "$KEEP_STASH/E-INI" && cp -p "$UB/settings.ini" "$KEEP_STASH/E-INI/settings.ini"
 undo_push bash -c 'cp -p "$1/settings.ini" "$2" && rm -rf "$1"' _ "$KEEP_STASH/E-INI" "$UB/settings.ini"
 undo_push rm -f "$H"                      # a hold left by a red run is no base state
 nc_data_closed
-flow BK-APPLY "share|$S|mode=kopia" || _row state prepare red "Apply of $S as local + offsite failed"
+flow BK-APPLY "share|$S|mode=kopia" "share|UnraidSecretaryOffice|mode=kopia" || _row state prepare red "Apply of $S as local + offsite failed"
 say "the first run (prepare): $(run_now first)"
 state KP-EMPTIED
 track_share "$S"

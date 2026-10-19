@@ -1,6 +1,6 @@
 #!/bin/bash
 # Cell B37 of matrix.md (batch E), state KP-DISCONNECTED: Kopia's container runs, its repository not connected. With
-# uso-only at «local + offsite» (prepared by Apply, put back by the undo): «Look at the server again» says it (setup.msg
+# uso-only at «local + offsite» (prepared by Apply with the backup place, as the plan then proposes — put back by the undo): «Look at the server again» says it (setup.msg
 # kopia_no_repo / kopia_connect: «I never make that connection» — cell replan-hint), Apply on the page's draft changes
 # nothing (INV-DIFF-EXACT) and sets no policy while Kopia can't be reached, the run backs up locally and says Kopia's part
 # is out (cells run-local, kopia-not-started). Pre-release (~5 min).
@@ -10,10 +10,11 @@ needs docker
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
 S=uso-only
 kstate() { timeout 10 docker inspect -f '{{.State.Status}}' kopia 2>/dev/null || echo missing; }
+undo_push wait_for 180 "the engine at rest" bash -c '! pgrep -f "[b]ackup/(backup|setup)\.sh"'     # last: the agent's look after Kopia came back (--kopia-count)
 mkdir -p "$KEEP_STASH/E-INI" && cp -p "$UB/settings.ini" "$KEEP_STASH/E-INI/settings.ini"
 undo_push bash -c 'cp -p "$1/settings.ini" "$2" && rm -rf "$1"' _ "$KEEP_STASH/E-INI" "$UB/settings.ini"
 nc_data_closed
-flow BK-APPLY "share|$S|mode=kopia" || _row state prepare red "Apply of $S as local + offsite failed"
+flow BK-APPLY "share|$S|mode=kopia" "share|UnraidSecretaryOffice|mode=kopia" || _row state prepare red "Apply of $S as local + offsite failed"
 state KP-DISCONNECTED
 track_share "$S"
 snap_before

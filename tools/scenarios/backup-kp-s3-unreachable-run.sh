@@ -1,6 +1,6 @@
 #!/bin/bash
 # Cell B16 of matrix.md (batch E): the offsite storage can't be reached (KP-S3-UNREACHABLE — Kopia connected to MinIO,
-# MinIO stopped). A run with uso-only at «local + offsite» (prepared by Apply, put back by the undo): the Kopia phase
+# MinIO stopped). A run with uso-only at «local + offsite» (prepared by Apply with the backup place, as the plan then proposes — put back by the undo): the Kopia phase
 # gives up in finite time and the run ends (≤ 30 min), the local snapshot is made all the same (cell local-ok), the
 # failure is counted against Kopia only (cell kopia-said) — and the office says it in words: «offsite unreachable since …»
 # (the matrix's line — cell offsite-since looks for it in Mr. Backupsy's state). Never a hang, the agent quick (INV-TICK).
@@ -10,10 +10,11 @@ scenario_begin backup-kp-s3-unreachable-run
 needs docker kopia minio
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
 S=uso-only
+undo_push wait_for 180 "the engine at rest" bash -c '! pgrep -f "[b]ackup/(backup|setup)\.sh"'     # last: the agent's look after Kopia came back (--kopia-count)
 mkdir -p "$KEEP_STASH/E-INI" && cp -p "$UB/settings.ini" "$KEEP_STASH/E-INI/settings.ini"
 undo_push bash -c 'cp -p "$1/settings.ini" "$2" && rm -rf "$1"' _ "$KEEP_STASH/E-INI" "$UB/settings.ini"
 nc_data_closed
-flow BK-APPLY "share|$S|mode=kopia" || _row state prepare red "Apply of $S as local + offsite failed"
+flow BK-APPLY "share|$S|mode=kopia" "share|UnraidSecretaryOffice|mode=kopia" || _row state prepare red "Apply of $S as local + offsite failed"
 state KP-S3-UNREACHABLE
 track_share "$S"
 snap_before
