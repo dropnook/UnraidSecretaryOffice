@@ -292,6 +292,21 @@ async function bar() {
   b.done(5, 5);
   same('«Show all»: nothing narrows the list any more — no note line, no hits; the bar stays for its extra button', [box.hidden, note.hidden, hits.textContent, input.hidden], [false, true, '', true]);
 
+  // parts: more of a desk's own that narrow the list (Ms. Protocolli's time filter) — a chip each after the tile's, its × its own clear
+  let gone = 0;
+  b.done(3, 5, { tile: 'Disks', parts: [['Last hour', () => { gone++; }]] });
+  same('parts: a chip each after the tile\'s, the note line on', [note.hidden, chipsOf().map((c) => [c.dataset.what, c.find('filter-chip-name').textContent])],
+    [false, [['tile', 'Disks'], ['part', 'Last hour']]]);
+  const np = calls.length;
+  chipsOf()[1].click();
+  same('parts: its × calls its clear and draws (part), the tile stays', [gone, calls.slice(np).map((c) => c[0]), b.read().tile], [1, ['part'], 'Disks']);
+  b.done(5, 5, { tile: '' });
+  same('parts: gone after its ×', [note.hidden, chipsOf().length], [true, 0]);
+  b.done(3, 5, { parts: [['Today', () => { gone++; }]] });
+  all.click();
+  b.done(5, 5);
+  same('parts: «Show all» drops them (the desk clears its own through clear)', [note.hidden, chipsOf().length, cleared.slice(-1)[0], gone], [true, 0, 'all', 1]);
+
   // reset (a new visit), set — the pick is a kept choice: reset() leaves it
   sel.value = 'login';
   sel.dispatch('change', true);

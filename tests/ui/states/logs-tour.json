@@ -118,7 +118,8 @@
     "size": 1367943,
     "grew": null,
     "max_size": "50m",
-    "max_file": "1"
+    "max_file": "1",
+    "time": 1791465354
    },
    {
     "name": "Node-Exporter",
@@ -127,7 +128,8 @@
     "size": 321536,
     "grew": null,
     "max_size": "50m",
-    "max_file": "1"
+    "max_file": "1",
+    "time": 1791459954
    },
    {
     "name": "immich_server",
@@ -136,7 +138,8 @@
     "size": 259291,
     "grew": null,
     "max_size": "50m",
-    "max_file": "1"
+    "max_file": "1",
+    "time": 1791454554
    },
    {
     "name": "EmbyServer",
@@ -145,7 +148,8 @@
     "size": 98947,
     "grew": null,
     "max_size": "50m",
-    "max_file": "1"
+    "max_file": "1",
+    "time": 1791449154
    },
    {
     "name": "prometheus",
@@ -154,7 +158,8 @@
     "size": 89836,
     "grew": null,
     "max_size": "50m",
-    "max_file": "1"
+    "max_file": "1",
+    "time": 1791443754
    },
    {
     "name": "immich_redis",
@@ -163,7 +168,8 @@
     "size": 19878,
     "grew": null,
     "max_size": "50m",
-    "max_file": "1"
+    "max_file": "1",
+    "time": 1791438354
    },
    {
     "name": "mariadb-nextcloud",
@@ -172,7 +178,8 @@
     "size": 17683,
     "grew": null,
     "max_size": "50m",
-    "max_file": "1"
+    "max_file": "1",
+    "time": 1791432954
    },
    {
     "name": "immich_postgres",
@@ -181,7 +188,8 @@
     "size": 13284,
     "grew": null,
     "max_size": "50m",
-    "max_file": "1"
+    "max_file": "1",
+    "time": 1791427554
    },
    {
     "name": "Nextcloud",
@@ -190,7 +198,8 @@
     "size": 4945,
     "grew": null,
     "max_size": "50m",
-    "max_file": "1"
+    "max_file": "1",
+    "time": 1791422154
    },
    {
     "name": "kopia",
@@ -199,7 +208,8 @@
     "size": 3230,
     "grew": null,
     "max_size": "50m",
-    "max_file": "1"
+    "max_file": "1",
+    "time": 1791416754
    }
   ],
   "total": 2196573

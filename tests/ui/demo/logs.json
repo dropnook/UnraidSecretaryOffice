@@ -606,32 +606,27 @@
    {
     "id": "a092ae4b1f15",
     "re": "(spinup|spindown)",
-    "cat": "array",
-    "from": "el"
+    "cat": "array"
    },
    {
     "id": "434dd409e40b",
     "re": "Familienfotos-Immich",
-    "cat": "system",
-    "from": "el"
+    "cat": "system"
    },
    {
     "id": "62e11f279d58",
     "re": "ata[0-9]+: hard resetting link",
-    "cat": "minor",
-    "from": ""
+    "cat": "minor"
    }
   ],
   "hide": [
    {
     "id": "a848882deb4a",
-    "text": "wsdd2[",
-    "from": "el"
+    "text": "wsdd2["
    },
    {
     "id": "6da1feec6618",
-    "text": "avahi-daemon",
-    "from": ""
+    "text": "avahi-daemon"
    }
   ],
   "time": 1791246797,
@@ -641,20 +636,47 @@
   "wsdd2[",
   "avahi-daemon"
  ],
- "el": {
-  "rules": 2,
-  "hide": 1,
-  "new": {
-   "rules": 1,
-   "hide": 0
+ "boot": 1791242697,
+ "tz": 7200,
+ "filters": [
+  {
+   "id": "a1b2c3d4e5f6",
+   "list": "syslog",
+   "name": "Disks heute",
+   "words": "",
+   "cat": "drive",
+   "src": "",
+   "only": false,
+   "time": {
+    "preset": "today"
+   },
+   "open": false
   },
-  "bad": [
-   {
-    "list": "rules",
-    "line": "\"Familienfilme\", \"other\"",
-    "why": "other"
-   }
-  ],
-  "time": 1791246797
- }
+  {
+   "id": "0f1e2d3c4b5a",
+   "list": "syslog",
+   "name": "Netzwerk, letzte Stunde",
+   "words": "br0",
+   "cat": "network",
+   "src": "",
+   "only": false,
+   "time": {
+    "preset": "hour"
+   },
+   "open": false
+  },
+  {
+   "id": "1234567890ab",
+   "list": "varlog",
+   "name": "Seit dem Start",
+   "words": "",
+   "cat": "",
+   "src": "",
+   "only": false,
+   "time": {
+    "preset": "boot"
+   },
+   "open": false
+  }
+ ]
 }

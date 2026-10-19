@@ -291,7 +291,7 @@
     "pause": 700
    },
    {
-    "js": "(() => { const q = document.querySelector(\"[data-place=reading]\").parentNode.querySelector(\".lg-bar > input.search\"); q.value = \"smbd\"; q.dispatchEvent(new Event(\"input\")); })()",
+    "js": "(() => { const q = document.querySelector(\".lg-reader .filterbar .filter-words\"); q.value = \"smbd\"; q.dispatchEvent(new Event(\"input\")); })()",
     "pause": 400
    }
   ],

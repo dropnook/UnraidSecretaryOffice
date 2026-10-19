@@ -80,9 +80,6 @@
 .lg-line.lg-ce.lg-cat-other{border-left-color:transparent}
 .lg-line.lg-hush{opacity:.55; border-left-color:transparent}
 .lg-busy{display:inline-flex; align-items:center; gap:6px}
-/* «Coming from Enhanced Log?» */
-.callout.lg-el{display:flex; flex-direction:column; gap:6px; margin:0}
-.lg-el-new{display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px}
 /* «Set up»: her own rules and hide words */
 .lg-mine-text{font:12.5px var(--mono); overflow-wrap:anywhere; white-space:normal}
 .lg-mine-nth{font-size:11.5px; color:var(--muted); font-variant-numeric:tabular-nums}
@@ -107,6 +104,32 @@
 & pre.lg-kind-full{white-space:pre-wrap; word-break:break-word; font-size:12px; margin:2px 0 6px; max-height:16em; overflow:auto}
 .lg-kind-facts{display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; font-size:12px; color:var(--muted)}
 .lg-more{padding:6px 12px 8px 24px; font-size:12px; color:var(--muted); border-top:1px solid var(--line)}
+/* the time filter in a list's bar: a select; «From … to …» a day from the calendar and a 24-hour time each */
+.lg-time{display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; min-width:0}
+.lg-time-range{display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; min-width:0}
+.lg-time-end{display:inline-flex; align-items:center; gap:6px; min-width:0}
+.lg-time-word{font-size:12.5px; color:var(--ink2)}
+& input.lg-time-day{flex:none; min-width:0; width:auto}
+& input.lg-time-clock{flex:none; min-width:0; width:4.6em; text-align:center; font-variant-numeric:tabular-nums}
+& input.lg-time-clock.lg-time-bad{border-color:var(--danger)}
+/* a line's service: a Schildchen on a row, the word in the reader's line — a click shows only that service */
+& button.lg-svc{cursor:pointer; font:inherit; font-size:11.5px; font-family:var(--mono); padding:1px 8px}
+& button.lg-svc:hover{border-color:var(--accent)}
+& button.lg-svc.on{border-color:var(--accent); background:var(--accent-soft); color:var(--accent-ink)}
+.lg-svc-in{cursor:pointer; text-decoration:underline dotted var(--muted); text-underline-offset:3px}
+.lg-svc-in:hover{text-decoration-color:var(--accent); color:var(--accent-ink)}
+.lg-svc-in.on{text-decoration-style:solid; text-decoration-color:var(--accent)}
+/* her saved filters above a list: a button each (pressed while the bar has exactly what it says), «⋯» beside */
+.lg-saved{display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; margin:0 2px}
+.lg-saved[hidden]{display:none}
+.lg-saved-label{font-size:12px; color:var(--muted)}
+.lg-saved-one{display:inline-flex; align-items:stretch; max-width:100%}
+& .lg-saved-one button.lg-saved-btn{border-top-right-radius:0; border-bottom-right-radius:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0}
+& .lg-saved-one button.lg-saved-more{border-top-left-radius:0; border-bottom-left-radius:0; margin-left:-1px; padding-left:7px; padding-right:7px}
+& button.lg-saved-btn.on{border-color:var(--accent); color:var(--accent-ink); background:var(--accent-soft)}
+.lg-saved-name{display:flex; flex-direction:column; gap:4px; font-size:12.5px; color:var(--ink2)}
+.lg-saved-name .search{width:100%}
+.lg-saved-why{margin:6px 0 0; color:var(--danger); min-height:1em}
 @media (max-width:600px){ & pre.lg-out{height:60vh} .lg-picker{max-width:100%; flex:1 1 100%} .lg-pop{width:100%}
   .row.lg-kind{padding-left:14px} .lg-more{padding-left:14px} }
 }

@@ -1,18 +1,19 @@
 {
   "keys": [
-    "bad.title",
     "docker.title",
     "found.title",
     "help.counted",
-    "help.el",
     "help.favorites",
     "help.grouped",
     "help.red",
     "help.rules",
     "help.safe",
+    "help.saved",
     "help.since",
+    "help.sort",
     "help.source",
     "help.space",
+    "help.time",
     "hide.title",
     "live",
     "mine.title",
@@ -26,7 +27,6 @@
   "texts": [
     "help.colours",
     "help.counted_text",
-    "help.el_text",
     "help.favorites_text",
     "help.grouped_text",
     "help.hide_text",
@@ -35,9 +35,12 @@
     "help.only",
     "help.rules_text",
     "help.safe_text",
+    "help.saved_text",
     "help.since_text",
+    "help.sort_text",
     "help.source_text",
     "help.space_text",
+    "help.time_text",
     "help.tour_text"
   ]
 }

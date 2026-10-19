@@ -83,6 +83,7 @@ data/
 ├── office.json            the version marker: which version runs here, since when, which migrations are done
 ├── agent.json, agent.log  the agent's record (written at start and stop only) and its log (⋯ → Agent log)
 ├── <desk>.json            each desk's state; <desk>-<part>.json an extra part (desk.json "parts")
+├── logs-mine.json, logs-filters.json   Ms. Protocolli's own rules and hide words, her saved filters
 ├── mailbox/               requests from the page, answers from the agent
 ├── office/                who is hired and in which order, the language for notifications
 ├── unraid-backup/         the backup engine: settings.ini, state/, logs/ (root only)
@@ -503,9 +504,17 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   lines at once (`sort`, RAM only, the tour's shape). Her second page «Set up» (`#/logs/setup`, data/logs-mine.json): her own
   rules (regex + category, checked by `logsMineRuleWhy()`, applied **before** the shipped ones, as Enhanced Log applies its
   custom rules) and hide words (in the message, case-sensitive: noise, before every rule — the line stays in the syslog).
-  While Enhanced Log's folder is on the flash she reads its `custom_syslog.conf` and `syslog_filter.conf` (read only,
-  never written) and takes over what she understands — the first time on her own, later what is new on «Take over»
-  (`el.seen`: nothing twice, a removed one never back); what she doesn't understand is listed, never guessed.
+  **No take-over from another plugin's settings** (owner, 2026-10-19: no migration path, no responsibility for a wrong
+  take-over): the user types her rules; what an earlier version took over stays hers (its `from`/`el` keys kept, never
+  read); her texts name Enhanced Log only in the thanks and the rules' credit.
+  Every list of hers has its bar with a time filter where its rows have a time (presets, «From … to …» with day and 24-hour
+  time; a «×n» kind by its newest line, files and containers' logs by their last write, the reader's lines by their own —
+  in the note line, a chip with its ×, core.js `bar.done({parts})`). **Saved filters** (data/logs-filters.json,
+  agent/desks/logs-filters.php): what a bar has set under a name, per list — a preset stays relative; a click applies one,
+  **never by itself** (desk.js `APPLY_ON_OPEN = false`; the entry's `open` is kept, never set); tolerant reader and writer.
+  «Syslog», «Errors & warnings» and the reader sort newest / oldest first or by service (a syslog line's program,
+  desk.js `SERVICE`) — a choice kept per browser (`logs.<list>.sort`), named in the note line only when not the list's own
+  (core.js `bar.done({order})`); a click on a line's service filters to exactly it, and a saved filter keeps it (`svc`).
 * **`watchman` — The Night Watchman.** **The office's security department — no other desk gives security advice. Read only,
   never a command that changes anything.** Posture tips (never in the book or notified) and the watch book (what differs from
   normal; the office's own installs/drills adopted, never told). API keys: id, name, roles, a fingerprint — **never the key**;
@@ -644,7 +653,8 @@ The same thing has the same word on every desk and text; grammar follows the wor
   `role="button"`, no `scrollIntoView(` without `/* reveal */`, no own folding, filter tiles are places, no filter keys stored),
   `tools/ui-clicks.sh`, `bash tools/ui-tiles.sh --only <route>` (before/after pictures — how a desk proves its tiles).
 * **Remembered per browser** (`Office.store`, prefix `office.`): choices only (`<desk>.tile`, a pool, `<key>.pick`, favourites)
-  — **never** filter words, «only …» switches or filter tiles.
+  — **never** filter words, «only …» switches or filter tiles. **Saved filters** (Ms. Protocolli's, 2026-10-19) are explicit,
+  kept on the server in the desk's data, and never applied by themselves — only by a click on their button.
 * **CSS names:** desk classes carry the desk's prefix (`bk-`, `lg-` …); never reuse an office.css name (`.empty`, `.card`,
   `.row`, `.hint` …); **never a level/state from data as a bare class**; a grid overriding `.kv` or row columns brings its own
   `@media (max-width:640px)` rule.
