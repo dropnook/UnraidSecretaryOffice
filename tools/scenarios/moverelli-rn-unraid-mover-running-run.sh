@@ -33,9 +33,15 @@ if wait_for 300 "a file of uso-yes on its way" _mv_moving "$t0" uso-yes; then
     undo_push unraid_mover_fake_stop M11-MID
     say "Unraid's mover «started» with $m0 file(s) of 6 on the array"
     # her watch looks every 5 s (JACK_MOVER_LOOK) and then writes her stop file: from then on no further file may begin
+    agent_log_mark mover
     WAIT_SOFT=1 wait_for 30 "her stop file (why mover)" test -f "$D/moverelli/office-stop.json" \
         && ts=$(jq -r '.time // 0' "$D/moverelli/office-stop.json" 2>/dev/null) || ts=0
     wait "$fpid"
+    # the stop file goes when her run ends — a run that ended within a poll: the time of her log line instead
+    if ((ts == 0)); then
+        l=$(agent_log_since mover | grep -m1 "Unraid's mover started" | cut -c1-19)
+        [[ -n $l ]] && ts=$(date -d "$l" +%s 2>/dev/null || echo 0)
+    fi
     m1=$(arr)
     late=$(find /mnt/disk1/uso-yes/uso-wip-d-m11 /mnt/disk2/uso-yes/uso-wip-d-m11 -type f ! -name '*.partial' -newerct "@$((ts + 1))" 2>/dev/null | wc -l)
     unraid_mover_fake_stop M11-MID
