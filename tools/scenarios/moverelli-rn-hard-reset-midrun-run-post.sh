@@ -42,7 +42,7 @@ names() { find /mnt/cache/uso-yes/uso-wip-d-m6r /mnt/disk*/uso-yes/uso-wip-d-m6r
 miss=$(comm -23 <(for i in $(seq 1 3000); do printf 'f40d-%04d.bin\n' "$i"; done) <(names))
 if [[ -z $miss ]]; then cell no-file-lost 1 "all 3000 files there after the boot (cache or array, a .partial counted)"
 else
-    where=$(for m in $miss; do f=$(find /mnt/cache /mnt/disk1 /mnt/disk2 -xdev -name "$m*" 2>/dev/null | head -2 | paste -sd' ' -); echo "$m: ${f:-nowhere}"; done | paste -sd';' -)
+    where=$(for m in $miss; do f=$(find /mnt/cache /mnt/disk1 /mnt/disk2 -maxdepth 5 -name "$m*" 2>/dev/null | head -2 | paste -sd' ' -); echo "$m: ${f:-nowhere}"; done | paste -sd';' -)
     cell no-file-lost 0 "after the power cut $(wc -w <<<"$miss") of 3000 files are gone from the share: $where"
     find /mnt/disk1/uso-yes/uso-wip-d-m6r /mnt/disk2/uso-yes/uso-wip-d-m6r -printf '%p %s %TT %CT\n' 2>/dev/null | sort | tail -20 >"$KEEP/array-after-boot.txt"
     evidence "$KEEP/array-after-boot.txt" >/dev/null
