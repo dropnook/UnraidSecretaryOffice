@@ -1,5 +1,5 @@
 #!/bin/bash
-# Cell R23 of matrix.md (batch E): Docker switched off (SV-DOCKER-OFF) on a server without the VM service (USOTest3VM's
+# Cell R23 of matrix.md (batch E): Docker switched off by the user (SV-DOCKER-OFF cfg) on a server without the VM service (USOTest3VM's
 # base is SV-VM-OFF itself: no libvirt, no VMs — the state SV-VM-OFF answers «needs» here, so the base is the variant).
 # Mr. Restori's look (RS-SCAN) ends and says what is: no VMs, Docker off — never «0 of 0» or «?» (INV-PAGE); his drill
 # (RS-DRILL) practises without container steps and passes (steps ok or «not checked» with a reason, never failed), no
@@ -10,7 +10,7 @@ needs docker
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
 has vm && say "this server runs the VM service — the «no VMs» part is the base's only where it doesn't"
 nc_data_closed
-state SV-DOCKER-OFF
+state SV-DOCKER-OFF cfg                    # switched off as the user does (docker.cfg): stopped alone is «on but silent»
 snap_before
 t0=$SECONDS
 flow RS-SCAN
