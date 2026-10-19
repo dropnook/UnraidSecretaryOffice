@@ -237,7 +237,7 @@ quota; time zone, a set clock; the office's plugin/code/flash/authorized_keys/in
 | KP-MAPPING-CHANGED [/uso2] | template's `/uso` target changed, container re-made · FROM, TO | T |
 | **I. Time** | | |
 | TM-UTC-BROKEN [zone] | /etc/localtime and ident.cfg → Europe/Zurich (missing on 7.4: UTC); USOTest3VM's base: only looked at · TZ_FILE, TZ_ABBR, BASE | T 3 |
-| TM-DST [autumn\|spring] | clock 2 min before 2026-10-25 03:00 CEST (or 2027-03-28 02:00 CET); needs a zone with DST · DST, ZONE, SWITCH_AT, CLOCK_SET | T *(2 on 3: UTC)* |
+| TM-DST [autumn\|spring] [zone] | clock 2 min before 2026-10-25 03:00 CEST (or 2027-03-28 02:00 CET); needs a zone with DST — a missing zone file (USOTest3VM) gets [zone] linked for the state · DST, ZONE, SWITCH_AT, CLOCK_SET | T *(2 on 3: UTC)*; 3 with `autumn Europe/Berlin` |
 | TM-CLOCK-BACK [hours=2] | clock set back · CLOCK_SET, CLOCK_SET_AT | T 3 |
 | TM-YEAR-ROLL [year] | clock 2026-12-31 23:58 local · CLOCK_SET | T |
 | **J. Version and install** | | |
