@@ -346,7 +346,7 @@ make_base() {
     ask backup.setup_plan '{}' 60 >/dev/null || return 1
     st=$D/unraid-backup/state/setup-status.json
     sleep 2
-    wait_json "$st" '.running != true and .mode == "plan" and .result != null' 600 || { warn "the plan did not finish"; return 1; }
+    wait_json "$st" '.running != true and .mode == "plan" and .result != null and .result != "running"' 600 || { warn "the plan did not finish"; return 1; }
     # the page's look at the plan: on a fresh data folder the first one starts the plan anew (the engine's note isn't
     # there yet) and answers without one - looked at again once that plan is done
     local i
@@ -355,14 +355,14 @@ make_base() {
         jq -e '(.P | type) == "object" and .O != null' /tmp/uso-base-plan.json >/dev/null && break
         log "Mr. Backupsy: the plan is made anew - waiting for it"
         sleep 3
-        wait_json "$st" '.running != true and .mode == "plan" and .result != null' 600 || { warn "the plan did not finish"; return 1; }
+        wait_json "$st" '.running != true and .mode == "plan" and .result != null and .result != "running"' 600 || { warn "the plan did not finish"; return 1; }
     done
     body=$(node "$TREE/tools/scenarios/plan-changes.mjs" /tmp/uso-base-plan.json --decisions "$BACKUP_PRESET") || { warn "no decisions from desk.js"; return 1; }
     rm -f /tmp/uso-base-plan.json
     log "Mr. Backupsy: Apply ($BACKUP_PRESET for everything, $(jq '.decisions | length' <<<"$body") keys)"
     ask backup.setup_apply "$body" 60 || return 1
     sleep 2
-    wait_json "$st" '.running != true and .mode == "apply" and .result != null' 900 || { warn "the apply did not finish"; return 1; }
+    wait_json "$st" '.running != true and .mode == "apply" and .result != null and .result != "running"' 900 || { warn "the apply did not finish"; return 1; }
     jq -e '.result == "ok" or .result == "warnings"' "$st" >/dev/null || { warn "the apply ended $(jq -r .result "$st")"; return 1; }
     if [[ -n $BACKUP_CRON ]]; then ask backup.schedule "$(jq -nc --arg c "$BACKUP_CRON" '{cron: $c}')" || return 1; fi
     # Ms. Moverelli: her settings as her page has them, with X and the shares of MOVERELLI_RULES (those there); no X:
