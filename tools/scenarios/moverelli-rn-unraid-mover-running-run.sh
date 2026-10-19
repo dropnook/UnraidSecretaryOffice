@@ -40,8 +40,9 @@ if wait_for 300 "a file of uso-yes on its way" _mv_moving "$t0" uso-yes; then
     # the stop file goes when her run ends — a run that ended within a poll: the time of her log line instead
     if ((ts == 0)); then
         l=$(agent_log_since mover | grep -m1 "Unraid's mover started" | cut -c1-19)
-        # (the office logs in Unraid's time zone, PHP's — the shell's may be UTC)
-        [[ -n $l ]] && ts=$(php -r 'echo (int) strtotime($argv[1]);' "$l" 2>/dev/null || echo 0)
+        # (the office logs in Unraid's time zone — ident.cfg timeZone, agent.php — the shell's may be UTC)
+        tz=$(_ini_value /boot/config/ident.cfg timeZone)
+        [[ -n $l ]] && ts=$(TZ=${tz:-UTC} date -d "$l" +%s 2>/dev/null || echo 0)
     fi
     m1=$(arr)
     late=$(find /mnt/disk1/uso-yes/uso-wip-d-m11 /mnt/disk2/uso-yes/uso-wip-d-m11 -type f ! -name '*.partial' -newerct "@$((ts + 1))" 2>/dev/null | wc -l)
@@ -50,7 +51,7 @@ if wait_for 300 "a file of uso-yes on its way" _mv_moving "$t0" uso-yes; then
     h=$(jq -c '.history[0] | {result, why}' "$D/moverelli.json" 2>/dev/null)
     [[ $(jq -r '"\(.result)/\(.why // "")"' <<<"$h") == stopped/mover ]] && cell stopped-mover 1 "her last run: $h" || cell stopped-mover 0 "her last run: $h"
     if ((ts == 0)); then cell after-this-file 0 "she never wrote her stop file (why mover) within 30 s of Unraid's mover"
-    elif ((late <= 1)); then cell after-this-file 1 "she saw the mover at $(date -d "@$ts" +%T): $late file(s) finished after that (the one in flight), $m0 → $m1 of 6 on the array"
+    elif ((late <= 1)); then cell after-this-file 1 "she saw the mover at $(date -d "@$ts" '+%T %Z'): $late file(s) finished after that (the one in flight), $m0 → $m1 of 6 on the array"
     else cell after-this-file 0 "she saw the mover at $(date -d "@$ts" +%T), yet $late files finished after that — further files were begun ($m0 → $m1 of 6)"; fi
     p=$(find /mnt/disk*/uso-yes /mnt/cache/uso-yes -name '*.partial' 2>/dev/null | paste -sd' ' -)
     [[ -z $p ]] && cell no-partial 1 "no half-moved file" || cell no-partial 0 "left half-moved: $p"
