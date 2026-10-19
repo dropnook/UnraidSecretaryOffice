@@ -38,6 +38,7 @@ else
     cell ended 0 "the array was never stopped while the drill worked (watcher: $(cat "$dir/fired" 2>/dev/null || echo 'never fired'))"
     wait "$fpid"
 fi
+for j in $(atq 2>/dev/null | cut -f1); do say "atd's queue after the start: $(atq | grep "^$j" | tr '\t' ' ') — $(at -c "$j" 2>/dev/null | tail -2 | head -1 | cut -c1-160)"; done
 # the agent stops with the array by design (CLAUDE.md: «event/started starts, event/stopping stops»): no heartbeat meanwhile
 allow INV-TICK "the array stop ends the agent by design (CLAUDE.md: the agent — event/started starts, event/stopping stops); its heartbeat pauses until the start"
 check standard

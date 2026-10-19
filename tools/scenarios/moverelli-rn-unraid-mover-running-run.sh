@@ -2,8 +2,9 @@
 # Cell M11 of matrix.md: Unraid's own mover at work (RN-UNRAID-MOVER-RUNNING: /var/run/mover.pid names a living
 # process whose command line says «mover»). (start) «Run now» is refused with moverelli_mover_running — nothing moves.
 # (middle) her real run moves 6 × 512 MB (40 days old, uso-yes → the array) and Unraid's mover starts while a file is
-# on its way: she stops after that file, for real — the file in flight arrives whole, no further one is begun (at
-# most one more within her 5 s look), no .partial, her history says «stopped» why mover. Pre-release (~4 min).
+# on its way: she stops after that file, for real — once her look (every 5 s, JACK_MOVER_LOOK) has seen the mover and
+# written her stop file, only the file in flight arrives (whole), no further one is begun; no .partial, her history
+# says «stopped» why mover. Pre-release (~4 min).
 . "$(dirname "$0")/lib.sh"
 scenario_begin moverelli-rn-unraid-mover-running-run
 needs tower
@@ -28,14 +29,19 @@ if wait_for 300 "a file of uso-yes on its way" _mv_moving "$t0" uso-yes; then
     unraid_mover_fake_running M11-MID
     undo_push unraid_mover_fake_stop M11-MID
     say "Unraid's mover «started» with $m0 file(s) of 6 on the array"
+    # her watch looks every 5 s (JACK_MOVER_LOOK) and then writes her stop file: from then on no further file may begin
+    WAIT_SOFT=1 wait_for 30 "her stop file (why mover)" test -f "$D/moverelli/office-stop.json" \
+        && ts=$(jq -r '.time // 0' "$D/moverelli/office-stop.json" 2>/dev/null) || ts=0
     wait "$fpid"
     m1=$(arr)
+    late=$(find /mnt/disk1/uso-yes/uso-wip-d-m11 /mnt/disk2/uso-yes/uso-wip-d-m11 -type f ! -name '*.partial' -newerct "@$((ts + 1))" 2>/dev/null | wc -l)
     unraid_mover_fake_stop M11-MID
     ask moverelli.refresh '{}' 120 >/dev/null
     h=$(jq -c '.history[0] | {result, why}' "$D/moverelli.json" 2>/dev/null)
     [[ $(jq -r '"\(.result)/\(.why // "")"' <<<"$h") == stopped/mover ]] && cell stopped-mover 1 "her last run: $h" || cell stopped-mover 0 "her last run: $h"
-    (( m1 - m0 <= 2 && m1 < 6 )) && cell after-this-file 1 "$m0 on the array when the mover came, $m1 after: the file in flight finished, no further one begun" \
-        || cell after-this-file 0 "$m0 on the array when the mover came, $m1 after (of 6)"
+    if ((ts == 0)); then cell after-this-file 0 "she never wrote her stop file (why mover) within 30 s of Unraid's mover"
+    elif ((late <= 1)); then cell after-this-file 1 "she saw the mover at $(date -d "@$ts" +%T): $late file(s) finished after that (the one in flight), $m0 → $m1 of 6 on the array"
+    else cell after-this-file 0 "she saw the mover at $(date -d "@$ts" +%T), yet $late files finished after that — further files were begun ($m0 → $m1 of 6)"; fi
     p=$(find /mnt/disk*/uso-yes /mnt/cache/uso-yes -name '*.partial' 2>/dev/null | paste -sd' ' -)
     [[ -z $p ]] && cell no-partial 1 "no half-moved file" || cell no-partial 0 "left half-moved: $p"
 else

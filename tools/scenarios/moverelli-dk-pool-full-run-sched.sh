@@ -10,6 +10,16 @@
 scenario_begin moverelli-dk-pool-full-run-sched
 needs tower zfs
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
+# base.sh keeps what it set aside in the share's root (.uso-base-aside) — her fill moves it like any file of uso-yes,
+# while the inventories leave it out (INV-COUNTS would count her moves of base.sh's asides as none): out of the share
+# for this scenario, back in the undo
+aside_off() { local b; for b in $(bases); do [[ -d /mnt/$b/uso-yes/.uso-base-aside ]] || continue
+    mkdir -p "$KEEP_STASH/M8-ASIDE/$b" && mv "/mnt/$b/uso-yes/.uso-base-aside" "$KEEP_STASH/M8-ASIDE/$b/" || return 1; done; }
+aside_back() { local d b; for d in "$KEEP_STASH"/M8-ASIDE/*/; do [[ -d $d ]] || continue; b=$(basename "$d")
+    [[ -d /mnt/$b/uso-yes ]] || install -d -o nobody -g users -m 0777 "/mnt/$b/uso-yes"
+    mv "$d.uso-base-aside" "/mnt/$b/uso-yes/" && rmdir "$d" || return 1; done; rmdir "$KEEP_STASH/M8-ASIDE" 2>/dev/null; return 0; }
+undo_push aside_back
+aside_off || _row state aside red "base.sh's asides could not be set apart"
 state DK-POOL-FULL cache 1024
 track_share uso-yes
 snap_before

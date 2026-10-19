@@ -38,9 +38,12 @@ for f in "$D/moverelli/"{office-run,night,smartmover}.lock; do lock_held "$f" &&
 ((${#held[@]} == 0)) && cell locks-free 1 "none of her locks held" || cell locks-free 0 "held after the boot: ${held[*]}"
 ask moverelli.refresh '{}' 120 >/dev/null
 [[ $(jq -r '.job.running // false' "$D/moverelli.json") == false ]] && cell not-running 1 "her page: no run at work" || cell not-running 0 "her page says a run is at work after the boot"
-h=$(jq -c '.history[0] // {} | {result, why, started}' "$D/moverelli.json" 2>/dev/null)
-say "her last run as her page lists it: $h"
-[[ $(jq -r '.result // ""' <<<"$h") != ok ]] && cell history-says 1 "her history: $h" || cell history-says 0 "her history calls the cut run ok: $h"
+at=$(sed -n 's/^at=//p' "$reb" 2>/dev/null)
+h=$(jq -c --argjson t "${at:-0}" '[.history[]? | select((.started // 0) >= $t)][0] // null | if . == null then null else {result, why, started} end' "$D/moverelli.json" 2>/dev/null)
+say "her record of the run the power cut hit: $h"
+if [[ $h == null || -z $h ]]; then cell history-says 0 "her history has no record of the run the power cut hit (the newest: $(jq -c '.history[0] | {result, by, started}' "$D/moverelli.json" 2>/dev/null))"
+elif [[ $(jq -r '.result // ""' <<<"$h") != ok ]]; then cell history-says 1 "her record: $h"
+else cell history-says 0 "her history calls the cut run ok: $h"; fi
 flow MV-RUN
 p=$(partials | paste -sd' ' -)
 [[ -z $p ]] && cell partial-cleared 1 "no .partial after her next run" || cell partial-cleared 0 "after her next run still: $p"
