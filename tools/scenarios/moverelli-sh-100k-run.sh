@@ -2,8 +2,9 @@
 # Cell M14 of matrix.md — nightly: 100 000 small files in one yes share (SH-100K, uso-wip-c-100kmv, empty files on the
 # pool) through Ms. Moverelli's «List», «Dry run» and a real run. Measured and held: the list within 2 min, the dry run
 # within 10 min and its output naming at most max_list files (her setting, 50 on Tower), the real run within 50 min
-# moving all 100 000 to the array (none left on the pool), her progress while at work growing (office-run.json sampled
-# every 10 s), the agent's heartbeat steady (INV-TICK). The times go into the report (README «Batch C»). Nightly (~40 min).
+# moving all 100 000 to the array (none left on the pool), her progress while at work growing (sampled every 10 s
+# from her status.json, the counts her run card shows), the agent's heartbeat steady (INV-TICK). The times go into the
+# README «Batch C». Nightly (~20 min).
 . "$(dirname "$0")/lib.sh"
 scenario_begin moverelli-sh-100k-run
 needs tower
@@ -27,8 +28,8 @@ out=$D/moverelli/office-output.txt
 shown=$(grep -c "/many/f" "$out" 2>/dev/null)
 ((shown <= max)) && cell max-list 1 "the dry run's output names $shown files (max_list $max)" || cell max-list 0 "the dry run's output names $shown files (max_list $max)"
 prog=$KEEP/progress.jsonl
-( while :; do sleep 10; [[ -f $D/moverelli/office-run.json ]] || continue
-    jq -c --arg t "$(date +%s)" '{t: ($t | tonumber), finished, progress}' "$D/moverelli/office-run.json" >>"$prog" 2>/dev/null
+( while :; do sleep 10; [[ -f $D/moverelli/status.json ]] || continue      # Smart Mover's live counts (her card's source)
+    jq -c --arg t "$(date +%s)" '{t: ($t | tonumber), result, phase, progress: {share, files: .share_done_files, bytes: .share_done_bytes}}' "$D/moverelli/status.json" >>"$prog" 2>/dev/null
     [[ $(jq -r '.finished // 0' "$D/moverelli/office-run.json" 2>/dev/null) != 0 ]] && [[ $(wc -l <"$prog") -gt 1 ]] && break
     ((SECONDS - t0 > 3600)) && break; done ) &
 smp=$!
