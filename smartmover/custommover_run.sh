@@ -758,19 +758,37 @@ office_ws_move() {  # file to
     return 1
 }
 
-# USO «trailing space»: after a prefer share's folder pass (DIRS, deepest first) a folder still on the array that is
-# empty goes when its counterpart is on the pool already (its files went there: a name ending in whitespace the binary
-# could not take, or the parent that still held it when the binary came) — rmdir, never a folder holding anything;
-# an empty one ending in whitespace without a counterpart is made there first (owner, mode, times), as the binary would
+# USO «trailing space»: after a share's folder pass (DIRS, deepest first) a folder still on the source side that is
+# empty goes when its counterpart is at the destination already (its files went there: a name ending in whitespace the
+# binary could not take, or the parent that still held it when the binary came) — rmdir, never a folder holding anything;
+# an empty one ending in whitespace without a counterpart is made on a pool first (owner, mode, times), as the binary would.
+# C-M4 (2026-10-19): the destination the array (a yes share) — there is no /mnt/array: a counterpart on any data disk
+# counts; one without a counterpart stays there (which disk is the binary's choice), as Unraid's mover leaves it
 office_dirs_left() {  # share src dest
-    local name="$1" src="$2" dest="$3" d to r gone=0 made=0 where=""
+    local name="$1" src="$2" dest="$3" d to r b gone=0 made=0 where="" onto="$3"
     local -A ROOT=()
+    local -a bases=()
     while IFS= read -r r; do [[ -n "$r" ]] && ROOT[$r]=1; done <<< "$src"
-    [[ -d "$MNT/$dest" ]] || return 0
+    if [[ "$dest" == array ]]; then
+        for b in "$MNT"/disk[0-9]*; do [[ -d "$b" && ! -L "$b" ]] && bases+=("$b"); done
+        onto="the array"
+    elif [[ -d "$MNT/$dest" ]]; then
+        bases=("$MNT/$dest")
+    fi
+    (( ${#bases[@]} > 0 )) || return 0
     for d in "${DIRS[@]}"; do
         [[ -d "$d" && ! -L "$d" ]] || continue
-        if [[ -n "${ROOT[$d]:-}" ]]; then to="$MNT/$dest/$name"; else rel_of "$d" "$src"; to="$MNT/$dest/$name/$REL"; fi
-        if [[ ! -d "$to" || -L "$to" ]]; then
+        # the share's own folder towards the array: share_root_said's (the binary had it; a pool's may be a dataset)
+        [[ "$dest" == array && -n "${ROOT[$d]:-}" ]] && continue
+        if [[ -n "${ROOT[$d]:-}" ]]; then REL=""; else rel_of "$d" "$src"; fi
+        to=""
+        for b in "${bases[@]}"; do
+            r="$b/$name${REL:+/$REL}"
+            [[ -d "$r" && ! -L "$r" ]] && { to="$r"; break; }
+        done
+        if [[ -z "$to" ]]; then
+            [[ "$dest" == array ]] && continue
+            to="$MNT/$dest/$name${REL:+/$REL}"
             ends_ws "$d" || continue
             [[ -z "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]] || continue
             MADE_D=(); MADE_S=()
@@ -781,7 +799,7 @@ office_dirs_left() {  # share src dest
         rmdir -- "$d" 2>/dev/null && { (( gone++ )) || true; }
     done
     [[ "$src" == "$MNT"/disk[0-9]* ]] && where=" on the array"
-    (( gone > 0 )) && log INFO "  $gone empty folders the move binary left$where removed – they are on $dest$( (( made > 0 )) && printf ' (%s made there first: a name ending in a space or tab)' "$made")"
+    (( gone > 0 )) && log INFO "  $gone empty folders the move binary left$where removed – they are on $onto$( (( made > 0 )) && printf ' (%s made there first: a name ending in a space or tab)' "$made")"
     return 0
 }
 

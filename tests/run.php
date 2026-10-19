@@ -37476,6 +37476,7 @@ JS);
     hardeningRm($tmp);
 }
 
+
 /**
  * Her card's time left (the owner, 2026-10-18: «about 6 days» for a run of under 2 h — after 535 s 8 667 of 72 880 small
  * Nextcloud files done but only 319 MB of 359 GB): files × time per file + bytes ÷ bandwidth, from the page's readings
@@ -38101,6 +38102,20 @@ SH);
         [$exit, $share($st, 'Pics')['state'] ?? null, is_dir("$d1/2019/06 Juni "), is_dir("$d1/2019/07 Juli "), is_dir("$d1/2020"), is_file("$d1/2019/keep/k.jpg"),
          is_dir("$d1/2019"), is_dir("$c/2019/06 Juni ")]);
     check('trailing space: … said in one line', str_contains($log, '4 empty folders the move binary left on the array removed – they are on cache'), $log);
+    // C-M4 (scenario M4, 2026-10-19): the yes direction — a folder ending in a space whose files went to the array goes from
+    // the pool too (there is no /mnt/array: its copy on any data disk counts); an empty one without a copy on the array
+    // stays (which disk would be the binary's choice), as Unraid's mover leaves it
+    $reset();
+    $mk('mnt/cache/Docs/06 Juni /a.txt', 'a');
+    $mk('mnt/cache/Docs/2024 /05 Mai /b.txt', 'b');
+    @mkdir("$t/mnt/cache/Docs/leer ", 0700, true);
+    [$exit] = runEnv(['bash', $sm, '--run'], $env, 60);
+    $log = (string) file_get_contents("$t/log");
+    same('trailing space, yes share: «06 Juni » and «2024 /05 Mai » gone from the pool (their files on the array), «leer » (no copy on the array) stays',
+        [0, false, true, false, true, true, false],
+        [$exit, is_dir("$t/mnt/cache/Docs/06 Juni "), is_file("$t/mnt/disk1/Docs/06 Juni /a.txt"), is_dir("$t/mnt/cache/Docs/2024 "),
+         is_file("$t/mnt/disk1/Docs/2024 /05 Mai /b.txt"), is_dir("$t/mnt/cache/Docs/leer "), is_dir("$t/mnt/disk1/Docs/leer ")]);
+    check('trailing space, yes share: … said in one line', str_contains($log, '3 empty folders the move binary left removed – they are on the array'), $log);
     // a dry run touches nothing
     $reset();
     @mkdir("$d1/2019/06 Juni ", 0700, true);
