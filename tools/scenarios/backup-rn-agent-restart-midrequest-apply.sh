@@ -11,8 +11,9 @@ cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || e
 plan=$KEEP/plan.json
 _bk_plan_get "$plan" || _row state plan red "no plan from backup.setup_get"
 was=$(_ini_flat "$UB/settings.ini" | sed -n 's/^general|min_free_gb=//p'); was=${was:-8}
-to=$((was + 1))   # one key, one line: the room kept free in the backup place (a share's mode would also write its method)
-body=$(decisions_from_plan "$plan" "general|min_free_gb=$to")
+to=$((was + 1))   # one key, one line: the room kept free in the backup place (a share's mode would also write its method);
+# the value as the page sends it — a string (plan-changes.mjs reads key=value as JSON: "9", not 9)
+body=$(decisions_from_plan "$plan" "general|min_free_gb=\"$to\"")
 cp -p "$UB/settings.ini" "$KEEP/settings.before"
 snap_before
 agent_mark_restart
@@ -31,6 +32,6 @@ case $d in
         expect_diff "general|min_free_gb: $was→$to" ;;
     *) cell ini-whole 0 "settings.ini changed otherwise: $d" ;;
 esac
-[[ -n $d ]] && undo_push flow BK-APPLY "general|min_free_gb=$was"
+[[ -n $d ]] && undo_push flow BK-APPLY "general|min_free_gb=\"$was\""
 check standard
 scenario_end
