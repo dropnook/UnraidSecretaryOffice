@@ -78,6 +78,7 @@
   "share_would": "{share}: movería {files} ({size})",
   "dry_summary": "Movería {files} ({size}).",
   "run_summary": "{moved} de {files} movidos ({size}), {left}",
+  "run_nothing": "Nada que mover",
   "stopped_mover": "El mover de Unraid se puso en marcha a mano — paré después de este archivo. No conoce mis excepciones.",
   "stopped_user": "Parada después de {file}, como pediste",
   "stopped_array": "Parada después de {file}: se detuvo el array",

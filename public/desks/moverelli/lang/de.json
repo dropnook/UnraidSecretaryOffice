@@ -78,6 +78,7 @@
   "share_would": "{share}: würde {files} verschieben ({size})",
   "dry_summary": "Würde {files} verschieben ({size}).",
   "run_summary": "{moved} von {files} verschoben ({size}), {left}",
+  "run_nothing": "Nichts zu verschieben",
   "stopped_mover": "Unraids Mover wurde von Hand gestartet — ich habe nach dieser Datei aufgehört. Er kennt meine Ausnahmen nicht.",
   "stopped_user": "Nach {file} angehalten, wie gewünscht",
   "stopped_array": "Nach {file} angehalten: das Array wurde gestoppt",

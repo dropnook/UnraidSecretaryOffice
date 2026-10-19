@@ -78,6 +78,7 @@
   "share_would": "{share}: would move {files} ({size})",
   "dry_summary": "Would move {files} ({size}).",
   "run_summary": "{moved} of {files} moved ({size}), {left}",
+  "run_nothing": "Nothing to move",
   "stopped_mover": "Unraid's mover was started by hand — I stopped after this file. It doesn't know my exceptions.",
   "stopped_user": "Stopped after {file}, as asked",
   "stopped_array": "Stopped after {file}: the array was stopped",

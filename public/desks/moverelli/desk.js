@@ -1056,7 +1056,9 @@ function runSummary(r) {
       : r.why === 'now' ? T('stopped_now', { file }) : r.why === 'array' ? T('stopped_array', { file })
         : T('stopped_user', { file, share: s.stop_share || '?' }));
   }
-  if (mode === 'dry') notes.push(T('dry_summary', { files: nOf('files', s.files), size: fmt.size(s.bytes || 0) }));
+  // D-F7: a run that found no file says so, never «0 of 0 moved (0 B)» (a stopped one may not have looked yet)
+  if (s.result !== 'stopped' && !Number(s.files) && !Number(s.moved) && !Number(s.left)) notes.push(T('run_nothing'));
+  else if (mode === 'dry') notes.push(T('dry_summary', { files: nOf('files', s.files), size: fmt.size(s.bytes || 0) }));
   else notes.push(T('run_summary', { moved: s.moved || 0, files: s.files || 0, size: fmt.size(s.bytes || 0), left: nOf('left', s.left) }));
   if (s.errors) notes.push(nOf('errors', s.errors));
   if (r.waited) notes.push(T('waited', { min: Math.round(r.waited / 60) }));
