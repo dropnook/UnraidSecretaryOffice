@@ -13,16 +13,17 @@
 . "$(dirname "$0")/lib.sh"
 scenario_begin restore-sh-exclusive-replace
 needs tower zfs exclusive
+files_gone() { files_unput "$1" >/dev/null 2>&1; rm -f "$KEEP_STASH/$1/files"; return 0; }
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
 S=uso-wip-c-rex
 snaps_drop() { local s ds; for s in "$@"; do [[ $s == uso-wip-c-* ]] || continue; ds=cache/$s
     zfs list -H -t snapshot -o name "$ds" 2>/dev/null | grep -E '@uso-(backup|plan)-' | while read -r x; do zfs destroy "$x" && say "undo: destroyed $x"; done; done; }
-mkdir -p "$KEEP_STASH/C-R15" && cp -p "$UB/settings.ini" "$KEEP_STASH/C-R15/settings.ini"
-undo_push bash -c 'mv -f "$1/settings.ini" "$2" && rmdir "$1"' _ "$KEEP_STASH/C-R15" "$UB/settings.ini"
+mkdir -p "$KEEP_STASH/C-R15-INI" && cp -p "$UB/settings.ini" "$KEEP_STASH/C-R15-INI/settings.ini"
+undo_push bash -c 'mv -f "$1/settings.ini" "$2" && rmdir "$1"' _ "$KEEP_STASH/C-R15-INI" "$UB/settings.ini"
 nc_data_closed
 state SH-EXCLUSIVE "$S"
 put_files C-R15 cache "$S/dir" 4 --size 64K || _row state files red "dir/ could not be written"
-undo_push files_unput C-R15
+undo_push files_gone C-R15             # what the flow left in them goes with the share's undo
 # today's pick of the drill: the shares backed up locally (settings.ini, mode not off, a name the drill takes, not the
 # office's own) + this one + pads, sorted; index = day number % count — pads before (a) or after (z) this one until it is
 pick=($(awk -F'"' '/^\[share "/ { s = $2; next } /^\[/ { s = "" } s != "" && /^mode *= */ { m = $0; sub(/^mode *= */, "", m); if (m != "off") print s }' "$UB/settings.ini" \

@@ -13,12 +13,13 @@
 . "$(dirname "$0")/lib.sh"
 scenario_begin restore-sh-open-file-replace
 needs tower zfs docker
+files_gone() { files_unput "$1" >/dev/null 2>&1; rm -f "$KEEP_STASH/$1/files"; return 0; }
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
 S=uso-wip-c-ro W=uso-wip-c-writer H=uso-wip-c-ro-data
 snaps_drop() { local s ds; for s in "$@"; do [[ $s == uso-wip-c-* ]] || continue; ds=cache/$s
     zfs list -H -t snapshot -o name "$ds" 2>/dev/null | grep -E '@uso-(backup|plan)-' | while read -r x; do zfs destroy "$x" && say "undo: destroyed $x"; done; done; }
-mkdir -p "$KEEP_STASH/C-R2" && cp -p "$UB/settings.ini" "$KEEP_STASH/C-R2/settings.ini"
-undo_push bash -c 'mv -f "$1/settings.ini" "$2" && rmdir "$1"' _ "$KEEP_STASH/C-R2" "$UB/settings.ini"
+mkdir -p "$KEEP_STASH/C-R2-INI" && cp -p "$UB/settings.ini" "$KEEP_STASH/C-R2-INI/settings.ini"
+undo_push bash -c 'mv -f "$1/settings.ini" "$2" && rmdir "$1"' _ "$KEEP_STASH/C-R2-INI" "$UB/settings.ini"
 nc_data_closed
 state SH-POOL-ONLY "$S"
 nc_data_closed
@@ -26,8 +27,9 @@ undo_push snaps_drop "$S"
 # SH-OPEN-FILE, in the app's folder data/: open.bin (and two more) — held open by a process
 put_files C-R2 cache "$S/data" 2 --size 64K && put_files C-R2 cache "$S/data" 1 --size 1M --name open.bin \
     && put_files C-R2 cache "$S/app" 3 --size 64K || _row state files red "data/ and app/ could not be written"
-undo_push files_unput C-R2
-open_file C-R2 "/mnt/user/$S/data/open.bin" || _row state SH-OPEN-FILE red "open.bin could not be held open"
+undo_push files_gone C-R2             # what the flow left in them goes with the share's undo
+# by its pool path: /mnt/user/$S is a symlink (an exclusive share) and /proc names the target (open_file looks there)
+open_file C-R2 "/mnt/cache/$S/data/open.bin" || _row state SH-OPEN-FILE red "open.bin could not be held open"
 undo_push close_files C-R2
 ct_make C-R2 "$H" alpine:latest -v "/mnt/user/$S/data:/data" -- sleep 86400 || _row state app red "$H could not be made"
 ct_make C-R2 "$W" alpine:latest -v "/mnt/user/$S/app:/data" -- sh -c 'while :; do date >> /data/log.txt; sleep 2; done' \

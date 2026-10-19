@@ -12,8 +12,8 @@ needs tower zfs kopia
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
 S=uso-wip-c-100k
 snaps_drop() { local x; zfs list -H -t snapshot -o name "cache/$S" 2>/dev/null | grep -E '@uso-(backup|plan)-' | while read -r x; do zfs destroy "$x" && say "undo: destroyed $x"; done; }
-mkdir -p "$KEEP_STASH/C-B31" && cp -p "$UB/settings.ini" "$KEEP_STASH/C-B31/settings.ini"
-undo_push bash -c 'mv -f "$1/settings.ini" "$2" && rmdir "$1"' _ "$KEEP_STASH/C-B31" "$UB/settings.ini"
+mkdir -p "$KEEP_STASH/C-B31-INI" && cp -p "$UB/settings.ini" "$KEEP_STASH/C-B31-INI/settings.ini"
+undo_push bash -c 'mv -f "$1/settings.ini" "$2" && rmdir "$1"' _ "$KEEP_STASH/C-B31-INI" "$UB/settings.ini"
 nc_data_closed
 share_use C-B31 "$S" only cache || _row state share red "$S could not be made"
 undo_push share_unuse C-B31

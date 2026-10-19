@@ -12,18 +12,19 @@
 . "$(dirname "$0")/lib.sh"
 scenario_begin backup-sh-exclusive-run
 needs tower zfs docker exclusive
+files_gone() { files_unput "$1" >/dev/null 2>&1; rm -f "$KEEP_STASH/$1/files"; return 0; }
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
 S=uso-wip-c-ex APP=uso-wip-c-exapp
 scratch_drop() { local x; [[ $S == uso-wip-c-* ]] || return 1
     zfs list -H -r -t snapshot -o name "cache/$S" 2>/dev/null | grep -E '@uso-(backup|plan)-' | while read -r x; do zfs destroy "$x" && say "undo: destroyed $x"; done
     zfs list -H "cache/$S/app" >/dev/null 2>&1 && { zfs destroy -r "cache/$S/app" && say "undo: destroyed cache/$S/app"; }
     return 0; }
-mkdir -p "$KEEP_STASH/C-B30" && cp -p "$UB/settings.ini" "$KEEP_STASH/C-B30/settings.ini"
-undo_push bash -c 'mv -f "$1/settings.ini" "$2" && rmdir "$1"' _ "$KEEP_STASH/C-B30" "$UB/settings.ini"
+mkdir -p "$KEEP_STASH/C-B30-INI" && cp -p "$UB/settings.ini" "$KEEP_STASH/C-B30-INI/settings.ini"
+undo_push bash -c 'mv -f "$1/settings.ini" "$2" && rmdir "$1"' _ "$KEEP_STASH/C-B30-INI" "$UB/settings.ini"
 nc_data_closed
 state SH-EXCLUSIVE "$S"
 put_files C-B30 cache "$S/app" 6 --size 64K || _row state files red "app/ could not be written"
-undo_push files_unput C-B30
+undo_push files_gone C-B30             # what the flow left in them goes with the share's undo
 nc_data_closed
 undo_push scratch_drop
 ct_make C-B30 "$APP" alpine:latest -v "/mnt/user/$S/app:/config" -- sleep 86400 || _row state app red "$APP could not be made"

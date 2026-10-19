@@ -21,8 +21,8 @@ cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || e
 S=uso-wip-c-md SA=uso-wip-c-mda APP=uso-wip-c-mdapp APPA=uso-wip-c-mdaapp
 snaps_drop() { local s b x; for s in "$@"; do [[ $s == uso-wip-c-* ]] || continue; for b in cache disk2; do
     zfs list -H -t snapshot -o name "$b/$s" 2>/dev/null | grep -E '@uso-(backup|plan)-' | while read -r x; do zfs destroy "$x" && say "undo: destroyed $x"; done; done; done; }
-mkdir -p "$KEEP_STASH/C-R16" && cp -p "$UB/settings.ini" "$KEEP_STASH/C-R16/settings.ini"
-undo_push bash -c 'mv -f "$1/settings.ini" "$2" && rmdir "$1"' _ "$KEEP_STASH/C-R16" "$UB/settings.ini"
+mkdir -p "$KEEP_STASH/C-R16-INI" && cp -p "$UB/settings.ini" "$KEEP_STASH/C-R16-INI/settings.ini"
+undo_push bash -c 'mv -f "$1/settings.ini" "$2" && rmdir "$1"' _ "$KEEP_STASH/C-R16-INI" "$UB/settings.ini"
 nc_data_closed
 share_use C-R16 "$S" yes cache && share_apply "$S" shareInclude=disk2 || _row state share red "$S could not be made"
 put_files C-R16 cache "$S/serie1" 3 --size 64K --name p.bin && put_files C-R16 disk2 "$S/serie1" 3 --size 64K --name d.bin \

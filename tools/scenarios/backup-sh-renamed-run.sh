@@ -18,8 +18,8 @@ A=uso-wip-c-ren B=uso-wip-c-ren2
 snaps_drop() { local s ds; for s in "$@"; do [[ $s == uso-wip-c-* ]] || continue; ds=cache/$s
     zfs list -H -t snapshot -o name "$ds" 2>/dev/null | grep -E '@uso-(backup|plan)-' | while read -r x; do zfs destroy "$x" && say "undo: destroyed $x"; done; done; }
 ours() { zfs list -H -t snapshot -o name "cache/$1" 2>/dev/null | grep -c '@uso-backup-'; }
-mkdir -p "$KEEP_STASH/C-B9" && cp -p "$UB/settings.ini" "$KEEP_STASH/C-B9/settings.ini"
-undo_push bash -c 'mv -f "$1/settings.ini" "$2" && rmdir "$1"' _ "$KEEP_STASH/C-B9" "$UB/settings.ini"
+mkdir -p "$KEEP_STASH/C-B9-INI" && cp -p "$UB/settings.ini" "$KEEP_STASH/C-B9-INI/settings.ini"
+undo_push bash -c 'mv -f "$1/settings.ini" "$2" && rmdir "$1"' _ "$KEEP_STASH/C-B9-INI" "$UB/settings.ini"
 nc_data_closed
 state SH-POOL-ONLY "$A"
 nc_data_closed                               # Unraid's «Add Share» opened Nextcloud's data folder again (0777)

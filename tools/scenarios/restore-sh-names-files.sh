@@ -19,8 +19,8 @@ cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || e
 S=uso-wip-c-rn APP=uso-wip-c-rnapp
 snaps_drop() { local s x; for s in "$@"; do [[ $s == uso-wip-c-* ]] || continue
     zfs list -H -t snapshot -o name "cache/$s" 2>/dev/null | grep -E '@uso-(backup|plan)-' | while read -r x; do zfs destroy "$x" && say "undo: destroyed $x"; done; done; }
-mkdir -p "$KEEP_STASH/C-R1" && cp -p "$UB/settings.ini" "$KEEP_STASH/C-R1/settings.ini"
-undo_push bash -c 'mv -f "$1/settings.ini" "$2" && rmdir "$1"' _ "$KEEP_STASH/C-R1" "$UB/settings.ini"
+mkdir -p "$KEEP_STASH/C-R1-INI" && cp -p "$UB/settings.ini" "$KEEP_STASH/C-R1-INI/settings.ini"
+undo_push bash -c 'mv -f "$1/settings.ini" "$2" && rmdir "$1"' _ "$KEEP_STASH/C-R1-INI" "$UB/settings.ini"
 nc_data_closed
 share_use C-R1 "$S" only cache || _row state share red "$S could not be made"
 undo_push share_unuse C-R1

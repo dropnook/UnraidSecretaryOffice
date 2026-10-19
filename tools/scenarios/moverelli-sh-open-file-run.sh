@@ -6,6 +6,7 @@
 . "$(dirname "$0")/lib.sh"
 scenario_begin moverelli-sh-open-file-run
 needs tower
+files_gone() { files_unput "$1" >/dev/null 2>&1; rm -f "$KEEP_STASH/$1/files"; return 0; }
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
 S=uso-wip-c-open
 _st_mv_configured || _row state moverelli red "Ms. Moverelli isn't set up (the base)"
@@ -13,7 +14,7 @@ nc_data_closed
 state SH-OPEN-FILE "$S"
 nc_data_closed
 put_files C-M5 cache "$S" 5 --size 1M || _row state files red "the other files could not be written"
-undo_push files_unput C-M5
+undo_push files_gone C-M5             # what the flow left in them goes with the share's undo
 where=$(disk_of_file "/mnt/user/$S/open.bin")
 sum=$(md5sum <"/mnt/cache/$S/open.bin")
 say "open.bin lies on ${where:-?}, held open by $(cat "$KEEP_STASH/SH-OPEN-FILE/open.pids" 2>/dev/null)"

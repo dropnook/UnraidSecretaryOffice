@@ -15,16 +15,17 @@
 . "$(dirname "$0")/lib.sh"
 scenario_begin restore-sh-renamed-files
 needs tower zfs docker
+files_gone() { files_unput "$1" >/dev/null 2>&1; rm -f "$KEEP_STASH/$1/files"; return 0; }
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
 A=uso-wip-c-r8a B=uso-wip-c-r8b OLD=uso-wip-c-r8old NEW=uso-wip-c-r8new
 snaps_drop() { local s ds; for s in "$@"; do [[ $s == uso-wip-c-* ]] || continue; ds=cache/$s
     zfs list -H -t snapshot -o name "$ds" 2>/dev/null | grep -E '@uso-(backup|plan)-' | while read -r x; do zfs destroy "$x" && say "undo: destroyed $x"; done; done; }
-mkdir -p "$KEEP_STASH/C-R8" && cp -p "$UB/settings.ini" "$KEEP_STASH/C-R8/settings.ini"
-undo_push bash -c 'mv -f "$1/settings.ini" "$2" && rmdir "$1"' _ "$KEEP_STASH/C-R8" "$UB/settings.ini"
+mkdir -p "$KEEP_STASH/C-R8-INI" && cp -p "$UB/settings.ini" "$KEEP_STASH/C-R8-INI/settings.ini"
+undo_push bash -c 'mv -f "$1/settings.ini" "$2" && rmdir "$1"' _ "$KEEP_STASH/C-R8-INI" "$UB/settings.ini"
 nc_data_closed
 state SH-POOL-ONLY "$A"
 put_files C-R8 cache "$A/album" 4 --size 64K || _row state files red "album/ could not be written"
-undo_push files_unput C-R8
+undo_push files_gone C-R8             # what the flow left in them goes with the share's undo
 nc_data_closed
 undo_push snaps_drop "$A" "$B"
 ct_make C-R8 "$OLD" alpine:latest -v "/mnt/user/$A/album:/data" -- sleep 86400 || _row state app red "$OLD could not be made"

@@ -12,8 +12,8 @@ scenario_begin backup-sh-names-run
 needs tower kopia
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
 S="uso-wip-c Ärger 's"
-mkdir -p "$KEEP_STASH/C-B10" && cp -p "$UB/settings.ini" "$KEEP_STASH/C-B10/settings.ini"
-undo_push bash -c 'mv -f "$1/settings.ini" "$2" && rmdir "$1"' _ "$KEEP_STASH/C-B10" "$UB/settings.ini"
+mkdir -p "$KEEP_STASH/C-B10-INI" && cp -p "$UB/settings.ini" "$KEEP_STASH/C-B10-INI/settings.ini"
+undo_push bash -c 'mv -f "$1/settings.ini" "$2" && rmdir "$1"' _ "$KEEP_STASH/C-B10-INI" "$UB/settings.ini"
 nc_data_closed
 state SH-NAMES "$S"
 nc_data_closed
