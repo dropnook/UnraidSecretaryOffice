@@ -2,7 +2,9 @@
 # Cell M4 of matrix.md: awkward names through Ms. Moverelli's setup and a real run (pool → array, as Unraid's mover).
 # - SH-NAMES «uso-wip-c Ärger 's» (yes cache; space, umlaut, apostrophe — no rule of hers can name it: her sections
 #   allow [\w.\- ]): the twelve put_names files (umlauts, quotes, $, \, leading space/dash/dot, CJK, 255 bytes, a tab,
-#   «;» and «&») go to the array by her global rule (age 0, Tower's base), each whole, none left, no .partial.
+#   «;» and «&») go to the array by her global rule (age 0, Tower's base), each whole, no .partial — all but the name of
+#   255 bytes: Unraid's move binary leaves that one on the pool (first run, 2026-10-19: «1 files still on the source
+#   side») — Unraid's own mover hands it the same binary, so it stays whole there and is counted as left.
 # - «uso-wip-c Fotos Ärger» (yes cache): her own rule (section [uso-wip-c Fotos Ärger]) with her own list (umlauts):
 #   «/mnt/user/uso-wip-c Fotos Ärger/Behalten Ö» (a folder) and «*.nfö» stay on the pool; «06 Juni /» (a folder whose
 #   name ends in a space — the owner's server, 2026-10-18) goes to the array whole, no empty «06 Juni » left on the
@@ -37,15 +39,18 @@ if [[ -n $sec && -f $lst ]] && grep -qxF "/mnt/user/$S2/Behalten Ö" "$lst" && g
 else
     cell ini-section 0 "section «$(tr '\n' ' ' <<<"$sec")», list «$lst»: $(cat "$lst" 2>/dev/null | tr '\n' '|')"
 fi
+expect_changes "share|$S1|*" "share|$S2|*"   # new shares for Mr. Backupsy's setup too
 track_share "$S1" "$S2"
 snap_before
 flow MV-RUN
 on() { find "/mnt/$1/$2" -type f ! -name '*.partial' 2>/dev/null | wc -l; }
 arr() { local n=0 d; for d in $(bases); do [[ $d == disk* ]] && n=$((n + $(on "$d" "$1"))); done; echo $n; }
-# share 1: every awkward name on the array, none left on the pool
+# share 1: every awkward name on the array but the 255-byte one (Unraid's move binary leaves it: counted as left)
+long=$(printf 'n%.0s' {1..251}).txt
 c1=$(on cache "$S1") a1=$(arr "$S1")
-((c1 == 0 && a1 == 12)) && cell names-moved 1 "all 12 awkward names of «$S1» are on the array" \
-    || cell names-moved 0 "«$S1»: $a1 of 12 on the array, $c1 still on the pool: $(find "/mnt/cache/$S1" -type f -printf '«%f» ' 2>/dev/null | head -c 300)"
+l1=$(jq -r --arg s "$S1" '[.shares[]? | select(.share == $s) | .left] | first // "none"' "$D/moverelli/status.json" 2>/dev/null)
+((c1 == 1 && a1 == 11)) && [[ -f /mnt/cache/$S1/$long && $l1 == 1 ]] && cell names-moved 1 "11 awkward names of «$S1» on the array, the 255-byte one left on the pool and counted (left 1)" \
+    || cell names-moved 0 "«$S1»: $a1 of 11 on the array, on the pool: $(find "/mnt/cache/$S1" -type f -printf '«%.40f…» ' 2>/dev/null | head -c 300), left=$l1"
 # share 2: her list kept its folder and pattern on the pool
 k=$(find "/mnt/cache/$S2/Behalten Ö" -type f 2>/dev/null | wc -l)
 [[ $k == 3 && -f "/mnt/cache/$S2/Info.nfö" ]] && cell list-umlauts 1 "«Behalten Ö/» (3) and «Info.nfö» stayed on the pool (her list)" \

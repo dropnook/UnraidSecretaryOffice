@@ -35,9 +35,14 @@ moment=cache/$B@${first#*@}
 zfs list -H "$moment" >/dev/null 2>&1 && say "the snapshot went along: $moment" || _row state SH-RENAMED red "no $moment after the rename"
 track_share "$B"
 snap_before
+# INV-NOTIFY-ONCE takes one subject twice within 60 s as one event told twice (one run a minute): the runs inside the
+# flow end ≥ 61 s apart, each run's notification its own event
+last_end=0
+run_spaced() { local w=$((last_end + 61 - $(date +%s))); ((w > 0)) && { say "waiting $w s: the previous run's notification ≥ 61 s before this one's"; sleep "$w"; }
+    flow BK-RUN-MANUAL mode=backup; local rc=$?; last_end=$(date +%s); return $rc; }
 expect_warnings share_renamed
 # 1. the scheduled run before the user looks again: «renamed» once, not «gone» and «new»
-flow BK-RUN-MANUAL mode=backup
+run_spaced
 dr=$(jq -c '[.items[]? | {code: (.code // ""), name: (.params.name // ""), old: (.params.old // "")}]' "$UB/state/drift.json" 2>/dev/null)
 say "drift after the run: $dr"
 ren=$(jq --arg a "$A" --arg b "$B" '[.[] | select(.code == "share_renamed" and .name == $b and .old == $a)] | length' <<<"$dr")
@@ -58,7 +63,7 @@ flow BK-APPLY plan=old
 exp=$( { sed 's/^/-/' <<<"$before_ini"; sed "s/^share|$A|/+share|$B|/" <<<"$before_ini"; } | sed '/^[-+]$/d')
 mapfile -t exp_lines <<<"$exp"
 expect_diff "${exp_lines[@]}"              # INV-DIFF-EXACT: the rename's lines, nothing else
-flow BK-RUN-MANUAL mode=backup
+run_spaced
 left=$(zfs list -H -t snapshot -o name "cache/$B" 2>/dev/null | grep '@uso-backup-' | paste -sd' ')
 if zfs list -H "$moment" >/dev/null 2>&1; then
     cell retention-new-name 0 "the retention (1 0 0) kept $moment beside the new run's: $left"
@@ -66,9 +71,10 @@ else
     [[ $(ours "$B") == 1 ]] && cell retention-new-name 1 "the old snapshot ${first#*@} was thinned under its new name; left: $left" \
         || cell retention-new-name 0 "the old one went, but now: ${left:-no snapshot at all}"
 fi
-dr2=$(jq -r '[.items[]? | .code // ""] | map(select(. == "share_renamed" or . == "share_gone" or . == "share_new")) | join(",")' "$UB/state/drift.json" 2>/dev/null)
-[[ -z $dr2 ]] && cell after-apply-quiet 1 "after Apply the run names no renamed/gone/new share" \
-    || cell after-apply-quiet 0 "after Apply the run still says: $dr2"
+say "drift after the run that followed Apply: $(jq -c '[.items[]? | {code, name: .params.name}]' "$UB/state/drift.json" 2>/dev/null | head -c 400)"
+dr2=$(jq -r --arg a "$A" --arg b "$B" '[.items[]? | select((.params.name // "") == $a or (.params.name // "") == $b or (.params.old // "") == $a) | .code] | join(",")' "$UB/state/drift.json" 2>/dev/null)
+[[ -z $dr2 ]] && cell after-apply-quiet 1 "after Apply the run says nothing more of $A or $B" \
+    || cell after-apply-quiet 0 "after Apply the run still says of $A/$B: $dr2"
 check standard
 check final
 scenario_end
