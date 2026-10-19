@@ -652,6 +652,7 @@
   "errors.restore_in_use": "Un programma tiene aperto un file in {path}: {names} — ciò che scrive finirebbe in ciò che metto da parte. Chiudilo o terminalo (non è un contenitore: non termino mai un programma da solo), poi guarda di nuovo.",
   "errors.restore_unfinished_stays": "La copia incompleta {path} ora non può andare nel ripostiglio della signora Spolverina (è un filesystem a sé, o non posso guardarla) — la signora Spolverina la elenca con ciò che ho lasciato.",
   "errors.restore_unfinished_asleep": "La copia incompleta {path} si trova (in parte) su un disco che dorme ({base}) — non lo sveglio per questo. Quando è sveglio, guarda di nuovo.",
+  "errors.restore_measuring": "Le dimensioni sono ancora in misurazione — comincio solo quando so che c'è spazio. Aspetta un momento, poi avvia di nuovo.",
   "errors.restore_vm_service_off": "Il servizio VM è spento — accendilo (⟦Settings⟧ → ⟦VM Manager⟧) perché libvirt possa prendere la configurazione.",
   "errors.restore_config_same": "Sul server tutto è uguale al pacchetto — niente da ripristinare.",
   "errors.restore_db_stopped": "{container} è fermo — un dump va solo in un database in esecuzione, e io non avvio mai un contenitore da solo. Avvialo nella pagina ⟦Docker⟧ di Unraid, poi guarda di nuovo.",

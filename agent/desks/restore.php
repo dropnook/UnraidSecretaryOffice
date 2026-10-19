@@ -3335,6 +3335,11 @@ function rsLaunch(array $plan, bool $run = true): string
     if (!$plan['steps']) {
         throw new Problem('restore_putback_not');
     }
+    // sizes still being measured: whether it fits isn't known yet (scenario batch D, F9: started anyway, the copy filled the
+    // pool to 0 B) — only the dialog waited; now he does too
+    if (!empty($plan['sizes']['measuring'])) {
+        throw new Problem('restore_measuring');
+    }
     $id = $plan['stamp'] . '-' . bin2hex(random_bytes(2));
     rsPrivateDir(rsData());
     rsPrivateDir(rsDir($id));

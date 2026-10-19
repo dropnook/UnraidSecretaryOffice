@@ -652,6 +652,7 @@
   "errors.restore_in_use": "Ein Programm hält eine Datei in {path} offen: {names} — was es schreibt, landete in dem, was ich beiseitelege. Schliesse oder beende es (es ist kein Container: ich beende nie selbst ein Programm), dann noch einmal schauen.",
   "errors.restore_unfinished_stays": "Die unfertige Kopie {path} kann jetzt nicht in die Abstellkammer von Frau Putzteufel (sie ist ein eigenes Dateisystem, oder ich kann sie nicht ansehen) — Frau Putzteufel listet sie bei dem, was ich zurückliess.",
   "errors.restore_unfinished_asleep": "Die unfertige Kopie {path} liegt (teils) auf einer Disk, die schläft ({base}) — dafür wecke ich sie nicht. Sobald sie wach ist, noch einmal schauen.",
+  "errors.restore_measuring": "Die Grössen werden noch gemessen — ich fange erst an, wenn ich weiss, dass es Platz hat. Einen Moment warten, dann nochmals starten.",
   "errors.restore_vm_service_off": "Der VM-Dienst ist aus — schalte ihn ein (⟦Settings⟧ → ⟦VM Manager⟧), damit libvirt die Konfiguration übernehmen kann.",
   "errors.restore_config_same": "Auf dem Server ist alles gleich wie im Paket — nichts zurückzuholen.",
   "errors.restore_db_stopped": "{container} ist gestoppt — ein Dump lässt sich nur in eine laufende Datenbank zurückspielen, und ich starte nie selbst einen Container. Starte ihn auf Unraids Seite ⟦Docker⟧, dann noch einmal schauen.",

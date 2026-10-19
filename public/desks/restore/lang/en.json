@@ -652,6 +652,7 @@
   "errors.restore_in_use": "A program holds a file in {path} open: {names} — what it writes would land in what I put aside. Close it or end it (it is no container: I never end a program myself), then look again.",
   "errors.restore_unfinished_stays": "The unfinished copy {path} can't go into Ms. Dustdevil's storeroom now (it is a filesystem of its own, or I can't look at it) — Ms. Dustdevil lists it with what I left.",
   "errors.restore_unfinished_asleep": "The unfinished copy {path} lies (partly) on a disk that is asleep ({base}) — I don't wake it for this. Once it is awake, look again.",
+  "errors.restore_measuring": "The sizes are still being measured — I start only once I know it fits. Wait a moment, then start again.",
   "errors.restore_vm_service_off": "The VM service is off — switch it on (⟦Settings⟧ → ⟦VM Manager⟧) so libvirt can take the configuration.",
   "errors.restore_config_same": "Everything is the same on the server as in the package — nothing to restore.",
   "errors.restore_db_stopped": "{container} is stopped — a dump only goes into a running database, and I never start a container myself. Start it on Unraid's ⟦Docker⟧ page, then look again.",
