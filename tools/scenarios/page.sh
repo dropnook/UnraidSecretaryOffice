@@ -31,7 +31,8 @@ if [[ -z $states ]]; then
     case $host in
         tower) alias=uso-test ip=192.168.7.111 ;;
         test3) alias=uso-test3 ip=192.168.7.197 ;;
-        *) echo "page: unknown host «$host» (tower or test3)" >&2; exit 2 ;;
+        test4) alias=uso-test4 ip=192.168.7.193 ;;
+        *) echo "page: unknown host «$host» (tower, test3 or test4)" >&2; exit 2 ;;
     esac
     # never USOPartner (the release canary) or nostromo (real) - by the address the VM really has
     addrs=$(ssh -o ConnectTimeout=8 -o BatchMode=yes "$alias" "ip -4 -o addr show | awk '{print \$4}' | cut -d/ -f1" 2>/dev/null) \

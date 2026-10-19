@@ -2,7 +2,7 @@
 # The scenarios from this Mac (playbook §5): this clone's tree to the test VM, the VM reset to its base, the scenarios
 # one by one there (tools/scenarios/run-local.sh), the Mac-side checks completed, the reports collected.
 #
-#   bash tools/scenarios/run.sh <tower|test3> [--all | --desk backup,… | --only name[:arg],…] [--no-sync] [--no-reset]
+#   bash tools/scenarios/run.sh <tower|test3|test4> [--all | --desk backup,… | --only name[:arg],…] [--no-sync] [--no-reset]
 #                               [--keep] [--no-nightly] [--dev-sync] [--timeout s]
 #
 #   1. rsync -a --delete --exclude .git ./ → <vm>:/tmp/uso-scenarios/tree[-<worktree>]/ (unless --no-sync), its git describe beside it;
@@ -19,7 +19,8 @@
 #      the scenario installed (IN-DOWNGRADE <tag>; USO_PAGE_TREE=<tag> for all) — done here - a failing one turns the
 #      scenario red, and with all of them done a scenario whose other checks were green is green;
 #      summary.md (red first) written and printed.
-# Hosts: tower (ssh uso-test, 192.168.7.111) and test3 (ssh uso-test3, 192.168.7.197) only; USOPartner and nostromo are
+# Hosts: tower (ssh uso-test, 192.168.7.111), test3 (ssh uso-test3, 192.168.7.197) and test4 (ssh uso-test4,
+# 192.168.7.193: a second apps server on Unraid 7.3.3) only; USOPartner and nostromo are
 # refused by the addresses the VM really has. Exit 0 nothing red, 1 something red/dirty, 2 wrong call, 4 VM unreachable.
 set -u
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -52,8 +53,9 @@ done
 case $host in
     tower) alias=uso-test ip=192.168.7.111 ;;
     test3) alias=uso-test3 ip=192.168.7.197 ;;
+    test4) alias=uso-test4 ip=192.168.7.193 ;;
     -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
-    *) echo "usage: run.sh <tower|test3> [--all | --desk … | --only …] [--no-sync] [--no-reset] [--keep] [--no-nightly] [--dev-sync]" >&2; exit 2 ;;
+    *) echo "usage: run.sh <tower|test3|test4> [--all | --desk … | --only …] [--no-sync] [--no-reset] [--keep] [--no-nightly] [--dev-sync]" >&2; exit 2 ;;
 esac
 
 SSH="ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4"

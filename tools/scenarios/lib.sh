@@ -12,7 +12,7 @@
 #   scenario_end                 # verdict table, undo in reverse, exit 0 green | 1 red | 2 skipped | 3 undo failed
 #
 # INTERFACE (frozen after wave 1; H2 states-*.sh, H5 flows.sh/checks.sh build on it):
-#   Facts      P D UB PLACE RUN KEEP REPORT SC_NAME SC_DIR SC_START      host_is tower|test3|any   has <thing>
+#   Facts      P D UB PLACE RUN KEEP REPORT SC_NAME SC_DIR SC_START      host_is tower|test3|test4|any   has <thing>
 #              needs <thing>…   (things: tower test3 any docker nodocker vm vmagent hdd zfs btrfs kopia minio jack partner
 #              pool2 compose exclusive reboot)
 #              bases (disks and pools mounted under /mnt)   base_asleep <base>   disks_asleep   share_asleep <share>
@@ -57,6 +57,7 @@ SHARES_INI=/var/local/emhttp/shares.ini
 NOTIFY_DIR=/tmp/notifications
 TOWER_IP=192.168.7.111
 TEST3_IP=192.168.7.197
+TEST4_IP=192.168.7.193     # USOTest4 (2026-10-19): a second apps server like Tower, on Unraid 7.3.3
 SC_REPORTS=/tmp/uso-scenarios
 SC_KEEPS=/tmp/uso-keep
 SC_POST=$SC_REPORTS/post             # canned dialog answers for the page tool (page.sh copies it as the harness's post/)
@@ -94,6 +95,7 @@ host_is() {
         any) return 0 ;;
         tower) grep -qx "$TOWER_IP" <<<"$ips" ;;
         test3) grep -qx "$TEST3_IP" <<<"$ips" ;;
+        test4) grep -qx "$TEST4_IP" <<<"$ips" ;;
         *) return 1 ;;
     esac
 }
@@ -134,7 +136,7 @@ needs() {
     local n why=()
     for n in "$@"; do
         case $n in
-            tower | test3 | any) host_is "$n" || why+=("not $n") ;;
+            tower | test3 | test4 | any) host_is "$n" || why+=("not $n") ;;
             reboot) _row needs reboot info "the runner runs this scenario in halves" ;;
             docker | nodocker | vm | vmagent | hdd | zfs | btrfs | kopia | minio | jack | partner | pool2 | compose | exclusive)
                 has "$n" || why+=("no $n") ;;
@@ -294,6 +296,7 @@ scenario_begin() {
     local role=other
     host_is tower && role=tower
     host_is test3 && role=test3
+    host_is test4 && role=test4
     {
         printf '# Scenario %s\n\n' "$SC_NAME"
         printf -- '- host: %s (%s) · %s\n' "$(hostname)" "$role" "$(_versions)"
@@ -308,7 +311,7 @@ scenario_begin() {
         scenario_end
     fi
     if [[ $role == other ]]; then
-        say "scenario_begin: $(hostname) is not a scenario VM (Tower $TOWER_IP or USOTest3VM $TEST3_IP) — nothing done"
+        say "scenario_begin: $(hostname) is not a scenario VM (Tower $TOWER_IP, USOTest3VM $TEST3_IP or USOTest4 $TEST4_IP) — nothing done"
         printf 'not a scenario VM\n' >"$KEEP/.skip"
         scenario_end
     fi

@@ -83,7 +83,8 @@ JOBS="^((/usr)?(/bin/)?bash $P/backup/(backup|setup)\.sh|([^ ]*/)?php $P/agent/a
 addrs=$(ip -4 -o addr show | awk '{print $4}' | cut -d/ -f1)
 if grep -qxF 192.168.7.111 <<<"$addrs"; then HOST=tower
 elif grep -qxF 192.168.7.197 <<<"$addrs"; then HOST=test3
-else echo "base: not a test VM (Tower 192.168.7.111, USOTest3VM 192.168.7.197) - refused" >&2; exit 2; fi
+elif grep -qxF 192.168.7.193 <<<"$addrs"; then HOST=test4
+else echo "base: not a test VM (Tower 192.168.7.111, USOTest3VM 192.168.7.197, USOTest4 192.168.7.193) - refused" >&2; exit 2; fi
 BASE=$SC/base/$HOST
 [[ -f $BASE/base.env ]] || { echo "base: no $BASE/base.env" >&2; exit 2; }
 HIRE='' BACKUP_PRESET=auto BACKUP_CRON='' MOVERELLI_X='' MOVERELLI_CRON='' MOVERELLI_RULES='' DRILL='' MOVER_SCHEDULE='' LOCALTIME='' CARRY='' DOCKER=no
