@@ -22,7 +22,7 @@
 #
 # States: CT-RUNNING CT-STOPPED CT-STOPPED-NC CT-STOPPED-DB CT-STOPPED-PLAIN CT-PAUSED CT-GONE CT-GONE-TEMPLATE-STAYS
 # CT-IMAGE-GONE CT-RENAMED-DOCKER CT-RENAMED-UNRAID CT-RECREATED CT-NEW CT-BINDS-ROOT CT-APP-IS-DATASET CT-VOLUME-ONLY
-# CT-MANY CT-HEALTH-STARTING ST-STACK ST-STACK-CM ST-RENAMED ST-MEMBER-STOPPED ST-MEMBER-GONE ST-CM-FILE-UNREADABLE
+# CT-MANY CT-HEALTH-STARTING CT-AUTOSTART ST-STACK ST-STACK-CM ST-RENAMED ST-MEMBER-STOPPED ST-MEMBER-GONE ST-CM-FILE-UNREADABLE
 
 ST_CM_PROJECTS=/boot/config/plugins/compose.manager/projects
 
@@ -266,6 +266,28 @@ state_ct_health_starting() { _st_need docker _st_docker_up || return
     ct_make CT-HEALTH-STARTING uso-sick alpine:latest --health-cmd 'exit 1' --health-interval 5s --health-retries 1000 -- sleep 1d || return 1
     _st_until 20 bash -c '[[ $(docker inspect -f "{{.State.Health.Status}}" uso-sick) =~ starting|unhealthy ]]'; }
 undo_ct_health_starting() { ct_unmake CT-HEALTH-STARTING; }
+
+# CT-AUTOSTART [names…]: Unraid's Docker autostart (the Docker page's ⟦Autostart⟧ switch — /var/lib/docker/unraid-autostart,
+# a name a line; rc.docker starts them in that order when Docker starts) for these containers, default every one running
+# now, databases first. What a user's server has and the test VMs' base lacks: after an array stop or a reboot Docker
+# brings back only these — without them a database stays down and the engine's --recover can't take Nextcloud out of
+# maintenance mode (batch D, USOTest4 2026-10-19). Lines already there are kept. Undo: the file as it was (or none).
+_st_ct_is_db() { [[ $(timeout 20 docker inspect -f '{{.Config.Image}}' "$1" 2>/dev/null) =~ (mariadb|mysql|postgres|redis|valkey|mongo) ]]; }
+state_ct_autostart() { local f=/var/lib/docker/unraid-autostart dir n names=() db=() rest=()
+    _st_need docker _st_docker_up || return
+    dir=$(_st_dir CT-AUTOSTART)
+    [[ -e $dir/autostart.before || -e $dir/autostart.none ]] || { if [[ -f $f ]]; then cp -p "$f" "$dir/autostart.before"; else : > "$dir/autostart.none"; fi; }
+    if (($#)); then names=("$@"); else mapfile -t names < <(timeout 20 docker ps --filter status=running --format '{{.Names}}' | sort); fi
+    for n in "${names[@]}"; do
+        [[ -n $n ]] || continue
+        grep -qE "^$n( |$)" "$f" 2>/dev/null && continue
+        if _st_ct_is_db "$n"; then db+=("$n"); else rest+=("$n"); fi
+    done
+    { [[ -f $f ]] && cat "$f"; ((${#db[@]})) && printf '%s\n' "${db[@]}"; ((${#rest[@]})) && printf '%s\n' "${rest[@]}"; } > "$f.uso-new" && mv -f "$f.uso-new" "$f" || return 1
+    say "CT-AUTOSTART: $(wc -l < "$f") container(s) on Docker's autostart (databases first: ${db[*]:-none})"; }
+undo_ct_autostart() { local f=/var/lib/docker/unraid-autostart dir; dir=$(_st_dir CT-AUTOSTART)
+    if [[ -f $dir/autostart.before ]]; then cp -p "$dir/autostart.before" "$f" && rm -f "$dir/autostart.before"
+    elif [[ -f $dir/autostart.none ]]; then rm -f "$f" && rm -f "$dir/autostart.none"; fi; }
 
 # ST-STACK: the Immich stack (labels) — made by apps.sh when missing, removed again by the undo then
 state_st_stack() { local p=${1:-immich} m

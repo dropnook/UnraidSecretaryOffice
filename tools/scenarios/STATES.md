@@ -109,6 +109,7 @@ against the expected layout, not runnable on today's VMs; *(2 on 3)* = the self-
 | CT-VOLUME-ONLY | `uso-vol` with the named volume usovol | T |
 | CT-MANY [n=40] | uso-m1 … uso-m40 | T |
 | CT-HEALTH-STARTING | `uso-sick`, health check `exit 1` | T |
+| CT-AUTOSTART [names…] | Unraid's Docker autostart (`/var/lib/docker/unraid-autostart`) for these, default every running container, databases first; undo the file as it was | T4 |
 | ST-STACK [project] | the Immich stack (compose labels); made by apps.sh when missing | T |
 | ST-STACK-CM | a Compose Manager project of the stack | needs compose.manager (Tower has no `docker compose`) |
 | ST-RENAMED [old new] | the members re-created with project label immich-new (apps.sh --project) | T |
