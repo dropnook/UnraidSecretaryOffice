@@ -40,9 +40,9 @@ if wait_for 300 "a file of uso-yes on its way" _mv_moving "$t0" uso-yes; then
     # the stop file goes when her run ends — a run that ended within a poll: the time of her log line instead
     if ((ts == 0)); then
         l=$(agent_log_since mover | grep -m1 "Unraid's mover started" | cut -c1-19)
-        # (the office logs in Unraid's time zone — ident.cfg timeZone, agent.php — the shell's may be UTC)
+        # (the office logs in Unraid's time zone — ident.cfg timeZone, agent.php; Unraid's shell has no zoneinfo, PHP has)
         tz=$(_ini_value /boot/config/ident.cfg timeZone)
-        [[ -n $l ]] && ts=$(TZ=${tz:-UTC} date -d "$l" +%s 2>/dev/null || echo 0)
+        [[ -n $l ]] && ts=$(php -r 'date_default_timezone_set($argv[2]); echo (int) strtotime($argv[1]);' "$l" "${tz:-UTC}" 2>/dev/null || echo 0)
     fi
     m1=$(arr)
     late=$(find /mnt/disk1/uso-yes/uso-wip-d-m11 /mnt/disk2/uso-yes/uso-wip-d-m11 -type f ! -name '*.partial' -newerct "@$((ts + 1))" 2>/dev/null | wc -l)
