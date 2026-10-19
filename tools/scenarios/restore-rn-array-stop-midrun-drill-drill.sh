@@ -23,6 +23,7 @@ if wait_for 300 "the array stop while the drill works" _st_is STOPPED _st_var md
     _st_emcmd cmdStart=Start
     wait_for 300 "the array started again" _st_is Started _st_var fsState
     agent_wait 300
+    nc_data_closed                           # Unraid's array start opened Nextcloud's data folder (0777) — not this cell's
     wait "$fpid"
     ask restore.drill_state '{}' 300 >/dev/null
     d=$(jq -r --argjson t "$t0" '[.drills[]? | select((.started // 0) >= $t - 5)][0] // {} | "\(.id // "none") \(.result // "")/\(.reason // "")"' "$KEEP/ask/last.json")

@@ -32,9 +32,13 @@ else
 fi
 [[ $k == refused:backup_running || $k == skipped:* || $k == queued ]] && cell a-second-refused 1 "the button while the cron's run works: $k" \
     || cell a-second-refused 0 "the button while the cron's run works: $k"
+ka=$k
 second_run_wait RN-TWO-RUNS 1800
 wait_backup 1800
-# (b) the button first, the cron's job while it works
+# (b) the button first, the cron's job while it works — a minute after (a)'s end: each run tells its result, and two
+# such notifications within a minute would read as one told twice (INV-NOTIFY-ONCE)
+fin=$(jq -r '.finished // 0' "$UB/state/status.json" 2>/dev/null)
+wait_for 120 "a minute since the first run ended" bash -c "(( \$(date +%s) - ${fin:-0} > 62 ))"
 minute_wait
 ask backup.start '{"mode":"backup"}' >/dev/null
 expect_ok "backup.start (b)"
@@ -53,7 +57,7 @@ nnew=$(sed '/^$/d' <<<"$new" | wc -l)
 [[ $nnew == 2 && -z $dup ]] && cell history-two 1 "two new runs in the history ($(paste -sd' ' <<<"$new")), none twice" \
     || cell history-two 0 "new runs in the history: ${new//$'\n'/ } (expected the two of $a and $b)${dup:+; twice: $dup}"
 # one skip per collision the engine skipped: (b) always, (a) when the agent let the button through to the engine
-want=$(( 1 + ( ${k:-} == skipped:* ? 1 : 0 ) ))
+want=1; [[ ${ka:-} == skipped:* ]] && want=2
 (( skips1 - skips0 == want )) && cell skip-once 1 "his page lists each skipped start once ($want)" || cell skip-once 0 "skips on his page: $skips0 → $skips1 (expected $want more)"
 expect_bubble backup bubble.skipped
 check standard

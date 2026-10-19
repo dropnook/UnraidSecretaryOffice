@@ -32,7 +32,7 @@ evidence "$UB/logs/run-$run.log" run-full.log >/dev/null 2>&1
 [[ $r == failed ]] && cell refused 1 "run $run ended failed before the packages (the place has too little room)" \
     || cell refused 0 "run $run ended «$r» on a pool with 1 GiB free (min_free_gb 8)"
 # a code, translated on his page in all five languages — the engine's English text is no code (die, not die_code)
-if [[ $m =~ ^[a-z][a-z0-9_]*$ ]] && jq -e --arg k "message.$m" 'has($k)' "$P/public/desks/backup/lang/en.json" >/dev/null; then
+if [[ $m =~ ^[a-z][a-z0-9_]*$ ]] && jq -e --arg k "message.$m" 'has($k)' "$P/desks/backup/lang/en.json" >/dev/null; then
     cell code 1 "status.json message «$m» (backup.message.$m)"
 else
     cell code 0 "status.json message is no code: «${m:0:160}» — his page shows the engine's English sentence as it is (desk.js messageText: no backup.message.<code>)"

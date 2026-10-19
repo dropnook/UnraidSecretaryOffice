@@ -20,7 +20,7 @@ said() {   # <cell> <answer file>: a refusal (the page shows errors.<key>) — o
     elif [[ $(jq -r '.started // false' <<<"$a") == true ]]; then
         cell "$c" 0 "the answer says it started — with atd stopped"
     else
-        cell "$c" 0 "accepted with started=false: the page's toast «$(jq -r '.started_pending' "$P/public/desks/backup/lang/en.json")» — nothing says it could not start"
+        cell "$c" 0 "accepted with started=false: the page's toast «$(jq -r '.started_pending' "$P/desks/backup/lang/en.json")» — nothing says it could not start"
     fi
 }
 nc_data_closed
@@ -53,5 +53,8 @@ else
 fi
 q1=$(office_atq | wc -l)
 say "at's queue: $q0 office job(s) before, $q1 now — atd would start them whenever it comes back"
+# the cell's state ends before the invariants: the jobs atd never ran out of its queue, atd back (a plan for INV-REPLAN)
+atq_clear
+atd_on SV-ATD-OFF
 check standard
 scenario_end

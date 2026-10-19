@@ -19,6 +19,7 @@ else undo_push rm -f /var/lib/docker/unraid-autostart; fi
 undo_push ct_start ${was//,/ }
 grep -qx jack=hired "$prenote" 2>/dev/null && undo_push flow OF-FIRE desk=jack
 agent_wait 300
+nc_data_closed                               # Unraid's array start at the boot opened Nextcloud's data folder (0777) — not this cell's
 snap_before
 flow OF-REBOOT-BACK
 dups=$(grep -h 'unraid-secretary-office' /etc/cron.d/root 2>/dev/null | grep -v '^#' | sort | uniq -d | head -2)

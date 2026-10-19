@@ -28,6 +28,7 @@ if wait_for 300 "the array stop while the restore copies" _st_is STOPPED _st_var
     _st_emcmd cmdStart=Start
     wait_for 300 "the array started again" _st_is Started _st_var fsState
     agent_wait 300
+    nc_data_closed                           # Unraid's array start opened Nextcloud's data folder (0777) — not this cell's
     wait "$fpid"
     rid=$(fl_last_restore)
     j=$D/restore/$rid/journal.json

@@ -21,6 +21,7 @@ else undo_push rm -f /var/lib/docker/unraid-autostart; fi
 undo_push ct_start ${was//,/ }
 undo_push bash -c 'rm -rf /mnt/cache/uso-only/uso-wip-d-r4f /mnt/cache/uso-only/uso-wip-d-r4f.*'
 agent_wait 300
+nc_data_closed                               # Unraid's array start at the boot opened Nextcloud's data folder (0777) — not this cell's
 if WAIT_SOFT=1 wait_for 60 "Unraid's parity check after the unclean stop" bash -c '(( $(/usr/local/sbin/mdcmd status | awk -F= "\$1 == \"mdResyncPos\" { print \$2 }") > 0 ))'; then
     say "Unraid checks parity after the unclean stop — cancelled (not this cell's)"; parity_cancel
 else

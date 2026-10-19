@@ -11,12 +11,12 @@ cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || e
 nc_data_closed
 plan=$KEEP/plan-old.json
 _bk_plan_get "$plan" || _row state plan red "no plan from backup.setup_get"
-was=$(jq -r '.P["share|uso-yes|mode"] // "off"' "$plan")
-to=snapshot; [[ $was == snapshot ]] && to=off
+was=$(_ini_flat "$UB/settings.ini" | sed -n 's/^general|min_free_gb=//p'); was=${was:-8}
+to=$((was + 1))   # one key, one line: the room kept free in the backup place (a share's mode would also write its method)
 md0=$(md5sum <"$UB/settings.ini")
 state RN-SETUP-WHILE-RUN
 snap_before
-ask backup.setup_apply "$(decisions_from_plan "$plan" "share|uso-yes|mode=$to")" 120 >/dev/null
+ask backup.setup_apply "$(decisions_from_plan "$plan" "general|min_free_gb=$to")" 120 >/dev/null
 expect_err backup_running
 ask backup.setup_plan '{"measure":false}' 120 >/dev/null
 expect_err backup_running
@@ -25,9 +25,9 @@ expect_err backup_running
 second_run_wait RN-SETUP-WHILE-RUN 1800
 wait_backup 1800
 # after the run: the same Apply on a fresh look goes through
-undo_push flow BK-APPLY "share|uso-yes|mode=$was"
-expect_diff "share|uso-yes|mode: $was→$to"
-expect_changes "share|uso-yes|mode"
-flow BK-APPLY "share|uso-yes|mode=$to"
+undo_push flow BK-APPLY "general|min_free_gb=$was"
+expect_diff "general|min_free_gb: $was→$to"
+
+flow BK-APPLY "general|min_free_gb=$to"
 check standard
 scenario_end
