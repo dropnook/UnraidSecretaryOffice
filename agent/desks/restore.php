@@ -1956,6 +1956,8 @@ function rsDbFolder(string $c, array &$ctx): array
  * aside (a Docker volume, a folder spread over disks) — never for Immich.
  * MariaDB/MySQL and MongoDB: in place (their dumps drop and recreate what they hold; MariaDB's users live
  * outside the dumps, so a fresh server would lose them), the safety dump being the way back.
+ * A stopped database blocks: a dump only goes into a running one, and he never starts a container —
+ * the user starts it on Unraid's Docker page and looks again.
  */
 function rsPlanDb(array $r, string $stamp): array
 {
@@ -1988,6 +1990,10 @@ function rsPlanDbFor(array &$ctx, array $place, array $app, array $pkg, ?array $
         $plan['blockers'][] = ['key' => 'restore_container_missing', 'params' => ['container' => $c]];
         return $plan;
     }
+    if (!$now[$c]) {        // a dump only goes into a running database — and he never starts a container: the user does
+        $plan['blockers'][] = ['key' => 'restore_db_stopped', 'params' => ['container' => $c]];
+        return $plan;
+    }
     $login = rsLogin($dump);
     $immich = (bool) array_filter($pkg['containers'], fn ($x) => stripos($x['image'], 'immich') !== false);
     $others = array_values(array_filter(array_column($pkg['containers'], 'name'), fn ($n) => $n !== $c && isset($now[$n]) && preg_match(RS_NAME_PATTERN, $n)));
@@ -2008,18 +2014,8 @@ function rsPlanDbFor(array &$ctx, array $place, array $app, array $pkg, ?array $
     $safetyRoot = $place['safety'] ?? "{$place['base']}/restore";      // a place pulled from a partner is read-only: his own folder then
     $safety = "$safetyRoot/{$app['id']}/$stamp/" . basename($dump['file']);
     $base = ['type' => $type, 'container' => $c, 'db' => $db] + $login;
-    $steps = [];
-    if (!$now[$c] && $method === 'inplace') {
-        $steps[] = ['do' => 'start', 'containers' => [$c], 'need' => true];
-        $steps[] = ['do' => 'ready'] + $base + ['timeout' => 180];
-        $plan['notes'][] = ['key' => 'note.db_start', 'params' => ['container' => $c]];
-    }
-    if ($now[$c] || $method === 'inplace') {
-        $steps[] = ['do' => 'dump', 'file' => $safety] + $base;
-        $plan['aside'][] = ['what' => 'safety_dump', 'from' => $c, 'to' => $safety];
-    } else {
-        $plan['notes'][] = ['key' => 'note.db_stopped', 'params' => ['container' => $c]];
-    }
+    $steps = [['do' => 'dump', 'file' => $safety] + $base];
+    $plan['aside'][] = ['what' => 'safety_dump', 'from' => $c, 'to' => $safety];
     if ($others) {
         $steps[] = ['do' => 'stop', 'containers' => $others];
     }
