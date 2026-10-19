@@ -18,8 +18,8 @@
   "bubble.varlog_full": "/var/log ist zu {pct} % voll — da steht sehr viel drin! Ist das schlimm? Ich lese nur vor.",
   "bubble.varlog_much": "/var/log ist zu {pct} % voll — da steht schon einiges drin.",
   "fact.sources": {
-    "one": "1 Protokoll zum Vorlesen",
-    "other": "{n} Protokolle zum Vorlesen"
+    "one": "1 Protokoll zum Mitlesen",
+    "other": "{n} Protokolle zum Mitlesen"
   },
   "fact.syslog": "Syslog: {errors} × error, {warnings} × warning",
   "fact.varlog": "/var/log zu {pct} % voll",
@@ -62,7 +62,7 @@
   "kind.warn": "Warnung",
   "kind.error_title": "Klingt nach einem Fehler — ich erkenne nur die Wörter.",
   "kind.warn_title": "Klingt nach einer Warnung — ich erkenne nur die Wörter.",
-  "read_out": "Vorlesen",
+  "read_out": "Live mitlesen",
   "gone": "Dieses Protokoll steht nicht mehr auf meiner Liste.",
   "grew.more": "+{size} seit dem letzten Rundgang",
   "grew.rate": "+{size} in {span} — etwa {rate} pro Stunde",
@@ -74,7 +74,7 @@
   "varlog.empty": "Keine Dateien in /var/log.",
   "varlog.files_note": {"one": "{n} Datei, {size} (bei meinem Rundgang {when}).", "other": "{n} Dateien, zusammen {size} (bei meinem Rundgang {when})."},
   "docker.title": "Container-Protokolle",
-  "docker.sub": "Was jeder Container in sein eigenes Protokoll geschrieben hat. Docker legt sie in {root} ab, nicht in /var/log. Ich habe sie nur gemessen — «Vorlesen» zeigt sie.",
+  "docker.sub": "Was jeder Container in sein eigenes Protokoll geschrieben hat. Docker legt sie in {root} ab, nicht in /var/log. Ich habe sie nur gemessen — «Live mitlesen» zeigt sie.",
   "docker.rotation_on": {"one": "⟦Docker LOG rotation⟧ (Unraid: ⟦Settings⟧ → ⟦Docker⟧): an — höchstens {size} pro Container-Protokoll, {files} Datei.", "other": "⟦Docker LOG rotation⟧ (Unraid: ⟦Settings⟧ → ⟦Docker⟧): an — höchstens {size} pro Container-Protokoll, {files} Dateien."},
   "docker.rotation_off": "⟦Docker LOG rotation⟧ (Unraid: ⟦Settings⟧ → ⟦Docker⟧): aus — Docker begrenzt die Protokolle der Container nicht.",
   "docker.down": "Docker hat bei meinem Rundgang nicht geantwortet — die Protokolle der Container konnte ich nicht sehen.",
@@ -90,7 +90,7 @@
   "docker.driver_title": "Docker schreibt das Protokoll dieses Containers mit «{driver}» — eine eigene Datei, die ich messen könnte, gibt es nicht.",
   "docker.local_title": "Dockers «local»-Protokoll hält sich selbst klein (standardmässig 5 Dateien zu je 20 MB).",
   "found.title": "Fehler & Warnungen",
-  "tile.read": "Vorlesen",
+  "tile.read": "Live mitlesen",
   "tile.read_pick": "Ein Protokoll live mitlesen – wähle eins aus",
   "found.filter_label": "Zeilen filtern",
   "found.chips_label": "Die Zeilen eines Protokolls zeigen",
@@ -141,8 +141,8 @@
   "rotated": "neu angefangen",
   "rotated_title": "Dieses Protokoll wurde seit meinem letzten Rundgang neu angefangen — den Rest des alten habe ich gelesen, wo ich ihn fand.",
   "more_kinds": {
-    "one": "… und 1 weitere Art von Zeile — «Vorlesen» zeigt alles",
-    "other": "… und {n} weitere Arten von Zeilen — «Vorlesen» zeigt alles"
+    "one": "… und 1 weitere Art von Zeile — «Live mitlesen» zeigt alles",
+    "other": "… und {n} weitere Arten von Zeilen — «Live mitlesen» zeigt alles"
   },
   "details": "Details",
   "seen": "{first} – {last}",
@@ -232,7 +232,7 @@
   "help.colours": "Rot: klingt nach Fehler. Gelb: klingt nach Warnung. Der Filter markiert, was du suchst; eine Zeile aus meinem Rundgang ist auch markiert.",
   "help.safe": "Nur lesen",
   "help.safe_text": "Ich lese nur, und nur aus einer festen Liste: /var/log liegt im RAM, nichts weckt eine Disk. Protokolle können Heikles enthalten — sehen kann sie nur, wer bei Unraid angemeldet ist.",
-  "help.tour_text": "Auf einem Rundgang gehe ich jedes Protokoll auf meiner Liste durch: wie voll /var/log ist und welche Dateien dort am grössten sind, wie gross das Protokoll jedes Containers ist und ob Docker es begrenzt — und welche Zeilen nach Fehler oder Warnung klingen. Im Hintergrund, ein paar Sekunden; ich ändere nichts und wecke keine Disk. «Vorlesen» und «Im Protokoll zeigen» öffnen unten den Vorleser.",
+  "help.tour_text": "Auf einem Rundgang gehe ich jedes Protokoll auf meiner Liste durch: wie voll /var/log ist und welche Dateien dort am grössten sind, wie gross das Protokoll jedes Containers ist und ob Docker es begrenzt — und welche Zeilen nach Fehler oder Warnung klingen. Im Hintergrund, ein paar Sekunden; ich ändere nichts und wecke keine Disk. «Live mitlesen» und «Im Protokoll zeigen» öffnen unten den Vorleser.",
   "help.counted": "Was ich zähle",
   "help.counted_text": "Eine Zeile, die ihre Stufe selbst nennt (level=warn, [ERROR], | INFO |, PHP Warning …), zählt so. Jede andere nach ihren Wörtern: error, fail, fatal, panic, segfault, denied, ein Exit-Code … ist ein Fehler; warning, timeout, retry eine Warnung; im Kernel-Protokoll auch, was der Kernel selbst markiert. «0 errors», «errors: 0» und die Dateilisten von rsync zählen nicht. Ich erkenne nur Wörter — eine Warnung im Protokoll ist nicht immer ein Problem, und nicht jedes Problem sagt es.",
   "help.rules": "Syslog-Regeln",
@@ -267,7 +267,7 @@
   "count.own_rules": {"one": "{n} eigene Regel", "other": "{n} eigene Regeln"},
   "count.hides": {"one": "{n} Ausblendung", "other": "{n} Ausblendungen"},
   "el.title": "Kommst du von Enhanced Log?",
-  "el.where": "Seine Arten sind hier die Chips, gleiche Zeilen stehen einmal mit «×n», ganze Zeilen unter «Vorlesen».",
+  "el.where": "Seine Arten sind hier die Chips, gleiche Zeilen stehen einmal mit «×n», ganze Zeilen unter «Live mitlesen».",
   "el.taken": "Aus seinen Einstellungen habe ich {rules} und {hide} übernommen.",
   "el.taken_rules": "Aus seinen Einstellungen habe ich {rules} übernommen.",
   "el.taken_hide": "Aus seinen Einstellungen habe ich {hide} übernommen.",

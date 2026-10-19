@@ -18,8 +18,8 @@
   "bubble.varlog_full": "/var/log is {pct} % full — so much written down in there! Is that bad? I only read out.",
   "bubble.varlog_much": "/var/log is {pct} % full — quite a lot written down.",
   "fact.sources": {
-    "one": "1 log to read out",
-    "other": "{n} logs to read out"
+    "one": "1 log to follow",
+    "other": "{n} logs to follow"
   },
   "fact.syslog": "Syslog: {errors} × error, {warnings} × warning",
   "fact.varlog": "/var/log {pct} % full",
@@ -62,7 +62,7 @@
   "kind.warn": "warning",
   "kind.error_title": "Sounds like an error — I only recognise the words.",
   "kind.warn_title": "Sounds like a warning — I only recognise the words.",
-  "read_out": "Read out",
+  "read_out": "Follow live",
   "gone": "This log isn't on my list any more.",
   "grew.more": "+{size} since the last tour",
   "grew.rate": "+{size} in {span} — about {rate} an hour",
@@ -74,7 +74,7 @@
   "varlog.empty": "No files in /var/log.",
   "varlog.files_note": {"one": "{n} file, {size} (on my tour {when}).", "other": "{n} files, {size} together (on my tour {when})."},
   "docker.title": "Container logs",
-  "docker.sub": "What every container wrote to its own log. Docker keeps them in {root}, not in /var/log. I only measured them — «Read out» shows them.",
+  "docker.sub": "What every container wrote to its own log. Docker keeps them in {root}, not in /var/log. I only measured them — «Follow live» shows them.",
   "docker.rotation_on": {"one": "⟦Docker LOG rotation⟧ (Unraid: ⟦Settings⟧ → ⟦Docker⟧): on — at most {size} per container log, {files} file.", "other": "⟦Docker LOG rotation⟧ (Unraid: ⟦Settings⟧ → ⟦Docker⟧): on — at most {size} per container log, {files} files."},
   "docker.rotation_off": "⟦Docker LOG rotation⟧ (Unraid: ⟦Settings⟧ → ⟦Docker⟧): off — Docker doesn't limit the containers' logs.",
   "docker.down": "Docker didn't answer on my tour — I couldn't see the containers' logs.",
@@ -90,7 +90,7 @@
   "docker.driver_title": "Docker writes this container's log with «{driver}» — there is no file of its own I could measure.",
   "docker.local_title": "Docker's «local» log keeps itself small (by default 5 files of 20 MB each).",
   "found.title": "Errors & warnings",
-  "tile.read": "Read out",
+  "tile.read": "Follow live",
   "tile.read_pick": "Follow a log live – pick one",
   "found.filter_label": "Filter the lines",
   "found.chips_label": "Show the lines of one log",
@@ -141,8 +141,8 @@
   "rotated": "started anew",
   "rotated_title": "This log was started anew since my last tour — I read the rest of the old one where I could find it.",
   "more_kinds": {
-    "one": "… and 1 more kind of line — «Read out» shows everything",
-    "other": "… and {n} more kinds of lines — «Read out» shows everything"
+    "one": "… and 1 more kind of line — «Follow live» shows everything",
+    "other": "… and {n} more kinds of lines — «Follow live» shows everything"
   },
   "details": "Details",
   "seen": "{first} – {last}",
@@ -232,7 +232,7 @@
   "help.colours": "Red: sounds like an error. Yellow: sounds like a warning. The filter marks what you look for; a line from my tour is marked, too.",
   "help.safe": "Read only",
   "help.safe_text": "I only read, and only from a fixed list: /var/log lives in RAM, nothing wakes a disk. Logs can hold sensitive things — only who is logged in to Unraid sees them.",
-  "help.tour_text": "On a tour I walk through every log on my list: how full /var/log is and which files there are biggest, how big every container's log is and whether Docker limits it — and which lines sound like an error or a warning. In the background, a few seconds; I change nothing and wake no disk. «Read out» and «Show in the log» open the reader below.",
+  "help.tour_text": "On a tour I walk through every log on my list: how full /var/log is and which files there are biggest, how big every container's log is and whether Docker limits it — and which lines sound like an error or a warning. In the background, a few seconds; I change nothing and wake no disk. «Follow live» and «Show in the log» open the reader below.",
   "help.counted": "What I count",
   "help.counted_text": "A line that names its own level (level=warn, [ERROR], | INFO |, PHP Warning …) goes by that name. Every other line by its words: error, fail, fatal, panic, segfault, denied, an exit code … is an error; warning, timeout, retry a warning; in the kernel log also what the kernel marks itself. «0 errors», «errors: 0» and rsync's lists of file names don't count. I only recognise words — a warning in a log isn't always a problem, and not every problem says so.",
   "help.rules": "Syslog rules",
@@ -267,7 +267,7 @@
   "count.own_rules": {"one": "{n} rule of your own", "other": "{n} rules of your own"},
   "count.hides": {"one": "{n} hidden text", "other": "{n} hidden texts"},
   "el.title": "Coming from Enhanced Log?",
-  "el.where": "Its kinds are the chips here, the same lines stand once with «×n», whole lines are under «Read out».",
+  "el.where": "Its kinds are the chips here, the same lines stand once with «×n», whole lines are under «Follow live».",
   "el.taken": "From its settings I took over {rules} and {hide}.",
   "el.taken_rules": "From its settings I took over {rules}.",
   "el.taken_hide": "From its settings I took over {hide}.",

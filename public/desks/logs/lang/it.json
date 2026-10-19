@@ -18,8 +18,8 @@
   "bubble.varlog_full": "/var/log è pieno al {pct} % — c'è scritto tantissimo! È grave? Io leggo soltanto.",
   "bubble.varlog_much": "/var/log è pieno al {pct} % — c'è scritto parecchio.",
   "fact.sources": {
-    "one": "1 log da leggere ad alta voce",
-    "other": "{n} log da leggere ad alta voce"
+    "one": "1 log da seguire",
+    "other": "{n} log da seguire"
   },
   "fact.syslog": "Syslog: {errors} × error, {warnings} × warning",
   "fact.varlog": "/var/log pieno al {pct} %",
@@ -62,7 +62,7 @@
   "kind.warn": "avviso",
   "kind.error_title": "Suona come un errore — riconosco solo le parole.",
   "kind.warn_title": "Suona come un avviso — riconosco solo le parole.",
-  "read_out": "Leggi",
+  "read_out": "Segui dal vivo",
   "gone": "Questo log non è più nel mio elenco.",
   "grew.more": "+{size} dall'ultimo giro",
   "grew.rate": "+{size} in {span} — circa {rate} all'ora",
@@ -74,7 +74,7 @@
   "varlog.empty": "Nessun file in /var/log.",
   "varlog.files_note": {"one": "{n} file, {size} (nel mio giro {when}).", "other": "{n} file, {size} in tutto (nel mio giro {when})."},
   "docker.title": "Log dei container",
-  "docker.sub": "Quello che ogni container ha scritto nel suo log. Docker li tiene in {root}, non in /var/log. Li ho solo misurati — «Leggi» li mostra.",
+  "docker.sub": "Quello che ogni container ha scritto nel suo log. Docker li tiene in {root}, non in /var/log. Li ho solo misurati — «Segui dal vivo» li mostra.",
   "docker.rotation_on": {"one": "⟦Docker LOG rotation⟧ (Unraid: ⟦Settings⟧ → ⟦Docker⟧): accesa — al massimo {size} per log di container, {files} file.", "other": "⟦Docker LOG rotation⟧ (Unraid: ⟦Settings⟧ → ⟦Docker⟧): accesa — al massimo {size} per log di container, {files} file."},
   "docker.rotation_off": "⟦Docker LOG rotation⟧ (Unraid: ⟦Settings⟧ → ⟦Docker⟧): spenta — Docker non limita i log dei container.",
   "docker.down": "Docker non ha risposto durante il mio giro — non ho potuto vedere i log dei container.",
@@ -90,7 +90,7 @@
   "docker.driver_title": "Docker scrive il log di questo container con «{driver}» — non c'è un file suo che io possa misurare.",
   "docker.local_title": "Il log «local» di Docker si mantiene piccolo da solo (di norma 5 file da 20 MB).",
   "found.title": "Errori e avvisi",
-  "tile.read": "Leggere ad alta voce",
+  "tile.read": "Segui dal vivo",
   "tile.read_pick": "Seguire un registro dal vivo – scegline uno",
   "found.filter_label": "Filtra le righe",
   "found.chips_label": "Mostra le righe di un registro",
@@ -141,8 +141,8 @@
   "rotated": "ricominciato",
   "rotated_title": "Questo log è ricominciato dal mio ultimo giro — il resto del vecchio l'ho letto dove l'ho trovato.",
   "more_kinds": {
-    "one": "… e 1 altro tipo di riga — «Leggi» mostra tutto",
-    "other": "… e altri {n} tipi di righe — «Leggi» mostra tutto"
+    "one": "… e 1 altro tipo di riga — «Segui dal vivo» mostra tutto",
+    "other": "… e altri {n} tipi di righe — «Segui dal vivo» mostra tutto"
   },
   "details": "Dettagli",
   "seen": "{first} – {last}",
@@ -232,7 +232,7 @@
   "help.colours": "Rosso: suona come un errore. Giallo: suona come un avviso. Il filtro evidenzia ciò che cerchi; anche una riga dal mio giro è evidenziata.",
   "help.safe": "Solo lettura",
   "help.safe_text": "Leggo soltanto, e solo da un elenco fisso: /var/log sta nella RAM, niente sveglia un disco. I log possono contenere cose delicate — li vede solo chi ha effettuato l'accesso a Unraid.",
-  "help.tour_text": "In un giro passo ogni log del mio elenco: quanto è pieno /var/log e quali file lì sono i più grandi, quanto è grande il log di ogni container e se Docker lo limita — e quali righe suonano come errore o avviso. In sottofondo, pochi secondi; non cambio niente e non sveglio nessun disco. «Leggi» e «Mostra nel log» aprono il lettore qui sotto.",
+  "help.tour_text": "In un giro passo ogni log del mio elenco: quanto è pieno /var/log e quali file lì sono i più grandi, quanto è grande il log di ogni container e se Docker lo limita — e quali righe suonano come errore o avviso. In sottofondo, pochi secondi; non cambio niente e non sveglio nessun disco. «Segui dal vivo» e «Mostra nel log» aprono il lettore qui sotto.",
   "help.counted": "Cosa conto",
   "help.counted_text": "Una riga che dice da sé il suo livello (level=warn, [ERROR], | INFO |, PHP Warning …) conta così. Ogni altra riga per le sue parole: error, fail, fatal, panic, segfault, denied, un codice d'uscita … è un errore; warning, timeout, retry un avviso; nel log del kernel anche ciò che il kernel segna da sé. «0 errors», «errors: 0» e gli elenchi di file di rsync non contano. Riconosco solo le parole — un avviso nel log non è sempre un problema, e non ogni problema lo dice.",
   "help.rules": "Regole del syslog",
@@ -267,7 +267,7 @@
   "count.own_rules": {"one": "{n} regola tua", "other": "{n} regole tue"},
   "count.hides": {"one": "{n} testo nascosto", "other": "{n} testi nascosti"},
   "el.title": "Vieni da Enhanced Log?",
-  "el.where": "I suoi tipi qui sono i chip, le righe uguali stanno una volta con «×n», le righe intere sono in «Leggere ad alta voce».",
+  "el.where": "I suoi tipi qui sono i chip, le righe uguali stanno una volta con «×n», le righe intere sono in «Segui dal vivo».",
   "el.taken": "Dalle sue impostazioni ho ripreso {rules} e {hide}.",
   "el.taken_rules": "Dalle sue impostazioni ho ripreso {rules}.",
   "el.taken_hide": "Dalle sue impostazioni ho ripreso {hide}.",
