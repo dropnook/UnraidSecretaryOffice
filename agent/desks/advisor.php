@@ -300,6 +300,7 @@ function advisorScan(): array
         $externals['nodeexporter']['textfile'] = advisorNodeTextfile($externals['nodeexporter'], null);
     }
     $state = ['time' => time(), 'gui' => houseGuiUrl(), 'ip' => $env['ip'], 'media' => $media, 'metrics_dir' => ADVISOR_METRICS_DIR,
+              'docker' => advisorDockerUp(),
               'metrics_there' => advisorMetricsThere(),
               'dashboard' => ADVISOR_DASHBOARD_URL, 'prometheus_yml' => ADVISOR_PROMETHEUS_YML, 'externals' => $externals,
               'server' => hostname(), 'job' => advisorJob()];
@@ -1927,6 +1928,15 @@ function advisorInboxSweep(string $dir, int $age): int
 function advisorDocker(): string
 {
     return getenv('OFFICE_ADVISOR_DOCKER') ?: 'docker';
+}
+
+/**
+ * Docker answers (his look only, never the tick): an empty container list can't tell «none» from «Docker off», and with
+ * Docker off he can't bring in a container — his bubble then doesn't offer it (2026-10-19)
+ */
+function advisorDockerUp(): bool
+{
+    return run([advisorDocker(), 'info', '--format', '{{.ServerVersion}}'], 10)[0] === 0;
 }
 
 /**

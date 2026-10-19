@@ -14,6 +14,10 @@
     "one": "{names} todavía no está aquí. Abajo: para qué sirve, cómo traerlo — o lo hago yo por ti.",
     "other": "{names} todavía no están aquí. Abajo: para qué sirven, cómo traerlos — o lo hago yo por ti."
   },
+  "bubble.missing_docker_off": {
+    "one": "{names} todavía no está aquí. Abajo: para qué sirve y cómo traerlo. Docker no está en marcha, así que ahora mismo no puedo traerte un contenedor.",
+    "other": "{names} todavía no están aquí. Abajo: para qué sirven y cómo traerlos. Docker no está en marcha, así que ahora mismo no puedo traerte un contenedor."
+  },
   "look_again": "Ronda",
   "looked": "Ronda terminada.",
   "looked_at": "Revisado {when}.",

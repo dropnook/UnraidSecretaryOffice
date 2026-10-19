@@ -131,7 +131,8 @@ const hired = () => !!(Office.desks.has(ID) && Office.desks.get(ID).hired);
 function bubbleText() {
   if (!state) return T('bubble.loading');
   const m = missing();
-  if (m.length) return T('bubble.missing', { names: names(m), n: m.length });
+  // Docker off: he can't bring in a container, so no «I do it for you» (an older state without the flag: as before)
+  if (m.length) return T(state.docker === false ? 'bubble.missing_docker_off' : 'bubble.missing', { names: names(m), n: m.length });
   const g = gaps();
   return g.length ? T('bubble.monitoring', { names: names(g), n: g.length }) : T('bubble.all_there');
 }
@@ -1429,6 +1430,6 @@ Office.placesFrom(ID, (s) => Object.entries(s.externals || {}).filter(([id, x]) 
 
 // tests/run.php runs this under node (Unraid's own) - never set in a browser
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.advisor = { setState: (s) => { state = s; }, textfileChip };
+  globalThis.OFFICE_DESK_TESTS.advisor = { setState: (s) => { state = s; }, textfileChip, bubbleText };
 }
 })();

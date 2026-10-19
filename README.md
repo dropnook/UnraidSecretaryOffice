@@ -5,8 +5,8 @@
   </picture>
 </h1>
 
-A small office inside Unraid's web UI: backups and restore, snapshots, a media cache for Emby, Jellyfin and Plex, the mover and a night
-watchman — free, open source, no account. More on the [product page](https://uso.dropnook.app).
+A whole team supports you in running your Unraid server, right in Unraid's web UI: backups and restore, snapshots, a media
+cache for Emby, Jellyfin and Plex, the mover, a night watchman and every log in one place — free, open source, no account. More on the [product page](https://uso.dropnook.app).
 
 <a name="team"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/team-dark.webp"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/team-light.webp" alt="The team of the Unraid Secretary Office: the Team Lead, Mr. Backupsy, Mr. Restori, Ms. Snapshotini, Jack Streamer, Ms. Moverelli, the Night Watchman, Ms. Dustdevil, Ms. Protocolli and the Consultant — each with one sentence about their work"></picture></a>
 
