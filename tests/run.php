@@ -17977,6 +17977,80 @@ function testHostLaunchAtd(): void
 }
 
 /**
+ * Scenario batch C, M9 (moverelli-sh-storeroom-run, 2026-10-19): Ms. Moverelli's run (like Unraid's mover) takes a yes
+ * share's storeroom to the array like any folder — Ms. Dustdevil looked for share storerooms only on pools, so the run
+ * vanished from her page (and «Put back» with it). Now she looks on every awake pool and array disk; a sleeping one is
+ * never looked at and named «not looked at» (her cache: a storeroom there at the last look, or never looked there); «Put
+ * back» puts it into the same share where the storeroom lies now. A /mnt of the test's own ($GLOBALS['clMnt']).
+ */
+function testCleanupStoreroomDisks(): void
+{
+    $tmp = hardeningTmp('cl-storeroom-disks');
+    $mnt = "$tmp/mnt";
+    $GLOBALS['clMnt'] = $mnt;
+    $stamp = '20260901-120000';
+    $put = function (string $root, string $share, string $name) use ($mnt, $stamp): string {
+        $run = "$mnt/$root/$share/" . CL_TRASH . "/$stamp";
+        @mkdir("$run/appdata/$name/config", 0755, true);
+        file_put_contents("$run/appdata/$name/config/settings.db", 'db');
+        file_put_contents("$run/manifest.json", json_encode(['written_by' => 'Unraid Secretary Office (Ms. Dustdevil)', 'version' => 1, 'time' => 1788264000,
+            'items' => [['kind' => 'appdata', 'name' => $name, 'label' => $name, 'from' => "$mnt/cache/$share/$name", 'as' => "appdata/$name"]]]));
+        return $run;
+    };
+    foreach (['cache/media', 'disk1/media', 'disk2/media', 'disk3/other'] as $d) {
+        @mkdir("$mnt/$d", 0755, true);
+    }
+    $onDisk = $put('disk1', 'media', 'old-app');                 // where her run went with the mover
+    $asleepRun = $put('disk2', 'media', 'sleepy');               // on a sleeping disk: never looked at
+    $roots = ['cache' => ['fs' => 'btrfs', 'kind' => 'pool'], 'disk1' => ['fs' => 'xfs', 'kind' => 'disk'],
+              'disk2' => ['fs' => 'xfs', 'kind' => 'disk'], 'disk3' => ['fs' => 'xfs', 'kind' => 'disk']];
+    $GLOBALS['clCtx'] = ['roots' => $roots, 'asleep' => ['disk1' => false, 'disk2' => true, 'disk3' => false]];
+    $runs = array_column(clTrashRuns([], ['ok' => false]), null, 'path');
+    same('storeroom on an array disk: her run there is listed, with its item (C-M9)', [true, 'share', ['appdata/old-app'], [true]],
+        [isset($runs[$onDisk]), $runs[$onDisk]['where'] ?? null, array_column($runs[$onDisk]['items'] ?? [], 'as'), array_column($runs[$onDisk]['items'] ?? [], 'present')]);
+    same('storeroom on a sleeping disk: not looked at, not listed', false, isset($runs[$asleepRun]));
+    $look = function_exists('clStoreroomLook') ? clStoreroomLook(['disk3' => true]) : null;
+    same('storerooms not looked at: a sleeping disk never looked at is named; what she saw on awake ones kept (disk3 has none now)',
+        ['asleep' => ['disk2'], 'seen' => ['cache' => false, 'disk1' => true, 'disk3' => false]], $look);
+    same('storerooms not looked at: a sleeping disk she found without one the last time stays quiet; one with a storeroom is named',
+        [[], ['disk2']], function_exists('clStoreroomLook') ? [clStoreroomLook(['disk2' => false])['asleep'], clStoreroomLook(['disk2' => true])['asleep']] : null);
+
+    // «Put back»: into the same share where the storeroom lies now (disk1), never to a pool path it no longer belongs to
+    $GLOBALS['clScanStub'] = fn () => ['templates' => ['list' => []], 'stacks' => ['list' => [], 'root' => "$tmp/none"], 'scripts' => ['list' => []],
+        'appdata' => ['list' => []], 'vms' => ['list' => []], 'leftovers' => ['list' => []], 'partners' => ['list' => []], 'backup_running' => false,
+        'flash' => ['list' => []], 'trash' => ['runs' => array_values(array_filter(clTrashRuns([], ['ok' => false]), fn ($r) => str_starts_with($r['path'], $mnt)))]];
+    $restore = function (string $id): array {
+        try {
+            return clRestore([$id]);
+        } catch (Problem $p) {          // the whole call refused (an unknown run, no way back)
+            return ['results' => [['ok' => false, 'error' => $p->toArray()]]];
+        }
+    };
+    @mkdir("$mnt/disk3/media/old-app", 0755, true);               // the same name on another awake part of the share: refused
+    $back = $restore("$onDisk|appdata/old-app");
+    same('put back: the same name already in the share on another disk — refused with that path, nothing moved',
+        [false, 'cleanup_target_exists', "$mnt/disk3/media/old-app", true], [$back['results'][0]['ok'] ?? null, $back['results'][0]['error']['key'] ?? null,
+         $back['results'][0]['error']['params']['path'] ?? null, is_file("$onDisk/appdata/old-app/config/settings.db")]);
+    rmdir("$mnt/disk3/media/old-app");
+    $back = $restore("$onDisk|appdata/old-app");
+    same('put back: into the share on the disk the storeroom lies on now (the same /mnt/user path), the run gone',
+        [true, 'db', false, false], [$back['results'][0]['ok'] ?? null, @file_get_contents("$mnt/disk1/media/old-app/config/settings.db"),
+         file_exists("$mnt/cache/media/old-app"), is_dir($onDisk)]);
+    $moved = fn (string $from, string $home) => function_exists('clFromMoved') ? clFromMoved($from, $home) : 'no clFromMoved()';
+    same('put back: an unmoved storeroom — its own place as before', "$mnt/cache/media/x", $moved("$mnt/cache/media/x", "$mnt/cache/media"));
+    same('put back: another share — never moved over', "$mnt/cache/media/x", $moved("$mnt/cache/media/x", "$mnt/disk1/films"));
+    unset($GLOBALS['clScanStub'], $GLOBALS['clMnt']);
+    $GLOBALS['clCtx'] = ['roots' => [], 'asleep' => []];
+
+    // the page: the room's callout with «wake» for the disks not looked at; an older agent's state without them
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/cleanup/desk.js');
+    check('storerooms not looked at: the trash room says which disks and offers «wake» (older states without the list)',
+        str_contains($js, "leftovers: leftoversInfo, partners: partnersInfo, trash: trashInfo }[sec];")
+        && str_contains($js, "const asleep = state.trash.asleep || [];") && str_contains($js, "box.appendChild(asleepCallout(asleep));"));
+    hardeningRm($tmp);
+}
+
+/**
  * Ms. Snapshotini's record of what she removed (data/snapshot/deletes.jsonl, root only) and how the night
  * watchman reads it: it beats her lines in the office's log, which the web server's user may write — those
  * count only until the record is there.
@@ -44021,7 +44095,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
-          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testHostLaunchAtd', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
+          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.

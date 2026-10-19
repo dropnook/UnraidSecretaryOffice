@@ -333,7 +333,8 @@ function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): arra
     // what lies there), the storerooms in the shares below, once their places are known
     clTrashMigrate(array_merge([CL_FLASH . '/' . CL_TRASH], $vms['ok'] ? [CL_LIBVIRT . '/' . CL_TRASH] : [], clAsideRoots($vms['ok'])));
     $leftovers = clLeftovers($vms['ok']);       // Mr. Restori's, from his journals
-    $sleeping = array_values(array_unique(array_merge(array_merge(...array_column($places, 'asleep')), $leftovers['asleep'])));
+    $stores = clStoreroomLook(clCache()['storerooms'] ?? []);       // her share storerooms on sleeping pools and disks (C-M9)
+    $sleeping = array_values(array_unique(array_merge(array_merge(...array_column($places, 'asleep')), $leftovers['asleep'], $stores['asleep'])));
     if ($wake && $sleeping) {
         $woken = clWake($sleeping);
         $asleep = sleepingDisks();
@@ -343,6 +344,7 @@ function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): arra
         $places = array_map(fn ($path) => clSharePlaces($path, $roots, $asleep), $settings);
         $GLOBALS['clCtx'] = ['roots' => $roots, 'asleep' => $asleep];
         $leftovers = clLeftovers($vms['ok']);
+        $stores = clStoreroomLook(clCache()['storerooms'] ?? []);
     }
 
     $docker = clDocker();
@@ -373,10 +375,12 @@ function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): arra
         'snaponly'  => clSnapOnlyShares(),               // empty shares whose snapshots still hold space (a hint, 2026-10-17)
         'drill'     => clDrillLeftovers($deep),           // what crashed drills of Mr. Restori's left (his sweeper's own look: quick, deep when asked/hourly)
         'trash'     => clTrashRuns($places, $vms, $extraTrash, $partners['there'], $partners['asleep']),
+        'trash_asleep' => $stores['asleep'],
     ];
     $raw['icons'] = clIcons($docker, $raw['stacks']);
     $raw['zfs_space'] = clZfsSpace(clRawDatasets($raw));
     $raw['at'] = time();                                     // when she last looked (a clBuild() after a measurement is no new look)     // what a dataset holds with its snapshots (find sees only the live files)
+    $cache['storerooms'] = $stores['seen'];
     clSaveCache($cache);
     $GLOBALS['clRaw'] = $raw;
 
@@ -2805,7 +2809,7 @@ function clBuild(): array
         ],
         'leftovers' => ['restores' => (int) ($raw['leftovers']['restores'] ?? 0), 'asleep' => $raw['leftovers']['asleep'] ?? [], 'list' => $leftovers],
         'partners'  => ['asleep' => $raw['partners']['asleep'] ?? [], 'list' => $raw['partners']['list'] ?? []],
-        'trash'     => ['runs' => $runs, 'bytes' => $trashBytes],
+        'trash'     => ['runs' => $runs, 'bytes' => $trashBytes, 'asleep' => array_values((array) ($raw['trash_asleep'] ?? []))],
         'icons'     => clIconState($raw['icons'] ?? [], $cache, $pending),
         'jobs'      => [
             'busy'      => count($keys),
@@ -3418,16 +3422,56 @@ function clTrashRoots(array $places, array $vms, array $extra = []): array
     foreach ($extra as $root) {
         $roots[$root] ??= 'share';
     }
-    // stray templates go into the storeroom of whatever share they lie in
+    // stray templates go into the storeroom of whatever share they lie in — and a share's storeroom travels with Ms.
+    // Moverelli's run (or Unraid's mover) like any folder, onto an array disk too (C-M9): every awake pool and array disk
     $ctx = $GLOBALS['clCtx'];
     foreach ($ctx['roots'] as $name => $r) {
-        if ($r['kind'] === 'pool' && !clPoolAsleep($name, $ctx['asleep'])) {
-            foreach (array_merge(glob("/mnt/$name/*/" . CL_TRASH, GLOB_ONLYDIR) ?: [], glob("/mnt/$name/*/" . CL_TRASH_OLD, GLOB_ONLYDIR) ?: []) as $d) {
-                $roots[dirname($d) . '/' . CL_TRASH] ??= 'share';
-            }
+        foreach (clPoolAsleep($name, $ctx['asleep']) ? [] : clShareStorerooms($name) as $d) {
+            $roots[dirname($d) . '/' . CL_TRASH] ??= 'share';
         }
     }
     return $roots;
+}
+
+/** Where pools and array disks are mounted ($GLOBALS['clMnt']: the tests' stand-in for /mnt) */
+function clMnt(): string
+{
+    return (string) ($GLOBALS['clMnt'] ?? '/mnt');
+}
+
+/** The share storerooms (either name) in the top folders of one pool or array disk — only ever called for an awake one */
+function clShareStorerooms(string $root): array
+{
+    $mnt = clMnt();
+    return array_merge(glob("$mnt/$root/*/" . CL_TRASH, GLOB_ONLYDIR) ?: [], glob("$mnt/$root/*/" . CL_TRASH_OLD, GLOB_ONLYDIR) ?: []);
+}
+
+/**
+ * C-M9 (2026-10-19): her share storerooms on sleeping pools and array disks — never woken on her own, so said «not looked
+ * at» (the room's callout with «wake»). Named while a storeroom lay there at her last look there, or she never looked
+ * there; one she found without a storeroom the last time stays quiet (an array's disks sleep most of the day). $seen:
+ * root name => a storeroom there at her last look (her cache's 'storerooms'), returned brought up to date.
+ *
+ * @return array{asleep: list<string>, seen: array<string, bool>}
+ */
+function clStoreroomLook(array $seen): array
+{
+    $ctx = $GLOBALS['clCtx'];
+    $out = ['asleep' => [], 'seen' => []];
+    foreach ($ctx['roots'] as $name => $_) {
+        $name = (string) $name;
+        if (!clPoolAsleep($name, $ctx['asleep'])) {
+            $out['seen'][$name] = (bool) clShareStorerooms($name);
+            continue;
+        }
+        if (is_bool($seen[$name] ?? null)) {
+            $out['seen'][$name] = $seen[$name];
+        }
+        if ($seen[$name] ?? true) {
+            $out['asleep'][] = $name;
+        }
+    }
+    return $out;
 }
 
 /** The old script's trash: on the flash, next to the compose root, in a share's top folder on awake pools and disks */
@@ -4294,6 +4338,10 @@ function clRestore(array $ids): array
             default      => dirname($run['root']),          // appdata, domains, isos: the share on that pool
         };
         $zfs = $it['zfs'];
+        $moved = $zfs === null && in_array($it['kind'], ['appdata', 'domain', 'iso'], true) && ($to = clFromMoved($it['from'], $home)) !== $it['from'];
+        if ($moved) {
+            $it['from'] = $to;          // C-M9: its storeroom went to another pool or disk of the share
+        }
         if (dirname($it['from']) !== $home || basename($it['from']) !== basename($zfs !== null ? (string) $it['dataset'] : $it['as'])
             || ($zfs !== null && (!$it['dataset'] || ($it['kind'] === 'partner' ? !clPartnerTrashOk($zfs, $it['dataset']) : dirname($it['dataset']) !== dirname($zfs))))) {
             throw new Problem('cleanup_no_way_back', ['name' => $it['name']]);
@@ -4314,6 +4362,9 @@ function clRestore(array $ids): array
             }
             if (file_exists($it['from']) && $it['kind'] !== 'icon') {        // a picture's file was changed, not moved: it is there
                 throw new Problem('cleanup_target_exists', ['path' => $it['from']]);
+            }
+            if ($moved && ($twin = clShareTwin($it['from'])) !== null) {
+                throw new Problem('cleanup_target_exists', ['path' => $twin]);
             }
             if ($it['kind'] !== 'partner' && !is_dir($home)) {
                 throw new Problem('cleanup_no_home', ['path' => $home]);
@@ -4347,6 +4398,44 @@ function clRestore(array $ids): array
         }
     }
     return ['ok' => true, 'results' => $results, 'state' => clScan()];
+}
+
+/**
+ * C-M9 (2026-10-19): Ms. Moverelli's run (or Unraid's mover) takes a share's storeroom to another pool or array disk of
+ * that share like any folder. What lies in it goes back into the same share where the storeroom lies now — the same
+ * /mnt/user path, a rename on its own filesystem. Not while something of that name is at its old place (then the old
+ * place is said: «already there»; on another awake part of the share: clShareTwin()). Anything else: $from as it is (the
+ * home check refuses what doesn't fit).
+ */
+function clFromMoved(string $from, string $home): string
+{
+    $mnt = preg_quote(clMnt(), '#');
+    if (preg_match("#^$mnt/([^/]+)/([^/]+)/([^/]+)$#D", $from, $f) && preg_match("#^$mnt/([^/]+)/([^/]+)$#D", $home, $h)
+        && $f[2] === $h[2] && $f[1] !== $h[1] && !array_intersect([$f[1], $h[1]], ['user', 'user0', 'disks', 'remotes', 'addons'])
+        && !file_exists($from) && !is_link($from)) {
+        return "$home/$f[3]";
+    }
+    return $from;
+}
+
+/**
+ * The same name in the share on another awake pool or array disk (never through /mnt/user, which would look at sleeping
+ * disks too): put back beside it, the share would hold two of that name — null when there is none
+ */
+function clShareTwin(string $to): ?string
+{
+    $mnt = preg_quote(clMnt(), '#');
+    if (!preg_match("#^$mnt/([^/]+)/([^/]+)/([^/]+)$#D", $to, $t)) {
+        return null;
+    }
+    $ctx = $GLOBALS['clCtx'];
+    foreach ($ctx['roots'] as $name => $_) {
+        $there = clMnt() . "/$name/$t[2]/$t[3]";
+        if ((string) $name !== $t[1] && !clPoolAsleep((string) $name, $ctx['asleep']) && (file_exists($there) || is_link($there))) {
+            return $there;
+        }
+    }
+    return null;
 }
 
 /** What was put back leaves the run's manifest; a run with nothing left goes */
