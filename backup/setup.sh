@@ -1,6 +1,11 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.63 - 2026-10-19
+# unraid-backup - setup.sh                        Version 2.64 - 2026-10-19
+#   2.64 Unraid's VM service switched off: every stored [vm] section stays exactly as stored (vms_off_keep) - up to 2.63
+#        step_vms returned before the [vm] keys reached the proposals and Apply dropped mode, prepare and retention of
+#        every VM. Said once as a hint vm_service_off_kept {n}.
+#        The same for Docker switched off (2.54): the [docker] lists, dumps and Nextclouds stay as stored (docker_off_keep,
+#        hint docker_off_kept) - up to 2.63 Apply dropped them and every container came back «new».
 #   2.63 No change here (the engine's version: backup.sh's btrfs emergency brake says what it did, in codes)
 #   2.62 No change here (the engine's version: backup.sh goes on when Nextcloud's data folder is readable by others)
 #   2.61 No change here (the engine's version: backup.sh never writes .uso-backup into a database's data folder)
@@ -1309,7 +1314,20 @@ is_office_container() { # is_office_container <name>
     return 1
 }
 
+# 2.64: Unraid's Docker service switched off (2.54) - no container can be looked at: what is stored for the apps ([docker]
+# lists, dumps, Nextclouds with their same-instance line; [app] sections are kept since 2.19) stays exactly as stored, said
+# once; up to 2.63 Apply dropped them (every container came back «new», kept running, without its dump)
+docker_off_keep() {
+    local k n
+    for k in "${!OLD[@]}"; do [[ "$k" =~ ^(docker|dump|nextcloud)\| ]] && P[$k]="${OLD[$k]}"; done
+    while IFS= read -r n; do [[ -n "$n" ]] && NC_GROUP[$n]="$(nc_group_stored "$n")"; done <<<"$(old_names nextcloud)"
+    old_has docker || [[ -n "$(old_names dump)$(old_names nextcloud)" ]] || return 0
+    _apply_P
+    hint_as docker_off_kept "Docker is switched off - what is set up for the apps stays as it is"
+}
+
 step_containers() {
+    [[ "$DOCKER_SERVICE" == "yes" ]] || { docker_off_keep; return 0; }
     hdr "Containers"
     explain <<'TXT'
 Why stop them? A running service has files half written, SQLite journals open,
@@ -1439,8 +1457,20 @@ vm_share_mode() {
     done <<<"${VM_DISKS[$1]:-}"
 }
 
+# 2.64: the VM service switched off - libvirt can't be asked, nobody knows the VMs: every stored [vm] section stays exactly
+# as stored (like a stopped container, 2.60), said once; the plan's settings_now and P then match, Apply changes nothing there
+vms_off_keep() {
+    local k n=0
+    for k in "${!OLD[@]}"; do [[ "$k" == vm\|* ]] && P[$k]="${OLD[$k]}"; done
+    n="$(old_names vm | sed '/^$/d' | wc -l)"
+    (( n > 0 )) || return 0
+    _apply_P
+    hint_as vm_service_off_kept "The VM service is off - the settings of $n VM(s) stay as they are" n "$n"
+}
+
 step_vms() {
-    [[ "$VM_SERVICE" == "yes" && ${#VM_NAMES[@]} -gt 0 ]] || return 0
+    [[ "$VM_SERVICE" == "yes" ]] || { vms_off_keep; return 0; }
+    (( ${#VM_NAMES[@]} > 0 )) || return 0
     hdr "VMs"
     explain <<'TXT'
 A VM's disks are files in a share (usually domains) and so in that share's snapshot. What
@@ -1542,6 +1572,7 @@ ct_data_where() {
 declare -a DB_ROWS=() DB_MISSING=() NC_ROWS=()   # for --plan
 declare -A NC_DATA=()                            # Nextcloud container -> its datadirectory (inside the container)
 step_databases() {
+    [[ "$DOCKER_SERVICE" == "yes" ]] || return 0      # 2.64: kept as stored (docker_off_keep)
     hdr "Databases and Nextcloud"
     explain <<'TXT'
 The search covers all containers - single ones as well as those from Compose stacks -

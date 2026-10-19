@@ -1014,7 +1014,8 @@ _files_check() {
         fi
         while IFS=$'\t' read -r rel size mtime ino base; do
             [[ -n $asleep && $base =~ ^($asleep)$ ]] && continue
-            awk -F'\t' -v r="$rel" -v z="$size" -v m="$mtime" '$1==r && $2==z && $3==m{f=1; exit} END{exit !f}' "$a" && continue
+            # through the environment: awk -v would read a «\» in a name as an escape (back\slash → backslash, never found)
+            R=$rel Z=$size M=$mtime awk -F'\t' '$1==ENVIRON["R"] && $2==ENVIRON["Z"] && $3==ENVIRON["M"]{f=1; exit} END{exit !f}' "$a" && continue
             _file_kept "$s" "$rel" && continue
             bad+=("$s/$rel")
         done < <(grep -v '^#' "$b")
@@ -1371,6 +1372,8 @@ _self_test() {
         touch -d '2026-01-0'"$i"' 12:00' "/mnt/$pool/uso-wip-h1-st/f000$i"
     done
     touch "/mnt/$pool/uso-wip-h1-st/st.lock"
+    # a name with a backslash (SH-NAMES' back\slash): INV-FILES must find it again (awk -v once read it as an escape)
+    head -c 4096 /dev/urandom >"/mnt/$pool/uso-wip-h1-st/back\\slash"
     if [[ -n ${disk:-} ]]; then
         mkdir -p "/mnt/$disk/uso-wip-h1-st"
         echo disk >"/mnt/$disk/uso-wip-h1-st/f-disk"
@@ -1409,7 +1412,7 @@ _self_test() {
     _st 0 "lock_held through /mnt/user" lock_held /mnt/user/uso-wip-h1-st/st.lock
     wait "$i"
     _st 0 "where_is" test "$(where_is /mnt/user/uso-wip-h1-st/f0001)" = "$pool"
-    _st 0 "inventory" test "$(inventory uso-wip-h1-st | wc -l)" = "$((6 + ${disk:+1}+0))"
+    _st 0 "inventory" test "$(inventory uso-wip-h1-st | wc -l)" = "$((7 + ${disk:+1}+0))"   # f0001–f0005, st.lock, back\slash
 
     # ---- the quiet state: every check green
     snap_after

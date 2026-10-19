@@ -513,6 +513,13 @@ check_inv_nc_maint_off() {
         echo "${nc% *} is stopped — not asked"
         return 0
     fi
+    # config.php itself (what occ maintenance:mode prints from — but occ needs the database first: with it stopped occ
+    # fails and its words read like «enabled», batch B 2026-10-19)
+    out=$(timeout 30 docker exec -u www-data "${nc% *}" php -r 'include "/var/www/html/config/config.php"; echo empty($CONFIG["maintenance"]) ? "off" : "on";' 2>/dev/null)
+    case $out in
+        off) echo "${nc% *}: maintenance mode off (config.php)"; return 0 ;;
+        on) echo "${nc% *} is in maintenance mode (config.php)"; return 1 ;;
+    esac
     out=$(timeout 60 docker exec -u www-data "${nc% *}" php occ maintenance:mode 2>&1)
     if grep -qi 'disabled' <<<"$out"; then echo "${nc% *}: maintenance mode off"; return 0; fi
     if grep -qi 'enabled' <<<"$out"; then
