@@ -143,6 +143,10 @@ bubble_facts() {
         dd=true
     fi
 
+    # Docker answers (the Consultant brings in containers only then)
+    local dk=false
+    has docker && dk=true
+
     # Ms. Snapshotini: snapshots mounted, disks asleep
     local mounted asleep
     mounted=$(grep -c ' /mnt/addons/UnraidSecretaryOffice/snapshots/' /proc/mounts)
@@ -153,12 +157,12 @@ bubble_facts() {
         --argjson pk "$pk" --argjson rr "$rs_run" --argjson dr "$drill_run" --argjson pa "$place_asleep" \
         --argjson mc "$mv_conf" --argjson mr "$mv_run" --argjson tp "$to_pool" --argjson ta "$to_array" --argjson mo "$others" \
         --argjson ms "$mv_sched" --argjson np "$nopic" --argjson sp "$stacknopic" --argjson dd "$dd" \
-        --argjson sm "$mounted" --argjson sa "$asleep" '{
+        --argjson sm "$mounted" --argjson sa "$asleep" --argjson dk "$dk" '{
         backup: {running: $br, mode: $bm, history_n: $hn, last_result: $lr, scheduled: $bs, setup_running: $su, waiting_n: $wn, asleep_last: $al},
         restore: {packages: $pk, running: $rr, drill_running: $dr, place_asleep: $pa},
         moverelli: {configured: $mc, running: $mr, to_pool: $tp, to_array: $ta, others_on: $mo, scheduled: $ms},
         cleanup: {without_picture: $np, stacks_without_picture: $sp, docker_down: $dd},
-        snapshot: {mounted: $sm, asleep: $sa}}'
+        snapshot: {mounted: $sm, asleep: $sa}, docker: {running: $dk}}'
 }
 
 # the lang keys of a desk matching a key or glob (bubble.running_* → each)
