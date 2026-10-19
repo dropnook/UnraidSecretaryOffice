@@ -637,6 +637,8 @@
   "errors.restore_vm_service_off": "El servicio de VMs está apagado — enciéndelo (⟦Settings⟧ → ⟦VM Manager⟧) para que libvirt pueda tomar la configuración.",
   "errors.restore_config_same": "En el servidor todo es igual que en el paquete — nada que restaurar.",
   "errors.restore_db_stopped": "{container} está detenido — un volcado solo entra en una base de datos en marcha, y yo nunca inicio un contenedor por mi cuenta. Inícialo en la página ⟦Docker⟧ de Unraid y vuelve a mirar.",
+  "errors.restore_config_none": "Esta copia no tiene plantilla de {name} — sus ajustes no se pueden comparar ni volver a poner. Sus datos están en sus carpetas: restaura esas desde sus instantáneas («Restaurar…» junto a sus instantáneas).",
+  "errors.restore_config_none_compose": "Esta copia no tiene archivos compose de {name} — sus ajustes no se pueden comparar ni volver a poner. Sus datos están en sus carpetas: restaura esas desde sus instantáneas («Restaurar…» junto a sus instantáneas).",
   "errors.restore_kopia_none": "No hay ningún contenedor de Kopia.",
   "errors.restore_kopia_stopped": "El contenedor de Kopia {name} está detenido — inícialo primero.",
   "errors.restore_kopia_root": "No sé bajo qué ruta ve el contenedor de Kopia las instantáneas — me lo dirá la próxima ronda del señor Backupsi.",

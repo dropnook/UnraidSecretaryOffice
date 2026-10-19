@@ -637,6 +637,8 @@
   "errors.restore_vm_service_off": "The VM service is off — switch it on (⟦Settings⟧ → ⟦VM Manager⟧) so libvirt can take the configuration.",
   "errors.restore_config_same": "Everything is the same on the server as in the package — nothing to restore.",
   "errors.restore_db_stopped": "{container} is stopped — a dump only goes into a running database, and I never start a container myself. Start it on Unraid's ⟦Docker⟧ page, then look again.",
+  "errors.restore_config_none": "This backup has no template of {name} — its settings can't be compared or put back. Its data is in its folders: bring those back from their snapshots («Restore…» under its snapshots).",
+  "errors.restore_config_none_compose": "This backup has no compose files of {name} — its settings can't be compared or put back. Its data is in its folders: bring those back from their snapshots («Restore…» under its snapshots).",
   "errors.restore_kopia_none": "There is no Kopia container.",
   "errors.restore_kopia_stopped": "The Kopia container {name} is stopped — start it first.",
   "errors.restore_kopia_root": "I don't know under which path the Kopia container sees the snapshots — Mr. Backupsy's next tour tells me.",

@@ -637,6 +637,8 @@
   "errors.restore_vm_service_off": "Il servizio VM è spento — accendilo (⟦Settings⟧ → ⟦VM Manager⟧) perché libvirt possa prendere la configurazione.",
   "errors.restore_config_same": "Sul server tutto è uguale al pacchetto — niente da ripristinare.",
   "errors.restore_db_stopped": "{container} è fermo — un dump va solo in un database in esecuzione, e io non avvio mai un contenitore da solo. Avvialo nella pagina ⟦Docker⟧ di Unraid, poi guarda di nuovo.",
+  "errors.restore_config_none": "Questo backup non ha un template di {name} — le sue impostazioni non si possono né confrontare né rimettere a posto. I suoi dati stanno nelle sue cartelle: ripristina quelle dai loro snapshot («Ripristina…» presso i suoi snapshot).",
+  "errors.restore_config_none_compose": "Questo backup non ha file compose di {name} — le sue impostazioni non si possono né confrontare né rimettere a posto. I suoi dati stanno nelle sue cartelle: ripristina quelle dai loro snapshot («Ripristina…» presso i suoi snapshot).",
   "errors.restore_kopia_none": "Non c'è nessun contenitore di Kopia.",
   "errors.restore_kopia_stopped": "Il contenitore di Kopia {name} è fermo — avvialo prima.",
   "errors.restore_kopia_root": "Non so sotto quale percorso il contenitore di Kopia vede gli snapshot — me lo dice il prossimo giro del signor Backupsi.",

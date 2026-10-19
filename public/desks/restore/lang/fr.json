@@ -637,6 +637,8 @@
   "errors.restore_vm_service_off": "Le service VM est arrêté — active-le (⟦Settings⟧ → ⟦VM Manager⟧) pour que libvirt puisse prendre la configuration.",
   "errors.restore_config_same": "Tout est pareil sur le serveur que dans le paquet — rien à restaurer.",
   "errors.restore_db_stopped": "{container} est arrêté — un dump ne va que dans une base de données en marche, et je ne démarre jamais un conteneur moi-même. Démarre-le sur la page ⟦Docker⟧ d'Unraid, puis regarde à nouveau.",
+  "errors.restore_config_none": "Cette sauvegarde n'a pas de modèle de {name} — ses réglages ne peuvent être ni comparés ni remis en place. Ses données sont dans ses dossiers : restaure-les depuis leurs snapshots (« Restaurer… » près de ses snapshots).",
+  "errors.restore_config_none_compose": "Cette sauvegarde n'a pas de fichiers compose de {name} — ses réglages ne peuvent être ni comparés ni remis en place. Ses données sont dans ses dossiers : restaure-les depuis leurs snapshots (« Restaurer… » près de ses snapshots).",
   "errors.restore_kopia_none": "Il n'y a pas de conteneur Kopia.",
   "errors.restore_kopia_stopped": "Le conteneur Kopia {name} est arrêté — démarre-le d'abord.",
   "errors.restore_kopia_root": "Je ne sais pas sous quel chemin le conteneur Kopia voit les snapshots — la prochaine tournée de Monsieur Backupsi me le dira.",

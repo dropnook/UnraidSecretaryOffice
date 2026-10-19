@@ -637,6 +637,8 @@
   "errors.restore_vm_service_off": "Der VM-Dienst ist aus — schalte ihn ein (⟦Settings⟧ → ⟦VM Manager⟧), damit libvirt die Konfiguration übernehmen kann.",
   "errors.restore_config_same": "Auf dem Server ist alles gleich wie im Paket — nichts zurückzuholen.",
   "errors.restore_db_stopped": "{container} ist gestoppt — ein Dump lässt sich nur in eine laufende Datenbank zurückspielen, und ich starte nie selbst einen Container. Starte ihn auf Unraids Seite ⟦Docker⟧, dann noch einmal schauen.",
+  "errors.restore_config_none": "Dieses Backup hat kein Template von {name} — seine Einstellungen lassen sich weder vergleichen noch zurücklegen. Seine Daten liegen in seinen Ordnern: hol die aus ihren Snapshots zurück («Zurückholen…» bei seinen Snapshots).",
+  "errors.restore_config_none_compose": "Dieses Backup hat keine Compose-Dateien von {name} — seine Einstellungen lassen sich weder vergleichen noch zurücklegen. Seine Daten liegen in seinen Ordnern: hol die aus ihren Snapshots zurück («Zurückholen…» bei seinen Snapshots).",
   "errors.restore_kopia_none": "Es gibt keinen Kopia-Container.",
   "errors.restore_kopia_stopped": "Der Kopia-Container {name} ist gestoppt — starte ihn zuerst.",
   "errors.restore_kopia_root": "Ich weiss nicht, unter welchem Pfad der Kopia-Container die Snapshots sieht — Herrn Backupsis nächster Rundgang sagt es mir.",

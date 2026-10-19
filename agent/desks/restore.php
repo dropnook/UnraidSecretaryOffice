@@ -2839,6 +2839,14 @@ function rsPlanConfig(array $r, string $stamp): array
 function rsPlanConfigFor(array $app, array $pkg, ?array $version, array $items, string $stamp, string $flashRoot = RS_FLASH_ASIDE): array
 {
     $plan = rsPlanBase('config', $app['name'], ['app' => $app['id'], 'version' => $version['snap'] ?? null]);
+    if (!$items) {          // nothing of the kind in this package (a renamed container's has no template): never «the same»
+        $plan['blockers'][] = ['key' => $pkg['compose'] ? 'restore_config_none_compose' : 'restore_config_none', 'params' => ['name' => $app['name']]];
+        $plan['options'] = ['same' => [], 'items' => []];
+        if ($version) {
+            $plan['notes'][] = ['key' => 'note.earlier', 'params' => ['when' => $version['run_time'] ?? $version['time']]];
+        }
+        return $plan;
+    }
     $steps = [];
     $same = [];
     foreach ($items as $it) {
