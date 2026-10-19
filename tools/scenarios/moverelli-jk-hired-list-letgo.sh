@@ -15,9 +15,9 @@ state MO-UNRAID-SCHEDULE-ON '40 3 * * *'
 # her back first in the undo (pushed after the states: runs before them — Jack Streamer's undo saves her settings)
 undo_push flow MV-SCHEDULE "cron=$mycron"
 undo_push bash -c 'jq -e ".hired | has(\"moverelli\")" '"$D"'/office/staff.json >/dev/null 2>&1 || php '"$SC_DIR"'/ask.php office.hire "{\"desks\":[\"moverelli\"]}" >/dev/null'
+snap_before                                  # before her setup (as M10): what her let-go puts back is the state before it
 flow MV-SETUP mover_off=1
 _broken && { scenario_end; }
-snap_before
 [[ -z $(sched) ]] || say "note: Unraid's schedule still «$(sched)» after her setup with the consent"
 flow MV-LETGO refuse=ok
 k=$(ask_last '.error.key // empty')

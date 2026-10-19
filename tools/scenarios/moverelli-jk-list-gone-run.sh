@@ -60,5 +60,8 @@ mapfile -t kept < <(grep '^/mnt/cache/media/' "$l" 2>/dev/null)
 n=0; for f in "${kept[@]}"; do [[ -f $f ]] && n=$((n + 1)); done
 ((n == ${#kept[@]})) && cell joint-films-stay 1 "after the joint run all ${#kept[@]} films of his list on the pool" || cell joint-films-stay 0 "after the joint run $n of the ${#kept[@]} films of his list on the pool"
 allow INV-COUNTS "the joint run's fetch is Jack Streamer's (EmbyCache: nightrun.php's fill step moves his films onto the pool), not hers — her count is her own part"
+# Jack Streamer's log of the joint run (his fill removes the folders it empties on the disk: mediacache_run.py
+# remove_empty_parents) — the undo lets him go and his data folder with it
+cp -p "$D/mediacache/logs/mediacache.log" "$KEEP/mediacache.log" 2>/dev/null && evidence "$KEEP/mediacache.log" >/dev/null
 check standard
 scenario_end

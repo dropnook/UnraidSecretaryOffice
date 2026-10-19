@@ -63,5 +63,8 @@ s=$(stay)
 ((s == ${#listed[@]})) && cell joint-list-stays 1 "after the joint run all $s of his films still on the pool (nothing was watched)" \
     || cell joint-list-stays 0 "after the joint run $s of ${#listed[@]} of his films on the pool — nothing was watched"
 allow INV-COUNTS "the joint run's fetch is Jack Streamer's (EmbyCache: nightrun.php's fill step moves his films onto the pool), not hers — her count is her own part"
+# Jack Streamer's log of the joint run (his fill removes the folders it empties on the disk: mediacache_run.py
+# remove_empty_parents) — the undo lets him go and his data folder with it
+cp -p "$D/mediacache/logs/mediacache.log" "$KEEP/mediacache.log" 2>/dev/null && evidence "$KEEP/mediacache.log" >/dev/null
 check standard
 scenario_end
