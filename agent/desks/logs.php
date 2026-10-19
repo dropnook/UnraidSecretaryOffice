@@ -146,6 +146,8 @@ const LOGS_TIME_SYSLOG = '/^([A-Z][a-z]{2})\s+(\d{1,2})\s+(\d\d:\d\d:\d\d)\s+/';
 const LOGS_TIME_DMESG  = '/^\[(?:[A-Z][a-z]{2}\s+)?([A-Z][a-z]{2})\s+(\d{1,2})\s+(\d\d:\d\d:\d\d)\s+(\d{4})\]\s*/';
 const LOGS_TIME_PHP    = '/^\[(\d\d)-([A-Z][a-z]{2})-(\d{4})\s+(\d\d:\d\d:\d\d)(?:\s+([A-Za-z_\/+-]+))?\]\s*/';
 
+require_once __DIR__ . '/logs-filters.php';      // her saved filters (data/logs-filters.json), applied only by a click
+
 desk('logs', [
     'fit'     => fn (): array => fit(true, 'yes'),
     'start'   => function (): void {
@@ -165,6 +167,10 @@ desk('logs', [
         'hide_add'    => fn (array $r) => logsMineHideAdd(textField($r, 'text')) + ['state' => logsScan()],
         'hide_remove' => fn (array $r) => logsMineRemove('hide', textField($r, 'id')) + ['state' => logsScan()],
         'el_take'     => fn (array $r) => logsElTakeNew() + ['state' => logsScan()],
+        // her saved filters: what a list's bar has set, under a name (logs-filters.php) — the answer brings her new state
+        'filter_save'   => fn (array $r) => logsFilterSave(textField($r, 'list'), textField($r, 'name'), $r) + ['state' => logsScan()],
+        'filter_rename' => fn (array $r) => logsFilterRename(textField($r, 'id'), textField($r, 'name')) + ['state' => logsScan()],
+        'filter_remove' => fn (array $r) => logsFilterRemove(textField($r, 'id')) + ['state' => logsScan()],
     ],
     'jobs'    => ['logs-tour' => fn (array $args) => logsTourRun()],
     'checks'  => fn (): array => logsChecks(),
@@ -299,7 +305,10 @@ function logsScan(): array
     $state = ['time' => time(), 'sources' => $list, 'syslog' => ['errors' => $errors, 'warnings' => $warnings],
               'varlog' => logsVarlog(), 'rules' => $rules, 'hide' => $set['hide'],
               'mine' => ['rules' => $mine['rules'], 'hide' => $mine['hide'], 'time' => $mine['time'], 'max' => LOGS_MINE_MAX],
-              'el' => $el === null ? null : logsElSummary($el, $mine)];
+              'el' => $el === null ? null : logsElSummary($el, $mine),
+              // her saved filters (never applied by themselves); for the time filter: the server's last start and its
+              // offset from UTC (the reader's lines carry the server's local time)
+              'filters' => logsFiltersForPage(), 'boot' => logsBootTime(), 'tz' => (int) date('Z')];
     writeAtomic(deskFile('logs'), jsonEncode($state));
     return $state;
 }
@@ -392,6 +401,13 @@ function logsRulesFor(string $id): bool
 }
 
 // ===================================================================== her own rules and hide words
+
+/** When the server started (its time filter's «since the last start»): from /proc/uptime — null when it can't be read */
+function logsBootTime(?string $file = null): ?int
+{
+    $up = (string) @file_get_contents($file ?? '/proc/uptime');
+    return preg_match('/^(\d+)(?:\.\d+)?\s/', $up, $m) ? time() - (int) $m[1] : null;
+}
 
 function logsMineFile(): string
 {
@@ -1451,10 +1467,12 @@ function logsTourDocker(array $before, array &$memory): array
         $config = json_decode($f[3], true);
         $opts = is_array($config['Config'] ?? null) ? $config['Config'] : [];
         $size = null;
+        $time = null;
         if ($log !== '' && $log[0] === '/' && !str_contains($log, '/../')) {
             $size = 0;
             foreach (array_merge([$log], glob($log . '.*') ?: []) as $p) {      // rotated parts: <id>-json.log.1, .2.gz …
                 $size += (int) @filesize($p);
+                $time = max($time ?? 0, (int) @filemtime($p)) ?: null;          // its last write (the time filter)
             }
             $out['root'] ??= preg_replace('#/containers/[^/]+/[^/]+$#', '', $log);
             $memory[$name] = $size;
@@ -1464,6 +1482,7 @@ function logsTourDocker(array $before, array &$memory): array
             'running'  => json_decode($f[1]) === 'running',
             'driver'   => is_array($config) ? (string) ($config['Type'] ?? '') : '',
             'size'     => $size,
+            'time'     => $time,
             'grew'     => $size !== null && isset($before[$name]) ? $size - (int) $before[$name] : null,
             'max_size' => is_string($opts['max-size'] ?? null) ? $opts['max-size'] : null,
             'max_file' => is_string($opts['max-file'] ?? null) ? $opts['max-file'] : null,
