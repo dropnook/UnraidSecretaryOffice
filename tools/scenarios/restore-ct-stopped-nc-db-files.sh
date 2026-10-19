@@ -24,6 +24,7 @@ restored_gone() {
 nc_data_closed
 flow BK-RUN-MANUAL mode=backup               # the dump and the snapshot to restore from
 state CT-STOPPED-NC
+expect_warnings dump_stopped   # engine 2.64: the stopped database gets no dump - said (INV-BACKUP-AFTER's run after the scenario)
 cfg0=$(md5sum <"$CFG" 2>/dev/null)
 snap_before
 flow RS-SCAN
