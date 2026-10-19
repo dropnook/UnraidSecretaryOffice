@@ -17,6 +17,7 @@
 . "$(dirname "$0")/lib.sh"
 scenario_begin restore-sh-multi-disk-files
 needs tower zfs docker
+files_gone() { files_unput "$1" >/dev/null 2>&1; rm -f "$KEEP_STASH/$1/files"; return 0; }
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
 S=uso-wip-c-md SA=uso-wip-c-mda APP=uso-wip-c-mdapp APPA=uso-wip-c-mdaapp
 snaps_drop() { local s b x; for s in "$@"; do [[ $s == uso-wip-c-* ]] || continue; for b in cache disk2; do
@@ -28,9 +29,10 @@ share_use C-R16 "$S" yes cache && share_apply "$S" shareInclude=disk2 || _row st
 # «Add Share» of a yes share leaves an empty root on disk1 (STATES.md day-1 finding 1) — on xfs that would make the whole
 # share «live» (no snapshot); disk1 is excluded now, so its empty root goes (rmdir: only an empty one)
 rmdir "/mnt/disk1/$S" 2>/dev/null
-put_files C-R16 cache "$S/serie1" 3 --size 64K --name p.bin && put_files C-R16 disk2 "$S/serie1" 3 --size 64K --name d.bin \
+put_files C-R16F cache "$S/serie1" 3 --size 64K --name p.bin && put_files C-R16F disk2 "$S/serie1" 3 --size 64K --name d.bin \
     || _row state files red "serie1/ could not be written on both parts"
 undo_push share_unuse C-R16
+undo_push files_gone C-R16F                  # the restore moves them between parts: they go with the share's undo
 state SH-MULTI-DISK "$SA"
 nc_data_closed
 undo_push snaps_drop "$S" "$SA"
