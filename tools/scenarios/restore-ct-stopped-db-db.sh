@@ -7,7 +7,7 @@
 # RED on 1.66.8 (product): the plan doesn't block — restore.php rsPlanDb (~2014) puts «start» + «ready» of the stopped
 # database first (note.db_start «I start it for this»). Also red, a finding of its own: INV-BACKUP-AFTER — a running
 # Nextcloud whose database is stopped makes the run fail (backup.sh ~1213 dies when occ can't switch the maintenance
-# mode on; 2.62 goes on only for a data folder readable by others). INV-NC-MAINT-OFF's «in maintenance mode» there is
+# mode on; 2.62 goes on only for a data folder readable by others) - fixed in engine 2.64 (warnings db_unreachable, dump_stopped). INV-NC-MAINT-OFF's «in maintenance mode» there is
 # likely the check's own (occ can't answer without its database; config.php says 'maintenance' => false).
 . "$(dirname "$0")/lib.sh"
 scenario_begin restore-ct-stopped-db-db
@@ -17,6 +17,7 @@ DB=mariadb-nextcloud
 nc_data_closed
 flow BK-RUN-MANUAL mode=backup               # the dump to restore
 state CT-STOPPED-DB
+expect_warnings db_unreachable dump_stopped   # engine 2.64: Nextcloud without its database goes on without maintenance mode - said
 snap_before
 flow RS-SCAN
 file=$(jq -r --arg a "$DB" '[.apps[]? | select(.id == $a) | .dumps[]?.file][0] // empty' "$D/restore.json")
