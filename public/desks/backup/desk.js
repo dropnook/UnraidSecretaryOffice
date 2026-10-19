@@ -3665,6 +3665,8 @@ function renderSetup() {
   root.appendChild(ph);
   root.appendChild(Office.pageHelp(ID + '-setup', [
     [T('setup.preset.title'), T('help.preset_text')],
+    [T('help.never'), T('help.never_text')],
+    [T('help.partners'), T('help.partners_text')],
     [T('help.draft'), T('help.draft_text')],
     [T('setup.replan'), T('help.replan')],
     [T('setup.measure'), T('setup.measure_hint')],
@@ -6286,7 +6288,8 @@ Office.places(ID, [
   ...['run', 'results', 'tiles', 'protection', 'rules', 'vms', 'packages', 'items', 'waiting', 'buttons'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
   ...[['setup_open', 'help.setup'], ['history', 'help.history'], ['drift', 'help.drift'], ['restore', 'help.restore']]
     .map(([key, text]) => ({ kind: 'help', key, text })),
-  ...[['setup.preset.title', 'help.preset_text'], ['help.draft', 'help.draft_text'], ['setup.replan', 'help.replan'], ['setup.measure', 'setup.measure_hint'],
+  ...[['setup.preset.title', 'help.preset_text'], ['help.never', 'help.never_text'], ['help.partners', 'help.partners_text'],
+    ['help.draft', 'help.draft_text'], ['setup.replan', 'help.replan'], ['setup.measure', 'setup.measure_hint'],
     ['help.reasons', 'help.reasons_text'], ['setup.more', 'help.details'], ['help.new', 'help.new_text'], ['help.filter', 'help.filter_text'], ['setup.apply', 'help.apply'],
     ['setup.forget_short', 'help.forget']].map(([key, text]) => ({ kind: 'help', key, text, ...SETUP })),
 ]);
