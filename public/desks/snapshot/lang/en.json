@@ -389,7 +389,7 @@
   "help.mounted": "Mounted somewhere: deleting unmounts it first if you agree.",
   "help.backup": "Mr. Backupsy's run uses it right now (the offsite upload reads from it) — hands off until the run is done.",
   "help.asleep": "Seen in the mount table while its disk sleeps — the disk isn't woken just to look.",
-  "help.sources": "Source chips",
+  "help.sources": "Source labels",
   "help.sources_text": "Who made it: the backup engine (Mr. Backupsy), Docker, a VM, by hand, or another tool.",
   "help.docker": "Docker's own image layers (ZFS) — hundreds of them, managed by Docker. Hidden unless switched on, never deletable here.",
   "help.scan": "Tour · Wake & tour",

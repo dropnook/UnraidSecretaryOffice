@@ -389,7 +389,7 @@
   "help.mounted": "Monté quelque part : la suppression le démonte d'abord si tu es d'accord.",
   "help.backup": "La sauvegarde de Monsieur Backupsi l'utilise en ce moment (l'envoi hors site lit dedans) — pas touche tant qu'elle n'est pas terminée.",
   "help.asleep": "Vu dans la table des montages pendant que son disque dort — le disque n'est pas réveillé juste pour regarder.",
-  "help.sources": "Puces de source",
+  "help.sources": "Étiquettes de source",
   "help.sources_text": "Qui l'a fait : le moteur de sauvegarde (Monsieur Backupsi), Docker, une VM, à la main, ou un autre outil.",
   "help.docker": "Les propres couches d'images de Docker (ZFS) — des centaines, gérées par Docker. Masquées sauf si on les affiche, jamais supprimables ici.",
   "help.scan": "Tournée · Réveiller et faire la tournée",

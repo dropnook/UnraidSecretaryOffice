@@ -11238,8 +11238,10 @@ JS;
     same('default: what is new - the app with only new containers, the VM without a section, the shares settings.ini lacks (not the renamed one), the waiting folder',
         ['app:ct:newapp', 'share:fresh', 'share:huge', 'share:unk', 'vm:vmnew', 'wait:appdata/loose'], $n['items']);
     same('default: a new server has nothing new (everything is - the default chosen there covers it)', [], $n['itemsFresh']);
-    same('default: auto - my proposals, nothing forced: the new app local and running, the new VM local and not held, the new share as the engine proposes, the folder only local',
-        ['levels' => [1, 1], 'held' => 'run', 'noStop' => true, 'items' => [null, null], 'prepare' => 'none', 'modes' => ['kopia', 'off', 'snapshot', 'snapshot', 'snapshot'],
+    // 2026-10-19 (a share added in Unraid): a new share goes to Kopia only when asked, like a new app or VM - the engine's
+    // «new» proposal (kopia) is taken as local; unasked, the backup place had followed it to Kopia too
+    same('default: auto - my proposals, nothing forced: the new app local and running, the new VM local and not held, the new share local (never Kopia unasked), the folder only local',
+        ['levels' => [1, 1], 'held' => 'run', 'noStop' => true, 'items' => [null, null], 'prepare' => 'none', 'modes' => ['snapshot', 'off', 'snapshot', 'snapshot', 'snapshot'],
          'loose' => 'local', 'kopia' => 'yes', 'key' => 'auto', 'now' => 'auto', 'changed' => false, 'chosen' => false, 'start' => ''], $n['auto']);
     same('default: kopia stored - the new app and VM local + Kopia (sources of their own, stopped / frozen like any), the new share to Kopia, the big and the unknown one as the plan says, '
         . 'the folder to Kopia, the new VM\'s share follows as a click on its row would; nothing «changed by you», but mine no longer: changes',
@@ -36951,6 +36953,139 @@ SH);
 }
 
 /**
+ * Smart Mover, emptied folders (2026-10-19, scenarios on Tower): a yes run left the emptied parent uso-yes/m3 on the pool
+ * once m3/a-small and m3/z-big were gone (upstream gave up on a parent the first time a sibling still held files), and a
+ * stopped prefer run left the emptied disk1/uso-prefer on the array (no folder pass after a stop). Now every folder above
+ * a moved file is looked at deepest first; never the share's root on the pool; a prefer share's folder on a disk only
+ * when its copy is on the pool; a folder still holding something always stays. And folders empty BEFORE the run (a real
+ * server: .tmp/, shares/counters/ left on the pool) go to the target as Unraid's mover takes them — in every direction,
+ * never one an exclude keeps.
+ */
+function testMoverelliTidy(): void
+{
+    $t = hardeningTmp('moverelli-tidy');
+    $mk = function (string $rel, string $body = 'x') use ($t): void {
+        @mkdir(dirname("$t/$rel"), 0700, true);
+        file_put_contents("$t/$rel", $body);
+    };
+    $reset = function () use ($t): void {
+        exec('rm -rf ' . escapeshellarg("$t/mnt") . ' ' . escapeshellarg("$t/log") . ' ' . escapeshellarg("$t/stop") . ' ' . escapeshellarg("$t/dirs"));
+        foreach (['mnt/user/Pics', 'mnt/user/Yes', 'mnt/cache/Pics', 'mnt/cache/Yes', 'shares', 'bin'] as $d) {
+            @mkdir("$t/$d", 0700, true);
+        }
+    };
+    $reset();
+    file_put_contents("$t/bin/move", <<<'SH'
+#!/bin/bash
+# a stand-in for Unraid's move binary: a data disk → the pool, the pool → disk1, the second pool fast → the pool (the
+# parents made there); a folder created there, removed here when empty; every folder handed over noted; the stop file written while the n-th file of a binary moves
+n=0
+while IFS= read -r f; do
+    case "$f" in
+        "$MOVE_ROOT"/cache/*) to="$MOVE_ROOT/disk1/${f#"$MOVE_ROOT"/cache/}" ;;
+        "$MOVE_ROOT"/fast/*) to="$MOVE_ROOT/cache/${f#"$MOVE_ROOT"/fast/}" ;;
+        "$MOVE_ROOT"/disk[0-9]*/*) r=${f#"$MOVE_ROOT"/disk}; to="$MOVE_ROOT/cache/${r#*/}" ;;
+        *) continue ;;
+    esac
+    if [[ -d "$f" && ! -L "$f" ]]; then printf '%s\n' "$f" >> "$MOVE_DIRS"; mkdir -p "$to" && rmdir "$f" 2>/dev/null; continue; fi
+    (( ++n == ${MOVE_STOP_AT:-0} )) && printf '{"why":"user"}' > "$CUSTOMMOVER_STOP"
+    mkdir -p "$(dirname "$to")" && mv "$f" "$to"
+done
+exit 0
+SH);
+    chmod("$t/bin/move", 0755);
+    file_put_contents("$t/excl.txt", "$t/mnt/user/Yes/m3/kept/k.bin\n");
+    file_put_contents("$t/ini", "[GLOBAL]\nmin_age=0\n[Yes]\nexcludes=$t/excl.txt\n");
+    $env = ['CUSTOMMOVER_INI' => "$t/ini", 'CUSTOMMOVER_SHARES_DIR' => "$t/shares", 'CUSTOMMOVER_MNT' => "$t/mnt", 'CUSTOMMOVER_LOG' => "$t/log",
+            'CUSTOMMOVER_LOCK' => "$t/lock", 'CUSTOMMOVER_STATUS' => "$t/st.json", 'CUSTOMMOVER_ZFS' => '/nonexistent-zfs', 'CUSTOMMOVER_MOVER_BIN' => "$t/bin/move",
+            'CUSTOMMOVER_STOP' => "$t/stop", 'CUSTOMMOVER_IGNORE_MOVER' => '1', 'MOVE_ROOT' => "$t/mnt", 'MOVE_DIRS' => "$t/dirs"];
+    $sm = OFFICE_DIR . '/smartmover/custommover_run.sh';
+    $share = fn (array $st, string $n) => array_values(array_filter($st['shares'] ?? [], fn ($x) => $x['share'] === $n))[0] ?? [];
+
+    // a yes share: m3/a-small/… and m3/z-big/… go to the array — m3 emptied goes too, the share's folder on the pool stays;
+    // m3/deep/1/2/f.bin: the whole chain; m4/kept holds an excluded file: m4/kept and m4 stay, m4/gone goes
+    $reset();
+    file_put_contents("$t/shares/Yes.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\n");
+    foreach (['m3/a-small/1.bin', 'm3/a-small/2.bin', 'm3/z-big/1.bin', 'm3/deep/1/2/f.bin', 'm4/gone/g.bin', 'm4/kept/k.bin'] as $f) {
+        $mk("mnt/cache/Yes/$f");
+    }
+    // folders empty before the run (a real server: .tmp/, shares/counters/ left on the pool): e1, e2/e3 to the array;
+    // keepdir (her exclude) stays, so does the share's folder
+    foreach (['e1', 'e2/e3', 'keepdir'] as $d) {
+        @mkdir("$t/mnt/cache/Yes/$d", 0700, true);
+    }
+    file_put_contents("$t/excl.txt", "$t/mnt/user/Yes/m4/kept/k.bin\n$t/mnt/user/Yes/keepdir\n");
+    [$exit] = runEnv(['bash', $sm, '--run'], $env, 60);
+    $st = readJson("$t/st.json") ?? [];
+    same('tidy, a yes run: exit 0, 5 moved — the emptied m3 (and m3/deep/1/2 up to it) gone from the pool, the share\'s folder kept',
+        [0, 5, false, false, true, 5],
+        [$exit, $share($st, 'Yes')['moved'] ?? null, is_dir("$t/mnt/cache/Yes/m3"), is_dir("$t/mnt/cache/Yes/m3/deep"), is_dir("$t/mnt/cache/Yes"),
+         count(glob("$t/mnt/disk1/Yes/m3/*/*.bin") ?: []) + count(glob("$t/mnt/disk1/Yes/m3/deep/1/2/*.bin") ?: []) + count(glob("$t/mnt/disk1/Yes/m4/gone/*.bin") ?: [])]);
+    same('tidy, a yes run: … a folder still holding something stays (m4/kept with its excluded file, so m4), its emptied sibling goes',
+        [true, true, false], [is_file("$t/mnt/cache/Yes/m4/kept/k.bin"), is_dir("$t/mnt/cache/Yes/m4"), is_dir("$t/mnt/cache/Yes/m4/gone")]);
+    $dirs = file_exists("$t/dirs") ? file("$t/dirs", FILE_IGNORE_NEW_LINES) : [];
+    same('tidy, a yes run: … folders empty before the run (e1, e2/e3) moved to the array; the excluded empty keepdir stays on the pool; never the share\'s folder or one holding a file handed over',
+        [false, false, true, true, true, false, false, false],
+        [is_dir("$t/mnt/cache/Yes/e1"), is_dir("$t/mnt/cache/Yes/e2"), is_dir("$t/mnt/disk1/Yes/e1"), is_dir("$t/mnt/disk1/Yes/e2/e3"), is_dir("$t/mnt/cache/Yes/keepdir"),
+         in_array("$t/mnt/cache/Yes", $dirs, true), in_array("$t/mnt/cache/Yes/m4", $dirs, true), in_array("$t/mnt/cache/Yes/keepdir", $dirs, true)]);
+    // everything moved: the share's folder on the pool still stays (a share's root is Unraid's)
+    $reset();
+    $mk('mnt/cache/Yes/m3/a/1.bin');
+    file_put_contents("$t/excl.txt", "");
+    runEnv(['bash', $sm, '--run'], $env, 60);
+    same('tidy, a yes run: all of the share moved — m3 gone, the share\'s folder on the pool kept (empty)', [false, true, true],
+        [is_dir("$t/mnt/cache/Yes/m3"), is_dir("$t/mnt/cache/Yes"), is_file("$t/mnt/disk1/Yes/m3/a/1.bin")]);
+
+    // as Unraid's mover, every run, whatever her rules: a yes share with an age rule, only an empty folder (an app's .tmp)
+    // and no file to move — the folder goes to the array
+    $reset();
+    @mkdir("$t/mnt/cache/Yes/.tmp", 0700, true);
+    file_put_contents("$t/ini", "[GLOBAL]\nmin_age=0\n[Yes]\nmin_age=30\nexcludes=$t/excl.txt\n");
+    [$exit] = runEnv(['bash', $sm, '--run'], $env, 60);
+    file_put_contents("$t/ini", "[GLOBAL]\nmin_age=0\n[Yes]\nexcludes=$t/excl.txt\n");
+    same('tidy, a yes share with an age rule and nothing to move: its empty folder goes to the array, as with Unraid\'s mover',
+        [0, false, true], [$exit, is_dir("$t/mnt/cache/Yes/.tmp"), is_dir("$t/mnt/disk1/Yes/.tmp")]);
+
+    // a prefer share from a second pool (fast → cache): its emptied and its empty folders go to the pool, its folder on fast stays
+    $reset();
+    unlink("$t/shares/Yes.cfg");
+    file_put_contents("$t/shares/Pics.cfg", "shareUseCache=\"prefer\"\nshareCachePool=\"cache\"\nshareCachePool2=\"fast\"\n");
+    $mk('mnt/fast/Pics/a/1.jpg');
+    @mkdir("$t/mnt/fast/Pics/empty/inner", 0700, true);
+    [$exit] = runEnv(['bash', $sm, '--run'], $env, 60);
+    same('tidy, prefer from a second pool: exit 0 — a/ (emptied) and empty/inner (empty before) gone from fast, on the pool; fast/Pics stays',
+        [0, false, false, true, true, true], [$exit, is_dir("$t/mnt/fast/Pics/a"), is_dir("$t/mnt/fast/Pics/empty"), is_file("$t/mnt/cache/Pics/a/1.jpg"),
+         is_dir("$t/mnt/cache/Pics/empty/inner"), is_dir("$t/mnt/fast/Pics")]);
+
+    // a prefer share, stopped while its 3rd file moves: disk1's two files and disk2's first on the pool — disk1/Pics/d1 and
+    // disk1/Pics emptied: gone (their copies on the pool), disk2/Pics/d2 still holds two: stays
+    $reset();
+    file_put_contents("$t/shares/Pics.cfg", "shareUseCache=\"prefer\"\nshareCachePool=\"cache\"\n");
+    foreach (['disk1/Pics/d1/1.jpg', 'disk1/Pics/d1/2.jpg', 'disk2/Pics/d2/1.jpg', 'disk2/Pics/d2/2.jpg', 'disk2/Pics/d2/3.jpg'] as $f) {
+        $mk("mnt/$f");
+    }
+    [$exit] = runEnv(['bash', $sm, '--run'], $env + ['MOVE_STOP_AT' => '3'], 60);
+    $st = readJson("$t/st.json") ?? [];
+    same('tidy, a stopped prefer run: exit 3, 3 moved, 2 left — disk1/Pics/d1 and disk1/Pics emptied: gone; disk2/Pics/d2 (2 files) stays; the pool has them',
+        [3, 'stopped', 3, 2, false, false, true, 2, 3],
+        [$exit, $st['result'] ?? null, $share($st, 'Pics')['moved'] ?? null, $share($st, 'Pics')['left'] ?? null, is_dir("$t/mnt/disk1/Pics/d1"), is_dir("$t/mnt/disk1/Pics"),
+         is_dir("$t/mnt/disk2/Pics/d2"), count(glob("$t/mnt/disk2/Pics/d2/*.jpg") ?: []), count(glob("$t/mnt/cache/Pics/d*/*.jpg") ?: [])]);
+    // a stopped prefer run never removes a folder on a disk whose copy is not on the pool
+    $reset();
+    foreach (['disk1/Pics/d1/1.jpg', 'disk1/Pics/d1/2.jpg', 'disk2/Pics/d2/1.jpg'] as $f) {
+        $mk("mnt/$f");
+    }
+    file_put_contents("$t/bin/move.real", (string) file_get_contents("$t/bin/move"));
+    chmod("$t/bin/move.real", 0755);
+    // the pool's copy of d1 vanishes before the tidy (someone removed it): disk1/Pics/d1 stays, so does disk1/Pics
+    file_put_contents("$t/bin/move", "#!/bin/bash\n\"\$(dirname \"\$0\")/move.real\"; rc=\$?\n[[ -e \"\$CUSTOMMOVER_STOP\" ]] && rm -rf \"\$MOVE_ROOT/cache/Pics/d1\"\nexit \$rc\n");
+    [$exit] = runEnv(['bash', $sm, '--run'], $env + ['MOVE_STOP_AT' => '2'], 60);
+    same('tidy, a stopped prefer run: a folder whose copy is not on the pool stays (disk1/Pics/d1, so disk1/Pics)', [3, true, true],
+        [$exit, is_dir("$t/mnt/disk1/Pics/d1"), is_dir("$t/mnt/disk1/Pics")]);
+    hardeningRm($t);
+}
+
+/**
  * Smart Mover, names ending in a space or tab (2026-10-18, seen on a real server: 51 312 files of a prefer share on the
  * pool, 57 empty folders left on the disk, every leaf like «06 Juni »): Unraid's move binary drops the whitespace at the
  * end of each path it reads — such a name never goes to it (given «foo » it would move «foo»); a file to the pool is moved
@@ -42559,6 +42694,163 @@ function testBackupGonePackage(): void
  * never against a stale package, never when only part of it moved; the hint says which. The Team Lead's «gone» hint
  * leaves it out; the page says it in its own words.
  */
+/**
+ * Mr. Backupsy's Apply says the truth (2026-10-19, scenarios backup-sh-add-share-nc-0777-run and
+ * moverelli-mo-own-rules-idle-setup): a share added in Unraid is proposed local, never Kopia unasked - unasked, the backup
+ * place followed it to Kopia too (setupDerive(): «whatever goes to Kopia, the backup share follows»), a change nobody
+ * chose; a new share's method «auto» is nothing Apply writes (the engine writes only live); a gone or renamed share's
+ * section, which Apply drops, is said in the dialog (one row each, never declined). Run with the scenarios' own
+ * plan-changes.mjs on the UI stub's plan, the list Apply's dialog makes.
+ */
+function testSetupApplyHonest(): void
+{
+    $node = testsNode();
+    if ($node === '') {
+        check('apply honest: node is there', false, 'no node');
+        return;
+    }
+    $tmp = hardeningTmp('apply-honest');
+    $plan = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/states/post/backup.setup_get.json'), true)['plan'];
+    $plan['P']['kopia|enabled'] = 'yes';
+    $plan['O']['kopia|enabled'] = 'yes';
+    $row = fn (string $name, array $more) => $more + ['name' => $name, 'mode' => 'snapshot', 'why' => 'previous', 'why_arg' => '', 'why_text' => '', 'locations' => 'cache',
+        'where' => 'cache', 'method' => 'snap', 'layout' => 'zfs', 'gb' => 1, 'notes' => [], 'exists' => true, 'children' => [], 'folders' => [], 'syslog' => false,
+        'waiting' => [], 'partner' => [], 'partner_ok' => false, 'partner_why' => 'no_dataset', 'place' => false, 'asleep_bases' => [], 'pool_asleep' => false];
+    // a share added in Unraid: not in settings.ini, the engine proposes «new» = kopia (share_propose())
+    $added = $plan;
+    $added['shares'][] = $row('uso-added', ['mode' => 'kopia', 'why' => 'new']);
+    $added['P'] += ['share|uso-added|mode' => 'kopia', 'share|uso-added|method' => 'auto', 'share|uso-added|kopia_ignore' => [], 'share|uso-added|exclude_dataset' => []];
+    $kopiaNew = $added;
+    $kopiaNew['preset_new'] = 'kopia';
+    $kopiaNew['P']['general|preset_new'] = 'kopia';
+    $kopiaNew['O']['general|preset_new'] = 'kopia';
+    // a share that is gone, one renamed (its settings went to the new name): settings.ini still has both sections
+    $gone = $plan;
+    $gone['shares'][] = $row('uso-gone', ['exists' => false, 'why' => 'gone', 'method' => '', 'gb' => null]);
+    $gone['shares'][] = $row('uso-before', ['exists' => false, 'why' => 'renamed_to', 'why_arg' => 'uso-after', 'method' => '', 'gb' => null]);
+    $gone['shares'][] = $row('uso-after', ['why' => 'renamed_from', 'why_arg' => 'uso-before']);
+    $gone['P'] += ['share|uso-gone|mode' => 'snapshot', 'share|uso-gone|method' => 'auto', 'share|uso-before|mode' => 'snapshot', 'share|uso-before|method' => 'auto',
+        'share|uso-after|mode' => 'snapshot', 'share|uso-after|method' => 'auto'];
+    $gone['O'] += ['share|uso-gone|mode' => 'snapshot', 'share|uso-gone|id' => 'ino:cache:7', 'share|uso-before|mode' => 'snapshot', 'share|uso-before|id' => 'ino:cache:8'];
+    $out = [];
+    foreach (['plain' => $plan, 'added' => $added, 'kopianew' => $kopiaNew, 'gone' => $gone] as $n => $p) {
+        file_put_contents("$tmp/$n.json", json_encode($p));
+        $out[$n] = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg(OFFICE_DIR . '/tools/scenarios/plan-changes.mjs') . ' '
+            . escapeshellarg("$tmp/$n.json") . ($n === 'gone' ? ' --items' : '') . ' 2>&1'), true);
+    }
+    // the stub's own differences (a gone app's section, the syslog share's first record) are the baseline
+    $base = array_map(fn ($c) => $c['key'] . ': ' . json_encode($c['was']) . ' → ' . json_encode($c['is']), $out['plain'] ?? []);
+    $keys = fn (?array $l) => array_values(array_diff(array_map(fn ($c) => $c['key'] . ': ' . json_encode($c['was']) . ' → ' . json_encode($c['is']), $l ?? []), $base));
+    check('apply honest: the stub\'s plan with Kopia on - no share\'s mode or method among its changes',
+        is_array($out['plain']) && !preg_grep('/^share\|[^|]+\|(mode|method):/', array_filter($base, fn ($k) => !str_starts_with($k, 'share|syslog|mode'))), json_encode($base));
+    same('apply honest: a share added in Unraid - its mode, local (never Kopia unasked); the backup place stays local, the method «auto» is no change',
+        ['share|uso-added|mode: null → "snapshot"'], $keys($out['added']));
+    same('apply honest: … with the default «local + Kopia» for new things it goes to Kopia, and the backup place follows - said in the list',
+        ['share|UnraidSecretaryOffice|mode: "snapshot" → "kopia"', 'share|uso-added|mode: null → "kopia"'], $keys($out['kopianew']));
+    same('apply honest: a gone and a renamed share\'s sections - one row each in the dialog (kind share_gone), the new name\'s settings as keys',
+        [['share|uso-after|mode', 'key'], ['share|uso-before|', 'share_gone'], ['share|uso-gone|', 'share_gone']],
+        array_values(array_filter(array_map(fn ($i) => [$i['id'], $i['kind']], $out['gone'] ?? []), fn ($x) => str_starts_with($x[0], 'share|uso-'))));
+    $desk = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('apply honest: the dialog says each gone share with its why (gone, or renamed to …), with the − mark',
+        str_contains($desk, "T('setup.ch_share_gone', { name: sh.name })") && str_contains($desk, "T('setup.ch_share_renamed', { name: sh.why_arg })")
+        && str_contains($desk, "T('setup.ch_share_gone_why')"));
+    $bad = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $s = langFile(OFFICE_WEB . "/desks/backup/lang/$l.json");
+        foreach (['setup.ch_share_gone' => '{name}', 'setup.ch_share_renamed' => '{name}', 'setup.ch_share_gone_why' => ''] as $k => $ph) {
+            if (!is_string($s[$k] ?? null) || ($ph !== '' && !str_contains($s[$k], $ph))) {
+                $bad[] = "$l $k";
+            }
+        }
+    }
+    same('apply honest: the gone share\'s words in five languages', [], $bad);
+    hardeningRm($tmp);
+}
+
+/**
+ * Nextcloud's data folder readable by others (engine 2.62's warning nc_datadir_readable, 2026-10-19): listed while still
+ * open (one stat, never a sleeping disk), only a folder the engine named in exactly its shape; «Close the folder»
+ * changes its root only - Nextcloud's user, group users, 0770 - after checking it is that Nextcloud's data folder now,
+ * looks again, and the folder is no longer listed. Nobody as the owner: said that Unraid opens it again.
+ */
+function testBackupNcOpen(): void
+{
+    $tmp = hardeningTmp('nc-open');
+    $mnt = "$tmp/mnt";
+    mkdir("$mnt/cache/nextcloud/admin/files", 0777, true);
+    mkdir("$mnt/user", 0777, true);
+    symlink("$mnt/cache/nextcloud", "$mnt/user/nextcloud");           // an exclusive share: /mnt/user/<share> a link to its pool
+    mkdir("$mnt/cache/lsio", 0777, true);
+    mkdir("$mnt/cache/closed", 0770, true);
+    chmod("$mnt/cache/nextcloud", 0777);
+    chmod("$mnt/cache/lsio", 0777);
+    file_put_contents("$mnt/cache/nextcloud/admin/files/a.txt", 'x');
+    chmod("$mnt/cache/nextcloud/admin/files/a.txt", 0644);
+    $inner = fn () => [sprintf('%o', fileperms("$mnt/cache/nextcloud/admin") & 0777), fileowner("$mnt/cache/nextcloud/admin"),
+        sprintf('%o', fileperms("$mnt/cache/nextcloud/admin/files/a.txt") & 0777), fileowner("$mnt/cache/nextcloud/admin/files/a.txt")];
+    $innerBefore = $inner();
+    $w = fn (string $name, string $path, string $uid) => ['code' => 'nc_datadir_readable', 'params' => ['name' => $name, 'path' => $path, 'uid' => $uid]];
+    $run = ['warning_items' => [
+        $w('nextcloud', "$mnt/user/nextcloud", '33'),
+        $w('nextcloud-cron', "$mnt/user/nextcloud/", '33'),       // its sibling (the same folder): once
+        $w('lsio', "$mnt/cache/lsio", '99'),
+        $w('closed', "$mnt/cache/closed", '33'),                  // closed since: not listed
+        $w('bad1', "$mnt/cache/../cache/lsio", '33'), $w('bad2', '/etc', '33'), $w('bad3', "$mnt/cache/lsio", '0'), $w('bad name', "$mnt/cache/lsio", '33'),
+        ['code' => 'vm_late_paused', 'params' => ['name' => 'x']],
+    ]];
+    $list = backupNcOpenList($run, fn (string $p) => false, $mnt);
+    same('nc open: the folders the last run named and still open - each once, nothing the engine didn\'t write in its shape, a closed one not',
+        [['nextcloud', "$mnt/user/nextcloud", 33, '777', '770', 'users', false, true], ['lsio', "$mnt/cache/lsio", 99, '777', '770', 'users', true, true]],
+        array_map(fn ($o) => [$o['name'], $o['path'], $o['uid'], $o['now']['mode'], $o['after']['mode'], $o['after']['group'], $o['comes_back'], $o['share_root']], $list));
+    same('nc open: a folder whose disk sleeps is never looked at', [], backupNcOpenList($run, fn (string $p) => true, $mnt));
+    same('nc open: no run, a run without the warning - nothing', [[], []], [backupNcOpenList(null, fn ($p) => false, $mnt), backupNcOpenList(['warning_items' => []], fn ($p) => false, $mnt)]);
+
+    $GLOBALS['ncOpenList'] = $list;
+    $GLOBALS['ncOpenMnt'] = $mnt;
+    $GLOBALS['ncOpenDataDir'] = fn (string $c) => $c === 'nextcloud' ? "$mnt/user/nextcloud" : null;
+    $refused = function (array $r): ?array {
+        try {
+            backupNcClose($r);
+            return null;
+        } catch (Problem $p) {
+            return [$p->key, $p->params];
+        }
+    };
+    same('nc open: refused - a name not listed, a folder that isn\'t that Nextcloud\'s data folder now, a sleeping disk, no name',
+        [['nc_open_gone', ['name' => 'other']], ['nc_open_not_data', ['name' => 'lsio', 'path' => "$mnt/cache/lsio"]], ['nc_open_asleep', ['name' => 'nextcloud']], ['missing_field', ['field' => 'name']]],
+        [$refused(['name' => 'other']), $refused(['name' => 'lsio']), (function () use ($refused) { $GLOBALS['ncOpenAsleep'] = true; $x = $refused(['name' => 'nextcloud']);
+            unset($GLOBALS['ncOpenAsleep']); return $x; })(), $refused([])]);
+    same('nc open: nothing changed by a refusal', '777', sprintf('%o', fileperms("$mnt/cache/nextcloud") & 0777));
+    $j = backupNcClose(['name' => 'nextcloud']);
+    clearstatcache();
+    same('nc open: closed - the root (on the pool) Nextcloud\'s user, group users, 0770; looked at again', [true, 33, backupUsersGid(), '770', '777', '770'],
+        [$j['ok'], fileowner("$mnt/cache/nextcloud"), filegroup("$mnt/cache/nextcloud"), sprintf('%o', fileperms("$mnt/cache/nextcloud") & 0777), $j['before']['mode'], $j['after']['mode']]);
+    same('nc open: only the root - nothing inside it changed, the link stays a link', [$innerBefore, true], [$inner(), is_link("$mnt/user/nextcloud")]);
+    same('nc open: closed, the warning goes - only lsio is still listed', ['lsio'], array_column(backupNcOpenList($run, fn ($p) => false, $mnt), 'name'));
+    unset($GLOBALS['ncOpenList'], $GLOBALS['ncOpenMnt'], $GLOBALS['ncOpenDataDir']);
+
+    $php = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
+    $desk = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('nc open: the desk\'s action and state (nc_open_close, nc_open), the page\'s callout and dialog on a fresh look, the bubble without the command while it is listed',
+        str_contains($php, "'nc_open_close' => fn (array \$r) => backupNcClose(\$r)") && str_contains($php, "'nc_open'    => backupNcOpen(\$history, \$settings)")
+        && str_contains($desk, "Office.api.post(`\${ID}.nc_open_close`, { name: o.name })") && str_contains($desk, 'if (!(await Office.freshState(ID))) return;
+  const o = ncOpen().find((x) => x.name === name);') && str_contains($desk, "w.code === 'nc_datadir_readable' && state && Array.isArray(state.nc_open)"));
+    $bad = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $s = langFile(OFFICE_WEB . "/desks/backup/lang/$l.json");
+        foreach (['nc_open.callout' => ['{name}', '{path}'], 'nc_open.close' => [], 'nc_open.title' => ['{name}'], 'nc_open.text' => ['{name}'], 'nc_open.folder' => [],
+                  'nc_open.owner' => [], 'nc_open.mode' => [], 'nc_open.stays' => [], 'nc_open.comes_back' => ['{owner}'], 'nc_open.go' => [],
+                  'nc_open.done' => ['{path}', '{owner}', '{mode}'], 'errors.nc_open_gone' => ['{name}'], 'errors.nc_open_asleep' => ['{name}'],
+                  'errors.nc_open_not_data' => ['{name}', '{path}'], 'errors.nc_open_failed' => ['{name}', '{path}']] as $k => $need) {
+            if (!is_string($s[$k] ?? null) || array_filter($need, fn ($x) => !str_contains($s[$k], $x))) {
+                $bad[] = "$l $k";
+            }
+        }
+    }
+    same('nc open: the words in five languages, with their placeholders', [], $bad);
+    hardeningRm($tmp);
+}
+
 function testBackupMovedPackage(): void
 {
     $tmp = hardeningTmp('moved-package');
@@ -42782,8 +43074,8 @@ JS;
 }
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

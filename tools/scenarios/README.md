@@ -149,6 +149,7 @@ are rows `cell <name>` of the verdict table.
 | M2 | `moverelli-mo-own-rules-idle-setup` | 1.66.1 · v1.66.0 (page only, by hand) | 16 s | pre-release |
 | M2 | `moverelli-mo-own-rules-gone-setup` | 1.66.1 · v1.66.0 | 11 s (old: 31 s) | pre-release |
 | M3 | `moverelli-sh-yes-run-picture` (+ `moverelli-eta.mjs`) | 1.66.2 / 1.66.4 · v1.66.1 (page only, by hand) | ~70 s (old: 84 s) | pre-release |
+| M3 | `moverelli-sh-yes-nested-tidy` (an emptied parent folder left on the pool) | the release after 1.66.7 · v1.66.7 | ~1 min | pre-release |
 
 Times are the scenario alone on Tower; each needs a base reset before it (~27 s), and an older release adds its install.
 The whole batch takes ~10 min on the release (~25 min on the older ones).
