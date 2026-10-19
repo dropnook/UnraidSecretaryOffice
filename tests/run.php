@@ -37035,12 +37035,21 @@ SH);
     same('tidy, a yes run: all of the share moved — m3 gone, the share\'s folder on the pool kept (empty)', [false, true, true],
         [is_dir("$t/mnt/cache/Yes/m3"), is_dir("$t/mnt/cache/Yes"), is_file("$t/mnt/disk1/Yes/m3/a/1.bin")]);
 
-    // a yes share with only an empty folder (an app's .tmp) and no file to move: the folder stays on the pool, the move
-    // binary is never called — empty folders alone never wake an array disk
+    // a yes share with only an empty folder (an app's .tmp) and no file to move — «standard» (age 0, no fill, no exclude
+    // pattern): as Unraid's mover, the folder goes to the array
     $reset();
     @mkdir("$t/mnt/cache/Yes/.tmp", 0700, true);
     [$exit] = runEnv(['bash', $sm, '--run'], $env, 60);
-    same('tidy, a yes run with nothing to move: an empty folder stays on the pool, the move binary never called (no array disk woken)',
+    same('tidy, a standard yes share with nothing to move: its empty folder goes to the array, as with Unraid\'s mover',
+        [0, false, true, 1], [$exit, is_dir("$t/mnt/cache/Yes/.tmp"), is_dir("$t/mnt/disk1/Yes/.tmp"), file_exists("$t/calls") ? count(file("$t/calls")) : 0]);
+    // … with an age rule (she keeps current files on the pool on purpose): the folder stays, the move binary is never
+    // called — empty folders alone never wake an array disk
+    $reset();
+    @mkdir("$t/mnt/cache/Yes/.tmp", 0700, true);
+    file_put_contents("$t/ini", "[GLOBAL]\nmin_age=0\n[Yes]\nmin_age=30\nexcludes=$t/excl.txt\n");
+    [$exit] = runEnv(['bash', $sm, '--run'], $env, 60);
+    file_put_contents("$t/ini", "[GLOBAL]\nmin_age=0\n[Yes]\nexcludes=$t/excl.txt\n");
+    same('tidy, a yes share with an age rule and nothing to move: an empty folder stays on the pool, the move binary never called (no array disk woken)',
         [0, true, false, false], [$exit, is_dir("$t/mnt/cache/Yes/.tmp"), file_exists("$t/calls"), is_dir("$t/mnt/disk1/Yes")]);
 
     // a prefer share from a second pool (fast → cache): its emptied and its empty folders go to the pool, its folder on fast stays

@@ -93,7 +93,8 @@
 #   folders on its disks go too — its folder there as well — only those whose copy is on the pool (rmdir, nothing else).
 # USO «empty folders» (2026-10-19): every direction gets the folder pass (yes, prefer from a second pool too): the folders
 #   holding no file below them go to the move binary deepest first, never one an exclude keeps, never a pool's share root;
-#   to the array only in a run that moved files of the share there (empty folders alone never wake an array disk).
+#   to the array for a «standard» share (age 0, no fill, no exclude: as Unraid's mover, every run), else only in a run
+#   that moved files of the share there (empty folders alone never wake an array disk).
 #
 # Exclude files: one entry per line, comments (#) and blank lines ignored, CRLF tolerated.
 #   /abs/path/dir          protects the directory and everything below it
@@ -960,9 +961,9 @@ move_batch() {  # share src dest
     fi
     for f in "${MOVED[@]:$(( ${#MOVED[@]} > 50 ? ${#MOVED[@]} - 50 : 0 ))}"; do rel_of "$f" "$src"; recent_add "$name/$REL" "${SIZE_OF[$f]:-0}" "$CUR_FROM" "$dest"; done
     # USO «per disk», «empty folders»: the source's empty folders as Unraid's mover leaves them (its second pass, one
-    # move binary for all) — to the array only when files of the share went there now (its disk awake anyway: empty
-    # folders alone never wake one); after a stop only the empty parents of what moved, at once
-    if [[ "$STOPPED" == false ]] && [[ "$dest" != array || ${#MOVED[@]} -gt 0 ]]; then
+    # move binary for all) — to the array only for a «standard» share or when files of the share went there now (its
+    # disk awake anyway: empty folders alone never wake one); after a stop only the empty parents of what moved, at once
+    if [[ "$STOPPED" == false ]] && [[ "$dest" != array || "${standard:-false}" == true || ${#MOVED[@]} -gt 0 ]]; then
         share_dirs_pass "$name" "$src" "$dest" "$( [[ "${dirs_pass:-false}" == true ]] && echo false || echo true)"
     elif (( ${#MOVED[@]} > 0 )); then
         # USO «tidy»: after a stop a prefer share's emptied folders on its disks go too (their copy on the pool)
@@ -1280,6 +1281,11 @@ process_share() {  # name mode pool pool2
         if [[ -n "${EXCL_MISSING:-}" ]]; then log ERROR "  [$name] an exclude file is missing – share skipped (nothing moved)"; return 1; fi
         (( EXCL_COUNT > 0 )) && log INFO "  excludes: $EXCL_COUNT patterns"
     fi
+    # USO «empty folders»: «standard» — no age, no fill, nothing kept by an exclude (her lists, Jack Streamer's): the share
+    # goes as with Unraid's mover, its empty folders too, to the array as well; otherwise she keeps things on the pool on
+    # purpose and empty folders alone never wake an array disk
+    local standard=false
+    (( age_days == 0 && threshold == 0 && EXCL_COUNT == 0 )) && [[ "$FORCE_AGE" == false ]] && standard=true
 
     # Find candidates (files and symlinks; excluded dirs are pruned, excluded files dropped)
     local -a FILES=()
@@ -1305,11 +1311,12 @@ process_share() {  # name mode pool pool2
     if (( count == 0 )) && [[ "$fill" == false ]]; then
         SH_STATE=none; log INFO "  no files match"
         # USO «trailing space», «empty folders»: the folders an earlier run left (the folder pass ran only after files) —
-        # to a pool only: empty folders alone never wake an array disk
-        if [[ "$DRY_RUN" == false && "$STOPPED" == false ]] && [[ "$mode" == "prefer" || -n "$pool2" ]]; then
+        # to a pool; to the array only for a «standard» share (as Unraid's mover): empty folders alone never wake an array
+        # disk for a share whose age or exclude rules keep things on the pool
+        if [[ "$DRY_RUN" == false && "$STOPPED" == false ]] && [[ "$mode" == "prefer" || -n "$pool2" || "$standard" == true ]]; then
             local -a MOVER_CMD=("$MOVER_BIN")
             (( MOVER_DEBUG > 0 )) && MOVER_CMD+=(-d "$MOVER_DEBUG")
-            if [[ "$mode" == "yes" ]]; then share_dirs_pass "$name" "$src" "$pool2" true
+            if [[ "$mode" == "yes" ]]; then share_dirs_pass "$name" "$src" "${pool2:-array}" true
             else share_dirs_pass "$name" "$src" "$pool" "$( [[ "$dirs_pass" == true ]] && echo false || echo true)"; fi
         fi
         return 0
