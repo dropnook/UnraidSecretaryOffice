@@ -90,7 +90,7 @@
   "skipped_mover": "Omitido: el mover de Unraid estuvo trabajando {min} min.",
   "count.files": {"one": "{n} archivo", "other": "{n} archivos"},
   "count.left": {"one": "{n} se quedó (en uso o ya allí)", "other": "{n} se quedaron (en uso o ya allí)"},
-  "count.left_why": {"one": "{n} se quedó — el programa de movimiento de Unraid dijo «{why}»", "other": "{n} se quedaron — el programa de movimiento de Unraid dijo «{why}»"},
+  "left_why": {"one": "{n} se quedó — el programa de movimiento de Unraid dijo «{why}»", "other": "{n} se quedaron — el programa de movimiento de Unraid dijo «{why}»"},
   "count.errors": {"one": "{n} error", "other": "{n} errores"},
   "count.shares": {"one": "{n} recurso compartido listado", "other": "{n} recursos compartidos listados"},
   "count.lists": {"one": "{n} lista de lo que se queda", "other": "{n} listas de lo que se queda"},

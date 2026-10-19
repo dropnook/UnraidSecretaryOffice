@@ -37573,12 +37573,12 @@ console.log(JSON.stringify([m.leftCount({ left: 6, left_why: 'No medium found' }
 JS);
         $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/moverelli/desk.js') . ' ' . escapeshellarg(testsRunHelpersJs($tmp)) . ' 2>&1');
         $lines = explode("\n", trim($raw));
-        same('her page: a share\'s files left with the binary\'s reason; without one as before', ['count.left_why {"n":6,"why":"No medium found"}', 'count.left {"n":2}', 'count.left {"n":0}'],
+        same('her page: a share\'s files left with the binary\'s reason; without one as before', ['left_why {"n":6,"why":"No medium found"}', 'count.left {"n":2}', 'count.left {"n":0}'],
             json_decode((string) end($lines), true) ?? $raw);
     }
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         $lang = readJson(OFFICE_WEB . "/desks/moverelli/lang/$l.json") ?? [];
-        check("the binary's reasons: the words in $l", str_contains(json_encode($lang['count.left_why'] ?? ''), '{why}'));
+        check("the binary's reasons: the words in $l", str_contains(json_encode($lang['left_why'] ?? ''), '{why}'));
     }
     unset($GLOBALS['moverelliHost']);
     hardeningRm($tmp);

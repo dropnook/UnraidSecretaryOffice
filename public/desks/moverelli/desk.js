@@ -1612,7 +1612,7 @@ function historySection() {
   return s;
 }
 /** A share's files left — with the reason Unraid's move binary gave (C-M16: «No medium found»), else «in use or already there» */
-const leftCount = (x) => (Number(x.left) > 0 && x.left_why ? T('count.left_why', { n: Number(x.left), why: x.left_why }) : nOf('left', x.left));
+const leftCount = (x) => (Number(x.left) > 0 && x.left_why ? T('left_why', { n: Number(x.left), why: x.left_why }) : nOf('left', x.left));
 /** The last run: how it went, a line per share that had something */
 function resultBox() {
   const last = state.last;

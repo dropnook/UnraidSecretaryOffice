@@ -90,7 +90,7 @@
   "skipped_mover": "Übersprungen: Unraids Mover war {min} Min. am Werk.",
   "count.files": {"one": "{n} Datei", "other": "{n} Dateien"},
   "count.left": {"one": "{n} blieb (in Gebrauch oder schon dort)", "other": "{n} blieben (in Gebrauch oder schon dort)"},
-  "count.left_why": {"one": "{n} blieb — Unraids Verschiebeprogramm sagte «{why}»", "other": "{n} blieben — Unraids Verschiebeprogramm sagte «{why}»"},
+  "left_why": {"one": "{n} blieb — Unraids Verschiebeprogramm sagte «{why}»", "other": "{n} blieben — Unraids Verschiebeprogramm sagte «{why}»"},
   "count.errors": {"one": "{n} Fehler", "other": "{n} Fehler"},
   "count.shares": {"one": "{n} Share aufgelistet", "other": "{n} Shares aufgelistet"},
   "count.lists": {"one": "{n} Liste von dem, was bleibt", "other": "{n} Listen von dem, was bleibt"},
