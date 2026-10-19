@@ -499,6 +499,7 @@
   "state.warning": "avviso",
   "state.failed": "fallito",
   "state.skipped": "saltato",
+  "state.interrupted": "interrotto",
   "step.stop": "Fermare {containers}",
   "step.start": "Avviare {containers}",
   "step.start_again": "Riavviare {containers} (se girava prima)",

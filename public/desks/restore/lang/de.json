@@ -499,6 +499,7 @@
   "state.warning": "Warnung",
   "state.failed": "fehlgeschlagen",
   "state.skipped": "übersprungen",
+  "state.interrupted": "unterbrochen",
   "step.stop": "{containers} stoppen",
   "step.start": "{containers} starten",
   "step.start_again": "{containers} wieder starten (wenn er vorher lief)",

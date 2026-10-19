@@ -1594,18 +1594,39 @@ function rsJournals(): array
         if (!$j) {
             continue;
         }
-        if (in_array($j['result'] ?? '', ['queued', 'running'], true) && ($running['id'] ?? '') !== $id
-            && (($j['result'] === 'running' && !rsJobAlive($j)) || ($j['result'] === 'queued' && time() - (int) ($j['created'] ?? 0) > 120))) {
-            $j['result'] = 'interrupted';
-            $j['finished'] = $j['heartbeat'] ?? time();
-            try {
-                rsJournalWrite($j, false);
-            } catch (Throwable) {
-            }
+        if (($running['id'] ?? '') !== $id) {
+            rsJournalSettle($j);
         }
         $out[] = rsJournalRow($j);
     }
     return $out;
+}
+
+/**
+ * A journal still «queued» or «running» whose job is gone (a power cut, a reboot): interrupted — rewritten so, its
+ * step that was running «interrupted» and the ones after it «skipped» (scenario batch D, F10: after a power cut the
+ * page drew the wave for a job that was gone), and the job file the page polls too when it names this restore.
+ * True when it was rewritten.
+ */
+function rsJournalSettle(array &$j): bool
+{
+    if (!in_array($j['result'] ?? '', ['queued', 'running'], true)
+        || ($j['result'] === 'running' && rsJobAlive($j)) || ($j['result'] === 'queued' && time() - (int) ($j['created'] ?? 0) <= 120)) {
+        return false;
+    }
+    $j['result'] = 'interrupted';
+    $j['finished'] = $j['heartbeat'] ?? time();
+    foreach ((array) ($j['steps'] ?? []) as $i => $s) {
+        $was = is_array($s) ? ($s['state'] ?? 'pending') : null;
+        if ($was === 'running' || $was === 'pending') {
+            $j['steps'][$i]['state'] = $was === 'running' ? 'interrupted' : 'skipped';
+        }
+    }
+    try {
+        rsJournalWrite($j, (readJson(rsJobFile())['id'] ?? null) === $j['id']);
+    } catch (Throwable) {
+    }
+    return true;
 }
 
 /** A journal as the page lists it */
@@ -1680,6 +1701,7 @@ function rsJournalGet(string $id): array
     if (!$j) {
         throw new Problem('unknown_target', ['target' => $id]);
     }
+    rsJournalSettle($j);
     $log = @file(rsDir($id) . '/log.txt', FILE_IGNORE_NEW_LINES) ?: [];
     return ['ok' => true, 'journal' => $j, 'row' => rsJournalRow($j), 'log' => array_slice($log, -300)];
 }
@@ -3179,7 +3201,7 @@ function rsUndoSteps(array $j): array
     $undo = [];
     foreach (array_reverse((array) ($j['steps'] ?? [])) as $s) {
         $u = (array) ($s['undo'] ?? []);
-        if ($u && in_array($s['state'] ?? '', ['ok', 'warning', 'failed', 'running'], true)) {
+        if ($u && in_array($s['state'] ?? '', ['ok', 'warning', 'failed', 'running', 'interrupted'], true)) {
             array_push($undo, ...array_map('rsUndoPaths', $u));
         }
     }

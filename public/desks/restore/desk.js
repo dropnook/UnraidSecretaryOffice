@@ -2287,7 +2287,8 @@ function journalDetail(r) {
     const ol = el('ol', 'rs-pv-steps rs-j-steps');
     (j.steps || []).forEach((s) => {
       const li = el('li', 'rs-j-' + (s.state || 'pending'));
-      const sc = chip(T('state.' + (s.state || 'pending')), resultClass({ ok: 'ok', warning: 'warnings', failed: 'failed', running: 'running' }[s.state] || 'queued'));
+      // a step a power cut ended reads «interrupted» (its journal settled by the agent), never with the wave
+      const sc = chip(T('state.' + (s.state || 'pending')), resultClass({ ok: 'ok', warning: 'warnings', failed: 'failed', running: 'running', interrupted: 'interrupted' }[s.state] || 'queued'));
       li.append(s.state === 'running' ? waving(sc) : sc, ' ', stepText(s));
       const pr = s.progress;
       if (pr && s.state === 'running') {
