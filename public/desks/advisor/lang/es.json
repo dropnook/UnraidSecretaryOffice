@@ -58,7 +58,7 @@
   "install.kopia.8": "En el señor Backupsi: Configurar… → Ronda. Comprueba el contenedor, la ruta y el repositorio e incluye Kopia en sus copias.",
   "install.kopia.9": "Tras una pérdida total, el mismo camino: instala Kopia como arriba y luego conecta tu repositorio existente en KopiaUI — ¡no crees uno nuevo! — con tus datos de acceso guardados aparte (contraseña, bucket, endpoint, access key y secret) y el mismo user@host que antes (lo muestra el señor Backupsi en Configurar → Lo básico). Entonces vuelves a ver todos los estados. Qué está dónde y cómo recuperarlo, lo muestra el señor Backupsi en «Recuperar cosas».",
   "ext.streamviewer.name": "Stream Viewer",
-  "ext.streamviewer.what": "Un plugin de Lazaros Chalkidis: quién está viendo qué en tu {media} ahora mismo — como mosaico «Active Streams» en Administración (el Dashboard) — y un historial de reproducción con estadísticas (⟦Tools⟧ → Viewers Suite). Funciona con Emby, Jellyfin y Plex.",
+  "ext.streamviewer.what": "Un plugin de Lazaros Chalkidis: quién está viendo qué en tu {media} ahora mismo — como mosaico «Active Streams» en Administración (el Dashboard) — y un historial de reproducción con estadísticas (⟦Tools⟧ → Viewers Suite). Funciona con Emby, Jellyfin y Plex. Y no lo olvides: en sus ajustes, en «Statistics settings», activa «Enable watch history» — de fábrica está apagado y las estadísticas quedan vacías. Después las guarda de forma permanente en appdata.",
   "ext.streamviewer.for": "Jack Streamer prepara lo que se verá después; Stream Viewer muestra lo que se reproduce ahora",
   "open.streamviewer": "Abrir los ajustes de Stream Viewer",
   "install.streamviewer.1": "En ⟦Apps⟧ busca «Stream Viewer» (de Lazaros Chalkidis) e instálalo.",
