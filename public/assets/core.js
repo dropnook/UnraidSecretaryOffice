@@ -1290,8 +1290,17 @@ function tabs() {
 Office.pageHelp = function pageHelp(desk, items) {
   const det = el('details', 'page-help');
   det.open = Office.store(desk + '.help') === '1';
-  det.ontoggle = () => Office.store(desk + '.help', det.open ? '1' : null);
-  det.appendChild(el('summary', '', t('common.page_help')));
+  // remembered only when the user clicks it: the search opening it to show a term (showPlace) leaves it as it was
+  // (2026-10-19: one search jump kept Mr. Backupsy's setup help open for good)
+  let byUser = false;
+  const sum = el('summary', '', t('common.page_help'));
+  sum.addEventListener('click', () => { byUser = true; });
+  det.ontoggle = () => {
+    if (!byUser) return;
+    byUser = false;
+    Office.store(desk + '.help', det.open ? '1' : null);
+  };
+  det.appendChild(sum);
   const dl = el('dl', 'page-help-list');
   const [id, page = ''] = String(desk).split('-');
   const marks = new Map((placeLists.get(id) || []).filter((p) => p.kind === 'help' && p.anchor && (p.route.split('/')[2] || '') === page)
