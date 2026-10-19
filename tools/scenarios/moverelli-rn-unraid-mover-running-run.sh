@@ -1,10 +1,10 @@
 #!/bin/bash
-# Cell M11 of matrix.md: Unraid's own mover at work (RN-UNRAID-MOVER-RUNNING: /var/run/mover.pid names a living
-# process whose command line says «mover»). (start) «Run now» is refused with moverelli_mover_running — nothing moves.
-# (middle) her real run moves 6 × 1.25 GiB (40 days old, uso-yes → the array) and Unraid's mover starts while a file is
-# on its way: she stops after that file, for real — once her look (every 5 s, JACK_MOVER_LOOK) has seen the mover and
-# written her stop file, only the file in flight arrives (whole), no further one is begun; no .partial, her history
-# says «stopped» why mover. Pre-release (~4 min).
+# Cell M11 of matrix.md: Unraid's own mover at work (RN-UNRAID-MOVER-RUNNING: /var/run/mover.pid names a living process
+# whose command line says «mover»). (start) «Run now» is refused with moverelli_mover_running — nothing moves. (middle)
+# her real run moves 6 × 1.25 GiB (40 days old, uso-yes → the array) and Unraid's mover starts while a file is on its
+# way: she stops after that file, for real — once her look (every 5 s, JACK_MOVER_LOOK) has seen the mover and written
+# her stop file, only the file in flight arrives (whole), no further one is begun; no .partial, her history says
+# «stopped» why mover. Pre-release (~4 min).
 . "$(dirname "$0")/lib.sh"
 scenario_begin moverelli-rn-unraid-mover-running-run
 needs tower

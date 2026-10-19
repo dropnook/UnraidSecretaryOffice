@@ -1,9 +1,10 @@
 #!/bin/bash
 # Cell R9 of matrix.md, the pool: cache (nearly) full — 1 GiB left (DK-POOL-FULL, a refreservation, nothing written) —
-# and EmbyServer's app folder (appdata/emby, 1.5 GB of ours in it) to bring back beside the live one from the moment
-# the run made before the fill (he restores app and VM folders). Mr. Restori's plan blocks with the numbers (restore_no_space {need, free}: rsFree), nothing is started or written;
-# his drill, on the same full pool, never ends «failed»: what can't be tried for want of room is «not checked» with
-# its reason. The room comes back before INV-BACKUP-AFTER. Pre-release (~4 min).
+# and EmbyServer's app folder (appdata/emby, 1.5 GB of ours in it) to bring back beside the live one from the moment the
+# run made before the fill (he restores app and VM folders). Mr. Restori's plan blocks with the numbers
+# (restore_no_space {need, free}: rsFree), nothing is started or written; his drill, on the same full pool, never ends
+# «failed»: what can't be tried for want of room is «not checked» with its reason. The room comes back before
+# INV-BACKUP-AFTER. Pre-release (~4 min).
 . "$(dirname "$0")/lib.sh"
 scenario_begin restore-dk-pool-full-files-drill
 needs tower docker zfs

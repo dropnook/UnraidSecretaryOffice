@@ -5,7 +5,8 @@
 # names the step it stopped at, nothing of his is still «running», nobody holds the engine's lock, and the half copy
 # beside the folder doesn't stay looking like a restore (removed, or «Put back» offered to take it away). Docker's
 # autostart for the demo set (CT-AUTOSTART, as a user's server has it) brings the apps back; the array is started
-# without the states' own container bring-back. atd's queue after the start is named in the report. Pre-release (~5 min).
+# without the states' own container bring-back. atd's queue after the start is named in the report. Pre-release (~5
+# min).
 . "$(dirname "$0")/lib.sh"
 scenario_begin restore-rn-array-stop-midrun-rs-files
 needs tower docker zfs

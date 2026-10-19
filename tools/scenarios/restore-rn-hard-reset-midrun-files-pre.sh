@@ -1,11 +1,10 @@
 #!/bin/bash
 # Cell R4 of matrix.md, the restore, pre half (nightly — a power cut and a boot): Mr. Restori copies a folder back
-# beside the live one (RS-FILES beside: EmbyServer's app folder appdata/emby with 4 × 512 MB of ours in it, from the moment
-# the run makes here) when the power goes
-# (RN-HARD-RESET-MIDRUN rs: as soon as his job is at work, after a sync). This half writes the files, makes the moment,
-# notes what must come back (OF-REBOOT), puts the demo set on Docker's autostart (CT-AUTOSTART — undone by the post
-# half), arms the cut and ends; a detached starter clicks through the restore dialog once this half's result is
-# written, so the runner has its report before the server goes.
+# beside the live one (RS-FILES beside: EmbyServer's app folder appdata/emby with 4 × 512 MB of ours in it, from the
+# moment the run makes here) when the power goes (RN-HARD-RESET-MIDRUN rs: as soon as his job is at work, after a sync).
+# This half writes the files, makes the moment, notes what must come back (OF-REBOOT), puts the demo set on Docker's
+# autostart (CT-AUTOSTART — undone by the post half), arms the cut and ends; a detached starter clicks through the
+# restore dialog once this half's result is written, so the runner has its report before the server goes.
 . "$(dirname "$0")/lib.sh"
 scenario_begin restore-rn-hard-reset-midrun-files-pre
 needs tower docker zfs reboot

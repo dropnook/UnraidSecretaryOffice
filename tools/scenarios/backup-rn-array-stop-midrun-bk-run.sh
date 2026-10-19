@@ -1,16 +1,16 @@
 #!/bin/bash
-# Cell B12 of matrix.md: Unraid's ⟦Stop⟧ while a backup run is at work (9 s in: the apps paused, Nextcloud in maintenance
-# mode). The run ends «aborted / array_stopping», never «failed»; nothing of the engine stays mounted; after ⟦Start⟧ the
-# office's own backup.sh --recover (event/started → atd) brings back what the run had paused and takes Nextcloud out of
-# maintenance mode — the array is started here WITHOUT the states' own container bring-back, so only the office's
-# recovery and Docker's autostart count (CT-AUTOSTART: the demo set on it, as a user's server has it — without it the
-# databases stay down after the stop, and Nextcloud can't leave maintenance mode; the undo brings back anything
-# missed). The snapshot names stay unique (one set per minute) and the next run (INV-BACKUP-AFTER) is clean.
+# Cell B12 of matrix.md: Unraid's ⟦Stop⟧ while a backup run is at work (9 s in: the apps paused, Nextcloud in
+# maintenance mode). The run ends «aborted / array_stopping», never «failed»; nothing of the engine stays mounted; after
+# ⟦Start⟧ the office's own backup.sh --recover (event/started → atd) brings back what the run had paused and takes
+# Nextcloud out of maintenance mode — the array is started here WITHOUT the states' own container bring-back, so only
+# the office's recovery and Docker's autostart count (CT-AUTOSTART: the demo set on it, as a user's server has it —
+# without it the databases stay down after the stop, and Nextcloud can't leave maintenance mode; the undo brings back
+# anything missed). The snapshot names stay unique (one set per minute) and the next run (INV-BACKUP-AFTER) is clean.
 # Found on USOTest4 (7.3.3): Unraid's array START resets the exclusive share root /mnt/user/nextcloud to 0777
-# nobody:users when its group isn't users (syslog «emhttpd: chmod 0777 '/mnt/user/nextcloud'») — Nextcloud then
-# refuses occ, the --recover can't switch its maintenance mode off and keeps the note (cell nc-out). $1 = users: the
-# folder first as the office's own «Close the folder…» leaves it (33:users 0770 — Unraid leaves that alone), the
-# same cell with the root cause out of the way. Pre-release (~5 min).
+# nobody:users when its group isn't users (syslog «emhttpd: chmod 0777 '/mnt/user/nextcloud'») — Nextcloud then refuses
+# occ, the --recover can't switch its maintenance mode off and keeps the note (cell nc-out). $1 = users: the folder
+# first as the office's own «Close the folder…» leaves it (33:users 0770 — Unraid leaves that alone), the same cell with
+# the root cause out of the way. Pre-release (~5 min).
 . "$(dirname "$0")/lib.sh"
 scenario_begin backup-rn-array-stop-midrun-bk-run
 needs tower docker

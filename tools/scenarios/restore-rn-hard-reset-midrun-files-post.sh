@@ -2,8 +2,9 @@
 # Cell R4 of matrix.md, the restore, post half (nightly): back after the power cut that hit Mr. Restori's copy. What
 # must hold: his page reads the restore as interrupted (rsJournals: the job is gone) and its journal names the step it
 # stopped at (no step left «running» — the page draws that with the wave); no job of his «running», the engine's lock
-# free; the half copy beside the folder doesn't stay looking like a restore (removed, or «Put back» offered). Unraid's own parity check after the unclean stop is cancelled. The undo removes the folder and what the
-# restore put beside it, takes the demo set off Docker's autostart again and starts any container still missing.
+# free; the half copy beside the folder doesn't stay looking like a restore (removed, or «Put back» offered). Unraid's
+# own parity check after the unclean stop is cancelled. The undo removes the folder and what the restore put beside it,
+# takes the demo set off Docker's autostart again and starts any container still missing.
 . "$(dirname "$0")/lib.sh"
 scenario_begin restore-rn-hard-reset-midrun-files
 needs tower docker zfs
