@@ -1750,7 +1750,7 @@
   "nc_open.mode": "Permessi",
   "nc_open.stays": "Da ora Unraid la lascia così: appartiene al gruppo users e non a nobody.",
   "nc_open.comes_back": "Il proprietario resta {owner}: Unraid riapre la cartella la prossima volta che una condivisione viene aggiunta o salvata.",
-  "nc_open.go": "Chiudi",
+  "nc_open.go": "Chiudi la cartella",
   "nc_open.done": "Chiusa: {path} ora appartiene a {owner}, permessi {mode}.",
   "errors.nc_open_gone": "La cartella dati di {name} non è più aperta (o il suo disco dorme) — non ho cambiato nulla.",
   "errors.nc_open_asleep": "La cartella dati di {name} sta su un disco che dorme — non l'ho svegliato e non ho cambiato nulla.",

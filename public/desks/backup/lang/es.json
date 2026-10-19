@@ -1765,7 +1765,7 @@
   "nc_open.mode": "Permisos",
   "nc_open.stays": "Unraid la deja así a partir de ahora: pertenece al grupo users y no a nobody.",
   "nc_open.comes_back": "Su propietario sigue siendo {owner}: Unraid vuelve a abrir la carpeta la próxima vez que se añada o guarde un recurso compartido.",
-  "nc_open.go": "Cerrarla",
+  "nc_open.go": "Cerrar la carpeta",
   "nc_open.done": "Cerrada: {path} ahora pertenece a {owner}, permisos {mode}.",
   "errors.nc_open_gone": "La carpeta de datos de {name} ya no está abierta (o su disco duerme) — no he cambiado nada.",
   "errors.nc_open_asleep": "La carpeta de datos de {name} está en un disco que duerme — no lo he despertado y no he cambiado nada.",

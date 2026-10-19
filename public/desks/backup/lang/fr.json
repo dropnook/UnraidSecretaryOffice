@@ -1765,7 +1765,7 @@
   "nc_open.mode": "Droits",
   "nc_open.stays": "Unraid le laisse ainsi désormais : il appartient au groupe users et pas à nobody.",
   "nc_open.comes_back": "Son propriétaire reste {owner} : Unraid rouvre le dossier la prochaine fois qu'un partage est ajouté ou enregistré.",
-  "nc_open.go": "Fermer",
+  "nc_open.go": "Fermer le dossier",
   "nc_open.done": "Fermé : {path} appartient maintenant à {owner}, droits {mode}.",
   "errors.nc_open_gone": "Le dossier de données de {name} n'est plus ouvert (ou son disque dort) — je n'ai rien changé.",
   "errors.nc_open_asleep": "Le dossier de données de {name} est sur un disque qui dort — je ne l'ai pas réveillé et n'ai rien changé.",

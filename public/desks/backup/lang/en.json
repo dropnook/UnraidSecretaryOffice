@@ -1744,7 +1744,7 @@
   "nc_open.mode": "Permissions",
   "nc_open.stays": "Unraid leaves it like this from now on: it belongs to the group users and not to nobody.",
   "nc_open.comes_back": "Its owner stays {owner}: Unraid opens the folder again the next time a share is added or saved.",
-  "nc_open.go": "Close it",
+  "nc_open.go": "Close the folder",
   "nc_open.done": "Closed: {path} now belongs to {owner}, permissions {mode}.",
   "errors.nc_open_gone": "{name}'s data folder isn't open any more (or its disk sleeps) — I changed nothing.",
   "errors.nc_open_asleep": "{name}'s data folder lies on a sleeping disk — I didn't wake it and changed nothing.",

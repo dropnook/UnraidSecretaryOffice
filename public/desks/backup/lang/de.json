@@ -1744,7 +1744,7 @@
   "nc_open.mode": "Rechte",
   "nc_open.stays": "Unraid lässt ihn von nun an so: Er gehört der Gruppe users und nicht nobody.",
   "nc_open.comes_back": "Sein Besitzer bleibt {owner}: Unraid öffnet den Ordner wieder, sobald das nächste Mal ein Share angelegt oder gespeichert wird.",
-  "nc_open.go": "Schließen",
+  "nc_open.go": "Ordner schließen",
   "nc_open.done": "Geschlossen: {path} gehört jetzt {owner}, Rechte {mode}.",
   "errors.nc_open_gone": "Der Datenordner von {name} ist nicht mehr offen (oder seine Disk schläft) – ich habe nichts geändert.",
   "errors.nc_open_asleep": "Der Datenordner von {name} liegt auf einer schlafenden Disk – ich habe sie nicht geweckt und nichts geändert.",
