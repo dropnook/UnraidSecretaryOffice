@@ -1557,7 +1557,7 @@ function moverelliStatusShort(array $status): array
     $out['shares'] = [];
     foreach (array_slice((array) ($status['shares'] ?? []), 0, 200) as $s) {
         if (is_array($s)) {
-            $out['shares'][] = array_intersect_key($s, array_flip(['share', 'state', 'files', 'bytes', 'moved', 'left', 'pool', 'until', 'pool_used', 'pool_now', 'fill', 'reached']));
+            $out['shares'][] = array_intersect_key($s, array_flip(['share', 'state', 'files', 'bytes', 'moved', 'left', 'left_why', 'pool', 'until', 'pool_used', 'pool_now', 'fill', 'reached']));
         }
     }
     return $out;

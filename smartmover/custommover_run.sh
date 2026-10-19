@@ -165,7 +165,7 @@ STOP_SHARE=""
 ERRORS=0
 WARNINGS=0      # office: WARN lines so far (the run card's «N errors, N warnings», as Mr. Backupsy's)
 SHARE_JSON=()
-SH_STATE=""; SH_DIRECTION=""; SH_FILES=0; SH_BYTES=0; SH_MOVED=0; SH_LEFT=0
+SH_STATE=""; SH_DIRECTION=""; SH_FILES=0; SH_BYTES=0; SH_MOVED=0; SH_LEFT=0; SH_LEFT_WHY=""
 SH_AGE=""; SH_STAT=""; SH_THRESHOLD=""; SH_EXCLUDES=""
 RECENT=()      # USO: the last 50 files done (JSON objects)
 recent_add() {  # name bytes from to
@@ -204,15 +204,15 @@ fill_json() {  # USO «fill»: the share's pool and target as JSON members (a le
 declare -A S_REC=() S_MODE=()
 SHARE_ORDER=()
 share_json() {  # name mode — SH_* as one share's JSON
-    printf '%s' "{\"share\":$(json_str "$1"),\"mode\":$(json_str "$2"),\"state\":$(json_str "$SH_STATE"),\"direction\":$(json_str "$SH_DIRECTION"),\"files\":$(json_num "$SH_FILES"),\"bytes\":$(json_num "$SH_BYTES"),\"moved\":$(json_num "$SH_MOVED"),\"left\":$(json_num "$SH_LEFT"),\"min_age\":$(json_str "$SH_AGE"),\"age_stat\":$(json_str "$SH_STAT"),\"threshold\":$(json_str "$SH_THRESHOLD"),\"excludes\":$(json_str "$SH_EXCLUDES")$(fill_json)}"
+    printf '%s' "{\"share\":$(json_str "$1"),\"mode\":$(json_str "$2"),\"state\":$(json_str "$SH_STATE"),\"direction\":$(json_str "$SH_DIRECTION"),\"files\":$(json_num "$SH_FILES"),\"bytes\":$(json_num "$SH_BYTES"),\"moved\":$(json_num "$SH_MOVED"),\"left\":$(json_num "$SH_LEFT"),\"left_why\":$(json_str "$SH_LEFT_WHY"),\"min_age\":$(json_str "$SH_AGE"),\"age_stat\":$(json_str "$SH_STAT"),\"threshold\":$(json_str "$SH_THRESHOLD"),\"excludes\":$(json_str "$SH_EXCLUDES")$(fill_json)}"
 }
 sh_save() {  # name — SH_* into S_REC (unit separator: an empty field stays a field)
     S_REC[$1]=$(printf '%s\037' "$SH_STATE" "$SH_DIRECTION" "$SH_FILES" "$SH_BYTES" "$SH_MOVED" "$SH_LEFT" "$SH_AGE" "$SH_STAT" "$SH_THRESHOLD" \
-        "$SH_EXCLUDES" "$SH_POOL" "$SH_UNTIL" "$SH_POOL_USED" "$SH_POOL_NOW" "$SH_FILL" "$SH_REACHED" "$SH_RC")
+        "$SH_EXCLUDES" "$SH_POOL" "$SH_UNTIL" "$SH_POOL_USED" "$SH_POOL_NOW" "$SH_FILL" "$SH_REACHED" "$SH_RC" "$SH_LEFT_WHY")
 }
 sh_load() {  # name — S_REC into SH_*
     IFS=$'\037' read -r SH_STATE SH_DIRECTION SH_FILES SH_BYTES SH_MOVED SH_LEFT SH_AGE SH_STAT SH_THRESHOLD SH_EXCLUDES SH_POOL SH_UNTIL \
-        SH_POOL_USED SH_POOL_NOW SH_FILL SH_REACHED SH_RC _rest <<< "${S_REC[$1]}"
+        SH_POOL_USED SH_POOL_NOW SH_FILL SH_REACHED SH_RC SH_LEFT_WHY _rest <<< "${S_REC[$1]}"
 }
 shares_json_rebuild() {
     local n
@@ -222,7 +222,7 @@ shares_json_rebuild() {
 
 share_status_add() {  # name mode — what process_share left in SH_*
     SHARE_ORDER+=("$1"); S_MODE[$1]="$2"; sh_save "$1"
-    SHARE_JSON+=("{\"share\":$(json_str "$1"),\"mode\":$(json_str "$2"),\"state\":$(json_str "$SH_STATE"),\"direction\":$(json_str "$SH_DIRECTION"),\"files\":$(json_num "$SH_FILES"),\"bytes\":$(json_num "$SH_BYTES"),\"moved\":$(json_num "$SH_MOVED"),\"left\":$(json_num "$SH_LEFT"),\"min_age\":$(json_str "$SH_AGE"),\"age_stat\":$(json_str "$SH_STAT"),\"threshold\":$(json_str "$SH_THRESHOLD"),\"excludes\":$(json_str "$SH_EXCLUDES")$(fill_json)}")
+    SHARE_JSON+=("{\"share\":$(json_str "$1"),\"mode\":$(json_str "$2"),\"state\":$(json_str "$SH_STATE"),\"direction\":$(json_str "$SH_DIRECTION"),\"files\":$(json_num "$SH_FILES"),\"bytes\":$(json_num "$SH_BYTES"),\"moved\":$(json_num "$SH_MOVED"),\"left\":$(json_num "$SH_LEFT"),\"left_why\":$(json_str "$SH_LEFT_WHY"),\"min_age\":$(json_str "$SH_AGE"),\"age_stat\":$(json_str "$SH_STAT"),\"threshold\":$(json_str "$SH_THRESHOLD"),\"excludes\":$(json_str "$SH_EXCLUDES")$(fill_json)}")
 }
 
 write_status() {  # exit code
@@ -957,6 +957,39 @@ dry_list() {
     return 0
 }
 
+# C-M16 (2026-10-19): the move binary's own reason for each file still at the source, from its output — «move: <path>
+# <reason>», «move: <src> -> <dst> <reason>», «skip: <path> <reason>», «error: <fn>, <line>: <reason> (<errno>): lstat:
+# <path>» — the path known (a name with spaces: the longest known path the line starts with); prints «path<TAB>reason»
+left_reasons() {  # out file…
+    local out="$1"; shift
+    [[ -s "$out" ]] || return 0
+    printf '%s\n' "$@" | LC_ALL=C awk '
+        NR == FNR { left[$0] = 1; next }
+        {
+            line = $0
+            if (line ~ /^error: / && (i = index(line, ": lstat: ")) > 0) {
+                p = substr(line, i + 9); head = substr(line, 1, i - 1)
+                if (!(p in left) || (p in why)) next
+                sub(/ \([0-9]+\)$/, "", head); n = split(head, part, ": "); why[p] = part[n]; next
+            }
+            if (!sub(/^(move|skip): /, "", line)) next
+            for (i = length(line); i > 1; i--) {
+                if (substr(line, i, 1) != " ") continue
+                p = substr(line, 1, i - 1)
+                if (!(p in left)) continue
+                r = substr(line, i + 1)
+                if (r ~ /^-> /) {               # «src -> dst reason»: dst ends in the same name as src
+                    b = p; sub(/.*\//, "", b); j = 0
+                    for (k = 1; k + length(b) <= length(r); k++) if (substr(r, k, length(b) + 1) == b " ") j = k
+                    r = j ? substr(r, j + length(b) + 1) : ""
+                }
+                if (r != "" && !(p in why)) why[p] = r
+                break
+            }
+        }
+        END { for (p in why) print p "\t" why[p] }' - "$out"
+}
+
 # FILES to the move binary (one by one with CUSTOMMOVER_STOP, else at once), then what is still at the source; the
 # counts to SH_MOVED/SH_LEFT and the run's totals, SH_RC the move binary's last failure (the fill: fill_pool)
 move_batch() {  # share src dest
@@ -995,7 +1028,6 @@ move_batch() {  # share src dest
         log ERROR "  move binary exited with code $rc – see $LOG_FILE (mover_debug=1 for details)"
         [[ "$LOG_LEVEL" != "DEBUG" ]] && tail -n 5 "$mover_out" | while IFS= read -r line; do log ERROR "  mover: $line"; done
     fi
-    rm -f "$mover_out"
 
     # Verify: what is still on the source side?
     local -a MOVED=() LEFT=()
@@ -1009,11 +1041,25 @@ move_batch() {  # share src dest
     if (( ns > 0 )); then log INFO "  moved ${#MOVED[@]} of $(( ${#FILES[@]} + ns )) files ($ns not started: stopped)"
     else log INFO "  moved ${#MOVED[@]} of ${#FILES[@]} files"; fi
     if (( ${#LEFT[@]} > 0 )); then
-        log WARN "  ${#LEFT[@]} files still on the source side (in use, or already present at the destination):"
-        local i=0
-        for f in "${LEFT[@]}"; do (( i++ )) || true; (( i <= 10 )) && log WARN "     $f"; done
+        # C-M16: what the move binary said of each (its own reason, e.g. «No medium found»); none said: in use, or already there
+        local -A WHY=()
+        local w i=0
+        while IFS=$'\t' read -r f w; do [[ -n "$f" ]] && WHY[$f]=$w; done < <(left_reasons "$mover_out" "${LEFT[@]}")
+        log WARN "  ${#LEFT[@]} files still on the source side:"
+        for f in "${LEFT[@]}"; do
+            (( i++ )) || true
+            (( i <= 10 )) && log WARN "     $f – ${WHY[$f]:-in use, or already present at the destination}"
+        done
         (( ${#LEFT[@]} > 10 )) && log WARN "     ... $(( ${#LEFT[@]} - 10 )) more"
+        SH_LEFT_WHY=$(for f in "${LEFT[@]}"; do [[ -n "${WHY[$f]:-}" ]] && printf '%s\n' "${WHY[$f]}"; done | sort | uniq -c | sort -rn | head -1 | sed 's/^ *[0-9]* //')
+        for w in "${WHY[@]}"; do
+            if [[ "$w" == "No medium found" ]]; then
+                log WARN "  Unraid's move binary answers «No medium found» for files of a share it won't move now (seen right after Unraid renamed the share) – Unraid's own mover leaves them too; a later run moves them"
+                break
+            fi
+        done
     fi
+    rm -f "$mover_out"
     for f in "${MOVED[@]:$(( ${#MOVED[@]} > 50 ? ${#MOVED[@]} - 50 : 0 ))}"; do rel_of "$f" "$src"; recent_add "$name/$REL" "${SIZE_OF[$f]:-0}" "$CUR_FROM" "$dest"; done
     # USO «per disk», «empty folders»: the source's empty folders as Unraid's mover leaves them (its second pass, one
     # move binary for all); after a stop only the empty parents of what moved, at once
@@ -1456,7 +1502,7 @@ for cfg in "$SHARES_DIR"/*.cfg; do
         log WARN "stop requested ($STOP_FILE) – $SHARE_NAME and the shares after it are left for the next run"
         break
     fi
-    SH_STATE=""; SH_DIRECTION=""; SH_FILES=0; SH_BYTES=0; SH_MOVED=0; SH_LEFT=0; SH_AGE=""; SH_STAT=""; SH_THRESHOLD=""; SH_EXCLUDES=""
+    SH_STATE=""; SH_DIRECTION=""; SH_FILES=0; SH_BYTES=0; SH_MOVED=0; SH_LEFT=0; SH_LEFT_WHY=""; SH_AGE=""; SH_STAT=""; SH_THRESHOLD=""; SH_EXCLUDES=""
     SH_POOL=""; SH_UNTIL=""; SH_POOL_USED=""; SH_POOL_NOW=""; SH_FILL=false; SH_REACHED=false; SH_RC=0
     process_share "$SHARE_NAME" "$MODE" "$POOL" "$POOL2" || { (( ERRORS++ )) || true; }
     share_status_add "$SHARE_NAME" "$MODE"

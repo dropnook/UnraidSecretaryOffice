@@ -90,6 +90,7 @@
   "skipped_mover": "Saltato: il mover di Unraid è stato al lavoro per {min} min.",
   "count.files": {"one": "{n} file", "other": "{n} file"},
   "count.left": {"one": "{n} è rimasto (in uso o già lì)", "other": "{n} sono rimasti (in uso o già lì)"},
+  "count.left_why": {"one": "{n} è rimasto — il programma di spostamento di Unraid ha detto «{why}»", "other": "{n} sono rimasti — il programma di spostamento di Unraid ha detto «{why}»"},
   "count.errors": {"one": "{n} errore", "other": "{n} errori"},
   "count.shares": {"one": "{n} condivisione elencata", "other": "{n} condivisioni elencate"},
   "count.lists": {"one": "{n} elenco di ciò che resta", "other": "{n} elenchi di ciò che resta"},
