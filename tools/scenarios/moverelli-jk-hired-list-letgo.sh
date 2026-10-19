@@ -10,12 +10,13 @@ needs tower docker
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
 sched() { _st_share_cfg_val shareMoverSchedule; }
 mycron=$(grep -h 'job.sh moverelli' "$OFFICE_FLASH"/*.cron 2>/dev/null | head -1 | awk '{print $1,$2,$3,$4,$5}')
+state JK-HIRED-LIST                          # first: his setup saves her ini, refused while Unraid's schedule is on without consent
 state MO-UNRAID-SCHEDULE-ON '40 3 * * *'
-state JK-HIRED-LIST
 # her back first in the undo (pushed after the states: runs before them — Jack Streamer's undo saves her settings)
 undo_push flow MV-SCHEDULE "cron=$mycron"
 undo_push bash -c 'jq -e ".hired | has(\"moverelli\")" '"$D"'/office/staff.json >/dev/null 2>&1 || php '"$SC_DIR"'/ask.php office.hire "{\"desks\":[\"moverelli\"]}" >/dev/null'
 flow MV-SETUP mover_off=1
+_broken && { scenario_end; }
 snap_before
 [[ -z $(sched) ]] || say "note: Unraid's schedule still «$(sched)» after her setup with the consent"
 flow MV-LETGO refuse=ok

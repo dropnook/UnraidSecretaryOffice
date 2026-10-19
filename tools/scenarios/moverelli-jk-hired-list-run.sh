@@ -28,8 +28,9 @@ media_back() { local rel b f d; [[ -f $KEEP/before/inventory/media.tsv ]] || ret
         b=$(awk -F'\t' -v r="$rel" '$1 == r && $5 != "cache" {print $5; exit}' "$KEEP/before/inventory/media.tsv")
         [[ -n $b ]] && mkdir -p "/mnt/$b/media/$(dirname "$rel")" && mv -- "$f" "/mnt/$b/media/$rel" && say "undo: $rel back to $b"
     done < <(find /mnt/cache/media -type f ! -path '*uso-wip-f-m7*' 2>/dev/null)
-    find /mnt/cache/media -mindepth 1 -depth -type d -empty 2>/dev/null | while IFS= read -r d; do
-        grep -qxF -- "$d" "$KEEP/media-dirs-before.txt" || rmdir -- "$d"; done; }
+    local i; for i in 1 2 3 4 5; do       # (a parent empties only once its children are gone: again, deepest first)
+        find /mnt/cache/media -mindepth 1 -depth -type d -empty 2>/dev/null | while IFS= read -r d; do
+            grep -qxF -- "$d" "$KEEP/media-dirs-before.txt" || rmdir -- "$d" 2>/dev/null; done; done; }
 undo_push media_back
 track_share media
 fresh_beat
@@ -39,9 +40,13 @@ where() { local f; for f in "${listed[@]}"; do printf '%s → %s\n' "${f#/mnt/ca
 snap_before
 stay() { local f n=0; for f in "${listed[@]}"; do [[ -f $f ]] && n=$((n + 1)); done; echo "$n"; }
 ours() { find /mnt/disk*/media/uso-wip-f-m7 -type f 2>/dev/null | wc -l; }
+cp -p "$list" "$KEEP/list-before-run.txt" 2>/dev/null; evidence "$KEEP/list-before-run.txt" >/dev/null
+say "his list before her run: $(grep -c . "$list" 2>/dev/null) lines$(diff -q <(sort "$list") <(printf '%s\n' "${listed[@]}" | sort) >/dev/null 2>&1 || echo " — not the state's any more: $(diff <(printf '%s\n' "${listed[@]}" | sort) <(sort "$list") | grep '^[<>]' | head -4 | tr '\n' ' ')")"
 say "his films before her run: $(where)"
 flow MV-RUN
 say "his films after her run: $(where)"
+cp -p "$list" "$KEEP/list-after-run.txt" 2>/dev/null; evidence "$KEEP/list-after-run.txt" >/dev/null
+grep -h 'excludes:\|\[media\]' "$D/moverelli/smart_mover.log" 2>/dev/null | tail -3 | while IFS= read -r l; do say "her log: ${l:0:160}"; done
 s=$(stay); o=$(ours)
 ((s == ${#listed[@]})) && cell run-list-stays 1 "after «Run now» all $s of his films still on the pool" || cell run-list-stays 0 "after «Run now» $s of ${#listed[@]} of his films on the pool"
 ((o == 2)) && cell run-moved-ours 1 "our 2 files (not on his list) went to the array" || cell run-moved-ours 0 "of our 2 files $o went to the array"

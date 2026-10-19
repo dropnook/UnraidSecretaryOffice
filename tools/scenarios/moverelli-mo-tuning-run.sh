@@ -1,6 +1,6 @@
 #!/bin/bash
 # Cell M18 of matrix.md, Mover Tuning: the plugin installed with a schedule line of its own (MO-TUNING). Her «Run now»
-# is refused (moverelli_tuning_schedule, its schedule and file named), her Team Lead check names the foreign mover, and
+# is refused (moverelli_tuning_schedule, its schedule and file named), her Team Lead check tuning_schedule names it, and
 # nothing of Mover Tuning is ever changed by her (its folder byte for byte). Pre-release (~3 min, a plugin install).
 . "$(dirname "$0")/lib.sh"
 scenario_begin moverelli-mo-tuning-run
@@ -14,9 +14,9 @@ flow MV-RUN refuse=ok
 expect_err moverelli_tuning_schedule
 p=$(ask_last '.error.params | tostring')
 [[ $p == *cron* || $p == *schedule* ]] && cell named 1 "refused with its schedule named: $p" || cell named 0 "refused, but nothing named: $p"
-f=$(state_json caretaker '[.checks.moverelli[]? | select(.id == "foreign_mover") | {id, ok, params}] | tostring' 2>/dev/null)
+f=$(state_json caretaker '[.checks.moverelli[]? | select(.id == "tuning_schedule" or .id == "foreign_mover") | {id, ok, params}] | tostring' 2>/dev/null)
 say "the Team Lead's checks about movers: $f"
-[[ $f == *'"ok":false'* ]] && cell finding 1 "the Team Lead names it: $f" || cell finding 0 "no Team Lead check names Mover Tuning: $f"
+[[ $f == *'"id":"tuning_schedule","ok":false'* ]] && cell finding 1 "the Team Lead names it: $f" || cell finding 0 "no Team Lead check names Mover Tuning: $f"
 [[ $(tsum) == "$t0" ]] && cell never-changed 1 "Mover Tuning's folder byte for byte as before" || cell never-changed 0 "Mover Tuning's folder changed"
 check standard
 scenario_end
