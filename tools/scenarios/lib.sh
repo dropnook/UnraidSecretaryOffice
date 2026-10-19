@@ -136,7 +136,9 @@ needs() {
     local n why=()
     for n in "$@"; do
         case $n in
-            tower | test3 | test4 | any) host_is "$n" || why+=("not $n") ;;
+            # «tower» = the apps server: Tower or its twin USOTest4 (7.3.3) — host_is tower stays Tower alone
+            tower) host_is tower || host_is test4 || why+=("not an apps server (Tower/USOTest4)") ;;
+            test3 | test4 | any) host_is "$n" || why+=("not $n") ;;
             reboot) _row needs reboot info "the runner runs this scenario in halves" ;;
             docker | nodocker | vm | vmagent | hdd | zfs | btrfs | kopia | minio | jack | partner | pool2 | compose | exclusive)
                 has "$n" || why+=("no $n") ;;
@@ -1382,6 +1384,7 @@ _self_test() {
             undo_push docker rm -f uso-wip-h1-st
             docker create --name uso-wip-h1-st --label net.unraid.docker.icon=/plugins/dynamix.docker.manager/images/question.png \
                 --entrypoint /bin/true "$img" >/dev/null
+            expect_changes 'docker|known' 'docker|no_stop' 'dump|uso-wip-h1-st|*'   # the new container: Mr. Backupsy's proposal for it
             _st 0 "container made" docker inspect -f '{{.State.Status}}' uso-wip-h1-st
         fi
     else
