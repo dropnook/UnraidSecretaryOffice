@@ -1,10 +1,8 @@
 {
   "keys": [
-    "bad.title",
     "docker.title",
     "found.title",
     "help.counted",
-    "help.el",
     "help.favorites",
     "help.grouped",
     "help.red",
@@ -29,7 +27,6 @@
   "texts": [
     "help.colours",
     "help.counted_text",
-    "help.el_text",
     "help.favorites_text",
     "help.grouped_text",
     "help.hide_text",

@@ -80,9 +80,6 @@
 .lg-line.lg-ce.lg-cat-other{border-left-color:transparent}
 .lg-line.lg-hush{opacity:.55; border-left-color:transparent}
 .lg-busy{display:inline-flex; align-items:center; gap:6px}
-/* «Coming from Enhanced Log?» */
-.callout.lg-el{display:flex; flex-direction:column; gap:6px; margin:0}
-.lg-el-new{display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px}
 /* «Set up»: her own rules and hide words */
 .lg-mine-text{font:12.5px var(--mono); overflow-wrap:anywhere; white-space:normal}
 .lg-mine-nth{font-size:11.5px; color:var(--muted); font-variant-numeric:tabular-nums}

@@ -504,9 +504,9 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   lines at once (`sort`, RAM only, the tour's shape). Her second page «Set up» (`#/logs/setup`, data/logs-mine.json): her own
   rules (regex + category, checked by `logsMineRuleWhy()`, applied **before** the shipped ones, as Enhanced Log applies its
   custom rules) and hide words (in the message, case-sensitive: noise, before every rule — the line stays in the syslog).
-  While Enhanced Log's folder is on the flash she reads its `custom_syslog.conf` and `syslog_filter.conf` (read only,
-  never written) and takes over what she understands — the first time on her own, later what is new on «Take over»
-  (`el.seen`: nothing twice, a removed one never back); what she doesn't understand is listed, never guessed.
+  **No take-over from another plugin's settings** (owner, 2026-10-19: no migration path, no responsibility for a wrong
+  take-over): the user types her rules; what an earlier version took over stays hers (its `from`/`el` keys kept, never
+  read); her texts name Enhanced Log only in the thanks and the rules' credit.
   Every list of hers has its bar with a time filter where its rows have a time (presets, «From … to …» with day and 24-hour
   time; a «×n» kind by its newest line, files and containers' logs by their last write, the reader's lines by their own —
   in the note line, a chip with its ×, core.js `bar.done({parts})`). **Saved filters** (data/logs-filters.json,

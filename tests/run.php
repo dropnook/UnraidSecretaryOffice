@@ -13356,9 +13356,8 @@ function testLogsRules(): void
 /**
  * Ms. Protocolli's own rules and hide words (her «Set up»): checked before she keeps them, her own before the shipped
  * rules, hide words before both (in the message, case-sensitive); kept in exactly their shape, what she doesn't know
- * kept as it was. Enhanced Log's own files (fixtures in its formats, read only): what she understands taken over once,
- * the rest listed, never guessed; a re-read adds nothing twice, a changed file offers the difference, a removed one
- * never comes back. Her instant sort (the tour's shape, without a tour); the page: the same message rule, «Set up» as
+ * kept as it was. Nothing taken over from another plugin's settings any more (2026-10-19): what an earlier version took
+ * stays hers, its marks and keys kept; the page and its texts name Enhanced Log only in the thanks and the credit. Her instant sort (the tour's shape, without a tour); the page: the same message rule, «Set up» as
  * her second page, colours no two categories share.
  */
 function testLogsMine(): void
@@ -13366,7 +13365,6 @@ function testLogsMine(): void
     $tmp = hardeningTmp('logsmine');
     @mkdir("$tmp/el", 0700, true);
     $GLOBALS['logsMineFile'] = "$tmp/mine.json";
-    $GLOBALS['logsElDir'] = "$tmp/el";
     logsRuleSet(true);
     $refused = function (callable $f): string {
         try {
@@ -13424,42 +13422,21 @@ function testLogsMine(): void
         file_put_contents("$tmp/mine.json", '{}');
         logsRuleSet(true);
 
-        // Enhanced Log's own files, as its formats are (default/custom_syslog.conf, syslog_filter.conf, rc.enhanced.log)
-        same('logs el: no folder, nothing', null, logsElRead("$tmp/none"));
-        $custom = "\"Recycle Bin\", \"other\"\n\"spin(up|down)\", \"minor issues\"\n\"usb [0-9-]+: new\", \"Drive Related\"\n\"foo\", \"purple\"\n"
-            . "\"(\", \"error\"\n\"just one field\"\n# a comment\n\n\"sshd.*Accepted\", \"LOGIN\"\n\"Familienfotos\", \"other\"\n\"spin(up|down)\", \"minor issues\"\n";
-        $filter = "\"this is an example line\"\n\"wsdd2[1234]: error\"\n'avahi-daemon'\n\"a\"\n\n";
-        file_put_contents("$tmp/el/custom_syslog.conf", $custom);
-        file_put_contents("$tmp/el/syslog_filter.conf", $filter);
-        $before = [md5_file("$tmp/el/custom_syslog.conf"), md5_file("$tmp/el/syslog_filter.conf"), scandir("$tmp/el")];
-        $el = logsElRead();
-        same('logs el: custom rules — read as Enhanced Log reads them, its categories mapped tolerantly («minor issues», any case)',
-            [['re' => 'spin(up|down)', 'cat' => 'minor'], ['re' => 'usb [0-9-]+: new', 'cat' => 'drive'], ['re' => 'sshd.*Accepted', 'cat' => 'login']], $el['rules']);
-        same('logs el: filter texts — quotes taken out, empty lines aren\'t texts, its example left out', ['wsdd2[1234]: error', 'avahi-daemon'], $el['hide']);
-        same('logs el: what she doesn\'t understand is listed, never guessed (its examples aren\'t the user\'s)',
-            [['rules', 'cat', 'purple'], ['rules', 'regex', null], ['rules', 'line', null], ['rules', 'other', 'other'], ['hide', 'short', null]],
-            array_map(fn ($b) => [$b['list'], $b['why'], $b['word'] ?? null], $el['bad']));
-        check('logs el: the first time she sees it, she takes it over', logsElTake(true));
+        // an earlier version's take-over (2026-10-19: none any more): what it took stays hers, its marks kept as they are
+        file_put_contents("$tmp/mine.json", json_encode(['v' => 1, 'time' => 1790000000, 'rules' => [['re' => 'spin(up|down)', 'cat' => 'minor', 'from' => 'el']],
+            'hide' => [['text' => 'avahi-daemon', 'from' => 'el']], 'el' => ['seen' => ['rule:' . str_repeat('a', 32)], 'time' => 1790000000]]));
+        logsRuleSet(true);
         $m = logsMine();
-        same('logs el: … as her own (from Enhanced Log), its order kept', [['spin(up|down)', 'usb [0-9-]+: new', 'sshd.*Accepted'], ['el', 'el', 'el'], ['wsdd2[1234]: error', 'avahi-daemon']],
-            [array_column($m['rules'], 're'), array_column($m['rules'], 'from'), array_column($m['hide'], 'text')]);
-        same('logs el: … a second look adds nothing twice', [false, false, 3, 2], [logsElTake(true), logsElTake(false), count(logsMine()['rules']), count(logsMine()['hide'])]);
-        same('logs el: … never written or added to on the flash', $before, [md5_file("$tmp/el/custom_syslog.conf"), md5_file("$tmp/el/syslog_filter.conf"), scandir("$tmp/el")]);
-        same('logs el: the page\'s summary', ['bad' => 5, 'rules' => 3, 'hide' => 2, 'new' => ['rules' => 0, 'hide' => 0]],
-            array_intersect_key(['bad' => count($el['bad'])] + logsElSummary($el, logsMine()), ['rules' => 1, 'hide' => 1, 'new' => 1, 'bad' => 1]));
-        // a changed file: the difference offered (never taken on her own), a click takes it; one the user removed never comes back
-        file_put_contents("$tmp/el/custom_syslog.conf", "\"nfs.*timed out\", \"network\"\n", FILE_APPEND);
-        $el = logsElRead();
-        same('logs el: a changed file — what is new is offered, not taken on her own', [['rules' => 1, 'hide' => 0], false, 3],
-            [logsElSummary($el, logsMine())['new'], logsElTake(true), count(logsMine()['rules'])]);
-        $m = logsMine();
-        logsMineRemove('rules', $m['rules'][0]['id']);
-        logsElTakeNew();
-        same('logs el: «Take over» takes what is new; one removed never comes back', ['usb [0-9-]+: new', 'sshd.*Accepted', 'nfs.*timed out'], array_column(logsMine()['rules'], 're'));
-        same('logs el: … and again: nothing twice', [false, 3], [logsElTake(false), count(logsMine()['rules'])]);
-        same('logs el: a link where its folder is: not read', null, (function () use ($tmp) { @symlink("$tmp/el", "$tmp/el-link"); return logsElRead("$tmp/el-link"); })());
-        hardeningRm("$tmp/el");
-        same('logs el: «Take over» after it was removed is refused', 'logs_el_gone', $refused(fn () => logsElTakeNew()));
+        same('logs mine: rules and hide words an earlier version took over are hers — read, counted', [['spin(up|down)'], ['avahi-daemon'], 'minor'],
+            [array_column($m['rules'], 're'), array_column($m['hide'], 'text'), logsRule('Oct 18 10:00:00 Tower kernel: spinup 2')]);
+        logsMineHideAdd('wsdd2');
+        $raw = json_decode((string) file_get_contents("$tmp/mine.json"), true);
+        same('logs mine: … a rewrite keeps their marks and the old keys as they were', ['el', 'el', ['seen' => ['rule:' . str_repeat('a', 32)], 'time' => 1790000000], 2],
+            [$raw['rules'][0]['from'] ?? null, $raw['hide'][0]['from'] ?? null, $raw['el'] ?? null, count($raw['hide'])]);
+        check('logs mine: … the page gets them without the old marks', !array_filter(array_merge($m['rules'], $m['hide']), fn ($x) => isset($x['from'])));
+        file_put_contents("$tmp/mine.json", '{"el": "nonsense", "rules": [{"re": "x+y", "cat": "drive", "from": 7}]}');
+        same('logs mine: odd old keys never fail', [['x+y'], 0], [array_column(logsMine()['rules'], 're'), count(logsMine()['hide'])]);
+        file_put_contents("$tmp/mine.json", '{}');
 
         // her instant sort: Unraid's syslog's newest lines, the tour's shape, nothing kept
         logsRuleSet(true);
@@ -13482,25 +13459,31 @@ function testLogsMine(): void
             [array_values(array_unique(array_column($s['sorted'] ?? [], 'cat'))), ($s['since'] ?? 0) > 0 && $s['since'] < $now, ($s['time'] ?? 0) >= $now]);
         same('logs sort: at most LOGS_SORT_LINES lines', true, LOGS_SORT_LINES <= 10000 && count(logsTail("$tmp/syslog", LOGS_SORT_LINES)) === 90);
     } finally {
-        unset($GLOBALS['logsMineFile'], $GLOBALS['logsElDir']);
+        unset($GLOBALS['logsMineFile']);
         logsRuleSet(true);
         hardeningRm($tmp);
     }
 
-    // the agent: her actions answer with her state; the instant sort and «Take over» are actions of hers
+    // the agent: her actions answer with her state; the instant sort is an action of hers
     $php = (string) file_get_contents(OFFICE_DIR . '/agent/desks/logs.php');
-    foreach (['sort', 'rule_add', 'rule_remove', 'hide_add', 'hide_remove', 'el_take'] as $a) {
+    foreach (['sort', 'rule_add', 'rule_remove', 'hide_add', 'hide_remove'] as $a) {
         check("logs mine: the action $a", str_contains($php, "'$a'"));
     }
-    check('logs mine: she reads Enhanced Log\'s folder on the flash, never writes there', !preg_match('/(writeAtomic|file_put_contents|unlink|rename)\([^;]*LOGS_EL_DIR/', $php));
+    check('logs mine: no take-over from another plugin\'s settings (2026-10-19) — no action, nothing read on the flash',
+        !str_contains($php, "'el_take'") && !str_contains($php, 'enhanced.log') && !str_contains($php, 'logsEl'));
 
     // the page: the same message rule, her own first (from the state), «Set up» as her second page, the instant sort
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/logs/desk.js');
     preg_match('#^const SYSLOG_MSG = /(.*)/s;$#m', $js, $m);
     same('logs mine: desk.js SYSLOG_MSG is the agent\'s', substr(LOGS_SYSLOG_MSG, 1, -2), $m[1] ?? null);
-    check('logs mine: her two pages, the instant sort, the hint for Enhanced Log\'s users',
+    check('logs mine: her two pages, the instant sort',
         str_contains($js, "const PAGES = () => [{ id: '', text: Office.t('common.page_overview') }, { id: 'setup', text: T('page.setup') }];")
-        && str_contains($js, "Office.api.post(`\${ID}.sort`, {})") && str_contains($js, 'const hello = elHint();'));
+        && str_contains($js, "Office.api.post(`\${ID}.sort`, {})"));
+    check('logs mine: no hint, button or list about another plugin\'s settings on the page', !preg_match('/elHint|elTake|badSection|el_take|state\??\.el\b/', $js));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $named = array_keys(array_filter(langFile(OFFICE_WEB . "/desks/logs/lang/$code.json"), fn ($v) => str_contains(json_encode($v, JSON_UNESCAPED_UNICODE), 'Enhanced Log')));
+        same("logs mine: Enhanced Log named only in the thanks and the rules' credit ($code)", ['credit', 'help.rules_text'], array_values(array_diff($named, [])));
+    }
 
     // colours: one token per category, no two alike (Enhanced Log's defaults where they fit), in office.css for every theme
     $css = (string) file_get_contents(OFFICE_WEB . '/assets/office.css');

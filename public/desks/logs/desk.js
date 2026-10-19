@@ -10,8 +10,8 @@
    Unraid's syslog also by her syslog rules (from Enhanced Log, her own first): a
    category per line, her tile «Syslog» with a chip per category (without a fresh
    tour she sorts the syslog's newest lines at once), the reader colours by them.
-   Her second page «Set up» (#/logs/setup): her own rules and hide words, and what
-   she took over from Enhanced Log's settings while it is installed.
+   Her second page «Set up» (#/logs/setup): her own rules and hide words — the user
+   types them (nothing taken over from another plugin's settings).
    Every list has its filter bar (core.js Office.filterBar) with a time filter where
    its rows have a time; what a bar has set can be saved under a name, per list, on
    the server (agent/desks/logs-filters.php) — applied only by a click, never by itself.
@@ -795,66 +795,8 @@ function foundView() {
   return box;
 }
 
-/** What a category's tip adds: «Disks» is Enhanced Log's «Drive Related» — and it catches USB and SCSI lines, too */
+/** What a category's tip adds: «Disks» catches USB and SCSI lines, too */
 const catNote = (c) => (c === 'drive' ? ' ' + T('cat.drive_note') : '');
-
-/**
- * «Coming from Enhanced Log?» — while its settings are on the flash (state.el): where its things are here, what she took
- * over of its own rules and filter, what is new there since (taken over on a click), what she didn't understand; that
- * its filter goes with it when it is removed (those lines are written into the syslog again — she only hides them).
- */
-function elHint(onSetup) {
-  const e = state && state.el && typeof state.el === 'object' ? state.el : null;
-  if (!e) return null;
-  const n = (x) => Math.max(0, Number(x) || 0);
-  const rules = n(e.rules);
-  const hides = n(e.hide);
-  const fresh = { rules: n(e.new?.rules), hide: n(e.new?.hide) };
-  const bad = Array.isArray(e.bad) ? e.bad.length : 0;
-  const box = el('div', 'callout lg-el');
-  const first = el('div');
-  box.appendChild(first);
-  first.append(el('strong', '', T('el.title')), ' ');
-  if (!onSetup) first.append(T('el.where'), ' ');
-  first.append(rules && hides ? T('el.taken', { rules: nOf('own_rules', rules), hide: nOf('hides', hides) })
-    : rules ? T('el.taken_rules', { rules: nOf('own_rules', rules) }) : hides ? T('el.taken_hide', { hide: nOf('hides', hides) }) : T('el.taken_none'));
-  if (rules || hides) first.append(' ', hides ? T('el.remove_filter') : T('el.remove'));
-  if (fresh.rules || fresh.hide) {
-    const p = el('div', 'lg-el-new');
-    p.append(fresh.rules && fresh.hide ? T('el.new', { rules: nOf('own_rules', fresh.rules), hide: nOf('hides', fresh.hide) })
-      : fresh.rules ? T('el.new_rules', { rules: nOf('own_rules', fresh.rules) }) : T('el.new_hide', { hide: nOf('hides', fresh.hide) }), ' ');
-    const b = el('button', 'btn small', T('el.take'));
-    b.type = 'button';
-    b.disabled = !Office.agent.running;
-    b.onclick = () => elTake(b);
-    p.appendChild(b);
-    box.appendChild(p);
-  }
-  if (bad) {
-    const p = el('div', 'lg-el-new');
-    p.append(T('el.bad', { n: bad }), ' ');
-    if (!onSetup) {
-      const a = el('a', '', T('page.setup'));
-      a.href = `#/${ID}/setup`;
-      p.appendChild(a);
-    }
-    box.appendChild(p);
-  }
-  return box;
-}
-const nOf = (what, n) => T('count.' + what, { n: Number(n) || 0 });
-
-/** «Take over»: what is new in Enhanced Log's settings since she last took from them */
-async function elTake(b) {
-  if (!Office.agent.running) return;
-  b.disabled = true;
-  if (!(await Office.freshState(ID))) { b.disabled = false; return; }      // it couldn't look again (said there)
-  if (!state?.el || !(Number(state.el.new?.rules) || Number(state.el.new?.hide))) { Office.toast(T('el.nothing_new')); took({}); return; }
-  const j = await Office.api.post(`${ID}.el_take`, {});
-  if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); b.disabled = false; return; }
-  mineChanged(j.state);
-  Office.toast(T('el.taken_toast'));
-}
 
 /** Her own rules changed (a state from the answer): drawn anew, her instant sort asked again on «Syslog» */
 function mineChanged(st) {
@@ -894,8 +836,6 @@ function syslogView() {
   const box = el('section', 'section lg-view');
   box.appendChild(Office.sectionHead(T('syslog.title'), sub, readButton('syslog'), hint, { place: 'syslog.title' }));
   Office.place('syslog.title', box);      // its rows are its own (a line can stand in «Errors & warnings», too)
-  const hello = elHint();
-  if (hello) box.appendChild(hello);
   const inner = el('div', 'box');
   if (!s) {
     const e = el('div', 'empty');
@@ -1850,16 +1790,8 @@ function renderSetup() {
   const help = Office.pageHelp(ID, [
     [T('mine.title'), T('help.mine_text')],
     [T('hide.title'), T('help.hide_text')],
-    [T('help.el'), T('help.el_text')],
   ]);
-  const parts = [head, help];
-  const hello = elHint(true);
-  if (hello) parts.push(hello);
-  parts.push(mineSection(v), hideSection(v));
-  const bad = badSection();
-  if (bad) parts.push(bad);
-  parts.push(credit());
-  v.root.replaceChildren(...parts);
+  v.root.replaceChildren(head, help, mineSection(v), hideSection(v), credit());
 }
 
 /** A row of her own: what it says, its chips, «Remove» (after asking) */
@@ -1877,7 +1809,6 @@ function mineRow(text, chips, remove) {
   r.append(main, b);
   return r;
 }
-const fromEl = (x) => (x.from === 'el' ? chip(T('mine.from_el'), '', T('mine.from_el_title')) : null);
 
 /** «My rules»: hers first, then the ones I was given — the first that fits decides */
 function mineSection(v) {
@@ -1886,7 +1817,7 @@ function mineSection(v) {
   box.appendChild(Office.sectionHead(T('mine.title'), T('mine.sub'), el('span', 'hint', T('mine.count', { n: m.rules.length, max: m.max })), { place: 'mine.title' }));
   const list = el('div', 'box');
   m.rules.forEach((r, i) => {
-    const row = mineRow(r.re, [el('span', 'lg-mine-nth', '#' + (i + 1)), chip(T('cat.' + r.cat), 'lg-cat lg-cat-' + r.cat, T('mine.cat_title', { name: T('cat.' + r.cat) }) + catNote(r.cat)), fromEl(r)],
+    const row = mineRow(r.re, [el('span', 'lg-mine-nth', '#' + (i + 1)), chip(T('cat.' + r.cat), 'lg-cat lg-cat-' + r.cat, T('mine.cat_title', { name: T('cat.' + r.cat) }) + catNote(r.cat))],
       () => mineRemove('rule_remove', r.id, T('mine.remove_title'), r.re, T('mine.removed')));
     row.classList.add('lg-cat-row', 'lg-cat-' + r.cat);
     list.appendChild(row);
@@ -1905,34 +1836,12 @@ function hideSection(v) {
   const box = el('section', 'section lg-view');
   box.appendChild(Office.sectionHead(T('hide.title'), T('hide.sub'), el('span', 'hint', T('mine.count', { n: m.hide.length, max: m.max })), { place: 'hide.title' }));
   const list = el('div', 'box');
-  m.hide.forEach((h) => list.appendChild(mineRow(h.text, [fromEl(h)], () => mineRemove('hide_remove', h.id, T('hide.remove_title'), h.text, T('hide.removed')))));
+  m.hide.forEach((h) => list.appendChild(mineRow(h.text, [], () => mineRemove('hide_remove', h.id, T('hide.remove_title'), h.text, T('hide.removed')))));
   if (!m.hide.length) list.appendChild(el('p', 'empty', T('hide.none')));
   box.appendChild(list);
   v.hideForm ??= hideForm();
   v.hideForm.sync(m.hide.length >= m.max);
   box.appendChild(v.hideForm.el);
-  return box;
-}
-
-/** What she couldn't take over from Enhanced Log's settings: each line as it stands there and why — never guessed */
-function badSection() {
-  const bad = (Array.isArray(state?.el?.bad) ? state.el.bad : []).filter((b) => b && typeof b.line === 'string' && typeof b.why === 'string');
-  if (!bad.length) return null;
-  const box = el('section', 'section lg-view');
-  box.appendChild(Office.sectionHead(T('bad.title'), T('bad.sub'), { place: 'bad.title' }));
-  const list = el('div', 'box');
-  for (const b of bad) {
-    const why = b.why === 'cat' ? T('bad.cat', { word: typeof b.word === 'string' ? b.word : '?' }) : b.why === 'other' ? T('bad.other')
-      : b.why === 'line' ? T('bad.line') : Office.has(`${ID}.errors.logs_mine_${b.why}`) ? T('errors.logs_mine_' + b.why, { n: mine().max }) : b.why;
-    const r = el('div', 'row nocheck lg-mine-row');
-    const main = el('div', 'row-main');
-    const meta = el('div', 'row-meta');
-    meta.append(chip(b.list === 'hide' ? T('hide.title') : T('mine.title'), 'quiet'), el('span', '', why));
-    main.append(el('div', 'row-name lg-mine-text', b.line), meta);
-    r.appendChild(main);
-    list.appendChild(r);
-  }
-  box.appendChild(list);
   return box;
 }
 
@@ -2014,10 +1923,10 @@ async function mineAct(action, data, done) {
   return true;
 }
 
-/** «Remove» one of hers — asked first (one from Enhanced Log isn't taken over again, its plugin may be gone) */
+/** «Remove» one of hers — asked first */
 function mineRemove(action, id, title, text, done) {
   const body = el('div');
-  body.append(el('pre', 'code lg-kind-full', text), el('p', '', T('mine.remove_text')));
+  body.append(el('pre', 'code lg-kind-full', text));
   Office.dialog({
     title,
     body,
@@ -2116,11 +2025,9 @@ Office.places(ID, [
   { kind: 'help', key: 'only_problems', text: 'help.only' },
   { kind: 'help', key: 'help.red', text: 'help.colours' },
   ...['counted', 'rules', 'grouped', 'since', 'space', 'source', 'time', 'sort', 'saved', 'favorites', 'safe'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
-  // her «Set up» (#/logs/setup): her own rules, her hide words, what she left out of Enhanced Log's settings
+  // her «Set up» (#/logs/setup): her own rules, her hide words
   { kind: 'section', key: 'mine.title', text: 'help.mine_text', route: `#/${ID}/setup`, crumb: 'page.setup' },
   { kind: 'section', key: 'hide.title', text: 'help.hide_text', route: `#/${ID}/setup`, crumb: 'page.setup' },
-  { kind: 'section', key: 'bad.title', route: `#/${ID}/setup`, crumb: 'page.setup', shown: () => !!(state?.el?.bad?.length) },
-  { kind: 'help', key: 'help.el', text: 'help.el_text', route: `#/${ID}/setup`, crumb: 'page.setup' },
 ]);
 
 // what her state holds for the search (core.js «items»): every log she can read, by the name her list gives it (never a
