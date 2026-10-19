@@ -14,9 +14,9 @@ nc_data_closed
 state_ct_autostart
 flow BK-RUN-MANUAL mode=backup               # the packages the drill tries
 flow OF-REBOOT
-midrun_arm RN-HARD-RESET-MIDRUN drill 3 180
+midrun_arm RN-HARD-RESET-MIDRUN drill 3 reset 180 && armed=green || armed=red
 pid=$(_st_bg bash -c 'r=$1; for i in $(seq 1 240); do [[ -s $r ]] && break; sleep 0.5; done; sleep 3; . "$2"; flow_rs_drill >/dev/null 2>&1' \
     _ "${REPORT%.md}.result" "$SC_DIR/lib.sh")
 say "the drill handed to a detached starter (pid $pid): 3 s after this half's result, the power cut 3 s into the drill"
-_row cell armed green "the power cut armed"
+_row cell armed "$armed" "the power cut armed ($armed)"
 scenario_end
