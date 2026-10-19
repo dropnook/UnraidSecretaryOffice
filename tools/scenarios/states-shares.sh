@@ -118,10 +118,22 @@ share_rename() {
 }
 
 share_remove() {
-    local name=$1
-    share_exists "$name" || { say "share_remove: $name is not there (fine)"; rm -f "$ST_SHARES_CFG/$name.cfg"; return 0; }
-    _st_emcmd "shareNameOrig=$(_st_uri "$name")&shareName=$(_st_uri "$name")&cmdEditShare=Delete" || return 1
-    _st_share_gone "$name" || { say "share_remove: $name still in shares.ini"; return 1; }
+    local name=$1 d ds
+    if share_exists "$name"; then
+        _st_emcmd "shareNameOrig=$(_st_uri "$name")&shareName=$(_st_uri "$name")&cmdEditShare=Delete" || return 1
+        _st_share_gone "$name" || { say "share_remove: $name still in shares.ini"; return 1; }
+    else
+        say "share_remove: $name is not there (fine)"
+    fi
+    # an exclusive share's dataset Unraid couldn't destroy (busy right after its files went) stays unmounted, and a
+    # second «Delete» only drops the cfg: the scenario's share, so destroyed here (empty: Unraid refused it with files)
+    for d in $(_st_pools); do
+        read -r ds _ < <(findmnt -no SOURCE,FSTYPE "/mnt/$d")
+        [[ -n $ds ]] && zfs list -H "$ds/$name" >/dev/null 2>&1 && [[ $(zfs get -H -o value mounted "$ds/$name") == no ]] || continue
+        (($(zfs get -Hp -o value used "$ds/$name") < 1048576)) || { say "share_remove: $ds/$name is unmounted but holds data — left"; return 1; }
+        say "share_remove: Unraid left $ds/$name unmounted — destroyed"; zfs destroy "$ds/$name" || return 1
+    done
+    rm -f "$ST_SHARES_CFG/$name.cfg"
     ! ls -d /mnt/*/"$name" >/dev/null 2>&1 || { say "share_remove: a root of $name is left: $(ls -d /mnt/*/"$name" | tr '\n' ' ')"; return 1; }
 }
 
@@ -208,15 +220,9 @@ share_unuse() {
         while IFS= read -r s; do
             [[ -n $s ]] || continue
             for d in $(share_roots "$s"); do find "/mnt/$d/$s" -mindepth 1 -delete; done
-            # right after the files went, `zfs destroy` can find the dataset busy (seen on Tower): Unraid then leaves it
-            # unmounted and refuses again — a second try a moment later, a dataset it left behind destroyed by us (ours)
+            # right after the files went, Unraid can find the dataset busy: a second try a moment later (share_remove
+            # destroys a dataset it left unmounted and drops a cfg it left)
             share_remove "$s" || { sleep 3; _st_emcmd 'cmdStatus=Apply'; share_remove "$s"; } || rc=1
-            for d in $(_st_pools); do
-                read -r ds _ < <(findmnt -no SOURCE,FSTYPE "/mnt/$d")
-                zfs list -H "$ds/$s" >/dev/null 2>&1 && [[ $(zfs get -H -o value mounted "$ds/$s") == no ]] \
-                    && { say "share_unuse: Unraid left $ds/$s unmounted — destroyed"; zfs destroy "$ds/$s" || rc=1; }
-            done
-            [[ -f $ST_SHARES_CFG/$s.cfg ]] && ! share_exists "$s" && { say "share_unuse: Unraid left $s.cfg — removed"; rm -f "$ST_SHARES_CFG/$s.cfg"; }
         done < <(tac "$dir/made-shares")
         ((rc == 0)) && rm -f "$dir/made-shares"
     fi

@@ -1365,6 +1365,7 @@ _self_test() {
         echo disk >"/mnt/$disk/uso-wip-h1-st/f-disk"
     fi
     track_share uso-wip-h1-st
+    expect_changes 'share|uso-wip-h1-st|*'     # the scratch share is new for Mr. Backupsy: his proposal for it
     if has docker; then
         local img
         img=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -m1 '^alpine:' || docker images --format '{{.Repository}}:{{.Tag}}' | head -1)
