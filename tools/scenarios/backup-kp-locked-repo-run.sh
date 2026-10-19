@@ -1,7 +1,8 @@
 #!/bin/bash
 # Cell B38 of matrix.md (batch E), state KP-LOCKED-REPO: Kopia's maintenance lock (repository.config.mlock) held, as by
 # a long maintenance of another process. A run with uso-only at «local + offsite» (prepared by Apply, put back by the
-# undo) ends in finite time (≤ 30 min), backs up locally, says what Kopia's part met (cell kopia-said), and nothing ever
+# undo) ends in finite time (≤ 30 min), backs up locally and offsite (the lock holds back maintenance only — cell
+# kopia-not-blocked), and nothing ever
 # runs Kopia's maintenance with --safety=none, no second maintenance (cell no-safety-none). Pre-release (~5 min).
 . "$(dirname "$0")/lib.sh"
 scenario_begin backup-kp-locked-repo-run
@@ -28,8 +29,9 @@ if ask backup.start '{"mode":"backup"}' >/dev/null; then
     r=$(jq -c '{result, errors, warnings, message}' "$st" | head -c 300)
     ((trun <= 1800)) && cell run-ends 1 "the run ended in $trun s: $r" || cell run-ends 0 "the run took $trun s (> 1800): $r"
     [[ $(jq -r .result "$st") =~ ^(ok|warnings|errors)$ ]] && cell run-local 1 "the run went on locally: $r" || cell run-local 0 "the run: $r"
-    k=$(grep -E "Kopia|kopia" "$log" 2>/dev/null | grep -E 'WARNING|ERROR' | head -2)
-    [[ -n $k ]] && cell kopia-said 1 "the run says what Kopia's part met: ${k:0:300}" || cell kopia-said 0 "the run's record says nothing of Kopia's trouble: $r"
+    # Kopia's maintenance lock holds back maintenance only — snapshots go on (cell kopia-not-blocked: the run's own count)
+    k=$(grep -oE 'Kopia [0-9]+ ok/[0-9]+ failed' "$log" 2>/dev/null | tail -1)
+    [[ $k =~ ^Kopia\ [1-9][0-9]*\ ok/0\ failed$ ]] && cell kopia-not-blocked 1 "the run's offsite part: $k" || cell kopia-not-blocked 0 "the run's offsite part: ${k:-not said}"
 else
     cell run-ends 0 "«Back up now» refused: $(ask_last '.error.key')"
 fi

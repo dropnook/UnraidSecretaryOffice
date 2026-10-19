@@ -15,6 +15,16 @@ mkdir -p "$KEEP_STASH/E-INI" && cp -p "$UB/settings.ini" "$KEEP_STASH/E-INI/sett
 undo_push bash -c 'cp -p "$1/settings.ini" "$2" && rm -rf "$1"' _ "$KEEP_STASH/E-INI" "$UB/settings.ini"
 nc_data_closed
 flow BK-APPLY "share|$S|mode=kopia" "share|UnraidSecretaryOffice|mode=kopia" || _row state prepare red "Apply of $S as local + offsite failed"
+# what the scenario leaves in Kopia's repository under the new path (the run's snapshots and the policies Apply set for
+# /uso2) goes after the container is back on /uso — else the next plan says source_gone for them
+uso2_drop() {
+    local s
+    for s in $(_st_kx snapshot list --all --json 2>/dev/null | jq -r '[.[].source | select(.path | startswith("/uso2")) | "\(.userName)@\(.host):\(.path)"] | unique[]'); do
+        _st_kx snapshot delete --all-snapshots-for-source "$s" --delete >/dev/null || return 1
+    done
+    for s in $(_st_kx policy list 2>/dev/null | awk '$2 ~ /:\/uso2(\/|$)/ {print $2}'); do _st_kx policy delete "$s" >/dev/null || return 1; done
+}
+undo_push uso2_drop
 state KP-MAPPING-CHANGED
 track_share "$S"
 snap_before
@@ -39,5 +49,6 @@ else
     cell run-local 0 "«Back up now» refused: $(ask_last '.error.key')"
 fi
 bubble_look after-run backup
+allow INV-UNRAID-SAME "Apply aligns Kopia's policies with the sources as mapped now (settings.ini's header: «setup.sh --kopia  align the Kopia policies»): a policy for /uso2 is added, the one for /uso kept"
 check standard
 scenario_end
