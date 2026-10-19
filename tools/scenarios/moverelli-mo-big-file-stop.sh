@@ -15,10 +15,15 @@ undo_push bash -c 'rm -rf /mnt/*/media/uso-wip-f-m15'
 big=$(stat -c %s /mnt/cache/media/uso-wip-f-m15/a-big.bin 2>/dev/null)
 track_share media
 snap_before
-# her progress twice a second while it runs: the file in flight and its bytes done; and what reached the array
+# her progress twice a second while it runs: the file in flight and its bytes done; what reached the array (the big
+# file's bytes, the small ones whole), and whether the stop is asked (her stop file, or the night's — her «Run now» is a
+# joint run). The order the files go in is the pool's (ZFS lists a folder in hash order, not by name): the cells read
+# what was in flight when the stop came from these looks, never from the names.
+md=/mnt/cache/appdata/UnraidSecretaryOffice/data/moverelli
 (while :; do t=$(date +%s.%N)
     php "$SC_DIR/ask.php" --wait 5 --raw moverelli.progress '{}' 2>/dev/null | jq -c --arg t "$t" '{t: ($t|tonumber), file: (.state.progress.file // ""), fb: (.state.progress.file_bytes // null)}'
-    printf '{"t":%s,"arrived":%s}\n' "$(date +%s.%N)" "$(du -B1 -c /mnt/disk*/media/uso-wip-f-m15/a-big.bin* 2>/dev/null | tail -1 | cut -f1)"
+    printf '{"t":%s,"arrived":%s,"small":%s,"stop":%s}\n' "$(date +%s.%N)" "$(du -B1 -c /mnt/disk*/media/uso-wip-f-m15/a-big.bin* 2>/dev/null | tail -1 | cut -f1)" \
+        "$(find /mnt/disk*/media/uso-wip-f-m15 -name 'z-small-*.bin' 2>/dev/null | wc -l)" "$([[ -e $md/office-stop.json || -e $md/night-stop.json ]] && echo 1 || echo 0)"
     sleep 0.4; done) >"$KEEP/progress.jsonl" 2>/dev/null & ppid=$!
 flow MV-STOP-AFTER-FILE share=media
 kill "$ppid" 2>/dev/null; wait "$ppid" 2>/dev/null
@@ -27,7 +32,14 @@ where=$(find /mnt/disk*/media/uso-wip-f-m15 -name a-big.bin -printf '%s %p\n' 2>
 small=$(find /mnt/disk*/media/uso-wip-f-m15 -name 'z-small*' 2>/dev/null | wc -l)
 part=$(find /mnt/cache/media /mnt/disk*/media -name '*.partial' 2>/dev/null | head -1)
 [[ ${where%% *} == "$big" && -z $part ]] && cell big-whole 1 "the big file arrived whole ($big bytes), no .partial" || cell big-whole 0 "the big file: ${where:-not on the array} (want $big bytes), .partial: ${part:-none}"
-((small == 0)) && cell no-further 1 "no further file begun (the 6 small ones still on the pool)" || cell no-further 0 "$small small file(s) moved after the stop"
+# at the first look that saw the stop: was the big file on its way (some bytes, not all), how many small ones were over
+at=$(jq -sc '[.[] | select(.stop == 1)] | .[0] // {}' "$KEEP/progress.jsonl" 2>/dev/null)
+s0=$(jq -r '.small // empty' <<<"$at"); a0=$(jq -r '.arrived // 0' <<<"$at")
+say "at the stop: big file $a0 of $big bytes on the array, ${s0:-?} small one(s) over; at the end $small"
+if [[ -z $s0 ]] || ! (( a0 > 0 && a0 < big )); then
+    _row state SH-BIG-FILE red "the stop did not come while the big file was on its way (at the stop: $a0 of $big bytes) — no verdict on «no further»"
+elif ((small == s0)); then cell no-further 1 "no further file begun after the big one ($s0 small one(s) went before it, $((6 - small)) still on the pool)"
+else cell no-further 0 "$((small - s0)) small file(s) begun after the stop, while the big file was the one in flight"; fi
 # rates: her file_bytes of a-big over time, the array's bytes of it over the same span
 her=$(jq -s '[.[] | select((.file // "") | test("a-big")) | select(.fb != null)] | if length > 1 then ((.[-1].fb - .[0].fb) / (.[-1].t - .[0].t)) else 0 end' "$KEEP/progress.jsonl" 2>/dev/null)
 real=$(jq -s '[.[] | select(.arrived != null and .arrived > 0 and .arrived < '"$big"')] | if length > 1 then ((.[-1].arrived - .[0].arrived) / (.[-1].t - .[0].t)) else 0 end' "$KEEP/progress.jsonl" 2>/dev/null)
