@@ -1,14 +1,16 @@
 #!/bin/bash
 # Cell M3 of matrix.md (★, a bug from the owner's server): her run card while a yes share's old files go to the array —
 # a stretch of many small files, then a few big ones (the owner's Nextcloud: «6 days» for a run of under 2 h).
-# - The time left is honest: her live progress, read every 3 s as an open page reads it, fed to the page's own
-#   runCardData() (moverelli-eta.mjs, this tree's desk.js): every time left shown within 3× (or 30 s) of the seconds the
-#   share really still took. Fixed in 1.66.2 / 1.66.4.
+# - The time left is honest (cell card-left): her live progress, read every 3 s as an open page reads it, replayed into
+#   the drawn page (page.mjs --replay, the page's own clock and timers) and the time left read off her run card: every
+#   one within 3× (or 30 s) of the seconds the share really still took. Fixed in 1.66.2 / 1.66.4. On the server too
+#   (eta-honest: moverelli-eta.mjs, this tree's runCardData() on the same readings).
 # - The card's percent and «On its way … → to» against the disks (bubble_look → INV-PAGE), and her bubble names the share
 #   and its way to the array (bubble.run_to_array, 1.66.6) instead of a greeting.
 # The target pool's own bar (1.66.2) needs a second pool (a prefer share into it) — Tower has one: not covered here.
-# All of it is the page's code: on an older release ($1 = v1.66.1) the agent's progress is the same, so its red is shown
-# by the same readings fed to that tag's desk.js (README «red before»). Pre-release (~5 min).
+# All of it is the page's code: on an older release ($1 = v1.66.1) the agent's progress is the same, and run.sh draws
+# the page of that tag (card-left red there; eta-honest judges this tree's code, so it says only «info»). Pre-release
+# (~5 min).
 . "$(dirname "$0")/lib.sh"
 scenario_begin moverelli-sh-yes-run-picture
 needs tower
@@ -37,7 +39,9 @@ kill "$sampler" 2>/dev/null; wait "$sampler" 2>/dev/null
 jq -cn --argjson t "$(date +%s)" '{t: $t, end: true}' >>"$readings"
 evidence "$readings" >/dev/null
 n=$(grep -c progress "$readings" 2>/dev/null || echo 0)
-if ! command -v node >/dev/null 2>&1; then
+if [[ -n ${1:-} ]]; then
+    _row cell eta-honest info "judged with $1's page on the Mac (card-left); here only this tree's code could judge"
+elif ! command -v node >/dev/null 2>&1; then
     _row cell eta-honest info "no node on this server: judge $readings on the Mac (moverelli-eta.mjs)"
 elif ((n < 5)); then
     cell eta-honest 0 "only $n readings of her run — too short to judge its time left"
@@ -47,10 +51,23 @@ else
     tail -1 <<<"$out" | grep -q '^ETA ok' && cell eta-honest 1 "$(tail -1 <<<"$out") ($n readings)" \
         || cell eta-honest 0 "$(tail -1 <<<"$out") — $(grep -m2 'NOT HONEST' <<<"$out" | tr '\n' ' ')"
 fi
+# each reading with the seconds her share really still took (expect: until the first reading of another share or
+# phase, or the run's end) — the server's number the card's time left is judged against
+replay=$KEEP/m3-replay.jsonl
+jq -s -c '. as $a | range(0; length) as $i | $a[$i] + (if ($a[$i].progress.phase == "share" and ($a[$i].progress.share // "") != "")
+    then {expect: (([range($i + 1; $a | length) | select($a[.].end or $a[.].progress.phase != "share"
+        or $a[.].progress.share != $a[$i].progress.share)] | first) as $j | if $j == null then null else $a[$j].t - $a[$i].t end)}
+    else {} end)' "$readings" >"$replay" 2>/dev/null && evidence "$replay" >/dev/null
 # her bubble while the share was in flight (the flow's look 20 s into the run)
 look=$(ls -d "$KEEP"/looks/*-mid-moverelli-run 2>/dev/null | tail -1)
 if [[ -n $look && -f $look/states/moverelli-progress.json ]]; then
     queue_mac INV-BUBBLE page_text moverelli "$look/states" "$PAGE_LANGS" want "moverelli.bubble.run_to_array"
+    # her card's time left off the drawn page, reading by reading, against the seconds really left (look's state the frame)
+    if ((n >= 5)) && [[ -s $replay ]]; then
+        queue_mac card-left page_value --factor 3 --slack 30 moverelli "$look/states" en "$replay" "moverelli.rc.left:left moverelli.rc.left_range:lo..hi"
+    else
+        cell card-left 0 "only $n readings of her run — too short to judge the card's time left"
+    fi
 else
     cell mid-run-look 0 "no look while her run was at work"
 fi

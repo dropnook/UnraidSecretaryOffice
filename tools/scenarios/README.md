@@ -153,14 +153,30 @@ are rows `cell <name>` of the verdict table.
 Times are the scenario alone on Tower; each needs a base reset before it (~27 s), and an older release adds its install.
 The whole batch takes ~10 min on the release (~25 min on the older ones).
 
-**Page-only fixes** (B5, M2's idle rules, M3): the agent's state is the same before and after the fix, and page.mjs draws
-this tree's desk.js. So the older release's red comes from drawing the scenario's own state files with that tag's page:
-`git archive <tag> public tests/ui src` into a scratch folder, today's `page.mjs` and `tests/ui/harness.mjs` beside it.
-For M3, the run's `m3-readings.jsonl` (evidence) is fed to `moverelli-eta.mjs <that tag's desk.js> <its core.js>`.
-The commands and their results: briefs folder `scenarios/2026-10-18/batch-a-red-before-by-hand.md`.
-**Pending until page.mjs opens folds:** B5's «no Create a share» sits in the guide, a closed `<details>` while a place is
-chosen; M2's «Remove rules» sits in a folded share row. innerText reads neither, so both are rows `pending: helper --open`.
-**Own helpers instead of the shared ones:** M1 writes its files per disk with `put_files` (SH-PREFER-ARRAY-FILES writes
-the same names on both disks). M1-stop waits for a file of uso-prefer itself (MV-STOP-AFTER-FILE stops at the run's
-first file, which belongs to a share earlier in her plan). M3 judges the time left on the server (`moverelli-eta.mjs`
-on this tree's desk.js), not from the card's text.
+**Page-only fixes** (B5, M2, M3): the agent's state is the same before and after the fix, so the older release's red
+comes from its page. run.sh's Mac-side step draws every page of a scenario that installed an older release (state
+IN-DOWNGRADE <tag>: `SOURCE=` of its `state-in-downgrade.env`) with that tag's page — `page.mjs --tree <tag>` (`git
+archive <tag> public src tests/ui` once into `$TMPDIR/uso-page-tree/<commit>/`, today's harness beside it); the
+report's «Mac-side checks» names the tag. `USO_PAGE_TREE=<tag>` sets it for a whole run (empty: this tree's page). The
+Mac needs the tags (`git fetch --tags`).
+- B5 `no-create-share`, M2 `remove-rules`: `queue_mac <cell> page_text --open …` — `--open` opens every `<details>` and
+  folded row (`.row.unfolds`) before the text is read (the guide and the share row are folded).
+- M3 `card-left`: a page-value check. Her progress read every 3 s during the run, each reading with the seconds the
+  share really still took (`expect`), is replayed into the drawn page (`queue_mac card-left page_value --factor 3
+  --slack 30 moverelli <look> en <replay.jsonl> "moverelli.rc.left:left moverelli.rc.left_range:lo..hi"`): page.mjs
+  `--replay` runs the page's own clock to each reading, the part «progress» answered with it, and reads the time left
+  off her run card (`--value <key>:<placeholder>`, a duration in the language's own words). `eta-honest` stays the
+  server's cross-check on this tree's code (info on an older release).
+- `queue_mac <id> page_value [--factor f] [--slack s] <route> <states> <langs> <readings|-> "<key>:<ph>[..<ph2>][=<n>] …"`
+  also reads one value off a static page (`=<n>`: the server's number, e.g. a count on a tile).
+
+Results of the red-before check (Tower, 2026-10-19): see the table below.
+
+**MV-STOP-AFTER-FILE share=<share>** waits for a file of that share in flight (her plan may take other shares
+first: up to 5 min); M1-stop uses it. **SH-PREFER-ARRAY-FILES** puts its files in a folder per disk
+(`sh-paf-d1` on disk1, `sh-paf-d2` on disk2 — the same path on two disks would be duplicates Unraid never moves); its
+undo takes them from wherever a run put them; M1-run uses it again.
+**INV-TICK** (checks.sh overrides lib.sh's): the gaps between the pulses the sampler saw, and at the end the
+heartbeat's age right now — lib.sh took «now − the last pulse the sampler saw», but the sampler stops at snap_after and
+the checks before INV-TICK take seconds (B5 and M1-stop: 26/28 s = a pulse 20 s before snap_after + 6/8 s of checks,
+the agent fine).
