@@ -145,10 +145,8 @@
 >   gets the folder pass that «per disk» brought for prefer shares — yes (pool → array or second pool) and prefer from a
 >   second pool too. Only the folders holding no file below them (empty, or holding only empty folders) go to the move
 >   binary, deepest first, as Unraid's mover's second pass hands them; never one an exclude keeps, nor a folder above it;
->   never a pool's share root (a prefer share's folder on a disk does go). To a pool the pass always runs, also for a share
->   with no file to move; **to the array only in a run that moved files of the share there** — its disk is awake then
->   anyway; empty folders alone (an app re-making its `.tmp` on the pool) never wake an array disk. A dry run and a
->   stopped run get no pass (a stop: «tidy» above).
+>   never a pool's share root (a prefer share's folder on a disk does go). A share with no file to move gets it too; a
+>   dry run and a stopped run don't (a stop: «tidy» above).
 >
 > **`prefer` shares** (array → pool): their source is the array disks the share may use (above), which may wake them.
 > That is accepted here on purpose (the owner's decision): the Dynamix Cache Directories plugin keeps the folder
