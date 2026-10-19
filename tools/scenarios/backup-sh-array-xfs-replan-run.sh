@@ -5,7 +5,8 @@
 # - BK-REPLAN: the share is never proposed «local» (off, why no_snapshots — setup.sh 2.55), or where it is local the
 #   plan warns share_no_snapshots; the VM's disk is warned vm_no_snapshot_live wherever the VM is backed up locally.
 # - The setup page shows those words (page_text, cells share-hint / vm-hint) — never «local snapshot» bare.
-# - BK-RUN: the run says the VM's disk isn't held (vm_disk_live / vm_no_snapshot_live), never a snapshot claimed.
+# - BK-RUN: the run says the VM's disk isn't held (vm_disk_live / vm_no_snapshot_live), never a snapshot claimed (its
+#   word for a VM not set up yet, new_vm, says «its disks are in the snapshot of their share» — false on xfs).
 # Pre-release (~3 min).
 . "$(dirname "$0")/lib.sh"
 scenario_begin backup-sh-array-xfs-replan-run
@@ -52,7 +53,7 @@ ws=$(jq -r '[.warnings[]? | (.code // .why // empty)] | join(",")' "$UB/state/st
 dr=$(jq -r --arg v "$V" '[.items[]? | select((.params.name // "") == $v) | .code] | join(",")' "$UB/state/drift.json" 2>/dev/null)
 say "the run's warnings: ${ws:-none}; its words on $V: ${dr:-none}"
 [[ ,$ws,$dr, == *,vm_disk_live,* || ,$ws,$dr, == *vm_no_snapshot_live* ]] && cell run-says-vm 1 "the run says $V's disk isn't held: ${dr:-$ws}" \
-    || cell run-says-vm 0 "the run names nothing about $V's disk on xfs (warnings ${ws:-none}, drift ${dr:-none})"
+    || cell run-says-vm 0 "the run names nothing about $V's disk on xfs (warnings ${ws:-none}, its words: ${dr:-none}$([[ ,$dr, == *,new_vm,* ]] && echo " — new_vm: «its disks are in the snapshot of their share», false on xfs"))"
 held=$(zfs list -H -t snapshot -o name 2>/dev/null | grep -F "/$S@uso-backup-" | head -2 | paste -sd' ')
 say "engine snapshots of $S's parts: ${held:-none}"
 check standard
