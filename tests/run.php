@@ -36967,7 +36967,7 @@ function testMoverelliTidy(): void
         file_put_contents("$t/$rel", $body);
     };
     $reset = function () use ($t): void {
-        exec('rm -rf ' . escapeshellarg("$t/mnt") . ' ' . escapeshellarg("$t/log") . ' ' . escapeshellarg("$t/stop") . ' ' . escapeshellarg("$t/dirs"));
+        exec('rm -rf ' . escapeshellarg("$t/mnt") . ' ' . escapeshellarg("$t/log") . ' ' . escapeshellarg("$t/stop") . ' ' . escapeshellarg("$t/dirs") . ' ' . escapeshellarg("$t/calls"));
         foreach (['mnt/user/Pics', 'mnt/user/Yes', 'mnt/cache/Pics', 'mnt/cache/Yes', 'shares', 'bin'] as $d) {
             @mkdir("$t/$d", 0700, true);
         }
@@ -36977,6 +36977,7 @@ function testMoverelliTidy(): void
 #!/bin/bash
 # a stand-in for Unraid's move binary: a data disk → the pool, the pool → disk1, the second pool fast → the pool (the
 # parents made there); a folder created there, removed here when empty; every folder handed over noted; the stop file written while the n-th file of a binary moves
+echo x >> "$MOVE_CALLS"
 n=0
 while IFS= read -r f; do
     case "$f" in
@@ -36996,7 +36997,7 @@ SH);
     file_put_contents("$t/ini", "[GLOBAL]\nmin_age=0\n[Yes]\nexcludes=$t/excl.txt\n");
     $env = ['CUSTOMMOVER_INI' => "$t/ini", 'CUSTOMMOVER_SHARES_DIR' => "$t/shares", 'CUSTOMMOVER_MNT' => "$t/mnt", 'CUSTOMMOVER_LOG' => "$t/log",
             'CUSTOMMOVER_LOCK' => "$t/lock", 'CUSTOMMOVER_STATUS' => "$t/st.json", 'CUSTOMMOVER_ZFS' => '/nonexistent-zfs', 'CUSTOMMOVER_MOVER_BIN' => "$t/bin/move",
-            'CUSTOMMOVER_STOP' => "$t/stop", 'CUSTOMMOVER_IGNORE_MOVER' => '1', 'MOVE_ROOT' => "$t/mnt", 'MOVE_DIRS' => "$t/dirs"];
+            'CUSTOMMOVER_STOP' => "$t/stop", 'CUSTOMMOVER_IGNORE_MOVER' => '1', 'MOVE_ROOT' => "$t/mnt", 'MOVE_DIRS' => "$t/dirs", 'MOVE_CALLS' => "$t/calls"];
     $sm = OFFICE_DIR . '/smartmover/custommover_run.sh';
     $share = fn (array $st, string $n) => array_values(array_filter($st['shares'] ?? [], fn ($x) => $x['share'] === $n))[0] ?? [];
 
@@ -37033,6 +37034,14 @@ SH);
     runEnv(['bash', $sm, '--run'], $env, 60);
     same('tidy, a yes run: all of the share moved — m3 gone, the share\'s folder on the pool kept (empty)', [false, true, true],
         [is_dir("$t/mnt/cache/Yes/m3"), is_dir("$t/mnt/cache/Yes"), is_file("$t/mnt/disk1/Yes/m3/a/1.bin")]);
+
+    // a yes share with only an empty folder (an app's .tmp) and no file to move: the folder stays on the pool, the move
+    // binary is never called — empty folders alone never wake an array disk
+    $reset();
+    @mkdir("$t/mnt/cache/Yes/.tmp", 0700, true);
+    [$exit] = runEnv(['bash', $sm, '--run'], $env, 60);
+    same('tidy, a yes run with nothing to move: an empty folder stays on the pool, the move binary never called (no array disk woken)',
+        [0, true, false, false], [$exit, is_dir("$t/mnt/cache/Yes/.tmp"), file_exists("$t/calls"), is_dir("$t/mnt/disk1/Yes")]);
 
     // a prefer share from a second pool (fast → cache): its emptied and its empty folders go to the pool, its folder on fast stays
     $reset();

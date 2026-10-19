@@ -92,7 +92,8 @@
 #   kept a parent whose sibling folder emptied later); never the share's root. After a stop a prefer share's emptied
 #   folders on its disks go too — its folder there as well — only those whose copy is on the pool (rmdir, nothing else).
 # USO «empty folders» (2026-10-19): every direction gets the folder pass (yes, prefer from a second pool too): the folders
-#   holding no file below them go to the move binary deepest first, never one an exclude keeps, never a pool's share root.
+#   holding no file below them go to the move binary deepest first, never one an exclude keeps, never a pool's share root;
+#   to the array only in a run that moved files of the share there (empty folders alone never wake an array disk).
 #
 # Exclude files: one entry per line, comments (#) and blank lines ignored, CRLF tolerated.
 #   /abs/path/dir          protects the directory and everything below it
@@ -959,8 +960,9 @@ move_batch() {  # share src dest
     fi
     for f in "${MOVED[@]:$(( ${#MOVED[@]} > 50 ? ${#MOVED[@]} - 50 : 0 ))}"; do rel_of "$f" "$src"; recent_add "$name/$REL" "${SIZE_OF[$f]:-0}" "$CUR_FROM" "$dest"; done
     # USO «per disk», «empty folders»: the source's empty folders as Unraid's mover leaves them (its second pass, one
-    # move binary for all); after a stop only the empty parents of what moved, at once
-    if [[ "$STOPPED" == false ]]; then
+    # move binary for all) — to the array only when files of the share went there now (its disk awake anyway: empty
+    # folders alone never wake one); after a stop only the empty parents of what moved, at once
+    if [[ "$STOPPED" == false ]] && [[ "$dest" != array || ${#MOVED[@]} -gt 0 ]]; then
         share_dirs_pass "$name" "$src" "$dest" "$( [[ "${dirs_pass:-false}" == true ]] && echo false || echo true)"
     elif (( ${#MOVED[@]} > 0 )); then
         # USO «tidy»: after a stop a prefer share's emptied folders on its disks go too (their copy on the pool)
@@ -1302,11 +1304,12 @@ process_share() {  # name mode pool pool2
     office_progress      # office: the share's counts on the card at once, before the first file (its disk may still wake)
     if (( count == 0 )) && [[ "$fill" == false ]]; then
         SH_STATE=none; log INFO "  no files match"
-        # USO «trailing space», «empty folders»: the folders an earlier run left (the folder pass ran only after files)
-        if [[ "$DRY_RUN" == false && "$STOPPED" == false ]]; then
+        # USO «trailing space», «empty folders»: the folders an earlier run left (the folder pass ran only after files) —
+        # to a pool only: empty folders alone never wake an array disk
+        if [[ "$DRY_RUN" == false && "$STOPPED" == false ]] && [[ "$mode" == "prefer" || -n "$pool2" ]]; then
             local -a MOVER_CMD=("$MOVER_BIN")
             (( MOVER_DEBUG > 0 )) && MOVER_CMD+=(-d "$MOVER_DEBUG")
-            if [[ "$mode" == "yes" ]]; then share_dirs_pass "$name" "$src" "${pool2:-array}" true
+            if [[ "$mode" == "yes" ]]; then share_dirs_pass "$name" "$src" "$pool2" true
             else share_dirs_pass "$name" "$src" "$pool" "$( [[ "$dirs_pass" == true ]] && echo false || echo true)"; fi
         fi
         return 0
@@ -1343,8 +1346,8 @@ process_share() {  # name mode pool pool2
         log INFO "  moving $count files ($(human "$bytes")) via $MOVER_BIN"
         move_batch "$name" "$src" "$dest"
         [[ "$mode" == "yes" ]] && (( SH_MOVED > 0 )) && POOL_AGE_MOVED[$pool]=1
-    elif [[ "$STOPPED" == false ]]; then
-        share_dirs_pass "$name" "$src" "$dest" true      # USO «empty folders»: a fill share without an aged file
+    elif [[ "$STOPPED" == false && "$dest" != array ]]; then
+        share_dirs_pass "$name" "$src" "$dest" true      # USO «empty folders»: a fill share without an aged file (to a pool)
     fi
     (( count == 0 )) && SH_STATE=none
     (( SH_RC != 0 )) && SH_STATE=error
