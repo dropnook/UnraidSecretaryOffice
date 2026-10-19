@@ -420,6 +420,17 @@ _rs_go() {
     _fl_ask restore.preview "$req" 300 >/dev/null
     rc=$?; ((rc == 0)) || { _fl_end $rc; return; }
     plan=$(ask_last '.preview')
+    # the dialog's «Restore» waits while the sizes are measured in the background (desk.js ready(): !sizes.measuring;
+    # watchSize polls them and previews again when it won't fit — the agent's restore_no_space): the same here, the
+    # preview asked again every 2 s until the sizes are in (at most 5 min) — a start while measuring skips the room check
+    local i=0
+    while [[ $(jq -r '.sizes.measuring // false' <<<"$plan") == true ]] && ((i++ < 150)); do
+        sleep 2
+        _fl_ask restore.preview "$req" 300 >/dev/null
+        rc=$?; ((rc == 0)) || { _fl_end $rc; return; }
+        plan=$(ask_last '.preview')
+    done
+    [[ $(jq -r '.sizes.measuring // false' <<<"$plan") == true ]] && { say "restore plan: the sizes still measured after 5 min — the dialog would still wait"; return 1; }
     printf '%s\n' "$plan" >"$KEEP/rs-preview.json"
     if [[ $(jq '(.blockers // []) | length' <<<"$plan") != 0 ]]; then
         say "restore plan blocked: $(jq -c '[.blockers[].key]' <<<"$plan")"
