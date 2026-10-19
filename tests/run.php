@@ -5526,7 +5526,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.64'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.65'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -6518,8 +6518,11 @@ case "\$1" in
         id) echo 33; exit 0 ;;
         php)
           shift 2
-          # \$FAKE/nc.readable: its data folder readable by others - occ refuses everything, the complaint on stdout
-          [[ -e "\$FAKE/nc.readable" ]] && { ev "occ refused \$*"; printf 'Your data directory is readable by other people.\\nPlease change the permissions to 0770 so that the directory cannot be listed by other people.\\n\\nException: Environment not properly prepared.\\n'; exit 1; }
+          # \$FAKE/nc.readable: its data folder readable by others - occ refuses everything, the complaint on stdout; so does a
+          # folder \$FAKE/nc.datadir names while others may read it (2.65: Unraid's array start opens it)
+          r=0; [[ -e "\$FAKE/nc.readable" ]] && r=1
+          d="\$(cat "\$FAKE/nc.datadir" 2>/dev/null)"; [[ -n "\$d" && "\$(stat -c %a "\$d")" != *0 ]] && r=1
+          (( r )) && { ev "occ refused \$*"; printf 'Your data directory is readable by other people.\\nPlease change the permissions to 0770 so that the directory cannot be listed by other people.\\n\\nException: Environment not properly prepared.\\n'; exit 1; }
           case "\$*" in
             "config:system:get instanceid") echo inst1 ;;
             "config:system:get maintenance") cat "\$FAKE/nc.maint" 2>/dev/null || echo false ;;
@@ -6816,6 +6819,58 @@ SH);
     $rep = array_values(preg_grep('/Aborted run repaired/', $notes()));
     check('array stop, the next run: «Aborted run repaired» is a normal notification (engine 2.25 - expected after an array stop), no warning counted',
         count($rep) === 1 && str_contains($rep[0], '-i normal') && !str_contains($log(), 'WARNING: The run the array stop ended'), json_encode($notes()));
+
+    // --- engine 2.65: Unraid's array start (every boot too) resets a share root that isn't of the group users to 0777
+    // nobody:users - Nextcloud's data folder too; occ refuses then, and up to 2.64 the --recover could never switch the
+    // maintenance mode off (the note kept for ever, Nextcloud locked). Now the run notes the folder as it found it before the
+    // mode went on, and the --recover closes exactly that again (only the folder itself), then switches the mode off
+    $ncd = "$pool/appdata/nc/data";
+    @mkdir("$ncd/someone", 0700, true);
+    chown($ncd, 33);
+    chgrp($ncd, 33);
+    chmod($ncd, 0770);
+    chmod("$ncd/someone", 0755);
+    $night('suspend');
+    [$code] = $run();
+    $noted = (string) @file_get_contents("$data/state/nc-datadir");
+    same('nc folder opened at the array start: the stopped run noted Nextcloud\'s data folder as it found it', ['aborted', "nc\t$ncd\t33\t33\t770\n"],
+        [$status()['result'] ?? null, $noted]);
+    file_put_contents("$fake/var.ini", "fsState=\"Started\"\n");
+    @unlink("$fake/stop-at");
+    @unlink("$fake/events");
+    @unlink("$fake/notify.log");
+    chown($ncd, 99);
+    chgrp($ncd, 100);
+    chmod($ncd, 0777);
+    file_put_contents("$fake/nc.datadir", $ncd);
+    [$code, , $out] = $run('--recover');
+    $n = $names();
+    clearstatcache();
+    $st = stat($ncd);
+    $rl = (string) @file_get_contents("$data/logs/recover.log");
+    check('nc folder opened at the array start: the --recover closed it again as noted and switched the maintenance mode off, nothing noted',
+        in_array('occ maintenance off', $n, true) && [$st['uid'], $st['gid'], $st['mode'] & 0777] === [33, 33, 0770] && !is_file("$data/state/maintenance")
+        && !is_file("$data/state/nc-datadir"), json_encode([$n, $st['uid'], $st['gid'], decoct($st['mode'] & 0777)]) . $out . $rl);
+    check('nc folder opened at the array start: only the folder itself — what is inside untouched', (fileperms("$ncd/someone") & 0777) === 0755);
+    check('nc folder opened at the array start: the log says what it found and the lasting fix; the notification names it',
+        str_contains($rl, "its data folder $ncd was open (777 99:100") && str_contains($rl, "chown 33:users '$ncd'")
+        && count(preg_grep('/Aborted run repaired.*its data folder closed again/', $notes())) === 1, $rl . json_encode($notes()));
+    // occ refusing for a folder that is closed (a note left open never counts either): nothing changed, the note kept
+    $night('suspend');
+    [$code] = $run();
+    file_put_contents("$fake/var.ini", "fsState=\"Started\"\n");
+    @unlink("$fake/stop-at");
+    touch("$fake/nc.readable");
+    [$code] = $run('--recover');
+    @unlink("$fake/nc.readable");
+    clearstatcache();
+    $st = stat($ncd);
+    same('nc folder closed but occ refuses: the folder left alone, Nextcloud still noted for the next start', [[33, 33, 0770], ['nc'], true],
+        [[$st['uid'], $st['gid'], $st['mode'] & 0777], array_values(array_filter(array_map('trim', @file("$data/state/maintenance") ?: []))), is_file("$data/state/nc-datadir")]);
+    [$code] = $run('--recover');
+    check('nc folder closed but occ refuses: the next --recover (occ answering) switches it off', !is_file("$data/state/maintenance") && !is_file("$data/state/nc-datadir"));
+    @unlink("$fake/nc.datadir");
+    exec('rm -rf ' . escapeshellarg($ncd));
 
     // --- at Nextcloud's maintenance mode: its container still runs - the mode goes off at once, nothing stopped
     $night('maintenance');
@@ -7396,9 +7451,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.64 everywhere it is named', ['2.64', '2.64', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.64"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.64** –')]);
+    same('data trust: the engine\'s version 2.65 everywhere it is named', ['2.65', '2.65', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.65"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.65** –')]);
     // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
     same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
         array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
@@ -8484,7 +8539,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.64', [1, '2.64'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.65', [1, '2.65'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -9092,7 +9147,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.64', [1, '2.64'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.65', [1, '2.65'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');

@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.64"
+UB_VERSION="2.65"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -2250,6 +2250,43 @@ recover_containers() {
     note_write "$UB_STATE/stopped" "${keep[@]}"
 }
 
+# --- Nextcloud's data folder as the run found it (2.65) -------------------------------------------------------------
+# state/nc-datadir: one line "<container>\t<folder>\t<uid>\t<gid>\t<mode>" per Nextcloud a run put into maintenance mode -
+# its data folder's root on the pool or disk, as it was right before (closed: occ answered). Unraid's array start (every
+# boot too), like Add Share or Apply of any share, resets a share root that isn't of the group users to 0777
+# nobody:users; Nextcloud no longer owns it then, can't close it itself and refuses every occ call - so after an array
+# stop or a power cut during a run its maintenance mode could never be switched off. nc_reclose <container> puts that
+# root back exactly as noted - owner, group, mode, only the folder itself, never what is inside - when occ refused for
+# it, the note was closed and the folder is open now. Nothing looser than the owner had: it is their own setting.
+# Written with state/maintenance (save_restore_state), never older than it; an older engine leaves it alone.
+nc_reclose() {
+    local n="$1" c p u g m nu ng nm
+    [[ -s "$UB_STATE/nc-datadir" && ! "$UB_STATE/nc-datadir" -ot "$UB_STATE/maintenance" ]] || return 1
+    while IFS=$'\t' read -r c p u g m; do
+        [[ "$c" == "$n" ]] || continue
+        is_uint "$u" && is_uint "$g" && [[ "$m" =~ ^[0-7]{3,4}$ && "$p" == /* && "$p" != *'/../'* && "$p" != */.. ]] || return 1
+        (( 8#$m & 8#007 )) && return 1                          # noted open: never what makes it work
+        [[ -d "$p" && ! -L "$p" ]] || return 1
+        read -r nu ng nm <<<"$(stat -c '%u %g %a' -- "$p" 2>/dev/null)"
+        [[ "$nm" =~ ^[0-7]{3,4}$ ]] && (( 8#$nm & 8#007 )) || return 1   # closed already: occ refuses for something else
+        if chown -h "$u:$g" -- "$p" 2>>"${LOG_FILE:-/dev/null}" && chmod "$m" -- "$p" 2>>"${LOG_FILE:-/dev/null}"; then
+            log "  Nextcloud '$n': its data folder $p was open ($nm $nu:$ng - Unraid resets a share root that isn't of the group users so at the array start) - closed again as the run found it ($m $u:$g), only the folder itself. Lasting fix (Unraid then leaves it alone): chown $u:users '$p' && chmod 0770 '$p'"
+            return 0
+        fi
+        err "Nextcloud '$n': its data folder $p could not be closed again ($m $u:$g)"
+        return 1
+    done <"$UB_STATE/nc-datadir"
+    return 1
+}
+# nc_dirs_keep <container...>: state/nc-datadir keeps only the lines of these (none left - the file goes)
+nc_dirs_keep() {
+    local -a lines=()
+    local l
+    [[ -e "$UB_STATE/nc-datadir" ]] || return 0
+    while IFS= read -r l; do in_list "${l%%$'\t'*}" "$@" && lines+=( "$l" ); done <"$UB_STATE/nc-datadir"
+    note_write "$UB_STATE/nc-datadir" "${lines[@]}"
+}
+
 # recover_maintenance (recover_interrupted_run): each Nextcloud of state/maintenance out of maintenance mode - occ needs
 # its container running: one just started above, or one Unraid's autostart is still starting, so it is waited for (at
 # most UB_NC_RUN_WAIT s), then occ until it answers (a container just started needs a moment). One whose container never
@@ -2287,12 +2324,18 @@ recover_maintenance() {
         fi
         u="$(docker exec "$n" stat -c %U "$occ" 2>/dev/null)"; [[ -z "$u" || "$u" == root || "$u" == UNKNOWN ]] && u="www-data"
         for (( i = 0; i < 30; i++ )); do
-            docker exec -u "$u" "$n" php "$occ" status >/dev/null 2>&1 && break
+            out="$(docker exec -u "$u" "$n" php "$occ" status 2>&1)" && break
+            grep -q "readable by other people" <<<"$out" && break      # stays so until the folder is closed (2.65)
             array_stopping && break
             sleep 2
         done
         if out="$(docker exec -u "$u" "$n" php "$occ" maintenance:mode --off 2>&1)"; then
             list+="maintenance mode $n off "; back_nc+=( "$n" )
+        # 2.65: the array start opened its data folder (Unraid: a share root not of the group users) - closed again as the
+        # run found it, then switched off; up to 2.64 Nextcloud stayed in maintenance mode, its note kept for ever
+        elif grep -q "readable by other people" <<<"$out" && nc_reclose "$n" \
+             && out="$(docker exec -u "$u" "$n" php "$occ" maintenance:mode --off 2>&1)"; then
+            list+="maintenance mode $n off (its data folder closed again) "; back_nc+=( "$n (its data folder closed again)" )
         else
             while IFS= read -r f; do [[ -n "${f//[[:space:]]/}" ]] && log "    occ: ${f%$'\r'}"; done < <(head -20 <<<"$out")
             err "Maintenance mode of '$n' could not be switched off - it stays noted (state/maintenance)"
@@ -2301,6 +2344,7 @@ recover_maintenance() {
     done
     (( ${#keep[@]} )) && stay+="${stay:+; }maintenance mode still on (still noted): ${keep[*]}"
     note_write "$UB_STATE/maintenance" "${keep[@]}"
+    nc_dirs_keep "${keep[@]}"
 }
 
 # recover_vms (recover_interrupted_run): each VM of state/vms back as it was - thawed (while it runs), resumed (while

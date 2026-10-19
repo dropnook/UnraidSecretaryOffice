@@ -1,6 +1,12 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.64 - 2026-10-19
+# unraid-backup - backup.sh                       Version 2.65 - 2026-10-19
+#   2.65 Nextcloud no longer stays in maintenance mode after an array stop or a power cut during a run: Unraid's array
+#        start (every boot too) resets a share root that isn't of the group users to 0777 nobody:users - Nextcloud's data
+#        folder then refuses every occ call, and --recover could never switch the mode off (its note kept for ever). The
+#        run notes the data folder's root as it found it before the mode went on (state/nc-datadir: owner, group, mode -
+#        closed, since occ answered); when occ refuses for it, --recover (and the run's own end) closes exactly that root
+#        again - only the folder itself, never looser than the owner had - and switches the mode off.
 #   2.64 A container the user paused (docker pause, Unraid's Pause) is left exactly as it is: never stopped, never
 #        started, so it is still paused after the run - up to 2.63 docker's State.Running (true for a paused one) had it
 #        stopped and started, and it ran afterwards. Its files hold still for the snapshot; a paused database gets no
@@ -463,6 +469,7 @@ declare -A NC_ON=()         # Nextclouds whose maintenance mode WE switched on
 declare -A NC_OCC=() NC_USER=()
 declare -A NC_SAME=()       # container -> first container of the same Nextcloud instance
 declare -A NC_DBDOWN=()     # (2.64) Nextclouds whose database couldn't be reached: no maintenance mode, no occ lists
+declare -A NC_DIR=()        # (2.65) container -> "<folder>\t<uid>\t<gid>\t<mode>": its data folder's root before the mode went on
 declare -A BTRFS_OK=()     # btrfs base -> snapshot path
 declare -A LAYER_MNT=()     # ZFS dataset -> mount point under .layers
 declare -A SHARE_MOUNTED=() # share -> single|overlay|split
@@ -552,6 +559,10 @@ save_restore_state() {
     if [[ ${#NC_ON[@]} -gt 0 ]]; then printf '%s\n' "${!NC_ON[@]}" >"$UB_STATE/maintenance"; else rm -f "$UB_STATE/maintenance"; fi
     local v; : >"$UB_STATE/.vms.$$"
     for v in "${!VM_HELD[@]}"; do printf '%s|%s\n' "$v" "${VM_HELD[$v]}" >>"$UB_STATE/.vms.$$"; done
+    # 2.65: their data folders as the run found them (lib/common.sh nc_reclose) - written after state/maintenance, never older
+    local c; : >"$UB_STATE/.nc-datadir.$$"
+    for c in "${!NC_ON[@]}"; do [[ -n "${NC_DIR[$c]:-}" ]] && printf '%s\t%s\n' "$c" "${NC_DIR[$c]}" >>"$UB_STATE/.nc-datadir.$$"; done
+    if [[ -s "$UB_STATE/.nc-datadir.$$" ]]; then mv -f "$UB_STATE/.nc-datadir.$$" "$UB_STATE/nc-datadir"; else rm -f "$UB_STATE/.nc-datadir.$$" "$UB_STATE/nc-datadir"; fi
     if [[ -s "$UB_STATE/.vms.$$" ]]; then mv -f "$UB_STATE/.vms.$$" "$UB_STATE/vms"; else rm -f "$UB_STATE/.vms.$$" "$UB_STATE/vms"; fi
 }
 
@@ -810,7 +821,7 @@ stop_tier() { # stop_tier <name...>
 
 # wait_ready <seconds> <name...>: lib/common.sh (a --recover starts noted containers the same way, 2.25)
 restore_service() {
-    local tier n started c i out
+    local tier n started c i out rc
     if [[ ${#STOPPED[@]} -gt 0 ]]; then
         for tier in NET DB APP; do
             if [[ "$ARRAY_STOP" == "yes" ]] || array_stopping; then
@@ -840,11 +851,17 @@ restore_service() {
 
     for c in "${!NC_ON[@]}"; do
         for i in $(seq 1 60); do
-            nc_occ "$c" status >/dev/null 2>&1 && break
+            out="$(nc_occ "$c" status 2>&1)" && break
+            grep -q "readable by other people" <<<"$out" && break      # stays so until the folder is closed (2.65)
             array_stopping && break
             sleep 2
         done
-        if out="$(nc_occ "$c" maintenance:mode --off 2>&1)"; then
+        out="$(nc_occ "$c" maintenance:mode --off 2>&1)"; rc=$?
+        # 2.65: its data folder opened meanwhile (Unraid: Add Share or Apply of any share) - closed again as the run found it
+        if (( rc )) && grep -q "readable by other people" <<<"$out" && nc_reclose "$c"; then
+            out="$(nc_occ "$c" maintenance:mode --off 2>&1)"; rc=$?
+        fi
+        if (( rc == 0 )); then
             log "  Nextcloud '$c': maintenance mode off"
             unset "NC_ON[$c]"
             save_restore_state
@@ -1153,18 +1170,35 @@ nc_log_output() {
 #   every request (its page too) until someone does. The run is not lost for that: Nextcloud is stopped with the
 #   apps for the dumps and snapshots, like apps without a maintenance mode, and refuses its users anyway - so the run
 #   goes on without the mode and says it as a warning (code nc_datadir_readable, the path and the lasting fix: owner
-#   Nextcloud's user, group users, 0770 - Unraid leaves such a root alone). The engine never changes it itself.
+#   Nextcloud's user, group users, 0770 - Unraid leaves such a root alone). The engine never changes it here; only a folder
+#   it found closed when it switched the mode on is closed again as it was, to switch the mode off (2.65, nc_reclose).
 #   Siblings of one Nextcloud (the same data folder) are said once.
 declare -A NC_OPEN_SAID=()      # host path of a data folder -> said this run
-nc_datadir_open() {
-    local c="$1" occd hp where dir="" uid st=""
+# nc_data_host <container> -> its data folder on the host: from its config.php, read on the host (occ may refuse
+#   everything); else Nextcloud's default. The folder inside the container when no bind holds it.
+nc_data_host() {
+    local c="$1" occd hp where dir=""
     occd="${NC_OCC[$c]%/occ}"
-    # the data folder from its config.php, read on the host (occ refuses everything now); else Nextcloud's default
     if hp="$(ct_host_path "$c" "$occd/config/config.php")" && where="$(ub_path_where "$hp")" && [[ -f "$where" && ! -L "$where" ]]; then
         dir="$(head -c 65536 -- "$where" 2>/dev/null | sed -n "s/.*'datadirectory'[[:space:]]*=>[[:space:]]*'\([^']*\)'.*/\1/p" | head -1)"
     fi
     dir="${dir:-$occd/data}"; dir="${dir%/}"
-    hp="$(ct_host_path "$c" "$dir")" || hp="$dir"
+    ct_host_path "$c" "$dir" || printf '%s' "$dir"
+}
+# nc_dir_look <container> (2.65): NC_DIR - its data folder's root on the pool or disk as it is now (owner, group, mode), only
+#   while closed (occ works then) and a real folder with a plain name - what nc_reclose may put back after an array start
+nc_dir_look() {
+    local c="$1" hp where u g m
+    unset "NC_DIR[$c]"
+    hp="$(nc_data_host "$c")" && [[ "$hp" == "$UB_MNT"/* ]] || return 0
+    where="$(ub_path_where "$hp" 2>/dev/null)" && [[ -d "$where" && ! -L "$where" && "$where" != *[[:cntrl:]]* ]] || return 0
+    read -r u g m <<<"$(stat -c '%u %g %a' -- "$where" 2>/dev/null)"
+    is_uint "$u" && is_uint "$g" && [[ "$m" =~ ^[0-7]{3,4}$ ]] && (( (8#$m & 8#007) == 0 )) || return 0
+    NC_DIR[$c]="$where"$'\t'"$u"$'\t'"$g"$'\t'"$m"
+}
+nc_datadir_open() {
+    local c="$1" hp where uid st=""
+    hp="$(nc_data_host "$c")"
     if [[ -n "${NC_OPEN_SAID[$hp]:-}" ]]; then
         log "  Nextcloud '$c': its data folder $hp is readable by others too - said with '${NC_OPEN_SAID[$hp]}'"; return 0
     fi
@@ -1263,6 +1297,7 @@ nextcloud_maintenance_on() {
         # after such a half success reports "already enabled" with 0.
         NC_ON[$c]=1; save_restore_state
         on=0
+        nc_dir_look "$c"
         for try in 1 2 3; do
             if out="$(nc_occ "$c" maintenance:mode --on 2>&1)"; then on=1; break; fi
             nc_log_output "$out"

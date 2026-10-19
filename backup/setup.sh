@@ -1,6 +1,7 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.64 - 2026-10-19
+# unraid-backup - setup.sh                        Version 2.65 - 2026-10-19
+#   2.65 No change here (the engine's version: --recover closes Nextcloud's data folder again after the array start)
 #   2.64 Unraid's VM service switched off: every stored [vm] section stays exactly as stored (vms_off_keep) - up to 2.63
 #        step_vms returned before the [vm] keys reached the proposals and Apply dropped mode, prepare and retention of
 #        every VM. Said once as a hint vm_service_off_kept {n}.
