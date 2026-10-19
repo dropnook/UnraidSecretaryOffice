@@ -1487,18 +1487,20 @@ const putInto = (node, x) => {
  *         what = 'words' | 'only' | 'pick' | 'tile' (the chip) | 'all' («Show all») | 'gone' (the switch or the pick
  *         went away by itself: nothing to switch to, the option gone)
  *   bar.read()  → {words, only, pick, tile}
- *   bar.done(n, total, {tile, clear, onlyAvail}) after the desk drew the list: shows or hides the bar, and while
- *         anything narrows the list (words, the «only …» switch, the pick, a tile) the note line under the controls:
+ *   bar.done(n, total, {tile, clear, onlyAvail, parts}) after the desk drew the list: shows or hides the bar, and while
+ *         anything narrows the list (words, the «only …» switch, the pick, a tile, a part) the note line under the controls:
  *         «The list shows only: [VMs ×] [Manual ×] [«müller» ×] · 1 of 12 fit — Show all» — a chip per part, each
  *         × takes that part away, «Show all» all of them (the pick too); the active control carries .on
- *         (2026-10-11, Benj: a pick narrowed the list to «1 of 325» and nothing said how to get back)
+ *         (2026-10-11, Benj: a pick narrowed the list to «1 of 325» and nothing said how to get back);
+ *         parts: [[name, clear], …] — more of the desk's own that narrow the list (Ms. Protocolli's time filter), a chip
+ *         each after the tile's: its × calls clear() and draws (onChange what 'part'); «Show all» clears them through clear
  *   bar.options([[value, text, n], …]), bar.reset(), bar.tile(name | ''), bar.set({text, only, pick})
  */
 Office.filterBar = function filterBar(opts) {
   const o = opts || {};
   const min = typeof o.min === 'number' ? o.min : Office.FILTER_MIN;
   const pickKey = o.key && o.select ? o.key + '.pick' : null;
-  const s = { pick: (pickKey && Office.store(pickKey)) || '', tile: '', clear: null, focus: null, range: null };
+  const s = { pick: (pickKey && Office.store(pickKey)) || '', tile: '', clear: null, focus: null, range: null, parts: [] };
   const box = el('div', 'toolbar filterbar');
   const input = el('input', 'search filter-words');
   input.type = 'search';
@@ -1554,6 +1556,7 @@ Office.filterBar = function filterBar(opts) {
   if (sel) sel.addEventListener('change', () => { setPick(sel.value); change(sel, 'pick'); });
   const cleared = (what) => {
     s.tile = '';
+    if (what === 'all') s.parts = [];
     if (what === 'all') {
       input.value = '';
       if (cb) cb.checked = false;
@@ -1563,22 +1566,23 @@ Office.filterBar = function filterBar(opts) {
     change(box, what);
   };
   // a chip's ×: that part goes, the rest stays
-  const chipClick = (what) => {
+  const chipClick = (what, part) => {
     if (what === 'tile') { cleared('tile'); return; }
+    if (what === 'part') { s.parts = s.parts.filter((x) => x !== part); part[1](); change(box, 'part'); return; }
     if (what === 'pick') { setPick(''); change(sel || box, 'pick'); return; }
     if (what === 'only') { if (cb) cb.checked = false; change(sw || box, 'only'); return; }
     input.value = '';
     s.range = null;
     change(input, 'words');
   };
-  const chipOf = (what, name) => {
+  const chipOf = (what, name, part) => {
     const chip = el('button', 'chip filter-chip');
     chip.type = 'button';
     chip.dataset.what = what;
     chip.append(el('span', 'filter-chip-name', name), el('span', 'filter-chip-x', '×'));
     chip.lastChild.setAttribute('aria-hidden', 'true');
     chip.setAttribute('aria-label', t('common.filter_clear_tile', { name }));
-    chip.addEventListener('click', () => chipClick(what));
+    chip.addEventListener('click', () => chipClick(what, part));
     return chip;
   };
   all.addEventListener('click', () => cleared('all'));
@@ -1611,10 +1615,11 @@ Office.filterBar = function filterBar(opts) {
       const x = d || {};
       if ('tile' in x) s.tile = x.tile || '';
       if (x.clear) s.clear = x.clear;
+      if ('parts' in x) s.parts = (Array.isArray(x.parts) ? x.parts : []).filter((p) => Array.isArray(p) && p[0] && typeof p[1] === 'function');
       const avail = x.onlyAvail !== false;
       if (sw && !avail && cb.checked) { cb.checked = false; later('gone', box); }    // nothing to switch to: off, drawn anew
       const f = read();
-      const filtering = !!(f.words.length || f.only || f.pick || f.tile);
+      const filtering = !!(f.words.length || f.only || f.pick || f.tile || s.parts.length);
       // a short list with nothing filtering: the filter's own controls go, the extras (a desk's own buttons) stay —
       // the bar itself only without them
       const quiet = !(total >= min || filtering);
@@ -1627,10 +1632,11 @@ Office.filterBar = function filterBar(opts) {
       note.hidden = !filtering;
       const parts = [];
       if (f.tile) parts.push(['tile', f.tile]);
+      s.parts.forEach((p) => parts.push(['part', p[0], p]));
       if (f.pick) parts.push(['pick', pickText.get(f.pick) || f.pick]);
       if (f.only && sw && !sw.hidden) parts.push(['only', o.only.text]);
       if (f.words.length) parts.push(['words', '«' + input.value.trim() + '»']);
-      chips.replaceChildren(...parts.map(([what, name]) => chipOf(what, name)));
+      chips.replaceChildren(...parts.map(([what, name, part]) => chipOf(what, name, part)));
       noteHits.textContent = filtering ? '· ' + said : '';
       input.classList.toggle('on', f.words.length > 0);
       if (sel) sel.classList.toggle('on', !!f.pick);
@@ -1654,6 +1660,7 @@ Office.filterBar = function filterBar(opts) {
       input.value = '';
       if (cb) cb.checked = false;
       s.tile = '';
+      s.parts = [];
       s.range = null;
       return bar;
     },
