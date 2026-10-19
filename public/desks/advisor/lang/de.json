@@ -14,6 +14,10 @@
     "one": "{names} ist noch nicht im Haus. Unten steht, wofür das gut ist und wie du es holst — oder ich erledige das für dich.",
     "other": "{names} sind noch nicht im Haus. Unten steht, wofür sie gut sind und wie du sie holst — oder ich erledige das für dich."
   },
+  "bubble.missing_docker_off": {
+    "one": "{names} ist noch nicht im Haus. Unten steht, wofür das gut ist und wie du es holst. Docker läuft nicht — einen Container kann ich dir gerade nicht holen.",
+    "other": "{names} sind noch nicht im Haus. Unten steht, wofür sie gut sind und wie du sie holst. Docker läuft nicht — einen Container kann ich dir gerade nicht holen."
+  },
   "look_again": "Rundgang",
   "looked": "Rundgang fertig.",
   "looked_at": "Geschaut {when}.",

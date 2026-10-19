@@ -1058,7 +1058,9 @@ check_inv_leftover() {
     if [[ -s $KEEP/.shares && -d $KEEP/before/inventory ]]; then
         local s
         while IFS= read -r s; do
-            x=$(diff "$KEEP/before/inventory/$s.empty" <(_empty_dirs "$s") 2>/dev/null | grep '^>' | head -3)
+            # by path below the base: an empty folder the mover handed to another base (cache/x → disk1/x) isn't new
+            x=$(_empty_dirs "$s" | awk 'FILENAME == ARGV[1] {sub(/^[^\/]*\//,""); was[$0]=1; next}
+                {r=$0; sub(/^[^\/]*\//,"",r)} !(r in was) {print "> " $0}' "$KEEP/before/inventory/$s.empty" - 2>/dev/null | head -3)
             [[ -n $x ]] && bad+=("new empty folders in $s: ${x//$'\n'/ }")
         done <"$KEEP/.shares"
     fi

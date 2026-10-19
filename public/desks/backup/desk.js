@@ -6163,6 +6163,7 @@ function letGoDoneLines(j) {
 
 Office.desk({
   id: ID,
+  runs: (s) => !!(s.running || (s.setup && s.setup.running)),       // core.js: an old kept state saying so isn't shown
   async mount(root, sub) {
     view = root;
     clearTimeout(setupTimer);
