@@ -1814,6 +1814,8 @@
   "warn_code.vm_not_frozen": "{name}: its guest agent didn't freeze the file systems — paused instead; the run didn't quite follow the setup.",
   "warn_code.vm_not_paused": "{name} could not be paused — it kept running, its disks only crash-consistent; the run didn't quite follow the setup.",
   "warn_code.nc_datadir_readable": "{name} refuses to work — its data folder {path} is readable by others, so it couldn't go into maintenance mode; backed up without it (stopped with the apps). Unraid does that when a share is added or saved: it resets a share's root to 0777 unless the root belongs to the group users. Close it for good — Unraid then leaves it alone: chown {uid}:users '{path}' && chmod 0770 '{path}'",
+  "warn_code.dump_paused": "{container} was paused by you — I left it paused and made no dump of it this time; the package keeps the last one.",
+  "warn_code.dump_stopped": "{container} isn't running — no dump of it this time; the package keeps the last one.",
   "warn_code.partner_ended": "Partner {partner}: the partnership was ended at the Team Lead — nothing sent. Apply my setup so its units go to the partnership made anew.",
   "warn_code.partner_no_key": "Partner {partner}: this office's key for it is missing — nothing sent. Pair anew at the Team Lead.",
   "warn_code.partner_snap_prefix": "Partner {partner}: a partner takes only snapshots called {prefix}… — nothing sent. Set the snapshot prefix back in my setup.",

@@ -1002,6 +1002,7 @@ inv_flash() {
 # --- Containers --------------------------------------------------------------
 #   CT_NAMES             all containers
 #   CT_IMAGE[n] CT_RUNNING[n] (true/false) CT_NET[n] CT_ID[n]
+#   CT_PAUSED[n]         true: paused (docker pause, Unraid's Pause) - CT_RUNNING is true then too (2.64)
 #   CT_BINDS[n]          lines "source|target|rw"
 #   CT_VOLUMES[n]        lines "volume|target"
 #   CT_HEALTH[n]         "" or healthcheck status
@@ -1009,21 +1010,21 @@ inv_flash() {
 #   CT_PORTS[n]          exposed ports, e.g. "5432/tcp 8080/tcp"
 #   CT_PROJECT[n] CT_SERVICE[n]   Compose stack and service (empty for single containers)
 declare -ga CT_NAMES=()
-declare -gA CT_IMAGE=() CT_RUNNING=() CT_NET=() CT_ID=() CT_BINDS=() CT_VOLUMES=() CT_HEALTH=()
+declare -gA CT_IMAGE=() CT_RUNNING=() CT_NET=() CT_ID=() CT_BINDS=() CT_VOLUMES=() CT_HEALTH=() CT_PAUSED=()
 declare -gA CT_ENVKEYS=() CT_PORTS=() CT_PROJECT=() CT_SERVICE=()
 
 DOCKER_SERVICE="yes"    # (2.54) "no": Unraid's Docker service is switched off - no containers, no Kopia (ub_docker_service_off)
 docker_load() {
-    CT_NAMES=(); CT_IMAGE=(); CT_RUNNING=(); CT_NET=(); CT_ID=(); CT_BINDS=(); CT_VOLUMES=(); CT_HEALTH=()
+    CT_NAMES=(); CT_IMAGE=(); CT_RUNNING=(); CT_NET=(); CT_ID=(); CT_BINDS=(); CT_VOLUMES=(); CT_HEALTH=(); CT_PAUSED=()
     CT_ENVKEYS=(); CT_PORTS=(); CT_PROJECT=(); CT_SERVICE=()
     DOCKER_SERVICE="yes"
     ub_docker_service_off && { DOCKER_SERVICE="no"; return 0; }
-    local ids n img run net id binds vols health envk ports proj svc
+    local ids n img run net id binds vols health envk ports proj svc paused
     mapfile -t ids < <(docker ps -aq 2>/dev/null)
     [[ ${#ids[@]} -eq 0 ]] && return 0
     # Field separator \x1e instead of tab: bash merges consecutive tabs,
     # an empty field (e.g. no healthcheck) would shift all following ones
-    while IFS=$'\x1e' read -r n img run net id health binds vols envk ports proj svc; do
+    while IFS=$'\x1e' read -r n img run net id health binds vols envk ports proj svc paused; do
         [[ -z "$n" ]] && continue
         CT_NAMES+=( "$n" )
         CT_IMAGE[$n]="$img"; CT_RUNNING[$n]="$run"; CT_NET[$n]="$net"; CT_ID[$n]="$id"
@@ -1033,6 +1034,7 @@ docker_load() {
         CT_ENVKEYS[$n]="${envk//$'\x1f'/$'\n'}"
         CT_PORTS[$n]="$ports"
         CT_PROJECT[$n]="$proj"; CT_SERVICE[$n]="$svc"
+        CT_PAUSED[$n]="${paused:-false}"
     done < <(docker inspect "${ids[@]}" 2>/dev/null | jq -r '.[] | [
             .Name[1:],
             .Config.Image,
@@ -1045,7 +1047,8 @@ docker_load() {
             ([.Config.Env[]? | split("=")[0]] | join("\u001f")),
             ((.Config.ExposedPorts // {}) | keys | join(" ")),
             (.Config.Labels["com.docker.compose.project"] // ""),
-            (.Config.Labels["com.docker.compose.service"] // "")
+            (.Config.Labels["com.docker.compose.service"] // ""),
+            ((.State.Paused // false)|tostring)
         ] | map(gsub("[\n\u001e]"; " ")) | join("\u001e")')
 }
 

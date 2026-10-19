@@ -43390,6 +43390,177 @@ function testBackupNcOpen(): void
     hardeningRm($tmp);
 }
 
+/**
+ * Engine 2.64 (scenario batch B, 2026-10-19): apps the user paused or stopped. backup.sh on a fixture server like
+ * testBackupVmOrder (no VMs, no Kopia): stand-ins for docker (the containers' states in $FAKE/ct: running, paused or
+ * stopped; exec refused for a paused or stopped one, as Docker does; Nextcloud's occ), zfs and notify.
+ * B7: a paused container is left exactly as it is - never stopped, never started, so it is paused afterwards (up to 2.63
+ * docker's State.Running, true for a paused one, had it stopped and started: it ran after the run); a paused database
+ * gets no dump (dump_paused), a paused Nextcloud no maintenance mode; the package's manifest says «paused».
+ */
+function testBackupPausedStopped(): void
+{
+    if (posix_getuid() !== 0) {
+        check('paused/stopped: backup.sh runs as root only — not run here', true);
+        return;
+    }
+    $tmp = sys_get_temp_dir() . '/office-tests-pausedstopped-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $mnt = "$tmp/mnt";
+    $pool = "$mnt/maple";
+    $fake = "$tmp/fake";
+    $data = "$tmp/data/unraid-backup";
+    $cts = ['c1' => 'nginx', 'c2' => 'nginx', 'db1' => 'mariadb:11', 'nc' => 'nextcloud:30', 'ncdb' => 'mariadb:11'];
+    foreach (["$tmp/bin", "$fake/ct", "$data/state", "$tmp/boot/config/shares", "$mnt/user/UnraidSecretaryOffice", "$pool/UnraidSecretaryOffice/backup", "$tmp/stage"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    foreach (array_keys($cts) as $c) {
+        @mkdir("$pool/appdata/$c", 0700, true);
+    }
+    foreach (['appdata', 'UnraidSecretaryOffice'] as $n) {
+        touch("$tmp/boot/config/shares/$n.cfg");
+    }
+    file_put_contents("$fake/mounts", "maple $pool zfs rw 0 0\nmaple/appdata $pool/appdata zfs rw 0 0\nmaple/UnraidSecretaryOffice $pool/UnraidSecretaryOffice zfs rw 0 0\n"
+        . "shfs $mnt/user fuse.shfs rw 0 0\n");
+    $z = fn ($n, $mp) => "$n\t$mp\ton\t" . crc32($n) . "\t1000\t-\n";
+    file_put_contents("$fake/zfs.txt", $z('maple', $pool) . $z('maple/appdata', "$pool/appdata") . $z('maple/UnraidSecretaryOffice', "$pool/UnraidSecretaryOffice"));
+    file_put_contents("$fake/inspect.json", json_encode(array_map(fn ($c, $img) => ['Name' => "/$c", 'Id' => "id-$c",
+        'Config' => ['Image' => $img, 'Env' => [], 'Labels' => new stdClass()], 'State' => ['Running' => true, 'Paused' => false], 'HostConfig' => ['NetworkMode' => 'bridge'],
+        'Mounts' => [['Type' => 'bind', 'Source' => "$mnt/user/appdata/$c", 'Destination' => $c === 'nc' ? '/var/www/html' : '/config', 'RW' => true]]],
+        array_keys($cts), array_values($cts))));
+    // docker: each container's state in $FAKE/ct/<name> (running when missing); exec refused unless running; Nextcloud's occ
+    // ($FAKE/nc.dbdown: its database unreachable - occ fails as Nextcloud does then)
+    file_put_contents("$tmp/bin/docker", <<<'SH'
+#!/bin/bash
+ev() { echo "$*" >>"$FAKE/events"; }
+st() { cat "$FAKE/ct/$1" 2>/dev/null || echo running; }
+states() { for f in "$FAKE"/ct/*; do [[ -f "$f" ]] && printf '%s %s\n' "${f##*/}" "$(cat "$f")"; done | jq -Rn '[inputs | split(" ") | {key: .[0], value: .[1]}] | from_entries'; }
+case "$1" in
+  info|version) exit 0 ;;
+  ps) [[ "$*" == *q* ]] && jq -r '.[].Id' "$FAKE/inspect.json" || jq -r '.[] | "\(.Name[1:])\t\(.Config.Image)\tUp"' "$FAKE/inspect.json"; exit 0 ;;
+  compose) exit 1 ;;
+  inspect)
+    shift
+    if [[ "$1" == -f ]]; then
+      s="$(st "$3")"
+      case "$2" in
+        *Health*) [[ "$s" != stopped ]] && echo "true " || echo "false " ;;
+        *State.Paused*) case "$s" in stopped) echo "false false" ;; paused) echo "true true" ;; *) echo "true false" ;; esac ;;
+        *State.Running*) [[ "$s" != stopped ]] && echo true || echo false ;;
+      esac
+      exit 0
+    fi
+    [[ "$1" == --format ]] && exit 0
+    jq --argjson st "$(states)" '[.[] | . as $c | (.Name | ltrimstr("/")) as $n | select(($ARGS.positional | length) == 0 or ($ARGS.positional | index($n)) or ($ARGS.positional | index($c.Id)))
+        | .State = {Running: (($st[$n] // "running") != "stopped"), Paused: (($st[$n] // "running") == "paused")}]' "$FAKE/inspect.json" --args "$@"
+    exit 0 ;;
+  image) echo '[]'; exit 0 ;;
+  stop) shift; while [[ "$1" == -* ]]; do shift 2; done
+        for c in "$@"; do echo stopped >"$FAKE/ct/$c"; ev "docker stop $c"; done; exit 0 ;;
+  start) shift; for c in "$@"; do echo running >"$FAKE/ct/$c"; ev "docker start $c"; done; exit 0 ;;
+  pause|unpause) ev "docker $*"; exit 0 ;;
+  exec)
+    shift
+    while [[ "$1" == -* ]]; do case "$1" in -u|-e) shift 2 ;; *) shift ;; esac; done
+    c="$1"; shift
+    case "$(st "$c")" in
+      paused) echo "Error response from daemon: container $c is paused, unpause the container before exec" >&2; exit 1 ;;
+      stopped) echo "Error response from daemon: container $c is not running" >&2; exit 1 ;;
+    esac
+    ev "exec $c $*"
+    [[ "$c" == nc ]] || exit 1
+    case "$1" in
+      test) [[ "${3:-}" == /var/www/html/occ ]] && exit 0; exit 1 ;;
+      stat) echo www-data; exit 0 ;;
+      id) echo 33; exit 0 ;;
+      cat) [[ -e "$FAKE/nc.config" ]] && cat "$FAKE/nc.config"; exit 0 ;;
+      php)
+        shift 2
+        if [[ -e "$FAKE/nc.dbdown" ]]; then
+          printf '%s\n' 'An unhandled exception has been thrown:' "Doctrine\\DBAL\\Exception: Failed to connect to the database: An exception occurred in the driver: SQLSTATE[HY000] [2002] $(cat "$FAKE/nc.dbdown") in /var/www/html/lib/private/DB/Connection.php:236"
+          exit 1
+        fi
+        case "$*" in
+          "config:system:get instanceid") echo inst1 ;;
+          "config:system:get maintenance") cat "$FAKE/nc.maint" 2>/dev/null || echo false ;;
+          "maintenance:mode --on") echo true >"$FAKE/nc.maint"; ev "occ maintenance on" ;;
+          "maintenance:mode --off") echo false >"$FAKE/nc.maint"; ev "occ maintenance off" ;;
+        esac
+        exit 0 ;;
+    esac
+    exit 1 ;;
+esac
+exit 1
+SH);
+    file_put_contents("$tmp/bin/virsh", "#!/bin/bash\nexit 0\n");          // the VM service on, no VMs (never the host's own)
+    file_put_contents("$tmp/bin/zfs", "#!/bin/bash\ncase \"\$*\" in *'-t filesystem'*) cat \"\$FAKE/zfs.txt\" ;; snapshot*) echo \"zfs snapshot\" >>\"\$FAKE/events\" ;; esac\nexit 0\n");
+    foreach (['zpool', 'btrfs', 'umount'] as $b) {
+        file_put_contents("$tmp/bin/$b", "#!/bin/bash\nexit 0\n");
+    }
+    file_put_contents("$tmp/bin/mount", "#!/bin/bash\nexit 1\n");
+    file_put_contents("$tmp/bin/mountpoint", "#!/bin/bash\n[[ \"\${@: -1}\" == */user ]]\n");
+    file_put_contents("$tmp/bin/notify", "#!/bin/bash\necho \"\$*\" >>\"\$FAKE/notify.log\"\n");
+    foreach (glob("$tmp/bin/*") as $f) {
+        chmod($f, 0755);
+    }
+    $clock = "$fake/clock";
+    testsClock("$tmp/bin", $clock);
+    $env = "export PATH=$tmp/bin:\$PATH UB_DATA=$data UB_MNT=$mnt UB_BOOT=$tmp/boot UB_SHARES_CFG=$tmp/boot/config/shares UB_STAGE=$tmp/stage"
+         . " UB_DISKS_INI=$fake/disks.ini UB_MOUNTS_FILE=$fake/mounts UB_NOTIFY_BIN=$tmp/bin/notify FAKE=$fake MNT=$mnt UB_NC_SETTLE=0";
+    file_put_contents("$data/settings.ini", "[general]\nserver = Test\nmount_root = $mnt/addons/UnraidSecretaryOffice/snapshots\n"
+        . "view_root = $mnt/addons/UnraidSecretaryOffice/btrfs-snap\nsnap_prefix = uso-backup-\ndumps_share = UnraidSecretaryOffice\nmin_free_gb = 0\n"
+        . "[docker]\nstop = all\n" . implode('', array_map(fn ($c) => "known = $c\n", array_keys($cts))) . "[flash]\nmode = off\n[libvirt]\nmode = off\n"
+        . "[kopia]\nenabled = no\n[nextcloud \"nc\"]\npreexisting_maintenance = abort\n[dump \"db1\"]\ntype = mariadb\n"
+        . "[share \"appdata\"]\nmode = snapshot\n[share \"UnraidSecretaryOffice\"]\nmode = snapshot\n");
+    $night = function (array $states) use ($fake, $data): void {
+        exec('rm -rf ' . escapeshellarg("$fake/ct") . ' ' . escapeshellarg("$fake/events") . ' ' . escapeshellarg("$fake/notify.log"));
+        @mkdir("$fake/ct", 0700, true);
+        foreach ($states as $c => $s) {
+            file_put_contents("$fake/ct/$c", "$s\n");
+        }
+        @unlink("$data/state/status.json");
+    };
+    $run = function () use ($env, $clock): string {
+        testsClockRun($clock);
+        return testsClockRan('paused/stopped', (string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' </dev/null') . ' 2>&1'));
+    };
+    $events = fn () => file("$fake/events", FILE_IGNORE_NEW_LINES) ?: [];
+    $state = fn (string $c) => trim((string) @file_get_contents("$fake/ct/$c")) ?: 'running';
+    $status = fn () => json_decode((string) @file_get_contents("$data/state/status.json"), true) ?: [];
+    $log = fn () => (string) @file_get_contents("$data/logs/latest.log");
+
+    // --- B7: c2, the database db1 and Nextcloud paused by the user; c1 and ncdb running
+    $night(['c2' => 'paused', 'db1' => 'paused', 'nc' => 'paused']);
+    $out = $run();
+    $ev = $events();
+    $s = $status();
+    $touched = array_values(array_filter($ev, fn ($e) => (bool) preg_match('/^(docker (stop|start|pause|unpause)|exec) .*\b(c2|db1|nc)\b/', $e)));
+    same('paused (B7): the run went through with a warning; c1 and ncdb stopped and started as always', ['warnings', true, true],
+        [$s['result'] ?? null, in_array('docker stop c1', $ev, true) && in_array('docker start c1', $ev, true), in_array('docker stop ncdb', $ev, true) && in_array('docker start ncdb', $ev, true)],
+        $out . $log());
+    same('paused (B7): the paused ones are never stopped, started or asked anything - still paused afterwards', [[], 'paused', 'paused', 'paused'],
+        [$touched, $state('c2'), $state('db1'), $state('nc')], json_encode($ev));
+    same('paused (B7): the paused database\'s dump skipped, in the office\'s words (dump_paused); no maintenance mode for the paused Nextcloud',
+        [[['code' => 'dump_paused', 'params' => ['container' => 'db1']]], false],
+        [$s['warning_items'] ?? null, in_array('occ maintenance on', $ev, true)]);
+    $l = $log();
+    check('paused (B7): the log says it - left as they are, Nextcloud stays paused',
+        str_contains($l, 'Paused by you:    c2 db1 nc (left as they are') && str_contains($l, "Nextcloud 'nc' is paused (by you) - no maintenance mode, it stays paused")
+        && str_contains($l, "WARNING: Database container 'db1' is paused - no dump"), $l);
+    $man = json_decode((string) @file_get_contents("$mnt/user/UnraidSecretaryOffice/backup/apps/c2/manifest.json"), true) ?: [];
+    same('paused (B7): the package\'s manifest says the container was paused', [['c2', true, true]],
+        array_map(fn ($c) => [$c['name'] ?? null, $c['running'] ?? null, $c['paused'] ?? null], $man['containers'] ?? []));
+
+    // --- the same server, nothing paused: everything stopped and started, Nextcloud in maintenance mode, the dump made
+    $night([]);
+    $run();
+    $ev = $events();
+    check('paused (B7): nothing paused - every container stopped and started again, Nextcloud\'s maintenance mode on and off',
+        !array_diff(['docker stop c2', 'docker start c2', 'docker stop nc', 'docker start nc', 'occ maintenance on', 'occ maintenance off'], $ev)
+        && !preg_grep('/^docker (un)?pause/', $ev), json_encode($ev));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 function testBackupMovedPackage(): void
 {
     $tmp = hardeningTmp('moved-package');
@@ -43614,7 +43785,7 @@ JS;
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

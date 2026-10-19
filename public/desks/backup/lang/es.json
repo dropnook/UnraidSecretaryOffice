@@ -1835,6 +1835,8 @@
   "warn_code.vm_not_frozen": "{name}: su agente invitado no congeló los sistemas de archivos — pausada en su lugar; la copia no siguió exactamente la configuración.",
   "warn_code.vm_not_paused": "{name} no se pudo pausar — siguió funcionando, sus discos solo consistentes como tras un corte; la copia no siguió exactamente la configuración.",
   "warn_code.nc_datadir_readable": "{name} se niega a funcionar — su carpeta de datos {path} la pueden leer otros, así que el modo de mantenimiento no se activó; copiado sin él (detenido con las apps). Lo hace Unraid al añadir o guardar un recurso compartido: restablece la raíz de un recurso compartido a 0777, salvo que pertenezca al grupo users. Ciérrala para siempre — entonces Unraid la deja en paz: chown {uid}:users '{path}' && chmod 0770 '{path}'",
+  "warn_code.dump_paused": "{container} estaba en pausa (por ti) — lo dejé así y esta vez no hice dump; el paquete conserva el último.",
+  "warn_code.dump_stopped": "{container} no está en marcha — esta vez no hay dump; el paquete conserva el último.",
   "warn_code.partner_ended": "Socio {partner}: la asociación se terminó con el jefe de equipo — nada enviado. Aplica mi configuración para que sus unidades pasen a la asociación emparejada de nuevo.",
   "warn_code.partner_no_key": "Socio {partner}: falta la clave de esta oficina para él — nada enviado. Empareja de nuevo con el jefe de equipo.",
   "warn_code.partner_snap_prefix": "Socio {partner}: un socio solo acepta instantáneas llamadas {prefix}… — nada enviado. Vuelve a poner el prefijo de instantáneas en mi configuración.",

@@ -1814,6 +1814,8 @@
   "warn_code.vm_not_frozen": "{name}: Der Gast-Agent hat die Dateisysteme nicht eingefroren — angehalten; der Lauf entsprach nicht genau der Einrichtung.",
   "warn_code.vm_not_paused": "{name} liess sich nicht anhalten — sie lief weiter, ihre Disks nur absturzkonsistent; der Lauf entsprach nicht genau der Einrichtung.",
   "warn_code.nc_datadir_readable": "{name} verweigert die Arbeit — sein Datenordner {path} ist für andere lesbar, darum ging der Wartungsmodus nicht; ohne ihn gesichert (mit den Apps angehalten). Das macht Unraid, wenn ein Share angelegt oder gespeichert wird: Es setzt die Wurzel eines Shares auf 0777 zurück, ausser sie gehört der Gruppe users. Dauerhaft schliessen — dann lässt Unraid ihn in Ruhe: chown {uid}:users '{path}' && chmod 0770 '{path}'",
+  "warn_code.dump_paused": "{container} war von dir pausiert — ich habe es so gelassen und diesmal keinen Dump davon gemacht; das Paket behält den letzten.",
+  "warn_code.dump_stopped": "{container} läuft nicht — diesmal kein Dump davon; das Paket behält den letzten.",
   "warn_code.partner_ended": "Partner {partner}: die Partnerschaft wurde beim Teamchef beendet — nichts gesendet. Wende meine Einrichtung an, damit seine Einheiten an die neu verbundene Partnerschaft gehen.",
   "warn_code.partner_no_key": "Partner {partner}: der Schlüssel dieses Büros dafür fehlt — nichts gesendet. Verbinde beim Teamchef neu.",
   "warn_code.partner_snap_prefix": "Partner {partner}: ein Partner nimmt nur Snapshots namens {prefix}… — nichts gesendet. Stell das Snapshot-Präfix in meiner Einrichtung zurück.",

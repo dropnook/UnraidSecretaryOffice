@@ -1820,6 +1820,8 @@
   "warn_code.vm_not_frozen": "{name}: il guest agent non ha congelato i file system — messa in pausa; il backup non ha seguito esattamente la configurazione.",
   "warn_code.vm_not_paused": "{name} non si è lasciata mettere in pausa — ha continuato a girare, i dischi solo coerenti come dopo un crash; il backup non ha seguito esattamente la configurazione.",
   "warn_code.nc_datadir_readable": "{name} si rifiuta di funzionare — la sua cartella dati {path} è leggibile da altri, quindi la modalità manutenzione non si è attivata; salvato senza (fermato con le app). Lo fa Unraid quando si aggiunge o si salva una condivisione: reimposta la radice di una condivisione a 0777, a meno che appartenga al gruppo users. Chiudila per sempre — poi Unraid la lascia stare: chown {uid}:users '{path}' && chmod 0770 '{path}'",
+  "warn_code.dump_paused": "{container} era in pausa (l'hai messo tu) — l'ho lasciato così e questa volta niente dump; il pacchetto tiene l'ultimo.",
+  "warn_code.dump_stopped": "{container} non è in esecuzione — questa volta niente dump; il pacchetto tiene l'ultimo.",
   "warn_code.partner_ended": "Partner {partner}: la partnership è stata terminata presso il capoufficio — niente inviato. Applica la mia configurazione perché le sue unità passino alla partnership riabbinata.",
   "warn_code.partner_no_key": "Partner {partner}: manca la chiave di questo ufficio per lui — niente inviato. Riabbinalo presso il capoufficio.",
   "warn_code.partner_snap_prefix": "Partner {partner}: un partner accetta solo snapshot chiamati {prefix}… — niente inviato. Rimetti il prefisso degli snapshot nella mia configurazione.",

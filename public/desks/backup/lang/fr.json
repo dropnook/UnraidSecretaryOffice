@@ -1835,6 +1835,8 @@
   "warn_code.vm_not_frozen": "{name} : son agent invité n'a pas figé les systèmes de fichiers — mise en pause à la place ; la sauvegarde n'a pas tout à fait suivi la configuration.",
   "warn_code.vm_not_paused": "{name} n'a pas pu être mise en pause — elle a continué de tourner, ses disques seulement cohérents comme après un crash ; la sauvegarde n'a pas tout à fait suivi la configuration.",
   "warn_code.nc_datadir_readable": "{name} refuse de fonctionner — son dossier de données {path} est lisible par d'autres, le mode maintenance n'a donc pas pu être activé ; sauvegardé sans (arrêté avec les apps). C'est Unraid : quand un partage est ajouté ou enregistré, il remet la racine d'un partage en 0777, sauf si elle appartient au groupe users. Fermez-le pour de bon — Unraid le laisse alors tranquille : chown {uid}:users '{path}' && chmod 0770 '{path}'",
+  "warn_code.dump_paused": "{container} était en pause (par toi) — je l'ai laissé ainsi et n'en ai pas fait de dump cette fois ; le paquet garde le dernier.",
+  "warn_code.dump_stopped": "{container} ne tourne pas — pas de dump cette fois ; le paquet garde le dernier.",
   "warn_code.partner_ended": "Partenaire {partner} : le partenariat a été terminé chez le chef d'équipe — rien envoyé. Applique ma configuration pour que ses unités passent au partenariat appairé à nouveau.",
   "warn_code.partner_no_key": "Partenaire {partner} : la clé de ce bureau pour lui manque — rien envoyé. Appaire à nouveau chez le chef d'équipe.",
   "warn_code.partner_snap_prefix": "Partenaire {partner} : un partenaire ne prend que des snapshots nommés {prefix}… — rien envoyé. Remets le préfixe des snapshots dans ma configuration.",

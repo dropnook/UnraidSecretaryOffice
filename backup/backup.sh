@@ -1,7 +1,11 @@
 #!/bin/bash
 ###############################################################################
 # unraid-backup - backup.sh                       Version 2.64 - 2026-10-19
-#   2.64 No change here yet (the engine's version: setup.sh keeps the VMs' settings while the VM service is off)
+#   2.64 A container the user paused (docker pause, Unraid's Pause) is left exactly as it is: never stopped, never
+#        started, so it is still paused after the run - up to 2.63 docker's State.Running (true for a paused one) had it
+#        stopped and started, and it ran afterwards. Its files hold still for the snapshot; a paused database gets no
+#        dump (warning dump_paused {container}; a stopped one: dump_stopped, up to 2.63 a plain warning), a paused
+#        Nextcloud no maintenance mode, a paused media server no SQLite copy. The app's manifest says paused per container.
 #   2.63 The btrfs emergency brake says what it did, in codes: each early delete is a warning btrfs_brake (base,
 #        free_gb, floor_gb, snap) - up to 2.62 a plain warning. status.json "btrfs" says per base what holds (kept,
 #        oldest, released, none_left - the brake reached with none of ours left, still no warning (2.23) -, brake_last,
@@ -499,12 +503,19 @@ die_code() {
 ##############################################################################
 # Stopping and starting containers
 ##############################################################################
-T_APP=(); T_DB=(); T_NET=(); T_NEW=(); T_REST=()
+T_APP=(); T_DB=(); T_NET=(); T_NEW=(); T_REST=(); T_PAUSED=()
 
+# 2.64: a container the user paused (docker pause, Unraid's Pause) is left exactly as it is - never stopped, never started,
+# so it is paused again afterwards (up to 2.63 docker's State.Running, true for a paused one, had it stopped and started:
+# it ran after the run). Its processes are frozen: its files don't change while the snapshot is taken (as a paused VM's
+# disks); a dump or a SQLite copy can't be made of it (exec refused) - the package keeps the last one
 build_stop_tiers() {
     local n prov
     local -A provider=() isdb=()
-    T_APP=(); T_DB=(); T_NET=(); T_NEW=(); T_REST=()
+    T_APP=(); T_DB=(); T_NET=(); T_NEW=(); T_REST=(); T_PAUSED=()
+    for n in "${CT_NAMES[@]}"; do
+        [[ "${CT_PAUSED[$n]:-}" == "true" && "$n" != "$KOPIA_CONTAINER" ]] && T_PAUSED+=( "$n" )
+    done
     [[ "$DOCKER_STOP" == "none" ]] && return 0
     for n in "${CT_NAMES[@]}"; do
         [[ "${CT_NET[$n]}" == container:* ]] || continue
@@ -514,6 +525,7 @@ build_stop_tiers() {
     for n in "${CT_NAMES[@]}"; do
         [[ "${CT_RUNNING[$n]}" == "true" ]] || continue
         [[ "$n" == "$KOPIA_CONTAINER" ]] && continue
+        [[ "${CT_PAUSED[$n]:-}" == "true" ]] && continue         # paused by the user: left as it is (2.64)
         in_list "$n" "${DOCKER_NO_STOP[@]}" "${DOCKER_SKIP[@]}" && continue
         # a container the setup hasn't seen ([docker] known) keeps running until the user decided (2.21)
         if (( ${#DOCKER_KNOWN[@]} )) && ! in_list "$n" "${DOCKER_KNOWN[@]}"; then T_NEW+=( "$n" ); continue; fi
@@ -1167,6 +1179,10 @@ nextcloud_maintenance_on() {
         if [[ "$(docker inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" != "true" ]]; then
             warn "Nextcloud '$c' is not running - no maintenance mode"; continue
         fi
+        # 2.64: paused by the user - it answers nothing and changes nothing until it is resumed: left as it is
+        if [[ "${CT_PAUSED[$c]:-}" == "true" ]]; then
+            log "  Nextcloud '$c' is paused (by you) - no maintenance mode, it stays paused"; continue
+        fi
         nc_find_occ "$c" || { warn "Nextcloud '$c': occ not found - no maintenance mode"; continue; }
         # Several containers can serve ONE Nextcloud (e.g. app and cron
         # with a shared config.php). The maintenance mode lives in that
@@ -1358,14 +1374,20 @@ dump_mongodb() { # dump_mongodb <container>
 }
 
 run_dumps() {
-    local c t f rc
+    local c t f rc st
     while IFS= read -r c; do
         [[ -z "$c" ]] && continue
         array_stop_check "before the dump of $c"
         t="$(cfg "dump|$c|type")"
         f="${PKG_APP_OF[$c]:-}"
-        if [[ "$(docker inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" != "true" ]]; then
-            warn "Database container '$c' is not running - no dump (the package keeps its last one)"
+        st="$(docker inspect -f '{{.State.Running}} {{.State.Paused}}' "$c" 2>/dev/null)"
+        if [[ "$st" != "true"* || "$st" == "true true" ]]; then
+            # 2.64: in the office's words (dump_paused / dump_stopped {container}): paused or stopped by the user - no exec answers
+            if [[ "$st" == "true true" ]]; then
+                warn_code dump_paused "Database container '$c' is paused - no dump (the package keeps its last one)" container="$c"
+            else
+                warn_code dump_stopped "Database container '$c' is not running - no dump (the package keeps its last one)" container="$c"
+            fi
             [[ -n "$f" ]] && pkg_mark apps "$f" warnings
             continue
         fi
@@ -1417,7 +1439,7 @@ sqlite_plan() {
     SQ_PLAN=()
     command -v sqlite3 >/dev/null 2>&1 || return 0
     for c in "${CT_NAMES[@]}"; do
-        [[ "${CT_RUNNING[$c]}" == "true" ]] || continue
+        [[ "${CT_RUNNING[$c]}" == "true" && "${CT_PAUSED[$c]:-}" != "true" ]] || continue   # paused: its files hold still (2.64)
         k="$(media_kind "${CT_IMAGE[$c]}")"; [[ -n "$k" ]] || continue
         in_list "$c" "${DOCKER_SKIP[@]}" && continue                         # not backed up on purpose
         in_list "$c" "${T_APP[@]}" "${T_DB[@]}" "${T_NET[@]}" && continue    # stopped: its snapshot is consistent
@@ -2394,6 +2416,7 @@ pkg_commit_apps() {
                        config_files: ($cfgs | split(",") | map(select(length > 0)))} else null end),
              containers: [($ins[0] // [])[] | . as $c | (.Name | ltrimstr("/")) as $n | {name: $n, image: .Config.Image, image_id: .Image,
                  digests: (first($images[] | select(.id == $c.Image) | .digests) // []), running: .State.Running,
+                 paused: (.State.Paused // false),
                  service: (.Config.Labels["com.docker.compose.service"] // null),
                  template: ($tpls[$n] // null),
                  inspect: .}],
@@ -3782,6 +3805,7 @@ log "  Nextcloud:        $(cfg_names nextcloud | paste -sd' ' -)"
 log "  Pause:            ${T_APP[*]:-} | DB: ${T_DB[*]:-} | network: ${T_NET[*]:-}"
 log "  Keep running:     ${KOPIA_CONTAINER:-} ${DOCKER_NO_STOP[*]:-}"
 (( ${#T_NEW[@]} )) && log "  New, keep running: ${T_NEW[*]} (not stopped until you decide in the setup)"
+(( ${#T_PAUSED[@]} )) && log "  Paused by you:    ${T_PAUSED[*]} (left as they are - not stopped, not started; paused again afterwards)"
 (( ${#T_REST[@]} )) && log "  Asleep, keep running: ${T_REST[*]} (all their backed-up data on pools left out this run)"
 (( ${#ST_ASLEEP_POOLS[@]} )) && log "  Left out, asleep:  ${ST_ASLEEP_POOLS[*]} - shares ${ST_ASLEEP_SHARES[*]:-none}${ST_ASLEEP_VMS[*]:+, VMs ${ST_ASLEEP_VMS[*]}}"
 if (( ${#NEW_LIST[@]} )); then
@@ -4282,6 +4306,7 @@ run_report() {
     for l in "${NEW_LIST[@]}"; do IFS=$'\x1f' read -r n p _ <<<"$l"; items+=( "$n/$p" ); done
     if (( ${#items[@]} )); then echo; echo "NEW, ONLY LOCAL UNTIL YOU DECIDE"; wrap_words "  " ", " "${items[@]}"; fi
     if (( ${#T_NEW[@]} )); then echo; echo "NEW CONTAINERS, KEPT RUNNING UNTIL YOU DECIDE"; wrap_words "  " ", " "${T_NEW[@]}"; fi
+    if (( ${#T_PAUSED[@]} )); then echo; echo "PAUSED BY YOU, LEFT AS THEY WERE (still paused)"; wrap_words "  " ", " "${T_PAUSED[@]}"; fi
     echo
     echo "Log: $LOG_FILE"
 }
