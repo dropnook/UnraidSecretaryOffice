@@ -64,6 +64,9 @@ bubble_facts() {
     [[ -f $UB/state/history.jsonl ]] && hist=$(grep -c . "$UB/state/history.jsonl")
     last=$(tail -1 "$UB/state/history.jsonl" 2>/dev/null | jq -r '.result // ""' 2>/dev/null)
     [[ $bk_run == false ]] && [[ $(jq -r '.mode // ""' "$st" 2>/dev/null) =~ ^(backup|nokopia)$ ]] && last=$(jq -r '.result // ""' "$st")
+    # status.json «running» with nobody at work: killed hard (a power cut, kill -9) — the office reads it failed /
+    # interrupted (agent/desks/backup.php backupScan), its bubble «didn't finish» (batch D, B11 on USOTest4)
+    [[ $bk_run == false && $last == running ]] && last=failed
     _ck_cron_has backup && sched=true
     _setup_done || setup_run=true
     waiting=$(jq '[.. | objects | select(has("folder"))] | length' "$UB/state/new-local.json" 2>/dev/null || echo 0)
