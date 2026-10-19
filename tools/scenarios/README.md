@@ -184,3 +184,58 @@ undo takes them from wherever a run put them; M1-run uses it again.
 heartbeat's age right now — lib.sh took «now − the last pulse the sampler saw», but the sampler stops at snap_after and
 the checks before INV-TICK take seconds (B5 and M1-stop: 26/28 s = a pulse 20 s before snap_after + 6/8 s of checks,
 the agent fine).
+
+## Batch E — services, Kopia, install, time (USOTest3VM)
+
+Run on USOTest3VM (7.4.0-rc.1, btrfs cache + ZFS pool «fast», Docker with the demo apps, Kopia on a filesystem
+repository, MinIO, no VM service, the time zone broken on purpose), office 1.66.8 / engine 2.63, final run
+`scenarios/2026-10-19/test3-scenarios-batch-e` (99 min). Red = a product finding (the report names the cause); the
+scenario is committed red. Cells marked «helper» need a helper branch not merged yet (they answer «needs» until then):
+`task/scenarios-helper-tm-dst-zone` (TM-DST on a server whose zone file is missing), `task/scenarios-helper-kopia-empty-test3`
+(KP-EMPTIED on USOTest3VM).
+
+| Cell | Scenario | Verdict on 1.66.8 | Time on test3 | Run |
+|---|---|---|---|---|
+| B14 | `backup-in-handedit-crlf-replan-apply` | green | 24 s | pre-release |
+| B14 | `backup-in-handedit-bom-replan-apply` | red: a BOM is «line 1 not understood» | 24 s | pre-release |
+| B14 | `backup-in-handedit-dup-replan-apply` | red: a key twice blocks Apply (setup_bad_decisions) | 20 s | pre-release |
+| B14 | `backup-in-handedit-zero-ret-replan-apply` | green | 24 s | pre-release |
+| B14 | `backup-in-handedit-perms-replan-apply` | red: «Look again»/Apply answer ok while the engine refuses | 2 min | pre-release |
+| B15 | `backup-sv-docker-hung-replan-run` | red: `docker info` without a time limit — replan and run hang | 12 min | pre-release |
+| B16 | `backup-kp-s3-unreachable-run` | red: no «offsite unreachable since …» | 83 s | pre-release |
+| B17 | `backup-kp-emptied-run-accept` | helper (KP-EMPTIED on test3) | 1 min (skipped) | pre-release |
+| B18 | `backup-sh-cfg-pool-gone-replan-run` | red: the plan doesn't name the missing pool | 19 min (two array restarts) | nightly |
+| B19 | `backup-tm-dst-run-sched` | helper (TM-DST zone) | ~70 min | nightly |
+| B25 | `backup-dk-asleep-disk1-replan-run` | needs hdd | — | pre-release |
+| B26 | `backup-sv-docker-off-first-setup-run` | red: Docker off drops every app's settings | 55 s | pre-release |
+| B37 | `backup-kp-container-stopped-replan-apply-run` | green | 84 s | pre-release |
+| B37 | `backup-kp-container-gone-replan-apply-run` | red: Apply clears the Kopia container | 91 s | pre-release |
+| B37 | `backup-kp-disconnected-replan-apply-run` | green | 92 s | pre-release |
+| B37 | `backup-kp-mapping-changed-replan-apply-run` | green | 2 min | pre-release |
+| B38 | `backup-kp-object-lock-tick` | green (all five variants) | 90 s | pre-release |
+| B38 | `backup-kp-locked-repo-run` | green | 74 s | pre-release |
+| B38 | `backup-kp-s3-quota-full-run` | green | 7.5 min | pre-release |
+| B40 | `backup-in-takeover-first-setup` | red: the old User Script isn't named | 28 s | pre-release |
+| B41 | `office-in-update-prev-replan` | green | 2 min | pre-release |
+| B41 | `office-in-downgrade-replan` | green | 30 s | pre-release |
+| B41, O1 | `office-in-update-old-update` | red: the watchman's alert twice after the update | 2 min | nightly |
+| B43 | `backup-tm-utc-broken-schedule-run` | red: «next run» 2 h before crond's | 80 s | pre-release |
+| B43 | `backup-tm-clock-back-run-sched` | red: MariaDB dump fails after the clock jump; «last run» by name | 93 s | pre-release |
+| B43 | `backup-tm-year-roll-run-sched` | needs a licence past 2027-01-01 (test3 runs a trial) | — | nightly |
+| O2 | `office-of-remove-reinstall-running` | green | 108 s | pre-release |
+| R18 | `restore-kp-disconnected-kopia-drill` | red: the drill fails (kopia_list_failed) | 2 min | pre-release |
+| R18 | `restore-kp-s3-unreachable-kopia-drill` | red: the drill fails (kopia_list_failed) | 2 min | pre-release |
+| R23 | `restore-sv-docker-off-scan-drill` | red: INV-REPLAN (as B26) | 37 s | pre-release |
+| M20 | `moverelli-in-moverelli-ini-handedit-resave` | red: her save drops a foreign key, writes X 0 for 150 | 16 s | pre-release |
+| M21 | `moverelli-in-takeover-import` | green | 15 s | pre-release |
+| M22 | `moverelli-in-update-old-resave` | red: the first unchanged save moves age_stat | 90 s | nightly |
+| M23 | `moverelli-mo-x-zero-run-sched` | green | 23 s | pre-release |
+| M24 | `moverelli-tm-utc-broken-schedule-run-sched` | red: her «next run» 2 h before crond's | 28 s | pre-release |
+| M24 | `moverelli-tm-dst-run-sched` | helper (TM-DST zone) | ~70 min | nightly |
+
+Notes for whoever runs them: the Kopia cells set uso-only and the backup place to «local + offsite» first (the plan
+proposes the place as soon as a share goes offsite) and put settings.ini back; Ms. Moverelli's cells set her up with
+the page's consent to switch Unraid's mover off and put her folder, the cron file and Unraid's schedule back. Run
+`backup-tm-clock-back-run-sched` last in a batch: the run it makes under the set-back clock has an older name, and the
+backup page reports the earlier run as «last» until the next run — later scenarios' INV-BUBBLE would inherit it.
+B15 lets Docker answer again before the checks (checks.sh INV-SETUP-MSGS asks Docker without a time limit).
