@@ -12,6 +12,9 @@
    tour she sorts the syslog's newest lines at once), the reader colours by them.
    Her second page «Set up» (#/logs/setup): her own rules and hide words, and what
    she took over from Enhanced Log's settings while it is installed.
+   Every list has its filter bar (core.js Office.filterBar) with a time filter where
+   its rows have a time; what a bar has set can be saved under a name, per list, on
+   the server (agent/desks/logs-filters.php) — applied only by a click, never by itself.
    The agent part lives in agent/desks/logs.php; lines always go into the page
    as text, never as HTML. */
 (() => {
@@ -48,6 +51,7 @@ let sysBar = null;              // the bar over «Syslog» (core.js Office.filte
 /** Where her syslog rules come from (Enhanced Log's repository) — for the credit under all */
 const ORIGIN = ['unraid-enhancedlog', 'https://github.com/dkaser/unraid-enhancedlog'];
 let foundBar = null;            // the bar over «Errors & warnings» (core.js Office.filterBar, built once): the words, the chips, the note line
+const bars = {};                // every list's bar by list (syslog, found, varlog, docker, read): built once a page, emptied at every visit
 let page = 'main';              // her two pages: 'main' (the tiles) or 'setup' (her own rules)
 let setupView = null;           // «Set up» while it is shown: {root, ruleForm, hideForm}
 /* Her instant sort: «Syslog» without a fresh tour (none, older than FRESH_S or from before her own rules changed) — the
@@ -61,8 +65,6 @@ const opts = {
   lines: Number(Office.store('logs.lines')) || 500,
   follow: Office.store('logs.follow') !== '0',
   wrap: Office.store('logs.wrap') === '1',
-  only: false,                // «only problems» is a filter: never kept (CLAUDE.md «Tiles»)
-  query: '',
 };
 let favs = Office.storeJson('logs.favorites') || DEFAULT_FAVS.slice();    // source ids, in the order they were starred
 
@@ -149,7 +151,7 @@ async function load(fresh) {
 }
 function took(j) {
   if (j.ok && j.state) state = j.state;
-  if (view) { renderHead(); fillSources(); redraw(); wantSort(); }
+  if (view) { renderHead(); fillSources(); openSaved(); redraw(); fillSaved('read', view.saved); wantSort(); }
   if (setupView) renderSetup();
 }
 
@@ -249,6 +251,8 @@ function build(root) {
     [T('help.source'), T('help.source_text')],
     [T('live'), T('help.live')],
     [T('only_problems'), T('help.only')],
+    [T('help.time'), T('help.time_text')],
+    [T('help.saved'), T('help.saved_text')],
     [T('help.favorites'), T('help.favorites_text')],
     [el('span', 'lg-sample error', T('help.red')), T('help.colours')],
     [T('help.safe'), T('help.safe_text')],
@@ -317,23 +321,16 @@ function readerSection(v = view) {
   LINE_CHOICES.forEach((n) => v.lines.appendChild(new Option(T('lines', { n }), String(n))));
   v.lines.value = String(opts.lines);
   v.lines.onchange = () => { opts.lines = Number(v.lines.value); Office.store('logs.lines', String(opts.lines)); restart(); redraw(); };
-  v.query = el('input', 'search');
-  v.query.type = 'search';
-  v.query.placeholder = T('filter');
-  v.query.spellcheck = false;
-  v.query.dataset.keep = '1';
-  v.query.oninput = () => { opts.query = v.query.value; renderLines(false); };
   const toggle = (key, text, onchange) => {
     const label = el('label', 'switch');
     const input = el('input');
     input.type = 'checkbox';
     input.checked = opts[key];
-    input.onchange = () => { opts[key] = input.checked; if (key !== 'only') Office.store('logs.' + key, input.checked ? '1' : '0'); onchange(); };
+    input.onchange = () => { opts[key] = input.checked; Office.store('logs.' + key, input.checked ? '1' : '0'); onchange(); };
     label.append(input, el('span', '', text));
     return label;
   };
   v.followSw = toggle('follow', T('live'), () => { if (opts.follow) read(false).then(schedule); else clearTimeout(timer); redraw(); });
-  const onlySw = toggle('only', T('only_problems'), () => renderLines(false));
   const wrapSw = toggle('wrap', T('wrap'), () => view.out.classList.toggle('wrap', opts.wrap));
   const copy = el('button', 'btn small plain', Office.t('common.copy'));
   copy.type = 'button';
@@ -341,10 +338,14 @@ function readerSection(v = view) {
   const save = el('button', 'btn small plain', T('download'));
   save.type = 'button';
   save.onclick = download;
-  bar.append(v.picker, v.star, v.lines, v.query, v.followSw, onlySw, wrapSw, copy, save);
+  bar.append(v.picker, v.star, v.lines, v.followSw, wrapSw, copy, save);
   s.appendChild(bar);
   v.favs = el('div', 'lg-favs');
   s.appendChild(v.favs);
+  // its filter bar (the words, «only errors & warnings», the time by the lines' own) and her saved filters for it
+  s.appendChild(readBar().el);
+  v.saved = el('div', 'lg-saved');
+  s.appendChild(v.saved);
 
   v.out = el('pre', 'code lg-out' + (opts.wrap ? ' wrap' : ''));
   v.out.setAttribute('tabindex', '0');
@@ -642,8 +643,15 @@ function varlogView() {
   const [box, none] = tourSection(T('varlog.title'), T('varlog.sub', { total: fmt.size(v.total || 0) }), 'varlog.title');
   if (none) return box;
   if (v.ok && !v.own) box.appendChild(el('p', 'callout', T('varlog.not_own')));
+  const files = v.files || [];
+  const bar = varlogBar();
+  box.append(bar.el, savedRow('varlog'));
+  const fb = bar.read();
+  const span = timeSpan(bar.time.read());
+  const fits = files.filter((f) => Office.fits(fb.words, [f.path]) && inSpan(span, f.time));
+  bar.time.avail(files.some((f) => Number(f.time) > 0));
   const list = el('div', 'box');
-  for (const f of v.files || []) {
+  for (const f of fits) {
     const r = readableRow(f.source);
     const main = el('div', 'row-main');
     const name = el('div', 'row-name', f.path);
@@ -658,8 +666,9 @@ function varlogView() {
     r.append(main, size, f.source ? readButton(f.source) : el('span'));
     list.appendChild(r);
   }
-  if (!list.children.length) list.appendChild(el('p', 'empty', T('varlog.empty')));
+  if (!list.children.length) list.appendChild(el('p', 'empty', files.length ? T('found.none_fit') : T('varlog.empty')));
   box.appendChild(list);
+  barDone('varlog', fits.length, files.length);
   box.appendChild(el('p', 'role lg-note', T('varlog.files_note', { n: v.count || 0, size: fmt.size(v.sum || 0), when: fmt.date(tour.time) })));
   return box;
 }
@@ -671,8 +680,15 @@ function dockerView() {
   const r = d.rotation || {};
   box.appendChild(el('p', 'role lg-note', r.on ? T('docker.rotation_on', { size: r.size || '?', files: r.files || '?', n: Number(r.files) }) : T('docker.rotation_off')));
   if (!d.ok) { box.appendChild(el('p', 'callout', d.enabled === false ? T('docker.disabled') : T('docker.down'))); return box; }
+  const all = d.containers || [];
+  const bar = dockerBar();
+  box.append(bar.el, savedRow('docker'));
+  const fb = bar.read();
+  const span = timeSpan(bar.time.read());
+  const fits = all.filter((c) => Office.fits(fb.words, [c.name, c.driver]) && inSpan(span, c.time));
+  bar.time.avail(all.some((c) => Number(c.time) > 0));          // a tour from before 1.67 has no time per container
   const list = el('div', 'box');
-  for (const c of d.containers || []) {
+  for (const c of fits) {
     const id = 'container:' + c.name;
     const row = readableRow(id);
     const main = el('div', 'row-main');
@@ -686,14 +702,16 @@ function dockerView() {
     else if (c.driver) meta.appendChild(chip(T('docker.driver', { driver: c.driver }), '', T('docker.driver_title', { driver: c.driver })));
     const g = grewChip(c.grew);
     if (g) meta.appendChild(g);
+    if (Number(c.time) > 0) meta.appendChild(el('span', '', T('changed', { when: fmt.relative(c.time) })));
     main.append(name, meta);
     const size = el('div', 'figures');
     size.append(el('b', '', c.size === null || c.size === undefined ? '–' : fmt.size(c.size)), el('span', ''));
     row.append(main, size, readButton(id));
     list.appendChild(row);
   }
-  if (!list.children.length) list.appendChild(el('p', 'empty', T('docker.none')));
+  if (!list.children.length) list.appendChild(el('p', 'empty', all.length ? T('found.none_fit') : T('docker.none')));
   box.appendChild(list);
+  barDone('docker', fits.length, all.length);
   return box;
 }
 
@@ -722,16 +740,20 @@ function foundView() {
   const list = src === 'more' ? rest : src ? loud.filter((s) => 'src:' + s.id === src) : all;
   const bar = foundBarGet();
   fillChips(loud, rest);
-  box.appendChild(bar.el);
+  box.append(bar.el, savedRow('found'));
   const f = bar.read();
+  const span = timeSpan(bar.time.read());
+  const narrowed = f.words.length > 0 || !!span;
   const kinds = el('div', 'box');
   let n = 0;
   let total = 0;
   all.forEach((s) => { total += (s.groups || []).length; });       // «n of m fit»: of every log's kinds
+  bar.time.avail(all.some((s) => (s.groups || []).some((g) => Number(g.last) > 0)));
   for (const s of list) {
-    const groups = (s.groups || []).filter((g) => Office.fits(f.words, [g.sample, sourceLabel(s), catName(g)]));
+    // a kind by its newest line (a «×n» in the time filter when its last one is)
+    const groups = (s.groups || []).filter((g) => Office.fits(f.words, [g.sample, sourceLabel(s), catName(g)]) && inSpan(span, g.last));
     n += groups.length;
-    if (f.words.length && !groups.length) continue;
+    if (narrowed && !groups.length) continue;
     const head = el('div', 'lg-subhead');
     head.append(el('span', 'lg-subhead-name', sourceLabel(s)), counts(s.errors, s.warnings));
     if (s.lines) head.appendChild(el('span', 'lg-subhead-meta', T('lines_read', { n: s.lines })));
@@ -743,12 +765,12 @@ function foundView() {
     kinds.appendChild(head);
     for (const g of groups) kinds.appendChild(kindRow(g));
     const more = (s.kinds || 0) - (s.groups || []).length;
-    if (more > 0 && !f.words.length) kinds.appendChild(el('div', 'lg-more', T('more_kinds', { n: more })));
+    if (more > 0 && !narrowed) kinds.appendChild(el('div', 'lg-more', T('more_kinds', { n: more })));
   }
   if (!all.length) kinds.appendChild(el('p', 'empty', T('found.none')));
   else if (!kinds.children.length) kinds.appendChild(el('p', 'empty', T('found.none_fit')));
   box.appendChild(kinds);
-  bar.done(n, total, { tile: src === 'more' ? T('tile.more_logs', { n: rest.length }) : src ? sourceLabel(list[0]) : '', clear: () => { src = ''; } });
+  barDone('found', n, total, { tile: src === 'more' ? T('tile.more_logs', { n: rest.length }) : src ? sourceLabel(list[0]) : '', clear: () => { src = ''; } });
   if (!src) {
     const quiet = (tour.sources || []).filter((s) => !s.errors && !s.warnings && !s.unreadable);
     if (quiet.length) {
@@ -887,17 +909,20 @@ function syslogView() {
   if (cat && !((s.cats || {})[cat] > 0)) cat = '';                      // its lines went
   const bar = sysBarGet();
   fillSysCats(s.cats);
-  box.appendChild(bar.el);
+  box.append(bar.el, savedRow('syslog'));
   box.appendChild(catsRead(s.cats));
   const f = bar.read();
-  const rows = sorted.filter((g) => (!cat || g.cat === cat) && Office.fits(f.words, [g.sample, catName(g)]));
+  const span = timeSpan(bar.time.read());
+  bar.time.avail(sorted.some((g) => Number(g.last) > 0));
+  // a kind by its newest line (a «×n» in the time filter when its last one is)
+  const rows = sorted.filter((g) => (!cat || g.cat === cat) && Office.fits(f.words, [g.sample, catName(g)]) && inSpan(span, g.last));
   const kinds = [];
   rows.forEach((g) => inner.appendChild(kindRow(g, { list: kinds, cats: true })));
   if (!rows.length) inner.appendChild(el('p', 'empty', sorted.length ? T('found.none_fit') : T('syslog.none')));
-  const more = cat && !f.words.length ? ((s.sorted_kinds || {})[cat] || 0) - rows.length : 0;
+  const more = cat && !f.words.length && !span ? ((s.sorted_kinds || {})[cat] || 0) - rows.length : 0;
   if (more > 0) inner.appendChild(el('div', 'lg-more', T('more_kinds', { n: more })));
   box.appendChild(inner);
-  bar.done(rows.length, sorted.length, { tile: cat ? T('cat.' + cat) : '', clear: () => { cat = ''; } });
+  barDone('syslog', rows.length, sorted.length, { tile: cat ? T('cat.' + cat) : '', clear: () => { cat = ''; } });
   return box;
 }
 
@@ -907,7 +932,7 @@ function sysBarGet() {
   const cats = el('div', 'lg-chips lg-cats');
   cats.setAttribute('role', 'group');
   cats.setAttribute('aria-label', T('cats.label'));
-  sysBar = Office.filterBar({ key: 'logs.syslog', label: T('syslog.filter_label'), extra: [cats], onChange: () => redraw() });
+  sysBar = listBar('syslog', { label: T('syslog.filter_label'), extra: [cats] });
   sysBar.cats = cats;
   return sysBar;
 }
@@ -948,7 +973,7 @@ function foundBarGet() {
   const box = el('div', 'lg-chips');
   box.setAttribute('role', 'group');
   box.setAttribute('aria-label', T('found.chips_label'));
-  foundBar = Office.filterBar({ key: 'logs.found', label: T('found.filter_label'), extra: [box], onChange: () => redraw() });
+  foundBar = listBar('found', { label: T('found.filter_label'), extra: [box] });
   foundBar.chips = box;
   return foundBar;
 }
@@ -980,6 +1005,409 @@ function fillChips(loud, rest) {
     add('more', T('tile.more_logs', { n: rest.length }), rest.reduce((n, s) => n + s.errors, 0), rest.reduce((n, s) => n + s.warnings, 0),
       rest.map(sourceLabel).join(', '));
   }
+}
+
+// ------------------------------------------------------------------ every list's bar, the time filter, saved filters
+/*
+ * Every list of hers has its bar (core.js Office.filterBar: the words, the note line): «Syslog», «Errors & warnings»,
+ * /var/log, the containers' logs and the reader — and in it a time filter where its rows have a time: a kind of line
+ * («×n») by its newest line, a file and a container's log by their last write, the reader's lines by their own (a line
+ * without one — a stack trace's next lines — by the line before it). The time is said in the note line like any filter,
+ * «Show all» takes it away. Her saved filters (the agent keeps them, agent/desks/logs-filters.php: every browser sees
+ * the same) stand above the list, a button each: a click sets what it says — nothing ever sets one by itself
+ * (2026-10-19, the office's rule: a page never opens with a hidden filter).
+ */
+const TIME_PRESETS = ['hour', 'day', 'today', 'boot'];
+const NAME_MAX = 60;            // characters of a saved filter's name (the agent: LOGS_FILTER_NAME)
+/* «Apply when opening» — not offered (decided 2026-10-19). Were it ever: this flag, and a saved filter's `open` (the
+   agent keeps it, never sets it) sets that filter once when the page opens, shown in the note line like any other. */
+const APPLY_ON_OPEN = false;
+let openedWith = null;          // the saved filters set when this visit opened (APPLY_ON_OPEN only)
+
+/** A list's bar (built once a page, held across drawings): the words, its extras, the time filter; o only when made */
+function listBar(list, o = {}) {
+  if (bars[list]) return bars[list];
+  const time = timeCtl(list, () => (list === 'read' ? renderLines(false) : redraw()));
+  const bar = Office.filterBar({ key: 'logs.' + list, label: o.label, only: o.only,
+    extra: [...(o.extra || []), time.el], onChange: o.onChange || (() => redraw()) });
+  bar.time = time;
+  bar.list = list;
+  bars[list] = bar;
+  return bar;
+}
+const varlogBar = () => listBar('varlog', { label: T('varlog.filter_label') });
+const dockerBar = () => listBar('docker', { label: T('docker.filter_label') });
+/** The reader's bar: its words, «only errors & warnings», the time by the lines' own */
+const readBar = () => listBar('read', { label: T('read.filter_label'), only: { text: T('only_problems'), hint: T('help.only') },
+  onChange: () => renderLines(false) });
+
+/** After the rows: «n of m fit», the note line with the time filter as one of its parts (its × takes the time away) */
+function barDone(list, n, total, d = {}) {
+  const bar = bars[list];
+  const t = bar.time.read();
+  const clear = d.clear;
+  bar.done(n, total, { ...d, clear: (what) => { if (clear) clear(what); if (what === 'all') bar.time.clear(); },
+    parts: t ? [[timeName(t), () => bar.time.clear()]] : [] });
+}
+
+/** A time filter's span now: [from, to] in seconds (either null) — a preset counted from now (it stays relative), a range as set */
+function timeSpan(t) {
+  if (!t) return null;
+  const now = Date.now() / 1000;
+  if (t.preset === 'hour') return [now - 3600, null];
+  if (t.preset === 'day') return [now - 86400, null];
+  if (t.preset === 'today') { const d = new Date(); d.setHours(0, 0, 0, 0); return [d.getTime() / 1000, null]; }
+  if (t.preset === 'boot') return Number(state?.boot) > 0 ? [Number(state.boot), null] : null;
+  const from = Number(t.from) > 0 ? Number(t.from) : null;
+  const to = Number(t.to) > 0 ? Number(t.to) : null;
+  return from === null && to === null ? null : [from, to];
+}
+/** Does a row's time fit the span? No span: everything; a row without a time never fits one */
+const inSpan = (span, time) => !span || (Number(time) > 0 && (span[0] === null || time >= span[0]) && (span[1] === null || time <= span[1]));
+
+/** A time filter as the note line and a saved filter's tip say it: «Last hour», «08.10.2026 13:00 – 14:00» */
+function timeName(t) {
+  if (!t) return '';
+  if (t.preset) return T('time.' + t.preset);
+  const from = Number(t.from) > 0 ? fmt.date(t.from) : '';
+  const to = Number(t.to) > 0 ? fmt.date(t.to) : '';
+  return from && to ? T('time.chip_both', { from, to }) : from ? T('time.chip_from', { from }) : T('time.chip_to', { to });
+}
+
+/** «2026-10-08», «13:05» of a time (the browser's own: the range is typed in its time) */
+const pad = (n) => String(n).padStart(2, '0');
+const dayOf = (sec) => { const d = new Date(sec * 1000); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+const clockOf = (sec) => { const d = new Date(sec * 1000); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+/** A typed 24-hour time: «7:05», «07:05», «0705» → [7, 5]; '' → null (the whole day); anything else false */
+function clockRead(text) {
+  const x = String(text || '').trim();
+  if (!x) return null;
+  const m = /^([01]?\d|2[0-3])(?::|\.|h)?([0-5]\d)$/.exec(x) || /^([01]?\d|2[0-3])$/.exec(x);
+  return m ? [Number(m[1]), Number(m[2] || 0)] : false;
+}
+/** One end of the range in seconds: its day and time (no time: the day's start, or its end for «to») — null when no day */
+function endAt(day, clock, isTo) {
+  const m = /^(\d{4})-(\d\d)-(\d\d)$/.exec(String(day || ''));
+  if (!m) return null;
+  const c = clockRead(clock);
+  const [h, mi] = c ? c : isTo ? [23, 59] : [0, 0];
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), h, mi, isTo ? 59 : 0, 0);
+  return isNaN(d.getTime()) ? null : Math.floor(d.getTime() / 1000);
+}
+
+/**
+ * The time filter in a bar: «Any time», the last hour, the last 24 hours, today, since the last start, «From … to …»
+ * (a day from the calendar and a 24-hour time each; either end may stay empty). A filter: never kept (CLAUDE.md
+ * «Tiles»). read() → null | {preset} | {from, to}; set(t); clear(); avail(yes): shown only where the rows have a time
+ * (or while it filters).
+ */
+function timeCtl(list, onChange) {
+  const box = el('div', 'lg-time');
+  const pick = el('select', 'picker lg-time-pick');
+  pick.setAttribute('aria-label', T('time.label'));
+  pick.title = T('time.label');
+  pick.dataset.keep = '1';
+  const fill = () => {
+    const was = pick.value;
+    pick.replaceChildren(new Option(T('time.any'), ''), ...TIME_PRESETS.filter((p) => p !== 'boot' || Number(state?.boot) > 0)
+      .map((p) => new Option(T('time.' + p), p)), new Option(T('time.range'), 'range'));
+    pick.value = [...pick.options].some((o) => o.value === was) ? was : '';
+  };
+  fill();
+  const range = el('div', 'lg-time-range');
+  range.hidden = true;
+  const end = (which) => {
+    const wrap = el('label', 'lg-time-end');
+    const day = el('input', 'search lg-time-day');
+    day.type = 'date';
+    day.dataset.keep = '1';
+    day.setAttribute('aria-label', T('time.' + which + '_day'));
+    const clock = el('input', 'search lg-time-clock');
+    clock.type = 'text';
+    clock.inputMode = 'numeric';
+    clock.maxLength = 5;
+    clock.autocomplete = 'off';
+    clock.spellcheck = false;
+    clock.placeholder = which === 'from' ? '00:00' : '23:59';
+    clock.dataset.keep = '1';
+    clock.setAttribute('aria-label', T('time.' + which + '_clock'));
+    wrap.append(el('span', 'lg-time-word', T('time.' + which)), day, clock);
+    range.appendChild(wrap);
+    return { day, clock };
+  };
+  const from = end('from');
+  const to = end('to');
+  box.append(pick, range);
+  const changed = () => Office.keepInPlace(box, () => onChange());
+  const checkClock = (c) => {
+    const bad = clockRead(c.value) === false;
+    c.classList.toggle('lg-time-bad', bad);
+    c.title = bad ? T('time.clock_bad') : '';
+  };
+  pick.addEventListener('change', () => { range.hidden = pick.value !== 'range'; changed(); });
+  [from, to].forEach((e) => {
+    e.day.addEventListener('change', changed);
+    e.clock.addEventListener('change', () => { checkClock(e.clock); changed(); });
+    e.clock.addEventListener('input', () => checkClock(e.clock));
+  });
+  let shown = true;
+  const ctl = {
+    el: box,
+    read() {
+      if (!pick.value) return null;
+      if (pick.value !== 'range') return { preset: pick.value };
+      const a = endAt(from.day.value, from.clock.value, false);
+      const b = endAt(to.day.value, to.clock.value, true);
+      return a === null && b === null ? null : { from: a, to: b };
+    },
+    set(t) {
+      fill();
+      const x = t && typeof t === 'object' ? t : null;
+      if (x && TIME_PRESETS.includes(x.preset)) pick.value = [...pick.options].some((o) => o.value === x.preset) ? x.preset : '';
+      else pick.value = x && (Number(x.from) > 0 || Number(x.to) > 0) ? 'range' : '';
+      const put = (e, sec) => { e.day.value = Number(sec) > 0 ? dayOf(sec) : ''; e.clock.value = Number(sec) > 0 ? clockOf(sec) : ''; checkClock(e.clock); };
+      put(from, pick.value === 'range' ? x.from : 0);
+      put(to, pick.value === 'range' ? x.to : 0);
+      range.hidden = pick.value !== 'range';
+      box.hidden = !shown && !pick.value;
+    },
+    clear() { ctl.set(null); },
+    avail(yes) {
+      shown = !!yes;
+      if (pick.options.length !== TIME_PRESETS.length + 2 - (Number(state?.boot) > 0 ? 0 : 1)) fill();
+      box.hidden = !shown && !pick.value;
+    },
+  };
+  return ctl;
+}
+
+/**
+ * The time of each line read, in seconds — by its own (as the tour reads them: ISO with or without its zone, the syslog's
+ * «Oct  8 13:05:31», dmesg -T's, PHP's) in the server's time (state.tz: its offset from UTC), a line without one by the
+ * line before it; null before the first. Once per reading (the list of lines is new with each).
+ */
+const MONTHS = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
+const TIME_ISO = /^\[?(\d{4})[-/](\d\d)[-/](\d\d)[T ](\d\d):(\d\d):(\d\d)(?:[.,]\d+)?(Z|\s?[+-]\d\d:?\d\d)?/;
+const TIME_SYSLOG = /^([A-Z][a-z]{2})\s+(\d{1,2})\s+(\d\d):(\d\d):(\d\d)\s/;
+const TIME_DMESG = /^\[(?:[A-Z][a-z]{2}\s+)?([A-Z][a-z]{2})\s+(\d{1,2})\s+(\d\d):(\d\d):(\d\d)\s+(\d{4})\]/;
+const TIME_PHP = /^\[(\d\d)-([A-Z][a-z]{2})-(\d{4})\s+(\d\d):(\d\d):(\d\d)/;
+function lineTime(line, tz, now) {
+  const local = (y, mo, d, h, mi, se) => Date.UTC(y, mo, d, h, mi, se) / 1000 - tz;
+  let m = TIME_ISO.exec(line);
+  if (m) {
+    const utc = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) / 1000;
+    if (!m[7]) return utc - tz;
+    if (m[7] === 'Z') return utc;
+    const z = /([+-])(\d\d):?(\d\d)/.exec(m[7]);
+    return utc - (z[1] === '-' ? -1 : 1) * (Number(z[2]) * 3600 + Number(z[3]) * 60);
+  }
+  if ((m = TIME_SYSLOG.exec(line)) && m[1] in MONTHS) {
+    const y = new Date((now + tz) * 1000).getUTCFullYear();
+    const t = local(y, MONTHS[m[1]], +m[2], +m[3], +m[4], +m[5]);
+    return t > now + 86400 ? local(y - 1, MONTHS[m[1]], +m[2], +m[3], +m[4], +m[5]) : t;      // December's lines read in January
+  }
+  if ((m = TIME_DMESG.exec(line)) && m[1] in MONTHS) return local(+m[6], MONTHS[m[1]], +m[2], +m[3], +m[4], +m[5]);
+  if ((m = TIME_PHP.exec(line)) && m[2] in MONTHS) return local(+m[3], MONTHS[m[2]], +m[1], +m[4], +m[5], +m[6]);
+  return null;
+}
+let timesOf = null;             // [the lines, their times]
+function lineTimes(list) {
+  if (timesOf && timesOf[0] === list) return timesOf[1];
+  const tz = Number(state?.tz) || 0;
+  const now = Date.now() / 1000;
+  let last = null;
+  const out = list.map((l) => { const t = lineTime(l, tz, now); if (t !== null) last = t; return last; });
+  timesOf = [list, out];
+  return out;
+}
+
+// ---- saved filters
+/** Her saved filters as the state has them — only in exactly their shape — of one list */
+function savedOf(list) {
+  const all = Array.isArray(state?.filters) ? state.filters : [];
+  return all.filter((f) => f && typeof f === 'object' && f.list === list && typeof f.id === 'string' && typeof f.name === 'string'
+    && typeof f.words === 'string' && typeof f.cat === 'string' && typeof f.src === 'string' && typeof f.only === 'boolean'
+    && (f.time === null || (f.time && typeof f.time === 'object')));
+}
+/** What a list's bar has set now: {words, cat, src, only, time} */
+function current(list) {
+  const bar = bars[list];
+  if (!bar) return null;
+  const input = bar.el.querySelector('.filter-words');
+  return { words: input ? input.value.trim() : '', cat: list === 'syslog' ? cat : '', src: list === 'found' ? src : '',
+    only: list === 'read' ? bar.read().only : false, time: bar.time.read() };
+}
+const isSet = (f) => !!f && !!(f.words || f.cat || f.src || f.only || f.time);
+const timeKey = (t) => (!t ? '' : t.preset ? 'p:' + t.preset : `r:${Number(t.from) || 0}-${Number(t.to) || 0}`);
+const sameFilter = (a, b) => !!a && !!b && a.words === b.words && a.cat === b.cat && a.src === b.src && !!a.only === !!b.only && timeKey(a.time) === timeKey(b.time);
+
+/** What a filter sets, as words: «drive» · Disks · Last hour */
+function filterWhat(list, f) {
+  const parts = [];
+  if (f.src) {
+    const one = /^src:(.+)$/.exec(f.src);
+    const s = one ? sourceById(one[1]) : null;
+    parts.push(f.src === 'more' ? T('saved.more_logs') : s ? sourceLabel(s) : one ? one[1] : f.src);
+  }
+  if (f.cat) parts.push(T('cat.' + f.cat));
+  if (f.only) parts.push(T('only_problems'));
+  if (f.words) parts.push('«' + f.words + '»');
+  if (f.time) parts.push(timeName(f.time));
+  return parts.join(' · ');
+}
+
+/** A saved filter set on its list (its click — never anything else, APPLY_ON_OPEN aside) */
+function applySaved(list, f) {
+  const bar = bars[list];
+  if (!bar) return;
+  bar.set({ text: f.words, only: f.only });
+  if (list === 'syslog') cat = f.cat;
+  if (list === 'found') src = f.src;
+  bar.time.set(f.time);
+  if (list === 'read') renderLines(false); else redraw();
+}
+
+/** Above a list: her saved filters for it (a button each, «⋯» to rename or delete) and «Save filter…» while something is set */
+function savedRow(list) {
+  const box = el('div', 'lg-saved');
+  fillSaved(list, box);
+  return box;
+}
+function fillSaved(list, box) {
+  if (!box) return;
+  const mine = savedOf(list);
+  const now = current(list);
+  box.replaceChildren();
+  box.hidden = !mine.length && !isSet(now);
+  if (box.hidden) return;
+  box.appendChild(el('span', 'lg-saved-label', mine.length ? T('saved.label') : T('saved.none')));
+  for (const f of mine) {
+    const one = el('span', 'lg-saved-one');
+    const on = sameFilter(now, f);
+    const b = el('button', 'btn small plain lg-saved-btn' + (on ? ' on' : ''), f.name);
+    b.type = 'button';
+    b.dataset.own = '1';
+    b.dataset.saved = f.id;
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    b.title = T('saved.apply_title', { name: f.name, what: filterWhat(list, f) });
+    b.addEventListener('click', () => Office.keepInPlace(box, () => applySaved(list, f)));
+    const more = el('button', 'btn small plain lg-saved-more', '⋯');
+    more.type = 'button';
+    more.dataset.own = '1';
+    more.setAttribute('aria-haspopup', 'menu');
+    more.setAttribute('aria-label', T('saved.menu_title', { name: f.name }));
+    more.title = T('saved.menu_title', { name: f.name });
+    more.addEventListener('click', (e) => Office.menu(e, [
+      { text: T('saved.rename'), act: () => savedRename(f), disabled: !Office.agent.running },
+      { text: T('saved.delete'), kind: 'danger', act: () => savedDelete(f), disabled: !Office.agent.running },
+    ]));
+    one.append(b, more);
+    box.appendChild(one);
+  }
+  if (isSet(now) && !mine.some((f) => sameFilter(now, f))) {
+    const save = el('button', 'btn small lg-saved-save', T('saved.save'));
+    save.type = 'button';
+    save.disabled = !Office.agent.running;
+    save.title = T('saved.save_hint');
+    save.addEventListener('click', () => savedSave(list));
+    box.appendChild(save);
+  }
+}
+
+/** A dialog with a name field: the agent checks (and refuses with its reason, said in the dialog) */
+function nameDialog({ title, text, name, go, send }) {
+  const body = el('div', 'lg-saved-dialog');
+  if (text) body.appendChild(el('p', '', text));
+  const label = el('label', 'lg-saved-name');
+  const input = el('input', 'search');
+  input.type = 'text';
+  input.maxLength = NAME_MAX;
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+  input.value = name || '';
+  input.placeholder = T('saved.name_placeholder');
+  label.append(el('span', '', T('saved.name_label')), input);
+  const why = el('p', 'role lg-saved-why');
+  body.append(label, why);
+  const d = Office.dialog({
+    title,
+    body,
+    buttons: [{ text: Office.t('common.cancel') }, { text: go, kind: '', act: async () => {
+      if (!input.value.trim()) { why.textContent = T('errors.logs_filter_name_empty'); input.focus(); return false; }
+      if (!Office.agent.running) return false;
+      if (!(await Office.freshState(ID))) return false;          // it couldn't look again (said there)
+      const j = await send(input.value.trim());
+      if (j === null) return true;
+      if (!j.ok) { why.textContent = Office.errorText(j.error, ID); input.focus(); return false; }
+      return true;
+    } }],
+  });
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); d.buttons[1].click(); } });
+  setTimeout(() => input.focus(), 0);
+  return d;
+}
+
+/** The answer's state drawn (her saved filters changed; nothing else) */
+function savedChanged(st) {
+  if (st && typeof st === 'object') state = st;
+  took({});
+}
+
+/** «Save filter…»: what the bar has set now, under a name the user types, for this list */
+function savedSave(list) {
+  const f = current(list);
+  if (!isSet(f)) return;
+  nameDialog({
+    title: T('saved.save_title'),
+    text: T('saved.save_text', { what: filterWhat(list, f) }),
+    go: T('saved.save_go'),
+    send: async (name) => {
+      const t = f.time;
+      const j = await Office.api.post(`${ID}.filter_save`, { list, name, words: f.words, cat: f.cat, src: f.src, only: f.only,
+        time: !t ? '' : t.preset ? t.preset : 'range', from: t && !t.preset ? t.from : null, to: t && !t.preset ? t.to : null });
+      if (j.ok) { savedChanged(j.state); Office.toast(T('saved.saved', { name })); }
+      return j;
+    },
+  });
+}
+
+/** «Rename…» — looked up again by its id first */
+function savedRename(f) {
+  nameDialog({
+    title: T('saved.rename_title'),
+    name: f.name,
+    go: T('saved.rename_go'),
+    send: async (name) => {
+      if (!savedOf(f.list).some((x) => x.id === f.id)) { Office.toast(T('errors.logs_filter_gone'), true); took({}); return null; }
+      const j = await Office.api.post(`${ID}.filter_rename`, { id: f.id, name });
+      if (j.ok) { savedChanged(j.state); Office.toast(T('saved.renamed', { name })); }
+      return j;
+    },
+  });
+}
+
+/** «Delete…» — asked first; only the saved filter goes */
+function savedDelete(f) {
+  Office.dialog({
+    title: T('saved.delete_title'),
+    body: el('p', '', T('saved.delete_text', { name: f.name })),
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('saved.delete_go'), kind: 'danger', act: async () => {
+      if (!Office.agent.running || !(await Office.freshState(ID))) return true;
+      if (!savedOf(f.list).some((x) => x.id === f.id)) { Office.toast(T('errors.logs_filter_gone'), true); took({}); return true; }
+      const j = await Office.api.post(`${ID}.filter_remove`, { id: f.id });
+      if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return true; }
+      savedChanged(j.state);
+      Office.toast(T('saved.deleted', { name: f.name }));
+      return true;
+    } }],
+  });
+}
+
+/** APPLY_ON_OPEN only (not offered): the saved filters marked `open` set once, when this visit has her state */
+function openSaved() {
+  if (!APPLY_ON_OPEN || openedWith || !state) return;
+  openedWith = savedOf('syslog').concat(...['found', 'varlog', 'docker', 'read'].map(savedOf)).filter((f) => f.open === true);
+  openedWith.forEach((f) => applySaved(f.list, f));
 }
 
 /**
@@ -1043,7 +1471,8 @@ function openLog(id, kind) {
     const n = LINE_CHOICES.find((c) => c >= need) || LINE_CHOICES[LINE_CHOICES.length - 1];
     if (n > opts.lines) { opts.lines = n; view.lines.value = String(n); }      // for this reading — not remembered
   }
-  if (opts.query) { opts.query = ''; view.query.value = ''; }
+  readBar().set({ text: '' });               // the line asked for must be seen: no words, no time
+  readBar().time.clear();
   if (id !== opts.source) pick(id, true); else restart(true);
   if (sw.active() && sw.active() !== 'read') sw.pick('read', 'route');          // another section chosen: the reader in its place
   view.readSection.scrollIntoView({ block: 'start', behavior: 'smooth' });     /* reveal */ // the reader a tour line asked for
@@ -1178,18 +1607,34 @@ function sourceName(s) {
   return s.size !== null && s.size !== undefined ? `${name} · ${fmt.size(s.size)}` : name;
 }
 
+/** What the reader shows of the lines read: its bar's words, «only errors & warnings», the time (by each line's own) */
 function shown() {
-  const q = opts.query.trim().toLowerCase();
+  const f = readBar().read();
   const lv = levelOf(source());
-  return lines.filter((l) => (!opts.only || lv(l)) && (!q || l.toLowerCase().includes(q)));
+  const span = timeSpan(readBar().time.read());
+  const at = span ? lineTimes(lines) : null;
+  return lines.filter((l, i) => (!f.only || lv(l)) && Office.fits(f.words, l) && (!at || inSpan(span, at[i])));
 }
 
-/** Lines into the page — as text nodes, coloured by level, the filter word marked, the tour's line (if any) marked */
+/** Where the bar's words stand in a line: [[from, to], …] in order, overlaps joined (lower case, as the browser folds it) */
+function wordSpans(line, words) {
+  const lower = line.toLowerCase();
+  const got = [];
+  for (const w of words) {
+    for (let at = lower.indexOf(w); w && at !== -1; at = lower.indexOf(w, at + w.length)) got.push([at, at + w.length]);
+  }
+  got.sort((a, b) => a[0] - b[0]);
+  const out = [];
+  for (const g of got) { const last = out[out.length - 1]; if (last && g[0] <= last[1]) last[1] = Math.max(last[1], g[1]); else out.push(g); }
+  return out;
+}
+
+/** Lines into the page — as text nodes, coloured by level, the filter words marked, the tour's line (if any) marked */
 function renderLines(toBottom) {
   if (!view) return;
   const out = view.out;
   const list = shown();
-  const q = opts.query.trim();
+  const words = readBar().read().words;
   const frag = document.createDocumentFragment();
   const lv = levelOf(source());
   // Unraid's syslog: each line its category's edge (as in «Syslog»), the noise quieter
@@ -1201,14 +1646,10 @@ function renderLines(toBottom) {
   };
   for (const line of list) {
     const row = el('span', 'lg-line ' + lv(line) + edge(line) + (isMark(line) ? ' spot' : ''));
-    if (q) {
-      const lower = line.toLowerCase();
-      const ql = q.toLowerCase();
+    const marks = words.length ? wordSpans(line, words) : [];
+    if (marks.length) {
       let i = 0;
-      for (let at = lower.indexOf(ql); at !== -1; at = lower.indexOf(ql, i)) {
-        row.append(line.slice(i, at), el('mark', '', line.slice(at, at + q.length)));
-        i = at + q.length;
-      }
+      for (const [a, b] of marks) { row.append(line.slice(i, a), el('mark', '', line.slice(a, b))); i = b; }
       row.append(line.slice(i));
     } else {
       row.textContent = line;
@@ -1229,6 +1670,9 @@ function renderLines(toBottom) {
   view.status.textContent = parts.join(' · ');
   const problems = lines.filter((l) => lv(l) === 'error').length;
   view.hint.textContent = problems ? T('errors_seen', { n: problems }) : '';
+  readBar().time.avail(lines.length > 0 && lineTimes(lines).some((x) => x !== null));
+  barDone('read', list.length, lines.length);
+  fillSaved('read', view.saved);
 }
 
 function download() {
@@ -1253,6 +1697,9 @@ function restart(keepMark) {
     view.out.appendChild(el('span', 'lg-empty', T('choose_first')));
     view.status.textContent = '';
     view.hint.textContent = '';
+    readBar().time.avail(false);
+    barDone('read', 0, 0);
+    fillSaved('read', view.saved);
     return;
   }
   view.out.textContent = Office.t('common.loading');
@@ -1492,12 +1939,16 @@ Office.desk({
     if (rd) {
       let id = '';
       try { id = decodeURIComponent(rd[1]); } catch (e) { id = ''; }
-      if (id) { opts.source = id; opts.query = ''; Office.store('logs.source', id); }
+      if (id) { opts.source = id; Office.store('logs.source', id); }
     }
     view = build(root);
     readerSection(view);
-    foundBarGet().reset();      // a new visit: no words, no chip
-    sysBarGet().reset();
+    foundBarGet();
+    sysBarGet();
+    varlogBar();
+    dockerBar();
+    Object.values(bars).forEach((b) => { b.reset(); b.time.clear(); });      // a new visit: no words, no Schildchen, no time
+    openedWith = null;
     if (!sw.mount(one ? 'found' : rd ? 'read' : s) && (one || rd)) Office.subroute('');
     renderHead();
     redraw();
@@ -1544,7 +1995,7 @@ Office.places(ID, [
   { kind: 'help', key: 'live', text: 'help.live' },
   { kind: 'help', key: 'only_problems', text: 'help.only' },
   { kind: 'help', key: 'help.red', text: 'help.colours' },
-  ...['counted', 'rules', 'grouped', 'since', 'space', 'source', 'favorites', 'safe'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
+  ...['counted', 'rules', 'grouped', 'since', 'space', 'source', 'time', 'saved', 'favorites', 'safe'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
   // her «Set up» (#/logs/setup): her own rules, her hide words, what she left out of Enhanced Log's settings
   { kind: 'section', key: 'mine.title', text: 'help.mine_text', route: `#/${ID}/setup`, crumb: 'page.setup' },
   { kind: 'section', key: 'hide.title', text: 'help.hide_text', route: `#/${ID}/setup`, crumb: 'page.setup' },

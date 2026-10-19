@@ -10,9 +10,11 @@
     "help.red",
     "help.rules",
     "help.safe",
+    "help.saved",
     "help.since",
     "help.source",
     "help.space",
+    "help.time",
     "hide.title",
     "live",
     "mine.title",
@@ -35,9 +37,11 @@
     "help.only",
     "help.rules_text",
     "help.safe_text",
+    "help.saved_text",
     "help.since_text",
     "help.source_text",
     "help.space_text",
+    "help.time_text",
     "help.tour_text"
   ]
 }

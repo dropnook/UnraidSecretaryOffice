@@ -1183,5 +1183,48 @@
    }
   ],
   "time": 1791419597
- }
+ },
+ "boot": 1791242697,
+ "tz": 7200,
+ "filters": [
+  {
+   "id": "a1b2c3d4e5f6",
+   "list": "syslog",
+   "name": "Disks today",
+   "words": "",
+   "cat": "drive",
+   "src": "",
+   "only": false,
+   "time": {
+    "preset": "today"
+   },
+   "open": false
+  },
+  {
+   "id": "0f1e2d3c4b5a",
+   "list": "syslog",
+   "name": "Network, last hour",
+   "words": "br0",
+   "cat": "network",
+   "src": "",
+   "only": false,
+   "time": {
+    "preset": "hour"
+   },
+   "open": false
+  },
+  {
+   "id": "1234567890ab",
+   "list": "varlog",
+   "name": "Since the start",
+   "words": "",
+   "cat": "",
+   "src": "",
+   "only": false,
+   "time": {
+    "preset": "boot"
+   },
+   "open": false
+  }
+ ]
 }
