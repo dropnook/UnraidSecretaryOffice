@@ -2388,6 +2388,7 @@ loadDrill();
 
 Office.desk({
   id: ID,
+  runs: (s) => !!s.running,       // core.js: an old kept state saying so isn't shown
   /** sub: a section (#/restore/drill — the Team Lead's and Mr. Backupsy's links; the others the search's) — that one open */
   async mount(root, sub) {
     view = root;
