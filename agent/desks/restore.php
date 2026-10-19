@@ -3441,6 +3441,7 @@ function rsJob(array $args): int
         foreach ([SIGTERM, SIGINT, SIGHUP] as $sig) {
             pcntl_signal($sig, function (): void { $GLOBALS['rsStop'] = true; });
         }
+        rsArrayStopSignal();
     }
     drillMarker('restore', $id);          // agent.sh's drill_release ends it at the array stop (its lock file lies on the pool)
     $j['result'] = 'running';
@@ -3684,6 +3685,18 @@ function rsWatch(): bool
         }
     }
     return !empty($GLOBALS['rsStop']);
+}
+
+/**
+ * SIGUSR1 = agent.sh's array-stop hook (drill_release): «the array is being stopped» — the reason is array_stopping even
+ * when the hook comes before Unraid's var.ini says Stopping (scenario batch D, F4: a TERM read as «stopped from outside»).
+ */
+function rsArrayStopSignal(): void
+{
+    pcntl_signal(SIGUSR1, function (): void {
+        $GLOBALS['rsStopWhy'] ??= 'array_stopping';
+        $GLOBALS['rsStop'] = true;
+    });
 }
 
 /** var.ini says the array is being stopped (Stopping, Stopped — like the engine's array_stopping()) */
