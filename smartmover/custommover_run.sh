@@ -92,7 +92,11 @@
 #   kept a parent whose sibling folder emptied later); never the share's root. After a stop a prefer share's emptied
 #   folders on its disks go too — its folder there as well — only those whose copy is on the pool (rmdir, nothing else).
 # USO «empty folders» (2026-10-19): every direction gets the folder pass (yes, prefer from a second pool too): the folders
-#   holding no file below them go to the move binary deepest first, never one an exclude keeps, never a pool's share root.
+#   holding no file below them go to the move binary deepest first, never one an exclude keeps.
+# USO «share root» (2026-10-19, seen on a real server: a prefer share's dataset on its second pool stayed, empty): the
+#   share's own folder on the source side goes to the move binary too once nothing below it is held — a pool's (a ZFS
+#   dataset: the binary destroys it, one with snapshots stays) as well as a disk's, in every direction, as Unraid's mover
+#   hands it over; after the fill too. Never in a dry run, never after a stop.
 #
 # Exclude files: one entry per line, comments (#) and blank lines ignored, CRLF tolerated.
 #   /abs/path/dir          protects the directory and everything below it
@@ -753,14 +757,13 @@ office_ws_move() {  # file to
 # empty goes when its counterpart is on the pool already (its files went there: a name ending in whitespace the binary
 # could not take, or the parent that still held it when the binary came) — rmdir, never a folder holding anything;
 # an empty one ending in whitespace without a counterpart is made there first (owner, mode, times), as the binary would
-office_dirs_left() {  # share src dest keep_root(true: never a root)
-    local name="$1" src="$2" dest="$3" keep_root="${4:-false}" d to r gone=0 made=0
+office_dirs_left() {  # share src dest
+    local name="$1" src="$2" dest="$3" d to r gone=0 made=0 where=""
     local -A ROOT=()
     while IFS= read -r r; do [[ -n "$r" ]] && ROOT[$r]=1; done <<< "$src"
     [[ -d "$MNT/$dest" ]] || return 0
     for d in "${DIRS[@]}"; do
         [[ -d "$d" && ! -L "$d" ]] || continue
-        [[ "$keep_root" == true && -n "${ROOT[$d]:-}" ]] && continue
         if [[ -n "${ROOT[$d]:-}" ]]; then to="$MNT/$dest/$name"; else rel_of "$d" "$src"; to="$MNT/$dest/$name/$REL"; fi
         if [[ ! -d "$to" || -L "$to" ]]; then
             ends_ws "$d" || continue
@@ -772,7 +775,8 @@ office_dirs_left() {  # share src dest keep_root(true: never a root)
         fi
         rmdir -- "$d" 2>/dev/null && { (( gone++ )) || true; }
     done
-    (( gone > 0 )) && log INFO "  $gone empty folders the move binary left$( [[ "$keep_root" == false ]] && printf ' on the array') removed – they are on $dest$( (( made > 0 )) && printf ' (%s made there first: a name ending in a space or tab)' "$made")"
+    [[ "$src" == "$MNT"/disk[0-9]* ]] && where=" on the array"
+    (( gone > 0 )) && log INFO "  $gone empty folders the move binary left$where removed – they are on $dest$( (( made > 0 )) && printf ' (%s made there first: a name ending in a space or tab)' "$made")"
     return 0
 }
 
@@ -781,10 +785,11 @@ office_dirs_left() {  # share src dest keep_root(true: never a root)
 # USO «empty folders» (2026-10-19, seen on a real server: a share moved off its pool left .tmp/, shares/counters/,
 # shares/files/ — empty before the run, so no file ever took them along): every direction gets the pass, and only the
 # folders that hold no file below them go to the binary — one empty, or holding only empty folders (it makes each on
-# the target with owner, mode and times and removes it here); never one an exclude keeps (nor a folder above it); the
-# share's root only for a prefer share's folder on a disk (`keep_root` false), never a pool's
-share_dirs_pass() {  # share src dest keep_root(true|false)
-    local name="$1" src="$2" dest="$3" keep_root="$4" dirs_out gone=0 d f rc line r
+# the target with owner, mode and times and removes it here); never one an exclude keeps (nor a folder above it).
+# USO «share root»: the share's own folder on the source side too, in every direction (a pool's — a ZFS dataset the
+# binary destroys — as well as a disk's), as Unraid's mover hands it over: share_root_said
+share_dirs_pass() {  # share src dest
+    local name="$1" src="$2" dest="$3" dirs_out gone=0 d f rc line r
     local -a DIRS=() give=() roots=()
     local -A held=() isroot=()
     array_dirs "$src"
@@ -801,7 +806,6 @@ share_dirs_pass() {  # share src dest keep_root(true|false)
     done < <(find "${roots[@]}" -mindepth 1 \( \( "${EXCL_ARGS[@]}" \) -prune -print0 \) -o \( ! -type d -print0 \) 2>/dev/null)
     for d in "${DIRS[@]}"; do
         [[ -n "${held[$d]:-}" ]] && continue
-        [[ "$keep_root" == true && -n "${isroot[$d]:-}" ]] && continue
         ends_ws "$d" || give+=("$d")
     done
     if (( ${#give[@]} > 0 )); then
@@ -810,12 +814,36 @@ share_dirs_pass() {  # share src dest keep_root(true|false)
         rc=$?
         while IFS= read -r line; do log DEBUG "  mover: $line"; done < "$dirs_out"
         rm -f "$dirs_out"
-        for d in "${give[@]}"; do [[ -e "$d" ]] || (( gone++ )) || true; done
+        for d in "${give[@]}"; do [[ -n "${isroot[$d]:-}" || -e "$d" ]] || (( gone++ )) || true; done
         (( rc != 0 )) && log WARN "  move binary exited with code $rc on the empty folders"
         (( gone > 0 )) && log INFO "  $gone empty folders moved to $dest"
+        for d in "${give[@]}"; do [[ -n "${isroot[$d]:-}" ]] && share_root_said "$d"; done
     fi
-    (( ${#DIRS[@]} > 0 )) && office_dirs_left "$name" "$src" "$dest" "$keep_root"
+    (( ${#DIRS[@]} > 0 )) && office_dirs_left "$name" "$src" "$dest"
     return 0
+}
+
+# USO «share root»: what became of a share's folder handed to the move binary — gone: said; still there as a ZFS
+# dataset of its own with snapshots (the binary leaves those, as with Unraid's mover): said, one line
+share_root_said() {  # root
+    local root="$1" ds mp snaps
+    if [[ ! -e "$root" && ! -L "$root" ]]; then log INFO "  share folder $root removed (empty)"; return 0; fi
+    command -v "$ZFS_BIN" >/dev/null 2>&1 || return 0
+    IFS=$'\t' read -r ds mp <<< "$("$ZFS_BIN" list -H -o name,mountpoint "$root" 2>/dev/null)"
+    [[ -n "$ds" && "$mp" == "$root" ]] || return 0
+    snaps=$("$ZFS_BIN" list -H -t snapshot -o name -d 1 "$ds" 2>/dev/null)
+    [[ -n "$snaps" ]] && log INFO "  kept: $ds has snapshots"
+    return 0
+}
+
+# USO «share root»: after the fill, a share's folder on the pool that holds nothing any more to the move binary (as
+# Unraid's mover would take it)
+share_root_pass() {  # root
+    local root="$1" line
+    [[ -d "$root" && ! -L "$root" ]] && ! ends_ws "$root" || return 0
+    [[ -z "$(find "$root" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]] || return 0
+    while IFS= read -r line; do log DEBUG "  mover: $line"; done < <(printf '%s\n' "$root" | "${FILL_MOVER[@]}" 2>&1)
+    share_root_said "$root"
 }
 
 # USO «trailing space»: the files of WS (names ending in whitespace, never given to the binary) — to a pool moved here,
@@ -961,7 +989,7 @@ move_batch() {  # share src dest
     # USO «per disk», «empty folders»: the source's empty folders as Unraid's mover leaves them (its second pass, one
     # move binary for all); after a stop only the empty parents of what moved, at once
     if [[ "$STOPPED" == false ]]; then
-        share_dirs_pass "$name" "$src" "$dest" "$( [[ "${dirs_pass:-false}" == true ]] && echo false || echo true)"
+        share_dirs_pass "$name" "$src" "$dest"
     elif (( ${#MOVED[@]} > 0 )); then
         # USO «tidy»: after a stop a prefer share's emptied folders on its disks go too (their copy on the pool)
         if [[ "${dirs_pass:-false}" == true ]]; then remove_empty_parents "$src" "$MNT/$dest/$name" "${MOVED[@]}"
@@ -1160,6 +1188,7 @@ fill_pool() {  # pool
                 local -a gone=()
                 mapfile -t gone <<< "${F_GONE[$name]%$'\n'}"
                 remove_empty_parents "${FS_SRC[$name]}" "" "${gone[@]}"
+                [[ "$STOPPED" == false ]] && share_root_pass "${FS_SRC[$name]}"
             fi
             [[ "$SH_STATE" == none && ${F_N[$name]:-0} -gt 0 ]] && SH_STATE=moved
         else
@@ -1306,8 +1335,8 @@ process_share() {  # name mode pool pool2
         if [[ "$DRY_RUN" == false && "$STOPPED" == false ]]; then
             local -a MOVER_CMD=("$MOVER_BIN")
             (( MOVER_DEBUG > 0 )) && MOVER_CMD+=(-d "$MOVER_DEBUG")
-            if [[ "$mode" == "yes" ]]; then share_dirs_pass "$name" "$src" "${pool2:-array}" true
-            else share_dirs_pass "$name" "$src" "$pool" "$( [[ "$dirs_pass" == true ]] && echo false || echo true)"; fi
+            if [[ "$mode" == "yes" ]]; then share_dirs_pass "$name" "$src" "${pool2:-array}"
+            else share_dirs_pass "$name" "$src" "$pool"; fi
         fi
         return 0
     fi
@@ -1344,7 +1373,7 @@ process_share() {  # name mode pool pool2
         move_batch "$name" "$src" "$dest"
         [[ "$mode" == "yes" ]] && (( SH_MOVED > 0 )) && POOL_AGE_MOVED[$pool]=1
     elif [[ "$STOPPED" == false ]]; then
-        share_dirs_pass "$name" "$src" "$dest" true      # USO «empty folders»: a fill share without an aged file
+        share_dirs_pass "$name" "$src" "$dest"      # USO «empty folders»: a fill share without an aged file
     fi
     (( count == 0 )) && SH_STATE=none
     (( SH_RC != 0 )) && SH_STATE=error

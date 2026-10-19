@@ -1,7 +1,7 @@
 #!/bin/bash
 # Ms. Moverelli's yes run leaves no emptied folder on the pool (finding of batch A, Tower 2026-10-18 22:22): old files
 # in two folders under one parent (uso-yes/m3t/a-small, uso-yes/m3t/z-big) go to the array — both folders AND the
-# emptied parent m3t go from the pool (INV-LEFTOVER), the share's own folder stays. Until 1.66.7 m3t stayed: the cleanup
+# emptied parent m3t go from the pool (INV-LEFTOVER), the share's own folder stays (the base's young files hold it). Until 1.66.7 m3t stayed: the cleanup
 # gave up on a parent the first time it still held a sibling. Folders empty before the run (m3t/empty, m3t/e1/e2 — the
 # owner's server: .tmp/, shares/counters/ stayed on the pool) go to the array too, as Unraid's mover takes them.
 # $1 = an older release (v1.66.7): must be red. (~1 min)
@@ -28,6 +28,7 @@ else cell parent-gone 1 "uso-yes/m3t is gone from the pool"; fi
 e=$(find /mnt/disk*/uso-yes/m3t -type d \( -path '*/m3t/empty' -o -path '*/m3t/e1/e2' \) 2>/dev/null | wc -l)
 ((e == 2)) && cell empty-folders-moved 1 "m3t/empty and m3t/e1/e2 (empty before the run) are on the array" \
     || cell empty-folders-moved 0 "$e of the 2 folders empty before the run reached the array"
-[[ -d /mnt/cache/uso-yes ]] && cell share-root-kept 1 "the share's folder on the pool stays" || cell share-root-kept 0 "the share's folder on the pool is gone"
+# the share's folder on the pool stays while its young files (the base's f1d-*, under her 30 days) hold it
+[[ -d /mnt/cache/uso-yes ]] && cell share-root-kept 1 "the share's folder on the pool stays (its young files hold it)" || cell share-root-kept 0 "the share's folder on the pool is gone though its young files hold it"
 check standard
 scenario_end
