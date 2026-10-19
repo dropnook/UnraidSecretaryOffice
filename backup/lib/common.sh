@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.62"
+UB_VERSION="2.63"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -2684,6 +2684,9 @@ ST_VMS=()                 # lines "name|prepare|done|seconds|snapshot(1/0)" - wh
                           #   seconds held: a shutdown from its request until it is started again, a freeze or
                           #   pause from then (since 2.22 also a VM that ignored its shutdown and was paused)
 ST_PACKAGES="null"        # JSON object: the packages of this run (backup.sh pkg_status), null = none
+ST_BTRFS=()               # since 2.63: per btrfs disk or pool the retention looked at, "base|asleep" or
+                          #   "base|ok|keep_days|floor_gb|free_gb|kept|oldest|released|none_left(1/0)|brake_last|held(1/0)"
+ST_BTRFS_LOOKED=""        #   (backup.sh prune_btrfs) - status.json "btrfs", null until the retention ran
 
 status_init() { # status_init <mode>
     ST_MODE="$1"; ST_STARTED="$(date +%s)"; ST_ACTIVE="yes"; ST_PHASE="start"
@@ -2711,6 +2714,15 @@ status_json() {
     witems="$(printf '%s\n' "${WARN_ITEMS[@]}" | jq -R 'select(length > 0) | split("\u001f")
         | {code: .[0], params: ([.[1:][] | capture("^(?<k>[^=]+)=(?<v>.*)$"; "s") | {(.k): .v}] | add // {})}' | jq -sc .)" || witems='[]'
     [[ -n "$why" ]] || why='{}'
+    local btrfs="null"
+    if [[ -n "$ST_BTRFS_LOOKED" ]]; then
+        btrfs="$(printf '%s\n' "${ST_BTRFS[@]}" | jq -R 'select(length > 0) | split("|")
+            | if .[1] == "asleep" then {base: .[0], asleep: true}
+              else {base: .[0], asleep: false, keep_days: (.[2] | tonumber), floor_gb: (.[3] | tonumber), free_gb: (.[4] | tonumber),
+                    kept: (.[5] | tonumber), oldest: .[6], released: (.[7] | tonumber), none_left: (.[8] == "1"), brake_last: .[9],
+                    held: (.[10] == "1")} end' | jq -sc .)" || btrfs="null"
+        [[ -n "$btrfs" ]] || btrfs="null"
+    fi
     jq -nc \
         --arg name "$UB_NAME" --arg version "$UB_VERSION" --argjson interface "$UB_INTERFACE" \
         --arg mode "$ST_MODE" --arg run "${TS:-}" --argjson pid "$$" \
@@ -2726,13 +2738,13 @@ status_json() {
         --argjson packages "${ST_PACKAGES:-null}" --argjson new_local "${ST_NEW_LOCAL:-null}" \
         --argjson partner "${partner:-null}" --argjson p_ok "${#ST_PARTNER_DONE[@]}" --argjson p_failed "${#ST_PARTNER_FAILED[@]}" \
         --argjson p_skipped "${#ST_PARTNER_SKIPPED[@]}" --argjson asleep "${asleep:-null}" --argjson skipped_why "$why" \
-        --arg skipk "${SKIPK:-0}" \
+        --arg skipk "${SKIPK:-0}" --argjson btrfs "$btrfs" \
         '{interface: $interface, name: $name, version: $version, mode: $mode, run: $run, pid: $pid, skip_kopia: ($skipk == "1"),
           started: $started, updated: $updated, finished: $finished, phase: $phase, result: $result,
           message: $message, errors: $errors, warnings: $warnings, warning_items: $warning_items, downtime_s: $downtime,
           snapshot: $snapshot, dump_bytes: $dump_bytes, log: $log, drift: $drift, vms: $vms, packages: $packages,
           new_local: $new_local, partner: $partner, partner_ok: $p_ok, partner_failed: $p_failed, partner_skipped: $p_skipped,
-          asleep: $asleep,
+          asleep: $asleep, btrfs: $btrfs,
           kopia: {enabled: ($kopia_enabled | ascii_downcase | test("^(yes|ja|1|true)$")), state: $kopia_ok,
                   planned: $planned, current: (if $current == "" then null else $current end),
                   current_since: (if $current == "" then null else $current_since end), done: $done,

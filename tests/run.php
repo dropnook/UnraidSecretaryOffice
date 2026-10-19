@@ -5458,7 +5458,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.62'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.63'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -6120,6 +6120,115 @@ JS);
 }
 
 /**
+ * Engine 2.63 on the page (Benj 2026-10-19): the btrfs emergency brake's early deletes (warning_items btrfs_brake: base,
+ * free_gb, floor_gb, snap) are said in Mr. Backupsy's words, one line per disk with the count (the run's btrfs facts count
+ * them when the items were cut short); where the retention no longer holds (a run's btrfs facts held false) and where the
+ * brake found none of his left to release (none_left - never a warning, engine 2.23) his protection section says it per
+ * disk - from the newest run that looked at the disk. The engine's own side is in testBackupArrayStop («btrfs brake»); here the agent's shape
+ * check, the texts in five languages and the German sentences under node.
+ */
+function testBackupBtrfsBrake(): void
+{
+    $ok = ['base' => 'disk3', 'asleep' => false, 'keep_days' => 14, 'floor_gb' => 300, 'free_gb' => 320, 'kept' => 5, 'oldest' => '20261014-0300',
+           'released' => 3, 'none_left' => false, 'brake_last' => '20261013-0300', 'held' => false];
+    same('btrfs brake: the agent takes the facts only in the engine\'s shape', [$ok, ['base' => 'cache', 'asleep' => true]],
+        backupBtrfsRun([$ok, ['base' => 'cache', 'asleep' => true], ['base' => '../x', 'asleep' => true], ['asleep' => 'no'] + $ok,
+            ['kept' => '5'] + $ok, ['oldest' => '2026-10-14'] + $ok, ['held' => 'no'] + $ok, 'junk']));
+    same('btrfs brake: an older engine\'s run, or not a list - null', [null, null, null],
+        [backupBtrfsRun(null), backupBtrfsRun(['disk3' => $ok]), backupRunFromStatus(['run' => 'x'])['btrfs']]);
+    $engine = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh');
+    check('btrfs brake: the engine writes the early delete\'s code, none left never a warning', str_contains($engine, 'warn_code btrfs_brake "') && !str_contains($engine, 'btrfs_brake_none'));
+    $want = ['warn_code.btrfs_brake' => ['base', 'date', 'floor_gb', 'free_gb', 'n'], 'brake.none_left' => ['base', 'floor_gb', 'free_gb'],
+             'brake.gap' => ['base', 'date', 'keep', 'n'], 'brake.gap_none' => ['base', 'keep'], 'count.days' => ['n']];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $l = langFile(OFFICE_WEB . "/desks/backup/lang/$code.json");
+        same("btrfs brake: the sentences in $code with their parts", $want, array_map(fn ($k) => langPlaceholders($l[$k] ?? null), array_combine(array_keys($want), array_keys($want))));
+        check("btrfs brake: plurals in $code", is_array($l['warn_code.btrfs_brake'] ?? null) && is_array($l['brake.gap'] ?? null) && is_array($l['count.days'] ?? null));
+    }
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('btrfs brake: the protection section says the gaps', (bool) preg_match("/brakeGaps\(\)\.forEach\(\(g\) => box\.appendChild\(el\('p', 'callout warn', g\)\)\)/", $js));
+    $node = testsNode();
+    if ($node === '') {
+        check('btrfs brake: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('btrfs-brake');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+const [bkFile, coreFile, langFile] = process.argv.slice(2);
+globalThis.OFFICE_DESK_TESTS = {};
+const strings = {};
+Object.entries(JSON.parse(fs.readFileSync(langFile, 'utf8'))).forEach(([k, v]) => { strings['backup.' + k] = v; });
+const fill = (s, p) => String(s).replace(/\{(\w+)\}/g, (m, k) => (p && p[k] !== undefined ? String(p[k]) : m));
+const scope = (id) => (k, p) => {
+  let s = strings[id + '.' + k];
+  if (s && typeof s === 'object') s = (p && Number(p.n) === 1) ? s.one : s.other;
+  return s === undefined ? k : fill(s, p);
+};
+const el = (tag, cls, text) => ({ tag, className: cls || '', textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {},
+  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, setAttribute() {} });
+const pad = (x) => String(x).padStart(2, '0');
+globalThis.Office = { scope, t: scope('office'), el, strings, has: (k) => k in strings,
+  fmt: { size: (b) => b + ' B', relative: () => 'gestern', duration: (s) => s + ' s', time: () => 'T',
+    date: (t) => { const d = new Date(t * 1000); return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`; } },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {}, store: () => null, storeJson: () => null,
+  agent: { running: true }, place: (k, n) => n, stat: (o) => ({ stat: o }),
+  sections: () => ({ el: el('div'), grid: el('div'), body: el('div'), active: () => '', note: () => ({ tile: '' }), places: () => [],
+    mount: () => false, pick() {}, render() {}, clear() {} }),
+  filterBar: () => { const bar = { el: {}, read: () => ({ words: [], only: false, pick: '', tile: '' }), set() { return bar; }, reset() { return bar; },
+    done() { return bar; }, tile() { return bar; } }; return bar; } };
+const core = fs.readFileSync(coreFile, 'utf8');
+new Function('Office', core.slice(core.indexOf('const fold = '), core.indexOf('/** Text or a node')))(globalThis.Office);
+(0, eval)(fs.readFileSync(bkFile, 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const brake = (base, free, snap) => ({ code: 'btrfs_brake', params: { base, free_gb: free, floor_gb: '300', snap } });
+const out = {};
+// three on disk3, one on disk4 - one line per disk
+const run = { run: '20261019-0300', started: 1, finished: 2, result: 'warnings', warnings: 4, warning_items: [brake('disk3', '120', '20261012-0300'),
+  brake('disk3', '160', '20261013-0300'), brake('disk3', '200', '20261014-0300'), brake('disk4', '250', '20261015-0300')] };
+out.lines = b.warnLines(run);
+// the items cut short (the agent keeps 20): the facts count all the brake released
+out.cut = b.warnLines({ ...run, warning_items: run.warning_items.slice(0, 1), btrfs: [{ base: 'disk3', asleep: false, released: 12 }] });
+out.bad = b.warnLines({ warning_items: [brake('disk3', '120', 'x'), { code: 'btrfs_brake', params: { base: 'disk3' } }] });
+// the gaps: disk3 not held (5 left), disk4 held, disk5 none kept and the brake out of snapshots, disk6 asleep now - its word
+// from the run before; disk7 only in an older run; disk8 held but the brake found none of his left (no early delete ever)
+const f = (base, o) => ({ base, asleep: false, keep_days: 14, floor_gb: 300, free_gb: 100, kept: 5, oldest: '20261014-0300', released: 0, none_left: false,
+  brake_last: '20261013-0300', held: false, ...o });
+b.setState({ history: [
+  { run: 'b', btrfs: [f('disk3'), f('disk4', { held: true }), f('disk5', { kept: 0, oldest: '', none_left: true, free_gb: 80 }), { base: 'disk6', asleep: true },
+    f('disk8', { held: true, brake_last: '', kept: 1, none_left: true, free_gb: 12, floor_gb: 30 })] },
+  { run: 'c', btrfs: null },
+  { run: 'a', btrfs: [f('disk6', { kept: 1, oldest: '20261018-0300' }), f('disk7')] }] });
+out.gaps = b.brakeGaps();
+b.setState({ history: [{ run: 'old' }] });
+out.older = b.brakeGaps();
+console.log(JSON.stringify(out));
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' '
+        . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/lang/de.json') . ' 2>&1');
+    $lines = array_values(array_filter(explode("\n", trim($raw))));
+    $r = json_decode((string) end($lines), true);
+    if (!is_array($r)) {
+        check('btrfs brake: ran under node', false, $raw);
+        return;
+    }
+    same('btrfs brake: the run\'s lines in German - one per disk with the count and the oldest', [
+        'Auf disk3 waren nur noch 120 GB frei (Notbremse bei 300 GB) — ich habe 3 Snapshots vorzeitig gelöscht, den ältesten vom 12.10.2026 03:00.',
+        'Auf disk4 waren nur noch 250 GB frei (Notbremse bei 300 GB) — ich habe den Snapshot vom 15.10.2026 03:00 vorzeitig gelöscht.'],
+        $r['lines'] ?? null);
+    same('btrfs brake: items cut short - the facts\' count', ['Auf disk3 waren nur noch 120 GB frei (Notbremse bei 300 GB) — ich habe 12 Snapshots vorzeitig gelöscht, den ältesten vom 12.10.2026 03:00.'],
+        $r['cut'] ?? null);
+    same('btrfs brake: a bad snapshot name or missing parts - nothing said', [], $r['bad'] ?? null);
+    same('btrfs brake: where the retention doesn\'t hold and where the brake found none left, per disk - an asleep one from the run before, an old disk not', [
+        'Aufbewahrung 14 Tage — auf disk3 liegen nur noch 5 Snapshots, der älteste vom 14.10.2026 03:00 (die Notbremse hat ältere gelöscht).',
+        'Aufbewahrung 14 Tage — auf disk5 liegt kein Snapshot mehr (die Notbremse hat ältere gelöscht).',
+        'Auf disk5 sind nur noch 80 GB frei (Notbremse bei 300 GB) — und es ist kein Snapshot von mir mehr übrig, den ich freigeben könnte. Platz schaffen hilft nur ausserhalb des Backups.',
+        'Aufbewahrung 14 Tage — auf disk6 liegt nur noch 1 Snapshot, vom 18.10.2026 03:00 (die Notbremse hat ältere gelöscht).',
+        'Auf disk8 sind nur noch 12 GB frei (Notbremse bei 30 GB) — und es ist kein Snapshot von mir mehr übrig, den ich freigeben könnte. Platz schaffen hilft nur ausserhalb des Backups.'], $r['gaps'] ?? null);
+    same('btrfs brake: an older engine\'s runs - nothing said', [], $r['older'] ?? null);
+}
+
+/**
  * Partner at once (Benj 2026-10-12, office 1.60.2 / engine 2.46): backups run on schedule, and whatever of a run did not
  * reach a partner is said IN THAT RUN - in the mail and in Mr. Backupsy's bubble - never after «three nights». The
  * receiver's door never refuses a sleeping pool (the receive wakes it; the pairing asks for a ZFS pool, an HDD one is the
@@ -6448,6 +6557,20 @@ fi
 exit 0
 SH);
     file_put_contents("$tmp/bin/mountpoint", "#!/bin/bash\n[[ \"\${@: -1}\" == */user ]]\n");
+    // df for the btrfs brake (2.63): $FAKE/df.<disk> "<size MB> <free MB> <MB per snapshot>" answers for $MNT/<disk> - what the
+    // brake released (btrfs delete in the events) adds to the free space; anything else the real df
+    file_put_contents("$tmp/bin/df", <<<'SH'
+#!/bin/bash
+t="${@: -1}"; f="$FAKE/df.${t##*/}"
+if [[ "$t" == "$MNT/"* && -f "$f" ]]; then
+  read -r size free step <"$f"
+  n=$(grep -c " btrfs delete $t/" "$FAKE/events" 2>/dev/null)
+  printf 'Filesystem 1048576-blocks Used Available Capacity Mounted on\nfake %s 0 %s 0%% %s\n' "$size" "$(( free + step * ${n:-0} ))" "$t"
+  exit 0
+fi
+for d in /usr/bin/df /bin/df; do [[ -x "$d" ]] && exec "$d" "$@"; done
+exit 1
+SH);
     // one line per notification (the long text's line breaks as " | ")
     file_put_contents("$tmp/bin/notify", <<<'SH'
 #!/bin/bash
@@ -6664,6 +6787,71 @@ SH);
     check('array stop after the retention: the notification says the retention was done and how many it removed, like pruned.json',
         count($nt) === 1 && str_contains($nt[0], 'RETENTION\n  done when the stop began: 3 snapshot(s) removed') && !str_contains($nt[0], 'no snapshots were pruned'), json_encode($nt));
     check('array stop after the retention: the log says so too', str_contains($log(), 'retention done (3 removed)'), $log());
+
+    // --- engine 2.63: the btrfs emergency brake says what it did, in codes. disk9 (1000 GB: the brake at 100 GB, a tenth)
+    // has 40 GB free and four snapshots of the last week; each one released frees 25 GB - three go early (40, 65, 90 GB
+    // free), each a warning btrfs_brake with the disk, what was free, the floor and the snapshot; status.json "btrfs" says
+    // what holds: one left, the newest released younger than keep_days (7) - the retention doesn't hold there
+    $night();
+    file_put_contents("$fake/mounts", $mounts0 . "/dev/md9p1 $mnt/disk9 btrfs rw 0 0\n");
+    exec('rm -rf ' . escapeshellarg("$mnt/disk9/.btrfs-snap"));
+    @unlink("$data/state/btrfs-brake.txt");
+    $now = testsClockNow($clock);
+    $snaps = array_map(fn ($d) => date('Ymd', $now - $d * 86400) . '-0300', [6, 5, 4, 3]);
+    foreach ($snaps as $sn) {
+        @mkdir("$mnt/disk9/.btrfs-snap/$sn", 0700, true);
+    }
+    file_put_contents("$fake/df.disk9", (1000 * 1024) . ' ' . (40 * 1024) . ' ' . (25 * 1024) . "\n");
+    [$code] = $run();
+    $s = $status();
+    $brake = array_values(array_filter($s['warning_items'] ?? [], fn ($i) => str_starts_with($i['code'] ?? '', 'btrfs_brake')));
+    same('btrfs brake: three released early, oldest first - each a coded warning (disk, free, floor, snapshot)', [
+        ['code' => 'btrfs_brake', 'params' => ['base' => 'disk9', 'free_gb' => '40', 'floor_gb' => '100', 'snap' => $snaps[0]]],
+        ['code' => 'btrfs_brake', 'params' => ['base' => 'disk9', 'free_gb' => '65', 'floor_gb' => '100', 'snap' => $snaps[1]]],
+        ['code' => 'btrfs_brake', 'params' => ['base' => 'disk9', 'free_gb' => '90', 'floor_gb' => '100', 'snap' => $snaps[2]]]], $brake);
+    same('btrfs brake: the run with warnings, the newest snapshot kept', ['warnings', 0, [$snaps[3]]],
+        [$s['result'] ?? null, $code, array_values(array_diff(scandir("$mnt/disk9/.btrfs-snap") ?: [], ['.', '..']))]);
+    $facts = array_values(array_filter($s['btrfs'] ?? [], fn ($b) => ($b['base'] ?? '') === 'disk9'))[0] ?? null;
+    same('btrfs brake: status.json btrfs - what holds on disk9 (one left, three released, the retention not held)',
+        ['base' => 'disk9', 'asleep' => false, 'keep_days' => 7, 'floor_gb' => 100, 'free_gb' => 115, 'kept' => 1, 'oldest' => $snaps[3], 'released' => 3,
+         'none_left' => false, 'brake_last' => $snaps[2], 'held' => false], $facts);
+    same('btrfs brake: the newest released remembered in state/btrfs-brake.txt', "disk9 {$snaps[2]}\n", (string) @file_get_contents("$data/state/btrfs-brake.txt"));
+    same('btrfs brake: history.jsonl keeps the facts', $facts, array_values(array_filter($lastHistory()['btrfs'] ?? [], fn ($b) => ($b['base'] ?? '') === 'disk9'))[0] ?? null);
+    $agent = backupRunFromStatus($lastHistory());
+    same('btrfs brake: the agent passes the facts on', [$facts], array_values(array_filter($agent['btrfs'] ?? [], fn ($b) => $b['base'] === 'disk9')));
+    // --- the brake reached with none of ours left to release: never a warning (2.23 - every run would end «with warnings»
+    // and notify, for what only space made outside fixes), a log line and the fact none_left; nothing released this run,
+    // the earlier release still remembered - the retention still doesn't hold
+    $night();
+    file_put_contents("$fake/mounts", $mounts0 . "/dev/md9p1 $mnt/disk9 btrfs rw 0 0\n");
+    exec('rm -rf ' . escapeshellarg("$mnt/disk9/.btrfs-snap") . '/*');
+    file_put_contents("$data/state/btrfs-brake.txt", "disk9 {$snaps[2]}\nsomething else\n");
+    file_put_contents("$fake/df.disk9", (1000 * 1024) . ' ' . (12 * 1024) . " 0\n");
+    [$code] = $run();
+    $s = $status();
+    $warned = (int) ($s['warnings'] ?? -1);
+    same('btrfs brake none left: no brake word in the warnings, the log line as before', [[], true],
+        [array_values(array_filter($s['warning_items'] ?? [], fn ($i) => str_starts_with($i['code'] ?? '', 'btrfs_brake'))),
+         str_contains($log(), 'disk9: 12 GB free (brake at 100 GB) - no earlier snapshot of ours left to release') && !str_contains($log(), 'WARNING: disk9')]);
+    $facts = array_values(array_filter($s['btrfs'] ?? [], fn ($b) => ($b['base'] ?? '') === 'disk9'))[0] ?? null;
+    same('btrfs brake none left: the facts - none kept, none released, none left (free, floor), the earlier release still not held',
+        [0, '', 0, true, 12, 100, $snaps[2], false], [$facts['kept'] ?? null, $facts['oldest'] ?? null, $facts['released'] ?? null, $facts['none_left'] ?? null,
+         $facts['free_gb'] ?? null, $facts['floor_gb'] ?? null, $facts['brake_last'] ?? null, $facts['held'] ?? null]);
+    same('btrfs brake none left: a line it doesn\'t know kept in btrfs-brake.txt', "something else\ndisk9 {$snaps[2]}\n", (string) @file_get_contents("$data/state/btrfs-brake.txt"));
+    // --- the brake off for a disk with room: nothing said, the retention holds once the released one is older than keep_days
+    $night();
+    file_put_contents("$fake/mounts", $mounts0 . "/dev/md9p1 $mnt/disk9 btrfs rw 0 0\n");
+    file_put_contents("$data/state/btrfs-brake.txt", 'disk9 ' . date('Ymd', $now - 9 * 86400) . "-0300\n");
+    file_put_contents("$fake/df.disk9", (1000 * 1024) . ' ' . (500 * 1024) . " 0\n");
+    [$code] = $run();
+    $s = $status();
+    $facts = array_values(array_filter($s['btrfs'] ?? [], fn ($b) => ($b['base'] ?? '') === 'disk9'))[0] ?? null;
+    same('btrfs brake with room: no brake word, the retention holds again, nothing more to say', [[], true, 0, false],
+        [array_values(array_filter($s['warning_items'] ?? [], fn ($i) => str_starts_with($i['code'] ?? '', 'btrfs_brake'))), $facts['held'] ?? null, $facts['released'] ?? null,
+         $facts['none_left'] ?? null]);
+    check('btrfs brake none left: not counted - the same warnings as a run with room', $warned === (int) ($s['warnings'] ?? -2), "$warned vs " . ($s['warnings'] ?? '?'));
+    @unlink("$fake/df.disk9");
+    file_put_contents("$fake/mounts", $mounts0);
 
     // --- already stopping when the run starts: it touches nothing - an earlier run's notes stay for after the array start
     $night();
@@ -7140,9 +7328,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.62 everywhere it is named', ['2.62', '2.62', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.62"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.62** –')]);
+    same('data trust: the engine\'s version 2.63 everywhere it is named', ['2.63', '2.63', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.63"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.63** –')]);
     // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
     same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
         array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
@@ -8228,7 +8416,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.62', [1, '2.62'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.63', [1, '2.63'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -8836,7 +9024,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.62', [1, '2.62'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.63', [1, '2.63'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -43217,7 +43405,7 @@ JS;
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

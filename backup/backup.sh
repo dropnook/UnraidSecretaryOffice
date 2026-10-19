@@ -1,6 +1,11 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.62 - 2026-10-18
+# unraid-backup - backup.sh                       Version 2.63 - 2026-10-19
+#   2.63 The btrfs emergency brake says what it did, in codes: each early delete is a warning btrfs_brake (base,
+#        free_gb, floor_gb, snap) - up to 2.62 a plain warning. status.json "btrfs" says per base what holds (kept,
+#        oldest, released, none_left - the brake reached with none of ours left, still no warning (2.23) -, brake_last,
+#        held); state/btrfs-brake.txt remembers the newest snapshot the brake released per base: while it is younger
+#        than keep_days, the retention doesn't hold there
 #   2.62 Nextcloud refusing to work because its data folder is readable by others (Unraid resets a share's root to
 #        0777 nobody:users when any share is added or saved) no longer fails the run: backed up without the
 #        maintenance mode (stopped with the apps), a warning nc_datadir_readable with the folder and the lasting fix
@@ -2556,12 +2561,45 @@ prune_zfs() { # prune_zfs <dataset> <"d w m">  - only the engine's snapshots (zf
     done
 }
 
+# The btrfs emergency brake's memory (2.63): state/btrfs-brake.txt, a line "<base> <snapshot>" per disk or pool - the
+# newest snapshot the brake released there early. While that one is younger than keep_days, the retention doesn't hold
+# on that base (a snapshot it would keep is missing); status.json "btrfs" says so per base. Only lines in exactly this
+# shape are read; on rewrite the lines of bases not looked at this run (asleep) and any other line are kept
+declare -gA BTRFS_BRAKE_LAST=()
+btrfs_brake_load() {
+    local l BTRFS_BRAKE_FILE="$UB_STATE/btrfs-brake.txt"
+    BTRFS_BRAKE_LAST=()
+    [[ -f "$BTRFS_BRAKE_FILE" && ! -L "$BTRFS_BRAKE_FILE" ]] || return 0
+    while IFS= read -r l; do
+        [[ "$l" =~ ^([A-Za-z0-9_-]{1,40})\ ([0-9]{8}-[0-9]{4})$ ]] && BTRFS_BRAKE_LAST[${BASH_REMATCH[1]}]="${BASH_REMATCH[2]}"
+    done <"$BTRFS_BRAKE_FILE"
+    return 0
+}
+btrfs_brake_save() {
+    local BTRFS_BRAKE_FILE="$UB_STATE/btrfs-brake.txt" tmp="$UB_STATE/.btrfs-brake.txt.$$" l b
+    (( ${#BTRFS_BRAKE_LAST[@]} )) || [[ -f "$BTRFS_BRAKE_FILE" ]] || return 0
+    {
+        if [[ -f "$BTRFS_BRAKE_FILE" && ! -L "$BTRFS_BRAKE_FILE" ]]; then
+            while IFS= read -r l; do
+                [[ "$l" =~ ^([A-Za-z0-9_-]{1,40})\ [0-9]{8}-[0-9]{4}$ && -n "${BTRFS_BRAKE_LAST[${BASH_REMATCH[1]}]+x}" ]] && continue
+                printf '%s\n' "$l"
+            done <"$BTRFS_BRAKE_FILE"
+        fi
+        for b in "${!BTRFS_BRAKE_LAST[@]}"; do printf '%s %s\n' "$b" "${BTRFS_BRAKE_LAST[$b]}"; done
+    } >"$tmp" 2>/dev/null && mv -f "$tmp" "$BTRFS_BRAKE_FILE" 2>/dev/null
+    rm -f "$tmp"
+    return 0
+}
+
 prune_btrfs() {
-    local b base sdir s name cutoff free_gb oldest floor
+    local b base sdir s name cutoff free_gb oldest floor released none last held kept first
+    local -a ours
     cutoff="$(date -d "-${BTRFS_KEEP_DAYS} days" +%Y%m%d)"
+    btrfs_brake_load
+    ST_BTRFS=(); ST_BTRFS_LOOKED=1
     for b in "${INV_BASES[@]}"; do
         [[ "${INV_BASE_FS[$b]}" == "btrfs" ]] || continue
-        [[ -n "${NOT_LOOKED[$b]:-}" ]] && { log "  btrfs $b: asleep - its snapshots wait for a night it is awake"; continue; }   # 2.28
+        [[ -n "${NOT_LOOKED[$b]:-}" ]] && { log "  btrfs $b: asleep - its snapshots wait for a night it is awake"; ST_BTRFS+=( "$b|asleep" ); continue; }   # 2.28
         base="${INV_BASE_PATH[$b]}"; sdir="$base/$BTRFS_SNAP_DIR"
         [[ -d "$sdir" ]] || continue
         for s in "$sdir"/*/; do
@@ -2573,9 +2611,11 @@ prune_btrfs() {
             fi
         done
         # Emergency brake: when space runs short, release the oldest snapshot each time. The floor scales
-        # with the disk (brake_floor_gb, 2.23); with none of ours left to release it is only a log line -
-        # a full disk is Unraid's own warning (its disk thresholds), not something the brake can change
+        # with the disk (brake_floor_gb, 2.23). Since 2.63 each early delete is a coded warning (btrfs_brake: base,
+        # free_gb, floor_gb, snap); the brake reached with none of ours left to release stays a log line (2.23: no
+        # warning, no notification every run - space can only be made outside the backup) and a status fact (none_left)
         floor="$(brake_floor_gb $(( $(df -Pm "$base" | awk 'NR==2{print $2}') / 1024 )))"
+        released=0; none=0
         while (( floor > 0 )); do
             free_gb=$(( $(df -Pm "$base" | awk 'NR==2{print $4}') / 1024 ))
             (( free_gb >= floor )) && break
@@ -2583,13 +2623,25 @@ prune_btrfs() {
                       | grep -E '^[0-9]{8}-[0-9]{4}$' | sort | head -1)"
             if [[ -z "$oldest" || "$oldest" == "$TS" ]]; then
                 log "  $b: ${free_gb} GB free (brake at ${floor} GB) - no earlier snapshot of ours left to release"
+                none=1
                 break
             fi
             btrfs subvolume delete "$sdir/$oldest" >/dev/null 2>>"$LOG_FILE" || break
             PRUNED_BTRFS+=( "$sdir/$oldest" )
-            warn "$b: only ${free_gb} GB free (brake at ${floor} GB) - snapshot $oldest deleted early"
+            released=$(( released + 1 )); BTRFS_BRAKE_LAST[$b]="$oldest"      # oldest first: the last one is the newest released
+            warn_code btrfs_brake "$b: only ${free_gb} GB free (brake at ${floor} GB) - snapshot $oldest deleted early" \
+                base="$b" free_gb="$free_gb" floor_gb="$floor" snap="$oldest"
         done
+        # what holds on this base now (status.json "btrfs", 2.63): ours left, the oldest of them, whether the brake
+        # released one the retention would still keep
+        free_gb=$(( $(df -Pm "$base" | awk 'NR==2{print $4}') / 1024 ))
+        mapfile -t ours < <(find "$sdir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | grep -E '^[0-9]{8}-[0-9]{4}$' | sort)
+        kept=${#ours[@]}; first="${ours[0]:-}"
+        last="${BTRFS_BRAKE_LAST[$b]:-}"; held=1
+        [[ -n "$last" && ! "${last%%-*}" < "$cutoff" ]] && held=0
+        ST_BTRFS+=( "$b|ok|$BTRFS_KEEP_DAYS|$floor|$free_gb|$kept|$first|$released|$none|$last|$held" )
     done
+    btrfs_brake_save
 }
 
 refresh_view() { # browsing view: symlinks instead of bind mounts (they hold no disk)

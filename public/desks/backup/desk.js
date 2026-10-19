@@ -1346,6 +1346,7 @@ function protection() {
     facts.push(T('fact.kopia', { d: k.daily ?? '–', w: k.weekly ?? '–', m: k.monthly ?? '–', y: k.annual ?? '–' }));
   } else facts.push(T('fact.kopia_off'));
   box.appendChild(el('p', 'role', facts.join(' · ')));
+  brakeGaps().forEach((g) => box.appendChild(el('p', 'callout warn', g)));       // engine 2.63: the btrfs retention not held, the brake out of snapshots
   return box;
 }
 
@@ -1755,9 +1756,11 @@ function driftText(d) {
  * (the count stays in the run's line, the log has the engine's English)
  */
 function warnLines(r, now) {
-  return ((r && r.warning_items) || []).map((w) => {
+  const items = (r && r.warning_items) || [];
+  return items.map((w) => {
     const key = `${ID}.warn_code.${w && w.code}`;
     if (!w || typeof w.code !== 'string' || !Office.has(key)) return '';
+    if (w.code === 'btrfs_brake') return brakeLine(r, w, items);
     // now (the bubble): Nextcloud's open data folder is said by its callout with «Close the folder…» while open, and not
     // at all once closed - the run's row keeps it (an agent before 1.66.8 lists no nc_open: said as before)
     if (now && w.code === 'nc_datadir_readable' && state && Array.isArray(state.nc_open)) return '';
@@ -1768,6 +1771,54 @@ function warnLines(r, now) {
     const need = typeof raw === 'string' ? [...raw.matchAll(/\{(\w+)\}/g)].map((m) => m[1]) : [];
     return need.every((k) => p[k] !== undefined) ? T('warn_code.' + w.code, p) : '';
   }).filter(Boolean);
+}
+
+/** A snapshot's name (YYYYMMDD-HHMM, the engine's btrfs folders) as seconds, local time - 0 for anything else */
+function snapSeconds(name) {
+  const m = /^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})$/.exec(String(name || ''));
+  return m ? new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]).getTime() / 1000 : 0;
+}
+
+/**
+ * The btrfs emergency brake's early deletes (engine 2.63, warning_items btrfs_brake: base, free_gb, floor_gb, snap) -
+ * one line per disk, at its first item: how much was free, where the brake stands, how many went (the run's btrfs facts
+ * count them all when the items were cut short) and the oldest of them
+ */
+function brakeLine(r, w, items) {
+  const p = w.params && typeof w.params === 'object' ? w.params : {};
+  const same = items.filter((x) => x && x.code === 'btrfs_brake' && x.params && x.params.base === p.base);
+  if (same[0] !== w) return '';
+  const when = snapSeconds(p.snap);
+  if (typeof p.base !== 'string' || typeof p.free_gb !== 'string' || typeof p.floor_gb !== 'string' || !when) return '';
+  const facts = ((r && r.btrfs) || []).find((b) => b && b.base === p.base && !b.asleep);
+  const n = Math.max(same.length, (facts && Number(facts.released)) || 0);
+  return T('warn_code.btrfs_brake', { n, base: p.base, free_gb: p.free_gb, floor_gb: p.floor_gb, date: fmt.date(when) });
+}
+
+/**
+ * What the btrfs emergency brake left behind, per disk or pool (engine 2.63, a run's btrfs facts), from the newest backup
+ * run that looked at it (one asleep then: an earlier run's word); a disk the newest run with facts no longer lists is not
+ * said. The retention not held (held false while the newest snapshot the brake released is younger than keep_days): how
+ * many of his are left and the oldest. The brake reached with none of his left to release (none_left - never a warning,
+ * engine 2.23: only space made outside the backup helps): said here, beside it
+ */
+function brakeGaps() {
+  const runs = (state && state.history) || [];
+  const newest = runs.find((r) => Array.isArray(r.btrfs));
+  if (!newest) return [];
+  return newest.btrfs.flatMap((b) => {
+    const facts = b.asleep ? runs.map((r) => (Array.isArray(r.btrfs) ? r.btrfs.find((x) => x.base === b.base && !x.asleep) : null)).find(Boolean) : b;
+    if (!facts) return [];
+    const out = [];
+    if (facts.held === false) {
+      const keep = nOf('days', facts.keep_days);
+      const oldest = snapSeconds(facts.oldest);
+      out.push(!facts.kept || !oldest ? T('brake.gap_none', { base: facts.base, keep })
+        : T('brake.gap', { n: facts.kept, base: facts.base, keep, date: fmt.date(oldest) }));
+    }
+    if (facts.none_left === true) out.push(T('brake.none_left', { base: facts.base, free_gb: String(facts.free_gb), floor_gb: String(facts.floor_gb) }));
+    return out;
+  });
 }
 
 function driftSection() {
@@ -6350,7 +6401,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     partnerNowText, partnerRateOf, runModeOf, progress, partnerUnits, partnerSectionRows, partnerApplyLines, setupChangeItems, listChangeText, knownText, diffMark, whyFold, folderOf, ownDataset, setupMakeDataset, appPartner, partnerShareLines, appDepGaps, depCovered, depTicked, depClick, setupInitLevels, setupDeclinedApply, declinedList, ownFoldersOf, setupModel, partnerApplyText, setupDecline, setupApplyChanges, minuteTaken, bubbleText, deskActions,
     presetKopiaMode, presetKopiaVm, draftMode, draftVm, setupNewItems, presetApplyNew, presetNow, presetChosen, presetNewMode, presetNewVm,
     letGoPart, letGoLines, letGoDoneLines, letGoResult, setLetGoClock: (c) => { letGoClock = c; }, setupUnfold, UNFOLD_OWN, setupDecisions, setupApplyChanges, changeLabel, valueText, setupSplit, setupDecline,
-    warnLines, bubbleText, setupBarSpec, setupNoPlace, setupPlaceStart, bubblePlace, setupSearchItems,
+    warnLines, bubbleText, setupBarSpec, setupNoPlace, setupPlaceStart, bubblePlace, setupSearchItems, brakeLine, brakeGaps, snapSeconds,
     oldSourceWords, oldUnit, orphansPick, goneCallout, unknownKey, droppedKey, engineKnows, goneShares, goneShareKey,
   };
 }
