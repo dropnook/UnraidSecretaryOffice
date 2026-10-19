@@ -6,7 +6,7 @@
 # be red. Pre-release (~3 min).
 . "$(dirname "$0")/lib.sh"
 scenario_begin backup-kp-orphans-delete
-needs tower docker kopia
+needs tower docker kopia vm   # with the VM service off a VM source is «unknown» and never offered (setup.sh orphans_unit: libvirt can't be asked)
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
 [[ -n ${1:-} ]] && state IN-DOWNGRADE "$1"
 state KP-ORPHANS
