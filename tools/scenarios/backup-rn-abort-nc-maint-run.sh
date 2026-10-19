@@ -9,6 +9,11 @@ scenario_begin backup-rn-abort-nc-maint-run
 needs tower docker
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
 nc_data_closed
+# the base again when the office left Nextcloud in maintenance mode (its checks are red then): base.sh doesn't reset it, and
+# every later run would refuse («already in maintenance mode») — no helper for it, occ as Nextcloud's own user
+nc_maint_off() { timeout 60 docker exec -u 33 Nextcloud php occ maintenance:mode 2>/dev/null | grep -qi enabled || return 0
+    say "undo: Nextcloud was left in maintenance mode — switched off"; timeout 60 docker exec -u 33 Nextcloud php occ maintenance:mode --off >/dev/null; }
+undo_push nc_maint_off
 before_ct=$(timeout 20 docker ps --filter status=running --format '{{.Names}}' | sort)
 snap_before
 # the abort comes 8 s after the lock is taken: the engine has Nextcloud in maintenance mode by then (log: +1 s)

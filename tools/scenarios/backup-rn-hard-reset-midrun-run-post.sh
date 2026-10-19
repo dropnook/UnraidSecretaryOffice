@@ -24,6 +24,11 @@ was=$(sed -n 's/^docker=//p' "$reb" 2>/dev/null)
 # the undo, in this order at the end: the containers that ran before back (whatever didn't come), the autostart list as it was
 if grep -qx autostart=had "$prenote" 2>/dev/null; then undo_push cp -p "$prenote.autostart" /var/lib/docker/unraid-autostart
 else undo_push rm -f /var/lib/docker/unraid-autostart; fi
+# Nextcloud left in maintenance mode by the office (its checks red then) switched off at the end: base.sh doesn't
+# reset it, every later run would refuse — no helper for it, occ as Nextcloud's own user
+nc_maint_off() { timeout 60 docker exec -u 33 Nextcloud php occ maintenance:mode 2>/dev/null | grep -qi enabled || return 0
+    say "undo: Nextcloud was left in maintenance mode — switched off"; timeout 60 docker exec -u 33 Nextcloud php occ maintenance:mode --off >/dev/null; }
+undo_push nc_maint_off
 undo_push ct_start ${was//,/ }
 agent_wait 300
 if WAIT_SOFT=1 wait_for 60 "Unraid's parity check after the unclean stop" bash -c '(( $(/usr/local/sbin/mdcmd status | awk -F= "\$1 == \"mdResyncPos\" { print \$2 }") > 0 ))'; then

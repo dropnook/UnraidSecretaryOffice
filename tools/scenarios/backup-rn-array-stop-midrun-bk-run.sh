@@ -15,6 +15,11 @@ notes_gone() { [[ ! -s $UB/state/stopped && ! -s $UB/state/maintenance && ! -s $
 snaps_dup() { zfs list -H -t snapshot -o name 2>/dev/null | grep '@uso-backup-' | sort | uniq -d; }
 declare -F state_ct_autostart >/dev/null || { printf 'needs the helper CT-AUTOSTART (task/scenarios-helper-ct-autostart): without Docker autostart nothing comes back after an array stop\n' >"$KEEP/.skip"; scenario_end; }
 nc_data_closed
+# the base again when the office left Nextcloud in maintenance mode (its checks are red then): base.sh doesn't reset it, and
+# every later run would refuse («already in maintenance mode») — no helper for it, occ as Nextcloud's own user
+nc_maint_off() { timeout 60 docker exec -u 33 Nextcloud php occ maintenance:mode 2>/dev/null | grep -qi enabled || return 0
+    say "undo: Nextcloud was left in maintenance mode — switched off"; timeout 60 docker exec -u 33 Nextcloud php occ maintenance:mode --off >/dev/null; }
+undo_push nc_maint_off
 state CT-AUTOSTART
 state RN-ARRAY-STOP-MIDRUN-BK 9 300          # its note of what runs now (ct.running) is what must come back
 dir=$(_st_dir RN-ARRAY-STOP-MIDRUN-BK)
