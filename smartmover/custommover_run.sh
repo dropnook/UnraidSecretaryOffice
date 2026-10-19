@@ -564,12 +564,18 @@ mover_send() {  # path — to the running binary; back once it is done with it (
     done
 }
 
-PROGRESS_AT=0
+PROGRESS_AT=0; PROGRESS_STEP=""
+# C-M4 (2026-10-19): … and each time the share's files or bytes pass another 5 % — a share that moves within a second or
+# two (40 × 1 MB) was read a second old, its card 25–60 points behind the disks; at most ~20 more writes a share
 office_progress_tick() {  # office_progress at most once a second (it forks a few times; 120 000 files) — force: now
-    local now
+    local now step=0 b=0
     printf -v now '%(%s)T' -1
-    [[ "${1:-}" == force || "$now" != "$PROGRESS_AT" ]] || return 0
-    PROGRESS_AT=$now
+    (( SH_FILES > 0 )) && step=$(( SH_DONE_FILES * 20 / SH_FILES ))
+    (( SH_BYTES > 0 )) && b=$(( SH_DONE_BYTES * 20 / SH_BYTES ))
+    (( b > step )) && step=$b
+    step="$CUR_SHARE:$step"
+    [[ "${1:-}" == force || "$now" != "$PROGRESS_AT" || "$step" != "$PROGRESS_STEP" ]] || return 0
+    PROGRESS_AT=$now; PROGRESS_STEP=$step
     office_progress
 }
 
