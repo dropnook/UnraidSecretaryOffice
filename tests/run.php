@@ -13277,6 +13277,102 @@ JS;
 }
 
 /**
+ * Scenario batch B, R11 (restore-ct-stopped-db-db): a dump only goes into a running database, and Mr. Restori never starts a
+ * container — a stopped one blocks the plan (restore_db_stopped, with what to do), no step starts it, nothing is written.
+ * The way it went before (1.66.8): «start» + «ready» of the stopped database first, note.db_start «I start it for this».
+ */
+function testRestoreDbStopped(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-rsdbstop-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $mdb = 'db/mariadb_zz-app-db_appdb.sql.gz';
+    $pg = 'db/postgres_zz-app-pg.sql.gz';
+    $f = fn (string $path, string $what, string $c = '') => ['path' => $path, 'bytes' => 20, 'run' => '20261019-1600', 'what' => $what, 'container' => $c];
+    @mkdir("$tmp/place/apps/zz-app/db", 0700, true);
+    @mkdir("$tmp/bin", 0700, true);
+    file_put_contents("$tmp/place/apps/zz-app/manifest.json", json_encode(['interface' => 1, 'kind' => 'app', 'type' => 'template', 'name' => 'zz-app', 'run' => '20261019-1600', 'result' => 'ok',
+        'containers' => [['name' => 'zz-app', 'image' => 'nextcloud', 'template' => 'my-zz-app.xml'], ['name' => 'zz-app-db', 'image' => 'mariadb:11', 'template' => 'my-zz-app-db.xml'],
+                         ['name' => 'zz-app-pg', 'image' => 'postgres:16', 'template' => 'my-zz-app-pg.xml']],
+        'dumps' => [['container' => 'zz-app-db', 'type' => 'mariadb', 'state' => 'ok', 'login' => 'root', 'user_var' => '', 'password_var' => 'MARIADB_ROOT_PASSWORD', 'client' => 'mariadb'],
+                    ['container' => 'zz-app-pg', 'type' => 'postgres', 'state' => 'ok', 'login' => 'user', 'user_var' => 'POSTGRES_USER', 'password_var' => 'POSTGRES_PASSWORD', 'client' => 'psql']],
+        'sqlite' => [], 'files' => [$f($mdb, 'dump', 'zz-app-db'), $f($pg, 'dump', 'zz-app-pg')]]));
+    file_put_contents("$tmp/place/apps/zz-app/$mdb", gzencode('-- dump'));
+    file_put_contents("$tmp/place/apps/zz-app/$pg", gzencode('-- dump'));
+    // a docker stand-in: «ps» says what $tmp/ps holds, everything else (inspect, start …) is written down and answers nothing
+    file_put_contents("$tmp/bin/docker", "#!/bin/sh\nif [ \"\$1\" = ps ]; then cat \"$tmp/ps\"; else echo \"\$*\" >>\"$tmp/docker.log\"; fi\nexit 0\n");
+    chmod("$tmp/bin/docker", 0755);
+    $oldPath = getenv('PATH');
+    putenv("PATH=$tmp/bin:$oldPath");
+    try {
+        $pkg = array_values(array_filter(rsPackages("$tmp/place")['apps'], fn ($a) => $a['id'] === 'zz-app'))[0] ?? null;
+        $plan = function (string $file, string $ps) use ($tmp, $pkg): array {
+            file_put_contents("$tmp/ps", $ps);
+            $ctx = [];
+            return rsPlanDbFor($ctx, ['base' => "$tmp/place"], ['id' => 'zz-app', 'name' => 'zz-app'], $pkg, null, $file, '20261019-170000');
+        };
+        $starts = fn (array $p, string $c) => count(array_filter($p['steps'], fn ($s) => $s['do'] === 'start' && in_array($c, $s['containers'] ?? [], true)));
+        $stopped = $plan($mdb, "zz-app\trunning\nzz-app-db\texited\nzz-app-pg\texited\n");
+        same('restore stopped database: MariaDB stopped - the plan blocks, says which container, no step at all (none starts it)',
+            [[['key' => 'restore_db_stopped', 'params' => ['container' => 'zz-app-db']]], [], 0, []],
+            [$stopped['blockers'], $stopped['steps'], $starts($stopped, 'zz-app-db'), array_column($stopped['notes'], 'key')]);
+        $pgStopped = $plan($pg, "zz-app\trunning\nzz-app-db\trunning\nzz-app-pg\texited\n");
+        same('restore stopped database: Postgres stopped - blocks the same, before looking for its folder (the fresh way would start it too)',
+            [['restore_db_stopped'], [], false], [array_column($pgStopped['blockers'], 'key'), $pgStopped['steps'], is_file("$tmp/docker.log")]);
+        $running = $plan($mdb, "zz-app\trunning\nzz-app-db\trunning\nzz-app-pg\texited\n");
+        same('restore stopped database: MariaDB running - no blocker, the safety dump first, the app stops and starts again (only what he stopped), the database never started',
+            [[], ['dump', 'stop', 'play', 'verify', 'start'], 0, true],
+            [$running['blockers'], array_column($running['steps'], 'do'), $starts($running, 'zz-app-db'), !empty(end($running['steps'])['only_stopped'])]);
+        $lang = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/restore/lang/en.json'), true);
+        check('restore stopped database: the blocker says what to do (start it on Unraid\'s Docker page), the old «I start it» note is gone',
+            str_contains($lang['errors.restore_db_stopped'] ?? '', '⟦Docker⟧') && !isset($lang['note.db_start']) && !isset($lang['note.db_stopped']));
+    } finally {
+        putenv("PATH=$oldPath");
+        exec('rm -rf ' . escapeshellarg($tmp));
+    }
+}
+
+/**
+ * Scenario batch B, R13 (restore-ct-renamed-config-drill): a renamed container's package holds no template (no my-<new>.xml
+ * exists) — its configuration plan says so (restore_config_none; a stack without compose files: _compose) and never
+ * «Everything is the same» (restore_config_same, which only a package whose files all match the server's says).
+ */
+function testRestoreConfigNoTemplate(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-rscfgnone-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $put = function (string $file, mixed $data) use ($tmp): void {
+        @mkdir(dirname("$tmp/$file"), 0700, true);
+        file_put_contents("$tmp/$file", is_string($data) ? $data : json_encode($data));
+    };
+    $put('place/apps/EmbyServer2/manifest.json', ['interface' => 1, 'kind' => 'app', 'type' => 'template', 'name' => 'EmbyServer2', 'run' => '20261019-1700', 'result' => 'ok',
+        'containers' => [['name' => 'EmbyServer2', 'image' => 'emby/embyserver:latest', 'template' => '']], 'dumps' => [], 'sqlite' => [], 'files' => []]);
+    $put('place/apps/EmbyServer/manifest.json', ['interface' => 1, 'kind' => 'app', 'type' => 'template', 'name' => 'EmbyServer', 'run' => '20261019-1600', 'result' => 'ok',
+        'containers' => [['name' => 'EmbyServer', 'image' => 'emby/embyserver:latest', 'template' => 'my-EmbyServer.xml']], 'dumps' => [], 'sqlite' => [],
+        'files' => [['path' => 'my-EmbyServer.xml', 'bytes' => 3, 'run' => '20261019-1600', 'what' => 'template']]]);
+    $put('place/apps/EmbyServer/my-EmbyServer.xml', 'tpl');
+    $put('place/apps/zz-stack/manifest.json', ['interface' => 1, 'kind' => 'app', 'type' => 'compose', 'name' => 'zz-stack', 'run' => '20261019-1600', 'result' => 'ok',
+        'compose' => ['project' => 'zz-stack', 'manager_dir' => null, 'working_dir' => '/mnt/user/appdata/zz-stack', 'config_files' => ['/mnt/user/appdata/zz-stack/compose.yaml']],
+        'containers' => [['name' => 'zz-stack-web', 'image' => 'nginx', 'template' => null]], 'dumps' => [], 'sqlite' => [], 'files' => []]);
+    $put('tpl/my-EmbyServer.xml', 'tpl');
+    @mkdir("$tmp/cm", 0700, true);
+    $by = array_column(rsPackages("$tmp/place")['apps'], null, 'id');
+    $plan = function (string $id, ?array $version = null) use ($tmp, $by): array {
+        $pkg = $by[$id];
+        return rsPlanConfigFor(['id' => $id, 'name' => $pkg['name']], $pkg, $version, rsConfigItems($pkg, "$tmp/cm", "$tmp/tpl"), '20261019-180000', "$tmp/flash");
+    };
+    $none = $plan('EmbyServer2', ['snap' => 'snapA', 'run_time' => 1760886000]);
+    same('restore config without template: the renamed container\'s package says it has no template, nothing to do, never «the same»',
+        [[['key' => 'restore_config_none', 'params' => ['name' => 'EmbyServer2']]], [], ['note.earlier'], ['same' => [], 'items' => []]],
+        [$none['blockers'], $none['steps'], array_column($none['notes'], 'key'), $none['options']]);
+    $stack = $plan('zz-stack');
+    same('restore config without template: a stack whose package holds no compose files says that', ['restore_config_none_compose'], array_column($stack['blockers'], 'key'));
+    $same = $plan('EmbyServer');
+    same('restore config without template: a package whose template matches the server\'s still says «the same»',
+        [['restore_config_same'], [['to' => "$tmp/tpl/my-EmbyServer.xml", 'what' => 'template', 'now' => 'same']]], [array_column($same['blockers'], 'key'), $same['options']['items']]);
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * A database client's output into a restore's log, cut (drill-space, 2026-10-08: MariaDB 11.8 echoes a failed statement
  * whole — ≈ 1 MB per failed INSERT on a large server): every line at RS_LOG_LINE_MAX bytes with «… (n bytes cut)», through
  * rsLogCutter() — here with a stand-in client that says a 100 KB line on stdout and on stderr.
@@ -43843,7 +43939,7 @@ JS;
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

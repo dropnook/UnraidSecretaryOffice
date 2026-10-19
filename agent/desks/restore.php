@@ -1956,6 +1956,8 @@ function rsDbFolder(string $c, array &$ctx): array
  * aside (a Docker volume, a folder spread over disks) — never for Immich.
  * MariaDB/MySQL and MongoDB: in place (their dumps drop and recreate what they hold; MariaDB's users live
  * outside the dumps, so a fresh server would lose them), the safety dump being the way back.
+ * A stopped database blocks: a dump only goes into a running one, and he never starts a container —
+ * the user starts it on Unraid's Docker page and looks again.
  */
 function rsPlanDb(array $r, string $stamp): array
 {
@@ -1988,6 +1990,10 @@ function rsPlanDbFor(array &$ctx, array $place, array $app, array $pkg, ?array $
         $plan['blockers'][] = ['key' => 'restore_container_missing', 'params' => ['container' => $c]];
         return $plan;
     }
+    if (!$now[$c]) {        // a dump only goes into a running database — and he never starts a container: the user does
+        $plan['blockers'][] = ['key' => 'restore_db_stopped', 'params' => ['container' => $c]];
+        return $plan;
+    }
     $login = rsLogin($dump);
     $immich = (bool) array_filter($pkg['containers'], fn ($x) => stripos($x['image'], 'immich') !== false);
     $others = array_values(array_filter(array_column($pkg['containers'], 'name'), fn ($n) => $n !== $c && isset($now[$n]) && preg_match(RS_NAME_PATTERN, $n)));
@@ -2008,18 +2014,8 @@ function rsPlanDbFor(array &$ctx, array $place, array $app, array $pkg, ?array $
     $safetyRoot = $place['safety'] ?? "{$place['base']}/restore";      // a place pulled from a partner is read-only: his own folder then
     $safety = "$safetyRoot/{$app['id']}/$stamp/" . basename($dump['file']);
     $base = ['type' => $type, 'container' => $c, 'db' => $db] + $login;
-    $steps = [];
-    if (!$now[$c] && $method === 'inplace') {
-        $steps[] = ['do' => 'start', 'containers' => [$c], 'need' => true];
-        $steps[] = ['do' => 'ready'] + $base + ['timeout' => 180];
-        $plan['notes'][] = ['key' => 'note.db_start', 'params' => ['container' => $c]];
-    }
-    if ($now[$c] || $method === 'inplace') {
-        $steps[] = ['do' => 'dump', 'file' => $safety] + $base;
-        $plan['aside'][] = ['what' => 'safety_dump', 'from' => $c, 'to' => $safety];
-    } else {
-        $plan['notes'][] = ['key' => 'note.db_stopped', 'params' => ['container' => $c]];
-    }
+    $steps = [['do' => 'dump', 'file' => $safety] + $base];
+    $plan['aside'][] = ['what' => 'safety_dump', 'from' => $c, 'to' => $safety];
     if ($others) {
         $steps[] = ['do' => 'stop', 'containers' => $others];
     }
@@ -2843,6 +2839,14 @@ function rsPlanConfig(array $r, string $stamp): array
 function rsPlanConfigFor(array $app, array $pkg, ?array $version, array $items, string $stamp, string $flashRoot = RS_FLASH_ASIDE): array
 {
     $plan = rsPlanBase('config', $app['name'], ['app' => $app['id'], 'version' => $version['snap'] ?? null]);
+    if (!$items) {          // nothing of the kind in this package (a renamed container's has no template): never «the same»
+        $plan['blockers'][] = ['key' => $pkg['compose'] ? 'restore_config_none_compose' : 'restore_config_none', 'params' => ['name' => $app['name']]];
+        $plan['options'] = ['same' => [], 'items' => []];
+        if ($version) {
+            $plan['notes'][] = ['key' => 'note.earlier', 'params' => ['when' => $version['run_time'] ?? $version['time']]];
+        }
+        return $plan;
+    }
     $steps = [];
     $same = [];
     foreach ($items as $it) {
