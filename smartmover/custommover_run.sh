@@ -45,6 +45,9 @@
 #                             hands the move binary one file at a time (the office block «one file at a time»; USO «one
 #                             move binary»: through one long-running binary per share, not one process per file) and,
 #                             before a share's files, removes leftover <rel>.partial copies whose source still exists
+#   CUSTOMMOVER_SYNC          USO (2026-10-19, D-F11): with CUSTOMMOVER_STOP each file the move binary moved is synced
+#                             (fsync of it and its folder on the destination) before the next is handed over — 0: off
+#   CUSTOMMOVER_SYNC_BIN      the sync command (default: sync; for tests)
 #   CUSTOMMOVER_EXCLUDES_REQUIRED  1 = on a real run (--run) an exclude file that is missing skips its
 #                             share with an ERROR (counted as an error) instead of a WARN
 #   CUSTOMMOVER_DISKS_INI     emhttpd's disks.ini: on a real run a share that reaches the array names its
@@ -287,6 +290,8 @@ get_ini_val() {  # section key
 is_int() { [[ "$1" =~ ^[0-9]+$ ]]; }
 
 MOVER_BIN="${CUSTOMMOVER_MOVER_BIN:-$(get_ini_val GLOBAL mover_bin)}"
+SYNC_BIN="${CUSTOMMOVER_SYNC_BIN:-sync}"
+SYNC_EACH=true; [[ "${CUSTOMMOVER_SYNC:-1}" == 0 ]] && SYNC_EACH=false
 LOG_FILE="${CUSTOMMOVER_LOG:-$(get_ini_val GLOBAL log_file)}"
 GLOBAL_MIN_AGE=$(get_ini_val GLOBAL min_age)
 GLOBAL_AGE_STAT=$(get_ini_val GLOBAL age_stat)
@@ -636,6 +641,26 @@ office_partial_leftovers() {  # share src dest(array|<pool>)
     return 0
 }
 
+# USO «sync» (2026-10-19, D-F11: 2 of 3000 files gone after a power cut during her run, on neither side): Unraid's move
+# binary only hands each path to shfs (an ioctl on /mnt/user); shfs copies to <rel>.partial, renames it and removes the
+# source without any fsync — the copy lives in RAM until the destination's own commit (XFS: up to 30 s) while the removal
+# on the pool may be on disk within 5 s (a ZFS txg); a power cut between loses the file. Unraid's own mover has the same
+# window. Each moved file and its folder are synced on the destination at once (the disk it went to; a pool), so only
+# the moment between shfs's removal and this sync stays open
+office_sync_moved() {  # file share src(one root per line) dest(array|<pool>)
+    [[ "$SYNC_EACH" == true ]] || return 0
+    local share="$2" dest="$4" b to=""
+    rel_of "$1" "$3"
+    if [[ "$dest" == array ]]; then
+        for b in "$MNT"/disk[0-9]*; do [[ -e "$b/$share/$REL" || -L "$b/$share/$REL" ]] && { to="$b/$share/$REL"; break; }; done
+    elif [[ -e "$MNT/$dest/$share/$REL" || -L "$MNT/$dest/$share/$REL" ]]; then
+        to="$MNT/$dest/$share/$REL"
+    fi
+    [[ -n "$to" ]] || return 0
+    if [[ -L "$to" ]]; then "$SYNC_BIN" -- "${to%/*}" 2>/dev/null; else "$SYNC_BIN" -- "$to" "${to%/*}" 2>/dev/null; fi
+    return 0
+}
+
 # The share's files to the move binary one by one (USO «one move binary»: through one binary while it lasts); OFFICE_RC
 # the last non-zero exit
 office_move_files() {  # share src dest out
@@ -669,6 +694,7 @@ office_move_files() {  # share src dest out
         if [[ ! -e "$f" && ! -L "$f" ]]; then
             (( SH_DONE_FILES++, RUN_DONE_FILES++ )) || true
             (( SH_DONE_BYTES += size, RUN_DONE_BYTES += size )) || true
+            office_sync_moved "$f" "$share" "$src" "$dest"
         fi
     done
     if [[ -n "$MV_PID" ]]; then
@@ -752,6 +778,8 @@ office_ws_move() {  # file to
             mv -n -T -- "$tmp" "$to" 2>/dev/null
             if [[ -e "$tmp" || -L "$tmp" ]]; then WS_WHY="already at the destination"
             elif [[ -e "$to" || -L "$to" ]]; then
+                # USO «sync»: the copy on disk before its source goes (not after: a power cut between would lose it)
+                [[ "$SYNC_EACH" == true ]] && { if [[ -L "$to" ]]; then "$SYNC_BIN" -- "${to%/*}"; else "$SYNC_BIN" -- "$to" "${to%/*}"; fi; } 2>/dev/null
                 rm -f -- "$f"
                 office_made_times
                 [[ -e "$f" || -L "$f" ]] && { WS_WHY="copied, but the source could not be removed"; return 1; }
@@ -1238,6 +1266,7 @@ fill_pool() {  # pool
             else
                 (( F_MOVED[$own]++, RUN_DONE_FILES++, RUN_DONE_BYTES += sz, freed += ph )) || true
                 F_GONE[$own]+="$f"$'\n'
+                ends_ws "$f" || office_sync_moved "$f" "$own" "${FS_SRC[$own]}" "${FS_DEST[$own]}"
                 recent_add "$own/${f#"${FS_SRC[$own]}/"}" "$sz" "$pool" "${FS_DEST[$own]}"
             fi
             pool_used_pct "$pool"
