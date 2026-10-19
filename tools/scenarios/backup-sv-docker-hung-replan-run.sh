@@ -11,6 +11,8 @@ scenario_begin backup-sv-docker-hung-replan-run
 needs docker
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
 nc_data_closed
+cts() { timeout 20 docker ps -a --format '{{.Names}} {{.State}}' 2>/dev/null | sort; }
+cts >"$KEEP/containers-before.txt"            # snap_before can't ask Docker once it is silent (lib.sh has docker: timeout 10)
 state SV-DOCKER-HUNG
 snap_before
 # 1. «Look at the server again» (the page's setup_plan {measure:false}), its end awaited for 120 s
@@ -52,5 +54,8 @@ fi
 # the checks ask Docker without a time limit (checks.sh INV-SETUP-MSGS: `docker volume ls`) — Docker answers again
 # before them; INV-TICK's pulses cover the silent time all the same
 docker_unhang SV-DOCKER-HUNG
+d=$(diff "$KEEP/containers-before.txt" <(cts) | grep '^[<>]' | head -4)
+[[ -z $d ]] && cell containers-same 1 "every container as before the state ($(grep -c . "$KEEP/containers-before.txt"))" || cell containers-same 0 "${d//$'\n'/ | }"
+allow INV-UNRAID-SAME "snap_before was taken while Docker was silent (lib.sh's has docker: timeout 10 → «docker off»), the containers are compared by cell containers-same"
 check standard
 scenario_end
