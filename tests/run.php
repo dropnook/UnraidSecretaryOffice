@@ -37327,6 +37327,112 @@ JS);
 }
 
 /**
+ * D-F8, the power-cut half (scenario M6, 2026-10-19): a power cut during her run left no line in her history — her job
+ * never came back to write it. Now her look (moverelliScan) finds the marker of a run that has no end (office-run.json
+ * without finished) while nobody holds her run lock: one line «interrupted», why restart (another boot than the run's —
+ * a power cut or a restart) or ended (the same boot: the job died), with what Smart Mover's live status had counted by
+ * then; the marker gets its end, so the line is written once. A pid of another boot is no run going (a reused pid).
+ */
+function testMoverelliPowerCut(): void
+{
+    $tmp = hardeningTmp('moverelli-powercut');
+    $v = [];
+    moverelliFixture($tmp, $v);
+    $h = ['hired' => fn (): bool => true] + moverelliHost();
+    $dir = "$tmp/data";
+    moverelliSave(moverelliTestSettings(), $h);
+    $boot = function_exists('moverelliBootId') ? moverelliBootId() : 'unknown';
+    $t = time() - 600;
+    $live = ['mode' => 'run', 'result' => 'running', 'started' => $t + 1, 'files' => 3000, 'bytes' => 3000000000, 'done_files' => 1200,
+             'done_bytes' => 1200000000, 'errors' => 0, 'phase' => 'share', 'share' => 'uso-yes', 'shares' => [['share' => 'uso-yes']]];
+    $cut = function (array $run) use ($dir, $live): void {
+        writeAtomic("$dir/office-run.json", jsonEncode($run), 0600, 0, 0);
+        writeAtomic("$dir/status.json", jsonEncode($live), 0600, 0, 0);
+    };
+    $runs = fn () => moverelliHistory($dir);
+    // the power cut: the marker of the boot before, its pid long gone
+    $cut(['mode' => 'run', 'by' => 'night', 'started' => $t, 'pid' => 4194000, 'boot' => 'boot-before']);
+    $n0 = count($runs());
+    moverelliScan($h);
+    $r = $runs()[0] ?? [];
+    same('power cut: her look writes the cut run\'s line — interrupted, why restart, its start, by, what had moved by then',
+        [$n0 + 1, 'interrupted', 'restart', $t, 'night', 'run', 1200, 3000, 1800, 3000000000],
+        [count($runs()), $r['result'] ?? null, $r['why'] ?? null, $r['started'] ?? null, $r['by'] ?? null, $r['mode'] ?? null,
+         $r['status']['moved'] ?? null, $r['status']['files'] ?? null, $r['status']['left'] ?? null, $r['status']['bytes'] ?? null]);
+    same('power cut: the marker has its end now — no run going, the next look writes no second line', [true, false, $n0 + 1],
+        [!empty((readJson("$dir/office-run.json") ?? [])['finished']), moverelliJobInfo($dir)['running'], (function () use ($h, $runs) { moverelliScan($h); return count($runs()); })()]);
+    // the same boot, the job gone (killed): ended; a live status of another run (older) not counted
+    $cut(['mode' => 'run', 'by' => 'office', 'started' => $t + 100, 'pid' => 4194000, 'boot' => $boot]);
+    moverelliScan($h);
+    $r = $runs()[0] ?? [];
+    same('the job died (same boot): interrupted, why ended; Smart Mover\'s live status started before this run — no counts', ['interrupted', 'ended', null],
+        [$r['result'] ?? null, $r['why'] ?? null, $r['status']['moved'] ?? null]);
+    // a run going: its lock held — nothing written
+    $cut(['mode' => 'run', 'by' => 'office', 'started' => $t + 200, 'pid' => 4194000, 'boot' => $boot]);
+    $lock = fopen("$dir/office-run.lock", 'c');
+    flock($lock, LOCK_EX);
+    $n = count($runs());
+    moverelliScan($h);
+    same('her run lock held: no line, no end on the marker', [$n, false], [count($runs()), !empty((readJson("$dir/office-run.json") ?? [])['finished'])]);
+    flock($lock, LOCK_UN);
+    fclose($lock);
+    // a pid that is an agent.php — of this boot: a run going; of the boot before (a reused pid): none, the line written
+    $null = [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']];
+    $p = proc_open(['bash', '-c', 'exec -a agent.php sleep 5'], $null, $pipes);
+    $pid = (int) proc_get_status($p)['pid'];
+    usleep(200000);
+    $cut(['mode' => 'run', 'by' => 'office', 'started' => $t + 300, 'pid' => $pid, 'boot' => $boot]);
+    $going = moverelliJobInfo($dir)['running'];
+    $cut(['mode' => 'run', 'by' => 'office', 'started' => $t + 300, 'pid' => $pid, 'boot' => 'boot-before']);
+    $n = count($runs());
+    moverelliScan($h);
+    same('a pid that is an agent.php: this boot\'s — going; the boot before\'s (reused) — not going, its line written', [true, $n + 1, 'restart'],
+        [$going, count($runs()), $runs()[0]['why'] ?? null]);
+    proc_terminate($p);
+    proc_close($p);
+    // her job notes its boot
+    $GLOBALS['moverelliHost']['env']['MOVE_FAIL'] = '1';
+    moverelliJob(['run', '--office'], moverelliHost());
+    unset($GLOBALS['moverelliHost']['env']['MOVE_FAIL']);
+    same('her job\'s marker names its boot', $boot, (readJson("$dir/office-run.json") ?? [])['boot'] ?? null);
+    $node = testsNode();
+    if ($node === '') {
+        check('power cut: page - node is missing here - skipped', true);
+    } else {
+        file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, className: cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, dataset: {}, style: {},
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, insertBefore(c) { this.children.unshift(c); }, setAttribute() {} });
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { sections: () => ({ el: {}, render() {}, mount: () => false, places: () => [], active: () => '' }), scope: () => T, t: T, el: mk,
+  fmt: { cron: (c) => c, size: (b) => b + ' B', date: (t) => 'D' + t, time: (t) => 'T' + t, duration: (s) => Math.round(s) + 's', relative: (t) => 'R' + t },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, errorText: (e) => 'err:' + e.key,
+  dialog: () => ({ buttons: [] }), toast: () => {}, selbar: () => null, api: { post: async () => ({ ok: true }) } };
+(0, eval)(fs.readFileSync(process.argv[3], 'utf8'));
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+console.log(JSON.stringify({
+  restart: m.runSummary({ mode: 'run', result: 'interrupted', why: 'restart', status: { mode: 'run', result: 'interrupted', files: 3000, moved: 1200, bytes: 3000, left: 1800 } }),
+  ended: m.runSummary({ mode: 'run', result: 'interrupted', why: 'ended', status: { mode: 'run', result: 'interrupted' } }) }));
+JS);
+        $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/moverelli/desk.js') . ' ' . escapeshellarg(testsRunHelpersJs($tmp)) . ' 2>&1');
+        $lines = explode("\n", trim($raw));
+        $o = json_decode((string) end($lines), true);
+        same('power cut: her history row — «the server restarted during the run», then what had moved; the job that died — no counts it doesn\'t know',
+            ['interrupted_restart · run_summary {"moved":1200,"files":3000,"size":"3000 B","left":"count.left {\"n\":1800}"}', 'interrupted_ended'],
+            [$o['restart'] ?? $raw, $o['ended'] ?? null]);
+    }
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $lang = readJson(OFFICE_WEB . "/desks/moverelli/lang/$l.json") ?? [];
+        check("power cut: the words in $l", ($lang['result.interrupted'] ?? '') !== '' && ($lang['interrupted_restart'] ?? '') !== '' && ($lang['interrupted_ended'] ?? '') !== '');
+    }
+    unset($GLOBALS['moverelliHost']);
+    hardeningRm($tmp);
+}
+
+/**
  * Her card's time left (the owner, 2026-10-18: «about 6 days» for a run of under 2 h — after 535 s 8 667 of 72 880 small
  * Nextcloud files done but only 319 MB of 359 GB): files × time per file + bytes ÷ bandwidth, from the page's readings
  * under node — a share simulated file by file (a fixed time per file as Unraid's move's fuser, then its bytes at a
@@ -44044,7 +44150,7 @@ JS;
 }
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],

@@ -1030,9 +1030,59 @@ function moverelliJobInfo(string $dir): array
 {
     $info = readJson("$dir/office-run.json") ?? [];
     $pid = (int) ($info['pid'] ?? 0);
-    $info['running'] = empty($info['finished']) && $pid > 1 && str_contains((string) @file_get_contents("/proc/$pid/cmdline"), 'agent.php');
+    // a marker of another boot is no run going, whatever has its pid now (D-F8: after a power cut)
+    $info['running'] = empty($info['finished']) && $pid > 1 && (($info['boot'] ?? '') === '' || $info['boot'] === moverelliBootId())
+        && str_contains((string) @file_get_contents("/proc/$pid/cmdline"), 'agent.php');
     $info['size'] = (int) @filesize("$dir/office-output.txt");
     return $info;
+}
+
+/** This boot's id (the kernel's, one per boot) — '' unknown */
+function moverelliBootId(): string
+{
+    return trim((string) @file_get_contents('/proc/sys/kernel/random/boot_id', false, null, 0, 64));
+}
+
+/**
+ * D-F8 (2026-10-19): a run cut short without an end of its own — a power cut, a restart, the job killed: her job's marker
+ * has no finished while nobody holds her run lock. Its line in her list of runs, once (under her run lock): «interrupted»,
+ * why restart (the marker's boot isn't this one) or ended, with what Smart Mover's live status of this run had counted;
+ * the marker gets its end. True when a line was written.
+ */
+function moverelliCutRun(string $dir, array $job): bool
+{
+    if (!empty($job['finished']) || $job['running'] || empty($job['started']) || !in_array($job['mode'] ?? '', ['run', 'dry'], true)
+        || flockHeld("$dir/office-run.lock")) {
+        return false;
+    }
+    $hold = @fopen("$dir/office-run.lock", 'c');
+    if (!$hold || !flock($hold, LOCK_EX | LOCK_NB)) {
+        $hold && fclose($hold);
+        return false;
+    }
+    $run = readJson("$dir/office-run.json") ?? [];
+    $done = false;
+    if (empty($run['finished']) && (int) ($run['started'] ?? 0) === (int) $job['started']) {
+        $st = readJson("$dir/status.json") ?? [];
+        $status = ['mode' => (string) $run['mode'], 'result' => 'interrupted'];
+        if (($st['result'] ?? '') === 'running' && (int) ($st['started'] ?? 0) >= (int) $run['started']) {
+            $files = (int) ($st['files'] ?? 0);
+            $moved = (int) ($st['done_files'] ?? 0);
+            $status += ['files' => $files, 'bytes' => (int) ($st['bytes'] ?? 0), 'moved' => $moved, 'left' => max(0, $files - $moved),
+                        'errors' => (int) ($st['errors'] ?? 0)];
+        }
+        $boot = (string) ($run['boot'] ?? '');
+        $why = $boot !== '' && $boot !== moverelliBootId() ? 'restart' : 'ended';
+        moverelliRemember(['mode' => (string) $run['mode'], 'by' => (string) ($run['by'] ?? 'office'), 'started' => (int) $run['started'],
+                           'finished' => null, 'result' => 'interrupted', 'why' => $why, 'status' => $status], $dir);
+        writeAtomic("$dir/office-run.json", jsonEncode($run + ['finished' => time(), 'interrupted' => $why]), 0600, 0, 0);
+        logLine("Ms. Moverelli: her run of " . date('Y-m-d H:i', (int) $run['started']) . ' ended without her — '
+            . ($why === 'restart' ? 'the server restarted meanwhile' : 'its job is gone') . ' (noted as interrupted)');
+        $done = true;
+    }
+    flock($hold, LOCK_UN);
+    fclose($hold);
+    return $done;
 }
 
 /** Is a run of hers going — her job, or a lock of hers held (her job's, Smart Mover's own)? */
@@ -1057,6 +1107,9 @@ function moverelliScan(?array $h = null): array
     $own = ($h['unraid'])();
     $jackDesk = ($h['jack_desk'])();
     $job = moverelliJobInfo($dir);
+    if (moverelliCutRun($dir, $job)) {
+        $job = moverelliJobInfo($dir);
+    }
     $stop = $job['running'] ? readJson("$dir/office-stop.json") : null;
     $state = [
         'time'       => time(),
@@ -1422,7 +1475,7 @@ function moverelliJob(array $args, ?array $h = null): int
         return $refused('moverelli_running');
     }
     $started = time();
-    $run = ['mode' => $mode, 'by' => $by, 'started' => $started, 'pid' => getmypid()];
+    $run = ['mode' => $mode, 'by' => $by, 'started' => $started, 'pid' => getmypid(), 'boot' => moverelliBootId()];
     writeAtomic("$dir/office-run.json", jsonEncode($run), 0600, 0, 0);
     jackMoversUnlock($movers);
     jackWaitEnd($wait, $h['waitdir'], 'moverelli');

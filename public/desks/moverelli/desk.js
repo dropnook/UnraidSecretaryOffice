@@ -1044,6 +1044,12 @@ function runSummary(r) {
   if (s.result === 'config') return s.message || T('result.config');
   if (mode === 'list') return nOf('shares', (s.shares || []).length);
   const notes = [];
+  if (r.result === 'interrupted') {
+    // cut short without her end (a power cut, a restart, the job killed): what had moved by then, when it is known
+    const why = T(r.why === 'restart' ? 'interrupted_restart' : 'interrupted_ended');
+    if (s.files == null) return why;
+    notes.push(why);
+  }
   if (s.result === 'stopped') {
     const file = String(r.stop_file || s.stop_file || '').split('/').pop() || '?';
     notes.push(r.why === 'mover' ? T(r.mover_by === 'schedule' ? 'stopped_mover_schedule' : 'stopped_mover')
