@@ -6,6 +6,11 @@
 #        stopped and started, and it ran afterwards. Its files hold still for the snapshot; a paused database gets no
 #        dump (warning dump_paused {container}; a stopped one: dump_stopped, up to 2.63 a plain warning), a paused
 #        Nextcloud no maintenance mode, a paused media server no SQLite copy. The app's manifest says paused per container.
+#        A running Nextcloud whose database is stopped no longer fails the run (every occ call fails then - Nextcloud
+#        connects to its database first - and the run died at the maintenance mode, nothing backed up): no maintenance mode,
+#        Nextcloud stopped with the apps, everything else backed up; warning db_unreachable {app, container} (config.php's
+#        dbhost names a stopped or paused container: occ not asked) or db_unreachable_occ {app} (occ's database error),
+#        a notification in the office's language. Any other refusal still ends the run, now coded nc_maintenance_failed.
 #   2.63 The btrfs emergency brake says what it did, in codes: each early delete is a warning btrfs_brake (base,
 #        free_gb, floor_gb, snap) - up to 2.62 a plain warning. status.json "btrfs" says per base what holds (kept,
 #        oldest, released, none_left - the brake reached with none of ours left, still no warning (2.23) -, brake_last,
@@ -457,6 +462,7 @@ STOPPED=()                  # containers actually stopped
 declare -A NC_ON=()         # Nextclouds whose maintenance mode WE switched on
 declare -A NC_OCC=() NC_USER=()
 declare -A NC_SAME=()       # container -> first container of the same Nextcloud instance
+declare -A NC_DBDOWN=()     # (2.64) Nextclouds whose database couldn't be reached: no maintenance mode, no occ lists
 declare -A BTRFS_OK=()     # btrfs base -> snapshot path
 declare -A LAYER_MNT=()     # ZFS dataset -> mount point under .layers
 declare -A SHARE_MOUNTED=() # share -> single|overlay|split
@@ -1171,8 +1177,49 @@ nc_datadir_open() {
         "app=$c" "path=$hp" "uid=$uid"
 }
 
+# nc_db_container <container> -> the container its config.php names as dbhost ('db', 'mariadb-nextcloud:3306', a Compose
+#   service of its project); 1 = none (an address, localhost, a socket, a name no container has). Read while it runs.
+nc_db_container() {
+    local c="$1" cfg h n
+    cfg="$(docker exec "$c" cat "$(dirname "${NC_OCC[$c]}")/config/config.php" 2>/dev/null)" || return 1
+    h="$(sed -n "s/.*'dbhost'[[:space:]]*=>[[:space:]]*'\([^']*\)'.*/\1/p" <<<"${cfg:0:65536}")"
+    h="${h%%$'\n'*}"; h="${h%%:*}"
+    [[ "$h" =~ ^[A-Za-z][A-Za-z0-9_.-]*$ && "$h" != localhost ]] || return 1
+    for n in "${CT_NAMES[@]}"; do [[ "$n" == "$h" ]] && { printf '%s' "$n"; return 0; }; done
+    [[ -n "${CT_PROJECT[$c]:-}" ]] || return 1
+    for n in "${CT_NAMES[@]}"; do
+        [[ "${CT_PROJECT[$n]}" == "${CT_PROJECT[$c]}" && "${CT_SERVICE[$n]}" == "$h" ]] && { printf '%s' "$n"; return 0; }
+    done
+    return 1
+}
+# nc_maint_config <container> -> its config.php's 'maintenance' (true / false / "" unknown) - without occ
+nc_maint_config() {
+    local cfg
+    cfg="$(docker exec "$1" cat "$(dirname "${NC_OCC[$1]}")/config/config.php" 2>/dev/null)" || return 0
+    sed -n "s/.*'maintenance'[[:space:]]*=>[[:space:]]*\(true\|false\).*/\1/p" <<<"${cfg:0:65536}" | head -1
+}
+# nc_db_down <container> [database container] (2.64) - Nextcloud can't reach its database (stopped, paused, or occ says it
+#   can't connect): occ answers nothing then, the maintenance mode can't be switched on. That is this app's problem, not the
+#   run's: no maintenance mode, Nextcloud is stopped with the apps for the snapshot like an app without one, everything else
+#   is backed up; said as a warning in the office's words (db_unreachable {app, container}, or db_unreachable_occ {app}
+#   when no container is known) and a notification. Up to 2.63 the run died here and nothing was backed up.
+nc_db_down() {
+    local c="$1" db="${2:-}"
+    NC_DBDOWN[$c]=1
+    if [[ -n "$db" ]]; then
+        warn_code db_unreachable "Nextcloud '$c': its database '$db' is not running - no maintenance mode; Nextcloud is backed up stopped with the apps, everything else as usual" \
+            app="$c" container="$db"
+        ub_tell db_unreachable warning "" "Nextcloud's database is not running" "Nextcloud '$c' was backed up without maintenance mode: its database '$db' is not running. Start it on the Docker page." \
+            "app=$c" "container=$db"
+    else
+        warn_code db_unreachable_occ "Nextcloud '$c' cannot reach its database (occ's message is in the log) - no maintenance mode; Nextcloud is backed up stopped with the apps, everything else as usual" \
+            app="$c"
+        ub_tell db_unreachable_occ warning "" "Nextcloud cannot reach its database" "Nextcloud '$c' was backed up without maintenance mode: it cannot reach its database." "app=$c"
+    fi
+}
+
 nextcloud_maintenance_on() {
-    local c was pre id out try on
+    local c was pre id out try on db
     local -A inst=()           # instanceid -> first container of this instance
     while IFS= read -r c; do
         [[ -z "$c" ]] && continue
@@ -1184,6 +1231,10 @@ nextcloud_maintenance_on() {
             log "  Nextcloud '$c' is paused (by you) - no maintenance mode, it stays paused"; continue
         fi
         nc_find_occ "$c" || { warn "Nextcloud '$c': occ not found - no maintenance mode"; continue; }
+        # 2.64: its database container stopped or paused - occ can't answer; not asked at all (nc_db_down)
+        if db="$(nc_db_container "$c")" && [[ "$(docker inspect -f '{{.State.Running}} {{.State.Paused}}' "$db" 2>/dev/null)" != "true false" ]]; then
+            nc_db_down "$c" "$db"; continue
+        fi
         # Several containers can serve ONE Nextcloud (e.g. app and cron
         # with a shared config.php). The maintenance mode lives in that
         # config.php - after the first container the second would find it
@@ -1216,18 +1267,26 @@ nextcloud_maintenance_on() {
             if out="$(nc_occ "$c" maintenance:mode --on 2>&1)"; then on=1; break; fi
             nc_log_output "$out"
             grep -q "readable by other people" <<<"$out" && break      # stays so until someone changes it (2.62)
+            grep -q "Failed to connect to the database" <<<"$out" && break   # nor does a database that isn't there (2.64)
             (( try < 3 )) && { warn "Nextcloud '$c': maintenance mode not switched on (attempt $try/3) - trying again in 5 s"; sleep 5; }
         done
         if (( on )); then
             log "  Nextcloud '$c': maintenance mode on"
         else
+            # 2.64: no database - occ answers nothing, config.php says whether the mode is on (then it stays noted: switched
+            # off at the end or by --recover once occ answers); the run goes on without it (nc_db_down)
+            if grep -q "Failed to connect to the database" <<<"$out"; then
+                [[ "$(nc_maint_config "$c")" == "true" ]] || { unset "NC_ON[$c]"; save_restore_state; }
+                nc_db_down "$c" "$(nc_db_container "$c")"; continue
+            fi
             # Keep noted only what is really on - otherwise the abort
             # reports a stuck maintenance mode that does not exist.
             [[ "$(nc_occ "$c" config:system:get maintenance 2>/dev/null | tr -d '\r')" == "true" ]] \
                 || { unset "NC_ON[$c]"; save_restore_state; }
             # 2.62: the data folder readable by others - the run goes on without the maintenance mode (nc_datadir_open)
             if grep -q "readable by other people" <<<"$out"; then nc_datadir_open "$c"; continue; fi
-            die "Nextcloud '$c': maintenance mode could not be switched on (occ's message is in the log)"
+            # 2.64: coded - the office says it in its own words (up to 2.63 the page showed this English sentence)
+            die_code nc_maintenance_failed "Nextcloud '$c': maintenance mode could not be switched on (occ's message is in the log)"
         fi
     done < <(cfg_names nextcloud)
     [[ ${#NC_ON[@]} -gt 0 ]] && sleep "${UB_NC_SETTLE:-5}"      # let running requests finish (tests: shorter)
@@ -1873,6 +1932,7 @@ pkg_app_static() {
         mkdir -p "$A/nextcloud"
         docker exec "$c" cat "$(dirname "${NC_OCC[$c]}")/config/config.php" >"$A/nextcloud/${c}_config.php" 2>/dev/null \
             || { warn "config.php of '$c' not readable"; rm -f "$A/nextcloud/${c}_config.php"; }
+        [[ -n "${NC_DBDOWN[$c]:-}" ]] && continue          # no database: occ answers nothing (2.64)
         for x in status app:list "config:list system" files_external:list user:list; do
             # shellcheck disable=SC2086
             nc_occ "$c" $x >"$A/nextcloud/${c}_occ-$(tr ' :' '--' <<<"$x").txt" 2>&1

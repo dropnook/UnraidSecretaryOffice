@@ -43397,6 +43397,11 @@ function testBackupNcOpen(): void
  * B7: a paused container is left exactly as it is - never stopped, never started, so it is paused afterwards (up to 2.63
  * docker's State.Running, true for a paused one, had it stopped and started: it ran after the run); a paused database
  * gets no dump (dump_paused), a paused Nextcloud no maintenance mode; the package's manifest says «paused».
+ * Batch B (R6, R11): a running Nextcloud whose database is stopped - occ answers nothing (Nextcloud connects to its
+ * database first), up to 2.63 the run died at the maintenance mode and nothing was backed up. Now that app's problem only:
+ * no maintenance mode (occ not even asked when config.php's dbhost names a stopped container), Nextcloud stopped with the
+ * apps, everything else backed up, a warning db_unreachable and a notification in the office's language; a database the
+ * engine can't name (an address): occ asked once, db_unreachable_occ. Any other occ refusal still ends the run - coded.
  */
 function testBackupPausedStopped(): void
 {
@@ -43476,7 +43481,9 @@ case "$1" in
       cat) [[ -e "$FAKE/nc.config" ]] && cat "$FAKE/nc.config"; exit 0 ;;
       php)
         shift 2
+        [[ -e "$FAKE/nc.broken" && "$*" == "maintenance:mode --on" ]] && { ev "occ refused $*"; echo 'Something else went wrong'; exit 1; }
         if [[ -e "$FAKE/nc.dbdown" ]]; then
+          ev "occ refused $*"
           printf '%s\n' 'An unhandled exception has been thrown:' "Doctrine\\DBAL\\Exception: Failed to connect to the database: An exception occurred in the driver: SQLSTATE[HY000] [2002] $(cat "$FAKE/nc.dbdown") in /var/www/html/lib/private/DB/Connection.php:236"
           exit 1
         fi
@@ -43520,7 +43527,7 @@ SH);
         }
         @unlink("$data/state/status.json");
     };
-    $run = function () use ($env, $clock): string {
+    $run = function () use (&$env, $clock): string {
         testsClockRun($clock);
         return testsClockRan('paused/stopped', (string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' </dev/null') . ' 2>&1'));
     };
@@ -43558,6 +43565,57 @@ SH);
     check('paused (B7): nothing paused - every container stopped and started again, Nextcloud\'s maintenance mode on and off',
         !array_diff(['docker stop c2', 'docker start c2', 'docker stop nc', 'docker start nc', 'occ maintenance on', 'occ maintenance off'], $ev)
         && !preg_grep('/^docker (un)?pause/', $ev), json_encode($ev));
+
+    // --- Nextcloud running, its database ncdb stopped (config.php: dbhost 'ncdb:3306'); ncdb has the dump now; the office speaks German
+    $ini = (string) file_get_contents("$data/settings.ini");
+    file_put_contents("$data/settings.ini", str_replace("[dump \"db1\"]\n", "[dump \"ncdb\"]\n", $ini));
+    file_put_contents("$fake/lang.json", '{"lang":"de"}');
+    $env .= " UB_NOTIFY_LANG_FILE=$fake/lang.json";
+    $nc = function (string $dbhost) use ($fake): void {
+        file_put_contents("$fake/nc.config", "<?php\n\$CONFIG = array (\n  'instanceid' => 'inst1',\n  'dbtype' => 'mysql',\n  'dbhost' => '$dbhost',\n  'maintenance' => false,\n);\n");
+        file_put_contents("$fake/nc.dbdown", "php_network_getaddresses: getaddrinfo for ncdb failed: Temporary failure in name resolution");
+    };
+    $night(['ncdb' => 'stopped']);
+    $nc('ncdb:3306');
+    $out = $run();
+    $ev = $events();
+    $s = $status();
+    $l = $log();
+    same('db stopped: the run goes on and ends with warnings - Nextcloud\'s database unreachable, its dump skipped, both in the office\'s words', [
+            'warnings', [['code' => 'db_unreachable', 'params' => ['app' => 'nc', 'container' => 'ncdb']], ['code' => 'dump_stopped', 'params' => ['container' => 'ncdb']]]],
+        [$s['result'] ?? null, array_values(array_filter($s['warning_items'] ?? [], fn ($w) => str_starts_with($w['code'] ?? '', 'd')))], $out . $l);
+    same('db stopped: occ never asked (config.php names the stopped container), no maintenance mode; Nextcloud stopped and started with the apps, '
+        . 'the database left stopped, the others backed up', [[], false, true, [], true, true],
+        [array_values(preg_grep('/^(exec nc php|occ )/', $ev)), file_exists("$fake/nc.maint") && trim((string) file_get_contents("$fake/nc.maint")) === 'true',
+         in_array('docker stop nc', $ev, true) && in_array('docker start nc', $ev, true), array_values(preg_grep('/^docker (stop|start) ncdb$/', $ev)),
+         in_array('docker stop c1', $ev, true) && in_array('zfs snapshot', $ev, true), str_contains($l, "WARNING: Nextcloud 'nc': its database 'ncdb' is not running - no maintenance mode")], json_encode($ev));
+    $note = (string) @file_get_contents("$fake/notify.log");
+    check('db stopped: a warning notification in the office\'s language (German), naming Nextcloud and its database; the run\'s end a warning, no alert',
+        str_contains($note, 'Herr Backupsi: Die Datenbank von Nextcloud läuft nicht') && str_contains($note, 'Nextcloud «nc» wurde ohne Wartungsmodus gesichert: Seine Datenbank «ncdb» läuft nicht')
+        && !str_contains($note, '-i alert'), $note);
+    same('db stopped: the package keeps Nextcloud\'s config.php, no occ lists (occ answers nothing)', [true, []],
+        [is_file("$mnt/user/UnraidSecretaryOffice/backup/apps/nc/nextcloud/nc_config.php"),
+         array_map('basename', glob("$mnt/user/UnraidSecretaryOffice/backup/apps/nc/nextcloud/nc_occ-*") ?: [])]);
+
+    // --- the database at an address the engine can't name: occ asked once (its database error ends the tries), the same warning without a name
+    $night(['ncdb' => 'stopped']);
+    $nc('192.168.7.9:3306');
+    $out = $run();
+    $ev = $events();
+    $s = $status();
+    same('db unreachable (an address): occ asked once, no retries; the run ends with warnings, db_unreachable_occ', [
+            1, 'warnings', [['code' => 'db_unreachable_occ', 'params' => ['app' => 'nc']]], false],
+        [count(preg_grep('/^occ refused maintenance:mode --on$/', $ev)), $s['result'] ?? null,
+         array_values(array_filter($s['warning_items'] ?? [], fn ($w) => str_starts_with($w['code'] ?? '', 'db_'))), file_exists("$data/state/maintenance")], $out . $log());
+
+    // --- occ refusing for any other reason: the run still ends there - with a code the office translates (up to 2.63 a plain English sentence)
+    $night([]);
+    @unlink("$fake/nc.dbdown");
+    touch("$fake/nc.broken");
+    $out = $run();
+    $s = $status();
+    same('occ refusing otherwise: the run fails, coded nc_maintenance_failed; the German notification says it in German', ['failed', 'nc_maintenance_failed', true],
+        [$s['result'] ?? null, $s['message'] ?? null, str_contains((string) @file_get_contents("$fake/notify.log"), 'Nextcloud ging nicht in den Wartungsmodus')], $out . $log());
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
