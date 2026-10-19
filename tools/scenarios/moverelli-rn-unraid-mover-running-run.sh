@@ -40,7 +40,8 @@ if wait_for 300 "a file of uso-yes on its way" _mv_moving "$t0" uso-yes; then
     # the stop file goes when her run ends — a run that ended within a poll: the time of her log line instead
     if ((ts == 0)); then
         l=$(agent_log_since mover | grep -m1 "Unraid's mover started" | cut -c1-19)
-        [[ -n $l ]] && ts=$(date -d "$l" +%s 2>/dev/null || echo 0)
+        # (the office logs in Unraid's time zone, PHP's — the shell's may be UTC)
+        [[ -n $l ]] && ts=$(php -r 'echo (int) strtotime($argv[1]);' "$l" 2>/dev/null || echo 0)
     fi
     m1=$(arr)
     late=$(find /mnt/disk1/uso-yes/uso-wip-d-m11 /mnt/disk2/uso-yes/uso-wip-d-m11 -type f ! -name '*.partial' -newerct "@$((ts + 1))" 2>/dev/null | wc -l)
