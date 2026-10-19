@@ -4,7 +4,9 @@
 # This half notes what must come back (OF-REBOOT: version, staff, cron, settings, the running containers) and puts the
 # demo set on Docker's autostart (CT-AUTOSTART, as a user's server has it — undone by the post half), arms the power
 # cut (9 s after backup.sh is at work) and ends; a detached «Back up now» starts the run once this half's result is
-# written, so the runner has its report before the server goes. The post half checks the boot.
+# written, so the runner has its report before the server goes. The post half checks the boot. $1 = users: Nextcloud's
+# data folder first as the office's «Close the folder…» leaves it (33:users 0770) — Unraid's array start at the boot
+# leaves that alone (B12's finding: 33:33 is opened to 0777 and the --recover's occ is refused).
 . "$(dirname "$0")/lib.sh"
 scenario_begin backup-rn-hard-reset-midrun-run-pre
 needs tower docker reboot
@@ -13,6 +15,9 @@ note=${USO_SC_OUT:-$SC_REPORTS}/backup-rn-hard-reset-midrun-run.prenotes
 { [[ -f /var/lib/docker/unraid-autostart ]] && echo autostart=had || echo autostart=none; } >"$note"
 [[ -f /var/lib/docker/unraid-autostart ]] && cp -p /var/lib/docker/unraid-autostart "$note.autostart"
 nc_data_closed
+if [[ ${1:-} == users ]]; then
+    t=$(readlink -f /mnt/user/nextcloud); chown 33:users "$t" && chmod 0770 "$t" && say "Nextcloud's data folder $t: 33:users 0770 (as «Close the folder…» leaves it)"
+fi
 state_ct_autostart                           # not `state`: its undo is the post half's
 flow OF-REBOOT
 minute_wait

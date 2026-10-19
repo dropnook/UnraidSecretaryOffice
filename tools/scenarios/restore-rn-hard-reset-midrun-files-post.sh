@@ -19,7 +19,7 @@ was=$(sed -n 's/^docker=//p' "$reb" 2>/dev/null)
 if grep -qx autostart=had "$prenote" 2>/dev/null; then undo_push cp -p "$prenote.autostart" /var/lib/docker/unraid-autostart
 else undo_push rm -f /var/lib/docker/unraid-autostart; fi
 undo_push ct_start ${was//,/ }
-undo_push bash -c 'rm -rf /mnt/cache/uso-only/uso-wip-d-r4f /mnt/cache/uso-only/uso-wip-d-r4f.*'
+undo_push bash -c 'rm -rf /mnt/cache/appdata/emby/uso-wip-d-r4f /mnt/cache/appdata/emby.aside-* /mnt/cache/appdata/emby.restored-* /mnt/cache/appdata/emby.putback-*'
 agent_wait 300
 nc_data_closed                               # Unraid's array start at the boot opened Nextcloud's data folder (0777) — not this cell's
 if WAIT_SOFT=1 wait_for 60 "Unraid's parity check after the unclean stop" bash -c '(( $(/usr/local/sbin/mdcmd status | awk -F= "\$1 == \"mdResyncPos\" { print \$2 }") > 0 ))'; then
@@ -27,7 +27,6 @@ if WAIT_SOFT=1 wait_for 60 "Unraid's parity check after the unclean stop" bash -
 else
     say "note: no parity check after the boot — was it a power cut?"
 fi
-track_share uso-only
 snap_before
 rid=$(ls -1 "$D/restore" 2>/dev/null | grep -E '^[0-9]{8}-' | sort | tail -1)
 j=$D/restore/$rid/journal.json
@@ -41,7 +40,7 @@ run=$(state_json restore '.running // null | tostring' 2>/dev/null)
 lock_held "$UB/state/lock" && cell lock-free 0 "the engine's lock is held after the boot" || cell lock-free 1 "the engine's lock is free"
 if [[ $row == *can_putback=true ]]; then
     flow RS-PUTBACK of="$rid"
-    live=$(find /mnt/cache/uso-only/uso-wip-d-r4f -type f | wc -l)
+    live=$(find /mnt/cache/appdata/emby/uso-wip-d-r4f -type f | wc -l)
     ((live == 4)) && cell putback 1 "«Put back» done, the live folder untouched (4 files)" || cell putback 0 "after «Put back» the live folder has $live files (4 before)"
 else
     cell putback 0 "«Put back» isn't offered for the interrupted copy ($row)"

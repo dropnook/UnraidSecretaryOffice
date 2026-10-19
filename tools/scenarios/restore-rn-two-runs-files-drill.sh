@@ -7,13 +7,12 @@
 scenario_begin restore-rn-two-runs-files-drill
 needs tower docker zfs
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
-U=/mnt/user/uso-only/uso-wip-d-r20
-put_files R20 cache uso-only/uso-wip-d-r20 3 || _row state put_files red "the files could not be written"
+U=/mnt/user/appdata/emby                     # EmbyServer's app folder: he restores app and VM folders
+put_files R20 cache appdata/emby/uso-wip-d-r20 3 || _row state put_files red "the files could not be written"
 undo_push files_unput R20
-undo_push bash -c 'rm -rf /mnt/cache/uso-only/uso-wip-d-r20 /mnt/cache/uso-only/uso-wip-d-r20.*'
+undo_push bash -c 'rm -rf /mnt/cache/appdata/emby/uso-wip-d-r20 /mnt/cache/appdata/emby.aside-* /mnt/cache/appdata/emby.restored-* /mnt/cache/appdata/emby.putback-*'
 nc_data_closed
 flow BK-RUN-MANUAL mode=backup               # the moment, and the packages for the drill
-track_share uso-only
 snap_before
 minute_wait
 state RN-TWO-RUNS backup

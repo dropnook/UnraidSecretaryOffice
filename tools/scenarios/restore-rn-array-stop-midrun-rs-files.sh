@@ -11,16 +11,15 @@ scenario_begin restore-rn-array-stop-midrun-rs-files
 needs tower docker zfs
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
 declare -F state_ct_autostart >/dev/null || { printf 'needs the helper CT-AUTOSTART (task/scenarios-helper-ct-autostart): without Docker autostart nothing comes back after an array stop\n' >"$KEEP/.skip"; scenario_end; }
-U=/mnt/user/uso-only/uso-wip-d-r5
-put_files R5 cache uso-only/uso-wip-d-r5 4 --size 512M || _row state put_files red "the files could not be written"
+U=/mnt/user/appdata/emby                     # EmbyServer's app folder: he restores app and VM folders
+put_files R5 cache appdata/emby/uso-wip-d-r5 4 --size 512M || _row state put_files red "the files could not be written"
 undo_push files_unput R5
-undo_push bash -c 'rm -rf /mnt/cache/uso-only/uso-wip-d-r5 /mnt/cache/uso-only/uso-wip-d-r5.*'
+undo_push bash -c 'rm -rf /mnt/cache/appdata/emby/uso-wip-d-r5 /mnt/cache/appdata/emby.aside-* /mnt/cache/appdata/emby.restored-* /mnt/cache/appdata/emby.putback-*'
 nc_data_closed
 state CT-AUTOSTART
 flow BK-RUN-MANUAL mode=backup               # the moment
 state RN-ARRAY-STOP-MIDRUN-RS 0 300
 dir=$(_st_dir RN-ARRAY-STOP-MIDRUN-RS)
-track_share uso-only
 snap_before
 agent_mark_restart
 (flow_rs_files mode=beside path="$U" >/dev/null 2>&1) & fpid=$!
