@@ -209,16 +209,18 @@ task/fix-moverelli-root-dataset's Moverelli code); each time includes waits for 
 | R6 | `restore-ct-image-gone-drill` (mariadb-nextcloud's image: dumps need it) | **red** INV-BACKUP-AFTER (cell green) | 96 s | pre-release |
 | R7 | `restore-vm-gone-vm-drill` | green | 93 s | pre-release |
 | R11 | `restore-ct-stopped-db-db` | **red** (the plan starts the stopped database) | 86 s | pre-release |
-| R12 | `restore-ct-stopped-nc-db-files` | green | 304 s | pre-release |
-| R13 | `restore-ct-renamed-config-drill` | **red** (no template in the package → «everything is the same») | 310 s | pre-release |
-| R13 | `restore-ct-recreated-config-drill` | green | 238 s | pre-release |
+| R12 | `restore-ct-stopped-nc-db-files` | **red** INV-PAGE (inherited, see below; cells and Tower checks green) | 304 s | pre-release |
+| R13 | `restore-ct-renamed-config-drill` | **red** (no template in the package → «everything is the same»; + INV-PAGE inherited) | 310 s | pre-release |
+| R13 | `restore-ct-recreated-config-drill` | **red** INV-PAGE (inherited; cells and Tower checks green) | 238 s | pre-release |
 
 Findings (each red twice, 2026-10-19 16:27 and 17:29 runs; root causes in the files' headers): B7 backup.sh:514 counts a
 paused container as running; B27 setup.sh step_vms (~1443) carries no [vm] keys while libvirt is off; R11 restore.php
 rsPlanDb (~2014) starts a stopped database; R13 restore.php rsPlanConfigFor (~2866) says restore_config_same for a
 package without a template; and, seen in R6 and R11 (CT-STOPPED-DB × BK-RUN), a running Nextcloud whose database is
-stopped fails every run (backup.sh ~1213). Corrections of the catalogue's guesses, in the scenarios' headers: no hint
+stopped fails every run (backup.sh ~1213) — and that run's reason is a plain `die`, no code: Mr. Backupsy's German page
+then shows the engine's English «Nextcloud 'Nextcloud': maintenance mode could not be switched on…» (INV-PAGE «English in
+German», Mac-side) on every scenario after it until a run ends otherwise (R12, both R13 in the 17:29 run). Corrections of the catalogue's guesses, in the scenarios' headers: no hint
 app_gone without an [app] section (the Apply list says it); a gone app's package is offered for the storeroom only once
 its image is gone too (backup-gone.php); the drill needs an image only for a dump; RS-VM defines a gone VM and leaves a
 disk that is still there alone (after.vm_disks names its moment); his files restore takes the share Nextcloud binds whole.
-The whole batch: ~50 min on a shared Tower (~45 min alone).
+The whole batch: ~50 min of scenarios plus a base reset (~3 min) on a shared Tower.
