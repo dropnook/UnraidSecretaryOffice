@@ -661,6 +661,26 @@ office_sync_moved() {  # file share src(one root per line) dest(array|<pool>)
     return 0
 }
 
+# USO «twins»: the file still at the source the same as its copy at the destination (a plain file each; size, mtime,
+# owner, group, mode, content)? Then the copy synced and the source removed — 0; else 1
+office_twin_done() {  # file share src(one root per line) dest(array|<pool>)
+    local f="$1" share="$2" dest="$4" b to="" a z
+    [[ -f "$f" && ! -L "$f" ]] || return 1
+    rel_of "$f" "$3"
+    if [[ "$dest" == array ]]; then
+        for b in "$MNT"/disk[0-9]*; do [[ -e "$b/$share/$REL" || -L "$b/$share/$REL" ]] && { to="$b/$share/$REL"; break; }; done
+    else
+        to="$MNT/$dest/$share/$REL"
+    fi
+    [[ -n "$to" && -f "$to" && ! -L "$to" ]] || return 1
+    a=$(stat -c '%s %Y %u %g %a %h' -- "$f" 2>/dev/null); z=$(stat -c '%s %Y %u %g %a %h' -- "$to" 2>/dev/null)
+    [[ -n "$a" && "$a" == "$z" && "${a##* }" == 1 ]] || return 1
+    cmp -s -- "$f" "$to" || return 1
+    "$SYNC_BIN" -- "$to" "${to%/*}" 2>/dev/null
+    rm -f -- "$f"
+    [[ ! -e "$f" ]]
+}
+
 # The share's files to the move binary one by one (USO «one move binary»: through one binary while it lasts); OFFICE_RC
 # the last non-zero exit
 office_move_files() {  # share src dest out
@@ -1062,6 +1082,22 @@ move_batch() {  # share src dest
     for f in "${FILES[@]}"; do
         if [[ -e "$f" || -L "$f" ]]; then LEFT+=("$f"); else MOVED+=("$f"); fi
     done
+    # USO «twins» (2026-10-19, D-F11): a move a power cut cut short after the copy was on disk but before the source's
+    # removal was leaves the file on both sides — the move binary answers «File exists» and leaves it for ever. One whose
+    # copy is the same (size, mtime, owner, mode, content) is finished here: the copy synced, the source removed
+    if [[ -n "$STOP_FILE" && ${#LEFT[@]} -gt 0 ]]; then
+        local -a still=() fin=()
+        for f in "${LEFT[@]}"; do if office_twin_done "$f" "$name" "$src" "$dest"; then fin+=("$f"); else still+=("$f"); fi; done
+        if (( ${#fin[@]} > 0 )); then
+            MOVED+=("${fin[@]}"); LEFT=("${still[@]}")
+            local k=0
+            for f in "${fin[@]}"; do
+                (( k++ )) || true
+                (( k <= 10 )) && log WARN "  the same file was at the destination already (a move cut short, by a power cut?) – its source removed: $f"
+            done
+            (( ${#fin[@]} > 10 )) && log WARN "     ... $(( ${#fin[@]} - 10 )) more"
+        fi
+    fi
     local ns=${OFFICE_NOT_STARTED:-0}
     OFFICE_NOT_STARTED=0
     (( TOTAL_MOVED += ${#MOVED[@]}, TOTAL_LEFT += ${#LEFT[@]} + ns )) || true

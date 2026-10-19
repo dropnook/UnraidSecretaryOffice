@@ -37626,6 +37626,56 @@ function testMoverelliSyncMoved(): void
 }
 
 /**
+ * D-F11, the twins (USOTest4 2026-10-19: a power cut during her run with the sync — no file lost, but 104 of 3000 on both
+ * sides: the copy synced, the source's removal not yet on the pool): Unraid's move binary answers «File exists» for each
+ * and leaves it, for ever. She finishes such a move: a file the binary left whose copy at the destination is the same
+ * (size, mtime, owner, mode and content) — the copy synced, the source removed, counted as moved, said; one that differs
+ * in anything stays (named with the binary's reason).
+ */
+function testMoverelliTwins(): void
+{
+    $tmp = hardeningTmp('moverelli-twins');
+    $v = [];
+    moverelliFixture($tmp, $v);
+    $dir = "$tmp/data";
+    moverelliSave(moverelliTestSettings(), moverelliHost());
+    $c = "$tmp/mnt/cache/Docs";
+    $a = "$tmp/mnt/disk1/Docs";
+    @mkdir($a, 0700, true);
+    foreach (['t1.txt' => 'same', 't2.txt' => 'other', 't3.txt' => 'same', 't4.txt' => 'same'] as $f => $there) {
+        file_put_contents("$c/$f", 'same');
+        file_put_contents("$a/$f", $there);
+        touch("$c/$f", 1700000000);
+        touch("$a/$f", $f === 't3.txt' ? 1700000500 : 1700000000);
+    }
+    chmod("$a/t4.txt", 0600);
+    chmod("$c/t4.txt", 0644);
+    // the binary as it is: a file already at the destination — «File exists», left
+    file_put_contents("$tmp/bin/move-exists", "#!/bin/bash\nwhile IFS= read -r f; do\n  case \"\$f\" in */cache/*) to=\"\${f/\\/cache\\///disk1/}\" ;; *) to=\"\" ;; esac\n"
+        . "  if [[ -n \"\$to\" && -e \"\$to\" ]]; then echo \"move: \$f File exists\"; continue; fi\n"
+        . "  printf '%s\\n' \"\$f\" | " . escapeshellarg("$tmp/bin/move") . "\ndone\nexit 0\n");
+    chmod("$tmp/bin/move-exists", 0755);
+    file_put_contents("$tmp/bin/sync", "#!/bin/bash\n[[ \"\$1\" == -- ]] && shift\necho \"\$*\" >> " . escapeshellarg("$tmp/synced") . "\n");
+    chmod("$tmp/bin/sync", 0755);
+    $GLOBALS['moverelliHost']['env'] += ['CUSTOMMOVER_MOVER_BIN' => "$tmp/bin/move-exists", 'CUSTOMMOVER_SYNC_BIN' => "$tmp/bin/sync"];
+    $GLOBALS['moverelliHost']['env']['CUSTOMMOVER_MOVER_BIN'] = "$tmp/bin/move-exists";
+    moverelliJob(['run', '--office'], moverelliHost());
+    $log = (string) file_get_contents("$dir/smart_mover.log");
+    $st = readJson("$dir/status.json") ?? [];
+    $docs = array_values(array_filter($st['shares'] ?? [], fn ($x) => $x['share'] === 'Docs'))[0] ?? [];
+    same('twins: t1 (the same in all) — its source removed, the copy kept and synced first; t2 (other content), t3 (other mtime), t4 (other mode) stay on both sides',
+        [false, 'same', true, true, true, true, true, true], [file_exists("$c/t1.txt"), @file_get_contents("$a/t1.txt"),
+         in_array("$a/t1.txt $a", file("$tmp/synced", FILE_IGNORE_NEW_LINES) ?: [], true),
+         is_file("$c/t2.txt"), is_file("$c/t3.txt"), is_file("$c/t4.txt"), @file_get_contents("$a/t2.txt") === 'other', is_file("$a/t3.txt")]);
+    same('twins: counted — Docs 5 files (c.txt and t1 moved), 3 left «File exists»', [5, 2, 3, 'File exists'],
+        [$docs['files'] ?? null, $docs['moved'] ?? null, $docs['left'] ?? null, $docs['left_why'] ?? null]);
+    check('twins: said in her log', str_contains($log, "the same file was at the destination already (a move cut short, by a power cut?) – its source removed: $c/t1.txt")
+        && str_contains($log, "$c/t2.txt – File exists"), $log);
+    unset($GLOBALS['moverelliHost']);
+    hardeningRm($tmp);
+}
+
+/**
  * Her card's time left (the owner, 2026-10-18: «about 6 days» for a run of under 2 h — after 535 s 8 667 of 72 880 small
  * Nextcloud files done but only 319 MB of 359 GB): files × time per file + bytes ÷ bandwidth, from the page's readings
  * under node — a share simulated file by file (a fixed time per file as Unraid's move's fuser, then its bytes at a
@@ -44357,7 +44407,7 @@ JS;
 }
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
