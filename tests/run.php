@@ -21192,6 +21192,23 @@ function testWhereDesk(): void
     check('where desk: both parts on her page', str_contains($js, "part(T('part.where')") && str_contains($js, "part(T('part.tidy')"));
     // Docker stopped (QA 2026-10-08 #13): her facts say so instead of «0 of 0 running», and so does Mr. Backupsy
     $sys = waSystem([], [], [], ['running' => false, 'since' => null, 'step' => null]);
+    // D-F6 (2026-10-19): while a backup runs her «Where is what» showed the engine's last log line as its step — English on
+    // the German page. Now the status file's coded phase as Mr. Backupsy's step in the office's words, or no step at all
+    $wd = sys_get_temp_dir() . '/office-tests-where-step-' . getmypid();
+    @mkdir("$wd/logs", 0700, true);
+    @mkdir("$wd/state", 0700, true);
+    file_put_contents("$wd/logs/latest.log", "2026-10-19 21:05:00  Kopia: uploading share appdata (12 GB)\n");
+    $stepOf = function (?array $st) use ($wd): ?string {
+        $st === null ? @unlink("$wd/state/status.json") : file_put_contents("$wd/state/status.json", json_encode($st));
+        return lastLogStep("$wd/logs/latest.log");
+    };
+    $lang = officeNotifyLang();
+    same('where desk: the backup\'s step — the coded phase in his words (offsite, snapshots), never the log line; nothing coded, ended or no status: none',
+        [officeNotifyText('backup', 'step.kopia', [], $lang), officeNotifyText('backup', 'step.snapshots', [], $lang), null, null, null, null],
+        [$stepOf(['result' => 'running', 'phase' => 'kopia']), $stepOf(['result' => 'running', 'phase' => 'vms']), $stepOf(['result' => 'running', 'phase' => 'Kopia: up']),
+         $stepOf(['result' => 'ok', 'phase' => 'done']), $stepOf(['result' => 'running']), $stepOf(null)]);
+    check('where desk: the step\'s words exist in German', ($de = langFile(OFFICE_WEB . '/desks/backup/lang/de.json')['step.kopia'] ?? '') !== '' && $de !== 'Offsite');
+    exec('rm -rf ' . escapeshellarg($wd));
     check('where desk: whether Docker and the VM service answer', is_bool($sys['docker']['up'] ?? null) && is_bool($sys['vms']['up'] ?? null));
     check('where desk: Docker off said on her page', substr_count($js, "docker.up === false ? Office.t('common.docker_off')") >= 1
         && str_contains($js, "if (s.system.docker.up === false) return { sub: Office.t('common.docker_off') }"));
@@ -35290,6 +35307,10 @@ SH);
         [array_values(array_filter($ks, fn ($x) => ($x['state'] ?? '') === 'orphan')),
          array_values(array_map(function ($x) { $k = array_keys($x); sort($k); return $k; }, array_filter($ks, fn ($x) => ($x['state'] ?? '') !== 'orphan')))]);
     same('setup messages (engine): the live test that couldn\'t mount - coded with the root', [['root' => $root]], $by('kopia_probe_failed'));
+    $shp = array_column(is_array($plan['shares'] ?? null) ? $plan['shares'] : [], null, 'name');
+    same('setup messages (engine): a config Unraid no longer lists is no share — never offered (2.65); one it lists is still empty; one saved is gone',
+        [false, ['kopia', 'empty'], ['gone', false]],
+        [isset($shp['cfgonly']), [$shp['fresh']['mode'] ?? null, $shp['fresh']['why'] ?? null], [$shp['cfgsaved']['why'] ?? null, $shp['cfgsaved']['exists'] ?? null]]);
     same('setup messages (engine): no message without a code - hints, warnings and (2.58) the OK and error lines too', [],
         array_values(array_map(fn ($m) => $m['text'], array_filter($msgs, fn ($m) => ($m['code'] ?? '') === ''))));
     same('setup messages (engine): the OK lines as codes with their params (2.58) - the backup place, the file systems',
@@ -35307,10 +35328,6 @@ SH);
  * Ms. Moverelli's fixture: a data folder, share cfgs (Back prefer, Docs yes with a threshold, Filme yes, Arr no), a /mnt
  * tree, a stand-in move binary (pool → disk1, a data disk → the pool, a folder as Unraid's: created there, removed here when
  * empty; /mnt/user0 refused as Unraid's move does; MOVE_STOP writes a stop request after its first call, MOVE_SLEEP
-    $shp = array_column(is_array($plan['shares'] ?? null) ? $plan['shares'] : [], null, 'name');
-    same('setup messages (engine): a config Unraid no longer lists is no share — never offered (2.65); one it lists is still empty; one saved is gone',
-        [false, ['kopia', 'empty'], ['gone', false]],
-        [isset($shp['cfgonly']), [$shp['fresh']['mode'] ?? null, $shp['fresh']['why'] ?? null], [$shp['cfgsaved']['why'] ?? null, $shp['cfgsaved']['exists'] ?? null]]);
  * waits, MOVE_FAIL moves nothing and exits 1; MOVE_CALLS counts its calls), a zfs that knows no pool (df counts), stand-ins for Unraid's
  * version and schedule, the mover at work, Jack's runs and his list — in $GLOBALS['moverelliHost'] (moverelliHost()).
  * $v: the values the stand-ins read (by reference).
