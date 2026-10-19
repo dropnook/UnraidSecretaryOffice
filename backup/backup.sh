@@ -10,6 +10,9 @@
 #        Too little room in the backup place for the packages (min_free_gb) is coded: no_space_packages {place, free,
 #        need - bytes; free_h, need_h readable}, status.json message_params (die_code's params) - up to 2.64 an English
 #        sentence on every page.
+#        A new VM whose disk lies on a file system without snapshots (xfs) or is a whole device is no longer «in the
+#        snapshot of its share» (drift new_vm): new_vm_unheld, and what holds the disk as for a VM set up -
+#        vm_disk_live (nothing), vm_disk_live_kopia {name, share} (only Kopia's copy of its share, read live).
 #   2.64 A container the user paused (docker pause, Unraid's Pause) is left exactly as it is: never stopped, never
 #        started, so it is still paused after the run - up to 2.63 docker's State.Running (true for a paused one) had it
 #        stopped and started, and it ran afterwards. Its files hold still for the snapshot; a paused database gets no

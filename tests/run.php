@@ -34870,6 +34870,20 @@ function testDriftCodes(): void
          ['warn', 'share_new', '', ['name' => 'a|b "c" x=y', 'locations' => 'disk1, maple', 'bytes' => '12'], "New share 'a|b'\nline 2"]],
         array_map(fn ($i) => array_merge([$i['level'] ?? null, $i['code'] ?? null, $i['value'] ?? null, $i['params'] ?? null],
             ($i['code'] ?? '') === 'share_new' ? [$i['text'] ?? null] : []), $dj['items'] ?? [$raw]));
+    // engine 2.65 (C-B29): a new VM whose disk lies on xfs was «in the snapshot of their share» - false there. Said as it is:
+    // not set up yet, and what holds the disk - Kopia's copy of its share (read live) or nothing; on ZFS the old words
+    file_put_contents("$tmp/v.ini", "[general]\ndumps_share = UnraidSecretaryOffice\nmount_root = /mnt/addons/UnraidSecretaryOffice/snapshots\n"
+        . "[kopia]\nenabled = yes\n[share \"vmk\"]\nmode = kopia\n[share \"UnraidSecretaryOffice\"]\nmode = kopia\n[vm \"setvm\"]\nmode = snapshot\nprepare = none\n");
+    $vms = ' CT_NAMES=(); VM_SERVICE=yes; VM_NAMES=(zvm xvm kvm setvm);'
+        . ' VM_SNAP=([zvm]=yes [xvm]=live [kvm]=live [setvm]=live); VM_OWN_DS=([zvm]=cache/domains/zvm);'
+        . ' VM_DISKS=([zvm]="hdc|/mnt/user/domains/zvm/v.img|cache|zfs|cache/domains/zvm|domains" [xvm]="hdc|/mnt/user/uso-vmxfs/x/v.img|disk1|xfs||uso-vmxfs"'
+        . ' [kvm]="hdc|/mnt/user/vmk/k/v.img|disk1|xfs||vmk" [setvm]="hdc|/mnt/user/vmk/s/v.img|disk1|xfs||vmk");';
+    $vraw = (string) shell_exec('bash -c ' . escapeshellarg("UB_DATA=$tmp/data2; source $lib >/dev/null 2>&1; cfg_load $tmp/v.ini; cfg_validate >/dev/null; apply_settings;"
+        . "$vms drift_check_vms; UB_STATE=$tmp/state2; mkdir -p \$UB_STATE; KP_CHECKED=no; drift_json_write; cat \$UB_STATE/drift.json") . ' 2>&1');
+    same('drift codes (bash): a new VM on ZFS in its share\'s snapshot; on xfs not set up and not held (nothing, or only Kopia\'s copy of its share); one set up the same',
+        [['info', 'new_vm', ['name' => 'zvm']], ['info', 'new_vm_unheld', ['name' => 'xvm']], ['warn', 'vm_disk_live', ['name' => 'xvm']],
+         ['info', 'new_vm_unheld', ['name' => 'kvm']], ['warn', 'vm_disk_live_kopia', ['name' => 'kvm', 'share' => 'vmk']], ['warn', 'vm_disk_live_kopia', ['name' => 'setvm', 'share' => 'vmk']]],
+        array_map(fn ($i) => [$i['level'] ?? null, $i['code'] ?? null, $i['params'] ?? null], json_decode($vraw, true)['items'] ?? [$vraw]));
     check('drift codes (bash): the English text stays as it was', str_starts_with($dj['items'][0]['text'] ?? '', "App 'zz-uso-nc' has a Kopia source of its own in settings.ini"));
     $empty = json_decode((string) shell_exec('bash -c ' . escapeshellarg("source $lib >/dev/null 2>&1; UB_STATE=$tmp/state2; mkdir -p \$UB_STATE; KP_CHECKED=no;"
         . ' drift_json_write; cat $UB_STATE/drift.json') . ' 2>&1'), true);

@@ -2501,23 +2501,45 @@ drift_check_containers() {
     done
 }
 
+# vm_live_kopia <name> -> the shares (", ") of its disks on a file system without snapshots, when Kopia is on and every one
+#   of them goes offsite with Kopia (read live, without a snapshot); 1 when one of them doesn't (2.65)
+vm_live_kopia() {
+    local target src b fs ds share out=""
+    [[ "${KOPIA_ENABLED,,}" =~ ^(yes|ja|1|true)$ ]] || return 1
+    while IFS='|' read -r target src b fs ds share; do
+        [[ -z "$target" || "$fs" == zfs || "$fs" == btrfs ]] && continue
+        [[ -n "$share" && "$(share_mode "$share")" == kopia ]] || return 1
+        [[ ", $out, " == *", $share, "* ]] || out+="${out:+, }$share"
+    done <<<"${VM_DISKS[$1]}"
+    [[ -n "$out" ]] && printf '%s' "$out"
+}
+
 drift_check_vms() {
-    local n
+    local n sh
     [[ "$VM_SERVICE" == "yes" ]] || return 0
     for n in "${VM_NAMES[@]}"; do
         if ! cfg_has "vm|$n"; then
-            drift_add info "New VM '$n' - not set up yet: its disks are in the snapshot of their share, but it is not prepared for it (keeps running) until you decide" \
-                new_vm "$n" name="$n"
-            continue
-        fi
-        [[ "$(vm_mode "$n")" == "off" ]] && {
+            # 2.65: «in the snapshot of their share» only where a snapshot can hold its disks (ZFS, btrfs) - up to 2.64 also
+            # said of a disk on xfs; a disk without a snapshot is said as it is, as for a VM set up (vm_disk_live …)
+            if [[ "${VM_SNAP[$n]}" == "yes" ]]; then
+                drift_add info "New VM '$n' - not set up yet: its disks are in the snapshot of their share, but it is not prepared for it (keeps running) until you decide" \
+                    new_vm "$n" name="$n"
+                continue
+            fi
+            drift_add info "New VM '$n' - not set up yet: it keeps running until you decide" new_vm_unheld "" name="$n"
+        elif [[ "$(vm_mode "$n")" == "off" ]]; then
             [[ -n "${VM_OWN_DS[$n]}" ]] || drift_add info "VM '$n' is set to off, but its disks share a dataset - they are in the share's snapshot anyway" \
                 vm_off_shared "" name="$n"
             continue
-        }
+        fi
         case "${VM_SNAP[$n]}" in
             block)   drift_add warn "VM '$n' uses a whole device as a disk - no snapshot holds it" vm_whole_device "" name="$n" ;;
-            live)    drift_add warn "VM '$n' has a disk on a file system without snapshots - it is not backed up" vm_disk_live "" name="$n" ;;
+            live)    if sh="$(vm_live_kopia "$n")"; then
+                         drift_add warn "VM '$n' has a disk on a file system without snapshots - no snapshot holds it, only Kopia's copy of its share ($sh), read while the VM runs" \
+                             vm_disk_live_kopia "" name="$n" share="$sh"
+                     else
+                         drift_add warn "VM '$n' has a disk on a file system without snapshots - no snapshot holds it, nothing backs it up" vm_disk_live "" name="$n"
+                     fi ;;
             missing) drift_add warn "VM '$n': a disk file was not found" vm_disk_missing "" name="$n" ;;
         esac
     done
