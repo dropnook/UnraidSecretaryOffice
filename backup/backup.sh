@@ -13,6 +13,8 @@
 #        A new VM whose disk lies on a file system without snapshots (xfs) or is a whole device is no longer «in the
 #        snapshot of its share» (drift new_vm): new_vm_unheld, and what holds the disk as for a VM set up -
 #        vm_disk_live (nothing), vm_disk_live_kopia {name, share} (only Kopia's copy of its share, read live).
+#        A share config without a root anywhere counts as a share only while Unraid lists it (shares.ini): one Unraid no
+#        longer lists (its roots gone, e.g. after Unraid renamed it) is gone - setup.sh offered it Kopia («still empty»).
 #   2.64 A container the user paused (docker pause, Unraid's Pause) is left exactly as it is: never stopped, never
 #        started, so it is still paused after the run - up to 2.63 docker's State.Running (true for a paused one) had it
 #        stopped and started, and it ran afterwards. Its files hold still for the snapshot; a paused database gets no

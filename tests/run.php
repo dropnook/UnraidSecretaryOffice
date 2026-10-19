@@ -35259,11 +35259,16 @@ SH);
         $ct('web', 'nginx', [$bind("$mnt/user/appdata/web", '/config')])]));
     file_put_contents("$data/settings.ini", "[general]\nserver = Test\nmount_root = $root\nview_root = $mnt/addons/UnraidSecretaryOffice/btrfs-snap\nsnap_prefix = uso-backup-\n"
         . "dumps_share = UnraidSecretaryOffice\n[docker]\nstop = all\nknown = kopia\nknown = ml\nknown = pg\nknown = web\n[flash]\nmode = off\n[kopia]\nenabled = yes\ncontainer = kopia\nidentity = root@kopia\n"
-        . "[share \"appdata\"]\nmode = kopia\nkopia_ignore = /kopia/\n[share \"UnraidSecretaryOffice\"]\nmode = kopia\n");
+        . "[share \"appdata\"]\nmode = kopia\nkopia_ignore = /kopia/\n[share \"UnraidSecretaryOffice\"]\nmode = kopia\n[share \"cfgsaved\"]\nmode = kopia\n");
     $env = "export PATH=$tmp/bin:\$PATH UB_DATA=$data UB_MNT=$mnt UB_BOOT=$tmp/boot UB_SHARES_CFG=$tmp/boot/config/shares"
          . " UB_DISKS_INI=$tmp/fake/disks.ini UB_NOTIFY_BIN=$tmp/bin/notify UB_MOUNTS_FILE=$tmp/fake/mounts FAKE=$tmp/fake FAKE_ROOT=$root"
          . " UB_SHARES_INI=$tmp/fake/shares.ini";
-    file_put_contents("$tmp/fake/shares.ini", "[\"appdata\"]\nname=\"appdata\"\n[\"UnraidSecretaryOffice\"]\nname=\"UnraidSecretaryOffice\"\n");
+    // engine 2.65 (C-M16): configs without a root anywhere - «fresh» Unraid lists (a share just made, still empty), «cfgonly»
+    // and «cfgsaved» (in settings.ini) it no longer lists (their roots gone, e.g. after Unraid renamed it)
+    foreach (['fresh', 'cfgonly', 'cfgsaved'] as $c) {
+        touch("$tmp/boot/config/shares/$c.cfg");
+    }
+    file_put_contents("$tmp/fake/shares.ini", "[\"appdata\"]\nname=\"appdata\"\n[\"UnraidSecretaryOffice\"]\nname=\"UnraidSecretaryOffice\"\n[\"fresh\"]\nname=\"fresh\"\n");
     $out = (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . ' --plan </dev/null') . ' 2>&1');
     $plan = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
     $msgs = is_array($plan['messages'] ?? null) ? $plan['messages'] : [];
@@ -35302,6 +35307,10 @@ SH);
  * Ms. Moverelli's fixture: a data folder, share cfgs (Back prefer, Docs yes with a threshold, Filme yes, Arr no), a /mnt
  * tree, a stand-in move binary (pool → disk1, a data disk → the pool, a folder as Unraid's: created there, removed here when
  * empty; /mnt/user0 refused as Unraid's move does; MOVE_STOP writes a stop request after its first call, MOVE_SLEEP
+    $shp = array_column(is_array($plan['shares'] ?? null) ? $plan['shares'] : [], null, 'name');
+    same('setup messages (engine): a config Unraid no longer lists is no share — never offered (2.65); one it lists is still empty; one saved is gone',
+        [false, ['kopia', 'empty'], ['gone', false]],
+        [isset($shp['cfgonly']), [$shp['fresh']['mode'] ?? null, $shp['fresh']['why'] ?? null], [$shp['cfgsaved']['why'] ?? null, $shp['cfgsaved']['exists'] ?? null]]);
  * waits, MOVE_FAIL moves nothing and exits 1; MOVE_CALLS counts its calls), a zfs that knows no pool (df counts), stand-ins for Unraid's
  * version and schedule, the mover at work, Jack's runs and his list — in $GLOBALS['moverelliHost'] (moverelliHost()).
  * $v: the values the stand-ins read (by reference).

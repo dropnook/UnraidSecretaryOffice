@@ -782,8 +782,17 @@ inv_scan() {
     INV_BASES=( "${pools[@]}" "${disks[@]}" )
 
     # --- Share names: folders on all bases + Unraid's share configs
-    local -A names=()
-    local b d s f
+    # 2.65: a config without a root anywhere is a share only while Unraid lists it (shares.ini: a share just made, still
+    # empty) - one Unraid no longer lists (its roots gone, e.g. after Unraid renamed it) is gone, never «still empty» and
+    # offered for Kopia. Without Unraid's list (not readable, a test's own /mnt) every config counts, as up to 2.64.
+    local -A names=() listed=()
+    local b d s f sini="${UB_SHARES_INI:-}" have_list=0
+    [[ -z "$sini" && "$UB_MNT" == /mnt ]] && sini=/var/local/emhttp/shares.ini
+    if [[ -n "$sini" && -r "$sini" ]] && grep -q '^\[' "$sini" 2>/dev/null; then
+        have_list=1
+        while IFS= read -r s; do [[ -n "$s" ]] && listed[$s]=1; done \
+            < <(sed -n 's/^\["\{0,1\}\([^"]*\)"\{0,1\}\]$/\1/p; s/^name="\(.*\)"$/\1/p' "$sini")
+    fi
     for b in "${INV_BASES[@]}"; do
         for d in "${INV_BASE_PATH[$b]}"/*; do
             [[ -d "$d" && ! -L "$d" ]] || continue
@@ -795,6 +804,7 @@ inv_scan() {
     for f in "$UB_SHARES_CFG"/*.cfg; do
         [[ -f "$f" ]] || continue
         s="${f##*/}"; s="${s%.cfg}"
+        (( have_list )) && [[ -z "${names[$s]:-}" && -z "${listed[$s]:-}" ]] && continue
         names[$s]=1
     done
     mapfile -t INV_SHARES < <(printf '%s\n' "${!names[@]}" | LC_ALL=C sort | sed '/^$/d')
