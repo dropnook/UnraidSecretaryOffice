@@ -367,6 +367,12 @@ scenario_end() {
             fi
         done < <(tac "$KEEP/.undo")
     fi
+    # last: the share roots Unraid's share commands reset on the side (states-shares.sh _st_roots_mark) — after every
+    # undo, since a share's own «Delete» in the undo resets them once more
+    if [[ -s $KEEP/.roots-before ]] && declare -F _st_roots_restore >/dev/null; then
+        _st_roots_restore "$KEEP/.roots-before" >>"$KEEP/undo.log" 2>&1
+        _row undo share-roots green "as before the scenario (undo.log names any put back)"
+    fi
     if [[ ! -s $KEEP/.skip && $n -gt 0 ]]; then
         local out
         out=$(check_inv_leftover)

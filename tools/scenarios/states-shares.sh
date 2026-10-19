@@ -59,8 +59,30 @@ _st_share_form() { # <orig> <name> <useCache> <pool> <pool2> <allocator> <split>
 _st_share_seen() { _st_until "${2:-10}" share_exists "$1"; }
 _st_share_gone() { _st_until "${2:-10}" bash -c "! grep -qxF '[\"$1\"]' '$ST_SHARES_INI'"; }
 
+# Unraid 7.4's «Add Share» / «Apply» / «Delete» also reset other share roots (Nextcloud's data folder 33:33 0770 →
+# 0777, seen on Tower 2026-10-19 between two workers' scenarios): once per scenario every root's mode and owner noted,
+# and scenario_end puts back what changed, after every undo (a scenario about that very effect closes it itself)
+_st_roots_mark() {
+    declare -F undo_push >/dev/null && [[ -n ${KEEP:-} && -d $KEEP && -n ${SC_NAME:-} ]] || return 0
+    [[ -f $KEEP/.roots-before ]] && return 0
+    local r
+    for r in /mnt/user/*/; do r=${r%/}; printf '%s\t%s\n' "$(stat -c '%a %u:%g' "$r" 2>/dev/null)" "$r"; done >"$KEEP/.roots-before"
+}
+_st_roots_restore() {   # <file>: roots whose mode or owner changed since it was written, put back
+    local was r cur
+    while IFS=$'\t' read -r was r; do
+        [[ -n $was && -d $r ]] || continue
+        cur=$(stat -c '%a %u:%g' "$r" 2>/dev/null)
+        [[ $cur == "$was" ]] && continue
+        say "a share root Unraid changed: $r $cur → $was (put back)"
+        chmod "${was%% *}" "$r" && chown "${was#* }" "$r"
+    done <"$1"
+    return 0
+}
+
 share_make() {
     local name=$1 mode=$2 pool=${3:-} pool2=${4:-} excl=${5:-} prim
+    _st_roots_mark
     case $mode in no) pool= ;; only|yes|prefer) pool=${pool:-cache} ;; *) say "share_make: mode $mode?"; return 1 ;; esac
     share_exists "$name" && { say "share_make: $name exists already"; return 1; }
     [[ -n $pool ]] && ! mountpoint -q "/mnt/$pool" && { say "needs pool $pool: not on this server"; return 2; }
@@ -89,6 +111,7 @@ share_make() {
 
 share_apply() {
     local name=$1 kv k v; shift
+    _st_roots_mark
     share_exists "$name" || { say "share_apply: no share $name"; return 1; }
     local -A c=([shareUseCache]=$(_st_share_ini "$name" useCache) [shareCachePool]=$(_st_share_ini "$name" cachePool)
         [shareCachePool2]=$(_st_share_ini "$name" cachePool2) [shareAllocator]=$(_st_share_ini "$name" allocator)
@@ -108,6 +131,7 @@ share_apply() {
 
 share_rename() {
     local old=$1 new=$2
+    _st_roots_mark
     share_exists "$old" || { say "share_rename: no share $old"; return 1; }
     share_exists "$new" && { say "share_rename: $new exists already"; return 1; }
     _st_emcmd "$(_st_share_form "$old" "$new" "$(_st_share_ini "$old" useCache)" "$(_st_share_ini "$old" cachePool)" \
@@ -119,6 +143,7 @@ share_rename() {
 
 share_remove() {
     local name=$1 d ds
+    _st_roots_mark
     if share_exists "$name"; then
         _st_emcmd "shareNameOrig=$(_st_uri "$name")&shareName=$(_st_uri "$name")&cmdEditShare=Delete" || return 1
         _st_share_gone "$name" || { say "share_remove: $name still in shares.ini"; return 1; }
