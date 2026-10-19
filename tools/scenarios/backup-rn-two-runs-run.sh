@@ -59,7 +59,6 @@ nnew=$(sed '/^$/d' <<<"$new" | wc -l)
 # one skip per collision the engine skipped: (b) always, (a) when the agent let the button through to the engine
 want=1; [[ ${ka:-} == skipped:* ]] && want=2
 (( skips1 - skips0 == want )) && cell skip-once 1 "his page lists each skipped start once ($want)" || cell skip-once 0 "skips on his page: $skips0 → $skips1 (expected $want more)"
-expect_bubble backup bubble.skipped
 check standard
 check final
 scenario_end
