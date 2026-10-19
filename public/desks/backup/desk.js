@@ -1346,7 +1346,7 @@ function protection() {
     facts.push(T('fact.kopia', { d: k.daily ?? '–', w: k.weekly ?? '–', m: k.monthly ?? '–', y: k.annual ?? '–' }));
   } else facts.push(T('fact.kopia_off'));
   box.appendChild(el('p', 'role', facts.join(' · ')));
-  brakeGaps().forEach((g) => box.appendChild(el('p', 'callout warn', g)));       // engine 2.63: the btrfs retention not held
+  brakeGaps().forEach((g) => box.appendChild(el('p', 'callout warn', g)));       // engine 2.63: the btrfs retention not held, the brake out of snapshots
   return box;
 }
 
@@ -1796,23 +1796,29 @@ function brakeLine(r, w, items) {
 }
 
 /**
- * Where the btrfs retention doesn't hold (engine 2.63, a run's btrfs facts: held false while the newest snapshot the
- * emergency brake released is younger than keep_days) - per disk or pool how many of his are left and the oldest, from
- * the newest backup run that looked at it (one asleep then: an earlier run's word); a disk the newest run with facts no
- * longer lists is not said
+ * What the btrfs emergency brake left behind, per disk or pool (engine 2.63, a run's btrfs facts), from the newest backup
+ * run that looked at it (one asleep then: an earlier run's word); a disk the newest run with facts no longer lists is not
+ * said. The retention not held (held false while the newest snapshot the brake released is younger than keep_days): how
+ * many of his are left and the oldest. The brake reached with none of his left to release (none_left - never a warning,
+ * engine 2.23: only space made outside the backup helps): said here, beside it
  */
 function brakeGaps() {
   const runs = (state && state.history) || [];
   const newest = runs.find((r) => Array.isArray(r.btrfs));
   if (!newest) return [];
-  return newest.btrfs.map((b) => {
+  return newest.btrfs.flatMap((b) => {
     const facts = b.asleep ? runs.map((r) => (Array.isArray(r.btrfs) ? r.btrfs.find((x) => x.base === b.base && !x.asleep) : null)).find(Boolean) : b;
-    if (!facts || facts.held !== false) return null;
-    const keep = nOf('days', facts.keep_days);
-    const oldest = snapSeconds(facts.oldest);
-    if (!facts.kept || !oldest) return T('brake.gap_none', { base: facts.base, keep });
-    return T('brake.gap', { n: facts.kept, base: facts.base, keep, date: fmt.date(oldest) });
-  }).filter(Boolean);
+    if (!facts) return [];
+    const out = [];
+    if (facts.held === false) {
+      const keep = nOf('days', facts.keep_days);
+      const oldest = snapSeconds(facts.oldest);
+      out.push(!facts.kept || !oldest ? T('brake.gap_none', { base: facts.base, keep })
+        : T('brake.gap', { n: facts.kept, base: facts.base, keep, date: fmt.date(oldest) }));
+    }
+    if (facts.none_left === true) out.push(T('brake.none_left', { base: facts.base, free_gb: String(facts.free_gb), floor_gb: String(facts.floor_gb) }));
+    return out;
+  });
 }
 
 function driftSection() {

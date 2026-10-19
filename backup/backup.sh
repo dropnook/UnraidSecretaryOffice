@@ -2,10 +2,10 @@
 ###############################################################################
 # unraid-backup - backup.sh                       Version 2.63 - 2026-10-19
 #   2.63 The btrfs emergency brake says what it did, in codes: each early delete is a warning btrfs_brake (base,
-#        free_gb, floor_gb, snap), the brake reached with none of ours left to release a warning btrfs_brake_none
-#        (base, free_gb, floor_gb) - up to 2.62 a plain warning and a log line only (2.23). status.json "btrfs" says per
-#        base what holds (kept, oldest, released, brake_last, held); state/btrfs-brake.txt remembers the newest
-#        snapshot the brake released per base: while it is younger than keep_days, the retention doesn't hold there
+#        free_gb, floor_gb, snap) - up to 2.62 a plain warning. status.json "btrfs" says per base what holds (kept,
+#        oldest, released, none_left - the brake reached with none of ours left, still no warning (2.23) -, brake_last,
+#        held); state/btrfs-brake.txt remembers the newest snapshot the brake released per base: while it is younger
+#        than keep_days, the retention doesn't hold there
 #   2.62 Nextcloud refusing to work because its data folder is readable by others (Unraid resets a share's root to
 #        0777 nobody:users when any share is added or saved) no longer fails the run: backed up without the
 #        maintenance mode (stopped with the apps), a warning nc_datadir_readable with the folder and the lasting fix
@@ -2612,8 +2612,8 @@ prune_btrfs() {
         done
         # Emergency brake: when space runs short, release the oldest snapshot each time. The floor scales
         # with the disk (brake_floor_gb, 2.23). Since 2.63 each early delete is a coded warning (btrfs_brake: base,
-        # free_gb, floor_gb, snap) and so is the brake reached with none of ours left to release (btrfs_brake_none:
-        # base, free_gb, floor_gb) - space can then only be made outside the backup
+        # free_gb, floor_gb, snap); the brake reached with none of ours left to release stays a log line (2.23: no
+        # warning, no notification every run - space can only be made outside the backup) and a status fact (none_left)
         floor="$(brake_floor_gb $(( $(df -Pm "$base" | awk 'NR==2{print $2}') / 1024 )))"
         released=0; none=0
         while (( floor > 0 )); do
@@ -2622,8 +2622,7 @@ prune_btrfs() {
             oldest="$(find "$sdir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null \
                       | grep -E '^[0-9]{8}-[0-9]{4}$' | sort | head -1)"
             if [[ -z "$oldest" || "$oldest" == "$TS" ]]; then
-                warn_code btrfs_brake_none "$b: only ${free_gb} GB free (brake at ${floor} GB) - no earlier snapshot of ours left to release" \
-                    base="$b" free_gb="$free_gb" floor_gb="$floor"
+                log "  $b: ${free_gb} GB free (brake at ${floor} GB) - no earlier snapshot of ours left to release"
                 none=1
                 break
             fi

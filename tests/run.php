@@ -6122,9 +6122,9 @@ JS);
 /**
  * Engine 2.63 on the page (Benj 2026-10-19): the btrfs emergency brake's early deletes (warning_items btrfs_brake: base,
  * free_gb, floor_gb, snap) are said in Mr. Backupsy's words, one line per disk with the count (the run's btrfs facts count
- * them when the items were cut short); the brake reached with none of his left (btrfs_brake_none) too; and where the
- * retention no longer holds (a run's btrfs facts held false) his protection section says it per disk - from the newest
- * run that looked at the disk. The engine's own side is in testBackupArrayStop («btrfs brake»); here the agent's shape
+ * them when the items were cut short); where the retention no longer holds (a run's btrfs facts held false) and where the
+ * brake found none of his left to release (none_left - never a warning, engine 2.23) his protection section says it per
+ * disk - from the newest run that looked at the disk. The engine's own side is in testBackupArrayStop («btrfs brake»); here the agent's shape
  * check, the texts in five languages and the German sentences under node.
  */
 function testBackupBtrfsBrake(): void
@@ -6137,8 +6137,8 @@ function testBackupBtrfsBrake(): void
     same('btrfs brake: an older engine\'s run, or not a list - null', [null, null, null],
         [backupBtrfsRun(null), backupBtrfsRun(['disk3' => $ok]), backupRunFromStatus(['run' => 'x'])['btrfs']]);
     $engine = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh');
-    check('btrfs brake: the engine writes both codes', str_contains($engine, 'warn_code btrfs_brake "') && str_contains($engine, 'warn_code btrfs_brake_none "'));
-    $want = ['warn_code.btrfs_brake' => ['base', 'date', 'floor_gb', 'free_gb', 'n'], 'warn_code.btrfs_brake_none' => ['base', 'floor_gb', 'free_gb'],
+    check('btrfs brake: the engine writes the early delete\'s code, none left never a warning', str_contains($engine, 'warn_code btrfs_brake "') && !str_contains($engine, 'btrfs_brake_none'));
+    $want = ['warn_code.btrfs_brake' => ['base', 'date', 'floor_gb', 'free_gb', 'n'], 'brake.none_left' => ['base', 'floor_gb', 'free_gb'],
              'brake.gap' => ['base', 'date', 'keep', 'n'], 'brake.gap_none' => ['base', 'keep'], 'count.days' => ['n']];
     foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
         $l = langFile(OFFICE_WEB . "/desks/backup/lang/$code.json");
@@ -6183,19 +6183,20 @@ new Function('Office', core.slice(core.indexOf('const fold = '), core.indexOf('/
 const b = OFFICE_DESK_TESTS.backup;
 const brake = (base, free, snap) => ({ code: 'btrfs_brake', params: { base, free_gb: free, floor_gb: '300', snap } });
 const out = {};
-// three on disk3, one on disk4, the none-left case on disk5 - one line per disk
-const run = { run: '20261019-0300', started: 1, finished: 2, result: 'warnings', warnings: 5, warning_items: [brake('disk3', '120', '20261012-0300'),
-  brake('disk3', '160', '20261013-0300'), brake('disk3', '200', '20261014-0300'), brake('disk4', '250', '20261015-0300'),
-  { code: 'btrfs_brake_none', params: { base: 'disk5', free_gb: '80', floor_gb: '300' } }] };
+// three on disk3, one on disk4 - one line per disk
+const run = { run: '20261019-0300', started: 1, finished: 2, result: 'warnings', warnings: 4, warning_items: [brake('disk3', '120', '20261012-0300'),
+  brake('disk3', '160', '20261013-0300'), brake('disk3', '200', '20261014-0300'), brake('disk4', '250', '20261015-0300')] };
 out.lines = b.warnLines(run);
 // the items cut short (the agent keeps 20): the facts count all the brake released
 out.cut = b.warnLines({ ...run, warning_items: run.warning_items.slice(0, 1), btrfs: [{ base: 'disk3', asleep: false, released: 12 }] });
 out.bad = b.warnLines({ warning_items: [brake('disk3', '120', 'x'), { code: 'btrfs_brake', params: { base: 'disk3' } }] });
-// the gaps: disk3 not held (5 left), disk4 held, disk5 none left, disk6 asleep now - its word from the run before; disk7 only in an older run
+// the gaps: disk3 not held (5 left), disk4 held, disk5 none kept and the brake out of snapshots, disk6 asleep now - its word
+// from the run before; disk7 only in an older run; disk8 held but the brake found none of his left (no early delete ever)
 const f = (base, o) => ({ base, asleep: false, keep_days: 14, floor_gb: 300, free_gb: 100, kept: 5, oldest: '20261014-0300', released: 0, none_left: false,
   brake_last: '20261013-0300', held: false, ...o });
 b.setState({ history: [
-  { run: 'b', btrfs: [f('disk3'), f('disk4', { held: true }), f('disk5', { kept: 0, oldest: '' }), { base: 'disk6', asleep: true }] },
+  { run: 'b', btrfs: [f('disk3'), f('disk4', { held: true }), f('disk5', { kept: 0, oldest: '', none_left: true, free_gb: 80 }), { base: 'disk6', asleep: true },
+    f('disk8', { held: true, brake_last: '', kept: 1, none_left: true, free_gb: 12, floor_gb: 30 })] },
   { run: 'c', btrfs: null },
   { run: 'a', btrfs: [f('disk6', { kept: 1, oldest: '20261018-0300' }), f('disk7')] }] });
 out.gaps = b.brakeGaps();
@@ -6211,18 +6212,19 @@ JS);
         check('btrfs brake: ran under node', false, $raw);
         return;
     }
-    same('btrfs brake: the run\'s lines in German - one per disk with the count and the oldest, the none-left case', [
+    same('btrfs brake: the run\'s lines in German - one per disk with the count and the oldest', [
         'Auf disk3 waren nur noch 120 GB frei (Notbremse bei 300 GB) — ich habe 3 Snapshots vorzeitig gelöscht, den ältesten vom 12.10.2026 03:00.',
-        'Auf disk4 waren nur noch 250 GB frei (Notbremse bei 300 GB) — ich habe den Snapshot vom 15.10.2026 03:00 vorzeitig gelöscht.',
-        'Auf disk5 sind nur noch 80 GB frei (Notbremse bei 300 GB) — und es ist kein Snapshot von mir mehr übrig, den ich freigeben könnte. Platz schaffen hilft nur ausserhalb des Backups.'],
+        'Auf disk4 waren nur noch 250 GB frei (Notbremse bei 300 GB) — ich habe den Snapshot vom 15.10.2026 03:00 vorzeitig gelöscht.'],
         $r['lines'] ?? null);
     same('btrfs brake: items cut short - the facts\' count', ['Auf disk3 waren nur noch 120 GB frei (Notbremse bei 300 GB) — ich habe 12 Snapshots vorzeitig gelöscht, den ältesten vom 12.10.2026 03:00.'],
         $r['cut'] ?? null);
     same('btrfs brake: a bad snapshot name or missing parts - nothing said', [], $r['bad'] ?? null);
-    same('btrfs brake: where the retention doesn\'t hold, per disk - an asleep one from the run before, an old disk not', [
+    same('btrfs brake: where the retention doesn\'t hold and where the brake found none left, per disk - an asleep one from the run before, an old disk not', [
         'Aufbewahrung 14 Tage — auf disk3 liegen nur noch 5 Snapshots, der älteste vom 14.10.2026 03:00 (die Notbremse hat ältere gelöscht).',
         'Aufbewahrung 14 Tage — auf disk5 liegt kein Snapshot mehr (die Notbremse hat ältere gelöscht).',
-        'Aufbewahrung 14 Tage — auf disk6 liegt nur noch 1 Snapshot, vom 18.10.2026 03:00 (die Notbremse hat ältere gelöscht).'], $r['gaps'] ?? null);
+        'Auf disk5 sind nur noch 80 GB frei (Notbremse bei 300 GB) — und es ist kein Snapshot von mir mehr übrig, den ich freigeben könnte. Platz schaffen hilft nur ausserhalb des Backups.',
+        'Aufbewahrung 14 Tage — auf disk6 liegt nur noch 1 Snapshot, vom 18.10.2026 03:00 (die Notbremse hat ältere gelöscht).',
+        'Auf disk8 sind nur noch 12 GB frei (Notbremse bei 30 GB) — und es ist kein Snapshot von mir mehr übrig, den ich freigeben könnte. Platz schaffen hilft nur ausserhalb des Backups.'], $r['gaps'] ?? null);
     same('btrfs brake: an older engine\'s runs - nothing said', [], $r['older'] ?? null);
 }
 
@@ -6817,8 +6819,9 @@ SH);
     same('btrfs brake: history.jsonl keeps the facts', $facts, array_values(array_filter($lastHistory()['btrfs'] ?? [], fn ($b) => ($b['base'] ?? '') === 'disk9'))[0] ?? null);
     $agent = backupRunFromStatus($lastHistory());
     same('btrfs brake: the agent passes the facts on', [$facts], array_values(array_filter($agent['btrfs'] ?? [], fn ($b) => $b['base'] === 'disk9')));
-    // --- the brake reached with none of ours left to release: a coded warning btrfs_brake_none (up to 2.62 a log line
-    // only); nothing released this run, the earlier release still remembered - the retention still doesn't hold
+    // --- the brake reached with none of ours left to release: never a warning (2.23 - every run would end «with warnings»
+    // and notify, for what only space made outside fixes), a log line and the fact none_left; nothing released this run,
+    // the earlier release still remembered - the retention still doesn't hold
     $night();
     file_put_contents("$fake/mounts", $mounts0 . "/dev/md9p1 $mnt/disk9 btrfs rw 0 0\n");
     exec('rm -rf ' . escapeshellarg("$mnt/disk9/.btrfs-snap") . '/*');
@@ -6826,12 +6829,14 @@ SH);
     file_put_contents("$fake/df.disk9", (1000 * 1024) . ' ' . (12 * 1024) . " 0\n");
     [$code] = $run();
     $s = $status();
-    same('btrfs brake none left: a coded warning (disk, free, floor), no other brake word', [
-        ['code' => 'btrfs_brake_none', 'params' => ['base' => 'disk9', 'free_gb' => '12', 'floor_gb' => '100']]],
-        array_values(array_filter($s['warning_items'] ?? [], fn ($i) => str_starts_with($i['code'] ?? '', 'btrfs_brake'))));
+    $warned = (int) ($s['warnings'] ?? -1);
+    same('btrfs brake none left: no brake word in the warnings, the log line as before', [[], true],
+        [array_values(array_filter($s['warning_items'] ?? [], fn ($i) => str_starts_with($i['code'] ?? '', 'btrfs_brake'))),
+         str_contains($log(), 'disk9: 12 GB free (brake at 100 GB) - no earlier snapshot of ours left to release') && !str_contains($log(), 'WARNING: disk9')]);
     $facts = array_values(array_filter($s['btrfs'] ?? [], fn ($b) => ($b['base'] ?? '') === 'disk9'))[0] ?? null;
-    same('btrfs brake none left: the facts - none kept, none released, none left, the earlier release still not held',
-        [0, '', 0, true, $snaps[2], false], [$facts['kept'] ?? null, $facts['oldest'] ?? null, $facts['released'] ?? null, $facts['none_left'] ?? null, $facts['brake_last'] ?? null, $facts['held'] ?? null]);
+    same('btrfs brake none left: the facts - none kept, none released, none left (free, floor), the earlier release still not held',
+        [0, '', 0, true, 12, 100, $snaps[2], false], [$facts['kept'] ?? null, $facts['oldest'] ?? null, $facts['released'] ?? null, $facts['none_left'] ?? null,
+         $facts['free_gb'] ?? null, $facts['floor_gb'] ?? null, $facts['brake_last'] ?? null, $facts['held'] ?? null]);
     same('btrfs brake none left: a line it doesn\'t know kept in btrfs-brake.txt', "something else\ndisk9 {$snaps[2]}\n", (string) @file_get_contents("$data/state/btrfs-brake.txt"));
     // --- the brake off for a disk with room: nothing said, the retention holds once the released one is older than keep_days
     $night();
@@ -6841,8 +6846,10 @@ SH);
     [$code] = $run();
     $s = $status();
     $facts = array_values(array_filter($s['btrfs'] ?? [], fn ($b) => ($b['base'] ?? '') === 'disk9'))[0] ?? null;
-    same('btrfs brake with room: no brake word, the retention holds again', [[], true, 0],
-        [array_values(array_filter($s['warning_items'] ?? [], fn ($i) => str_starts_with($i['code'] ?? '', 'btrfs_brake'))), $facts['held'] ?? null, $facts['released'] ?? null]);
+    same('btrfs brake with room: no brake word, the retention holds again, nothing more to say', [[], true, 0, false],
+        [array_values(array_filter($s['warning_items'] ?? [], fn ($i) => str_starts_with($i['code'] ?? '', 'btrfs_brake'))), $facts['held'] ?? null, $facts['released'] ?? null,
+         $facts['none_left'] ?? null]);
+    check('btrfs brake none left: not counted - the same warnings as a run with room', $warned === (int) ($s['warnings'] ?? -2), "$warned vs " . ($s['warnings'] ?? '?'));
     @unlink("$fake/df.disk9");
     file_put_contents("$fake/mounts", $mounts0);
 
