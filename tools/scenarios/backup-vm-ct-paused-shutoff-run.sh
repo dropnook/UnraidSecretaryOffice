@@ -7,6 +7,8 @@
 #       (no_stop in the base: never stopped, so never touched).
 #   B8  uso-vm-agent, shut off (prepare = freeze in the base), is never started and has no vm_* warning.
 # The prepare = shutdown variants of B6 and B8: backup-vm-shutoff-prepare-shutdown-run. Pre-release (~6 min).
+# RED on 1.66.8 (B7, product): a paused immich_server runs after the run — backup.sh:514 takes CT_RUNNING (docker's
+# State.Running, true for a paused container) as «running», stop_tier stops it, restore_service (~806) starts it.
 . "$(dirname "$0")/lib.sh"
 scenario_begin backup-vm-ct-paused-shutoff-run
 needs tower docker vm vmagent

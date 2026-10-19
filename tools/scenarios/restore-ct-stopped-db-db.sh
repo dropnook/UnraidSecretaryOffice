@@ -4,6 +4,11 @@
 # desks», restore: «never starts containers»; docs/GUIDE.md: «He never starts or recreates a container — he says what
 # to click»): the plan must block and say why, with no step that starts mariadb-nextcloud. Only the dialog's preview is
 # asked (restore.preview, what opening it sends); nothing is restored. Pre-release (~4 min).
+# RED on 1.66.8 (product): the plan doesn't block — restore.php rsPlanDb (~2014) puts «start» + «ready» of the stopped
+# database first (note.db_start «I start it for this»). Also red, a finding of its own: INV-BACKUP-AFTER — a running
+# Nextcloud whose database is stopped makes the run fail (backup.sh ~1213 dies when occ can't switch the maintenance
+# mode on; 2.62 goes on only for a data folder readable by others). INV-NC-MAINT-OFF's «in maintenance mode» there is
+# likely the check's own (occ can't answer without its database; config.php says 'maintenance' => false).
 . "$(dirname "$0")/lib.sh"
 scenario_begin restore-ct-stopped-db-db
 needs tower docker

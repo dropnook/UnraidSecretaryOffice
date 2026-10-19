@@ -9,6 +9,8 @@
 # EmbyServer the plan's template path is Unraid's templates-user/my-EmbyServer.xml (same there: nothing to do). The
 # drill passes with both packages (the old one is backed up as the new one — no finding of his). Only previews: nothing
 # is restored. Pre-release (~5 min).
+# RED on 1.66.8 (product): the plan for a package without a template says restore_config_same — restore.php
+# rsPlanConfigFor (~2866) adds it whenever there are no steps and no blockers, also when there are no items at all.
 . "$(dirname "$0")/lib.sh"
 scenario_begin restore-ct-renamed-config-drill
 needs tower docker

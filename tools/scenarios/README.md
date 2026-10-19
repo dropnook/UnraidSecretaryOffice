@@ -184,3 +184,41 @@ undo takes them from wherever a run put them; M1-run uses it again.
 heartbeat's age right now — lib.sh took «now − the last pulse the sampler saw», but the sampler stops at snap_after and
 the checks before INV-TICK take seconds (B5 and M1-stop: 26/28 s = a pulse 20 s before snap_after + 6/8 s of checks,
 the agent fine).
+
+## Batch B — stopped, paused, gone (wave 2)
+
+Each scenario makes its own history first where a cell needs one (a backup run before the state: the package, the
+dump, the snapshot to restore from). Settings an Apply changes are put back from the copy of before (no helper undoes
+an Apply); a scratch name's package (EmbyServer2, uso-new) leaves the backup place in the undo; a package moved into the
+storeroom comes back by Ms. Dustdevil's «Put back». Restore cells that would change a base app's data ask only the
+dialog's preview (R11, R13); R7 and R12 restore for real and are put back. Times: Tower, 2026-10-19 run 17:29 (reports
+`scenarios/2026-10-19/tower-scenarios-batch-b`), tree main bf2f6f5 + the batch, Tower's plugin 1.66.8 (with
+task/fix-moverelli-root-dataset's Moverelli code); each time includes waits for the lock shared with batch C.
+
+| Cell | Scenario | Verdict on 1.66.8 | Time on Tower | Run |
+|---|---|---|---|---|
+| B6 B7 B8 | `backup-vm-ct-paused-shutoff-run` | **red** B7 (a paused container runs after the run); B6, B8 green | 207 s | pre-release |
+| B8 B6 (prepare shutdown) | `backup-vm-shutoff-prepare-shutdown-run` | green | 241 s | pre-release |
+| B21 | `backup-ct-gone-replan-run-aside` (container, template and image gone) | green | 192 s | pre-release |
+| B21 | `backup-ct-gone-template-stays-replan-run` (template and image stay: package kept, not offered) | green | 176 s | pre-release |
+| B22 | `backup-ct-renamed-docker-replan-run` | green | 169 s | pre-release |
+| B22 | `backup-ct-renamed-unraid-replan-run` | green | 192 s | pre-release |
+| B23 | `backup-ct-recreated-run` (EmbyServer and kopia re-created) | green | 179 s | pre-release |
+| B24 | `backup-ct-new-replan-run-apply` | green | 181 s | pre-release |
+| B27 | `backup-vm-service-off-replan-run` | **red** (Apply list drops both VMs' [vm] keys) | 299 s | pre-release |
+| R6 | `restore-ct-image-gone-drill` (mariadb-nextcloud's image: dumps need it) | **red** INV-BACKUP-AFTER (cell green) | 96 s | pre-release |
+| R7 | `restore-vm-gone-vm-drill` | green | 93 s | pre-release |
+| R11 | `restore-ct-stopped-db-db` | **red** (the plan starts the stopped database) | 86 s | pre-release |
+| R12 | `restore-ct-stopped-nc-db-files` | green | 304 s | pre-release |
+| R13 | `restore-ct-renamed-config-drill` | **red** (no template in the package → «everything is the same») | 310 s | pre-release |
+| R13 | `restore-ct-recreated-config-drill` | green | 238 s | pre-release |
+
+Findings (each red twice, 2026-10-19 16:27 and 17:29 runs; root causes in the files' headers): B7 backup.sh:514 counts a
+paused container as running; B27 setup.sh step_vms (~1443) carries no [vm] keys while libvirt is off; R11 restore.php
+rsPlanDb (~2014) starts a stopped database; R13 restore.php rsPlanConfigFor (~2866) says restore_config_same for a
+package without a template; and, seen in R6 and R11 (CT-STOPPED-DB × BK-RUN), a running Nextcloud whose database is
+stopped fails every run (backup.sh ~1213). Corrections of the catalogue's guesses, in the scenarios' headers: no hint
+app_gone without an [app] section (the Apply list says it); a gone app's package is offered for the storeroom only once
+its image is gone too (backup-gone.php); the drill needs an image only for a dump; RS-VM defines a gone VM and leaves a
+disk that is still there alone (after.vm_disks names its moment); his files restore takes the share Nextcloud binds whole.
+The whole batch: ~50 min on a shared Tower (~45 min alone).

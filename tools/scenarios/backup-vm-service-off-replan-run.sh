@@ -5,6 +5,9 @@
 # «The VM service is off — nothing to set up.» (backup.setup.vm_service_off), and a run backs up the rest without
 # failing. The undo starts the service again with both VMs defined, shut off as before (INV-UNRAID-SAME of the base).
 # Pre-release (~5 min).
+# RED on 1.66.8 (product): with libvirt off the plan has no [vm] keys — setup.sh step_vms returns at ~1443 before
+# carrying the saved ones into P (only kopia/folder keys are, ~648), and the writer (~2403) writes the VMs P names: the
+# Apply list shows both VMs' mode/prepare as removed, and Apply would drop them (its comment ~2381 means to keep them).
 . "$(dirname "$0")/lib.sh"
 scenario_begin backup-vm-service-off-replan-run
 needs tower vm

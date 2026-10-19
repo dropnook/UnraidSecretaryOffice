@@ -7,6 +7,8 @@
 # without a dump has no step that needs its image — first run 2026-10-19: package_ok, nothing to say.) Ms. Dustdevil's bubbles say only what is
 # true now (INV-BUBBLE: a container without a picture only when one has none — the image going takes no icon away).
 # Pre-release (~4 min).
+# RED on 1.66.8, not this cell's (its cell is green): INV-BACKUP-AFTER — the database stopped (CT-IMAGE-GONE stops it)
+# under a running Nextcloud makes the run fail (backup.sh ~1213, see restore-ct-stopped-db-db).
 . "$(dirname "$0")/lib.sh"
 scenario_begin restore-ct-image-gone-drill
 needs tower docker
