@@ -15,8 +15,10 @@ expect_err moverelli_jack_list_pending
 flow MV-DRY
 n0=$(pend)
 t0=$(_sc_now)
-flow MV-RUN-SCHED
-flow MV-RUN-SCHED
+# her cron line's job as crond starts it — twice, a minute apart (job.sh starts a job once a minute); a refused joint
+# run writes no night.json, so not MV-RUN-SCHED (it waits for the night's «done»): the job itself waited for
+job moverelli && job_wait moverelli 300
+job moverelli && job_wait moverelli 300
 n1=$(pend)
 ((n1 - n0 == 2)) && cell sched-counted 1 "two tries of her cron line, two refusals in her history ($n0 → $n1)" \
     || cell sched-counted 0 "two tries of her cron line, refusals in her history $n0 → $n1"
