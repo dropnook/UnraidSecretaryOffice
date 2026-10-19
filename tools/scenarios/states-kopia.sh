@@ -19,7 +19,7 @@
 #                         undo: kopia_use_back <id>. The container is restarted (its server reopens the repository)
 #   kopia_disconnect <id> / kopia_connect <id>      `kopia repository disconnect`, the container restarted / connected
 #                         back to what it was
-#   kopia_empty <id>      the filesystem repository's files moved aside (same folder's parent, instant) — Tower's
+#   kopia_empty <id>      the filesystem repository's files moved aside (same folder's parent, instant) — Tower's or USOTest3VM's
 #                         throwaway repository only / kopia_unempty <id>
 #   kopia_orphans_make <id>   three old sources of units nobody knows (/uso/uso-gone-share, /uso/.apps/uso-gone-app,
 #                         /uso/.vms/uso-gone-vm), each with one snapshot of an empty folder (--override-source) under
@@ -265,7 +265,7 @@ _st_kopia_repo_host() { # the host folder of the filesystem repository (via the 
 }
 kopia_empty() {
     local id=$1 dir repo aside; dir=$(_st_dir "$id")
-    host_is tower || { say "kopia_empty: Tower's throwaway repository only"; return 2; }
+    host_is tower || host_is test3 || { say "kopia_empty: the throwaway repositories of Tower and USOTest3VM only"; return 2; }
     repo=$(_st_kopia_repo_host) || { say "kopia_empty: Kopia isn't on the filesystem repository"; return 1; }
     aside=$ST_KOPIA_APPDATA/.uso-keep-${id,,}
     [[ -e $aside ]] && { say "kopia_empty: $aside exists"; return 1; }

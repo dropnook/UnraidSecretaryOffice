@@ -231,7 +231,7 @@ quota; time zone, a set clock; the office's plugin/code/flash/authorized_keys/in
 | KP-S3-UNREACHABLE | Kopia on MinIO (plain/), MinIO stopped · STORAGE, ENDPOINT | T |
 | KP-S3-QUOTA-FULL [size=1MiB] | Kopia on MinIO, bucket hard quota · STORAGE, QUOTA | T |
 | KP-OBJECT-LOCK [ok\|extend\|lapse\|late\|never] | Kopia on MinIO's locked repository; `backup.sh --kopia-lock`, then state/kopia-lock.json rewritten for the variant (time can't be made; the office's next look rewrites it) · VARIANT, LOCK_MODE, LOCK_PERIOD_S, EXPECT | T (all five) |
-| KP-EMPTIED | the filesystem repository's files moved aside (Tower's throwaway repository only) · REPO | T |
+| KP-EMPTIED | the filesystem repository's files moved aside (the throwaway repositories of Tower and USOTest3VM only) · REPO | T 3 |
 | KP-ORPHANS | three old sources `/uso/uso-gone-share`, `/uso/.apps/uso-gone-app`, `/uso/.vms/uso-gone-vm`, one snapshot each (`--override-source`) · SOURCES, IDENTITY | T |
 | KP-LOCKED-REPO | Kopia's maintenance lock (`repository.config.mlock`) held by `uso-kopia-mlock` · MLOCK | T |
 | KP-MAPPING-CHANGED [/uso2] | template's `/uso` target changed, container re-made · FROM, TO | T |
