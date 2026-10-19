@@ -367,5 +367,7 @@ The batch: 56 min pre-release (21 scenarios incl. base and the Mac-side checks, 
 `scenarios/2026-10-19/test4-scenarios-batch-d-2005`) + ~30 min nightly (five reboots, one run.sh call each:
 `test4-scenarios-batch-d-reboot*`).
 
+Not covered: R9's DK-ARRAY-DISK-FULL half (an app folder's moment lives on the pool; the array's disks hold none of
+Mr. Restori's units on this base), B48's paused VM (USOTest4 has no VM service: `needs vm`).
 Two runs of a scenario with and without an argument in one run.sh call wipe the first one's report (run-local's
 `--one` clears `<name>.*`): B11/B12 `:users` run apart.
