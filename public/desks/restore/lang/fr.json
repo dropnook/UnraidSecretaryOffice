@@ -584,6 +584,7 @@
   "note.files_from_aside": "Ce snapshot appartient au dataset mis de côté plus tôt, {aside} — son état revient ici.",
   "note.files_union": "Le partage se trouve sur plusieurs pools et disques — les parties de ce snapshot sont réunies : {bases}.",
   "note.files_uncovered": "Ce snapshot ne couvre pas {bases}, où {names} contient quelque chose maintenant — cette partie n'y est pas (en échangeant, elle est mise de côté avec le reste).",
+  "note.files_names_left": {"one": "{n} nom en haut du partage contient un saut de ligne ou un autre caractère de contrôle — je ne peux pas le restaurer par son nom : {names}.", "other": "{n} noms en haut du partage contiennent un saut de ligne ou un autre caractère de contrôle — je ne peux pas les restaurer par leur nom : {names}."},
   "note.files_place_in": "Il n'y a encore rien : la copie est faite d'abord, puis elle est mise à sa place.",
   "note.files_place_empty": "Il n'y a qu'un dossier vide : il est mis de côté sous {aside}, puis la copie prend sa place.",
   "note.files_asleep": "{base} dort — je n'ai pas regardé s'il en contient aussi une partie.",

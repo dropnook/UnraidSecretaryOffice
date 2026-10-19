@@ -584,6 +584,7 @@
   "note.files_from_aside": "Esta instantánea pertenece al dataset apartado antes, {aside} — su estado vuelve aquí.",
   "note.files_union": "El recurso compartido está en varios pools y discos — las partes de esta instantánea se juntan: {bases}.",
   "note.files_uncovered": "Esta instantánea no cubre {bases}, donde {names} contiene algo ahora — esa parte no está (al intercambiar, se aparta con el resto).",
+  "note.files_names_left": {"one": "1 nombre en lo alto del recurso compartido contiene un salto de línea u otro carácter de control — no puedo restaurarlo por su nombre: {names}.", "other": "{n} nombres en lo alto del recurso compartido contienen un salto de línea u otro carácter de control — no puedo restaurarlos por su nombre: {names}."},
   "note.files_place_in": "Todavía no hay nada: la copia se hace primero, luego se pone en su sitio.",
   "note.files_place_empty": "Solo hay una carpeta vacía: se aparta como {aside} y luego la copia ocupa su lugar.",
   "note.files_asleep": "{base} duerme — no he mirado si también contiene una parte.",

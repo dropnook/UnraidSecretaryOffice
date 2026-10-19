@@ -584,6 +584,7 @@
   "note.files_from_aside": "Dieser Snapshot gehört zum früher beiseitegelegten Dataset {aside} — sein Stand kommt hierher zurück.",
   "note.files_union": "Der Share liegt auf mehreren Pools und Disks — die Teile dieses Snapshots kommen zusammen: {bases}.",
   "note.files_uncovered": "Dieser Snapshot deckt {bases} nicht ab, wo {names} jetzt etwas hat — dieser Teil ist nicht darin (beim Austauschen kommt er mit dem Rest beiseite).",
+  "note.files_names_left": {"one": "1 Name zuoberst im Share enthält einen Zeilenumbruch oder ein anderes Steuerzeichen — ihn kann ich nicht mit Namen zurückholen: {names}.", "other": "{n} Namen zuoberst im Share enthalten einen Zeilenumbruch oder ein anderes Steuerzeichen — sie kann ich nicht mit Namen zurückholen: {names}."},
   "note.files_place_in": "Noch ist nichts da: Die Kopie entsteht zuerst, dann kommt sie an ihren Platz.",
   "note.files_place_empty": "Nur ein leerer Ordner ist da: Er kommt als {aside} beiseite, dann nimmt die Kopie seinen Platz ein.",
   "note.files_asleep": "{base} schläft — ich habe nicht nachgeschaut, ob dort auch etwas davon liegt.",

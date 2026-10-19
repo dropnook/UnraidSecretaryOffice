@@ -584,6 +584,7 @@
   "note.files_from_aside": "This snapshot belongs to the dataset put aside earlier, {aside} — its state comes back here.",
   "note.files_union": "The share lies on several pools and disks — this snapshot's parts are put together: {bases}.",
   "note.files_uncovered": "This snapshot doesn't cover {bases}, where {names} holds something now — that part isn't in it (swapped in, it goes aside with the rest).",
+  "note.files_names_left": {"one": "1 name at the top of the share holds a line break or another control character — I can't bring it back by name: {names}.", "other": "{n} names at the top of the share hold a line break or another control character — I can't bring them back by name: {names}."},
   "note.files_place_in": "Nothing is there yet: the copy is made first, then it is moved into its place.",
   "note.files_place_empty": "Only an empty folder is there: it goes aside as {aside}, then the copy takes its place.",
   "note.files_asleep": "{base} is asleep — I didn't look whether it holds some of it too.",

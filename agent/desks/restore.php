@@ -60,6 +60,7 @@ const RS_HOLDS_CHECK  = 24;          // moments looked into (does it hold the fo
 const RS_ENTRIES_MAX  = 60;          // entries at the top of a share he brings back at once
 const RS_STOREROOM    = OFFICE_STOREROOM;   // Ms. Dustdevil's: never a share's own folder (nor one of its old name — storeroomName())
 const RS_OWN_LEFTOVER = '/\.(restored|aside|putback)-\d{8}-\d{6}$/D';   // what he left next to a folder himself
+const RS_NAME_MAX     = 255;         // bytes a file's name may have (NAME_MAX): what he leaves beside is cut to it (rsBeside())
 const RS_WAKE_TIMEOUT = 90;          // seconds a sleeping disk gets to spin up when «wake» is ticked
 
 define('RS_DATA', DATA_DIR . '/restore');
@@ -704,15 +705,22 @@ function rsMomentHolds(array &$moments, bool $whole): void
 
 /**
  * What lies at the top of a share in a moment: the union of its parts' top folders (Ms. Dustdevil's storeroom and
- * what he left next to folders himself left out), name => {kind, bases}; count = how many there are in all.
+ * what he left next to folders himself left out), name => {kind, bases}; count = how many there are in all. A name
+ * with a tab comes back like any other; one with another control character (a line break …) is not offered — it
+ * would break the lines of his log and journal — but named in `left` (escaped, as `ls -b` shows it), never dropped
+ * unsaid (scenario batch C, R1).
  */
 function rsMomentEntries(array $moment): array
 {
-    $names = [];
+    $names = $left = [];
     $count = 0;
     foreach ($moment['parts'] as $base => $part) {
         foreach (@scandir($part['path'], SCANDIR_SORT_ASCENDING) ?: [] as $n) {
-            if ($n === '.' || $n === '..' || $n === '.zfs' || $n === RS_STOREROOM || $n === OFFICE_STOREROOM_OLD || preg_match(RS_OWN_LEFTOVER, $n) || preg_match('/[\x00-\x1f\x7f]/', $n)) {
+            if ($n === '.' || $n === '..' || $n === '.zfs' || $n === RS_STOREROOM || $n === OFFICE_STOREROOM_OLD || preg_match(RS_OWN_LEFTOVER, $n)) {
+                continue;
+            }
+            if (preg_match('/[\x00-\x08\x0a-\x1f\x7f]/', $n)) {
+                $left[rsNameShown($n)] = true;
                 continue;
             }
             if (!isset($names[$n])) {
@@ -728,7 +736,17 @@ function rsMomentEntries(array $moment): array
         }
     }
     uksort($names, 'strnatcasecmp');
-    return ['names' => $names, 'count' => $count];
+    $left = array_keys($left);
+    sort($left, SORT_STRING);
+    return ['names' => $names, 'count' => $count, 'left' => $left];
+}
+
+/** A name with control characters as `ls -b` shows it (\n, \t, \x1b …): for the page, never a path to use */
+function rsNameShown(string $n): string
+{
+    return (string) preg_replace_callback('/[\x00-\x1f\x7f\\\\]/', fn ($m) => match ($m[0]) {
+        "\n" => '\\n', "\r" => '\\r', "\t" => '\\t', '\\' => '\\\\', default => sprintf('\\x%02x', ord($m[0])),
+    }, $n);
 }
 
 /**
@@ -2020,7 +2038,7 @@ function rsPlanDbFor(array &$ctx, array $place, array $app, array $pkg, ?array $
         $steps[] = ['do' => 'stop', 'containers' => $others];
     }
     if ($method === 'fresh') {
-        $aside = "{$folder['path']}.aside-$stamp";
+        $aside = rsBeside($folder['path'], "aside-$stamp");
         $ds = $folder['dataset'];
         $steps[] = ['do' => 'stop', 'containers' => [$c]];
         $steps[] = ['do' => 'aside', 'path' => $folder['path'], 'to' => $aside, 'dataset' => $ds, 'to_dataset' => $ds ? "$ds.aside-$stamp" : null];
@@ -2107,9 +2125,9 @@ function rsPlanSqliteFor(array &$ctx, array $app, array $pkg, ?array $version, s
         }
         $db = $dir[0]['live'] . "/$name";
         foreach (['', '-wal', '-shm'] as $sfx) {
-            $steps[] = ['do' => 'aside', 'path' => "$db$sfx", 'to' => "$db$sfx.aside-$stamp", 'optional' => true];
+            $steps[] = ['do' => 'aside', 'path' => "$db$sfx", 'to' => rsBeside("$db$sfx", "aside-$stamp"), 'optional' => true];
             if ($sfx === '' || file_exists("$db$sfx")) {
-                $plan['aside'][] = ['what' => 'file', 'from' => "$db$sfx", 'to' => "$db$sfx.aside-$stamp"];
+                $plan['aside'][] = ['what' => 'file', 'from' => "$db$sfx", 'to' => rsBeside("$db$sfx", "aside-$stamp")];
             }
         }
         $steps[] = ['do' => 'put', 'from' => $from, 'to' => $db, 'mode' => 0644, 'owner_like' => $dir[0]['live']];
@@ -2280,6 +2298,9 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
             return $plan;
         }
         $names = array_map('strval', array_keys($e['names']));
+        if ($e['left']) {
+            $plan['notes'][] = ['key' => 'note.files_names_left', 'warn' => true, 'params' => ['n' => count($e['left']), 'names' => implode(', ', $e['left'])]];
+        }
     } else {
         $names = [$rel];
     }
@@ -2361,8 +2382,8 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
         $T = $dsMode ? $own['live'] : "$user/$share/$n";
         $ds = $dsMode ? (string) $own['dataset'] : null;
         $rds = $ds !== null ? "$ds.restored-$stamp" : null;
-        $to = "$T.restored-$stamp";
-        $asideP = "$T.aside-$stamp";
+        $to = rsBeside($T, "restored-$stamp");
+        $asideP = rsBeside($T, "aside-$stamp");
         if (file_exists($to) || is_link($to)) {
             $plan['blockers'][] = ['key' => 'restore_exists', 'params' => ['path' => $to]];
         }
@@ -2771,7 +2792,27 @@ function rsAsideFor(string $to, string $stamp, string $suffix = 'restored-aside'
     if (under($to, '/boot')) {
         return "$flashRoot/$stamp/boot" . substr($to, strlen('/boot'));
     }
-    return "$to.$suffix-$stamp";
+    return rsBeside($to, "$suffix-$stamp");
+}
+
+/**
+ * What he leaves next to $path: <name>.<suffix> (restored-<stamp>, aside-<stamp>, putback-{T} …). A name that would grow
+ * longer than a name may be (NAME_MAX, 255 bytes — a file of 255 bytes restored beside failed the whole restore, scenario
+ * batch C, R1) is cut in the middle: its beginning, «~» and a short hash of the whole name (two long names stay apart),
+ * its extension — so «<head>~<hash>.mkv.restored-<stamp>» still ends the way all his leftovers end.
+ */
+function rsBeside(string $path, string $suffix): string
+{
+    $name = basename($path);
+    $tail = ".$suffix";
+    $len = strlen($name) + strlen(str_replace('{T}', '00000000-000000', $tail));     // {T}: a put back's stamp, filled in later
+    if ($len <= RS_NAME_MAX) {
+        return "$path$tail";
+    }
+    $ext = preg_match('/(\.[^.\x00-\x20]{1,16})$/D', $name, $m) && strlen($m[1]) < strlen($name) ? $m[1] : '';
+    $mark = '~' . substr(hash('sha256', $name), 0, 8);
+    $room = max(1, strlen($name) - ($len - RS_NAME_MAX) - strlen($mark) - strlen($ext));
+    return dirname($path) . '/' . mb_strcut($name, 0, $room, 'UTF-8') . $mark . $ext . $tail;
 }
 
 /** A clean absolute path (no . or .. parts, no control characters) */
@@ -4026,7 +4067,7 @@ function rsDoAside(array &$j, array $s): array
         }
     }
     $j['aside'][] = ['from' => $from, 'to' => $to, 'dataset' => $isDs ? $ds : null, 'to_dataset' => $isDs ? $tds : null];
-    $back = ($s['putback_to'] ?? '') !== '' ? $s['putback_to'] : "$from.putback-{T}";
+    $back = ($s['putback_to'] ?? '') !== '' ? $s['putback_to'] : rsBeside($from, 'putback-{T}');
     return ['state' => 'ok', 'undo' => [
         ['do' => 'aside', 'path' => $from, 'to' => $back, 'dataset' => $isDs ? $ds : null, 'to_dataset' => $isDs ? "$ds.putback-{T}" : null, 'optional' => true],
         ['do' => 'move', 'from' => $to, 'to' => $from, 'dataset' => $isDs ? $tds : null, 'to_dataset' => $isDs ? $ds : null],
@@ -4057,7 +4098,7 @@ function rsDoMove(array &$j, array $s): array
         return rsFail('rename_failed', ['path' => $from], (string) (error_get_last()['message'] ?? ''));
     }
     // something new where nothing was put aside in this restore: «Put back» puts it aside
-    $undo = rsAsideOf($j, $to) ? [] : [['do' => 'aside', 'path' => $to, 'to' => "$to.putback-{T}", 'dataset' => $isDs ? $tds : null,
+    $undo = rsAsideOf($j, $to) ? [] : [['do' => 'aside', 'path' => $to, 'to' => rsBeside($to, 'putback-{T}'), 'dataset' => $isDs ? $tds : null,
                                          'to_dataset' => $isDs ? "$tds.putback-{T}" : null, 'optional' => true]];
     return ['state' => 'ok', 'undo' => $undo];
 }
@@ -4084,7 +4125,7 @@ function rsDoFresh(array &$j, array $s): array
         @chgrp($path, $st['gid']);
         @chmod($path, $st['mode'] & 07777);
     }
-    $undo = $like ? [] : [['do' => 'aside', 'path' => $path, 'to' => "$path.putback-{T}", 'dataset' => $ds, 'to_dataset' => $ds ? "$ds.putback-{T}" : null, 'optional' => true]];
+    $undo = $like ? [] : [['do' => 'aside', 'path' => $path, 'to' => rsBeside($path, 'putback-{T}'), 'dataset' => $ds, 'to_dataset' => $ds ? "$ds.putback-{T}" : null, 'optional' => true]];
     return ['state' => 'ok', 'undo' => $undo];
 }
 
@@ -4165,7 +4206,7 @@ function rsDoCopy(array &$j, int $i): array
     $exit = rsWait($j, [$p], $i, $read)[0];
     $j['steps'][$i]['progress'] = $prog;
     $undo = !empty($s['replaces']) && !rsAsideOf($j, $to)
-        ? [['do' => 'aside', 'path' => $to, 'to' => ($s['putback_to'] ?? '') !== '' ? $s['putback_to'] : "$to.putback-{T}", 'optional' => true]] : [];
+        ? [['do' => 'aside', 'path' => $to, 'to' => ($s['putback_to'] ?? '') !== '' ? $s['putback_to'] : rsBeside($to, 'putback-{T}'), 'optional' => true]] : [];
     if ($exit === 24) {
         return ['state' => 'warning', 'note' => 'copy_vanished', 'undo' => $undo];
     }
@@ -4213,7 +4254,7 @@ function rsDoPut(array &$j, array $s): array
         @unlink($tmp);
         return rsFail('rename_failed', ['path' => $to]);
     }
-    $undo = $aside ? [] : [['do' => 'aside', 'path' => $to, 'to' => ($s['putback_to'] ?? '') !== '' ? $s['putback_to'] : "$to.putback-{T}", 'optional' => true]];
+    $undo = $aside ? [] : [['do' => 'aside', 'path' => $to, 'to' => ($s['putback_to'] ?? '') !== '' ? $s['putback_to'] : rsBeside($to, 'putback-{T}'), 'optional' => true]];
     return ['state' => 'ok', 'undo' => $undo];
 }
 

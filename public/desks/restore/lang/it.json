@@ -584,6 +584,7 @@
   "note.files_from_aside": "Questo snapshot appartiene al dataset messo da parte prima, {aside} — il suo stato torna qui.",
   "note.files_union": "La condivisione sta su più pool e dischi — le parti di questo snapshot si mettono insieme: {bases}.",
   "note.files_uncovered": "Questo snapshot non copre {bases}, dove {names} ora contiene qualcosa — quella parte non c'è (scambiando, va da parte con il resto).",
+  "note.files_names_left": {"one": "1 nome in cima alla condivisione contiene un a capo o un altro carattere di controllo — non posso ripristinarlo per nome: {names}.", "other": "{n} nomi in cima alla condivisione contengono un a capo o un altro carattere di controllo — non posso ripristinarli per nome: {names}."},
   "note.files_place_in": "Non c'è ancora niente: la copia si fa prima, poi va al suo posto.",
   "note.files_place_empty": "C'è solo una cartella vuota: va da parte come {aside}, poi la copia prende il suo posto.",
   "note.files_asleep": "{base} dorme — non ho guardato se ne contiene anche una parte.",
