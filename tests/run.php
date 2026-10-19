@@ -17827,10 +17827,10 @@ function testDoorbell(): void
     symlink("$tmp/victim", $bell);
     $r = $php($agent . '$o = []; $b = doorbellOpen(); clearstatcache(); $st = lstat(DOORBELL);'
         . ' $o["made"] = [is_resource($b), ($st["mode"] & 0170000) === 0010000, $st["mode"] & 0777, $st["uid"] === posix_geteuid(), DOORBELL];'
-        . ' $t = microtime(true); $o["quiet"] = [agentNap($b, $t + 0.2), microtime(true) - $t >= 0.15];'
+        . ' $t = agentClock(); $o["quiet"] = [agentNap($b, $t + 0.2), agentClock() - $t >= 0.15];'
         . ' $w = fopen(DOORBELL, "r+"); fwrite($w, str_repeat("x", 100)); fclose($w);'
-        . ' $t = microtime(true); $o["rung"] = [agentNap($b, $t + 3), microtime(true) - $t < 0.5];'
-        . ' $t = microtime(true); $o["read away"] = [agentNap($b, $t + 0.2), microtime(true) - $t >= 0.15];'
+        . ' $t = agentClock(); $o["rung"] = [agentNap($b, $t + 3), agentClock() - $t < 0.5];'
+        . ' $t = agentClock(); $o["read away"] = [agentNap($b, $t + 0.2), agentClock() - $t >= 0.15];'
         . ' $o["file"] = (function () { $b = null; file_put_contents("' . $tmp . '/plain", "p"); @unlink(DOORBELL); rename("' . $tmp . '/plain", DOORBELL); $b = doorbellOpen(); clearstatcache(); return [is_resource($b), (lstat(DOORBELL)["mode"] & 0170000) === 0010000]; })();'
         . ' $b2 = doorbellOpen(); clearstatcache(); $ino = lstat(DOORBELL)["ino"]; doorbellClose($b); clearstatcache(); $o["not its own"] = file_exists(DOORBELL) && lstat(DOORBELL)["ino"] === $ino;'
         . ' doorbellClose($b2); clearstatcache(); $o["closed"] = file_exists(DOORBELL) || is_link(DOORBELL);'
@@ -17872,7 +17872,7 @@ function testDoorbell(): void
     // the round trip: the agent's mailbox and nap against askAgent() — with the doorbell, and without (as before)
     $loop = $agent . '@mkdir(DATA_DIR, 0755, true); mailboxEnsure(); writeInfo(true); $b = $argv[1] === "bell" ? doorbellOpen() : null;'
         . ' $end = microtime(true) + 8; $next = 0.0; while (microtime(true) < $end && !file_exists(DATA_DIR . "/stop")) {'
-        . ' clearstatcache(); processMailbox(); if (microtime(true) >= $next) { $next = microtime(true) + TICK_US / 1e6; } agentNap($b, $next); }'
+        . ' clearstatcache(); processMailbox(); if (agentClock() >= $next) { $next = agentClock() + TICK_US / 1e6; } agentNap($b, $next); }'
         . ' doorbellClose($b); echo json_encode(["done" => true]);';
     $ask = $web . '$t = []; for ($i = 0; $i < 12; $i++) { usleep(random_int(0, 150000)); $a = microtime(true);'
         . ' $r = askAgent("office.ping", [], 5); $t[] = empty($r["ok"]) ? 9999 : (microtime(true) - $a) * 1000; } sort($t);'
@@ -17895,6 +17895,37 @@ function testDoorbell(): void
     }
     same('doorbell: gone with the agent', false, file_exists($bell));
     hardeningRm($tmp);
+}
+
+/**
+ * Batch D F12 (2026-10-19): a clock stepped back froze the agent. Its rounds and naps had wall-clock deadlines
+ * (microtime): the scenarios' aged files set the clock 40 days back for ~20 s — the deadline taken before lay 40 days
+ * ahead, and the nap (stream_select's relative timeout) lasted that long: no round, no heartbeat, until a request rang the
+ * doorbell. Now the rounds, the naps, the heartbeat's beat and the night shift's rounds run on agentClock() (monotonic,
+ * never stepped); a nap lasts AGENT_NAP_MAX at most whatever its deadline; the heartbeat file keeps wall time (touch).
+ */
+function testAgentClock(): void
+{
+    $run = hardeningTmp('agentclock');
+    $env = ['OFFICE_DATA_DIR' => "$run/data", 'OFFICE_RUN_DIR' => "$run/run", 'PATH' => getenv('PATH')];
+    $code = 'define("AGENT_LIBRARY_ONLY", 1); require ' . var_export(OFFICE_DIR . '/agent/agent.php', true) . '; $o = [];'
+        . ' $o["mono"] = function_exists("agentClock") ? abs(agentClock() - hrtime(true) / 1e9) < 0.05 : "no agentClock()";'
+        . ' $clock = function_exists("agentClock") ? "agentClock" : fn () => microtime(true);'
+        . ' $t = $clock(); agentNap(null, $t + 0.3); $o["lasts"] = round($clock() - $t, 1);'
+        . ' $o["max"] = defined("AGENT_NAP_MAX") ? AGENT_NAP_MAX : null;'
+        . ' $src = function (string $fn) { $r = new ReflectionFunction($fn); return implode("", array_slice(file($r->getFileName()), $r->getStartLine() - 1, $r->getEndLine() - $r->getStartLine() + 1)); };'
+        . ' foreach (["serve", "nightShift", "agentNap"] as $fn) { $o["wall"][$fn] = preg_match_all("/\\\\b(?:microtime|time)\\\\(/", $src($fn)); }'
+        . ' echo json_encode($o);';
+    $p = proc_open([PHP_BINARY, '-r', $code], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, $env);
+    $out = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
+    proc_close($p);
+    $r = json_decode(substr($out, (int) strpos($out, '{')), true) ?: ['raw' => $out];
+    same('agent clock: agentClock() is the monotonic clock (hrtime), not the wall clock', true, $r['mono'] ?? $r);
+    same('agent clock: a nap until agentClock() + 0.3 lasts 0.3 s', 0.3, $r['lasts'] ?? null);
+    same('agent clock: a nap lasts 20 s at most, whatever its deadline (a clock 40 days back never sleeps it 40 days)', 20, $r['max'] ?? null);
+    same('agent clock: the loop, the night shift and the nap read no wall clock for their rounds (a step back froze them)',
+        ['serve' => 0, 'nightShift' => 0, 'agentNap' => 0], $r['wall'] ?? null);
+    hardeningRm($run);
 }
 
 /**
@@ -43942,7 +43973,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
-          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
+          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.
