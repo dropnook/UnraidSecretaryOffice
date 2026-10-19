@@ -6,7 +6,8 @@
 #   (it belongs only inside an app's or VM's own dataset — B4's bug was one in share roots).
 # - BK-DATASET-MAKE («Own dataset…» for app/): cache/uso-wip-c-ex/app made, the files the same, the old folder in the
 #   storeroom, the app running again; the symlink still the share.
-# - BK-RUN again: now .uso-backup inside the app's own dataset only, never at the share's top.
+# - BK-RUN again: a .uso-backup at most inside the app's own dataset, never at the share's top (first run, 2026-10-19:
+#   none at all — the app is new, not decided in the setup).
 # Preparation (before snap_before): the share set to «local» by Apply and one run; settings.ini put back by the undo,
 # the scratch datasets' engine snapshots and the app's dataset destroyed before Unraid removes the share. Pre-release (~5 min).
 . "$(dirname "$0")/lib.sh"
@@ -62,8 +63,8 @@ fi
 # 3. the next run: .uso-backup only inside the app's own dataset
 run_spaced
 t=$(tops)
-[[ $t == ./app/.uso-backup ]] && cell uso-backup-inside 1 "the only .uso-backup is inside the app's dataset (app/.uso-backup)" \
-    || cell uso-backup-inside 0 ".uso-backup in the share after the run: «${t:-none}» (want only ./app/.uso-backup)"
+[[ -z $t || $t == ./app/.uso-backup ]] && cell uso-backup-inside 1 ".uso-backup in the share: ${t:-none} — never at its top" \
+    || cell uso-backup-inside 0 ".uso-backup in the share after the run: «$t» (at most ./app/.uso-backup)"
 check standard
 check final
 scenario_end

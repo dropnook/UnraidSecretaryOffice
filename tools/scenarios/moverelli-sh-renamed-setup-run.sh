@@ -7,7 +7,8 @@
 # MV-RESAVE (her setup saved as it is): smart_mover.ini byte for byte — the rules of mva and mvd stay (never moved over
 # to mvb by themselves), her state lists both as shares Unraid no longer has. MV-RUN: the run ends ok, its log says the
 # orphan cfg was skipped (smartmover/README: «a <share>.cfg whose share is gone … is skipped with an INFO line, never
-# moved»), mvb's files go to the array by her global rule (age 0, Tower's base) like any new share.
+# moved»); mvb's files stay whole — Unraid's move binary refuses a just-renamed share's files («No medium found»), as it
+# would for Unraid's own mover — and her words say why (cells renamed-whole, renamed-said).
 # Her settings are saved back by the undo (her own «save»). Pre-release (~2 min).
 . "$(dirname "$0")/lib.sh"
 scenario_begin moverelli-sh-renamed-setup-run
@@ -57,8 +58,17 @@ grep -F "$O" "$KEEP/smart_mover-run.log" | grep -qiE 'skip|gone' && ! grep -F "$
     || cell orphan-skipped 0 "her run's log on $O: $(grep -F "$O" "$KEEP/smart_mover-run.log" | head -2 | tr '\n' ' ' | cut -c1-240)"
 r=$(jq -r '.result // empty' "$D/moverelli/status.json" 2>/dev/null)
 [[ $r =~ ^(ok|warnings)$ ]] && cell run-result 1 "her run ended $r" || cell run-result 0 "her run ended «$r»"
-n=0; for d in $(bases); do [[ $d == disk* ]] && n=$((n + $(find "/mnt/$d/$B" -type f 2>/dev/null | wc -l))); done
-((n == 40)) && cell renamed-moved 1 "the 40 files of $B went to the array by her global rule" || cell renamed-moved 0 "$n of 40 files of $B on the array"
+# the renamed share's files: Unraid's move binary refuses each with «No medium found» right after Unraid's rename (by
+# hand, 2026-10-19: even 20 s later) — Unraid's mover leaves them the same way, so they stay whole on the pool; her
+# words must give that reason, not «in use, or already present at the destination»
+c=$(find "/mnt/cache/$B" -maxdepth 1 -type f 2>/dev/null | wc -l) n=0
+for d in $(bases); do [[ $d == disk* ]] && n=$((n + $(find "/mnt/$d/$B" -type f 2>/dev/null | wc -l))); done
+((c + n == 40)) && cell renamed-whole 1 "the 40 files of $B are whole: $n on the array, $c on the pool" || cell renamed-whole 0 "$B: $n on the array + $c on the pool, not 40"
+if ((c > 0)); then
+    grep -F "$B" "$KEEP/smart_mover-run.log" | grep -qiE 'no medium|medium' \
+        && cell renamed-said 1 "her log gives the move binary's reason for the $c left (No medium found)" \
+        || cell renamed-said 0 "$c files of $B left; her log says: «$(grep -A1 "moved .* of .* files" "$KEEP/smart_mover-run.log" | grep -m1 -oE 'still on the source side[^:]*')» — the move binary said «No medium found»"
+fi
 bubble_look renamed moverelli
 look=$(ls -d "$KEEP"/looks/*-renamed 2>/dev/null | tail -1)
 [[ -n $look ]] && queue_mac remove-rules page_text --open moverelli/setup "$look/states" "$PAGE_LANGS" want "moverelli.setup.own_gone moverelli.setup.own_remove"
