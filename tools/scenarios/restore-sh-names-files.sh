@@ -3,9 +3,11 @@
 # uso-wip-c-rn (only cache: a dataset — a share name no dataset can carry has no moment of its own) holds only the
 # twelve put_names files (umlauts, quotes, $, \, leading space/dash/dot, CJK, 255 bytes, a tab, «;» and «&»); the app
 # uso-wip-c-rnapp binds the whole share (he restores what an app binds: the share's top entries are its items).
-# - RS-FILES-BESIDE of the whole share: every name back beside as «<name>.restored-<stamp>», the same bytes (cell beside).
-# - RS-FILES-REPLACE after the user deleted «it's here.mkv» and changed «Ümläut Ärger.txt»: both as in the moment,
-#   each live one aside as «<name>.aside-<stamp>» (cell replace).
+# - RS-FILES-BESIDE of the share's entries (the dialog's ticked items): the eleven names back beside as
+#   «<name>.restored-<stamp>», the same bytes (cell beside); the name of 255 bytes on its own (cell long-name — its copy's
+#   name would be longer than a name may be: in the first run, 2026-10-19, rsync failed and the whole restore with it).
+# - RS-FILES-REPLACE after the user deleted «it's here.mkv» and changed «Ümläut Ärger.txt»: the eleven as in the
+#   moment, each live one aside as «<name>.aside-<stamp>» (cell replace).
 # - RS-DRILL, its «one file of a share» step in this share (only awkward names in it — every one ≥ 1 KB, so the drill's
 #   file is one of them): checked ok, its scratch folder in the storeroom (cell drill-sharefile). The drill picks one share
 #   a day (restore-drill.php drillShareFilePick: sorted, day number modulo their count), so empty scratch shares
@@ -53,26 +55,35 @@ zfs list -H -t snapshot -o name "cache/$S" 2>/dev/null | grep -q '@uso-backup-' 
 expect_changes 'docker|*'                    # the scratch app is a new container for Mr. Backupsy's setup
 track_share "$S"
 snap_before
-# 1. beside: every name back next to itself
-flow RS-FILES-BESIDE path="/mnt/user/$S"
+# the dialog's ticked entries (desk.js ~2044 sends {snap, items}): the long name apart (its own cell), the eleven others
+long=$(printf 'n%.0s' {1..251}).txt
+rs_items() { local mode=$1; shift; _fl_args; _rs_go "$(jq -cn --arg p "/mnt/user/$S" --arg m "$mode" '{kind: "files", path: $p, mode: $m, items: $ARGS.positional}' --args "$@")"; }
+ELEVEN=(); for f in "${NAMES[@]}"; do [[ $f == "$long" ]] || ELEVEN+=("$f"); done
+# 1. beside: the eleven back next to themselves
+rs_items copy "${ELEVEN[@]}" || say "the restore beside of the eleven: $(ask_last '.error // empty')"
 bad=''
-for f in "${NAMES[@]}"; do
+for f in "${ELEVEN[@]}"; do
     r=$(find "/mnt/cache/$S" -maxdepth 1 -name "$(printf '%s' "$f" | sed 's/[][*?\\]/\\&/g').restored-*" 2>/dev/null | head -1)
     [[ -n $r && $(md5sum <"$r") == "${SUM[$f]}" ]] || bad+=" «$f»"
 done
-[[ -z $bad ]] && cell beside 1 "all 12 names back beside, the same bytes" || cell beside 0 "not back (or other bytes) beside:$bad ($(ask_last '.error // empty'))"
+[[ -z $bad ]] && cell beside 1 "the 11 names back beside, the same bytes" || cell beside 0 "not back (or other bytes) beside:$bad"
 # the copies beside go (the user deletes them) before the swap — else they'd be entries of the share too
 find "/mnt/cache/$S" -maxdepth 1 -name '*.restored-*' -exec rm -rf {} +
 # 2. replace: one deleted, one changed — both as in the moment, the live one aside
 rm -f "/mnt/cache/$S/it's here.mkv"; printf 'changed\n' >"/mnt/cache/$S/Ümläut Ärger.txt"
-flow RS-FILES-REPLACE path="/mnt/user/$S"
+rs_items swap "${ELEVEN[@]}" || say "the swap of the eleven: $(ask_last '.error // empty')"
 bad=''
-for f in "it's here.mkv" 'Ümläut Ärger.txt' '"quoted".txt' 'back\slash' 'tab	in name.txt'; do
-    [[ -f /mnt/cache/$S/$f && $(md5sum <"/mnt/cache/$S/$f") == "${SUM[$f]}" ]] || bad+=" «$f»"
-done
+for f in "${ELEVEN[@]}"; do [[ -f /mnt/cache/$S/$f && $(md5sum <"/mnt/cache/$S/$f") == "${SUM[$f]}" ]] || bad+=" «$f»"; done
 a=$(find "/mnt/cache/$S" -maxdepth 1 -name 'Ümläut Ärger.txt.aside-*' | head -1)
-[[ -z $bad && -n $a && $(cat "$a") == changed ]] && cell replace 1 "back as in the moment, the changed one aside as ${a##*/}" \
-    || cell replace 0 "after the swap: not as in the moment:${bad:- none}; the changed one aside: ${a:-missing} ($(ask_last '.error // empty'))"
+[[ -z $bad && -n $a && $(cat "$a") == changed ]] && cell replace 1 "the eleven as in the moment, the changed one aside as ${a##*/}" \
+    || cell replace 0 "after the swap: not as in the moment:${bad:- none}; the changed one aside: ${a:-missing}"
+# 2b. the name of 255 bytes: its copy beside would be «<name>.restored-<stamp>» — longer than a name may be
+rs_items copy "$long"
+r=$(find "/mnt/cache/$S" -maxdepth 1 -name 'nnnn*.restored-*' 2>/dev/null | head -1)
+id=$(fl_last_restore)
+if [[ -n $r && $(md5sum <"$r") == "${SUM[$long]}" ]]; then cell long-name 1 "the 255-byte name came back beside"
+else cell long-name 0 "the 255-byte name: restore ${id:-?} $(jq -r '.result // "?"' "$D/restore/$id/journal.json" 2>/dev/null) — $(grep -m1 -o 'rsync: .*' "$D/restore/$id/log.txt" 2>/dev/null | cut -c1-120)…"; fi
+find "/mnt/cache/$S" -maxdepth 1 -name '*.restored-*' -exec rm -rf {} +
 # 3. the drill's share file
 flow RS-DRILL
 id=$(jq -r 'select(.what == "drill") | .data.id' "$KEEP/flows.jsonl" 2>/dev/null | tail -1)
