@@ -21,11 +21,12 @@ ask backup.refresh '{}' 120 >/dev/null
 n=$(state_json backup '.schedule.next // empty'); c=$(cron_next 30 4)
 [[ $n == "$c" ]] && cell next-is-cron 1 "next run $(date -d @"$n" '+%F %T %Z') = when crond starts it" \
     || cell next-is-cron 0 "the office says the next run is $(date -d @"${n:-0}" '+%F %T %Z'), crond starts it at $(date -d @"$c" '+%F %T %Z') ($(( (c - ${n:-0}) / 60 )) min apart)"
-t0=$(date +%Y%m%d-%H%M)
+e0=$(date +%s)
 flow BK-RUN-SCHED
 r=$(jq -r '.run // ""' "$UB/state/status.json")
-[[ $r == "$t0" || $r == "$(date -d "${t0:0:8} ${t0:9:2}:${t0:11:2} + 1 min" +%Y%m%d-%H%M)" ]] && cell run-name 1 "the run is named $r by the server's clock" \
-    || cell run-name 0 "the run is named $r, the server's clock said $t0"
+# named by the minute it started in (the flow waits for a free minute first: up to two minutes after e0)
+[[ $r == "$(date -d @"$e0" +%Y%m%d-%H%M)" || $r == "$(date -d @$((e0 + 60)) +%Y%m%d-%H%M)" || $r == "$(date -d @$((e0 + 120)) +%Y%m%d-%H%M)" ]] \
+    && cell run-name 1 "the run is named $r by the server's clock" || cell run-name 0 "the run is named $r, the server's clock said $(date -d @"$e0" +%Y%m%d-%H%M)"
 ask backup.refresh '{}' 120 >/dev/null
 l=$(state_json backup '[.status.started?, .status.ended?, ((.history // [])[0] | objects | (.started // .time // .end // empty))] | map(select(type == "number")) | max // empty')
 now=$(date +%s)

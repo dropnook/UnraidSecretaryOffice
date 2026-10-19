@@ -29,5 +29,6 @@ ask backup.refresh '{}' 120 >/dev/null
 last=$(state_json backup '.status.run // empty'); s=$(state_json backup '.status.started // 0')
 [[ $last == "$r2" ]] && (( s <= $(date +%s) )) && cell last-is-new 1 "«last run» is $r2, started $(( $(date +%s) - s )) s ago" \
     || cell last-is-new 0 "«last run» is ${last:-?} (started $s, now $(date +%s)), the run just made is $r2"
+allow INV-LEFTOVER "the clock state's own note and guard (/tmp/uso-clock-*.set, uso-clock-guard.sh — states-time.sh) live while the clock is set; its undo removes them (INV-LEFTOVER after the undo)"
 check standard
 scenario_end
