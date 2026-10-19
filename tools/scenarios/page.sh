@@ -6,6 +6,7 @@
 #
 #   bash tools/scenarios/page.sh [--host tower|test3] <desk>[/<tab>] [--lang de,en] [--json] [--keep]
 #   bash tools/scenarios/page.sh --states <folder> <desk>[/<tab>] …     (files copied before - the runner's evidence)
+#   … page.mjs's options pass through: --open (folds opened), --tree <tag> (that release's page), --want/--not/--value
 #
 # Hosts: tower (ssh uso-test) and test3 (ssh uso-test3) only - USOPartner and nostromo are refused by address. --keep
 # leaves the copied folder and says where. Exit as page.mjs (0 ok, 1 not drawn, 2 wrong call, 3 no playwright/Chrome),

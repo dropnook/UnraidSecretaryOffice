@@ -18,7 +18,7 @@
 #                  RS-SQLITE app= container= [version=]   RS-CONFIG app= [version=]   RS-VM vm= [version=]
 #                  RS-KOPIA source= [snapshot=]   RS-PUTBACK of=<journal id>|last   RS-DRILL (= RS-DRILL-MANUAL)
 #   Ms. Moverelli  MV-SETUP [x=80] [mover_off=1] [rule=<share>:<days>…]   MV-RESAVE   MV-LIST   MV-DRY   MV-RUN [look=s]
-#                  MV-RUN-SCHED   MV-STOP-AFTER-FILE (= MV-NIGHT-STOP)   MV-SCHEDULE cron=…|cron=   MV-MOVER-OFF
+#                  MV-RUN-SCHED   MV-STOP-AFTER-FILE [share=] (= MV-NIGHT-STOP)   MV-SCHEDULE cron=…|cron=   MV-MOVER-OFF
 #                  MV-IMPORT folder=   MV-LETGO
 #   The office     OF-UPDATE plg=<file|url>|update|worktree | from=<version>   OF-REMOVE-REINSTALL [plg=]   OF-ARRAY-STOP-START
 #                  OF-REBOOT (the pre half: notes for the post half, the runner reboots)   OF-REBOOT-BACK (the post half)
@@ -650,14 +650,19 @@ flow_mv_run_sched() {
     job_wait moverelli 600
 }
 
-# MV-STOP-AFTER-FILE: a real run, then «Stop after this file» (desk.js ~1233 act('stop') = stop {}) once a file moves
+# MV-STOP-AFTER-FILE [share=]: a real run, then «Stop after this file» (desk.js ~1233 act('stop') = stop {}) once a file
+# moves — with share=, once a file of that share moves (her plan may take other shares first: up to 5 min for it)
 flow_mv_stop_after_file() {
     _fl_args "$@" || return 1
-    local rc
+    local rc share=${FL[share]:-}
     touch "$KEEP/.mv-touched"
-    local t0; t0=$(date +%s)
+    local t0; t0=$(( $(date +%s) - 1 ))
     ask moverelli.start_run '{"mode":"run"}' >/dev/null || return 1
-    wait_for 120 "a file of this run on its way" _mv_moving "$t0" || return 1
+    if [[ -n $share ]]; then
+        wait_for 300 "a file of $share on its way in this run" _mv_moving "$t0" "$share" || return 1
+    else
+        wait_for 120 "a file of this run on its way" _mv_moving "$t0" || return 1
+    fi
     _fl_ask moverelli.stop '{}' >/dev/null
     rc=$?; ((rc == 0)) || { _fl_end $rc; return; }
     _fl_note "moverelli.stop" "$(ask_last '{stopping: (.state.stopping // null)}')"
@@ -672,11 +677,12 @@ flow_mv_stop_after_file() {
 flow_mv_night_stop() { flow_mv_stop_after_file "$@"; }
 # a file in flight: her live progress (moverelli.progress) names one
 # [since]: only a run started then or later (the previous run's last progress still names its file the moment the new
-# run's pid exists - batch A, 2026-10-18)
+# run's pid exists - batch A, 2026-10-18); [share]: a file of that share
 _mv_moving() {
     _mv_at_work || return 1
     php "$SC_DIR/ask.php" --wait 20 --raw moverelli.progress '{}' 2>/dev/null |
-        jq -e --argjson t "${1:-0}" '.state.progress | select((.started // 0) >= $t) | .file // empty' >/dev/null
+        jq -e --argjson t "${1:-0}" --arg s "${2:-}" '.state.progress | select(((.started // 0) | tonumber) >= $t)
+            | select($s == "" or (.share // "") == $s) | .file // empty | select(. != "")' >/dev/null
 }
 
 # MV-SCHEDULE cron=…|cron=: her schedule dialog (desk.js ~1779 schedule {cron})
