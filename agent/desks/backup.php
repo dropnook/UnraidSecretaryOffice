@@ -791,6 +791,10 @@ function backupHistory(array $logs, ?string $runningRun, ?array &$skips = null, 
     $file ??= BACKUP_DATA_DIR . '/state/history.jsonl';
     $runs = [];
     $skips = [];
+    // newest = finished last: history.jsonl gets a run's line when it ends, so a line is never older than the lines
+    // before it — a run made after the clock was set back (B43: its start and name earlier) is still the last one
+    $order = [];
+    $key = PHP_INT_MIN;
     foreach (@file($file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
         $j = json_decode($line, true);
         if (is_array($j) && ($j['result'] ?? '') === 'skipped') {
@@ -799,6 +803,8 @@ function backupHistory(array $logs, ?string $runningRun, ?array &$skips = null, 
             }
         } elseif (is_array($j) && !empty($j['run'])) {
             $runs[$j['run']] = backupRunFromStatus($j);
+            $key = max($key === PHP_INT_MIN ? PHP_INT_MIN : $key + 1, $runs[$j['run']]['started']);
+            $order[$j['run']] = $key;
         }
     }
     usort($skips, fn ($a, $b) => $b['time'] <=> $a['time']);
@@ -819,8 +825,8 @@ function backupHistory(array $logs, ?string $runningRun, ?array &$skips = null, 
         }
         $runs[$run] = $cache[1];
     }
-    usort($runs, fn ($a, $b) => $b['started'] <=> $a['started']);
-    return array_slice($runs, 0, BACKUP_HISTORY);
+    uksort($runs, fn ($a, $b) => ($order[$b] ?? $runs[$b]['started']) <=> ($order[$a] ?? $runs[$a]['started']));
+    return array_slice(array_values($runs), 0, BACKUP_HISTORY);
 }
 
 function backupRunFromStatus(array $j): array
