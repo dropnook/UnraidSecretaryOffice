@@ -531,7 +531,8 @@ function logsWakeRecord(array $woke, int $from, int $to, array $disks): void
         }
     }
     $mounts = array_values(array_filter(array_map(fn (string $n): ?string => $disks[$n]['mount'] ?? null, $woke)));
-    $wake = ['id' => bin2hex(random_bytes(6)), 'time' => $caught ? min(array_column($caught, 't')) : $to, 'from' => $from,
+    $time = $caught ? min(array_column($caught, 't')) : $to;
+    $wake = ['id' => bin2hex(random_bytes(6)), 'time' => $time, 'from' => min($from, $time),     // caught before her last look
              'disks' => $woke, 'how' => $caught ? 'caught' : 'noticed', 'who' => logsWakeCauses($caught, $mounts),
              'cut' => (bool) array_filter(array_column($caught, 'cut')), 'named' => false];
     $all = logsWakesRead();
