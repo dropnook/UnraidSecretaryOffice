@@ -10,7 +10,8 @@
 # and the door line for USOPartner) is carried in $OFFICE_FLASH/scenarios-partner-base/ (0600): a plugin remove takes it
 # away by design (OF-REMOVE-REINSTALL), pt_ok puts it back. Without the test bed every PT state answers «needs» (2).
 #
-#   pt_sh <cmd…>              a command on USOPartner as root (ssh joins the words: quote with printf %q), its output
+#   pt_sh <cmd…>              a command on USOPartner as root (ssh joins the words: quote with printf %q), its output;
+#                             stdin never read (ssh -n) — pt_in <cmd…> hands its stdin over (a here-doc, a file)
 #   pt_ok                     the test bed whole: the key, USOPartner answers, the pairing on both sides (pairs.json, the
 #                             keys and known_hosts, the door lines both ways) — says what is missing and returns 2
 #   pt_id                     the pairing's id (Tower's pairs.json: the pair at 192.168.7.190)
@@ -60,10 +61,14 @@ PT_FLASH=$OFFICE_FLASH/partners
 PT_AUTH=/boot/config/ssh/root/authorized_keys
 PT_ASK=/tmp/uso-pt/ask.php
 
-pt_sh() {
+_pt_ssh() {
     ssh -i "$PT_KEY" -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 \
         -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$PT_KNOWN" "root@$PT_IP" "$@"
 }
+# never the caller's stdin (scenario_end's undo loop reads its list from it — an ssh would swallow the rest); pt_in
+# hands its own stdin over (a here-doc, a file)
+pt_sh() { _pt_ssh -n "$@"; }
+pt_in() { _pt_ssh "$@"; }
 
 pt_id() { jq -r --arg a "$PT_IP" '[(.pairs // [])[] | select(.address == $a) | .id][0] // empty' "$D/partner/pairs.json" 2>/dev/null; }
 
@@ -112,7 +117,7 @@ pt_ok() {
 
 pt_ask() {
     local action=$1 json=${2:-'{}'} t=${3:-60}
-    pt_sh "mkdir -p ${PT_ASK%/*} && cat > $PT_ASK" <"$SC_DIR/ask.php" || return 1
+    pt_in "mkdir -p ${PT_ASK%/*} && cat > $PT_ASK" <"$SC_DIR/ask.php" || return 1
     say "pt_ask (USOPartner) $action"
     pt_sh "php $PT_ASK --wait $t $(printf %q "$action") $(printf %q "$json")"
 }
@@ -136,7 +141,7 @@ zfs list -H -t filesystem -o name 2>/dev/null | grep -E "[.]restored-[0-9]{8}-[0
 pt_fp() {
     case ${1:-here} in
         here) bash -c "$_PT_FP_SCRIPT" _ "$D" "$PT_FLASH" "$PT_AUTH" ;;
-        there) pt_sh "bash -s -- $(printf %q "$(_pt_d)") $PT_FLASH $PT_AUTH" <<<"$_PT_FP_SCRIPT" ;;
+        there) pt_in "bash -s -- $(printf %q "$(_pt_d)") $PT_FLASH $PT_AUTH" <<<"$_PT_FP_SCRIPT" ;;
     esac
 }
 pt_base_snap() {
@@ -181,7 +186,7 @@ pt_keep() {
     dir=$(_st_dir "$id") || return 1
     [[ -f $dir/tower.tgz ]] && return 0
     bash -c "$_PT_KEEP_SCRIPT" _ "$D" "$PT_FLASH" "$PT_AUTH" "$dir/tower" >"$dir/tower.tgz.part" && mv "$dir/tower.tgz.part" "$dir/tower.tgz" || return 1
-    pt_sh "bash -s -- $(printf %q "$(_pt_d)") $PT_FLASH $PT_AUTH /tmp/uso-pt/keep-$id" <<<"$_PT_KEEP_SCRIPT" >"$dir/partner.tgz.part" \
+    pt_in "bash -s -- $(printf %q "$(_pt_d)") $PT_FLASH $PT_AUTH /tmp/uso-pt/keep-$id" <<<"$_PT_KEEP_SCRIPT" >"$dir/partner.tgz.part" \
         && mv "$dir/partner.tgz.part" "$dir/partner.tgz" || { say "pt_keep: USOPartner's partner files could not be kept"; return 1; }
     pt_sh "rm -rf /tmp/uso-pt/keep-$id"
     rm -rf "$dir/tower"
@@ -194,7 +199,7 @@ pt_back() {
     t=$dir/back.tower && rm -rf "$t" && mkdir -p "$t" && tar --warning=no-timestamp -C "$t" -xzf "$dir/tower.tgz" || return 1
     bash -c "$_PT_BACK_SCRIPT" _ "$D" "$PT_FLASH" "$PT_AUTH" "$t" || { say "pt_back: Tower's partner files could not be put back"; return 1; }
     rm -rf "$t"
-    pt_sh "rm -rf /tmp/uso-pt/back-$id && mkdir -p /tmp/uso-pt/back-$id && tar --warning=no-timestamp -C /tmp/uso-pt/back-$id -xzf - && bash -c $(printf %q "$_PT_BACK_SCRIPT") _ $(printf %q "$(_pt_d)") $PT_FLASH $PT_AUTH /tmp/uso-pt/back-$id && rm -rf /tmp/uso-pt/back-$id" <"$dir/partner.tgz" \
+    pt_in "rm -rf /tmp/uso-pt/back-$id && mkdir -p /tmp/uso-pt/back-$id && tar --warning=no-timestamp -C /tmp/uso-pt/back-$id -xzf - && bash -c $(printf %q "$_PT_BACK_SCRIPT") _ $(printf %q "$(_pt_d)") $PT_FLASH $PT_AUTH /tmp/uso-pt/back-$id && rm -rf /tmp/uso-pt/back-$id" <"$dir/partner.tgz" \
         || { say "pt_back: USOPartner's partner files could not be put back"; return 1; }
     rm -f "$dir/tower.tgz" "$dir/partner.tgz"
     # the Team Leads' cards drawn anew from the files put back (his look; never a failure of the undo)
@@ -210,7 +215,7 @@ pt_quota_bytes() {
 pt_drop_received() {
     local share=$1
     [[ $share == uso-wip-* ]] || { say "pt_drop_received: only a uso-wip-* share's copies, not $share"; return 1; }
-    pt_sh "bash -s -- $(printf %q "share-$share")" <<'EOF'
+    pt_in "bash -s -- $(printf %q "share-$share")" <<'EOF'
 for top in $(zfs list -H -o name | grep -E '/UnraidSecretaryOffice-partners$'); do
     for pair in $(zfs list -H -d 1 -o name "$top" | sed 1d); do
         zfs list -H "$pair/$1" >/dev/null 2>&1 || continue
@@ -286,7 +291,7 @@ undo_pt_quota_full() {
     dir=$(_st_dir PT-QUOTA-FULL)
     [[ -f $dir/pairs.json ]] || return 0
     id=$(pt_id) f=$(_pt_d)/partner/pairs.json
-    pt_sh "cat > $f.uso-new && chmod 600 $f.uso-new && mv $f.uso-new $f" <"$dir/pairs.json" || return 1
+    pt_in "cat > $f.uso-new && chmod 600 $f.uso-new && mv $f.uso-new $f" <"$dir/pairs.json" || return 1
     pt_sh "zfs set quota=$(cat "$dir/quota.was") \$(zfs list -H -o name | grep -m1 '/UnraidSecretaryOffice-partners/$id\$')" || return 1
     rm -f "$dir/pairs.json" "$dir/quota.was"
     say "PT-QUOTA-FULL undo: USOPartner's pairs.json and the pair's quota as before"
@@ -343,7 +348,7 @@ undo_pt_anew() {
     pt_back PT-ANEW || rc=1
     if [[ -n $new ]]; then
         # what the new pairing received there: only scratch units (a base has none under a new id), then its empty parent
-        pt_sh "bash -s -- $new" <<'EOF' || rc=1
+        pt_in "bash -s -- $new" <<'EOF' || rc=1
 new=$1
 for p in $(zfs list -H -o name | grep -E "/UnraidSecretaryOffice-partners/$new\$"); do
     for u in $(zfs list -H -d 1 -o name "$p" | sed 1d); do
