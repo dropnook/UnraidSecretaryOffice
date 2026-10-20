@@ -557,6 +557,17 @@ function backupLetGoDo(?string $place, bool $placeAsleep, array $parts, array $p
             clRunTidy($run['path'], $run['root']);
         }
     }
+    // the group folders the engine made (apps/, vms/) go when nothing is left in them (BF4, 2026-10-20) — rmdir only: a
+    // package that stayed, a file or anything hidden keeps its folder; Ms. Dustdevil's put-back makes it again
+    foreach ($parts as $part) {
+        foreach (LETGO_GROUPS as $g) {
+            $dir = "{$part['place']}/$g";
+            if (!is_link($dir) && is_dir($dir) && !array_diff(@scandir($dir) ?: ['?'], ['.', '..']) && @rmdir($dir)) {
+                $j['emptied'][] = $dir;
+                backupLetGoJournalWrite($file, $j);
+            }
+        }
+    }
 
     // the engine's own snapshots, as Ms. Snapshotini sees them now
     $snaps = ['take' => [], 'held' => 0, 'asleep' => 0];

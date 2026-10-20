@@ -34382,6 +34382,10 @@ function testBackupLetGo(): void
         [false, false, false, false, false, false, true, true, true, true, true],
         [is_dir("$pool/apps/nextcloud"), is_dir("$pool/apps/immich"), is_dir("$pool/vms/win11"), is_dir("$pool/server"), is_dir("$pool/flash"), is_dir("$disk/apps/old"),
          is_dir("$pool/.ub-stage-20261008-0200"), is_link("$pool/apps/linked"), is_file("$pool/apps/notes.txt"), is_dir("$pool/restore/immich/20261007-120000"), is_dir("$pool/apps")]);
+    same('let go (BF4): the emptied vms/ and the disk\'s emptied apps/ go; apps/ with a file, a link and a hidden folder stays; the place stays',
+        [false, false, true, true, true, ["$disk/apps", "$pool/vms"]],
+        [is_dir("$pool/vms"), is_dir("$disk/apps"), is_dir("$pool/apps/.hidden"), is_dir($pool), is_dir($disk),
+         (readJson((glob("$tmp/data/backup/letgo-*.json") ?: [''])[0]) ?? [])['emptied'] ?? null]);
     same('let go: one storeroom run on each filesystem, at the share\'s top', [$trashDisk, $trashPool], array_map('dirname', $r['runs']));
     $m = readJson($r['runs'][1] . '/manifest.json') ?? [];
     $stamp = basename($r['runs'][1]);
