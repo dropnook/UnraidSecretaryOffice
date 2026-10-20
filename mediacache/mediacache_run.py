@@ -97,7 +97,7 @@ def stop_requested():
 from mediacache_lib import (
     ConfigError, MediaServerApi, Locations, Status, acquire_lock, keep_bytes, pool_usage, format_status,
     collect_sessions, detect_mover_bin, ensure_share_root, free_percent_after, human, is_playing, load_config, mkdir_like,
-    read_exclude, remove_empty_parents, run_mover, run_rsync, setup_logging, share_mode_ok, share_mover_mode,
+    read_exclude, remove_empty_on_disk, remove_empty_parents, run_mover, run_rsync, setup_logging, share_mode_ok, share_mover_mode,
     summarize_mover_output, unraid_mover_running, write_exclude, write_progress, write_result, EXCLUDE_FILE,
     PROGRESS_FILE, __version__,
 )
@@ -1231,6 +1231,8 @@ class Runner:
                 self.copied_bytes += f.size
                 f.on_cache = True
                 ok = True
+                if src == loc.on_array(f.rel):      # USO: über /mnt/user0 – auch auf der Disk, auf der sie lag
+                    remove_empty_on_disk(loc, f.rel, disk, log)
                 remove_empty_parents(src.parent, self._disk_root(src, loc, src != loc.on_array(f.rel)), log)
         finally:
             self.status.job_end(key, ok)
@@ -1259,6 +1261,8 @@ class Runner:
         log.info(f"Befüllen: {len(batch)} Dateien ({human(sum(f.size for f, _ in batch))}) per move-Binary Array -> Cache")
         self.status.phase("Befüllen (Array -> Cache, move-Binary)", len(batch), sum(f.size for f, _ in batch))
         tracked = [(str(src), f.rel, f.size, lambda rel: [loc.on_cache(rel)]) for f, src in batch]
+        on_disk = {f.rel: (self._disk_name(d[0], loc) if (d := loc.on_disk(f.rel)) else "?")      # USO: vor dem Verschieben
+                   for f, src in batch if src == loc.on_array(f.rel)}
         with self.track_mover(tracked, "-> CACHE"):
             run_mover(mover, [str(src) for _, src in batch], self.cfg["mover_debug_level"], log)
         for f, src in batch:
@@ -1268,6 +1272,8 @@ class Runner:
                 self.copied_bytes += f.size
                 self.progress.done(f.size, f)
                 f.on_cache = True
+                if f.rel in on_disk:                # USO: über /mnt/user0 – auch auf der Disk, auf der sie lag
+                    remove_empty_on_disk(loc, f.rel, on_disk[f.rel], log)
                 remove_empty_parents(src.parent, self._disk_root(src, loc, src != loc.on_array(f.rel)), log)
             elif dst.exists() and src.exists():
                 log.error(f"Datei liegt jetzt doppelt (Quelle nicht entfernt): {f.rel}")

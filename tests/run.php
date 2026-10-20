@@ -2650,6 +2650,47 @@ JS);
  * rsync and is written so at the next save, whatever a request or an import carries; what Jack hands EmbyCache (its
  * environment over any settings file) is rsync — EmbyCache's own load_config() says so; his setup page has no choice.
  */
+/**
+ * Batch F, BF2 (Tower, every joint run): his fill took Season 01's episodes from disk1 to the pool through /mnt/user0 and
+ * tidied there — where Season 01 still held disk2's episodes — so the emptied folder on disk1 stayed. Now the disk the
+ * file lay on is tidied as Unraid's move does: its emptied folders go (the share's folder on the disk stays), a folder
+ * with anything in it stays, no other disk is looked at.
+ */
+function testJackTidyDisks(): void
+{
+    $tmp = hardeningTmp('jack-tidy');
+    file_put_contents("$tmp/t.py", <<<'PY'
+import sys, os, json, logging
+from pathlib import Path
+sys.path.insert(0, sys.argv[1]); base = sys.argv[2]
+import mediacache_lib as l
+for d in ("disk1/media/Serie/Season 01", "disk1/media/Film", "disk2/media/Serie/Season 01", "disk3/media/Serie/Season 01", "pool", "user0", "user"):
+    os.makedirs(f"{base}/{d}", exist_ok=True)
+for f in ("disk1/media/Film/f.mkv", "disk2/media/Serie/Season 01/e1.mkv"):
+    open(f"{base}/{f}", "w").close()
+loc = l.Locations({"cache_path": f"{base}/pool", "array_path": f"{base}/user0", "user_path": f"{base}/user",
+                   "array_disks_glob": f"{base}/disk[0-9]*"}, {})
+log = logging.getLogger("t")
+rel = Path("media/Serie/Season 01/e3.mkv")
+l.remove_empty_on_disk(loc, rel, "?", log)
+out = {"unknown": os.path.isdir(f"{base}/disk1/media/Serie/Season 01")}
+l.remove_empty_on_disk(loc, rel, "disk1", log)
+out["disk1"] = [os.path.isdir(f"{base}/disk1/media/Serie"), os.path.isdir(f"{base}/disk1/media"), os.path.isfile(f"{base}/disk1/media/Film/f.mkv")]
+out["others"] = [os.path.isfile(f"{base}/disk2/media/Serie/Season 01/e1.mkv"), os.path.isdir(f"{base}/disk3/media/Serie/Season 01")]
+l.remove_empty_on_disk(loc, rel, "disk2", log)
+out["disk2"] = os.path.isfile(f"{base}/disk2/media/Serie/Season 01/e1.mkv")
+print(json.dumps(out))
+PY);
+    [$exit, $out, $err] = runEnv(['python3', "$tmp/t.py", JACK_APP, $tmp], ['MEDIACACHE_DIR' => $tmp, 'PYTHONDONTWRITEBYTECODE' => '1'], 30);
+    same('jack tidy: a disk not known — nothing done; disk1 — its emptied Season 01 and series folder go, the share\'s folder and a film stay; disk2 and disk3 not looked at; disk2\'s episode keeps its folder',
+        [0, ['unknown' => true, 'disk1' => [false, true, true], 'others' => [true, true], 'disk2' => true]], [$exit, json_decode(trim($out), true) ?? trim($err)]);
+    $src = (string) file_get_contents(JACK_APP . '/mediacache_run.py');
+    check('jack tidy: his fill (rsync, and the move binary\'s way) tidies the disk a file through /mnt/user0 lay on, before the /mnt/user0 view',
+        substr_count($src, 'remove_empty_on_disk(loc, f.rel, ') === 2
+        && str_contains($src, "if src == loc.on_array(f.rel):      # USO: über /mnt/user0 – auch auf der Disk, auf der sie lag\n                    remove_empty_on_disk(loc, f.rel, disk, log)\n                remove_empty_parents(src.parent"));
+    hardeningRm($tmp);
+}
+
 function testJackRsync(): void
 {
     // 2026-10-15 (the owner): MediaCache's own ways — filling with rsync, giving back with Unraid's move binary; written
@@ -45488,7 +45529,7 @@ JS;
     check('place verdict: only in the setup - no finding of it', !preg_match("/finding\\('place_/", (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php')));
 }
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
