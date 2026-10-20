@@ -19029,6 +19029,115 @@ function testAgentClock(): void
 }
 
 /**
+ * Batch E B43/M24 (scenarios backup-tm-utc-broken-schedule-run, moverelli-tm-utc-broken-schedule-run-sched, USOTest3VM):
+ * /etc/localtime a link to Europe/Zurich whose zone file is missing — glibc, crond and `date` run UTC, the agent took
+ * the link's name (PHP has its own zone database) and every desk's «next run» was 2 h before crond starts the job.
+ * agentZone(): the link's zone only while its file is there. A link and a zone file of the test's own.
+ */
+function testAgentZone(): void
+{
+    $tmp = hardeningTmp('agentzone');
+    @mkdir("$tmp/zoneinfo/Europe", 0700, true);
+    $link = "$tmp/localtime";
+    $zone = fn () => function_exists('agentZone') ? agentZone($link) : 'no agentZone()';
+    same('zone: no /etc/localtime — UTC', 'UTC', $zone());
+    symlink("$tmp/zoneinfo/Europe/Zurich", $link);
+    same('zone: a link to a zone file that is missing (Unraid 7.4 rc) — UTC, as crond runs', 'UTC', $zone());
+    file_put_contents("$tmp/zoneinfo/Europe/Zurich", 'TZif');
+    same('zone: a link to a zone file that is there — its zone', 'Europe/Zurich', $zone());
+    unlink($link);
+    symlink("$tmp/zoneinfo/Mars/Olympus", $link);
+    same('zone: a link to a zone PHP does not know — UTC', 'UTC', $zone());
+    // the «next run» in the zone crond uses: 04:30 UTC, not 04:30 Zurich (02:30 UTC in October)
+    $was = date_default_timezone_get();
+    date_default_timezone_set('UTC');
+    $now = strtotime('2026-10-20 03:00:00 UTC');
+    same('zone: the next 04:30 in UTC is 04:30 UTC', '2026-10-20 04:30 UTC', gmdate('Y-m-d H:i', (int) cronNext('30 4 * * *', $now)) . ' UTC');
+    date_default_timezone_set($was);
+    hardeningRm($tmp);
+}
+
+/**
+ * Batch E B15 (scenario backup-sv-docker-hung-replan-run, dockerd SIGSTOPped): houseContainers() and houseInspect()
+ * waited 20 s each while Docker was silent, inside the agent's round (the Team Lead's checks, the desks) — a 140 s gap
+ * in the heartbeat. Now one short wait (HOUSE_DOCKER_WAIT), then no docker call of the house for HOUSE_DOCKER_QUIET s
+ * (houseDockerSilent()); a docker that answers again ends it. A docker stand-in of the test's own on PATH.
+ */
+function testHouseDockerSilent(): void
+{
+    $tmp = hardeningTmp('dockersilent');
+    $path = getenv('PATH');
+    file_put_contents("$tmp/docker", "#!/bin/sh\n[ -f " . escapeshellarg("$tmp/hung") . " ] && sleep 30\necho '[{\"Name\":\"/x\"}]'\n");
+    chmod("$tmp/docker", 0755);
+    touch("$tmp/hung");
+    putenv("PATH=$tmp:$path");
+    unset($GLOBALS['houseDockerSilent']);
+    $timed = function (callable $f): array {
+        $t = microtime(true);
+        $r = $f();
+        return [$r, round(microtime(true) - $t, 1)];
+    };
+    $ok = function_exists('houseDocker');
+    [$first, $t1] = $ok ? $timed(fn () => houseDocker(['ps'], 1)[0]) : ['no houseDocker()', 0];
+    same('docker silent: the first call that gets no answer waits its short time and says so (124)', [124, true], [$first, $t1 >= 0.9 && $t1 < 5]);
+    same('docker silent: Docker counts as silent now', true, $ok && houseDockerSilent());
+    [$list, $t2] = $timed(fn () => houseContainers(true));
+    [$one, $t3] = $timed(fn () => houseInspect('x'));
+    same('docker silent: meanwhile the containers and an inspect answer at once, nothing asked of Docker', [[], null, true],
+        [$list, $one, $t2 + $t3 < 0.5]);
+    unlink("$tmp/hung");
+    unset($GLOBALS['houseDockerSilent']);
+    same('docker silent: once it answers again, it is asked again', ['/x', false], [houseInspect('x')['Name'] ?? null, $ok && houseDockerSilent()]);
+    putenv("PATH=$path");
+    unset($GLOBALS['houseDockerSilent']);
+    houseContainers(true);          // the cache as the other tests find it: whatever this server's docker says
+    hardeningRm($tmp);
+}
+
+/**
+ * Batch E O1 (scenario office-in-update-old-update, USOTest3VM): the update from 1.60 stopped the old agent while its
+ * night watchman's first round was telling (one a second: the shared stamp) — the round was gone before it noted
+ * «told», and the new agent's first round told «new user benj», «parity check after an unclean stop» … again within
+ * seconds. officeNotify() now leaves out a subject Unraid already has from the last OFFICE_NOTIFY_SAME s, whoever sent
+ * it. A stand-in notify and a notification folder of the test's own (OFFICE_NOTIFY_DIR).
+ */
+function testNotifyToldLately(): void
+{
+    $tmp = hardeningTmp('notifytold');
+    @mkdir("$tmp/n/unread", 0700, true);
+    @mkdir("$tmp/n/archive", 0700, true);
+    file_put_contents("$tmp/notify", "#!/bin/sh\necho \"\$4\" >> " . escapeshellarg("$tmp/sent") . "\n");
+    chmod("$tmp/notify", 0755);
+    $env = [getenv('OFFICE_NOTIFY_BIN'), getenv('OFFICE_NOTIFY_DIR'), getenv('OFFICE_NOTIFY_STAMP')];
+    putenv("OFFICE_NOTIFY_BIN=$tmp/notify");
+    putenv("OFFICE_NOTIFY_DIR=$tmp/n");
+    putenv("OFFICE_NOTIFY_STAMP=$tmp/stamp");
+    $now = time();
+    $put = fn (string $sub, int $t, string $subject) => file_put_contents("$tmp/n/$sub/Unraid_Secretary_Office_$t.notify",
+        "timestamp=$t\nevent=\"Unraid Secretary Office\"\nsubject=\"Unraid Secretary Office: $subject\"\ndescription=\"x\"\nimportance=\"warning\"\n");
+    $put('archive', $now - 30, 'Night watchman: new user benj');          // the old agent's, 30 s ago
+    $put('unread', $now - 600, 'Night watchman: password of root changed');  // ten minutes ago: another event
+    $sent = function () use ($tmp): array {
+        $l = array_values(array_filter(explode("\n", (string) @file_get_contents("$tmp/sent"))));
+        @unlink("$tmp/sent");
+        return $l;
+    };
+    $r = [officeNotify('Night watchman: new user benj', 'A new user on the flash: benj', 'warning'), $sent()];
+    same('notify told lately: the same subject Unraid has from 30 s ago — not told again (and counted as told)', [true, []], $r);
+    officeNotify('Night watchman: password of root changed', 'The password of root was changed', 'warning');
+    same('notify told lately: the same subject ten minutes ago — told (another event)', ['Unraid Secretary Office: Night watchman: password of root changed'], $sent());
+    officeNotify('Night watchman: new user anna', 'A new user on the flash: anna', 'warning');
+    same('notify told lately: another subject — told', ['Unraid Secretary Office: Night watchman: new user anna'], $sent());
+    putenv('OFFICE_NOTIFY_DIR');
+    officeNotify('Night watchman: new user benj', 'A new user on the flash: benj', 'warning');
+    same('notify told lately: a stand-in notify without a folder named looks at none (never the server\'s)', ['Unraid Secretary Office: Night watchman: new user benj'], $sent());
+    foreach (['OFFICE_NOTIFY_BIN', 'OFFICE_NOTIFY_DIR', 'OFFICE_NOTIFY_STAMP'] as $i => $k) {
+        putenv($env[$i] === false ? $k : "$k={$env[$i]}");
+    }
+    hardeningRm($tmp);
+}
+
+/**
  * Batch D F3 (scenario backup-sv-atd-off-run-apply, 2026-10-19): with atd stopped, `at` still queues a job (exit 0) and
  * nothing starts — the page said «Handed over — it should start any moment» for ever, and the job ran whenever atd came
  * back. hostLaunch() now looks first (hostAtdUp(): the pid file's process called atd, else any process called atd) and
@@ -29380,6 +29489,56 @@ function testRestoreDrill(): void
     file_put_contents("$tmp/docker.log", '');
     drillSweep(null, false);
     same('drill sweeper: hourly with every journal closed — no docker call', '', (string) file_get_contents("$tmp/docker.log"));
+    // batch F BF5 (restore-tm-drill-sched): his tick looks once a minute on the wall clock — a clock stepped back 4 h
+    // was no look until the clock passed the last one again; now a look at once, then once a minute from there
+    $hadNow = $GLOBALS['drill']['now'] ?? null;
+    $t0 = mktime(10, 0, 0, 11, 1, 2026);          // outside the window: a look is the sweeper and the hour only
+    $looks = [];
+    foreach ([0, 30, 61, -4 * 3600, -4 * 3600 + 30, -4 * 3600 + 61] as $d) {
+        $GLOBALS['drill']['now'] = $t0 + $d;
+        $looks[] = drillTick();
+    }
+    same('drill tick: a look, none 30 s later, one after a minute — after a step back of 4 h one at once, then a minute on',
+        [true, false, true, true, false, true], $looks);
+    $GLOBALS['drill']['now'] = $hadNow;
+    if ($hadNow === null) {
+        unset($GLOBALS['drill']['now']);
+    }
+    // batch E R18 (restore-kp-disconnected-kopia-drill, restore-kp-s3-unreachable-kopia-drill — Kopia's words there):
+    // Kopia's list failed because it can't reach the offsite copy — «not checked» with the reason, the next Kopia steps not asked again;
+    // a list that failed with the repository reached stays «failed»
+    $f = function (string $err, array &$env): array {
+        if (!function_exists('drillKopiaListFailed')) {
+            return ['no drillKopiaListFailed()'];
+        }
+        $r = drillKopiaListFailed($err, $env);
+        return [$r['state'], $r['code'], isset($env['kopia_down'])];
+    };
+    $env = [];
+    same('drill kopia: the repository not connected — not checked, kopia_unreachable',
+        ['not_checked', 'kopia_unreachable', true], $f("open repository: repository is not connected. See https://kopia.io/docs/repositories/\n", $env));
+    $env = [];
+    same('drill kopia: its S3 place refusing — not checked, kopia_unreachable',
+        ['not_checked', 'kopia_unreachable', true], $f('failed to open repository: cannot open storage: error retrieving storage config from bucket "uso": Get "http://192.0.2.7:9010/uso/?location=": dial tcp 192.0.2.7:9010: connect: connection refused', $env));
+    $env = [];
+    same('drill kopia: the repository reached, the list still failed — failed (the copy is in doubt)',
+        ['failed', 'kopia_list_failed', false], $f('ERROR error loading manifests: unable to load manifest contents: invalid checksum', $env));
+    // the following Kopia steps: not checked at once, with the same reason (no second wait on an unreachable place)
+    $env = ['kopia' => ['container' => 'Kopia', 'running' => true, 'root' => '/data'], 'kopia_down' => 'dial tcp: connection refused'];
+    $jk = ['id' => 'x', 'deadline' => time() + 600, 'made' => [], 'steps' => [['do' => 'kopia', 'source' => 'appdata']]];
+    $rk = function_exists('drillKopiaListFailed') ? drillDoKopia($jk, 0, $env) : [];      // before: a real list through the stand-in
+    same('drill kopia: once unreachable, the next Kopia step not checked at once with the reason',
+        ['not_checked', 'kopia_unreachable', 'dial tcp: connection refused'], [$rk['state'] ?? null, $rk['code'] ?? null, $rk['detail'] ?? null]);
+    // the same for the night watchman's look (every WATCH_LOOK s): a next look 2 h ahead (the clock just went back 2 h)
+    // is one now — before, no look (no round) for 2 h. Not hired here: the look ends at once (his mirror let go before).
+    $was = [$GLOBALS['wmNextLook'] ?? null, $GLOBALS['wmRound'] ?? null, $GLOBALS['wmMirrorGone'] ?? null, $GLOBALS['wmOrphan'] ?? null];
+    [$GLOBALS['wmNextLook'], $GLOBALS['wmRound'], $GLOBALS['wmMirrorGone'], $GLOBALS['wmOrphan']] = [time() + 7200, null, true, false];
+    if (watchmanHiredSince() === null) {          // hired in the tests' data folder: his tick would start a round
+        watchmanTick();
+        same('watchman tick: a next look 2 h ahead (a clock stepped back) is a look now — the next one WATCH_LOOK s on',
+            true, $GLOBALS['wmNextLook'] <= time() + WATCH_LOOK);
+    }
+    [$GLOBALS['wmNextLook'], $GLOBALS['wmRound'], $GLOBALS['wmMirrorGone'], $GLOBALS['wmOrphan']] = $was;
     // the record for the night watchman: written before each create, root only, newest 50 within 7 days
     $jr = drillJournalNew($b, ['scope' => 'now', 'deadline' => $now, 'steps' => []]);
     for ($i = 0; $i < 55; $i++) {
@@ -32854,6 +33013,72 @@ function testPlgInstall(): void
         proc_terminate($busy, SIGKILL);
         proc_close($busy);
     }
+    hardeningRm($tmp);
+}
+
+/**
+ * Batch E O1 (office-in-update-old-update): the update stopped the old agent while the night watchman's round was
+ * telling Unraid's notifications — agent.sh stop kills the whole session — and the round never noted «told»: the new
+ * agent told it all again. agent.sh's stop (watchman_round_wait) and the .plg's update before the old agent.sh's stop
+ * wait for a running round's lock (≤ 15 s, the tests a shorter one). A lock held by a process of the test's own.
+ */
+function testWatchmanRoundWait(): void
+{
+    $tmp = hardeningTmp('roundwait');
+    @mkdir("$tmp/run", 0700, true);
+    $lock = "$tmp/run/watchman-round-abcd1234.lock";
+    touch($lock);
+    $hold = function (float $s, string $then = 'true') use ($lock) {      // a round holding its lock for $s seconds
+        $p = proc_open(['flock', '-x', $lock, 'sh', '-c', "sleep $s; $then"], [['file', '/dev/null', 'r'], ['file', '/dev/null', 'w'], ['file', '/dev/null', 'w']], $pipes, '/');
+        usleep(200000);
+        return $p;
+    };
+    $agent = escapeshellarg(OFFICE_DIR . '/plugin/scripts/agent.sh');
+    $wait = function (int $max) use ($tmp, $agent): array {
+        $t = microtime(true);
+        $out = trim((string) shell_exec('bash -c ' . escapeshellarg("source $agent; RUN=" . escapeshellarg("$tmp/run") . "; WATCH_ROUND_WAIT=$max; watchman_round_wait; echo \$?") . ' 2>&1'));
+        return [$out, round(microtime(true) - $t, 1)];
+    };
+    [$o, $t] = $wait(5);
+    same('round wait: no round running — at once', ['0', true], [$o, $t < 0.8]);
+    $p = $hold(1.2);
+    [$o, $t] = $wait(5);
+    same('round wait: a round running — until it ends (about 1 s), not the 5 s', ['0', true], [$o, $t >= 0.7 && $t < 2.5]);
+    proc_close($p);
+    $p = $hold(8);
+    [$o, $t] = $wait(2);
+    same('round wait: a round that takes longer — at most WATCH_ROUND_WAIT, then the stop goes on', ['0', true], [$o, $t >= 1.5 && $t < 4]);
+    proc_terminate($p, SIGKILL);
+    proc_close($p);
+    $sh = (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/agent.sh');
+    check('round wait: agent.sh\'s stop waits for the round before the session is killed',
+        (bool) preg_match('/\n    watchman_round_wait\n(?:    #[^\n]*\n)*    pkill -TERM -s "\$pid"/', $sh));
+
+    // the .plg's update: the running version's agent.sh may be older — the round may end before it is called
+    $name = 'unraid-secretary-office';
+    $dir = "$tmp/plugins/$name";
+    $flash = "$tmp/flash";
+    $log = "$tmp/calls.log";
+    file_put_contents("$tmp/install.sh", plgScript('install', $tmp));
+    $p = "$tmp/stage/$name";
+    foreach (['agent', 'scripts', 'backup', 'src'] as $d) {
+        @mkdir("$p/$d", 0755, true);
+        @mkdir("$dir/$d", 0755, true);
+    }
+    file_put_contents("$p/marker", 'new');
+    file_put_contents("$dir/marker", 'old');
+    file_put_contents("$p/src/place.php", "<?php\nfunction officeMenuName(): string { return 'Sekretariat'; }\nfunction officeMenuPlace(): string { return 'tasks'; }\nfunction officeMenuPageApply(string \$d, string \$n, string \$p): void {}\n");
+    file_put_contents("$p/agent/agent.php", "<?php\n");
+    file_put_contents("$p/scripts/agent.sh", plgTestAgentSh());
+    file_put_contents("$dir/scripts/agent.sh", plgTestAgentSh());
+    file_put_contents("$p/scripts/partner-door.sh", "#!/bin/bash\n");
+    @mkdir($flash, 0700, true);
+    exec('tar -cJf ' . escapeshellarg("$flash/$name-2026.10.08.txz") . ' -C ' . escapeshellarg("$tmp/stage") . " $name");
+    $h = $hold(1.2, 'echo "round done" >> ' . escapeshellarg($log));
+    exec('cd / && env USO_PLG_LOG=' . escapeshellarg($log) . ' bash ' . escapeshellarg("$tmp/install.sh") . ' 2>&1', $out, $code);
+    proc_close($h);
+    same('round wait, plg update: the round ends first, then the old agent is stopped',
+        [0, ['round done', 'old stop', 'new start', 'new status']], [$code, is_file($log) ? file($log, FILE_IGNORE_NEW_LINES) : []]);
     hardeningRm($tmp);
 }
 
@@ -45925,9 +46150,9 @@ JS;
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
-          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
+          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testHouseDockerSilent', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.

@@ -889,6 +889,7 @@
   "drill.code.sharefile_kept": "{file} came back the same, but {folder} could not go to Ms. Dustdevil's storeroom — it stays in {share} on {base}",
   "drill.code.kopia_unavailable": "Kopia can't be asked here (the container {name} isn't running, or its path is unknown)",
   "drill.code.kopia_list_failed": "Kopia couldn't list the snapshots",
+  "drill.code.kopia_unreachable": "Kopia couldn't reach the offsite copy (its repository isn't connected, or its storage doesn't answer) — not checked this time",
   "drill.code.kopia_none": "Kopia has no complete snapshot of it yet",
   "drill.code.kopia_incomplete": "Kopia's newest snapshot is incomplete",
   "drill.code.kopia_ok": "newest snapshot {time}, its structure whole, files read back: {sampled}",

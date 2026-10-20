@@ -3722,8 +3722,8 @@ function rsBeat(array &$j, ?int $i = null, ?array $progress = null): bool
     if ($i !== null && $progress !== null) {
         $j['steps'][$i]['progress'] = $progress;
     }
-    if (time() - $last >= 2) {
-        $last = time();
+    if (hrtime(true) / 1e9 - $last >= 2) {          // the monotonic clock: a clock stepped back never stops the beat
+        $last = hrtime(true) / 1e9;
         rsJournalWrite($j);
     }
     return rsWatch();
@@ -3737,8 +3737,8 @@ function rsBeat(array &$j, ?int $i = null, ?array $progress = null): bool
 function rsWatch(): bool
 {
     static $looked = 0;
-    if (empty($GLOBALS['rsStop']) && time() - $looked >= 2) {
-        $looked = time();
+    if (empty($GLOBALS['rsStop']) && hrtime(true) / 1e9 - $looked >= 2) {      // monotonic: a step back never stops the look
+        $looked = hrtime(true) / 1e9;
         if (rsArrayStopping()) {
             $GLOBALS['rsStop'] = true;
             $GLOBALS['rsStopWhy'] ??= 'array_stopping';
