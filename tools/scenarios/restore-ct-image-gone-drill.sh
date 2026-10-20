@@ -16,6 +16,7 @@ cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || e
 nc_data_closed
 flow BK-RUN-MANUAL mode=backup               # the package the drill practises with
 state CT-IMAGE-GONE mariadb-nextcloud
+expect_warnings db_unreachable dump_stopped   # engine 2.64: Nextcloud without its database (image gone) - said
 snap_before
 flow RS-DRILL
 id=$(jq -r 'select(.what == "drill") | .data.id // empty' "$KEEP/flows.jsonl" 2>/dev/null | tail -1)
