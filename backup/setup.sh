@@ -1345,6 +1345,9 @@ is_office_container() { # is_office_container <name>
 docker_off_keep() {
     local k n
     for k in "${!OLD[@]}"; do [[ "$k" =~ ^(docker|dump|nextcloud)\| ]] && P[$k]="${OLD[$k]}"; done
+    # the lists the page always sends (its apps step: no_stop, skip) are proposals even when settings.ini has none - as
+    # with Docker on; up to 2.65 the office refused the page's draft (setup_bad_decisions docker|skip)
+    for k in "docker|no_stop" "docker|skip"; do [[ -n "${P[$k]+x}" ]] || P[$k]=""; done
     while IFS= read -r n; do [[ -n "$n" ]] && NC_GROUP[$n]="$(nc_group_stored "$n")"; done <<<"$(old_names nextcloud)"
     old_has docker || [[ -n "$(old_names dump)$(old_names nextcloud)" ]] || return 0
     _apply_P
