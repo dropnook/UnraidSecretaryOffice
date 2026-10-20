@@ -178,6 +178,21 @@ stop() {
     agent_stop
 }
 
+# The night watchman's round (php agent.php job watchman-round, in the agent's session) tells Unraid's notifications
+# and only then notes «told» in his book: a round cut off in between was told all over again by the next agent (batch
+# E O1: the update from 1.60). A round holds its lock ($RUN/watchman-round-<data folder>.lock, watchmanLockFile()) while
+# it runs - it may end first, 15 s at most over all of them. The .plg's update waits the same before the old agent.sh
+# stops (an older one doesn't).
+WATCH_ROUND_WAIT=15
+watchman_round_wait() {
+    local end=$((SECONDS + WATCH_ROUND_WAIT)) l
+    for l in "${1:-$RUN}"/watchman-round-*.lock; do
+        [[ -f "$l" && ! -L "$l" ]] || continue
+        ((SECONDS < end)) && flock -s -w $((end - SECONDS)) "$l" true 2>/dev/null
+    done
+    return 0
+}
+
 agent_stop() {
     local pid i
     pid="$(supervisor_pid)"
@@ -192,6 +207,8 @@ agent_stop() {
         kill -0 "$pid" 2>/dev/null || break
         sleep 0.5
     done
+    # the night watchman's round: may end what it is telling (the agent starts no new one now)
+    watchman_round_wait
     # whatever is left of the session (a du, a hanging command): gone now
     pkill -TERM -s "$pid" 2>/dev/null
     sleep 0.5
