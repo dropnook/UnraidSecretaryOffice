@@ -283,6 +283,7 @@ function backupScan(): array
         'setup'      => $setup,
         'drill'      => backupDrillLine(),       // Mr. Restori's drill: one line from its certificate
         'kopia_held' => backupKopiaHeld(),       // engine 2.56: the Kopia step held - the repository suddenly empty
+        'offsite'    => backupOffsiteReach($settings),    // engine 2.66: «offsite unreachable since …» (B16)
     ];
     $state['found'] = true;
     $GLOBALS['backup'] = $state;
@@ -2685,6 +2686,33 @@ function backupKopiaHeld(?string $file = null): ?array
     }
     return ['repo' => $j['repo'], 'identity' => $j['identity'], 'before' => $j['before'], 'now' => $j['now'], 'when' => $j['when'],
             'time' => $j['time'], 'gone' => ($j['gone'] ?? false) === true];
+}
+
+/**
+ * Engine 2.66 (B16): «offsite unreachable since …» — state/kopia-reach.json: the first real run whose Kopia check couldn't
+ * reach the repository (kept from run to run, removed by the first run that reaches it) and the last one, in exactly the
+ * engine's shape — else null. Only while Kopia is switched on in settings.ini.
+ */
+function backupOffsiteReach(array $settings, ?string $file = null): ?array
+{
+    if (!in_array(strtolower((string) backupSetting($settings, 'kopia', 'enabled', 'no')), ['yes', 'ja', '1', 'true'], true)) {
+        return null;
+    }
+    $j = readJson($file ?? BACKUP_DATA_DIR . '/state/kopia-reach.json');
+    if (!is_array($j) || ($j['v'] ?? null) !== 1) {
+        return null;
+    }
+    foreach (['since', 'last'] as $k) {
+        if (!is_int($j[$k] ?? null) || $j[$k] <= 0) {
+            return null;
+        }
+    }
+    foreach (['run', 'last_run'] as $k) {
+        if (!is_string($j[$k] ?? null) || !preg_match('/^\d{8}-\d{4}$/D', $j[$k])) {
+            return null;
+        }
+    }
+    return ['unreachable_since' => $j['since'], 'run' => $j['run'], 'last' => $j['last'], 'last_run' => $j['last_run']];
 }
 
 /** The finding's words of a hold: counts and the dates as the page says them */

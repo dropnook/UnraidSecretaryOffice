@@ -1206,6 +1206,7 @@
   "stat.kopia_stopped": "{name} ist angehalten",
   "stat.kopia_missing_ct": "Container {name} fehlt",
   "stat.kopia_repo_problem": "Repository nicht erreichbar",
+  "stat.offsite_unreachable_since": "Ausser Haus nicht erreichbar seit {when}",
   "stat.kopia_policies_ok": "Policies stimmen",
   "stat.kopia_policies_bad": {
     "one": "1 Policy weicht ab",
@@ -1440,6 +1441,7 @@
   "drift_code.kopia_mount_writable": "Der Kopia-Container darf in {path} schreiben — ⟦Read Only - Slave⟧ ist der bessere Zugriffsmodus.",
   "drift_code.kopia_not_running": "Der Kopia-Container «{name}» läuft nicht — nichts geht ausser Haus.",
   "drift_code.kopia_not_connected": "Kopia ist mit keinem Repository verbunden — nichts geht ausser Haus. Verbinde es in der KopiaUI.",
+  "drift_code.kopia_unreachable": "Kopia erreicht sein Repository nicht — bis dahin geht nichts ausser Haus. Läuft der Speicher, ist der Weg dorthin offen (Netz, Adresse, Schlüssel)? Alles Lokale läuft wie gewohnt weiter.",
   "drift_code.kopia_uid": "Der Kopia-Server läuft in seinem Container als Benutzer {uid}, Snapshots brauchen aber root, um jede Datei zu lesen — ich starte Kopia nicht. Setz PUID=0 und PGID=0 in seinem Template.",
   "drift_code.kopia_identity": "Die Kopia-Identität ist jetzt {now} (die Einrichtung sagt {was}) — die Uploads beginnen neue Quellen, statt die alten fortzusetzen.",
   "drift_code.kopia_ignores_missing": "Der Kopia-Policy für {path} fehlen Ausschlussregeln ({rules}) — «{name}» geht nicht an Kopia, bis «Übernehmen» unter «Einrichten…» sie gesetzt hat.",

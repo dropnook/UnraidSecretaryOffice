@@ -1212,6 +1212,7 @@
   "stat.kopia_stopped": "{name} est arrêté",
   "stat.kopia_missing_ct": "conteneur {name} manquant",
   "stat.kopia_repo_problem": "dépôt inaccessible",
+  "stat.offsite_unreachable_since": "Hors site injoignable depuis le {when}",
   "stat.kopia_policies_ok": "les politiques correspondent",
   "stat.kopia_policies_bad": {
     "one": "{n} politique diffère",
@@ -1461,6 +1462,7 @@
   "drift_code.kopia_mount_writable": "Le conteneur Kopia peut écrire dans {path} — ⟦Read Only - Slave⟧ est le meilleur mode d'accès.",
   "drift_code.kopia_not_running": "Le conteneur Kopia « {name} » ne tourne pas — rien ne part hors site.",
   "drift_code.kopia_not_connected": "Kopia n'est connecté à aucun dépôt — rien ne part hors site. Connecte-le dans la KopiaUI.",
+  "drift_code.kopia_unreachable": "Kopia n'atteint pas son dépôt — rien ne part hors site tant qu'il n'y arrive pas. Le stockage est-il allumé, le chemin ouvert (réseau, adresse, clé) ? Tout ce qui est local continue comme d'habitude.",
   "drift_code.kopia_uid": "Le serveur Kopia tourne dans son conteneur sous l'utilisateur {uid}, mais les snapshots demandent root pour lire chaque fichier — je ne démarre pas Kopia. Mets PUID=0 et PGID=0 dans son modèle.",
   "drift_code.kopia_identity": "L'identité de Kopia est maintenant {now} (la configuration dit {was}) — les envois commencent de nouvelles sources au lieu de poursuivre les anciennes.",
   "drift_code.kopia_ignores_missing": "Il manque à la politique Kopia de {path} des règles d'exclusion ({rules}) — « {name} » n'est pas confié à Kopia tant qu'Appliquer dans « Configurer… » ne les a pas posées.",

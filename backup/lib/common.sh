@@ -1662,17 +1662,22 @@ k_path() {
 kopia_status_load() {
     KOPIA_RUNNING="no"; KOPIA_CONNECTED="no"; KOPIA_ID=""; KOPIA_USER=""; KOPIA_HOST=""
     KOPIA_VERSION=""; KOPIA_CONFIG_FILE=""; KOPIA_STORAGE=""; KOPIA_REPO_ID=""; KOPIA_FORMAT_GONE="no"
+    KOPIA_UNREACHABLE="no"; KOPIA_REACH_WHY=""
     KOPIA_LOCK_MODE=""; KOPIA_LOCK_PERIOD=0
     [[ -n "$KOPIA_CONTAINER" ]] || return 1
     [[ "$(docker inspect -f '{{.State.Running}}' "$KOPIA_CONTAINER" 2>/dev/null)" == "true" ]] || return 1
     KOPIA_RUNNING="yes"
     kopia_detect_uid
     KOPIA_VERSION="$(kopia_x --version 2>/dev/null | awk 'NR==1{print $1}')"
-    local js
+    local js e
     if ! js="$(kopia_x repository status --json 2>/dev/null)"; then
         # 2.53: the storage answers, but the repository's own format blob is gone - all of it was deleted (an attacker with
         # the bucket's key; Kopia's cache of it expired) - never said for an error of the way there (unreachable, forbidden)
-        [[ "$(kopia_x repository status --json 2>&1 >/dev/null)" == *"kopia.repository blob: BLOB not found"* ]] && KOPIA_FORMAT_GONE="yes"
+        e="$(kopia_x repository status --json 2>&1 >/dev/null)"
+        if [[ "$e" == *"kopia.repository blob: BLOB not found"* ]]; then KOPIA_FORMAT_GONE="yes"
+        # 2.66 (B16): connected (a repository.config), but Kopia can't open the repository - the way there (unreachable,
+        # forbidden, a server down); «not connected» only when Kopia says so
+        elif [[ -n "$e" && "$e" != *"not connected"* ]]; then KOPIA_UNREACHABLE="yes"; KOPIA_REACH_WHY="$(printf '%s' "$e" | tr -s '\n\t' '  ' | cut -c1-300)"; fi
         return 1
     fi
     [[ -n "$js" ]] || return 1
@@ -1765,6 +1770,32 @@ kopia_count_save() {
     kopia_count_load || { log "  Kopia's snapshots not counted (it didn't answer) - the last count stays"; return 0; }
     local tmp="$UB_STATE/.kopia-count.json.$$"
     if kopia_count_json "$1" >"$tmp" 2>/dev/null; then chmod 600 "$tmp"; mv -f "$tmp" "$KC_FILE"; else rm -f "$tmp"; fi
+    return 0
+}
+# --- Offsite unreachable since (2.66, B16): state/kopia-reach.json {v: 1, since, run, last, last_run} - the first real run
+# whose Kopia check couldn't reach the repository (connected, but Kopia can't open it: the way there, the storage down) and
+# the last one; kept from run to run, removed by the first real run that reaches it. Only a real backup writes it (never a
+# tour, a dry run or the setup); Kopia's own words go to the log, never into the file.
+KR_FILE="$UB_STATE/kopia-reach.json"
+kopia_reach_save() { # kopia_reach_save unreachable|ok
+    [[ "${UB_MODE:-}" == "backup" && "${DRY:-0}" != "1" && "${TS:-}" =~ ^[0-9]{8}-[0-9]{4}$ ]] || return 0
+    if [[ "$1" != "unreachable" ]]; then
+        if [[ -e "$KR_FILE" || -L "$KR_FILE" ]]; then rm -f "$KR_FILE"; log "  Kopia reaches its repository again - no longer «offsite unreachable»"; fi
+        return 0
+    fi
+    local now old since="" run="" tmp="$UB_STATE/.kopia-reach.json.$$"
+    now="$(date +%s)"
+    if [[ -f "$KR_FILE" && ! -L "$KR_FILE" ]]; then
+        old="$(jq -r 'select(.v == 1 and (.since | type == "number") and (.run | type == "string")) | "\(.since)\u001f\(.run)"' "$KR_FILE" 2>/dev/null)"
+        IFS=$'\x1f' read -r since run <<<"$old"
+    fi
+    is_uint "$since" && [[ "$run" =~ ^[0-9]{8}-[0-9]{4}$ ]] || { since="$STARTED_AT"; run="$TS"; }
+    is_uint "$since" || since="$now"
+    if jq -nc --argjson since "$since" --arg run "$run" --argjson last "$now" --arg last_run "$TS" \
+            '{v: 1, since: $since, run: $run, last: $last, last_run: $last_run}' >"$tmp" 2>/dev/null; then
+        mv -f "$tmp" "$KR_FILE"
+    else rm -f "$tmp"; fi
+    log "  Offsite unreachable since $(date -d "@$since" '+%Y-%m-%d %H:%M' 2>/dev/null || echo "$since") (run $run)"
     return 0
 }
 # kopia_emptied <before> <now> - far fewer: none left, or less than half
@@ -2577,7 +2608,7 @@ kp_status_add() { # kp_status_add <kind> <name: share, app or VM> <container pat
 }
 drift_check_kopia() {
     KOPIA_OK="no"; KP_STATUS=(); KP_CHECKED="no"
-    is_yes "$KOPIA_ENABLED" || { KOPIA_OK="off"; return 0; }
+    is_yes "$KOPIA_ENABLED" || { KOPIA_OK="off"; kopia_reach_save ok; return 0; }     # 2.66: switched off - nothing to reach
     [[ ${#PLAN_KOPIA[@]} -eq 0 && "$PLAN_FLASH" != "snapshot" && ${#PLAN_KITEMS[@]} -eq 0 ]] && { KOPIA_OK="none"; return 0; }
     if [[ -z "$KOPIA_CONTAINER" ]]; then
         drift_add error "No Kopia container in settings.ini" kopia_no_container; return 1
@@ -2601,9 +2632,13 @@ drift_check_kopia() {
             kopia_mount_writable "" path="${KM_SRC[$KMAP_IDX]}"
     if ! kopia_status_load; then
         if [[ "$KOPIA_RUNNING" != "yes" ]]; then drift_add error "Kopia container '$KOPIA_CONTAINER' is not running" kopia_not_running "" name="$KOPIA_CONTAINER"
+        elif [[ "$KOPIA_UNREACHABLE" == "yes" ]]; then
+            drift_add error "Kopia cannot reach its repository (offsite): $KOPIA_REACH_WHY" kopia_unreachable "" name="$KOPIA_CONTAINER"
+            kopia_reach_save unreachable
         else drift_add error "Kopia is not connected to a repository" kopia_not_connected "" name="$KOPIA_CONTAINER"; fi
         return 1
     fi
+    kopia_reach_save ok
     local uid_ok="yes"
     if [[ "$KOPIA_SERVER_UID" != "0" ]]; then
         drift_add error "The Kopia server runs as UID $KOPIA_SERVER_UID inside the container, snapshots need root (to read every file). A run as root would make the shared cache unreadable for the server - Kopia is NOT started. Fix: set PUID=0 and PGID=0 in the template" \

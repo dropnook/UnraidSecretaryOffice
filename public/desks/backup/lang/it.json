@@ -1212,6 +1212,7 @@
   "stat.kopia_stopped": "{name} è fermo",
   "stat.kopia_missing_ct": "manca il contenitore {name}",
   "stat.kopia_repo_problem": "repository non raggiungibile",
+  "stat.offsite_unreachable_since": "Fuori sede non raggiungibile dal {when}",
   "stat.kopia_policies_ok": "le policy corrispondono",
   "stat.kopia_policies_bad": {
     "one": "1 policy è diversa",
@@ -1446,6 +1447,7 @@
   "drift_code.kopia_mount_writable": "Il container Kopia può scrivere in {path} — ⟦Read Only - Slave⟧ è la modalità di accesso migliore.",
   "drift_code.kopia_not_running": "Il container Kopia «{name}» non è in esecuzione — niente va fuori sede.",
   "drift_code.kopia_not_connected": "Kopia non è collegato al suo repository — niente va fuori sede. Collegalo nella KopiaUI.",
+  "drift_code.kopia_unreachable": "Kopia non raggiunge il suo repository — finché non ci riesce niente va fuori sede. Lo spazio di archiviazione è acceso e la strada aperta (rete, indirizzo, chiave)? Tutto il locale continua come sempre.",
   "drift_code.kopia_uid": "Il server Kopia gira nel suo container come utente {uid}, ma gli snapshot richiedono root per leggere ogni file — non avvio Kopia. Imposta PUID=0 e PGID=0 nel suo template.",
   "drift_code.kopia_identity": "L'identità di Kopia ora è {now} (la configurazione dice {was}) — i caricamenti iniziano sorgenti nuove invece di continuare quelle vecchie.",
   "drift_code.kopia_ignores_missing": "Alla policy di Kopia per {path} mancano regole di esclusione ({rules}) — «{name}» non va a Kopia finché Applica in «Configura…» non le ha impostate.",

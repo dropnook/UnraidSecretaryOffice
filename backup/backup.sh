@@ -1,7 +1,11 @@
 #!/bin/bash
 ###############################################################################
 # unraid-backup - backup.sh                       Version 2.66 - 2026-10-20
-#   2.66 A run's name (the minute: run id, log, uso-backup-<minute> snapshots) is never used twice: besides its log (2.34) a
+#   2.66 Kopia connected but unable to reach its repository (the storage down, the way there closed) is said as such: drift
+#        kopia_unreachable (up to 2.65 «not connected»); state/kopia-reach.json {v, since, run, last, last_run} keeps «offsite
+#        unreachable since» the first real run that couldn't reach it, from run to run, until a run reaches it (or Kopia is
+#        switched off); Kopia's own words go to the log only.
+#        A run's name (the minute: run id, log, uso-backup-<minute> snapshots) is never used twice: besides its log (2.34) a
 #        history row of a run with this id or a snapshot of the name on a pool or disk awake (ZFS <dataset>@<prefix><minute>,
 #        btrfs <base>/<btrfs_snap_dir>/<minute>) ends the run right after taking the lock, touching nothing (the autumn hour
 #        02:00-03:00 comes twice; a data folder set back or new knows nothing of the snapshots) - up to 2.65 the snapshot

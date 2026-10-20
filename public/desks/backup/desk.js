@@ -980,9 +980,12 @@ function overviewTiles() {
     const sub = [];
     if (kc) sub.push(c.up === false ? Office.t('common.docker_off')
       : !kc.exists ? T('stat.kopia_missing_ct', { name: kc.name }) : kc.running ? T('stat.kopia_running', { name: kc.name }) : T('stat.kopia_stopped', { name: kc.name }));
-    if (repoNo) sub.push(T('stat.kopia_repo_problem'));
+    // engine 2.66: the repository unreachable from run to run - since the first run that couldn't reach it (B16)
+    const away = state.offsite && state.offsite.unreachable_since ? state.offsite : null;
+    if (away) sub.push(T('stat.offsite_unreachable_since', { when: fmt.date(away.unreachable_since) }));
+    else if (repoNo) sub.push(T('stat.kopia_repo_problem'));
     if (pol) sub.push(bad ? T('stat.kopia_policies_bad', { n: bad }) : T('stat.kopia_policies_ok'));
-    const trouble = (kc && (!kc.exists || !kc.running)) || repoNo || bad > 0 || (k.length && okCount !== k.length);
+    const trouble = (kc && (!kc.exists || !kc.running)) || repoNo || !!away || bad > 0 || (k.length && okCount !== k.length);
     if (k.length && okCount !== k.length) sub.unshift(T('stat.kopia_missing', { n: k.length - okCount }));
     else if (withKopia) sub.unshift(T('stat.kopia_when', { when: fmt.relative(withKopia.started) }));
     if (skipped) sub.unshift(T('stat.kopia_skipped', { n: skipped }));

@@ -32558,6 +32558,81 @@ function testBackupLastRunEnded(): void
     @rmdir($tmp);
 }
 
+/**
+ * Engine 2.66 (B16, scenario backup-kp-s3-unreachable-run): Kopia connected but its repository unreachable is said as
+ * such (drift kopia_unreachable, never «not connected»), state/kopia-reach.json keeps «offsite unreachable since» the
+ * first real run from run to run until a run reaches it; Mr. Backupsy's state and page say it.
+ */
+function testOffsiteReach(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-offsite-reach-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    @mkdir("$tmp/bin", 0700, true);
+    @mkdir("$tmp/data/state", 0700, true);
+    file_put_contents("$tmp/repo.json", json_encode(['uniqueIDHex' => str_repeat('f4', 32), 'configFile' => '/config/repository.config',
+        'clientOptions' => ['username' => 'root', 'hostname' => 'kopia'], 'storage' => ['type' => 's3']]));
+    file_put_contents("$tmp/bin/docker", "#!/bin/bash\nF=" . escapeshellarg($tmp) . "\ncase \"\$1\" in\n"
+        . "  inspect) echo true; exit 0 ;;\n  top) printf 'PID UID ARGS\\n1 0 /bin/kopia server --x\\n'; exit 0 ;;\nesac\n"
+        . "[[ -e \$F/away && \"\$*\" == *'repository status'* ]] && { echo 'ERROR open repository: unable to open repository: unable to get repository format: dial tcp 192.0.2.7:9000: connect: connection refused' >&2; exit 1; }\n"
+        . "[[ -e \$F/notconn && \"\$*\" == *'repository status'* ]] && { echo 'kopia: error: repository is not connected. See https://kopia.io/docs/repositories/, try --help' >&2; exit 1; }\n"
+        . "case \"\$*\" in\n  *'repository status --json'*) cat \$F/repo.json ;;\n  *--version*) echo '0.23.1 build' ;;\nesac\nexit 0\n");
+    chmod("$tmp/bin/docker", 0755);
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+    $sh = function (string $script) use ($lib, $tmp): string {
+        $pre = "PATH=$tmp/bin:\$PATH UB_DATA=$tmp/data UB_NO_NOTIFY=1; source $lib >/dev/null 2>&1; LOG_FILE=''; KOPIA_CONTAINER=kopia KOPIA_RUN_UID=0;";
+        return trim((string) shell_exec('bash -c ' . escapeshellarg("$pre $script") . ' 2>&1'));
+    };
+    $look = 'kopia_status_load >/dev/null 2>&1; echo "c=$KOPIA_CONNECTED u=$KOPIA_UNREACHABLE"';
+    touch("$tmp/away");
+    same('offsite reach 2.66: connected, the storage away — unreachable (never «not connected»), Kopia\'s words for the log', ['c=no u=yes', true],
+        [$sh($look), str_contains($sh('kopia_status_load >/dev/null 2>&1; echo "$KOPIA_REACH_WHY"'), 'connection refused')]);
+    unlink("$tmp/away");
+    touch("$tmp/notconn");
+    same('offsite reach 2.66: Kopia says «not connected» — not connected, not unreachable', 'c=no u=no', $sh($look));
+    unlink("$tmp/notconn");
+    same('offsite reach 2.66: reachable', 'c=yes u=no', $sh($look));
+
+    $file = "$tmp/data/state/kopia-reach.json";
+    $run = fn (string $ts, string $what, string $mode = 'backup', string $dry = '0') => $sh("UB_MODE=$mode DRY=$dry TS=$ts STARTED_AT=1792000000; kopia_reach_save $what");
+    $run('20261019-1955', 'unreachable', 'check');
+    $run('20261019-1955', 'unreachable', 'backup', '1');
+    same('offsite reach 2.66: a tour or a dry run writes nothing', false, is_file($file));
+    $out = $run('20261019-1955', 'unreachable');
+    $j = json_decode((string) @file_get_contents($file), true);
+    same('offsite reach 2.66: the first real run that can\'t reach it — since its start, its name; the log says it',
+        [1, 1792000000, '20261019-1955', '20261019-1955', true, true], [$j['v'] ?? null, $j['since'] ?? null, $j['run'] ?? null, $j['last_run'] ?? null,
+        is_int($j['last'] ?? null), str_contains($out, 'Offsite unreachable since')]);
+    $sh('UB_MODE=backup DRY=0 TS=20261020-0430 STARTED_AT=1792060000; kopia_reach_save unreachable');
+    $j = json_decode((string) @file_get_contents($file), true);
+    same('offsite reach 2.66: the next one — «since» kept, the last run moves on', [1792000000, '20261019-1955', '20261020-0430'],
+        [$j['since'] ?? null, $j['run'] ?? null, $j['last_run'] ?? null]);
+    same('offsite reach 2.66: … nothing of Kopia\'s words (an address, a bucket) in the file', ['last', 'last_run', 'run', 'since', 'v'],
+        (function ($j) { $k = array_keys($j ?? []); sort($k); return $k; })($j));
+
+    // the office: his state in exactly the engine's shape, only with Kopia on
+    $on = ['kopia' => ['enabled' => ['yes']]];
+    same('offsite reach 2.66: Mr. Backupsy\'s state — offsite.unreachable_since, the first run and the last',
+        ['unreachable_since' => 1792000000, 'run' => '20261019-1955', 'last' => $j['last'] ?? 0, 'last_run' => '20261020-0430'], backupOffsiteReach($on, $file));
+    same('offsite reach 2.66: Kopia switched off — nothing said', null, backupOffsiteReach(['kopia' => ['enabled' => ['no']]], $file));
+    file_put_contents("$tmp/bad.json", json_encode(['v' => 1, 'since' => '1792000000', 'run' => '20261019-1955', 'last' => 1, 'last_run' => '20261019-1955']));
+    same('offsite reach 2.66: not exactly its shape — nothing', [null, null], [backupOffsiteReach($on, "$tmp/bad.json"), backupOffsiteReach($on, "$tmp/none.json")]);
+
+    $sh('UB_MODE=backup DRY=0 TS=20261021-0430; kopia_reach_save ok');
+    same('offsite reach 2.66: the first run that reaches it again ends it', false, is_file($file));
+    $eng = (string) file_get_contents(OFFICE_DIR . '/backup/lib/common.sh');
+    check('offsite reach 2.66: the run\'s Kopia check says kopia_unreachable and keeps the file; reached or switched off ends it',
+        str_contains($eng, 'kopia_unreachable "" name="$KOPIA_CONTAINER"' . "\n" . '            kopia_reach_save unreachable')
+        && str_contains($eng, "        return 1\n    fi\n    kopia_reach_save ok\n") && str_contains($eng, '{ KOPIA_OK="off"; kopia_reach_save ok; return 0; }'));
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('offsite reach 2.66: the page\'s Kopia tile says since when (a trouble)', str_contains($js, "T('stat.offsite_unreachable_since', { when: fmt.date(away.unreachable_since) })")
+        && str_contains($js, '|| !!away ||'));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $lang) {
+        $l = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$lang.json"), true) ?: [];
+        same("offsite reach 2.66: the words ($lang)", [true, true], [str_contains($l['stat.offsite_unreachable_since'] ?? '', '{when}'), isset($l['drift_code.kopia_unreachable'])]);
+    }
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 function testBackupOneMinute(): void
 {
     $tmp = hardeningTmp('minute');
@@ -45406,7 +45481,7 @@ JS;
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
