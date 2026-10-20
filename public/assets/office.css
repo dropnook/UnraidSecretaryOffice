@@ -515,9 +515,14 @@
   color:var(--on-fill); background:var(--accent);
   border-radius:999px; padding:1px 7px; line-height:16px; pointer-events:none;
 }
-.stat .tile-mark{top:7px}                          /* the number tile has less air above its label */
-.tile-on .card-head{padding-right:72px}            /* room for the mark beside the chips and the count */
-.tile-on .stat-label{padding-right:72px}
+/* the mark takes its own room (core.js tileMark), whatever its length in a language — never over a tile's words: a
+   number tile's floats in its label (the words beside it, a long word under it, broken only when even the whole line
+   is too narrow), a card's ends its head line after the chips and the count (the name wraps there instead of «…») */
+.stat-label > .tile-mark{position:static; float:right; margin:0 -4px 2px 8px; letter-spacing:.06em}
+.tile-on .stat-label{display:flow-root; overflow-wrap:anywhere; hyphens:auto}
+.card-head > .tile-mark{position:static; flex:none; margin:-2px -4px -2px 0}
+.card-name + .tile-mark{margin-left:auto}
+.tile-on > .card-head > .card-name{white-space:normal; overflow-wrap:anywhere; hyphens:auto}
 
 /* the switcher's row and body (Office.sections): the sections as the page spaces them */
 .sections, .sections-body{display:flex; flex-direction:column; gap:22px; min-width:0}
@@ -733,7 +738,6 @@
   .filterbar .filter-words{flex:1 1 100%}
   /* the active tile's mark a little smaller; a desk's two tabs half the width each, 40 px high */
   .tile-mark{font-size:10px; padding:1px 6px}
-  .tile-on .card-head, .tile-on .stat-label{padding-right:64px}
   .desk-pages{max-width:none}
   .desk-pages a{flex:1 1 0; min-height:40px; padding:5px 8px; white-space:normal; text-align:center}
 }

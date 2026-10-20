@@ -130,9 +130,10 @@ const PAGE_HELPERS = () => {
     if (kind === 'group') return words((e.querySelector('.group-title, .group-name, strong, span') || e).textContent);
     if (kind === 'expand') return (e.id || e.className || e.tagName).toString().slice(0, 40);
     // a tile's words without its mark («Open», «Filter on» - there only while it is on): one key on and off
-    const mark = e.querySelector(':scope > .tile-mark');
-    const text = e.textContent;
-    return words(mark && text.endsWith(mark.textContent) ? text.slice(0, text.length - mark.textContent.length) : text);
+    // (wherever it stands: a number tile's leads its label, a card's ends its head line)
+    const c = e.cloneNode(true);
+    c.querySelectorAll('.tile-mark').forEach((m) => m.remove());
+    return words(c.textContent);
   }
   function all() {
     const d = desk();

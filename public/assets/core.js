@@ -1726,14 +1726,21 @@ function tileAttrs(b, o) {
 }
 /**
  * The active tile's mark (CLAUDE.md «Tiles»): mark = its text («Filter on» / «Open» — Office.sections() gives it), shown
- * only while the tile is on, with .tile-on (the glow); visual only — aria-pressed says it to a screen reader
+ * only while the tile is on, with .tile-on (the glow); visual only — aria-pressed says it to a screen reader. The mark
+ * takes its own room, never a tile's words (a long one-word title as «Mitteilungszentrale» was covered, 2026-10-20): a
+ * number tile's floats at the start of its label (the words beside it or under it), a card's ends its head line (the
+ * name wraps instead of being cut); any other tile's sits in its corner (the desk keeps that free)
  */
 function tileMark(b, o, on) {
   if (!o.mark || !on) return;
   b.classList.add('tile-on');
   const m = el('span', 'tile-mark', o.mark);
   m.setAttribute('aria-hidden', 'true');
-  b.appendChild(m);
+  const label = b.querySelector(':scope > .stat-label');
+  const head = label ? null : b.querySelector(':scope > .card-head');
+  if (label) label.prepend(m);
+  else if (head) head.appendChild(m);
+  else b.appendChild(m);
 }
 
 /**
