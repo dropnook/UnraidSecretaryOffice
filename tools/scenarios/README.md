@@ -374,3 +374,93 @@ Not covered: R9's DK-ARRAY-DISK-FULL half (an app folder's moment lives on the p
 Mr. Restori's units on this base), B48's paused VM (USOTest4 has no VM service: `needs vm`).
 Two runs of a scenario with and without an argument in one run.sh call wipe the first one's report (run-local's
 `--one` clears `<name>.*`): B11/B12 `:users` run apart.
+
+## Batch F — mover environment and Jack (Tower)
+
+Ms. Moverelli next to Unraid's own mover and Jack Streamer, Mr. Backupsy's harder containers and VMs, his let-go, and
+Mr. Restori's drill on its own. Run on **Tower** (Unraid 7.4.0-rc.1, ZFS cache, disk1 xfs + disk2 zfs, the demo
+containers, uso-vm-agent/uso-vm-plain — `run.sh tower`). Moverelli is held to what Unraid's mover does (emptied
+folders and an emptied share root go along, the pool's dataset too); Jack's and her own excludes are the only
+exceptions. Jack's lists use the demo films under /mnt/user/media, never a live cache. The let-go cells never delete a
+backup: the backup place is counted before and after (INV-FILES strict, the storeroom counted).
+
+What the cells know about the office (so the next ones don't trip over it): Jack Streamer rewrites his list right before
+her joint run (his look drops what was watched), so «her run leaves his films» reads the list as she read it, after the
+run. Her «Run now» with Jack hired is a joint run (`by: night`); «Stop after this file» then goes through the night's
+stop. Identical scheduled refusals merge into one history row with `times` (moverelli.php moverelliRemember). ZFS lists
+a folder in hash order, and Smart Mover moves in that order, so M15's big file is the only file of media (the small ones
+in photos, the share after it). A new container brings two proposals, each its own Apply item: `docker|known` and
+`docker|no_stop` («new - keeps running until you decide», backup/setup.sh:1374). A gone member or VM leaves the lists
+(setup.sh:1412 keeps only a Compose stack brought down; :2412 «a VM that is gone drops out»). The engine logs a VM's
+thaw/resume as «released (frozen|paused, N s)». «Where is what» has to be asked for anew
+(cleanup.where_refresh, 60 s debounce); the page's «overlay» comes from a disk's `chain`. Every `check final` drills, so
+R22 picks his weekly night ≥ 6 days after today's drill (drillWeekDue), DST-safe.
+
+| Cell | Scenario | Verdict on 1.66.8 (Tower) | Time on Tower | Run |
+|---|---|---|---|---|
+| M7 | `moverelli-jk-hired-list-run` | cells green; **red** BF2 (INV-LEFTOVER) | 2.5 min | pre-release |
+| M10 | `moverelli-mo-unraid-schedule-on-setup-run-letgo` | green | 15 s | pre-release |
+| M15 | `moverelli-mo-big-file-stop` | green (BF3 seen once before the cell was reshaped) | 40 s–2 min | pre-release |
+| M17 | `moverelli-mo-btrfs-levels-sched` | skipped on Tower (`needs btrfs`) — waits for test3 | – | pre-release |
+| M18 | `moverelli-mo-tuning-run`, `moverelli-mo-foreign-script-run` | green (foreign: INV-BUBBLE needs `task/scenarios-helper-bubble-foreign-mover`) | 10 s each | pre-release |
+| M19 | `moverelli-jk-list-pending-run`, `moverelli-jk-list-gone-run` | cells green; **red** BF1 (INV-PAGE), BF2 (INV-LEFTOVER) | 40 s, 70 s | pre-release |
+| M25 | `moverelli-mo-os74-run` | green | 20 s | pre-release |
+| M26 | `moverelli-mo-array-stopped-sched` | green | 70 s | pre-release |
+| M28 | `moverelli-jk-hired-list-letgo` | green | 10 s | pre-release |
+| B32 | `backup-ct-many-replan-run` (+ the setup at 375 px by hand) | green (375 px: no horizontal scroll, all 40 named, de/en) | 2 min | pre-release |
+| B33 | `backup-ct-health-starting-run` | green | 1.5 min | pre-release |
+| B34 | `backup-ct-volume-only-replan` | green | 10 s | pre-release |
+| B35 | `backup-st-stack-replan-run`, `-member-stopped-`, `-member-gone-`, `backup-st-cm-file-unreadable-replan-run` | green; cm-file skipped (`needs compose`) | 70 s, 2 min, 2 min | pre-release |
+| B36 | `backup-vm-running-agent-run`, `-noagent-run`, `backup-vm-gone-replan-run`, `-disk-missing-run`, `-many-snapshots-run` | green | 2 min each (gone 3 min) | pre-release |
+| B49 | `backup-letgo-snapshots-packages` (run late: the next base reset brings his packages back) | cells green; **red** BF4 (INV-LEFTOVER) | 50 s | pre-release |
+| B50 | `backup-ct-new-decline-replan` | green | 70 s | pre-release |
+| R21 | `restore-sh-100k-scan-files` | green | 5 min | nightly |
+| R22 | `restore-tm-drill-sched` (run last: its runs on the clock set on stay until the base reset) | deadline, outside green; **red** BF5 (after-step-back), window-start (open) | 11 min | nightly |
+
+Findings on 1.66.8 (engine 2.64), Tower, 2026-10-20 — red stays red until fixed:
+- **BF1** (M19 pending, INV-PAGE) her history row of a refused run shows a raw «{file}» (de, en): «Jack Streamer hasn't
+  written his list yet ({file})» — public/desks/moverelli/desk.js:1037 passes only schedule/shares/version/needed to
+  errorText, the row's `file` (moverelli.php:1123's param) never. The row stays in her history: in one run.sh call every
+  later cell's Moverelli page is red on it too, until the base reset.
+- **BF2** (M7, M19 gone — every run) after Jack's fill in a joint run took Season 01's episodes from disk1 to the pool,
+  the emptied `disk1/media/Familienserien/Unser Hausbau (2021)/Season 01` stays: his fill tidies through /mnt/user0
+  (mediacache_run.py remove_empty_parents, his log «Leeren Ordner entfernt: /mnt/user0/…»), where Season 01 still holds
+  S01E01/E02 from disk2. Unraid's own move works per disk and takes an emptied folder along.
+- **BF3** (M15, seen once, 2026-10-20 01:02) her live progress named the 1 MB file before an 8 GiB one for the whole 8 s
+  the big file took, with 0 bytes done (the array got 0 → 8.6 GB meanwhile): office_progress_tick
+  (smartmover/custommover_run.sh office_move_files) writes at most once a second and mover_send doesn't tick while it
+  waits — a file started in the same second as the one before is never named. The card's file and rate are wrong for it.
+  (M15 now has the big file alone in its share, so the cell's stop is judged on a known order; BF3 needs a cell of its
+  own with two files in one share.)
+- **BF4** (B49) «Also clear away» leaves the emptied `apps/` and `vms/` folders in the backup place
+  (`cache/backup/apps`, `cache/backup/vms`; the packages themselves are in her storeroom, none deleted, his snapshots
+  gone, the partner's kept — all as the dialog says).
+- **BF5** (R22, after-step-back; extends batch D's F12) after the clock steps back the agent runs no desk tick at all
+  until the clock passes its last round again: agent/agent.php:309-312 `if (microtime(true) < $nextTick) { agentNap(…);
+  continue; }` — a doorbell gets the mailbox answered, nothing else; agentPulse comes after the ticks, so the heartbeat
+  file keeps the later time (an mtime in the future reads as fresh). Mr. Restori's tick has the same guard of its own
+  (agent/desks/restore-drill.php:3166 `static $looked`, :3168). Seen: the clock 06:51 → 02:20 with a drill due — no
+  tick in 150 s; probe 05:59: the agent frozen since R22's 08:07, ticks again the moment the clock passed 08:07. A
+  server whose clock ran ahead and is put right sleeps that long (and agent-watch sees a fresh heartbeat).
+- R22's window-start (06:53, past both guards) is red as well and not pinned: drillDue() with that moment's inputs
+  (checked by hand on Tower) says «weekly», yet his tick wrote no note within 150 s. Left red, cause open.
+
+The batch: 86 min for all 27 cells in one run.sh call (2026-10-20 03:39, `scenarios/2026-10-20/tower-scenarios-batch-f-0339`
+— its INV-PAGE reds after M19 pending are BF1's row, see above), then B35's two member cells and M10 again (05:09,
+`…-0509`, green) and R22 alone (`…/tower-scenarios-batch-f`, the last). Run M19 pending late in a call (its row
+reddens every later Moverelli page until the base reset), B49 and R22 last. After R22 the agent is frozen until the
+clock passes R22's last step (BF5): the next run.sh's base reset restarts it — without one, restart it by hand.
+
+Helper gaps: `task/scenarios-helper-jack-unfill` (jack_unfill moves a film back into a folder her run emptied and
+removed — M19 gone's undo failed «cannot move» once; the cell passes without it since it reads the list as she read it);
+`task/scenarios-helper-bubble-foreign-mover` (the bubble facts count a foreign mover on schedule, as the page does —
+M18 foreign's INV-BUBBLE red until it merges). Without a branch: flows.sh MV-RUN-SCHED waits for night.json «done» and
+hangs when the joint run is refused (M19 pending uses `job moverelli` + `job_wait`); the bubble facts are read live a
+moment after the look's state files — a 2-second run of hers can end in between (M10's INV-BUBBLE red once); the looks'
+`post/` answers are the canned ones of all scenarios ($SC_REPORTS/post), so a page drawn from a look's states shows an old
+setup plan (B32's 375 px check used its own plan-replan.json); immich_server exits when its redis goes and nothing
+restarts it (B35's cells start the members that ran before); the runner has no width check (page.mjs --width only).
+
+Not covered: M17 (btrfs levels — `needs btrfs`, waits for test3), B35's ST-CM-FILE-UNREADABLE (`needs compose`, Tower
+has no Compose Manager), BF3 as a cell of its own (two files of one share started in the same second). Tower's Unraid is
+a trial ending between 2026-11-01 and -08: a clock cell set past it stops the array (R22 did once, set back by hand).
