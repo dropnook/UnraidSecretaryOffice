@@ -5608,7 +5608,15 @@ function setupGeneral(plan) {
   if (plan.P['libvirt|mode'] !== undefined) {
     box.appendChild(Office.place('setup.g_libvirt', field(T('setup.g_libvirt'), selectInput('libvirt|mode', ['tar', 'off'], (o) => T('setup.libvirt.' + o)), T('setup.g_libvirt_hint'))));
   }
-  box.appendChild(Office.place('setup.g_notify', checkbox(T('setup.g_notify'), dget('general|notify_success') === 'yes', (v) => dset('general|notify_success', v ? 'yes' : 'no'))));
+  // since 1.68 the Team Lead's notification centre decides whether a successful backup is told (his «Reports» tile);
+  // general|notify_success stays in settings.ini as it is (an older office reads it)
+  const toCentre = el('a', 'btn small plain', Office.t('notifycenter.where_link'));
+  toCentre.href = '#/caretaker/notify';
+  const centre = el('div', 'field');
+  const centreLink = el('div');
+  centreLink.appendChild(toCentre);
+  centre.append(el('div', 'field-title', T('setup.g_notify')), el('small', '', Office.t('notifycenter.where')), centreLink);
+  box.appendChild(Office.place('setup.g_notify', centre));
   if (dget('kopia|enabled') === 'yes') {
     box.appendChild(Office.place('setup.p_compression', field(T('setup.p_compression'), textInput('kopia|compression', /^[a-z0-9-]+$/), T('setup.p_compression_hint'))));
     box.appendChild(Office.place('setup.p_ignore', field(T('setup.p_ignore'), listInput('kopia|ignore', 4), T('setup.p_ignore_hint'))));

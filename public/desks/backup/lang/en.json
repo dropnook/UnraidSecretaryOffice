@@ -1916,5 +1916,9 @@
   "held.accept_go": "Yes, it is new",
   "held.accepted": "Noted — the next backup goes offsite again.",
   "check.docker_system": "Unraid's share system is there — Docker needs it",
-  "check.docker_system_how": "The share system is missing: Unraid keeps Docker's image there, without it neither Docker nor Kopia runs. The Team Lead says how to get it."
+  "check.docker_system_how": "The share system is missing: Unraid keeps Docker's image there, without it neither Docker nor Kopia runs. The Team Lead says how to get it.",
+  "notify.flood.subject": "{name} is reporting a lot right now",
+  "notify.flood": "I'm collecting the rest — a summary follows at {time}. Alerts still come at once.",
+  "notify.flood_all.subject": "The office is reporting a lot right now",
+  "notify.flood_all": "I'm collecting the rest — a summary follows at {time}. Alerts still come at once."
 }

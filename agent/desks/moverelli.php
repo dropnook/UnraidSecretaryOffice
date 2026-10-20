@@ -1074,7 +1074,7 @@ function moverelliTargetNotify(array $status): int
         $told[$pool] = true;
         if (officeNotify(officeNotifyText('moverelli', 'notify.target_subject', ['pool' => $pool], $lang),
             officeNotifyText('moverelli', 'notify.target_missed', ['pool' => $pool, 'now' => (int) $s['pool_now'], 'x' => (int) ($s['until'] ?? 0)], $lang),
-            'warning', '', officeNotifyLink('#/moverelli'))) {
+            'warning', '', officeNotifyLink('#/moverelli'), 'moverelli', 'target_missed')) {
             $sent++;
             logLine("Ms. Moverelli: told Unraid's notifications — pool $pool: target not reached");
         }
@@ -1699,7 +1699,7 @@ function moverelliNotify(string $mode, string $result, array $status, int $exit,
     };
     $sent = officeNotify(officeNotifyText('moverelli', 'notify.subject', ['result' => officeNotifyText('moverelli', "result.$outcome", [], $lang)], $lang),
         trim($detail . ' ' . officeNotifyText('moverelli', 'notify.see', [], $lang)), $outcome === 'stopped_mover' ? 'normal' : 'warning', '',
-        officeNotifyLink('#/moverelli'));
+        officeNotifyLink('#/moverelli'), 'moverelli', "run_$outcome");
     if ($sent) {
         logLine("Ms. Moverelli: told Unraid's notifications — Smart Mover ($mode) $outcome");
     }

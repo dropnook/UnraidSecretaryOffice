@@ -1,0 +1,174 @@
+# Unraid Secretary Office - the notification centre's gate for the bash senders: the engine's ub_notify (lib/common.sh)
+# and the plugin's scripts/agent.sh (tell). Sourced; it only defines.
+#
+# The Team Lead's «Meldungen» are the office's one place for what goes to Unraid's notifications. Every sender asks the
+# same decision before it calls Unraid's notify script - send now, hold for the summary, count only - the PHP side's
+# officeNotifyGate() in agent/lib/notifycenter.php is the same decision (tests/run.php runs both over the same cases):
+#   * the settings: the key=value file the office's agent writes (<home>/notify.cfg; none = everything goes, as before
+#     the centre): the desk's threshold (all|warning|alert), its successes (backup ok), «Still bis …», quiet hours,
+#     the desk on the daily summary. An alert always goes.
+#   * the flood guard (always, also for alerts): the same notification (desk + event + subject) once, then only counted
+#     until resolved (a success of that desk, a line after it in the guard) or a day passed; caps per desk and for the whole office per hour - past
+#     one, ONE notice and the rest collected for a summary; past NOTIFY_ALERT_CAP distinct alerts an hour the rest go as
+#     one alert every NOTIFY_ALERT_BUNDLE. Its lines in <home>/notify-guard, read and written only under the flock of
+#     <home>/notify.second the sender holds around its call (so the decision and the call are one turn).
+#   * each decision one small JSON in <home>/notify-in/ (the agent folds them into the Team Lead's queue and history).
+# Hold only while someone will send the summary: the agent's heartbeat (<home>/agent.json) at most 70 s old.
+#
+# The numbers - the same names and values as in agent/lib/notifycenter.php (tests/run.php compares them):
+NOTIFY_SAME_FORGET=86400    # an unresolved repeat may go out again after a day (a daily failure still reminds daily)
+NOTIFY_CAP_WINDOW=3600      # the caps count the last hour
+NOTIFY_DESK_CAP=5           # more than this from one character in an hour is a flood
+NOTIFY_OFFICE_CAP=20        # more than this from the whole office in an hour is a flood
+NOTIFY_ALERT_CAP=10         # distinct alerts in an hour before the rest are bundled
+NOTIFY_ALERT_BUNDLE=900     # a bundle of the rest at most every 15 minutes
+NOTIFY_HEART_FRESH=70       # the agent's heartbeat at most this old: it will send the summary
+NOTIFY_DROPS_MAX=500        # decisions waiting for the agent at most - past it nothing is held (it goes now)
+NOTIFY_GUARD_MAX=3000       # lines of the guard before the old ones go
+
+# ung_cfg_read <file> - the agent's key=value file into UNG_CFG; 1 when there is none (then everything goes as before)
+ung_cfg_read() {
+    declare -gA UNG_CFG=()
+    local f="$1" line
+    [[ -n "$f" && -f "$f" && ! -L "$f" ]] || return 1
+    (( $(stat -c %s -- "$f" 2>/dev/null || echo 99999) <= 16384 )) || return 1
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$line" =~ ^([a-z][a-z_]{0,30}(\.[a-z_]{1,20})?)=([A-Za-z0-9_-]{0,24})$ ]]; then
+            UNG_CFG["${BASH_REMATCH[1]}"]="${BASH_REMATCH[3]}"
+        fi
+    done <"$f"
+    [[ "${UNG_CFG[v]:-}" == 1 ]] || { UNG_CFG=(); return 1; }
+    return 0
+}
+
+ung_rank() { case "$1" in alert) echo 2 ;; warning) echo 1 ;; *) echo 0 ;; esac; }
+
+# ung_is_success <desk> <event> - a success (OFFICE_NOTIFY_SUCCESS in notifycenter.php): the desk's «auch Erfolge»
+ung_is_success() { case "$1:$2" in backup:ok|jack:release_ok) return 0 ;; esac; return 1; }
+# ung_resolves <desk> <event> - it resolves what that desk said went wrong (OFFICE_NOTIFY_RESOLVES): a success, the agent back
+ung_resolves() { case "$1:$2" in backup:ok|jack:release_ok|office:agent_back) return 0 ;; esac; return 1; }
+
+# ung_quiet_now <epoch> - inside the quiet hours (quiet=HHMM-HHMM; across midnight when from > to)
+ung_quiet_now() {
+    local q="${UNG_CFG[quiet]:-off}" now from to
+    [[ "$q" =~ ^([0-2][0-9][0-5][0-9])-([0-2][0-9][0-5][0-9])$ ]] || return 1
+    from=$((10#${BASH_REMATCH[1]})); to=$((10#${BASH_REMATCH[2]}))
+    now=$((10#$(date -d "@$1" +%H%M)))
+    (( from == to )) && return 1
+    if (( from < to )); then (( now >= from && now < to )) && return 0; return 1; fi
+    (( now >= from || now < to )) && return 0
+    return 1
+}
+
+# ung_can_hold <home> - will someone send the summary? The agent's heartbeat fresh, and room for the decision
+ung_can_hold() {
+    local beat n
+    beat="$(stat -c %Y -- "$1/agent.json" 2>/dev/null || echo 0)"
+    (( $(date +%s) - beat <= NOTIFY_HEART_FRESH )) || return 1
+    ung_drops_room "$1"
+}
+ung_drops_room() {
+    local f n=0
+    [[ -d "$1/notify-in" && ! -L "$1/notify-in" ]] || return 0
+    for f in "$1"/notify-in/*.json; do [[ -e "$f" ]] && n=$((n + 1)); done
+    (( n < NOTIFY_DROPS_MAX ))
+}
+
+# ung_decide <home> <desk> <event> <level> <key> <now>
+# -> UNG_FATE sent|held|counted|collected|dropped, UNG_WHY, UNG_DUE (a collected one's summary), UNG_NOTICE ('' or the
+#    desk - or * for the whole office - whose «reporting a lot» notice goes now)
+ung_decide() {
+    local home="$1" desk="$2" event="$3" level="$4" key="$5" now="$6" need hold=0 why="" su lv
+    UNG_FATE=sent; UNG_WHY=""; UNG_DUE=0; UNG_NOTICE=""
+    if ung_can_hold "$home"; then hold=1; fi
+    # the settings (none: as before the centre)
+    if [[ "$level" != alert ]] && ung_cfg_read "$home/notify.cfg"; then
+        lv="${UNG_CFG[$desk.level]:-all}"
+        case "$lv" in warning) need=1 ;; alert) need=2 ;; *) need=0 ;; esac
+        if (( $(ung_rank "$level") < need )); then UNG_FATE=dropped; UNG_WHY=threshold; return 0; fi
+        if ung_is_success "$desk" "$event" && [[ "${UNG_CFG[$desk.success]:-1}" == 0 ]]; then UNG_FATE=dropped; UNG_WHY=success; return 0; fi
+        su="${UNG_CFG[silent_until]:-0}"
+        if [[ "$su" =~ ^[0-9]{1,12}$ ]] && (( su > now )); then why=silent
+        elif ung_quiet_now "$now"; then why=quiet
+        elif [[ "${UNG_CFG[$desk.when]:-now}" == summary ]]; then why=summary; fi
+        if [[ -n "$why" ]]; then
+            if (( hold )); then UNG_FATE=held; UNG_WHY="$why"; return 0; fi
+            UNG_WHY=no_sender       # nobody would send the summary: it goes now
+        fi
+    fi
+    ung_guard "$home/notify-guard" "$desk" "$level" "$key" "$now" "$hold"
+    return 0
+}
+
+# ung_guard <file> <desk> <level> <key> <now> <hold> - the flood guard for what would go now
+ung_guard() {
+    local g="$1" desk="$2" level="$3" key="$4" now="$5" hold="$6" out same dk off al fd fo room=0
+    [[ -n "$g" && ! -L "$g" && -d "${g%/*}" ]] || return 0
+    [[ -f "$g" ]] || return 0
+    if ung_drops_room "${g%/*}"; then room=1; fi
+    out="$(awk -v d="$desk" -v k="$key" -v now="$now" -v fw="$NOTIFY_SAME_FORGET" -v w="$NOTIFY_CAP_WINDOW" '
+        $1 !~ /^[0-9]+$/ { next }
+        $2 == "sent" && $5 == k && now - $1 < fw { same = $1 }
+        $2 == "resolved" && $3 == d { same = 0 }
+        $2 == "sent" && $4 != "alert" && now - $1 < w { off++; if ($3 == d) dk++ }
+        $2 == "sent" && $4 == "alert" && now - $1 < w { al++ }
+        $2 == "flood" && now - $1 < w { if ($3 == d) fd = $1; if ($3 == "*") fo = $1 }
+        END { printf "%d %d %d %d %d %d\n", same, dk, off, al, fd, fo }' "$g" 2>/dev/null)"
+    read -r same dk off al fd fo <<<"${out:-0 0 0 0 0 0}"
+    if (( same > 0 )); then UNG_FATE=counted; UNG_WHY=same; return 0; fi
+    if [[ "$level" == alert ]]; then
+        # an alert is never lost: bundled only while someone sends the bundle
+        if (( al >= NOTIFY_ALERT_CAP && hold )); then UNG_FATE=collected; UNG_WHY=alert_cap; fi
+        return 0
+    fi
+    (( room )) || return 0              # no room to keep it: it goes
+    if (( dk >= NOTIFY_DESK_CAP )); then
+        UNG_FATE=collected; UNG_WHY=flood
+        if (( fd > 0 )); then UNG_DUE=$((fd + NOTIFY_CAP_WINDOW)); else UNG_DUE=$((now + NOTIFY_CAP_WINDOW)); UNG_NOTICE="$desk"; fi
+    elif (( off >= NOTIFY_OFFICE_CAP )); then
+        UNG_FATE=collected; UNG_WHY=flood
+        if (( fo > 0 )); then UNG_DUE=$((fo + NOTIFY_CAP_WINDOW)); else UNG_DUE=$((now + NOTIFY_CAP_WINDOW)); UNG_NOTICE='*'; fi
+    fi
+    return 0
+}
+
+# ung_line <home> <fate> <desk> <level> <key> - one line of the guard (sent, flood, resolved); the old ones go past the max
+ung_line() {
+    local g="$1/notify-guard" n tmp
+    [[ -d "$1" && ! -L "$g" ]] || return 0
+    ( umask 077; printf '%s %s %s %s %s\n' "$(date +%s)" "$2" "$3" "$4" "${5:--}" >>"$g" ) 2>/dev/null
+    n="$(wc -l <"$g" 2>/dev/null || echo 0)"
+    if (( n > NOTIFY_GUARD_MAX )); then
+        tmp="$g.$$.tmp"
+        awk -v old="$(( $(date +%s) - 2 * NOTIFY_SAME_FORGET ))" '$1 ~ /^[0-9]+$/ && $1 > old' "$g" >"$tmp" 2>/dev/null && mv -f -- "$tmp" "$g"
+        rm -f -- "$tmp"
+    fi
+    return 0
+}
+
+# ung_key <desk> <event> <subject> - «the same notification»: 16 hex of md5 over desk|event|subject (as in PHP)
+ung_key() { printf '%s|%s|%s' "$1" "$2" "$3" | md5sum | cut -c1-16; }
+
+# ung_drop <home> <fate> <why> <due> <desk> <event> <level> <key> <subject> <description> <message> <link> - the
+# decision for the Team Lead's queue and history (a JSON of its own; written beside, then moved in)
+ung_drop() {
+    local dir="$1/notify-in" id now us tmp
+    [[ -d "$1" ]] || return 0
+    [[ -L "$dir" ]] && return 0
+    [[ -d "$dir" ]] || ( umask 077; mkdir -p -- "$dir" ) 2>/dev/null || return 0
+    command -v jq >/dev/null 2>&1 || return 0
+    us="$(date +%s%N)"; us="${us:0:16}"        # the name sorts by the microsecond it was decided in
+    [[ "$us" =~ ^[0-9]{16}$ ]] || us="$(date +%s)000000"
+    now="${us:0:10}"
+    id="$(od -An -N6 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')"
+    [[ "$id" =~ ^[0-9a-f]{12}$ ]] || id="$$$RANDOM"
+    tmp="$dir/.$us-$id.tmp"
+    if ( umask 077; jq -n --arg id "$id" --argjson time "$now" --arg fate "$2" --arg why "$3" --argjson due "${4:-0}" --arg desk "$5" \
+            --arg event "$6" --arg level "$7" --arg key "$8" --arg subject "$9" --arg description "${10}" --arg message "${11:0:4096}" \
+            --arg link "${12}" '{v: 1, id: $id, time: $time, desk: $desk, event: $event, level: $level, fate: $fate, why: $why,
+            due: $due, key: $key, subject: $subject, description: $description, message: $message, link: $link}' >"$tmp" ) 2>/dev/null; then
+        mv -f -- "$tmp" "$dir/$us-$id.json"
+    fi
+    rm -f -- "$tmp"
+    return 0
+}

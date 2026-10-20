@@ -1937,5 +1937,9 @@
   "held.accept_go": "Sí, es nuevo",
   "held.accepted": "Anotado — la próxima copia vuelve a salir fuera de casa.",
   "check.docker_system": "El recurso compartido system de Unraid existe: Docker lo necesita",
-  "check.docker_system_how": "Falta el recurso compartido system: ahí guarda Unraid la imagen de Docker; sin él no funcionan ni Docker ni Kopia. El jefe de equipo dice cómo conseguirlo."
+  "check.docker_system_how": "Falta el recurso compartido system: ahí guarda Unraid la imagen de Docker; sin él no funcionan ni Docker ni Kopia. El jefe de equipo dice cómo conseguirlo.",
+  "notify.flood.subject": "{name} está avisando mucho ahora mismo",
+  "notify.flood": "Recojo el resto — a las {time} llega un resumen. Las alertas siguen llegando al momento.",
+  "notify.flood_all.subject": "La secretaría está avisando mucho ahora mismo",
+  "notify.flood_all": "Recojo el resto — a las {time} llega un resumen. Las alertas siguen llegando al momento."
 }

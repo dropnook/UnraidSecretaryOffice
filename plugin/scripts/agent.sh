@@ -243,28 +243,55 @@ data_dir() {
 }
 
 # tell <subject> <short text> <normal|warning|alert> [long text] - like the engine's ub_notify; a click opens the office.
+# TELL_EVENT names what it is (agent_away, agent_back) for the Team Lead's notification centre: the gate the engine
+# uses too (backup/lib/notifygate.sh) decides - send now, hold for his summary, count only (an alert always goes; the
+# same alert once until the agent is back).
 # Unraid names a notification <event>-<second>: one more with the same event in that second overwrites it. The agent,
 # its night shift and the backup engine send with the same event - all take turns through one stamp in RAM
 # ($RUN/notify.second: the second the last call ended in, under its flock held through the call - at most 10 s
 # waited, then it goes anyway); a call starts only after that second. No RAM folder: no guard.
 tell() {
-    local place link=/SecretaryOffice stamp="$RUN/notify.second" fd="" last now
+    local place link=/SecretaryOffice stamp="$RUN/notify.second" fd="" last now ev="${TELL_EVENT:-}" key="" rc=0 f
     [[ -x "$NOTIFY" ]] || return 0
     place=$(sed -n 's/^MENU_PLACE="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$FLASH/$PLUGIN.cfg" 2>/dev/null | tail -n 1)
     [[ "$place" == settings ]] && link=/Settings/SecretaryOffice
     local args=( -e "Unraid Secretary Office" -s "Unraid Secretary Office: $1" -d "$2" -i "$3" -l "$link" )
     [[ -n "${4:-}" ]] && args+=( -m "$4" )
+    if ! declare -F ung_decide >/dev/null; then
+        for f in "$DIR/backup/lib/notifygate.sh" "${BASH_SOURCE[0]%/*}/../backup/lib/notifygate.sh" "${BASH_SOURCE[0]%/*}/../../backup/lib/notifygate.sh"; do
+            [[ -f "$f" ]] && { source "$f"; break; }
+        done
+    fi
     if [[ -d "$RUN" && ! -L "$stamp" ]] && { exec {fd}>>"$stamp"; } 2>/dev/null; then
         if flock -w 10 "$fd" 2>/dev/null; then
-            last=$(head -c 32 "$stamp" 2>/dev/null | tr -dc '0-9')
-            now=$(date +%s%N)
-            # still in that second: wait until just past it (at most ~1 s)
-            if [[ "$last" =~ ^[0-9]+$ && "$now" =~ ^[0-9]{10,}$ ]] && (( ${now:0:${#now}-9} <= last )); then
-                now=$(( 1010000 - 10#${now:${#now}-9} / 1000 ))
-                sleep "$(( now / 1000000 )).$(printf '%06d' $(( now % 1000000 )))"
+            UNG_FATE=sent; UNG_WHY=""; UNG_DUE=0; UNG_NOTICE=""
+            if declare -F ung_decide >/dev/null; then
+                key=$(ung_key office "$ev" "$1")
+                ung_resolves office "$ev" && ung_line "$RUN" resolved office - -
+                ung_decide "$RUN" office "$ev" "$3" "$key" "$(date +%s)"
             fi
-            timeout 60 "$NOTIFY" "${args[@]}" >/dev/null 2>&1 {fd}>&-
-            date +%s >"$stamp" 2>/dev/null
+            if [[ "$UNG_FATE" == sent ]]; then
+                last=$(head -c 32 "$stamp" 2>/dev/null | tr -dc '0-9')
+                now=$(date +%s%N)
+                # still in that second: wait until just past it (at most ~1 s)
+                if [[ "$last" =~ ^[0-9]+$ && "$now" =~ ^[0-9]{10,}$ ]] && (( ${now:0:${#now}-9} <= last )); then
+                    now=$(( 1010000 - 10#${now:${#now}-9} / 1000 ))
+                    sleep "$(( now / 1000000 )).$(printf '%06d' $(( now % 1000000 )))"
+                fi
+                timeout 60 "$NOTIFY" "${args[@]}" >/dev/null 2>&1 {fd}>&-
+                rc=$?
+                date +%s >"$stamp" 2>/dev/null
+                (( rc == 0 )) || UNG_FATE=failed
+                declare -F ung_line >/dev/null && ung_line "$RUN" sent office "$3" "$key"
+            fi
+            if [[ -n "$UNG_NOTICE" ]]; then     # past a cap: one notice, the rest collected for the Team Lead's summary
+                sleep 1
+                timeout 60 "$NOTIFY" -e "Unraid Secretary Office" -s "Unraid Secretary Office: The office is reporting a lot right now" \
+                    -d "I'm collecting the rest - a summary follows at $(date -d "@$UNG_DUE" +%H:%M)." -i warning -l "$link" >/dev/null 2>&1 {fd}>&-
+                date +%s >"$stamp" 2>/dev/null
+                ung_line "$RUN" flood "$UNG_NOTICE" warning -
+            fi
+            declare -F ung_drop >/dev/null && ung_drop "$RUN" "$UNG_FATE" "$UNG_WHY" "$UNG_DUE" office "$ev" "$3" "$key" "$1" "$2" "${4:-}" "$link"
             exec {fd}>&-
             return 0
         fi
@@ -298,7 +325,7 @@ watch() {
             [[ "$since" =~ ^[0-9]+$ ]] || since=$now
             minutes=$(( (now - since) / 60 ))
             rm -f "$WATCH_TOLD"
-            tell "Agent running again" "The office's agent is back at work (it was away for about $minutes minutes)." normal
+            TELL_EVENT=agent_back tell "Agent running again" "The office's agent is back at work (it was away for about $minutes minutes)." normal
             echo "$(date '+%F %T') watch: the agent is back - Unraid's notifications told" >>"$LOG"
         fi
         rm -f "$WATCH_DOWN"
@@ -315,7 +342,7 @@ watch() {
     echo "$since" >"$WATCH_TOLD"
     minutes=$(( (now - since) / 60 ))
     # Unraid's line breaks in the long text are a literal \n (mail, push agents and the archive turn them into lines)
-    tell "Agent not running" "The office's agent hasn't checked in for $minutes minutes - the office can't show or do anything." alert \
+    TELL_EVENT=agent_away tell "Agent not running" "The office's agent hasn't checked in for $minutes minutes - the office can't show or do anything." alert \
         "Scheduled backups, snapshots and Jack Streamer's runs still start on their own.\nRestart it in a terminal: bash $DIR/scripts/agent.sh restart\nWhat it said last: $LOG and $data/agent.log"
     echo "$(date '+%F %T') watch: the agent hasn't checked in for $minutes minutes - Unraid's notifications told" >>"$LOG"
 }

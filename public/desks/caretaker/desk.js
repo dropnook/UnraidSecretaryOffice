@@ -12,8 +12,9 @@
    pictures the kept keys' levels, each once: Office.supporterPictures); without,
    he asks once, friendly, a week after the office first ran here (a callout
    under «The team», «Not now» at most twice more, «Don't ask again»).
-   His page is a row of tiles (tiles v2, core.js Office.sections): Team, Office, Still to do, Reports, Partners,
-   In place — each its section under the row, nothing chosen = all of them. */
+   His page is a row of tiles (tiles v2, core.js Office.sections): Team, Office, Still to do, the notification centre
+   (and what waits for its summary, its history), Partners, In place — each its section under the row, nothing chosen =
+   all of them. */
 (() => {
 'use strict';
 
@@ -189,6 +190,8 @@ const sw = Office.sections({
     { id: 'office', key: 'tile.office', place: 'tile.office', tile: (a) => officeTile(a), section: () => officeSection() },
     { id: 'todo', key: 'tile.todo', place: 'tile.todo', tile: (a) => todoTile(a), section: () => pointsSection() },
     { id: 'notify', key: 'tile.notify', place: 'tile.notify', tile: (a) => notifyTile(a), section: () => notifySection() },
+    { id: 'notify_wait', key: 'tile.notify_wait', place: 'tile.notify_wait', tile: (a) => notifyWaitTile(a), section: () => notifyWaitSection() },
+    { id: 'notify_log', key: 'tile.notify_log', place: 'tile.notify_log', tile: (a) => notifyLogTile(a), section: () => notifyLogSection() },
     { id: 'partner', key: 'tile.partner', place: 'tile.partner', tile: (a) => partnerTile(a),
       section: () => (Office.ctPartner ? Office.ctPartner.section(state) : partnerWaiting()) },      // partner.js
     { id: 'done', key: 'tile.done', place: 'tile.done', tile: (a) => doneTile(a), section: () => doneSection() },
@@ -231,18 +234,6 @@ function todoTile(a) {
     .filter(([l]) => l.length).map(([l, k]) => T(k, { n: l.length }));
   return Office.stat({ label: T('tile.todo'), value: fmt.number(n), alert: g.todo.length + g.advice.length > 0,
     sub: parts.length ? parts.join(' · ') : T('tile.todo_none'), ...a });
-}
-
-/** «Reports»: what went to Unraid's notifications last — red when it didn't arrive */
-function notifyTile(a) {
-  const n = state.notify || {};
-  const last = n.last || null;
-  const items = last ? (last.items || []) : [];
-  const failed = !!(last && last.sent === false);
-  const sub = [n.on === false ? T('tile.notify_off') : !last ? T('tile.notify_none')
-    : T(failed ? 'tile.notify_failed' : 'tile.notify_last', { when: fmt.relative(last.time) })];
-  if (n.on !== false && n.waiting) sub.push(T('notify_waiting', { n: n.waiting }));
-  return Office.stat({ label: T('tile.notify'), value: fmt.number(items.length), sub, alert: failed || n.available === false, ...a });
 }
 
 /** «Partners»: how many, whether they answer — red when one is silent or an offer or a ticket waits */
@@ -464,50 +455,423 @@ function renderKeeping(keys) {
   }
 }
 
-// ------------------------------------------------------------------ reports to Unraid's notifications
-/** What turns red is also told to Unraid (agent: caretakerNotifyEvaluate) — the switch, and the last report */
+// ------------------------------------------------------------------ the notification centre
+/*
+ * The office's one place for what goes to Unraid's notifications (agent/lib/notifycenter.php; its part «notify»,
+ * loaded with his page) — three tiles, each its section: the centre itself (per colleague a threshold, «successes
+ * too», right away or in a summary at a time; quiet hours, «silent until …», the sign of life, a test), what waits for
+ * a summary (and how it would read), the history. Every list has its bar (core.js Office.filterBar). Alerts always go
+ * right away — the page says so, no control can stop them. The tips' numbers come from the agent's constants (limits).
+ */
+let nc = null;            // the part (officeNotifyPublic())
+let ncDraft = null;       // the settings as edited here, not saved yet (null: as saved)
+let ncOpen = '';          // '' | 'test' | 'silent' — the choice row under the head
+const ncBars = {};        // the lists' bars (core.js Office.filterBar, built once per visit; their extras never kept)
+const ncF = { when: '', fate: '', time: '' };     // the bars' own extra selects: filters of this visit, never kept
+/** An element with its children: texts and nodes (core.js el() takes one text) */
+const ncEl = (tag, cls, ...kids) => {
+  const n = el(tag, cls);
+  kids.forEach((k) => { if (k !== null && k !== undefined && k !== false) n.append(k.nodeType ? k : String(k)); });
+  return n;
+};
+
+async function loadNotify(fresh) {
+  return Office.loadState(ID, { part: 'notify', fresh }, tookNotify);
+}
+function tookNotify(j) {
+  const p = j && j.ok ? j.part : null;
+  if (!p || !p.settings) return;
+  nc = p;
+  if (view) Office.keepInPlace(null, render);
+}
+const ncSaved = () => (nc ? nc.settings : null);
+const ncSet = () => ncDraft || ncSaved();
+const ncDirty = () => !!ncDraft && JSON.stringify(ncDraft) !== JSON.stringify(ncSaved());
+/** A change to the draft (a copy of what is saved, the first time) — then the section anew, in place */
+function ncEdit(anchor, change) {
+  if (!ncDraft) ncDraft = JSON.parse(JSON.stringify(ncSaved()));
+  change(ncDraft);
+  Office.keepInPlace(anchor, render);
+}
+const ncName = (desk) => (desk === 'office' ? Office.t('notifycenter.office') : Office.desks.has(desk) ? Office.t(desk + '.name') : desk);
+/** Who of the senders works here: the hired ones, and the office itself */
+const ncDesks = () => (nc ? nc.desks.filter((d) => d === 'office' || (Office.desks.has(d) && Office.desks.get(d).hired)) : []);
+/** The tips' numbers, from the agent's constants */
+const ncNums = () => {
+  const l = (nc && nc.limits) || {};
+  return { desk: l.desk, office: l.office, alerts: l.alerts, minutes: Math.round((l.window || 0) / 60), bundle: Math.round((l.bundle || 0) / 60),
+    hours: Math.round((l.forget || 0) / 3600) };
+};
+const ncTip = (node, key) => { node.title = T(key, ncNums()); return node; };
+/** A select of the bar's own (beside its words): its value in ncF, said in the note line, never kept */
+function ncPick(name, label, options, draw) {
+  const sel = el('select', 'picker');
+  sel.setAttribute('aria-label', label);
+  sel.dataset.keep = '1';
+  for (const [v, txt] of options) {
+    const o = el('option', '', txt);
+    o.value = v;
+    sel.appendChild(o);
+  }
+  sel.value = ncF[name];
+  sel.onchange = () => { ncF[name] = sel.value; Office.keepInPlace(sel, draw); };
+  return sel;
+}
+function ncBar(list) {
+  if (ncBars[list]) return ncBars[list];
+  const draw = () => sw.render();
+  // the centre's lists are short, but each always has its whole bar — words and selects (owner, 2026-10-20)
+  const o = { key: `caretaker.nc_${list}`, label: T(`nc.f_${list}`), onChange: draw, min: 0 };
+  if (list === 'who') {
+    o.select = { label: T('nc.level_head'), all: T('nc.f_level_all') };
+    o.extra = [ncPick('when', T('nc.when_head'), [['', T('nc.f_when_all')], ['now', T('nc.when.now')], ['summary', T('nc.f_when_summary')]], draw)];
+  } else {
+    o.select = { label: T('nc.f_who_label'), all: T('nc.f_who_all') };
+    if (list === 'log') {
+      o.extra = [ncPick('fate', T('nc.f_fate_label'), [['', T('nc.f_fate_all')], ...['sent', 'held', 'collected', 'counted', 'dropped', 'failed'].map((f) => [f, T('nc.fate.' + f)])], draw),
+        ncPick('time', T('nc.f_time_label'), [['', T('nc.f_time_all')], ['day', T('nc.f_time.day')], ['week', T('nc.f_time.week')]], draw)];
+    }
+  }
+  ncBars[list] = Office.filterBar(o);
+  return ncBars[list];
+}
+/** After a list's rows: «n of m fit» and the note line, with the bar's own selects as its parts (× takes one away) */
+function ncDone(bar, n, total, names) {
+  const sels = Array.from(bar.el.querySelectorAll('select.picker:not(.filter-pick)'));
+  const parts = names.filter((k) => ncF[k]).map((k) => {
+    const sel = sels.find((s) => s.getAttribute('aria-label') === { when: T('nc.when_head'), fate: T('nc.f_fate_label'), time: T('nc.f_time_label') }[k]);
+    const text = sel && sel.selectedOptions[0] ? sel.selectedOptions[0].textContent : ncF[k];
+    return [text, () => { ncF[k] = ''; if (sel) sel.value = ''; }];
+  });
+  bar.done(n, total, { parts, clear: (what) => { if (what === 'all') names.forEach((k) => { ncF[k] = ''; sels.forEach((s) => { if (!s.classList.contains('filter-pick')) s.value = ''; }); }); } });
+}
+const ncTime = (t) => fmt.time(t);
+const ncDay = (t) => fmt.date(t);
+
+// ---- the tiles
+/** «Notification centre»: the last that went — red when it didn't arrive; silent, collecting */
+function notifyTile(a) {
+  const n = state.notify || {};
+  const c = n.center || {};
+  const last = c.last || null;
+  const failed = !!(last && last.sent === false);
+  const sub = [!last ? T('tile.notify_none') : T(failed ? 'tile.notify_failed' : 'tile.notify_last', { when: fmt.relative(last.time) })];
+  if (c.silent_until) sub.push(T('nc.tile_silent', { when: fmt.relative(c.silent_until) }));
+  if (c.collecting) sub.push(T('nc.tile_collecting', { time: ncTime(c.collecting) }));
+  return Office.stat({ label: T('tile.notify'), value: fmt.number(c.day ? c.day.sent : 0), sub, alert: failed || n.available === false, ...a });
+}
+/** «Waiting for the summary»: how many, since when collecting */
+function notifyWaitTile(a) {
+  const c = (state.notify || {}).center || {};
+  return Office.stat({ label: T('tile.notify_wait'), value: fmt.number(c.waiting || 0),
+    sub: c.collecting ? T('nc.tile_collecting', { time: ncTime(c.collecting) }) : c.waiting ? T('nc.tile_waiting', { n: c.waiting }) : T('nc.waiting_none'), ...a });
+}
+/** «History»: what the last day did — sent, collected or not sent, didn't arrive */
+function notifyLogTile(a) {
+  const d = ((state.notify || {}).center || {}).day || { sent: 0, held: 0, failed: 0 };
+  const sub = [T('nc.tile_day', { sent: T('nc.count.sent', { n: d.sent }), held: T('nc.count.held', { n: d.held }) })];
+  if (d.failed) sub.push(T('nc.count.failed', { n: d.failed }));
+  return Office.stat({ label: T('tile.notify_log'), value: fmt.number(d.sent + d.held), sub, alert: d.failed > 0, ...a });
+}
+
+// ---- the centre itself
 function notifySection() {
-  const n = state.notify || { on: true, available: true, waiting: 0, last: null };
   const s = el('section', 'section');
   s.dataset.ct = 'notify';
-  const label = el('label', 'switch');
-  const cb = el('input');
-  cb.type = 'checkbox';
-  cb.checked = n.on !== false;
-  cb.disabled = !Office.agent.running;
-  label.append(cb, el('span', '', T('notify_switch')));
-  cb.onchange = async () => {
-    cb.disabled = true;
-    const on = cb.checked;
-    const j = await Office.api.post(`${ID}.notify_set`, { on });
-    if (!j.ok) {
-      cb.checked = !on;
-      cb.disabled = false;
-      Office.toast(Office.errorText(j.error, ID), true);
-      return;
-    }
-    state = j.state;
-    Office.keepInPlace(null, render);
-    Office.toast(T(on ? 'notify_on' : 'notify_off'));
-  };
-  s.appendChild(Office.sectionHead(T('notify_title'), T('notify_sub'), label, { place: 'notify_title' }));
-
-  const box = el('div', 'box');
-  const r = el('div', 'row nocheck');
-  const main = el('div', 'row-main');
-  const last = n.last;
-  const items = last ? (last.items || []) : [];
-  main.appendChild(el('div', 'row-name text', !last ? T('notify_none')
-    : T(last.sent === false ? 'notify_last_failed' : 'notify_last', { when: fmt.relative(last.time), n: items.length })));
-  if (n.on !== false && n.waiting) {
-    const meta = el('div', 'row-meta');
-    meta.appendChild(el('span', '', T('notify_waiting', { n: n.waiting })));
-    main.appendChild(meta);
+  const busy = !Office.agent.running;
+  const test = el('button', 'btn small plain', T('nc.test'));
+  test.type = 'button';
+  test.disabled = busy || !nc;
+  test.setAttribute('aria-expanded', String(ncOpen === 'test'));
+  test.onclick = () => { ncOpen = ncOpen === 'test' ? '' : 'test'; Office.keepInPlace(test, render); };
+  const silentOn = !!(nc && nc.settings.silent_until && nc.settings.silent_until > Date.now() / 1000);
+  const silent = el('button', 'btn small plain', T(silentOn ? 'nc.silent_end' : 'nc.silent'));
+  silent.type = 'button';
+  silent.disabled = busy || !nc;
+  ncTip(silent, 'nc.tip.silent');
+  silent.onclick = () => (silentOn ? ncSilent(silent, 0) : (ncOpen = ncOpen === 'silent' ? '' : 'silent', Office.keepInPlace(silent, render)));
+  s.appendChild(Office.sectionHead(T('notify_title'), T('notify_sub'), ncEl('span', 'ct-acts', test, silent), { place: 'notify_title' }));
+  if (!nc) {
+    s.appendChild(el('p', 'empty', Office.t('common.loading')));
+    return s;
   }
-  if (items.length) main.appendChild(el('div', 'row-detail', items.map((f) => text(f)).join(' · ')));
-  if (n.available === false) main.appendChild(el('div', 'row-detail', T('notify_missing')));
-  r.appendChild(main);
-  box.appendChild(r);
+  s.appendChild(ncEl('p', 'ct-nc-rules', ncTip(el('span', 'chip ok', T('nc.chip.alerts')), 'nc.tip.alerts'), ' ',
+    ncTip(el('span', 'chip', T('nc.chip.flood')), 'nc.tip.flood')));
+  if (nc.available === false) s.appendChild(el('p', 'role', T('notify_missing')));
+  if (silentOn) s.appendChild(el('p', 'callout warn ct-nc-silent', T('nc.silent_on', { when: ncDay(nc.settings.silent_until) })));
+  if (ncOpen === 'test') s.appendChild(ncTestRow());
+  if (ncOpen === 'silent') s.appendChild(ncSilentRow());
+  s.appendChild(ncWhoBox());
+  s.appendChild(ncCommonBox());
+  return s;
+}
+
+/** The test: one notification at a level, past the settings — then where Unraid sends that level */
+function ncTestRow() {
+  const r = ncEl('div', 'ct-subhead ct-nc-choice', ncEl('span', 'ct-subhead-words', el('strong', '', T('nc.test_pick'))));
+  for (const level of ['normal', 'warning', 'alert']) {
+    const b = el('button', 'btn small', T('nc.test_as.' + level));
+    b.type = 'button';
+    b.disabled = !Office.agent.running;
+    b.onclick = async () => {
+      b.disabled = true;
+      b.appendChild(el('span', 'spin'));
+      const j = await Office.api.post(`${ID}.notify_test`, { level });
+      if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); b.disabled = false; return; }
+      const ch = j.channels || {};
+      const where = ['browser', 'mail', 'agents'].filter((k) => ch[k]).map((k) => T('nc.ch.' + k));
+      Office.toast(j.sent ? T('nc.test_sent', { level: T('nc.test_as.' + level), where: where.length ? where.join(', ') : T('nc.ch_none') }) : T('nc.test_failed'), !j.sent);
+      if (j.part) nc = j.part;
+      ncOpen = '';
+      Office.keepInPlace(null, render);
+    };
+    r.appendChild(b);
+  }
+  return r;
+}
+
+/** «Silent until …»: a few times to pick, or a day and hour of one's own */
+function ncSilentRow() {
+  const r = ncEl('div', 'ct-subhead ct-nc-choice', ncEl('span', 'ct-subhead-words', el('strong', '', T('nc.silent_pick')), el('span', '', T('nc.silent_note'))));
+  const now = new Date();
+  const morning = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 8, 0, 0);
+  for (const [key, until] of [['nc.silent_hours', Date.now() + 3 * 3600e3], ['nc.silent_morning', morning.getTime()], ['nc.silent_week', Date.now() + 7 * 86400e3]]) {
+    const b = el('button', 'btn small plain', T(key));
+    b.type = 'button';
+    b.onclick = () => ncSilent(b, Math.floor(until / 1000));
+    r.appendChild(b);
+  }
+  const own = el('input', 'input small');
+  own.type = 'datetime-local';
+  own.setAttribute('aria-label', T('nc.silent_own'));
+  const go = el('button', 'btn small', T('nc.silent_go'));
+  go.type = 'button';
+  go.onclick = () => {
+    const t = own.value ? new Date(own.value).getTime() : NaN;
+    if (!Number.isFinite(t) || t <= Date.now()) { Office.toast(T('nc.silent_bad'), true); return; }
+    ncSilent(go, Math.floor(t / 1000));
+  };
+  r.append(own, go);
+  return r;
+}
+async function ncSilent(btn, until) {
+  btn.disabled = true;
+  const j = await Office.api.post(`${ID}.notify_silent`, { until });
+  if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); btn.disabled = false; return; }
+  if (j.state) state = j.state;
+  if (j.part) nc = j.part;
+  ncOpen = '';
+  Office.keepInPlace(null, render);
+  Office.toast(until ? T('nc.silent_done') : T('nc.silent_ended'));
+}
+
+/** A select of the office's (input small), its options [[value, text]] */
+function ncSelect(label, value, options, onChange) {
+  const sel = el('select', 'input small');
+  sel.setAttribute('aria-label', label);
+  for (const [v, txt] of options) {
+    const o = el('option', '', txt);
+    o.value = v;
+    sel.appendChild(o);
+  }
+  sel.value = value;
+  sel.disabled = !Office.agent.running;
+  sel.onchange = () => onChange(sel.value, sel);
+  return sel;
+}
+function ncClock(label, value, onChange) {
+  const i = el('input', 'input small ct-nc-clock');
+  i.type = 'time';
+  i.value = value;
+  i.setAttribute('aria-label', label);
+  i.disabled = !Office.agent.running;
+  i.onchange = () => { if (/^([01]\d|2[0-3]):[0-5]\d$/.test(i.value)) onChange(i.value, i); };
+  return ncTip(i, 'nc.tip.at');
+}
+const ncLevelText = (id, level) => T(level === 'alert' && !(nc.sends[id] || []).includes('alert') ? 'nc.level.off' : 'nc.level.' + level);
+
+/** «Who reports what»: a row per colleague — threshold, successes, right away or in the summary at a time; its bar */
+function ncWhoBox() {
+  const set = ncSet();
+  const box = el('div', 'box ct-group');
+  box.appendChild(Office.place('nc.who', ncEl('div', 'ct-subhead', ncEl('span', 'ct-subhead-words', el('strong', '', T('nc.who')), el('span', '', T('nc.who_sub'))))));
+  const bar = ncBar('who');
+  const ids = ncDesks();
+  bar.options(['all', 'warning', 'alert'].map((l) => [l, T('nc.level.' + l), ids.filter((id) => (set.desks[id] || {}).level === l).length]));
+  box.appendChild(bar.el);
+  const f = bar.read();
+  const fits = ids.filter((id) => {
+    const d = set.desks[id] || { level: 'all', when: 'now' };
+    return (!f.pick || d.level === f.pick) && (!ncF.when || d.when === ncF.when)
+      && Office.fits(f.words, [ncName(id), ...(nc.sends[id] || []).map((l) => T('nc.send.' + l)), ncLevelText(id, d.level), T('nc.when.' + d.when)]);
+  });
+  for (const id of fits) {
+    const d = set.desks[id] || { level: 'all', success: true, when: 'now', at: null };
+    const sends = nc.sends[id] || [];
+    const r = el('div', 'row nocheck ct-nc-row');
+    r.dataset.id = id;
+    const main = el('div', 'row-main');
+    main.appendChild(id === 'office' ? el('span', 'chip', T('nc.office_row')) : deskChip(id));
+    main.appendChild(ncEl('div', 'row-meta', el('span', '', T('nc.sends', { what: sends.map((l) => T('nc.send.' + l)).join(', ') }))));
+    const col = (nc.collecting || {})[id];
+    if (col) main.appendChild(ncTip(el('div', 'row-detail', T('nc.collecting', { time: ncTime(col.since), n: col.n })), 'nc.tip.flood'));
+    const ctl = el('div', 'ct-nc-ctl');
+    ctl.appendChild(ncTip(ncSelect(T('nc.level_label', { name: ncName(id) }), d.level, ['all', 'warning', 'alert'].map((l) => [l, ncLevelText(id, l)]),
+      (v, sel) => ncEdit(sel, (x) => { x.desks[id].level = v; })), 'nc.tip.level'));
+    if ((nc.success || []).includes(id)) {
+      const lab = el('label', 'check');
+      const cb = el('input');
+      cb.type = 'checkbox';
+      cb.checked = d.success !== false;
+      cb.disabled = !Office.agent.running || d.level !== 'all';
+      cb.onchange = () => ncEdit(cb, (x) => { x.desks[id].success = cb.checked; });
+      lab.append(cb, el('span', '', T('nc.success')));
+      ctl.appendChild(ncTip(lab, 'nc.tip.success'));
+    }
+    const quiet = d.level === 'alert';
+    const when = ncSelect(T('nc.when_label', { name: ncName(id) }), d.when, [['now', T('nc.when.now')], ['summary', T('nc.when.summary')]],
+      (v, sel) => ncEdit(sel, (x) => { x.desks[id].when = v; }));
+    when.disabled = when.disabled || quiet;
+    ctl.appendChild(ncTip(when, 'nc.tip.when'));
+    if (d.when === 'summary' && !quiet) {
+      ctl.appendChild(ncClock(T('nc.at_label', { name: ncName(id) }), d.at || set.at, (v, i) => ncEdit(i, (x) => { x.desks[id].at = v; })));
+    }
+    r.append(main, ctl);
+    box.appendChild(r);
+  }
+  ncDone(bar, fits.length, ids.length, ['when']);
+  return box;
+}
+
+/** «For everyone»: the summary's time (and everyone into it), quiet hours, the sign of life — and saving */
+function ncCommonBox() {
+  const set = ncSet();
+  const box = el('div', 'box ct-group');
+  box.appendChild(Office.place('nc.common', ncEl('div', 'ct-subhead', ncEl('span', 'ct-subhead-words', el('strong', '', T('nc.common')), el('span', '', T('nc.common_sub'))))));
+  const all = el('button', 'btn small plain', T('nc.all_summary'));
+  all.type = 'button';
+  all.disabled = !Office.agent.running;
+  all.onclick = () => ncEdit(all, (x) => { for (const id of ncDesks()) if (x.desks[id].level !== 'alert') { x.desks[id].when = 'summary'; x.desks[id].at = null; } });
+  const r1 = ncEl('div', 'row nocheck ct-nc-row', ncEl('div', 'row-main', el('div', 'row-name text', T('nc.at')), el('div', 'row-detail', T('nc.at_sub'))),
+    ncEl('div', 'ct-nc-ctl', ncClock(T('nc.at'), set.at, (v, i) => ncEdit(i, (x) => { x.at = v; })), all));
+  const ql = el('label', 'check');
+  const qc = el('input');
+  qc.type = 'checkbox';
+  qc.checked = !!set.quiet.on;
+  qc.disabled = !Office.agent.running;
+  qc.onchange = () => ncEdit(qc, (x) => { x.quiet.on = qc.checked; });
+  ql.append(qc, el('span', '', T('nc.quiet')));
+  ncTip(ql, 'nc.tip.quiet');
+  const ctl2 = el('div', 'ct-nc-ctl');
+  if (set.quiet.on) {
+    ctl2.append(el('span', 'ct-nc-word', T('nc.quiet_from')), ncTip(ncClock(T('nc.quiet_from'), set.quiet.from, (v, i) => ncEdit(i, (x) => { x.quiet.from = v; })), 'nc.tip.quiet'),
+      el('span', 'ct-nc-word', T('nc.quiet_to')), ncTip(ncClock(T('nc.quiet_to'), set.quiet.to, (v, i) => ncEdit(i, (x) => { x.quiet.to = v; })), 'nc.tip.quiet'));
+  }
+  const r2 = ncEl('div', 'row nocheck ct-nc-row', ncEl('div', 'row-main', ql, el('div', 'row-detail', T('nc.quiet_sub'))), ctl2);
+  const wl = el('label', 'check');
+  const wc = el('input');
+  wc.type = 'checkbox';
+  wc.checked = !!set.all_well;
+  wc.disabled = !Office.agent.running;
+  wc.onchange = () => ncEdit(wc, (x) => { x.all_well = wc.checked; });
+  wl.append(wc, el('span', '', T('nc.all_well')));
+  const r3 = ncEl('div', 'row nocheck ct-nc-row', ncEl('div', 'row-main', wl, el('div', 'row-detail', T('nc.all_well_sub'))));
+  box.append(r1, r2, r3);
+  if (ncDirty()) {
+    const save = el('button', 'btn small', T('nc.save'));
+    save.type = 'button';
+    save.disabled = !Office.agent.running;
+    save.onclick = () => ncSave(save);
+    const undo = el('button', 'btn small plain', T('nc.undo'));
+    undo.type = 'button';
+    undo.onclick = () => { ncDraft = null; Office.keepInPlace(undo, render); };
+    box.appendChild(ncEl('div', 'ct-subhead ct-nc-save', ncEl('span', 'ct-subhead-words', el('strong', '', T('nc.unsaved'))), save, undo));
+  }
+  return box;
+}
+async function ncSave(btn) {
+  btn.disabled = true;
+  btn.appendChild(el('span', 'spin'));
+  const x = ncDraft;
+  const desks = {};
+  for (const [id, d] of Object.entries(x.desks)) {
+    if (!nc.desks.includes(id)) continue;
+    desks[id] = { level: d.level, success: d.success !== false, when: d.when, at: d.at || null };
+  }
+  const j = await Office.api.post(`${ID}.notify_save`, { desks, at: x.at, quiet: { on: !!x.quiet.on, from: x.quiet.from, to: x.quiet.to }, all_well: !!x.all_well });
+  if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); btn.disabled = false; return; }
+  if (j.state) state = j.state;
+  if (j.part) nc = j.part;
+  ncDraft = null;
+  Office.keepInPlace(null, render);
+  Office.toast(T('nc.saved'));
+}
+
+/** Why something waits or was not sent — a chip with its tip (the guard's numbers in it) */
+function ncWhyChip(e) {
+  const chip = el('span', `chip ${e.fate === 'sent' ? 'ok' : e.fate === 'failed' ? 'danger' : e.fate === 'dropped' ? '' : 'warn'}`, T('nc.fate.' + e.fate));
+  if (e.why === 'flood' || e.why === 'same') return ncTip(chip, 'nc.tip.flood');
+  if (e.why === 'alert_cap') return ncTip(chip, 'nc.tip.alerts');
+  chip.title = e.why && Office.has(`${ID}.nc.why.${e.why}`) ? T('nc.why.' + e.why) : T('nc.fate_tip.' + e.fate);
+  return chip;
+}
+/** The bar's «who» select: the colleagues a list names, each with how many */
+const ncWhoOptions = (list) => [...new Set(list.map((e) => e.desk))].map((d) => [d, ncName(d), list.filter((e) => e.desk === d).length]);
+
+// ---- what waits for a summary
+function notifyWaitSection() {
+  const s = el('section', 'section');
+  s.dataset.ct = 'notify_wait';
+  const n = nc ? nc.waiting.length : 0;
+  s.appendChild(Office.sectionHead(T('nc.wait_head'), nc && n && nc.next ? T('nc.next', { time: fmt.relative(Math.max(nc.next, nc.time)) }) : T('nc.waiting_sub'),
+    { place: 'nc.wait_head' }));
+  if (!nc) { s.appendChild(el('p', 'empty', Office.t('common.loading'))); return s; }
+  const bar = ncBar('wait');
+  bar.options(ncWhoOptions(nc.waiting));
+  const box = el('div', 'box');
+  box.appendChild(bar.el);
+  const f = bar.read();
+  const fits = nc.waiting.filter((e) => (!f.pick || e.desk === f.pick) && Office.fits(f.words, [e.subject, e.description, ncName(e.desk), T('nc.fate.' + e.fate)]));
+  if (!n) box.appendChild(ncEl('div', 'row nocheck', ncEl('div', 'row-main', el('div', 'row-detail', T('nc.waiting_none')))));
+  for (const e of fits) {
+    const meta = ncEl('div', 'row-meta', el('span', '', fmt.relative(e.time)), el('span', '', ncName(e.desk)), ncWhyChip(e),
+      e.due ? el('span', '', T('nc.goes', { when: fmt.relative(e.due) })) : null);
+    box.appendChild(ncEl('div', 'row nocheck ct-nc-log', ncEl('div', 'row-main', el('div', 'row-name text', e.subject), meta,
+      e.description ? el('div', 'row-detail', e.description) : null)));
+  }
+  ncDone(bar, fits.length, n, []);
+  s.appendChild(box);
+  if (nc.preview) {
+    s.appendChild(ncEl('div', 'box ct-group', ncEl('div', 'ct-subhead', ncEl('span', 'ct-subhead-words', el('strong', '', T('nc.preview')), el('span', '', T('nc.preview_sub')))),
+      ncEl('div', 'row nocheck', ncEl('div', 'row-main', el('div', 'row-name text', nc.preview.subject), el('div', 'row-detail', nc.preview.description),
+        el('pre', 'code ct-nc-preview', nc.preview.message)))));
+  }
+  return s;
+}
+
+// ---- the history
+function notifyLogSection() {
+  const s = el('section', 'section');
+  s.dataset.ct = 'notify_log';
+  s.appendChild(Office.sectionHead(T('nc.log_title'), T('nc.log_sub'), { place: 'nc.log_title' }));
+  if (!nc) { s.appendChild(el('p', 'empty', Office.t('common.loading'))); return s; }
+  const all = nc.log || [];
+  const bar = ncBar('log');
+  bar.options(ncWhoOptions(all));
+  const box = el('div', 'box');
+  box.appendChild(bar.el);
+  const f = bar.read();
+  const since = ncF.time === 'day' ? nc.time - 86400 : ncF.time === 'week' ? nc.time - 7 * 86400 : 0;
+  const fits = all.filter((e) => (!f.pick || e.desk === f.pick) && (!ncF.fate || e.fate === ncF.fate) && e.time >= since
+    && Office.fits(f.words, [e.subject, e.description, ncName(e.desk), T('nc.fate.' + e.fate)]));
+  if (!all.length) box.appendChild(ncEl('div', 'row nocheck', ncEl('div', 'row-main', el('div', 'row-detail', T('nc.log_none')))));
+  for (const e of fits.slice(0, 200)) {
+    const when = el('span', '', fmt.relative(e.time));
+    when.title = ncDay(e.time);
+    box.appendChild(ncEl('div', 'row nocheck ct-nc-log', ncEl('div', 'row-main', el('div', 'row-name text', e.subject),
+      ncEl('div', 'row-meta', when, el('span', '', ncName(e.desk)), ncWhyChip(e)), e.description ? el('div', 'row-detail', e.description) : null)));
+  }
+  ncDone(bar, fits.length, all.length, ['fate', 'time']);
   s.appendChild(box);
   return s;
 }
@@ -771,12 +1135,17 @@ Office.desk({
   async mount(root, sub) {
     view = root;
     bar().reset();        // a new visit: every point (the bar's words are never kept)
+    Object.values(ncBars).forEach((b) => b.reset());
+    ncF.when = ncF.fate = ncF.time = '';
+    ncDraft = null;
+    ncOpen = '';
     sw.mount(sub);
     render();
+    loadNotify(false);    // the notification centre's part (beside his state, not after it)
     await load(false);
   },
   unmount() { view = null; },
-  poll() { load(false); },
+  poll() { load(false); if (!ncDirty()) loadNotify(false); },
   started() { if (!state) load(false); },     // his badge shows on every page
   agentChanged() { if (view) render(); },
   supporterChanged() { if (view) Office.keepInPlace(null, render); },     // a key entered or removed, his ask answered
@@ -802,6 +1171,9 @@ Office.places(ID, [
   ...[['team', 'team'], ['office', 'office'], ['todo_count', 'todo'], ['notify_title', 'notify'], ['partner.title', 'partner'], ['done', 'done']]
     .map(([key, tile]) => ({ kind: 'section', key, route: `#/caretaker/${tile}` })),
   { kind: 'section', key: 'noted', route: '#/caretaker/done', shown: () => !state || groups().noted.length > 0 },     // drawn only with something put aside
+  ...['nc.who', 'nc.common'].map((key) => ({ kind: 'section', key, route: '#/caretaker/notify' })),
+  { kind: 'section', key: 'nc.wait_head', route: '#/caretaker/notify_wait' },
+  { kind: 'section', key: 'nc.log_title', route: '#/caretaker/notify_log' },
   ...[['todo', 'help.todo'], ['advice', 'help.advice'], ['hints', 'help.hints'], ['ack', 'help.ack'], ['noted_term', 'help.noted'],
     ['missing', 'help.missing'], ['not_yet', 'help.not_yet'], ['unknown', 'help.unknown'], ['team', 'help.team'],
     ['supporter_term', 'help.supporter'], ['help.open', 'help.open_text'], ['check_again', 'help.again'], ['notify_title', 'help.notify'],

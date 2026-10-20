@@ -2,5 +2,8 @@
   "order": 10,
   "icon": "👥",
   "refresh_after": 300,
-  "always": true
+  "always": true,
+  "parts": {
+    "notify": { "refresh_after": 60, "action": "notify_part" }
+  }
 }

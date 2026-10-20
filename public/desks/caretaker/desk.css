@@ -48,4 +48,16 @@ pre.code.ct-pblock{user-select:all; max-height:30vh; word-break:break-all}
 .ct-ppaste{width:100%; resize:vertical; word-break:break-all}
 .ct-pcode{font:650 30px/1.2 var(--mono); letter-spacing:.08em; color:var(--ink); text-align:center; padding:10px 0 14px; font-variant-numeric:tabular-nums}
 @media (max-width:640px){ .row.ct-partner{grid-template-columns:minmax(0,1fr)} }
+/* the notification centre («Reports»): a row per colleague — who and what they send, then the choices; the summary
+   as it would read; the history */
+.row.ct-nc-row{grid-template-columns:minmax(0,1fr) auto; align-items:center}
+.ct-nc-ctl{display:flex; gap:8px 10px; align-items:center; flex-wrap:wrap; justify-content:flex-end}
+.ct-nc-ctl .input.small{flex:0 1 auto}
+.ct-nc-ctl label.check{display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--ink2)}
+.ct-nc-clock{width:auto; flex:0 0 auto}
+.ct-nc-word{font-size:13px; color:var(--ink2)}
+.ct-nc-choice{gap:8px}
+.ct-nc-save{justify-content:flex-end}
+pre.code.ct-nc-preview{white-space:pre-wrap; word-break:break-word; max-height:40vh; overflow:auto; margin-top:8px}
+@media (max-width:640px){ .row.ct-nc-row{grid-template-columns:minmax(0,1fr)} .ct-nc-ctl{justify-content:flex-start} }
 }

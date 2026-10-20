@@ -50,6 +50,11 @@ desk('caretaker', [
         'office_check'  => fn (array $r) => ['ok' => true, 'state' => caretakerScan(true)],
         'menu_name'     => fn (array $r) => caretakerMenuName(is_string($r['name'] ?? null) ? $r['name'] : '', textField($r, 'place')),
         'notify_set'    => fn (array $r) => caretakerNotifySet($r['on'] ?? null),
+        // the notification centre (lib/notifycenter.php): its part of his page, the settings, «Still bis …», a test
+        'notify_part'   => fn (array $r) => ['ok' => true, 'state' => officeNotifyPublic()],
+        'notify_save'   => fn (array $r) => caretakerNotifyDone(officeNotifySave($r), 'saved'),
+        'notify_silent' => fn (array $r) => caretakerNotifyDone(officeNotifySilent($r['until'] ?? null), 'silent'),
+        'notify_test'   => fn (array $r) => officeNotifyTest($r['level'] ?? null) + ['part' => officeNotifyPublic()],
         // Unraid's standard shares (system) on the user's click — only those missing and never there (lib/firsthome.php)
         'shares_make'   => fn (array $r) => caretakerSharesMake(idList($r, 'shares')),
         'ack'           => fn (array $r) => caretakerAck($r['sig'] ?? null, true),
@@ -289,7 +294,8 @@ function caretakerNotifyEvaluate(array $checks, ?string $file = null, ?int $now 
     $now ??= time();
     $old = readJson($file) ?? [];
     $data = $old + ['on' => true, 'red' => [], 'last' => null];
-    [$data['red'], $tell] = caretakerNotifyStep((array) $data['red'], caretakerRed($checks), $now, $data['on'] !== false);
+    // 1.68: whether and how it goes is the notification centre's (lib/notifycenter.php) — `on` stays for an older version
+    [$data['red'], $tell] = caretakerNotifyStep((array) $data['red'], caretakerRed($checks), $now, true);
     if ($tell) {
         $sent = caretakerNotifySend($tell, $lang ?? officeNotifyLang());
         $data['last'] = ['time' => $now, 'sent' => $sent,
@@ -337,6 +343,8 @@ function caretakerNotifySend(array $items, string $lang): bool
         'warning',
         $body . "\n\n" . officeNotifyText('caretaker', 'notify.footer', [], $lang),
         officeNotifyLink('#/caretaker/todo'),
+        'caretaker',
+        'todo',
     );
 }
 
@@ -351,27 +359,39 @@ function caretakerWrite(string $file, array $data): void
     writeAtomic($file, jsonEncode($data));
 }
 
-/** For the page: switched on?, can Unraid be told at all, the last report */
+/** After a change in the notification centre: logged, his state (the tile) and the centre's part anew */
+function caretakerNotifyDone(array $s, string $what): array
+{
+    logLine('Notifications: ' . ($what === 'silent' ? ($s['silent_until'] ? 'silent until ' . date('Y-m-d H:i', $s['silent_until']) : 'talking again')
+        : 'settings saved (' . implode(', ', array_map(fn ($id, $d) => "$id {$d['level']}" . ($d['when'] === 'summary' ? ' summary' : '') . ($d['success'] ? '' : ' no successes'),
+            array_keys($s['desks']), $s['desks'])) . ')'));
+    return ['ok' => true, 'state' => caretakerScan(), 'part' => officeNotifyPublic()];
+}
+
+/** For the page: switched on?, can Unraid be told at all, the last report — and the notification centre's line for his tile */
 function caretakerNotifyPublic(array $data): array
 {
     return [
-        'on'        => ($data['on'] ?? true) !== false,
+        'on'        => officeNotifySettings()['desks']['caretaker']['level'] !== 'alert',
+        'center'    => officeNotifyBrief(),
         'available' => is_executable(OFFICE_NOTIFY_BIN),
         'waiting'   => count(array_filter((array) ($data['red'] ?? []), fn ($t) => is_array($t) && ($t['told'] ?? null) === null)),
         'last'      => is_array($data['last'] ?? null) ? $data['last'] : null,
     ];
 }
 
-/** The switch on his page: report to Unraid's notifications or not */
+/**
+ * His old switch (an older page, the API): since 1.68 his row in the notification centre — on: everything, off: alerts
+ * only (he sends none: nothing then); officeNotifyWrite() keeps `on` in notify.json for an older version
+ */
 function caretakerNotifySet(mixed $on): array
 {
     if (!is_bool($on)) {
         throw new Problem('bad_request');
     }
-    $file = caretakerNotifyFile();
-    $data = readJson($file) ?? [];
-    $data['on'] = $on;
-    caretakerWrite($file, $data);
+    $s = officeNotifySettings();
+    $s['desks']['caretaker']['level'] = $on ? 'all' : 'alert';
+    officeNotifyWrite($s, OFFICE_NOTIFY_FILE);
     logLine("Caretaker: reports to Unraid's notifications " . ($on ? 'on' : 'off'));
     return ['ok' => true, 'state' => caretakerScan()];
 }
@@ -955,6 +975,8 @@ function caretakerPartnerWatch(): int
                 'warning',
                 officeNotifyText('caretaker', 'notify.partner_silent_message', $params, $lang) . $tailnet,
                 officeNotifyLink('#/caretaker/partner'),
+                'caretaker',
+                'partner_silent',
             );
             logLine("Partner offices: {$p['name']} ({$p['id']}) is silent since {$params['since']} — " . ($sent ? 'told' : 'could not tell') . " Unraid's notifications");
             return $sent;

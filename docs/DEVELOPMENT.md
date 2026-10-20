@@ -85,7 +85,8 @@ data/
 ├── <desk>.json            each desk's state; <desk>-<part>.json an extra part (desk.json "parts")
 ├── logs-mine.json, logs-filters.json   Ms. Protocolli's own rules and hide words, her saved filters
 ├── mailbox/               requests from the page, answers from the agent
-├── office/                who is hired and in which order, the language for notifications
+├── office/                who is hired and in which order, the language for notifications, the notification centre
+│                          (notify.json settings, notify-held.json what waits for a summary, notify-log.json history)
 ├── unraid-backup/         the backup engine: settings.ini, state/, logs/ (root only)
 ├── partner/               the Team Lead's pairs, tickets, the door's log (root only)
 ├── restore/, restore-drill/   Mr. Restori's journals, the drill's runs, certificates and its record of throwaways
@@ -372,12 +373,30 @@ changing the dashboard too. Change Grafana's default admin/admin before it can b
 ## Notifications in detail
 
 Everything goes through `officeNotify()` (agent/lib/house.php) as the event *Unraid Secretary Office*; `warning` for
-something to fix, `alert` only when something is at risk now. The office's texts come in the language the office was
+something to fix, `alert` only when something is at risk now.
+
+**The notification centre** (the Team Lead's tiles «Notification centre», «Waiting for the summary», «Notification history», 1.68) is ONE gate in front of every sender of the office's own (never Unraid's or another plugin's: nothing reads
+or filters a notification the office didn't send; Unraid's notification settings are only read): `officeNotify()`
+(the agent, its jobs, the night shift), the engine's `ub_notify()` and `agent.sh tell` ask the same decision — send now ·
+hold for the summary · count only. PHP side `agent/lib/notifycenter.php`, bash side `backup/lib/notifygate.sh` (sourced
+by the engine and agent.sh; `testNotifyCenter` runs both over the same cases and compares the numbers). The desks send
+as before and only name themselves and the event (`officeNotify(…, $link, 'jack', 'run_failed')`, the engine's `ub_tell`
+code, `TELL_EVENT`). Files: the settings `data/office/notify.json` (tolerant; the page writes them through the agent:
+`caretaker.notify_save|notify_silent|notify_test`, his part `notify`); the senders' copy `RUN_DIR/notify.cfg` key=value
+(and on the flash for a night shift after a reboot; none = everything goes, as before); the flood guard's lines
+`RUN_DIR/notify-guard` read and written only under the flock of `notify.second`; each decision a JSON in
+`RUN_DIR/notify-in/`, folded once a minute by the agent into `data/office/notify-held.json` (its RAM copy for the night
+shift) and `data/office/notify-log.json` (30 days). Alerts are never held; held only while the agent's heartbeat is fresh
+(else it goes now). The summary goes from the agent's minute or the night shift's loop (RAM only; its summary is a
+decision that covers what it sent). A new sender passes its desk and event; a new success or resolving event goes into
+`OFFICE_NOTIFY_SUCCESS` / `OFFICE_NOTIFY_RESOLVES` and `ung_is_success` / `ung_resolves` alike. The Team Lead's and the
+Night Watchman's old switches and the engine's `notify_success` no longer decide (kept for an older version; migration
+step `notify-center`). The office's texts come in the language the office was
 last used in (`data/office/lang.json`; until then Unraid's), Unraid's menus in them in Unraid's language; the engine
 and the plugin's look at the agent write English.
 
 * **Mr. Backupsy** (the engine): a run failed or ended with errors (alert) or warnings (warning), or went well (normal,
-  can be switched off in his setup); a VM not resumed or started, a container not started, Nextcloud stuck in
+  «successes too» at the Team Lead's); a VM not resumed or started, a container not started, Nextcloud stuck in
   maintenance mode (alert); maintenance mode already on, space running out, Kopia incomplete, an aborted run repaired,
   a run skipped because the engine was busy (warning); a new folder that stays local until you decide (normal, once
   per folder); a run the array stop ended (normal) and what it left stopped brought back after the array start
@@ -389,10 +408,10 @@ and the plugin's look at the agent write English.
   (normal) — lists, dry runs and a stop asked on her page stay quiet.
 * **Mr. Restori:** a drill couldn't prove that everything comes back (warning), once per drill.
 * **The Team Lead:** something new under *Still to do* that stayed for half an hour (warning), once — again only if it
-  was solved and came back. He looks every 30 minutes, also with the office closed; a switch on his page turns it off.
+  was solved and came back. He looks every 30 minutes, also with the office closed.
   A partner office silent for 6 hours (warning), once per silence and again every 24 hours.
 * **The Night Watchman:** every new entry of his watch book that matters (warning), per kind at most once an hour —
-  also from the night shift. A switch on his page turns it off (the watch book keeps them).
+  also from the night shift (the watch book keeps them).
 * **The plugin:** the agent hasn't checked in for 10 minutes while the array runs (alert), and once it is back
   (normal).
 
@@ -611,6 +630,7 @@ The same thing has the same word on every desk and text; grammar follows the wor
 | thank-you levels | a coffee for the team · a round for everyone · cake for the whole office · a pay rise and the donations | ein Kaffee fürs Team · eine Runde für alle · Kuchen fürs ganze Büro (deliberately) · Lohnerhöhung und Spenden | un caffè per il team · un giro per tutti · una torta per tutta la segreteria · un aumento e le donazioni | un café pour l'équipe · une tournée pour tout le monde · du gâteau pour tout le secrétariat · une augmentation et les dons | un café para el equipo · una ronda para todos · pastel para toda la secretaría · un aumento de sueldo y las donaciones |
 | share · disk · /boot · Docker template · a log · dataset · Emby's key | share · disk · the flash (a physical stick stays a stick) · template · log · dataset · API key | der Share · die Disk (not Platte) · der Flash · das Template (not Vorlage) · das Protokoll (not Log) · das Dataset · der API-Schlüssel | la condivisione · il disco · l'unità flash · il template · il log (registro = watch book) · il dataset · la chiave API | le partage · le disque · la flash · le modèle · le journal · le dataset · la clé API | el recurso compartido · el disco · el flash · la plantilla · el registro · el dataset · la clave API |
 | Unraid's bell · user → makers · menu item | notifications · report · Report a problem or a wish… | die Benachrichtigungen (one sent: eine Meldung) · die Rückmeldung · Problem oder Wunsch mitteilen… | le notifiche · la segnalazione · Segnala un problema o un desiderio… | les notifications · le signalement · Signaler un problème ou un souhait… | las notificaciones · el comentario · Contar un problema o un deseo… |
+| the Team Lead's settings for them (1.68) · a summary · quiet hours · silent until · the flood guard | Notification centre · summary · quiet hours · Silent until… · flood guard | die Mitteilungszentrale (items stay «Meldung») · die Zusammenfassung · die Ruhezeit · Still bis… · der Schutz vor Meldungsfluten | il centro notifiche · il riepilogo · le ore di quiete · Silenzio fino a… · la protezione contro le raffiche | le centre de notifications · le résumé · les heures calmes · Silence jusqu'à… · la protection contre les rafales | el centro de notificaciones · el resumen · las horas de calma · Silencio hasta… · la protección contra avalanchas |
 | partner · pair · its key line · code | partner office · pair · the door · safety code | das Partner-Sekretariat · verbinden · die Tür · der Sicherheitscode | la segreteria partner · abbinare · la porta · il codice di sicurezza | le secrétariat partenaire · appairer · la porte · le code de sécurité | la secretaría asociada (el socio) · emparejar · la puerta · el código de seguridad |
 | kept at partner · pull back · new server's start · temp door | At <partner> · Bring back · Start from a partner's copy… · ticket | Beim Partner <name> · Vom Partner zurückholen · Von der Kopie eines Partners starten… · das Ticket | Presso <partner> · Recupera · Parti dalla copia di un partner… · il ticket | Chez <partenaire> · Rapatrier · Partir de la copie d'un partenaire… · le ticket | En <socio> · Traer · Empezar desde la copia de un socio… · el ticket |
 

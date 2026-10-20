@@ -75,6 +75,7 @@ require __DIR__ . '/lib/util.php';
 require __DIR__ . '/lib/mounts.php';
 require __DIR__ . '/lib/backupscript.php';
 require __DIR__ . '/lib/house.php';
+require __DIR__ . '/lib/notifycenter.php';     // the Team Lead's notification centre: the gate in front of officeNotify()
 require __DIR__ . '/lib/snapshotplans.php';
 require __DIR__ . '/lib/officeupdate.php';
 require __DIR__ . '/lib/metrics.php';
@@ -189,6 +190,8 @@ function nightShift(): int
     $why = null;
     $next = -INF;               // on agentClock(): a clock stepped back never skips his rounds for as long as it went back
     $rounds = 0;
+    $GLOBALS['officeNotifySender'] = true;     // the night shift sends the Team Lead's summaries meanwhile (RAM only)
+    $nextNotify = -INF;
     while (!$stop) {
         clearstatcache();
         $agent = runningAgent();
@@ -199,6 +202,14 @@ function nightShift(): int
         if (arrayRunning()) {
             $why = 'the array is started — the agent takes over';
             break;
+        }
+        if (agentClock() >= $nextNotify) {
+            $nextNotify = agentClock() + 60;
+            try {
+                officeNotifyNightTick();        // what waits for a summary goes when due (lib/notifycenter.php)
+            } catch (Throwable $e) {
+                nightLog('Notifications: ' . $e->getMessage());
+            }
         }
         if (agentClock() >= $next) {
             $next = agentClock() + WATCH_EVERY;
@@ -282,6 +293,7 @@ function serve(): int
 
     $code = codeStamp();
     $ready = false;
+    $GLOBALS['officeNotifySender'] = true;     // the agent sends the Team Lead's summaries: notifications may wait for them
     // the rounds and naps run on agentClock() (monotonic): a clock stepped back (by hand, NTP, a scenario's aged files)
     // never freezes the agent for as long as it went back — the heartbeat itself still carries wall time
     $lastPulse = $lastLook = $lastCleanup = -INF;
@@ -335,6 +347,11 @@ function serve(): int
         if ($now - $lastCleanup >= 60) {
             cleanUpMailbox();
             officeNotifyLangKeep();     // the office's language into RAM, for the night shift's notifications (lib/house.php)
+            try {
+                officeNotifyTick();     // the Team Lead's notification centre: settings to the senders, queue, summaries (lib/notifycenter.php)
+            } catch (Throwable $e) {
+                logLine('Notifications: ' . $e->getMessage());
+            }
             $lastCleanup = $now;
             if (($way = dataWayLook()) !== null) {
                 restartInPlace($lock, "The data folder is reached another way now ($way)");

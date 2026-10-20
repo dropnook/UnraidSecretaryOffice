@@ -15662,18 +15662,18 @@ function testWatchman(): void
     array_map('unlink', glob("$mdir/*"));
     rmdir($mdir);
 
-    // the switch (like the team lead's): off — nothing told, and what came meanwhile stays untold once it is on again
+    // his old switch (1.68): the Team Lead's notification centre decides now — `notify` false (an older office wrote it)
+    // no longer mutes his book: he tells as ever, the centre's gate keeps it from Unraid at «alerts only» (testNotifyCenter)
     $book2 = [watchmanEntry('flash_user', 'flash_user:zed', $now, ['user' => 'zed'])];
     $st2 = ['notify' => false];
     $before = count($calls());
     $t2 = watchmanNotifyDue($book2, $st2, $now + 99999, true, 'en');
-    same('watch switch off: nothing told, the entry muted', [[], $before, true, null], [$t2, count($calls()), !empty($book2[0]['muted']), $book2[0]['told'] ?? null]);
-    $st2['notify'] = true;
-    $t2 = watchmanNotifyDue($book2, $st2, $now + 99999 + 60, true, 'en');
-    same('watch switch on again: what came meanwhile stays untold', [[], $before], [$t2, count($calls())]);
+    same('watch switch off (an older office\'s): told all the same, nothing muted — the centre decides', [[['kind' => 'flash_user', 'n' => 1, 'sent' => true]], $before + 1, false],
+        [$t2, count($calls()), !empty($book2[0]['muted'])]);
     $book2[] = watchmanEntry('flash_user', 'flash_user:amy', $now, ['user' => 'amy']);
-    $t2 = watchmanNotifyDue($book2, $st2, $now + 99999 + 120, true, 'en');
-    same('watch switch on: what is new is told', [[['kind' => 'flash_user', 'n' => 1, 'sent' => true]], $before + 1], [$t2, count($calls())]);
+    $book2[1]['muted'] = $now;          // muted by an older office: stays as it is, never told
+    $t2 = watchmanNotifyDue($book2, $st2, $now + 99999 + 2 * WATCH_NOTIFY_QUIET, true, 'en');
+    same('watch switch: an entry an older office muted stays untold', [[], $before + 1], [$t2, count($calls())]);
     same('watch switch: on by default', true, watchmanPageState($data, $now + 5000, false)['notify']['on']);
     watchmanNotifySet(false, $data, false);
     same('watch switch: kept in his state, the page sees it', [false, false], [watchmanLoad($data)['state']['notify'] ?? null, watchmanPageState($data, $now + 5000, false)['notify']['on']]);
@@ -17446,14 +17446,21 @@ function testNotify(): void
     same('notify: both in it (English)', 'Unraid Secretary Office: 2 new things to do', $c[1]['-s'] ?? null);
     check('notify: both listed', str_contains($c[1]['-d'] ?? '', 'Mr. Backupsy — A backup is scheduled')
         && str_contains($c[1]['-d'] ?? '', 'Jack Streamer — Python 3'), $c[1]['-d'] ?? '');
-    $data = readJson($file) ?? [];
-    $data['on'] = false;
-    file_put_contents($file, json_encode($data));
+    // switched off: since 1.68 his row in the notification centre (lib/notifycenter.php) — «alerts only»: the gate keeps
+    // what he tells (warnings) from Unraid, its history has it as not sent; his old `on` no longer decides
+    $home = "$tmp/centre";
+    @mkdir($home, 0700, true);
+    putenv("OFFICE_NOTIFY_HOME=$home");
+    $s = officeNotifySettings([]);
+    $s['desks']['caretaker']['level'] = 'alert';
+    officeNotifyCfgKeep($s, $home, null);
     $other = ['backup' => [$f('dumps_share', 'required', false, ['share' => ''])]];
     caretakerNotifyEvaluate($other, $file, $t0 + 8000, 'en');
     caretakerNotifyEvaluate($other, $file, $t0 + 9800, 'en');
-    same('notify: switched off — quiet', 2, count($calls()));
-    same('notify: switched off — the page knows', false, caretakerNotifyPublic(readJson($file) ?? [])['on']);
+    same('notify: switched off (the centre: alerts only) — quiet', 2, count($calls()));
+    same('notify: … the centre has it as not sent (below the threshold)', [['caretaker', 'todo', 'dropped', 'threshold']],
+        array_values(array_map(fn ($i) => [$i['desk'], $i['event'], $i['fate'], $i['why']], officeNotifyDropsRead($home))));
+    putenv('OFFICE_NOTIFY_HOME');
 
     // no language the office was last used in (data/office/lang.json): Unraid's, when the office speaks it
     foreach (['de_DE' => 'de', 'fr_FR' => 'fr', 'pt_BR' => 'en', '' => 'en', '../x' => 'en'] as $locale => $want) {
@@ -17482,6 +17489,386 @@ function testNotify(): void
 
     putenv($before === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$before");
     exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * The Team Lead's notification centre (1.68, agent/lib/notifycenter.php, backup/lib/notifygate.sh): ONE gate in front of
+ * every sender. The settings (defaults = before the centre, tolerant), the senders' key=value file, the decision the
+ * same in PHP and in bash (the engine, agent.sh) over the same cases; alerts never held; the flood guard (the same once
+ * until resolved, caps per desk and office with ONE notice, alerts bundled past their cap); the queue, the summary (one
+ * notification, empty never sent), quiet hours and «silent until» ending, the night shift's summary from RAM; the engine
+ * and agent.sh obeying with a stand-in notify; the migration of the old switches; the page's save refusing wrong shapes.
+ */
+function testNotifyCenter(): void
+{
+    $tmp = hardeningTmp('notifycenter');
+    $log = "$tmp/notified";
+    file_put_contents("$tmp/notify", "#!/bin/bash\nfor a in \"\$@\"; do printf '%s\\x1f' \"\$a\"; done >> " . escapeshellarg($log) . "\necho >> " . escapeshellarg($log) . "\n");
+    chmod("$tmp/notify", 0755);
+    $env = ['OFFICE_NOTIFY_BIN' => getenv('OFFICE_NOTIFY_BIN'), 'OFFICE_NOTIFY_HOME' => getenv('OFFICE_NOTIFY_HOME'), 'OFFICE_NOTIFY_STAMP' => getenv('OFFICE_NOTIFY_STAMP')];
+    putenv("OFFICE_NOTIFY_BIN=$tmp/notify");
+    putenv('OFFICE_NOTIFY_STAMP');
+    $calls = function () use ($log): array {
+        $out = [];
+        foreach (array_filter(explode("\n", (string) @file_get_contents($log))) as $line) {
+            $args = explode("\x1f", rtrim($line, "\x1f"));
+            $o = [];
+            for ($i = 0; $i + 1 < count($args); $i += 2) {
+                $o[$args[$i]] = $args[$i + 1];
+            }
+            $out[] = $o;
+        }
+        return $out;
+    };
+    $gate = OFFICE_DIR . '/backup/lib/notifygate.sh';
+    $fresh = function (string $name) use ($tmp): string {
+        $h = "$tmp/$name";
+        exec('rm -rf ' . escapeshellarg($h));
+        mkdir($h, 0700, true);
+        return $h;
+    };
+    $beat = fn (string $h, bool $alive) => touch("$h/agent.json", $alive ? time() : time() - 600);
+    $cfg = function (string $h, array $change) {
+        $s = officeNotifySettings([]);
+        foreach ($change as $path => $v) {
+            $ref = &$s;
+            foreach (explode('/', $path) as $k) {
+                $ref = &$ref[$k];
+            }
+            $ref = $v;
+            unset($ref);
+        }
+        officeNotifyCfgKeep(officeNotifySettings($s), $h, null);
+    };
+
+    // ---- the numbers: the same in PHP and bash
+    foreach (['NOTIFY_SAME_FORGET', 'NOTIFY_CAP_WINDOW', 'NOTIFY_DESK_CAP', 'NOTIFY_OFFICE_CAP', 'NOTIFY_ALERT_CAP', 'NOTIFY_ALERT_BUNDLE', 'NOTIFY_HEART_FRESH',
+              'NOTIFY_DROPS_MAX', 'NOTIFY_GUARD_MAX'] as $c) {
+        same("centre: $c the same in notifygate.sh", (string) constant($c), trim((string) shell_exec('bash -c ' . escapeshellarg('source ' . escapeshellarg($gate) . "; printf %s \"\$$c\""))));
+    }
+    same('centre: the owner\'s numbers', [86400, 3600, 5, 20, 10, 900], [NOTIFY_SAME_FORGET, NOTIFY_CAP_WINDOW, NOTIFY_DESK_CAP, NOTIFY_OFFICE_CAP, NOTIFY_ALERT_CAP, NOTIFY_ALERT_BUNDLE]);
+
+    // ---- the settings: none = today's behaviour; tolerant; the senders' file
+    $s = officeNotifySettings([]);
+    same('centre: defaults — everything right away, successes on, quiet off, not silent', [['all', true, 'now', null], false, 0, false, '08:00'],
+        [array_values(array_intersect_key($s['desks']['backup'], array_flip(['level', 'success', 'when', 'at']))), $s['quiet']['on'], $s['silent_until'], $s['all_well'], $s['at']]);
+    same('centre: every sender has a row', OFFICE_NOTIFY_DESKS, array_keys($s['desks']));
+    $odd = officeNotifySettings(['at' => '25:00', 'desks' => ['backup' => ['level' => 'loud', 'success' => 'no', 'when' => 'summary', 'at' => '07:30', 'future' => 1],
+                                'newdesk' => ['level' => 'warning'], 'Bad' => []], 'quiet' => ['on' => 'yes'], 'silent_until' => '9', 'later' => ['x' => 1]]);
+    same('centre: a field of another shape reads as its default, unknown keys and desks stay (tolerant)',
+        ['08:00', 'all', true, 'summary', '07:30', 1, 'warning', false, false, 0, ['x' => 1]],
+        [$odd['at'], $odd['desks']['backup']['level'], $odd['desks']['backup']['success'], $odd['desks']['backup']['when'], $odd['desks']['backup']['at'],
+         $odd['desks']['backup']['future'], $odd['desks']['newdesk']['level'], isset($odd['desks']['Bad']), $odd['quiet']['on'], $odd['silent_until'], $odd['later']]);
+    $h = $fresh('cfg');
+    $cfg($h, ['desks/backup/level' => 'warning', 'desks/backup/success' => false, 'desks/jack/when' => 'summary', 'desks/jack/at' => '06:15',
+              'quiet/on' => true, 'silent_until' => 2000000000]);
+    $text = (string) file_get_contents("$h/notify.cfg");
+    $php = officeNotifyCfgRead("$h/notify.cfg");
+    same('centre: the senders\' file — what PHP reads back', ['1', '0800', '2200-0700', '2000000000', 'warning', '0', 'summary', '0615', '0800'],
+        [$php['v'], $php['at'], $php['quiet'], $php['silent_until'], $php['backup.level'], $php['backup.success'], $php['jack.when'], $php['jack.at'], $php['caretaker.at']]);
+    $bash = (string) shell_exec('bash -c ' . escapeshellarg('source ' . escapeshellarg($gate) . '; ung_cfg_read "$1" && for k in "${!UNG_CFG[@]}"; do printf "%s=%s\n" "$k" "${UNG_CFG[$k]}"; done | LC_ALL=C sort') . ' _ ' . escapeshellarg("$h/notify.cfg"));
+    $sorted = $php;
+    ksort($sorted);
+    same('centre: … and bash reads the same', implode("\n", array_map(fn ($k, $v) => "$k=$v", array_keys($sorted), $sorted)), trim($bash));
+    file_put_contents("$h/bad.cfg", "v=2\nbackup.level=alert\n");
+    same('centre: another version\'s file is none (everything as before)', [null, '1'], [officeNotifyCfgRead("$h/bad.cfg"),
+        trim((string) shell_exec('bash -c ' . escapeshellarg('source ' . escapeshellarg($gate) . '; ung_cfg_read "$1"; echo $?') . ' _ ' . escapeshellarg("$h/bad.cfg")))]);
+    check('centre: the file carries nothing but key=value and its title line', !preg_match('/^(?!#)(?![a-z][a-z_]*(\.[a-z_]+)?=[A-Za-z0-9_-]*$).+$/m', $text), $text);
+
+    // ---- only the office's own: the centre never reads or filters a notification it didn't send, never writes Unraid's
+    // notification settings (it reads them for the test button's «where it goes»)
+    foreach (['agent/lib/notifycenter.php', 'backup/lib/notifygate.sh'] as $f) {
+        $src = (string) file_get_contents(OFFICE_DIR . "/$f");
+        check("centre own only ($f): no look into Unraid's notification folder", !preg_match('#/(unread|archive)\b|/tmp/notifications|officeNotifyDir\(#', $src));
+        check("centre own only ($f): nothing written under Unraid's dynamix settings",
+            !preg_match('#(writeAtomic|writeNewFile|file_put_contents|rename|copy|fopen)\s*\([^;\n]*dynamix|>>?\s*"?[^\s;]*dynamix#', $src));
+    }
+
+    // ---- the decision: PHP and bash over the same cases
+    $bashDecide = function (string $home, string $desk, string $event, string $level, string $key, int $now) use ($gate): array {
+        $cmd = 'source ' . escapeshellarg($gate) . '; ung_decide "$1" "$2" "$3" "$4" "$5" "$6"; printf "%s %s %s %s" "$UNG_FATE" "${UNG_WHY:--}" "$UNG_DUE" "${UNG_NOTICE:--}"';
+        $out = trim((string) shell_exec('TZ=' . escapeshellarg(date_default_timezone_get()) . ' bash -c ' . escapeshellarg($cmd) . ' _ '
+            . implode(' ', array_map('escapeshellarg', [$home, $desk, $event, $level, $key, (string) $now]))));
+        $p = explode(' ', $out) + ['?', '-', '0', '-'];
+        return ['fate' => $p[0], 'why' => $p[1] === '-' ? '' : $p[1], 'due' => (int) $p[2], 'notice' => $p[3] === '-' ? '' : $p[3]];
+    };
+    $phpDecide = function (string $home, string $desk, string $event, string $level, string $key, int $now): array {
+        $room = officeNotifyDropsRoom($home);
+        return officeNotifyDecide(officeNotifyCfg($home), officeNotifyGuardRead($home), $desk, $event, $level, $key, $now, $room && officeNotifyCanHold($home), $room);
+    };
+    $now = time();
+    $hour = (int) date('G', $now);
+    // wide enough that a host without zoneinfo (bash then on UTC, PHP on the tests' Europe/Zurich) agrees
+    $around = sprintf('%02d:00', ($hour + 21) % 24);
+    $after = sprintf('%02d:00', ($hour + 3) % 24);
+    $later = sprintf('%02d:00', ($hour + 6) % 24);
+    $lines = fn (string $h, array $ls) => file_put_contents("$h/notify-guard", implode('', array_map(fn ($l) => implode(' ', $l) . "\n", $ls)));
+    $k = 'aaaaaaaaaaaaaaaa';
+    $cases = [
+        // [name, cfg changes, agent alive, guard lines, desk, event, level, want fate, want why]
+        ['no settings file: as before', null, true, [], 'backup', 'warnings', 'warning', 'sent', ''],
+        ['threshold: a notice below «warnings and alerts»', ['desks/backup/level' => 'warning'], true, [], 'backup', 'array_stop', 'normal', 'dropped', 'threshold'],
+        ['threshold: a warning at «alerts only»', ['desks/snapshot/level' => 'alert'], true, [], 'snapshot', 'plan_failed', 'warning', 'dropped', 'threshold'],
+        ['an alert at «alerts only» goes', ['desks/backup/level' => 'alert'], true, [], 'backup', 'failed', 'alert', 'sent', ''],
+        ['successes off', ['desks/backup/success' => false], true, [], 'backup', 'ok', 'normal', 'dropped', 'success'],
+        ['successes off: another notice still goes', ['desks/backup/success' => false], true, [], 'backup', 'new_folder', 'normal', 'sent', ''],
+        ['in the summary', ['desks/jack/when' => 'summary'], true, [], 'jack', 'run_failed', 'warning', 'held', 'summary'],
+        ['in the summary — but the agent away: goes now', ['desks/jack/when' => 'summary'], false, [], 'jack', 'run_failed', 'warning', 'sent', 'no_sender'],
+        ['quiet hours', ['quiet/on' => true, 'quiet/from' => $around, 'quiet/to' => $after], true, [], 'restore', 'drill_failed', 'warning', 'held', 'quiet'],
+        ['quiet hours over', ['quiet/on' => true, 'quiet/from' => $after, 'quiet/to' => $later], true, [], 'restore', 'drill_failed', 'warning', 'sent', ''],
+        ['quiet hours: an alert goes', ['quiet/on' => true, 'quiet/from' => $around, 'quiet/to' => $after], true, [], 'watchman', 'kopia_emptied', 'alert', 'sent', ''],
+        ['silent', ['silent_until' => $now + 3600], true, [], 'caretaker', 'todo', 'warning', 'held', 'silent'],
+        ['silent: an alert goes', ['silent_until' => $now + 3600], true, [], 'office', 'agent_away', 'alert', 'sent', ''],
+        ['silent ended', ['silent_until' => $now - 5], true, [], 'caretaker', 'todo', 'warning', 'sent', ''],
+        ['the same, unresolved: counted', null, true, [[$now - 600, 'sent', 'backup', 'alert', $k]], 'backup', 'failed', 'alert', 'counted', 'same'],
+        ['the same, resolved since: goes', null, true, [[$now - 600, 'sent', 'backup', 'alert', $k], [$now - 60, 'resolved', 'backup', '-', '-']], 'backup', 'failed', 'alert', 'sent', ''],
+        ['the same, a day ago: goes', null, true, [[$now - 86401, 'sent', 'backup', 'alert', $k]], 'backup', 'failed', 'alert', 'sent', ''],
+        ['another desk\'s resolve: still counted', null, true, [[$now - 600, 'sent', 'backup', 'alert', $k], [$now - 60, 'resolved', 'jack', '-', '-']], 'backup', 'failed', 'alert', 'counted', 'same'],
+    ];
+    $five = array_map(fn ($i) => [$now - 100 * $i, 'sent', 'watchman', 'warning', "b$i" . str_repeat('0', 14)], range(1, 5));
+    $twenty = array_map(fn ($i) => [$now - 100 * $i, 'sent', ['backup', 'jack', 'snapshot', 'moverelli'][$i % 4], 'warning', 'c' . str_pad((string) $i, 15, '0')], range(1, 20));
+    $tenAlerts = array_map(fn ($i) => [$now - 100 * $i, 'sent', 'backup', 'alert', 'd' . str_pad((string) $i, 15, '0')], range(1, 10));
+    $cases[] = ['desk cap: the sixth in an hour is collected, with ONE notice', null, true, $five, 'watchman', 'chain', 'warning', 'collected', 'flood'];
+    $cases[] = ['desk cap: notice given already — only collected', null, true, [...$five, [$now - 50, 'flood', 'watchman', 'warning', '-']], 'watchman', 'chain', 'warning', 'collected', 'flood'];
+    $cases[] = ['desk cap: an hour later it goes again', null, true, array_map(fn ($l) => [$l[0] - 3600, ...array_slice($l, 1)], $five), 'watchman', 'chain', 'warning', 'sent', ''];
+    $cases[] = ['office cap: the 21st in an hour is collected', null, true, $twenty, 'restore', 'drill_failed', 'warning', 'collected', 'flood'];
+    $cases[] = ['alerts: never by the caps', null, true, $twenty, 'backup', 'failed', 'alert', 'sent', ''];
+    $cases[] = ['alerts: past ten distinct an hour — the bundle', null, true, $tenAlerts, 'backup', 'vm_not_started', 'alert', 'collected', 'alert_cap'];
+    $cases[] = ['alerts: past ten — but nobody to send the bundle: goes', null, false, $tenAlerts, 'backup', 'vm_not_started', 'alert', 'sent', ''];
+    foreach ($cases as [$name, $change, $alive, $guard, $desk, $event, $level, $wantFate, $wantWhy]) {
+        $h = $fresh('case');
+        if ($change !== null) {
+            $cfg($h, $change);
+        }
+        $beat($h, $alive);
+        if ($guard) {
+            $lines($h, $guard);
+        }
+        $p = $phpDecide($h, $desk, $event, $level, $k, $now);
+        $b = $bashDecide($h, $desk, $event, $level, $k, $now);
+        same("centre decides ($name)", [$wantFate, $wantWhy], [$p['fate'], $p['why']]);
+        same("centre decides the same in bash ($name)", $p, $b);
+    }
+    $h = $fresh('notice');
+    $beat($h, true);
+    $lines($h, $five);
+    $p = $phpDecide($h, 'watchman', 'chain', 'warning', $k, $now);
+    same('centre: the first collected one carries the notice and the summary\'s time (an hour on)', ['watchman', $now + 3600], [$p['notice'], $p['due']]);
+    $lines($h, [...$five, [$now - 1200, 'flood', 'watchman', 'warning', '-']]);
+    same('centre: … later ones the time the notice gave', [$now - 1200 + 3600, ''], array_values(array_intersect_key($phpDecide($h, 'watchman', 'chain', 'warning', $k, $now), ['due' => 1, 'notice' => 1])));
+    $lines($h, $twenty);
+    same('centre: the office cap\'s notice is the whole office\'s', '*', $phpDecide($h, 'restore', 'drill_failed', 'warning', $k, $now)['notice']);
+
+    // ---- officeNotify() through the gate: held, collected with its notice, the drops for the history
+    $h = $fresh('send');
+    putenv("OFFICE_NOTIFY_HOME=$h");
+    $beat($h, true);
+    @unlink($log);
+    $cfg($h, ['desks/jack/when' => 'summary', 'desks/jack/at' => '06:00']);
+    check('centre send: held — true for the caller (it is taken care of), nothing to Unraid',
+        officeNotify('Jack Streamer: run failed', 'x', 'warning', '', null, 'jack', 'run_failed') && count($calls()) === 0);
+    same('centre send: … its decision in the drops', [['jack', 'run_failed', 'warning', 'held', 'summary', 'Jack Streamer: run failed']],
+        array_values(array_map(fn ($i) => [$i['desk'], $i['event'], $i['level'], $i['fate'], $i['why'], $i['subject']], officeNotifyDropsRead($h))));
+    officeNotify('Ms. Snapshotini: plan failed', 'y', 'warning', '', null, 'snapshot', 'plan_failed');
+    same('centre send: right away — sent and in the guard', [1, 'sent'], [count($calls()), officeNotifyGuardRead($h)[0][1] ?? null]);
+    officeNotify('Ms. Snapshotini: plan failed', 'y', 'warning', '', null, 'snapshot', 'plan_failed');
+    same('centre send: the same again — counted, not sent', [1, 'counted'], [count($calls()), array_values(officeNotifyDropsRead($h))[2]['fate'] ?? null]);
+    for ($i = 1; $i <= 6; $i++) {
+        officeNotify("Night watchman: thing $i", 'z', 'warning', '', null, 'watchman', 'chain');
+    }
+    $c = $calls();
+    same('centre send: five from one desk go, the sixth is collected with ONE notice', [7, true, 'warning'],
+        [count($c), ($c[6]['-s'] ?? '') === 'Unraid Secretary Office: ' . officeNotifyFloodText('watchman', time(), officeNotifyLang())[0], $c[6]['-i'] ?? null]);
+    officeNotify('Night watchman: thing 7', 'z', 'warning', '', null, 'watchman', 'chain');
+    officeNotify('Night watchman: thing 8', 'z', 'warning', '', null, 'watchman', 'chain');
+    same('centre send: … the next collected without another notice', 7, count($calls()));
+    officeNotify('Night watchman: offsite emptied', 'z', 'alert', '', null, 'watchman', 'kopia_emptied');
+    same('centre send: an alert past the desk cap goes at once', ['alert', 8], [$calls()[7]['-i'] ?? null, count($calls())]);
+    $flood = array_values(array_filter(officeNotifyDropsRead($h), fn ($i) => $i['why'] === 'flood'));
+    same('centre send: three collected, their summary an hour after the notice', [3, true], [count($flood), $flood && abs($flood[0]['due'] - (time() + 3600)) < 10]);
+
+    // ---- the agent's minute: folded into the queue and the history, the summary when due, empty never sent
+    $held = "$tmp/held.json";
+    $hist = "$tmp/log.json";
+    $set = "$tmp/settings.json";
+    @unlink($held);
+    @unlink($hist);
+    file_put_contents($set, json_encode(['desks' => ['jack' => ['when' => 'summary', 'at' => '06:00']]]));
+    @unlink($log);
+    officeNotifyTick(time(), $h, $held, $hist, $set);
+    $q = officeNotifyQueueRead($held);
+    same('centre tick: the drops folded — four wait (Jack Streamer\'s, three collected), the history has all twelve, the folder empty',
+        [4, 12, 0, true], [count($q['items']), count(officeNotifyLogRead($hist)), count(glob("$h/notify-in/*.json")), is_file("$h/notify-held.json")]);
+    same('centre tick: nothing due yet — nothing sent', 0, count($calls()));
+    $at6 = officeNotifyNextAt(time(), '06:00');
+    $jackOnly = officeNotifyQueueRead($held);
+    $jackOnly['items'] = array_values(array_filter($jackOnly['items'], fn ($i) => $i['desk'] === 'jack'));
+    file_put_contents($held, json_encode($jackOnly));
+    officeNotifyTick($at6 + 30, $h, $held, $hist, $set);
+    $c = $calls();
+    same('centre tick: at 06:00 the summary — one notification, past the gate, the queue empty', [1, 0], [count($c), count(officeNotifyQueueRead($held)['items'])]);
+    check('centre tick: … its subject counts, it lists the item, leads to the centre', str_contains($c[0]['-s'] ?? '', '1') && str_contains($c[0]['-m'] ?? '', 'Jack Streamer: run failed')
+        && str_ends_with($c[0]['-l'] ?? '', '#/caretaker/notify') && ($c[0]['-i'] ?? '') === 'warning', json_encode($c[0] ?? []));
+    $entries = officeNotifyLogRead($hist);
+    same('centre tick: the summary in the history, with what it covered', ['summary', 'sent', 1], [end($entries)['event'] ?? null, end($entries)['fate'] ?? null, count(end($entries)['covers'] ?? [])]);
+    officeNotifyTick($at6 + 90, $h, $held, $hist, $set);
+    same('centre tick: an empty summary is never sent', 1, count($calls()));
+    // the same notification many times: once in the summary, counted
+    $items = [];
+    foreach ([60, 50, 40] as $ago) {
+        $items[] = ['v' => 1, 'id' => "r$ago", 'time' => time() - $ago * 60, 'desk' => 'restore', 'event' => 'drill_failed', 'level' => 'warning', 'fate' => 'held',
+                    'why' => 'summary', 'due' => 0, 'key' => 'eeeeeeeeeeeeeeee', 'subject' => 'Mr. Restori: drill failed', 'description' => 'd', 'message' => '', 'link' => ''];
+    }
+    $items[] = ['id' => 'x1', 'key' => 'ffffffffffffffff', 'subject' => 'Ms. Moverelli: run stopped', 'level' => 'normal'] + $items[0];
+    [$subj, , $msg, $lvl] = officeNotifySummaryText($items, 'en');
+    same('centre summary: four in it, the same once with how often, the level the highest', ['Summary: 4 notifications', 2, true, 'warning'],
+        [$subj, substr_count($msg, '• '), str_contains($msg, '3 times'), $lvl]);
+    // quiet hours and «silent until» end: what they held goes when they end
+    $q = ['v' => 1, 'items' => [['why' => 'quiet'] + $items[0], ['why' => 'silent', 'id' => 's1'] + $items[1]], 'bundle' => 0, 'all_well' => ''];
+    $quietNow = ['v' => '1', 'quiet' => str_replace(':', '', $around) . '-' . str_replace(':', '', $after), 'silent_until' => (string) ($now + 600)];
+    same('centre due: while quiet and silent nothing goes', [[], []], array_values(officeNotifyDueNow($q, $quietNow, $now)));
+    same('centre due: both over — both go', [2], [count(officeNotifyDueNow($q, ['v' => '1', 'quiet' => 'off', 'silent_until' => '0'], $now)['summary'])]);
+    $b = ['v' => 1, 'items' => [['why' => 'alert_cap', 'level' => 'alert', 'fate' => 'collected'] + $items[0]], 'bundle' => $now - 300, 'all_well' => ''];
+    same('centre due: the alert bundle waits its 15 minutes — quiet hours or not', [0, 1, 1],
+        [count(officeNotifyDueNow($b, null, $now)['bundle']), count(officeNotifyDueNow($b, null, $now + 600)['bundle']), count(officeNotifyDueNow($b, $quietNow, $now + 600)['bundle'])]);
+
+    // ---- the night shift: from RAM only, its summary a decision that covers what it sent
+    $h = $fresh('night');
+    putenv("OFFICE_NOTIFY_HOME=$h");
+    $cfg($h, ['desks/caretaker/when' => 'summary', 'desks/caretaker/at' => '05:00']);
+    $one = ['v' => 1, 'id' => 'n1', 'time' => time() - 7200, 'desk' => 'caretaker', 'event' => 'todo', 'level' => 'warning', 'fate' => 'held', 'why' => 'summary',
+            'due' => 0, 'key' => '1111111111111111', 'subject' => 'Something new to do', 'description' => 'x', 'message' => '', 'link' => ''];
+    file_put_contents("$h/notify-held.json", json_encode(['v' => 1, 'items' => [$one], 'bundle' => 0, 'all_well' => '']));
+    officeNotifyDrop($h, ['id' => 'n2', 'time' => time() - 3600, 'subject' => 'Partner silent', 'key' => '2222222222222222'] + $one);
+    @unlink($log);
+    officeNotifyNightTick(officeNotifyNextAt(time() - 3600, '05:00') + 86400 * 2, $h);
+    same('centre night: both go in one summary', [1, true], [count($calls()), str_contains($calls()[0]['-m'] ?? '', 'Partner silent')]);
+    $covers = array_values(array_filter(officeNotifyDropsRead($h), fn ($i) => isset($i['covers'])));
+    same('centre night: its summary is a decision covering both, the RAM copy empty', [1, ['n1', 'n2'], 0],
+        [count($covers), $covers[0]['covers'] ?? null, count(officeNotifyQueueRead("$h/notify-held.json")['items'])]);
+    $nightHeld = "$tmp/night-held.json";
+    file_put_contents($nightHeld, json_encode(['v' => 1, 'items' => [$one], 'bundle' => 0, 'all_well' => '']));
+    officeNotifyTick(time(), $h, $nightHeld, "$tmp/night-log.json", null);
+    same('centre night: the agent back folds it — nothing of it waits again, nothing sent twice', [0, 1], [count(officeNotifyQueueRead($nightHeld)['items']), count($calls())]);
+
+    // ---- the engine obeys (ub_notify through notifygate.sh), agent.sh too
+    $h = $fresh('engine');
+    $beat($h, true);
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+    $ub = fn (string $cmd) => shell_exec('bash -c ' . escapeshellarg("UB_DATA=$tmp/ub UB_NOTIFY_BIN=$tmp/notify UB_NOTIFY_HOME=$h UB_NOTIFY_STAMP=$h/notify.second; source $lib >/dev/null 2>&1; $cmd") . ' 2>&1');
+    $cfg($h, ['desks/backup/level' => 'warning', 'desks/backup/success' => false]);
+    @unlink($log);
+    $ub('ub_tell array_stop normal "" "Backup stopped for the array stop" "short"; ub_tell warnings warning "" "Backup with warnings" "2 warnings"; ub_tell ok normal "" "Backup successful" "fine"; ub_tell failed alert "" "Backup failed" "why"');
+    $c = $calls();
+    same('centre engine: at «warnings and alerts» without successes — the warning and the alert go, the notice and the success not', [2, 'warning', 'alert'],
+        [count($c), $c[0]['-i'] ?? null, $c[1]['-i'] ?? null]);
+    $fates = array_map(fn ($i) => "{$i['event']}:{$i['fate']}", array_values(officeNotifyDropsRead($h)));
+    same('centre engine: every decision for the history (the PHP reader takes the engine\'s JSON)', ['array_stop:dropped', 'warnings:sent', 'ok:dropped', 'failed:sent'], $fates);
+    same('centre engine: the success resolved Mr. Backupsy\'s', true, (bool) array_filter(officeNotifyGuardRead($h), fn ($l) => $l[1] === 'resolved' && $l[2] === 'backup'));
+    same('centre engine: with the centre\'s file it decides about successes, not notify_success', ['0', '1'],
+        [trim((string) $ub('ub_centre_decides && echo 0 || echo 1')), trim((string) shell_exec('bash -c ' . escapeshellarg("UB_DATA=$tmp/ub UB_NOTIFY_HOME=$tmp/none; source $lib >/dev/null 2>&1; ub_centre_decides && echo 0 || echo 1")))]);
+    $ub('ub_tell failed alert "" "Backup failed" "why"');
+    same('centre engine: the same alert again, unresolved — counted', 2, count($calls()));
+    $ub('ub_tell ok normal "" "Backup successful" "fine"; ub_tell failed alert "" "Backup failed" "why"');
+    same('centre engine: after a success it goes again', 3, count($calls()));
+    $cfg($h, ['desks/backup/when' => 'summary']);
+    $ub('ub_tell warnings warning "" "Backup with warnings again" "1 warning"');
+    same('centre engine: in the summary — held (the agent is at work)', [3, 'held'], [count($calls()), array_values(officeNotifyDropsRead($h))[count(officeNotifyDropsRead($h)) - 1]['fate'] ?? null]);
+    $beat($h, false);
+    $ub('ub_tell warnings warning "" "Backup with warnings once more" "1 warning"');
+    same('centre engine: … the agent away — it goes now', 4, count($calls()));
+    $h = $fresh('agentsh');
+    $agentSh = escapeshellarg(OFFICE_DIR . '/plugin/scripts/agent.sh');
+    $tell = fn (string $cmd) => shell_exec('bash -c ' . escapeshellarg("source $agentSh; RUN=$h; NOTIFY=$tmp/notify; FLASH=$tmp/flash; $cmd") . ' 2>&1');
+    @unlink($log);
+    $tell('TELL_EVENT=agent_away tell "Agent not running" "x" alert; TELL_EVENT=agent_away tell "Agent not running" "x" alert');
+    same('centre agent.sh: the same alert twice — once', 1, count($calls()));
+    $tell('TELL_EVENT=agent_back tell "Agent running again" "y" normal; TELL_EVENT=agent_away tell "Agent not running" "x" alert');
+    same('centre agent.sh: back resolves it — the next outage is told', [3, 'normal'], [count($calls()), $calls()[1]['-i'] ?? null]);
+    $cfg($h, ['desks/office/level' => 'alert']);
+    $tell('TELL_EVENT=agent_back tell "Agent running again" "y" normal');
+    same('centre agent.sh: «back» at «alerts only» — not sent, decided for the history', [3, 'dropped'],
+        [count($calls()), array_values(officeNotifyDropsRead($h))[count(officeNotifyDropsRead($h)) - 1]['fate'] ?? null]);
+    putenv('OFFICE_NOTIFY_HOME');
+
+    // ---- the migration: the old switches become the starting values; their keys stay
+    $d = "$tmp/data";
+    exec('rm -rf ' . escapeshellarg($d));
+    @mkdir("$d/caretaker", 0755, true);
+    @mkdir("$d/watchman", 0755, true);
+    @mkdir("$d/unraid-backup", 0700, true);
+    file_put_contents("$d/caretaker/notify.json", json_encode(['on' => false, 'red' => []]));
+    file_put_contents("$d/watchman/state.json", json_encode(['notify' => false]));
+    file_put_contents("$d/unraid-backup/settings.ini", "[general]\nnotify_success = no\n");
+    $said = officeMigrateNotifyCenter($d);
+    $m = readJson("$d/office/notify.json") ?? [];
+    same('centre migration: off stays off (alerts only), no successes stays', ['alert', 'alert', false, 'all', true],
+        [$m['desks']['caretaker']['level'] ?? null, $m['desks']['watchman']['level'] ?? null, $m['desks']['backup']['success'] ?? null, $m['desks']['jack']['level'] ?? null, $m['desks']['jack']['success'] ?? null]);
+    check('centre migration: says what it took over', str_contains($said, 'Team Lead') && str_contains($said, 'successes'), $said);
+    same('centre migration: the old keys stay as they were', [false, false, "[general]\nnotify_success = no\n"],
+        [readJson("$d/caretaker/notify.json")['on'] ?? null, readJson("$d/watchman/state.json")['notify'] ?? null, file_get_contents("$d/unraid-backup/settings.ini")]);
+    file_put_contents("$d/office/notify.json", json_encode(['desks' => ['caretaker' => ['level' => 'all']], 'mine' => 1]));
+    officeMigrateNotifyCenter($d);
+    same('centre migration: settings there — untouched (idempotent)', ['all', 1], [readJson("$d/office/notify.json")['desks']['caretaker']['level'] ?? null, readJson("$d/office/notify.json")['mine'] ?? null]);
+    exec('rm -rf ' . escapeshellarg("$d/office") . ' ' . escapeshellarg("$d/caretaker") . ' ' . escapeshellarg("$d/watchman"));
+    file_put_contents("$d/unraid-backup/settings.ini", "[general]\nnotify_success = yes\n");
+    $said = officeMigrateNotifyCenter($d);
+    $m = officeNotifySettings();
+    same('centre migration: everything on before — no file written, the defaults are exactly today\'s behaviour', [false, ['all'], [true]],
+        [is_file("$d/office/notify.json"), array_values(array_unique(array_column(officeNotifySettings([])['desks'], 'level'))),
+         array_values(array_unique(array_column(officeNotifySettings([])['desks'], 'success')))]);
+    check('centre migration: … and says so', str_contains($said, 'nothing to change'), $said);
+    check('centre migration: a step of its own, idempotent by its own look', in_array('notify-center', array_column(officeMigrateSteps(), 'id'), true));
+
+    // ---- the page's save: every field in exactly its shape, never read as «off»; unknown keys stay
+    $f = "$tmp/save.json";
+    file_put_contents($f, json_encode(['mine' => ['keep' => 1], 'desks' => ['backup' => ['future' => 2]]]));
+    $ok = ['desks' => ['backup' => ['level' => 'warning', 'success' => false, 'when' => 'summary', 'at' => '07:00']], 'at' => '08:30',
+           'quiet' => ['on' => true, 'from' => '22:00', 'to' => '06:30'], 'all_well' => true];
+    $r = officeNotifySave($ok, $f);
+    $back = readJson($f) ?? [];
+    same('centre save: what was chosen, unknown keys kept', ['warning', false, 'summary', '07:00', '08:30', true, '06:30', true, ['keep' => 1], 2],
+        [$back['desks']['backup']['level'], $back['desks']['backup']['success'], $back['desks']['backup']['when'], $back['desks']['backup']['at'], $back['at'],
+         $back['quiet']['on'], $back['quiet']['to'], $back['all_well'], $back['mine'], $back['desks']['backup']['future']]);
+    foreach ([
+        'level not one of three'  => ['desks' => ['backup' => ['level' => 'off'] + $ok['desks']['backup']]] + $ok,
+        'success a string'        => ['desks' => ['backup' => ['success' => 'no'] + $ok['desks']['backup']]] + $ok,
+        'a desk that never sends' => ['desks' => ['cleanup' => $ok['desks']['backup']]] + $ok,
+        'a time of another shape' => ['at' => '8:30'] + $ok,
+        'quiet missing'           => array_diff_key($ok, ['quiet' => 1]),
+        'all_well missing'        => array_diff_key($ok, ['all_well' => 1]),
+        'quiet on a string'       => ['quiet' => ['on' => 'yes'] + $ok['quiet']] + $ok,
+    ] as $why => $req) {
+        try {
+            officeNotifySave($req, $f);
+            check("centre save refuses: $why", false);
+        } catch (Problem $p) {
+            same("centre save refuses: $why", 'bad_request', $p->key);
+        }
+    }
+    same('centre save: a refused one changed nothing', 'warning', (readJson($f) ?? [])['desks']['backup']['level'] ?? null);
+    foreach (['a string' => '1', 'past' => time() - 5, 'too far' => time() + 61 * 86400] as $why => $until) {
+        try {
+            officeNotifySilent($until, $f);
+            check("centre silent refuses: $why", false);
+        } catch (Problem $p) {
+            same("centre silent refuses: $why", 'bad_request', $p->key);
+        }
+    }
+    // where Unraid sends a level: the user's file over Unraid's defaults (a server never set up has no [notify] in it)
+    file_put_contents("$tmp/default.cfg", "[notify]\nnormal=\"1\"\nwarning=\"1\"\nalert=\"1\"\n");
+    file_put_contents("$tmp/dynamix.cfg", "[display]\nlocale=\"de_DE\"\n");
+    same('centre channels: nothing set up — Unraid\'s defaults: the browser', ['browser' => true, 'mail' => false, 'agents' => false],
+        officeNotifyChannels('warning', "$tmp/dynamix.cfg", "$tmp/default.cfg"));
+    file_put_contents("$tmp/dynamix.cfg", "[notify]\nwarning=\"0\"\n");
+    same('centre channels: the user\'s choice over the defaults', false, officeNotifyChannels('warning', "$tmp/dynamix.cfg", "$tmp/default.cfg")['browser']);
+    same('centre silent: until an hour ahead, then 0 — talking again', [true, 0],
+        [officeNotifySilent(time() + 3600, $f)['silent_until'] > time(), officeNotifySilent(0, $f)['silent_until']]);
+
+    foreach ($env as $k => $v) {
+        putenv($v === false ? $k : "$k=$v");
+    }
+    hardeningRm($tmp);
 }
 
 /**
@@ -23266,8 +23653,10 @@ JS);
 function testMigrateMediaCache(): void
 {
     $ids = array_column(officeMigrateSteps(), 'id');
-    check('mediacache: a step of the agent\'s migrations, the last one (1.65.0)', end($ids) === 'mediacache'
-        && officeMigrateSteps()[count($ids) - 1]['version'] === '1.65.0');
+    $at = array_search('mediacache', $ids, true);
+    check('mediacache: a step of the agent\'s migrations (1.65.0), after every older one', $at !== false
+        && officeMigrateSteps()[$at]['version'] === '1.65.0'
+        && !array_filter(array_slice(officeMigrateSteps(), $at + 1), fn ($st) => version_compare($st['version'], '1.65.0', '<')));
     $tmp = hardeningTmp('migrate-mediacache');
     // a fresh install: nothing there, nothing made
     mkdir("$tmp/fresh", 0700);
@@ -46759,7 +47148,7 @@ JS;
     check('place verdict: only in the setup - no finding of it', !preg_match("/finding\\('place_/", (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php')));
 }
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',

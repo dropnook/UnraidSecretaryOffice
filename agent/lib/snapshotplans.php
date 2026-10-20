@@ -608,7 +608,7 @@ function snapPlanRun(array $plan, int $now, ?array $host = null): array
     if ($remembered['new']) {
         $params = ['plan' => (string) $plan['label'], 'targets' => implode(', ', array_map('snapPlanTargetLabel', $remembered['new']))];
         officeNotify(officeNotifyText('snapshot', 'notify.plan_gone_subject', $params, $lang),
-            officeNotifyText('snapshot', 'notify.plan_gone', $params, $lang), 'warning', '', officeNotifyLink('#/snapshot'));
+            officeNotifyText('snapshot', 'notify.plan_gone', $params, $lang), 'warning', '', officeNotifyLink('#/snapshot'), 'snapshot', 'plan_gone');
     }
     return $states[$id];
 }
@@ -633,7 +633,7 @@ function snapPlanNotifyFailures(string $label, array $failures, string $lang): b
     }
     $params = ['plan' => $label, 'n' => count($failures)];
     return officeNotify(officeNotifyText('snapshot', 'notify.plan_failed_subject', $params, $lang),
-        officeNotifyText('snapshot', 'notify.plan_failed', $params, $lang), 'warning', implode("\n", $lines), officeNotifyLink('#/snapshot'));
+        officeNotifyText('snapshot', 'notify.plan_failed', $params, $lang), 'warning', implode("\n", $lines), officeNotifyLink('#/snapshot'), 'snapshot', 'plan_failed');
 }
 
 /**
