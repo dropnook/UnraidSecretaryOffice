@@ -129,11 +129,21 @@ state_tm_utc_broken() {
 }
 undo_tm_utc_broken() { tz_fix TM-UTC-BROKEN; }
 
-# TM-DST [autumn|spring] — two minutes before the change of the time zone's next switch on 2026-10-25 (03:00 → 02:00,
-# the 02:xx hour twice) or 2027-03-28 (02:00 → 03:00, no 02:xx): the clock runs on, ntpd stopped
+# TM-DST [autumn|spring] [zone] — two minutes before the change of the time zone's next switch on 2026-10-25 (03:00 → 02:00,
+# the 02:xx hour twice) or 2027-03-28 (02:00 → 03:00, no 02:xx): the clock runs on, ntpd stopped. A server whose zone
+# file is missing (TM-UTC-BROKEN — USOTest3VM's base) gets <zone> (e.g. Europe/Berlin) linked as /etc/localtime for the
+# state's time — ident.cfg stays as Unraid's form wrote it; the undo links the old one back
 state_tm_dst() {
-    local which=${1:-autumn} z at
-    z=$(_st_zone) || { say "needs a time zone file (this server runs UTC: no DST)"; return 2; }
+    local which=${1:-autumn} zone=${2:-} z at dir; dir=$(_st_dir TM-DST)
+    z=$(_st_zone)
+    if [[ -z $z && -n $zone ]]; then
+        [[ -e /usr/share/zoneinfo/$zone ]] || { say "TM-DST: no zone file $zone here"; return 2; }
+        [[ -f $dir/localtime ]] || readlink /etc/localtime > "$dir/localtime"
+        ln -sfn "/usr/share/zoneinfo/$zone" /etc/localtime || return 1
+        z=$zone
+        say "TM-DST: the server's zone file is missing — $zone linked for the state"
+    fi
+    [[ -n $z ]] || { say "needs a time zone file (this server runs UTC: no DST)"; return 2; }
     case $which in
         autumn) at='2026-10-25 00:58:00 UTC' ;;
         spring) at='2027-03-28 00:58:00 UTC' ;;
@@ -144,7 +154,12 @@ state_tm_dst() {
     clock_set TM-DST "$at" || return 1
     _st_keep_env TM-DST DST=$which ZONE="$z" SWITCH_AT="$(date -d "$at + 2 min" +%s)"
 }
-undo_tm_dst() { clock_restore TM-DST; }
+undo_tm_dst() {
+    local dir; dir=$(_st_dir TM-DST)
+    clock_restore TM-DST || return 1
+    [[ -f $dir/localtime ]] || return 0
+    ln -sfn "$(cat "$dir/localtime")" /etc/localtime && rm -f "$dir/localtime"
+}
 
 # TM-CLOCK-BACK [hours=2] — the clock jumped back (an NTP correction after a boot without RTC)
 state_tm_clock_back() { clock_set TM-CLOCK-BACK "@$(( $(date +%s) - ${1:-2} * 3600 ))"; }
