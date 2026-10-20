@@ -1266,7 +1266,7 @@ function details(e) {
     if (p.service) add(T('detail.services'), (e.t && e.t.service) || p.service);
     if (p.name) add(T('detail.name'), p.name);
     if (p.image) add(T('detail.image'), p.image, true);
-    if (p.share) add(T('detail.share'), p.share, true);
+    if (p.share && !p.disk) add(T('detail.share'), p.share, true);      // a disk's entry carries its name as share for older pages only
     if (p.disk) add(T('detail.disk'), `${p.disk} (${p.fs || '?'})`, true);
     if (p.disk && (p.shares || []).length) add(T('detail.shares_on'), p.shares.join(', '));
     if (p.bytes !== undefined) {
@@ -1897,7 +1897,7 @@ function flowGroups(f) {
   const gone = [];
   if (can.moving && can.moving.length) gone.push(note(T('watch.flow_moving', { what: movingText(can.moving) })));
   (f.gone || []).forEach((x) => gone.push(item(x.disk ? `${x.disk} · ${(x.shares || []).join(', ') || '–'}` : x.share,
-    [x.disk ? T('watch.flow_gone_disk', { fs: x.fs }) : '', T('watch.flow_day', { size: fmt.size(x.day) }),
+    [x.disk ? T('watch.flow_gone_disk', { fs: x.fs }) : '', x.day || x.expected || !x.files ? T('watch.flow_day', { size: fmt.size(x.day) }) : '',
       x.files ? T('watch.flow_files_day', { n: x.files }) : '',
       x.files_expected ? T('watch.flow_files_expected', { n: x.files_expected }) : '',
       x.expected ? T('watch.flow_gone_expected', { size: fmt.size(x.expected) }) : '', usualRow(x), learningText(x.learning, f),
