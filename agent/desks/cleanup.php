@@ -4027,6 +4027,7 @@ function clDrillCopiesEmpty(int $now, ?array $runs = null, array $host = []): ar
                 $cache = clCache();
                 if (!isset($cache['drill_changed']["{$run['path']}|{$raw['as']}"])) {
                     $cache['drill_changed']["{$run['path']}|{$raw['as']}"] = $now;
+                    $cache['drill_changed'] = array_slice($cache['drill_changed'], -50, null, true);     // the newest: a run's stamp never comes back
                     clSaveCache($cache);
                     logLine("Dustdevil keeps the drill copy $dir: it is no longer exactly what drill {$d['id']} verified — it stays in her storeroom");
                 }
