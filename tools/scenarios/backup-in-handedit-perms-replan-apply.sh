@@ -3,7 +3,9 @@
 # refuses to read it (ub_data_trusted, exit 4 — backup/lib/common.sh) — never «exit 4» without a word: «Look at the
 # server again» ends and the office says why (the Team Lead's must engine_trust with the command, the setup's answer
 # names the cause, never a raw key or «?» on the page — INV-PAGE), Apply writes nothing (settings.ini byte for byte and
-# its mode as the user left it — INV-SETTINGS strict, cell untouched). Pre-release (~2 min).
+# its mode as the user left it — INV-SETTINGS strict, cell untouched). The office refuses every engine start
+# here with engine_untrusted (the path and the Team Lead's command; up to 1.67.1 «Plan anew» answered ok and showed the old
+# plan as fresh): «Plan anew» ends with that refusal — refuse=ok, the refusal is the answer. Pre-release (~2 min).
 . "$(dirname "$0")/lib.sh"
 scenario_begin backup-in-handedit-perms-replan-apply
 needs any
@@ -12,7 +14,8 @@ state IN-HANDEDIT-PERMS
 snap_before
 m0=$(stat -c '%a %U %Y' "$UB/settings.ini")
 t0=$SECONDS
-flow BK-REPLAN
+flow BK-REPLAN refuse=ok
+expect_err engine_untrusted
 say "BK-REPLAN took $((SECONDS - t0)) s; setup-status: $(jq -c '{mode, running, result, code: (.code // .why // null), errors: ((.errors // []) | length)}' "$UB/state/setup-status.json" 2>/dev/null)"
 evidence "$UB/state/setup-status.json" >/dev/null
 # the office's word for it: the Team Lead's must, after his fresh look
