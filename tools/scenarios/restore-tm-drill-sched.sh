@@ -1,13 +1,14 @@
 #!/bin/bash
 # Cell R22 of matrix.md (nightly — the clock is set): Mr. Restori's drill on its own (RS-DRILL-SCHED: his tick, weekly,
 # the night after a backup run, once packages exist for 7 days) under the clock (TM-*: clock_set with ntpd stopped, put
-# back by the states' guard), on his weekly night ≥ 7 days on (night A) and the one a week later (night B) — drillWeekDue:
-# the night ending on the chosen weekday ≥ 6 calendar days after the last drill (every cell's check final drills: the
-# last one is today). (1) A 04:16, the scheduled backup at 04:30 — a run, then his tick refuses (auto.json:
-# drill_deadline, restore-drill.php:475: now + its estimate > 04:30 − 15 min, any estimate); (2) B 06:50 — a look of his,
-# no run; (3) B 02:20, a step back — a run, a drill due: his tick should try it at once (BF5: it waits until the clock
-# passes its last look); (4) B 06:53 — the drill starts by itself (if (3) didn't), its deadline ≥ 15 min before the next
-# backup; (5) B 08:05 — a run, then nothing (outside the window 00–07). After every step of the clock the agent's doorbell
+# back by the states' guard), all on his weekly night ≥ 7 days on — drillWeekDue: the night ending on the chosen weekday
+# ≥ 6 calendar days after the last drill (every cell's check final drills: the last one is today). Tower runs on an
+# Unraid trial: the clock set past its end stops the array (2026-11-08 did, «Unregistered Trial - expired»), so one
+# night only, the nearest. (1) 04:16, the scheduled backup at 04:30 — a run, then his tick refuses (auto.json:
+# drill_deadline, restore-drill.php:475: now + its estimate > 04:30 − 15 min, any estimate; a refusal is no drill);
+# (2) 06:50 — a look of his, no run; (3) 02:20, a step back — a run, a drill due: his tick should try it at once (BF5:
+# it waits until the clock passes its last look); (4) 06:53 — the drill starts by itself (if (3) didn't), its deadline
+# ≥ 15 min before the next backup; (5) 08:05 — a run, then nothing (outside the window 00–07). After every step of the clock the agent's doorbell
 # is rung (a nap across a step back sleeps until it: batch D's
 # F12). No INV-BACKUP-AFTER (the history then lies in the future). Run last: its runs on the clock set on stay in the
 # history and as snapshots dated in the future until the next base reset (another cell would take them for the newest
@@ -49,11 +50,10 @@ run_free
 tick_after && a=$(auto) || a=none
 [[ $(jq -r '.refused // empty' <<<"$a" 2>/dev/null) == drill_deadline ]] && cell deadline 1 "at $(date +%H:%M) his tick refused: $a" || cell deadline 0 "at $(date +%H:%M) (backup 04:30) his tick: $a"
 clock_restore R22-DEADLINE; ring
-# night B, a week on (his weekly night again; a refusal is no drill: the last one is still today's). The clock only goes
-# forward from night A to night B's steps — except (3), on purpose: his tick looks at most once a minute, measured on
-# the wall clock (restore-drill.php:3166 static $looked, :3168 «$now - $looked < DRILL_TICK_EVERY»: after a step back
-# the difference is negative until the clock passes the last look again)
-dayb=$(date -d "$(date -d "@$((day + 7 * 86400 + 43200))" +%F) 00:00" +%s)
+# from here the clock only goes forward — except (3), on purpose: his tick looks at most once a minute, measured on the
+# wall clock (restore-drill.php:3166 static $looked, :3168 «$now - $looked < DRILL_TICK_EVERY»: after a step back the
+# difference is negative until the clock passes the last look again)
+dayb=$day
 # (2) 06:50 — a look of his late in the window (no run: none due)
 clock_set R22-LATE "@$((dayb + 6 * 3600 + 50 * 60))"; ring; sleep 70
 clock_restore R22-LATE; ring
