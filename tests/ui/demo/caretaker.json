@@ -483,6 +483,18 @@
      "params": []
     }
    ]
+  },
+  "center": {
+   "last": {
+    "time": 1791558874,
+    "sent": true,
+    "subject": "Summary: 3 notifications"
+   },
+   "waiting": 4,
+   "collecting": 1791560374,
+   "collected": 3,
+   "silent_until": 0,
+   "summaries": 2
   }
  },
  "partners": {

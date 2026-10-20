@@ -477,30 +477,15 @@ function roundHead() {
   return s;
 }
 
-/** Reports to Unraid's notifications: on (default) or off — like the team lead's switch */
+/**
+ * Reports to Unraid's notifications: since 1.68 the Team Lead's notification centre decides how much and when (his
+ * «Reports» tile) — here only the way there
+ */
 function notifySwitch() {
-  const label = el('label', 'switch');
-  const cb = el('input');
-  cb.type = 'checkbox';
-  cb.checked = !state.notify || state.notify.on !== false;
-  cb.disabled = !Office.agent.running || !hired();
-  label.append(cb, el('span', '', T('notify_switch')));
-  label.title = T('help.notify_text');
-  cb.onchange = async () => {
-    cb.disabled = true;
-    const on = cb.checked;
-    const j = await Office.api.post(`${ID}.notify_set`, { on });
-    if (!j.ok) {
-      cb.checked = !on;
-      cb.disabled = false;
-      Office.toast(Office.errorText(j.error, ID), true);
-      return;
-    }
-    if (j.state) state = j.state;
-    if (view) Office.keepInPlace(null, render);
-    Office.toast(T(on ? 'notify_on' : 'notify_off'));
-  };
-  return label;
+  const a = el('a', 'btn small plain', Office.t('notifycenter.where_link'));
+  a.href = '#/caretaker/notify';
+  a.title = Office.t('notifycenter.where');
+  return a;
 }
 
 /** For a SIEM: also write each new entry to Unraid's syslog (its remote syslog sends it on) — off by default */

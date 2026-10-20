@@ -1,0 +1,273 @@
+{
+ "settings": {
+  "at": "08:00",
+  "desks": {
+   "caretaker": {
+    "level": "all",
+    "success": true,
+    "when": "now",
+    "at": null
+   },
+   "backup": {
+    "level": "warning",
+    "success": true,
+    "when": "summary",
+    "at": "07:30"
+   },
+   "snapshot": {
+    "level": "all",
+    "success": true,
+    "when": "now",
+    "at": null
+   },
+   "restore": {
+    "level": "all",
+    "success": true,
+    "when": "now",
+    "at": null
+   },
+   "watchman": {
+    "level": "all",
+    "success": true,
+    "when": "now",
+    "at": null
+   },
+   "moverelli": {
+    "level": "all",
+    "success": true,
+    "when": "now",
+    "at": null
+   },
+   "jack": {
+    "level": "all",
+    "success": true,
+    "when": "summary",
+    "at": null
+   },
+   "office": {
+    "level": "all",
+    "success": true,
+    "when": "now",
+    "at": null
+   }
+  },
+  "quiet": {
+   "on": true,
+   "from": "22:00",
+   "to": "07:00"
+  },
+  "silent_until": 0,
+  "all_well": false
+ },
+ "desks": [
+  "caretaker",
+  "backup",
+  "snapshot",
+  "restore",
+  "watchman",
+  "moverelli",
+  "jack",
+  "office"
+ ],
+ "sends": {
+  "caretaker": [
+   "warning"
+  ],
+  "backup": [
+   "alert",
+   "warning",
+   "normal"
+  ],
+  "snapshot": [
+   "warning"
+  ],
+  "restore": [
+   "warning"
+  ],
+  "watchman": [
+   "alert",
+   "warning",
+   "normal"
+  ],
+  "moverelli": [
+   "warning",
+   "normal"
+  ],
+  "jack": [
+   "warning",
+   "normal"
+  ],
+  "office": [
+   "alert",
+   "normal"
+  ]
+ },
+ "success": [
+  "backup",
+  "jack"
+ ],
+ "available": true,
+ "waiting": [
+  {
+   "id": "demo1",
+   "time": 1791556474,
+   "desk": "backup",
+   "event": "warnings",
+   "level": "warning",
+   "fate": "held",
+   "why": "summary",
+   "subject": "Mr. Backupsy: Backup with warnings",
+   "description": "2 warnings. Familienfilme and Familienserien backed up.",
+   "due": 1791570874
+  },
+  {
+   "id": "demo2",
+   "time": 1791560374,
+   "desk": "watchman",
+   "event": "chain",
+   "level": "warning",
+   "fate": "collected",
+   "why": "flood",
+   "subject": "Night watchman: 4 new entries in a row",
+   "description": "One after another within 3 minutes.",
+   "due": 1791563974
+  },
+  {
+   "id": "demo3",
+   "time": 1791560474,
+   "desk": "watchman",
+   "event": "chain",
+   "level": "warning",
+   "fate": "collected",
+   "why": "flood",
+   "subject": "Night watchman: 2 new entries in a row",
+   "description": "One after another within 1 minute.",
+   "due": 1791563974
+  },
+  {
+   "id": "demo4",
+   "time": 1791560574,
+   "desk": "watchman",
+   "event": "login_failures",
+   "level": "warning",
+   "fate": "collected",
+   "why": "flood",
+   "subject": "Night watchman: failed logins from 192.0.2.40",
+   "description": "5 failed logins.",
+   "due": 1791563974
+  }
+ ],
+ "next": 1791563974,
+ "preview": {
+  "subject": "Summary: 4 notifications",
+  "description": "Mr. Backupsy: Backup with warnings; Night watchman: 4 new entries in a row; Night watchman: 2 new entries in a row … and 1 more",
+  "message": "• 07:12 Mr. Backupsy: Backup with warnings: 2 warnings. Familienfilme and Familienserien backed up.\n• 08:43 Night watchman: 4 new entries in a row: One after another within 3 minutes.\n• 08:45 Night watchman: 2 new entries in a row: One after another within 1 minute.\n• 08:46 Night watchman: failed logins from 192.0.2.40: 5 failed logins.\n\nThe Team Lead's page in the office lists everything that was sent or collected — and there you set what comes right away."
+ },
+ "collecting": {
+  "watchman": {
+   "since": 1791560374,
+   "n": 3,
+   "due": 1791563974
+  }
+ },
+ "log": [
+  {
+   "id": "l1",
+   "time": 1791560574,
+   "desk": "watchman",
+   "event": "login_failures",
+   "level": "warning",
+   "fate": "collected",
+   "why": "flood",
+   "subject": "Night watchman: failed logins from 192.0.2.40",
+   "description": "5 failed logins."
+  },
+  {
+   "id": "l2",
+   "time": 1791560374,
+   "desk": "watchman",
+   "event": "chain",
+   "level": "warning",
+   "fate": "collected",
+   "why": "flood",
+   "subject": "Night watchman: 4 new entries in a row",
+   "description": "One after another within 3 minutes."
+  },
+  {
+   "id": "l3",
+   "time": 1791560274,
+   "desk": "watchman",
+   "event": "chain",
+   "level": "warning",
+   "fate": "sent",
+   "why": "",
+   "subject": "Night watchman: 3 new entries in a row",
+   "description": "One after another within 2 minutes."
+  },
+  {
+   "id": "l4",
+   "time": 1791558874,
+   "desk": "caretaker",
+   "event": "summary",
+   "level": "warning",
+   "fate": "sent",
+   "why": "",
+   "subject": "Summary: 3 notifications",
+   "description": "Ms. Snapshotini: plan Hourly had problems; Jack Streamer: run failed",
+   "n": 3
+  },
+  {
+   "id": "l5",
+   "time": 1791557874,
+   "desk": "snapshot",
+   "event": "plan_failed",
+   "level": "warning",
+   "fate": "counted",
+   "why": "same",
+   "subject": "Ms. Snapshotini: plan Hourly had problems",
+   "description": "1 problem."
+  },
+  {
+   "id": "l6",
+   "time": 1791556474,
+   "desk": "backup",
+   "event": "warnings",
+   "level": "warning",
+   "fate": "held",
+   "why": "summary",
+   "subject": "Mr. Backupsy: Backup with warnings",
+   "description": "2 warnings."
+  },
+  {
+   "id": "l7",
+   "time": 1791556374,
+   "desk": "backup",
+   "event": "array_stop",
+   "level": "normal",
+   "fate": "dropped",
+   "why": "threshold",
+   "subject": "Mr. Backupsy: Backup stopped for the array stop",
+   "description": "Nothing is lost; the next run backs up as usual."
+  },
+  {
+   "id": "l8",
+   "time": 1791475874,
+   "desk": "office",
+   "event": "agent_back",
+   "level": "normal",
+   "fate": "failed",
+   "why": "",
+   "subject": "Agent running again",
+   "description": "The office's agent is back at work."
+  }
+ ],
+ "limits": {
+  "desk": 5,
+  "office": 20,
+  "window": 3600,
+  "alerts": 10,
+  "bundle": 900,
+  "forget": 86400
+ },
+ "time": 1791561874
+}
