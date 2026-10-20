@@ -1399,9 +1399,77 @@
     "bytes": 139264,
     "measuring": false,
     "snaps": 0
+   },
+   {
+    "id": "/mnt/cache/Familienfotos/.UnraidSecretaryOffice-trash/20261020-031544",
+    "path": "/mnt/cache/Familienfotos/.UnraidSecretaryOffice-trash/20261020-031544",
+    "root": "/mnt/cache/Familienfotos/.UnraidSecretaryOffice-trash",
+    "where": "share",
+    "legacy": false,
+    "purging": false,
+    "stamp": "20261020-031544",
+    "time": 1792473344,
+    "items": [
+     {
+      "id": "/mnt/cache/Familienfotos/.UnraidSecretaryOffice-trash/20261020-031544|restore/5c2e81aa/.uso-drill-20261020-031500-4b1d",
+      "kind": "leftover",
+      "name": ".uso-drill-20261020-031500-4b1d",
+      "label": "20261020-031500-4b1d",
+      "from": "/mnt/cache/Familienfotos/.uso-drill-20261020-031500-4b1d",
+      "as": "restore/5c2e81aa/.uso-drill-20261020-031500-4b1d",
+      "dataset": null,
+      "zfs": null,
+      "zfs_path": null,
+      "present": true,
+      "asleep": false,
+      "volumes": [],
+      "images": [],
+      "drill_copy": {
+       "id": "20261020-031500-4b1d",
+       "until": 1793078144
+      }
+     }
+    ],
+    "bytes": 1843200,
+    "measuring": false,
+    "snaps": 0
+   },
+   {
+    "id": "/mnt/cache/Familienfotos/.UnraidSecretaryOffice-trash/20261017-031602",
+    "path": "/mnt/cache/Familienfotos/.UnraidSecretaryOffice-trash/20261017-031602",
+    "root": "/mnt/cache/Familienfotos/.UnraidSecretaryOffice-trash",
+    "where": "share",
+    "legacy": false,
+    "purging": false,
+    "stamp": "20261017-031602",
+    "time": 1792214162,
+    "items": [
+     {
+      "id": "/mnt/cache/Familienfotos/.UnraidSecretaryOffice-trash/20261017-031602|restore/5c2e81aa/.uso-drill-20261017-031500-9e0a",
+      "kind": "leftover",
+      "name": ".uso-drill-20261017-031500-9e0a",
+      "label": "20261017-031500-9e0a",
+      "from": "/mnt/cache/Familienfotos/.uso-drill-20261017-031500-9e0a",
+      "as": "restore/5c2e81aa/.uso-drill-20261017-031500-9e0a",
+      "dataset": null,
+      "zfs": null,
+      "zfs_path": null,
+      "present": true,
+      "asleep": false,
+      "volumes": [],
+      "images": [],
+      "drill_copy": {
+       "id": "20261017-031500-9e0a",
+       "until": null
+      }
+     }
+    ],
+    "bytes": 286720,
+    "measuring": false,
+    "snaps": 0
    }
   ],
-  "bytes": 139264
+  "bytes": 2269184
  },
  "icons": {
   "list": [

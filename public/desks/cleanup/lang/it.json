@@ -31,6 +31,12 @@
     "other": "{n} condivisioni qui sono vuote, ma i loro snapshot occupano ancora {size}: {shares}. I vecchi file restano sul pool finché quegli snapshot non se ne vanno — con la conservazione del loro piano o del backup, o a mano dalla signora Snapshotini. Io non cancello niente."
   },
   "check.snap_only_link": "Vedi dalla signora Snapshotini",
+  "check.snap_kept": {"one": "{shares}: dataset vuoto trattenuto dai suoi snapshot", "other": "{n} dataset vuoti trattenuti dai loro snapshot"},
+  "check.snap_kept_how": {
+    "one": "La condivisione {shares} è vuota, ma il suo dataset resta perché lo tengono degli snapshot — l'esecuzione della signora Moverelli non può toglierlo finché ci sono. Se non ti servono, cancellali dalla signora Snapshotini; la signora Moverelli toglie poi il dataset vuoto alla sua prossima esecuzione. Lasciarlo va bene lo stesso: un dataset vuoto può essere voluto.",
+    "other": "{n} condivisioni sono vuote, ma i loro dataset restano perché li tengono degli snapshot: {shares}. L'esecuzione della signora Moverelli non può toglierli finché ci sono. Se non ti servono, cancellali dalla signora Snapshotini; la signora Moverelli toglie poi i dataset vuoti alla sua prossima esecuzione. Lasciarli va bene lo stesso: un dataset vuoto può essere voluto."
+  },
+  "check.snap_kept_link": "Vedi dalla signora Snapshotini",
   "scan": "Giro",
   "scan_title": "Ripercorri tutto il server: dove sta tutto e cosa c'è in giro",
   "scan_done": "Giro finito in {ms} ms.",
@@ -291,6 +297,11 @@
   "item.no_manifest": "non è nel mio elenco — si può solo svuotare",
   "item.gone": "non c'è",
   "item.gone_text": "È nel mio elenco, ma non è più nel ripostiglio.",
+  "item.drill_until": "copia dell'esercitazione · si svuota il {date}",
+  "item.drill_due": "copia dell'esercitazione · si svuota al mio prossimo sguardo",
+  "item.drill_until_text": "L'esercitazione del signor Restori ha riportato questo file da un backup e l'ha controllato. Finché resta esattamente quella copia, si svuota da sola il {date} — prima la controllo ancora una volta. Se cambia qualcosa, resta.",
+  "item.drill_old": "copia dell'esercitazione · da svuotare a mano",
+  "item.drill_old_text": "L'ha messa qui un'esercitazione del signor Restori, prima che le copie delle esercitazioni si svuotassero da sole. Non si può più controllare, quindi resta finché non la svuoti tu.",
   "item.volumes_text": "Volumi con nome di questo stack: {names}",
   "restore.button": "Rimetti a posto",
   "restore.title": "Di nuovo in {path}",

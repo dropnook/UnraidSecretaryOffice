@@ -31,6 +31,12 @@
     "other": "{n} partages sont vides ici, mais leurs snapshots occupent encore {size} : {shares}. Les anciens fichiers restent sur le pool tant que ces snapshots sont là — ils partent avec la rétention de leur planification ou de la sauvegarde, ou à la main chez Madame Snapshotini. Je ne supprime rien moi-même."
   },
   "check.snap_only_link": "Voir chez Madame Snapshotini",
+  "check.snap_kept": {"one": "{shares} : dataset vide retenu par ses snapshots", "other": "{n} datasets vides retenus par leurs snapshots"},
+  "check.snap_kept_how": {
+    "one": "Le partage {shares} est vide, mais son dataset reste parce que des snapshots le retiennent — l'exécution de Madame Moverelli ne peut pas l'enlever tant qu'ils sont là. Si tu n'en as pas besoin, supprime-les chez Madame Snapshotini ; Madame Moverelli enlève ensuite le dataset vide à sa prochaine exécution. Le laisser convient aussi : un dataset vide peut être voulu.",
+    "other": "{n} partages sont vides, mais leurs datasets restent parce que des snapshots les retiennent : {shares}. L'exécution de Madame Moverelli ne peut pas les enlever tant qu'ils sont là. Si tu n'en as pas besoin, supprime-les chez Madame Snapshotini ; Madame Moverelli enlève ensuite les datasets vides à sa prochaine exécution. Les laisser convient aussi : un dataset vide peut être voulu."
+  },
+  "check.snap_kept_link": "Voir chez Madame Snapshotini",
   "scan": "Tournée",
   "scan_title": "Refaire le tour de tout le serveur : où tout se trouve et ce qui traîne",
   "scan_done": "Tournée terminée en {ms} ms.",
@@ -291,6 +297,11 @@
   "item.no_manifest": "pas sur ma liste — ne peut qu'être vidé",
   "item.gone": "absent",
   "item.gone_text": "C'est sur ma liste, mais plus dans le débarras.",
+  "item.drill_until": "copie d'exercice · se vide le {date}",
+  "item.drill_due": "copie d'exercice · se vide à mon prochain passage",
+  "item.drill_until_text": "L'exercice de Monsieur Restori a ramené ce fichier d'une sauvegarde et l'a vérifié. Tant qu'elle reste exactement cette copie, elle se vide d'elle-même le {date} — je la vérifie encore une fois avant. Si quelque chose y change, elle reste.",
+  "item.drill_old": "copie d'exercice · à vider à la main",
+  "item.drill_old_text": "Un exercice de Monsieur Restori l'a posée ici avant que les copies d'exercice ne se vident d'elles-mêmes. Elle ne peut plus être vérifiée, elle reste donc jusqu'à ce que tu la vides.",
   "item.volumes_text": "Volumes nommés de cette stack : {names}",
   "restore.button": "Remettre en place",
   "restore.title": "Retour vers {path}",

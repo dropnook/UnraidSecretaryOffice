@@ -31,6 +31,12 @@
     "other": "{n} recursos compartidos están vacíos aquí, pero sus instantáneas todavía ocupan {size}: {shares}. Los archivos antiguos se quedan en el pool hasta que esas instantáneas se vayan — con la retención de su programación o de la copia, o a mano con la señora Snapshotini. Yo no borro nada."
   },
   "check.snap_only_link": "Ver con la señora Snapshotini",
+  "check.snap_kept": {"one": "{shares}: dataset vacío retenido por sus instantáneas", "other": "{n} datasets vacíos retenidos por sus instantáneas"},
+  "check.snap_kept_how": {
+    "one": "El recurso compartido {shares} está vacío, pero su dataset se queda porque lo retienen instantáneas — la ejecución de la señora Moverelli no puede quitarlo mientras estén. Si no las necesita, bórrelas con la señora Snapshotini; la señora Moverelli quitará después el dataset vacío en su próxima ejecución. Dejarlo también está bien: un dataset vacío puede ser deseado.",
+    "other": "{n} recursos compartidos están vacíos, pero sus datasets se quedan porque los retienen instantáneas: {shares}. La ejecución de la señora Moverelli no puede quitarlos mientras estén. Si no las necesita, bórrelas con la señora Snapshotini; la señora Moverelli quitará después los datasets vacíos en su próxima ejecución. Dejarlos también está bien: un dataset vacío puede ser deseado."
+  },
+  "check.snap_kept_link": "Ver con la señora Snapshotini",
   "scan": "Ronda",
   "scan_title": "Volver a recorrer todo el servidor: dónde está todo y qué hay tirado",
   "scan_done": "Ronda terminada en {ms} ms.",
@@ -291,6 +297,11 @@
   "item.no_manifest": "no está en mi lista — solo se puede vaciar",
   "item.gone": "no está",
   "item.gone_text": "Está en mi lista, pero ya no está en el trastero.",
+  "item.drill_until": "copia del simulacro · se vacía el {date}",
+  "item.drill_due": "copia del simulacro · se vacía en mi próxima mirada",
+  "item.drill_until_text": "El simulacro del señor Restori trajo este archivo de una copia de seguridad y lo comprobó. Mientras siga siendo exactamente esa copia, se vacía sola el {date} — antes la compruebo una vez más. Si algo cambia en ella, se queda.",
+  "item.drill_old": "copia del simulacro · vacíela usted",
+  "item.drill_old_text": "Un simulacro del señor Restori la dejó aquí antes de que las copias de simulacro se vaciaran solas. Ya no se puede comprobar, así que se queda hasta que usted la vacíe.",
   "item.volumes_text": "Volúmenes con nombre de esta stack: {names}",
   "restore.button": "Devolver a su sitio",
   "restore.title": "De vuelta a {path}",

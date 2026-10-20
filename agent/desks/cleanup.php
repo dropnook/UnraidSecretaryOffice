@@ -269,7 +269,7 @@ desk('cleanup', [
  */
 function clTickParts(): array
 {
-    return ['jobs' => 'clJobsTick', 'backup' => 'clBackupFlagTick', 'where' => 'whereJobsTick'];
+    return ['jobs' => 'clJobsTick', 'backup' => 'clBackupFlagTick', 'where' => 'whereJobsTick', 'drill' => 'clDrillCopiesTick'];
 }
 
 /**
@@ -2834,6 +2834,7 @@ function clBuild(): array
         'stacks'    => ['root' => $raw['stacks']['root'], 'exists' => $raw['stacks']['exists'], 'list' => $stacks],
         'scripts'   => $raw['scripts'] + ['dir' => CL_US_SCRIPTS],
         'flash'     => $raw['flash'] ?? ['dir' => clShareCfgDir(), 'known' => false, 'list' => []],
+        'snaponly'  => $raw['snaponly'] ?? null,           // her checks read it from here (snap_only, snap_kept)
         'appdata'   => [
             'share'    => $ad['share'],
             'places'   => array_values($ad['places']),
@@ -3819,6 +3820,7 @@ function clTrashRuns(array $places, array $vms, array $extra = [], array $zfsThe
             $items = [];
             $known = [];
             $runStamp = preg_replace('/\.purging$/', '', $stamp);
+            $runTime = (int) ($manifest['time'] ?? clStampTime($stamp, $path));
             foreach ((array) ($manifest['items'] ?? []) as $it) {
                 // the manifest lies in a folder others may write to: only entries of the shape Ms. Dustdevil writes count
                 if (!is_array($it) || !is_string($it['as'] ?? null) || !in_array($it['kind'] ?? '', CL_KINDS, true)
@@ -3850,6 +3852,7 @@ function clTrashRuns(array $places, array $vms, array $extra = [], array $zfsThe
                     'asleep'  => $asleep,
                     'volumes' => array_values(array_filter((array) ($it['volumes'] ?? []), fn ($v) => is_string($v) && preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}\z/', $v))),
                     'images'  => array_values(array_filter((array) ($it['images'] ?? []), fn ($v) => is_string($v) && preg_match('#^[A-Za-z0-9][A-Za-z0-9._/:@-]{0,511}\z#', $v))),
+                    'drill_copy' => $purging ? null : clDrillCopyView($it, $path, $runTime),
                 ] + ($volume !== null ? ['volume' => $volume] : []);
             }
             // whatever is in there without a manifest entry (shown, can't go back)
@@ -3862,7 +3865,7 @@ function clTrashRuns(array $places, array $vms, array $extra = [], array $zfsThe
                 }
             }
             $runs[] = ['id' => $path, 'path' => $path, 'root' => $root, 'where' => $where, 'legacy' => false, 'purging' => $purging,
-                       'stamp' => preg_replace('/\.purging$/', '', $stamp), 'time' => (int) ($manifest['time'] ?? clStampTime($stamp, $path)),
+                       'stamp' => preg_replace('/\.purging$/', '', $stamp), 'time' => $runTime,
                        'items' => $items];
         }
     }
@@ -3897,6 +3900,214 @@ function clTrashRuns(array $places, array $vms, array $extra = [], array $zfsThe
         }
     }
     return $runs;
+}
+
+// --------------------------------------------------------------------- Mr. Restori's drill copies (2026-10-21)
+// Each drill's share step leaves its scratch folder in her storeroom of that share. The owner's decision: they empty
+// themselves — only an entry the drill put there whose files are still exactly the copies it verified (name, size and
+// sha256 as recorded at the drill), CL_DRILL_DAYS after it was put there. Anything changed, added or not verifiable
+// stays and is plain storeroom content; nothing else in a storeroom is ever emptied on its own.
+
+const CL_DRILL_DAYS  = 7;
+const CL_DRILL_NAME  = '/^\.uso-drill-(\d{8}-\d{6}-[0-9a-f]{4})$/D';      // his scratch folder: .uso-drill-<drill id>
+const CL_DRILL_LOOK  = 3600;                                           // her tick looks for due ones once an hour
+const CL_DRILL_FILES = 20;
+
+/** The copies a drill verified, exactly in the shape drillDoShareFile() records: [{name, bytes, sha256}], plain names */
+function clDrillFilesOk(mixed $files): bool
+{
+    if (!is_array($files) || !$files || !array_is_list($files) || count($files) > CL_DRILL_FILES) {
+        return false;
+    }
+    $seen = [];
+    foreach ($files as $f) {
+        if (!is_array($f) || count($f) !== 3 || !is_string($f['name'] ?? null) || !is_int($f['bytes'] ?? null) || !is_string($f['sha256'] ?? null)
+            || $f['bytes'] < 0 || !preg_match('/^[0-9a-f]{64}$/D', $f['sha256']) || in_array($f['name'], ['', '.', '..'], true)
+            || strlen($f['name']) > 255 || preg_match('#[/\x00-\x1f\x7f]#', $f['name']) || isset($seen[$f['name']])) {
+            return false;
+        }
+        $seen[$f['name']] = true;
+    }
+    return true;
+}
+
+/**
+ * A storeroom entry Mr. Restori's drill put there: his scratch folder (kind leftover, `.uso-drill-<id>` its name, the
+ * end of its "as" and of where it came from) — with the copies the drill verified (the entry's `drill`; an entry of an
+ * older office: his journal of that drill, if it still has them) or files null (not verifiable: emptied only by hand).
+ * Anything else: null.
+ *
+ * @return ?array{id: string, files: ?list<array{name: string, bytes: int, sha256: string}>}
+ */
+function clDrillEntry(array $it): ?array
+{
+    $name = (string) ($it['name'] ?? '');
+    if (($it['kind'] ?? '') !== 'leftover' || !preg_match(CL_DRILL_NAME, $name, $m) || !is_string($it['as'] ?? null) || basename($it['as']) !== $name
+        || !is_string($it['from'] ?? null) || basename($it['from']) !== $name) {
+        return null;
+    }
+    $rec = $it['drill'] ?? null;
+    if (is_array($rec) && ($rec['id'] ?? null) === $m[1] && clDrillFilesOk($rec['files'] ?? null)) {
+        return ['id' => $m[1], 'files' => $rec['files']];
+    }
+    foreach (function_exists('drillJournal') ? (array) ((drillJournal($m[1]) ?? [])['made'] ?? []) : [] as $x) {
+        if (is_array($x) && ($x['kind'] ?? '') === 'scratch' && ($x['name'] ?? null) === $it['from'] && clDrillFilesOk($x['files'] ?? null)) {
+            return ['id' => $m[1], 'files' => $x['files']];
+        }
+    }
+    return ['id' => $m[1], 'files' => null];
+}
+
+/**
+ * The drill's folder in the storeroom still holds exactly its verified copies: a real folder (no link on the way),
+ * nothing else in it, each a plain file of the recorded size — with $sums also the recorded sha256 (read only when it
+ * is due). Changed, added, missing or unreadable: false.
+ */
+function clDrillIntact(string $runPath, string $as, array $files, bool $sums): bool
+{
+    clearstatcache();
+    $dir = "$runPath/$as";
+    if (!clRunPathOk($runPath, $as) || is_link($dir) || !is_dir($dir)) {
+        return false;
+    }
+    $names = @scandir($dir);
+    if ($names === false) {
+        return false;
+    }
+    $names = array_values(array_diff($names, ['.', '..']));
+    sort($names);
+    $want = array_column($files, 'name');
+    sort($want);
+    if ($names !== $want) {
+        return false;
+    }
+    foreach ($files as $f) {
+        $p = "$dir/{$f['name']}";
+        if (is_link($p) || !is_file($p) || @filesize($p) !== $f['bytes']) {
+            return false;
+        }
+        if ($sums && !hash_equals($f['sha256'], (string) @hash_file('sha256', $p))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
+ * What her storeroom list says of a drill's entry: `until` = when it empties itself (still exactly the drill's copies
+ * by name and size; the sha256 is read when it is due), or null for one that can't be verified (an older drill's: «empty
+ * it by hand»). A changed one (here, or found changed when it was due): null — plain storeroom content.
+ *
+ * @return ?array{id: string, until: ?int}
+ */
+function clDrillCopyView(array $it, string $runPath, int $runTime): ?array
+{
+    $d = clDrillEntry($it);
+    if ($d === null) {
+        return null;
+    }
+    if ($d['files'] === null) {
+        return ['id' => $d['id'], 'until' => null];
+    }
+    if (isset(clCache()['drill_changed']["$runPath|{$it['as']}"]) || !clDrillIntact($runPath, (string) $it['as'], $d['files'], false)) {
+        return null;
+    }
+    return ['id' => $d['id'], 'until' => $runTime + CL_DRILL_DAYS * 86400];
+}
+
+/** Her tick's part: once an hour the due drill copies of her last look (clDrillCopiesEmpty()) */
+function clDrillCopiesTick(): void
+{
+    static $at = null;
+    $now = time();
+    if ($at !== null && $now >= $at && $now - $at < CL_DRILL_LOOK) {
+        return;
+    }
+    $at = $now;
+    clDrillCopiesEmpty($now);
+}
+
+/**
+ * The drill copies due by her last look ($runs: tests) emptied: each looked at anew — its pool or disk awake (never
+ * woken), its manifest entry still the drill's, its files still exactly the verified copies (sha256 read now) — then
+ * its files and folder removed and the entry gone from the manifest (a run with nothing left goes). Nothing while a
+ * backup runs, nor while neither she nor Mr. Restori is hired. A changed one is kept for good (noted once). The ids gone.
+ * $host: tests only — hired (ids), busy (bool), asleep (sleepingDisks()).
+ *
+ * @return list<string>
+ */
+function clDrillCopiesEmpty(int $now, ?array $runs = null, array $host = []): array
+{
+    if (!array_intersect(['cleanup', 'restore'], $host['hired'] ?? staffHired()) || ($host['busy'] ?? clBackupBusy())) {
+        return [];
+    }
+    $runs ??= $GLOBALS['clState']['trash']['runs'] ?? [];
+    $asleep = $host['asleep'] ?? null;
+    $gone = [];
+    foreach (is_array($runs) ? $runs : [] as $run) {
+        if (!is_array($run) || !empty($run['purging']) || !empty($run['legacy']) || !is_string($run['path'] ?? null) || !is_string($run['root'] ?? null)) {
+            continue;
+        }
+        foreach ((array) ($run['items'] ?? []) as $it) {
+            $until = $it['drill_copy']['until'] ?? null;
+            if (!is_int($until) || $until > $now || !preg_match('#^' . preg_quote(clMnt(), '#') . '/([^/]+)/#', $run['path'], $m)) {
+                continue;
+            }
+            $asleep ??= sleepingDisks();
+            if (clPoolAsleep($m[1], $asleep)) {
+                continue;                                       // never woken: emptied once it is awake
+            }
+            $raw = null;
+            foreach ((array) ((readJson("{$run['path']}/manifest.json") ?? [])['items'] ?? []) as $x) {
+                if (is_array($x) && ($x['as'] ?? null) === $it['as']) {
+                    $raw = $x;
+                }
+            }
+            $d = $raw !== null && clTrashAsOk((string) $raw['as'], 'leftover', basename($run['path'])) ? clDrillEntry($raw) : null;
+            if ($d === null || $d['files'] === null) {
+                continue;
+            }
+            $dir = "{$run['path']}/{$raw['as']}";
+            if (!clDrillIntact($run['path'], (string) $raw['as'], $d['files'], true)) {
+                $cache = clCache();
+                if (!isset($cache['drill_changed']["{$run['path']}|{$raw['as']}"])) {
+                    $cache['drill_changed']["{$run['path']}|{$raw['as']}"] = $now;
+                    $cache['drill_changed'] = array_slice($cache['drill_changed'], -50, null, true);     // the newest: a run's stamp never comes back
+                    clSaveCache($cache);
+                    logLine("Dustdevil keeps the drill copy $dir: it is no longer exactly what drill {$d['id']} verified — it stays in her storeroom");
+                }
+                continue;
+            }
+            $ok = true;
+            foreach ($d['files'] as $f) {
+                $ok = @unlink("$dir/{$f['name']}") && $ok;
+            }
+            if (!$ok || !@rmdir($dir)) {
+                logLine("Dustdevil: the drill copy $dir could not be emptied");
+                continue;
+            }
+            clRestoreForget(['path' => $run['path'], 'root' => $run['root'], 'time' => (int) ($run['time'] ?? 0)], ['as' => $raw['as']]);
+            logLine("Dustdevil emptied the drill copy $dir (drill {$d['id']}, in her storeroom since " . date('Y-m-d', (int) ($run['time'] ?? 0))
+                . '): exactly the copies the drill verified');
+            $gone[] = (string) $it['id'];
+        }
+    }
+    if ($gone && is_array($GLOBALS['clState'] ?? null)) {
+        // her last look without them (her next tour looks anew)
+        $state = $GLOBALS['clState'];
+        $left = [];
+        foreach ($state['trash']['runs'] as $run) {
+            $run['items'] = array_values(array_filter($run['items'], fn ($x) => !in_array($x['id'], $gone, true)));
+            if ($run['items'] || !empty($run['legacy'])) {
+                $left[] = $run;
+            }
+        }
+        $state['trash']['runs'] = $left;
+        $state['trash']['bytes'] = array_reduce($left, fn ($sum, $r) => $sum === null || (($r['bytes'] ?? null) === null && empty($r['purging'])) ? null : $sum + (int) ($r['bytes'] ?? 0), 0);
+        $GLOBALS['clState'] = $state;
+        clWrite($state);
+    }
+    return $gone;
 }
 
 /** A new run folder in a trash root (created on the same filesystem as what goes in) */
@@ -5859,7 +6070,7 @@ function clChecks(): array
     } else {
         $out[] = finding('trash_old', 'recommended', true, ['n' => 0, 'days' => 0, 'size' => ''], '#/cleanup/tidy');
     }
-    return [...$out, ...clPoolGoneChecks($s['flash'] ?? null), ...clSnapOnlyChecks($s['snaponly'] ?? null)];
+    return [...$out, ...clPoolGoneChecks($s['flash'] ?? null), ...clSnapOnlyChecks($s['snaponly'] ?? null), ...clSnapKeptChecks($s['snaponly'] ?? null)];
 }
 
 const CL_SNAPONLY_MIN   = 100 * 1024 * 1024;   // what the snapshots must hold to be worth a word
@@ -5873,14 +6084,18 @@ const CL_SNAPONLY_WALK  = 5000;                // entries looked at to call a fo
  * known of it), the share's dataset `<pool>/<share>` only: the office's own share, the partners' copies
  * (`<pool>/UnraidSecretaryOffice-partners`) and backup places (anything called «backup») never. A folder counts as empty
  * when it holds nothing but empty folders (looked at only below CL_SNAPONLY_REFER). Read only: she never deletes a snapshot.
- * $host: tests only — pools [awake, asleep], zfs (callable), shares (names), known (bool).
+ * `kept` (2026-10-21): such an empty share dataset whose snapshots hold less, which Ms. Moverelli's run left standing
+ * because of them (moverelliKept(), the Smart Mover's status — only while she is hired, as her next run removes it once
+ * they are gone): still there and empty by the same look, its snapshots counted by one more `zfs list` of just those.
+ * $host: tests only — pools [awake, asleep], zfs (callable), shares (names), known (bool), kept (dataset => time).
  *
- * @return array{list: list<array{share:string, pool:string, dataset:string, snaps:int, mounted:bool}>, asleep: list<string>}
+ * @return array{list: list<array{share:string, pool:string, dataset:string, snaps:int, mounted:bool}>, asleep: list<string>,
+ *               kept: list<array{share:string, pool:string, dataset:string, snaps:int, n:int}>}
  */
 function clSnapOnlyShares(?array $host = null): array
 {
     $host ??= $GLOBALS['clSnapOnlyHost'] ?? [];
-    $none = ['list' => [], 'asleep' => []];
+    $none = ['list' => [], 'asleep' => [], 'kept' => []];
     if (!($host['known'] ?? officeSharesKnown())) {
         return $none;
     }
@@ -5896,14 +6111,15 @@ function clSnapOnlyShares(?array $host = null): array
         [$awake, $asleep] = [$split['awake'], $split['asleep']];
     }
     if (!$awake || !$shares) {
-        return ['list' => [], 'asleep' => array_values($asleep)];
+        return ['list' => [], 'asleep' => array_values($asleep), 'kept' => []];
     }
     $zfs = $host['zfs'] ?? function (array $args): array {
         $bin = bin('zfs');
         return $bin ? run(array_merge([$bin], $args), 60) : [127, ''];
     };
+    $kept = $host['kept'] ?? (function_exists('moverelliKept') && in_array('moverelli', staffHired(), true) ? moverelliKept() : []);
     [$exit, $text] = $zfs(array_merge(['list', '-Hp', '-t', 'filesystem', '-o', 'name,refer,usedbysnapshots,mounted,mountpoint', '-d', '1'], $awake));
-    $list = [];
+    $list = $held = [];
     foreach ($exit === 0 ? explode("\n", (string) $text) : [] as $line) {
         $f = explode("\t", rtrim($line, "\r"));
         if (count($f) < 5 || !ctype_digit($f[1]) || !ctype_digit($f[2]) || substr_count($f[0], '/') !== 1) {
@@ -5911,17 +6127,34 @@ function clSnapOnlyShares(?array $host = null): array
         }
         [$pool, $share] = explode('/', $f[0]);
         [$refer, $snaps, $mounted, $mp] = [(int) $f[1], (int) $f[2], $f[3] === 'yes', $f[4]];
-        if (!in_array($pool, $awake, true) || !isset($shares[$share]) || $snaps < CL_SNAPONLY_MIN || $refer > CL_SNAPONLY_REFER
+        $big = $snaps >= CL_SNAPONLY_MIN;
+        if (!in_array($pool, $awake, true) || !isset($shares[$share]) || (!$big && !isset($kept[$f[0]])) || $refer > CL_SNAPONLY_REFER
             || $share === BACKUP_OFFICE_SHARE || str_starts_with($share, BACKUP_OFFICE_SHARE) || $share === PARTNER_PARENT || stripos($share, 'backup') !== false) {
             continue;
         }
         if ($mounted && !clFolderEmpty($mp)) {
             continue;
         }
-        $list[] = ['share' => $share, 'pool' => $pool, 'dataset' => $f[0], 'snaps' => $snaps, 'mounted' => $mounted];
+        if ($big) {
+            $list[] = ['share' => $share, 'pool' => $pool, 'dataset' => $f[0], 'snaps' => $snaps, 'mounted' => $mounted];
+        } else {
+            $held[$f[0]] = ['share' => $share, 'pool' => $pool, 'dataset' => $f[0], 'snaps' => $snaps, 'n' => 0];
+        }
     }
     usort($list, fn ($a, $b) => $b['snaps'] <=> $a['snaps']);
-    return ['list' => $list, 'asleep' => array_values($asleep)];
+    if ($held) {
+        // which of them snapshots still hold (usedbysnapshots is 0 for snapshots of an empty dataset)
+        [$exit, $text] = $zfs(array_merge(['list', '-H', '-t', 'snapshot', '-o', 'name', '-d', '1'], array_keys($held)));
+        foreach ($exit === 0 ? explode("\n", (string) $text) : [] as $line) {
+            $ds = strstr(trim($line), '@', true);
+            if ($ds !== false && isset($held[$ds])) {
+                $held[$ds]['n']++;
+            }
+        }
+    }
+    $held = array_values(array_filter($held, fn ($x) => $x['n'] > 0));
+    usort($held, fn ($a, $b) => strcmp($a['dataset'], $b['dataset']));
+    return ['list' => $list, 'asleep' => array_values($asleep), 'kept' => $held];
 }
 
 /** Nothing but (empty) folders below $dir — up to CL_SNAPONLY_WALK entries, never through a link; more, or unreadable: not empty */
@@ -5970,6 +6203,22 @@ function clSnapOnlyChecks(?array $snap): array
     $total = array_sum(array_map(fn ($x) => (int) $x['snaps'], $list));
     $names = implode(', ', array_map(fn ($x) => "{$x['share']} ({$x['pool']}, " . clHuman((int) $x['snaps']) . ')', array_slice($list, 0, 8)));
     return [finding('snap_only', 'recommended', $ok, ['n' => count($list), 'shares' => $names, 'size' => clHuman($total)], '#/snapshot/datasets')];
+}
+
+/**
+ * The Team Lead's hint from her last tour (2026-10-21): an empty share dataset Ms. Moverelli's run left standing because
+ * snapshots hold it — which, and the way to Ms. Snapshotini; once they are gone, Ms. Moverelli's next run removes it.
+ * Only a hint: an empty dataset may be wanted, and snapshotting one is Unraid's standard. Said only while one is there (its
+ * head states the case — a hint has no «not yet» chip); none, or her tour before this look (no `kept`): nothing said.
+ */
+function clSnapKeptChecks(?array $snap): array
+{
+    $kept = is_array($snap) && is_array($snap['kept'] ?? null) ? $snap['kept'] : [];
+    if (!$kept) {
+        return [];
+    }
+    $names = implode(', ', array_map(fn ($x) => "{$x['share']} ({$x['pool']})", array_slice($kept, 0, 8)));
+    return [finding('snap_kept', 'hint', false, ['n' => count($kept), 'shares' => $names], '#/snapshot/datasets')];
 }
 
 /**
