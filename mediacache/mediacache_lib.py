@@ -655,6 +655,17 @@ def remove_empty_parents(path, stop_root, log, min_depth=2):
         p = p.parent
 
 
+def remove_empty_on_disk(loc, rel, disk, log):
+    """USO (das Office, 2026-10-20): nach einer Datei, die über /mnt/user0 kam, auch auf ihrer Disk aufräumen – wie Unraids
+    move pro Disk. In /mnt/user0 ist ein Ordner nicht leer, solange eine andere Disk darin noch etwas hat (Staffel 01:
+    E01/E02 auf disk2), auf disk1 bliebe er leer liegen. Nur die Disk, auf der die Datei lag (keine andere wird gelesen);
+    die Share-Wurzel der Disk bleibt."""
+    if not disk or disk == "?":
+        return
+    root = Path(loc.disks_glob).parent / disk
+    remove_empty_parents((root / rel).parent, root, log)
+
+
 # USO (das Office, 2026-10-12): auf ZFS zählt der ganze Pool. shutil.disk_usage() auf /mnt/<pool> sieht nur das
 # Root-Dataset (fast leer), auf einem Share-Dataset nur refer+avail – MediaCache sah ~94 % frei statt 57 %. Darum:
 # Grösse = used+avail des Pools (wie das Office und der Smart Mover), frei = avail des Datasets (eine Quota zählt).

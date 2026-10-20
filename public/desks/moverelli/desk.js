@@ -1031,10 +1031,18 @@ function schedText(sc) {
   return sc.frequency === 'custom' ? fmt.cron(sc.custom) : sc.frequency;
 }
 
+/** A refused run's reason as its row keeps it (moverelli.php moverelliRefusedParams): every placeholder of her refusals filled */
+const REFUSED_PARAMS = ['schedule', 'shares', 'version', 'file', 'path', 'name', 'when'];
+function refusedParams(r) {
+  const p = { needed: (state && state.unraid && state.unraid.needed) || '' };
+  for (const k of REFUSED_PARAMS) p[k] = r[k] == null ? '' : String(r[k]);
+  return p;
+}
+
 /** One line about how a run went (her list of runs, the last run) */
 function runSummary(r) {
   if (r.result === 'refused') {
-    return T('refused', { why: Office.errorText({ key: r.why, params: { schedule: r.schedule || '', shares: r.shares || '', version: r.version || '', needed: (state && state.unraid.needed) || '' } }, ID) })
+    return T('refused', { why: Office.errorText({ key: r.why, params: refusedParams(r) }, ID) })
       + (Number(r.times) > 1 ? ' · ' + T('refused_times', { n: Number(r.times) }) : '');
   }
   if (r.result === 'skipped') return T('skipped_mover', { min: Math.round((r.waited || 0) / 60) });

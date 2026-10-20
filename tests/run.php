@@ -2632,7 +2632,7 @@ JS);
     same('mover page: … off meanwhile (the fresh look) — no dialog', null, array_key_exists('dialog_off', $o) ? $o['dialog_off'] : 'x');
     same('mover page: an older agent\'s state — nothing said, nothing refused', [null, true], $o['old']);
     same('mover page: his list of runs — refused (counted), skipped, the gather and EmbyCache stopped by the mover', [
-        'refused {"why":"err:jack_mover_schedule:{\"detail\":\"\",\"shares\":\"\",\"file\":\"\"}"} · refused_times {"n":3}',
+        'refused {"why":"err:jack_mover_schedule:{\"detail\":\"\",\"shares\":\"\",\"file\":\"\",\"schedule\":\"\",\"name\":\"\"}"} · refused_times {"n":3}',
         'skipped_mover_summary {"min":120}',
         'gather_stopped_mover {"done":4,"total":9} · gather_summary {"moved":"count.moved {\"n\":0}","dups":"count.dups {\"n\":0}","conflicts":"count.conflicts {\"n\":0}","dirs":"count.empty_dirs {\"n\":0}","kept":"count.kept {\"n\":0}"}',
         'stopped_mover_summary · run_summary {"back":1,"back_planned":3,"fill":0,"fill_planned":2,"fill_size":"5 B"}'], $o['runs']);
@@ -2650,6 +2650,47 @@ JS);
  * rsync and is written so at the next save, whatever a request or an import carries; what Jack hands EmbyCache (its
  * environment over any settings file) is rsync — EmbyCache's own load_config() says so; his setup page has no choice.
  */
+/**
+ * Batch F, BF2 (Tower, every joint run): his fill took Season 01's episodes from disk1 to the pool through /mnt/user0 and
+ * tidied there — where Season 01 still held disk2's episodes — so the emptied folder on disk1 stayed. Now the disk the
+ * file lay on is tidied as Unraid's move does: its emptied folders go (the share's folder on the disk stays), a folder
+ * with anything in it stays, no other disk is looked at.
+ */
+function testJackTidyDisks(): void
+{
+    $tmp = hardeningTmp('jack-tidy');
+    file_put_contents("$tmp/t.py", <<<'PY'
+import sys, os, json, logging
+from pathlib import Path
+sys.path.insert(0, sys.argv[1]); base = sys.argv[2]
+import mediacache_lib as l
+for d in ("disk1/media/Serie/Season 01", "disk1/media/Film", "disk2/media/Serie/Season 01", "disk3/media/Serie/Season 01", "pool", "user0", "user"):
+    os.makedirs(f"{base}/{d}", exist_ok=True)
+for f in ("disk1/media/Film/f.mkv", "disk2/media/Serie/Season 01/e1.mkv"):
+    open(f"{base}/{f}", "w").close()
+loc = l.Locations({"cache_path": f"{base}/pool", "array_path": f"{base}/user0", "user_path": f"{base}/user",
+                   "array_disks_glob": f"{base}/disk[0-9]*"}, {})
+log = logging.getLogger("t")
+rel = Path("media/Serie/Season 01/e3.mkv")
+l.remove_empty_on_disk(loc, rel, "?", log)
+out = {"unknown": os.path.isdir(f"{base}/disk1/media/Serie/Season 01")}
+l.remove_empty_on_disk(loc, rel, "disk1", log)
+out["disk1"] = [os.path.isdir(f"{base}/disk1/media/Serie"), os.path.isdir(f"{base}/disk1/media"), os.path.isfile(f"{base}/disk1/media/Film/f.mkv")]
+out["others"] = [os.path.isfile(f"{base}/disk2/media/Serie/Season 01/e1.mkv"), os.path.isdir(f"{base}/disk3/media/Serie/Season 01")]
+l.remove_empty_on_disk(loc, rel, "disk2", log)
+out["disk2"] = os.path.isfile(f"{base}/disk2/media/Serie/Season 01/e1.mkv")
+print(json.dumps(out))
+PY);
+    [$exit, $out, $err] = runEnv(['python3', "$tmp/t.py", JACK_APP, $tmp], ['MEDIACACHE_DIR' => $tmp, 'PYTHONDONTWRITEBYTECODE' => '1'], 30);
+    same('jack tidy: a disk not known — nothing done; disk1 — its emptied Season 01 and series folder go, the share\'s folder and a film stay; disk2 and disk3 not looked at; disk2\'s episode keeps its folder',
+        [0, ['unknown' => true, 'disk1' => [false, true, true], 'others' => [true, true], 'disk2' => true]], [$exit, json_decode(trim($out), true) ?? trim($err)]);
+    $src = (string) file_get_contents(JACK_APP . '/mediacache_run.py');
+    check('jack tidy: his fill (rsync, and the move binary\'s way) tidies the disk a file through /mnt/user0 lay on, before the /mnt/user0 view',
+        substr_count($src, 'remove_empty_on_disk(loc, f.rel, ') === 2
+        && str_contains($src, "if src == loc.on_array(f.rel):      # USO: über /mnt/user0 – auch auf der Disk, auf der sie lag\n                    remove_empty_on_disk(loc, f.rel, disk, log)\n                remove_empty_parents(src.parent"));
+    hardeningRm($tmp);
+}
+
 function testJackRsync(): void
 {
     // 2026-10-15 (the owner): MediaCache's own ways — filling with rsync, giving back with Unraid's move binary; written
@@ -38768,6 +38809,38 @@ JS);
 }
 
 /**
+ * Batch F, BF3 (M15, Tower): her card named the 1 MB file before an 8 GiB one for the whole time the big one moved —
+ * the card is written at most once a second (and per 5 % of the share), and a file that started in the same second as
+ * the one before was never named. Now a file still in flight after ~0.1 s is named at once (and one of 64 MiB or more
+ * before it goes): a stand-in binary that takes 0.35 s for ten of Docs' hundred files looks at the card while each moves.
+ */
+function testMoverelliCardFile(): void
+{
+    $tmp = hardeningTmp('moverelli-cardfile');
+    $v = [];
+    moverelliFixture($tmp, $v);
+    $dir = "$tmp/data";
+    moverelliSave(moverelliTestSettings(), moverelliHost());
+    for ($i = 1; $i <= 100; $i++) {
+        file_put_contents(sprintf("$tmp/mnt/cache/Docs/%s%03d.bin", $i % 10 === 5 ? 'slow-' : 'f', $i), str_repeat('x', 1000));
+    }
+    file_put_contents("$tmp/bin/move-slow", "#!/bin/bash\nwhile IFS= read -r f; do\n  case \"\$f\" in */Docs/slow-*)\n    sleep 0.35\n"
+        . "    named=\$(sed -n 's/.*\"file\":\"\\([^\"]*\\)\".*/\\1/p' " . escapeshellarg("$dir/status.json") . ")\n"
+        . "    [[ \"\$named\" == \"\$f\" ]] && echo \"named \${f##*/}\" >> " . escapeshellarg("$tmp/seen") . " || echo \"other \${f##*/} \${named##*/}\" >> " . escapeshellarg("$tmp/seen") . " ;; esac\n"
+        . "  printf '%s\\n' \"\$f\" | " . escapeshellarg("$tmp/bin/move") . "\ndone\nexit 0\n");
+    chmod("$tmp/bin/move-slow", 0755);
+    $GLOBALS['moverelliHost']['env']['CUSTOMMOVER_MOVER_BIN'] = "$tmp/bin/move-slow";
+    moverelliJob(['run', '--office'], moverelliHost());
+    $seen = file("$tmp/seen", FILE_IGNORE_NEW_LINES) ?: [];
+    same('run card: each of the ten slow files named on the card while it moves (never the file before it)', [10, []],
+        [count($seen), array_values(array_filter($seen, fn ($l) => !str_starts_with($l, 'named ')))]);
+    $src = (string) file_get_contents(OFFICE_DIR . '/smartmover/custommover_run.sh');
+    check('run card: a big file (64 MiB and more) named before it goes', str_contains($src, '|| (( size >= OFFICE_BIG_FILE )); then office_progress_tick force;'));
+    unset($GLOBALS['moverelliHost']);
+    hardeningRm($tmp);
+}
+
+/**
  * C-M4, her run card (scenario M4, 2026-10-19): for a share of 40 × 1 MB her card lagged the disks by 25–60 points —
  * Smart Mover wrote its live status at most once a second, so a share that moves in a second or two was read a second
  * old. Now it is written too each time the share's files or bytes pass another 5 %: the status never more than 5 % (and
@@ -40065,6 +40138,73 @@ function testMoverelliFit(): void
     hardeningRm($tmp);
 }
 
+/**
+ * Her save is a tolerant writer (batch E): a save without a change leaves smart_mover.ini byte for byte — a hand-edited
+ * one (M20: X 150 out of range, someone else's keys, an empty mover_bin=) and one the update's step rewrote (M22:
+ * age_stat=newest right under [GLOBAL]); a save with a change keeps the keys she doesn't know and writes back as read
+ * what it didn't change
+ */
+function testMoverelliIniTolerant(): void
+{
+    $tmp = hardeningTmp('moverelli-tolerant');
+    $v = [];
+    moverelliFixture($tmp, $v);
+    $h = moverelliHost();
+    $dir = "$tmp/data";
+    $ini = "$dir/smart_mover.ini";
+    $resave = function () use ($h, $dir, $ini): string {
+        $md5 = md5_file($ini);
+        $ino = fileinode($ini);
+        moverelliSave(moverelliSettings($dir), $h);
+        clearstatcache(true, $ini);
+        return $md5 === md5_file($ini) ? ($ino === fileinode($ini) ? 'untouched' : 'rewritten the same') : 'changed';
+    };
+    moverelliSave(moverelliTestSettings(['min_age' => 30, 'move_when_used_above' => 80, 'patterns' => ['*.nfo']],
+        ['Filme' => ['skip' => false, 'min_age' => 14, 'move_when_used_above' => null, 'files' => [], 'patterns' => []]]), $h);
+    same('moverelli tolerant: her own ini saved again unchanged — not even rewritten', 'untouched', $resave());
+    // M20: edited by hand
+    $text = str_replace("move_when_used_above=80\n", "move_when_used_above=150\nuso_foreign_key=1\nmover_bin=\n", (string) file_get_contents($ini));
+    $text = str_replace("[Filme]\n", "[Filme]\n# mine\nowner_note=keep\n", $text) . "\n[Notes]\nwho=me\n";
+    file_put_contents($ini, $text);
+    same('moverelli tolerant: X 150 (out of range) shown as no limit, as before', 0, moverelliSettings($dir)['global']['move_when_used_above']);
+    same('moverelli tolerant: a hand-edited ini saved without a change — byte for byte (M20)', ['untouched', $text], [$resave(), file_get_contents($ini)]);
+    $set = moverelliSettings($dir);
+    $set['global']['min_age'] = 31;
+    moverelliSave($set, $h);
+    $lines = explode("\n", (string) file_get_contents($ini));
+    same('moverelli tolerant: … saved with a change — X written as read (150, never 0), the keys she doesn\'t know kept in their sections, the change written',
+        [true, true, true, true, true, true, false, true],
+        [in_array('move_when_used_above=150', $lines, true), in_array('uso_foreign_key=1', $lines, true), in_array('mover_bin=', $lines, true),
+         in_array('min_age=31', $lines, true), (bool) preg_match('/\[Filme\]\nmin_age=14\nowner_note=keep\n/', implode("\n", $lines)),
+         (bool) preg_match('/\[Notes\]\nwho=me$/', rtrim(implode("\n", $lines))), in_array('move_when_used_above=0', $lines, true),
+         moverelliIniRead($ini)['GLOBAL']['global_excludes'] === "$dir/excludes/global.txt"]);
+    $set = moverelliSettings($dir);
+    $set['global']['move_when_used_above'] = 90;
+    unset($set['shares']['Filme']);
+    moverelliSave($set, $h);
+    $read = moverelliIniRead($ini);
+    same('moverelli tolerant: X changed on the page — hers; Filme\'s rules removed — only what isn\'t hers stays in its section',
+        ['90', '1', ['owner_note' => 'keep'], ['who' => 'me']], [$read['GLOBAL']['move_when_used_above'] ?? null, $read['GLOBAL']['uso_foreign_key'] ?? null, $read['Filme'] ?? null, $read['Notes'] ?? null]);
+    // the keys she takes out on purpose go with a save that changes something (only X; always the younger date)
+    file_put_contents($ini, str_replace("[GLOBAL]\n", "[GLOBAL]\nmove_until_used_below=70\n", (string) file_get_contents($ini)) . "\n[Docs]\nage_stat=mtime\n");
+    $set = moverelliSettings($dir);
+    $set['global']['max_list'] = 51;
+    moverelliSave($set, $h);
+    $read = moverelliIniRead($ini);
+    same('moverelli tolerant: … her retired keys (a Y, a share\'s age_stat) go', [false, false], [isset($read['GLOBAL']['move_until_used_below']), isset($read['Docs'])]);
+    // M22: the update's step (pool-x) rewrote a 1.61 ini — age_stat=newest right under [GLOBAL], not where her writer puts it
+    @mkdir("$tmp/mx/moverelli", 0700, true);
+    file_put_contents("$tmp/mx/moverelli/smart_mover.ini", "# Ms. Moverelli (Unraid Secretary Office) - written by the office; change it on her setup page\n[GLOBAL]\n"
+        . "log_file=$dir/smart_mover.log\nmin_age=30\nmove_when_used_above=80\nmove_until_used_below=70\njack_min_percent=20\nage_stat=mtime\n"
+        . "move_prefer_shares=yes\nmover_debug=0\nmax_list=50\n\n[Filme]\nmin_age=30\nmove_until_used_below=60\n");
+    officeMigratePoolX("$tmp/mx", '1.63.0');
+    copy("$tmp/mx/moverelli/smart_mover.ini", $ini);
+    @unlink("$dir/excludes/global.txt");
+    $after = (string) file_get_contents($ini);
+    same('moverelli tolerant: after the update\'s step, her first save without a change — byte for byte (M22)', ['untouched', $after], [$resave(), file_get_contents($ini)]);
+    hardeningRm($tmp);
+}
+
 /** Her settings: every value checked, written atomically into smart_mover.ini and her own lists, read back the same; Smart Mover reads them so */
 function testMoverelliIni(): void
 {
@@ -40573,6 +40713,91 @@ function testMoverelliForeign(): void
     hardeningRm($tmp);
 }
 
+/**
+ * A refused run in her list and in Jack Streamer's says its reason whole (batch F, BF1: «Jack Streamer hasn't written his
+ * list yet ({file})»): every refusal her check and his can throw, kept as the agent keeps it (moverelliRefusedParams,
+ * jackRefusedParams), drawn by the page in all five languages — no placeholder left
+ */
+function testRefusedRowWords(): void
+{
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('refused rows: node is missing here - skipped', true);
+        return;
+    }
+    // her refusals: each Problem moverelliRunCheck throws, its params as named there
+    $f = new ReflectionFunction('moverelliRunCheck');
+    $src = implode('', array_slice(file($f->getFileName()), $f->getStartLine() - 1, $f->getEndLine() - $f->getStartLine() + 1));
+    preg_match_all("/new Problem\\('(\\w+)'(.*)\\);\\n/", $src, $m, PREG_SET_ORDER);
+    $her = [];
+    foreach ($m as $p) {
+        if (in_array($p[1], ['unknown_target', 'moverelli_not_configured'], true)) {
+            continue;                                   // never a row (moverelliJob says them on stderr only)
+        }
+        preg_match_all("/'(\\w+)' =>/", $p[2], $k);
+        $params = array_fill_keys($k[1], 'P');
+        $her[] = ['mode' => 'run', 'result' => 'refused', 'why' => $p[1]] + moverelliRefusedParams($params);
+    }
+    $her[] = ['mode' => 'run', 'result' => 'refused', 'why' => 'moverelli_mover_running'];       // her gate's own
+    $whys = array_column($her, 'why');
+    check('refused rows: her check\'s refusals found (Jack\'s list pending, a foreign mover, the tool missing …)',
+        !array_diff(['moverelli_jack_list_pending', 'moverelli_foreign_mover', 'moverelli_missing_tool', 'moverelli_tuning_schedule', 'moverelli_unraid_old'], $whys), implode(', ', $whys));
+    // his: the mover's rule in each of its shapes, and the runs going
+    $his = [];
+    foreach (['schedule', 'moverelli', 'moverelli_list', 'tuning_schedule'] as $why) {
+        $p = jackMoverProblem(['ok' => false, 'why' => $why, 'schedule' => '40 3 * * *', 'tuning' => ['cron' => '0 5 * * 0', 'name' => 'Mover Tuning'],
+            'moverelli' => ['file' => '/x/l.txt', 'uncovered' => ['Filme']]]);
+        $his[] = ['tool' => 'embycache', 'mode' => 'run', 'result' => 'refused', 'why' => $p->key] + jackRefusedParams($p->params);
+    }
+    foreach (['jack_running', 'jack_moverelli_running'] as $why) {
+        $his[] = ['tool' => 'embycache', 'mode' => 'run', 'result' => 'refused', 'why' => $why];
+    }
+    same('refused rows: what the rows keep — text, cut, nothing else', [['file' => 'a', 'name' => '1'], ['schedule' => 'x', 'name' => 'N']],
+        [moverelliRefusedParams(['file' => 'a', 'name' => 1, 'who' => ['x'], 'detail' => 'd', 'path' => ['no']]), jackRefusedParams(['schedule' => 'x', 'name' => 'N', 'who' => 'w'])]);
+    $tmp = hardeningTmp('refused-rows');
+    file_put_contents("$tmp/rows.json", json_encode(['moverelli' => $her, 'jack' => $his]));
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+const [, , web, rowsFile] = process.argv;
+const rows = JSON.parse(fs.readFileSync(rowsFile, 'utf8'));
+globalThis.OFFICE_DESK_TESTS = {};
+let lang = {};
+const fill = (s, p) => String(s).replace(/\{(\w+)\}/g, (all, k) => (p && p[k] != null ? String(p[k]) : all));
+const T = (k, p) => (k in lang ? fill(lang[k], p) : k + (p ? ' ' + JSON.stringify(p) : ''));
+const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {},
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {} });
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }),
+  scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', cron: (c) => c, time: (t) => 'T' + t, date: (t) => 'D' + t, relative: (t) => 'R' + t },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, sectionHead: () => mk('h'),
+  errorText: (e) => { const k = 'errors.' + e.key; return k in lang ? fill(lang[k], e.params) : 'UNKNOWN ' + e.key; } };
+const out = {};
+for (const desk of ['moverelli', 'jack']) {
+  (0, eval)(fs.readFileSync(`${web}/desks/${desk}/desk.js`, 'utf8'));
+  const d = OFFICE_DESK_TESTS[desk];
+  d.setState({ configured: true, unraid: { ok: false, version: '7.1.0', needed: '7.2.0' }, job: {}, schedule: {}, schedules: {}, jobs: { embycache: {}, gather: {} }, history: [], shares: [] });
+  for (const code of ['en', 'de', 'it', 'fr', 'es']) {
+    lang = JSON.parse(fs.readFileSync(`${web}/desks/${desk}/lang/${code}.json`, 'utf8'));
+    for (const r of rows[desk]) {
+      const line = d.runSummary(r);
+      if (/\{\w+\}|UNKNOWN/.test(line)) (out[desk] = out[desk] || []).push(`${code} ${r.why}: ${line}`);
+    }
+  }
+  out[desk + '_n'] = rows[desk].length;
+}
+console.log(JSON.stringify(out));
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB) . ' ' . escapeshellarg("$tmp/rows.json") . ' 2>&1');
+    $o = json_decode($raw, true);
+    check('refused rows: the pages ran under node', is_array($o), $raw);
+    $o = is_array($o) ? $o : [];
+    same('refused rows: her list — every refusal\'s reason whole in all five languages (Jack\'s list named, the foreign mover and its time …)',
+        [count($her), null], [$o['moverelli_n'] ?? null, $o['moverelli'] ?? null]);
+    same('refused rows: his list — every refusal\'s reason whole in all five languages (Mover Tuning named with its schedule …)',
+        [count($his), null], [$o['jack_n'] ?? null, $o['jack'] ?? null]);
+    hardeningRm($tmp);
+}
+
 /** Her page under node: the notices (Unraid's schedule, Mover Tuning's, the scripts, always the hint), the run list's words */
 function testMoverelliPage(): void
 {
@@ -40621,7 +40846,7 @@ JS);
     same('moverelli page: Mover Tuning\'s schedule and every other mover — each a warning with its name and schedule', [
         ['callout warn', ['notice.tuning {"schedule":"C0 5 * * 0","file":"mover.cron"}']], ['callout warn', ['notice.foreign_mover {"name":"User Scripts: NightMover","when":"C0 2 * * *"}']]], $o['foreign'] ?? null);
     same('moverelli page: nothing else moves — Unraid\'s off said, the scripts\' hint always there', [['mover.ok'], [['role mo-hint', ['notice.scripts_hint']]]], $o['quiet'] ?? null);
-    same('moverelli page: her list of runs in words', ['refused {"why":"err:moverelli_tuning_schedule:{\"schedule\":\"\",\"shares\":\"\",\"version\":\"\",\"needed\":\"7.3.2\"}"} · refused_times {"n":2}',
+    same('moverelli page: her list of runs in words', ['refused {"why":"err:moverelli_tuning_schedule:{\"needed\":\"7.3.2\",\"schedule\":\"\",\"shares\":\"\",\"version\":\"\",\"file\":\"\",\"path\":\"\",\"name\":\"\",\"when\":\"\"}"} · refused_times {"n":2}',
         'stopped_mover · run_summary {"moved":1,"files":1,"size":"3 B","left":"count.left {\"n\":0}"}', 'dry_summary {"files":"count.files {\"n\":3}","size":"9 B"}'], $o['runs'] ?? null);
     same('moverelli page: the setup\'s text areas', [['/a', '/b'], ['x', '# y']], $o['lines'] ?? null);
     hardeningRm($tmp);
@@ -45697,8 +45922,8 @@ JS;
     check('place verdict: only in the setup - no finding of it', !preg_match("/finding\\('place_/", (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php')));
 }
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],

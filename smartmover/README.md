@@ -114,7 +114,9 @@
 >   source is gone, or once the binary waits on its stdin again (it skipped the file: in use, already there) — read from
 >   `/proc/<pid>/syscall` (a read on fd 0; also of its children, for a script around move), or once it is gone (then a new
 >   one for the next file). The stop file is still looked at before each file; the live status is written at most once a
->   second (and for each share's first file). Without `/proc/<pid>/syscall`: one process per file, as before. The fill
+>   second (and for each share's first file) — and at once for a file still in flight after ~0.1 s that it doesn't name
+>   yet, or one of 64 MiB and more before it goes (marked «USO «progress»», 2026-10-20: a big file started in the same
+>   second as the small one before it was never named, the card showed the small one with 0 bytes for its whole time). Without `/proc/<pid>/syscall`: one process per file, as before. The fill
 >   (pool → array, the pool re-read after each file) still calls the binary per file. Hard links: the move binary of
 >   Unraid 7.4 keeps a group's links together within one process (seen on 7.4.0-rc.1: a group of three, fed one path at
 >   a time, arrived as one file with three links; a group with a link outside the share stays, as with Unraid's mover)
