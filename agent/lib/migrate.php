@@ -82,6 +82,9 @@ function officeMigrateSteps(): array
         // MediaCache's file names, the one server typed «emby»; the lists' path in Ms. Moverelli's and the gather's ini
         // follows; the old folder kept as embycache.before-<version>. While an EmbyCache run goes: tried again later
         ['id' => 'mediacache', 'version' => '1.65.0', 'run' => fn (string $dir, string $to): string => officeMigrateMediaCache($dir, $to)],
+        // the Team Lead's notification centre (lib/notifycenter.php): the switches it takes over (his own, the Night
+        // Watchman's, Mr. Backupsy's «Notify on success») become its starting values; their keys stay
+        ['id' => 'notify-center', 'version' => '1.68.0', 'run' => fn (string $dir, string $to): string => officeMigrateNotifyCenter($dir)],
     ];
 }
 

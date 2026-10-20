@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.65"
+UB_VERSION="2.66"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -188,6 +188,13 @@ ub_untrusted_refuse() {
 # process's own guard (UB_NOTIFY_LAST). The notify script never inherits the lock.
 UB_NOTIFY_STAMP="${UB_NOTIFY_STAMP-$(ub_is_plugin && echo /var/run/unraid-secretary-office/notify.second)}"
 UB_NOTIFY_LAST=0
+# 2.66: the office's RAM folder - the Team Lead's settings (notify.cfg), the flood guard and his queue (lib/notifygate.sh)
+UB_NOTIFY_HOME="${UB_NOTIFY_HOME-$(ub_is_plugin && echo /var/run/unraid-secretary-office)}"
+# shellcheck source=lib/notifygate.sh
+source "$UB_DIR/lib/notifygate.sh" 2>/dev/null || true
+ub_centre_decides() { # the Team Lead's settings are there (notify.cfg): they decide what goes, not notify_success
+    [[ -n "${UB_NOTIFY_HOME:-}" ]] && declare -F ung_cfg_read >/dev/null && ung_cfg_read "$UB_NOTIFY_HOME/notify.cfg"
+}
 ub_notify_after() { # ub_notify_after <second>  - returns once the clock is past that second (at most ~1 s)
     local now us
     now="$(date +%s%N)"
@@ -201,9 +208,10 @@ ub_notify() {
     [[ -x "$UB_NOTIFY_BIN" ]] || return 0
     # Unraid puts the server's name in front of the subject itself; the description is one line, the long text's lines
     # are Unraid's literal \n (its mail, the bell and the push agents split there; a blank line between sections stays)
-    local d="${2//$'\n'/ }" m="${4:-}" ml=()
-    local args=( -e "Unraid Secretary Office" -s "Unraid Secretary Office: $1" -d "${d//$'\r'/}" -i "${3:-normal}" ) st="$UB_NOTIFY_STAMP" fd="" last
-    m="${m//$'\r'/}"; m="${m%$'\n'}"
+    local d="${2//$'\n'/ }" m="${4:-}" ml=() level="${3:-normal}" plain
+    local args=( -e "Unraid Secretary Office" -s "Unraid Secretary Office: $1" -d "${d//$'\r'/}" -i "$level" ) st="$UB_NOTIFY_STAMP" fd="" last
+    local home="${UB_NOTIFY_HOME:-}" ev="${UB_NOTIFY_EVENT:-}" key="" rc=0 notice=()
+    m="${m//$'\r'/}"; m="${m%$'\n'}"; plain="$m"
     if [[ -n "$m" ]]; then
         mapfile -t ml <<<"$m"; printf -v m '%s\\n' "${ml[@]}"     # every line + a literal \n (printf's \\), the last one cut off
         args+=( -m "${m:0:${#m}-2}" )
@@ -216,15 +224,45 @@ ub_notify() {
             exec {fd}>&-; fd=""
         fi
     fi
-    ub_notify_after "$UB_NOTIFY_LAST"
-    if [[ -n "$fd" ]]; then
-        "$UB_NOTIFY_BIN" "${args[@]}" >/dev/null 2>&1 {fd}>&-
+    # 2.66: the Team Lead's notification centre (lib/notifygate.sh) decides - send now, hold for his summary, count
+    # only; without the office's RAM folder (a copy outside the plugin, the tests) everything goes, as before
+    UNG_FATE=sent; UNG_WHY=""; UNG_DUE=0; UNG_NOTICE=""
+    if [[ -n "$home" && -d "$home" && ! -L "$home" ]] && declare -F ung_decide >/dev/null; then
+        key="$(ung_key backup "$ev" "$1")"
+        ung_resolves backup "$ev" && ung_line "$home" resolved backup - -      # a success resolves what went wrong
+        ung_decide "$home" backup "$ev" "$level" "$key" "$(date +%s)"
+    else
+        home=""
+    fi
+    if [[ "$UNG_FATE" == sent ]]; then
+        ub_notify_after "$UB_NOTIFY_LAST"
+        if [[ -n "$fd" ]]; then "$UB_NOTIFY_BIN" "${args[@]}" >/dev/null 2>&1 {fd}>&-; else "$UB_NOTIFY_BIN" "${args[@]}" >/dev/null 2>&1; fi
+        rc=$?
         UB_NOTIFY_LAST="$(date +%s)"
+        (( rc == 0 )) || UNG_FATE=failed
+        [[ -n "$home" ]] && ung_line "$home" sent backup "$level" "$key"
+    fi
+    if [[ -n "$UNG_NOTICE" ]]; then     # past a cap: ONE notice, the rest collected for a summary
+        local who sub txt at
+        at="$(date -d "@$UNG_DUE" +%H:%M 2>/dev/null)"
+        if [[ "$UNG_NOTICE" == '*' ]]; then
+            sub="$(ub_say notify.flood_all.subject)" || sub="The office is reporting a lot right now"
+            txt="$(ub_say notify.flood_all "time=$at")" || txt="I'm collecting the rest - a summary follows at $at."
+        else
+            who="$(ub_say name)" || who="Mr. Backupsy"
+            sub="$(ub_say notify.flood.subject "name=$who")" || sub="$who is reporting a lot right now"
+            txt="$(ub_say notify.flood "time=$at")" || txt="I'm collecting the rest - a summary follows at $at."
+        fi
+        notice=( -e "Unraid Secretary Office" -s "Unraid Secretary Office: $sub" -d "$txt" -i warning )
+        ub_notify_after "$UB_NOTIFY_LAST"
+        if [[ -n "$fd" ]]; then "$UB_NOTIFY_BIN" "${notice[@]}" >/dev/null 2>&1 {fd}>&-; else "$UB_NOTIFY_BIN" "${notice[@]}" >/dev/null 2>&1; fi
+        UB_NOTIFY_LAST="$(date +%s)"
+        ung_line "$home" flood "$UNG_NOTICE" warning -
+    fi
+    [[ -n "$home" ]] && ung_drop "$home" "$UNG_FATE" "$UNG_WHY" "$UNG_DUE" backup "$ev" "$level" "$key" "$1" "${d//$'\r'/}" "$plain" ""
+    if [[ -n "$fd" ]]; then
         printf '%s\n' "$UB_NOTIFY_LAST" >"$st" 2>/dev/null
         exec {fd}>&-
-    else
-        "$UB_NOTIFY_BIN" "${args[@]}" >/dev/null 2>&1
-        UB_NOTIFY_LAST="$(date +%s)"
     fi
     return 0
 }
@@ -281,7 +319,7 @@ ub_tell() {
     name="$(ub_say name)" || name="Mr. Backupsy"
     s="$(ub_say "notify.$code.subject" "$@")" || s="$subj"
     t="$(ub_say "notify.$code" "$@")" || t="$desc"
-    ub_notify "$name: $s" "$t" "$level" "$long"
+    UB_NOTIFY_EVENT="$code" ub_notify "$name: $s" "$t" "$level" "$long"
 }
 # ub_counts <errors> <warnings> - «2 errors, 1 warning» in the office's language (errors left out when empty)
 ub_counts() {

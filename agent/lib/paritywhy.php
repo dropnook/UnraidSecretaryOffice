@@ -694,7 +694,7 @@ function paritywhyNotify(array $v, string $lang): bool
     $lines[] = '';
     $lines[] = $t('parity.notify.footer');
     return officeNotify($t('parity.notify.subject', ['n' => $n]), $t("parity.notify.desc_$stop", ['timeout' => (int) ($v['timeout'] ?? $times['disk'])]),
-        'normal', implode("\n", $lines), officeNotifyLink('#/caretaker'));
+        'normal', implode("\n", $lines), officeNotifyLink('#/caretaker'), 'watchman', "parity_$stop");
 }
 
 /**

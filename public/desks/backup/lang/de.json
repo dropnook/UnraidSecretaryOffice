@@ -1912,5 +1912,9 @@
   "held.accept_go": "Ja, es ist neu",
   "held.accepted": "Notiert — das nächste Backup geht wieder ausser Haus.",
   "check.docker_system": "Unraids Share system ist da – Docker braucht ihn",
-  "check.docker_system_how": "Es fehlt der Share system: dort legt Unraid das Docker-Image ab, ohne ihn laufen weder Docker noch Kopia. Der Teamchef sagt, wie er dazu kommt."
+  "check.docker_system_how": "Es fehlt der Share system: dort legt Unraid das Docker-Image ab, ohne ihn laufen weder Docker noch Kopia. Der Teamchef sagt, wie er dazu kommt.",
+  "notify.flood.subject": "{name} meldet gerade sehr viel",
+  "notify.flood": "Den Rest sammle ich — um {time} kommt eine Zusammenfassung. Alarme kommen weiter sofort.",
+  "notify.flood_all.subject": "Das Sekretariat meldet gerade sehr viel",
+  "notify.flood_all": "Den Rest sammle ich — um {time} kommt eine Zusammenfassung. Alarme kommen weiter sofort."
 }

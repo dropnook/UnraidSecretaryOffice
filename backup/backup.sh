@@ -1,6 +1,12 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.65 - 2026-10-19
+# unraid-backup - backup.sh                       Version 2.66 - 2026-10-20
+#   2.66 The office's notification centre decides what the engine's notifications do (lib/notifygate.sh, the same gate
+#        as the office's agent): its settings in RAM (notify.cfg - none: everything goes, as before) - Mr. Backupsy's
+#        threshold, his successes (then notify_success no longer decides), right away or held for the Team Lead's
+#        summary, quiet hours, «silent until»; the flood guard (the same once until a run ends ok or a day passed, caps
+#        per desk and office with one notice, alerts bundled past ten an hour). Alerts always go. Every decision as a
+#        small JSON for the office's history (notify-in/). ub_tell passes its code as the event.
 #   2.65 Nextcloud no longer stays in maintenance mode after an array stop or a power cut during a run: Unraid's array
 #        start (every boot too) resets a share root that isn't of the group users to 0777 nobody:users - Nextcloud's data
 #        folder then refuses every occ call, and --recover could never switch the mode off (its note kept for ever). The
@@ -4454,7 +4460,10 @@ elif (( WARNINGS > 0 )); then
         "counts=$(ub_counts "" "$WARNINGS")" "summary=$(ub_summary)"
 else
     log "Backup successful. $SUMMARY"
-    is_yes "$NOTIFY_SUCCESS" && ub_tell ok normal "$(run_report "Backup successful")" "Backup successful" "$NSUMMARY" "summary=$(ub_summary)"
+    # 2.66: with the Team Lead's notification centre (its notify.cfg in RAM) his «auch Erfolge» decides, not notify_success
+    if is_yes "$NOTIFY_SUCCESS" || ub_centre_decides; then
+        ub_tell ok normal "$(run_report "Backup successful")" "Backup successful" "$NSUMMARY" "summary=$(ub_summary)"
+    fi
 fi
 exit 0
 }

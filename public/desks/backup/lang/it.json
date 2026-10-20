@@ -1918,5 +1918,9 @@
   "held.accept_go": "Sì, è nuovo",
   "held.accepted": "Annotato — il prossimo backup va di nuovo fuori sede.",
   "check.docker_system": "La condivisione system di Unraid c'è — Docker ne ha bisogno",
-  "check.docker_system_how": "Manca la condivisione system: lì Unraid tiene l'immagine di Docker, senza di essa non funzionano né Docker né Kopia. Il capoufficio dice come averla."
+  "check.docker_system_how": "Manca la condivisione system: lì Unraid tiene l'immagine di Docker, senza di essa non funzionano né Docker né Kopia. Il capoufficio dice come averla.",
+  "notify.flood.subject": "{name} sta segnalando molto in questo momento",
+  "notify.flood": "Raccolgo il resto — alle {time} arriva un riepilogo. Gli allarmi arrivano comunque subito.",
+  "notify.flood_all.subject": "La segreteria sta segnalando molto in questo momento",
+  "notify.flood_all": "Raccolgo il resto — alle {time} arriva un riepilogo. Gli allarmi arrivano comunque subito."
 }

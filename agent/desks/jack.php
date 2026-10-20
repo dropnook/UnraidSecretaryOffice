@@ -3173,7 +3173,8 @@ function jackNotify(string $tool, string $mode, string $result, array $status, i
         officeNotifyText('jack', $release ? 'notify.subject_release' : 'notify.subject', ['tool' => officeNotifyText('jack', "notify.tool.$tool", [], $lang),
                                                      'result' => officeNotifyText('jack', "result.$outcome", [], $lang)], $lang),
         trim($detail . ($release ? '' : ' ' . officeNotifyText('jack', 'notify.see', [], $lang))),
-        ($release && $outcome === 'ok') || in_array($outcome, ['stopped_mover', 'stopped_user'], true) ? 'normal' : 'warning', '', $release ? null : officeNotifyLink('#/jack'));
+        ($release && $outcome === 'ok') || in_array($outcome, ['stopped_mover', 'stopped_user'], true) ? 'normal' : 'warning', '', $release ? null : officeNotifyLink('#/jack'),
+        'jack', ($release ? 'release_' : 'run_') . $outcome);
     if ($sent) {
         logLine("Jack Streamer: told Unraid's notifications — $tool ($mode) $outcome");
     }
@@ -3191,7 +3192,8 @@ function jackReleaseRefusedTell(string $why): void
         officeNotify(
             officeNotifyText('jack', 'notify.subject_release', ['tool' => officeNotifyText('jack', 'notify.tool.embycache', [], $lang),
                                                                  'result' => officeNotifyText('jack', 'result.refused', [], $lang)], $lang),
-            officeNotifyText('jack', "errors.$why", [], $lang) . ' ' . officeNotifyText('jack', 'notify.release_stay', [], $lang), 'warning');
+            officeNotifyText('jack', "errors.$why", [], $lang) . ' ' . officeNotifyText('jack', 'notify.release_stay', [], $lang), 'warning', '', null,
+            'jack', 'release_refused');
     } catch (Throwable $e) {
         fwrite(STDERR, "embycache: notification failed: {$e->getMessage()}\n");
     }

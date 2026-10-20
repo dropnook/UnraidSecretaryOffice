@@ -8313,7 +8313,9 @@ function watchmanParityFinding(?string $dir = null): ?array
 function watchmanNotifyDue(array &$book, array &$st, int $now, bool $send, ?string $lang = null): array
 {
     $told = [];
-    $on = ($st['notify'] ?? true) !== false;
+    // 1.68: whether and how it goes is the Team Lead's notification centre's (lib/notifycenter.php) — his own switch
+    // `notify` is only kept for an older version of the office; a book with entries muted by it stays as it is
+    $on = true;
     foreach (WATCH_KINDS as $kind => [, $important]) {
         $new = [];
         foreach ($book as $i => $e) {
@@ -8347,11 +8349,21 @@ function watchmanNotifyDue(array &$book, array &$st, int $now, bool $send, ?stri
     return $told;
 }
 
-/** The switch on his page (like the team lead's): report to Unraid's notifications or not — default on */
+/**
+ * His old switch: report to Unraid's notifications or not. Since 1.68 the Team Lead's notification centre decides —
+ * from the page (an older one, the API) it sets his row there (on: everything, off: alerts only); the centre writes the
+ * key itself ($page false) so an older version of the office keeps the choice.
+ */
 function watchmanNotifySet(mixed $on, ?string $dir = null, bool $page = true): array
 {
     if (!is_bool($on)) {
         throw new Problem('bad_request');
+    }
+    if ($page && $dir === null) {
+        $s = officeNotifySettings();
+        $s['desks']['watchman']['level'] = $on ? 'all' : 'alert';
+        officeNotifyWrite($s, OFFICE_NOTIFY_FILE);
+        return ['ok' => true, 'state' => watchmanPageState()];
     }
     $dir ??= watchmanDir();
     watchmanLocked($dir, function () use ($dir, $on): void {
@@ -8551,6 +8563,8 @@ function watchmanChainSend(array $entries, array $c, string $lang): bool
         'warning',
         implode("\n", $lines) . "\n\n" . officeNotifyText('watchman', 'notify.footer', [], $lang),
         officeNotifyLink('#/watchman'),
+        'watchman',
+        'chain',
     );
 }
 
@@ -8585,6 +8599,8 @@ function watchmanNotifySend(string $kind, array $entries, string $lang): bool
         implode("\n", $lines) . "\n\n" . ($emptied ? officeNotifyText('watchman', 'notify.kopia_back', [], $lang) . "\n\n" : '')
             . officeNotifyText('watchman', 'notify.footer', [], $lang),
         officeNotifyLink($emptied ? '#/advisor' : '#/watchman'),
+        'watchman',
+        $kind,
     );
 }
 

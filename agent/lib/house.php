@@ -352,11 +352,16 @@ const OFFICE_NOTIFY_LANG_RAM = RUN_DIR . '/notify.lang';
  * Sends one notification. $level normal|warning|alert; $message the long
  * text (its lines become Unraid's "\n", which mail, push agents and the
  * archive turn into line breaks); $link where a click leads (officeNotifyLink()).
+ * $desk and $event say who tells what (`backup`, `drill_failed`): the Team Lead's notification centre
+ * (lib/notifycenter.php) decides through its gate — send now, hold for his summary, count only; $gate false for what
+ * the centre sends itself (its summaries, the test). True when it went — or the centre took it (held, counted, not
+ * wanted): the caller's «told».
  * Does nothing without Unraid's notify script. OFFICE_NOTIFY_BIN in the
  * environment points to a stand-in, OFFICE_NOTIFY_STAMP to another shared
- * stamp — for the tests only.
+ * stamp, OFFICE_NOTIFY_HOME to the centre's folder — for the tests only.
  */
-function officeNotify(string $subject, string $description, string $level = 'normal', string $message = '', ?string $link = null): bool
+function officeNotify(string $subject, string $description, string $level = 'normal', string $message = '', ?string $link = null,
+                      string $desk = 'office', string $event = '', bool $gate = true): bool
 {
     static $last = 0;
     $bin = getenv('OFFICE_NOTIFY_BIN') ?: OFFICE_NOTIFY_BIN;
@@ -366,8 +371,8 @@ function officeNotify(string $subject, string $description, string $level = 'nor
     // with a stand-in notify (the tests) the plugin's RAM stamp is never touched: only the one they name, else this process's
     $stamp = (string) (getenv('OFFICE_NOTIFY_STAMP') ?: (getenv('OFFICE_NOTIFY_BIN') ? '' : OFFICE_NOTIFY_STAMP));
     $flat = fn (string $s) => trim((string) preg_replace('/\s+/u', ' ', $s));
-    $args = [$bin, '-e', OFFICE_NOTIFY_EVENT, '-s', OFFICE_NOTIFY_EVENT . ': ' . $flat($subject), '-d', $flat($description),
-             '-i', in_array($level, ['normal', 'warning', 'alert'], true) ? $level : 'normal'];
+    $level = in_array($level, ['normal', 'warning', 'alert'], true) ? $level : 'normal';
+    $args = [$bin, '-e', OFFICE_NOTIFY_EVENT, '-s', OFFICE_NOTIFY_EVENT . ': ' . $flat($subject), '-d', $flat($description), '-i', $level];
     if (trim($message) !== '') {
         $args = [...$args, '-m', str_replace(["\r\n", "\r", "\n"], '\n', trim($message))];
     }
@@ -397,11 +402,40 @@ function officeNotify(string $subject, string $description, string $level = 'nor
             $last = max($last, (int) $shared);
         }
     }
-    if (time() <= $last) {
-        usleep((int) ((1 - fmod(microtime(true), 1)) * 1e6) + 10000);
+    $call = function (array $a) use (&$last): bool {
+        if (time() <= $last) {
+            usleep((int) ((1 - fmod(microtime(true), 1)) * 1e6) + 10000);
+        }
+        [$exit] = hostNet($a, 30);
+        $last = time();
+        return $exit === 0;
+    };
+    // the centre's gate (lib/notifycenter.php), under the same flock as the engine's and agent.sh's: decision and call in one turn
+    $event = preg_match('/^[a-z0-9_]{0,40}$/D', $event) ? $event : '';
+    $g = $gate && function_exists('officeNotifyGate') ? officeNotifyGate($desk, $event, $level, $flat($subject)) : null;
+    $fate = $g['fate'] ?? 'sent';
+    $ok = true;
+    if ($fate === 'sent') {
+        $ok = $call($args);
+        $fate = $ok ? 'sent' : 'failed';
+        if ($g) {
+            officeNotifyGuardLine($g['home'], 'sent', $desk, $level, $g['key']);
+        }
     }
-    [$exit] = hostNet($args, 30);
-    $last = time();
+    if ($g && $g['notice'] !== '') {        // past a cap: ONE notice, the rest collected for a summary
+        [$ns, $nd] = officeNotifyFloodText($g['notice'], $g['due'], officeNotifyLang());
+        $call([$bin, '-e', OFFICE_NOTIFY_EVENT, '-s', OFFICE_NOTIFY_EVENT . ': ' . $flat($ns), '-d', $flat($nd), '-i', 'warning',
+               '-l', officeNotifyLink('#/caretaker/notify')]);
+        officeNotifyGuardLine($g['home'], 'flood', $g['notice'], 'warning', '-');
+    }
+    if ($g) {
+        officeNotifyDrop($g['home'], ['desk' => $desk, 'event' => $event, 'level' => $level, 'fate' => $fate, 'why' => $g['why'], 'due' => $g['due'],
+            'key' => $g['key'], 'subject' => $flat($subject), 'description' => $flat($description), 'message' => trim($message), 'link' => (string) $link]);
+        if (function_exists('logLine') && $fate !== 'sent') {
+            logLine("Notifications: «{$args[4]}» ($desk, $level) — $fate" . ($g['why'] !== '' ? " ({$g['why']})" : ''));
+        }
+    }
+    $GLOBALS['officeNotifyFate'] = $fate;
     if ($h) {
         ftruncate($h, 0);
         rewind($h);
@@ -410,7 +444,7 @@ function officeNotify(string $subject, string $description, string $level = 'nor
         flock($h, LOCK_UN);
         fclose($h);
     }
-    return $exit === 0;
+    return $ok;
 }
 
 /**

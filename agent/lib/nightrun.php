@@ -313,7 +313,8 @@ function nightHost(?array $h = null): array
             && is_string((jackReadSettings() ?? [])['cache_budget'] ?? null) && ($b = jackSizeBytes((string) jackReadSettings()['cache_budget'])) > 0 ? $b : null,
         // his live panel's state (jack-progress.php: {real, progress}) — her card shows it while his step runs
         'jack_progress' => $n['jack_progress'] ?? fn (array $night): array => function_exists('jackNightProgress') ? jackNightProgress($night) : [],
-        'notify'      => $n['notify'] ?? fn (string $subject, string $body): bool => officeNotify($subject, $body, 'warning', '', officeNotifyLink('#/moverelli')),
+        'notify'      => $n['notify'] ?? fn (string $subject, string $body, string $event = 'night'): bool
+                             => officeNotify($subject, $body, 'warning', '', officeNotifyLink('#/moverelli'), 'moverelli', $event),
         'rounds'      => $n['rounds'] ?? NIGHT_ROUNDS_MAX,
         // seconds the pool gets after Jack Emby's give-back before it is measured (ZFS shows freed space a txg later)
         'settle'      => $n['settle'] ?? 6,
@@ -715,7 +716,7 @@ function nightMissedTell(array $end, array $h): bool
     $lang = officeNotifyLang();
     $p = ['pool' => (string) $end['pool'], 'now' => (int) floor($end['used_pct']), 'x' => (int) $end['x'], 'nm' => (int) floor($end['nm_pct'])];
     $key = !$end['never'] && $end['jack_over'] ? 'notify.night_missed_jack' : 'notify.night_missed';
-    $ok = ($h['notify'])(officeNotifyText('moverelli', 'notify.night_subject', $p, $lang), officeNotifyText('moverelli', $key, $p, $lang));
+    $ok = ($h['notify'])(officeNotifyText('moverelli', 'notify.night_subject', $p, $lang), officeNotifyText('moverelli', $key, $p, $lang), 'night_missed');
     logLine("Night run: pool {$p['pool']} still at {$p['now']} % (limit {$p['x']} %)" . ($key === 'notify.night_missed_jack' ? ' — only Jack Streamer\'s unwatched is over it' : '')
         . ($ok ? " — told Unraid's notifications" : ''));
     return $ok;
@@ -730,7 +731,7 @@ function nightRoomTell(string $why, array $end, array $h): bool
 {
     $lang = officeNotifyLang();
     $p = ['pool' => (string) $end['pool'], 'x' => (int) $end['x'], 'jack' => poolLevelSize((int) $end['jack'])];
-    $ok = ($h['notify'])(officeNotifyText('moverelli', 'notify.night_room_subject', $p, $lang), officeNotifyText('moverelli', "notify.night_$why", $p, $lang));
+    $ok = ($h['notify'])(officeNotifyText('moverelli', 'notify.night_room_subject', $p, $lang), officeNotifyText('moverelli', "notify.night_$why", $p, $lang), 'night_room');
     logLine("Night run: pool {$p['pool']} — " . ($why === 'full' ? 'appdata & co. and what Jack Streamer keeps fill it up to X: nothing new for him'
         : 'Jack Streamer\'s budget leaves the other shares no room below X') . ($ok ? " — told Unraid's notifications" : ''));
     return $ok;

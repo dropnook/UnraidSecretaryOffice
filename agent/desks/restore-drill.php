@@ -3167,7 +3167,7 @@ function drillNotify(array $j): void
     $list = implode(', ', array_slice($names, 0, 6)) . (count($names) > 6 ? ' ' . officeNotifyText('restore', 'notify.more', ['n' => count($names) - 6], $lang) : '');
     officeNotify(officeNotifyText('restore', 'notify.drill_failed', ['n' => count($failed)], $lang),
         officeNotifyText('restore', 'notify.drill_failed_text', ['names' => $list, 'n' => count($names)], $lang),
-        'warning', implode("\n", $lines), officeNotifyLink('restore/drill'));
+        'warning', implode("\n", $lines), officeNotifyLink('restore/drill'), 'restore', 'drill_failed');
 }
 
 /** Params as texts take them: scalars only */

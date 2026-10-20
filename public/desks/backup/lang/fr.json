@@ -1933,5 +1933,9 @@
   "held.accept_go": "Oui, il est nouveau",
   "held.accepted": "Noté — la prochaine sauvegarde repart hors site.",
   "check.docker_system": "Le partage system d'Unraid est là — Docker en a besoin",
-  "check.docker_system_how": "Le partage system manque : Unraid y range l'image de Docker, sans lui ni Docker ni Kopia ne tournent. Le chef d'équipe dit comment l'obtenir."
+  "check.docker_system_how": "Le partage system manque : Unraid y range l'image de Docker, sans lui ni Docker ni Kopia ne tournent. Le chef d'équipe dit comment l'obtenir.",
+  "notify.flood.subject": "{name} signale beaucoup en ce moment",
+  "notify.flood": "Je rassemble le reste — un résumé suit à {time}. Les alertes arrivent toujours tout de suite.",
+  "notify.flood_all.subject": "Le secrétariat signale beaucoup en ce moment",
+  "notify.flood_all": "Je rassemble le reste — un résumé suit à {time}. Les alertes arrivent toujours tout de suite."
 }
