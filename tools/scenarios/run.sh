@@ -151,6 +151,11 @@ for spec in $names; do
         fi
         say "$n: $host is back"
         sync_tree
+        # the boot put the released plugin back (dev-sync lives in RAM): the code under test again before the post half
+        if ((devsync)); then
+            say "dev-sync on $host again (the boot put the released plugin back)"
+            vm "bash $TREE/plugin/dev-sync.sh" || say "dev-sync after the reboot failed"
+        fi
         vm "mkdir -p $OUT" && rsync -a -e "$SSH" "$local_dir/" "$alias:$OUT/"
         vm "bash $TREE/tools/scenarios/run-local.sh --one '$spec' --half post $opts"
         code=$?
