@@ -3849,8 +3849,12 @@ function testSetupGoneApp(): void
          . " UB_DISKS_INI=$tmp/fake/disks.ini UB_NOTIFY_BIN=$tmp/bin/notify UB_MOUNTS_FILE=$tmp/fake/mounts FAKE=$tmp/fake FAKE_ROOT=$root";
     file_put_contents("$tmp/bin/docker", <<<'SH'
 #!/bin/bash
-# «down»: the daemon doesn't answer its version (ub_docker_answers) and lists nothing - the environment step's info still passes
-[[ -e "$FAKE/down" && "$1" != info ]] && exit 1
+# «down»: the daemon stops answering during the look - its first «version» (the environment step, 2.66 ub_docker_answers)
+# still answers, then nothing: no version, no container listed
+if [[ -e "$FAKE/down" ]]; then
+  [[ "$1" == version && ! -e "$FAKE/down.asked" ]] && { touch "$FAKE/down.asked"; echo 29.0; exit 0; }
+  exit 1
+fi
 case "$1" in
   info) exit 0 ;;
   version) echo 29.0; exit 0 ;;
@@ -3970,6 +3974,7 @@ SH);
         [array_column($plan['apps'] ?? [], 'gone'), $plan['P']['app|zz-uso-nc|kopia'] ?? null,
          array_values(array_filter($plan['messages'] ?? [], fn ($m) => ($m['code'] ?? '') === 'app_gone'))], $out);
     @unlink("$tmp/fake/down");
+    @unlink("$tmp/fake/down.asked");
 
     // the page: step 2 like a gone share (no level), the apply dialog one line per gone app, never in the decisions
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
