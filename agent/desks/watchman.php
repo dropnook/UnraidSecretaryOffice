@@ -53,7 +53,9 @@ declare(strict_types=1);
  *               per container what it sent (its network namespace's counters);
  *               per ZFS share what was written (ZFS `written`, the ransomware
  *               pattern) and what vanished from it (ZFS `referenced`; XFS and
- *               btrfs disks: their used space) — hourly, learned per client,
+ *               btrfs disks: their used space); per XFS/btrfs disk what was
+ *               written and files deleted (ZFS per share, XFS per disk; the
+ *               filesystems' own counters) — hourly, learned per client,
  *               container and share, told only when far above what is normal at
  *               that time of the week; the office's own backup and restore, and
  *               what moves data (the mover, EmbyCache …), are expected
@@ -392,6 +394,12 @@ function watchmanPaths(): array
         'moverelli_status' => DATA_DIR . '/moverelli/status.json',
         'jack_progress'    => RUN_DIR . '/jack-progress.json',
         'mover_pid'  => '/var/run/mover.pid',
+        // the filesystems' own counters (watchmanFlowFs(), watchmanFlowZfs()): RAM only, no disk touched
+        'mounts'     => '/proc/mounts',
+        'diskstats'  => '/proc/diskstats',
+        'sys_xfs'    => '/sys/fs/xfs',
+        'sys_btrfs'  => '/sys/fs/btrfs',
+        'kstat_zfs'  => '/proc/spl/kstat/zfs',
         'backup_sh'  => BACKUP_SCRIPT_DIR . '/backup.sh',              // the offsite repository's count once a day (watchmanKopiaLook())
         // how secure (watchmanPostureLook())
         'ident'      => '/boot/config/ident.cfg',
@@ -4934,6 +4942,14 @@ function watchmanSchedAdopt(array &$b, string $kind, array $p, array $seen): voi
  *   shares      per share of an awake ZFS pool (or ZFS array disk) the bytes written (ZFS `written`
  *               of its datasets: since their latest snapshot — rewritten files count, which is what
  *               encrypting ransomware does; without a snapshot only growth shows)
+ *   disks       per awake XFS or btrfs disk or pool what was written to it (watchmanFlowFs(): XFS's own counter, btrfs's
+ *               devices in /proc/diskstats) — rewritten files count, also when its used space doesn't move; a round
+ *               while btrfs balances or the array's parity is synced or rebuilt is left out for that disk
+ *   files       files deleted between two rounds: per ZFS share (its datasets' `nunlinks`), per XFS disk (its
+ *               `dir` removes — a rename's old name too); btrfs counts none (only what is freed, below). They
+ *               catch what used space can't: files deleted and written again in one round, or still held by a
+ *               snapshot. Told like `gone` (said in its entry when both see it the same round); while learning
+ *               one round over WATCH_FILES_NEW, learned at least WATCH_FILES_MIN in the hour
  *   gone        what vanished between two rounds (deleted — or moved somewhere else): per user share
  *               the drop of ZFS `referenced` of its datasets on every awake ZFS pool (pools asleep are
  *               named; `usedbysnapshots` rising tells how much its snapshots still hold); per awake
@@ -4989,6 +5005,9 @@ const WATCH_FLOW_SERVICES = ['smb' => 'SMB', 'nfs' => 'NFS', 'ssh' => 'SSH', 'we
 const WATCH_GONE_NEW      = 100 * 1024 ** 3;    // gone, still learning: one round over this (100 GB) …
 const WATCH_GONE_PART     = 0.1;                // … or over this part of the share (and at least WATCH_FLOW_WRITE)
 const WATCH_GONE_SNAPS    = 1800;               // a btrfs disk whose snapshots changed this recently: its used space says nothing
+const WATCH_FILES_MIN     = 2000;               // files deleted: unusual only from this many in the hour …
+const WATCH_FILES_NEW     = 20000;              // … and while still learning one round over this many
+const WATCH_FLOW_FS       = 100;                // XFS/btrfs disks and pools followed (written, files deleted)
 const WATCH_DATASET       = '#^[A-Za-z0-9_.:-]+(?:/[^\x00-\x1F@/]+)*$#D';     // a ZFS dataset's name as zfs prints it
 const WATCH_DOCKER_LAYER  = '/^([0-9a-f]{64})(-init)?$/D';      // Docker on ZFS: a layer's or a container's dataset (its -init beside it)
 const WATCH_FLOW_BY       = 40;                 // sources of a share's pull kept (the smallest go into «the rest»)
@@ -5098,7 +5117,7 @@ function watchmanFlowLook(array $paths, ?array $containers): array
             'libvirt' => isset($paths['domain_cfg']) ? watchmanFlowLibvirt(readCfg((string) $paths['domain_cfg'])) : null,
             'holder' => $holder['holder'] ?? null, 'kopia' => $kopia !== '' ? $kopia : null,
             'office_shares' => array_values(array_unique(array_filter([BACKUP_OFFICE_SHARE, $place]))),
-            'disks' => watchmanFlowDisks($paths, $snapDirs), 'moving' => watchmanFlowMovers($paths['proc'] ?? '/proc'),
+            'disks' => watchmanFlowDisks($paths, $snapDirs), 'fs' => watchmanFlowFs($paths), 'moving' => watchmanFlowMovers($paths['proc'] ?? '/proc'),
             'runs' => watchmanFlowOfficeRuns($paths), 'move_shares' => watchmanFlowMoveShares($paths), 'moved_off' => watchmanFlowMovedOff($paths),
             'partner' => watchmanFlowPartner($paths, $holder['holder'] ?? null)];
 }
@@ -5174,6 +5193,117 @@ function watchmanFlowDisks(array $paths, array $snapDirs = ['.btrfs-snap']): ?ar
             }
         }
         $out[$name] = ['fs' => $fs, 'used' => (int) round($total - $free), 'snap' => $snap, 'shares' => $shares];
+    }
+    ksort($out);
+    return ['disks' => $out, 'asleep' => $asleep];
+}
+
+/**
+ * The XFS and btrfs filesystems' own counters, for every awake array disk and pool — from RAM only: nothing under /mnt
+ * is opened, a sleeping disk isn't even looked at (its counters can't move; the round carries them on).
+ *   XFS    /sys/fs/xfs/<device>/stats/stats: `rm` the names removed (`dir` line: a file or folder deleted, or a
+ *          rename's old name), `w` the bytes written through the filesystem (`xpc` line) — a parity rebuild under it
+ *          doesn't count
+ *   btrfs  no counter of deleted files exists (statfs says 0 inodes; what it frees is in watchmanFlowDisks()); `w` the
+ *          bytes written to its devices (/proc/diskstats: a pool's members as /sys/fs/btrfs/<uuid>/devices lists them,
+ *          divided by the copies its data profile keeps; an array disk's own device, since Unraid's md devices count
+ *          nothing); `busy` while btrfs balances, replaces or removes a device, or — an array disk — Unraid syncs or
+ *          rebuilds parity: then its writes aren't anybody's
+ * Null: no disks.ini.
+ * @return array{disks: array<string, array{fs: string, rm: ?int, w: ?int, busy: bool}>, asleep: list<string>}|null
+ */
+function watchmanFlowFs(array $paths): ?array
+{
+    $ini = readCfg($paths['disks_ini'], true);
+    if (!$ini) {
+        return null;
+    }
+    $mnt = rtrim($paths['mnt'] ?? '/mnt', '/');
+    $resync = (int) (readCfg((string) ($paths['var_ini'] ?? '/var/local/emhttp/var.ini'))['mdResync'] ?? 0) > 0;
+    $sources = [];
+    foreach (explode("\n", (string) @file_get_contents((string) ($paths['mounts'] ?? '/proc/mounts'))) as $line) {
+        $f = explode(' ', $line);
+        if (count($f) >= 3 && str_starts_with($f[0], '/dev/')) {
+            $sources[$f[1]] = $f[0];
+        }
+    }
+    $written = [];
+    foreach (explode("\n", (string) @file_get_contents((string) ($paths['diskstats'] ?? '/proc/diskstats'))) as $line) {
+        $f = preg_split('/\s+/', trim($line));
+        if (count($f) >= 10 && ctype_digit($f[9])) {
+            $written[$f[2]] = (int) $f[9] * 512;            // sectors written (always 512 bytes there)
+        }
+    }
+    $sysXfs = (string) ($paths['sys_xfs'] ?? '/sys/fs/xfs');
+    $sysBtrfs = (string) ($paths['sys_btrfs'] ?? '/sys/fs/btrfs');
+    $devRoot = rtrim((string) ($paths['dev_root'] ?? ''), '/');
+    $sleep = [];
+    foreach ($ini as $section => $v) {
+        $sleep[(string) ($v['name'] ?? $section)] = diskAsleep($v);       // spun down AND rotating (lib/mounts.php)
+    }
+    $out = $asleep = [];
+    foreach ($ini as $section => $v) {
+        $name = (string) ($v['name'] ?? $section);
+        $fs = preg_replace('/^luks:/', '', strtolower((string) ($v['fsType'] ?? '')));
+        if (!in_array($fs, ['xfs', 'btrfs'], true) || !in_array($v['type'] ?? '', ['Data', 'Cache'], true)
+            || ($v['fsStatus'] ?? 'Mounted') !== 'Mounted' || !preg_match('/^[A-Za-z0-9_.-]{1,64}$/D', $name)) {
+            continue;
+        }
+        if (baseAsleep($name, $sleep)) {
+            $asleep[] = $name;
+            continue;
+        }
+        $src = $sources["$mnt/$name"] ?? null;
+        if ($src === null) {
+            continue;
+        }
+        $real = @realpath($devRoot . $src);               // /dev/mapper/md1p1 → /dev/dm-3: the name the kernel counts it by
+        $dev = basename($real !== false ? $real : $src);
+        if (!preg_match('/^[A-Za-z0-9_.:-]{1,64}$/D', $dev)) {
+            continue;
+        }
+        if ($fs === 'xfs') {
+            $text = (string) @file_get_contents("$sysXfs/$dev/stats/stats", false, null, 0, 16384);
+            $rm = preg_match('/^dir\s+\d+\s+\d+\s+(\d+)\b/m', $text, $m) ? (int) $m[1] : null;
+            $w = preg_match('/^xpc\s+\d+\s+(\d+)\b/m', $text, $m) ? (int) $m[1] : null;
+            if ($rm !== null || $w !== null) {
+                $out[$name] = ['fs' => 'xfs', 'rm' => $rm, 'w' => $w, 'busy' => false];
+            }
+            continue;
+        }
+        $uuid = null;
+        foreach (@scandir($sysBtrfs) ?: [] as $u) {
+            if ($u[0] !== '.' && file_exists("$sysBtrfs/$u/devices/$dev")) {
+                $uuid = $u;
+                break;
+            }
+        }
+        if ($uuid === null) {
+            continue;
+        }
+        $op = trim((string) @file_get_contents("$sysBtrfs/$uuid/exclusive_operation", false, null, 0, 64));
+        $busy = $op !== '' && $op !== 'none';
+        if (($v['type'] ?? '') === 'Data') {
+            $devs = [(string) ($v['device'] ?? '')];        // an array disk: its own device (Unraid's md counts nothing)
+            $copies = 1;
+            $busy = $busy || $resync;
+        } else {
+            $devs = array_values(array_filter(@scandir("$sysBtrfs/$uuid/devices") ?: [], fn ($d) => $d[0] !== '.'));
+            $profiles = array_filter(@scandir("$sysBtrfs/$uuid/allocation/data") ?: [], fn ($d) => is_dir("$sysBtrfs/$uuid/allocation/data/$d") && $d[0] !== '.');
+            $copies = 1;
+            foreach ($profiles as $pr) {
+                $copies = max($copies, ['raid1' => 2, 'raid10' => 2, 'dup' => 2, 'raid1c3' => 3, 'raid1c4' => 4][$pr] ?? 1);
+            }
+        }
+        $w = 0;
+        foreach ($devs as $d) {
+            if (!isset($written[$d])) {
+                $w = null;                  // a member the kernel doesn't count: no figure
+                break;
+            }
+            $w += $written[$d];
+        }
+        $out[$name] = ['fs' => 'btrfs', 'rm' => null, 'w' => $w === null ? null : intdiv($w, $copies), 'busy' => $busy];
     }
     ksort($out);
     return ['disks' => $out, 'asleep' => $asleep];
@@ -5376,13 +5506,36 @@ function watchmanFlowZfs(array $paths): ?array
         return ['datasets' => [], 'pools' => [], 'asleep' => $asleep];
     }
     $cmd = ['zfs', 'get', '-H', '-p', '-o', 'name,property,value', '-t', 'filesystem,volume', '-r',
-            'written,used,referenced,usedbysnapshots,creation,snapshots_changed', ...$pools];
+            'written,used,referenced,usedbysnapshots,creation,objsetid,snapshots_changed', ...$pools];
     [$exit, $out] = run($cmd, 60);
     if ($exit !== 0 && !str_contains($out, "\twritten\t")) {
-        $cmd[9] = 'written,used,referenced,usedbysnapshots,creation';          // an older ZFS without snapshots_changed
+        $cmd[9] = 'written,used,referenced,usedbysnapshots,creation,objsetid';          // an older ZFS without snapshots_changed
         [, $out] = run($cmd, 60);
     }
-    return ['datasets' => watchmanZfsParse($out), 'pools' => $pools, 'asleep' => $asleep];
+    $sets = watchmanZfsParse($out);
+    watchmanZfsUnlinks($sets, (string) ($paths['kstat_zfs'] ?? '/proc/spl/kstat/zfs'));
+    return ['datasets' => $sets, 'pools' => $pools, 'asleep' => $asleep];
+}
+
+/**
+ * The files deleted in each dataset since its pool was imported: ZFS's own counter `nunlinks` in the dataset's kstat
+ * (/proc/spl/kstat/zfs/<pool>/objset-0x<objsetid> — RAM, the pool isn't asked), as `x`. Only datasets of the awake pools
+ * (those `zfs get` listed), never Docker's layers (an image's update is no deletion of anybody's files); a dataset
+ * without a kstat (a volume, not mounted, an older ZFS) has none.
+ */
+function watchmanZfsUnlinks(array &$sets, string $kstat): void
+{
+    foreach ($sets as $ds => $v) {
+        $id = (int) ($v['o'] ?? 0);
+        if ($id <= 0 || preg_match(WATCH_DOCKER_LAYER, basename((string) $ds))) {
+            continue;
+        }
+        $text = @file_get_contents("$kstat/" . strtok((string) $ds, '/') . '/objset-0x' . dechex($id), false, null, 0, 8192);
+        if (is_string($text) && preg_match('/^nunlinks\s+\d+\s+(\d+)\s*$/m', $text, $m) && preg_match('/^dataset_name\s+\d+\s+(\S.*?)\s*$/m', $text, $n)
+            && $n[1] === (string) $ds) {
+            $sets[$ds]['x'] = (int) $m[1];
+        }
+    }
 }
 
 /** "[::ffff:192.0.2.7]:445", "192.0.2.7:445", "[2001:db8::7%br0]:445" → [address, port], or null */
@@ -5518,6 +5671,7 @@ function watchmanZfsParse(string $text): array
             'referenced' => $out[$f[0]]['r'] = ctype_digit($v) ? (int) $v : 0,
             'usedbysnapshots' => $out[$f[0]]['b'] = ctype_digit($v) ? (int) $v : 0,
             'snapshots_changed' => $out[$f[0]]['s'] = ctype_digit($v) ? (int) $v : null,
+            'objsetid' => $out[$f[0]]['o'] = ctype_digit($v) ? (int) $v : 0,
             default   => null,
         };
     }
@@ -6138,6 +6292,9 @@ function watchmanFlowSourceLine(array $x, string $lang): string
 /** The biggest source behind its entry's line (' Most of it: …'), or that none can be seen; '' for the page (it words it itself) */
 function watchmanFlowFrom(array $p, ?string $lang): string
 {
+    if (($p['disk'] ?? null) !== null) {        // written to an XFS/btrfs disk: measured for it whole
+        return $lang === null ? '' : ' ' . officeNotifyText('watchman', 'gone.disk', ['fs' => (string) ($p['fs'] ?? '')], $lang);
+    }
     $src = is_array($p['src'] ?? null) ? $p['src'] : [];
     $top = $src[0] ?? null;
     if ($lang === null || !is_array($top) || ($top['t'] ?? '') === 'rest') {
@@ -6154,9 +6311,9 @@ function watchmanFlowFrom(array $p, ?string $lang): string
  * An unusual pull (or one going on) in the book: one open entry per key. A round right after the
  * entry's last one brings it up to date (the same pull, still going); a later unusual one starts a
  * new episode in it (count + 1). $who: what it is about (ip/service, name, share) — or a closure giving it, called only
- * when the entry is written.
+ * when the entry is written. $unit: what the run counts — `bytes`, or `files` (deleted).
  */
-function watchmanFlowNote(array &$book, string $kind, string $key, int $now, array $run, int $hour, ?array $judged, array|Closure $who): ?string
+function watchmanFlowNote(array &$book, string $kind, string $key, int $now, array $run, int $hour, ?array $judged, array|Closure $who, string $unit = 'bytes'): ?string
 {
     if (!$who instanceof Closure) {         // a closure is asked only when the entry is written (into a share: who wrote it — maybe Docker)
         $known = $who;
@@ -6170,7 +6327,7 @@ function watchmanFlowNote(array &$book, string $kind, string $key, int $now, arr
         $p = (array) $e['p'];
         if ($now - (int) $e['last'] <= WATCH_FLOW_GOING) {
             $p = $who() + $p;
-            $p['bytes'] = (int) $run['bytes'];
+            $p[$unit] = (int) $run['bytes'];
             $p['minutes'] = $minutes;
             $p['peak'] = max((int) ($p['peak'] ?? 0), $hour, (int) $run['bytes']);
             $book[$i]['p'] = $p;
@@ -6181,7 +6338,7 @@ function watchmanFlowNote(array &$book, string $kind, string $key, int $now, arr
             return null;
         }
         $book[$i]['count'] = (int) $e['count'] + 1;
-        $book[$i]['p'] = $who() + ['bytes' => (int) $run['bytes'], 'minutes' => $minutes, 'usual' => $judged['usual'], 'limit' => $judged['limit'],
+        $book[$i]['p'] = $who() + [$unit => (int) $run['bytes'], 'minutes' => $minutes, 'usual' => $judged['usual'], 'limit' => $judged['limit'],
                                  'learning' => $judged['learning'], 'peak' => max((int) ($p['peak'] ?? 0), $judged['hour'], (int) $run['bytes'])];
         $book[$i]['last'] = $now;
         return null;
@@ -6189,7 +6346,7 @@ function watchmanFlowNote(array &$book, string $kind, string $key, int $now, arr
     if ($judged === null) {
         return null;
     }
-    $book[] = watchmanEntry($kind, $key, $now, $who() + ['bytes' => (int) $run['bytes'], 'minutes' => $minutes, 'usual' => $judged['usual'],
+    $book[] = watchmanEntry($kind, $key, $now, $who() + [$unit => (int) $run['bytes'], 'minutes' => $minutes, 'usual' => $judged['usual'],
         'limit' => $judged['limit'], 'learning' => $judged['learning'], 'peak' => max($judged['hour'], (int) $run['bytes'])]);
     return $kind;
 }
@@ -6238,7 +6395,7 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
     $officeShares = array_flip(array_map('strval', (array) ($look['office_shares'] ?? [])));
     $ack = fn (string $key): int => (int) ($bf['ack'][$key]['bytes'] ?? 0);
     $added = [];
-    $next = ['time' => $now, 'conns' => null, 'cts' => null, 'ds' => null, 'smb' => null, 'ref' => null, 'disks' => null, 'moving' => null,
+    $next = ['time' => $now, 'conns' => null, 'cts' => null, 'ds' => null, 'smb' => null, 'ref' => null, 'disks' => null, 'moving' => null, 'zx' => null, 'fsd' => null,
              'door' => !empty($look['partner']['door'])];
     // the partner door at work — receiving now, at the last round, or a receive finished since: what it wrote into the
     // partners' place and the pairs' SSH bytes are the office's own; so are they while this office sends (phase partner)
@@ -6640,7 +6797,112 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
     }
     $next['moved_off']['left'] = $budget;           // moved but not lost by a disk yet: the next round's (0 once nothing moves)
 
-    foreach (['conns', 'cts', 'ds', 'smb', 'ref', 'disks', 'moving'] as $part) {   // 'door' is this round's word, never carried
+    // the filesystems' own counters: files deleted (ZFS per share, XFS per disk) and what was written to an XFS or btrfs
+    // disk or pool — net used space hides a deletion whose files come back in the same round, or a snapshot still holds
+    $flow['files'] = (array) ($flow['files'] ?? []);
+    $flow['disk_w'] = (array) ($flow['disk_w'] ?? []);
+    $onDisk = fn (string $name): array => array_map('strval', (array) ($look['disks']['disks'][$name]['shares'] ?? []));
+    $officeDisk = fn (array $shares): bool => $office && ($restore || (bool) array_intersect_key($officeShares, array_flip($shares)));
+    $movedDisk = fn (array $shares): bool => (bool) array_intersect_key($moved, array_flip($shares));
+    $files = function (string $key, int $n, array $who, bool $excused) use (&$flow, &$added, &$book, $now, $prevTime, $ack, $whoNow): void {
+        if ($n <= 0 || (!isset($flow['files'][$key]) && count($flow['files']) >= WATCH_FLOW_SHARES)) {
+            return;
+        }
+        $s = is_array($flow['files'][$key] ?? null) ? $flow['files'][$key] : watchmanFlowSeries($now);
+        $s = $who + $s;
+        $s['seen'] = $now;
+        watchmanFlowAdd($s, $n, $now, $prevTime, $excused);
+        $flow['files'][$key] = $s;
+        if ($excused) {
+            return;
+        }
+        $j = watchmanFlowJudge($s, $n, $now, $ack("flow_gone:files:$key"), WATCH_FILES_MIN, WATCH_FILES_NEW);
+        $run = (array) $s['run'];
+        foreach ($book as $i => $e) {               // the same deletion already told by its bytes this round: said there
+            if (($e['key'] ?? '') === "flow_gone:$key" && (int) ($e['last'] ?? 0) === $now && watchmanOpen($e)) {
+                $book[$i]['p']['files'] = (int) $run['bytes'];
+                return;
+            }
+        }
+        $added[] = watchmanFlowNote($book, 'flow_gone', "flow_gone:files:$key", $now, $run, (int) ($s['h'][intdiv($now, 3600)] ?? 0), $j,
+            $who + $whoNow, 'files');
+    };
+    if (is_array($z)) {
+        // ZFS: `nunlinks` per dataset of the awake pools (a pool asleep keeps its counters), summed per user share
+        $next['zx'] = [];
+        $was = $prev['zx'] ?? null;
+        $sleeping = array_flip((array) $z['asleep']);
+        foreach (is_array($was) ? $was : [] as $ds => $x) {
+            if (isset($sleeping[strtok((string) $ds, '/')])) {
+                $next['zx'][$ds] = $x;
+            }
+        }
+        $per = [];
+        foreach ((array) $z['datasets'] as $ds => $v) {
+            if (!isset($v['x']) || count($next['zx']) >= WATCH_FLOW_DATASETS) {
+                continue;
+            }
+            $ds = (string) $ds;
+            $next['zx'][$ds] = (int) $v['x'];
+            $before = is_array($was) ? ($was[$ds] ?? null) : null;
+            if ($before === null || (int) $v['x'] < (int) $before || ($sh = watchmanGoneShare($ds)) === null || storeroomIn($ds)) {
+                continue;                   // new here, its pool imported anew, the pool's top, the storeroom
+            }
+            $per[$sh] = ($per[$sh] ?? 0) + (int) $v['x'] - (int) $before;
+        }
+        foreach ($per as $sh => $n) {
+            $sh = (string) $sh;
+            $files("share:$sh", $n, ['share' => $sh, 'disk' => null, 'shares' => []],
+                $anywhere || isset($moved[$sh]) || ($office && ($restore || isset($officeShares[$sh]))));
+        }
+    }
+    $fsl = $look['fs'] ?? null;
+    if (is_array($fsl)) {
+        // XFS and btrfs: per disk or pool (a sleeping one keeps its counters); a round where btrfs balances or the array's
+        // parity is rebuilt is left out for that disk — those writes are nobody's
+        $next['fsd'] = [];
+        $was = $prev['fsd'] ?? null;
+        foreach ((array) $fsl['asleep'] as $name) {
+            if (is_array($was[$name] ?? null)) {
+                $next['fsd'][$name] = $was[$name];
+            }
+        }
+        foreach ((array) $fsl['disks'] as $name => $d) {
+            $name = (string) $name;
+            $next['fsd'][$name] = [$d['rm'], $d['w']];
+            $p = is_array($was) ? ($was[$name] ?? null) : null;
+            if (!is_array($p)) {
+                continue;
+            }
+            $diskShares = $onDisk($name);
+            $who = ['share' => $name, 'disk' => $name, 'fs' => (string) $d['fs'], 'shares' => array_slice($diskShares, 0, WATCH_LIST_MAX)];
+            $mine = $officeDisk($diskShares) || $movedDisk($diskShares);
+            if ($d['rm'] !== null && $p[0] !== null && (int) $d['rm'] >= (int) $p[0]) {
+                $files("disk:$name", (int) $d['rm'] - (int) $p[0], $who + ['renames' => true], $mine || $anywhere);
+            }
+            if ($d['w'] === null || $p[1] === null || (int) $d['w'] < (int) $p[1] || !empty($d['busy'])) {
+                continue;                   // no figure, counted anew (remounted, rebooted), or btrfs/parity at work
+            }
+            $bytes = (int) $d['w'] - (int) $p[1];
+            if ($bytes <= 0 || (!isset($flow['disk_w'][$name]) && count($flow['disk_w']) >= WATCH_FLOW_FS)) {
+                continue;
+            }
+            $s = is_array($flow['disk_w'][$name] ?? null) ? $flow['disk_w'][$name] : watchmanFlowSeries($now);
+            $s = $who + $s;
+            $s['seen'] = $now;
+            $excused = $mine || ($anywhere && in_array('rsync', $moving, true));
+            watchmanFlowAdd($s, $bytes, $now, $prevTime, $excused);
+            $flow['disk_w'][$name] = $s;
+            if (!$excused) {
+                $used = (int) ($look['disks']['disks'][$name]['used'] ?? 0);
+                $clear = max(WATCH_FLOW_WRITE, $used > 0 ? min(WATCH_FLOW_NEW, (int) ($used * WATCH_FLOW_PART)) : WATCH_FLOW_NEW);
+                $j = watchmanFlowJudge($s, $bytes, $now, $ack("flow_written:disk:$name"), WATCH_FLOW_MIN, $clear);
+                $added[] = watchmanFlowNote($book, 'flow_written', "flow_written:disk:$name", $now, (array) $s['run'], (int) ($s['h'][intdiv($now, 3600)] ?? 0), $j, $who);
+            }
+        }
+    }
+
+    foreach (['conns', 'cts', 'ds', 'smb', 'ref', 'disks', 'moving', 'zx', 'fsd'] as $part) {   // 'door' is this round's word, never carried
         if ($next[$part] === null) {
             $next[$part] = $prev[$part] ?? null;       // not looked at this time: the last counters stay (counted on next time)
         }
@@ -6650,6 +6912,7 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
                     'docker' => is_array($cts), 'host' => array_slice($host, 0, 50),
                     'zfs' => is_array($z) ? ['pools' => array_values((array) $z['pools']), 'asleep' => array_values((array) $z['asleep'])] : null,
                     'disks' => is_array($dk) ? ['disks' => array_keys((array) $dk['disks']), 'asleep' => array_values((array) $dk['asleep'])] : null,
+                    'fs' => is_array($fsl) ? array_map(fn ($d) => (string) $d['fs'], (array) $fsl['disks']) : null,
                     'moving' => $movers === null && !$officeMoved ? null : array_values(array_unique(array_merge($movers ?? [], $officeMoved))),
                     'office' => $office ? (string) $look['holder'] : null];
     watchmanFlowTidy($bf, $flow, $now);
@@ -6661,11 +6924,13 @@ function watchmanFlowTidy(array &$bf, array &$flow, int $now): void
 {
     $oldest = intdiv($now - WATCH_FLOW_KEEP, 3600);
     $cur = intdiv($now, 3600);
-    foreach (['clients' => WATCH_FLOW_CLIENTS, 'containers' => WATCH_FLOW_CTS, 'shares' => WATCH_FLOW_SHARES, 'gone' => WATCH_FLOW_SHARES] as $part => $cap) {
+    foreach (['clients' => WATCH_FLOW_CLIENTS, 'containers' => WATCH_FLOW_CTS, 'shares' => WATCH_FLOW_SHARES, 'gone' => WATCH_FLOW_SHARES,
+              'files' => WATCH_FLOW_SHARES, 'disk_w' => WATCH_FLOW_FS] as $part => $cap) {
+        $tiny = $part === 'files' ? 10 : WATCH_FLOW_TINY;          // files deleted are counted, not bytes
         $list = (array) ($flow[$part] ?? []);
         foreach ($list as $key => $s) {
             foreach (['h', 'o'] as $hk) {
-                $s[$hk] = array_filter((array) ($s[$hk] ?? []), fn ($b, $idx) => (int) $idx >= $oldest && ((int) $idx >= $cur || (int) $b >= WATCH_FLOW_TINY),
+                $s[$hk] = array_filter((array) ($s[$hk] ?? []), fn ($b, $idx) => (int) $idx >= $oldest && ((int) $idx >= $cur || (int) $b >= $tiny),
                                        ARRAY_FILTER_USE_BOTH);
             }
             $seen = max((int) ($s['last'] ?? 0), (int) ($s['seen'] ?? 0), (int) ($s['first'] ?? 0));
@@ -6684,7 +6949,13 @@ function watchmanFlowTidy(array &$bf, array &$flow, int $now): void
     $parts = ['flow_client' => 'clients', 'flow_container' => 'containers', 'flow_written' => 'shares', 'flow_gone' => 'gone'];
     foreach ((array) $bf['ack'] as $key => $a) {
         [$kind, $what] = array_pad(explode(':', (string) $key, 2), 2, '');
-        if (!isset($parts[$kind], $flow[$parts[$kind]][$what])) {
+        $part = $parts[$kind] ?? null;
+        if ($kind === 'flow_gone' && str_starts_with($what, 'files:')) {
+            [$part, $what] = ['files', substr($what, 6)];           // files deleted (watchmanFlowCompare())
+        } elseif ($kind === 'flow_written' && str_starts_with($what, 'disk:')) {
+            [$part, $what] = ['disk_w', substr($what, 5)];          // written to an XFS/btrfs disk
+        }
+        if ($part === null || !isset($flow[$part][$what])) {
             unset($bf['ack'][$key]);                // what it was about is forgotten
         }
     }
@@ -6738,8 +7009,14 @@ function watchmanFlowUsualText(array $p, string $kind, ?string $lang): string
     if ($lang === null) {
         return '';
     }
+    if (!isset($p['bytes']) && isset($p['files'])) {            // files deleted: counted, not measured
+        return !empty($p['learning'])
+            ? officeNotifyText('watchman', 'flow.learning_files', ['n' => (int) ($p['limit'] ?? 0)], $lang)
+            : ((int) ($p['usual'] ?? 0) > 0 ? officeNotifyText('watchman', 'flow.usual_files', ['n' => (int) $p['usual']], $lang)
+                                              : officeNotifyText('watchman', 'flow.usual_none', [], $lang));
+    }
     if (!empty($p['learning'])) {
-        return $kind === 'flow_written' || ($kind === 'flow_gone' && !empty($p['part']))
+        return ($kind === 'flow_written' && ($p['disk'] ?? null) === null) || ($kind === 'flow_gone' && !empty($p['part']))
             ? officeNotifyText('watchman', 'flow.learning_share', ['pct' => (int) ($p['pct'] ?? 0)], $lang)
             : officeNotifyText('watchman', 'flow.learning', ['size' => watchmanSize((int) ($p['limit'] ?? 0), $lang)], $lang);
     }
@@ -6790,7 +7067,31 @@ function watchmanFlowSummary(?array $bf, ?array $flow, int $now): ?array
                    'usual' => watchmanFlowUsual($h, $now), 'learning' => $learning($s), 'asleep' => (array) ($s['asleep'] ?? []),
                    'last' => (int) ($s['last'] ?? 0), 'ack' => (int) ($bf['ack']["flow_gone:$key"]['bytes'] ?? 0)];
     }
-    usort($gone, fn ($x, $y) => [$y['day'] + $y['expected'], $y['last'], $x['key']] <=> [$x['day'] + $x['expected'], $x['last'], $y['key']]);
+    // files deleted (ZFS per share, XFS per disk): beside what vanished from the same share or disk, or a row of their own
+    $at = array_flip(array_column($gone, 'key'));
+    foreach ((array) ($flow['files'] ?? []) as $key => $s) {
+        $key = (string) $key;
+        $h = (array) ($s['h'] ?? []);
+        $more = ['files' => $sum($h), 'files_expected' => $sum((array) ($s['o'] ?? [])), 'files_usual' => watchmanFlowUsual($h, $now),
+                 'files_ack' => (int) ($bf['ack']["flow_gone:files:$key"]['bytes'] ?? 0)];
+        if (isset($at[$key])) {
+            $gone[$at[$key]] += $more;
+            continue;
+        }
+        $gone[] = ['key' => $key, 'share' => $s['share'] ?? null, 'disk' => $s['disk'] ?? null, 'fs' => (string) ($s['fs'] ?? 'zfs'),
+                   'shares' => (array) ($s['shares'] ?? []), 'size' => 0, 'day' => 0, 'expected' => 0, 'usual' => 0, 'learning' => $learning($s),
+                   'asleep' => [], 'last' => (int) ($s['last'] ?? 0), 'ack' => 0] + $more;
+    }
+    usort($gone, fn ($x, $y) => [$y['day'] + $y['expected'], $y['files'] ?? 0, $y['last'], $x['key']] <=> [$x['day'] + $x['expected'], $x['files'] ?? 0, $x['last'], $y['key']]);
+    // written to an XFS or btrfs disk or pool (measured for it whole)
+    $disks = [];
+    foreach ((array) ($flow['disk_w'] ?? []) as $name => $s) {
+        $h = (array) ($s['h'] ?? []);
+        $disks[] = ['disk' => (string) $name, 'fs' => (string) ($s['fs'] ?? ''), 'shares' => (array) ($s['shares'] ?? []),
+                    'day' => $sum($h) + $sum((array) ($s['o'] ?? [])), 'office' => $sum((array) ($s['o'] ?? [])), 'usual' => watchmanFlowUsual($h, $now),
+                    'learning' => $learning($s), 'seen' => (int) ($s['seen'] ?? 0), 'ack' => (int) ($bf['ack']["flow_written:disk:$name"]['bytes'] ?? 0)];
+    }
+    usort($disks, fn ($x, $y) => [$y['day'], $x['disk']] <=> [$x['day'], $y['disk']]);
     $smbClients = [];
     foreach ((array) ($bf['smb_clients'] ?? []) as $ip => $c) {
         $smbClients[] = ['ip' => (string) $ip, 'name' => (string) ($c['name'] ?? ''), 'hours' => count((array) ($c['hours'] ?? [])),
@@ -6810,9 +7111,11 @@ function watchmanFlowSummary(?array $bf, ?array $flow, int $now): ?array
         'idle'       => max(0, count($cts) - 15),
         'shares'     => array_slice($shares, 0, 60),
         'gone'       => array_slice($gone, 0, 60),
+        'disks'      => array_slice($disks, 0, 40),
         'smb'        => ['users' => array_slice($users, 0, 60), 'clients' => array_slice($smbClients, 0, 40)],
         'limits'     => ['factor' => WATCH_FLOW_FACTOR, 'min' => WATCH_FLOW_MIN, 'new' => WATCH_FLOW_NEW, 'part' => (int) round(WATCH_FLOW_PART * 100),
-                         'keep' => intdiv(WATCH_FLOW_KEEP, 86400), 'gone_new' => WATCH_GONE_NEW, 'gone_part' => (int) round(WATCH_GONE_PART * 100)],
+                         'keep' => intdiv(WATCH_FLOW_KEEP, 86400), 'gone_new' => WATCH_GONE_NEW, 'gone_part' => (int) round(WATCH_GONE_PART * 100),
+                         'files_min' => WATCH_FILES_MIN, 'files_new' => WATCH_FILES_NEW],
     ];
 }
 
@@ -8124,10 +8427,12 @@ function watchmanText(array $e, ?string $lang = null): array
                              'usual' => watchmanFlowUsualText($p, 'flow_client', $lang)],
         'flow_container' => ['name' => (string) ($p['name'] ?? ''), 'size' => watchmanSize((int) ($p['bytes'] ?? 0), $lang ?? 'en'),
                              'minutes' => (int) ($p['minutes'] ?? 0), 'usual' => watchmanFlowUsualText($p, 'flow_container', $lang)],
-        'flow_written'   => ['share' => (string) ($p['share'] ?? ''), 'size' => watchmanSize((int) ($p['bytes'] ?? 0), $lang ?? 'en'),
+        'flow_written'   => ['share' => watchmanGoneName($p), 'size' => watchmanSize((int) ($p['bytes'] ?? 0), $lang ?? 'en'),
                              'minutes' => (int) ($p['minutes'] ?? 0), 'usual' => watchmanFlowUsualText($p, 'flow_written', $lang),
                              'from' => watchmanFlowFrom($p, $lang)],
-        'flow_gone'      => ['share' => watchmanGoneName($p), 'size' => watchmanSize((int) ($p['bytes'] ?? 0), $lang ?? 'en'),
+        'flow_gone'      => ['share' => watchmanGoneName($p), 'size' => !isset($p['bytes']) && isset($p['files'])
+                                 ? ($lang === null ? '' : officeNotifyText('watchman', 'gone.files_n', ['n' => (int) $p['files']], $lang))
+                                 : watchmanSize((int) ($p['bytes'] ?? 0), $lang ?? 'en'),
                              'minutes' => (int) ($p['minutes'] ?? 0), 'usual' => watchmanFlowUsualText($p, 'flow_gone', $lang),
                              'more' => watchmanGoneMore($p, $lang)],
         'smb_user'       => ['user' => (string) ($p['user'] ?? ''), 'ip' => (string) ($p['ip'] ?? '')],
@@ -8225,6 +8530,12 @@ function watchmanGoneMore(array $p, ?string $lang): string
     }
     if ((array) ($p['users'] ?? [])) {
         $out[] = $t('gone.who_smb', ['users' => implode(', ', array_map('strval', (array) $p['users']))]);
+    }
+    if (isset($p['files'], $p['bytes'])) {
+        $out[] = $t('gone.files', ['n' => (int) $p['files']]);       // the files deleted with it
+    }
+    if (isset($p['files']) && !empty($p['renames'])) {
+        $out[] = $t('gone.renames');
     }
     if (($p['disk'] ?? null) !== null) {
         $out[] = $t('gone.disk', ['fs' => (string) ($p['fs'] ?? '')]);
