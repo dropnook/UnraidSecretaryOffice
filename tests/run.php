@@ -30995,6 +30995,308 @@ function testLogsFiltersPage(): void
     }
 }
 
+/*
+ * «Who woke my disks?» (agent/desks/logs-diskwakes.php): only rotating disks of disks.ini (never the flash, an SSD or an
+ * NVMe; a pool's member by its pool), /proc/diskstats read; a fake /proc tree caught at a wake — a container's thread
+ * waiting with a file on the disk (its own path taken back to the server's), smbd on a user share, a cron child, the
+ * mover, the office's backup, a VM, a kernel thread left out — the surest first; the sampler over a disks.ini and
+ * diskstats sequence (a wake caught, a wake only noticed, an SSD never, the array stopped, not hired, a restarted agent,
+ * a gap too long); the naming job (a container's name, Unraid's «read SMART» time, the cron lines due), the file's
+ * tolerant reader and writer, the counter; and on a real /proc the capture's cost.
+ */
+function testLogsWakes(): void
+{
+    $tmp = hardeningTmp('logswakes');
+    $keep = [$GLOBALS['disksIni'] ?? null, $GLOBALS['agentStaffFile'] ?? null];
+    $GLOBALS['logsWakesFile'] = "$tmp/logs-wakes.json";
+    $GLOBALS['logsWakeMemFile'] = "$tmp/mem.json";
+    $GLOBALS['logsWakeNamesFile'] = "$tmp/names.json";
+    $GLOBALS['logsWakeVarIni'] = "$tmp/var.ini";
+    $GLOBALS['logsWakeNoJob'] = true;
+    $GLOBALS['disksIni'] = "$tmp/disks.ini";
+    $GLOBALS['agentStaffFile'] = "$tmp/staff.json";
+    file_put_contents("$tmp/staff.json", '{"hired":{"logs":{}}}');
+    file_put_contents("$tmp/var.ini", "fsState=\"Started\"\n");
+    $ini = function (array $sleep) use ($tmp): void {
+        $d = fn (string $name, string $dev, string $type, string $rot, bool $asleep): string =>
+            "[\"$name\"]\nname=\"$name\"\ndevice=\"$dev\"\ntype=\"$type\"\nrotational=\"$rot\"\nspundown=\"" . ($asleep ? 1 : 0) . "\"\n";
+        file_put_contents("$tmp/disks.ini", $d('parity', 'sdc', 'Parity', '1', in_array('parity', $sleep, true))
+            . $d('disk1', 'sdb', 'Data', '1', in_array('disk1', $sleep, true))
+            . $d('disk2', 'sdf', 'Data', '0', in_array('disk2', $sleep, true))          // an SSD in the array: never
+            . $d('cache', 'sdd', 'Cache', '1', in_array('cache', $sleep, true))
+            . $d('cache2', 'sde', 'Cache', '1', in_array('cache2', $sleep, true))
+            . $d('fast', 'nvme0n1', 'Cache', '0', false)
+            . $d('flash', 'sda', 'Flash', '1', false)
+            . "[\"disk3\"]\nname=\"disk3\"\ndevice=\"\"\ntype=\"Data\"\nspundown=\"0\"\n");          // an empty slot
+    };
+    // a /proc of the tests' own
+    $proc = "$tmp/proc";
+    $stat = function (int $pid, string $comm, string $state, int $ppid, int $flags = 0, int $threads = 1, ?int $tid = null) use ($proc): void {
+        $dir = $tid === null ? "$proc/$pid" : "$proc/$pid/task/$tid";
+        @mkdir($dir, 0700, true);
+        file_put_contents("$dir/stat", ($tid ?? $pid) . " ($comm) $state $ppid 0 0 0 -1 $flags 0 0 0 0 0 0 0 0 20 0 $threads 0 0 0\n");
+    };
+    $proc1 = function (int $pid, string $comm, string $state, int $ppid, string $cmd, array $o = []) use ($proc, $stat): void {
+        $stat($pid, $comm, $state, $ppid, $o['flags'] ?? 0, $o['threads'] ?? 1);
+        file_put_contents("$proc/$pid/cmdline", str_replace(' ', "\0", $cmd) . "\0");
+        file_put_contents("$proc/$pid/cgroup", $o['cgroup'] ?? "0::/\n");
+        @symlink($o['ns'] ?? 'mnt:[4026531840]', "$proc/$pid/ns_mnt");
+        @mkdir("$proc/$pid/ns", 0700);
+        @symlink($o['ns'] ?? 'mnt:[4026531840]', "$proc/$pid/ns/mnt");
+        @mkdir("$proc/$pid/fd", 0700);
+        foreach ($o['fds'] ?? [] as $i => $target) {
+            symlink($target, "$proc/$pid/fd/" . ($i + 3));
+        }
+        if (isset($o['cwd'])) {
+            symlink($o['cwd'], "$proc/$pid/cwd");
+        }
+        if (isset($o['mountinfo'])) {
+            file_put_contents("$proc/$pid/mountinfo", $o['mountinfo']);
+        }
+    };
+    $plexId = str_repeat('ab12', 16);
+    $proc1(1, 'init', 'S', 0, '/sbin/init', ['mountinfo' => "20 1 0:2 / / rw - rootfs rootfs rw\n30 20 9:1 / /mnt/disk1 rw - xfs /dev/md1p1 rw\n"
+        . "31 20 0:50 / /mnt/user rw - fuse.shfs shfs rw\n32 20 8:49 / /mnt/cache rw - btrfs /dev/sdd1 rw\n"]);
+    $proc1(2, 'kthreadd', 'S', 0, '', ['flags' => 0x00200000]);
+    // Plex in a container: its main thread sleeps, one of its threads waits for disk1 — through its own /films
+    $proc1(100, 'Plex Media Serv', 'S', 1, '/usr/lib/plexmediaserver/Plex Media Server', ['threads' => 3, 'cgroup' => "0::/docker/$plexId\n",
+        'ns' => 'mnt:[4026532000]', 'fds' => ['/films/Familienfilme/Sommer 2019.mkv', '/config/Library/db.sqlite', 'socket:[1234]'],
+        'mountinfo' => "40 39 0:60 / / rw - overlay overlay rw\n41 40 9:1 /Familie /films rw - xfs /dev/md1p1 rw\n42 40 0:50 /appdata/plex /config rw - fuse.shfs shfs rw\n"]);
+    $stat(100, 'Plex Media Serv', 'S', 1, 0, 3, 100);
+    $stat(100, 'Plex Media Serv', 'S', 1, 0, 3, 101);
+    $stat(100, 'Plex Media Scan', 'D', 1, 0, 3, 102);
+    $proc1(200, 'smbd', 'D', 1, '/usr/sbin/smbd -D', ['fds' => ['/mnt/user/Docs/Steuer.pdf']]);
+    $proc1(299, 'crond', 'S', 1, '/usr/sbin/crond');
+    $proc1(300, 'sh', 'S', 299, '/bin/sh -c /usr/local/bin/fotos-sichern');
+    $proc1(301, 'rsync', 'D', 300, 'rsync -a /mnt/disk1/Fotos /mnt/remotes/nas', ['cwd' => '/mnt/disk1/Fotos']);
+    $proc1(400, 'kworker/3:1', 'D', 2, '', ['flags' => 0x00200000]);
+    $proc1(500, 'qemu-system-x86', 'D', 1, '/usr/bin/qemu-system-x86_64 -name guest=Spielwiese,debug-threads=on -S');
+    $proc1(600, 'mover', 'S', 1, '/bin/bash /usr/local/sbin/mover start');
+    $proc1(601, 'move', 'D', 600, '/usr/libexec/unraid/move', ['fds' => ['/mnt/cache/Fotos/neu.jpg']]);
+    $proc1(699, 'job.sh', 'S', 1, 'bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/job.sh backup');
+    $proc1(700, 'kopia', 'D', 699, 'kopia snapshot create', ['fds' => ['/mnt/disk1/Fotos/2019/a.jpg']]);
+    $proc1(800, 'sleep', 'S', 1, 'sleep 100', ['cwd' => '/mnt/disk1/Musik']);
+    try {
+        // the disks: rotating ones only, a pool's member by its pool, parity nowhere
+        $ini(['disk1', 'disk2', 'cache2']);
+        same('logs wakes: the rotating disks of disks.ini — no SSD, NVMe, flash or empty slot; cache2 belongs to the pool cache', [
+            'parity' => ['dev' => 'sdc', 'asleep' => false, 'mount' => null],
+            'disk1'  => ['dev' => 'sdb', 'asleep' => true, 'mount' => '/mnt/disk1'],
+            'cache'  => ['dev' => 'sdd', 'asleep' => false, 'mount' => '/mnt/cache'],
+            'cache2' => ['dev' => 'sde', 'asleep' => true, 'mount' => '/mnt/cache'],
+        ], logsWakeDisks());
+        file_put_contents("$proc/diskstats", "   8       0 sda 120 0 900 10 4 0 8 1 0 20 30 0 0 0 0\n   8      16 sdb 500 2 4000 90 70 0 560 40 1 300 130 0 0 0 0\n 259 0 nvme0n1 1 2 3 4 5 6 7 8 9 10 11\n");
+        same('logs wakes: /proc/diskstats — reads, writes, in flight per device', ['sda' => [120, 4, 0], 'sdb' => [500, 70, 1], 'nvme0n1' => [1, 5, 9]],
+            logsWakeDiskstats("$proc/diskstats"));
+        $GLOBALS['logsWakeProc'] = $proc;
+
+        // a capture: everybody waiting, the kernel's own threads left out
+        $c = logsWakeCapture($proc);
+        same('logs wakes: who waits in a capture (a thread is enough; kernel threads and sleepers left out)', [100, 200, 301, 500, 601, 700],
+            array_column($c['who'], 'pid'));
+        same('logs wakes: what each is — container (cgroup), smbd, cron (its command), VM (its guest name), mover, the office\'s backup', [
+            ['container', $plexId, ''], ['smb', '', ''], ['cron', '/usr/local/bin/fotos-sichern', ''], ['vm', 'Spielwiese', ''], ['mover', '', ''], ['office', '', 'backup']],
+            array_map(fn (array $w): array => [$w['kind'], $w['id'] ?? $w['name'] ?? '', $w['desk'] ?? ''], $c['who']));
+        same('logs wakes: a container\'s own path taken back to the server\'s (its mountinfo, the same filesystem)',
+            ['/mnt/disk1/Familie/Familienfilme/Sommer 2019.mkv', '/mnt/user/appdata/plex/Library/db.sqlite'], $c['who'][0]['files']);
+        $causes = logsWakeCauses([$c], ['/mnt/disk1']);
+        same('logs wakes: the surest first — a file on the woken disk (sure), in a user share (likely), none (maybe)', [
+            ['container', 'sure'], ['cron', 'sure'], ['office', 'sure'], ['smb', 'likely'], ['vm', 'maybe']],
+            array_map(fn (array $w): array => [$w['kind'], $w['sure']], $causes));
+        same('logs wakes: the pool cache woke — the mover is sure there, the rest maybe/likely', ['mover', 'sure'],
+            [logsWakeCauses([$c], ['/mnt/cache'])[0]['kind'], logsWakeCauses([$c], ['/mnt/cache'])[0]['sure']]);
+        same('logs wakes: a cause keeps its woken disk\'s files first, five at most', ['/mnt/disk1/Familie/Familienfilme/Sommer 2019.mkv', '/mnt/user/appdata/plex/Library/db.sqlite'],
+            $causes[0]['files']);
+
+        // nobody waiting: whoever has a file open on a disk
+        $quiet = "$tmp/proc-quiet";
+        rename($proc, $quiet);
+        @mkdir($proc, 0700);
+        foreach ([1, 800] as $p) {
+            exec('cp -a ' . escapeshellarg("$quiet/$p") . ' ' . escapeshellarg("$proc/$p"));
+        }
+        $c2 = logsWakeCapture($proc);
+        same('logs wakes: nobody waiting — who holds a file open there (open), a cause only for its disk', [[], [800], [['program', 'open']], []],
+            [$c2['who'], array_column($c2['open'], 'pid'), array_map(fn (array $w): array => [$w['kind'], $w['sure']], logsWakeCauses([$c2], ['/mnt/disk1'])),
+             logsWakeCauses([$c2], ['/mnt/cache'])]);
+        exec('rm -rf ' . escapeshellarg($proc));
+        rename($quiet, $proc);
+
+        // the sampler over a sequence
+        $mono = 1000.0;
+        $GLOBALS['logsWakeMonoNow'] = &$mono;
+        $tick = function (float $step = LOGS_WAKE_LOOK) use (&$mono): void {
+            $mono += $step;
+            logsWakeTick();
+        };
+        $stats = function (int $reads, int $flight) use ($proc): void {
+            file_put_contents("$proc/diskstats", "   8      16 sdb $reads 0 4000 90 70 0 560 40 $flight 300 130 0 0 0 0\n   8      48 sdf 9 0 0 0 9 0 0 0 0 0 0\n");
+        };
+        unset($GLOBALS['logsWake']);
+        @unlink("$tmp/mem.json");
+        $ini(['disk1', 'disk2']);
+        $stats(500, 0);
+        $tick();                    // disks.ini and a first look (the counters' start)
+        $tick();                    // nothing moved
+        same('logs wakes: a sleeping disk not asked for — no capture, no wake (her file only says since when she watches)', [[], [], true],
+            [logsWakeMem()['caught'], logsWakesRead()['wakes'], is_int(readJson("$tmp/logs-wakes.json")['since'] ?? null)]);
+        $stats(501, 1);
+        $tick();                    // asked for: caught at once
+        same('logs wakes: a sleeping disk asked for — caught (only it)', ['disk1'], array_keys(logsWakeMem()['caught']));
+        $ini(['disk2']);
+        $stats(501, 0);
+        $tick(LOGS_WAKE_INI);       // disks.ini: disk1 awake → a wake
+        $all = logsWakesRead();
+        $w = $all['wakes'][0] ?? [];
+        same('logs wakes: the wake — disk1, caught, Plex (container) first, counted', [1, ['disk1'], 'caught', 'container', ['disk1' => 1]],
+            [count($all['wakes']), $w['disks'] ?? null, $w['how'] ?? null, $w['who'][0]['kind'] ?? null, $all['totals']]);
+        // an SSD in standby flips too: never a wake
+        $ini(['disk1', 'disk2']);
+        $tick(LOGS_WAKE_INI);
+        $ini(['disk1']);
+        $tick(LOGS_WAKE_INI);
+        same('logs wakes: an SSD in standby never wakes for her', 1, count(logsWakesRead()['wakes']));
+        // awake again without anybody caught: noticed, «not found out»
+        $tick();
+        $ini([]);
+        $tick(LOGS_WAKE_INI);
+        $w = logsWakesRead()['wakes'][1] ?? [];
+        same('logs wakes: a wake nobody was caught at — noticed, no cause', ['noticed', []], [$w['how'] ?? null, $w['who'] ?? null]);
+        // parity woke with disk1: one wake for both
+        $ini(['disk1', 'parity']);
+        $tick(LOGS_WAKE_INI);
+        $ini([]);
+        $tick(LOGS_WAKE_INI);
+        same('logs wakes: disks woken together — one wake', ['parity', 'disk1'], logsWakesRead()['wakes'][2]['disks'] ?? null);
+        // the array stopped: forgotten; after the start a disk awake is no wake
+        $ini(['disk1']);
+        $tick(LOGS_WAKE_INI);
+        file_put_contents("$tmp/var.ini", "fsState=\"Stopped\"\n");
+        $tick(LOGS_WAKE_INI_NONE);
+        file_put_contents("$tmp/var.ini", "fsState=\"Started\"\n");
+        $ini([]);
+        $tick(LOGS_WAKE_INI_NONE);
+        same('logs wakes: the array stopped — her memory goes, no wake across the stop', [3, false], [count(logsWakesRead()['wakes']), is_file("$tmp/mem.json") && !empty(readJson("$tmp/mem.json")['disks']['disk1']['asleep'])]);
+        // not hired: nothing
+        file_put_contents("$tmp/staff.json", '{"hired":{"backup":{}}}');
+        $ini(['disk1']);
+        $tick(LOGS_WAKE_INI_NONE);
+        $ini([]);
+        $tick(LOGS_WAKE_INI_NONE);
+        same('logs wakes: not hired — she doesn\'t watch', 3, count(logsWakesRead()['wakes']));
+        file_put_contents("$tmp/staff.json", '{"hired":{"logs":{}}}');
+        // a restarted agent: what slept is in RAM — the flip is still a wake; after too long a gap, not
+        $ini(['disk1']);
+        $tick(LOGS_WAKE_INI_NONE);
+        unset($GLOBALS['logsWake']);
+        $ini([]);
+        $tick(LOGS_WAKE_INI_NONE);
+        same('logs wakes: a restarted agent still sees the flip', 4, count(logsWakesRead()['wakes']));
+        file_put_contents("$tmp/mem.json", jsonEncode(['disks' => ['disk1' => ['dev' => 'sdb', 'asleep' => true, 'mount' => '/mnt/disk1']], 'look' => time() - LOGS_WAKE_LATE - 60]));
+        unset($GLOBALS['logsWake']);
+        $tick(LOGS_WAKE_INI_NONE);
+        same('logs wakes: a flip after a gap longer than LOGS_WAKE_LATE — when, nobody knows: not counted', 4, count(logsWakesRead()['wakes']));
+        same('logs wakes: the counter per disk (parity once, disk1 four times)', ['disk1' => 4, 'parity' => 1], logsWakesRead()['totals']);
+        $m = logsWakeMetrics("$tmp/logs-wakes.json");
+        same('logs wakes: her counter for Prometheus', ['uso_logs_disk_wakes_total', 'counter', [[['disk' => 'disk1'], 4], [['disk' => 'parity'], 1]]],
+            [$m[0]['name'] ?? null, $m[0]['type'] ?? null, $m[0]['samples'] ?? null]);
+
+        // naming afterwards: Docker's name, Unraid's «read SMART», the cron lines due — the office's own by its job
+        $first = logsWakesRead()['wakes'][0];
+        $at = (int) $first['time'];
+        file_put_contents("$tmp/cron", '# a comment' . "\n" . date('i G', $at) . " * * * /usr/local/bin/fotos-sichern > /dev/null 2>&1\n"
+            . "*/5 * * * * /usr/local/bin/every-five\n" . date('i G', $at - 60) . " * * * bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/job.sh backup > /dev/null 2>&1\n"
+            . "@reboot /usr/local/bin/once\n");
+        $cronLines = logsWakeCronLines(["$tmp/cron"]);
+        same('logs wakes: cron lines read (no comment, no @reboot)', 3, count($cronLines));
+        same('logs wakes: the cron lines due then — not one due every five minutes, the office\'s by its job', ['/usr/local/bin/fotos-sichern', 'office:backup'],
+            logsWakeCronDue($cronLines, $at));
+        $syslog = [date('M j H:i:s', $at - 3600) . ' Tower emhttpd: read SMART /dev/sdb', date('M j H:i:s', $at - 20) . ' Tower emhttpd: read SMART /dev/sdb',
+                   date('M j H:i:s', $at + 5) . ' Tower emhttpd: read SMART /dev/sdz'];
+        logsWakeNameRun(['docker' => ['names' => [$plexId => 'plex'], 'started' => [['nextcloud', $at - 30], ['old', $at - 4000]]],
+                         'smb' => ['200' => 'laptop-kueche'], 'cron' => $cronLines, 'syslog' => $syslog]);
+        logsWakeNameMerge();
+        $w = logsWakesRead()['wakes'][0];
+        same('logs wakes: named — the container\'s name, the containers started then, the cron lines, Unraid\'s «read SMART»', [
+            'plex', ['nextcloud'], ['/usr/local/bin/fotos-sichern', 'office:backup'], $at - 20, true, 'caught'],
+            [$w['who'][0]['name'] ?? null, $w['started'] ?? null, $w['cron'] ?? null, $w['smart'] ?? null, $w['named'] ?? null, $w['how']]);
+        $noticed = logsWakesRead()['wakes'][1];
+        same('logs wakes: a wake only noticed takes Unraid\'s «read SMART» time (the minute before her look at most)', ['syslog', $at - 20],
+            [$noticed['how'], $noticed['time']]);
+        // her switch: off — no disks.ini, no diskstats, no capture, no wake; what she noticed stays; a bad request changes nothing
+        $act = fn (array $r) => desks()['logs']['actions']['wakes_watch']($r);
+        $refused = function (callable $f): string {
+            try {
+                $f();
+                return '';
+            } catch (Problem $p) {
+                return $p->key;
+            }
+        };
+        same('logs wakes: the switch reads «on» as a boolean, never cast', ['bad_request', 'bad_request', true],
+            [$refused(fn () => $act(['on' => 'no'])), $refused(fn () => $act([])), logsWakesRead()['watch']]);
+        $act(['on' => false]);
+        $before = count(logsWakesRead()['wakes']);
+        $ini(['disk1']);
+        $stats(900, 1);
+        $tick(LOGS_WAKE_INI_NONE);
+        $tick(LOGS_WAKE_INI);
+        $ini([]);
+        $tick(LOGS_WAKE_INI);
+        $m = logsWakeMem();
+        same('logs wakes: switched off — nothing looked at (no disks, no counters, no capture, nothing in RAM), no wake, what she noticed stays',
+            [false, null, [], [], false, $before, false], [$m['on'], $m['disks'], $m['stats'], $m['caught'], is_file("$tmp/mem.json"), count(logsWakesRead()['wakes']),
+             logsWakesForPage()['on']]);
+        unset($GLOBALS['logsWake']);
+        $tick(LOGS_WAKE_INI);
+        same('logs wakes: switched off stays off for a restarted agent', [false, null], [logsWakeMem()['on'], logsWakeMem()['disks']]);
+        $ini(['disk1']);
+        $act(['on' => true]);
+        $tick(LOGS_WAKE_INI);
+        $ini([]);
+        $tick(LOGS_WAKE_INI);
+        same('logs wakes: on again — she starts anew and sees the next wake', [true, $before + 1], [logsWakesRead()['watch'], count(logsWakesRead()['wakes'])]);
+        $ini(['disk1']);
+        $act(['on' => false]);
+        $ini([]);
+        $act(['on' => true]);
+        $tick(LOGS_WAKE_INI);
+        same('logs wakes: no wake across the time she didn\'t look', $before + 1, count(logsWakesRead()['wakes']));
+        // the file: tolerant reader and writer
+        $all = logsWakesRead();
+        $all['later'] = ['kept' => true];
+        $all['wakes'][] = ['id' => 'x', 'time' => 'yesterday', 'something' => 1];
+        $all['wakes'][] = ['id' => 'old', 'time' => time() - LOGS_WAKE_KEEP - 10, 'disks' => ['disk1'], 'how' => 'noticed', 'who' => []];
+        logsWakesWrite($all);
+        $back = logsWakesRead();
+        same('logs wakes: a rewrite keeps what it doesn\'t know, lets old wakes go', [true, 6, false], [
+            $back['later']['kept'] ?? null, count($back['wakes']), in_array('old', array_column($back['wakes'], 'id'), true)]);
+        $page = logsWakesForPage();
+        same('logs wakes: the page gets only wakes in exactly their shape, and the rotating disks', [5, ['parity', 'disk1', 'cache', 'cache2'], LOGS_WAKE_LOOK],
+            [count($page['wakes']), $page['hdds'], $page['look']]);
+        $GLOBALS['logsWakeMonoNow'] = null;
+        unset($GLOBALS['logsWakeMonoNow']);
+
+        // the real /proc (on the server): what a capture costs
+        if (is_dir('/proc/self/task')) {
+            $c = logsWakeCapture('/proc');
+            check("logs wakes: a capture over this server's /proc took {$c['ms']} ms (" . count($c['who']) . ' waiting)'
+                . ($c['cut'] ? ', cut short' : ''), $c['ms'] <= LOGS_WAKE_BUDGET_MS + 40);
+        }
+    } finally {
+        unset($GLOBALS['logsWakesFile'], $GLOBALS['logsWakeMemFile'], $GLOBALS['logsWakeNamesFile'], $GLOBALS['logsWakeVarIni'],
+            $GLOBALS['logsWakeNoJob'], $GLOBALS['logsWakeProc'], $GLOBALS['logsWake']);
+        [$GLOBALS['disksIni'], $GLOBALS['agentStaffFile']] = $keep;
+        if ($keep[0] === null) {
+            unset($GLOBALS['disksIni']);
+        }
+        if ($keep[1] === null) {
+            unset($GLOBALS['agentStaffFile']);
+        }
+        hardeningRm($tmp);
+    }
+}
+
 function testLogsPartner(): void
 {
     $made = [];
@@ -46149,7 +46451,7 @@ JS;
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testHouseDockerSilent', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

@@ -14,6 +14,7 @@
     "help.source",
     "help.space",
     "help.time",
+    "help.wakes",
     "hide.title",
     "live",
     "mine.title",
@@ -22,7 +23,8 @@
     "syslog.title",
     "tile.read",
     "tour",
-    "varlog.title"
+    "varlog.title",
+    "wakes.title"
   ],
   "texts": [
     "help.colours",
@@ -41,6 +43,7 @@
     "help.source_text",
     "help.space_text",
     "help.time_text",
-    "help.tour_text"
+    "help.tour_text",
+    "help.wakes_text"
   ]
 }

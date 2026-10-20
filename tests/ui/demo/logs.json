@@ -678,5 +678,363 @@
    },
    "open": false
   }
- ]
+ ],
+ "wakes": {
+  "hdds": [
+   "parity",
+   "disk1",
+   "disk2",
+   "disk3"
+  ],
+  "since": 1790984597,
+  "look": 4,
+  "wakes": [
+   {
+    "id": "demo0001",
+    "from": 1791505391,
+    "disks": [
+     "disk3",
+     "parity"
+    ],
+    "how": "caught",
+    "who": [
+     {
+      "kind": "container",
+      "prog": "Plex Media Scan",
+      "sure": "sure",
+      "name": "plex",
+      "desk": "",
+      "cmd": "/usr/lib/plexmediaserver/Plex Media Scanner",
+      "files": [
+       "/mnt/disk3/Familienfilme/Sommer 2019/Strand 1.mkv"
+      ]
+     },
+     {
+      "kind": "vm",
+      "prog": "qemu-system-x86",
+      "sure": "maybe",
+      "name": "Hausaufgaben",
+      "desk": "",
+      "cmd": "/usr/bin/qemu-system-x86_64 -name guest=Hausaufgaben",
+      "files": []
+     }
+    ],
+    "cut": false,
+    "named": true,
+    "cron": [],
+    "started": [],
+    "smart": 1791505406,
+    "time": 1791505397
+   },
+   {
+    "id": "demo0002",
+    "from": 1791502091,
+    "disks": [
+     "disk3"
+    ],
+    "how": "caught",
+    "who": [
+     {
+      "kind": "container",
+      "prog": "Plex Media Scan",
+      "sure": "sure",
+      "name": "plex",
+      "desk": "",
+      "cmd": "/usr/lib/plexmediaserver/Plex Media Scanner",
+      "files": [
+       "/mnt/disk3/Familienfilme/Sommer 2019/Strand 2.mkv"
+      ]
+     }
+    ],
+    "cut": false,
+    "named": true,
+    "cron": [],
+    "started": [
+     "plex"
+    ],
+    "smart": 1791502106,
+    "time": 1791502097
+   },
+   {
+    "id": "demo0003",
+    "from": 1791498371,
+    "disks": [
+     "disk2"
+    ],
+    "how": "caught",
+    "who": [
+     {
+      "kind": "smb",
+      "prog": "smbd",
+      "sure": "likely",
+      "name": "laptop-kueche",
+      "desk": "",
+      "cmd": "/usr/sbin/smbd -D",
+      "files": [
+       "/mnt/user/Fotos/2026/Herbst/IMG_0412.jpg"
+      ]
+     }
+    ],
+    "cut": false,
+    "named": true,
+    "cron": [],
+    "started": [],
+    "smart": 1791498386,
+    "time": 1791498377
+   },
+   {
+    "id": "demo0004",
+    "from": 1791495191,
+    "disks": [
+     "disk3"
+    ],
+    "how": "caught",
+    "who": [
+     {
+      "kind": "container",
+      "prog": "Plex Media Scan",
+      "sure": "sure",
+      "name": "plex",
+      "desk": "",
+      "cmd": "/usr/lib/plexmediaserver/Plex Media Scanner",
+      "files": [
+       "/mnt/disk3/Familienfilme/Sommer 2019/Strand 3.mkv"
+      ]
+     }
+    ],
+    "cut": false,
+    "named": true,
+    "cron": [],
+    "started": [],
+    "smart": 1791495206,
+    "time": 1791495197
+   },
+   {
+    "id": "demo0005",
+    "from": 1791487931,
+    "disks": [
+     "disk3"
+    ],
+    "how": "noticed",
+    "who": [],
+    "cut": false,
+    "named": true,
+    "cron": [],
+    "started": [],
+    "smart": null,
+    "time": 1791487937
+   },
+   {
+    "id": "demo0006",
+    "from": 1791477176,
+    "disks": [
+     "disk1"
+    ],
+    "how": "caught",
+    "who": [
+     {
+      "kind": "office",
+      "prog": "kopia",
+      "sure": "sure",
+      "name": "",
+      "desk": "backup",
+      "cmd": "kopia snapshot create",
+      "files": [
+       "/mnt/disk1/Dokumente/Haus/Grundriss.pdf"
+      ]
+     }
+    ],
+    "cut": false,
+    "named": true,
+    "cron": [
+     "office:backup"
+    ],
+    "started": [],
+    "smart": 1791477191,
+    "time": 1791477182
+   },
+   {
+    "id": "demo0007",
+    "from": 1791473591,
+    "disks": [
+     "disk3"
+    ],
+    "how": "caught",
+    "who": [
+     {
+      "kind": "container",
+      "prog": "Plex Media Scan",
+      "sure": "likely",
+      "name": "plex",
+      "desk": "",
+      "cmd": "/usr/lib/plexmediaserver/Plex Media Scanner",
+      "files": [
+       "/mnt/user/Familienfilme/Geburtstag Oma.mkv"
+      ]
+     }
+    ],
+    "cut": true,
+    "named": true,
+    "cron": [],
+    "started": [],
+    "smart": 1791473606,
+    "time": 1791473597
+   },
+   {
+    "id": "demo0008",
+    "from": 1791412391,
+    "disks": [
+     "disk2"
+    ],
+    "how": "caught",
+    "who": [
+     {
+      "kind": "cron",
+      "prog": "rsync",
+      "sure": "sure",
+      "name": "/usr/local/bin/fotos-sichern",
+      "desk": "",
+      "cmd": "rsync -a /mnt/disk2/Fotos /mnt/remotes/oma-nas/Fotos",
+      "files": [
+       "/mnt/disk2/Fotos"
+      ]
+     }
+    ],
+    "cut": false,
+    "named": true,
+    "cron": [
+     "/usr/local/bin/fotos-sichern"
+    ],
+    "started": [],
+    "smart": 1791412406,
+    "time": 1791412397
+   },
+   {
+    "id": "demo0009",
+    "from": 1791408791,
+    "disks": [
+     "disk3"
+    ],
+    "how": "caught",
+    "who": [
+     {
+      "kind": "container",
+      "prog": "Plex Media Scan",
+      "sure": "sure",
+      "name": "plex",
+      "desk": "",
+      "cmd": "/usr/lib/plexmediaserver/Plex Media Scanner",
+      "files": [
+       "/mnt/disk3/Familienfilme/Sommer 2019/Strand 4.mkv"
+      ]
+     }
+    ],
+    "cut": false,
+    "named": true,
+    "cron": [],
+    "started": [],
+    "smart": 1791408806,
+    "time": 1791408797
+   },
+   {
+    "id": "demo0010",
+    "from": 1791397991,
+    "disks": [
+     "disk3",
+     "parity"
+    ],
+    "how": "caught",
+    "who": [
+     {
+      "kind": "mover",
+      "prog": "move",
+      "sure": "sure",
+      "name": "",
+      "desk": "",
+      "cmd": "/usr/libexec/unraid/move",
+      "files": [
+       "/mnt/disk3/Familienserien/Urlaub am See/Teil 2.mkv"
+      ]
+     }
+    ],
+    "cut": false,
+    "named": true,
+    "cron": [],
+    "started": [],
+    "smart": 1791398006,
+    "time": 1791397997
+   },
+   {
+    "id": "demo0011",
+    "from": 1791325991,
+    "disks": [
+     "disk3"
+    ],
+    "how": "syslog",
+    "who": [],
+    "cut": false,
+    "named": true,
+    "cron": [],
+    "started": [],
+    "smart": 1791326006,
+    "time": 1791325997
+   },
+   {
+    "id": "demo0012",
+    "from": 1791235991,
+    "disks": [
+     "disk3"
+    ],
+    "how": "caught",
+    "who": [
+     {
+      "kind": "container",
+      "prog": "Plex Media Scan",
+      "sure": "sure",
+      "name": "plex",
+      "desk": "",
+      "cmd": "/usr/lib/plexmediaserver/Plex Media Scanner",
+      "files": [
+       "/mnt/disk3/Familienfilme/Sommer 2019/Strand 5.mkv"
+      ]
+     }
+    ],
+    "cut": false,
+    "named": true,
+    "cron": [],
+    "started": [],
+    "smart": 1791236006,
+    "time": 1791235997
+   },
+   {
+    "id": "demo0013",
+    "from": 1791145991,
+    "disks": [
+     "disk1"
+    ],
+    "how": "caught",
+    "who": [
+     {
+      "kind": "office",
+      "prog": "kopia",
+      "sure": "sure",
+      "name": "",
+      "desk": "backup",
+      "cmd": "kopia snapshot create",
+      "files": [
+       "/mnt/disk1/Dokumente/Haus/Grundriss.pdf"
+      ]
+     }
+    ],
+    "cut": false,
+    "named": true,
+    "cron": [
+     "office:backup"
+    ],
+    "started": [],
+    "smart": 1791146006,
+    "time": 1791145997
+   }
+  ]
+ }
 }
