@@ -422,5 +422,11 @@
   "wakes.smart": "Unraid a lu ses valeurs SMART : {when}.",
   "wakes.naming": "Les noms suivent dans un instant.",
   "help.wakes": "Qui a réveillé mes disques ?",
-  "help.wakes_text": "Unraid ne note que la mise en veille d'un disque qui tourne, jamais son réveil. Tant qu'un disque dort, je regarde toutes les quelques secondes si quelqu'un le demande ; celui qui le fait doit attendre qu'il démarre — c'est là que je le prends : un conteneur, une VM, un ordinateur via SMB ou NFS, le mover, une tâche planifiée, le travail du secrétariat ou un programme, avec les fichiers qu'il avait ouverts. Je ne lis que la mémoire du serveur (/proc et la liste des disques d'Unraid), jamais un disque ; les SSD et NVMe ne comptent jamais. « Pas trouvé » veut dire que plus personne n'attendait quand j'ai regardé."
+  "help.wakes_text": "Unraid ne note que la mise en veille d'un disque qui tourne, jamais son réveil. Tant qu'un disque dort, je regarde toutes les quelques secondes si quelqu'un le demande ; celui qui le fait doit attendre qu'il démarre — c'est là que je le prends : un conteneur, une VM, un ordinateur via SMB ou NFS, le mover, une tâche planifiée, le travail du secrétariat ou un programme, avec les fichiers qu'il avait ouverts. Je ne lis que la mémoire du serveur (/proc et la liste des disques d'Unraid), jamais un disque ; les SSD et NVMe ne comptent jamais. « Pas trouvé » veut dire que plus personne n'attendait quand j'ai regardé.",
+  "wakes.tile_off": "Désactivé",
+  "wakes.switch": "Surveiller les réveils",
+  "wakes.switch_title": "Activé tant que tu ne le désactives pas : tant qu'un disque dort, je regarde toutes les quelques secondes, en mémoire seulement. Désactivé, je ne regarde rien — ce que j'ai remarqué reste.",
+  "wakes.switched_on": "Je surveille à nouveau les réveils.",
+  "wakes.switched_off": "Désactivé — je ne surveille plus ; ce que j'ai remarqué reste.",
+  "wakes.off_note": "Désactivé : je ne surveille pas les réveils pour l'instant. Ce que j'ai remarqué avant reste ici."
 }

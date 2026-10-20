@@ -515,7 +515,7 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   «Syslog», «Errors & warnings» and the reader sort newest / oldest first or by service (a syslog line's program,
   desk.js `SERVICE`) — a choice kept per browser (`logs.<list>.sort`), named in the note line only when not the list's own
   (core.js `bar.done({order})`); a click on a line's service filters to exactly it, and a saved filter keeps it (`svc`).
-  «Who woke my disks?» (agent/desks/logs-wakes.php, data/logs-wakes.json, 2026-10-20): in her tick, only while hired and
+  «Who woke my disks?» (agent/desks/logs-diskwakes.php, data/logs-wakes.json, 2026-10-20): in her tick, only while hired and
   the array runs — disks.ini every `LOGS_WAKE_INI` s (a rotating disk asleep → awake is a wake), `/proc/diskstats` every
   `LOGS_WAKE_LOOK` s only while an HDD sleeps (moved counters = asked for → a capture of /proc's state-D tasks, capped by
   time and count; never a stat or walk under /mnt, no getfattr); names (docker ps, smbstatus), cron lines due and

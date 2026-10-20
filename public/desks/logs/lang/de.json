@@ -422,5 +422,11 @@
   "wakes.smart": "Unraid hat ihre SMART-Werte gelesen: {when}.",
   "wakes.naming": "Die Namen folgen gleich.",
   "help.wakes": "Wer hat meine Disks geweckt?",
-  "help.wakes_text": "Unraid protokolliert nur, wenn sich eine drehende Disk schlafen legt, nie, wenn sie jemand weckt. Solange eine Disk schläft, schaue ich alle paar Sekunden, ob jemand sie braucht; wer das tut, muss warten, bis sie angelaufen ist — dabei erwische ich ihn: einen Container, eine VM, einen Rechner über SMB oder NFS, den Mover, eine geplante Aufgabe, die Arbeit des Sekretariats oder ein Programm, mit den Dateien, die es offen hatte. Ich lese nur den Speicher des Servers (/proc und Unraids Liste der Disks), nie eine Disk; SSDs und NVMe zählen nie. «Nicht herausgefunden» heißt: Als ich schaute, wartete niemand mehr."
+  "help.wakes_text": "Unraid protokolliert nur, wenn sich eine drehende Disk schlafen legt, nie, wenn sie jemand weckt. Solange eine Disk schläft, schaue ich alle paar Sekunden, ob jemand sie braucht; wer das tut, muss warten, bis sie angelaufen ist — dabei erwische ich ihn: einen Container, eine VM, einen Rechner über SMB oder NFS, den Mover, eine geplante Aufgabe, die Arbeit des Sekretariats oder ein Programm, mit den Dateien, die es offen hatte. Ich lese nur den Speicher des Servers (/proc und Unraids Liste der Disks), nie eine Disk; SSDs und NVMe zählen nie. «Nicht herausgefunden» heißt: Als ich schaute, wartete niemand mehr.",
+  "wakes.tile_off": "Ausgeschaltet",
+  "wakes.switch": "Aufwachen beobachten",
+  "wakes.switch_title": "An, solange du es nicht ausschaltest: Solange eine Disk schläft, schaue ich alle paar Sekunden, nur im Speicher. Aus schaue ich gar nichts an — was ich bemerkt habe, bleibt.",
+  "wakes.switched_on": "Ich beobachte das Aufwachen wieder.",
+  "wakes.switched_off": "Ausgeschaltet — ich beobachte nicht mehr; was ich bemerkt habe, bleibt.",
+  "wakes.off_note": "Ausgeschaltet: Ich beobachte das Aufwachen gerade nicht. Was ich vorher bemerkt habe, bleibt hier."
 }

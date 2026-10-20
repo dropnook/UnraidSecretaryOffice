@@ -422,5 +422,11 @@
   "wakes.smart": "Unraid leyó sus valores SMART: {when}.",
   "wakes.naming": "Los nombres llegan en un momento.",
   "help.wakes": "¿Quién despertó mis discos?",
-  "help.wakes_text": "Unraid solo registra cuando un disco que gira se duerme, nunca cuando alguien lo despierta. Mientras un disco duerme miro cada pocos segundos si alguien lo pide; quien lo hace tiene que esperar a que arranque — y ahí lo pillo: un contenedor, una VM, un ordenador por SMB o NFS, el mover, una tarea programada, el trabajo de la secretaría o un programa, con los archivos que tenía abiertos. Solo leo la memoria del servidor (/proc y la lista de discos de Unraid), nunca un disco; los SSD y NVMe nunca cuentan. «No averiguado» quiere decir que cuando miré ya nadie esperaba."
+  "help.wakes_text": "Unraid solo registra cuando un disco que gira se duerme, nunca cuando alguien lo despierta. Mientras un disco duerme miro cada pocos segundos si alguien lo pide; quien lo hace tiene que esperar a que arranque — y ahí lo pillo: un contenedor, una VM, un ordenador por SMB o NFS, el mover, una tarea programada, el trabajo de la secretaría o un programa, con los archivos que tenía abiertos. Solo leo la memoria del servidor (/proc y la lista de discos de Unraid), nunca un disco; los SSD y NVMe nunca cuentan. «No averiguado» quiere decir que cuando miré ya nadie esperaba.",
+  "wakes.tile_off": "Apagado",
+  "wakes.switch": "Vigilar los despertares",
+  "wakes.switch_title": "Encendido mientras no lo apagues: mientras un disco duerme miro cada pocos segundos, solo en memoria. Apagado, no miro nada — lo que noté se queda.",
+  "wakes.switched_on": "Vuelvo a vigilar los despertares.",
+  "wakes.switched_off": "Apagado — ya no vigilo; lo que noté se queda.",
+  "wakes.off_note": "Apagado: ahora no vigilo los despertares. Lo que noté antes se queda aquí."
 }

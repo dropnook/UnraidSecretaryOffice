@@ -135,7 +135,7 @@ const LOGS_TIME_DMESG  = '/^\[(?:[A-Z][a-z]{2}\s+)?([A-Z][a-z]{2})\s+(\d{1,2})\s
 const LOGS_TIME_PHP    = '/^\[(\d\d)-([A-Z][a-z]{2})-(\d{4})\s+(\d\d:\d\d:\d\d)(?:\s+([A-Za-z_\/+-]+))?\]\s*/';
 
 require_once __DIR__ . '/logs-filters.php';      // her saved filters (data/logs-filters.json), applied only by a click
-require_once __DIR__ . '/logs-wakes.php';        // «Who woke my disks?» (data/logs-wakes.json): the sampler in her tick
+require_once __DIR__ . '/logs-diskwakes.php';        // «Who woke my disks?» (data/logs-wakes.json): the sampler in her tick
 
 desk('logs', [
     'fit'     => fn (): array => fit(true, 'yes'),
@@ -159,6 +159,8 @@ desk('logs', [
         'filter_save'   => fn (array $r) => logsFilterSave(textField($r, 'list'), textField($r, 'name'), $r) + ['state' => logsScan()],
         'filter_rename' => fn (array $r) => logsFilterRename(textField($r, 'id'), textField($r, 'name')) + ['state' => logsScan()],
         'filter_remove' => fn (array $r) => logsFilterRemove(textField($r, 'id')) + ['state' => logsScan()],
+        // «Who woke my disks?»: her switch (on unless switched off), kept on the server
+        'wakes_watch'   => fn (array $r) => logsWakeWatchSet(boolField($r, 'on')) + ['state' => logsScan()],
     ],
     'jobs'    => ['logs-tour' => fn (array $args) => logsTourRun(), 'logs-wake-name' => fn (array $args) => logsWakeNameRun()],
     'checks'  => fn (): array => logsChecks(),
@@ -290,11 +292,11 @@ function logsScan(): array
               'mine' => ['rules' => array_map(fn (array $r): array => array_diff_key($r, ['raw' => 1]), $mine['rules']),
                          'hide' => array_map(fn (array $h): array => array_diff_key($h, ['raw' => 1]), $mine['hide']),
                          'time' => $mine['time'], 'max' => LOGS_MINE_MAX],
+              // «Who woke my disks?»: the rotating disks there are, her switch, since when she watches, the wakes of the last days
+              'wakes' => logsWakesForPage(),
               // her saved filters (never applied by themselves); for the time filter: the server's last start and its
               // offset from UTC (the reader's lines carry the server's local time)
-              'filters' => logsFiltersForPage(), 'boot' => logsBootTime(), 'tz' => (int) date('Z'),
-              // «Who woke my disks?»: the rotating disks there are, since when she watches, the wakes of the last days
-              'wakes' => logsWakesForPage()];
+              'filters' => logsFiltersForPage(), 'boot' => logsBootTime(), 'tz' => (int) date('Z')];
     writeAtomic(deskFile('logs'), jsonEncode($state));
     return $state;
 }

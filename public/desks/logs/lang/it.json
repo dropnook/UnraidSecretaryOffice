@@ -422,5 +422,11 @@
   "wakes.smart": "Unraid ha letto i suoi valori SMART: {when}.",
   "wakes.naming": "I nomi arrivano tra un attimo.",
   "help.wakes": "Chi ha svegliato i miei dischi?",
-  "help.wakes_text": "Unraid registra solo quando un disco rotante va a dormire, mai quando qualcuno lo sveglia. Finché un disco dorme guardo ogni pochi secondi se qualcuno lo chiede; chi lo fa deve aspettare che si avvii — ed è lì che lo colgo: un container, una VM, un computer via SMB o NFS, il mover, un'attività pianificata, il lavoro della segreteria o un programma, con i file che aveva aperti. Leggo solo la memoria del server (/proc e l'elenco dei dischi di Unraid), mai un disco; SSD e NVMe non contano mai. «Non scoperto» vuol dire che quando ho guardato nessuno aspettava più."
+  "help.wakes_text": "Unraid registra solo quando un disco rotante va a dormire, mai quando qualcuno lo sveglia. Finché un disco dorme guardo ogni pochi secondi se qualcuno lo chiede; chi lo fa deve aspettare che si avvii — ed è lì che lo colgo: un container, una VM, un computer via SMB o NFS, il mover, un'attività pianificata, il lavoro della segreteria o un programma, con i file che aveva aperti. Leggo solo la memoria del server (/proc e l'elenco dei dischi di Unraid), mai un disco; SSD e NVMe non contano mai. «Non scoperto» vuol dire che quando ho guardato nessuno aspettava più.",
+  "wakes.tile_off": "Spento",
+  "wakes.switch": "Osserva i risvegli",
+  "wakes.switch_title": "Acceso finché non lo spegni: finché un disco dorme guardo ogni pochi secondi, solo in memoria. Spento, non guardo niente — quello che ho notato resta.",
+  "wakes.switched_on": "Osservo di nuovo i risvegli.",
+  "wakes.switched_off": "Spento — non osservo più; quello che ho notato resta.",
+  "wakes.off_note": "Spento: ora non osservo i risvegli. Quello che ho notato prima resta qui."
 }

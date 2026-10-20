@@ -255,6 +255,7 @@ function build(root) {
     [T('help.sort'), T('help.sort_text')],
     [T('help.saved'), T('help.saved_text')],
     [T('help.favorites'), T('help.favorites_text')],
+    [T('help.wakes'), T('help.wakes_text')],
     [el('span', 'lg-sample error', T('help.red')), T('help.colours')],
     [T('help.safe'), T('help.safe_text')],
   ]));
@@ -799,7 +800,7 @@ function foundView() {
 
 // ------------------------------------------------------------------ who woke my disks?
 /*
- * «Who woke my disks?» (agent/desks/logs-wakes.php): every wake of a spinning disk she noticed in the last 7 days — per
+ * «Who woke my disks?» (agent/desks/logs-diskwakes.php): every wake of a spinning disk she noticed in the last 7 days — per
  * disk how often (a click shows only its wakes: a filter, never kept, said in the note line) and per wake who she caught
  * waiting for it while it spun up, the surest first; «Not found out» when nobody was. Only with a rotating disk.
  */
@@ -835,12 +836,39 @@ function wakesTile(a) {
   const all = wakesOf();
   const lines = [];
   if (!state || !state.wakes) lines.push(state ? T('wakes.not_yet') : Office.t('common.loading'));
+  else if (state.wakes.on === false) lines.push(T('wakes.tile_off'), all.length ? T('wakes.tile_week', { n: all.length }) : '');
   else if (!all.length) lines.push(T('wakes.tile_none'), T('wakes.tile_since', { when: fmt.date(state.wakes.since) }));
   else {
     const today = all.filter((w) => w.time >= startOfToday()).length;
     lines.push(T('wakes.tile_today', { n: today }), T('wakes.tile_week', { n: all.length }));
   }
-  return Office.tile({ name: T('wakes.title'), cls: all.length ? '' : 'empty-card', lines, ...a });
+  return Office.tile({ name: T('wakes.title'), cls: all.length && state.wakes.on !== false ? '' : 'empty-card', lines, ...a });
+}
+
+/** Her switch in the section's head: on unless switched off, kept on the server (never in the browser) */
+function wakesSwitch() {
+  const label = el('label', 'switch');
+  const cb = el('input');
+  cb.type = 'checkbox';
+  cb.checked = state.wakes.on !== false;
+  cb.disabled = !Office.agent.running;
+  label.append(cb, el('span', '', T('wakes.switch')));
+  label.title = T('wakes.switch_title');
+  cb.onchange = async () => {
+    cb.disabled = true;
+    const on = cb.checked;
+    const j = await Office.api.post(`${ID}.wakes_watch`, { on });
+    if (!j.ok) {
+      cb.checked = !on;
+      cb.disabled = false;
+      Office.toast(Office.errorText(j.error, ID), true);
+      return;
+    }
+    if (j.state) state = j.state;
+    Office.keepInPlace(label, () => redraw());
+    Office.toast(T(on ? 'wakes.switched_on' : 'wakes.switched_off'));
+  };
+  return label;
 }
 
 /** Per disk: how often today and in 7 days, and what woke it most often */
@@ -871,12 +899,14 @@ function wakesView() {
   shownWakes = [];
   const look = (state && state.wakes && state.wakes.look) || 4;
   const box = el('section', 'section lg-view');
-  box.appendChild(Office.sectionHead(T('wakes.title'), T('wakes.sub', { s: look }), unfold, { place: 'wakes.title' }));
+  const known = !!(state && state.wakes);
+  box.appendChild(Office.sectionHead(T('wakes.title'), T('wakes.sub', { s: look }), ...(known ? [wakesSwitch()] : []), unfold, { place: 'wakes.title' }));
   unfold.hidden = true;
-  if (!state || !state.wakes) {
+  if (!known) {
     box.appendChild(el('p', 'empty', state ? T('wakes.not_yet') : Office.t('common.loading')));
     return box;
   }
+  if (state.wakes.on === false) box.appendChild(el('p', 'callout', T('wakes.off_note')));
   const all = wakesOf().slice().sort((p, q) => q.time - p.time);
   if (wakeDisk && !all.some((w) => w.disks.includes(wakeDisk))) wakeDisk = '';
   // by disk: a row each, a click shows only its wakes
@@ -914,7 +944,7 @@ function wakesView() {
   if (!fits.length) list.appendChild(el('p', 'empty', all.length ? T('wakes.none_fit') : T('wakes.none')));
   box.appendChild(list);
   barDone('wakes', fits.length, all.length, { tile: wakeDisk, clear: () => { wakeDisk = ''; } });
-  box.appendChild(el('p', 'role lg-note', T('wakes.note', { when: fmt.date(state.wakes.since), s: look })));
+  if (state.wakes.on !== false) box.appendChild(el('p', 'role lg-note', T('wakes.note', { when: fmt.date(state.wakes.since), s: look })));
   label();
   unfold.hidden = shownWakes.length < 2;
   return box;

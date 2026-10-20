@@ -30996,7 +30996,7 @@ function testLogsFiltersPage(): void
 }
 
 /*
- * «Who woke my disks?» (agent/desks/logs-wakes.php): only rotating disks of disks.ini (never the flash, an SSD or an
+ * «Who woke my disks?» (agent/desks/logs-diskwakes.php): only rotating disks of disks.ini (never the flash, an SSD or an
  * NVMe; a pool's member by its pool), /proc/diskstats read; a fake /proc tree caught at a wake — a container's thread
  * waiting with a file on the disk (its own path taken back to the server's), smbd on a user share, a cron child, the
  * mover, the office's backup, a VM, a kernel thread left out — the surest first; the sampler over a disks.ini and
@@ -31087,7 +31087,7 @@ function testLogsWakes(): void
         ], logsWakeDisks());
         file_put_contents("$proc/diskstats", "   8       0 sda 120 0 900 10 4 0 8 1 0 20 30 0 0 0 0\n   8      16 sdb 500 2 4000 90 70 0 560 40 1 300 130 0 0 0 0\n 259 0 nvme0n1 1 2 3 4 5 6 7 8 9 10 11\n");
         same('logs wakes: /proc/diskstats — reads, writes, in flight per device', ['sda' => [120, 4, 0], 'sdb' => [500, 70, 1], 'nvme0n1' => [1, 5, 9]],
-            logsWakeDiskstats());
+            logsWakeDiskstats("$proc/diskstats"));
         $GLOBALS['logsWakeProc'] = $proc;
 
         // a capture: everybody waiting, the kernel's own threads left out
@@ -31138,7 +31138,8 @@ function testLogsWakes(): void
         $stats(500, 0);
         $tick();                    // disks.ini and a first look (the counters' start)
         $tick();                    // nothing moved
-        same('logs wakes: a sleeping disk not asked for — no capture, nothing kept', [[], false], [logsWakeMem()['caught'], is_file("$tmp/logs-wakes.json")]);
+        same('logs wakes: a sleeping disk not asked for — no capture, no wake (her file only says since when she watches)', [[], [], true],
+            [logsWakeMem()['caught'], logsWakesRead()['wakes'], is_int(readJson("$tmp/logs-wakes.json")['since'] ?? null)]);
         $stats(501, 1);
         $tick();                    // asked for: caught at once
         same('logs wakes: a sleeping disk asked for — caught (only it)', ['disk1'], array_keys(logsWakeMem()['caught']));
@@ -31222,6 +31223,45 @@ function testLogsWakes(): void
         $noticed = logsWakesRead()['wakes'][1];
         same('logs wakes: a wake only noticed takes Unraid\'s «read SMART» time (the minute before her look at most)', ['syslog', $at - 20],
             [$noticed['how'], $noticed['time']]);
+        // her switch: off — no disks.ini, no diskstats, no capture, no wake; what she noticed stays; a bad request changes nothing
+        $act = fn (array $r) => desks()['logs']['actions']['wakes_watch']($r);
+        $refused = function (callable $f): string {
+            try {
+                $f();
+                return '';
+            } catch (Problem $p) {
+                return $p->key;
+            }
+        };
+        same('logs wakes: the switch reads «on» as a boolean, never cast', ['bad_request', 'bad_request', true],
+            [$refused(fn () => $act(['on' => 'no'])), $refused(fn () => $act([])), logsWakesRead()['watch']]);
+        $act(['on' => false]);
+        $before = count(logsWakesRead()['wakes']);
+        $ini(['disk1']);
+        $stats(900, 1);
+        $tick(LOGS_WAKE_INI_NONE);
+        $tick(LOGS_WAKE_INI);
+        $ini([]);
+        $tick(LOGS_WAKE_INI);
+        $m = logsWakeMem();
+        same('logs wakes: switched off — nothing looked at (no disks, no counters, no capture, nothing in RAM), no wake, what she noticed stays',
+            [false, null, [], [], false, $before, false], [$m['on'], $m['disks'], $m['stats'], $m['caught'], is_file("$tmp/mem.json"), count(logsWakesRead()['wakes']),
+             logsWakesForPage()['on']]);
+        unset($GLOBALS['logsWake']);
+        $tick(LOGS_WAKE_INI);
+        same('logs wakes: switched off stays off for a restarted agent', [false, null], [logsWakeMem()['on'], logsWakeMem()['disks']]);
+        $ini(['disk1']);
+        $act(['on' => true]);
+        $tick(LOGS_WAKE_INI);
+        $ini([]);
+        $tick(LOGS_WAKE_INI);
+        same('logs wakes: on again — she starts anew and sees the next wake', [true, $before + 1], [logsWakesRead()['watch'], count(logsWakesRead()['wakes'])]);
+        $ini(['disk1']);
+        $act(['on' => false]);
+        $ini([]);
+        $act(['on' => true]);
+        $tick(LOGS_WAKE_INI);
+        same('logs wakes: no wake across the time she didn\'t look', $before + 1, count(logsWakesRead()['wakes']));
         // the file: tolerant reader and writer
         $all = logsWakesRead();
         $all['later'] = ['kept' => true];
@@ -31229,10 +31269,10 @@ function testLogsWakes(): void
         $all['wakes'][] = ['id' => 'old', 'time' => time() - LOGS_WAKE_KEEP - 10, 'disks' => ['disk1'], 'how' => 'noticed', 'who' => []];
         logsWakesWrite($all);
         $back = logsWakesRead();
-        same('logs wakes: a rewrite keeps what it doesn\'t know, lets old wakes go', [true, 5, false], [
+        same('logs wakes: a rewrite keeps what it doesn\'t know, lets old wakes go', [true, 6, false], [
             $back['later']['kept'] ?? null, count($back['wakes']), in_array('old', array_column($back['wakes'], 'id'), true)]);
         $page = logsWakesForPage();
-        same('logs wakes: the page gets only wakes in exactly their shape, and the rotating disks', [4, ['parity', 'disk1', 'cache', 'cache2'], LOGS_WAKE_LOOK],
+        same('logs wakes: the page gets only wakes in exactly their shape, and the rotating disks', [5, ['parity', 'disk1', 'cache', 'cache2'], LOGS_WAKE_LOOK],
             [count($page['wakes']), $page['hdds'], $page['look']]);
         $GLOBALS['logsWakeMonoNow'] = null;
         unset($GLOBALS['logsWakeMonoNow']);

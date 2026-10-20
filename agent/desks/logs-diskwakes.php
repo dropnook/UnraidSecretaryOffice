@@ -3,7 +3,9 @@ declare(strict_types=1);
 
 /*
  * «Who woke my disks?» — Ms. Protocolli notices when a spinning disk wakes up and who asked for it (2026-10-20).
- * Functions only, in a file of their own beside her desk (the agent's desk glob loads it, logs.php require_once's it).
+ * Functions only, in a file of their own beside her desk (the agent's desk glob loads it, logs.php require_once's it):
+ * its name sorts before logs.php in every locale (glob() sorts by strcoll — en_US ignores the «-»), or the glob would
+ * load it a second time after logs.php had.
  * Read only, RAM only: disks.ini, /proc and the syslog — never a disk, never a walk or a stat under /mnt.
  *
  * Unraid logs a spin-down («emhttpd: spinning down /dev/sdX»), never the wake, so she watches herself, in her tick:
@@ -23,6 +25,9 @@ declare(strict_types=1);
  * hands its answer over in RAM); the last LOGS_WAKE_KEEP seconds, at most LOGS_WAKE_MAX wakes; tolerant: entries and
  * keys it doesn't know are kept as they are. The sampler's memory (what slept at the last look, when that was) lies in
  * RAM (RUN_DIR/logs-wakes.json): a restarted agent still sees a flip, the array's stop forgets it.
+ * Her switch (owner, 2026-10-20: on unless switched off — wakes happen when nobody looks): `watch` in that file, set
+ * only by her action `wakes_watch` (logsWakeWatchSet()). Off, her tick returns at once — no disks.ini, no diskstats, no
+ * capture — and what she noticed stays; on again, she starts anew (no wake across the time she didn't look).
  * A machine name or a path only on her page — never in the agent's log (a report carries its lines): the log says the
  * disk and the kind of cause.
  */
@@ -145,7 +150,7 @@ function &logsWakeMem(): array
         $m = readJson(logsWakeMemFile()) ?? [];
         $GLOBALS['logsWake'] = ['next' => -INF, 'ini_next' => -INF,
             'disks' => is_array($m['disks'] ?? null) ? $m['disks'] : null, 'look' => is_int($m['look'] ?? null) ? $m['look'] : null,
-            'stats' => [], 'caught' => [], 'again' => [], 'job' => null];
+            'stats' => [], 'caught' => [], 'again' => [], 'job' => null, 'on' => logsWakesRead()['watch']];
     }
     return $GLOBALS['logsWake'];
 }
@@ -156,6 +161,9 @@ function logsWakeTick(): void
     $m = &logsWakeMem();
     if ($m['job'] !== null) {
         logsWakeNameDone();
+    }
+    if (!$m['on']) {
+        return;                         // switched off: nothing looked at, nothing asked
     }
     $mono = logsWakeMono();
     if ($mono < $m['next']) {
@@ -190,6 +198,13 @@ function logsWakeIniLook(float $mono): void
     }
     $disks = logsWakeDisks();
     $m['ini_next'] = $mono + ($disks ? LOGS_WAKE_INI : LOGS_WAKE_INI_NONE);
+    if ($disks && empty($m['kept'])) {          // since when she watches: kept once, at her first look
+        $m['kept'] = true;
+        $all = readJson(logsWakesFile());
+        if (!is_int($all['since'] ?? null)) {
+            logsWakesWrite(logsWakesRead());
+        }
+    }
     $before = $m['disks'];
     $woke = [];
     foreach ($disks as $name => $d) {
@@ -592,7 +607,28 @@ function logsWakesRead(?string $file = null): array
     $j['wakes'] = is_array($j['wakes'] ?? null) && array_is_list($j['wakes']) ? $j['wakes'] : [];
     $j['totals'] = is_array($j['totals'] ?? null) ? $j['totals'] : [];
     $j['since'] = is_int($j['since'] ?? null) ? $j['since'] : time();
+    $j['watch'] = ($j['watch'] ?? true) !== false;      // on unless switched off
     return $j;
+}
+
+/** Her switch: on or off (an action of hers — the page sends `on`, read with boolField()); either way she starts anew */
+function logsWakeWatchSet(bool $on): array
+{
+    $all = logsWakesRead();
+    $all['watch'] = $on;
+    if ($on) {
+        $all['since'] = time();             // watching from now on
+    }
+    logsWakesWrite($all);
+    $m = &logsWakeMem();
+    $m['on'] = $on;
+    $m['disks'] = null;
+    $m['look'] = null;
+    $m['stats'] = $m['caught'] = $m['again'] = [];
+    $m['next'] = $m['ini_next'] = -INF;
+    @unlink(logsWakeMemFile());
+    logLine('Ms. Protocolli: «Who woke my disks?» switched ' . ($on ? 'on' : 'off'));
+    return ['ok' => true];
 }
 
 /** Only the last LOGS_WAKE_KEEP seconds, LOGS_WAKE_MAX at most (an entry without a time she can read stays) */
@@ -633,7 +669,7 @@ function logsWakesForPage(?array $disks = null): array
 {
     $all = logsWakesRead();
     $disks ??= logsWakeDisks();
-    return ['hdds' => array_keys($disks), 'since' => $all['since'], 'look' => LOGS_WAKE_LOOK,
+    return ['hdds' => array_keys($disks), 'since' => $all['since'], 'look' => LOGS_WAKE_LOOK, 'on' => $all['watch'],
             'wakes' => array_values(array_filter(array_map('logsWakeShaped', $all['wakes'])))];
 }
 

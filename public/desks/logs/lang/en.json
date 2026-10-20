@@ -422,5 +422,11 @@
   "wakes.smart": "Unraid read its SMART values: {when}.",
   "wakes.naming": "The names follow in a moment.",
   "help.wakes": "Who woke my disks?",
-  "help.wakes_text": "Unraid only logs when a spinning disk goes to sleep, never when something wakes it. While a disk sleeps I look every few seconds whether somebody asks for it; whoever does has to wait while it spins up — that is when I catch them: a container, a VM, a computer over SMB or NFS, the mover, a scheduled task, the office's own work or a program, with the files it had open. I read only the server's memory (/proc and Unraid's list of disks), never a disk; SSDs and NVMe never count. «Not found out» means nobody was waiting any more when I looked."
+  "help.wakes_text": "Unraid only logs when a spinning disk goes to sleep, never when something wakes it. While a disk sleeps I look every few seconds whether somebody asks for it; whoever does has to wait while it spins up — that is when I catch them: a container, a VM, a computer over SMB or NFS, the mover, a scheduled task, the office's own work or a program, with the files it had open. I read only the server's memory (/proc and Unraid's list of disks), never a disk; SSDs and NVMe never count. «Not found out» means nobody was waiting any more when I looked.",
+  "wakes.tile_off": "Switched off",
+  "wakes.switch": "Watch for wakes",
+  "wakes.switch_title": "On unless you switch it off: while a disk sleeps I look every few seconds, from memory only. Off, I look at nothing — what I noticed stays.",
+  "wakes.switched_on": "I watch for wakes again.",
+  "wakes.switched_off": "Switched off — I don't watch any more; what I noticed stays.",
+  "wakes.off_note": "Switched off: I don't watch for wakes now. What I noticed before stays here."
 }
