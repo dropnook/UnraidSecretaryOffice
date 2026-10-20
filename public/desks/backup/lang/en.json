@@ -784,6 +784,8 @@
   "setup.msg.user_script_renamed": "The User Script {old} is now called {new} — check its schedule there.",
   "setup.msg.user_script_schedule": "Set the schedule under ⟦Settings⟧ → ⟦User Utilities⟧ → User Scripts: Custom, e.g. 0 3 * * *.",
   "setup.msg.user_script_snapshots": "The User Script {script} also makes snapshots or Kopia backups — check whether it has been replaced; if so, switch off its schedule there.",
+  "setup.msg.user_script_old_backup": "The User Script {script} still starts a backup on a schedule of its own ({schedule}) — so two backups run on two schedules. Switch its schedule off (or delete it) under ⟦Settings⟧ → ⟦User Utilities⟧ → User Scripts; I keep the backup's own schedule here at my desk.",
+  "setup.msg.user_script_old_idle": "The User Script {script} could still start a backup, but it has no schedule — nothing runs twice. Delete it under ⟦Settings⟧ → ⟦User Utilities⟧ → User Scripts whenever you like.",
   "setup.msg.partners_kept": "The partner offices stay — the next setup takes them up again; only the units ticked for them start anew.",
   "setup.msg.forget_backups_stop": "No backups until the next Apply; snapshots, dumps and Kopia stay as they are.",
   "setup.msg.forget_undo": "The settings put aside lie in {file}; to go back, move that file back to {to}.",

@@ -790,6 +790,8 @@
   "setup.msg.user_script_renamed": "El User Script {old} se llama ahora {new} — revisa allí su programación.",
   "setup.msg.user_script_schedule": "La programación se pone en ⟦Settings⟧ → ⟦User Utilities⟧ → User Scripts: Custom, p. ej. 0 3 * * *.",
   "setup.msg.user_script_snapshots": "El User Script {script} también hace instantáneas o copias de Kopia — comprueba si se ha sustituido; si es así, apaga allí su programación.",
+  "setup.msg.user_script_old_backup": "El User Script {script} todavía inicia una copia con su propia programación ({schedule}) — así corren dos copias con dos programaciones. Apaga su programación (o bórralo) en ⟦Settings⟧ → ⟦User Utilities⟧ → User Scripts; la programación de la copia la llevo yo aquí en mi mesa.",
+  "setup.msg.user_script_old_idle": "El User Script {script} todavía podría iniciar una copia, pero no tiene programación — nada corre dos veces. Bórralo en ⟦Settings⟧ → ⟦User Utilities⟧ → User Scripts cuando quieras.",
   "setup.msg.partners_kept": "Las secretarías asociadas se quedan — la próxima configuración las retoma; solo las unidades marcadas para ellas empiezan de nuevo.",
   "setup.msg.forget_backups_stop": "No hay copias hasta el próximo Aplicar; instantáneas, volcados y Kopia se quedan como están.",
   "setup.msg.forget_undo": "Los ajustes apartados están en {file}; para volver atrás, devuelve ese archivo a {to}.",

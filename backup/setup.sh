@@ -542,6 +542,7 @@ TXT
         [[ -d "$UB_BOOT/config/plugins/user.scripts" ]] && ok_as user_scripts "User Scripts installed" \
             || wrn_as no_user_scripts "Plugin 'User Scripts' not found - needed for the nightly run"
     fi
+    user_scripts_other
 }
 
 ##############################################################################
@@ -2755,14 +2756,36 @@ EOF
         fi
         hint_as user_script_schedule "Set the schedule in Settings > User Scripts: Custom, e.g. 0 3 * * *"
     fi
-    # Other User Scripts that also make snapshots or Kopia runs?
-    local f
+}
+
+# Other User Scripts that start a backup too (2.66: also in a plan - up to 2.65 only an apply looked, and a script that
+# starts this engine's backup.sh, e.g. the old «unraid-backup» from before the office, was never named): one that runs
+# this engine (its folder unraid-backup / the setup's own name, or a call of backup.sh in an unraid-backup folder or in
+# this script folder) on a schedule of its own makes a second backup - said with its schedule; one without a schedule
+# only as a hint. One that makes snapshots or Kopia runs of its own as before. Never changed, never switched off.
+user_scripts_other() {
+    local us_root="$UB_BOOT/config/plugins/user.scripts/scripts" f name sched="" freq custom line
     for f in "$us_root"/*/script; do
-        [[ -f "$f" && "$f" != "$us_dir/script" ]] || continue
-        if grep -qE 'kopia[^|]* snapshot create|zfs snapshot|btrfs subvolume snapshot' "$f" 2>/dev/null; then
-            wrn_as user_script_snapshots "User Script '$(basename "$(dirname "$f")")' also makes snapshots/Kopia runs - check whether it has been replaced (otherwise switch off its schedule there)" script "$(basename "$(dirname "$f")")"
+        [[ -f "$f" && ! -L "$f" ]] || continue
+        name="$(basename "$(dirname "$f")")"
+        # without the plugin the setup's own entry (and its old name, which step_finish renames) is the schedule; under
+        # the plugin the office's cron file runs the backup: every script is another
+        ub_is_plugin || [[ "$name" != "$UB_USER_SCRIPT" && "$name" != "$UB_NAME" ]] || continue
+        if [[ "$name" == "$UB_NAME" || "$name" == "$UB_USER_SCRIPT" ]] || grep -qE 'unraid-backup/backup\.sh' "$f" 2>/dev/null \
+            || grep -qF -- "$UB_DIR/backup.sh" "$f" 2>/dev/null; then
+            line="$(jq -r --arg k "$f" '.[$k] // {} | [(.frequency // ""), (.custom // "")] | join("\u001f")' \
+                "$UB_BOOT/config/plugins/user.scripts/schedule.json" 2>/dev/null)" || line=""
+            freq="${line%%$'\x1f'*}"; custom="${line#*$'\x1f'}"
+            case "$freq" in
+                ""|disabled) hint_as user_script_old_idle "User Script '$name' starts a backup with this engine but has no schedule - nothing runs twice; delete it in Settings > User Scripts when you like" script "$name" ;;
+                *) [[ "$freq" == custom ]] && sched="$custom" || sched="$freq"
+                   wrn_as user_script_old_backup "User Script '$name' starts a backup on a schedule of its own ($sched) - two backups on two schedules. Switch its schedule off (or delete it) in Settings > User Scripts; the backup's schedule is set at Mr. Backupsy's desk" script "$name" schedule "$sched" ;;
+            esac
+        elif grep -qE 'kopia[^|]* snapshot create|zfs snapshot|btrfs subvolume snapshot' "$f" 2>/dev/null; then
+            wrn_as user_script_snapshots "User Script '$name' also makes snapshots/Kopia runs - check whether it has been replaced (otherwise switch off its schedule there)" script "$name"
         fi
     done
+    return 0
 }
 
 summary() {

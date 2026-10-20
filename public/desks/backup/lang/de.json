@@ -784,6 +784,8 @@
   "setup.msg.user_script_renamed": "Das User Script {old} heisst jetzt {new} — prüf dort seinen Zeitplan.",
   "setup.msg.user_script_schedule": "Den Zeitplan stellst du unter ⟦Settings⟧ → ⟦User Utilities⟧ → User Scripts ein: Custom, z. B. 0 3 * * *.",
   "setup.msg.user_script_snapshots": "Das User Script {script} macht auch Snapshots oder Kopia-Backups — prüf, ob es ersetzt ist; dann schalte dort seinen Zeitplan ab.",
+  "setup.msg.user_script_old_backup": "Das User Script {script} startet noch ein Backup nach eigenem Zeitplan ({schedule}) — so laufen zwei Backups nach zwei Zeitplänen. Schalte seinen Zeitplan unter ⟦Settings⟧ → ⟦User Utilities⟧ → User Scripts ab (oder lösch es); den Zeitplan des Backups führe ich hier an meinem Pult.",
+  "setup.msg.user_script_old_idle": "Das User Script {script} könnte noch ein Backup starten, hat aber keinen Zeitplan — nichts läuft doppelt. Lösch es unter ⟦Settings⟧ → ⟦User Utilities⟧ → User Scripts, wann du magst.",
   "setup.msg.partners_kept": "Die Partner-Sekretariate bleiben — die nächste Einrichtung nimmt sie wieder auf; nur die für sie angehakten Einheiten beginnen neu.",
   "setup.msg.forget_backups_stop": "Keine Backups bis zum nächsten Übernehmen; Snapshots, Dumps und Kopia bleiben, wie sie sind.",
   "setup.msg.forget_undo": "Die beiseitegelegten Einstellungen liegen in {file}; um zurückzugehen, leg diese Datei wieder nach {to}.",

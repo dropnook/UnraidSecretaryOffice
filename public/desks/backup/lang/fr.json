@@ -790,6 +790,8 @@
   "setup.msg.user_script_renamed": "Le User Script {old} s'appelle désormais {new} — vérifie sa planification là-bas.",
   "setup.msg.user_script_schedule": "La planification se règle sous ⟦Settings⟧ → ⟦User Utilities⟧ → User Scripts : Custom, p. ex. 0 3 * * *.",
   "setup.msg.user_script_snapshots": "Le User Script {script} fait aussi des snapshots ou des sauvegardes Kopia — vérifie s'il a été remplacé ; si oui, coupe sa planification là-bas.",
+  "setup.msg.user_script_old_backup": "Le User Script {script} lance encore une sauvegarde selon sa propre planification ({schedule}) — deux sauvegardes tournent donc selon deux planifications. Coupe sa planification (ou supprime-le) sous ⟦Settings⟧ → ⟦User Utilities⟧ → User Scripts ; la planification de la sauvegarde, je la tiens ici à mon bureau.",
+  "setup.msg.user_script_old_idle": "Le User Script {script} pourrait encore lancer une sauvegarde, mais il n'a pas de planification — rien ne tourne deux fois. Supprime-le sous ⟦Settings⟧ → ⟦User Utilities⟧ → User Scripts quand tu veux.",
   "setup.msg.partners_kept": "Les secrétariats partenaires restent — la prochaine configuration les reprend ; seules les unités cochées pour eux recommencent.",
   "setup.msg.forget_backups_stop": "Aucune sauvegarde jusqu'au prochain Appliquer ; snapshots, dumps et Kopia restent tels quels.",
   "setup.msg.forget_undo": "Les réglages mis de côté sont dans {file} ; pour revenir en arrière, remets ce fichier à {to}.",

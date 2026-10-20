@@ -790,6 +790,8 @@
   "setup.msg.user_script_renamed": "Lo User Script {old} ora si chiama {new} — controlla lì la sua pianificazione.",
   "setup.msg.user_script_schedule": "La pianificazione si imposta in ⟦Settings⟧ → ⟦User Utilities⟧ → User Scripts: Custom, ad es. 0 3 * * *.",
   "setup.msg.user_script_snapshots": "Lo User Script {script} fa anche snapshot o backup Kopia — controlla se è stato sostituito; in quel caso spegni lì la sua pianificazione.",
+  "setup.msg.user_script_old_backup": "Lo User Script {script} avvia ancora un backup con una sua pianificazione ({schedule}) — così girano due backup con due pianificazioni. Spegni la sua pianificazione (o eliminalo) in ⟦Settings⟧ → ⟦User Utilities⟧ → User Scripts; la pianificazione del backup la tengo io qui alla mia scrivania.",
+  "setup.msg.user_script_old_idle": "Lo User Script {script} potrebbe ancora avviare un backup, ma non ha una pianificazione — niente gira due volte. Eliminalo in ⟦Settings⟧ → ⟦User Utilities⟧ → User Scripts quando vuoi.",
   "setup.msg.partners_kept": "Le segreterie partner restano — la prossima configurazione le riprende; solo le unità spuntate per loro ricominciano.",
   "setup.msg.forget_backups_stop": "Nessun backup fino al prossimo Applica; snapshot, dump e Kopia restano come sono.",
   "setup.msg.forget_undo": "Le impostazioni messe da parte sono in {file}; per tornare indietro, rimetti quel file in {to}.",
