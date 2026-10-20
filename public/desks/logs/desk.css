@@ -93,6 +93,14 @@
 .lg-view{display:flex; flex-direction:column; gap:8px}
 .row.lg-readable{cursor:pointer}            /* the whole row reads its log out (it unfolds nothing) */
 .lg-note{margin:0 2px}
+/* «Who fills /var/log?»: her watch at the head of the /var/log section — the lines it writes most, in the log's own letters */
+.lg-flood{margin:0 0 12px}
+.lg-flood > p{margin:0 2px 8px}
+.lg-flood > .box{margin-bottom:10px}
+.lg-flood-kind{padding:8px 10px 8px 12px; border-top:1px solid var(--line)}
+.lg-flood-kind:first-child{border-top:0}
+.lg-flood-line{font-family:var(--mono); font-size:12px; overflow-wrap:anywhere; white-space:normal}
+.lg-flood-paths{font-family:var(--mono); font-size:12px; overflow-wrap:anywhere}
 .lg-quiet{cursor:help; border-bottom:1px dotted var(--muted)}
 .lg-subhead{display:flex; align-items:center; gap:6px 10px; flex-wrap:wrap; padding:8px 10px 8px 12px; background:var(--surface2); border-top:1px solid var(--line)}
 .lg-subhead:first-child{border-top:0}

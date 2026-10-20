@@ -407,6 +407,8 @@ and the plugin's look at the agent write English.
 * **Ms. Moverelli:** a real Smart Mover run failed or had problems (warning); one stopped because Unraid's mover started
   (normal) — lists, dry runs and a stop asked on her page stay quiet.
 * **Mr. Restori:** a drill couldn't prove that everything comes back (warning), once per drill.
+* **Ms. Protocolli:** /var/log is 90 % full (warning) — which file fills it, with what, who is behind it; once, again only
+  after it was below 80 %.
 * **The Team Lead:** something new under *Still to do* that stayed for half an hour (warning), once — again only if it
   was solved and came back. He looks every 30 minutes, also with the office closed.
   A partner office silent for 6 hours (warning), once per silence and again every 24 hours.
@@ -531,6 +533,13 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   in the note line, a chip with its ×, core.js `bar.done({parts})`). **Saved filters** (data/logs-filters.json,
   agent/desks/logs-filters.php): what a bar has set under a name, per list — a preset stays relative; a click applies one,
   **never by itself** (desk.js `APPLY_ON_OPEN = false`; the entry's `open` is kept, never set); tolerant reader and writer.
+  «Who fills /var/log?» (agent/desks/logs-flood.php, RAM `RUN_DIR/logs-flood.json`, 2026-10-21): in her tick every
+  `LOGS_FLOOD_EVERY` s statvfs and the sizes under /var/log (lstat only); from 80 % the case — the file growing fastest, its
+  newest `LOGS_FLOOD_TAIL` bytes by kind (`logsNormalize()`), nginx's lines of a client on this server itself with the paths
+  asked for (never a query) and a known poller by them (`LOGS_FLOOD_POLLERS`; «what helps» only where sure: Netdata) —; the
+  program behind them from the job `logs-flood-catch` (a minute of /proc/net/tcp* → socket inode → /proc/<pid>/fd → cgroup →
+  docker's name; «not caught» said plainly); at 90 % one notification (`logs`, `varlog_full`, warning) after the catch,
+  again only after it was below 80 %; the Team Lead's hint `varlog_flood`. Lines on the page scrubbed (`logsFloodScrub()`).
   «Syslog», «Errors & warnings» and the reader sort newest / oldest first or by service (a syslog line's program,
   desk.js `SERVICE`) — a choice kept per browser (`logs.<list>.sort`), named in the note line only when not the list's own
   (core.js `bar.done({order})`); a click on a line's service filters to exactly it, and a saved filter keeps it (`svc`).

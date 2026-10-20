@@ -1,6 +1,7 @@
 {
   "keys": [
     "docker.title",
+    "flood.title",
     "found.title",
     "help.counted",
     "help.favorites",
@@ -30,6 +31,7 @@
     "help.colours",
     "help.counted_text",
     "help.favorites_text",
+    "help.flood_text",
     "help.grouped_text",
     "help.hide_text",
     "help.live",

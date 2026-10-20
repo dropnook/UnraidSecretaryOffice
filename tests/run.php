@@ -14629,6 +14629,207 @@ function testRestoreClientEcho(): void
 }
 
 /**
+ * «Who fills /var/log?» (agent/desks/logs-flood.php) on a /var/log and a /proc of the tests' own: the sizes (links and other
+ * filesystems out), the growth over her looks (a rotated file counts what it has now), from 80 % the case — the file
+ * growing fastest, its lines by kind with their share, nginx's lines of this server itself (127.0.0.1, ::1, its own LAN
+ * address) with the addresses asked for and Netdata known by its auto-detect's status pages —, the catch (the client's
+ * side of a connection to the web UI's port → the process holding its socket → its container, docker's name), at 90 % one
+ * notification (warning, through officeNotify() as `logs`) and again only after it was below 80 %; the Team Lead's hint,
+ * the page's part without her memory, scrubbed lines, a binary file, a /var/log that isn't a filesystem of its own; her
+ * tick looks only when she is hired; the page shows her watch also without a tour, in all five languages.
+ */
+function testLogsFlood(): void
+{
+    $tmp = hardeningTmp('logsflood');
+    $keep = [$GLOBALS['agentStaffFile'] ?? null];
+    $root = "$tmp/varlog";
+    $proc = "$tmp/proc";
+    foreach (["$root/nginx", "$root/samba", "$proc/net"] as $d) {
+        mkdir($d, 0700, true);
+    }
+    $GLOBALS['logsFloodRoot'] = $root;
+    $GLOBALS['logsFloodProc'] = $proc;
+    $GLOBALS['logsFloodFile'] = "$tmp/logs-flood.json";
+    $GLOBALS['logsFloodCatchFile'] = "$tmp/logs-flood-catch.json";
+    $GLOBALS['logsFloodIdent'] = "$tmp/ident.cfg";
+    $GLOBALS['logsFloodNoJob'] = true;
+    unset($GLOBALS['logsFlood']);
+    file_put_contents("$tmp/ident.cfg", "PORT=\"80\"\nPORTSSL=\"443\"\nPORTSSH=\"22\"\n");
+    // Netdata's go.d nginx collector, as seen in the wild: every status page it tries ends at Unraid's /login and its rate limit
+    $nginx = function (int $i, string $ref, string $client = '127.0.0.1'): string {
+        return sprintf('2026/10/20 14:%02d:%02d [error] 1234#1234: *%d limiting requests, excess: 20.%03d by zone "authlimit", client: %s, server: , '
+            . 'request: "GET /login HTTP/1.1", host: "127.0.0.1", referrer: "http://127.0.0.1/%s"', intdiv($i, 60) % 60, $i % 60, 5000 + $i, $i % 1000, $client, $ref);
+    };
+    $refs = ['nginx_status', 'stub_status', 'basic_status', 'status'];
+    $lines = [];
+    for ($i = 0; $i < 400; $i++) {
+        $lines[] = $nginx($i, $refs[$i % 4]);
+    }
+    $lines[] = '2026/10/20 14:59:00 [error] 1234#1234: *9 open() "/usr/local/emhttp/x.png" failed (2: No such file or directory), client: 192.168.1.50, '
+        . 'server: , request: "GET /x.png?csrf_token=ABCDEF0123456789 HTTP/1.1", host: "tower"';
+    file_put_contents("$root/nginx/error.log", implode("\n", $lines) . "\n");
+    file_put_contents("$root/syslog", str_repeat("Oct 20 14:00:00 Tower kernel: something\n", 50));
+    file_put_contents("$root/samba/log.smbd", str_repeat('x', 3000));
+    file_put_contents("$root/wtmp", str_repeat("\0\0\0\0ab", 400));
+    symlink('/etc/passwd', "$root/packages");                   // a link: never counted, never read
+    try {
+        same('flood: the sizes under /var/log — the biggest first, folders walked, a link left out', ["$root/nginx/error.log", "$root/samba/log.smbd", "$root/wtmp", "$root/syslog"],
+            array_keys(logsFloodSizes($root)['sizes']));
+        same('flood: a file that is not text has no lines to tell', ['binary' => true], logsFloodTail("$root/wtmp", 4096));
+        same('flood: a link is never read', [], logsFloodTail("$root/packages", 4096));
+        same('flood: a tail keeps its budget and leaves out the line it began in', 3, count(logsFloodTail("$root/syslog", 41 * 3 + 10)));
+
+        // this server's own addresses: /proc/net/fib_trie's LOCAL hosts, /proc/net/if_inet6
+        file_put_contents("$proc/net/fib_trie", "Main:\n  +-- 0.0.0.0/0 3 0 5\n     |-- 0.0.0.0\n        /0 universe UNICAST\n  +-- 127.0.0.0/8 2 0 2\n"
+            . "     +-- 127.0.0.0/31 1 0 0\n        |-- 127.0.0.0\n           /8 host LOCAL\n        |-- 127.0.0.1\n           /32 host LOCAL\n"
+            . "     |-- 192.168.1.0\n        /24 link UNICAST\n     |-- 192.168.1.20\n        /32 host LOCAL\n     |-- 192.168.1.255\n        /32 link BROADCAST\n");
+        file_put_contents("$proc/net/if_inet6", "00000000000000000000000000000001 01 80 10 80       lo\nfe80000000000000020c29fffe123456 02 40 20 80     eth0\n");
+        same('flood: this server\'s addresses — 127.0.0.1, ::1, its LOCAL hosts (not a network or a broadcast), its IPv6 ones',
+            ['127.0.0.1', '::1', '192.168.1.20', 'fe80::20c:29ff:fe12:3456'], logsFloodOwnIps($proc));
+        same('flood: /proc/net/tcp\'s addresses (each word in the host\'s order)', ['127.0.0.1', '192.168.1.20', '::1', '127.0.0.1'],
+            [logsFloodHexIp('0100007F'), logsFloodHexIp('1401A8C0'), logsFloodHexIp('00000000000000000000000001000000'), logsFloodHexIp('0000000000000000FFFF00000100007F')]);
+        same('flood: the web UI\'s ports from ident.cfg', [80, 443], logsFloodPorts());
+        same('flood: a path from a request or a referrer — never a query, never odd characters', ['/nginx_status', '/login', '/', null, null],
+            [logsFloodPath('http://127.0.0.1/nginx_status?x=1'), logsFloodPath('/login?next=/Main'), logsFloodPath('http://127.0.0.1'), logsFloodPath('/a b'), logsFloodPath('-')]);
+        $scrub = logsFloodScrub('GET /x.png?csrf_token=ABCDEF0123456789&a=1 Authorization: Bearer abcdefghijkl0123');
+        check('flood: a line for the page keeps no key or token', !str_contains($scrub, 'ABCDEF0123456789') && !str_contains($scrub, 'abcdefghijkl0123')
+            && str_contains($scrub, 'csrf_token=…&a=1'), $scrub);
+
+        // her looks: calm at 50 %, then the file grows and /var/log is at 85 %
+        $t0 = time();
+        $v = fn (int $pct): array => ['ok' => true, 'own' => true, 'fs' => 'tmpfs', 'total' => 128 << 20, 'used' => (int) ((128 << 20) * $pct / 100), 'pct' => $pct];
+        $m = logsFloodLook($v(50), $t0);
+        check('flood: under 80 % no case — only the sizes kept', $m['case'] === null && count($m['samples']) === 1 && $m['look']['pct'] === 50);
+        file_put_contents("$root/nginx/error.log", implode("\n", array_map(fn ($i) => $nginx($i, $refs[$i % 4]), range(400, 999))) . "\n", FILE_APPEND);
+        file_put_contents("$root/syslog", "Oct 20 14:01:00 Tower kernel: one more\n", FILE_APPEND);
+        $grew = filesize("$root/nginx/error.log") - strlen(implode("\n", $lines) . "\n");
+        $m = logsFloodLook($v(85), $t0 + 60);
+        $c = $m['case'];
+        same('flood: the growth over her looks, the fastest first (bytes a minute)', ["$root/nginx/error.log", $grew, $grew],
+            [$m['look']['rows'][0]['path'], $m['look']['rows'][0]['grew'], $m['look']['rows'][0]['rate']]);
+        same('flood: at 85 % the case — the file growing fastest', "$root/nginx/error.log", $c['path'] ?? null);
+        check('flood: its lines by kind — nginx\'s rate limit nearly all of them, the numbers and the addresses as one, a sample line',
+            ($c['kinds'][0]['share'] ?? 0) >= 99 && str_contains($c['kinds'][0]['line'] ?? '', 'zone "authlimit", client: 127.0.0.1') && count($c['kinds']) <= LOGS_FLOOD_KINDS, json_encode($c['kinds'] ?? null));
+        same('flood: nginx\'s lines of this server itself — share, client, the addresses asked for, Netdata by its status pages',
+            [true, '127.0.0.1', ['/login', '/nginx_status', '/stub_status', '/basic_status', '/status'], 'netdata'],
+            [($c['local']['share'] ?? 0) >= 99, $c['local']['client'] ?? null, $c['local']['paths'] ?? null, $c['local']['poller'] ?? null]);
+        check('flood: the catch starts (a job of its own), the notification waits for it', $m['job'] !== null && $m['told'] === null);
+        same('flood: one status page is a hint, not Netdata', ['status', null, 'netdata'],
+            [logsFloodPollerByPaths(['/login', '/nginx_status']), logsFloodPollerByPaths(['/login']), logsFloodPollerByPaths(['/stub_status', '/basic_status'])]);
+
+        // the catch: the client's side of each connection to the web UI → the process holding its socket → its container
+        $tcp = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n";
+        $row = fn (int $n, string $l, string $r, string $st, int $ino): string => sprintf("  %d: %s %s %s 00000000:00000000 00:00000000 00000000     0        0 %d 1 0000000000000000 20 4 30 10 -1\n", $n, $l, $r, $st, $ino);
+        file_put_contents("$proc/net/tcp", $tcp . $row(0, '00000000:0050', '00000000:0000', '0A', 100)          // nginx listening
+            . $row(1, '0100007F:0050', '0100007F:A028', '01', 200)            // nginx's side of a connection
+            . $row(2, '0100007F:A028', '0100007F:0050', '01', 300)            // the client's side: go.d.plugin in the netdata container
+            . $row(3, '0100007F:A02A', '0100007F:0050', '06', 0)              // TIME_WAIT: nobody holds it any more
+            . $row(4, '1401A8C0:0016', '3201A8C0:C350', '01', 400)            // ssh from another computer
+            . $row(5, '1401A8C0:A030', '0101A8C0:0050', '01', 450));          // to another server's port 80: not this one's web UI
+        file_put_contents("$proc/net/tcp6", $tcp . $row(0, '00000000000000000000000001000000:A029', '00000000000000000000000001000000:01BB', '01', 500));
+        same('flood: the client\'s side of connections to this server\'s web UI (not listening, not nginx\'s side, not TIME_WAIT, not elsewhere)',
+            [300, 500], logsFloodSockets($proc, [80, 443], logsFloodOwnIps($proc)));
+        $id = str_repeat('c0ffee12', 8);
+        $p = function (int $pid, string $comm, string $cmd, array $socks, string $cgroup = "0::/\n") use ($proc): void {
+            mkdir("$proc/$pid/fd", 0700, true);
+            file_put_contents("$proc/$pid/stat", "$pid ($comm) S 1 0 0 0 -1 0 0 0 0 0 0 0 0 20 0 1 0 0\n");
+            file_put_contents("$proc/$pid/cmdline", str_replace(' ', "\0", $cmd) . "\0");
+            file_put_contents("$proc/$pid/cgroup", $cgroup);
+            symlink('/dev/null', "$proc/$pid/fd/0");
+            foreach ($socks as $i => $ino) {
+                symlink("socket:[$ino]", "$proc/$pid/fd/" . ($i + 3));
+            }
+        };
+        $p(50, 'nginx', 'nginx: worker process', [100, 200]);
+        $p(70, 'go.d.plugin', '/usr/libexec/netdata/plugins.d/go.d.plugin 1', [300], "0::/docker/$id\n");
+        $p(80, 'curl', 'curl -s http://[::1]:443/?token=SECRET0123456789', [500]);
+        $p(90, 'sshd', 'sshd: root@pts/0', [400]);
+        same('flood: who holds the sockets (/proc/<pid>/fd)', ['owners' => [300 => 70, 500 => 80], 'cut' => false], logsFloodOwners($proc, [300, 500]));
+        logsFloodCatchRun(['looks' => 1, 'docker' => [$id => ['netdata', 'netdata/netdata:stable']]]);
+        logsFloodCatchDone();
+        $m = &logsFloodMem();
+        $who = $m['catch']['who'] ?? [];
+        same('flood: caught — the container by docker\'s name (Netdata known by it), the program by its name; its command scrubbed', [
+            ['container', 'netdata', 'go.d.plugin', 'netdata', 1], ['program', null, 'curl', null, 1]],
+            array_map(fn (array $w): array => [$w['kind'], $w['name'] ?? null, $w['prog'], $w['poller'], $w['n']], $who));
+        check('flood: a caught command keeps no token', !str_contains(json_encode($who), 'SECRET0123456789'));
+        check('flood: the catch done — the job is gone, its answer taken in', $m['job'] === null && !is_file("$tmp/logs-flood-catch.json"));
+        unset($m);
+
+        // at 90 %: one notification (warning) — the file, the line, who is behind it, what helps; again only after it was below 80 %
+        $bin = "$tmp/notify";
+        file_put_contents($bin, "#!/bin/bash\nprintf '%s\\n' \"\$@\" >> " . escapeshellarg("$tmp/notified") . "\n");
+        chmod($bin, 0755);
+        $env = [getenv('OFFICE_NOTIFY_BIN'), getenv('OFFICE_NOTIFY_STAMP')];
+        putenv("OFFICE_NOTIFY_BIN=$bin");
+        putenv("OFFICE_NOTIFY_STAMP=$tmp/stamp");
+        $told = [];
+        foreach ([[92, 120], [95, 180], [70, 240], [91, 300]] as [$pct, $at]) {
+            @unlink("$tmp/notified");
+            logsFloodLook($v($pct), $t0 + $at);
+            $told[] = is_file("$tmp/notified") ? (string) file_get_contents("$tmp/notified") : '';
+        }
+        putenv($env[0] === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$env[0]");
+        putenv($env[1] === false ? 'OFFICE_NOTIFY_STAMP' : "OFFICE_NOTIFY_STAMP=$env[1]");
+        check('flood: at 92 % told — a warning naming the file, the line, the container behind it and what helps', str_contains($told[0], "-i\nwarning")
+            && str_contains($told[0], "$root/nginx/error.log") && str_contains($told[0], 'authlimit') && str_contains($told[0], 'netdata')
+            && str_contains($told[0], 'go.d.conf') && str_contains($told[0], '#/logs/varlog') && !str_contains($told[0], "\n\n"), $told[0]);
+        same('flood: once — not at 95 %, not below 80 %; again at 91 % after it was below', [false, false, true],
+            [$told[1] !== '', $told[2] !== '', $told[3] !== '']);
+
+        // what the page and the Team Lead get
+        $page = logsFloodForPage();
+        check('flood: the page\'s part — her look, the case, the catch, when she told; never her memory\'s sizes',
+            !isset($page['samples']) && $page['case']['path'] === "$root/nginx/error.log" && $page['catch']['who'][0]['name'] === 'netdata'
+            && is_int($page['told']) && $page['full'] === LOGS_VARLOG_FULL && $page['notify'] === LOGS_FLOOD_NOTIFY && $page['pollers']['netdata']['todo'] === true);
+        check('flood: kept in RAM the same way (a restarted agent keeps the growth and «told»)', (readJson("$tmp/logs-flood.json")['told'] ?? null) === $page['told']
+            && count(readJson("$tmp/logs-flood.json")['samples'] ?? []) >= 2);
+        $f = logsFloodChecks();
+        same('flood: the Team Lead\'s hint names the file and its line', ['varlog_flood', 'hint', false, "$root/nginx/error.log", '#/logs/varlog'],
+            [$f[0]['id'] ?? null, $f[0]['level'] ?? null, $f[0]['ok'] ?? null, $f[0]['params']['file'] ?? null, $f[0]['link'] ?? null]);
+        check('flood: … with its share and a line from the log (cut)', ($f[0]['params']['share'] ?? 0) >= 99 && strlen($f[0]['params']['line'] ?? '') <= 164 && str_ends_with($f[0]['params']['line'] ?? '', ' …'));
+
+        // a rotated file counts what it has now; a binary file that fills it has no lines; not a filesystem of its own: nothing
+        same('flood: a file that got shorter (rotated) counts what it has now', 10,
+            logsFloodGrowth([['t' => 0, 'used' => 0, 'sizes' => ['/var/log/a' => 500]], ['t' => 60, 'used' => 0, 'sizes' => ['/var/log/a' => 10]]])[0]['grew']);
+        same('flood: a binary file\'s case has no kinds', ['lines' => 0, 'binary' => true, 'kinds' => [], 'local' => null], logsFloodLines(['binary' => true], ['127.0.0.1']));
+        $m = logsFloodLook(['ok' => true, 'own' => false, 'fs' => null, 'total' => 1, 'used' => 1, 'pct' => 99], $t0 + 360);
+        check('flood: /var/log not a filesystem of its own — no case, no hint, nothing kept', $m['case'] === null && $m['samples'] === [] && logsFloodChecks() === []);
+
+        // her tick: only when she is hired, then once a minute
+        file_put_contents("$tmp/staff.json", '{"hired":{"backup":{}}}');
+        $GLOBALS['agentStaffFile'] = "$tmp/staff.json";
+        unset($GLOBALS['logsFlood']);
+        $GLOBALS['logsFloodMonoNow'] = 1000.0;
+        logsFloodTick();
+        check('flood: not hired — her tick looks at nothing', logsFloodMem()['look'] === null || logsFloodMem()['look']['t'] < $t0 + 360);
+        same('flood: … and asks again only a minute later', 1000.0 + LOGS_FLOOD_EVERY, logsFloodMem()['next']);
+
+        // the office: Ms. Protocolli sends through the notification centre; her texts in all five languages; the page
+        check('flood: the notification centre has a row for her (warnings)', in_array('logs', OFFICE_NOTIFY_DESKS, true) && OFFICE_NOTIFY_SENDS['logs'] === ['warning']);
+        $missing = [];
+        foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+            $l = readJson(OFFICE_WEB . "/desks/logs/lang/$code.json") ?? [];
+            foreach (['notify.flood_subject', 'notify.flood_file', 'notify.flood_big', 'notify.flood_kind', 'notify.flood_who_container', 'notify.flood_who_program',
+                      'notify.flood_who_none', 'notify.flood_see', 'flood.todo.netdata', 'check.varlog_flood', 'check.varlog_flood_how'] as $k) {
+                if (!is_string($l[$k] ?? null)) {
+                    $missing[] = "$code:$k";
+                }
+            }
+        }
+        same('flood: the agent\'s texts in all five languages', [], $missing);
+        $js = (string) file_get_contents(OFFICE_WEB . '/desks/logs/desk.js');
+        check('flood: her page shows the watch at the head of /var/log — also without a tour', str_contains($js, "const flood = floodView();\n  if (flood) box.insertBefore(flood, box.children[1] || null);\n  if (none) return box;"));
+    } finally {
+        foreach (['logsFloodRoot', 'logsFloodProc', 'logsFloodFile', 'logsFloodCatchFile', 'logsFloodIdent', 'logsFloodNoJob', 'logsFloodMonoNow', 'logsFlood'] as $g) {
+            unset($GLOBALS[$g]);
+        }
+        $keep[0] === null ? (function () { unset($GLOBALS['agentStaffFile']); })() : $GLOBALS['agentStaffFile'] = $keep[0];
+        exec('rm -rf ' . escapeshellarg($tmp));
+    }
+}
+
+/**
  * Ms. Protocolli's tour: what counts as an error or a warning (own level,
  * words, what doesn't count), similar lines as one kind, times at the start
  * of a line, reading a file since the last tour (offset, rotation by inode,
@@ -20733,6 +20934,9 @@ function testStrings(): void
     // Mr. Restori's drill lives in a file of its own beside his desk (agent/desks/restore-drill.php)
     $sources['restore'] = array_merge($sources['restore'] ?? [], $sources['restore-drill'] ?? []);
     unset($sources['restore-drill']);
+    // Ms. Protocolli's /var/log watch likewise (agent/desks/logs-flood.php)
+    $sources['logs'] = array_merge($sources['logs'] ?? [], $sources['logs-flood'] ?? []);
+    unset($sources['logs-flood']);
     foreach ($sources as $desk => $files) {
         foreach ($files as $file) {
             preg_match_all("/\\bfinding\\(\\s*'([a-z0-9_]+)'/", (string) file_get_contents($file), $m);
@@ -47662,6 +47866,7 @@ JS;
 }
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
+                      'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',

@@ -30,6 +30,8 @@ declare(strict_types=1);
  * The result goes to data/logs-tour.json (the page reads it as the part
  * "tour"), with what the next tour needs (offsets, sizes) under "memory".
  * The team lead's check (/var/log's fill level) only asks statvfs.
+ * «Who fills /var/log?» (logs-flood.php): her look every minute in her tick — from 80 % which file fills it and with
+ * what, who is behind nginx's lines of this server itself; at 90 % one notification.
  */
 
 const LOGS_MAX_LINES = 10000;
@@ -136,6 +138,7 @@ const LOGS_TIME_PHP    = '/^\[(\d\d)-([A-Z][a-z]{2})-(\d{4})\s+(\d\d:\d\d:\d\d)(
 
 require_once __DIR__ . '/logs-filters.php';      // her saved filters (data/logs-filters.json), applied only by a click
 require_once __DIR__ . '/logs-diskwakes.php';        // «Who woke my disks?» (data/logs-wakes.json): the sampler in her tick
+require_once __DIR__ . '/logs-flood.php';          // «Who fills /var/log?» (RAM): her look every minute, from 80 % the case
 
 desk('logs', [
     'fit'     => fn (): array => fit(true, 'yes'),
@@ -143,6 +146,7 @@ desk('logs', [
     'tick'    => function (): void {
         logsTourTick();
         logsWakeTick();
+        logsFloodTick();
     },
     'actions' => [
         'refresh'     => fn (array $r) => ['ok' => true, 'state' => logsScan()],
@@ -162,8 +166,9 @@ desk('logs', [
         // «Who woke my disks?»: her switch (on unless switched off), kept on the server
         'wakes_watch'   => fn (array $r) => logsWakeWatchSet(boolField($r, 'on')) + ['state' => logsScan()],
     ],
-    'jobs'    => ['logs-tour' => fn (array $args) => logsTourRun(), 'logs-wake-name' => fn (array $args) => logsWakeNameRun()],
-    'checks'  => fn (): array => logsChecks(),
+    'jobs'    => ['logs-tour' => fn (array $args) => logsTourRun(), 'logs-wake-name' => fn (array $args) => logsWakeNameRun(),
+                  'logs-flood-catch' => fn (array $args) => logsFloodCatchRun()],
+    'checks'  => fn (): array => array_merge(logsChecks(), logsFloodChecks()),
     'metrics' => fn (): array => array_merge(logsMetrics(), logsWakeMetrics()),
 ]);
 
@@ -294,6 +299,8 @@ function logsScan(): array
                          'time' => $mine['time'], 'max' => LOGS_MINE_MAX],
               // «Who woke my disks?»: the rotating disks there are, her switch, since when she watches, the wakes of the last days
               'wakes' => logsWakesForPage(),
+              // «Who fills /var/log?»: her last look (growth per file), from 80 % the case and who is behind it
+              'flood' => logsFloodForPage(),
               // her saved filters (never applied by themselves); for the time filter: the server's last start and its
               // offset from UTC (the reader's lines carry the server's local time)
               'filters' => logsFiltersForPage(), 'boot' => logsBootTime(), 'tz' => (int) date('Z')];
