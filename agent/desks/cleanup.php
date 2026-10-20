@@ -38,7 +38,11 @@ declare(strict_types=1);
  *              deletes either): <name>.aside-<time>, .restored-<time>,
  *              .putback-<time>, <file>.restored-aside-<time>, his folders on
  *              the flash and in libvirt.img, the safety dumps in the backup
- *              place — found from his journals, never by scanning disks
+ *              place — found from his journals, never by scanning disks.
+ *              A dataset he pulled from a partner (<dataset>.restored-<time>,
+ *              named by its dataset in the journal, mounted read-only under
+ *              /mnt/addons) only listed: his «Remove what was pulled…» removes
+ *              it, never her (why «pulled»)
  *   partners   what an ended partnership left: <pool>/UnraidSecretaryOffice-partners/<pair> datasets whose pair is
  *              gone from data/partner/pairs.json (agent/lib/partnerlook.php) — awake pools only, the size from zfs
  *              list; put away with zfs rename next to the storeroom (the run's manifest on the flash), never while
@@ -2368,7 +2372,10 @@ function clRestoreUndoable(array $j): bool
  * What one restore left, from its journal — only paths of exactly the shapes he writes, with this restore's own
  * time: what a step put aside (<name>.aside-<time>, .putback-<time>, <file>.restored-aside-<time>, the time's
  * folder of his on the flash or in libvirt.img), a copy next to the live one (<name>.restored-<time>; after a
- * swap it is the live one, gone from there) and the folder of the safety dumps. Never a guess by name.
+ * swap it is the live one, gone from there) and the folder of the safety dumps. Never a guess by name. A pull from
+ * a partner names its new dataset by name (its `pull` step, and `pulled` once it landed: <pool>/…/<name>.restored-<time>):
+ * its path is that name (what = pulled, clPulledPlace() looks where it is — scenario batch G, BG2: she took only /mnt/
+ * paths and never listed one).
  *
  * @return list<array{path: string, dataset: ?string, what: string, back: bool}>  back: his «Put back» needs it
  */
@@ -2410,6 +2417,15 @@ function clLeftoverUnits(array $j): array
             $add($to, $dataset($a['to_dataset'] ?? null, $to), $what, $undoable && $what !== 'putback');
         }
     }
+    // a pull from a partner: the dataset its step made (also one cut short: a token of zfs recv -s) and what landed
+    $pulls = array_merge(array_map(fn ($st) => is_array($st) && ($st['do'] ?? '') === 'pull' ? ($st['dataset'] ?? null) : null, (array) ($j['steps'] ?? [])),
+                         array_map(fn ($p) => is_array($p) ? ($p['dataset'] ?? null) : null, (array) ($j['pulled'] ?? [])));
+    foreach ($pulls as $ds) {
+        if (is_string($ds) && clZfsNameOk($ds) && str_contains($ds, '/') && preg_match(CL_LEFTOVER_NAME, $ds, $x) && $x[1] === 'restored' && $x[2] === $stamp
+            && !isset($units[$ds])) {
+            $units[$ds] = ['path' => $ds, 'dataset' => $ds, 'what' => 'pulled', 'back' => false];
+        }
+    }
     foreach ((array) ($j['steps'] ?? []) as $st) {
         $to = is_array($st) && ($st['do'] ?? '') === 'copy' && is_string($st['to'] ?? null) ? $st['to'] : '';
         if (str_starts_with($to, '/mnt/') && preg_match(CL_LEFTOVER_NAME, $to, $x) && $x[1] === 'restored' && $x[2] === $stamp) {
@@ -2417,6 +2433,35 @@ function clLeftoverUnits(array $j): array
         }
     }
     return array_values($units);
+}
+
+/**
+ * Where a dataset Mr. Restori pulled from a partner is now: on a sleeping pool not looked at (named instead — never
+ * woken here); else its mount (the kernel's table) or, not mounted, zfs's word that it is still there. Never a part
+ * that can go into her storeroom: why «pulled» (his «Remove what was pulled…» destroys exactly it).
+ *
+ * @param array<string, array> $mounts mount point => mountTable() entry
+ */
+function clPulledPlace(array $u, array $mounts, ?callable $zfs = null): array
+{
+    $ds = (string) $u['dataset'];
+    $pool = explode('/', $ds)[0];
+    $out = ['parts' => [], 'asleep' => [], 'why' => 'pulled', 'trash' => [], 'known' => true];
+    if (clPoolAsleep($pool, $GLOBALS['clCtx']['asleep'] ?? [])) {
+        return ['asleep' => [$pool], 'why' => 'asleep'] + $out;
+    }
+    $at = null;
+    foreach ($mounts as $mp => $m) {
+        if (($m['fs'] ?? '') === 'zfs' && ($m['source'] ?? '') === $ds) {
+            $at = (string) $mp;
+            break;
+        }
+    }
+    if ($at === null && !isset(clZfsSpace([$ds], $zfs)[$ds])) {
+        return $out;                                  // gone: removed by his «Remove what was pulled…»
+    }
+    $out['parts'][] = ['root' => $pool, 'path' => $at ?? $ds, 'dataset' => $ds, 'trash' => '', 'file' => false, 'bytes' => null];
+    return $out;
 }
 
 /** Is this one of the places Mr. Restori leaves things (the shapes clLeftoverUnits() takes)? For putting one back */
@@ -2560,7 +2605,7 @@ function clLeftovers(bool $libvirt): array
                 continue;
             }
             $seen[$u['path']] = true;
-            $at = clLeftoverPlace($u, $libvirt, $mounts);
+            $at = $u['what'] === 'pulled' ? clPulledPlace($u, $mounts) : clLeftoverPlace($u, $libvirt, $mounts);
             foreach ($at['trash'] as $t) {
                 $out['trash'][$t] = true;
             }
@@ -2580,7 +2625,7 @@ function clLeftovers(bool $libvirt): array
                 'parts'    => $at['parts'],
                 'asleep'   => $at['asleep'],
                 'exists'   => $there,
-                'category' => $there === null ? 'unknown' : ($u['back'] ? 'way_back' : 'leftover'),
+                'category' => $there === null ? 'unknown' : ($u['what'] === 'pulled' ? 'pulled' : ($u['back'] ? 'way_back' : 'leftover')),
                 'why'      => $at['why'],
                 'force'    => $u['back'],
                 'used_by'  => [],
@@ -4022,6 +4067,7 @@ function clParkCheck(array $e, bool $force): void
             'office'        => new Problem('cleanup_kept_office', $p),
             'backup_place'  => new Problem('cleanup_kept_backup_place', $p),
             'partner_held'  => new Problem('cleanup_kept_partner_held', $p),
+            'pulled'        => new Problem('cleanup_pulled', $p),
             default         => new Problem('cleanup_measure_first', $p),
         };
     }

@@ -315,6 +315,7 @@
   "partner.units_none": "Qui niente è un dataset proprio (o la configurazione del signor Backupsi non è ancora fatta): solo i dataset ZFS possono andare a un partner.",
   "partner.ask": "Chiedi adesso",
   "partner.ask_title": "Chiedi alla segreteria partner come sta (altrimenti ogni 15 minuti)",
+  "partner.asking": "chiedo a {name} …",
   "partner.asked_ok": "{name} risponde.",
   "partner.asked_no": "{name} non risponde: {why}",
   "partner.why.unreachable": "nessuna connessione (spento, un altro indirizzo, un firewall?)",

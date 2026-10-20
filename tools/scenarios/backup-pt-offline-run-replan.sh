@@ -4,7 +4,9 @@
 # sent once before the state (the first copy at USOPartner).
 # - BK-RUN: `partner_missed` (why unreachable) as the one warning, the rest ok — the share's local snapshot made, the
 #   run «with warnings», never failed, done in minutes (ssh gives up after 15 s).
-# - The Team Lead's card: the partner «couldn't reach it» after his «Look again» (caretaker.partner_ping); his finding
+# - The Team Lead's card: «Ask now» (caretaker.partner_ping) answers at once and hands the ask to a job (BG1: it asked
+#   inside the agent's request and held every page 13 s); the agent answers another page meanwhile; the job's answer:
+#   the partner «couldn't reach it»; his finding
 #   partner_silent waits 6 hours of silence (PARTNER_SILENT_AFTER, agent/lib/partner.php:67) — here it is still «in
 #   place»; the 6 hours themselves: backup-pt-offline-silent-6h (nightly).
 # - Mr. Restori's partner look from his tick, never from the page: his page's look (restore.refresh) and «Look again»
@@ -58,17 +60,18 @@ zfs list -H -t snapshot -o name "cache/$S" | grep -q "@uso-backup-$(jq -r .run "
     && cell local-snapshot 1 "cache/$S@uso-backup-$(jq -r .run "$st") made" || cell local-snapshot 0 "no snapshot of this run on cache/$S"
 ((trun <= 600)) && cell run-quick 1 "$trun s (ssh gives up after 15 s)" || cell run-quick 0 "the run took $trun s"
 # 2. the Team Lead: «Look again» on the partner's card
-# the card's «Look again» while another page asks the agent something: the agent answers that at once (office.ping —
-# a request every page sends) or it stands still while the ping's ssh waits for an unreachable partner
-php "$SC_DIR/ask.php" --wait 90 caretaker.partner_ping "$(jq -cn --arg i "$ID" '{id: $i}')" >"$KEEP/ping-card.json" 2>&1 &
+# the card's «Ask now» while another page asks the agent something: the agent answers that at once (office.ping —
+# a request every page sends) or it stands still while the ask's ssh waits for an unreachable partner
+pt_card_ask "$ID" 90 >"$KEEP/ping-card.json" 2>&1 &
 pp=$!
 sleep 2
 s0=$(date +%s%N); php "$SC_DIR/ask.php" --wait 60 office.ping '{}' >/dev/null 2>&1; ms=$((($(date +%s%N) - s0) / 1000000))
 wait "$pp"
 ((ms <= 4000)) && cell agent-not-held 1 "another request answered in $ms ms during the card's look" \
-    || cell agent-not-held 0 "another request waited $ms ms while the card's look asked the unreachable partner (agent/lib/partner.php:2123 partnerAskAndKeep → partnerSsh run() in the agent's loop)"
-pa=$(jq -c '.ask // {}' "$KEEP/ping-card.json" 2>/dev/null)
-[[ $(jq -r '.reachable' <<<"$pa") == false ]] && cell lead-unreachable 1 "the card's look: $pa" || cell lead-unreachable 0 "the card's look: $pa"
+    || cell agent-not-held 0 "another request waited $ms ms while the card's look asked the unreachable partner (the ask inside the agent's request, not its job)"
+pa=$(tail -1 "$KEEP/ping-card.json" 2>/dev/null); jq -e . <<<"$pa" >/dev/null 2>&1 || pa='{}'
+[[ $(jq -r '.looking' <<<"$pa") == true && $(jq -r '.reachable' <<<"$pa") == false && $(jq -r '.why' <<<"$pa") =~ ^(unreachable|timeout)$ ]] \
+    && cell lead-unreachable 1 "the card's look (its job): $pa" || cell lead-unreachable 0 "the card's look: $pa ($(head -c 300 "$KEEP/ping-card.json" | paste -sd' '))"
 ask caretaker.refresh '{}' 120 >/dev/null
 f=$(state_json caretaker "[.. | objects | select(.id? == \"partner_silent\")] | .[0] // empty")
 [[ -n $f && $(jq -r '.ok' <<<"$f") == true ]] && cell lead-finding-waits 1 "partner_silent in place until 6 h of silence: $(jq -c '{ok, params}' <<<"$f")" \

@@ -15120,6 +15120,63 @@ function testLeftovers(): void
             'aside' => [['to' => '/mnt/a/b/c.aside-20261001-000000'], ['to' => '/mnt/a/b/c'], ['to' => '/mnt/a/b/c.aside-{T}'], ['to' => '/tmp/c.aside-20261007-090000'],
                         ['to' => '/mnt/a/../b/c.aside-20261007-090000'], ['to' => '/mnt/a/b/x.sql.gz', 'what' => 'safety_dump'], ['to' => "/mnt/a/b/c.aside-20261007-090000\n"],
                         ['to' => '/mnt/a/b/ok.aside-20261007-090000', 'to_dataset' => 'a/b/other'], ['to' => '/boot/config/.UnraidSecretaryOffice-restore/20261001-000000/x']]]));
+    // BG2 (scenario batch G, 2026-10-20): a pull from a partner names its new dataset by name — its `pull` step, and
+    // `pulled` once it landed (the journal as rsJournalNew() and rsDoPull() write it; the plan's aside never goes in) —
+    // she took only /mnt/ paths and never listed it; now listed, read only (his «Remove what was pulled…» removes it)
+    $pullDs = 'cache/photos.restored-20261020-151500';
+    $pullMnt = '/mnt/addons/UnraidSecretaryOffice/restored/vault-share-photos-20261020-151500';
+    $pullStep = ['do' => 'pull', 'pair' => 'a1b2c3d4', 'unit' => 'share:photos', 'snap' => 'uso-backup-20261020-0300', 'dataset' => $pullDs, 'resume' => false,
+                 'parent' => null, 'partner' => 'vault', 'path' => '/mnt/user/photos', 'time' => 1792470000, 'mount' => $pullMnt, 'state' => 'done'];
+    same('leftovers: a dataset pulled from a partner (its step and «pulled» in the journal) — listed once, his to remove', [[$pullDs, $pullDs, 'pulled', false]],
+        $u(['id' => '20261020-151500-77aa', 'kind' => 'partner', 'result' => 'ok', 'putback' => null, 'aside' => [],
+            'steps' => [$pullStep, ['do' => 'mount', 'dataset' => $pullDs, 'path' => $pullMnt, 'state' => 'done']],
+            'pulled' => [['dataset' => $pullDs, 'guid' => '123', 'pair' => 'a1b2c3d4', 'partner' => 'vault', 'unit' => 'share:photos', 'snap' => 'uso-backup-20261020-0300', 'mount' => $pullMnt]]]));
+    same('leftovers: a pull cut short (only its step: zfs recv -s keeps what came) — listed too', [[$pullDs, $pullDs, 'pulled', false]],
+        $u(['id' => '20261020-151500-77aa', 'kind' => 'partner', 'result' => 'interrupted', 'putback' => null, 'aside' => [], 'steps' => [['state' => 'failed'] + $pullStep]]));
+    same('leftovers: … never another pull — another time (a resumed one\'s), a start\'s .from-, no pool, a path, «..», a line break, a copy\'s step', [],
+        $u(['id' => '20261020-151500-77aa', 'kind' => 'partner', 'result' => 'ok', 'putback' => null, 'aside' => [],
+            'steps' => [['do' => 'copy', 'dataset' => $pullDs], ['dataset' => 'cache/photos.restored-20261001-000000'] + $pullStep],
+            'pulled' => [['dataset' => 'cache/photos.restored-20261001-000000'], ['dataset' => 'cache/x/share-photos.from-vault-20261020-151500'],
+                         ['dataset' => 'photos.restored-20261020-151500'], ['dataset' => '/mnt/cache/photos.restored-20261020-151500'],
+                         ['dataset' => 'cache/../photos.restored-20261020-151500'], ['dataset' => "cache/photos.restored-20261020-151500\n"], ['dataset' => ['x']], 'x']]));
+    $ctxBefore = $GLOBALS['clCtx'] ?? null;
+    $asked = [];
+    $zfs = function (array $have) use (&$asked) {
+        return function (array $cmd) use ($have, &$asked) {
+            $asked[] = array_slice($cmd, 5);
+            return [0, implode('', array_map(fn ($d) => "$d\t4096\t0\n", array_values(array_intersect(array_slice($cmd, 5), $have))))];
+        };
+    };
+    $unit = ['path' => $pullDs, 'dataset' => $pullDs, 'what' => 'pulled', 'back' => false];
+    $pulledPlace = fn (array $u, array $m, callable $z): array => function_exists('clPulledPlace') ? clPulledPlace($u, $m, $z) : ['parts' => [], 'asleep' => null, 'why' => null];
+    $mnt = $pullMnt;
+    $GLOBALS['clCtx'] = ['roots' => [], 'asleep' => ['cache' => false, 'cache2' => true]];
+    $at = $pulledPlace($unit, [], $zfs([$pullDs]));
+    same('leftovers: a pull on a sleeping pool — named, not looked at (zfs not asked)', [[], ['cache'], 'asleep', []], [$at['parts'], $at['asleep'], $at['why'], $asked]);
+    $GLOBALS['clCtx'] = ['roots' => [], 'asleep' => ['cache' => false]];
+    $at = $pulledPlace($unit, [$mnt => ['fs' => 'zfs', 'source' => $pullDs]], $zfs([$pullDs]));
+    same('leftovers: a pull mounted read-only — its mount (the kernel\'s table), his to remove, never a storeroom', [[$mnt], [$pullDs], 'pulled', [''], []],
+        [array_column($at['parts'], 'path'), array_column($at['parts'], 'dataset'), $at['why'], array_column($at['parts'], 'trash'), $asked]);
+    $at = $pulledPlace($unit, [], $zfs([$pullDs]));
+    same('leftovers: a pull not mounted (still there by zfs) — listed by its name', [[$pullDs], 'pulled'], [array_column($at['parts'], 'path'), $at['why']]);
+    $at = $pulledPlace($unit, ['/mnt/x' => ['fs' => 'zfs', 'source' => 'cache/other']], $zfs([]));
+    same('leftovers: a pull removed by his «Remove what was pulled…» — gone from her list', [[], []], [$at['parts'], $at['asleep']]);
+    if ($ctxBefore === null) {
+        unset($GLOBALS['clCtx']);
+    } else {
+        $GLOBALS['clCtx'] = $ctxBefore;
+    }
+    same('leftovers: a pull is never put into her storeroom (a stale page sending it)', 'cleanup_pulled',
+        (function () { try { clParkCheck(['kind' => 'leftover', 'why' => 'pulled', 'force' => false, 'name' => 'photos.restored-20261020-151500'], true); return null; } catch (Problem $p) { return $p->key; } })());
+    $cl = (string) file_get_contents(OFFICE_DIR . '/agent/desks/cleanup.php');
+    check('leftovers: her list looks at a pull with clPulledPlace(), its category «pulled»',
+        str_contains($cl, "\$at = \$u['what'] === 'pulled' ? clPulledPlace(\$u, \$mounts) : clLeftoverPlace(\$u, \$libvirt, \$mounts);")
+        && str_contains($cl, "(\$u['what'] === 'pulled' ? 'pulled' : "));
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/cleanup/desk.js');
+    check('leftovers: the page links a pull to his «Remove what was pulled…» (#/restore/journal)', str_contains($js, "T('lo.pulled_link')") && str_contains($js, "a.href = '#/restore/journal';"));
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/cleanup/lang/en.json'), true) ?: [];
+    check('leftovers: the page can say it', isset($en['lo.what.pulled'], $en['lo.what.pulled_text'], $en['lo.pulled_link'], $en['why.pulled'], $en['why.pulled_text'],
+        $en['cat.leftovers.pulled'], $en['errors.cleanup_pulled']));
     same('leftovers: what «Put back» can still undo', [true, true, false, false, false, true],
         array_map('clRestoreUndoable', [['kind' => 'db', 'result' => 'ok'], ['kind' => 'files', 'result' => 'interrupted', 'putback' => ['result' => 'refused']],
             ['kind' => 'db', 'result' => 'ok', 'putback' => ['result' => 'failed']], ['kind' => 'putback', 'result' => 'ok'], ['kind' => 'kopia', 'result' => 'ok'],
@@ -27537,8 +27594,8 @@ function testPartnerPairing(): void
     same('pairing: A\'s card says what the levels send there (settings.ini)', ['place', 'share:appdata'], partnerTestAs($A, 'return partnerPublic();')['pairs'][0]['send_units'] ?? null);
     same('pairing: the Team Lead\'s state holds the cards right after the pairing (caretakerPartnerDone: no wait for a tour)', [$id],
         array_column(partnerTestAs($A, 'caretakerPartnerDone(["ok" => true]); return readJson(deskFile("caretaker"))["partners"]["pairs"] ?? [];'), 'id'));
-    $pingB = partnerTestAs($B, 'return partner_ping(["id" => ' . var_export($id, true) . ']);');
-    same('pairing: B pings A through A\'s door', true, $pingB['ask']['reachable'] ?? null);
+    $pingB = partnerTestAs($B, 'return partnerAskAndKeep(' . var_export($id, true) . ');');
+    same('pairing: B pings A through A\'s door', true, $pingB['reachable'] ?? null);
     $calls = partnerTestCalls($A['bin']);
     check('pairing: A\'s ssh calls carried its key and its known_hosts only', $calls && !array_filter($calls, fn ($c) => $c[0] === 'ssh'
         && !(in_array("$A[flash]/$id.key", $c, true) && in_array("UserKnownHostsFile=$A[flash]/$id.known", $c, true))));
@@ -27560,7 +27617,34 @@ function testPartnerPairing(): void
     // a host key that changed: never trusted
     file_put_contents($B['host'], partnerTestKey('root@new') . "\n");
     same('pairing: B reinstalled (another host key) — A refuses it', ['reachable' => false, 'why' => 'host_key', 'array' => null],
-        partnerTestAs($A, 'return partner_ping(["id" => ' . var_export($id, true) . ']);')['ask'] ?? null);
+        partnerTestAs($A, 'return partnerAskAndKeep(' . var_export($id, true) . ');'));
+
+    // BG1 (scenario batch G, 2026-10-20): «Ask now» never asks inside the agent's request — an unreachable partner's ssh
+    // waits up to 15 s and held every other page's request that long. The click hands a job to atd and answers at once.
+    partnerTestCalls($A['bin']);
+    $launch = '$GLOBALS["partnerLookLaunch"] = function (string $i) { file_put_contents(RUN_DIR . "/launched.log", "$i\n", FILE_APPEND); };';
+    $clicked = partnerTestAs($A, $launch . ' return partner_ping(["id" => ' . var_export($id, true) . ']);');
+    same('ask now: answered at once — looking, no ask in the answer, the card «asking»', [true, true, false, true],
+        [$clicked['ok'] ?? null, $clicked['looking'] ?? null, array_key_exists('ask', (array) $clicked), $clicked['partners']['pairs'][0]['asking'] ?? null]);
+    same('ask now: the request itself called no ssh', [], array_filter(partnerTestCalls($A['bin']), fn ($c) => ($c[0] ?? '') === 'ssh'));
+    same('ask now: one job handed over, for that pair', "$id\n", @file_get_contents("$A[run]/launched.log"));
+    partnerTestAs($A, $launch . ' return partner_ping(["id" => ' . var_export($id, true) . ']);');
+    same('ask now: a second click while it asks — no second job', "$id\n", @file_get_contents("$A[run]/launched.log"));
+    same('ask now: an unknown pair — said', 'partner_unknown', partnerTestAs($A, $launch . ' return partner_ping(["id" => "0badc0de"]);')['problem'] ?? null);
+    $failed = partnerTestAs($A, '$GLOBALS["partnerLookLaunch"] = function () { throw new Problem("atd_off"); }; @unlink(partnerAskingFile(' . var_export($id, true) . ')); return partner_ping(["id" => ' . var_export($id, true) . ']);');
+    same('ask now: atd off — said, and no «asking» left behind', ['atd_off', false], [$failed['problem'] ?? null, is_file("$A[run]/partner/asking-$id")]);
+    touch("$A[run]/partner/asking-$id", time() - 3600);
+    same('ask now: a mark older than any job (atd never ran it) — not «asking» for good', false, partnerTestAs($A, 'return partnerPublic();')['pairs'][0]['asking'] ?? null);
+    touch("$A[run]/partner/asking-$id");
+    @unlink("$A[run]/" . PARTNER_RESCAN_FILE);
+    same('ask now: the job (php agent.php job partner-look <id>) runs', 0, partnerTestAs($A, 'return desks()["caretaker"]["jobs"]["partner-look"]([' . var_export($id, true) . ']);'));
+    $st = partnerTestAs($A, 'return partnerStateRead()["pairs"][' . var_export($id, true) . '] ?? null;');
+    same('ask now: the job kept the answer (B refuses A\'s host key), the mark gone, the cards asked anew', [false, 'host_key', true, false, true],
+        [$st['reachable'] ?? null, $st['why'] ?? null, ($st['last_try'] ?? 0) >= time() - 60, is_file("$A[run]/partner/asking-$id"), is_file("$A[run]/" . PARTNER_RESCAN_FILE)]);
+    same('ask now: the job with a bad id — nothing asked', 1, partnerTestAs($A, 'return partnerLookJob("../x");'));
+    $ping = (string) preg_replace('/^.*?(function partner_ping\(.*?\n\}\n).*$/s', '$1', (string) file_get_contents(OFFICE_DIR . '/agent/lib/partner.php'));
+    check('ask now: partner_ping asks nobody itself (no partnerAsk/partnerSsh in the request)', str_contains($ping, 'function partner_ping(') && !preg_match('/partnerAsk\(|partnerAskAndKeep|partnerSsh|\brun\(/', $ping));
+    @unlink("$A[run]/launched.log");
 
     // the end: B's line off A, A's key and pin off the flash, the pair gone; B's copies, B's line for A stay
     $ended = partnerTestAs($A, 'return partner_end(["id" => ' . var_export($id, true) . ']);');

@@ -315,6 +315,7 @@
   "partner.units_none": "Nothing here is a dataset of its own (or Mr. Backupsy's setup hasn't been made yet): only ZFS datasets can go to a partner.",
   "partner.ask": "Ask now",
   "partner.ask_title": "Ask the partner office how it is (otherwise every 15 minutes)",
+  "partner.asking": "asking {name} …",
   "partner.asked_ok": "{name} answers.",
   "partner.asked_no": "{name} doesn't answer: {why}",
   "partner.why.unreachable": "no connection (switched off, another address, a firewall?)",

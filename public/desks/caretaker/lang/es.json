@@ -315,6 +315,7 @@
   "partner.units_none": "Aquí nada es un dataset propio (o la configuración del señor Backupsi aún no está hecha): solo los datasets ZFS pueden ir a un socio.",
   "partner.ask": "Preguntar ahora",
   "partner.ask_title": "Preguntar a la secretaría asociada cómo está (si no, cada 15 minutos)",
+  "partner.asking": "pregunto a {name} …",
   "partner.asked_ok": "{name} responde.",
   "partner.asked_no": "{name} no responde: {why}",
   "partner.why.unreachable": "sin conexión (apagado, otra dirección, ¿un cortafuegos?)",

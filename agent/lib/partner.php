@@ -69,6 +69,7 @@ const PARTNER_PING_EVERY    = 900;           // the mutual watch: every 15 minut
 const PARTNER_NOTIFY_AGAIN  = 86400;         // a silence is told once, then again every 24 h
 const PARTNER_PENDING_KEEP  = 7 * 86400;     // an offer nobody answered goes after a week (and its key with it)
 const PARTNER_SSH_TIMEOUT   = 30;            // seconds a ping or status may take at most (ssh's ConnectTimeout is 15)
+const PARTNER_ASKING_MAX    = 180;           // «Ask now»'s mark (RUN_DIR/partner/asking-<id>) counts this long at most: its job never takes longer
 const PARTNER_DEFAULTS      = ['quota_gb' => 0, 'retention' => '7 4 6'];     // no `wake` since 1.60.2: the door always wakes its pool
 const PARTNER_NEW_DAYS      = 7;             // a unit first received within so many days is «new» on the receiver's card
 const PARTNER_STALE_DAYS    = 30;            // nothing received of a unit for so long: stale (the door's retention never touches it)
@@ -1711,6 +1712,7 @@ function partnerPublic(): array
             'no_pair'    => $p['my_key'] !== null && ($e['reachable'] ?? null) === true && ($e['why'] ?? null) === 'no_pair',
             'tailnet'    => $e['tailnet'] ?? null,
             'sends'      => $p['my_key'] !== null,
+            'asking'     => $p['my_key'] !== null && partnerAsking($p['id']),     // «Ask now»'s job under way (its mark in RAM)
             // my key for this pair (or the partner's pinned host key) gone from the flash — after a plugin remove, the
             // data folder (pairs.json, state.json) stays: said at once, never the last «answers» of state.json
             'key_missing' => $p['my_key'] !== null && (!is_file(partnerKeyFile($p['id'])) || !is_file(partnerKnownFile($p['id']))),
@@ -2108,7 +2110,13 @@ function partnerAskAndKeep(string $id): ?array
     return $ask === null ? null : ['reachable' => $ask['reachable'], 'why' => $ask['why'], 'array' => $ask['answer']['array'] ?? null];
 }
 
-/** The card's «Ask now» */
+/**
+ * The card's «Ask now»: the ask itself is a job of its own (php agent.php job partner-look <id>, handed to atd) — an
+ * ssh to a partner that doesn't answer waits up to 15 s, and inside this request it held the agent's whole round: every
+ * other page's request waited (scenario batch G, BG1). Answered at once with `looking`; the card says «asking …» while
+ * the mark in RAM is there, the job's answer comes with the cards (partnerRescanAsk()). $GLOBALS['partnerLookLaunch']:
+ * the tests' stand-in.
+ */
 function partner_ping(array $r): array
 {
     $id = optText($r, 'id');
@@ -2116,11 +2124,76 @@ function partner_ping(array $r): array
         throw new Problem('bad_request');
     }
     $pair = partnerPair($id);
-    if ($pair !== null && $pair['my_key'] === null) {
+    if ($pair === null) {
+        throw new Problem('partner_unknown');
+    }
+    if ($pair['my_key'] === null) {
         // a pair that only receives here: no key of mine to knock with — said, never an «ok» that asked nobody (QA 2026-10-08)
         throw new Problem('partner_not_sending', ['name' => $pair['name']]);
     }
-    return ['ok' => true, 'ask' => partnerAskAndKeep($id), 'partners' => partnerPublic()];
+    if (!partnerDirReady(partnerRunDir())) {
+        throw new Problem('command_failed', ['detail' => 'no partner folder in RAM']);
+    }
+    $mark = partnerAskingFile($id);
+    if (!partnerAsking($id)) {
+        @unlink($mark);
+        $launch = $GLOBALS['partnerLookLaunch'] ?? fn (string $id) => hostLaunch('partner-look', [PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', 'partner-look', $id]);
+        @touch($mark);
+        try {
+            $launch($id);
+        } catch (Throwable $e) {
+            @unlink($mark);
+            throw $e;
+        }
+    }
+    return ['ok' => true, 'looking' => true, 'partners' => partnerPublic()];
+}
+
+/** «Ask now»'s mark in RAM: there from the click until its job has written the answer */
+function partnerAskingFile(string $id): string
+{
+    return partnerRunDir() . "/asking-$id";
+}
+
+/** «Ask now» under way for this pair? (its mark, never older than PARTNER_ASKING_MAX — a job atd never ran isn't «asking» for good) */
+function partnerAsking(string $id): bool
+{
+    $f = partnerAskingFile($id);
+    clearstatcache(true, $f);
+    $t = @filemtime($f);
+    return $t !== false && !is_link($f) && time() - $t < PARTNER_ASKING_MAX;
+}
+
+/**
+ * php agent.php job partner-look <id> («Ask now»): that pair asked and the answer kept, after the mutual watch when it
+ * runs (both write state.json: its lock, waited for); the mark goes and the Team Lead's cards come anew whatever happens.
+ */
+function partnerLookJob(string $id): int
+{
+    if (!preg_match(PARTNER_ID_RE, $id) || !partnerDirReady(partnerRunDir())) {
+        return 1;
+    }
+    $lock = @fopen(partnerRunDir() . '/ping.lock', 'c');
+    try {
+        if ($lock) {
+            flock($lock, LOCK_EX);
+        }
+        $ask = partnerAskAndKeep($id);
+        if ($ask !== null && !$ask['reachable']) {
+            partnerLog("asked $id now («Ask now»): no answer (" . ($ask['why'] ?? '?') . ')');
+        }
+        return 0;
+    } catch (Throwable $e) {
+        partnerLog("asking $id now («Ask now») failed: " . $e->getMessage());
+        return 1;
+    } finally {
+        @unlink(partnerAskingFile($id));
+        if ($lock) {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        }
+        partnerRescanAsk();
+    }
 }
 
 /**
