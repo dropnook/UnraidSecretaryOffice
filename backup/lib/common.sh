@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.65"
+UB_VERSION="2.66"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -1668,17 +1668,22 @@ k_path() {
 kopia_status_load() {
     KOPIA_RUNNING="no"; KOPIA_CONNECTED="no"; KOPIA_ID=""; KOPIA_USER=""; KOPIA_HOST=""
     KOPIA_VERSION=""; KOPIA_CONFIG_FILE=""; KOPIA_STORAGE=""; KOPIA_REPO_ID=""; KOPIA_FORMAT_GONE="no"
+    KOPIA_UNREACHABLE="no"; KOPIA_REACH_WHY=""
     KOPIA_LOCK_MODE=""; KOPIA_LOCK_PERIOD=0
     [[ -n "$KOPIA_CONTAINER" ]] || return 1
     [[ "$(docker inspect -f '{{.State.Running}}' "$KOPIA_CONTAINER" 2>/dev/null)" == "true" ]] || return 1
     KOPIA_RUNNING="yes"
     kopia_detect_uid
     KOPIA_VERSION="$(kopia_x --version 2>/dev/null | awk 'NR==1{print $1}')"
-    local js
+    local js e
     if ! js="$(kopia_x repository status --json 2>/dev/null)"; then
         # 2.53: the storage answers, but the repository's own format blob is gone - all of it was deleted (an attacker with
         # the bucket's key; Kopia's cache of it expired) - never said for an error of the way there (unreachable, forbidden)
-        [[ "$(kopia_x repository status --json 2>&1 >/dev/null)" == *"kopia.repository blob: BLOB not found"* ]] && KOPIA_FORMAT_GONE="yes"
+        e="$(kopia_x repository status --json 2>&1 >/dev/null)"
+        if [[ "$e" == *"kopia.repository blob: BLOB not found"* ]]; then KOPIA_FORMAT_GONE="yes"
+        # 2.66 (B16): connected (a repository.config), but Kopia can't open the repository - the way there (unreachable,
+        # forbidden, a server down); «not connected» only when Kopia says so
+        elif [[ -n "$e" && "$e" != *"not connected"* ]]; then KOPIA_UNREACHABLE="yes"; KOPIA_REACH_WHY="$(printf '%s' "$e" | tr -s '\n\t' '  ' | cut -c1-300)"; fi
         return 1
     fi
     [[ -n "$js" ]] || return 1
@@ -1771,6 +1776,32 @@ kopia_count_save() {
     kopia_count_load || { log "  Kopia's snapshots not counted (it didn't answer) - the last count stays"; return 0; }
     local tmp="$UB_STATE/.kopia-count.json.$$"
     if kopia_count_json "$1" >"$tmp" 2>/dev/null; then chmod 600 "$tmp"; mv -f "$tmp" "$KC_FILE"; else rm -f "$tmp"; fi
+    return 0
+}
+# --- Offsite unreachable since (2.66, B16): state/kopia-reach.json {v: 1, since, run, last, last_run} - the first real run
+# whose Kopia check couldn't reach the repository (connected, but Kopia can't open it: the way there, the storage down) and
+# the last one; kept from run to run, removed by the first real run that reaches it. Only a real backup writes it (never a
+# tour, a dry run or the setup); Kopia's own words go to the log, never into the file.
+KR_FILE="$UB_STATE/kopia-reach.json"
+kopia_reach_save() { # kopia_reach_save unreachable|ok
+    [[ "${UB_MODE:-}" == "backup" && "${DRY:-0}" != "1" && "${TS:-}" =~ ^[0-9]{8}-[0-9]{4}$ ]] || return 0
+    if [[ "$1" != "unreachable" ]]; then
+        if [[ -e "$KR_FILE" || -L "$KR_FILE" ]]; then rm -f "$KR_FILE"; log "  Kopia reaches its repository again - no longer «offsite unreachable»"; fi
+        return 0
+    fi
+    local now old since="" run="" tmp="$UB_STATE/.kopia-reach.json.$$"
+    now="$(date +%s)"
+    if [[ -f "$KR_FILE" && ! -L "$KR_FILE" ]]; then
+        old="$(jq -r 'select(.v == 1 and (.since | type == "number") and (.run | type == "string")) | "\(.since)\u001f\(.run)"' "$KR_FILE" 2>/dev/null)"
+        IFS=$'\x1f' read -r since run <<<"$old"
+    fi
+    is_uint "$since" && [[ "$run" =~ ^[0-9]{8}-[0-9]{4}$ ]] || { since="$STARTED_AT"; run="$TS"; }
+    is_uint "$since" || since="$now"
+    if jq -nc --argjson since "$since" --arg run "$run" --argjson last "$now" --arg last_run "$TS" \
+            '{v: 1, since: $since, run: $run, last: $last, last_run: $last_run}' >"$tmp" 2>/dev/null; then
+        mv -f "$tmp" "$KR_FILE"
+    else rm -f "$tmp"; fi
+    log "  Offsite unreachable since $(date -d "@$since" '+%Y-%m-%d %H:%M' 2>/dev/null || echo "$since") (run $run)"
     return 0
 }
 # kopia_emptied <before> <now> - far fewer: none left, or less than half
@@ -2090,7 +2121,23 @@ kopia_probe_propagation() {
 # acting on them needs the lock (a run going on writes its own notes there).
 recover_notes() { [[ -s "$UB_STATE/stopped" || -s "$UB_STATE/maintenance" || -s "$UB_STATE/vms" ]]; }
 # Does Docker (libvirt) answer? Without, a container (VM) would look "not stopped" and its note be lost.
-ub_docker_answers()  { timeout 20 docker version --format '{{.Server.Version}}' >/dev/null 2>&1; }
+UB_DOCKER_ANSWER="${UB_DOCKER_ANSWER:-20}"     # seconds Docker may take to answer at all (tests: less)
+ub_docker_answers()  { timeout -k 5 "$UB_DOCKER_ANSWER" docker version --format '{{.Server.Version}}' >/dev/null 2>&1; }
+# 2.66 (B15): every docker call of the engine has a time limit - a Docker that stops answering (dockerd hung) never holds a
+# run, the setup or --recover for ever: UB_DOCKER_TIMEOUT for a look or a change (docker stop: plus its own -t), an exec
+# UB_DOCKER_EXEC_TIMEOUT; what really takes long - a database's dump, Kopia's upload - runs with UB_DOCKER_LONG=1, as long
+# as it takes. `timeout ... docker` calls with their own limit run the binary itself. Ended by the limit: exit 124 (137).
+UB_DOCKER_TIMEOUT="${UB_DOCKER_TIMEOUT:-120}"
+UB_DOCKER_EXEC_TIMEOUT="${UB_DOCKER_EXEC_TIMEOUT:-900}"
+docker() {
+    [[ "${UB_DOCKER_LONG:-0}" == "1" ]] && { command docker "$@"; return; }
+    local t="$UB_DOCKER_TIMEOUT"
+    case "${1:-}" in
+        exec) t="$UB_DOCKER_EXEC_TIMEOUT" ;;
+        stop) is_uint "${DOCKER_STOP_TIMEOUT:-}" && t=$(( t + DOCKER_STOP_TIMEOUT )) ;;
+    esac
+    timeout -k 10 "$t" docker "$@"
+}
 ub_libvirt_answers() { timeout 20 virsh list --name >/dev/null 2>&1; }
 # Unraid's VM service switched off (Settings > VM Manager > Enable VMs: No, domain.cfg SERVICE="disable"): no libvirt
 # to answer, no VM to start (2.25). A missing domain.cfg is never taken for off.
@@ -2099,7 +2146,7 @@ ub_vm_service_off() { grep -qE '^SERVICE="?disable"?[[:space:]]*$' "$UB_BOOT/con
 # docker at all (2.54): no apps to back up and no Kopia container - a server of shares and VMs, never an error. A missing
 # docker.cfg is never taken for off; Docker switched on but silent stays an error where Docker is needed.
 ub_docker_service_off() {
-    command -v docker >/dev/null 2>&1 || return 0
+    type -P docker >/dev/null 2>&1 || return 0          # the binary (2.66: docker is a function of the engine too)
     grep -qE '^DOCKER_ENABLED="?no"?[[:space:]]*$' "$UB_BOOT/config/docker.cfg" 2>/dev/null
 }
 
@@ -2583,7 +2630,7 @@ kp_status_add() { # kp_status_add <kind> <name: share, app or VM> <container pat
 }
 drift_check_kopia() {
     KOPIA_OK="no"; KP_STATUS=(); KP_CHECKED="no"
-    is_yes "$KOPIA_ENABLED" || { KOPIA_OK="off"; return 0; }
+    is_yes "$KOPIA_ENABLED" || { KOPIA_OK="off"; kopia_reach_save ok; return 0; }     # 2.66: switched off - nothing to reach
     [[ ${#PLAN_KOPIA[@]} -eq 0 && "$PLAN_FLASH" != "snapshot" && ${#PLAN_KITEMS[@]} -eq 0 ]] && { KOPIA_OK="none"; return 0; }
     if [[ -z "$KOPIA_CONTAINER" ]]; then
         drift_add error "No Kopia container in settings.ini" kopia_no_container; return 1
@@ -2607,9 +2654,14 @@ drift_check_kopia() {
             kopia_mount_writable "" path="${KM_SRC[$KMAP_IDX]}"
     if ! kopia_status_load; then
         if [[ "$KOPIA_RUNNING" != "yes" ]]; then drift_add error "Kopia container '$KOPIA_CONTAINER' is not running" kopia_not_running "" name="$KOPIA_CONTAINER"
+        elif [[ "$KOPIA_UNREACHABLE" == "yes" ]]; then
+            log "  Kopia: $KOPIA_REACH_WHY"          # its own words (an address, a bucket): the log only, never drift.json
+            drift_add error "Kopia cannot reach its repository (offsite)" kopia_unreachable "" name="$KOPIA_CONTAINER"
+            kopia_reach_save unreachable
         else drift_add error "Kopia is not connected to a repository" kopia_not_connected "" name="$KOPIA_CONTAINER"; fi
         return 1
     fi
+    kopia_reach_save ok
     local uid_ok="yes"
     if [[ "$KOPIA_SERVER_UID" != "0" ]]; then
         drift_add error "The Kopia server runs as UID $KOPIA_SERVER_UID inside the container, snapshots need root (to read every file). A run as root would make the shared cache unreadable for the server - Kopia is NOT started. Fix: set PUID=0 and PGID=0 in the template" \

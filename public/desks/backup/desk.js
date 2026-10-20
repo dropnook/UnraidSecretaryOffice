@@ -890,6 +890,7 @@ function waveLabel(text) {
 /** «2 hours ago» etc.: durations with seconds when quick (dur), the containers' part of the last backup in one line */
 function containersLine(last) {
   const c = state.containers;
+  if (c && c.silent) return T('stat.docker_silent');                // switched on but silent: said as such (B15)
   if (c && c.up === false) return Office.t('common.docker_off');      // Docker stopped: said, not left out (1.43)
   const parts = [];
   if (last && last.downtime) parts.push(T('stat.downtime', { duration: dur(last.downtime) }));
@@ -989,11 +990,15 @@ function overviewTiles() {
     const pol = state.drift && Array.isArray(state.drift.policies) ? state.drift.policies : null;
     const bad = pol ? pol.filter((p) => !p.ok).length : 0;
     const sub = [];
-    if (kc) sub.push(c.up === false ? Office.t('common.docker_off')
+    if (c && c.silent) sub.push(T('stat.docker_silent'));         // B15: Kopia's container can't be looked at
+    else if (kc) sub.push(c.up === false ? Office.t('common.docker_off')
       : !kc.exists ? T('stat.kopia_missing_ct', { name: kc.name }) : kc.running ? T('stat.kopia_running', { name: kc.name }) : T('stat.kopia_stopped', { name: kc.name }));
-    if (repoNo) sub.push(T('stat.kopia_repo_problem'));
+    // engine 2.66: the repository unreachable from run to run - since the first run that couldn't reach it (B16)
+    const away = state.offsite && state.offsite.unreachable_since ? state.offsite : null;
+    if (away) sub.push(T('stat.offsite_unreachable_since', { when: fmt.date(away.unreachable_since) }));
+    else if (repoNo) sub.push(T('stat.kopia_repo_problem'));
     if (pol) sub.push(bad ? T('stat.kopia_policies_bad', { n: bad }) : T('stat.kopia_policies_ok'));
-    const trouble = (kc && (!kc.exists || !kc.running)) || repoNo || bad > 0 || (k.length && okCount !== k.length);
+    const trouble = (kc && (!kc.exists || !kc.running)) || !!(c && c.silent) || repoNo || !!away || bad > 0 || (k.length && okCount !== k.length);
     if (k.length && okCount !== k.length) sub.unshift(T('stat.kopia_missing', { n: k.length - okCount }));
     else if (withKopia) sub.unshift(T('stat.kopia_when', { when: fmt.relative(withKopia.started) }));
     if (skipped) sub.unshift(T('stat.kopia_skipped', { n: skipped }));

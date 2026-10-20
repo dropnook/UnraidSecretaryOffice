@@ -273,7 +273,7 @@ function backupScan(): array
         'shares'     => backupShares($settings, $history),
         'items'      => backupKopiaItems($settings, $history),
         'vms'        => $vms = backupVms($settings),
-        'waiting'    => backupWaiting($settings, $vms),   // new folders, apps and VMs waiting for a decision (engine 2.21)
+        'waiting'    => backupWaiting($settings, $vms, backupDockerSilent() ? [] : null),   // new folders, apps and VMs waiting for a decision (engine 2.21); Docker silent: no apps asked (B15)
         'containers' => backupContainers($settings),
         'partners'   => backupPartners($settings, $history, $running ? $status : null),   // engine 2.27: the last transfer per partner
         'dumps'      => backupDumps(),           // run folders of engines before 2.18, until the first 2.18 run cleared them
@@ -286,6 +286,7 @@ function backupScan(): array
         'setup'      => $setup,
         'drill'      => backupDrillLine(),       // Mr. Restori's drill: one line from its certificate
         'kopia_held' => backupKopiaHeld(),       // engine 2.56: the Kopia step held - the repository suddenly empty
+        'offsite'    => backupOffsiteReach($settings),    // engine 2.66: «offsite unreachable since …» (B16)
     ];
     $state['found'] = true;
     $GLOBALS['backup'] = $state;
@@ -665,6 +666,37 @@ function backupKopiaItems(array $s, array $history): array
     return $items;
 }
 
+const BACKUP_DOCKER_LOOK   = 5;      // seconds Docker may take to say its version (B15)
+const BACKUP_DOCKER_KEEP   = 30;     // an answer kept so long; a silence the house keeps (houseDockerSilent(), HOUSE_DOCKER_QUIET)
+
+/**
+ * Docker switched on but silent (B15, 2026-10-20: dockerd hung — every docker call of the desk waited its 20 s, a request
+ * of the page held the agent's round for a minute)? The house's memo first (houseDockerSilent(): a docker call of the
+ * house timed out lately), else `docker version` through houseDocker() with a short limit — a time-out there starts the
+ * house's quiet time for every desk; an answer is kept a while (the monotonic clock). While it is silent the desk asks
+ * Docker nothing else and says so. Docker switched off or not there: false (that is «Docker isn't running», not
+ * silence). $GLOBALS['backupDockerProbe'] stands in for the tests.
+ */
+function backupDockerSilent(): bool
+{
+    static $until = 0.0;
+    if (isset($GLOBALS['backupDockerProbe'])) {
+        return !($GLOBALS['backupDockerProbe'])();
+    }
+    if (houseDockerSilent()) {
+        return true;
+    }
+    if (bin('docker') === null || !file_exists('/var/run/docker.sock')) {
+        return false;
+    }
+    $now = hrtime(true) / 1e9;
+    if ($now < $until) {
+        return false;
+    }
+    $until = $now + BACKUP_DOCKER_KEEP;
+    return houseDocker(['version', '--format', '{{.Server.Version}}'], BACKUP_DOCKER_LOOK)[0] === 124;
+}
+
 /**
  * The containers for the overview: how many there are, how many run, which of the
  * running ones keep running for the snapshot (Kopia, docker|no_stop) — the engine
@@ -672,6 +704,10 @@ function backupKopiaItems(array $s, array $history): array
  */
 function backupContainers(array $s): array
 {
+    if (backupDockerSilent()) {          // B15: said, never counted as none
+        return ['up' => false, 'silent' => true, 'total' => 0, 'running' => 0, 'kept' => 0, 'stopped' => 0,
+                'dumps' => count(array_filter(array_keys($s), fn ($k) => str_starts_with($k, 'dump|'))), 'kopia' => null];
+    }
     $all = houseContainers();
     $running = array_keys(array_filter($all, fn ($c) => $c['running']));
     $keep = array_merge($s['docker']['no_stop'] ?? [], $s['docker']['skip'] ?? [], array_filter([backupSetting($s, 'kopia', 'container')]));
@@ -794,6 +830,10 @@ function backupHistory(array $logs, ?string $runningRun, ?array &$skips = null, 
     $file ??= BACKUP_DATA_DIR . '/state/history.jsonl';
     $runs = [];
     $skips = [];
+    // newest = finished last: history.jsonl gets a run's line when it ends, so a line is never older than the lines
+    // before it — a run made after the clock was set back (B43: its start and name earlier) is still the last one
+    $order = [];
+    $key = PHP_INT_MIN;
     foreach (@file($file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
         $j = json_decode($line, true);
         if (is_array($j) && ($j['result'] ?? '') === 'skipped') {
@@ -802,6 +842,8 @@ function backupHistory(array $logs, ?string $runningRun, ?array &$skips = null, 
             }
         } elseif (is_array($j) && !empty($j['run'])) {
             $runs[$j['run']] = backupRunFromStatus($j);
+            $key = max($key === PHP_INT_MIN ? PHP_INT_MIN : $key + 1, $runs[$j['run']]['started']);
+            $order[$j['run']] = $key;
         }
     }
     usort($skips, fn ($a, $b) => $b['time'] <=> $a['time']);
@@ -822,8 +864,8 @@ function backupHistory(array $logs, ?string $runningRun, ?array &$skips = null, 
         }
         $runs[$run] = $cache[1];
     }
-    usort($runs, fn ($a, $b) => $b['started'] <=> $a['started']);
-    return array_slice($runs, 0, BACKUP_HISTORY);
+    uksort($runs, fn ($a, $b) => ($order[$b] ?? $runs[$b]['started']) <=> ($order[$a] ?? $runs[$a]['started']));
+    return array_slice(array_values($runs), 0, BACKUP_HISTORY);
 }
 
 function backupRunFromStatus(array $j): array
@@ -1279,7 +1321,7 @@ function backupFirstUpload(string $source, array $history, ?int $repoSince): boo
 function backupKopiaRepoSince(array $settings): ?int
 {
     $name = (string) backupSetting($settings, 'kopia', 'container', '');
-    if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/D', $name)) {
+    if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/D', $name) || backupDockerSilent()) {
         return null;
     }
     $i = houseInspect($name);
@@ -1550,7 +1592,7 @@ function backupWaiting(array $s, array $vms, ?array $containers = null, ?string 
     if ($known) {
         if ($containers === null) {
             $containers = [];
-            [$exit, $outp] = run(['docker', 'ps', '-a', '--format', '{{.Names}}' . "\t" . '{{.Label "com.docker.compose.project"}}'], 20);
+            [$exit, $outp] = houseDocker(['ps', '-a', '--format', '{{.Names}}' . "\t" . '{{.Label "com.docker.compose.project"}}']);    // B15: the house's limit and memo
             foreach ($exit === 0 ? rows($outp) : [] as $r) {
                 if (($r[0] ?? '') !== '') {
                     $containers[$r[0]] = (string) ($r[1] ?? '');
@@ -1929,7 +1971,7 @@ function backupNextcloudDataDir(string $container, ?bool &$asleep = null, array 
 {
     $asleep = false;
     $disks = sleepingDisks();
-    $c = houseInspect($container);
+    $c = backupDockerSilent() ? null : houseInspect($container);       // B15: a silent Docker is not asked
     if (!$c) {
         return null;
     }
@@ -2492,9 +2534,11 @@ function backupChecks(): array
 
     // Kopia: a must for offsite copies, otherwise a recommendation
     $level = $kopiaOn ? 'required' : 'recommended';
-    $containers = houseContainers();
-    $name = $summary['kopia_container'];
-    if (!$name || !isset($containers[$name])) {
+    // B15: Docker silent - Kopia's container can't be looked at: «couldn't check», never «missing» or «stopped»
+    $silent = backupDockerSilent();
+    $containers = $silent ? [] : houseContainers();
+    $name = $silent ? (($summary['kopia_container'] ?? '') ?: null) : $summary['kopia_container'];
+    if (!$silent && (!$name || !isset($containers[$name]))) {
         $name = null;
         foreach ($containers as $c) {
             if (stripos($c['image'], 'kopia') !== false) {
@@ -2503,15 +2547,15 @@ function backupChecks(): array
             }
         }
     }
-    $out[] = finding('kopia', $level, $name !== null, ['name' => $name ?? 'kopia'], 'apps');
+    $out[] = finding('kopia', $level, $silent ? null : $name !== null, ['name' => $name ?? 'kopia'], 'apps');
     // Kopia runs in Docker, and Docker's image lies in Unraid's share system: missing, the Team Lead says what to do
-    if ($name === null && in_array('system', array_column(homeMissing()['missing'], 'share'), true)) {
+    if (!$silent && $name === null && in_array('system', array_column(homeMissing()['missing'], 'share'), true)) {
         $out[] = finding('docker_system', $level, false, ['share' => 'system'], '#/caretaker/todo');
     }
     if ($name !== null) {
-        $c = $containers[$name];
-        $out[] = finding('kopia_running', $level, $c['running'], ['name' => $name], 'docker');
-        $inspect = houseInspect($name);
+        $c = $containers[$name] ?? null;
+        $out[] = finding('kopia_running', $level, $c === null ? null : $c['running'], ['name' => $name], 'docker');
+        $inspect = $silent ? null : houseInspect($name);
         if ($inspect) {
             $env = [];
             foreach ($inspect['Config']['Env'] ?? [] as $e) {
@@ -2700,6 +2744,33 @@ function backupKopiaHeld(?string $file = null): ?array
     }
     return ['repo' => $j['repo'], 'identity' => $j['identity'], 'before' => $j['before'], 'now' => $j['now'], 'when' => $j['when'],
             'time' => $j['time'], 'gone' => ($j['gone'] ?? false) === true];
+}
+
+/**
+ * Engine 2.66 (B16): «offsite unreachable since …» — state/kopia-reach.json: the first real run whose Kopia check couldn't
+ * reach the repository (kept from run to run, removed by the first run that reaches it) and the last one, in exactly the
+ * engine's shape — else null. Only while Kopia is switched on in settings.ini.
+ */
+function backupOffsiteReach(array $settings, ?string $file = null): ?array
+{
+    if (!in_array(strtolower((string) backupSetting($settings, 'kopia', 'enabled', 'no')), ['yes', 'ja', '1', 'true'], true)) {
+        return null;
+    }
+    $j = readJson($file ?? BACKUP_DATA_DIR . '/state/kopia-reach.json');
+    if (!is_array($j) || ($j['v'] ?? null) !== 1) {
+        return null;
+    }
+    foreach (['since', 'last'] as $k) {
+        if (!is_int($j[$k] ?? null) || $j[$k] <= 0) {
+            return null;
+        }
+    }
+    foreach (['run', 'last_run'] as $k) {
+        if (!is_string($j[$k] ?? null) || !preg_match('/^\d{8}-\d{4}$/D', $j[$k])) {
+            return null;
+        }
+    }
+    return ['unreachable_since' => $j['since'], 'run' => $j['run'], 'last' => $j['last'], 'last_run' => $j['last_run']];
 }
 
 /** The finding's words of a hold: counts and the dates as the page says them */

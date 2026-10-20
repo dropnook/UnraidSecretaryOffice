@@ -3849,8 +3849,12 @@ function testSetupGoneApp(): void
          . " UB_DISKS_INI=$tmp/fake/disks.ini UB_NOTIFY_BIN=$tmp/bin/notify UB_MOUNTS_FILE=$tmp/fake/mounts FAKE=$tmp/fake FAKE_ROOT=$root";
     file_put_contents("$tmp/bin/docker", <<<'SH'
 #!/bin/bash
-# «down»: the daemon doesn't answer its version (ub_docker_answers) and lists nothing - the environment step's info still passes
-[[ -e "$FAKE/down" && "$1" != info ]] && exit 1
+# «down»: the daemon stops answering during the look - its first «version» (the environment step, 2.66 ub_docker_answers)
+# still answers, then nothing: no version, no container listed
+if [[ -e "$FAKE/down" ]]; then
+  [[ "$1" == version && ! -e "$FAKE/down.asked" ]] && { touch "$FAKE/down.asked"; echo 29.0; exit 0; }
+  exit 1
+fi
 case "$1" in
   info) exit 0 ;;
   version) echo 29.0; exit 0 ;;
@@ -3970,6 +3974,7 @@ SH);
         [array_column($plan['apps'] ?? [], 'gone'), $plan['P']['app|zz-uso-nc|kopia'] ?? null,
          array_values(array_filter($plan['messages'] ?? [], fn ($m) => ($m['code'] ?? '') === 'app_gone'))], $out);
     @unlink("$tmp/fake/down");
+    @unlink("$tmp/fake/down.asked");
 
     // the page: step 2 like a gone share (no level), the apply dialog one line per gone app, never in the decisions
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
@@ -4967,7 +4972,7 @@ function testSetupNoDocker(): void
     $bk = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh');
     check('no docker: a run with Docker off goes on, Docker on but silent still ends it',
         str_contains($bk, 'if ub_docker_service_off; then log "Docker is switched off (Settings > Docker) - no apps to back up"')
-        && str_contains($bk, 'else docker info >/dev/null 2>&1 || die "Docker is switched on but does not answer"; fi'));
+        && str_contains($bk, 'elif ! ub_docker_answers; then die_code docker_silent "Docker is switched on but does not answer ($UB_DOCKER_ANSWER s) - '));
 
     // the page: «offsite» greyed with the reason, the apps step and tile say it, a failed plan in the office's words
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
@@ -4979,6 +4984,98 @@ function testSetupNoDocker(): void
         && str_contains($js, "m.code && Office.has(`\${ID}.setup.msg.\${m.code}`) ? T('setup.msg.' + m.code, setupMsgParams(m.params)) : m.text"));
     $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/en.json'), true) ?: [];
     check('no docker (page): its words', isset($en['setup.msg.docker_off'], $en['setup.msg.docker_silent'], $en['setup.k_problem.docker_off'], $en['setup.apps_docker_off'], $en['setup.tile.docker_off']));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * Engine 2.66 + office (B15, scenario backup-sv-docker-hung-replan-run): Docker switched on but hung (dockerd stopped).
+ * Every docker call of the engine has a time limit (docker(): a look or a change UB_DOCKER_TIMEOUT, docker stop plus its
+ * own -t, an exec UB_DOCKER_EXEC_TIMEOUT; a dump or Kopia's upload UB_DOCKER_LONG, as long as it takes); a run meeting a
+ * hung Docker ends at once with the code docker_silent, nothing stopped; Mr. Backupsy's desk asks a silent Docker nothing
+ * for a while and says so (never «no containers», «Kopia missing»).
+ */
+function testDockerSilent(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-docker-silent-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $mnt = "$tmp/mnt";
+    $pool = "$mnt/maple";
+    foreach (["$tmp/bin", "$tmp/fake", "$tmp/data/state", "$tmp/boot/config/shares", "$mnt/user", "$pool/media", "$pool/UnraidSecretaryOffice/backup"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    // docker: every call noted; «hang» holds it so many seconds (dockerd stopped), then it answers
+    file_put_contents("$tmp/bin/docker", "#!/bin/bash
+echo \"\$*\" >> \"\$FAKE/docker.log\"\n[[ -s \"\$FAKE/hang\" ]] && sleep \"\$(cat \"\$FAKE/hang\")\"\n"
+        . "case \"\$1\" in version) echo 29.0 ;; esac\nexit 0\n");
+    foreach (['mountpoint' => "[[ \"\${@: -1}\" == */user ]]", 'notify' => 'exit 0', 'zfs' => 'exit 0', 'virsh' => 'exit 0'] as $b => $body) {
+        file_put_contents("$tmp/bin/$b", "#!/bin/bash\n$body\n");
+    }
+    foreach (glob("$tmp/bin/*") as $f) {
+        chmod($f, 0755);
+    }
+    file_put_contents("$tmp/boot/config/docker.cfg", "DOCKER_ENABLED=\"yes\"\n");
+    $env = "export PATH=$tmp/bin:\$PATH UB_DATA=$tmp/data UB_MNT=$mnt UB_BOOT=$tmp/boot UB_SHARES_CFG=$tmp/boot/config/shares UB_NO_NOTIFY=1"
+         . " UB_DISKS_INI=$tmp/fake/disks.ini UB_NOTIFY_BIN=$tmp/bin/notify UB_MOUNTS_FILE=$tmp/fake/mounts FAKE=$tmp/fake";
+    file_put_contents("$tmp/fake/mounts", "maple $pool zfs rw 0 0\nshfs $mnt/user fuse.shfs rw 0 0\n");
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+    $call = function (string $script, int $hang) use ($env, $lib, $tmp): array {
+        file_put_contents("$tmp/fake/hang", $hang ? (string) $hang : '');
+        $t0 = microtime(true);
+        $out = trim((string) shell_exec('bash -c ' . escapeshellarg("$env; source $lib >/dev/null 2>&1; $script; echo rc=\$?") . ' 2>&1'));
+        return [$out, round(microtime(true) - $t0)];
+    };
+    [$o1, $t1] = $call('UB_DOCKER_TIMEOUT=1 docker ps -a', 30);
+    [$o2, $t2] = $call('UB_DOCKER_EXEC_TIMEOUT=1 docker exec db mariadb -e "SELECT 1"', 30);
+    [$o3, $t3] = $call('UB_DOCKER_TIMEOUT=1 UB_DOCKER_LONG=1 docker exec db mariadb-dump --all-databases', 3);
+    [$o4, $t4] = $call('UB_DOCKER_TIMEOUT=1 DOCKER_STOP_TIMEOUT=3 docker stop -t 3 app', 2);
+    [$o5, $t5] = $call('UB_DOCKER_ANSWER=1 ub_docker_answers', 30);
+    same('docker silent 2.66: a look ends after its limit, an exec after its own; a dump (long) as long as it takes; docker stop gets its -t on top; «does Docker answer» after its',
+        [['rc=124', true], ['rc=124', true], ['rc=0', true], ['rc=0', true], ['rc=124', true]],
+        [[$o1, $t1 < 15], [$o2, $t2 < 15], [$o3, $t3 >= 3], [$o4, $t4 >= 2], [$o5, $t5 < 15]]);
+
+    // a run meeting a hung Docker: ended at once with the code, nothing stopped, nothing else asked of Docker
+    file_put_contents("$tmp/data/settings.ini", "[general]\nserver = Test\ndumps_share = UnraidSecretaryOffice\n[flash]\nmode = off\n[docker]\nstop = all\n");
+    @unlink("$tmp/fake/docker.log");
+    file_put_contents("$tmp/fake/hang", '30');
+    $t0 = microtime(true);
+    exec('bash -c ' . escapeshellarg("$env UB_DOCKER_ANSWER=2; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' </dev/null') . ' 2>&1', $out, $rc);
+    $secs = microtime(true) - $t0;
+    $st = json_decode((string) @file_get_contents("$tmp/data/state/status.json"), true) ?: [];
+    $calls = array_values(array_filter(explode("\n", (string) @file_get_contents("$tmp/fake/docker.log"))));
+    same('docker silent 2.66: the run ends at once — failed with the code docker_silent, only «version» asked, nothing stopped',
+        [1, 'failed', 'docker_silent', true, ['version --format {{.Server.Version}}']],
+        [$rc, $st['result'] ?? null, $st['message'] ?? null, $secs < 25, $calls]);
+    $log = (string) @file_get_contents("$tmp/data/logs/run-" . ($st['run'] ?? 'x') . '.log');
+    check('docker silent 2.66: … its log says why', str_contains($log, 'Docker is switched on but does not answer (2 s) - nothing was stopped'), $log);
+    // «Look again» (setup.sh --plan) meeting it: ends after UB_DOCKER_ANSWER with docker_silent (up to 2.65 `docker info` waited)
+    $t0 = microtime(true);
+    exec('bash -c ' . escapeshellarg("$env UB_DOCKER_ANSWER=2 UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . ' --plan </dev/null') . ' 2>&1', $sout, $src);
+    $ss = json_decode((string) @file_get_contents("$tmp/data/state/setup-status.json"), true) ?: [];
+    same('docker silent 2.66: the setup\'s look ends at once — failed, docker_silent', [true, 'failed', true, true],
+        [$src !== 0, $ss['result'] ?? null, in_array('docker_silent', array_column($ss['messages'] ?? [], 'code'), true), microtime(true) - $t0 < 25]);
+    file_put_contents("$tmp/fake/hang", '');
+
+    // the office: a silent Docker is asked nothing for a while and said - never «no containers», «Kopia missing»
+    $GLOBALS['backupDockerProbe'] = fn () => false;
+    $c = backupContainers(['dump|db|type' => ['mariadb'], 'kopia' => ['container' => ['kopia']]]);
+    same('docker silent (office): the containers — silent, not «none», the dumps still counted', [false, true, 0, 1, null],
+        [$c['up'], $c['silent'] ?? null, $c['total'], $c['dumps'], $c['kopia']]);
+    same('docker silent (office): Kopia\'s repository time and a Nextcloud\'s data folder not asked', [null, null],
+        [backupKopiaRepoSince(['kopia' => ['container' => ['kopia']]]), backupNextcloudDataDir('nextcloud')]);
+    $GLOBALS['backupDockerProbe'] = fn () => true;
+    check('docker silent (office): Docker answering — as before', !isset(backupContainers([])['silent']));
+    unset($GLOBALS['backupDockerProbe']);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
+    check('docker silent (office): the checks say «couldn\'t check» for Kopia\'s container, the waiting apps aren\'t asked',
+        str_contains($src, "\$out[] = finding('kopia', \$level, \$silent ? null : \$name !== null,")
+        && str_contains($src, "\$out[] = finding('kopia_running', \$level, \$c === null ? null : \$c['running'],")
+        && str_contains($src, "backupWaiting(\$settings, \$vms, backupDockerSilent() ? [] : null)"));
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('docker silent (page): the last backup\'s and Kopia\'s tiles say it', substr_count($js, "T('stat.docker_silent')") === 2);
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $lang) {
+        $l = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$lang.json"), true) ?: [];
+        check("docker silent: the words ($lang)", isset($l['stat.docker_silent'], $l['message.docker_silent']));
+    }
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -5928,7 +6025,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.65'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.66'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -7875,9 +7972,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.65 everywhere it is named', ['2.65', '2.65', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.65"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.65** –')]);
+    same('data trust: the engine\'s version 2.66 everywhere it is named', ['2.66', '2.66', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.66"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.66** –')]);
     // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
     same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
         array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
@@ -8229,6 +8326,10 @@ case "$1" in
     cat "$FAKE/inspect.json"; exit 0 ;;
   exec)
     shift; shift; a="$*"
+    # 2.66 (B43): «tls» - the server's own certificate not yet valid (the clock set back): every login refused unless --skip-ssl;
+    # «listerr» - the database list refused for another reason
+    [[ -f "$FAKE/tls" && "$a" == *MYSQL_PWD* && "$a" != *--skip-ssl* ]] && { echo 'ERROR 2026 (HY000): TLS/SSL error: certificate is not yet valid' >&2; exit 1; }
+    [[ -f "$FAKE/listerr" && "$a" == *schema_name* ]] && { echo "ERROR 1045 (28000): Access denied for user 'root'@'localhost'" >&2; exit 1; }
     case "$a" in
       *MARIADB_ROOT_PASSWORD:-*|*"command -v"*) exit 0 ;;
       *mariadb-dump*) printf 'CREATE TABLE t (id int);\n-- Dump completed on 2026-10-12\n' ;;
@@ -8444,6 +8545,20 @@ SH);
     [$rc, $out] = $run();
     same('inside 2.61: a folder that is no data folder (marks only deeper down) gets its package as before', [0, true, true, $n0 + 2],
         [$rc, is_file("$app/manifest.json"), is_file("$pool/appdata/c2/.uso-backup/manifest.json"), $asides()], $out);
+
+    // 2.66 (B43, the clock set back): MariaDB's own TLS certificate «not yet valid» - asked once, then through its socket
+    // without TLS; the dump made. Another refusal of the database list: said with the client's own words
+    touch("$fake/tls");
+    [$rc, $out] = $run();
+    same('inside 2.66: MariaDB refusing its own certificate (the clock set back) — said once, the dump made without TLS', [0, true, true, false],
+        [$rc, str_contains($out, "MariaDB 'c1': ERROR 2026 (HY000): TLS/SSL error: certificate is not yet valid - the server's own certificate (the clock went back since it started?): asked through its socket without TLS"),
+         str_contains($out, 'c1 / mydb') || str_contains($out, "MariaDB 'c1' / mydb"), str_contains($out, 'no database found')], $out);
+    unlink("$fake/tls");
+    touch("$fake/listerr");
+    [$rc, $out] = $run();
+    same('inside 2.66: the database list refused — the client\'s own words, not just «no database found»', true,
+        str_contains($out, "ERROR: MariaDB 'c1': no database found - ERROR 1045 (28000): Access denied for user 'root'@'localhost'"), $out);
+    unlink("$fake/listerr");
 
     // 2.48 (review 2026-10-15): keep_logs = 0 never removes the log of the run that is writing it - only the earlier ones go
     file_put_contents("$data/settings.ini", "[general]\nkeep_logs = 0\n", FILE_APPEND);
@@ -8963,7 +9078,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.65', [1, '2.65'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.66', [1, '2.66'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -9571,7 +9686,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.65', [1, '2.65'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.66', [1, '2.66'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -33464,6 +33579,104 @@ function testBackupAbortAsked(): void
     @unlink($f);
 }
 
+/**
+ * B43 (scenario backup-tm-clock-back-run-sched): «last run» is the run that finished last — history.jsonl gets a run's
+ * line when it ends — never the highest name or start: a run made after the clock was set back has both earlier.
+ */
+function testBackupLastRunEnded(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-lastrun-' . getmypid();
+    @mkdir($tmp, 0700, true);
+    $row = fn (string $run, int $started, string $result) => json_encode(['run' => $run, 'started' => $started, 'finished' => $started + 60,
+        'result' => $result, 'version' => '2.66']);
+    file_put_contents("$tmp/history.jsonl", implode("\n", [$row('20261019-0430', 1000000, 'ok'), $row('20261019-2031', 1060000, 'warnings'),
+        json_encode(['run' => '', 'result' => 'skipped', 'time' => 1060100, 'reason' => 'skipped_busy_backup']), $row('20261019-1832', 1052800, 'errors')]) . "\n");
+    $h = backupHistory([], null, $skips, "$tmp/history.jsonl");
+    same('last run (B43): the run that finished last first, though the clock was set back (its name and start earlier)',
+        ['20261019-1832', '20261019-2031', '20261019-0430'], array_column($h, 'run'));
+    same('last run (B43): … its own start and result kept', [1052800, 'errors'], [$h[0]['started'], $h[0]['result']]);
+    file_put_contents("$tmp/history.jsonl", implode("\n", [$row('20261019-0430', 1000000, 'ok'), $row('20261020-0430', 1086400, 'ok')]) . "\n");
+    same('last run: a clock that never went back — by start, as before', ['20261020-0430', '20261019-0430'],
+        array_column(backupHistory([], null, $skips, "$tmp/history.jsonl"), 'run'));
+    @unlink("$tmp/history.jsonl");
+    @rmdir($tmp);
+}
+
+/**
+ * Engine 2.66 (B16, scenario backup-kp-s3-unreachable-run): Kopia connected but its repository unreachable is said as
+ * such (drift kopia_unreachable, never «not connected»), state/kopia-reach.json keeps «offsite unreachable since» the
+ * first real run from run to run until a run reaches it; Mr. Backupsy's state and page say it.
+ */
+function testOffsiteReach(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-offsite-reach-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    @mkdir("$tmp/bin", 0700, true);
+    @mkdir("$tmp/data/state", 0700, true);
+    file_put_contents("$tmp/repo.json", json_encode(['uniqueIDHex' => str_repeat('f4', 32), 'configFile' => '/config/repository.config',
+        'clientOptions' => ['username' => 'root', 'hostname' => 'kopia'], 'storage' => ['type' => 's3']]));
+    file_put_contents("$tmp/bin/docker", "#!/bin/bash\nF=" . escapeshellarg($tmp) . "\ncase \"\$1\" in\n"
+        . "  inspect) echo true; exit 0 ;;\n  top) printf 'PID UID ARGS\\n1 0 /bin/kopia server --x\\n'; exit 0 ;;\nesac\n"
+        . "[[ -e \$F/away && \"\$*\" == *'repository status'* ]] && { echo 'ERROR open repository: unable to open repository: unable to get repository format: dial tcp 192.0.2.7:9000: connect: connection refused' >&2; exit 1; }\n"
+        . "[[ -e \$F/notconn && \"\$*\" == *'repository status'* ]] && { echo 'kopia: error: repository is not connected. See https://kopia.io/docs/repositories/, try --help' >&2; exit 1; }\n"
+        . "case \"\$*\" in\n  *'repository status --json'*) cat \$F/repo.json ;;\n  *--version*) echo '0.23.1 build' ;;\nesac\nexit 0\n");
+    chmod("$tmp/bin/docker", 0755);
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+    $sh = function (string $script) use ($lib, $tmp): string {
+        $pre = "PATH=$tmp/bin:\$PATH UB_DATA=$tmp/data UB_NO_NOTIFY=1; source $lib >/dev/null 2>&1; LOG_FILE=''; KOPIA_CONTAINER=kopia KOPIA_RUN_UID=0;";
+        return trim((string) shell_exec('bash -c ' . escapeshellarg("$pre $script") . ' 2>&1'));
+    };
+    $look = 'kopia_status_load >/dev/null 2>&1; echo "c=$KOPIA_CONNECTED u=$KOPIA_UNREACHABLE"';
+    touch("$tmp/away");
+    same('offsite reach 2.66: connected, the storage away — unreachable (never «not connected»), Kopia\'s words for the log', ['c=no u=yes', true],
+        [$sh($look), str_contains($sh('kopia_status_load >/dev/null 2>&1; echo "$KOPIA_REACH_WHY"'), 'connection refused')]);
+    unlink("$tmp/away");
+    touch("$tmp/notconn");
+    same('offsite reach 2.66: Kopia says «not connected» — not connected, not unreachable', 'c=no u=no', $sh($look));
+    unlink("$tmp/notconn");
+    same('offsite reach 2.66: reachable', 'c=yes u=no', $sh($look));
+
+    $file = "$tmp/data/state/kopia-reach.json";
+    $run = fn (string $ts, string $what, string $mode = 'backup', string $dry = '0') => $sh("UB_MODE=$mode DRY=$dry TS=$ts STARTED_AT=1792000000; kopia_reach_save $what");
+    $run('20261019-1955', 'unreachable', 'check');
+    $run('20261019-1955', 'unreachable', 'backup', '1');
+    same('offsite reach 2.66: a tour or a dry run writes nothing', false, is_file($file));
+    $out = $run('20261019-1955', 'unreachable');
+    $j = json_decode((string) @file_get_contents($file), true);
+    same('offsite reach 2.66: the first real run that can\'t reach it — since its start, its name; the log says it',
+        [1, 1792000000, '20261019-1955', '20261019-1955', true, true], [$j['v'] ?? null, $j['since'] ?? null, $j['run'] ?? null, $j['last_run'] ?? null,
+        is_int($j['last'] ?? null), str_contains($out, 'Offsite unreachable since')]);
+    $sh('UB_MODE=backup DRY=0 TS=20261020-0430 STARTED_AT=1792060000; kopia_reach_save unreachable');
+    $j = json_decode((string) @file_get_contents($file), true);
+    same('offsite reach 2.66: the next one — «since» kept, the last run moves on', [1792000000, '20261019-1955', '20261020-0430'],
+        [$j['since'] ?? null, $j['run'] ?? null, $j['last_run'] ?? null]);
+    same('offsite reach 2.66: … nothing of Kopia\'s words (an address, a bucket) in the file', ['last', 'last_run', 'run', 'since', 'v'],
+        (function ($j) { $k = array_keys($j ?? []); sort($k); return $k; })($j));
+
+    // the office: his state in exactly the engine's shape, only with Kopia on
+    $on = ['kopia' => ['enabled' => ['yes']]];
+    same('offsite reach 2.66: Mr. Backupsy\'s state — offsite.unreachable_since, the first run and the last',
+        ['unreachable_since' => 1792000000, 'run' => '20261019-1955', 'last' => $j['last'] ?? 0, 'last_run' => '20261020-0430'], backupOffsiteReach($on, $file));
+    same('offsite reach 2.66: Kopia switched off — nothing said', null, backupOffsiteReach(['kopia' => ['enabled' => ['no']]], $file));
+    file_put_contents("$tmp/bad.json", json_encode(['v' => 1, 'since' => '1792000000', 'run' => '20261019-1955', 'last' => 1, 'last_run' => '20261019-1955']));
+    same('offsite reach 2.66: not exactly its shape — nothing', [null, null], [backupOffsiteReach($on, "$tmp/bad.json"), backupOffsiteReach($on, "$tmp/none.json")]);
+
+    $sh('UB_MODE=backup DRY=0 TS=20261021-0430; kopia_reach_save ok');
+    same('offsite reach 2.66: the first run that reaches it again ends it', false, is_file($file));
+    $eng = (string) file_get_contents(OFFICE_DIR . '/backup/lib/common.sh');
+    check('offsite reach 2.66: the run\'s Kopia check says kopia_unreachable and keeps the file; reached or switched off ends it',
+        str_contains($eng, 'drift_add error "Kopia cannot reach its repository (offsite)" kopia_unreachable "" name="$KOPIA_CONTAINER"' . "\n" . '            kopia_reach_save unreachable')
+        && str_contains($eng, "        return 1\n    fi\n    kopia_reach_save ok\n") && str_contains($eng, '{ KOPIA_OK="off"; kopia_reach_save ok; return 0; }'));
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('offsite reach 2.66: the page\'s Kopia tile says since when (a trouble)', str_contains($js, "T('stat.offsite_unreachable_since', { when: fmt.date(away.unreachable_since) })")
+        && str_contains($js, '|| !!away ||'));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $lang) {
+        $l = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$lang.json"), true) ?: [];
+        same("offsite reach 2.66: the words ($lang)", [true, true], [str_contains($l['stat.offsite_unreachable_since'] ?? '', '{when}'), isset($l['drift_code.kopia_unreachable'])]);
+    }
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 function testBackupOneMinute(): void
 {
     $tmp = hardeningTmp('minute');
@@ -33524,6 +33737,47 @@ function testBackupOneMinute(): void
         same("one a minute: … nothing of the run touched ($what)", [false, false, false, false, 1000],
             [is_file("$eng/state/status.json"), is_file("$eng/state/lock-holder.json"), is_link("$eng/logs/latest.log"), is_file("$eng/state/skipped.json"), filemtime("$eng/state/lock")]);
     }
+    // 2.66 (B19, the autumn hour twice, a data folder set back): the name is never used twice — its history row, a snapshot
+    // of the name on a pool or disk awake (a sleeping one never looked at); refused like 2.34, nothing of the run touched
+    foreach (['run', 'dryrun', 'check'] as $kind) {
+        @unlink("$eng/logs/$kind-20261008-0102.log");
+    }
+    $mnt = "$tmp/mnt";
+    foreach (["$mnt/cache/.btrfs-snap", "$mnt/disk1/.btrfs-snap/20261008-0102", "$mnt/fast"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    file_put_contents("$tmp/mounts", "/dev/sdb1 $mnt/cache btrfs rw 0 0\n/dev/md1p1 $mnt/disk1 btrfs rw 0 0\nfast $mnt/fast zfs rw 0 0\nfast/appdata $mnt/fast/appdata zfs rw 0 0\n");
+    file_put_contents("$tmp/disks.ini", "[disk1]\nspundown=\"1\"\nrotational=\"1\"\n[cache]\nspundown=\"0\"\n");
+    file_put_contents("$tmp/bin/zfs", "#!/bin/sh\n[ \"\$*\" = 'list -H -t snapshot -o name -r fast' ] && cat " . escapeshellarg("$tmp/zfs.out") . " 2>/dev/null\nexit 0\n");
+    chmod("$tmp/bin/zfs", 0755);
+    $engine = function () use ($eng, $tmp, $mnt): array {
+        $p = proc_open(['bash', OFFICE_DIR . '/backup/backup.sh'], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+            ['UB_DATA' => $eng, 'UB_NO_NOTIFY' => '1', 'PATH' => "$tmp/bin:" . getenv('PATH'), 'OFFICE_RUN_DIR' => TESTS_RUN_DIR,
+             'UB_MNT' => $mnt, 'UB_MOUNTS_FILE' => "$tmp/mounts", 'UB_DISKS_INI' => "$tmp/disks.ini"]);
+        stream_get_contents($pipes[1]);
+        $err = (string) stream_get_contents($pipes[2]);
+        $rc = proc_close($p);
+        clearstatcache();
+        return [$rc, $err, is_file("$eng/state/status.json") || is_file("$eng/logs/run-20261008-0102.log")];
+    };
+    file_put_contents("$eng/state/history.jsonl", json_encode(['run' => '20261008-0102', 'result' => 'ok']) . "\n");
+    [$rc, $err, $touched] = $engine();
+    same('one name once 2.66: a history row of this minute\'s run (its log gone) — refused, nothing touched', [1, true, false],
+        [$rc, str_contains($err, 'the history has a run 20261008-0102') && str_contains($err, 'never used twice'), $touched]);
+    file_put_contents("$eng/state/history.jsonl", json_encode(['run' => '20261008-0102', 'result' => 'skipped', 'reason' => 'skipped_busy_backup']) . "\n");
+    file_put_contents("$tmp/zfs.out", "fast/appdata@uso-backup-20261008-0101\nfast/appdata@uso-backup-20261008-0102\n");
+    [$rc, $err, $touched] = $engine();
+    same('one name once 2.66: a ZFS snapshot of the name (only a skipped row in the history) — refused', [1, true, false],
+        [$rc, str_contains($err, 'a ZFS snapshot fast/appdata@uso-backup-20261008-0102 is there'), $touched]);
+    file_put_contents("$tmp/zfs.out", "fast/appdata@uso-backup-20261008-0101\nfast/appdata@uso-backup-20261008-01020\n");
+    mkdir("$mnt/cache/.btrfs-snap/20261008-0102");
+    [$rc, $err, $touched] = $engine();
+    same('one name once 2.66: a btrfs snapshot of the name on the pool — refused', [1, true, false],
+        [$rc, str_contains($err, "a btrfs snapshot $mnt/cache/.btrfs-snap/20261008-0102 is there"), $touched]);
+    rmdir("$mnt/cache/.btrfs-snap/20261008-0102");
+    [$rc, $err] = $engine();
+    check('one name once 2.66: free — the snapshot on the sleeping disk1 never looked at, other minutes and names don\'t count, a skipped row neither',
+        !str_contains($err, 'made already'), "rc $rc: $err");
     same('one a minute: every date call one the tests\' clock knows', '', testsClockUnsupported("$tmp/clock"));
 
     // the page (2026-10-12, Benj: «Tour» right after an apply met the refusal — the apply's own tour had just run): it knows
@@ -35311,6 +35565,10 @@ function testBackupLetGo(): void
         [false, false, false, false, false, false, true, true, true, true, true],
         [is_dir("$pool/apps/nextcloud"), is_dir("$pool/apps/immich"), is_dir("$pool/vms/win11"), is_dir("$pool/server"), is_dir("$pool/flash"), is_dir("$disk/apps/old"),
          is_dir("$pool/.ub-stage-20261008-0200"), is_link("$pool/apps/linked"), is_file("$pool/apps/notes.txt"), is_dir("$pool/restore/immich/20261007-120000"), is_dir("$pool/apps")]);
+    same('let go (BF4): the emptied vms/, the disk\'s emptied apps/ and then its empty place go; apps/ with a file, a link and a hidden folder stays, so does the pool\'s place',
+        [false, false, true, true, false, ["$disk/apps", $disk, "$pool/vms"]],
+        [is_dir("$pool/vms"), is_dir("$disk/apps"), is_dir("$pool/apps/.hidden"), is_dir($pool), is_dir($disk),
+         (readJson((glob("$tmp/data/backup/letgo-*.json") ?: [''])[0]) ?? [])['emptied'] ?? null]);
     same('let go: one storeroom run on each filesystem, at the share\'s top', [$trashDisk, $trashPool], array_map('dirname', $r['runs']));
     $m = readJson($r['runs'][1] . '/manifest.json') ?? [];
     $stamp = basename($r['runs'][1]);
@@ -35554,6 +35812,58 @@ function testBackupLetGo(): void
         same('let go: no journal — refused before anything moves', ['backup_letgo_journal', true, []], [$p->key, is_dir("$pool/apps/again"), array_diff(scandir("$tmp/elsewhere") ?: [], ['.', '..'])]);
     }
     unlink("$tmp/data/backup");
+
+    // BF4: the vms/ the clearing removed comes back with Ms. Dustdevil's «Put back» of a VM's package (as the place is)
+    $GLOBALS['clScanStub'] = function () use ($trashPool): array {
+        $GLOBALS['clCtx'] = ['roots' => [], 'asleep' => []];
+        return ['templates' => ['list' => []], 'stacks' => ['list' => [], 'root' => '/nonexistent'], 'scripts' => ['list' => []], 'appdata' => ['list' => []],
+                'vms' => ['list' => []], 'leftovers' => ['list' => []], 'partners' => ['list' => []], 'backup_running' => false, 'flash' => ['list' => []],
+                'trash' => ['runs' => array_values(array_filter(clTrashRuns([], ['ok' => false], [$trashPool]), fn ($r) => $r['root'] === $trashPool))]];
+    };
+    $win = array_values(array_filter(array_merge(...array_column(($GLOBALS['clScanStub'])()['trash']['runs'], 'items')), fn ($it) => $it['name'] === 'vms/win11'))[0] ?? [];
+    $was = is_dir("$pool/vms");
+    $back = clRestore([$win['id'] ?? '']);
+    same('let go (BF4): «Put back» of vms/win11 — its emptied vms/ made again (the place\'s mode), the package home',
+        [false, true, true, true, fileperms($pool) & 0777], [$was, $back['results'][0]['ok'] ?? null, is_dir("$pool/vms/win11/nvram"), is_dir("$pool/vms"), fileperms("$pool/vms") & 0777]);
+    $GLOBALS['clCtx'] = ['roots' => [], 'asleep' => []];
+    $other = clPackageHome("$tmp/elsewhere/backup/vms/x", $trashPool);
+    unset($GLOBALS['clScanStub'], $GLOBALS['clCtx']);
+    same('let go (BF4): … only for a package of a backup place under the storeroom\'s share', '', $other);
+
+    $GLOBALS['clScanStub'] = function () use ($trashDisk): array {
+        $GLOBALS['clCtx'] = ['roots' => [], 'asleep' => []];
+        return ['templates' => ['list' => []], 'stacks' => ['list' => [], 'root' => '/nonexistent'], 'scripts' => ['list' => []], 'appdata' => ['list' => []],
+                'vms' => ['list' => []], 'leftovers' => ['list' => []], 'partners' => ['list' => []], 'backup_running' => false, 'flash' => ['list' => []],
+                'trash' => ['runs' => array_values(array_filter(clTrashRuns([], ['ok' => false], [$trashDisk]), fn ($r) => $r['root'] === $trashDisk))]];
+    };
+    $old = array_values(array_filter(array_merge(...array_column(($GLOBALS['clScanStub'])()['trash']['runs'], 'items')), fn ($it) => $it['name'] === 'apps/old'))[0] ?? [];
+    $was = is_dir($disk);
+    $back = clRestore([$old['id'] ?? '']);
+    same('let go (BF4): «Put back» of apps/old — its place and apps/ the clearing removed made again on that disk, the package home',
+        [false, true, true, fileperms(dirname($disk)) & 0777], [$was, $back['results'][0]['ok'] ?? null, is_dir("$disk/apps/old"), fileperms($disk) & 0777]);
+    unset($GLOBALS['clScanStub'], $GLOBALS['clCtx']);
+
+    // never the share (coordinator 2026-10-20): a place at a share's root gives no part at all; the place goes only below the
+    // share's folder and never as a filesystem of its own (a ZFS dataset's mountpoint)
+    same('let go (BF4): the place set to a share\'s root — no part, nothing of the share looked at', [],
+        backupLetGoParts('/mnt/user/UnraidSecretaryOffice', $roots, [], $mnt));
+    $sameDev = fn (string $p): ?int => 7;
+    $placeDs = "$mnt/pool/Share2/backup";
+    mkdir("$placeDs/apps/one", 0700, true);
+    $ownFs = fn (string $p): ?int => $p === $placeDs ? 8 : 7;
+    same('let go (BF4): the place may go — below the share\'s folder yes; the share\'s folder, a dataset of its own, a link, none: no',
+        [true, false, false, false, false],
+        [backupLetGoPlaceGoes(['place' => $placeDs, 'top' => "$mnt/pool/Share2"], $sameDev),
+         backupLetGoPlaceGoes(['place' => "$mnt/pool/Share2", 'top' => "$mnt/pool/Share2"], $sameDev),
+         backupLetGoPlaceGoes(['place' => $placeDs, 'top' => "$mnt/pool/Share2"], $ownFs),
+         backupLetGoPlaceGoes(['place' => "$pool/apps/linked", 'top' => "$mnt/pool/UnraidSecretaryOffice"], $sameDev),
+         backupLetGoPlaceGoes(['place' => "$mnt/pool/Share2/none", 'top' => "$mnt/pool/Share2"], $sameDev)]);
+    $GLOBALS['letgoHost']['dev'] = $ownFs;
+    $GLOBALS['letgoHost']['scan'] = fn () => ['zfs' => ['snapshots' => []], 'btrfs' => ['snapshots' => []], 'vm' => ['snapshots' => []]];
+    $rD = backupLetGoDo('/mnt/user/Share2/backup', false, [['root' => 'pool', 'top' => "$mnt/pool/Share2", 'place' => $placeDs]], $prefixes, '.btrfs-snap');
+    same('let go (BF4): a place made as a dataset — its package moved, its emptied apps/ gone, the place itself kept',
+        [1, false, true], [$rD['moved'], is_dir("$placeDs/apps"), is_dir($placeDs)]);
+    unset($GLOBALS['letgoHost']['dev']);
 
     // Ms. Dustdevil's storerooms from the journals: only /mnt/<pool or disk>/<share>/…/<storeroom>, never on a sleeping disk
     mkdir("$tmp/journals", 0700);
@@ -46451,7 +46761,7 @@ JS;
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testHouseDockerSilent', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

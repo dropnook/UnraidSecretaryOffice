@@ -1,6 +1,23 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.65 - 2026-10-19
+# unraid-backup - backup.sh                       Version 2.66 - 2026-10-20
+#   2.66 Every docker call has a time limit (docker() in lib/common.sh): a look or a change UB_DOCKER_TIMEOUT (120 s; docker
+#        stop plus its own -t), an exec UB_DOCKER_EXEC_TIMEOUT (900 s); a dump and Kopia's upload run as long as they take
+#        (UB_DOCKER_LONG). Docker switched on but hung (dockerd stopped) ends the run at its start after UB_DOCKER_ANSWER
+#        (20 s) with the code docker_silent, before anything is stopped - up to 2.65 `docker info` waited for ever.
+#        Kopia connected but unable to reach its repository (the storage down, the way there closed) is said as such: drift
+#        kopia_unreachable (up to 2.65 «not connected»); state/kopia-reach.json {v, since, run, last, last_run} keeps «offsite
+#        unreachable since» the first real run that couldn't reach it, from run to run, until a run reaches it (or Kopia is
+#        switched off); Kopia's own words go to the log only.
+#        MariaDB 11.4+ makes a TLS certificate of its own when the server starts, and its client checks it even over the
+#        socket: after the clock was set back below that start every login failed («certificate is not yet valid») and the
+#        dump said «no database found». Asked once (SELECT 1); such a TLS error: that container's client goes through its
+#        socket without TLS (--skip-ssl), said in the log. The database list refused otherwise: the client's own words.
+#        A run's name (the minute: run id, log, uso-backup-<minute> snapshots) is never used twice: besides its log (2.34) a
+#        history row of a run with this id or a snapshot of the name on a pool or disk awake (ZFS <dataset>@<prefix><minute>,
+#        btrfs <base>/<btrfs_snap_dir>/<minute>) ends the run right after taking the lock, touching nothing (the autumn hour
+#        02:00-03:00 comes twice; a data folder set back or new knows nothing of the snapshots) - up to 2.65 the snapshot
+#        phase met the existing name: btrfs «Read-only file system», ZFS «dataset already exists», errors.
 #   2.65 Nextcloud no longer stays in maintenance mode after an array stop or a power cut during a run: Unraid's array
 #        start (every boot too) resets a share root that isn't of the group users to 0777 nobody:users - Nextcloud's data
 #        folder then refuses every occ call, and --recover could never switch the mode off (its note kept for ever). The
@@ -1343,8 +1360,13 @@ nextcloud_maintenance_on() {
 # Database dumps
 ##############################################################################
 # Password via MYSQL_PWD instead of -p: that way it does not show in the process list.
+# 2.66 (B43): MY_NOSSL[<container>] - its client goes without TLS (--skip-ssl, through the container's own socket): MariaDB
+# 11.4+ makes a certificate of its own when the server starts, and its client checks it even over the socket - after the
+# clock was set back below that start every login fails («TLS/SSL error: certificate is not yet valid»), so did each dump
+declare -A MY_NOSSL=()
 my_exec() { # my_exec <container> <bin> <login> <pw variable> <args...>
     local c="$1" bin="$2" login="$3" pwv="$4"; shift 4
+    [[ -n "${MY_NOSSL[$c]:-}" ]] && set -- --skip-ssl "$@"
     docker exec "$c" sh -c 'eval "MYSQL_PWD=\${$3:-}"; export MYSQL_PWD; b="$1"; u="$2"; shift 3; exec "$b" -u"$u" "$@"' \
         sh "$bin" "$login" "$pwv" "$@"
 }
@@ -1389,12 +1411,21 @@ dump_mariadb() { # dump_mariadb <container>
     # Without root the rights for routines and events are missing
     if [[ "$login" == "root" ]]; then extra=( --routines --triggers --events ); else extra=( --triggers ); fi
 
+    # 2.66 (B43): asked once - its own TLS certificate refused (the clock set back since the server started): without TLS
+    out="$(my_exec "$c" "$sql_bin" "$login" "$pwv" -N -B -e 'SELECT 1' 2>&1)"
+    if [[ "$out" != "1" && ( "$out" == *"TLS/SSL error"* || "$out" == *"SSL connection error"* ) ]]; then
+        MY_NOSSL[$c]=1
+        log "  MariaDB '$c': ${out%%$'\n'*} - the server's own certificate (the clock went back since it started?): asked through its socket without TLS"
+    fi
+    local lerr=""
     if [[ -n "$single" ]]; then dbs="$single"
     else
         dbs="$(my_exec "$c" "$sql_bin" "$login" "$pwv" -N -B -e \
-            "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('information_schema','performance_schema','sys','mysql')" 2>/dev/null)"
+            "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('information_schema','performance_schema','sys','mysql')" 2>"$DUMP_DIR/.${c}_list.err")"
+        lerr="$(head -c 300 "$DUMP_DIR/.${c}_list.err" 2>/dev/null | tr -s '\n\t' '  ')"; rm -f "$DUMP_DIR/.${c}_list.err"
     fi
-    [[ -n "$dbs" ]] || { err "MariaDB '$c': no database found"; return 1; }
+    # 2.66: the client's own words when it couldn't even list them (up to 2.65 dropped - «no database found» for any failure)
+    [[ -n "$dbs" ]] || { err "MariaDB '$c': no database found${lerr:+ - $lerr}"; return 1; }
 
     local rc=0
     # one name a line (-N -B), never split at a space nor globbed (2.48); a name that can't be a file name or would end the
@@ -1499,10 +1530,11 @@ run_dumps() {
         [[ -n "$f" ]] || { warn "Database container '$c' belongs to no package - no dump"; continue; }
         DUMP_KEY="apps/$f"; DUMP_DIR="$PKG_STAGE/$DUMP_KEY/db"
         mkdir -p "$DUMP_DIR" || { err "Cannot create $DUMP_DIR"; DUMP_STATE[$c]="failed"; pkg_mark apps "$f" errors; continue; }
+        # a dump takes as long as the database is big: no docker time limit inside (2.66, UB_DOCKER_LONG)
         case "$t" in
-            mariadb)  dump_mariadb "$c" ;;
-            postgres) dump_postgres "$c" ;;
-            mongodb)  dump_mongodb "$c" ;;
+            mariadb)  UB_DOCKER_LONG=1 dump_mariadb "$c" ;;
+            postgres) UB_DOCKER_LONG=1 dump_postgres "$c" ;;
+            mongodb)  UB_DOCKER_LONG=1 dump_mongodb "$c" ;;
         esac
         rc=$?
         if (( rc == 0 )); then DUMP_STATE[$c]="ok"; else DUMP_STATE[$c]="failed"; pkg_mark apps "$f" errors; fi
@@ -3699,6 +3731,38 @@ partner_phase() {
     status_write
 }
 
+# run_name_taken: a real backup's name (the minute: run id, log, uso-backup-<minute> snapshots) is never used twice (2.66,
+# B19) - prints what has it already and returns 0; 1 when it is free. Its log (2.34); a history row of a run with this id (its
+# log pruned or set aside); a snapshot of the name on a pool or disk awake that the data folder knows nothing of (the
+# autumn hour 02:00-03:00 comes twice, a data folder set back or new): ZFS <dataset>@<prefix><minute>, btrfs
+# <base>/<btrfs_snap_dir>/<minute>. Settings are read in a subshell (the run reads them itself later); a sleeping disk is
+# never looked at. Readers that stop early take a $( ) (never grep -q on a pipe, 2.35).
+run_name_taken() {
+    local h cfgv prefix sdir i t name fs src snaps
+    [[ -e "$LOG_FILE" ]] && { printf 'its log %s is there' "$(basename "$LOG_FILE")"; return 0; }
+    h="$(jq -r --arg r "$TS" 'select(type == "object" and .run == $r and .result != "skipped") | .run' "$UB_STATE/history.jsonl" 2>/dev/null)"
+    [[ -n "$h" ]] && { printf 'the history has a run %s' "$TS"; return 0; }
+    cfgv="$(load_settings >/dev/null 2>&1; printf '%s\x1f%s' "${SNAP_PREFIX:-$UB_SNAP_PREFIX}" "${BTRFS_SNAP_DIR:-.btrfs-snap}")"
+    IFS=$'\x1f' read -r prefix sdir <<<"$cfgv"
+    [[ -n "$prefix" && -n "$sdir" && "$sdir" != */* ]] || return 1
+    mounts_load
+    for i in "${!MT_TARGET[@]}"; do
+        t="${MT_TARGET[$i]}"; fs="${MT_FSTYPE[$i]}"; src="${MT_SOURCE[$i]}"
+        [[ "$t" == "$UB_MNT/"* ]] || continue
+        name="${t#"$UB_MNT"/}"
+        [[ -n "$name" && "$name" != */* ]] || continue
+        case "$name" in user|user0|disks|remotes|addons|rootshare) continue ;; esac
+        ub_base_sleeps "$name" && continue
+        case "$fs" in
+            btrfs) [[ -e "$t/$sdir/$TS" ]] && { printf 'a btrfs snapshot %s is there' "$t/$sdir/$TS"; return 0; } ;;
+            zfs)   [[ "$src" == */* ]] && continue      # a pool's top dataset lists the whole pool
+                   snaps="$(timeout 60 zfs list -H -t snapshot -o name -r "$src" 2>/dev/null | awk -v n="@$prefix$TS" 'index($0, n) && substr($0, length($0) - length(n) + 1) == n { print; exit }')"
+                   [[ -n "$snaps" ]] && { printf 'a ZFS snapshot %s is there' "$snaps"; return 0; } ;;
+        esac
+    done
+    return 1
+}
+
 ##############################################################################
 # Start
 ##############################################################################
@@ -3733,7 +3797,11 @@ else
     # minute would share them (ZFS refuses the existing snapshot name: "failed", one id twice in history.jsonl). Its log
     # is there already: nothing of that run is touched (lock, note, status.json, latest.log, snapshots), exit 1. 2.45: only a
     # real backup (its snapshots carry the minute); a tour or a dry run names its log by the second (the same second: refused)
-    if [[ -e "$LOG_FILE" ]]; then
+    # 2.66 (B19): not only its log - its history row, a snapshot of its name (run_name_taken)
+    if [[ "$UB_MODE" == "backup" && "$DRY" != "1" ]] && taken="$(run_name_taken)"; then
+        echo "ERROR: a run of this minute was made already ($taken) - the name $TS is never used twice, nothing touched - one run a minute: try again in $(( 60 - 10#$(date +%S) )) s" >&2
+        exit 1
+    elif [[ -e "$LOG_FILE" ]]; then
         echo "ERROR: a run of this minute was made already ($(basename "$LOG_FILE")) - one run a minute: try again in $(( 60 - 10#$(date +%S) )) s" >&2
         exit 1
     fi
@@ -3806,7 +3874,9 @@ for t in jq flock timeout gzip numfmt mountpoint awk; do
 done
 # 2.54: Docker switched off - a server of shares and VMs, no apps this run; switched on but silent stays an error
 if ub_docker_service_off; then log "Docker is switched off (Settings > Docker) - no apps to back up"
-else docker info >/dev/null 2>&1 || die "Docker is switched on but does not answer"; fi
+# 2.66 (B15): asked with a time limit (ub_docker_answers, 20 s) - a hung Docker ends the run here, before anything is stopped
+# (its apps could be neither stopped nor started again), with a code the office says in its words
+elif ! ub_docker_answers; then die_code docker_silent "Docker is switched on but does not answer ($UB_DOCKER_ANSWER s) - nothing was stopped, nothing backed up; restart Docker (Settings > Docker) and start the run again"; fi
 mountpoint -q "$UB_MNT/user" || die "$UB_MNT/user is not mounted - array/pools not started?"
 
 SNAP_NAME="${SNAP_PREFIX}${TS}"
@@ -4141,7 +4211,7 @@ kopia_one() { # kopia_one <name> <container path>
     # 2.24: waited for in steps of UB_ARRAY_LOOK seconds (a sleep beside it, wait -n for whichever ends
     # first), looking at var.ini each time - an array stop interrupts the upload at once (kopia_stop)
     KOPIA_CP="$cp"
-    kopia_x snapshot create "$cp" --description "$UB_KOPIA_DESC $TS" >>"$LOG_FILE" 2>&1 &
+    UB_DOCKER_LONG=1 kopia_x snapshot create "$cp" --description "$UB_KOPIA_DESC $TS" >>"$LOG_FILE" 2>&1 &     # hours: no docker limit (2.66)
     KOPIA_PID=$!
     local w got
     while :; do

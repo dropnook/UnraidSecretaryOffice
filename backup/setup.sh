@@ -1,6 +1,17 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.65 - 2026-10-19
+# unraid-backup - setup.sh                        Version 2.66 - 2026-10-20
+#   2.66 settings.ini saved with a UTF-8 byte order mark is read (the BOM read away - up to 2.65 «line 1: not understood»).
+#        A key of one value given twice: the last counts, as bash's source reads it - said once (hint settings_key_twice,
+#        or warning settings_key_differ naming the value dropped), Apply writes it once (up to 2.65 setup_bad_decisions).
+#        A share whose config names a pool that isn't there: warning share_pool_missing {share, pool}.
+#        Kopia's container gone is kept in settings.ini and said (warning kopia_container_gone {name}, Kopia's problem
+#        container_gone) - up to 2.65 an unchanged Apply cleared it; with Docker switched off it stays as stored too.
+#        A User Script that starts this engine on a schedule of its own: warning user_script_old_backup {script, schedule}
+#        (unscheduled: hint user_script_old_idle) - looked at in every plan, no longer only at Apply.
+#        Docker asked with a time limit (ub_docker_answers, 20 s): a hung Docker ends the look with docker_silent at once,
+#        and every docker call has one (docker() in lib/common.sh). Kopia connected but unable to reach its repository is
+#        drift kopia_unreachable (lib/common.sh), no longer «not connected».
 #   2.65 A share config without a root anywhere that Unraid no longer lists (shares.ini; its roots gone, e.g. after Unraid
 #        renamed it) is no share: never proposed (up to 2.64 «still empty», Kopia), one in settings.ini is gone (why gone)
 #   2.64 Unraid's VM service switched off: every stored [vm] section stays exactly as stored (vms_off_keep) - up to 2.63
@@ -522,7 +533,7 @@ TXT
     # container); Docker switched on but silent stays an error: its apps would be left out without a word
     if ub_docker_service_off; then
         hint_as docker_off "Docker is switched off (Settings > Docker) - no apps to back up; shares, VMs and the flash as usual, offsite (Kopia) needs Docker"
-    elif docker info >/dev/null 2>&1; then
+    elif ub_docker_answers; then          # 2.66 (B15): with a time limit (UB_DOCKER_ANSWER, 20 s) - a hung Docker never holds the look
         t="$(docker version -f '{{.Server.Version}}' 2>/dev/null)"; ok_as docker_version "Docker $t" version "$t"
     else
         t="Docker is switched on but does not answer - restart it (Settings > Docker) and look again"
