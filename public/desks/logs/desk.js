@@ -904,7 +904,18 @@ function causeName(c) {
     case 'office': return c.desk && Office.desks.has(c.desk) ? T('wakes.cause.office', { name: Office.t(c.desk + '.name') }) : T('wakes.cause.office_anon');
     case 'mover': return T('wakes.cause.mover');
     case 'cron': return T('wakes.cause.cron', { name: name || c.prog });
-    default: return c.prog === 'shfs' ? T('wakes.cause.shfs') : T('wakes.cause.program', { name: c.prog });
+    default:
+      if (c.prog === 'shfs') return T('wakes.cause.shfs');
+      return c.by ? T('wakes.cause.program_by', { name: c.prog, by: starterName(c) }) : T('wakes.cause.program', { name: c.prog });
+  }
+}
+
+/** Who started a plain program: Unraid, its web page, a plugin, a user script, a terminal (logsWakeStarter()) */
+function starterName(c) {
+  switch (c.by) {
+    case 'plugin': return T('wakes.by.plugin', { name: c.byname || '?' });
+    case 'user_script': return T('wakes.by.user_script', { name: c.byname || '?' });
+    default: return T('wakes.by.' + c.by);
   }
 }
 
@@ -1013,7 +1024,7 @@ function wakesView() {
   const span = timeSpan(bar.time.read());
   bar.time.avail(all.length > 0);
   const fits = all.filter((w) => (!wakeDisk || w.disks.includes(wakeDisk)) && inSpan(span, w.time)
-    && Office.fits(f.words, [w.disks.join(' '), ...w.who.map((c) => [causeName(c), c.prog, c.cmd, ...(c.files || [])].join(' ')), ...(w.cron || []), ...(w.started || []),
+    && Office.fits(f.words, [w.disks.join(' '), ...w.who.map((c) => [causeName(c), T('wakes.sure.' + c.sure), c.prog, c.cmd, ...(c.files || [])].join(' ')), ...(w.cron || []), ...(w.started || []),
       w.who.length ? '' : T('wakes.cause.none')]));
   const list = el('div', 'box');
   list.appendChild(wakeHead(T('wakes.every')));
@@ -1038,10 +1049,13 @@ function cronName(x) {
 
 /** A label: its words and its own tip */
 function sureChip(c) {
-  return chip(T('wakes.sure.' + c.sure), c.sure === 'sure' ? 'ok' : c.sure === 'maybe' ? 'quiet' : '', T('wakes.sure.' + c.sure + '_title'));
+  return chip(T('wakes.sure.' + c.sure), c.sure === 'sure' || c.sure === 'wrote' ? 'ok' : c.sure === 'maybe' ? 'quiet' : '', T('wakes.sure.' + c.sure + '_title'));
 }
 
-/** One wake: when, which disks, the likeliest cause; unfolded every cause with its files, what was due then, how timed */
+/**
+ * One wake: when, which disks, the likeliest cause; unfolded its files (its name stands in the head line already),
+ * every other cause with its name and files, what was due then, how timed, Unraid's own look said apart
+ */
 function wakeRow(w, look) {
   const r = el('div', 'row nocheck unfolds lg-wake');
   const main = el('div', 'row-main');
@@ -1062,21 +1076,22 @@ function wakeRow(w, look) {
     if (!open && box) { box.remove(); box = null; unfoldedWakes.delete(w.id); r.classList.remove('open'); }
     if (open && !box) {
       box = el('div', 'row-detail lg-wake-detail');
-      for (const c of w.who) {
+      w.who.forEach((c, i) => {
         const one = el('div', 'lg-wake-cause');
         const head = el('div', 'lg-wake-cause-head');
-        head.append(el('b', '', causeName(c)), ' ', sureChip(c));
-        if (c.kind !== 'program' && c.prog) head.append(' ', el('span', 'role', T('wakes.prog', { name: c.prog })));
-        one.appendChild(head);
+        if (i > 0) head.append(el('b', '', causeName(c)), ' ', sureChip(c));
+        if (c.kind !== 'program' && c.prog) head.append(i > 0 ? ' ' : '', el('span', 'role', T('wakes.prog', { name: c.prog })));
+        if (head.childNodes.length) one.appendChild(head);
         if (c.files && c.files.length) one.appendChild(el('pre', 'code lg-wake-files', c.files.join('\n')));
         else if (c.cmd) one.appendChild(el('pre', 'code lg-wake-files', c.cmd));
         box.appendChild(one);
-      }
+      });
       if (!w.who.length) box.appendChild(el('p', 'role', T('wakes.cause.none_title')));
       const facts = [];
+      if (w.unraid) facts.push(T('wakes.unraid'));
       if (w.cron && w.cron.length) facts.push(T('wakes.cron_due', { list: w.cron.map(cronName).join(' · ') }));
       if (w.started && w.started.length) facts.push(T('wakes.started', { list: w.started.join(', ') }));
-      facts.push(w.how === 'caught' ? T('wakes.how.caught', { s: look }) : w.how === 'syslog' ? T('wakes.how.syslog')
+      facts.push(w.how === 'caught' ? T(w.who.length ? 'wakes.how.caught' : 'wakes.how.asked', { s: look }) : w.how === 'syslog' ? T('wakes.how.syslog')
         : T('wakes.how.noticed', { from: fmt.date(w.from), to: fmt.date(w.time) }));
       if (w.smart && w.how === 'caught') facts.push(T('wakes.smart', { when: fmt.date(w.smart) }));
       if (!w.named) facts.push(T('wakes.naming'));

@@ -748,6 +748,120 @@
   "look": 4,
   "wakes": [
    {
+    "id": "demo0020",
+    "from": 1791505696,
+    "disks": [
+     "disk2",
+     "parity"
+    ],
+    "how": "caught",
+    "who": [
+     {
+      "kind": "container",
+      "prog": "rsync",
+      "sure": "wrote",
+      "name": "fotosync",
+      "desk": "",
+      "cmd": "rsync -a /import/ /fotos/",
+      "by": "",
+      "byname": "",
+      "files": [
+       "/mnt/disk2/Fotos/2026/Herbst/IMG_0420.jpg"
+      ]
+     },
+     {
+      "kind": "program",
+      "prog": "soffice.bin",
+      "sure": "wrote",
+      "name": "",
+      "desk": "",
+      "cmd": "/usr/lib/libreoffice/program/soffice.bin",
+      "by": "session",
+      "byname": "",
+      "files": [
+       "/mnt/disk2/Dokumente/Haus/Einkaufsliste.odt"
+      ]
+     },
+     {
+      "kind": "smb",
+      "prog": "smbd",
+      "sure": "open",
+      "name": "laptop-kueche",
+      "desk": "",
+      "cmd": "/usr/sbin/smbd -D",
+      "by": "",
+      "byname": "",
+      "files": [
+       "/mnt/user/Fotos/2026/Herbst/IMG_0412.jpg"
+      ]
+     }
+    ],
+    "cut": false,
+    "named": true,
+    "cron": [],
+    "started": [],
+    "smart": 1791505712,
+    "time": 1791505702,
+    "unraid": true
+   },
+   {
+    "id": "demo0021",
+    "from": 1791505592,
+    "disks": [
+     "disk1"
+    ],
+    "how": "caught",
+    "who": [],
+    "cut": false,
+    "named": true,
+    "cron": [],
+    "started": [],
+    "smart": 1791505596,
+    "time": 1791505596,
+    "unraid": true
+   },
+   {
+    "id": "demo0022",
+    "from": 1791505495,
+    "disks": [
+     "disk3"
+    ],
+    "how": "caught",
+    "who": [
+     {
+      "kind": "program",
+      "prog": "find",
+      "sure": "likely",
+      "name": "",
+      "desk": "",
+      "cmd": "find /mnt/user/Familienfilme -name *.nfo",
+      "by": "plugin",
+      "byname": "disk.tidy",
+      "files": [
+       "/mnt/user/Familienfilme/Geburtstag Oma.nfo"
+      ]
+     },
+     {
+      "kind": "program",
+      "prog": "smartctl",
+      "sure": "maybe",
+      "name": "",
+      "desk": "",
+      "cmd": "/usr/sbin/smartctl -a /dev/sdd",
+      "by": "web",
+      "byname": "",
+      "files": []
+     }
+    ],
+    "cut": false,
+    "named": true,
+    "cron": [],
+    "started": [],
+    "smart": 1791505510,
+    "time": 1791505501,
+    "unraid": false
+   },
+   {
     "id": "demo0001",
     "from": 1791505391,
     "disks": [

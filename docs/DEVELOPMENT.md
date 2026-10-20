@@ -548,7 +548,13 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   `LOGS_WAKE_LOOK` s only while an HDD sleeps (moved counters = asked for → a capture of /proc's state-D tasks, capped by
   time and count; never a stat or walk under /mnt, no getfattr); names (docker ps, smbstatus), cron lines due and
   Unraid's «read SMART» time come later from the job `logs-wake-name`, whose answer only her tick writes into the file;
-  the tile only with a rotating disk; machine names and paths on her page only, never in the agent's log.
+  the tile only with a rotating disk; machine names and paths on her page only, never in the agent's log. **Unraid's own
+  look after a wake** (emhttpd's smartctl/hdparm, `hdparm -C`, smartctl in standby mode: `logsWakeReaction()`) is never a
+  cause, only said apart (`unraid`; 1.68.0's records read the same way). Writes don't wait (page cache, the kernel's
+  flush): a writers' list while a disk sleeps (files open for writing there, every `LOGS_WAKE_HOLD` s, budgeted; their
+  write counters every look) gives «wrote to it»; a user share's file by the disk shfs holds it on; a plain program by who
+  started it (`by`: Unraid, its web page, a plugin, a user script, a terminal); a capture that found nobody looks again
+  `LOGS_WAKE_AGAIN_LOOK` s later.
 * **`watchman` — The Night Watchman.** **The office's security department — no other desk gives security advice. Read only,
   never a command that changes anything.** Posture tips (never in the book or notified) and the watch book (what differs from
   normal; the office's own installs/drills adopted, never told). API keys: id, name, roles, a fingerprint — **never the key**;
@@ -786,7 +792,11 @@ The same thing has the same word on every desk and text; grammar follows the wor
 * **Data flow:** `ss -tin`, a container's `/proc/<pid>/net/dev`, `smbstatus -b --json`; no conntrack bytes, no file-access
   logging. Written into a ZFS share is told apart only per dataset; a share of one dataset gets a guess, marked as such
   (`watchmanFlowGuess()`: binds from `docker inspect` Mounts — never Env —, `virsh dumpxml`, Compose Manager's files on the
-  flash; running + writing first, three named). **Logins:** `webgui: (Un)successful login user <name> from <ip>` (`<name>` may be a typed password; 3 failures lock
+  flash; running + writing first, three named). XFS and btrfs disks: the filesystems' own counters in RAM
+  (`watchmanFlowFs()`: `/sys/fs/xfs/<dev>/stats/stats` `dir` removes and `xpc` bytes; btrfs from `/proc/diskstats` of its
+  devices — Unraid's `mdNp1` lines count nothing, so an array disk by its own device; statfs gives btrfs 0 inodes, so no
+  deleted-file count there); ZFS files deleted from `/proc/spl/kstat/zfs/<pool>/objset-0x<objsetid>` `nunlinks`. Nothing
+  under /mnt is opened for them, a sleeping disk's counters are carried. **Logins:** `webgui: (Un)successful login user <name> from <ip>` (`<name>` may be a typed password; 3 failures lock
   15 min); sshd as `sshd-session`. `/root/.ssh` → `/boot/config/ssh/root`.
 * **Add Container form** (`?xmlTemplate=<type>:<file>`): Apply writes `my-<Name>.xml` and **removes an existing container of
   that name**; unknown path modes become rw (`ro,rslave` → rw!); `TemplateURL` updates are off in 7.3.2.

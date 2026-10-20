@@ -31,6 +31,9 @@
 #   pt_drop_received <share>  what USOPartner received of the scratch share <share> (uso-wip-* only) destroyed: its unit
 #                             dataset under every …-partners/<id>/ (received/<id>.json comes back with pt_back)
 #   pt_quota_bytes            the bytes the pair's dataset at USOPartner holds (zfs used)
+#   pt_card_ask <id> [wait]   the Team Lead's «Ask now» on the pair's card (caretaker.partner_ping): since BG1 a job of
+#                             the agent's (atd) — waits up to <wait> s (90) for its answer in state.json and prints the
+#                             card's look {looking, reachable, why, array}; 1 when the click was refused or no answer came
 #
 # States (`state` pushes the undo; every undo is idempotent):
 #   PT-OFFLINE                `iptables -I OUTPUT -d 192.168.7.190 -j DROP` on Tower; undo deletes exactly that rule
@@ -362,6 +365,18 @@ EOF
     fi
     ((rc == 0)) && rm -f "$dir/id"
     return $rc
+}
+
+# «Ask now» answered: state.json's last_try of the pair from <time> on and its mark in RAM gone (the job ended)
+_pt_card_asked() { local t; t=$(jq -r --arg i "$1" '.pairs[$i].last_try // 0' "$D/partner/state.json" 2>/dev/null)
+    [[ $t =~ ^[0-9]+$ ]] && ((t >= $2)) && [[ ! -e $RUN/partner/asking-$1 ]]; }
+pt_card_ask() {
+    local id=$1 w=${2:-90} t0 a
+    t0=$(date +%s)
+    ask caretaker.partner_ping "$(jq -cn --arg i "$id" '{id: $i}')" 30 >/dev/null || { say "«Ask now» refused: $(ask_last '.error.key')"; return 1; }
+    a=$(ask_last '.looking // false')
+    wait_for "$w" "the card's «Ask now» answer" _pt_card_asked "$id" "$t0" || return 1
+    jq -c --arg i "$id" --argjson l "$a" '.pairs[$i] | {looking: $l, reachable, why, array: (.answer.array // null)}' "$D/partner/state.json"
 }
 
 # ------------------------------------------------------------------------------------------------- PT-PULLED, RS-PARTNER

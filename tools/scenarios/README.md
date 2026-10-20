@@ -539,24 +539,29 @@ door line) is carried in `scenarios-partner-base/` — a plugin remove takes it 
 
 | Cell | Scenario | Verdict on 1.67.1 (Tower ↔ USOPartner) | Time on Tower | Run |
 |---|---|---|---|---|
-| B39 PT-OFFLINE × BK-RUN, BK-REPLAN | `backup-pt-offline-run-replan` | cells green; **red** BG1 (agent-not-held) | 3 min | pre-release |
+| B39 PT-OFFLINE × BK-RUN, BK-REPLAN | `backup-pt-offline-run-replan` | cells green; BG1 green since task/fix-partner-bg | 3 min | pre-release |
 | B39 PT-OFFLINE, 6 h of silence | `backup-pt-offline-silent-6h` | green | 70 s | nightly |
 | B39 PT-ARRAY-STOPPED × BK-RUN | `backup-pt-array-stopped-run` | green | 3 min | pre-release |
 | B39 PT-QUOTA-FULL × BK-RUN | `backup-pt-quota-full-run` | green | 3.5 min | pre-release |
 | B39 PT-ENDED × BK-RUN, BK-REPLAN | `backup-pt-ended-run-replan` | green | 2.5 min | pre-release |
 | B39 PT-ANEW × BK-REPLAN, BK-RUN | `backup-pt-anew-replan-run` | green | 3 min | pre-release |
-| R19 PT-PULLED × RS-PARTNER, OF-AGENT-RESTART | `restore-pt-pulled-partner-restart` | pull cells green; **red** BG2 (dustdevil-lists) | 7 min (3 of them waiting for her) | pre-release |
+| R19 PT-PULLED × RS-PARTNER, OF-AGENT-RESTART | `restore-pt-pulled-partner-restart` | green (BG2 fixed in task/fix-partner-bg) | 3.5 min | pre-release |
 
 Findings on 1.67.1 (engine 2.65), Tower ↔ USOPartner, 2026-10-20 — red stays red until fixed:
 - **BG1** (B39 offline, `agent-not-held`) the Team Lead's «Look again» on the card of a partner that doesn't answer holds
   the whole agent: caretaker.partner_ping → partnerAskAndKeep → partnerAsk → partnerSsh runs ssh with run() inside the
   agent's request (agent/lib/partner.php:2123, :1208, :1146; ConnectTimeout 15, timeout 30). Another page's request
   waited 13.4 s (agent_away after 4 s on every page); once the heartbeat gapped 35 s (INV-TICK red in the first run).
-  Mr. Restori's look and the mutual watch are jobs (atd) and don't.
+  Mr. Restori's look and the mutual watch are jobs (atd) and don't. **Fixed** (task/fix-partner-bg): «Ask now» hands
+  `php agent.php job partner-look <id>` to atd and answers at once (`looking`, the card «asking …»); the cell waits for
+  the job's answer in state.json (`pt_card_ask`). Green on Tower ↔ USOPartner 2026-10-20: another request 18 ms.
 - **BG2** (R19, `dustdevil-lists`) Ms. Dustdevil never lists a dataset Mr. Restori pulled from a partner
   (`cache/<share>.restored-<time>`, mounted under /mnt/addons/…/restored): her leftovers take a journal's `.restored-<time>`
   only as a path under /mnt/ (agent/desks/cleanup.php:2408, :2415), and a pull's journal names its dataset by name in
   `aside[].to` (agent/desks/restore-partner.php:625). Her header says she finds his `.restored-<time>` from his journals.
+  **Fixed** (task/fix-partner-bg): the plan's aside never reaches the journal — she reads the journal's `pull` steps and
+  `pulled`, lists it as «pulled from a partner» (read only, why `pulled`, a link to «Remove what was pulled…»), a
+  sleeping pool named, never looked at. The cell checks the entry's shape. Green on Tower ↔ USOPartner 2026-10-20.
 
 What the cells hold (green): offline — partner_missed «unreachable» the one warning, the run «with warnings» in ~30 s,
 the card «couldn't reach it», partner_silent waiting for 6 h, his page's look and «Look again» answering at once, his look

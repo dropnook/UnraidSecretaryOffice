@@ -15321,6 +15321,63 @@ function testLeftovers(): void
             'aside' => [['to' => '/mnt/a/b/c.aside-20261001-000000'], ['to' => '/mnt/a/b/c'], ['to' => '/mnt/a/b/c.aside-{T}'], ['to' => '/tmp/c.aside-20261007-090000'],
                         ['to' => '/mnt/a/../b/c.aside-20261007-090000'], ['to' => '/mnt/a/b/x.sql.gz', 'what' => 'safety_dump'], ['to' => "/mnt/a/b/c.aside-20261007-090000\n"],
                         ['to' => '/mnt/a/b/ok.aside-20261007-090000', 'to_dataset' => 'a/b/other'], ['to' => '/boot/config/.UnraidSecretaryOffice-restore/20261001-000000/x']]]));
+    // BG2 (scenario batch G, 2026-10-20): a pull from a partner names its new dataset by name — its `pull` step, and
+    // `pulled` once it landed (the journal as rsJournalNew() and rsDoPull() write it; the plan's aside never goes in) —
+    // she took only /mnt/ paths and never listed it; now listed, read only (his «Remove what was pulled…» removes it)
+    $pullDs = 'cache/photos.restored-20261020-151500';
+    $pullMnt = '/mnt/addons/UnraidSecretaryOffice/restored/vault-share-photos-20261020-151500';
+    $pullStep = ['do' => 'pull', 'pair' => 'a1b2c3d4', 'unit' => 'share:photos', 'snap' => 'uso-backup-20261020-0300', 'dataset' => $pullDs, 'resume' => false,
+                 'parent' => null, 'partner' => 'vault', 'path' => '/mnt/user/photos', 'time' => 1792470000, 'mount' => $pullMnt, 'state' => 'done'];
+    same('leftovers: a dataset pulled from a partner (its step and «pulled» in the journal) — listed once, his to remove', [[$pullDs, $pullDs, 'pulled', false]],
+        $u(['id' => '20261020-151500-77aa', 'kind' => 'partner', 'result' => 'ok', 'putback' => null, 'aside' => [],
+            'steps' => [$pullStep, ['do' => 'mount', 'dataset' => $pullDs, 'path' => $pullMnt, 'state' => 'done']],
+            'pulled' => [['dataset' => $pullDs, 'guid' => '123', 'pair' => 'a1b2c3d4', 'partner' => 'vault', 'unit' => 'share:photos', 'snap' => 'uso-backup-20261020-0300', 'mount' => $pullMnt]]]));
+    same('leftovers: a pull cut short (only its step: zfs recv -s keeps what came) — listed too', [[$pullDs, $pullDs, 'pulled', false]],
+        $u(['id' => '20261020-151500-77aa', 'kind' => 'partner', 'result' => 'interrupted', 'putback' => null, 'aside' => [], 'steps' => [['state' => 'failed'] + $pullStep]]));
+    same('leftovers: … never another pull — another time (a resumed one\'s), a start\'s .from-, no pool, a path, «..», a line break, a copy\'s step', [],
+        $u(['id' => '20261020-151500-77aa', 'kind' => 'partner', 'result' => 'ok', 'putback' => null, 'aside' => [],
+            'steps' => [['do' => 'copy', 'dataset' => $pullDs], ['dataset' => 'cache/photos.restored-20261001-000000'] + $pullStep],
+            'pulled' => [['dataset' => 'cache/photos.restored-20261001-000000'], ['dataset' => 'cache/x/share-photos.from-vault-20261020-151500'],
+                         ['dataset' => 'photos.restored-20261020-151500'], ['dataset' => '/mnt/cache/photos.restored-20261020-151500'],
+                         ['dataset' => 'cache/../photos.restored-20261020-151500'], ['dataset' => "cache/photos.restored-20261020-151500\n"], ['dataset' => ['x']], 'x']]));
+    $ctxBefore = $GLOBALS['clCtx'] ?? null;
+    $asked = [];
+    $zfs = function (array $have) use (&$asked) {
+        return function (array $cmd) use ($have, &$asked) {
+            $asked[] = array_slice($cmd, 5);
+            return [0, implode('', array_map(fn ($d) => "$d\t4096\t0\n", array_values(array_intersect(array_slice($cmd, 5), $have))))];
+        };
+    };
+    $unit = ['path' => $pullDs, 'dataset' => $pullDs, 'what' => 'pulled', 'back' => false];
+    $pulledPlace = fn (array $u, array $m, callable $z): array => function_exists('clPulledPlace') ? clPulledPlace($u, $m, $z) : ['parts' => [], 'asleep' => null, 'why' => null];
+    $mnt = $pullMnt;
+    $GLOBALS['clCtx'] = ['roots' => [], 'asleep' => ['cache' => false, 'cache2' => true]];
+    $at = $pulledPlace($unit, [], $zfs([$pullDs]));
+    same('leftovers: a pull on a sleeping pool — named, not looked at (zfs not asked)', [[], ['cache'], 'asleep', []], [$at['parts'], $at['asleep'], $at['why'], $asked]);
+    $GLOBALS['clCtx'] = ['roots' => [], 'asleep' => ['cache' => false]];
+    $at = $pulledPlace($unit, [$mnt => ['fs' => 'zfs', 'source' => $pullDs]], $zfs([$pullDs]));
+    same('leftovers: a pull mounted read-only — its mount (the kernel\'s table), his to remove, never a storeroom', [[$mnt], [$pullDs], 'pulled', [''], []],
+        [array_column($at['parts'], 'path'), array_column($at['parts'], 'dataset'), $at['why'], array_column($at['parts'], 'trash'), $asked]);
+    $at = $pulledPlace($unit, [], $zfs([$pullDs]));
+    same('leftovers: a pull not mounted (still there by zfs) — listed by its name', [[$pullDs], 'pulled'], [array_column($at['parts'], 'path'), $at['why']]);
+    $at = $pulledPlace($unit, ['/mnt/x' => ['fs' => 'zfs', 'source' => 'cache/other']], $zfs([]));
+    same('leftovers: a pull removed by his «Remove what was pulled…» — gone from her list', [[], []], [$at['parts'], $at['asleep']]);
+    if ($ctxBefore === null) {
+        unset($GLOBALS['clCtx']);
+    } else {
+        $GLOBALS['clCtx'] = $ctxBefore;
+    }
+    same('leftovers: a pull is never put into her storeroom (a stale page sending it)', 'cleanup_pulled',
+        (function () { try { clParkCheck(['kind' => 'leftover', 'why' => 'pulled', 'force' => false, 'name' => 'photos.restored-20261020-151500'], true); return null; } catch (Problem $p) { return $p->key; } })());
+    $cl = (string) file_get_contents(OFFICE_DIR . '/agent/desks/cleanup.php');
+    check('leftovers: her list looks at a pull with clPulledPlace(), its category «pulled»',
+        str_contains($cl, "\$at = \$u['what'] === 'pulled' ? clPulledPlace(\$u, \$mounts) : clLeftoverPlace(\$u, \$libvirt, \$mounts);")
+        && str_contains($cl, "(\$u['what'] === 'pulled' ? 'pulled' : "));
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/cleanup/desk.js');
+    check('leftovers: the page links a pull to his «Remove what was pulled…» (#/restore/journal)', str_contains($js, "T('lo.pulled_link')") && str_contains($js, "a.href = '#/restore/journal';"));
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/cleanup/lang/en.json'), true) ?: [];
+    check('leftovers: the page can say it', isset($en['lo.what.pulled'], $en['lo.what.pulled_text'], $en['lo.pulled_link'], $en['why.pulled'], $en['why.pulled_text'],
+        $en['cat.leftovers.pulled'], $en['errors.cleanup_pulled']));
     same('leftovers: what «Put back» can still undo', [true, true, false, false, false, true],
         array_map('clRestoreUndoable', [['kind' => 'db', 'result' => 'ok'], ['kind' => 'files', 'result' => 'interrupted', 'putback' => ['result' => 'refused']],
             ['kind' => 'db', 'result' => 'ok', 'putback' => ['result' => 'failed']], ['kind' => 'putback', 'result' => 'ok'], ['kind' => 'kopia', 'result' => 'ok'],
@@ -16904,6 +16961,285 @@ function testWatchmanFlowGone(): void
     $d5 = $dround($t1 + 1500, 8750 * $gb, ['mover'], null);
     same('moved off: a mover without a record — the disk excused whole, as before', [[], [], (51 + 20 + 80 + 400 + 400) * $gb],
         [$d4, $d5, array_sum($flow['gone']['disk:disk1']['o'] ?? [])]);
+}
+
+/** A spy for the night watchman's readers (testWatchmanFlowFiles): serves a real folder under spy:// and notes every path asked */
+class WatchFsSpy
+{
+    public static string $root = '';
+    public static array $asked = [];
+    public $context;
+    private $h;
+    private array $list = [];
+
+    private static function real(string $url): string
+    {
+        $path = substr($url, strlen('spy://'));
+        self::$asked[] = '/' . ltrim($path, '/');
+        return self::$root . '/' . ltrim($path, '/');
+    }
+
+    public function stream_open(string $url, string $mode, int $options, ?string &$opened): bool
+    {
+        $this->h = @fopen(self::real($url), $mode);
+        return $this->h !== false;
+    }
+    public function stream_read(int $n): string|false { return fread($this->h, $n); }
+    public function stream_eof(): bool { return feof($this->h); }
+    public function stream_seek(int $offset, int $whence = SEEK_SET): bool { return fseek($this->h, $offset, $whence) === 0; }
+    public function stream_tell(): int { return (int) ftell($this->h); }
+    public function stream_stat(): array|false { return fstat($this->h); }
+    public function stream_close(): void { fclose($this->h); }
+    public function url_stat(string $url, int $flags): array|false
+    {
+        $real = self::real($url);
+        return file_exists($real) ? @stat($real) : false;
+    }
+    public function dir_opendir(string $url, int $options): bool
+    {
+        $list = @scandir(self::real($url));
+        $this->list = $list === false ? [] : $list;
+        return $list !== false;
+    }
+    public function dir_readdir(): string|false
+    {
+        $x = current($this->list);
+        next($this->list);
+        return $x;
+    }
+    public function dir_rewinddir(): bool { reset($this->list); return true; }
+    public function dir_closedir(): bool { return true; }
+}
+
+/**
+ * Files deleted and heavy writing on every filesystem (owner, 2026-10-20: very many files deleted and added again on a
+ * btrfs share — nothing told): the readers on fixtures in the shapes Unraid 7.4 (kernel 6.18, OpenZFS 2.3) gives them,
+ * a sleeping disk never touched (a spy notes every path asked), then rounds: an XFS disk's deletions, a deletion and
+ * its files back within one round, a btrfs disk written over, the movers and the office expected, a btrfs balance and a
+ * parity rebuild left out, counters counted anew, ZFS per share, «I know, thanks», the page.
+ */
+function testWatchmanFlowFiles(): void
+{
+    $gb = 1024 ** 3;
+    $tmp = sys_get_temp_dir() . '/office-tests-flow-files-' . getmypid();
+    foreach (['sys/xfs/md1p1/stats', 'sys/xfs/md2p1/stats', 'sys/xfs/dm-3/stats', 'sys/btrfs/aaaa-1/devices/md3p1', 'sys/btrfs/bbbb-2/devices/nvme0n1p1',
+              'sys/btrfs/bbbb-2/devices/nvme1n1p1', 'sys/btrfs/bbbb-2/allocation/data/raid1', 'dev/mapper', 'mnt/disk1/Fotos', 'mnt/disk2/Filme', 'kstat/tank'] as $d) {
+        @mkdir("$tmp/$d", 0700, true);
+    }
+    $xfs = fn (int $create, int $remove, int $written) => "extent_alloc 7 9 0 0\nabt 0 0 0 0\ndir 115 $create $remove 44652\ntrans 0 92 0\n"
+        . "rw 120 126\nattr 0 0 0 0\nxpc 0 $written 125829120\ndebug 0\n";
+    file_put_contents("$tmp/sys/xfs/md1p1/stats/stats", $xfs(10, 4, 125829120));
+    file_put_contents("$tmp/sys/xfs/md2p1/stats/stats", $xfs(1, 1, 1));
+    file_put_contents("$tmp/sys/xfs/dm-3/stats/stats", $xfs(5, 2, 4096));
+    symlink("$tmp/dev/dm-3", "$tmp/dev/mapper/md5p1");
+    touch("$tmp/dev/dm-3");
+    file_put_contents("$tmp/sys/btrfs/aaaa-1/exclusive_operation", "none\n");
+    file_put_contents("$tmp/sys/btrfs/aaaa-1/generation", "4598\n");
+    file_put_contents("$tmp/sys/btrfs/bbbb-2/generation", "66\n");
+    file_put_contents("$tmp/sys/btrfs/bbbb-2/exclusive_operation", "none\n");
+    file_put_contents("$tmp/disks.ini", "[parity]\nname=\"parity\"\ndevice=\"sda\"\ntype=\"Parity\"\nrotational=\"1\"\nspundown=\"0\"\n"
+        . "[disk1]\nname=\"disk1\"\ndevice=\"sdb\"\ntype=\"Data\"\nfsType=\"xfs\"\nfsStatus=\"Mounted\"\nrotational=\"1\"\nspundown=\"0\"\n"
+        . "[disk2]\nname=\"disk2\"\ndevice=\"sdc\"\ntype=\"Data\"\nfsType=\"xfs\"\nfsStatus=\"Mounted\"\nrotational=\"1\"\nspundown=\"1\"\n"
+        . "[disk3]\nname=\"disk3\"\ndevice=\"sdd\"\ntype=\"Data\"\nfsType=\"btrfs\"\nfsStatus=\"Mounted\"\nrotational=\"1\"\nspundown=\"0\"\n"
+        . "[disk5]\nname=\"disk5\"\ndevice=\"sdf\"\ntype=\"Data\"\nfsType=\"luks:xfs\"\nfsStatus=\"Mounted\"\nrotational=\"1\"\nspundown=\"1\"\n"
+        . "[cache]\nname=\"cache\"\ndevice=\"nvme0n1\"\ntype=\"Cache\"\nfsType=\"btrfs\"\nfsStatus=\"Mounted\"\nrotational=\"0\"\nspundown=\"0\"\n"
+        . "[cache2]\nname=\"cache2\"\ndevice=\"nvme1n1\"\ntype=\"Cache\"\nrotational=\"0\"\nspundown=\"0\"\n"
+        . "[tank]\nname=\"tank\"\ndevice=\"sde\"\ntype=\"Cache\"\nfsType=\"zfs\"\nfsStatus=\"Mounted\"\nrotational=\"1\"\nspundown=\"0\"\n"
+        . "[flash]\nname=\"flash\"\ndevice=\"sdg\"\ntype=\"Flash\"\nfsType=\"vfat\"\nfsStatus=\"Mounted\"\n");
+    // /proc/mounts as the spy's /mnt names it (the readers only compare the mount points, they never open one)
+    file_put_contents("$tmp/mounts", "/dev/sdg1 /boot vfat rw 0 0\n/dev/md1p1 spy://mnt/disk1 xfs rw,noatime 0 0\n/dev/md2p1 spy://mnt/disk2 xfs rw,noatime 0 0\n"
+        . "/dev/md3p1 spy://mnt/disk3 btrfs rw,noatime 0 0\n/dev/mapper/md5p1 spy://mnt/disk5 xfs rw,noatime 0 0\n/dev/nvme0n1p1 spy://mnt/cache btrfs rw,noatime,ssd 0 0\n"
+        . "tank spy://mnt/tank zfs rw 0 0\nshfs spy://mnt/user fuse.shfs rw 0 0\n");
+    $stats = fn (int $sdd, int $n0, int $n1) => "   8      48 sdd 296525 32015001 258583756 7381973 120263 10343186 $sdd 204886 0 116284 7591173 0 0 0 0 514 4312\n"
+        . " 259       0 nvme0n1 751746 0 107564664 158490 1566741 0 195696928 425577 0 402069 822812 56435 0 127036960 14531 72640 224212\n"
+        . " 259       1 nvme0n1p1 751000 0 107500000 158000 1566000 0 $n0 425000 0 402000 822000 56435 0 127036960 14531 72640 224212\n"
+        . " 259       3 nvme1n1p1 742000 0 108200000 158000 1575000 0 $n1 420000 0 400000 814000 56435 0 127036960 15495 72642 220258\n"
+        . "   9       3 md3p1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n";
+    file_put_contents("$tmp/diskstats", $stats(1000, 4000, 4000));
+    file_put_contents("$tmp/var.ini", "mdResync=\"0\"\n");
+    if (!in_array('spy', stream_get_wrappers(), true)) {
+        stream_wrapper_register('spy', 'WatchFsSpy');
+    }
+    WatchFsSpy::$root = $tmp;
+    WatchFsSpy::$asked = [];
+    $paths = ['disks_ini' => "$tmp/disks.ini", 'var_ini' => "$tmp/var.ini", 'mounts' => "$tmp/mounts", 'diskstats' => "$tmp/diskstats",
+              'sys_xfs' => 'spy://sys/xfs', 'sys_btrfs' => 'spy://sys/btrfs', 'dev_root' => $tmp, 'mnt' => 'spy://mnt'];
+    $fs = watchmanFlowFs($paths);
+    same('fs counters: XFS from its own stats (a deletion and a rename\'s old name, bytes written), btrfs from its devices (an array disk: its own device; a raid1 pool: its members, halved)',
+        [['cache', 'disk1', 'disk3'], ['fs' => 'xfs', 'rm' => 4, 'w' => 125829120, 'busy' => false], ['fs' => 'btrfs', 'rm' => null, 'w' => 512000, 'busy' => false, 'gen' => 4598],
+         ['fs' => 'btrfs', 'rm' => null, 'w' => 4000 * 512, 'busy' => false, 'gen' => 66], ['disk2', 'disk5']],
+        [array_keys($fs['disks'] ?? []), $fs['disks']['disk1'] ?? null, $fs['disks']['disk3'] ?? null, $fs['disks']['cache'] ?? null, $fs['asleep'] ?? null]);
+    $asked = WatchFsSpy::$asked;
+    same('fs counters: a sleeping disk is never touched (not its counters, not its device) and nothing under /mnt is asked at all — RAM only',
+        [[], [], true], [array_values(array_filter($asked, fn ($p) => str_contains($p, 'disk2') || str_contains($p, 'md2p1') || str_contains($p, 'disk5') || str_contains($p, 'dm-3'))),
+                         array_values(array_filter($asked, fn ($p) => str_starts_with($p, '/mnt'))), in_array('/sys/xfs/md1p1/stats/stats', $asked, true)]);
+    // the encrypted XFS disk awake: its counters under the device mapper's name (dm-3)
+    file_put_contents("$tmp/disks.ini", str_replace("rotational=\"1\"\nspundown=\"1\"\n[cache]", "rotational=\"1\"\nspundown=\"0\"\n[cache]", (string) file_get_contents("$tmp/disks.ini")));
+    // a btrfs balance on disk3, a parity rebuild: disk3 (an array disk) busy; the pool busy only while it balances itself
+    file_put_contents("$tmp/sys/btrfs/bbbb-2/exclusive_operation", "balance\n");
+    $fs2 = watchmanFlowFs($paths);
+    file_put_contents("$tmp/var.ini", "mdResync=\"1953514552\"\n");
+    $fs3 = watchmanFlowFs($paths);
+    same('fs counters: an encrypted disk by its mapper device; a balance makes its pool busy, a parity rebuild every btrfs array disk',
+        [['fs' => 'xfs', 'rm' => 2, 'w' => 4096, 'busy' => false], true, false, true, true],
+        [$fs2['disks']['disk5'] ?? null, $fs2['disks']['cache']['busy'] ?? null, $fs2['disks']['disk3']['busy'] ?? null, $fs3['disks']['disk3']['busy'] ?? null,
+         $fs3['disks']['cache']['busy'] ?? null]);
+
+    // ZFS: nunlinks per dataset from its kstat (objsetid from zfs get), never Docker's layers, a kstat of another dataset not taken
+    $kstat = fn (string $ds, int $n) => "886 1 0x01 28 7872 32143951267471 47323808257814\nname                            type data\n"
+        . "dataset_name                    7    $ds\nwrites                          4    23171\nnwritten                        4    80400304\n"
+        . "nunlinks                        4    $n\nnunlinked                       4    $n\nzil_commit_count                4    4486\n";
+    file_put_contents("$tmp/kstat/tank/objset-0x104", $kstat('tank/Fotos', 11701));
+    file_put_contents("$tmp/kstat/tank/objset-0x155", $kstat('tank/other', 5));
+    file_put_contents("$tmp/kstat/tank/objset-0x200", $kstat('tank/system/docker/' . str_repeat('a', 64), 900));
+    $sets = watchmanZfsParse("tank/Fotos\twritten\t10\ntank/Fotos\tobjsetid\t260\ntank/Musik\tobjsetid\t341\ntank/system/docker/" . str_repeat('a', 64) . "\tobjsetid\t512\n");
+    watchmanZfsUnlinks($sets, "$tmp/kstat");
+    same('ZFS files deleted: from the dataset\'s own kstat (its name checked), not Docker\'s layers', [260, 11701, null, null],
+        [$sets['tank/Fotos']['o'] ?? null, $sets['tank/Fotos']['x'] ?? null, $sets['tank/Musik']['x'] ?? null, $sets['tank/system/docker/' . str_repeat('a', 64)]['x'] ?? null]);
+    exec('rm -rf ' . escapeshellarg($tmp));
+
+    // rounds on made-up looks
+    $t0 = strtotime('2026-10-20 21:02:00');
+    $look = fn (array $o) => $o + ['conns' => [], 'smb' => ['on' => true, 'sessions' => []], 'containers' => null, 'nfs' => false, 'holder' => null, 'kopia' => 'kopia',
+                                   'zfs' => null, 'office_shares' => ['UnraidSecretaryOffice', 'backups'], 'disks' => null, 'fs' => null, 'moving' => []];
+    $disks = fn (array $used) => ['disks' => ['disk1' => ['fs' => 'xfs', 'used' => $used[0], 'snap' => null, 'shares' => ['Fotos', 'Dokumente']],
+        'disk3' => ['fs' => 'btrfs', 'used' => $used[1], 'snap' => 1791200000, 'shares' => ['Familienfilme']],
+        'disk4' => ['fs' => 'xfs', 'used' => $used[2], 'snap' => null, 'shares' => ['Filme', 'backups']]], 'asleep' => []];
+    $fsl = fn (array $c, array $busy = [], array $asleep = []) => ['disks' => array_diff_key([
+        'disk1' => ['fs' => 'xfs', 'rm' => $c[0], 'w' => $c[1], 'busy' => false], 'disk3' => ['fs' => 'btrfs', 'rm' => null, 'w' => $c[2], 'busy' => in_array('disk3', $busy, true)],
+        'disk4' => ['fs' => 'xfs', 'rm' => $c[3], 'w' => $c[4], 'busy' => false]], array_flip($asleep)), 'asleep' => $asleep];
+    $bf = null;
+    $book = [];
+    $used = [4000 * $gb, 300 * $gb, 2000 * $gb];
+    [$a0, $flow, $cnt] = watchmanFlowCompare($bf, [], null, $look(['disks' => $disks($used), 'fs' => $fsl([1000, 0, 0, 50, 0])]), $book, $t0);
+    // five minutes later: 25 000 files deleted on disk1 (and as many written back — its used space as before); disk3 (btrfs):
+    // 60 GB written, its used space as before (deleted and added again); disk4 quiet
+    [$a1, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $fsl([26000, 40 * $gb, 60 * $gb, 50, 0])]), $book, $t0 + 300);
+    $open = array_column(array_filter($book, 'watchmanOpen'), null, 'key');
+    $d1 = $open['flow_gone:files:disk:disk1']['p'] ?? [];
+    $d3 = $open['flow_written:disk:disk3']['p'] ?? [];
+    same('the first look counts nothing; then the files deleted on disk1 told, disk3\'s writing told (its used space never moved), disk1\'s 40 GB not (under 50 GB)',
+        [[], ['flow_gone', 'flow_written'], ['flow_gone:files:disk:disk1', 'flow_written:disk:disk3'], [25000, true, 'server', 'disk1'], [60 * $gb, 'disk3', 'btrfs', ['Familienfilme']]],
+        [$a0, (function (array $a) { sort($a); return $a; })($a1), (function (array $a) { sort($a); return $a; })(array_keys($open)),
+         [$d1['files'] ?? null, $d1['renames'] ?? null, $d1['from'] ?? null, $d1['disk'] ?? null], [$d3['bytes'] ?? null, $d3['disk'] ?? null, $d3['fs'] ?? null, $d3['shares'] ?? null]]);
+    same('files deleted in words', "25000 files gone from disk1 (Fotos, Dokumente) in 5 min — more than 20000 files in one round while I'm still learning what is normal. "
+        . "No client moved data over SMB, NFS or SSH then — it came from the server itself. On XFS a renamed file counts too. Measured for the whole disk (xfs), not per share.",
+        officeNotifyText('watchman', 'entry.flow_gone', watchmanText($open['flow_gone:files:disk:disk1'], 'en'), 'en'));
+    same('a disk written in words', "60 GB written into disk3 (Familienfilme) in 5 min — more than 50 GB in one round while I'm still learning what is normal. Measured for the whole disk (btrfs), not per share.",
+        officeNotifyText('watchman', 'entry.flow_written', watchmanText($open['flow_written:disk:disk3'], 'en'), 'en'));
+    same('the notification and the team lead\'s line', ['Night watchman: 25000 files gone from disk1 (Fotos, Dokumente)', 'Nachtwächter: 60 GB geschrieben in disk3 (Familienfilme)'],
+        [officeNotifyText('watchman', 'notify.flow_gone', ['n' => 1] + watchmanText($open['flow_gone:files:disk:disk1'], 'en'), 'en'),
+         officeNotifyText('watchman', 'notify.flow_written', ['n' => 1] + watchmanText($open['flow_written:disk:disk3'], 'de'), 'de')]);
+    $book = [];
+
+    // Smart Mover moves Fotos (on disk1): its deletions and writes there are hers; disk4's deletions meanwhile are told. Then a
+    // backup: disk4 holds the backup place — its writing and deleting are the office's; disk1 alone still told
+    $ms = ['smartmover' => ['Fotos'], 'mover' => ['Fotos']];
+    [$a2, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $fsl([56000, 200 * $gb, 60 * $gb, 30050, 0]),
+        'moving' => ['smartmover'], 'move_shares' => $ms]), $book, $t0 + 600);
+    $open = array_column(array_filter($book, 'watchmanOpen'), null, 'key');
+    $book = [];
+    // a quiet round: what a mover moved at the last round is still hers this one
+    [, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $fsl([56000, 200 * $gb, 60 * $gb, 30050, 0]),
+        'move_shares' => $ms]), $book, $t0 + 750);
+    [$a3, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $fsl([86000, 200 * $gb, 60 * $gb, 60050, 300 * $gb]),
+        'holder' => 'backup']), $book, $t0 + 900);
+    $open3 = array_column(array_filter($book, 'watchmanOpen'), null, 'key');
+    same('a mover\'s disk is hers, another disk\'s deletions are told; during a backup the backup place\'s disk is the office\'s, another still told',
+        [['flow_gone:files:disk:disk4'], 30000, 160 * $gb, ['flow_gone:files:disk:disk1'], 30000, 300 * $gb],
+        [array_keys($open), array_sum($flow['files']['disk:disk1']['o'] ?? []), array_sum($flow['disk_w']['disk1']['o'] ?? []), array_keys($open3),
+         array_sum($flow['files']['disk:disk4']['o'] ?? []), array_sum($flow['disk_w']['disk4']['o'] ?? [])]);
+    $book = [];
+
+    // a btrfs balance (or a parity rebuild) on disk3: its writes are nobody's — left out; counters counted anew (remounted): no
+    // entry; a sleeping disk keeps its counters, and once awake again only what changed since counts
+    $before = [array_sum($flow['disk_w']['disk3']['h'] ?? []), array_sum($flow['disk_w']['disk3']['o'] ?? [])];
+    [$a4, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $fsl([86000, 200 * $gb, 900 * $gb, 60050, 300 * $gb], ['disk3'])]), $book, $t0 + 1200);
+    [$a5, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $fsl([10, 1 * $gb, 900 * $gb, 60050, 300 * $gb])]), $book, $t0 + 1500);
+    [$a6, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $fsl([10, 1 * $gb, 900 * $gb, 0, 0], [], ['disk4'])]), $book, $t0 + 1800);
+    $carried = $cnt['fsd']['disk4'] ?? null;
+    [$a7, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $fsl([10, 1 * $gb, 900 * $gb, 60060, 300 * $gb])]), $book, $t0 + 2100);
+    same('a balance left out, counters counted anew without an entry, a sleeping disk carried on and only its change counted after',
+        [[], [], [], [], $before, [60050, 300 * $gb, null], 30000 + 10],
+        [$a4, $a5, $a6, $a7, [array_sum($flow['disk_w']['disk3']['h'] ?? []), array_sum($flow['disk_w']['disk3']['o'] ?? [])], $carried,
+         array_sum($flow['files']['disk:disk4']['h'] ?? [])]);
+
+    // ZFS: files deleted per share (its datasets summed); in the same round as much gone by bytes: said in that entry
+    $ds = fn (int $r, int $x) => ['w' => 0, 'u' => $r, 's' => 1000, 'r' => $r, 'b' => 0, 'x' => $x];
+    $zfs = fn (array $sets) => ['datasets' => ['tank' => $ds(1, 0)] + $sets, 'pools' => ['tank'], 'asleep' => []];
+    $set = ['tank/Fotos' => $ds(900 * $gb, 100), 'tank/Fotos/2025' => $ds(100 * $gb, 0), 'tank/Musik' => $ds(500 * $gb, 0)];
+    $bf = null;
+    $book = [];
+    [, $flow, $cnt] = watchmanFlowCompare($bf, [], null, $look(['zfs' => $zfs($set)]), $book, $t0);
+    $set['tank/Fotos'] = $ds(900 * $gb, 12100);
+    $set['tank/Fotos/2025'] = $ds(100 * $gb, 9000);
+    $set['tank/Musik'] = $ds(300 * $gb, 30000);
+    [$z1, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['zfs' => $zfs($set)]), $book, $t0 + 300);
+    $open = array_column(array_filter($book, 'watchmanOpen'), null, 'key');
+    same('ZFS: Fotos\' 21 000 files told per share (its datasets together); Musik\'s 200 GB told with its 30 000 files in the same entry',
+        [['flow_gone', 'flow_gone'], ['flow_gone:files:share:Fotos', 'flow_gone:share:Musik'], 21000, [200 * $gb, 30000]],
+        [$z1, (function (array $a) { sort($a); return $a; })(array_keys($open)), $open['flow_gone:files:share:Fotos']['p']['files'] ?? null,
+         [$open['flow_gone:share:Musik']['p']['bytes'] ?? null, $open['flow_gone:share:Musik']['p']['files'] ?? null]]);
+    same('ZFS: both in words (de)', ['21000 Dateien weg aus Fotos in 5 Min. — mehr als 20000 Dateien in einem Rundgang, während ich noch lerne, was normal ist. '
+        . 'Kein Client bewegte damals über SMB, NFS oder SSH Daten — es kam vom Server selbst.', '30000 Dateien wurden gelöscht.'],
+        [officeNotifyText('watchman', 'entry.flow_gone', watchmanText($open['flow_gone:files:share:Fotos'], 'de'), 'de'),
+         officeNotifyText('watchman', 'gone.files', ['n' => 30000], 'de')]);
+    // «I know, thanks» on Fotos' files: 21 000 is normal now — the next 25 000 aren't told, 90 000 are
+    $b = ['flow' => $bf];
+    watchmanFlowAdopt($b, $open['flow_gone:files:share:Fotos'], $t0 + 400);
+    $bf = $b['flow'];
+    $book = [];
+    $set['tank/Fotos'] = $ds(900 * $gb, 37100);
+    [$z2, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['zfs' => $zfs($set)]), $book, $t0 + 1200);
+    $set['tank/Fotos'] = $ds(900 * $gb, 127100);
+    [$z3, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['zfs' => $zfs($set)]), $book, $t0 + 1500);
+    same('«I know, thanks» raises the files\' normal (kept by the tidying): 25 000 now quiet, 90 000 told', [21000, [], ['flow_gone']],
+        [$bf['ack']['flow_gone:files:share:Fotos']['bytes'] ?? null, $z2, $z3]);
+
+    $f = watchmanFlowSummary($bf, $flow, $t0 + 1600);
+    $rows = array_column($f['gone'], null, 'key');
+    same('the page: files beside what vanished, a row of their own, the limits', [30000, 200 * $gb, 21000 + 25000 + 90000, 0, 21000, 2000, 20000],
+        [$rows['share:Musik']['files'] ?? null, $rows['share:Musik']['day'] ?? null, $rows['share:Fotos']['files'] ?? null, $rows['share:Fotos']['day'] ?? null,
+         $rows['share:Fotos']['files_ack'] ?? null, $f['limits']['files_min'] ?? null, $f['limits']['files_new'] ?? null]);
+
+    // btrfs: where a disk was written (find-new from the last round's generation) — only when its entry is written, capped
+    $bin = sys_get_temp_dir() . '/office-tests-findnew-' . getmypid();
+    @mkdir($bin, 0700, true);
+    file_put_contents("$bin/btrfs", "#!/bin/bash\n[[ \"\$1 \$2\" == 'subvolume find-new' ]] || exit 2\ncase \"\$4\" in\n"
+        . "100) printf 'inode 257 file offset 0 len 41943040 disk start 0 offset 0 gen 140 flags NONE Familienfotos/2026/a b.jpg\\n'\n"
+        . "    printf 'inode 258 file offset 0 len 2048 disk start 0 offset 0 gen 141 flags INLINE Dokumente/x.txt\\n'\n"
+        . "    printf 'inode 259 file offset 0 len 9999 disk start 0 offset 0 gen 141 flags NONE .Recycle.Bin/y\\n'\n"
+        . "    printf 'transid marker was 141\\n' ;;\n"
+        . "200) awk 'BEGIN{for(i=1;i<=25000;i++) printf \"inode %d file offset 0 len 4096 disk start 0 offset 0 gen 5 flags NONE Familienfotos/%d\\n\", i, i}' ;;\n"
+        . "*) echo 'ERROR: not a btrfs filesystem' >&2; exit 1 ;;\nesac\n");
+    chmod("$bin/btrfs", 0700);
+    same('btrfs where: bytes per share from find-new (no hidden folders); over the cap from the first files only; an error: null',
+        [['top' => [['share' => 'Familienfotos', 'b' => 41943040], ['share' => 'Dokumente', 'b' => 2048]], 'part' => false],
+         ['top' => [['share' => 'Familienfotos', 'b' => WATCH_FINDNEW_LINES * 4096]], 'part' => true], null],
+        [watchmanBtrfsWhere('/mnt/disk3', 100, "$bin/btrfs"), watchmanBtrfsWhere('/mnt/disk3', 200, "$bin/btrfs"), watchmanBtrfsWhere('/mnt/disk3', 300, "$bin/btrfs")]);
+    exec('rm -rf ' . escapeshellarg($bin));
+    $calls = [];
+    $where = function (string $disk, int $gen) use (&$calls, $gb): array {
+        $calls[] = [$disk, $gen];
+        return ['top' => [['share' => 'Familienfotos', 'b' => 55 * $gb]], 'part' => false];
+    };
+    $bfs = fn (int $w, int $gen) => ['disks' => ['disk3' => ['fs' => 'btrfs', 'rm' => null, 'w' => $w, 'busy' => false, 'gen' => $gen]], 'asleep' => []];
+    $bf = null;
+    $book = [];
+    [, $flow, $cnt] = watchmanFlowCompare($bf, [], null, $look(['disks' => $disks($used), 'fs' => $bfs(0, 100), 'where' => $where]), $book, $t0);
+    [, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $bfs(1 * $gb, 120), 'where' => $where]), $book, $t0 + 300);
+    $quiet = $calls;
+    [$w1, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $bfs(61 * $gb, 140), 'where' => $where]), $book, $t0 + 600);
+    // test3, 2026-10-20: the entry brought up to date a round later asked from that round's generation — the 12 GB written
+    // the round before were gone from its answer: it asks from the generation the run began at (here the round at $t0)
+    [, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $bfs(62 * $gb, 150), 'where' => $where]), $book, $t0 + 900);
+    [, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $bfs(62 * $gb, 160), 'where' => $where]), $book, $t0 + 1200);
+    $we = array_column(array_filter($book, 'watchmanOpen'), null, 'key')['flow_written:disk:disk3'] ?? ['p' => []];
+    same('btrfs where: never asked for a quiet round, for the entry from the generation its run began at — also when brought up to date',
+        [[], ['flow_written'], [['disk3', 100], ['disk3', 100]], "62 GB written into disk3 (Familienfilme) in 15 min — more than 50 GB in one round while I'm still learning what is normal. "
+            . "Most of it into: Familienfotos (55 GB). Measured for the whole disk (btrfs), not per share."],
+        [$quiet, $w1, $calls, officeNotifyText('watchman', 'entry.flow_written', watchmanText($we, 'en'), 'en')]);
+
 }
 
 /**
@@ -27462,8 +27798,8 @@ function testPartnerPairing(): void
     same('pairing: A\'s card says what the levels send there (settings.ini)', ['place', 'share:appdata'], partnerTestAs($A, 'return partnerPublic();')['pairs'][0]['send_units'] ?? null);
     same('pairing: the Team Lead\'s state holds the cards right after the pairing (caretakerPartnerDone: no wait for a tour)', [$id],
         array_column(partnerTestAs($A, 'caretakerPartnerDone(["ok" => true]); return readJson(deskFile("caretaker"))["partners"]["pairs"] ?? [];'), 'id'));
-    $pingB = partnerTestAs($B, 'return partner_ping(["id" => ' . var_export($id, true) . ']);');
-    same('pairing: B pings A through A\'s door', true, $pingB['ask']['reachable'] ?? null);
+    $pingB = partnerTestAs($B, 'return partnerAskAndKeep(' . var_export($id, true) . ');');
+    same('pairing: B pings A through A\'s door', true, $pingB['reachable'] ?? null);
     $calls = partnerTestCalls($A['bin']);
     check('pairing: A\'s ssh calls carried its key and its known_hosts only', $calls && !array_filter($calls, fn ($c) => $c[0] === 'ssh'
         && !(in_array("$A[flash]/$id.key", $c, true) && in_array("UserKnownHostsFile=$A[flash]/$id.known", $c, true))));
@@ -27485,7 +27821,34 @@ function testPartnerPairing(): void
     // a host key that changed: never trusted
     file_put_contents($B['host'], partnerTestKey('root@new') . "\n");
     same('pairing: B reinstalled (another host key) — A refuses it', ['reachable' => false, 'why' => 'host_key', 'array' => null],
-        partnerTestAs($A, 'return partner_ping(["id" => ' . var_export($id, true) . ']);')['ask'] ?? null);
+        partnerTestAs($A, 'return partnerAskAndKeep(' . var_export($id, true) . ');'));
+
+    // BG1 (scenario batch G, 2026-10-20): «Ask now» never asks inside the agent's request — an unreachable partner's ssh
+    // waits up to 15 s and held every other page's request that long. The click hands a job to atd and answers at once.
+    partnerTestCalls($A['bin']);
+    $launch = '$GLOBALS["partnerLookLaunch"] = function (string $i) { file_put_contents(RUN_DIR . "/launched.log", "$i\n", FILE_APPEND); };';
+    $clicked = partnerTestAs($A, $launch . ' return partner_ping(["id" => ' . var_export($id, true) . ']);');
+    same('ask now: answered at once — looking, no ask in the answer, the card «asking»', [true, true, false, true],
+        [$clicked['ok'] ?? null, $clicked['looking'] ?? null, array_key_exists('ask', (array) $clicked), $clicked['partners']['pairs'][0]['asking'] ?? null]);
+    same('ask now: the request itself called no ssh', [], array_filter(partnerTestCalls($A['bin']), fn ($c) => ($c[0] ?? '') === 'ssh'));
+    same('ask now: one job handed over, for that pair', "$id\n", @file_get_contents("$A[run]/launched.log"));
+    partnerTestAs($A, $launch . ' return partner_ping(["id" => ' . var_export($id, true) . ']);');
+    same('ask now: a second click while it asks — no second job', "$id\n", @file_get_contents("$A[run]/launched.log"));
+    same('ask now: an unknown pair — said', 'partner_unknown', partnerTestAs($A, $launch . ' return partner_ping(["id" => "0badc0de"]);')['problem'] ?? null);
+    $failed = partnerTestAs($A, '$GLOBALS["partnerLookLaunch"] = function () { throw new Problem("atd_off"); }; @unlink(partnerAskingFile(' . var_export($id, true) . ')); return partner_ping(["id" => ' . var_export($id, true) . ']);');
+    same('ask now: atd off — said, and no «asking» left behind', ['atd_off', false], [$failed['problem'] ?? null, is_file("$A[run]/partner/asking-$id")]);
+    touch("$A[run]/partner/asking-$id", time() - 3600);
+    same('ask now: a mark older than any job (atd never ran it) — not «asking» for good', false, partnerTestAs($A, 'return partnerPublic();')['pairs'][0]['asking'] ?? null);
+    touch("$A[run]/partner/asking-$id");
+    @unlink("$A[run]/" . PARTNER_RESCAN_FILE);
+    same('ask now: the job (php agent.php job partner-look <id>) runs', 0, partnerTestAs($A, 'return desks()["caretaker"]["jobs"]["partner-look"]([' . var_export($id, true) . ']);'));
+    $st = partnerTestAs($A, 'return partnerStateRead()["pairs"][' . var_export($id, true) . '] ?? null;');
+    same('ask now: the job kept the answer (B refuses A\'s host key), the mark gone, the cards asked anew', [false, 'host_key', true, false, true],
+        [$st['reachable'] ?? null, $st['why'] ?? null, ($st['last_try'] ?? 0) >= time() - 60, is_file("$A[run]/partner/asking-$id"), is_file("$A[run]/" . PARTNER_RESCAN_FILE)]);
+    same('ask now: the job with a bad id — nothing asked', 1, partnerTestAs($A, 'return partnerLookJob("../x");'));
+    $ping = (string) preg_replace('/^.*?(function partner_ping\(.*?\n\}\n).*$/s', '$1', (string) file_get_contents(OFFICE_DIR . '/agent/lib/partner.php'));
+    check('ask now: partner_ping asks nobody itself (no partnerAsk/partnerSsh in the request)', str_contains($ping, 'function partner_ping(') && !preg_match('/partnerAsk\(|partnerAskAndKeep|partnerSsh|\brun\(/', $ping));
+    @unlink("$A[run]/launched.log");
 
     // the end: B's line off A, A's key and pin off the flash, the pair gone; B's copies, B's line for A stay
     $ended = partnerTestAs($A, 'return partner_end(["id" => ' . var_export($id, true) . ']);');
@@ -31721,6 +32084,7 @@ function testLogsWakes(): void
     $GLOBALS['logsWakeNamesFile'] = "$tmp/names.json";
     $GLOBALS['logsWakeVarIni'] = "$tmp/var.ini";
     $GLOBALS['logsWakeNoJob'] = true;
+    $GLOBALS['logsWakeSharesIni'] = "$tmp/shares.ini";          // none: a share's disks not known
     $GLOBALS['disksIni'] = "$tmp/disks.ini";
     $GLOBALS['agentStaffFile'] = "$tmp/staff.json";
     file_put_contents("$tmp/staff.json", '{"hired":{"logs":{}}}');
@@ -31982,6 +32346,152 @@ function testLogsWakes(): void
         $page = logsWakesForPage();
         same('logs wakes: the page gets only wakes in exactly their shape, and the rotating disks', [5, ['parity', 'disk1', 'cache', 'cache2'], LOGS_WAKE_LOOK],
             [count($page['wakes']), $page['hdds'], $page['look']]);
+
+        // 1.68.0 on a real server named only Unraid's own look right after a wake (smartctl -A, hdparm -C, started by
+        // emhttpd): never the cause now — said apart, and she looks further: writers, shfs's clients, who started a program
+        $mk = function (string $root, int $pid, string $comm, string $state, int $ppid, string $cmd, array $o = []): void {
+            $dir = "$root/$pid";
+            foreach (['fd', 'fdinfo', 'ns'] as $d) {
+                @mkdir("$dir/$d", 0700, true);
+            }
+            file_put_contents("$dir/stat", "$pid ($comm) $state $ppid 0 0 0 -1 " . ($o['flags'] ?? 0) . " 0 0 0 0 0 0 0 0 20 0 1 0 0 0\n");
+            file_put_contents("$dir/cmdline", $cmd === '' ? '' : str_replace(' ', "\0", $cmd) . "\0");
+            file_put_contents("$dir/cgroup", $o['cgroup'] ?? "0::/\n");
+            @symlink('mnt:[4026531840]', "$dir/ns/mnt");
+            foreach ($o['fds'] ?? [] as $i => [$target, $flags, $at]) {
+                symlink($target, "$dir/fd/" . ($i + 3));
+                file_put_contents("$dir/fdinfo/" . ($i + 3), "pos:\t$at\nflags:\t$flags\nmnt_id:\t57\n");
+            }
+            if (isset($o['io'])) {
+                file_put_contents("$dir/io", "rchar: 9\nwchar: 9\nsyscr: 1\nsyscw: 1\nread_bytes: 0\nwrite_bytes: {$o['io']}\ncancelled_write_bytes: 0\n");
+            }
+        };
+        $io = fn (string $root, int $pid, int $bytes) => file_put_contents("$root/$pid/io", "rchar: 9\nwchar: 9\nread_bytes: 0\nwrite_bytes: $bytes\ncancelled_write_bytes: 0\n");
+        $fdAt = fn (string $root, int $pid, int $fd, string $flags, int $at) => file_put_contents("$root/$pid/fdinfo/$fd", "pos:\t$at\nflags:\t$flags\nmnt_id:\t57\n");
+        [$R, $W, $RW] = ['0100000', '0100001', '0100002'];
+        $kinds = fn (array $list): array => array_map(fn (array $w): array => [$w['pid'], $w['kind'], $w['by'] ?? '', $w['byname'] ?? ''], $list);
+        $p2 = "$tmp/proc2";
+        $mk($p2, 1, 'init', 'S', 0, '/sbin/init');
+        $mk($p2, 2, 'kthreadd', 'S', 0, '', ['flags' => 0x00200000]);
+        $mk($p2, 10, 'emhttpd', 'S', 1, '/usr/local/sbin/emhttpd');
+        $mk($p2, 11, 'smartctl', 'D', 10, '/usr/sbin/smartctl -A /dev/sde');
+        $mk($p2, 12, 'hdparm', 'D', 10, '/usr/sbin/hdparm -C /dev/sde');
+        $mk($p2, 13, 'smartctl', 'D', 1, '/usr/sbin/smartctl -n standby -A /dev/sdt');
+        $c = logsWakeCapture($p2);
+        same('logs wakes 2: Unraid\'s own look after a wake (smartctl -A and hdparm -C by emhttpd, smartctl -n standby) is never a cause — kept apart',
+            [[], ['smartctl', 'hdparm'], []], [$c['who'], $c['unraid'] ?? null, logsWakeCauses([$c], ['/mnt/disk4'])]);
+        // the real records, as 1.68.0 kept them: shown without Unraid's look as the cause, which is said apart
+        $real = [
+            ['id' => 'r1', 'time' => 1792522284, 'disks' => ['disk4', 'disk5'], 'how' => 'caught', 'smart' => 1792522280,
+             'who' => [['kind' => 'program', 'prog' => 'smartctl', 'cmd' => '/usr/sbin/smartctl -A /dev/sde', 'sure' => 'maybe', 'files' => []]]],
+            ['id' => 'r2', 'time' => 1792526592, 'disks' => ['parity', 'disk2'], 'how' => 'caught', 'smart' => 1792526590,
+             'who' => [['kind' => 'program', 'prog' => 'hdparm', 'cmd' => '/usr/sbin/hdparm -C /dev/sde', 'sure' => 'maybe', 'files' => []],
+                       ['kind' => 'container', 'prog' => 'rsync', 'id' => 'abc', 'cmd' => 'rsync', 'sure' => 'sure', 'files' => ['/mnt/disk2/a']]]],
+            ['id' => 'r3', 'time' => 1792526592, 'disks' => ['disk2'], 'how' => 'caught',
+             'who' => [['kind' => 'program', 'prog' => 'smartctl', 'cmd' => '/usr/sbin/smartctl -a /dev/sde', 'sure' => 'maybe', 'files' => []]]],
+        ];
+        $shaped = array_map('logsWakeShaped', $real);
+        same('logs wakes 2: the real records of 1.68.0 — Unraid\'s SMART look and its power-state ask taken out and said apart; a smartctl without Unraid\'s «read SMART» then stays',
+            [[], true, ['container'], true, ['smartctl'], false],
+            [$shaped[0]['who'], $shaped[0]['unraid'], array_column($shaped[1]['who'], 'kind'), $shaped[1]['unraid'], array_column($shaped[2]['who'], 'prog'), $shaped[2]['unraid']]);
+
+        // a program by who started it: Unraid's web page, a terminal, a plugin, a user script; a container by its cgroup
+        $mk($p2, 40, 'php-fpm', 'S', 1, 'php-fpm: pool www');
+        $mk($p2, 41, 'smartctl', 'D', 40, '/usr/sbin/smartctl -a /dev/sde');
+        $mk($p2, 50, 'sshd-session', 'S', 1, 'sshd-session: root@pts/0');
+        $mk($p2, 51, 'bash', 'S', 50, '-bash');
+        $mk($p2, 52, 'dd', 'D', 51, 'dd if=/dev/sde of=/dev/null count=1');
+        $mk($p2, 60, 'bash', 'S', 1, 'bash /usr/local/emhttp/plugins/disk.tidy/scripts/scan.sh');
+        $mk($p2, 61, 'find', 'D', 60, 'find /mnt/user/Media -name x');
+        $mk($p2, 70, 'crond', 'S', 1, '/usr/sbin/crond');
+        $mk($p2, 71, 'php', 'S', 70, '/usr/bin/php /usr/local/emhttp/plugins/user.scripts/startSchedule.php');
+        $mk($p2, 72, 'bash', 'S', 71, '/bin/bash /tmp/user.scripts/tmpScripts/copy-photos/script');
+        $mk($p2, 73, 'cp', 'D', 72, 'cp -a /mnt/disk1/Fotos /mnt/disk4/Fotos');
+        $mk($p2, 74, 'php', 'S', 70, '/usr/bin/php /usr/local/emhttp/plugins/dynamix/scripts/monitor');
+        $mk($p2, 75, 'smartctl', 'D', 74, '/usr/sbin/smartctl -A /dev/sdt');
+        $mk($p2, 80, 'containerd-shim', 'S', 1, '/usr/bin/containerd-shim-runc-v2 -namespace moby');
+        $mk($p2, 81, 'rsync', 'D', 80, 'rsync -a /data /backup', ['cgroup' => '0::/docker/' . str_repeat('cd34', 16) . "\n"]);
+        $c = logsWakeCapture($p2);
+        same('logs wakes 2: a program named with who started it — Unraid\'s web page, a terminal, a plugin, a user script; a container by its cgroup; Unraid\'s monitor reading SMART is Unraid\'s own look',
+            [[41, 'program', 'web', ''], [52, 'program', 'session', ''], [61, 'program', 'plugin', 'disk.tidy'], [73, 'program', 'user_script', 'copy-photos'], [81, 'container', '', '']],
+            $kinds($c['who']));
+        same('logs wakes 2: … and kept that way for the page', ['web', 'plugin', 'disk.tidy'],
+            (function () use ($c): array {
+                $w = logsWakeShaped(['id' => 'x', 'time' => 1, 'disks' => ['disk4'], 'how' => 'caught', 'who' => logsWakeCauses([$c], ['/mnt/disk4'])]);
+                $by = array_column($w['who'], null, 'prog');
+                return [$by['smartctl']['by'] ?? null, $by['find']['by'] ?? null, $by['find']['byname'] ?? null];
+            })());
+
+        // shfs waits for the disk: its own open files say which disk a user share's file lies on — its clients are named
+        $p3 = "$tmp/proc3";
+        $mk($p3, 1, 'init', 'S', 0, '/sbin/init');
+        $mk($p3, 20, 'shfs', 'D', 1, '/usr/libexec/unraid/shfs /mnt/user -disks 7 -o default_permissions', ['fds' => [['/mnt/disk2/Docs/Steuer.pdf', $R, 0]]]);
+        $mk($p3, 21, 'soffice.bin', 'S', 1, '/usr/lib/libreoffice/program/soffice.bin', ['fds' => [['/mnt/user/Docs/Steuer.pdf', $R, 0]]]);
+        $mk($p3, 22, 'smbd', 'S', 1, '/usr/sbin/smbd -D', ['fds' => [['/mnt/user/Media/Sommer.mkv', $R, 0]]]);
+        $mk($p3, 23, 'vlc', 'S', 1, 'vlc', ['fds' => [['/mnt/user/Media2/Herbst.mkv', $R, 0]]]);
+        $c = logsWakeCapture($p3);
+        $bases = ['Docs' => ['disk1', 'disk2'], 'Media' => ['disk2'], 'Media2' => ['disk1']];
+        $woke = logsWakeCauses([$c], ['/mnt/disk2'], $bases);
+        same('logs wakes 2: shfs waiting — its clients named: a user share\'s file by the disk shfs has it on, one in a share on that disk; not one in a share elsewhere, not shfs itself',
+            [[21, 'program', 'open', ['/mnt/disk2/Docs/Steuer.pdf']], [22, 'smb', 'open', ['/mnt/user/Media/Sommer.mkv']]],
+            array_map(fn (array $w): array => [$w['pid'], $w['kind'], $w['sure'], $w['files']], $woke));
+        same('logs wakes 2: … nobody else there: shfs stays, «something through a user share»', [['shfs', 'sure']],
+            array_map(fn (array $w): array => [$w['prog'], $w['sure']], logsWakeCauses([['who' => $c['who'], 'open' => []]], ['/mnt/disk2'], $bases)));
+
+        // writers: a file open for writing on a sleeping disk, the process's write counter moving — named when its
+        // writes wake the disk (the page cache took them; the kernel's flush woke it later, nobody waited)
+        $p4 = "$tmp/proc4";
+        $rsyncId = str_repeat('ef56', 16);
+        $mk($p4, 1, 'init', 'S', 0, '/sbin/init');
+        $mk($p4, 10, 'emhttpd', 'S', 1, '/usr/local/sbin/emhttpd');
+        $mk($p4, 20, 'shfs', 'S', 1, '/usr/libexec/unraid/shfs /mnt/user -disks 7', ['fds' => [['/mnt/disk1/Docs/neu.odt', $RW, 10]], 'io' => 0]);
+        $mk($p4, 30, 'rsync', 'S', 1, 'rsync -a /data/ /backup/', ['cgroup' => "0::/docker/$rsyncId\n", 'fds' => [['/mnt/disk1/Backup/x.tmp', $W, 1000]], 'io' => 5000]);
+        $mk($p4, 31, 'Plex Media Serv', 'S', 1, 'Plex Media Server', ['fds' => [['/mnt/disk1/Media/plex.log', $W, 200], ['/mnt/cache/appdata/plex/db', $RW, 0]], 'io' => 100]);
+        $mk($p4, 32, 'soffice.bin', 'S', 1, 'soffice.bin', ['fds' => [['/mnt/user/Docs/neu.odt', $RW, 10]], 'io' => 0]);
+        $mk($p4, 33, 'cat', 'S', 1, 'cat /mnt/disk1/Media/film.mkv', ['fds' => [['/mnt/disk1/Media/film.mkv', $R, 0]], 'io' => 0]);
+        $mk($p4, 34, 'sqlite3', 'S', 1, 'sqlite3', ['fds' => [['/mnt/cache/appdata/db', $W, 0]], 'io' => 70]);
+        $GLOBALS['logsWakeProc'] = $p4;
+        $diskstats = fn (int $writes, int $flight) => file_put_contents("$p4/diskstats", "   8      16 sdb 500 0 4000 90 $writes 0 560 40 $flight 300 130 0 0 0 0\n");
+        unset($GLOBALS['logsWake']);
+        @unlink("$tmp/mem.json");
+        $ini(['disk1']);
+        $diskstats(70, 0);
+        $tick(LOGS_WAKE_INI_NONE);
+        $hold = logsWakeMem()['hold'] ?? [];
+        same('logs wakes 2: the writers\' list while disk1 sleeps — files open for writing there (a user share\'s by shfs\'s disk); not a reader, not the cache, not shfs',
+            [[30, 31, 32], ['/mnt/disk1/Docs/neu.odt']], [array_keys($hold), $hold[32]['files'] ?? null]);
+        $io($p4, 30, 9000);
+        $fdAt($p4, 30, 3, $W, 5000);
+        $io($p4, 31, 900);                  // Plex wrote — into its database on the cache; its log on disk1 stayed
+        $io($p4, 32, 4096);
+        $fdAt($p4, 32, 3, $RW, 4106);
+        $tick();
+        $diskstats(71, 1);
+        $mk($p4, 11, 'smartctl', 'D', 10, '/usr/sbin/smartctl -A /dev/sdb');
+        $tick();
+        same('logs wakes 2: disk1 asked for — nobody waiting but Unraid\'s look; the writers caught, no second look needed',
+            [[], [30, 32], ['smartctl'], null], [logsWakeMem()['caught']['disk1']['who'] ?? null, array_column(logsWakeMem()['caught']['disk1']['wrote'] ?? [], 'pid'),
+             logsWakeMem()['caught']['disk1']['unraid'] ?? null, logsWakeMem()['retry'] ?? null]);
+        $ini([]);
+        $diskstats(71, 0);
+        $tick(LOGS_WAKE_INI);
+        $w = logsWakeShaped(array_slice(logsWakesRead()['wakes'], -1)[0]);
+        same('logs wakes 2: the wake — the container that wrote first, the share\'s writer by its disk, then who had files open there; Unraid\'s look said apart',
+            [[['container', 'wrote', ['/mnt/disk1/Backup/x.tmp']], ['program', 'wrote', ['/mnt/disk1/Docs/neu.odt']], ['program', 'open', ['/mnt/disk1/Media/plex.log']],
+              ['program', 'open', ['/mnt/disk1/Media/film.mkv']]], true],
+            [array_map(fn (array $c): array => [$c['kind'], $c['sure'], $c['files']], $w['who']), $w['unraid']]);
+        // asked for again, nobody there yet: a second look a second later catches the one who came
+        $ini(['disk1']);
+        $tick(LOGS_WAKE_INI);
+        $tick(120);
+        $diskstats(80, 1);
+        $tick();
+        $retry = logsWakeMem()['retry'] ?? null;
+        $mk($p4, 90, 'tar', 'D', 1, 'tar -cf /tmp/x.tar /mnt/disk1/Fotos', ['fds' => [['/mnt/disk1/Fotos/a.jpg', $R, 0]]]);
+        $tick(LOGS_WAKE_AGAIN_LOOK);
+        same('logs wakes 2: a capture that found nobody — a second look a second later, merged into it', [['disk1'], [90], 2, null],
+            [$retry['disks'] ?? null, array_column(logsWakeMem()['caught']['disk1']['who'] ?? [], 'pid'), logsWakeMem()['caught']['disk1']['looks'] ?? null, logsWakeMem()['retry']]);
+        exec('rm -rf ' . escapeshellarg($p2) . ' ' . escapeshellarg($p3) . ' ' . escapeshellarg($p4));
         $GLOBALS['logsWakeMonoNow'] = null;
         unset($GLOBALS['logsWakeMonoNow']);
 
@@ -31990,10 +32500,13 @@ function testLogsWakes(): void
             $c = logsWakeCapture('/proc');
             check("logs wakes: a capture over this server's /proc took {$c['ms']} ms (" . count($c['who']) . ' waiting)'
                 . ($c['cut'] ? ', cut short' : ''), $c['ms'] <= LOGS_WAKE_BUDGET_MS + 40);
+            $h = logsWakeHolders('/proc', array_values(array_filter(['disk1', 'disk2', 'disk3', 'cache'], fn (string $d): bool => is_dir("/mnt/$d"))));
+            check("logs wakes: the writers' list over this server's /proc took {$h['ms']} ms (" . count($h['hold']) . ' writing on a disk, '
+                . count($h['looked']) . ' processes looked at)' . ($h['cut'] ? ', cut short' : ''), $h['ms'] <= LOGS_WAKE_BUDGET_MS + 40);
         }
     } finally {
         unset($GLOBALS['logsWakesFile'], $GLOBALS['logsWakeMemFile'], $GLOBALS['logsWakeNamesFile'], $GLOBALS['logsWakeVarIni'],
-            $GLOBALS['logsWakeNoJob'], $GLOBALS['logsWakeProc'], $GLOBALS['logsWake']);
+            $GLOBALS['logsWakeNoJob'], $GLOBALS['logsWakeProc'], $GLOBALS['logsWake'], $GLOBALS['logsWakeSharesIni']);
         [$GLOBALS['disksIni'], $GLOBALS['agentStaffFile']] = $keep;
         if ($keep[0] === null) {
             unset($GLOBALS['disksIni']);
@@ -47355,7 +47868,7 @@ JS;
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testHouseDockerSilent', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
