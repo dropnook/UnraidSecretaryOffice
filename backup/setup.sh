@@ -560,6 +560,18 @@ TXT
         HAVE_SETTINGS="yes"
         ok_as settings_read "settings.ini read - the decisions so far are the defaults"
         local e; for e in "${CFG_ERRORS[@]}"; do wrn_as settings_error "settings.ini: $e" error "$e"; done
+        # a key of one value given twice (cfg_load): the last one counts, Apply writes it once - said, never a list
+        local tk tl tv
+        for e in "${CFG_TWICE[@]}"; do
+            IFS=$'\x1f' read -r tk tl tv <<<"$e"
+            if [[ "$tv" == "$(cfg "$tk")" ]]; then
+                hint_as settings_key_twice "settings.ini: '${tk##*|}' is in $(sec_display "${tk%|*}") twice (again in line $tl) - read once, Apply writes it once" \
+                    key "${tk##*|}" section "$(sec_display "${tk%|*}")" line "$tl" value "$(cfg "$tk")"
+            else
+                wrn_as settings_key_differ "settings.ini: '${tk##*|}' is in $(sec_display "${tk%|*}") twice - the last one counts ('$(cfg "$tk")', line $tl), '$tv' before it is dropped at Apply" \
+                    key "${tk##*|}" section "$(sec_display "${tk%|*}")" line "$tl" value "$(cfg "$tk")" dropped "$tv"
+            fi
+        done
     else
         CFG=(); CFG_SECTIONS=(); CFG_ERRORS=()
         # the partner offices --forget kept (2.27): only their [partner] sections

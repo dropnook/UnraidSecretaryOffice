@@ -676,6 +676,8 @@
   "setup.msg.no_notify": "Les notifications d'Unraid ne sont pas disponibles — je ne peux pas te dire comment s'est passée une sauvegarde.",
   "setup.msg.no_user_scripts": "User Scripts n'est pas installé — sans le plugin du secrétariat, la sauvegarde planifiée en a besoin (⟦Apps⟧).",
   "setup.msg.settings_error": "Une ligne des réglages enregistrés est inutilisable : {error}",
+  "setup.msg.settings_key_twice": "«{key}» figure deux fois dans {section} des réglages enregistrés (encore à la ligne {line}) — lu une fois ; Appliquer l'écrit une fois.",
+  "setup.msg.settings_key_differ": "«{key}» figure deux fois dans {section} des réglages enregistrés avec deux valeurs — la dernière compte ({value}, ligne {line}) ; Appliquer n'écrit qu'elle, «{dropped}» disparaît.",
   "setup.msg.no_settings": "Rien n'est encore configuré — chaque proposition vient de ce que j'ai trouvé sur le serveur.",
   "setup.msg.preset_new_bad": "Le réglage par défaut pour les nouveautés était «{value}», que je ne connais pas — je prends «mes propositions».",
   "setup.msg.storeroom_ignored": "Kopia laisse de côté le débarras de Madame Plumeau ({folder}) — les snapshots locaux le gardent.",
