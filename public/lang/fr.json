@@ -410,7 +410,7 @@
   "notifycenter.bundle.subject": {"one": "{n} alerte de plus", "other": "{n} alertes de plus"},
   "notifycenter.times": {"one": "{n} fois", "other": "{n} fois"},
   "notifycenter.more": {"one": "… et {n} autre", "other": "… et {n} autres"},
-  "notifycenter.footer": "La page du chef d'équipe dans le secrétariat liste tout ce qui a été envoyé ou rassemblé — et c'est là que tu règles ce qui arrive tout de suite.",
+  "notifycenter.footer": "Le centre de notifications du chef d'équipe dans le secrétariat liste tout ce qui a été envoyé ou rassemblé — et c'est là que tu règles ce qui arrive tout de suite.",
   "notifycenter.all_well.subject": "Tout est calme — le secrétariat travaille",
   "notifycenter.all_well": "Rien à signaler depuis un jour. Ce signe de vie arrive une fois par jour tant qu'il est activé chez le chef d'équipe.",
   "notifycenter.test.subject": "Notification de test ({level})",
@@ -418,6 +418,6 @@
   "notifycenter.level.normal": "information",
   "notifycenter.level.warning": "avertissement",
   "notifycenter.level.alert": "alerte",
-  "notifycenter.where": "Si et quand cela arrive aux notifications d'Unraid se règle chez le chef d'équipe, sous « Signalements ».",
-  "notifycenter.where_link": "Vers les signalements du chef d'équipe"
+  "notifycenter.where": "Si et quand cela arrive aux notifications d'Unraid se règle dans le centre de notifications du chef d'équipe.",
+  "notifycenter.where_link": "Vers le centre de notifications"
 }

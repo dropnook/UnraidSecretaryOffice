@@ -676,7 +676,12 @@
    "collecting": 1791560374,
    "collected": 3,
    "silent_until": 0,
-   "summaries": 2
+   "summaries": 2,
+   "day": {
+    "sent": 3,
+    "held": 6,
+    "failed": 0
+   }
   }
  },
  "partners": {

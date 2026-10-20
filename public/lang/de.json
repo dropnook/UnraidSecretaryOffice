@@ -404,7 +404,7 @@
   "notifycenter.bundle.subject": {"one": "1 weiterer Alarm", "other": "{n} weitere Alarme"},
   "notifycenter.times": {"one": "einmal", "other": "{n}-mal"},
   "notifycenter.more": {"one": "… und 1 weitere", "other": "… und {n} weitere"},
-  "notifycenter.footer": "Auf der Seite des Teamchefs im Sekretariat steht alles, was gesendet oder gesammelt wurde — und dort stellst du ein, was sofort kommt.",
+  "notifycenter.footer": "Die Mitteilungszentrale des Teamchefs im Sekretariat zeigt alles, was gesendet oder gesammelt wurde — und dort stellst du ein, was sofort kommt.",
   "notifycenter.all_well.subject": "Alles ruhig — das Sekretariat arbeitet",
   "notifycenter.all_well": "Seit einem Tag nichts zu melden. Dieses Lebenszeichen kommt einmal am Tag, solange es beim Teamchef eingeschaltet ist.",
   "notifycenter.test.subject": "Testmeldung ({level})",
@@ -412,6 +412,6 @@
   "notifycenter.level.normal": "Hinweis",
   "notifycenter.level.warning": "Warnung",
   "notifycenter.level.alert": "Alarm",
-  "notifycenter.where": "Ob und wann das an Unraids Benachrichtigungen geht, stellst du beim Teamchef unter «Meldungen» ein.",
-  "notifycenter.where_link": "Zu den Meldungen des Teamchefs"
+  "notifycenter.where": "Ob und wann das an Unraids Benachrichtigungen geht, stellst du in der Mitteilungszentrale des Teamchefs ein.",
+  "notifycenter.where_link": "Zur Mitteilungszentrale"
 }

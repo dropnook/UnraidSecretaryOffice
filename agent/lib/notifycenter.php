@@ -744,7 +744,7 @@ function officeNotifyPublic(?int $now = null): array
     ];
 }
 
-/** His tile's line (in his state, from the files only): the last that went, how many wait, collecting since, silent until */
+/** His tiles' lines (in his state, from the files only): the last that went, the last day's counts, how many wait, collecting since, silent until */
 function officeNotifyBrief(): array
 {
     $log = officeNotifyLogRead();
@@ -753,8 +753,11 @@ function officeNotifyBrief(): array
     $queue = officeNotifyQueueRead(OFFICE_NOTIFY_HELD);
     $flood = array_filter($queue['items'], fn ($i) => $i['why'] === 'flood');
     $s = officeNotifySettings();
+    $day = array_filter($log, fn ($e) => $e['time'] > time() - 86400);
+    $count = fn (array $fates) => count(array_filter($day, fn ($e) => in_array($e['fate'] ?? '', $fates, true)));
     return [
         'last'         => $last ? ['time' => $last['time'], 'sent' => $last['fate'] === 'sent', 'subject' => (string) ($last['subject'] ?? '')] : null,
+        'day'          => ['sent' => $count(['sent']), 'held' => $count(['held', 'collected', 'counted', 'dropped']), 'failed' => $count(['failed'])],
         'waiting'      => count($queue['items']),
         'collecting'   => $flood ? min(array_column($flood, 'time')) : null,
         'collected'    => count($flood),

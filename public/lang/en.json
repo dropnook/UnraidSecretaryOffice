@@ -404,7 +404,7 @@
   "notifycenter.bundle.subject": {"one": "1 more alert", "other": "{n} more alerts"},
   "notifycenter.times": {"one": "once", "other": "{n} times"},
   "notifycenter.more": {"one": "… and 1 more", "other": "… and {n} more"},
-  "notifycenter.footer": "The Team Lead's page in the office lists everything that was sent or collected — and there you set what comes right away.",
+  "notifycenter.footer": "The Team Lead's notification centre in the office lists everything that was sent or collected — and there you set what comes right away.",
   "notifycenter.all_well.subject": "All quiet — the office is at work",
   "notifycenter.all_well": "Nothing to report for a day. This sign of life comes once a day while it is switched on at the Team Lead's.",
   "notifycenter.test.subject": "Test notification ({level})",
@@ -412,6 +412,6 @@
   "notifycenter.level.normal": "notice",
   "notifycenter.level.warning": "warning",
   "notifycenter.level.alert": "alert",
-  "notifycenter.where": "Whether and when this reaches Unraid's notifications is set at the Team Lead's, under «Reports».",
-  "notifycenter.where_link": "Open the Team Lead's reports"
+  "notifycenter.where": "Whether and when this reaches Unraid's notifications is set in the Team Lead's notification centre.",
+  "notifycenter.where_link": "Open the notification centre"
 }

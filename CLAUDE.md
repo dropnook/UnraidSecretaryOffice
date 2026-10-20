@@ -96,7 +96,7 @@ tests/ tools/          run.php, node tests, ui/ (harness, stubs, demo/); release
   `METRICS_MAX_BYTES` (16 KB). Names unique over desks, times `…_timestamp_seconds`, no `_count/_sum/_bucket` on a gauge;
   renaming one changes `monitoring/grafana-dashboard.json` too.
 * **Notifications** only via `officeNotify()` (naming its desk and event) — every sender behind the Team Lead's ONE gate
-  (`notifycenter.php` = `notifygate.sh`, the same decision; alerts never held; settings only on his «Reports»): subject prefix `Unraid Secretary Office`; `warning` = something to fix, `alert`
+  (`notifycenter.php` = `notifygate.sh`, the same decision; alerts never held; settings only in his notification centre): subject prefix `Unraid Secretary Office`; `warning` = something to fix, `alert`
   only when something is at risk now; texts `notify.*` via `officeNotifyText()` in the office's last language
   (`officeNotifyLang()`); tests use `OFFICE_NOTIFY_BIN`. All senders (agent, night shift, agent.sh `tell`, engine `ub_notify`)
   share the stamp `RUN_DIR/notify.second` (Unraid drops a second one of the same event in the same second). `-m` line breaks are

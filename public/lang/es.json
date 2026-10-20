@@ -410,7 +410,7 @@
   "notifycenter.bundle.subject": {"one": "1 alerta más", "other": "{n} alertas más"},
   "notifycenter.times": {"one": "una vez", "other": "{n} veces"},
   "notifycenter.more": {"one": "… y 1 más", "other": "… y {n} más"},
-  "notifycenter.footer": "La página del jefe de equipo en la secretaría lista todo lo que se envió o se recogió — y allí ajustas lo que llega al momento.",
+  "notifycenter.footer": "El centro de notificaciones del jefe de equipo en la secretaría lista todo lo que se envió o se recogió — y allí ajustas lo que llega al momento.",
   "notifycenter.all_well.subject": "Todo tranquilo — la secretaría trabaja",
   "notifycenter.all_well": "Nada que avisar desde hace un día. Esta señal de vida llega una vez al día mientras esté activada con el jefe de equipo.",
   "notifycenter.test.subject": "Notificación de prueba ({level})",
@@ -418,6 +418,6 @@
   "notifycenter.level.normal": "aviso",
   "notifycenter.level.warning": "advertencia",
   "notifycenter.level.alert": "alerta",
-  "notifycenter.where": "Si y cuándo llega a las notificaciones de Unraid se ajusta con el jefe de equipo, en «Avisos».",
-  "notifycenter.where_link": "A los avisos del jefe de equipo"
+  "notifycenter.where": "Si y cuándo llega a las notificaciones de Unraid se ajusta en el centro de notificaciones del jefe de equipo.",
+  "notifycenter.where_link": "Al centro de notificaciones"
 }
