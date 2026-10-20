@@ -18656,6 +18656,43 @@ function testAgentZone(): void
 }
 
 /**
+ * Batch E B15 (scenario backup-sv-docker-hung-replan-run, dockerd SIGSTOPped): houseContainers() and houseInspect()
+ * waited 20 s each while Docker was silent, inside the agent's round (the Team Lead's checks, the desks) — a 140 s gap
+ * in the heartbeat. Now one short wait (HOUSE_DOCKER_WAIT), then no docker call of the house for HOUSE_DOCKER_QUIET s
+ * (houseDockerSilent()); a docker that answers again ends it. A docker stand-in of the test's own on PATH.
+ */
+function testHouseDockerSilent(): void
+{
+    $tmp = hardeningTmp('dockersilent');
+    $path = getenv('PATH');
+    file_put_contents("$tmp/docker", "#!/bin/sh\n[ -f " . escapeshellarg("$tmp/hung") . " ] && sleep 30\necho '[{\"Name\":\"/x\"}]'\n");
+    chmod("$tmp/docker", 0755);
+    touch("$tmp/hung");
+    putenv("PATH=$tmp:$path");
+    unset($GLOBALS['houseDockerSilent']);
+    $timed = function (callable $f): array {
+        $t = microtime(true);
+        $r = $f();
+        return [$r, round(microtime(true) - $t, 1)];
+    };
+    $ok = function_exists('houseDocker');
+    [$first, $t1] = $ok ? $timed(fn () => houseDocker(['ps'], 1)[0]) : ['no houseDocker()', 0];
+    same('docker silent: the first call that gets no answer waits its short time and says so (124)', [124, true], [$first, $t1 >= 0.9 && $t1 < 5]);
+    same('docker silent: Docker counts as silent now', true, $ok && houseDockerSilent());
+    [$list, $t2] = $timed(fn () => houseContainers(true));
+    [$one, $t3] = $timed(fn () => houseInspect('x'));
+    same('docker silent: meanwhile the containers and an inspect answer at once, nothing asked of Docker', [[], null, true],
+        [$list, $one, $t2 + $t3 < 0.5]);
+    unlink("$tmp/hung");
+    unset($GLOBALS['houseDockerSilent']);
+    same('docker silent: once it answers again, it is asked again', ['/x', false], [houseInspect('x')['Name'] ?? null, $ok && houseDockerSilent()]);
+    putenv("PATH=$path");
+    unset($GLOBALS['houseDockerSilent']);
+    houseContainers(true);          // the cache as the other tests find it: whatever this server's docker says
+    hardeningRm($tmp);
+}
+
+/**
  * Batch D F3 (scenario backup-sv-atd-off-run-apply, 2026-10-19): with atd stopped, `at` still queues a job (exit 0) and
  * nothing starts — the page said «Handed over — it should start any moment» for ever, and the job ran whenever atd came
  * back. hostLaunch() now looks first (hostAtdUp(): the pid file's process called atd, else any process called atd) and
@@ -29022,8 +29059,8 @@ function testRestoreDrill(): void
     if ($hadNow === null) {
         unset($GLOBALS['drill']['now']);
     }
-    // batch E R18 (restore-kp-disconnected-kopia-drill, restore-kp-s3-unreachable-kopia-drill): Kopia's list failed
-    // because it can't reach the offsite copy — «not checked» with the reason, the next Kopia steps not asked again;
+    // batch E R18 (restore-kp-disconnected-kopia-drill, restore-kp-s3-unreachable-kopia-drill — Kopia's words there):
+    // Kopia's list failed because it can't reach the offsite copy — «not checked» with the reason, the next Kopia steps not asked again;
     // a list that failed with the repository reached stays «failed»
     $f = function (string $err, array &$env): array {
         if (!function_exists('drillKopiaListFailed')) {
@@ -29034,10 +29071,10 @@ function testRestoreDrill(): void
     };
     $env = [];
     same('drill kopia: the repository not connected — not checked, kopia_unreachable',
-        ['not_checked', 'kopia_unreachable', true], $f("ERROR open repository: repository is not connected. See https://kopia.io/docs/repositories/\n", $env));
+        ['not_checked', 'kopia_unreachable', true], $f("open repository: repository is not connected. See https://kopia.io/docs/repositories/\n", $env));
     $env = [];
     same('drill kopia: its S3 place refusing — not checked, kopia_unreachable',
-        ['not_checked', 'kopia_unreachable', true], $f('ERROR unable to open repository: unable to read format blob: error getting kopia.repository blob: Get "http://172.17.0.4:9000/uso/kopia.repository": dial tcp 172.17.0.4:9000: connect: connection refused', $env));
+        ['not_checked', 'kopia_unreachable', true], $f('failed to open repository: cannot open storage: error retrieving storage config from bucket "uso": Get "http://192.0.2.7:9010/uso/?location=": dial tcp 192.0.2.7:9010: connect: connection refused', $env));
     $env = [];
     same('drill kopia: the repository reached, the list still failed — failed (the copy is in doubt)',
         ['failed', 'kopia_list_failed', false], $f('ERROR error loading manifests: unable to load manifest contents: invalid checksum', $env));
@@ -45420,7 +45457,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
-          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
+          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testHouseDockerSilent', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.

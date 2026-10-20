@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 const HOUSE_PLUGINS = '/boot/config/plugins';
 const HOUSE_CACHE   = 20;          // seconds — the agent runs for weeks, one tour of checks shares one look
+const HOUSE_DOCKER_WAIT  = 10;     // seconds a docker call of houseContainers()/houseInspect() may take
+const HOUSE_DOCKER_QUIET = 120;    // after one that didn't answer: no docker call of theirs for so long (houseDockerSilent())
 
 /**
  * One finding of a check.
@@ -115,7 +117,7 @@ function houseContainers(bool $fresh = false): array
     }
     $cache = [];
     $at = time();
-    [$exit, $out] = run(['docker', 'ps', '-a', '--format', '{{.Names}}\t{{.Image}}\t{{.State}}'], 20);
+    [$exit, $out] = houseDocker(['ps', '-a', '--format', '{{.Names}}\t{{.Image}}\t{{.State}}']);
     if ($exit === 0) {
         foreach (rows($out) as $f) {
             if (count($f) >= 3) {
@@ -126,12 +128,45 @@ function houseContainers(bool $fresh = false): array
     return $cache;
 }
 
-/** docker inspect of one container, or null */
+/** docker inspect of one container, or null (also while Docker is silent: houseDockerSilent()) */
 function houseInspect(string $name): ?array
 {
-    [$exit, $out] = run(['docker', 'inspect', $name], 20);
+    [$exit, $out] = houseDocker(['inspect', $name]);
     $j = $exit === 0 ? json_decode($out, true) : null;
     return is_array($j[0] ?? null) ? $j[0] : null;
+}
+
+/**
+ * A docker call of the house (houseContainers(), houseInspect()): at most HOUSE_DOCKER_WAIT s — and once one didn't
+ * answer in time (dockerd hung, stopped by a signal), none for HOUSE_DOCKER_QUIET s: a silent Docker costs the agent's
+ * round one short wait, not 20 s for every caller (batch E B15, backup-sv-docker-hung-replan-run: a 140 s gap in the
+ * heartbeat). Meanwhile they answer as Docker gave nothing (exit 124); callers that say so ask houseDockerSilent().
+ * $wait for the tests.
+ *
+ * @return array{0:int, 1:string, 2:string}
+ */
+function houseDocker(array $args, int $wait = HOUSE_DOCKER_WAIT): array
+{
+    if (houseDockerSilent()) {
+        return [124, '', 'Docker does not answer (no new call for ' . HOUSE_DOCKER_QUIET . ' s after a time-out)'];
+    }
+    $r = run(['docker', ...$args], $wait);
+    if ($r[0] === 124) {
+        $GLOBALS['houseDockerSilent'] = hrtime(true) / 1e9;          // the monotonic clock: a step never shortens or stretches it
+        if (function_exists('logLine')) {
+            logLine("Docker doesn't answer (docker {$args[0]} took over {$wait} s) — no docker call of the house for " . HOUSE_DOCKER_QUIET . ' s');
+        }
+    } else {
+        unset($GLOBALS['houseDockerSilent']);
+    }
+    return $r;
+}
+
+/** Did Docker not answer lately (a docker call of the house timed out within HOUSE_DOCKER_QUIET s)? */
+function houseDockerSilent(): bool
+{
+    $at = $GLOBALS['houseDockerSilent'] ?? null;
+    return is_float($at) && hrtime(true) / 1e9 - $at < HOUSE_DOCKER_QUIET;
 }
 
 const HOUSE_AUTOSTART        = '/var/lib/docker/unraid-autostart';                  // Unraid's Docker autostart list (RAM, in docker.img's folder)
