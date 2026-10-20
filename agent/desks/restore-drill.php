@@ -2625,8 +2625,18 @@ function drillDoShareFile(array &$j, int $i, array &$env): array
     } else {
         clearstatcache();
         [$want, $got] = [(int) @filesize($src), (int) @filesize($dest)];
-        $same = $want === $got && hash_equals((string) hash_file('sha256', $src), (string) hash_file('sha256', $dest));
+        $sum = (string) hash_file('sha256', $dest);
+        $same = $want === $got && hash_equals((string) hash_file('sha256', $src), $sum);
         $out['params'] += ['bytes' => $got, 'want' => $want];
+        if ($same) {
+            // the verified copy as it is now: her storeroom entry carries it, and it empties itself after
+            // CL_DRILL_DAYS while it stays exactly this (2026-10-21); a copy that differs is never recorded — it stays
+            foreach ($j['made'] as $n => $x) {
+                if (($x['name'] ?? '') === $scratch && ($x['kind'] ?? '') === 'scratch') {
+                    $j['made'][$n]['files'] = [['name' => basename($dest), 'bytes' => $got, 'sha256' => $sum]];
+                }
+            }
+        }
         $out = ($same ? ['state' => 'ok', 'code' => 'sharefile_ok', 'level' => 1] : ['state' => 'failed', 'code' => 'sharefile_differs']) + $out;
         rsLog($j['id'], "  $share: $rel from {$snap['id']} into $scratch - " . ($same ? 'the same' : "differs ($got of $want bytes)"));
     }
@@ -2690,8 +2700,10 @@ function drillShareFilePickFile(string $root): ?array
  * A scratch folder into Ms. Dustdevil's storeroom of its share (her own helpers: the storeroom on the folder's
  * filesystem, a run with its manifest — kind leftover, «put back» refused, emptied by her). Only exactly this
  * drill's folder: <mnt>/<base>/<share>/.uso-drill-<id>, a real folder. Gone already: done. The storeroom, or null.
+ * $files: the copies the drill verified (name, bytes, sha256) — written into the entry as `drill`, so Ms. Dustdevil
+ * empties it after CL_DRILL_DAYS while it holds exactly these (clDrillCopiesTick()); without: it stays until emptied.
  */
-function drillScratchAway(string $path, string $id): ?string
+function drillScratchAway(string $path, string $id, ?array $files = null): ?string
 {
     $mnt = $GLOBALS['drill']['mnt'] ?? '/mnt';
     if (!preg_match('#^' . preg_quote($mnt, '#') . '/[^/]+/[^/]+/' . preg_quote(DRILL_SCRATCH . $id, '#') . '$#D', $path)) {
@@ -2712,7 +2724,8 @@ function drillScratchAway(string $path, string $id): ?string
         $run = clRunCreate($trash);
         $as = 'restore/' . substr(md5(dirname($path)), 0, 8) . '/' . basename($path);
         clMove($path, $run['path'] . "/$as");
-        $run['items'][] = ['kind' => 'leftover', 'name' => basename($path), 'label' => $id, 'from' => $path, 'as' => $as];
+        $record = function_exists('clDrillFilesOk') && $files !== null && clDrillFilesOk($files) ? ['drill' => ['id' => $id, 'files' => array_values($files)]] : [];
+        $run['items'][] = ['kind' => 'leftover', 'name' => basename($path), 'label' => $id, 'from' => $path, 'as' => $as] + $record;
         clManifestWrite($run);
         logLine("Mr. Restori: the drill's scratch folder $path into Ms. Dustdevil's storeroom {$run['path']}");
         return $trash;
@@ -2780,7 +2793,7 @@ function drillCleanup(array &$j, ?array $env, bool $public = true, bool $fast = 
             clearstatcache(true, (string) $x['name']);
             $gone = !file_exists((string) $x['name']) || @unlink((string) $x['name']);
         } elseif ($x['kind'] === 'scratch') {
-            $to = drillScratchAway((string) $x['name'], $j['id']);
+            $to = drillScratchAway((string) $x['name'], $j['id'], is_array($x['files'] ?? null) ? $x['files'] : null);
             $gone = $to !== null;
             if ($to !== null) {
                 $j['made'][$n]['trash'] = $to;           // the storeroom it went into (Ms. Dustdevil finds it by this: drillTrashRoots())

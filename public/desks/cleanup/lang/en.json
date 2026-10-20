@@ -31,6 +31,12 @@
     "other": "{n} shares are empty here, but their snapshots still hold {size}: {shares}. The old files stay on the pool until those snapshots go — by their plan's or the backup's retention, or by hand at Ms. Snapshotini. I delete nothing myself."
   },
   "check.snap_only_link": "Show at Ms. Snapshotini",
+  "check.snap_kept": "No empty share dataset stays only because snapshots hold it",
+  "check.snap_kept_how": {
+    "one": "The share {shares} is empty, but its dataset stays because snapshots hold it — Ms. Moverelli's run can't take it away while they are there. If you don't need them, delete them at Ms. Snapshotini; Ms. Moverelli then removes the empty dataset at her next run. Leaving it is fine too: an empty dataset may be wanted.",
+    "other": "{n} shares are empty, but their datasets stay because snapshots hold them: {shares}. Ms. Moverelli's run can't take them away while they are there. If you don't need them, delete them at Ms. Snapshotini; Ms. Moverelli then removes the empty datasets at her next run. Leaving them is fine too: an empty dataset may be wanted."
+  },
+  "check.snap_kept_link": "Show at Ms. Snapshotini",
   "scan": "Tour",
   "scan_title": "Look around the whole server again: where everything is, and what lies around",
   "scan_done": "Tour done in {ms} ms.",
@@ -291,6 +297,11 @@
   "item.no_manifest": "not on my list — can only be emptied",
   "item.gone": "not there",
   "item.gone_text": "It's on my list, but no longer in the storeroom.",
+  "item.drill_until": "drill copy · empties itself on {date}",
+  "item.drill_due": "drill copy · empties itself at my next look",
+  "item.drill_until_text": "Mr. Restori's drill brought this file back from a backup and checked it. As long as it stays exactly that copy, it empties itself on {date} — I check it once more first. If anything in it changes, it stays.",
+  "item.drill_old": "drill copy · empty it yourself",
+  "item.drill_old_text": "A drill of Mr. Restori's put it here before drill copies emptied themselves. It can't be checked any more, so it stays until you empty it.",
   "item.volumes_text": "Named volumes of this stack: {names}",
   "restore.button": "Put back",
   "restore.title": "Back to {path}",

@@ -2000,6 +2000,14 @@ function trashRow(run, it) {
   else if (!run.legacy) meta.appendChild(el('span', '', T('item.no_manifest')));
   if (it.zfs) meta.appendChild(chip(T('zfs'), 'quiet', T('item.zfs', { name: it.zfs })));
   if (!it.present) meta.appendChild(chip(T('item.gone'), 'warn', T('item.gone_text')));
+  // Mr. Restori's drill copy (2026-10-21): a verified one empties itself after a week, an older drill's only by hand
+  // (an older agent's state has no drill_copy; a changed one has none either: plain storeroom content)
+  const copy = it.present ? it.drill_copy : null;
+  if (copy && copy.until) {
+    const date = fmt.date(copy.until);
+    const due = copy.until <= Date.now() / 1000;
+    meta.appendChild(chip(`🧪 ${T(due ? 'item.drill_due' : 'item.drill_until', { date })}`, 'quiet', T('item.drill_until_text', { date })));
+  } else if (copy) meta.appendChild(chip(`🧪 ${T('item.drill_old')}`, 'quiet', T('item.drill_old_text')));
   if (it.volumes.length) meta.appendChild(chip(T('stack.volumes', { n: it.volumes.length }), 'quiet', T('item.volumes_text', { names: it.volumes.join(', ') })));
   main.appendChild(meta);
   const act = el('div', 'cl-acts');

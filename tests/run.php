@@ -23106,7 +23106,7 @@ function testWhereBuilding(): void
  */
 function testCleanupTick(): void
 {
-    same('cleanup tick: her parts, in order', ['jobs' => 'clJobsTick', 'backup' => 'clBackupFlagTick', 'where' => 'whereJobsTick'], clTickParts());
+    same('cleanup tick: her parts, in order', ['jobs' => 'clJobsTick', 'backup' => 'clBackupFlagTick', 'where' => 'whereJobsTick', 'drill' => 'clDrillCopiesTick'], clTickParts());
     same('cleanup tick: each a function', [], array_keys(array_filter(clTickParts(), fn ($f) => !is_callable($f))));
     $ran = [];
     $boom = true;
@@ -29491,7 +29491,8 @@ function testDrillShareFile(): void
     $man = $runs ? readJson("{$runs[0]}/manifest.json") : null;
     $as = 'restore/' . substr(md5($live), 0, 8) . "/.uso-drill-{$j['id']}";
     same('drill share file: the scratch folder in Ms. Dustdevil\'s storeroom of the share with her manifest (a leftover) — nothing deleted, the real file untouched',
-        [false, 1, [['kind' => 'leftover', 'name' => ".uso-drill-{$j['id']}", 'label' => $j['id'], 'from' => $scratch, 'as' => $as]], $photo, $photo],
+        [false, 1, [['kind' => 'leftover', 'name' => ".uso-drill-{$j['id']}", 'label' => $j['id'], 'from' => $scratch, 'as' => $as,
+                     'drill' => ['id' => $j['id'], 'files' => [['name' => 'strand.jpg', 'bytes' => 5000, 'sha256' => hash('sha256', $photo)]]]]], $photo, $photo],
         [file_exists($scratch), count($runs), $man['items'] ?? null, (string) @file_get_contents("{$runs[0]}/$as/strand.jpg"), (string) file_get_contents("$live/2019/Sommer/strand.jpg")]);
     $made = array_values(array_filter($j['made'], fn ($x) => $x['kind'] === 'scratch'));
     same('drill share file: written down before it was made, gone with the storeroom it went into', [[$scratch, true, $trash]],
@@ -29530,6 +29531,9 @@ function testDrillShareFile(): void
     drillCleanup($j3, null, false);
     same('drill share file: the cleanup puts a left scratch folder away, never another folder', [false, true, [true, false]],
         [file_exists($left), is_dir("$live/2019"), array_column($j3['made'], 'gone')]);
+    $swept = array_values(array_filter(array_merge(...array_map(fn ($r) => (readJson("$r/manifest.json") ?? [])['items'] ?? [], glob("$trash/*", GLOB_ONLYDIR) ?: [])),
+        fn ($it) => $it['label'] === $j3['id']));
+    same('drill share file: a folder never verified carries no record — it never empties itself (2026-10-21)', [1, false], [count($swept), isset($swept[0]['drill'])]);
     check('drill share file: the agent\'s code writes only through Ms. Dustdevil\'s helpers, never removes',
         !preg_match('/\b(unlink|rmdir|rm -rf)\b/', (string) preg_replace('/^.*?function drillShareFilePick\b|function drillTrashRoots\b.*$/s', '', (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore-drill.php'))));
     exec('rm -rf ' . escapeshellarg($tmp));
@@ -40703,6 +40707,7 @@ SH);
     same('share root, yes pool → array: exit 0 — the file on disk1, the share\'s folder on the pool handed to the move binary and gone, said',
         [0, true, true, false, true], [$exit, is_file("$t/mnt/disk1/Yes/sub/a.bin"), in_array("$t/mnt/cache/Yes", $dirs(), true), is_dir("$t/mnt/cache/Yes"),
          str_contains($log(), "share folder $t/mnt/cache/Yes removed (empty)")]);
+    same('share root, gone: nothing kept in the status file', [], readJson("$t/st.json")['kept'] ?? null);
 
     // the same, the folder a dataset with a snapshot: the binary leaves it — said in one line, no warning
     $reset(); $yes();
@@ -40711,6 +40716,7 @@ SH);
     same('share root, a dataset with snapshots: handed over, the binary leaves it — «kept: cache/Yes has snapshots» once, no WARN, exit 0',
         [0, true, true, 1, false], [$exit, in_array("$t/mnt/cache/Yes", $dirs(), true), is_dir("$t/mnt/cache/Yes"), substr_count($log(), 'kept: cache/Yes has snapshots'),
          str_contains($log(), '[WARN]')]);
+    same('share root, a dataset with snapshots: … and in the status file\'s kept (USO «kept», Ms. Dustdevil\'s hint)', ['cache/Yes'], readJson("$t/st.json")['kept'] ?? null);
 
     // a prefer share from a second pool (the owner's server: fast → cache): its emptied folder on fast goes
     $reset();
@@ -45191,6 +45197,170 @@ function testCleanupSnapOnly(): void
     hardeningRm($tmp);
 }
 
+/**
+ * An empty share dataset Ms. Moverelli's run left standing because snapshots hold it (2026-10-21): the Smart Mover lists it in
+ * its status (`kept`), she keeps it in her list of runs (moverelliKept(): real runs of 30 days), Ms. Dustdevil's tour finds it
+ * still there and empty (the same zfs list -d 1) and asks for the snapshots of just those (usedbysnapshots is 0 for snapshots
+ * of an empty dataset) — the Team Lead's hint (never a must) with the way to Ms. Snapshotini; one whose snapshots hold ≥ 100 MB
+ * stays snap_only's. Her state carries the look: the checks read it there.
+ */
+function testCleanupSnapKept(): void
+{
+    $tmp = hardeningTmp('snapkept');
+    $mb = 1024 * 1024;
+    foreach (['Familienfilme/2019', 'Fotos', 'Dokumente', 'Gross', 'Leer'] as $d) {
+        @mkdir("$tmp/cache/$d", 0700, true);
+    }
+    file_put_contents("$tmp/cache/Dokumente/brief.txt", 'x');
+    $asked = [];
+    $zfs = function (array $args) use (&$asked, $tmp, $mb): array {
+        $asked[] = $args;
+        if (in_array('snapshot', $args, true)) {
+            return [0, "cache/Familienfilme@uso-backup-20261020-0300\ncache/Familienfilme@uso-plan-t-20261021-0000\ncache/Zu@uso-backup-20261020-0300\n"];
+        }
+        $row = fn (string $n, int $refer, int $snaps, string $mounted = 'yes') => implode("\t", [$n, $refer, $snaps, $mounted, "$tmp/$n"]);
+        return [0, implode("\n", [
+            $row('cache/Familienfilme', 100000, 0),              // kept: folders only, snapshots of the empty dataset
+            $row('cache/Fotos', 100000, 0),                      // kept, no snapshots any more (her next run removes it)
+            $row('cache/Dokumente', 100000, 0),                  // kept, a file in it now
+            $row('cache/Zu', 100000, 0, 'no'),                   // kept, not mounted
+            $row('cache/Gross', 100000, 500 * $mb),              // kept, but its snapshots hold space: snap_only's
+            $row('cache/Leer', 100000, 0),                       // empty, never kept by her: nothing said
+        ])];
+    };
+    $shares = ['Familienfilme', 'Fotos', 'Dokumente', 'Zu', 'Gross', 'Leer'];
+    $kept = array_fill_keys(['cache/Familienfilme', 'cache/Fotos', 'cache/Dokumente', 'cache/Zu', 'cache/Gross'], 1793500000);
+    $r = clSnapOnlyShares(['pools' => [['cache'], []], 'zfs' => $zfs, 'shares' => $shares, 'known' => true, 'kept' => $kept]);
+    same('snap kept: the empty datasets she left that snapshots still hold — Familienfilme (2), Zu (1); the big one is snap_only\'s',
+        [[['Familienfilme', 'cache', 2], ['Zu', 'cache', 1]], ['Gross']], [array_map(fn ($x) => [$x['share'], $x['pool'], $x['n']], $r['kept']), array_column($r['list'], 'share')]);
+    same('snap kept: one more zfs list — the snapshots of just those (never the pool\'s, never a sleeping one)',
+        ['list', '-H', '-t', 'snapshot', '-o', 'name', '-d', '1', 'cache/Familienfilme', 'cache/Fotos', 'cache/Zu'], $asked[1] ?? null);
+    $asked = [];
+    same('snap kept: nothing she kept — no second look', [[], 1], [clSnapOnlyShares(['pools' => [['cache'], []], 'zfs' => $zfs, 'shares' => $shares, 'known' => true, 'kept' => []])['kept'], count($asked)]);
+    $c = clSnapKeptChecks($r);
+    same('snap kept: the Team Lead\'s hint — a hint, which ones, the link to Ms. Snapshotini\'s datasets',
+        [['snap_kept', 'hint', false, '#/snapshot/datasets'], ['n' => 2, 'shares' => 'Familienfilme (cache), Zu (cache)']],
+        [[$c[0]['id'], $c[0]['level'], $c[0]['ok'], $c[0]['link']], $c[0]['params']]);
+    same('snap kept: none — in place; a look of an older agent (no kept) — nothing', [[true], [], []],
+        [array_column(clSnapKeptChecks(['list' => [], 'asleep' => [], 'kept' => []]), 'ok'), clSnapKeptChecks(['list' => [], 'asleep' => []]), clSnapKeptChecks(null)]);
+    $build = new ReflectionFunction('clBuild');
+    $src = implode('', array_slice(file($build->getFileName()), $build->getStartLine() - 1, $build->getEndLine() - $build->getStartLine() + 1));
+    check('snap kept: her state carries the tour\'s look (her checks read snap_only and snap_kept there)', str_contains($src, "'snaponly'  => \$raw['snaponly'] ?? null"));
+
+    // her side: the Smart Mover's kept in her list of runs, real runs of the last 30 days only
+    same('snap kept: her short status keeps the datasets (once, only <pool>/<share>)', ['cache/Familienfilme'],
+        moverelliStatusShort(['result' => 'ok', 'kept' => ['cache/Familienfilme', 'cache/Familienfilme', '../etc', 5, 'cache/a/b']])['kept'] ?? null);
+    $now = 1793600000;
+    @mkdir("$tmp/moverelli", 0700, true);
+    file_put_contents("$tmp/moverelli/office-history.json", json_encode(['runs' => [
+        ['mode' => 'run', 'finished' => $now - 86400, 'status' => ['kept' => ['cache/Familienfilme']]],
+        ['mode' => 'dry', 'finished' => $now - 86400, 'status' => ['kept' => ['cache/Trocken']]],
+        ['mode' => 'run', 'finished' => $now - 2 * 86400, 'status' => ['kept' => ['cache/Familienfilme', 'cache/Zu']]],
+        ['mode' => 'run', 'finished' => $now - 40 * 86400, 'status' => ['kept' => ['cache/Alt']]],
+        'garbage',
+    ]]));
+    same('snap kept: moverelliKept() — dataset => the newest real run that kept it', ['cache/Familienfilme' => $now - 86400, 'cache/Zu' => $now - 2 * 86400],
+        moverelliKept($now, "$tmp/moverelli"));
+    hardeningRm($tmp);
+}
+
+/**
+ * Mr. Restori's drill copies empty themselves (the owner, 2026-10-21): a storeroom entry his drill put there (kind leftover,
+ * `.uso-drill-<id>`, its `drill` record: the verified copies' names, sizes, sha256) whose files are still exactly those is
+ * removed CL_DRILL_DAYS after it went in — by Ms. Dustdevil's tick, the sha256 read anew, its manifest entry gone with it.
+ * Changed, added, too young, not verifiable (an older drill's: no record, no sums in his journal) or anything else in a
+ * storeroom: stays. Never while a backup runs, never on a sleeping disk, never while neither desk is hired. Her list says
+ * when one empties itself; an older drill's is marked «empty it yourself»; a changed one is plain storeroom content.
+ */
+function testCleanupDrillCopies(): void
+{
+    $tmp = hardeningTmp('drillcopies');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $saved = [$GLOBALS['clMnt'] ?? null, $GLOBALS['clCache'] ?? null, $GLOBALS['clState'] ?? null, $GLOBALS['clCtx'] ?? null, $GLOBALS['drill'] ?? null];
+    $GLOBALS['clMnt'] = "$tmp/mnt";
+    $GLOBALS['clCache'] = ['format' => CL_CACHE_FORMAT, 'flash' => null, 'sizes' => [], 'compose' => [], 'icons' => []];
+    $GLOBALS['clCtx'] = ['roots' => [], 'asleep' => []];
+    $GLOBALS['drill'] = ['data' => "$tmp/data/restore-drill"] + ($GLOBALS['drill'] ?? []);
+    @mkdir("$tmp/data/restore-drill", 0700, true);
+    $now = 1793600000;
+    $share = "$tmp/mnt/maple/Familienfotos";
+    $store = "$share/" . OFFICE_STOREROOM;
+    $photo = random_bytes(3000);
+    $sum = hash('sha256', $photo);
+    $n = 0;
+    // one storeroom run as drillScratchAway() writes it
+    $make = function (string $id, float $days, bool $record, ?array $item = null) use ($share, $store, $photo, $sum, $now, &$n): string {
+        $t = (int) ($now - $days * 86400);
+        $run = "$store/" . date('Ymd-His', $t) . '-' . (++$n + 1);
+        $name = $item['name'] ?? ".uso-drill-$id";
+        $as = 'restore/' . substr(md5($share), 0, 8) . "/$name";
+        @mkdir("$run/$as", 0700, true);
+        file_put_contents("$run/$as/strand.jpg", $photo);
+        clManifestWrite(['path' => $run, 'time' => $t, 'items' => [($item ?? ['kind' => 'leftover', 'name' => $name, 'label' => $id, 'from' => "$share/$name"]) + ['as' => $as]
+            + ($record ? ['drill' => ['id' => $id, 'files' => [['name' => 'strand.jpg', 'bytes' => strlen($photo), 'sha256' => $sum]]]] : [])]]);
+        return "$run/$as";
+    };
+    $ok    = $make('20261020-031500-aaaa', 8, true);
+    $chg   = $make('20261020-031500-bbbb', 8, true);
+    file_put_contents("$chg/strand.jpg", random_bytes(3000));                   // the same size, other content: only the sha256 sees it
+    $added = $make('20261020-031500-cccc', 8, true);
+    file_put_contents("$added/notiz.txt", 'mine');
+    $short = $make('20261020-031500-c0c0', 8, true);
+    file_put_contents("$short/strand.jpg", 'x');                                // another size: seen at once
+    $old   = $make('20261020-031500-dddd', 30, false);                          // an older drill's: no record
+    $young = $make('20261020-031500-eeee', 3, true);
+    $jour  = $make('20261020-031500-f0f0', 9, false);                           // no record in the entry, the sums in his journal
+    @mkdir("$tmp/data/restore-drill/20261020-031500-f0f0", 0700, true);
+    file_put_contents("$tmp/data/restore-drill/20261020-031500-f0f0/journal.json", json_encode(['id' => '20261020-031500-f0f0', 'made' => [
+        ['kind' => 'scratch', 'name' => "$share/.uso-drill-20261020-031500-f0f0", 'gone' => true, 'files' => [['name' => 'strand.jpg', 'bytes' => strlen($photo), 'sha256' => $sum]]]]]));
+    $other = $make('', 30, false, ['kind' => 'leftover', 'name' => 'Fotos.aside-20261001-120000', 'label' => '20261001-120000-abcd', 'from' => "$share/Fotos.aside-20261001-120000"]);
+    $forged = $make('20261020-031500-abab', 8, false, ['kind' => 'leftover', 'name' => '.uso-drill-20261020-031500-abab', 'label' => 'x', 'from' => "$share/elsewhere",
+                                                       'drill' => ['id' => '20261020-031500-abab', 'files' => [['name' => 'strand.jpg', 'bytes' => strlen($photo), 'sha256' => $sum]]]]);
+    $runs = fn () => array_values(array_filter(clTrashRuns([], ['ok' => false], [$store]), fn ($r) => $r['root'] === $store));
+    $view = function () use ($runs): array {
+        $out = [];
+        foreach ($runs() as $r) {
+            foreach ($r['items'] as $it) {
+                $out[$it['name']] = $it['drill_copy'] === null ? null : [$it['drill_copy']['until'] === null ? null : $it['drill_copy']['until'] - $r['time']];
+            }
+        }
+        ksort($out);
+        return $out;
+    };
+    $week = CL_DRILL_DAYS * 86400;
+    same('drill copies: her list — a verified one says when it empties itself; an older drill\'s «by hand»; changed, forged or other: plain content',
+        ['.uso-drill-20261020-031500-aaaa' => [$week], '.uso-drill-20261020-031500-abab' => null, '.uso-drill-20261020-031500-bbbb' => [$week],
+         '.uso-drill-20261020-031500-c0c0' => null, '.uso-drill-20261020-031500-cccc' => null, '.uso-drill-20261020-031500-dddd' => [null],
+         '.uso-drill-20261020-031500-eeee' => [$week], '.uso-drill-20261020-031500-f0f0' => [$week], 'Fotos.aside-20261001-120000' => null], $view());
+
+    $host = ['hired' => ['restore'], 'busy' => false, 'asleep' => []];
+    same('drill copies: nothing while a backup runs, nor with neither desk hired, nor with its disk asleep', [[], [], []],
+        [clDrillCopiesEmpty($now, $runs(), ['busy' => true] + $host), clDrillCopiesEmpty($now, $runs(), ['hired' => ['backup']] + $host),
+         clDrillCopiesEmpty($now, $runs(), ['asleep' => ['maple' => true]] + $host)]);
+    $GLOBALS['clState'] = ['trash' => ['runs' => $runs(), 'bytes' => 0, 'asleep' => []]];
+    $gone = clDrillCopiesEmpty($now, null, $host);
+    same('drill copies: due and exactly the drill\'s copies — emptied (from her last look); the rest stays where it is',
+        [2, false, false, true, true, true, true, true, true, true],
+        [count($gone), file_exists($ok), file_exists($jour), is_file("$chg/strand.jpg"), is_file("$added/notiz.txt"), is_file("$short/strand.jpg"), is_file("$old/strand.jpg"),
+         is_file("$young/strand.jpg"), is_file("$other/strand.jpg"), is_file("$forged/strand.jpg")]);
+    same('drill copies: their runs gone with their manifests (nothing else in them), from her list too', [false, false, 7],
+        [is_dir(dirname($ok, 3)), is_dir(dirname($jour, 3)), count($GLOBALS['clState']['trash']['runs'])]);
+    same('drill copies: the changed one is kept for good — remembered, then plain storeroom content', [true, null],
+        [isset(clCache()['drill_changed'][dirname($chg, 3) . '|' . substr($chg, strlen(dirname($chg, 3)) + 1)]), $view()['.uso-drill-20261020-031500-bbbb']]);
+    same('drill copies: a week later the young one goes too; the others never', [1, false, true, true],
+        [count(clDrillCopiesEmpty($now + 5 * 86400, $runs(), $host)), file_exists($young), is_file("$old/strand.jpg"), is_file("$chg/strand.jpg")]);
+    check('drill copies: the record\'s shape — exactly name, bytes, sha256; plain names; no link',
+        clDrillFilesOk([['name' => 'a.jpg', 'bytes' => 1, 'sha256' => $sum]]) && !clDrillFilesOk([['name' => '../a', 'bytes' => 1, 'sha256' => $sum]])
+        && !clDrillFilesOk([['name' => 'a', 'bytes' => '1', 'sha256' => $sum]]) && !clDrillFilesOk([['name' => 'a', 'bytes' => 1, 'sha256' => $sum, 'x' => 1]])
+        && !clDrillFilesOk([]) && !clDrillFilesOk([['name' => 'a', 'bytes' => 1, 'sha256' => 'ABC']]));
+    $page = (string) file_get_contents(OFFICE_WEB . '/desks/cleanup/desk.js');
+    check('drill copies: her page says when one empties itself, and which an older drill left', str_contains($page, "T(due ? 'item.drill_due' : 'item.drill_until', { date })")
+        && str_contains($page, "T('item.drill_old')"));
+    check('drill copies: her tick looks for them', (clTickParts()['drill'] ?? null) === 'clDrillCopiesTick');
+    exec('rm -rf ' . escapeshellarg($tmp));
+    [$GLOBALS['clMnt'], $GLOBALS['clCache'], $GLOBALS['clState'], $GLOBALS['clCtx'], $GLOBALS['drill']] = $saved;
+}
+
 function testStaleShares(): void
 {
     $tmp = hardeningTmp('stale-shares');
@@ -47152,7 +47322,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testHouseDockerSilent', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of

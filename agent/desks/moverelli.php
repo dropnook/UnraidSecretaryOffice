@@ -33,6 +33,8 @@ const MOVERELLI_LOG_TAIL  = 512 * 1024;
 const MOVERELLI_FILES_MAX = 20;             // exclude files per scope (global, a share)
 const MOVERELLI_LINES_MAX = 2000;           // lines of one of her own exclude lists
 const MOVERELLI_SHARE     = '/^[\w.\- ]{1,64}$/uD';     // a share name she writes as an INI section and a file name
+const MOVERELLI_KEPT_NAME = '#^[A-Za-z0-9][\w.:-]{0,254}/[\w.\- ]{1,64}$#uD';   // a share's dataset a run left standing: <pool>/<share>
+const MOVERELLI_KEPT_DAYS = 30;             // … remembered from her runs of this many days
 // (2026-10-14: only X — move_until_used_below, the offset and jack_min_percent are gone; officeMigratePoolX() takes them out)
 // which date counts (2026-10-14): always the younger of created (birth, else ctime) and modified — Smart Mover's office
 // value age_stat=newest, written by the office for all, never a setting
@@ -1615,6 +1617,36 @@ function moverelliStatusShort(array $status): array
     foreach (array_slice((array) ($status['shares'] ?? []), 0, 200) as $s) {
         if (is_array($s)) {
             $out['shares'][] = array_intersect_key($s, array_flip(['share', 'state', 'files', 'bytes', 'moved', 'left', 'left_why', 'pool', 'until', 'pool_used', 'pool_now', 'fill', 'reached']));
+        }
+    }
+    // USO «kept» (2026-10-21): the share datasets the run left standing, empty but held by snapshots
+    $kept = array_values(array_unique(array_filter((array) ($status['kept'] ?? []), fn ($d) => is_string($d) && preg_match(MOVERELLI_KEPT_NAME, $d))));
+    if ($kept) {
+        $out['kept'] = array_slice($kept, 0, 200);
+    }
+    return $out;
+}
+
+/**
+ * The share datasets (<pool>/<share>) her real runs of the last MOVERELLI_KEPT_DAYS left standing, empty but held by
+ * snapshots — the Smart Mover's `kept` in her list of runs: dataset => when the newest such run ended. Ms. Dustdevil's
+ * hint (clSnapOnlyShares()) checks each against her own look; a later run that removed one leaves it out of the pool.
+ *
+ * @return array<string, int>
+ */
+function moverelliKept(?int $now = null, string $dir = MOVERELLI_DATA): array
+{
+    $now ??= time();
+    $out = [];
+    foreach (moverelliHistory($dir) as $r) {
+        $at = is_array($r) ? (int) ($r['finished'] ?? 0) : 0;
+        if (!is_array($r) || ($r['mode'] ?? '') !== 'run' || $at < $now - MOVERELLI_KEPT_DAYS * 86400) {
+            continue;
+        }
+        foreach ((array) ($r['status']['kept'] ?? []) as $d) {
+            if (is_string($d) && preg_match(MOVERELLI_KEPT_NAME, $d)) {
+                $out[$d] = max($out[$d] ?? 0, $at);
+            }
         }
     }
     return $out;

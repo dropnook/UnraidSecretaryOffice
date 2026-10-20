@@ -157,6 +157,8 @@
 >   folder is a dataset: the binary destroys it (a plain `rmdir` fails «busy»); one with snapshots it leaves, said in one
 >   line («kept: <dataset> has snapshots»). Never `zfs destroy` or `rm` here. Each one gone: «share folder <path>
 >   removed (empty)». Never in a dry run, never after a stop.
+> * **Kept** (2026-10-21, marked «USO «kept»»): each dataset «share root» leaves because of its snapshots is also listed
+>   in the status file's `kept` (dataset names, at most 200) — Ms. Dustdevil's hint reads it from there, never from the log.
 >
 > **`prefer` shares** (array → pool): their source is the array disks the share may use (above), which may wake them.
 > That is accepted here on purpose (the owner's decision): the Dynamix Cache Directories plugin keeps the folder

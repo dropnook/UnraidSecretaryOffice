@@ -171,6 +171,7 @@ SHARE_JSON=()
 SH_STATE=""; SH_DIRECTION=""; SH_FILES=0; SH_BYTES=0; SH_MOVED=0; SH_LEFT=0; SH_LEFT_WHY=""
 SH_AGE=""; SH_STAT=""; SH_THRESHOLD=""; SH_EXCLUDES=""
 RECENT=()      # USO: the last 50 files done (JSON objects)
+KEPT=()        # USO «kept»: the share folders' datasets the binary left because they have snapshots (JSON strings)
 recent_add() {  # name bytes from to
     RECENT+=("{\"name\":$(json_str "$1"),\"bytes\":$(json_num "$2"),\"from\":$(json_str "$3"),\"to\":$(json_str "$4")}")
     (( ${#RECENT[@]} > 50 )) && RECENT=("${RECENT[@]: -50}")
@@ -240,10 +241,10 @@ write_status() {  # exit code
     esac
     if [[ "$LIST_ONLY" == true ]]; then mode=list; elif [[ "$DRY_RUN" == true ]]; then mode=dry; else mode=run; fi
     joined=$(IFS=,; printf '%s' "${SHARE_JSON[*]}")
-    printf '{"mode":"%s","result":"%s","exit":%s,"started":%s,"finished":%s,"files":%s,"bytes":%s,"moved":%s,"left":%s,"errors":%s,"stop_share":%s,"stop_file":%s,"message":%s,"fill_held":%s,"shares":[%s],%s}\n' \
+    printf '{"mode":"%s","result":"%s","exit":%s,"started":%s,"finished":%s,"files":%s,"bytes":%s,"moved":%s,"left":%s,"errors":%s,"stop_share":%s,"stop_file":%s,"message":%s,"fill_held":%s,"kept":[%s],"shares":[%s],%s}\n' \
         "$mode" "$result" "$(json_num "$code")" "$STARTED" "$(date +%s)" "$(json_num "${TOTAL_FILES:-0}")" "$(json_num "${TOTAL_BYTES:-0}")" \
         "$(json_num "${TOTAL_MOVED:-0}")" "$(json_num "${TOTAL_LEFT:-0}")" "$(json_num "$ERRORS")" "$(json_str "$STOP_SHARE")" "$(json_str "$LAST_FILE")" "$(json_str "$STATUS_MSG")" \
-        "$([[ "$FILL_HELD" == true ]] && echo true || echo false)" "$joined" "$(recent_json)" \
+        "$([[ "$FILL_HELD" == true ]] && echo true || echo false)" "$(IFS=,; printf '%s' "${KEPT[*]}")" "$joined" "$(recent_json)" \
         > "$STATUS_FILE.$$.tmp" 2>/dev/null && mv -f "$STATUS_FILE.$$.tmp" "$STATUS_FILE" 2>/dev/null
     rm -f "$STATUS_FILE.$$.tmp" 2>/dev/null
     return 0
@@ -914,7 +915,10 @@ share_root_said() {  # root
     IFS=$'\t' read -r ds mp <<< "$("$ZFS_BIN" list -H -o name,mountpoint "$root" 2>/dev/null)"
     [[ -n "$ds" && "$mp" == "$root" ]] || return 0
     snaps=$("$ZFS_BIN" list -H -t snapshot -o name -d 1 "$ds" 2>/dev/null)
-    [[ -n "$snaps" ]] && log INFO "  kept: $ds has snapshots"
+    if [[ -n "$snaps" ]]; then
+        log INFO "  kept: $ds has snapshots"
+        (( ${#KEPT[@]} < 200 )) && KEPT+=("$(json_str "$ds")")    # USO «kept»: in the status file too
+    fi
     return 0
 }
 

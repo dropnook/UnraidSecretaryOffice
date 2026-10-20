@@ -31,6 +31,12 @@
     "other": "{n} Shares sind hier leer, ihre Snapshots belegen aber noch {size}: {shares}. Die alten Dateien bleiben auf dem Pool, bis diese Snapshots gehen — mit der Aufbewahrung ihres Plans oder des Backups, oder von Hand bei Frau Snapshotini. Ich selbst lösche nichts."
   },
   "check.snap_only_link": "Bei Frau Snapshotini zeigen",
+  "check.snap_kept": "Kein leeres Dataset eines Shares bleibt nur stehen, weil Snapshots es halten",
+  "check.snap_kept_how": {
+    "one": "Der Share {shares} ist leer, sein Dataset bleibt aber stehen, weil Snapshots es halten — Frau Moverellis Lauf kann es nicht wegräumen, solange sie da sind. Brauchst du sie nicht, lösche sie bei Frau Snapshotini; Frau Moverelli räumt das leere Dataset dann beim nächsten Lauf weg. Stehen lassen ist auch in Ordnung: ein leeres Dataset kann gewollt sein.",
+    "other": "{n} Shares sind leer, ihre Datasets bleiben aber stehen, weil Snapshots sie halten: {shares}. Frau Moverellis Lauf kann sie nicht wegräumen, solange sie da sind. Brauchst du sie nicht, lösche sie bei Frau Snapshotini; Frau Moverelli räumt die leeren Datasets dann beim nächsten Lauf weg. Stehen lassen ist auch in Ordnung: ein leeres Dataset kann gewollt sein."
+  },
+  "check.snap_kept_link": "Bei Frau Snapshotini zeigen",
   "scan": "Rundgang",
   "scan_title": "Den ganzen Server nochmals ablaufen: wo alles liegt und was herumliegt",
   "scan_done": "Rundgang fertig in {ms} ms.",
@@ -291,6 +297,11 @@
   "item.no_manifest": "nicht auf meiner Liste — lässt sich nur leeren",
   "item.gone": "nicht da",
   "item.gone_text": "Es steht auf meiner Liste, liegt aber nicht mehr in der Abstellkammer.",
+  "item.drill_until": "Übungskopie · leert sich am {date}",
+  "item.drill_due": "Übungskopie · leert sich bei meinem nächsten Blick",
+  "item.drill_until_text": "Herrn Restoris Übung hat diese Datei aus einem Backup zurückgeholt und geprüft. Solange sie genau diese Kopie bleibt, leert sie sich am {date} von selbst — ich prüfe sie vorher noch einmal. Ändert sich darin etwas, bleibt sie.",
+  "item.drill_old": "Übungskopie · von Hand leeren",
+  "item.drill_old_text": "Eine Übung von Herrn Restori hat sie hier abgelegt, bevor sich Übungskopien von selbst leerten. Prüfen lässt sie sich nicht mehr, darum bleibt sie, bis du sie leerst.",
   "item.volumes_text": "Named Volumes dieses Stacks: {names}",
   "restore.button": "Zurücklegen",
   "restore.title": "Zurück nach {path}",
