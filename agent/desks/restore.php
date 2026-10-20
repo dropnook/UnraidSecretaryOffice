@@ -1594,7 +1594,7 @@ function rsJournals(): array
         if (!$j) {
             continue;
         }
-        if (($running['id'] ?? '') !== $id) {
+        if (($running['id'] ?? '') !== $id || ($j['result'] ?? '') === 'interrupted') {
             rsJournalSettle($j);
         }
         $out[] = rsJournalRow($j);
@@ -1605,17 +1605,19 @@ function rsJournals(): array
 /**
  * A journal still «queued» or «running» whose job is gone (a power cut, a reboot): interrupted — rewritten so, its
  * step that was running «interrupted» and the ones after it «skipped» (scenario batch D, F10: after a power cut the
- * page drew the wave for a job that was gone), and the job file the page polls too when it names this restore.
- * True when it was rewritten.
+ * page drew the wave for a job that was gone), and the job file the page polls too when it names this restore. A
+ * journal an older version (1.66.8 and before) already called interrupted, its step left «running», is settled the same
+ * way (after a power cut the released agent's first tour can come before an update). True when it was rewritten.
  */
 function rsJournalSettle(array &$j): bool
 {
-    if (!in_array($j['result'] ?? '', ['queued', 'running'], true)
-        || ($j['result'] === 'running' && rsJobAlive($j)) || ($j['result'] === 'queued' && time() - (int) ($j['created'] ?? 0) <= 120)) {
+    $old = ($j['result'] ?? '') === 'interrupted' && in_array('running', array_map(fn ($s) => is_array($s) ? ($s['state'] ?? '') : '', (array) ($j['steps'] ?? [])), true);
+    if (!$old && (!in_array($j['result'] ?? '', ['queued', 'running'], true)
+        || ($j['result'] === 'running' && rsJobAlive($j)) || ($j['result'] === 'queued' && time() - (int) ($j['created'] ?? 0) <= 120))) {
         return false;
     }
     $j['result'] = 'interrupted';
-    $j['finished'] = $j['heartbeat'] ?? time();
+    $j['finished'] ??= $j['heartbeat'] ?? time();
     foreach ((array) ($j['steps'] ?? []) as $i => $s) {
         $was = is_array($s) ? ($s['state'] ?? 'pending') : null;
         if ($was === 'running' || $was === 'pending') {

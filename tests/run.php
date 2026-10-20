@@ -13585,6 +13585,17 @@ function testRestoreSettled(): void
         $got = rsJournalGet($gone2);
         same('restore settled: «journal» asked before any tour — settled as well', ['interrupted', ['ok', 'interrupted', 'skipped'], 'interrupted'],
             [$got['journal']['result'] ?? null, array_column($got['journal']['steps'] ?? [], 'state'), $got['row']['result'] ?? null]);
+        // settled by an older version (result interrupted, its step left «running» — after a power cut the released agent's
+        // first tour came before the update): settled the same way now, its time kept
+        $older = '20261019-191500-dd44';
+        $j = $make($older, 999999999);
+        $j['result'] = 'interrupted';
+        $j['finished'] = 1792400000;
+        rsJournalWrite($j);
+        rsJournals();
+        same('restore settled: one an older version called interrupted, its step still running — settled now, its end kept',
+            ['interrupted', ['ok', 'interrupted', 'skipped'], 1792400000, 'interrupted'],
+            [rsJournal($older)['result'] ?? null, array_column(rsJournal($older)['steps'] ?? [], 'state'), rsJournal($older)['finished'] ?? null, readJson(rsJobFile())['steps'][1]['state'] ?? null]);
         // a job that lives (an agent.php of this pid): untouched
         $live = proc_open(['sh', '-c', 'sleep 30; :', 'agent.php'], [], $pp);
         $alive = '20261019-192000-cc33';
