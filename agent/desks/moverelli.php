@@ -1030,9 +1030,59 @@ function moverelliJobInfo(string $dir): array
 {
     $info = readJson("$dir/office-run.json") ?? [];
     $pid = (int) ($info['pid'] ?? 0);
-    $info['running'] = empty($info['finished']) && $pid > 1 && str_contains((string) @file_get_contents("/proc/$pid/cmdline"), 'agent.php');
+    // a marker of another boot is no run going, whatever has its pid now (D-F8: after a power cut)
+    $info['running'] = empty($info['finished']) && $pid > 1 && (($info['boot'] ?? '') === '' || $info['boot'] === moverelliBootId())
+        && str_contains((string) @file_get_contents("/proc/$pid/cmdline"), 'agent.php');
     $info['size'] = (int) @filesize("$dir/office-output.txt");
     return $info;
+}
+
+/** This boot's id (the kernel's, one per boot) — '' unknown */
+function moverelliBootId(): string
+{
+    return trim((string) @file_get_contents('/proc/sys/kernel/random/boot_id', false, null, 0, 64));
+}
+
+/**
+ * D-F8 (2026-10-19): a run cut short without an end of its own — a power cut, a restart, the job killed: her job's marker
+ * has no finished while nobody holds her run lock. Its line in her list of runs, once (under her run lock): «interrupted»,
+ * why restart (the marker's boot isn't this one) or ended, with what Smart Mover's live status of this run had counted;
+ * the marker gets its end. True when a line was written.
+ */
+function moverelliCutRun(string $dir, array $job): bool
+{
+    if (!empty($job['finished']) || $job['running'] || empty($job['started']) || !in_array($job['mode'] ?? '', ['run', 'dry'], true)
+        || flockHeld("$dir/office-run.lock")) {
+        return false;
+    }
+    $hold = @fopen("$dir/office-run.lock", 'c');
+    if (!$hold || !flock($hold, LOCK_EX | LOCK_NB)) {
+        $hold && fclose($hold);
+        return false;
+    }
+    $run = readJson("$dir/office-run.json") ?? [];
+    $done = false;
+    if (empty($run['finished']) && (int) ($run['started'] ?? 0) === (int) $job['started']) {
+        $st = readJson("$dir/status.json") ?? [];
+        $status = ['mode' => (string) $run['mode'], 'result' => 'interrupted'];
+        if (($st['result'] ?? '') === 'running' && (int) ($st['started'] ?? 0) >= (int) $run['started']) {
+            $files = (int) ($st['files'] ?? 0);
+            $moved = (int) ($st['done_files'] ?? 0);
+            $status += ['files' => $files, 'bytes' => (int) ($st['bytes'] ?? 0), 'moved' => $moved, 'left' => max(0, $files - $moved),
+                        'errors' => (int) ($st['errors'] ?? 0)];
+        }
+        $boot = (string) ($run['boot'] ?? '');
+        $why = $boot !== '' && $boot !== moverelliBootId() ? 'restart' : 'ended';
+        moverelliRemember(['mode' => (string) $run['mode'], 'by' => (string) ($run['by'] ?? 'office'), 'started' => (int) $run['started'],
+                           'finished' => null, 'result' => 'interrupted', 'why' => $why, 'status' => $status], $dir);
+        writeAtomic("$dir/office-run.json", jsonEncode($run + ['finished' => time(), 'interrupted' => $why]), 0600, 0, 0);
+        logLine("Ms. Moverelli: her run of " . date('Y-m-d H:i', (int) $run['started']) . ' ended without her — '
+            . ($why === 'restart' ? 'the server restarted meanwhile' : 'its job is gone') . ' (noted as interrupted)');
+        $done = true;
+    }
+    flock($hold, LOCK_UN);
+    fclose($hold);
+    return $done;
 }
 
 /** Is a run of hers going — her job, or a lock of hers held (her job's, Smart Mover's own)? */
@@ -1057,6 +1107,9 @@ function moverelliScan(?array $h = null): array
     $own = ($h['unraid'])();
     $jackDesk = ($h['jack_desk'])();
     $job = moverelliJobInfo($dir);
+    if (moverelliCutRun($dir, $job)) {
+        $job = moverelliJobInfo($dir);
+    }
     $stop = $job['running'] ? readJson("$dir/office-stop.json") : null;
     $state = [
         'time'       => time(),
@@ -1074,7 +1127,7 @@ function moverelliScan(?array $h = null): array
         // other movers on a schedule of their own: Mover Tuning's (refuses real runs), scripts that call a mover (named)
         'foreign'    => array_diff_key(moverelliForeign($h), ['unraid' => 1]),
         'job'        => $job,
-        'stopping'   => $stop !== null ? (($stop['why'] ?? '') === 'mover' ? 'mover' : 'user') : null,
+        'stopping'   => $stop !== null ? (in_array($stop['why'] ?? '', ['mover', 'array'], true) ? $stop['why'] : 'user') : null,
         'last'       => readJson("$dir/status.json"),
         'history'    => array_slice(moverelliHistory($dir), 0, 20),
         'schedule'   => officeJobSchedule('moverelli', $h['cron_file']),
@@ -1277,11 +1330,12 @@ function moverelliInFlight(array $p, array $h): array
  * @param resource $proc
  * @return array{exit: int, why: ?string, by: ?string}
  */
-function moverelliRunWatch($proc, string $stopFile, callable $mover, int $every = JACK_MOVER_LOOK, ?callable $byHand = null): array
+function moverelliRunWatch($proc, string $stopFile, callable $mover, int $every = JACK_MOVER_LOOK, ?callable $byHand = null,
+                           ?callable $arrayStopping = null): array
 {
     $why = null;
     $by = null;
-    $last = time();
+    $last = $lastArray = time();
     while (true) {
         $st = proc_get_status($proc);
         clearstatcache(true, $stopFile);
@@ -1290,15 +1344,22 @@ function moverelliRunWatch($proc, string $stopFile, callable $mover, int $every 
             // a stop file written after the last look (a run that ended in between): its why still counts
             if ($why === null && is_file($stopFile)) {
                 $f = readJson($stopFile) ?? [];
-                $why = in_array($f['why'] ?? '', ['mover', 'now'], true) ? $f['why'] : 'user';
+                $why = in_array($f['why'] ?? '', ['mover', 'now', 'array'], true) ? $f['why'] : 'user';
                 $by = $why === 'mover' ? (($f['by'] ?? '') === 'schedule' ? 'schedule' : 'hand') : null;
             }
-            return ['exit' => (int) $st['exitcode'], 'why' => $why, 'by' => $by];
+            // killed by a signal (no exit code of its own): never 0
+            return ['exit' => !empty($st['signaled']) ? 128 + (int) $st['termsig'] : (int) $st['exitcode'], 'why' => $why, 'by' => $by];
         }
         if (is_file($stopFile)) {
             $f = readJson($stopFile) ?? [];
-            $why = in_array($f['why'] ?? '', ['mover', 'now'], true) ? $f['why'] : 'user';
+            $why = in_array($f['why'] ?? '', ['mover', 'now', 'array'], true) ? $f['why'] : 'user';
             $by = $why === 'mover' ? (($f['by'] ?? '') === 'schedule' ? 'schedule' : 'hand') : null;
+        } elseif ($arrayStopping !== null && time() - $lastArray >= min($every, 2) && ($lastArray = time()) && ($arrayStopping)()) {
+            // D-F8 (2026-10-19): the array is being stopped — after the file in flight, as Unraid stops its own mover at ⟦Stop⟧
+            // (before shfs and the disks go)
+            $why = 'array';
+            writeAtomic($stopFile, jsonEncode(['time' => time(), 'why' => 'array']), 0600, 0, 0);
+            logLine('Ms. Moverelli: the array is being stopped — she stops after the file in flight');
         } elseif (time() - $last >= $every) {
             $last = time();
             try {
@@ -1414,7 +1475,7 @@ function moverelliJob(array $args, ?array $h = null): int
         return $refused('moverelli_running');
     }
     $started = time();
-    $run = ['mode' => $mode, 'by' => $by, 'started' => $started, 'pid' => getmypid()];
+    $run = ['mode' => $mode, 'by' => $by, 'started' => $started, 'pid' => getmypid(), 'boot' => moverelliBootId()];
     writeAtomic("$dir/office-run.json", jsonEncode($run), 0600, 0, 0);
     jackMoversUnlock($movers);
     jackWaitEnd($wait, $h['waitdir'], 'moverelli');
@@ -1436,6 +1497,8 @@ function moverelliJob(array $args, ?array $h = null): int
          + $h['env']
          // the move binary is Unraid's, never what an ini names (review 2026-10-15: the script runs mover_bin as root)
          + ['CUSTOMMOVER_MOVER_BIN' => moverelliMoveBin()];
+    // var.ini says the array is being stopped (Stopping, Stopped — as Mr. Restori's rsArrayStopping() and the engine's array_stopping())
+    $arrayStopping = fn (): bool => in_array((string) (readCfg($h['var_ini'])['fsState'] ?? ''), ['Stopping', 'Stopped'], true);
     $out = fopen("$dir/office-output.txt", 'w');
     $proc = proc_open(array_merge(['bash', "$h[app]/custommover_run.sh"], MOVERELLI_MODES[$mode]), [0 => ['file', '/dev/null', 'r'], 1 => $out, 2 => $out], $pipes, '/', $env);
     $why = null;
@@ -1444,7 +1507,7 @@ function moverelliJob(array $args, ?array $h = null): int
     } elseif ($real) {
         $self = getmypid();
         ['exit' => $exit, 'why' => $why, 'by' => $moverBy] = moverelliRunWatch($proc, "$dir/office-stop.json", fn (): bool => ($h['mover_running'])($self), (int) $h['look_every'],
-            fn (): bool => jackMoverScheduleOff(($h['unraid'])()));
+            fn (): bool => jackMoverScheduleOff(($h['unraid'])()), $arrayStopping);
     } else {
         $exit = proc_close($proc);
     }
@@ -1456,8 +1519,17 @@ function moverelliJob(array $args, ?array $h = null): int
     flock($hold, LOCK_UN);
     fclose($hold);
     $result = (string) ($status['result'] ?? ($exit === 0 ? 'ok' : 'failed'));
+    if ($result === 'ok' && $exit !== 0) {
+        $result = 'failed';             // an «ok» status of a Smart Mover that didn't end by itself (an older one's EXIT trap)
+    }
+    // D-F8 (2026-10-19): the array went while she ran — killed, refused by a move binary whose shfs went, or «done» with
+    // files left: cut short by the array stop, never «ok»
+    if ($real && $result !== 'stopped' && ($result !== 'ok' || (int) ($status['left'] ?? 0) > 0) && $arrayStopping()) {
+        $result = 'stopped';
+        $why = 'array';
+    }
     if ($result === 'stopped') {
-        $note['why'] = in_array($why, ['mover', 'now'], true) ? $why : 'user';
+        $note['why'] = in_array($why, ['mover', 'now', 'array'], true) ? $why : 'user';
         if ($why === 'mover') {
             $note['mover_by'] = $moverBy ?? 'hand';
         }
@@ -1485,7 +1557,7 @@ function moverelliStatusShort(array $status): array
     $out['shares'] = [];
     foreach (array_slice((array) ($status['shares'] ?? []), 0, 200) as $s) {
         if (is_array($s)) {
-            $out['shares'][] = array_intersect_key($s, array_flip(['share', 'state', 'files', 'bytes', 'moved', 'left', 'pool', 'until', 'pool_used', 'pool_now', 'fill', 'reached']));
+            $out['shares'][] = array_intersect_key($s, array_flip(['share', 'state', 'files', 'bytes', 'moved', 'left', 'left_why', 'pool', 'until', 'pool_used', 'pool_now', 'fill', 'reached']));
         }
     }
     return $out;

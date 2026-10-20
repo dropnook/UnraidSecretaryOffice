@@ -45,6 +45,9 @@
 #                             hands the move binary one file at a time (the office block «one file at a time»; USO «one
 #                             move binary»: through one long-running binary per share, not one process per file) and,
 #                             before a share's files, removes leftover <rel>.partial copies whose source still exists
+#   CUSTOMMOVER_SYNC          USO (2026-10-19, D-F11): with CUSTOMMOVER_STOP each file the move binary moved is synced
+#                             (fsync of it and its folder on the destination) before the next is handed over — 0: off
+#   CUSTOMMOVER_SYNC_BIN      the sync command (default: sync; for tests)
 #   CUSTOMMOVER_EXCLUDES_REQUIRED  1 = on a real run (--run) an exclude file that is missing skips its
 #                             share with an ERROR (counted as an error) instead of a WARN
 #   CUSTOMMOVER_DISKS_INI     emhttpd's disks.ini: on a real run a share that reaches the array names its
@@ -165,7 +168,7 @@ STOP_SHARE=""
 ERRORS=0
 WARNINGS=0      # office: WARN lines so far (the run card's «N errors, N warnings», as Mr. Backupsy's)
 SHARE_JSON=()
-SH_STATE=""; SH_DIRECTION=""; SH_FILES=0; SH_BYTES=0; SH_MOVED=0; SH_LEFT=0
+SH_STATE=""; SH_DIRECTION=""; SH_FILES=0; SH_BYTES=0; SH_MOVED=0; SH_LEFT=0; SH_LEFT_WHY=""
 SH_AGE=""; SH_STAT=""; SH_THRESHOLD=""; SH_EXCLUDES=""
 RECENT=()      # USO: the last 50 files done (JSON objects)
 recent_add() {  # name bytes from to
@@ -204,15 +207,15 @@ fill_json() {  # USO «fill»: the share's pool and target as JSON members (a le
 declare -A S_REC=() S_MODE=()
 SHARE_ORDER=()
 share_json() {  # name mode — SH_* as one share's JSON
-    printf '%s' "{\"share\":$(json_str "$1"),\"mode\":$(json_str "$2"),\"state\":$(json_str "$SH_STATE"),\"direction\":$(json_str "$SH_DIRECTION"),\"files\":$(json_num "$SH_FILES"),\"bytes\":$(json_num "$SH_BYTES"),\"moved\":$(json_num "$SH_MOVED"),\"left\":$(json_num "$SH_LEFT"),\"min_age\":$(json_str "$SH_AGE"),\"age_stat\":$(json_str "$SH_STAT"),\"threshold\":$(json_str "$SH_THRESHOLD"),\"excludes\":$(json_str "$SH_EXCLUDES")$(fill_json)}"
+    printf '%s' "{\"share\":$(json_str "$1"),\"mode\":$(json_str "$2"),\"state\":$(json_str "$SH_STATE"),\"direction\":$(json_str "$SH_DIRECTION"),\"files\":$(json_num "$SH_FILES"),\"bytes\":$(json_num "$SH_BYTES"),\"moved\":$(json_num "$SH_MOVED"),\"left\":$(json_num "$SH_LEFT"),\"left_why\":$(json_str "$SH_LEFT_WHY"),\"min_age\":$(json_str "$SH_AGE"),\"age_stat\":$(json_str "$SH_STAT"),\"threshold\":$(json_str "$SH_THRESHOLD"),\"excludes\":$(json_str "$SH_EXCLUDES")$(fill_json)}"
 }
 sh_save() {  # name — SH_* into S_REC (unit separator: an empty field stays a field)
     S_REC[$1]=$(printf '%s\037' "$SH_STATE" "$SH_DIRECTION" "$SH_FILES" "$SH_BYTES" "$SH_MOVED" "$SH_LEFT" "$SH_AGE" "$SH_STAT" "$SH_THRESHOLD" \
-        "$SH_EXCLUDES" "$SH_POOL" "$SH_UNTIL" "$SH_POOL_USED" "$SH_POOL_NOW" "$SH_FILL" "$SH_REACHED" "$SH_RC")
+        "$SH_EXCLUDES" "$SH_POOL" "$SH_UNTIL" "$SH_POOL_USED" "$SH_POOL_NOW" "$SH_FILL" "$SH_REACHED" "$SH_RC" "$SH_LEFT_WHY")
 }
 sh_load() {  # name — S_REC into SH_*
     IFS=$'\037' read -r SH_STATE SH_DIRECTION SH_FILES SH_BYTES SH_MOVED SH_LEFT SH_AGE SH_STAT SH_THRESHOLD SH_EXCLUDES SH_POOL SH_UNTIL \
-        SH_POOL_USED SH_POOL_NOW SH_FILL SH_REACHED SH_RC _rest <<< "${S_REC[$1]}"
+        SH_POOL_USED SH_POOL_NOW SH_FILL SH_REACHED SH_RC SH_LEFT_WHY _rest <<< "${S_REC[$1]}"
 }
 shares_json_rebuild() {
     local n
@@ -222,7 +225,7 @@ shares_json_rebuild() {
 
 share_status_add() {  # name mode — what process_share left in SH_*
     SHARE_ORDER+=("$1"); S_MODE[$1]="$2"; sh_save "$1"
-    SHARE_JSON+=("{\"share\":$(json_str "$1"),\"mode\":$(json_str "$2"),\"state\":$(json_str "$SH_STATE"),\"direction\":$(json_str "$SH_DIRECTION"),\"files\":$(json_num "$SH_FILES"),\"bytes\":$(json_num "$SH_BYTES"),\"moved\":$(json_num "$SH_MOVED"),\"left\":$(json_num "$SH_LEFT"),\"min_age\":$(json_str "$SH_AGE"),\"age_stat\":$(json_str "$SH_STAT"),\"threshold\":$(json_str "$SH_THRESHOLD"),\"excludes\":$(json_str "$SH_EXCLUDES")$(fill_json)}")
+    SHARE_JSON+=("{\"share\":$(json_str "$1"),\"mode\":$(json_str "$2"),\"state\":$(json_str "$SH_STATE"),\"direction\":$(json_str "$SH_DIRECTION"),\"files\":$(json_num "$SH_FILES"),\"bytes\":$(json_num "$SH_BYTES"),\"moved\":$(json_num "$SH_MOVED"),\"left\":$(json_num "$SH_LEFT"),\"left_why\":$(json_str "$SH_LEFT_WHY"),\"min_age\":$(json_str "$SH_AGE"),\"age_stat\":$(json_str "$SH_STAT"),\"threshold\":$(json_str "$SH_THRESHOLD"),\"excludes\":$(json_str "$SH_EXCLUDES")$(fill_json)}")
 }
 
 write_status() {  # exit code
@@ -246,6 +249,11 @@ write_status() {  # exit code
     return 0
 }
 [[ -n "$STATUS_FILE" ]] && trap 'write_status $?' EXIT
+# USO «array stop» (2026-10-19, D-F8): ended by a signal it says so — bash runs the EXIT trap of an untrapped TERM with the
+# last command's status ($? = 0: «ok» for a run cut short); these end it with the signal's own code (failed)
+trap 'exit 143' TERM
+trap 'exit 130' INT
+trap 'exit 129' HUP
 
 # office: while a real run goes, the same file says how far it is (result «running»): the shares it will look at
 # (plan), the phase (look, share, tidy), the share and file in flight, what of the share and of the run is done
@@ -282,6 +290,8 @@ get_ini_val() {  # section key
 is_int() { [[ "$1" =~ ^[0-9]+$ ]]; }
 
 MOVER_BIN="${CUSTOMMOVER_MOVER_BIN:-$(get_ini_val GLOBAL mover_bin)}"
+SYNC_BIN="${CUSTOMMOVER_SYNC_BIN:-sync}"
+SYNC_EACH=true; [[ "${CUSTOMMOVER_SYNC:-1}" == 0 ]] && SYNC_EACH=false
 LOG_FILE="${CUSTOMMOVER_LOG:-$(get_ini_val GLOBAL log_file)}"
 GLOBAL_MIN_AGE=$(get_ini_val GLOBAL min_age)
 GLOBAL_AGE_STAT=$(get_ini_val GLOBAL age_stat)
@@ -559,12 +569,18 @@ mover_send() {  # path — to the running binary; back once it is done with it (
     done
 }
 
-PROGRESS_AT=0
+PROGRESS_AT=0; PROGRESS_STEP=""
+# C-M4 (2026-10-19): … and each time the share's files or bytes pass another 5 % — a share that moves within a second or
+# two (40 × 1 MB) was read a second old, its card 25–60 points behind the disks; at most ~20 more writes a share
 office_progress_tick() {  # office_progress at most once a second (it forks a few times; 120 000 files) — force: now
-    local now
+    local now step=0 b=0
     printf -v now '%(%s)T' -1
-    [[ "${1:-}" == force || "$now" != "$PROGRESS_AT" ]] || return 0
-    PROGRESS_AT=$now
+    (( SH_FILES > 0 )) && step=$(( SH_DONE_FILES * 20 / SH_FILES ))
+    (( SH_BYTES > 0 )) && b=$(( SH_DONE_BYTES * 20 / SH_BYTES ))
+    (( b > step )) && step=$b
+    step="$CUR_SHARE:$step"
+    [[ "${1:-}" == force || "$now" != "$PROGRESS_AT" || "$step" != "$PROGRESS_STEP" ]] || return 0
+    PROGRESS_AT=$now; PROGRESS_STEP=$step
     office_progress
 }
 
@@ -625,6 +641,46 @@ office_partial_leftovers() {  # share src dest(array|<pool>)
     return 0
 }
 
+# USO «sync» (2026-10-19, D-F11: 2 of 3000 files gone after a power cut during her run, on neither side): Unraid's move
+# binary only hands each path to shfs (an ioctl on /mnt/user); shfs copies to <rel>.partial, renames it and removes the
+# source without any fsync — the copy lives in RAM until the destination's own commit (XFS: up to 30 s) while the removal
+# on the pool may be on disk within 5 s (a ZFS txg); a power cut between loses the file. Unraid's own mover has the same
+# window. Each moved file and its folder are synced on the destination at once (the disk it went to; a pool), so only
+# the moment between shfs's removal and this sync stays open
+office_sync_moved() {  # file share src(one root per line) dest(array|<pool>)
+    [[ "$SYNC_EACH" == true ]] || return 0
+    local share="$2" dest="$4" b to=""
+    rel_of "$1" "$3"
+    if [[ "$dest" == array ]]; then
+        for b in "$MNT"/disk[0-9]*; do [[ -e "$b/$share/$REL" || -L "$b/$share/$REL" ]] && { to="$b/$share/$REL"; break; }; done
+    elif [[ -e "$MNT/$dest/$share/$REL" || -L "$MNT/$dest/$share/$REL" ]]; then
+        to="$MNT/$dest/$share/$REL"
+    fi
+    [[ -n "$to" ]] || return 0
+    if [[ -L "$to" ]]; then "$SYNC_BIN" -- "${to%/*}" 2>/dev/null; else "$SYNC_BIN" -- "$to" "${to%/*}" 2>/dev/null; fi
+    return 0
+}
+
+# USO «twins»: the file still at the source the same as its copy at the destination (a plain file each; size, mtime,
+# owner, group, mode, content)? Then the copy synced and the source removed — 0; else 1
+office_twin_done() {  # file share src(one root per line) dest(array|<pool>)
+    local f="$1" share="$2" dest="$4" b to="" a z
+    [[ -f "$f" && ! -L "$f" ]] || return 1
+    rel_of "$f" "$3"
+    if [[ "$dest" == array ]]; then
+        for b in "$MNT"/disk[0-9]*; do [[ -e "$b/$share/$REL" || -L "$b/$share/$REL" ]] && { to="$b/$share/$REL"; break; }; done
+    else
+        to="$MNT/$dest/$share/$REL"
+    fi
+    [[ -n "$to" && -f "$to" && ! -L "$to" ]] || return 1
+    a=$(stat -c '%s %Y %u %g %a %h' -- "$f" 2>/dev/null); z=$(stat -c '%s %Y %u %g %a %h' -- "$to" 2>/dev/null)
+    [[ -n "$a" && "$a" == "$z" && "${a##* }" == 1 ]] || return 1
+    cmp -s -- "$f" "$to" || return 1
+    "$SYNC_BIN" -- "$to" "${to%/*}" 2>/dev/null
+    rm -f -- "$f"
+    [[ ! -e "$f" ]]
+}
+
 # The share's files to the move binary one by one (USO «one move binary»: through one binary while it lasts); OFFICE_RC
 # the last non-zero exit
 office_move_files() {  # share src dest out
@@ -658,6 +714,7 @@ office_move_files() {  # share src dest out
         if [[ ! -e "$f" && ! -L "$f" ]]; then
             (( SH_DONE_FILES++, RUN_DONE_FILES++ )) || true
             (( SH_DONE_BYTES += size, RUN_DONE_BYTES += size )) || true
+            office_sync_moved "$f" "$share" "$src" "$dest"
         fi
     done
     if [[ -n "$MV_PID" ]]; then
@@ -741,6 +798,8 @@ office_ws_move() {  # file to
             mv -n -T -- "$tmp" "$to" 2>/dev/null
             if [[ -e "$tmp" || -L "$tmp" ]]; then WS_WHY="already at the destination"
             elif [[ -e "$to" || -L "$to" ]]; then
+                # USO «sync»: the copy on disk before its source goes (not after: a power cut between would lose it)
+                [[ "$SYNC_EACH" == true ]] && { if [[ -L "$to" ]]; then "$SYNC_BIN" -- "${to%/*}"; else "$SYNC_BIN" -- "$to" "${to%/*}"; fi; } 2>/dev/null
                 rm -f -- "$f"
                 office_made_times
                 [[ -e "$f" || -L "$f" ]] && { WS_WHY="copied, but the source could not be removed"; return 1; }
@@ -753,19 +812,37 @@ office_ws_move() {  # file to
     return 1
 }
 
-# USO «trailing space»: after a prefer share's folder pass (DIRS, deepest first) a folder still on the array that is
-# empty goes when its counterpart is on the pool already (its files went there: a name ending in whitespace the binary
-# could not take, or the parent that still held it when the binary came) — rmdir, never a folder holding anything;
-# an empty one ending in whitespace without a counterpart is made there first (owner, mode, times), as the binary would
+# USO «trailing space»: after a share's folder pass (DIRS, deepest first) a folder still on the source side that is
+# empty goes when its counterpart is at the destination already (its files went there: a name ending in whitespace the
+# binary could not take, or the parent that still held it when the binary came) — rmdir, never a folder holding anything;
+# an empty one ending in whitespace without a counterpart is made on a pool first (owner, mode, times), as the binary would.
+# C-M4 (2026-10-19): the destination the array (a yes share) — there is no /mnt/array: a counterpart on any data disk
+# counts; one without a counterpart stays there (which disk is the binary's choice), as Unraid's mover leaves it
 office_dirs_left() {  # share src dest
-    local name="$1" src="$2" dest="$3" d to r gone=0 made=0 where=""
+    local name="$1" src="$2" dest="$3" d to r b gone=0 made=0 where="" onto="$3"
     local -A ROOT=()
+    local -a bases=()
     while IFS= read -r r; do [[ -n "$r" ]] && ROOT[$r]=1; done <<< "$src"
-    [[ -d "$MNT/$dest" ]] || return 0
+    if [[ "$dest" == array ]]; then
+        for b in "$MNT"/disk[0-9]*; do [[ -d "$b" && ! -L "$b" ]] && bases+=("$b"); done
+        onto="the array"
+    elif [[ -d "$MNT/$dest" ]]; then
+        bases=("$MNT/$dest")
+    fi
+    (( ${#bases[@]} > 0 )) || return 0
     for d in "${DIRS[@]}"; do
         [[ -d "$d" && ! -L "$d" ]] || continue
-        if [[ -n "${ROOT[$d]:-}" ]]; then to="$MNT/$dest/$name"; else rel_of "$d" "$src"; to="$MNT/$dest/$name/$REL"; fi
-        if [[ ! -d "$to" || -L "$to" ]]; then
+        # the share's own folder towards the array: share_root_said's (the binary had it; a pool's may be a dataset)
+        [[ "$dest" == array && -n "${ROOT[$d]:-}" ]] && continue
+        if [[ -n "${ROOT[$d]:-}" ]]; then REL=""; else rel_of "$d" "$src"; fi
+        to=""
+        for b in "${bases[@]}"; do
+            r="$b/$name${REL:+/$REL}"
+            [[ -d "$r" && ! -L "$r" ]] && { to="$r"; break; }
+        done
+        if [[ -z "$to" ]]; then
+            [[ "$dest" == array ]] && continue
+            to="$MNT/$dest/$name${REL:+/$REL}"
             ends_ws "$d" || continue
             [[ -z "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]] || continue
             MADE_D=(); MADE_S=()
@@ -776,7 +853,7 @@ office_dirs_left() {  # share src dest
         rmdir -- "$d" 2>/dev/null && { (( gone++ )) || true; }
     done
     [[ "$src" == "$MNT"/disk[0-9]* ]] && where=" on the array"
-    (( gone > 0 )) && log INFO "  $gone empty folders the move binary left$where removed – they are on $dest$( (( made > 0 )) && printf ' (%s made there first: a name ending in a space or tab)' "$made")"
+    (( gone > 0 )) && log INFO "  $gone empty folders the move binary left$where removed – they are on $onto$( (( made > 0 )) && printf ' (%s made there first: a name ending in a space or tab)' "$made")"
     return 0
 }
 
@@ -928,6 +1005,39 @@ dry_list() {
     return 0
 }
 
+# C-M16 (2026-10-19): the move binary's own reason for each file still at the source, from its output — «move: <path>
+# <reason>», «move: <src> -> <dst> <reason>», «skip: <path> <reason>», «error: <fn>, <line>: <reason> (<errno>): lstat:
+# <path>» — the path known (a name with spaces: the longest known path the line starts with); prints «path<TAB>reason»
+left_reasons() {  # out file…
+    local out="$1"; shift
+    [[ -s "$out" ]] || return 0
+    printf '%s\n' "$@" | LC_ALL=C awk '
+        NR == FNR { left[$0] = 1; next }
+        {
+            line = $0
+            if (line ~ /^error: / && (i = index(line, ": lstat: ")) > 0) {
+                p = substr(line, i + 9); head = substr(line, 1, i - 1)
+                if (!(p in left) || (p in why)) next
+                sub(/ \([0-9]+\)$/, "", head); n = split(head, part, ": "); why[p] = part[n]; next
+            }
+            if (!sub(/^(move|skip): /, "", line)) next
+            for (i = length(line); i > 1; i--) {
+                if (substr(line, i, 1) != " ") continue
+                p = substr(line, 1, i - 1)
+                if (!(p in left)) continue
+                r = substr(line, i + 1)
+                if (r ~ /^-> /) {               # «src -> dst reason»: dst ends in the same name as src
+                    b = p; sub(/.*\//, "", b); j = 0
+                    for (k = 1; k + length(b) <= length(r); k++) if (substr(r, k, length(b) + 1) == b " ") j = k
+                    r = j ? substr(r, j + length(b) + 1) : ""
+                }
+                if (r != "" && !(p in why)) why[p] = r
+                break
+            }
+        }
+        END { for (p in why) print p "\t" why[p] }' - "$out"
+}
+
 # FILES to the move binary (one by one with CUSTOMMOVER_STOP, else at once), then what is still at the source; the
 # counts to SH_MOVED/SH_LEFT and the run's totals, SH_RC the move binary's last failure (the fill: fill_pool)
 move_batch() {  # share src dest
@@ -966,13 +1076,28 @@ move_batch() {  # share src dest
         log ERROR "  move binary exited with code $rc – see $LOG_FILE (mover_debug=1 for details)"
         [[ "$LOG_LEVEL" != "DEBUG" ]] && tail -n 5 "$mover_out" | while IFS= read -r line; do log ERROR "  mover: $line"; done
     fi
-    rm -f "$mover_out"
 
     # Verify: what is still on the source side?
     local -a MOVED=() LEFT=()
     for f in "${FILES[@]}"; do
         if [[ -e "$f" || -L "$f" ]]; then LEFT+=("$f"); else MOVED+=("$f"); fi
     done
+    # USO «twins» (2026-10-19, D-F11): a move a power cut cut short after the copy was on disk but before the source's
+    # removal was leaves the file on both sides — the move binary answers «File exists» and leaves it for ever. One whose
+    # copy is the same (size, mtime, owner, mode, content) is finished here: the copy synced, the source removed
+    if [[ -n "$STOP_FILE" && ${#LEFT[@]} -gt 0 ]]; then
+        local -a still=() fin=()
+        for f in "${LEFT[@]}"; do if office_twin_done "$f" "$name" "$src" "$dest"; then fin+=("$f"); else still+=("$f"); fi; done
+        if (( ${#fin[@]} > 0 )); then
+            MOVED+=("${fin[@]}"); LEFT=("${still[@]}")
+            local k=0
+            for f in "${fin[@]}"; do
+                (( k++ )) || true
+                (( k <= 10 )) && log WARN "  the same file was at the destination already (a move cut short, by a power cut?) – its source removed: $f"
+            done
+            (( ${#fin[@]} > 10 )) && log WARN "     ... $(( ${#fin[@]} - 10 )) more"
+        fi
+    fi
     local ns=${OFFICE_NOT_STARTED:-0}
     OFFICE_NOT_STARTED=0
     (( TOTAL_MOVED += ${#MOVED[@]}, TOTAL_LEFT += ${#LEFT[@]} + ns )) || true
@@ -980,11 +1105,25 @@ move_batch() {  # share src dest
     if (( ns > 0 )); then log INFO "  moved ${#MOVED[@]} of $(( ${#FILES[@]} + ns )) files ($ns not started: stopped)"
     else log INFO "  moved ${#MOVED[@]} of ${#FILES[@]} files"; fi
     if (( ${#LEFT[@]} > 0 )); then
-        log WARN "  ${#LEFT[@]} files still on the source side (in use, or already present at the destination):"
-        local i=0
-        for f in "${LEFT[@]}"; do (( i++ )) || true; (( i <= 10 )) && log WARN "     $f"; done
+        # C-M16: what the move binary said of each (its own reason, e.g. «No medium found»); none said: in use, or already there
+        local -A WHY=()
+        local w i=0
+        while IFS=$'\t' read -r f w; do [[ -n "$f" ]] && WHY[$f]=$w; done < <(left_reasons "$mover_out" "${LEFT[@]}")
+        log WARN "  ${#LEFT[@]} files still on the source side:"
+        for f in "${LEFT[@]}"; do
+            (( i++ )) || true
+            (( i <= 10 )) && log WARN "     $f – ${WHY[$f]:-in use, or already present at the destination}"
+        done
         (( ${#LEFT[@]} > 10 )) && log WARN "     ... $(( ${#LEFT[@]} - 10 )) more"
+        SH_LEFT_WHY=$(for f in "${LEFT[@]}"; do [[ -n "${WHY[$f]:-}" ]] && printf '%s\n' "${WHY[$f]}"; done | sort | uniq -c | sort -rn | head -1 | sed 's/^ *[0-9]* //')
+        for w in "${WHY[@]}"; do
+            if [[ "$w" == "No medium found" ]]; then
+                log WARN "  Unraid's move binary answers «No medium found» for files of a share it won't move now (seen right after Unraid renamed the share) – Unraid's own mover leaves them too; a later run moves them"
+                break
+            fi
+        done
     fi
+    rm -f "$mover_out"
     for f in "${MOVED[@]:$(( ${#MOVED[@]} > 50 ? ${#MOVED[@]} - 50 : 0 ))}"; do rel_of "$f" "$src"; recent_add "$name/$REL" "${SIZE_OF[$f]:-0}" "$CUR_FROM" "$dest"; done
     # USO «per disk», «empty folders»: the source's empty folders as Unraid's mover leaves them (its second pass, one
     # move binary for all); after a stop only the empty parents of what moved, at once
@@ -1163,6 +1302,7 @@ fill_pool() {  # pool
             else
                 (( F_MOVED[$own]++, RUN_DONE_FILES++, RUN_DONE_BYTES += sz, freed += ph )) || true
                 F_GONE[$own]+="$f"$'\n'
+                ends_ws "$f" || office_sync_moved "$f" "$own" "${FS_SRC[$own]}" "${FS_DEST[$own]}"
                 recent_add "$own/${f#"${FS_SRC[$own]}/"}" "$sz" "$pool" "${FS_DEST[$own]}"
             fi
             pool_used_pct "$pool"
@@ -1427,7 +1567,7 @@ for cfg in "$SHARES_DIR"/*.cfg; do
         log WARN "stop requested ($STOP_FILE) – $SHARE_NAME and the shares after it are left for the next run"
         break
     fi
-    SH_STATE=""; SH_DIRECTION=""; SH_FILES=0; SH_BYTES=0; SH_MOVED=0; SH_LEFT=0; SH_AGE=""; SH_STAT=""; SH_THRESHOLD=""; SH_EXCLUDES=""
+    SH_STATE=""; SH_DIRECTION=""; SH_FILES=0; SH_BYTES=0; SH_MOVED=0; SH_LEFT=0; SH_LEFT_WHY=""; SH_AGE=""; SH_STAT=""; SH_THRESHOLD=""; SH_EXCLUDES=""
     SH_POOL=""; SH_UNTIL=""; SH_POOL_USED=""; SH_POOL_NOW=""; SH_FILL=false; SH_REACHED=false; SH_RC=0
     process_share "$SHARE_NAME" "$MODE" "$POOL" "$POOL2" || { (( ERRORS++ )) || true; }
     share_status_add "$SHARE_NAME" "$MODE"
