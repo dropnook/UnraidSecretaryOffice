@@ -12,9 +12,9 @@
    pictures the kept keys' levels, each once: Office.supporterPictures); without,
    he asks once, friendly, a week after the office first ran here (a callout
    under «The team», «Not now» at most twice more, «Don't ask again»).
-   His page is a row of tiles (tiles v2, core.js Office.sections): Team, Office, Still to do, the notification centre
-   (and what waits for its summary, its history), Partners, In place — each its section under the row, nothing chosen =
-   all of them. */
+   His page is a row of tiles (tiles v2, core.js Office.sections): Team, Still to do, In place, Partners, the notification
+   centre (its history, what waits for its summary), the Office (its version) last — each its section under the row,
+   nothing chosen = all of them. */
 (() => {
 'use strict';
 
@@ -177,8 +177,9 @@ function render() {
 }
 
 /**
- * His row and the section under it (core.js Office.sections, CLAUDE.md «Tiles»): a tile per section — the team, the
- * office, what is still open, the reports to Unraid, the partner offices, what is in place. No start tile: nothing chosen
+ * His row and the section under it (core.js Office.sections, CLAUDE.md «Tiles»): a tile per section — the team, what is
+ * still open and what is in place (the pair), the partner offices, the reports to Unraid (the centre, its history, what
+ * waits for the summary), the office itself (its version, the plainest) last. No start tile: nothing chosen
  * shows every section in the row's order; a choice is kept as caretaker.tile, #/caretaker/<tile> picks one like a click.
  */
 const sw = Office.sections({
@@ -187,14 +188,14 @@ const sw = Office.sections({
   default: '',
   tiles: [
     { id: 'team', key: 'tile.team', place: 'tile.team', tile: (a) => teamTile(a), section: () => teamSection() },
-    { id: 'office', key: 'tile.office', place: 'tile.office', tile: (a) => officeTile(a), section: () => officeSection() },
     { id: 'todo', key: 'tile.todo', place: 'tile.todo', tile: (a) => todoTile(a), section: () => pointsSection() },
-    { id: 'notify', key: 'tile.notify', place: 'tile.notify', tile: (a) => notifyTile(a), section: () => notifySection() },
-    { id: 'notify_wait', key: 'tile.notify_wait', place: 'tile.notify_wait', tile: (a) => notifyWaitTile(a), section: () => notifyWaitSection() },
-    { id: 'notify_log', key: 'tile.notify_log', place: 'tile.notify_log', tile: (a) => notifyLogTile(a), section: () => notifyLogSection() },
+    { id: 'done', key: 'tile.done', place: 'tile.done', tile: (a) => doneTile(a), section: () => doneSection() },
     { id: 'partner', key: 'tile.partner', place: 'tile.partner', tile: (a) => partnerTile(a),
       section: () => (Office.ctPartner ? Office.ctPartner.section(state) : partnerWaiting()) },      // partner.js
-    { id: 'done', key: 'tile.done', place: 'tile.done', tile: (a) => doneTile(a), section: () => doneSection() },
+    { id: 'notify', key: 'tile.notify', place: 'tile.notify', tile: (a) => notifyTile(a), section: () => notifySection() },
+    { id: 'notify_log', key: 'tile.notify_log', place: 'tile.notify_log', tile: (a) => notifyLogTile(a), section: () => notifyLogSection() },
+    { id: 'notify_wait', key: 'tile.notify_wait', place: 'tile.notify_wait', tile: (a) => notifyWaitTile(a), section: () => notifyWaitSection() },
+    { id: 'office', key: 'tile.office', place: 'tile.office', tile: (a) => officeTile(a), section: () => officeSection() },
   ],
 });
 
@@ -688,6 +689,15 @@ function ncClock(label, value, onChange) {
   i.onchange = () => { if (/^([01]\d|2[0-3]):[0-5]\d$/.test(i.value)) onChange(i.value, i); };
   return ncTip(i, 'nc.tip.at');
 }
+/** An empty slot of a colleague's row: the control it stands for, invisible, out of reach (no tab, no title, no click) */
+function ncSlot(node) {
+  node.classList.add('ct-nc-slot');
+  node.removeAttribute('title');
+  node.setAttribute('aria-hidden', 'true');
+  node.querySelectorAll('input').forEach((i) => { i.disabled = true; i.tabIndex = -1; });
+  if (node.matches('input')) { node.disabled = true; node.tabIndex = -1; }
+  return node;
+}
 const ncLevelText = (id, level) => T(level === 'alert' && !(nc.sends[id] || []).includes('alert') ? 'nc.level.off' : 'nc.level.' + level);
 
 /** «Who reports what»: a row per colleague — threshold, successes, right away or in the summary at a time; its bar */
@@ -715,27 +725,28 @@ function ncWhoBox() {
     main.appendChild(ncEl('div', 'row-meta', el('span', '', T('nc.sends', { what: sends.map((l) => T('nc.send.' + l)).join(', ') }))));
     const col = (nc.collecting || {})[id];
     if (col) main.appendChild(ncTip(el('div', 'row-detail', T('nc.collecting', { time: ncTime(col.since), n: col.n })), 'nc.tip.flood'));
-    const ctl = el('div', 'ct-nc-ctl');
-    ctl.appendChild(ncTip(ncSelect(T('nc.level_label', { name: ncName(id) }), d.level, ['all', 'warning', 'alert'].map((l) => [l, ncLevelText(id, l)]),
-      (v, sel) => ncEdit(sel, (x) => { x.desks[id].level = v; })), 'nc.tip.level'));
+    // four slots in every row — «successes too», threshold, when, time — an empty one held by an invisible stand-in of
+    // the same control, so the selects line up in one column whether a colleague has successes or a summary time
+    const ctl = el('div', 'ct-nc-ctl ct-nc-set');
+    const lab = el('label', 'check');
+    const cb = el('input');
+    cb.type = 'checkbox';
+    lab.append(cb, el('span', '', T('nc.success')));
     if ((nc.success || []).includes(id)) {
-      const lab = el('label', 'check');
-      const cb = el('input');
-      cb.type = 'checkbox';
       cb.checked = d.success !== false;
       cb.disabled = !Office.agent.running || d.level !== 'all';
       cb.onchange = () => ncEdit(cb, (x) => { x.desks[id].success = cb.checked; });
-      lab.append(cb, el('span', '', T('nc.success')));
       ctl.appendChild(ncTip(lab, 'nc.tip.success'));
-    }
+    } else ctl.appendChild(ncSlot(lab));
+    ctl.appendChild(ncTip(ncSelect(T('nc.level_label', { name: ncName(id) }), d.level, ['all', 'warning', 'alert'].map((l) => [l, ncLevelText(id, l)]),
+      (v, sel) => ncEdit(sel, (x) => { x.desks[id].level = v; })), 'nc.tip.level'));
     const quiet = d.level === 'alert';
     const when = ncSelect(T('nc.when_label', { name: ncName(id) }), d.when, [['now', T('nc.when.now')], ['summary', T('nc.when.summary')]],
       (v, sel) => ncEdit(sel, (x) => { x.desks[id].when = v; }));
     when.disabled = when.disabled || quiet;
     ctl.appendChild(ncTip(when, 'nc.tip.when'));
-    if (d.when === 'summary' && !quiet) {
-      ctl.appendChild(ncClock(T('nc.at_label', { name: ncName(id) }), d.at || set.at, (v, i) => ncEdit(i, (x) => { x.desks[id].at = v; })));
-    }
+    const clock = ncClock(T('nc.at_label', { name: ncName(id) }), d.at || set.at, (v, i) => ncEdit(i, (x) => { x.desks[id].at = v; }));
+    ctl.appendChild(d.when === 'summary' && !quiet ? clock : ncSlot(clock));
     r.append(main, ctl);
     box.appendChild(r);
   }

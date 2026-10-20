@@ -17,7 +17,7 @@
 // Needs node and playwright-core (USO_PLAYWRIGHT=<its folder>, else found in node's own paths or npx's cache) and a
 // Chrome (USO_CHROME=<binary>, else Google Chrome in /Applications, else playwright's own Chromium) - like the click
 // test (tools/ui-clicks.mjs). Exit: 0 every tile shot, 1 a tile failed (not there again, could not be clicked, a console
-// error), 2 wrong call, 3 playwright-core or Chrome missing.
+// error, words of the clicked tile under its mark or cut off), 2 wrong call, 3 playwright-core or Chrome missing.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -101,6 +101,28 @@ const PAGE_HELPERS = () => {
   const inView = (e) => { const r = e.getBoundingClientRect(); return r.bottom > menuBottom() && r.top < innerHeight && r.width > 0 && r.height > 0; };
   const text = (e) => e.textContent.trim().replace(/\s+/g, ' ');
   const tiles = () => { const seen = new Set(); return [...document.querySelectorAll(SEL)].filter((b) => !seen.has(b) && shown(b) && seen.add(b)); };
+  // the words of a tile's title (.stat-label, .card-name) its mark lies over, or that run out of the title's box (cut
+  // off, «…»): never one (2026-10-20, a long one-word title under «Geöffnet»)
+  const covered = (t) => {
+    const m = t.querySelector('.tile-mark');
+    const mr = m && shown(m) ? m.getBoundingClientRect() : null;
+    const title = t.querySelector('.stat-label, .card-name');
+    if (!title) return [];
+    const tr = title.getBoundingClientRect();
+    const out = [];
+    const walk = document.createTreeWalker(title, NodeFilter.SHOW_TEXT);
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+      if (!n.textContent.trim() || (m && m.contains(n))) continue;
+      const r = document.createRange();
+      r.selectNodeContents(n);
+      for (const q of r.getClientRects()) {
+        const over = mr && q.left < mr.right - 1 && q.right > mr.left + 1 && q.top < mr.bottom - 1 && q.bottom > mr.top + 1;
+        const cut = q.right > tr.right + 1 || q.left < tr.left - 1;
+        if (over || cut) { out.push(`${over ? 'under the mark' : 'cut off'}: ${n.textContent.trim().slice(0, 40)}`); break; }
+      }
+    }
+    return out;
+  };
   window.__ts = {
     tiles: () => tiles().map((b) => ({
       kind: b.classList.contains('card') ? 'card' : b.classList.contains('stat') ? 'stat' : 'other',
@@ -133,7 +155,7 @@ const PAGE_HELPERS = () => {
         notes: [...document.querySelectorAll('#sso-desk .filter-note')].filter(shown).map((n) => (inView(n) ? '' : '(below) ') + text(n).slice(0, 100)),
         dialog: !!(window.Office && Office.dialogOpen && Office.dialogOpen()),
         tile: tr ? { top: Math.round(tr.top), bottom: Math.round(tr.bottom), pressed: t.getAttribute('aria-pressed'), glow: t.classList.contains('tile-on'),
-          mark: (t.querySelector('.tile-mark') || { textContent: '' }).textContent } : null,
+          mark: (t.querySelector('.tile-mark') || { textContent: '' }).textContent, covered: covered(t) } : null,
         body: body ? { active: body.dataset.active || '', sections: body.dataset.sections || '' } : null,
       };
     },
@@ -255,6 +277,7 @@ for (const l of logs) {
   if (l.fail) { failed++; lines.push(`${l.route} | ${l.width} | ${l.tile} | FAIL ${l.fail}${errs}`); continue; }
   if (l.tile === '(all)') { lines.push(`${l.route} | ${l.width} | (all) | page ${l.pageH} px in a ${l.winH} px window | ${l.tiles} tiles | heads: ${l.heads.join(' / ')}${errs}`); continue; }
   const b = l.before; const a = l.after;
+  if (a.tile && a.tile.covered.length) { failed++; lines.push(`${l.route} | ${l.width} | ${l.tile} | FAIL words covered: ${a.tile.covered.join(' ; ')}`); continue; }
   const mark = a.tile ? `${a.tile.glow ? ', glow' : ''}${a.tile.mark ? `, «${a.tile.mark}»` : ''}` : '';
   lines.push([l.route, l.width, l.tile, l.label, `${b.tile && b.tile.pressed}→${a.tile && a.tile.pressed}${mark}`, `${b.scrollY}→${a.scrollY}`, `${b.pageH}→${a.pageH}`,
     b.headsInView.join(' / '), a.headsInView.join(' / '), a.body ? `${a.body.active || '(nothing)'}: ${a.body.sections}` : '-', a.notes.join(' ; '), a.dialog ? 'DIALOG' : ''].join(' | ') + errs);
