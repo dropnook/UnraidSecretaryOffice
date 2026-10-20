@@ -4366,10 +4366,16 @@ function clRestore(array $ids): array
             if ($moved && ($twin = clShareTwin($it['from'])) !== null) {
                 throw new Problem('cleanup_target_exists', ['path' => $twin]);
             }
-            // a package's apps/ or vms/ the let-go removed once emptied (BF4): made again inside its backup place, as the place is
-            if ($it['kind'] === 'package' && !is_dir($home) && !is_link($home) && in_array(basename($home), ['apps', 'vms'], true)
-                && is_dir(dirname($home)) && !is_link(dirname($home))) {
-                @mkdir($home, (@fileperms(dirname($home)) ?: 0755) & 0777);
+            // the backup place and its apps/ or vms/ the let-go removed once emptied (BF4): made again inside the share's folder
+            // on that pool or disk (which must be there), each as the folder above it is
+            if ($it['kind'] === 'package' && !is_dir($home) && !is_link($home)) {
+                $place = in_array(basename($home), ['apps', 'vms'], true) ? dirname($home) : $home;
+                foreach (array_unique([$place, $home]) as $d) {
+                    if (!is_dir($d) && !is_link($d) && is_dir(dirname($d)) && !is_link(dirname($d))
+                        && in_array(basename($place), ['backup', 'unraid-backup'], true)) {
+                        @mkdir($d, (@fileperms(dirname($d)) ?: 0755) & 0777);
+                    }
+                }
             }
             if ($it['kind'] !== 'partner' && !is_dir($home)) {
                 throw new Problem('cleanup_no_home', ['path' => $home]);
