@@ -55,9 +55,15 @@ pre.code.ct-pblock{user-select:all; max-height:30vh; word-break:break-all}
 .ct-nc-ctl .input.small{flex:0 1 auto}
 .ct-nc-ctl label.check{display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--ink2)}
 .ct-nc-clock{width:auto; flex:0 0 auto}
+/* a colleague's row: four slots (successes, threshold, when, time) as a grid — the same controls in every row, so the
+   columns line up; an empty slot keeps its stand-in's width, invisible */
+.ct-nc-set{display:grid; grid-template-columns:repeat(4, auto); justify-content:end}
+.ct-nc-set .input.small{width:auto; max-width:100%}
+.ct-nc-slot{visibility:hidden; pointer-events:none}
 .ct-nc-word{font-size:13px; color:var(--ink2)}
 .ct-nc-choice{gap:8px}
 .ct-nc-save{justify-content:flex-end}
 pre.code.ct-nc-preview{white-space:pre-wrap; word-break:break-word; max-height:40vh; overflow:auto; margin-top:8px}
-@media (max-width:640px){ .row.ct-nc-row{grid-template-columns:minmax(0,1fr)} .ct-nc-ctl{justify-content:flex-start} }
+@media (max-width:640px){ .row.ct-nc-row{grid-template-columns:minmax(0,1fr)} .ct-nc-ctl{justify-content:flex-start}
+  .ct-nc-set{grid-template-columns:minmax(0,1fr); justify-items:start} .ct-nc-ctl.ct-nc-set > .ct-nc-slot{display:none} }
 }
