@@ -260,6 +260,7 @@ trap 'exit 129' HUP
 office_progress() {
     [[ -n "$STATUS_FILE" && "$DRY_RUN" == false && "$LIST_ONLY" == false ]] || return 0
     local plan joined p
+    PROGRESS_FILE=$CUR_FILE               # USO «progress»: the file the card names now
     plan=""; for p in "${PLAN[@]}"; do plan+="${plan:+,}$(json_str "$p")"; done
     joined=$(IFS=,; printf '%s' "${SHARE_JSON[*]}")
     printf '{"mode":"run","result":"running","errors":%s,"warnings":%s,"started":%s,"time":%s,"plan":[%s],"phase":"%s","share":%s,"file":%s,"share_files":%s,"share_bytes":%s,"share_done_files":%s,"share_done_bytes":%s,"done_files":%s,"done_bytes":%s,"files":%s,"bytes":%s%s,"shares":[%s],%s}\n' \
@@ -564,12 +565,16 @@ mover_send() {  # path — to the running binary; back once it is done with it (
         # every 10 ms, after 1 s every 50 ms (a big file)
         (( ++n == 5 )) && d=0.002
         (( n == 50 )) && d=0.01
+        # USO «progress» (batch F, BF3): a file still in flight after ~0.1 s that the card doesn't name yet (the once-a-second
+        # write fell on the file before it) — named now, so the card's file and rate are this one's for all its time
+        (( n == 50 )) && [[ "$PROGRESS_FILE" != "$CUR_FILE" ]] && office_progress
         (( n == 140 )) && d=0.05
         if [[ -n "$SLP_FD" ]]; then read -r -t "$d" -u "$SLP_FD" _ 2>/dev/null; else sleep "$d"; fi
     done
 }
 
-PROGRESS_AT=0; PROGRESS_STEP=""
+PROGRESS_AT=0; PROGRESS_STEP=""; PROGRESS_FILE=""
+OFFICE_BIG_FILE=$(( 64 * 1024 * 1024 ))     # USO «progress»: a file this big takes a while — named before it goes
 # C-M4 (2026-10-19): … and each time the share's files or bytes pass another 5 % — a share that moves within a second or
 # two (40 × 1 MB) was read a second old, its card 25–60 points behind the disks; at most ~20 more writes a share
 office_progress_tick() {  # office_progress at most once a second (it forks a few times; 120 000 files) — force: now
@@ -698,7 +703,7 @@ office_move_files() {  # share src dest out
         fi
         size=${SZ[$f]:-0}
         CUR_FILE="$f"
-        if [[ "$first" == true ]]; then office_progress_tick force; first=false; else office_progress_tick; fi
+        if [[ "$first" == true ]] || (( size >= OFFICE_BIG_FILE )); then office_progress_tick force; first=false; else office_progress_tick; fi
         (( OFFICE_TRIED++ )) || true
         r=0
         if [[ "$MV_LONG" == true ]] && { [[ -n "$MV_PID" ]] || mover_open "$out"; }; then
