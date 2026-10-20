@@ -27258,8 +27258,8 @@ function testPartnerPairing(): void
     same('pairing: A\'s card says what the levels send there (settings.ini)', ['place', 'share:appdata'], partnerTestAs($A, 'return partnerPublic();')['pairs'][0]['send_units'] ?? null);
     same('pairing: the Team Lead\'s state holds the cards right after the pairing (caretakerPartnerDone: no wait for a tour)', [$id],
         array_column(partnerTestAs($A, 'caretakerPartnerDone(["ok" => true]); return readJson(deskFile("caretaker"))["partners"]["pairs"] ?? [];'), 'id'));
-    $pingB = partnerTestAs($B, 'return partner_ping(["id" => ' . var_export($id, true) . ']);');
-    same('pairing: B pings A through A\'s door', true, $pingB['ask']['reachable'] ?? null);
+    $pingB = partnerTestAs($B, 'return partnerAskAndKeep(' . var_export($id, true) . ');');
+    same('pairing: B pings A through A\'s door', true, $pingB['reachable'] ?? null);
     $calls = partnerTestCalls($A['bin']);
     check('pairing: A\'s ssh calls carried its key and its known_hosts only', $calls && !array_filter($calls, fn ($c) => $c[0] === 'ssh'
         && !(in_array("$A[flash]/$id.key", $c, true) && in_array("UserKnownHostsFile=$A[flash]/$id.known", $c, true))));
@@ -27281,7 +27281,34 @@ function testPartnerPairing(): void
     // a host key that changed: never trusted
     file_put_contents($B['host'], partnerTestKey('root@new') . "\n");
     same('pairing: B reinstalled (another host key) — A refuses it', ['reachable' => false, 'why' => 'host_key', 'array' => null],
-        partnerTestAs($A, 'return partner_ping(["id" => ' . var_export($id, true) . ']);')['ask'] ?? null);
+        partnerTestAs($A, 'return partnerAskAndKeep(' . var_export($id, true) . ');'));
+
+    // BG1 (scenario batch G, 2026-10-20): «Ask now» never asks inside the agent's request — an unreachable partner's ssh
+    // waits up to 15 s and held every other page's request that long. The click hands a job to atd and answers at once.
+    partnerTestCalls($A['bin']);
+    $launch = '$GLOBALS["partnerLookLaunch"] = function (string $i) { file_put_contents(RUN_DIR . "/launched.log", "$i\n", FILE_APPEND); };';
+    $clicked = partnerTestAs($A, $launch . ' return partner_ping(["id" => ' . var_export($id, true) . ']);');
+    same('ask now: answered at once — looking, no ask in the answer, the card «asking»', [true, true, false, true],
+        [$clicked['ok'] ?? null, $clicked['looking'] ?? null, array_key_exists('ask', (array) $clicked), $clicked['partners']['pairs'][0]['asking'] ?? null]);
+    same('ask now: the request itself called no ssh', [], array_filter(partnerTestCalls($A['bin']), fn ($c) => ($c[0] ?? '') === 'ssh'));
+    same('ask now: one job handed over, for that pair', "$id\n", @file_get_contents("$A[run]/launched.log"));
+    partnerTestAs($A, $launch . ' return partner_ping(["id" => ' . var_export($id, true) . ']);');
+    same('ask now: a second click while it asks — no second job', "$id\n", @file_get_contents("$A[run]/launched.log"));
+    same('ask now: an unknown pair — said', 'partner_unknown', partnerTestAs($A, $launch . ' return partner_ping(["id" => "0badc0de"]);')['problem'] ?? null);
+    $failed = partnerTestAs($A, '$GLOBALS["partnerLookLaunch"] = function () { throw new Problem("atd_off"); }; @unlink(partnerAskingFile(' . var_export($id, true) . ')); return partner_ping(["id" => ' . var_export($id, true) . ']);');
+    same('ask now: atd off — said, and no «asking» left behind', ['atd_off', false], [$failed['problem'] ?? null, is_file("$A[run]/partner/asking-$id")]);
+    touch("$A[run]/partner/asking-$id", time() - 3600);
+    same('ask now: a mark older than any job (atd never ran it) — not «asking» for good', false, partnerTestAs($A, 'return partnerPublic();')['pairs'][0]['asking'] ?? null);
+    touch("$A[run]/partner/asking-$id");
+    @unlink("$A[run]/" . PARTNER_RESCAN_FILE);
+    same('ask now: the job (php agent.php job partner-look <id>) runs', 0, partnerTestAs($A, 'return desks()["caretaker"]["jobs"]["partner-look"]([' . var_export($id, true) . ']);'));
+    $st = partnerTestAs($A, 'return partnerStateRead()["pairs"][' . var_export($id, true) . '] ?? null;');
+    same('ask now: the job kept the answer (B refuses A\'s host key), the mark gone, the cards asked anew', [false, 'host_key', true, false, true],
+        [$st['reachable'] ?? null, $st['why'] ?? null, ($st['last_try'] ?? 0) >= time() - 60, is_file("$A[run]/partner/asking-$id"), is_file("$A[run]/" . PARTNER_RESCAN_FILE)]);
+    same('ask now: the job with a bad id — nothing asked', 1, partnerTestAs($A, 'return partnerLookJob("../x");'));
+    $ping = (string) preg_replace('/^.*?(function partner_ping\(.*?\n\}\n).*$/s', '$1', (string) file_get_contents(OFFICE_DIR . '/agent/lib/partner.php'));
+    check('ask now: partner_ping asks nobody itself (no partnerAsk/partnerSsh in the request)', str_contains($ping, 'function partner_ping(') && !preg_match('/partnerAsk\(|partnerAskAndKeep|partnerSsh|\brun\(/', $ping));
+    @unlink("$A[run]/launched.log");
 
     // the end: B's line off A, A's key and pin off the flash, the pair gone; B's copies, B's line for A stay
     $ended = partnerTestAs($A, 'return partner_end(["id" => ' . var_export($id, true) . ']);');

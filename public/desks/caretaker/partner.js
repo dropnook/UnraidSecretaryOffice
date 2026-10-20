@@ -16,7 +16,7 @@ const { el, fmt } = Office;
 const TRUST = ['mine', 'family', 'friend'];
 const DEFAULT_RETENTION = '7 4 6';
 
-let ctx = null;         // from desk.js: { state(), took(j), reload() }
+let ctx = null;         // from desk.js: { took(j), reload(), peek() }
 let ready = null;       // what each side of a pairing needs here (the agent's `ready`: Mr. Backupsy hired and set up, Mr. Restori hired)
 
 const unitText = (u) => (u === 'place' ? T('partner.unit_place')
@@ -32,6 +32,31 @@ const busyOff = () => !Office.agent.running;
 /** A door's or ssh's reason in words (the code itself when no text knows it) */
 const whyText = (w) => (Office.has(`${ID}.partner.why.${w}`) ? T('partner.why.' + w) : String(w || '?'));
 
+// «Ask now» under way: pair id → its last_try before the click. The ask is a job of the agent's (never its request, BG1):
+// the page looks at his state a few times, the answer is said once the card carries a newer try and no longer asks
+const waiting = new Map();
+const ASK_LOOKS = [3, 8, 16, 30, 50, 80, 120];
+
+/** Said once a pair asked by «Ask now» has its answer on the card */
+function askAnswered(pairs) {
+  pairs.forEach((x) => {
+    if (!waiting.has(x.id) || x.asking || (x.last_try || 0) <= waiting.get(x.id)) return;
+    waiting.delete(x.id);
+    const fine = x.reachable === true && !x.why;
+    Office.toast(fine ? T('partner.asked_ok', { name: x.name }) : T('partner.asked_no', { name: x.name, why: whyText(x.why || 'unreachable') }), !fine);
+  });
+}
+
+/** «Ask now»: the agent hands the ask to a job and answers at once; the card says «asking …» until the answer is there */
+async function askNow(x, btn) {
+  btn.disabled = true;
+  const j = await Office.api.post(`${ID}.partner_ping`, { id: x.id });
+  if (!took(j)) { btn.disabled = false; return; }
+  waiting.set(x.id, x.last_try || 0);
+  ASK_LOOKS.forEach((sec) => setTimeout(() => { if (waiting.has(x.id) && ctx) ctx.peek(); }, sec * 1000));
+  setTimeout(() => waiting.delete(x.id), (ASK_LOOKS[ASK_LOOKS.length - 1] + 5) * 1000);
+}
+
 /** The answer of an action: its partner cards into his state, or the error said */
 function took(j) {
   if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return false; }
@@ -43,6 +68,7 @@ function took(j) {
 function section(state) {
   const p = (state && state.partners) || { pairs: [], pending: [] };
   ready = p.ready || null;
+  askAnswered(p.pairs);
   const held = p.ticket_pairs || [];
   const asked = p.ticket_requests || [];
   const s = el('section', 'section');
@@ -156,6 +182,7 @@ function card(x) {
   main.appendChild(el('div', 'row-name text', '🏢 ' + x.name));
   const meta = el('div', 'row-meta');
   meta.appendChild(stateChip(x));
+  if (x.asking) { const a = el('span', 'ct-asking'); a.append(el('span', 'spin'), ' ', T('partner.asking', { name: x.name })); meta.appendChild(a); }
   if (x.array === 'stopped') meta.appendChild(chip('warn', x.night ? T('partner.night') : T('partner.array_stopped'), T('partner.array_stopped_tip')));
   meta.appendChild(chip('quiet', T('partner.trust.' + x.trust), T('partner.trust_tip.' + x.trust)));
   if (x.public) meta.appendChild(chip('warn', T('partner.public'), T('partner.public_tip')));
@@ -238,15 +265,9 @@ function card(x) {
   if (x.sends) {
     const ask = el('button', 'btn small plain', T('partner.ask'));
     ask.type = 'button';
-    ask.disabled = busyOff();
+    ask.disabled = busyOff() || !!x.asking;
     ask.title = T('partner.ask_title');
-    ask.onclick = async () => {
-      ask.disabled = true;
-      const j = await Office.api.post(`${ID}.partner_ping`, { id: x.id });
-      const fine = j.ask && j.ask.reachable && !j.ask.why;
-      if (took(j) && j.ask) Office.toast(fine ? T('partner.asked_ok', { name: x.name }) : T('partner.asked_no', { name: x.name, why: T('partner.why.' + (j.ask.why || 'unreachable')) }), !fine);
-      ask.disabled = false;
-    };
+    ask.onclick = () => askNow(x, ask);
     acts.appendChild(ask);
   }
   const more = el('button', 'btn small plain', '⋯');

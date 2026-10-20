@@ -52,8 +52,7 @@ pm=$(jq -c '[.warning_items[]? | select(.code | startswith("partner"))]' "$st")
 zfs list -H -t snapshot -o name "cache/$S" | grep -q "@uso-backup-$(jq -r .run "$st")\$" \
     && cell local-snapshot 1 "cache/$S@uso-backup-$(jq -r .run "$st") made" || cell local-snapshot 0 "no snapshot of this run on cache/$S"
 # 2. the Team Lead's card and Mr. Restori's look
-ask caretaker.partner_ping "$(jq -cn --arg i "$ID" '{id: $i}')" 90 >/dev/null
-pa=$(ask_last '.ask // {}' | jq -c .)
+pa=$(pt_card_ask "$ID" 90) || pa='{}'
 [[ $(jq -r '.array' <<<"$pa") == stopped ]] && cell lead-array-stopped 1 "the card's look: $pa" || cell lead-array-stopped 0 "the card's look: $pa"
 expect_bubble caretaker partner.array_stopped
 t1=$(date +%s)
@@ -64,8 +63,8 @@ if wait_for 240 "Mr. Restori's look at USOPartner" _pt_looked_since "$ID" "$t1";
 else
     cell restore-look 0 "his look never ran within 240 s of «Look again»"
 fi
-# a ping it answers is heard: partner_ping writes last_heard and last_answer (the array «stopped») into pairs.json
-# (agent/lib/partner.php:2095-2101 partnerPairUpdate) — nothing else of the pair may change
+# a ping it answers is heard: «Ask now»'s job (partnerLookJob → partnerAskAndKeep) writes last_heard and last_answer
+# (the array «stopped») into pairs.json (partnerPairUpdate) — nothing else of the pair may change
 pj() { jq -S '[.pairs[] | del(.last_heard, .last_answer)]' "$1"; }
 if diff <(pj "$KEEP_STASH/G-B39-AS/pairs.before") <(pj "$D/partner/pairs.json") >/dev/null 2>&1; then
     cell pairs-only-heard 1 "pairs.json: only last_heard/last_answer moved ($(jq -c '.pairs[0].last_answer' "$D/partner/pairs.json"))"
@@ -73,7 +72,7 @@ else
     cell pairs-only-heard 0 "pairs.json changed beyond last_heard/last_answer: $(diff <(pj "$KEEP_STASH/G-B39-AS/pairs.before") <(pj "$D/partner/pairs.json") 2>&1 | head -5 | paste -sd' ')"
 fi
 rm -f "$KEEP_STASH/G-B39-AS/pairs.before"
-allow INV-SETTINGS "partner_ping heard USOPartner (its array stopped): pairs.json's last_heard/last_answer move (agent/lib/partner.php:2095-2101); pairs-only-heard checks nothing else changed"
+allow INV-SETTINGS "«Ask now» heard USOPartner (its array stopped): pairs.json's last_heard/last_answer move (partnerAskAndKeep); pairs-only-heard checks nothing else changed"
 bubble_look after-array-stopped backup caretaker restore
 expect_warnings partner_missed
 check standard
