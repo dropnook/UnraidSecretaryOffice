@@ -219,7 +219,8 @@ jack_unfill() {
     local dir f to; dir=$(_st_dir "$1")
     [[ -f $dir/jack.filled ]] || return 0
     while IFS=$'\t' read -r f to; do
-        [[ -e $to && ! -e $f ]] && { mv -- "$to" "$f" || return 1; }
+        # (its folder on the disk may be gone meanwhile: a run of hers hands an emptied folder to Unraid's move)
+        [[ -e $to && ! -e $f ]] && { mkdir -p -- "$(dirname "$f")" && mv -- "$to" "$f" || return 1; }
     done < <(tac "$dir/jack.filled")
     # only the folders the fill made, deepest first
     [[ -f $dir/jack.dirs ]] && sort -r "$dir/jack.dirs" | while read -r d; do rmdir -- "$d" 2>/dev/null; done
