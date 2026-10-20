@@ -34891,6 +34891,28 @@ function testBackupLetGo(): void
         [false, true, true, fileperms(dirname($disk)) & 0777], [$was, $back['results'][0]['ok'] ?? null, is_dir("$disk/apps/old"), fileperms($disk) & 0777]);
     unset($GLOBALS['clScanStub'], $GLOBALS['clCtx']);
 
+    // never the share (coordinator 2026-10-20): a place at a share's root gives no part at all; the place goes only below the
+    // share's folder and never as a filesystem of its own (a ZFS dataset's mountpoint)
+    same('let go (BF4): the place set to a share\'s root — no part, nothing of the share looked at', [],
+        backupLetGoParts('/mnt/user/UnraidSecretaryOffice', $roots, [], $mnt));
+    $sameDev = fn (string $p): ?int => 7;
+    $placeDs = "$mnt/pool/Share2/backup";
+    mkdir("$placeDs/apps/one", 0700, true);
+    $ownFs = fn (string $p): ?int => $p === $placeDs ? 8 : 7;
+    same('let go (BF4): the place may go — below the share\'s folder yes; the share\'s folder, a dataset of its own, a link, none: no',
+        [true, false, false, false, false],
+        [backupLetGoPlaceGoes(['place' => $placeDs, 'top' => "$mnt/pool/Share2"], $sameDev),
+         backupLetGoPlaceGoes(['place' => "$mnt/pool/Share2", 'top' => "$mnt/pool/Share2"], $sameDev),
+         backupLetGoPlaceGoes(['place' => $placeDs, 'top' => "$mnt/pool/Share2"], $ownFs),
+         backupLetGoPlaceGoes(['place' => "$pool/apps/linked", 'top' => "$mnt/pool/UnraidSecretaryOffice"], $sameDev),
+         backupLetGoPlaceGoes(['place' => "$mnt/pool/Share2/none", 'top' => "$mnt/pool/Share2"], $sameDev)]);
+    $GLOBALS['letgoHost']['dev'] = $ownFs;
+    $GLOBALS['letgoHost']['scan'] = fn () => ['zfs' => ['snapshots' => []], 'btrfs' => ['snapshots' => []], 'vm' => ['snapshots' => []]];
+    $rD = backupLetGoDo('/mnt/user/Share2/backup', false, [['root' => 'pool', 'top' => "$mnt/pool/Share2", 'place' => $placeDs]], $prefixes, '.btrfs-snap');
+    same('let go (BF4): a place made as a dataset — its package moved, its emptied apps/ gone, the place itself kept',
+        [1, false, true], [$rD['moved'], is_dir("$placeDs/apps"), is_dir($placeDs)]);
+    unset($GLOBALS['letgoHost']['dev']);
+
     // Ms. Dustdevil's storerooms from the journals: only /mnt/<pool or disk>/<share>/…/<storeroom>, never on a sleeping disk
     mkdir("$tmp/journals", 0700);
     file_put_contents("$tmp/journals/letgo-20261008-190000.json", json_encode(['trash' => ['/mnt/disk1/UnraidSecretaryOffice/' . CL_TRASH, '/mnt/disk2/UnraidSecretaryOffice/' . CL_TRASH,

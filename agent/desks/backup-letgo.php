@@ -83,6 +83,7 @@ function backupLetGoHost(): array
         'scan'   => $h['scan'] ?? fn (): array => snapshotScan(true),
         'rescan' => $h['rescan'] ?? fn () => snapshotScan(false),
         'move'   => $h['move'] ?? 'clMove',
+        'dev'    => $h['dev'] ?? fn (string $p): ?int => @stat($p)['dev'] ?? null,     // the filesystem a path lies on
     ];
 }
 
@@ -169,6 +170,22 @@ function backupLetGoPackages(string $place): array
         }
     }
     return $list;
+}
+
+/**
+ * May the emptied place itself go (BF4)? Never the share: only a folder at least one level below the share's folder on
+ * that pool or disk (/mnt/<pool or disk>/<share>/…, its top), a real folder (no link), and never a filesystem of its own
+ * (a place made as a ZFS dataset, a mount: another device than the folder above it). $dev: the device of a path.
+ */
+function backupLetGoPlaceGoes(array $part, callable $dev): bool
+{
+    $dir = (string) $part['place'];
+    $top = rtrim((string) $part['top'], '/');
+    if (!str_starts_with($dir, "$top/") || !preg_match('#^/.+/[^/]+/[^/]+$#D', $top) || is_link($dir) || !is_dir($dir)) {
+        return false;
+    }
+    $d = $dev($dir);
+    return $d !== null && $d === $dev(dirname($dir));
 }
 
 /** What the user calls a package: «apps/nextcloud», «server» */
@@ -566,9 +583,10 @@ function backupLetGoDo(?string $place, bool $placeAsleep, array $parts, array $p
                 $j['emptied'][] = $dir;
                 backupLetGoJournalWrite($file, $j);
             }
-        }        // … and the place itself (the setup made it inside the share), when nothing at all is left in it — never the share
+        }
+        // … and the place itself (the setup made it inside the share), when nothing at all is left in it — backupLetGoPlaceGoes()
         $dir = $part['place'];
-        if (!is_link($dir) && is_dir($dir) && !array_diff(@scandir($dir) ?: ['?'], ['.', '..']) && @rmdir($dir)) {
+        if (backupLetGoPlaceGoes($part, $host['dev']) && !array_diff(@scandir($dir) ?: ['?'], ['.', '..']) && @rmdir($dir)) {
             $j['emptied'][] = $dir;
             backupLetGoJournalWrite($file, $j);
         }
