@@ -422,7 +422,7 @@ function nightRun(array $args, ?array $h = null): int
     }
     $refused = function (string $why, array $params = []) use ($mode, $by, $dir, $h): int {
         moverelliRemember(['mode' => $mode, 'by' => $by, 'night' => true, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => $why]
-            + (($h['jack_on'])() ? [] : ['jack' => false]) + array_intersect_key($params, ['schedule' => 1, 'shares' => 1, 'version' => 1, 'file' => 1]), $dir);
+            + (($h['jack_on'])() ? [] : ['jack' => false]) + moverelliRefusedParams($params), $dir);
         logLine("Night run ($mode) not started ($why)");
         fwrite(STDERR, "night: not started ($why)\n");
         return 1;

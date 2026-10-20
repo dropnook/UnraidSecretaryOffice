@@ -2632,7 +2632,7 @@ JS);
     same('mover page: … off meanwhile (the fresh look) — no dialog', null, array_key_exists('dialog_off', $o) ? $o['dialog_off'] : 'x');
     same('mover page: an older agent\'s state — nothing said, nothing refused', [null, true], $o['old']);
     same('mover page: his list of runs — refused (counted), skipped, the gather and EmbyCache stopped by the mover', [
-        'refused {"why":"err:jack_mover_schedule:{\"detail\":\"\",\"shares\":\"\",\"file\":\"\"}"} · refused_times {"n":3}',
+        'refused {"why":"err:jack_mover_schedule:{\"detail\":\"\",\"shares\":\"\",\"file\":\"\",\"schedule\":\"\",\"name\":\"\"}"} · refused_times {"n":3}',
         'skipped_mover_summary {"min":120}',
         'gather_stopped_mover {"done":4,"total":9} · gather_summary {"moved":"count.moved {\"n\":0}","dups":"count.dups {\"n\":0}","conflicts":"count.conflicts {\"n\":0}","dirs":"count.empty_dirs {\"n\":0}","kept":"count.kept {\"n\":0}"}',
         'stopped_mover_summary · run_summary {"back":1,"back_planned":3,"fill":0,"fill_planned":2,"fill_size":"5 B"}'], $o['runs']);
@@ -40212,6 +40212,91 @@ function testMoverelliForeign(): void
     hardeningRm($tmp);
 }
 
+/**
+ * A refused run in her list and in Jack Streamer's says its reason whole (batch F, BF1: «Jack Streamer hasn't written his
+ * list yet ({file})»): every refusal her check and his can throw, kept as the agent keeps it (moverelliRefusedParams,
+ * jackRefusedParams), drawn by the page in all five languages — no placeholder left
+ */
+function testRefusedRowWords(): void
+{
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('refused rows: node is missing here - skipped', true);
+        return;
+    }
+    // her refusals: each Problem moverelliRunCheck throws, its params as named there
+    $f = new ReflectionFunction('moverelliRunCheck');
+    $src = implode('', array_slice(file($f->getFileName()), $f->getStartLine() - 1, $f->getEndLine() - $f->getStartLine() + 1));
+    preg_match_all("/new Problem\\('(\\w+)'(.*)\\);\\n/", $src, $m, PREG_SET_ORDER);
+    $her = [];
+    foreach ($m as $p) {
+        if (in_array($p[1], ['unknown_target', 'moverelli_not_configured'], true)) {
+            continue;                                   // never a row (moverelliJob says them on stderr only)
+        }
+        preg_match_all("/'(\\w+)' =>/", $p[2], $k);
+        $params = array_fill_keys($k[1], 'P');
+        $her[] = ['mode' => 'run', 'result' => 'refused', 'why' => $p[1]] + moverelliRefusedParams($params);
+    }
+    $her[] = ['mode' => 'run', 'result' => 'refused', 'why' => 'moverelli_mover_running'];       // her gate's own
+    $whys = array_column($her, 'why');
+    check('refused rows: her check\'s refusals found (Jack\'s list pending, a foreign mover, the tool missing …)',
+        !array_diff(['moverelli_jack_list_pending', 'moverelli_foreign_mover', 'moverelli_missing_tool', 'moverelli_tuning_schedule', 'moverelli_unraid_old'], $whys), implode(', ', $whys));
+    // his: the mover's rule in each of its shapes, and the runs going
+    $his = [];
+    foreach (['schedule', 'moverelli', 'moverelli_list', 'tuning_schedule'] as $why) {
+        $p = jackMoverProblem(['ok' => false, 'why' => $why, 'schedule' => '40 3 * * *', 'tuning' => ['cron' => '0 5 * * 0', 'name' => 'Mover Tuning'],
+            'moverelli' => ['file' => '/x/l.txt', 'uncovered' => ['Filme']]]);
+        $his[] = ['tool' => 'embycache', 'mode' => 'run', 'result' => 'refused', 'why' => $p->key] + jackRefusedParams($p->params);
+    }
+    foreach (['jack_running', 'jack_moverelli_running'] as $why) {
+        $his[] = ['tool' => 'embycache', 'mode' => 'run', 'result' => 'refused', 'why' => $why];
+    }
+    same('refused rows: what the rows keep — text, cut, nothing else', [['file' => 'a', 'name' => '1'], ['schedule' => 'x', 'name' => 'N']],
+        [moverelliRefusedParams(['file' => 'a', 'name' => 1, 'who' => ['x'], 'detail' => 'd', 'path' => ['no']]), jackRefusedParams(['schedule' => 'x', 'name' => 'N', 'who' => 'w'])]);
+    $tmp = hardeningTmp('refused-rows');
+    file_put_contents("$tmp/rows.json", json_encode(['moverelli' => $her, 'jack' => $his]));
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+const [, , web, rowsFile] = process.argv;
+const rows = JSON.parse(fs.readFileSync(rowsFile, 'utf8'));
+globalThis.OFFICE_DESK_TESTS = {};
+let lang = {};
+const fill = (s, p) => String(s).replace(/\{(\w+)\}/g, (all, k) => (p && p[k] != null ? String(p[k]) : all));
+const T = (k, p) => (k in lang ? fill(lang[k], p) : k + (p ? ' ' + JSON.stringify(p) : ''));
+const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {},
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {} });
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }),
+  scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', cron: (c) => c, time: (t) => 'T' + t, date: (t) => 'D' + t, relative: (t) => 'R' + t },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, sectionHead: () => mk('h'),
+  errorText: (e) => { const k = 'errors.' + e.key; return k in lang ? fill(lang[k], e.params) : 'UNKNOWN ' + e.key; } };
+const out = {};
+for (const desk of ['moverelli', 'jack']) {
+  (0, eval)(fs.readFileSync(`${web}/desks/${desk}/desk.js`, 'utf8'));
+  const d = OFFICE_DESK_TESTS[desk];
+  d.setState({ configured: true, unraid: { ok: false, version: '7.1.0', needed: '7.2.0' }, job: {}, schedule: {}, schedules: {}, jobs: { embycache: {}, gather: {} }, history: [], shares: [] });
+  for (const code of ['en', 'de', 'it', 'fr', 'es']) {
+    lang = JSON.parse(fs.readFileSync(`${web}/desks/${desk}/lang/${code}.json`, 'utf8'));
+    for (const r of rows[desk]) {
+      const line = d.runSummary(r);
+      if (/\{\w+\}|UNKNOWN/.test(line)) (out[desk] = out[desk] || []).push(`${code} ${r.why}: ${line}`);
+    }
+  }
+  out[desk + '_n'] = rows[desk].length;
+}
+console.log(JSON.stringify(out));
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB) . ' ' . escapeshellarg("$tmp/rows.json") . ' 2>&1');
+    $o = json_decode($raw, true);
+    check('refused rows: the pages ran under node', is_array($o), $raw);
+    $o = is_array($o) ? $o : [];
+    same('refused rows: her list — every refusal\'s reason whole in all five languages (Jack\'s list named, the foreign mover and its time …)',
+        [count($her), null], [$o['moverelli_n'] ?? null, $o['moverelli'] ?? null]);
+    same('refused rows: his list — every refusal\'s reason whole in all five languages (Mover Tuning named with its schedule …)',
+        [count($his), null], [$o['jack_n'] ?? null, $o['jack'] ?? null]);
+    hardeningRm($tmp);
+}
+
 /** Her page under node: the notices (Unraid's schedule, Mover Tuning's, the scripts, always the hint), the run list's words */
 function testMoverelliPage(): void
 {
@@ -40260,7 +40345,7 @@ JS);
     same('moverelli page: Mover Tuning\'s schedule and every other mover — each a warning with its name and schedule', [
         ['callout warn', ['notice.tuning {"schedule":"C0 5 * * 0","file":"mover.cron"}']], ['callout warn', ['notice.foreign_mover {"name":"User Scripts: NightMover","when":"C0 2 * * *"}']]], $o['foreign'] ?? null);
     same('moverelli page: nothing else moves — Unraid\'s off said, the scripts\' hint always there', [['mover.ok'], [['role mo-hint', ['notice.scripts_hint']]]], $o['quiet'] ?? null);
-    same('moverelli page: her list of runs in words', ['refused {"why":"err:moverelli_tuning_schedule:{\"schedule\":\"\",\"shares\":\"\",\"version\":\"\",\"needed\":\"7.3.2\"}"} · refused_times {"n":2}',
+    same('moverelli page: her list of runs in words', ['refused {"why":"err:moverelli_tuning_schedule:{\"needed\":\"7.3.2\",\"schedule\":\"\",\"shares\":\"\",\"version\":\"\",\"file\":\"\",\"path\":\"\",\"name\":\"\",\"when\":\"\"}"} · refused_times {"n":2}',
         'stopped_mover · run_summary {"moved":1,"files":1,"size":"3 B","left":"count.left {\"n\":0}"}', 'dry_summary {"files":"count.files {\"n\":3}","size":"9 B"}'], $o['runs'] ?? null);
     same('moverelli page: the setup\'s text areas', [['/a', '/b'], ['x', '# y']], $o['lines'] ?? null);
     hardeningRm($tmp);
@@ -45337,7 +45422,7 @@ JS;
 }
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],

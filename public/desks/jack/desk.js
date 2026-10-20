@@ -220,7 +220,7 @@ function showError(box, error) {
 function runSummary(r) {
   const s = r.status || r;
   if (r.result === 'refused') {
-    return T('refused', { why: Office.errorText({ key: r.why, params: { detail: r.detail || '', shares: r.shares || '', file: r.file || '' } }, ID) }) + whoText(r.who)
+    return T('refused', { why: Office.errorText({ key: r.why, params: { detail: r.detail || '', shares: r.shares || '', file: r.file || '', schedule: r.schedule || '', name: r.name || '' } }, ID) }) + whoText(r.who)
       + (Number(r.times) > 1 ? ' · ' + T('refused_times', { n: Number(r.times) }) : '');
   }
   if (r.result === 'skipped') {

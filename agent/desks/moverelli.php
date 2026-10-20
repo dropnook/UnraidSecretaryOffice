@@ -1416,7 +1416,7 @@ function moverelliJob(array $args, ?array $h = null): int
     }
     $refused = function (string $why, array $params = []) use ($mode, $by, $from, $dir): int {
         moverelliRemember(['mode' => $mode, 'by' => $by, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => $why] + $from
-            + array_intersect_key($params, ['schedule' => 1, 'shares' => 1, 'version' => 1, 'file' => 1]), $dir);
+            + moverelliRefusedParams($params), $dir);
         logLine("Ms. Moverelli: Smart Mover ($mode) not started ($why)");
         fwrite(STDERR, "moverelli: not started ($why)\n");
         return 1;
@@ -1570,6 +1570,16 @@ function moverelliHistory(string $dir = MOVERELLI_DATA): array
 }
 
 /** A run (or one that didn't start) into her list of runs — a scheduled one refused again for the same reason counts up */
+/**
+ * What a refused run's row keeps of its reason: every placeholder of her refusals (moverelliRunCheck), as text — her page
+ * fills the reason from the row (desk.js refusedParams), so none shows a raw «{file}» (batch F, BF1)
+ */
+function moverelliRefusedParams(array $params): array
+{
+    $keep = array_intersect_key($params, array_flip(['schedule', 'shares', 'version', 'file', 'path', 'name', 'when']));
+    return array_map(fn ($v) => mb_substr((string) $v, 0, 300), array_filter($keep, 'is_scalar'));
+}
+
 function moverelliRemember(array $entry, string $dir = MOVERELLI_DATA): void
 {
     moverelliDataDir($dir);
