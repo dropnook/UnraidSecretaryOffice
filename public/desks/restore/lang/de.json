@@ -866,6 +866,7 @@
   "drill.code.extensions_missing": "nach dem Zurückspielen fehlen Erweiterungen: {missing}",
   "drill.code.db_missing_in_dump": "der laufende Server hat Datenbanken, die der Dump nicht enthält: {dbs}",
   "drill.code.sqlite_ok": "heil",
+  "drill.code.sqlite_ok_app_index": "heil (der Index {indexes} nutzt die Kleinschreibung der App, die sqlite3 nicht kennt)",
   "drill.code.sqlite_unchecked": "liess sich hier nicht prüfen (eine eigene Erweiterung des Medienservers?)",
   "drill.code.sqlite_corrupt": "beschädigt (integrity_check)",
   "drill.code.sqlite_foreign": "leer, während die laufende Datenbank Zeilen hat — nicht die richtige Kopie?",

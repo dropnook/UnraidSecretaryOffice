@@ -866,6 +866,7 @@
   "drill.code.extensions_missing": "extensions missing after the play: {missing}",
   "drill.code.db_missing_in_dump": "the live server has databases the dump doesn't hold: {dbs}",
   "drill.code.sqlite_ok": "intact",
+  "drill.code.sqlite_ok_app_index": "intact (the index {indexes} uses the app's own lower case, which sqlite3 doesn't know)",
   "drill.code.sqlite_unchecked": "couldn't be checked here (an extension of the media server's own?)",
   "drill.code.sqlite_corrupt": "damaged (integrity_check)",
   "drill.code.sqlite_foreign": "empty while the live database has rows — not the right copy?",

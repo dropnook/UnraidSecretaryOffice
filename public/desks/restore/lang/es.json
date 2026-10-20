@@ -866,6 +866,7 @@
   "drill.code.extensions_missing": "faltan extensiones tras el volcado: {missing}",
   "drill.code.db_missing_in_dump": "el servidor en marcha tiene bases de datos que el dump no contiene: {dbs}",
   "drill.code.sqlite_ok": "intacta",
+  "drill.code.sqlite_ok_app_index": "intacta (el índice {indexes} usa las minúsculas propias de la app, que sqlite3 no conoce)",
   "drill.code.sqlite_unchecked": "no se pudo comprobar aquí (¿una extensión propia del servidor multimedia?)",
   "drill.code.sqlite_corrupt": "dañada (integrity_check)",
   "drill.code.sqlite_foreign": "vacía mientras la base de datos en marcha tiene filas — ¿no es la copia correcta?",

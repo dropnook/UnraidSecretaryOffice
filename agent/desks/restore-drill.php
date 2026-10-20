@@ -1920,12 +1920,16 @@ function drillDoSqlite(array &$j, array $s, array &$env): array
     if ($copy['error'] !== null) {
         return ['state' => 'not_checked', 'code' => 'sqlite_unchecked', 'detail' => drillCut($copy['error'])] + $out;
     }
-    if ($copy['integrity'] !== 'ok') {
+    $appIndexes = $copy['integrity'] !== 'ok' ? drillSqliteAppIndexes("file:" . drillUriPath($file) . '?mode=ro&immutable=1', (string) $copy['integrity']) : null;
+    if ($copy['integrity'] !== 'ok' && $appIndexes === null) {
         return ['state' => 'failed', 'code' => 'sqlite_corrupt', 'detail' => drillCut($copy['integrity'])] + $out;
     }
     $params = $out['params'] + ['version' => $copy['version'], 'table' => $copy['table'], 'rows' => $copy['rows']];
     $state = 'ok';
-    $code = 'sqlite_ok';
+    $code = $appIndexes ? 'sqlite_ok_app_index' : 'sqlite_ok';
+    if ($appIndexes) {
+        $params['indexes'] = implode(', ', $appIndexes);
+    }
     $live = null;
     if ($env['set']['live_sqlite'] && $s['source'] !== '' && str_starts_with((string) $s['source'], '/mnt/')) {
         $asleep = (bool) array_filter(rsLocate((string) $s['source'], $env['ctx']), fn ($p) => $p['asleep']);
@@ -1945,6 +1949,49 @@ function drillDoSqlite(array &$j, array $s, array &$env): array
         }
     }
     return ['state' => $state, 'code' => $code, 'params' => $params, 'level' => $state === 'failed' ? 0 : 1] + $out;
+}
+
+/**
+ * integrity_check's complaints that are only about indexes on lower()/upper() of a column — the media server registers
+ * its own Unicode lower() (Jellyfin: .NET's), the sqlite3 command has only SQLite's ASCII one, so for «Željko» or «Åke»
+ * it computes another key and reports «row N missing from index …» although the database is whole (nostromo,
+ * 2026-10-20: Jellyfin's IX_Peoples_NameLower). The names of those indexes, or null when anything else is reported.
+ *
+ * @return list<string>|null
+ */
+function drillSqliteAppIndexes(string $uri, string $integrity): ?array
+{
+    $names = [];
+    foreach (explode("\n", $integrity) as $line) {
+        $line = trim($line);
+        if ($line === '' || $line === '*** in database main ***') {
+            continue;
+        }
+        if (!preg_match('/^(?:row \d+ missing from index|wrong # of entries in index|non-unique entry in index) (\S+)$/', $line, $m)) {
+            return null;
+        }
+        $names[$m[1]] = true;
+    }
+    if (!$names) {
+        return null;
+    }
+    $bin = $GLOBALS['drill']['sqlite3'] ?? 'sqlite3';
+    $in = implode(',', array_map(fn ($n) => "'" . str_replace("'", "''", $n) . "'", array_keys($names)));
+    [$exit, $out] = drillRunStoppable([$bin, $uri, "SELECT name || char(9) || sql FROM sqlite_master WHERE type = 'index' AND name IN ($in);"], 30);
+    if ($exit !== 0) {
+        return null;
+    }
+    $sqls = [];
+    foreach (array_filter(explode("\n", $out), 'strlen') as $row) {
+        [$n, $sql] = array_pad(explode("\t", $row, 2), 2, '');
+        $sqls[$n] = $sql;
+    }
+    foreach (array_keys($names) as $n) {
+        if (!isset($sqls[$n]) || !preg_match('/\b(?:lower|upper)\s*\(/i', $sqls[$n])) {
+            return null;
+        }
+    }
+    return array_keys($names);
 }
 
 /** A path in an SQLite URI: each part percent-encoded (?, # and % mean something there) */

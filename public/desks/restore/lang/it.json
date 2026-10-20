@@ -866,6 +866,7 @@
   "drill.code.extensions_missing": "dopo il riversamento mancano estensioni: {missing}",
   "drill.code.db_missing_in_dump": "il server in esecuzione ha database che il dump non contiene: {dbs}",
   "drill.code.sqlite_ok": "integra",
+  "drill.code.sqlite_ok_app_index": "integra (l'indice {indexes} usa le minuscole proprie dell'app, che sqlite3 non conosce)",
   "drill.code.sqlite_unchecked": "non si è potuta controllare qui (un'estensione propria del media server?)",
   "drill.code.sqlite_corrupt": "danneggiata (integrity_check)",
   "drill.code.sqlite_foreign": "vuota, mentre il database in esecuzione ha righe — non è la copia giusta?",

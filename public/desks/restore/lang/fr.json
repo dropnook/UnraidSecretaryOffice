@@ -866,6 +866,7 @@
   "drill.code.extensions_missing": "des extensions manquent après le rejeu : {missing}",
   "drill.code.db_missing_in_dump": "le serveur en marche a des bases que le dump ne contient pas : {dbs}",
   "drill.code.sqlite_ok": "intacte",
+  "drill.code.sqlite_ok_app_index": "intacte (l'index {indexes} utilise les minuscules propres à l'app, que sqlite3 ne connaît pas)",
   "drill.code.sqlite_unchecked": "n'a pas pu être vérifiée ici (une extension propre au serveur multimédia ?)",
   "drill.code.sqlite_corrupt": "endommagée (integrity_check)",
   "drill.code.sqlite_foreign": "vide alors que la base en marche a des lignes — pas la bonne copie ?",
