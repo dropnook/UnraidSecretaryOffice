@@ -521,3 +521,62 @@ restarts it (B35's cells start the members that ran before); the runner has no w
 Not covered: M17 (btrfs levels — `needs btrfs`, waits for test3), B35's ST-CM-FILE-UNREADABLE (`needs compose`, Tower
 has no Compose Manager), BF3 as a cell of its own (two files of one share started in the same second). Tower's Unraid is
 a trial ending between 2026-11-01 and -08: a clock cell set past it stops the array (R22 did once, set back by hand).
+
+## Batch G — partner offices (Tower ↔ USOPartner)
+
+The partner cells between **Tower** (the sender) and **USOPartner** (192.168.7.190, Unraid 7.3.2, office 1.67.1 from the
+release, a free test VM since 2026-10-20) over their pairing `b601d464` — real sends, real refusals, a real pull. The
+helpers are `states-partner.sh` (branch `task/scenarios-helper-partner`): the PT-* states, Mr. Restori's flow RS-PARTNER,
+the partner base of both servers (`pt_base_snap` before, `pt_base_same` as the first undo — the partner files without
+their logs, flash `partners/`, the door lines, every dataset and snapshot under …-partners and …-restored, on both) and
+`pt_keep`/`pt_back` (both sides' partner files set aside and put back exactly). Each cell sends a scratch share
+`uso-wip-g-pt` (a dataset on cache) at «local + partner»; its undo destroys only what USOPartner received of it.
+
+The test bed: Tower reaches USOPartner's root shell with its own key (`scenarios-partner.key` beside scenarios.env; the
+line on USOPartner ends `uso-scenarios-tower`, never `uso-partner:`). Tower's half of the pairing (flash key, known_hosts,
+door line) is carried in `scenarios-partner-base/` — a plugin remove takes it by design (OF-REMOVE-REINSTALL did on
+2026-10-18: Tower couldn't send any more until batch G put it back from Tower's own flash backup).
+
+| Cell | Scenario | Verdict on 1.67.1 (Tower ↔ USOPartner) | Time on Tower | Run |
+|---|---|---|---|---|
+| B39 PT-OFFLINE × BK-RUN, BK-REPLAN | `backup-pt-offline-run-replan` | cells green; **red** BG1 (agent-not-held) | 3 min | pre-release |
+| B39 PT-OFFLINE, 6 h of silence | `backup-pt-offline-silent-6h` | green | 70 s | nightly |
+| B39 PT-ARRAY-STOPPED × BK-RUN | `backup-pt-array-stopped-run` | green | 3 min | pre-release |
+| B39 PT-QUOTA-FULL × BK-RUN | `backup-pt-quota-full-run` | green | 3.5 min | pre-release |
+| B39 PT-ENDED × BK-RUN, BK-REPLAN | `backup-pt-ended-run-replan` | green | 2.5 min | pre-release |
+| B39 PT-ANEW × BK-REPLAN, BK-RUN | `backup-pt-anew-replan-run` | green | 3 min | pre-release |
+| R19 PT-PULLED × RS-PARTNER, OF-AGENT-RESTART | `restore-pt-pulled-partner-restart` | pull cells green; **red** BG2 (dustdevil-lists) | 7 min (3 of them waiting for her) | pre-release |
+
+Findings on 1.67.1 (engine 2.65), Tower ↔ USOPartner, 2026-10-20 — red stays red until fixed:
+- **BG1** (B39 offline, `agent-not-held`) the Team Lead's «Look again» on the card of a partner that doesn't answer holds
+  the whole agent: caretaker.partner_ping → partnerAskAndKeep → partnerAsk → partnerSsh runs ssh with run() inside the
+  agent's request (agent/lib/partner.php:2123, :1208, :1146; ConnectTimeout 15, timeout 30). Another page's request
+  waited 13.4 s (agent_away after 4 s on every page); once the heartbeat gapped 35 s (INV-TICK red in the first run).
+  Mr. Restori's look and the mutual watch are jobs (atd) and don't.
+- **BG2** (R19, `dustdevil-lists`) Ms. Dustdevil never lists a dataset Mr. Restori pulled from a partner
+  (`cache/<share>.restored-<time>`, mounted under /mnt/addons/…/restored): her leftovers take a journal's `.restored-<time>`
+  only as a path under /mnt/ (agent/desks/cleanup.php:2408, :2415), and a pull's journal names its dataset by name in
+  `aside[].to` (agent/desks/restore-partner.php:625). Her header says she finds his `.restored-<time>` from his journals.
+
+What the cells hold (green): offline — partner_missed «unreachable» the one warning, the run «with warnings» in ~30 s,
+the card «couldn't reach it», partner_silent waiting for 6 h, his page's look and «Look again» answering at once, his look
+job (from the tick) writing «unreachable», the replan keeping the unit at «local + partner»; 6 h — partner_silent red
+(«since» the last answer) at once after the clock, one notification, the agent beating on both sides of the jump; array
+stopped — partner_missed «array_stopped» said in the first run (no nights of grace since engine 2.46 — the catalogue's
+«nights counted» is gone), the card «array stopped»; quota full — partner_quota in each of two runs, nothing at
+USOPartner touched; ended — partner_ended in the run, partner_gone in the setup, the unit and the section in the Apply
+list, no card left; anew — partner_anew, the unit taken over to the new id, one card on each Team Lead and in the plan,
+the run sends a full copy to the new id; R19 — a new dataset beside, origin «-», zpool history without -F or clone, read-only
+under /mnt/addons, its files those of the moment, read-only after an agent restart and remounted read-only by
+rspRemount after an array stop/start (stopped in 25 s, the mount didn't hold it), a backup run's retention leaving it.
+
+Notes for whoever runs them: the base (Tower's pairs.json carried by base.sh) needs the test bed above — without it each
+cell says «needs». Mr. Restori's held.json on Tower carried `tried` 2026-11-08 (batch F's clock cells): his tick computes
+the look's age as negative and never looks on his own until then (agent/desks/restore-partner.php:296-297) — only «Look
+again» starts one; the waiter takes only a `tried` of now. A successful «Look again» writes last_heard/last_answer into
+pairs.json (INV-SETTINGS allows exactly that in the array-stopped cell). The 6-hour cell sets Tower's clock ahead: run it
+last in a call. Undo of every cell: both servers' partner base compared (`pt_base_same`) — the received datasets and
+partner files of USOPartner exactly as before.
+
+The batch: `scenarios/2026-10-20/tower-scenarios-batch-g` (run 4: ended, anew, R19, 6 h — 26 min with the page checks) and
+`…/tower-scenarios-batch-g-1444` (run 3: all pre-release cells, 34 min with the page checks).
