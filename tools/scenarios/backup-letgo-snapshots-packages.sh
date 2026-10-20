@@ -12,8 +12,9 @@ needs tower docker zfs
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
 nc_data_closed
 flow BK-RUN-MANUAL mode=backup
-pk() { find "$PLACE" -path '*/.UnraidSecretaryOffice-trash' -prune -o -type f -printf '%P %s\n' 2>/dev/null | sort; }
-snaps() { zfs list -H -t snapshot -o name 2>/dev/null | grep '@uso-backup-' | sort; }
+pk() { find "$PLACE" -type f -printf '%P %s\n' 2>/dev/null | sort; }
+# the engine's own (never a partner's copies under UnraidSecretaryOffice-partners: backup-letgo.php keeps those)
+snaps() { zfs list -H -t snapshot -o name 2>/dev/null | grep -E '@uso-backup-[0-9]{8}-[0-9]{4}$' | grep -v '/UnraidSecretaryOffice-partners/' | sort; }
 plans() { zfs list -H -t snapshot -o name 2>/dev/null | grep '@uso-plan-' | sort; }
 pk >"$KEEP/pk0"; snaps >"$KEEP/sn0"; plans >"$KEEP/pl0"; md0=$(md5sum <"$UB/settings.ini"); cr0=$(grep -h 'job.sh backup' "$OFFICE_FLASH"/*.cron)
 say "before: $(wc -l <"$KEEP/pk0") package files, $(wc -l <"$KEEP/sn0") engine snapshots, $(wc -l <"$KEEP/pl0") of Ms. Snapshotini's plans"
@@ -25,9 +26,17 @@ diff -q <(pk) "$KEEP/pk0" >/dev/null && diff -q <(snaps) "$KEEP/sn0" >/dev/null 
     && cell letgo-keeps 1 "let go alone: every package file, every snapshot, settings.ini as before" \
     || cell letgo-keeps 0 "let go alone changed: packages $(diff <(pk) "$KEEP/pk0" | grep -c '^[<>]') lines, snapshots $(diff <(snaps) "$KEEP/sn0" | grep -c '^[<>]'), settings $( [[ $(md5sum <"$UB/settings.ini") == "$md0" ]] && echo same || echo changed)"
 flow OF-HIRE desk=backup
+# what the clearing empties of the place's own folders goes in the undo (the base reset brings the packages back)
+undo_push bash -c 'for d in "$1"/apps "$1"/vms "$1"/server "$1"/flash; do [[ -d $d && -z $(ls -A "$d") ]] && rmdir "$d"; done; true' _ "$PLACE"
 flow BK-LETGO clear=yes
-gone=$(comm -23 <(cut -d' ' -f2- "$KEEP/pk0" | sort) <(find "$PLACE" -type f -printf '%s\n' 2>/dev/null | sort) | head -0)
-inbox=$(find "$PLACE" -path '*/.UnraidSecretaryOffice-trash/*' -type f 2>/dev/null | wc -l)
+# her storeroom is at the share's top on each pool or disk (the clearing's record: data/backup/letgo-<time>.json .trash),
+# a run folder of this clearing in it (made after pk0)
+rec=$(ls -t "$D"/backup/letgo-*.json 2>/dev/null | head -1); evidence "$rec" letgo-record.json >/dev/null 2>&1
+inbox=0
+while IFS= read -r t; do
+    while IFS= read -r r; do inbox=$((inbox + $(find "$r" -path '*/packages/*' -type f 2>/dev/null | wc -l))); done \
+        < <(find "$t" -mindepth 1 -maxdepth 1 -type d -newer "$KEEP/pk0" 2>/dev/null)
+done < <(jq -r '.trash[]? // empty' "$rec" 2>/dev/null)
 n0=$(wc -l <"$KEEP/pk0"); left=$(pk | wc -l)
 ((inbox + left >= n0)) && cell packages-kept 1 "his $n0 package files: $inbox in the storeroom, $left still in place — none deleted" \
     || cell packages-kept 0 "of $n0 package files: $inbox in the storeroom, $left in place — $((n0 - inbox - left)) gone"

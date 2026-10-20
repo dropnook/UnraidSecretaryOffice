@@ -12,8 +12,9 @@ snap_before
 flow BK-RUN-MANUAL mode=backup
 run=$(jq -r .run "$UB/state/status.json"); log=$UB/logs/run-$run.log
 evidence "$log" run.log >/dev/null 2>&1
-p=$(grep -iE "uso-vm-plain.*paus|paus.*uso-vm-plain" "$log" | head -1); r=$(grep -iE "uso-vm-plain.*resum|resum.*uso-vm-plain" "$log" | head -1)
-[[ -n $p && -n $r ]] && cell pause-resume 1 "paused and resumed: ${p:0:120} / ${r:0:120}" || cell pause-resume 0 "the run's log: pause «${p:-none}», resume «${r:-none}»"
+# the engine's words (backup.sh): «VM '<vm>': paused» … «VM '<vm>': released (paused, N s)»
+p=$(grep -E "VM 'uso-vm-plain': paused" "$log" | head -1); r=$(grep -E "VM 'uso-vm-plain': released \(paused" "$log" | head -1)
+[[ -n $p && -n $r ]] && cell pause-resume 1 "paused and resumed: ${p:0:100} / ${r:0:100}" || cell pause-resume 0 "the run's log: pause «${p:-none}», release «${r:-none}»"
 [[ $(virsh domstate uso-vm-plain 2>/dev/null | head -1) == running ]] && cell runs-after 1 "uso-vm-plain runs after the run" || cell runs-after 0 "uso-vm-plain is «$(virsh domstate uso-vm-plain | head -1)» after the run"
 check standard
 check final

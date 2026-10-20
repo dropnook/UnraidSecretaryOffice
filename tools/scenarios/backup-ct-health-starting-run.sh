@@ -9,12 +9,14 @@ scenario_begin backup-ct-health-starting-run
 needs tower docker
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
 nc_data_closed
+# the decision put back once uso-sick is gone (pushed before the state: runs after its undo) — while it is still there
+# a new plan holds it «keep running until you decide» and Apply would write it into docker|no_stop
+was=$(_ini_flat "$UB/settings.ini" | sed -n 's/^docker|known=//p' | jq -R . | jq -sc .)
+undo_push flow BK-APPLY "docker|known=$was"
 state CT-HEALTH-STARTING
 flow BK-REPLAN
 plan=$KEEP/plan-replan.json
 known=$(jq -c '.P["docker|known"] // []' "$plan")
-was=$(_ini_flat "$UB/settings.ini" | sed -n 's/^docker|known=//p' | jq -R . | jq -sc .)
-undo_push flow BK-APPLY "docker|known=$was"
 flow BK-APPLY plan=old "docker|known=$(jq -c '. + ["uso-sick"] | unique' <<<"$known")"
 grep -q '^known = uso-sick' "$UB/settings.ini" && say "uso-sick decided: stopped for the backup" || _row state decided red "uso-sick not in docker|known after Apply"
 before_ct=$(timeout 20 docker ps --filter status=running --format '{{.Names}}' | sort)

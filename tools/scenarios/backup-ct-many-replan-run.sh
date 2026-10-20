@@ -11,7 +11,9 @@ cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || e
 nc_data_closed
 state CT-MANY 40
 snap_before
-expect_changes 'docker|known'
+# a new container is proposed as one that keeps running until the user decides (backup/setup.sh:1374 «new since the
+# last setup (2.21): keeps running until you decide - backup.sh doesn't stop it either», CT_STOP=no → docker|no_stop)
+expect_changes 'docker|known' 'docker|no_stop'
 t0=$(_sc_now)
 flow BK-REPLAN
 dt=$(($(_sc_now) - t0))

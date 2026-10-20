@@ -8,7 +8,9 @@ needs tower docker
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
 state CT-VOLUME-ONLY
 snap_before
-expect_changes 'docker|known'
+# a new container is proposed as one that keeps running until the user decides (backup/setup.sh:1374 «new since the
+# last setup (2.21): keeps running until you decide - backup.sh doesn't stop it either», CT_STOP=no → docker|no_stop)
+expect_changes 'docker|known' 'docker|no_stop'
 flow BK-REPLAN
 m=$(jq -c '[.messages[]? | select(.code == "docker_volumes" and (.params.app // "") == "uso-vol") | {level, volumes: .params.volumes}]' "$KEEP/plan-replan.json")
 [[ $(jq length <<<"$m") == 1 && $m == *usovol* ]] && cell warns 1 "docker_volumes for uso-vol: $m" || cell warns 0 "the plan's word on uso-vol: $m"
