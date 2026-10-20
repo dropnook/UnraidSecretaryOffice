@@ -668,36 +668,75 @@ function moverelliCheck(mixed $in, array $shares, string $dir): array
     return $out;
 }
 
-/** The ini's text for checked settings: a scope with lines of her own names her list for it after its other files */
-function moverelliIniText(array $set, string $dir): string
+// the keys she writes (the rest of a section are someone else's: kept as they are, batch E M20), and the keys she takes out
+// on purpose — only X (2026-10-14: move_until_used_below, jack_min_percent, the offset, the cake's slice), always the younger
+// date (a share's age_stat)
+const MOVERELLI_INI_HERS = [
+    'GLOBAL' => ['log_file', 'min_age', 'age_stat', 'move_when_used_above', 'move_prefer_shares', 'mover_debug', 'max_list', 'global_excludes',
+                 'move_until_used_below', 'jack_min_percent', 'jack_slice_percent', 'offset'],
+    'share'  => ['skip', 'min_age', 'move_when_used_above', 'excludes', 'move_until_used_below', 'jack_min_percent', 'offset', 'age_stat'],
+];
+
+/**
+ * The ini's text for checked settings: a scope with lines of her own names her list for it after its other files.
+ * $raw: the ini as it is now (moverelliIniParse()), $shown: what her page was shown of it (moverelliSettings()) — a tolerant
+ * writer (batch E, M20): a value the save didn't change is written back as it was read (her X 150 out of range stays 150,
+ * never the 0 the page fell back to), a list naming the same files keeps its spelling, keys she doesn't know stay in
+ * their section (a section of nothing but those too).
+ */
+function moverelliIniText(array $set, string $dir, ?array $raw = null, ?array $shown = null): string
 {
+    $raw ??= [];
     $list = function (array $files, ?string $share, array $patterns) use ($dir): string {
         if ($patterns) {
             $files[] = dataPathUser(moverelliOwnFile($dir, $share));
         }
         return implode(',', $files);
     };
+    // one key: as read when the save left it unchanged and the ini has it, else hers ('' for hers: not written)
+    $val = function (string $sec, string $key, string $hers, bool $same) use ($raw): string {
+        return $same && array_key_exists($key, $raw[$sec] ?? []) ? "$key=" . $raw[$sec][$key] . "\n" : ($hers === '' ? '' : "$key=$hers\n");
+    };
+    $listVal = function (string $sec, string $key, string $hers) use ($raw): string {
+        $was = $raw[$sec][$key] ?? null;
+        return $was !== null && moverelliList($was) === moverelliList($hers) ? "$key=$was\n" : ($hers === '' ? '' : "$key=$hers\n");
+    };
+    $foreign = function (string $sec, array $hers) use ($raw): string {
+        $text = '';
+        foreach ($raw[$sec] ?? [] as $k => $v) {
+            $text .= in_array((string) $k, $hers, true) ? '' : "$k=$v\n";
+        }
+        return $text;
+    };
     $g = $set['global'];
+    $sg = $shown['global'] ?? [];
+    $same = fn (array $a, array $b, string $k): bool => array_key_exists($k, $b) && $a[$k] === $b[$k];
     $text = "# Ms. Moverelli (Unraid Secretary Office) - written by the office; change it on her setup page\n[GLOBAL]\n"
           . 'log_file=' . dataPathUser("$dir/smart_mover.log") . "\n"
-          . "min_age={$g['min_age']}\nage_stat=" . MOVERELLI_AGE_STAT . "\nmove_when_used_above={$g['move_when_used_above']}\n"
-          . 'move_prefer_shares=' . ($g['move_prefer_shares'] ? 'yes' : 'no') . "\nmover_debug={$g['mover_debug']}\nmax_list={$g['max_list']}\n";
-    if (($l = $list($g['files'], null, $g['patterns'])) !== '') {
-        $text .= "global_excludes=$l\n";
-    }
+          . $val('GLOBAL', 'min_age', (string) $g['min_age'], $same($g, $sg, 'min_age'))
+          . 'age_stat=' . MOVERELLI_AGE_STAT . "\n"
+          . $val('GLOBAL', 'move_when_used_above', (string) $g['move_when_used_above'], $same($g, $sg, 'move_when_used_above'))
+          . $val('GLOBAL', 'move_prefer_shares', $g['move_prefer_shares'] ? 'yes' : 'no', $same($g, $sg, 'move_prefer_shares'))
+          . $val('GLOBAL', 'mover_debug', (string) $g['mover_debug'], $same($g, $sg, 'mover_debug'))
+          . $val('GLOBAL', 'max_list', (string) $g['max_list'], $same($g, $sg, 'max_list'))
+          . $listVal('GLOBAL', 'global_excludes', $list($g['files'], null, $g['patterns']))
+          . $foreign('GLOBAL', MOVERELLI_INI_HERS['GLOBAL']);
     foreach ($set['shares'] as $share => $s) {
         $share = (string) $share;
-        $text .= "\n[$share]\n";
-        if ($s['skip']) {
-            $text .= "skip=yes\n";
-        }
+        $ss = $shown['shares'][$share] ?? [];
+        $text .= "\n[$share]\n"
+               . $val($share, 'skip', $s['skip'] ? 'yes' : '', $same($s, $ss, 'skip'));
         foreach (['min_age', 'move_when_used_above'] as $k) {
-            if (($s[$k] ?? null) !== null) {
-                $text .= "$k={$s[$k]}\n";
-            }
+            $text .= $val($share, $k, ($s[$k] ?? null) === null ? '' : (string) $s[$k], $same($s, $ss, $k));
         }
-        if (($l = $list($s['files'], $share, $s['patterns'])) !== '') {
-            $text .= "excludes=$l\n";
+        $text .= $listVal($share, 'excludes', $list($s['files'], $share, $s['patterns']))
+               . $foreign($share, MOVERELLI_INI_HERS['share']);
+    }
+    // a section she writes nothing for (no share, or a share without rules now): only what isn't hers stays
+    foreach ($raw as $sec => $keys) {
+        $sec = (string) $sec;
+        if ($sec !== 'GLOBAL' && !isset($set['shares'][$sec]) && ($f = $foreign($sec, MOVERELLI_INI_HERS['share'])) !== '') {
+            $text .= "\n[$sec]\n$f";
         }
     }
     return $text;
@@ -724,12 +763,17 @@ function moverelliDataDir(string $dir): void
 
 /**
  * Writes checked settings: her own lists first (each a new file + rename; lists no scope uses any more go), then the
- * ini (a new file + rename) — Smart Mover never reads half a file.
+ * ini (a new file + rename) — Smart Mover never reads half a file. A save that changes nothing writes nothing (batch E,
+ * M20/M22): a list with the same lines stays, an ini Smart Mover reads the same (moverelliIniParse()) stays byte for
+ * byte — its order, its comments, a line the update's step put elsewhere.
  */
 function moverelliWrite(array $set, string $dir): void
 {
     moverelliDataDir($dir);
     @mkdir("$dir/excludes", 0700, true);
+    $ini = "$dir/smart_mover.ini";
+    $raw = moverelliIniRead($ini);
+    $text = moverelliIniText($set, $dir, $raw, $raw === null ? null : moverelliSettings($dir));
     $keep = [];
     $own = [['', $set['global']['patterns']]];
     foreach ($set['shares'] as $share => $s) {
@@ -738,12 +782,25 @@ function moverelliWrite(array $set, string $dir): void
     foreach ($own as [$share, $lines]) {
         if ($lines) {
             $file = moverelliOwnFile($dir, $share === '' ? null : $share);
-            writeAtomic($file, implode("\n", $lines) . "\n", 0600, 0, 0);
+            $body = implode("\n", $lines) . "\n";
+            if (is_link($file) || !is_file($file) || @file_get_contents($file) !== $body) {
+                writeAtomic($file, $body, 0600, 0, 0);
+            }
             $keep[$file] = true;
         }
     }
     // the ini first (it names only lists that exist now), then the lists no scope uses any more go
-    writeAtomic("$dir/smart_mover.ini", moverelliIniText($set, $dir), 0600, 0, 0);
+    $sorted = function (array $ini): array {
+        $ini = array_filter($ini);                       // an empty section says nothing
+        ksort($ini, SORT_STRING);
+        foreach ($ini as &$keys) {
+            ksort($keys, SORT_STRING);
+        }
+        return $ini;
+    };
+    if ($raw === null || $sorted(moverelliIniParse($text)) !== $sorted($raw)) {
+        writeAtomic($ini, $text, 0600, 0, 0);
+    }
     foreach (glob("$dir/excludes/*.txt") ?: [] as $f) {
         if (!isset($keep[$f])) {
             @unlink($f);

@@ -39704,6 +39704,73 @@ function testMoverelliFit(): void
     hardeningRm($tmp);
 }
 
+/**
+ * Her save is a tolerant writer (batch E): a save without a change leaves smart_mover.ini byte for byte — a hand-edited
+ * one (M20: X 150 out of range, someone else's keys, an empty mover_bin=) and one the update's step rewrote (M22:
+ * age_stat=newest right under [GLOBAL]); a save with a change keeps the keys she doesn't know and writes back as read
+ * what it didn't change
+ */
+function testMoverelliIniTolerant(): void
+{
+    $tmp = hardeningTmp('moverelli-tolerant');
+    $v = [];
+    moverelliFixture($tmp, $v);
+    $h = moverelliHost();
+    $dir = "$tmp/data";
+    $ini = "$dir/smart_mover.ini";
+    $resave = function () use ($h, $dir, $ini): string {
+        $md5 = md5_file($ini);
+        $ino = fileinode($ini);
+        moverelliSave(moverelliSettings($dir), $h);
+        clearstatcache(true, $ini);
+        return $md5 === md5_file($ini) ? ($ino === fileinode($ini) ? 'untouched' : 'rewritten the same') : 'changed';
+    };
+    moverelliSave(moverelliTestSettings(['min_age' => 30, 'move_when_used_above' => 80, 'patterns' => ['*.nfo']],
+        ['Filme' => ['skip' => false, 'min_age' => 14, 'move_when_used_above' => null, 'files' => [], 'patterns' => []]]), $h);
+    same('moverelli tolerant: her own ini saved again unchanged — not even rewritten', 'untouched', $resave());
+    // M20: edited by hand
+    $text = str_replace("move_when_used_above=80\n", "move_when_used_above=150\nuso_foreign_key=1\nmover_bin=\n", (string) file_get_contents($ini));
+    $text = str_replace("[Filme]\n", "[Filme]\n# mine\nowner_note=keep\n", $text) . "\n[Notes]\nwho=me\n";
+    file_put_contents($ini, $text);
+    same('moverelli tolerant: X 150 (out of range) shown as no limit, as before', 0, moverelliSettings($dir)['global']['move_when_used_above']);
+    same('moverelli tolerant: a hand-edited ini saved without a change — byte for byte (M20)', ['untouched', $text], [$resave(), file_get_contents($ini)]);
+    $set = moverelliSettings($dir);
+    $set['global']['min_age'] = 31;
+    moverelliSave($set, $h);
+    $lines = explode("\n", (string) file_get_contents($ini));
+    same('moverelli tolerant: … saved with a change — X written as read (150, never 0), the keys she doesn\'t know kept in their sections, the change written',
+        [true, true, true, true, true, true, false, true],
+        [in_array('move_when_used_above=150', $lines, true), in_array('uso_foreign_key=1', $lines, true), in_array('mover_bin=', $lines, true),
+         in_array('min_age=31', $lines, true), (bool) preg_match('/\[Filme\]\nmin_age=14\nowner_note=keep\n/', implode("\n", $lines)),
+         (bool) preg_match('/\[Notes\]\nwho=me$/', rtrim(implode("\n", $lines))), in_array('move_when_used_above=0', $lines, true),
+         moverelliIniRead($ini)['GLOBAL']['global_excludes'] === "$dir/excludes/global.txt"]);
+    $set = moverelliSettings($dir);
+    $set['global']['move_when_used_above'] = 90;
+    unset($set['shares']['Filme']);
+    moverelliSave($set, $h);
+    $read = moverelliIniRead($ini);
+    same('moverelli tolerant: X changed on the page — hers; Filme\'s rules removed — only what isn\'t hers stays in its section',
+        ['90', '1', ['owner_note' => 'keep'], ['who' => 'me']], [$read['GLOBAL']['move_when_used_above'] ?? null, $read['GLOBAL']['uso_foreign_key'] ?? null, $read['Filme'] ?? null, $read['Notes'] ?? null]);
+    // the keys she takes out on purpose go with a save that changes something (only X; always the younger date)
+    file_put_contents($ini, str_replace("[GLOBAL]\n", "[GLOBAL]\nmove_until_used_below=70\n", (string) file_get_contents($ini)) . "\n[Docs]\nage_stat=mtime\n");
+    $set = moverelliSettings($dir);
+    $set['global']['max_list'] = 51;
+    moverelliSave($set, $h);
+    $read = moverelliIniRead($ini);
+    same('moverelli tolerant: … her retired keys (a Y, a share\'s age_stat) go', [false, false], [isset($read['GLOBAL']['move_until_used_below']), isset($read['Docs'])]);
+    // M22: the update's step (pool-x) rewrote a 1.61 ini — age_stat=newest right under [GLOBAL], not where her writer puts it
+    @mkdir("$tmp/mx/moverelli", 0700, true);
+    file_put_contents("$tmp/mx/moverelli/smart_mover.ini", "# Ms. Moverelli (Unraid Secretary Office) - written by the office; change it on her setup page\n[GLOBAL]\n"
+        . "log_file=$dir/smart_mover.log\nmin_age=30\nmove_when_used_above=80\nmove_until_used_below=70\njack_min_percent=20\nage_stat=mtime\n"
+        . "move_prefer_shares=yes\nmover_debug=0\nmax_list=50\n\n[Filme]\nmin_age=30\nmove_until_used_below=60\n");
+    officeMigratePoolX("$tmp/mx", '1.63.0');
+    copy("$tmp/mx/moverelli/smart_mover.ini", $ini);
+    @unlink("$dir/excludes/global.txt");
+    $after = (string) file_get_contents($ini);
+    same('moverelli tolerant: after the update\'s step, her first save without a change — byte for byte (M22)', ['untouched', $after], [$resave(), file_get_contents($ini)]);
+    hardeningRm($tmp);
+}
+
 /** Her settings: every value checked, written atomically into smart_mover.ini and her own lists, read back the same; Smart Mover reads them so */
 function testMoverelliIni(): void
 {
@@ -45422,7 +45489,7 @@ JS;
 }
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
