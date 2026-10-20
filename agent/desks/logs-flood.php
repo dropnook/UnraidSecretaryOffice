@@ -187,8 +187,15 @@ function logsFloodLook(array $v, int $now): array
         if ($case === null || $case['path'] !== $top['path']) {
             logLine("Ms. Protocolli: /var/log is {$v['pct']} % full — {$top['path']} fills it");
         }
-        $case = ['path' => $top['path'], 'read' => $now, 'since' => $case !== null && $case['path'] === $top['path'] ? (int) $case['since'] : $now]
-            + logsFloodLines(logsFloodTail($top['path'], LOGS_FLOOD_TAIL), logsFloodOwnIps(logsFloodProc()));
+        $same = $case !== null && $case['path'] === $top['path'];
+        $read = logsFloodLines(logsFloodTail($top['path'], LOGS_FLOOD_TAIL), logsFloodOwnIps(logsFloodProc()));
+        if ($same && $read['local'] && !empty($case['local']['paths'])) {
+            // the same file read again: the addresses asked for before still count (a tail may hold only some of them)
+            $paths = array_slice(array_values(array_unique(array_merge($read['local']['paths'], array_map('strval', (array) $case['local']['paths'])))), 0, LOGS_FLOOD_PATHS);
+            $read['local']['paths'] = $paths;
+            $read['local']['poller'] = logsFloodPollerByPaths($paths);
+        }
+        $case = ['path' => $top['path'], 'read' => $now, 'since' => $same ? (int) $case['since'] : $now] + $read;
     }
     $case['size'] = $top['size'];
     $case['grew'] = $top['grew'];
@@ -410,6 +417,13 @@ function logsFloodScrub(string $line): string
         '/\b(bearer|basic|token)\s+[A-Za-z0-9._~+\/=-]{8,}/i',
     ], ['$1…', '$1 …'], $line) ?? '';
     return mb_strcut($line, 0, LOGS_FLOOD_LINE, 'UTF-8');
+}
+
+/** A line cut for a notification or a hint: at most $bytes, «…» where it was cut */
+function logsFloodCut(string $line, int $bytes): string
+{
+    $cut = mb_strcut($line, 0, $bytes, 'UTF-8');
+    return $cut === $line ? $line : rtrim($cut) . ' …';
 }
 
 /**
@@ -684,7 +698,7 @@ function logsFloodTell(array $v, int $now): void
         ? $tx('notify.flood_file', ['file' => $case['path'], 'rate' => logsHuman((int) $case['rate'])])
         : $tx('notify.flood_big', ['file' => $case['path'], 'size' => logsHuman((int) $case['size'])])];
     if ($case['kinds']) {
-        $parts[] = $tx('notify.flood_kind', ['share' => $case['kinds'][0]['share'], 'line' => mb_strcut($case['kinds'][0]['line'], 0, 160, 'UTF-8')]);
+        $parts[] = $tx('notify.flood_kind', ['share' => $case['kinds'][0]['share'], 'line' => logsFloodCut($case['kinds'][0]['line'], 160)]);
     }
     $local = $case['local'] ?? null;
     if ($local) {
@@ -727,7 +741,7 @@ function logsFloodChecks(): array
     $top = $case['kinds'][0] ?? null;
     return [finding('varlog_flood', 'hint', false, [
         'file' => $case['path'],
-        'line' => is_array($top) ? mb_strcut((string) $top['line'], 0, 160, 'UTF-8') : '–',
+        'line' => is_array($top) ? logsFloodCut((string) $top['line'], 160) : '–',
         'share' => is_array($top) ? (int) $top['share'] : 0,
     ], '#/logs/varlog')];
 }

@@ -719,12 +719,14 @@ function floodView() {
     box.appendChild(el('p', 'role', T('flood.kinds', { n: c.lines || 0 })));
     const list = el('div', 'box');
     for (const k of c.kinds) {
-      const r = el('div', 'row');
+      const r = el('div', 'lg-flood-kind');          // not a .row: the files' list below is the section's list (its bar counts those)
       const main = el('div', 'row-main');
       main.appendChild(el('div', 'row-name lg-flood-line', k.line));
-      const fig = el('div', 'figures');
-      fig.append(el('b', '', k.share + ' %'), el('span', '', fmt.number(k.n)));
-      r.append(main, fig);
+      // its share under it (a phone keeps it in view), «×n» as her kinds say it
+      const meta = el('div', 'row-meta');
+      meta.append(el('b', '', k.share + ' %'), ' · ' + fmt.number(k.n) + '×');
+      main.appendChild(meta);
+      r.appendChild(main);
       list.appendChild(r);
     }
     box.appendChild(list);

@@ -596,10 +596,119 @@
   "own": true,
   "fs": "tmpfs",
   "total": 134217728,
-  "used": 622592,
-  "pct": 0,
+  "used": 123480064,
+  "pct": 92,
   "warn": 60,
   "full": 80
+ },
+ "flood": {
+  "look": {
+   "t": 1791505990,
+   "pct": 92,
+   "used": 123480064,
+   "total": 134217728,
+   "span": 600,
+   "grew": 9437184,
+   "rows": [
+    {
+     "path": "/var/log/nginx/error.log",
+     "size": 118489088,
+     "grew": 9420800,
+     "rate": 942080
+    },
+    {
+     "path": "/var/log/syslog",
+     "size": 2412544,
+     "grew": 16384,
+     "rate": 1638
+    }
+   ],
+   "cut": false
+  },
+  "case": {
+   "path": "/var/log/nginx/error.log",
+   "read": 1791505930,
+   "since": 1791505330,
+   "lines": 1180,
+   "binary": false,
+   "kinds": [
+    {
+     "n": 1168,
+     "share": 99,
+     "line": "2026/10/09 12:33:17 [error] 1234#1234: *88123 limiting requests, excess: 20.640 by zone \"authlimit\", client: 127.0.0.1, server: , request: \"GET /login HTTP/1.1\", host: \"127.0.0.1\", referrer: \"http://127.0.0.1/stub_status\""
+    },
+    {
+     "n": 12,
+     "share": 1,
+     "line": "2026/10/09 12:33:02 [error] 1234#1234: *88001 open() \"/usr/local/emhttp/plugins/dynamix.docker.manager/images/question.png\" failed (2: No such file or directory), client: 192.168.1.50, server: , request: \"GET /plugins/dynamix.docker.manager/images/question.png HTTP/1.1\", host: \"tower\""
+    }
+   ],
+   "local": {
+    "n": 1168,
+    "share": 99,
+    "client": "127.0.0.1",
+    "paths": [
+     "/login",
+     "/stub_status",
+     "/nginx_status",
+     "/basic_status",
+     "/status"
+    ],
+    "poller": "netdata"
+   },
+   "size": 118489088,
+   "grew": 9420800,
+   "rate": 942080
+  },
+  "catch": {
+   "t": 1791505960,
+   "looks": 30,
+   "seen": 9,
+   "who": [
+    {
+     "kind": "container",
+     "id": "c0ffee12c0ffee12c0ffee12c0ffee12c0ffee12c0ffee12c0ffee12c0ffee12",
+     "prog": "go.d.plugin",
+     "cmd": "/usr/libexec/netdata/plugins.d/go.d.plugin 1",
+     "n": 9,
+     "name": "netdata",
+     "image": "netdata/netdata:stable",
+     "poller": "netdata"
+    }
+   ],
+   "cut": false
+  },
+  "told": 1791505962,
+  "catching": false,
+  "every": 60,
+  "full": 80,
+  "notify": 90,
+  "pollers": {
+   "netdata": {
+    "tool": "Netdata",
+    "todo": true
+   },
+   "glances": {
+    "tool": "Glances",
+    "todo": false
+   },
+   "telegraf": {
+    "tool": "Telegraf",
+    "todo": false
+   },
+   "uptime_kuma": {
+    "tool": "Uptime Kuma",
+    "todo": false
+   },
+   "homepage": {
+    "tool": "Homepage",
+    "todo": false
+   },
+   "homarr": {
+    "tool": "Homarr",
+    "todo": false
+   }
+  }
  },
  "rules": [
   [

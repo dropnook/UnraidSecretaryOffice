@@ -601,6 +601,64 @@
   "warn": 60,
   "full": 80
  },
+ "flood": {
+  "look": {
+   "t": 1791505990,
+   "pct": 0,
+   "used": 622592,
+   "total": 134217728,
+   "span": 600,
+   "grew": 20480,
+   "rows": [
+    {
+     "path": "/var/log/syslog",
+     "size": 412544,
+     "grew": 16384,
+     "rate": 1638
+    },
+    {
+     "path": "/var/log/samba/log.smbd",
+     "size": 30412,
+     "grew": 4096,
+     "rate": 410
+    }
+   ],
+   "cut": false
+  },
+  "case": null,
+  "catch": null,
+  "told": null,
+  "catching": false,
+  "every": 60,
+  "full": 80,
+  "notify": 90,
+  "pollers": {
+   "netdata": {
+    "tool": "Netdata",
+    "todo": true
+   },
+   "glances": {
+    "tool": "Glances",
+    "todo": false
+   },
+   "telegraf": {
+    "tool": "Telegraf",
+    "todo": false
+   },
+   "uptime_kuma": {
+    "tool": "Uptime Kuma",
+    "todo": false
+   },
+   "homepage": {
+    "tool": "Homepage",
+    "todo": false
+   },
+   "homarr": {
+    "tool": "Homarr",
+    "todo": false
+   }
+  }
+ },
  "mine": {
   "rules": [
    {

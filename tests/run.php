@@ -14787,7 +14787,7 @@ function testLogsFlood(): void
         $f = logsFloodChecks();
         same('flood: the Team Lead\'s hint names the file and its line', ['varlog_flood', 'hint', false, "$root/nginx/error.log", '#/logs/varlog'],
             [$f[0]['id'] ?? null, $f[0]['level'] ?? null, $f[0]['ok'] ?? null, $f[0]['params']['file'] ?? null, $f[0]['link'] ?? null]);
-        check('flood: … with its share and a line from the log (cut)', ($f[0]['params']['share'] ?? 0) >= 99 && strlen($f[0]['params']['line'] ?? '') <= 160);
+        check('flood: … with its share and a line from the log (cut)', ($f[0]['params']['share'] ?? 0) >= 99 && strlen($f[0]['params']['line'] ?? '') <= 164 && str_ends_with($f[0]['params']['line'] ?? '', ' …'));
 
         // a rotated file counts what it has now; a binary file that fills it has no lines; not a filesystem of its own: nothing
         same('flood: a file that got shorter (rotated) counts what it has now', 10,
