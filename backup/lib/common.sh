@@ -402,6 +402,7 @@ cfg_load() {
     [[ -r "$file" ]] || return 1
     while IFS= read -r line || [[ -n "$line" ]]; do
         n=$((n+1))
+        (( n == 1 )) && line="${line#$'\xEF\xBB\xBF'}"      # a byte order mark an editor put in front (UTF-8 BOM)
         line="${line%$'\r'}"
         line="${line#"${line%%[![:space:]]*}"}"
         line="${line%"${line##*[![:space:]]}"}"

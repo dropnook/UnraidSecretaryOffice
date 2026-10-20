@@ -2505,10 +2505,11 @@ settings_pending() {
     [[ -f "$UB_SETTINGS" ]] || { echo '[]'; return 0; }
     local new="$UB_STATE/.settings.pending.$$"
     settings_render >"$new" 2>/dev/null || { rm -f "$new"; echo '[]'; return 0; }
-    local keyed='/^[[:space:]]*([#;]|$)/ {next}
+    local keyed='NR == 1 {sub(/^\357\273\277/, "")}
+                 /^[[:space:]]*([#;]|$)/ {next}
                  /^\[/ {sec=$0; next}
                  {gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print sec "\t" $0}'
-    comm -3 <(awk "$keyed" "$UB_SETTINGS" | LC_ALL=C sort -u) <(awk "$keyed" "$new" | LC_ALL=C sort -u) \
+    comm -3 <(LC_ALL=C awk "$keyed" "$UB_SETTINGS" | LC_ALL=C sort -u) <(LC_ALL=C awk "$keyed" "$new" | LC_ALL=C sort -u) \
         | awk -F'\t' '{ if ($1 == "") print "+\t" $2 "\t" $3; else print "-\t" $1 "\t" $2 }' \
         | jq -Rn '[inputs | split("\t") | {op: .[0], section: (.[1] | ltrimstr("[") | rtrimstr("]")), line: .[2]}]'
     rm -f "$new"
