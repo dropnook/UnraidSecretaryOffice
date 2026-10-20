@@ -555,6 +555,12 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   `office_share_pool` (required) and `share_pool`; the cfg is never changed by her.
   A share whose folder on a ZFS pool is empty while its snapshots still hold ≥ 100 MB: hint `snap_only` (recommended,
   awake pools only, never the office's share, the partners' copies or a backup place), linked to Ms. Snapshotini's datasets.
+  One Ms. Moverelli's run left standing because snapshots hold it (Smart Mover's status `kept`, `moverelliKept()`; she is hired):
+  hint `snap_kept` (never a must — an empty dataset may be wanted), still there and empty by the same look; her next run
+  removes it once the snapshots are gone. **The one thing emptied on its own:** Mr. Restori's drill copies (owner, 2026-10-21) —
+  an entry with his `drill` record (names, sizes, sha256 of the verified copies) whose folder holds exactly those, CL_DRILL_DAYS
+  (7) after it went in, by her tick (sha256 read anew; never while a backup runs, on a sleeping disk, with neither desk hired);
+  changed/added/unverifiable stays as plain content; an older drill's without sums is marked «empty it yourself».
 * **`advisor` — The Consultant.** Whether the needed tools are there (unbalanced never suggested); monitoring stack (keeps only
   the office's dashboard file current). Plugins via `plugin install <url>` (pinned) as atd job; containers via Unraid's Add
   Container form — **the user clicks Apply**; refused while one of that kind/name exists; recorded for the watchman. An old
@@ -572,7 +578,8 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   (`--network none`, no ports/binds/caps; too big = «not checked», never failed); refused during a parity check; a failed drill
   = one warning. Partner look from his tick, never a page request. Its share step (`sharefile`) brings one small file from the
   newest backup snapshot into a fresh `<share>/.uso-drill-<id>` on an awake pool or disk, compares it, and puts that folder into
-  Ms. Dustdevil's storeroom of the share through her helpers (`drillScratchAway()`; she finds it by `drillTrashRoots()`).
+  Ms. Dustdevil's storeroom of the share through her helpers (`drillScratchAway()`; she finds it by `drillTrashRoots()`), with
+  the verified copy's name, size and sha256 (journal `made[].files`, manifest `drill`) — so it empties itself after 7 days.
 * **`caretaker` — The Team Lead** (id stays `caretaker`). Hires, fires (no «Hire» while a needed colleague can't come),
   suggests, collects all checks, reports new red findings once. «I know, thanks» puts aside recommended findings and hints —
   **never musts**; params that grow on their own must be named `days`/`size`. **He only pairs partners**; what is sent is Mr.
