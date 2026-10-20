@@ -38,6 +38,7 @@ Office.ctPartnerLoaded = () => {
   Office.ctPartner.use({
     took(partners) { if (state) state.partners = partners; if (view) Office.keepInPlace(null, render); },
     reload: () => load(true),
+    peek: () => load(false),          // his state as kept (the cards anew after a partner job: partnerRescanAsk())
   });
   if (view) Office.keepInPlace(null, render);
 };
