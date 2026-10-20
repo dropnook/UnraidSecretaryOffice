@@ -87,7 +87,7 @@ function officeHomeOwn(string $home): ?string
 function housePlugins(bool $fresh = false): array
 {
     static $cache = null, $at = 0;
-    if (!$fresh && $cache !== null && time() - $at < HOUSE_CACHE) {
+    if (!$fresh && $cache !== null && time() >= $at && time() - $at < HOUSE_CACHE) {      // a clock stepped back: looked at anew
         return $cache;
     }
     $cache = [];
@@ -110,7 +110,7 @@ function housePlugin(string $name): bool
 function houseContainers(bool $fresh = false): array
 {
     static $cache = null, $at = 0;
-    if (!$fresh && $cache !== null && time() - $at < HOUSE_CACHE) {
+    if (!$fresh && $cache !== null && time() >= $at && time() - $at < HOUSE_CACHE) {      // a clock stepped back: looked at anew
         return $cache;
     }
     $cache = [];

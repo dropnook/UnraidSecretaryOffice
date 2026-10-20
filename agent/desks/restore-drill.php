@@ -2912,7 +2912,7 @@ function drillLeftovers(bool $deep = true): array
     $named = array_column(array_filter((array) ((readJson(drillData() . '/record.json') ?? [])['made'] ?? []),
         fn ($r) => is_array($r) && is_string($r['name'] ?? null) && is_string($r['id'] ?? null) && ($r['kind'] ?? 'container') === 'container'), 'id', 'name');
     $last = $GLOBALS['drillLeftDeep'] ?? null;
-    if (!$deep && is_array($last) && $now - $last['at'] < DRILL_LEFT_DEEP && $last['data'] === drillData()) {
+    if (!$deep && is_array($last) && $now >= $last['at'] && $now - $last['at'] < DRILL_LEFT_DEEP && $last['data'] === drillData()) {
         $found = drillSweepFind($current, false, date('Ymd-His', $now - DRILL_LEFT_DAYS * 86400), $last['journals'],
             $last['containers'] || drillRecordOpen($named, $current));
     } else {
@@ -3208,16 +3208,21 @@ function drillDayNo(int $t): int
     return intdiv((int) mktime(12, 0, 0, (int) date('n', $t), (int) date('j', $t), (int) date('Y', $t)), 86400);
 }
 
-/** His tick: cheap — once a minute whether a drill is due, once an hour the sweeper's look at the journal folder */
-function drillTick(): void
+/**
+ * His tick: cheap — once a minute whether a drill is due, once an hour the sweeper's look at the journal folder; true
+ * when it looked (for the tests)
+ */
+function drillTick(): bool
 {
     static $looked = 0, $swept = 0;
-    $now = time();
-    if ($now - $looked < DRILL_TICK_EVERY) {
-        return;
+    $now = drillNow();
+    // «since the last look» on the wall clock: a clock stepped back (by hand, NTP) is a look due at once, never one
+    // that waits until the clock passes the last look again (batch F BF5)
+    if ($now >= $looked && $now - $looked < DRILL_TICK_EVERY) {
+        return false;
     }
     $looked = $now;
-    if ($now - $swept >= DRILL_SWEEP_EVERY) {
+    if ($now < $swept || $now - $swept >= DRILL_SWEEP_EVERY) {
         $swept = $now;
         try {
             drillSweep(drillRunning()['id'] ?? null, false);
@@ -3228,13 +3233,13 @@ function drillTick(): void
     // outside the window nothing is read at all; inside it a few small files, once a minute
     $hour = (int) date('G', $now);
     if ($hour < DRILL_WINDOW[0] || $hour >= DRILL_WINDOW[1]) {
-        return;
+        return true;
     }
     $lastRun = readJson(rsUbData() . '/state/last-run.json');
     $auto = readJson(drillData() . '/auto.json');
     $scope = drillDue(drillSettings(), $lastRun, drillCertificate(), $auto, drillPackagesSince(), $now);
     if ($scope === null || !in_array('restore', staffHired(), true)) {
-        return;                              // not due — or he isn't hired (then he does nothing on his own)
+        return true;                         // not due — or he isn't hired (then he does nothing on his own)
     }
     $note = ['run' => (string) ($lastRun['run'] ?? ''), 'at' => $now, 'id' => null, 'refused' => null];
     try {
@@ -3255,6 +3260,7 @@ function drillTick(): void
         writeAtomic(drillData() . '/auto.json', jsonEncode($note), 0600, 0, 0);
     } catch (Throwable) {
     }
+    return true;
 }
 
 // ===================================================================== the Team Lead, the tile, Mr. Backupsy, Prometheus

@@ -29007,6 +29007,31 @@ function testRestoreDrill(): void
     file_put_contents("$tmp/docker.log", '');
     drillSweep(null, false);
     same('drill sweeper: hourly with every journal closed — no docker call', '', (string) file_get_contents("$tmp/docker.log"));
+    // batch F BF5 (restore-tm-drill-sched): his tick looks once a minute on the wall clock — a clock stepped back 4 h
+    // was no look until the clock passed the last one again; now a look at once, then once a minute from there
+    $hadNow = $GLOBALS['drill']['now'] ?? null;
+    $t0 = mktime(10, 0, 0, 11, 1, 2026);          // outside the window: a look is the sweeper and the hour only
+    $looks = [];
+    foreach ([0, 30, 61, -4 * 3600, -4 * 3600 + 30, -4 * 3600 + 61] as $d) {
+        $GLOBALS['drill']['now'] = $t0 + $d;
+        $looks[] = drillTick();
+    }
+    same('drill tick: a look, none 30 s later, one after a minute — after a step back of 4 h one at once, then a minute on',
+        [true, false, true, true, false, true], $looks);
+    $GLOBALS['drill']['now'] = $hadNow;
+    if ($hadNow === null) {
+        unset($GLOBALS['drill']['now']);
+    }
+    // the same for the night watchman's look (every WATCH_LOOK s): a next look 2 h ahead (the clock just went back 2 h)
+    // is one now — before, no look (no round) for 2 h. Not hired here: the look ends at once (his mirror let go before).
+    $was = [$GLOBALS['wmNextLook'] ?? null, $GLOBALS['wmRound'] ?? null, $GLOBALS['wmMirrorGone'] ?? null, $GLOBALS['wmOrphan'] ?? null];
+    [$GLOBALS['wmNextLook'], $GLOBALS['wmRound'], $GLOBALS['wmMirrorGone'], $GLOBALS['wmOrphan']] = [time() + 7200, null, true, false];
+    if (watchmanHiredSince() === null) {          // hired in the tests' data folder: his tick would start a round
+        watchmanTick();
+        same('watchman tick: a next look 2 h ahead (a clock stepped back) is a look now — the next one WATCH_LOOK s on',
+            true, $GLOBALS['wmNextLook'] <= time() + WATCH_LOOK);
+    }
+    [$GLOBALS['wmNextLook'], $GLOBALS['wmRound'], $GLOBALS['wmMirrorGone'], $GLOBALS['wmOrphan']] = $was;
     // the record for the night watchman: written before each create, root only, newest 50 within 7 days
     $jr = drillJournalNew($b, ['scope' => 'now', 'deadline' => $now, 'steps' => []]);
     for ($i = 0; $i < 55; $i++) {

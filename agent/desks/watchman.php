@@ -584,7 +584,7 @@ function watchmanTick(): void
     if ($job) {
         $status = proc_get_status($job['process']);
         if ($status['running']) {
-            if (time() - $job['since'] > WATCH_MAX_RUN && empty($job['stopped'])) {
+            if (hrtime(true) / 1e9 - $job['since'] > WATCH_MAX_RUN && empty($job['stopped'])) {
                 proc_terminate($job['process']);
                 $GLOBALS['wmRound']['stopped'] = true;
                 logLine('Night watchman: his round took longer than ' . WATCH_MAX_RUN . ' s — stopped');
@@ -600,7 +600,9 @@ function watchmanTick(): void
         return;
     }
     $now = time();
-    if ($now < ($GLOBALS['wmNextLook'] ?? 0)) {
+    // every WATCH_LOOK s — a clock stepped back is a look at once, never one that waits until the clock is back (BF5)
+    $next = (int) ($GLOBALS['wmNextLook'] ?? 0);
+    if ($now < $next && $next - $now <= WATCH_LOOK) {
         return;
     }
     $GLOBALS['wmNextLook'] = $now + WATCH_LOOK;
@@ -626,10 +628,11 @@ function watchmanTick(): void
     $GLOBALS['wmMirrorGone'] = false;
     $st = readJson(watchmanDir() . '/state.json') ?? [];
     $started = (int) ($GLOBALS['wmStarted'] ?? 0);
-    $due = $now - max((int) ($st['round']['time'] ?? 0), $started) >= WATCH_EVERY;
-    $anew = (int) ($st['hired'] ?? -1) !== $since && $now - $started >= 60;     // just hired (again): his first round right away
+    $last = max((int) ($st['round']['time'] ?? 0), $started);
+    $due = $now < $last || $now - $last >= WATCH_EVERY;         // a clock stepped back behind his last round: one now
+    $anew = (int) ($st['hired'] ?? -1) !== $since && ($now < $started || $now - $started >= 60);     // just hired (again): his first round right away
     // the array was started after a night shift: its entries into the book right away (a stat; never while it is still on)
-    $night = $now - $started >= 60 && is_file(WATCH_NIGHT_DIR . '/book.json') && !watchmanNightOn();
+    $night = ($now < $started || $now - $started >= 60) && is_file(WATCH_NIGHT_DIR . '/book.json') && !watchmanNightOn();
     if ($due || $anew || $night) {
         watchmanStart();
     }
@@ -651,7 +654,7 @@ function watchmanStart(): bool
         logLine('Night watchman: could not start his round');
         return false;
     }
-    $GLOBALS['wmRound'] = ['process' => $process, 'since' => time()];
+    $GLOBALS['wmRound'] = ['process' => $process, 'since' => hrtime(true) / 1e9];      // the monotonic clock: a step never stops it early or late
     return true;
 }
 
@@ -6066,7 +6069,7 @@ function watchmanFlowGuessStacks(array $paths): ?array
 function watchmanFlowGuessSetup(array $paths): array
 {
     static $at = 0, $kept = null;
-    if ($kept === null || time() - $at >= WATCH_FLOW_GUESS_AGAIN) {
+    if ($kept === null || time() < $at || time() - $at >= WATCH_FLOW_GUESS_AGAIN) {
         $kept = ['vms' => watchmanFlowGuessVms($paths), 'stacks' => watchmanFlowGuessStacks($paths)];
         $at = time();
     }
