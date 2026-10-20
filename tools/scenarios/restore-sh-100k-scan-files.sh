@@ -13,6 +13,7 @@ undo_push files_unput R21
 undo_push bash -c 'rm -rf /mnt/cache/appdata/emby/uso-wip-f-r21 /mnt/cache/appdata/emby.restored-* /mnt/cache/appdata/emby.aside-* /mnt/cache/appdata/emby.putback-*'
 nc_data_closed
 flow BK-RUN-MANUAL mode=backup               # the moment
+run=$(jq -r '.run // empty' "$UB/state/status.json")
 snap_before
 # his look while the sizes are measured: the preview queues the du, the page asks again and again
 t0=$(date +%s%N); ask restore.preview '{"kind":"files","path":"/mnt/user/appdata/emby","mode":"copy"}' 300 >/dev/null
@@ -25,7 +26,8 @@ for i in $(seq 1 20); do
     ((ms > max)) && max=$ms; ((ms > 5000)) && slow=$((slow + 1)); sleep 2
 done
 ((slow == 0)) && cell page-usable 1 "20 looks while measuring, the slowest $max ms" || cell page-usable 0 "$slow of 20 looks took longer than 5 s (slowest $max ms)"
-flow RS-FILES mode=beside path=/mnt/user/appdata/emby
+# from this cell's own moment (the newest offered may be another's: set-aside snapshots of a cell that set the clock on)
+flow RS-FILES mode=beside path=/mnt/user/appdata/emby "moment=run:$run"
 c=$(find /mnt/cache/appdata/emby.restored-*/uso-wip-f-r21 -type f 2>/dev/null | wc -l)
 ((c == 100000)) && cell all-back 1 "the copy beside holds all 100 000" || cell all-back 0 "the copy beside holds $c of 100 000"
 check standard
