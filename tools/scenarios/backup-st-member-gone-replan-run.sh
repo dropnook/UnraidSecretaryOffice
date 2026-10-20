@@ -7,6 +7,10 @@ scenario_begin backup-st-member-gone-replan-run
 needs tower docker
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
 nc_data_closed
+# immich_server exits when its redis goes (it can't reach it) and the state's undo brings redis back only: the members
+# that ran before started again after it (pushed before the state: runs after its undo)
+ran=$(timeout 20 docker ps --filter name=immich_ --filter status=running --format '{{.Names}}' | paste -sd' ' -)
+undo_push bash -c 'for c in $1; do [[ -n $(docker ps -q --filter "name=^$c\$" --filter status=running) ]] || docker start "$c" >/dev/null; done' _ "$ran"
 state ST-MEMBER-GONE immich_redis
 snap_before
 flow BK-REPLAN
