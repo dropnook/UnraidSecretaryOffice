@@ -620,7 +620,9 @@ function officeNotifySendDue(array &$queue, ?array $cfg, int $now, array &$entri
         $entries[] = ['id' => bin2hex(random_bytes(6)), 'time' => $now, 'desk' => 'caretaker', 'event' => $alerts ? 'bundle' : 'summary',
                       'level' => $alerts ? 'alert' : 'warning', 'fate' => $ok ? 'sent' : 'failed', 'why' => '', 'subject' => $subject,
                       'description' => '', 'n' => count($items), 'covers' => $ids];
-        logLine('Notifications: ' . ($alerts ? 'the alert bundle' : 'the summary') . ' of ' . count($items) . ' ' . ($ok ? 'went' : 'could not go') . " to Unraid's notifications");
+        // the night shift has no data folder: its own log in RAM
+        (NIGHT_MODE && function_exists('nightLog') ? 'nightLog' : 'logLine')('Notifications: ' . ($alerts ? 'the alert bundle' : 'the summary') . ' of '
+            . count($items) . ' ' . ($ok ? 'went' : 'could not go') . " to Unraid's notifications");
     }
     return true;
 }
@@ -676,10 +678,19 @@ function officeNotifyNightTick(?int $now = null, ?string $home = null): void
 
 // ===================================================================== the page
 
-/** Unraid's channels for a level (⟦Settings⟧ → ⟦Notification Settings⟧: 1 browser, 2 mail, 4 agents) */
-function officeNotifyChannels(string $level, string $cfgFile = OFFICE_NOTIFY_CFG): array
+const OFFICE_NOTIFY_CFG_DEFAULT = '/usr/local/emhttp/plugins/dynamix/default.cfg';     // Unraid's defaults under the user's
+
+/**
+ * Unraid's channels for a level (⟦Settings⟧ → ⟦Notification Settings⟧: 1 browser, 2 mail, 4 agents) — the user's file
+ * over Unraid's defaults, as its notify script reads them (parse_plugin_cfg): a server never set up has no [notify] there
+ */
+function officeNotifyChannels(string $level, string $cfgFile = OFFICE_NOTIFY_CFG, string $defaults = OFFICE_NOTIFY_CFG_DEFAULT): array
 {
     $cfg = readCfg($cfgFile, true);
+    $base = readCfg($defaults, true);
+    foreach ($base as $section => $keys) {
+        $cfg[$section] = (array) ($cfg[$section] ?? []) + (array) $keys;
+    }
     $bits = (int) ($cfg['notify'][$level] ?? 0);
     return ['browser' => (bool) ($bits & 1),
             'mail'    => (bool) ($bits & 2) && !empty($cfg['ssmtp']['server']) && !empty($cfg['ssmtp']['RcptTo']),

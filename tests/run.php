@@ -17731,6 +17731,13 @@ function testNotifyCenter(): void
             same("centre silent refuses: $why", 'bad_request', $p->key);
         }
     }
+    // where Unraid sends a level: the user's file over Unraid's defaults (a server never set up has no [notify] in it)
+    file_put_contents("$tmp/default.cfg", "[notify]\nnormal=\"1\"\nwarning=\"1\"\nalert=\"1\"\n");
+    file_put_contents("$tmp/dynamix.cfg", "[display]\nlocale=\"de_DE\"\n");
+    same('centre channels: nothing set up — Unraid\'s defaults: the browser', ['browser' => true, 'mail' => false, 'agents' => false],
+        officeNotifyChannels('warning', "$tmp/dynamix.cfg", "$tmp/default.cfg"));
+    file_put_contents("$tmp/dynamix.cfg", "[notify]\nwarning=\"0\"\n");
+    same('centre channels: the user\'s choice over the defaults', false, officeNotifyChannels('warning', "$tmp/dynamix.cfg", "$tmp/default.cfg")['browser']);
     same('centre silent: until an hour ahead, then 0 — talking again', [true, 0],
         [officeNotifySilent(time() + 3600, $f)['silent_until'] > time(), officeNotifySilent(0, $f)['silent_until']]);
 
