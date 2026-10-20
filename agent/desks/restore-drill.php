@@ -920,6 +920,7 @@ function drillJob(array $args): int
                 $GLOBALS['rsStopWhy'] ??= 'stopped';
             });
         }
+        rsArrayStopSignal();              // agent.sh's array-stop hook: the reason is array_stopping
     }
     drillMarker('drill', $id);
     $j['result'] = 'running';

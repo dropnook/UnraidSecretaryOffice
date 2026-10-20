@@ -424,16 +424,20 @@ restored_release() {
 
 # Array stopping: Mr. Restori's drill or restore, Mr. Backupsy's let-go clearing (atd jobs, the engine's lock file open
 # on the pool) ended at once - SIGTERM to the agent.php its RAM marker names ("<pid> <id>"), the drill's throwaways
-# (label uso.drill) gone; no marker: nothing.
+# (label uso.drill) gone; no marker: nothing. At the array stop (STOP_WHY=array_stopping, set by array_event) the drill
+# and the restore get SIGUSR1 instead: "the array is being stopped" - their reason says so even before Unraid's var.ini
+# does (scenario batch D, F4: TERM read as «stopped from outside»); the let-go keeps TERM.
 drill_release() {
-    local f pid i
+    local f pid i sig
     for f in "$RUN/drill.open" "$RUN/restore.open" "$RUN/letgo.open"; do
         [[ -f "$f" && ! -L "$f" ]] || continue
         pid=$(head -c 64 "$f" 2>/dev/null | tr -dc '0-9 ' | cut -d' ' -f1)
         if [[ "$pid" =~ ^[0-9]+$ ]] && grep -qa 'agent.php' "/proc/$pid/cmdline" 2>/dev/null; then
-            kill -TERM "$pid" 2>/dev/null
+            sig=TERM
+            [[ "${STOP_WHY:-}" == array_stopping && "$f" != */letgo.open ]] && sig=USR1
+            kill -"$sig" "$pid" 2>/dev/null
             for ((i = 0; i < 6; i++)); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
-            echo "$(date '+%F %T') array stopping: the ${f##*/} job (PID $pid) asked to end" >>"$LOG"
+            echo "$(date '+%F %T') array stopping: the ${f##*/} job (PID $pid) asked to end (SIG$sig)" >>"$LOG"
         fi
         [[ "$f" == */drill.open ]] && timeout 5 docker ps -aq --filter label=uso.drill 2>/dev/null | xargs -r timeout 5 docker rm -f -v >/dev/null 2>&1
         rm -f "$f"
@@ -464,6 +468,7 @@ array_event() {
     echo "$(date +%s) $what" >>"$ARRAY_EVENTS"
     tail -n 50 "$ARRAY_EVENTS" >"$ARRAY_EVENTS.tmp" 2>/dev/null && mv -f "$ARRAY_EVENTS.tmp" "$ARRAY_EVENTS"
     if [[ "$what" == stop ]]; then
+        local STOP_WHY=array_stopping   # drill_release tells Mr. Restori's jobs why they end
         release             # everything the office holds on a pool
         night_start         # RAM and flash only
     else

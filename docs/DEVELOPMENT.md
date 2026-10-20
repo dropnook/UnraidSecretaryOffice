@@ -539,7 +539,9 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   in the browser. **Never logs into a web UI or HTTP API.** Network settings he explains, never changes.
 * **`restore` — Mr. Restori.** **Never over something still there without asking; everything replaced is put aside first, never
   deleted.** Planned against a fresh look, confirmed with the plan's token, run by atd under the engine's lock, journaled, stops
-  at the first failed step; «Put back» = the recorded undo only. Lists only awake ZFS pools. A missing share blocks; never a
+  at the first failed step; «Put back» = the recorded undo only — a copy he started and never finished (an array stop, a
+  power cut) is noted, and «Put back» then removes it into Ms. Dustdevil's storeroom through her helpers (never deleted); a
+  program holding a file open blocks a replace (he never ends one). Lists only awake ZFS pools. A missing share blocks; never a
   folder holding a running VM's disks; never starts containers; credentials only as variable names; partner pulls into a NEW
   dataset beside, never a `zfs clone`. **The drill:** throwaway containers only via `drillContainerArgs()` + `drillArgsSafe()`
   (`--network none`, no ports/binds/caps; too big = «not checked», never failed); refused during a parity check; a failed drill

@@ -60,6 +60,7 @@ const RS_HOLDS_CHECK  = 24;          // moments looked into (does it hold the fo
 const RS_ENTRIES_MAX  = 60;          // entries at the top of a share he brings back at once
 const RS_STOREROOM    = OFFICE_STOREROOM;   // Ms. Dustdevil's: never a share's own folder (nor one of its old name — storeroomName())
 const RS_OWN_LEFTOVER = '/\.(restored|aside|putback)-\d{8}-\d{6}$/D';   // what he left next to a folder himself
+const RS_NAME_MAX     = 255;         // bytes a file's name may have (NAME_MAX): what he leaves beside is cut to it (rsBeside())
 const RS_WAKE_TIMEOUT = 90;          // seconds a sleeping disk gets to spin up when «wake» is ticked
 
 define('RS_DATA', DATA_DIR . '/restore');
@@ -704,15 +705,22 @@ function rsMomentHolds(array &$moments, bool $whole): void
 
 /**
  * What lies at the top of a share in a moment: the union of its parts' top folders (Ms. Dustdevil's storeroom and
- * what he left next to folders himself left out), name => {kind, bases}; count = how many there are in all.
+ * what he left next to folders himself left out), name => {kind, bases}; count = how many there are in all. A name
+ * with a tab comes back like any other; one with another control character (a line break …) is not offered — it
+ * would break the lines of his log and journal — but named in `left` (escaped, as `ls -b` shows it), never dropped
+ * unsaid (scenario batch C, R1).
  */
 function rsMomentEntries(array $moment): array
 {
-    $names = [];
+    $names = $left = [];
     $count = 0;
     foreach ($moment['parts'] as $base => $part) {
         foreach (@scandir($part['path'], SCANDIR_SORT_ASCENDING) ?: [] as $n) {
-            if ($n === '.' || $n === '..' || $n === '.zfs' || $n === RS_STOREROOM || $n === OFFICE_STOREROOM_OLD || preg_match(RS_OWN_LEFTOVER, $n) || preg_match('/[\x00-\x1f\x7f]/', $n)) {
+            if ($n === '.' || $n === '..' || $n === '.zfs' || $n === RS_STOREROOM || $n === OFFICE_STOREROOM_OLD || preg_match(RS_OWN_LEFTOVER, $n)) {
+                continue;
+            }
+            if (preg_match('/[\x00-\x08\x0a-\x1f\x7f]/', $n)) {
+                $left[rsNameShown($n)] = true;
                 continue;
             }
             if (!isset($names[$n])) {
@@ -728,7 +736,17 @@ function rsMomentEntries(array $moment): array
         }
     }
     uksort($names, 'strnatcasecmp');
-    return ['names' => $names, 'count' => $count];
+    $left = array_keys($left);
+    sort($left, SORT_STRING);
+    return ['names' => $names, 'count' => $count, 'left' => $left];
+}
+
+/** A name with control characters as `ls -b` shows it (\n, \t, \x1b …): for the page, never a path to use */
+function rsNameShown(string $n): string
+{
+    return (string) preg_replace_callback('/[\x00-\x1f\x7f\\\\]/', fn ($m) => match ($m[0]) {
+        "\n" => '\\n', "\r" => '\\r', "\t" => '\\t', '\\' => '\\\\', default => sprintf('\\x%02x', ord($m[0])),
+    }, $n);
 }
 
 /**
@@ -1576,18 +1594,41 @@ function rsJournals(): array
         if (!$j) {
             continue;
         }
-        if (in_array($j['result'] ?? '', ['queued', 'running'], true) && ($running['id'] ?? '') !== $id
-            && (($j['result'] === 'running' && !rsJobAlive($j)) || ($j['result'] === 'queued' && time() - (int) ($j['created'] ?? 0) > 120))) {
-            $j['result'] = 'interrupted';
-            $j['finished'] = $j['heartbeat'] ?? time();
-            try {
-                rsJournalWrite($j, false);
-            } catch (Throwable) {
-            }
+        if (($running['id'] ?? '') !== $id || ($j['result'] ?? '') === 'interrupted') {
+            rsJournalSettle($j);
         }
         $out[] = rsJournalRow($j);
     }
     return $out;
+}
+
+/**
+ * A journal still «queued» or «running» whose job is gone (a power cut, a reboot): interrupted — rewritten so, its
+ * step that was running «interrupted» and the ones after it «skipped» (scenario batch D, F10: after a power cut the
+ * page drew the wave for a job that was gone), and the job file the page polls too when it names this restore. A
+ * journal an older version (1.66.8 and before) already called interrupted, its step left «running», is settled the same
+ * way (after a power cut the released agent's first tour can come before an update). True when it was rewritten.
+ */
+function rsJournalSettle(array &$j): bool
+{
+    $old = ($j['result'] ?? '') === 'interrupted' && in_array('running', array_map(fn ($s) => is_array($s) ? ($s['state'] ?? '') : '', (array) ($j['steps'] ?? [])), true);
+    if (!$old && (!in_array($j['result'] ?? '', ['queued', 'running'], true)
+        || ($j['result'] === 'running' && rsJobAlive($j)) || ($j['result'] === 'queued' && time() - (int) ($j['created'] ?? 0) <= 120))) {
+        return false;
+    }
+    $j['result'] = 'interrupted';
+    $j['finished'] ??= $j['heartbeat'] ?? time();
+    foreach ((array) ($j['steps'] ?? []) as $i => $s) {
+        $was = is_array($s) ? ($s['state'] ?? 'pending') : null;
+        if ($was === 'running' || $was === 'pending') {
+            $j['steps'][$i]['state'] = $was === 'running' ? 'interrupted' : 'skipped';
+        }
+    }
+    try {
+        rsJournalWrite($j, (readJson(rsJobFile())['id'] ?? null) === $j['id']);
+    } catch (Throwable) {
+    }
+    return true;
 }
 
 /** A journal as the page lists it */
@@ -1617,6 +1658,9 @@ function rsJournalRow(array $j): array
         'putback'    => rsPutbackInfo($j),
         'can_putback' => rsCanPutback($j),
         'after'      => (array) ($j['after'] ?? []),
+        // a copy cut midway, not removed yet: said on the page, «Put back» removes it
+        'unfinished' => in_array($j['result'] ?? '', ['failed', 'interrupted'], true) && !in_array($j['putback']['result'] ?? '', ['ok', 'warnings'], true)
+            ? array_column(rsUnfinishedOf((array) ($j['steps'] ?? [])), 'path') : [],
     ];
 }
 
@@ -1652,7 +1696,47 @@ function rsCanPutback(array $j): bool
     if (is_array($j['putback'] ?? null) && !in_array($j['putback']['result'] ?? '', ['refused'], true)) {
         return false;
     }
-    return rsUndoSteps($j) !== [] || !empty($j['stopped']);
+    return rsUndoSteps($j) !== [] || rsLeftStopped($j) !== [];
+}
+
+/**
+ * The containers a restore stopped and didn't start again (its stop steps' `stopped` less its start steps' `started`,
+ * in their order): what its «Put back» starts — never one it started again that someone stopped since.
+ *
+ * @return list<string>
+ */
+function rsLeftStopped(array $j): array
+{
+    $left = [];
+    foreach ((array) ($j['steps'] ?? []) as $s) {
+        if (!is_array($s) || !in_array($s['state'] ?? '', ['ok', 'warning', 'failed'], true)) {
+            continue;
+        }
+        foreach (($s['do'] ?? '') === 'stop' ? (array) ($s['stopped'] ?? []) : [] as $c) {
+            $left[(string) $c] = true;
+        }
+        foreach (($s['do'] ?? '') === 'start' ? (array) ($s['started'] ?? []) : [] as $c) {
+            unset($left[(string) $c]);
+        }
+    }
+    return array_values(array_intersect(array_map('strval', (array) ($j['stopped'] ?? [])), array_keys($left)));
+}
+
+/**
+ * A database's put back, from its restore's plan (any version): the steps before and after the safety dump is played back
+ * never start the database — it must run (step db_running) unless the restore itself left it stopped; after the fresh way's
+ * swap of its folder it starts again only when this put back stopped it (only_stopped). Plans of 1.66.8 and before said
+ * «start» there (item 7 of the wave-2 fixes: a database someone stopped in between was started).
+ *
+ * @return array{0: list<array>, 1: list<array>}
+ */
+function rsPutbackDbSteps(array $pre, array $post, string $db, array $also): array
+{
+    $mine = fn (array $s): bool => ($s['do'] ?? '') === 'start' && empty($s['only_stopped']);
+    $pre = array_map(fn (array $s): array => !$mine($s) ? $s : (in_array($db, (array) $s['containers'], true) && !in_array($db, $also, true)
+        ? ['do' => 'db_running', 'container' => $db] : ['only_stopped' => true] + $s), $pre);
+    $post = array_map(fn (array $s): array => $mine($s) ? ['only_stopped' => true] + $s : $s, $post);
+    return [$pre, $post];
 }
 
 /** A journal for the page: its steps and the end of its log */
@@ -1662,6 +1746,7 @@ function rsJournalGet(string $id): array
     if (!$j) {
         throw new Problem('unknown_target', ['target' => $id]);
     }
+    rsJournalSettle($j);
     $log = @file(rsDir($id) . '/log.txt', FILE_IGNORE_NEW_LINES) ?: [];
     return ['ok' => true, 'journal' => $j, 'row' => rsJournalRow($j), 'log' => array_slice($log, -300)];
 }
@@ -2020,7 +2105,7 @@ function rsPlanDbFor(array &$ctx, array $place, array $app, array $pkg, ?array $
         $steps[] = ['do' => 'stop', 'containers' => $others];
     }
     if ($method === 'fresh') {
-        $aside = "{$folder['path']}.aside-$stamp";
+        $aside = rsBeside($folder['path'], "aside-$stamp");
         $ds = $folder['dataset'];
         $steps[] = ['do' => 'stop', 'containers' => [$c]];
         $steps[] = ['do' => 'aside', 'path' => $folder['path'], 'to' => $aside, 'dataset' => $ds, 'to_dataset' => $ds ? "$ds.aside-$stamp" : null];
@@ -2107,9 +2192,9 @@ function rsPlanSqliteFor(array &$ctx, array $app, array $pkg, ?array $version, s
         }
         $db = $dir[0]['live'] . "/$name";
         foreach (['', '-wal', '-shm'] as $sfx) {
-            $steps[] = ['do' => 'aside', 'path' => "$db$sfx", 'to' => "$db$sfx.aside-$stamp", 'optional' => true];
+            $steps[] = ['do' => 'aside', 'path' => "$db$sfx", 'to' => rsBeside("$db$sfx", "aside-$stamp"), 'optional' => true];
             if ($sfx === '' || file_exists("$db$sfx")) {
-                $plan['aside'][] = ['what' => 'file', 'from' => "$db$sfx", 'to' => "$db$sfx.aside-$stamp"];
+                $plan['aside'][] = ['what' => 'file', 'from' => "$db$sfx", 'to' => rsBeside("$db$sfx", "aside-$stamp")];
             }
         }
         $steps[] = ['do' => 'put', 'from' => $from, 'to' => $db, 'mode' => 0644, 'owner_like' => $dir[0]['live']];
@@ -2280,6 +2365,9 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
             return $plan;
         }
         $names = array_map('strval', array_keys($e['names']));
+        if ($e['left']) {
+            $plan['notes'][] = ['key' => 'note.files_names_left', 'warn' => true, 'params' => ['n' => count($e['left']), 'names' => implode(', ', $e['left'])]];
+        }
     } else {
         $names = [$rel];
     }
@@ -2333,7 +2421,7 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
     }
 
     // per item: where it goes (onto the share, or as the dataset it is), what goes aside, what stops
-    $copies = $swaps = $userPaths = $restored = $asides = $emptyAsides = $targets = $union = $uncovered = $paths = $snapOf = $itemPaths = [];
+    $copies = $swaps = $userPaths = $restored = $asides = $emptyAsides = $targets = $union = $uncovered = $paths = $snapOf = $itemPaths = $openPaths = [];
     $userItems = false;
     $dsPlace = null;
     foreach ($chosen as $n) {
@@ -2361,8 +2449,8 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
         $T = $dsMode ? $own['live'] : "$user/$share/$n";
         $ds = $dsMode ? (string) $own['dataset'] : null;
         $rds = $ds !== null ? "$ds.restored-$stamp" : null;
-        $to = "$T.restored-$stamp";
-        $asideP = "$T.aside-$stamp";
+        $to = rsBeside($T, "restored-$stamp");
+        $asideP = rsBeside($T, "aside-$stamp");
         if (file_exists($to) || is_link($to)) {
             $plan['blockers'][] = ['key' => 'restore_exists', 'params' => ['path' => $to]];
         }
@@ -2407,6 +2495,7 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
                 }
             }
             $swaps[] = ['do' => 'move', 'from' => $to, 'to' => $T, 'dataset' => $rds, 'to_dataset' => $ds];
+            array_push($openPaths, $T, ...array_map(fn ($p) => (string) $p['live'], $it['live']));
             $userPaths[] = "/mnt/user/$share/$n";
             foreach ($it['places'] as $p) {
                 $userPaths[] = "/mnt/{$p['base']}/$share/$n";
@@ -2490,12 +2579,22 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
         if ($off) {
             $plan['notes'][] = ['key' => 'note.files_vms_off', 'params' => ['names' => implode(', ', $off)]];
         }
+        // a process (not a container's) holding a file of it open would keep writing into what goes aside: he never ends
+        // a process — the user does; looked at again right before anything is replaced
+        $openPaths = array_values(array_unique($openPaths));
+        $holders = $openPaths ? rsOpenHolders($openPaths) : [];
+        if ($holders) {
+            $plan['blockers'][] = ['key' => 'restore_in_use', 'params' => ['names' => implode(', ', $holders), 'path' => implode(', ', $targets)]];
+        }
         // what binds an item (or, for a whole share, the share itself) stops; what binds a folder above it keeps running
         $roots = $whole ? array_merge(["/mnt/user/$share"], array_map(fn ($p) => "/mnt/{$p['base']}/$share", $places)) : [];
         [$users, $parents] = rsUsers(array_values(array_unique($userPaths)), $roots);
         if ($vms) {
             // the copy takes a while: right before anything is replaced, once more — a VM started meanwhile stops the restore
             $steps[] = ['do' => 'vms_off', 'paths' => array_values(array_unique($itemPaths)), 'names' => array_column($vms, 'name')];
+        }
+        if ($openPaths) {
+            $steps[] = ['do' => 'not_open', 'paths' => $openPaths];      // likewise a file opened meanwhile
         }
         if ($users) {
             $steps[] = ['do' => 'stop', 'containers' => $users];
@@ -2762,6 +2861,58 @@ function rsUsers(array $paths, array $roots = []): array
     return [array_keys($users), array_keys(array_diff_key($parents, $users))];
 }
 
+/**
+ * The processes (not a container's) that hold a file open at or below one of these paths — its open files read from
+ * /proc/<pid>/fd, the way fuser looks, without touching a disk: «sleep (4711)». A share's path stands for every way to
+ * it (/mnt/user/<share>/x is /mnt/cache/<share>/x and /mnt/disk1/<share>/x too: shfs, an exclusive share's link, a
+ * process that opened it on its pool). A container's processes live in a
+ * mount namespace of their own (their paths are the container's): what binds the folder is stopped by the plan
+ * (rsUsers()), those are left out here. Scenario batch C, R2: a writer holding a file open kept writing into what
+ * he had put aside, and nothing said so.
+ *
+ * @return list<string>
+ */
+function rsOpenHolders(array $paths): array
+{
+    if (isset($GLOBALS['rs']['open'])) {
+        return ($GLOBALS['rs']['open'])($paths);             // tests: a stand-in
+    }
+    $paths = array_values(array_filter(array_map(fn ($p) => rtrim((string) $p, '/'), $paths), fn ($p) => str_starts_with($p, '/') && strlen($p) > 1));
+    // a path through a link (an exclusive share's /mnt/user/<share>): its fds name where it leads
+    $paths = array_values(array_unique(array_merge($paths, array_filter(array_map(fn ($p) => @realpath($p) ?: null, $paths)))));
+    // /mnt/<pool, disk or user>/<share>/… → <share>/… (never /mnt/addons and the like: no share there)
+    $rel = fn (string $p): ?string => preg_match('#^/mnt/([^/]+)/([^/]+(?:/.*)?)$#D', $p, $m)
+        && (!in_array($m[1], RS_NOT_BASES, true) || in_array($m[1], ['user', 'user0'], true)) ? $m[2] : null;
+    $rels = array_values(array_filter(array_map($rel, $paths), 'is_string'));
+    $proc = $GLOBALS['rs']['proc'] ?? '/proc';
+    $mine = @readlink("$proc/self/ns/mnt");
+    $self = getmypid();
+    $out = [];
+    foreach ($paths ? (glob("$proc/[0-9]*", GLOB_ONLYDIR) ?: []) : [] as $dir) {
+        $pid = (int) basename($dir);
+        if ($pid === $self || ($mine !== false && @readlink("$dir/ns/mnt") !== $mine)) {
+            continue;
+        }
+        foreach (@scandir("$dir/fd") ?: [] as $fd) {
+            $to = ctype_digit($fd) ? @readlink("$dir/fd/$fd") : false;
+            if (!is_string($to) || !str_starts_with($to, '/')) {
+                continue;                                    // a pipe, a socket, anon_inode:…
+            }
+            $to = (string) preg_replace('/ \(deleted\)$/D', '', $to);
+            $toRel = $rels ? $rel($to) : null;
+            foreach ($toRel !== null ? array_merge($paths, $rels) : $paths as $k => $p) {
+                if (under($k < count($paths) ? $to : $toRel, $p)) {
+                    $name = trim((string) @file_get_contents("$dir/comm"));
+                    $out["$pid"] = (preg_match('/^[\x20-\x7e]{1,32}$/D', $name) ? $name : '?') . " ($pid)";
+                    continue 3;
+                }
+            }
+        }
+    }
+    ksort($out, SORT_NUMERIC);
+    return array_values($out);
+}
+
 /** Where a file he replaces goes aside: on the flash into RS_FLASH_ASIDE/<stamp>/…, elsewhere next to it */
 function rsAsideFor(string $to, string $stamp, string $suffix = 'restored-aside', string $flashRoot = RS_FLASH_ASIDE): string
 {
@@ -2771,7 +2922,27 @@ function rsAsideFor(string $to, string $stamp, string $suffix = 'restored-aside'
     if (under($to, '/boot')) {
         return "$flashRoot/$stamp/boot" . substr($to, strlen('/boot'));
     }
-    return "$to.$suffix-$stamp";
+    return rsBeside($to, "$suffix-$stamp");
+}
+
+/**
+ * What he leaves next to $path: <name>.<suffix> (restored-<stamp>, aside-<stamp>, putback-{T} …). A name that would grow
+ * longer than a name may be (NAME_MAX, 255 bytes — a file of 255 bytes restored beside failed the whole restore, scenario
+ * batch C, R1) is cut in the middle: its beginning, «~» and a short hash of the whole name (two long names stay apart),
+ * its extension — so «<head>~<hash>.mkv.restored-<stamp>» still ends the way all his leftovers end.
+ */
+function rsBeside(string $path, string $suffix): string
+{
+    $name = basename($path);
+    $tail = ".$suffix";
+    $len = strlen($name) + strlen(str_replace('{T}', '00000000-000000', $tail));     // {T}: a put back's stamp, filled in later
+    if ($len <= RS_NAME_MAX) {
+        return "$path$tail";
+    }
+    $ext = preg_match('/(\.[^.\x00-\x20]{1,16})$/D', $name, $m) && strlen($m[1]) < strlen($name) ? $m[1] : '';
+    $mark = '~' . substr(hash('sha256', $name), 0, 8);
+    $room = max(1, strlen($name) - ($len - RS_NAME_MAX) - strlen($mark) - strlen($ext));
+    return dirname($path) . '/' . mb_strcut($name, 0, $room, 'UTF-8') . $mark . $ext . $tail;
 }
 
 /** A clean absolute path (no . or .. parts, no control characters) */
@@ -2988,10 +3159,21 @@ function rsPlanPutback(array $r, string $stamp): array
         return is_array($v) ? array_map($fill, $v) : (is_string($v) ? str_replace('{T}', $stamp, $v) : $v);
     };
     $undo = $fill(rsUndoSteps($j));
-    $also = array_values((array) ($j['stopped'] ?? []));
+    // what the restore stopped and left stopped (never what it started again and someone stopped since — he never starts
+    // a container the user stopped)
+    $also = rsLeftStopped($j);
     $withAlso = fn (array $s): array => $s['do'] === 'start' && !empty($s['only_stopped']) ? $s + ['also' => $also] : $s;
-    if ($undo) {
-        $plan['steps'] = array_merge($fill((array) ($orig['putback_pre'] ?? [])), $undo, array_map($withAlso, $fill((array) ($orig['putback_post'] ?? []))));
+    $pre = $fill((array) ($orig['putback_pre'] ?? []));
+    $post = $fill((array) ($orig['putback_post'] ?? []));
+    if (($j['kind'] ?? '') === 'db') {
+        [$pre, $post] = rsPutbackDbSteps($pre, $post, (string) ($orig['target']['container'] ?? ''), $also);
+    }
+    $onlyLeft = $undo && !array_filter($undo, fn ($s) => $s['do'] !== 'unfinished');
+    if ($onlyLeft) {
+        // only a copy cut midway to take away: nothing was replaced, nothing stops for it
+        $plan['steps'] = array_merge($undo, $also ? [['do' => 'start', 'containers' => $also, 'only_stopped' => true, 'also' => $also]] : []);
+    } elseif ($undo) {
+        $plan['steps'] = array_merge(array_map($withAlso, $pre), $undo, array_map($withAlso, $post));
     } elseif ($also) {
         $plan['steps'] = [['do' => 'start', 'containers' => $also, 'only_stopped' => true, 'also' => $also]];
     }
@@ -3011,7 +3193,14 @@ function rsPlanPutback(array $r, string $stamp): array
         if ($s['do'] === 'drop') {
             $plan['aside'][] = ['what' => 'drop', 'from' => $s['dataset'], 'to' => ''];      // what a pull made — removed, nothing else
         }
+        if ($s['do'] === 'unfinished') {
+            $plan['aside'][] = ['what' => 'unfinished', 'from' => $s['path'], 'to' => ''];   // into Ms. Dustdevil's storeroom
+            if ($b = rsUnfinishedBlocker($s['path'], rsUnfinishedPlace($s['path']))) {
+                $plan['blockers'][] = $b;
+            }
+        }
     }
+    $plan['unfinished'] = $onlyLeft;
     $vm = $orig['target']['vm'] ?? ($j['kind'] === 'vm' ? ($orig['target']['name'] ?? null) : null);
     $blockedVm = [];
     if (is_string($vm)) {
@@ -3038,6 +3227,14 @@ function rsPlanPutback(array $r, string $stamp): array
                 $plan['blockers'][] = ['key' => 'restore_vm_uses', 'params' => ['name' => $v['name'], 'state' => $v['state'], 'path' => $v['path']]];
             }
         }
+        // a process holding a file of it open (scenario batch C, R2): blocks, and is looked for again right before
+        $holders = $touched ? rsOpenHolders(array_values(array_unique($touched))) : [];
+        if ($holders) {
+            $plan['blockers'][] = ['key' => 'restore_in_use', 'params' => ['names' => implode(', ', $holders), 'path' => implode(', ', array_values(array_unique($touched)))]];
+        }
+        if ($touched) {
+            array_unshift($plan['steps'], ['do' => 'not_open', 'paths' => array_values(array_unique($touched))]);
+        }
         if ($vms) {
             array_unshift($plan['steps'], ['do' => 'vms_off', 'paths' => array_values(array_unique($touched)), 'names' => array_column($vms, 'name')]);
             $off = array_values(array_map(fn ($v) => $v['name'], array_filter($vms, fn ($v) => $v['state'] === 'shut off')));
@@ -3047,6 +3244,14 @@ function rsPlanPutback(array $r, string $stamp): array
         }
     }
     $now = rsContainersNow();
+    // a database's put back plays the safety dump into it: only into a running one, and he never starts it (scenario batch
+    // B, R11, for the put back): stopped since the restore — not by him — blocks, as the restore's own plan does
+    $db = ($j['kind'] ?? '') === 'db' && $undo ? (string) ($orig['target']['container'] ?? '') : '';
+    if ($db !== '' && !isset($now[$db])) {
+        $plan['blockers'][] = ['key' => 'restore_container_missing', 'params' => ['container' => $db]];
+    } elseif ($db !== '' && !$now[$db] && !in_array($db, $also, true)) {
+        $plan['blockers'][] = ['key' => 'restore_db_stopped', 'params' => ['container' => $db]];
+    }
     $plan['stops'] = array_values(array_unique(array_merge(...array_map(fn ($s) => $s['do'] === 'stop' ? array_values(array_filter($s['containers'], fn ($n) => $now[$n] ?? false)) : [],
         $plan['steps'] ?: [['do' => '']]))));
     $plan['downtime'] = $plan['stops'] ? (int) ($orig['downtime'] ?? 30) : 0;
@@ -3067,11 +3272,73 @@ function rsUndoSteps(array $j): array
     $undo = [];
     foreach (array_reverse((array) ($j['steps'] ?? [])) as $s) {
         $u = (array) ($s['undo'] ?? []);
-        if ($u && in_array($s['state'] ?? '', ['ok', 'warning', 'failed', 'running'], true)) {
+        if ($u && in_array($s['state'] ?? '', ['ok', 'warning', 'failed', 'running', 'interrupted'], true)) {
             array_push($undo, ...array_map('rsUndoPaths', $u));
+        }
+        foreach (rsUnfinishedOf([$s]) as $left) {
+            $undo[] = ['do' => 'unfinished'] + $left;           // a copy cut midway: into Ms. Dustdevil's storeroom
         }
     }
     return $undo;
+}
+
+/**
+ * The copies of his these steps started and never finished (scenario batch D, F5: an array stop or a power cut left a half
+ * «<folder>.restored-<stamp>» that looked like a finished restore): a copy step failed, running or interrupted with its
+ * note `unfinished` — only paths of his own shape (<name>.restored-<stamp>).
+ *
+ * @return list<array{path: string, dataset: ?string}>
+ */
+function rsUnfinishedOf(array $steps): array
+{
+    $out = [];
+    foreach ($steps as $s) {
+        $left = is_array($s) && ($s['do'] ?? '') === 'copy' && in_array($s['state'] ?? '', ['failed', 'running', 'interrupted'], true) ? ($s['unfinished'] ?? null) : null;
+        $path = is_array($left) && is_string($left['path'] ?? null) ? $left['path'] : '';
+        if (str_starts_with($path, '/') && preg_match('/\.restored-\d{8}-\d{6}$/D', $path) && rsCleanPath(dirname($path))) {
+            $ds = $left['dataset'] ?? null;
+            $out[] = ['path' => $path, 'dataset' => is_string($ds) && preg_match('/^[A-Za-z0-9_.:\/ -]+$/D', $ds) ? $ds : null];
+        }
+    }
+    return $out;
+}
+
+/**
+ * Where an unfinished copy lies now — each part on its pool or disk, the storeroom it goes into, why it can't go
+ * (asleep, a filesystem of its own) — looked at as Ms. Dustdevil looks at what he left (her clLeftoverPlace()), never
+ * waking a disk. Null: her helpers aren't there.
+ */
+function rsUnfinishedPlace(string $path): ?array
+{
+    if (isset($GLOBALS['rs']['unfinished_place'])) {
+        return ($GLOBALS['rs']['unfinished_place'])($path);       // tests: a fixture's parts
+    }
+    if (!function_exists('clLeftoverPlace') || !function_exists('clRoots')) {
+        return null;
+    }
+    $keep = $GLOBALS['clCtx'] ?? null;
+    try {
+        $GLOBALS['clCtx'] = ['roots' => clRoots(), 'asleep' => sleepingDisks()];
+        $mounts = [];
+        foreach (mountTable() as $m) {
+            $mounts[$m['mount']] = $m;
+        }
+        return clLeftoverPlace(['path' => $path], false, $mounts);
+    } finally {
+        $GLOBALS['clCtx'] = $keep;
+    }
+}
+
+/** An unfinished copy, said in the plan when it can't go now: why — or null */
+function rsUnfinishedBlocker(string $path, ?array $place): ?array
+{
+    if ($place === null || !($place['known'] ?? false)) {
+        return ['key' => 'restore_unfinished_stays', 'params' => ['path' => $path]];
+    }
+    if (($place['why'] ?? null) === 'asleep') {
+        return ['key' => 'restore_unfinished_asleep', 'params' => ['path' => $path, 'base' => implode(', ', (array) $place['asleep'])]];
+    }
+    return ($place['why'] ?? null) !== null ? ['key' => 'restore_unfinished_stays', 'params' => ['path' => $path]] : null;
 }
 
 /** An undo step's paths (path, from, to, putback_to) where his set-aside folder lies now — nothing else of it touched */
@@ -3124,6 +3391,11 @@ function rsLaunch(array $plan, bool $run = true): string
     }
     if (!$plan['steps']) {
         throw new Problem('restore_putback_not');
+    }
+    // sizes still being measured: whether it fits isn't known yet (scenario batch D, F9: started anyway, the copy filled the
+    // pool to 0 B) — only the dialog waited; now he does too
+    if (!empty($plan['sizes']['measuring'])) {
+        throw new Problem('restore_measuring');
     }
     $id = $plan['stamp'] . '-' . bin2hex(random_bytes(2));
     rsPrivateDir(rsData());
@@ -3231,6 +3503,7 @@ function rsJob(array $args): int
         foreach ([SIGTERM, SIGINT, SIGHUP] as $sig) {
             pcntl_signal($sig, function (): void { $GLOBALS['rsStop'] = true; });
         }
+        rsArrayStopSignal();
     }
     drillMarker('restore', $id);          // agent.sh's drill_release ends it at the array stop (its lock file lies on the pool)
     $j['result'] = 'running';
@@ -3319,6 +3592,9 @@ function rsStep(array &$j, int $i): array
         'autostart' => rsDoVirsh($j, ['autostart', (string) $s['name']]),
         'kopia'     => rsDoKopia($j, $i),
         'vms_off'   => rsDoVmsOff($s),
+        'db_running' => rsIsRunning((string) ($s['container'] ?? '')) ? ['state' => 'ok'] : rsFail('db_stopped', ['container' => (string) ($s['container'] ?? '')]),
+        'unfinished' => rsDoUnfinished($j, $s),
+        'not_open'  => rsDoNotOpen($s),
         'maintenance_off' => rsDoMaintenanceOff($j, $s),
         'pull'      => rsDoPull($j, $i),
         'mount'     => rsDoMount($j, $s),
@@ -3472,6 +3748,18 @@ function rsWatch(): bool
         }
     }
     return !empty($GLOBALS['rsStop']);
+}
+
+/**
+ * SIGUSR1 = agent.sh's array-stop hook (drill_release): «the array is being stopped» — the reason is array_stopping even
+ * when the hook comes before Unraid's var.ini says Stopping (scenario batch D, F4: a TERM read as «stopped from outside»).
+ */
+function rsArrayStopSignal(): void
+{
+    pcntl_signal(SIGUSR1, function (): void {
+        $GLOBALS['rsStopWhy'] ??= 'array_stopping';
+        $GLOBALS['rsStop'] = true;
+    });
 }
 
 /** var.ini says the array is being stopped (Stopping, Stopped — like the engine's array_stopping()) */
@@ -4026,7 +4314,7 @@ function rsDoAside(array &$j, array $s): array
         }
     }
     $j['aside'][] = ['from' => $from, 'to' => $to, 'dataset' => $isDs ? $ds : null, 'to_dataset' => $isDs ? $tds : null];
-    $back = ($s['putback_to'] ?? '') !== '' ? $s['putback_to'] : "$from.putback-{T}";
+    $back = ($s['putback_to'] ?? '') !== '' ? $s['putback_to'] : rsBeside($from, 'putback-{T}');
     return ['state' => 'ok', 'undo' => [
         ['do' => 'aside', 'path' => $from, 'to' => $back, 'dataset' => $isDs ? $ds : null, 'to_dataset' => $isDs ? "$ds.putback-{T}" : null, 'optional' => true],
         ['do' => 'move', 'from' => $to, 'to' => $from, 'dataset' => $isDs ? $tds : null, 'to_dataset' => $isDs ? $ds : null],
@@ -4057,7 +4345,7 @@ function rsDoMove(array &$j, array $s): array
         return rsFail('rename_failed', ['path' => $from], (string) (error_get_last()['message'] ?? ''));
     }
     // something new where nothing was put aside in this restore: «Put back» puts it aside
-    $undo = rsAsideOf($j, $to) ? [] : [['do' => 'aside', 'path' => $to, 'to' => "$to.putback-{T}", 'dataset' => $isDs ? $tds : null,
+    $undo = rsAsideOf($j, $to) ? [] : [['do' => 'aside', 'path' => $to, 'to' => rsBeside($to, 'putback-{T}'), 'dataset' => $isDs ? $tds : null,
                                          'to_dataset' => $isDs ? "$tds.putback-{T}" : null, 'optional' => true]];
     return ['state' => 'ok', 'undo' => $undo];
 }
@@ -4084,7 +4372,7 @@ function rsDoFresh(array &$j, array $s): array
         @chgrp($path, $st['gid']);
         @chmod($path, $st['mode'] & 07777);
     }
-    $undo = $like ? [] : [['do' => 'aside', 'path' => $path, 'to' => "$path.putback-{T}", 'dataset' => $ds, 'to_dataset' => $ds ? "$ds.putback-{T}" : null, 'optional' => true]];
+    $undo = $like ? [] : [['do' => 'aside', 'path' => $path, 'to' => rsBeside($path, 'putback-{T}'), 'dataset' => $ds, 'to_dataset' => $ds ? "$ds.putback-{T}" : null, 'optional' => true]];
     return ['state' => 'ok', 'undo' => $undo];
 }
 
@@ -4129,6 +4417,12 @@ function rsDoCopy(array &$j, int $i): array
     } elseif (!rsMkdirs(dirname($to)) || !@mkdir($to, 0700)) {
         return rsFail('mkdir_failed', ['path' => $to]);
     }
+    // a copy he makes (not one that fills or replaces something in place): noted before it starts — cut by an array stop
+    // or a power cut, the half copy would look like a finished restore; «Put back» then offers to remove it (rsUndoSteps())
+    if (empty($s['replaces']) && empty($s['into_empty'])) {
+        $j['steps'][$i]['unfinished'] = ['path' => $to, 'dataset' => $ds];
+        rsJournalWrite($j);
+    }
     $log = rsDir($j['id']) . '/log.txt';
     // rsync 3.5.1 (Unraid 7.3.3) refuses a path through a symlink another user owns («refusing to follow a symlink owned by
     // an untrusted user», exit 3, 2026-10-11 on a large server): /mnt/user/<share> of an exclusive share is Unraid's link
@@ -4165,14 +4459,12 @@ function rsDoCopy(array &$j, int $i): array
     $exit = rsWait($j, [$p], $i, $read)[0];
     $j['steps'][$i]['progress'] = $prog;
     $undo = !empty($s['replaces']) && !rsAsideOf($j, $to)
-        ? [['do' => 'aside', 'path' => $to, 'to' => ($s['putback_to'] ?? '') !== '' ? $s['putback_to'] : "$to.putback-{T}", 'optional' => true]] : [];
-    if ($exit === 24) {
-        return ['state' => 'warning', 'note' => 'copy_vanished', 'undo' => $undo];
-    }
-    if ($exit !== 0) {
+        ? [['do' => 'aside', 'path' => $to, 'to' => ($s['putback_to'] ?? '') !== '' ? $s['putback_to'] : rsBeside($to, 'putback-{T}'), 'optional' => true]] : [];
+    if ($exit !== 0 && $exit !== 24) {
         return rsFail('copy_failed', ['path' => $to, 'exit' => $exit], 'rsync exit ' . $exit) + ['undo' => $undo];
     }
-    return ['state' => 'ok', 'undo' => $undo];
+    unset($j['steps'][$i]['unfinished']);
+    return $exit === 24 ? ['state' => 'warning', 'note' => 'copy_vanished', 'undo' => $undo] : ['state' => 'ok', 'undo' => $undo];
 }
 
 /**
@@ -4213,7 +4505,7 @@ function rsDoPut(array &$j, array $s): array
         @unlink($tmp);
         return rsFail('rename_failed', ['path' => $to]);
     }
-    $undo = $aside ? [] : [['do' => 'aside', 'path' => $to, 'to' => ($s['putback_to'] ?? '') !== '' ? $s['putback_to'] : "$to.putback-{T}", 'optional' => true]];
+    $undo = $aside ? [] : [['do' => 'aside', 'path' => $to, 'to' => ($s['putback_to'] ?? '') !== '' ? $s['putback_to'] : rsBeside($to, 'putback-{T}'), 'optional' => true]];
     return ['state' => 'ok', 'undo' => $undo];
 }
 
@@ -4230,6 +4522,53 @@ function rsDoVmsOff(array $s): array
         return rsFail('vm_running', ['names' => implode(', ', array_map(fn ($v) => "{$v['name']} ({$v['state']})", $on))]);
     }
     return ['state' => 'ok'];
+}
+
+/**
+ * A copy of his cut midway goes into Ms. Dustdevil's storeroom through her helpers (as the drill's scratch folder,
+ * drillScratchAway()) — each part on its own filesystem, a dataset of its own next to it with zfs rename, written into
+ * her run's manifest so she lists it and can put it back; never deleted. Gone already: fine.
+ */
+function rsDoUnfinished(array &$j, array $s): array
+{
+    $path = (string) ($s['path'] ?? '');
+    $place = rsUnfinishedPlace($path);
+    if ($place !== null && ($place['known'] ?? false) && !$place['parts'] && !$place['asleep']) {
+        return ['state' => 'ok', 'note' => 'unfinished_gone', 'params' => ['path' => $path]];
+    }
+    if (rsUnfinishedBlocker($path, $place) !== null || !function_exists('clRunCreate')) {
+        return rsFail('unfinished_stays', ['path' => $path]);
+    }
+    $runs = [];
+    try {
+        foreach ($place['parts'] as $p) {
+            $root = (string) $p['trash'];
+            $runs[$root] ??= clRunCreate($root);
+            if ($p['dataset']) {
+                $to = dirname((string) $p['dataset']) . '/' . OFFICE_STOREROOM . '-' . $runs[$root]['stamp'] . '-' . basename((string) $p['dataset']);
+                clZfsRename((string) $p['dataset'], $to, (string) $p['path']);
+                $as = "@$to";
+            } else {
+                $as = 'restore/' . substr(md5(dirname((string) $p['path'])), 0, 8) . '/' . basename((string) $p['path']);
+                clMove((string) $p['path'], $runs[$root]['path'] . "/$as");
+            }
+            $runs[$root]['items'][] = ['kind' => 'leftover', 'name' => basename($path), 'label' => (string) ($j['putback_of'] ?? $j['id']), 'from' => (string) $p['path'], 'as' => $as,
+                                       'dataset' => $p['dataset'], 'bytes' => $p['bytes'] ?? null];
+            clManifestWrite($runs[$root]);
+            rsLog($j['id'], "  {$p['path']} into Ms. Dustdevil's storeroom {$runs[$root]['path']}");
+        }
+    } catch (Problem $e) {
+        return rsFail('unfinished_stays', ['path' => $path], (string) ($e->params['detail'] ?? $e->key));
+    }
+    $j['aside'][] = ['from' => $path, 'to' => implode(', ', array_column($runs, 'path')), 'what' => 'unfinished'];
+    return ['state' => 'ok', 'note' => 'unfinished_away', 'params' => ['path' => $path, 'trash' => implode(', ', array_keys($runs))]];
+}
+
+/** Nothing (but a container that stops next) holds a file of it open — right before anything is replaced */
+function rsDoNotOpen(array $s): array
+{
+    $holders = rsOpenHolders((array) ($s['paths'] ?? []));
+    return $holders ? rsFail('in_use', ['names' => implode(', ', $holders)]) : ['state' => 'ok'];
 }
 
 /** A VM's definition as libvirt keeps it, put aside before another one is defined */

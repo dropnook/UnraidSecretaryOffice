@@ -12497,7 +12497,7 @@ function testRestoreJobs(): void
     // «Put back»: from the journal, newest step first; what he restored goes aside itself
     check('restore: it can be put back', rsCanPutback($j));
     $back = rsPlanSeal(rsPlanPutback(['id' => $id], '20261006-130000'), '20261006-130000');
-    same('restore: the put back\'s steps', ['aside', 'aside', 'move', 'aside', 'move'], array_column($back['steps'], 'do'));
+    same('restore: the put back\'s steps (first a look for a file held open)', ['not_open', 'aside', 'aside', 'move', 'aside', 'move'], array_column($back['steps'], 'do'));
     same('restore: nothing blocks the put back', [], $back['blockers']);
     $p = rsJournalNew('20261006-130000-cd34', $back);
     rsPrivateDir(rsDir($p['id']));
@@ -12506,7 +12506,7 @@ function testRestoreJobs(): void
         $p['steps'][$i] = array_merge($p['steps'][$i], rsStep($p, $i));
         $states[] = $p['steps'][$i]['state'];
     }
-    same('restore: the put back ran', ['ok', 'ok', 'ok', 'ok', 'ok'], $states);
+    same('restore: the put back ran', ['ok', 'ok', 'ok', 'ok', 'ok', 'ok'], $states);
     clearstatcache();
     same('restore: everything as before, the restored aside', ['current', 'live', 'new', 'from the snapshot', false],
         [@file_get_contents("$live/db.sqlite"), @file_get_contents("$live/folder/f.txt"), @file_get_contents("$live/db.sqlite.putback-20261006-130000"),
@@ -12679,8 +12679,8 @@ function testRestoreShares(): void
     $c = $ctx;
     $p = rsPlanFilesFor('/mnt/user/zzdrop', 'name:manual-x', 'swap', false, $owner, $stamp, $c, ['texts', 'files', 'nope']);
     same('restore shares: only chosen entries that are there, in their order', ['files', 'texts'], $p['target']['items']);
-    same('restore shares: the swap\'s steps', ['copy', 'copy', 'stop', 'aside', 'move', 'aside', 'move', 'start'], array_column($p['steps'], 'do'));
-    same('restore shares: what binds the share stops', [['zz-drop'], ['zz-drop']], [$p['steps'][2]['containers'], $p['stops']]);
+    same('restore shares: the swap\'s steps', ['copy', 'copy', 'not_open', 'stop', 'aside', 'move', 'aside', 'move', 'start'], array_column($p['steps'], 'do'));
+    same('restore shares: what binds the share stops', [['zz-drop'], ['zz-drop']], [$p['steps'][3]['containers'], $p['stops']]);
     same('restore shares: aside on the share', ["$mnt/user/zzdrop/files" => "$mnt/user/zzdrop/files.aside-$stamp", "$mnt/user/zzdrop/texts" => "$mnt/user/zzdrop/texts.aside-$stamp"],
         array_column($p['aside'], 'to', 'from'));
     same('restore shares: nothing blocks it', [], $p['blockers']);
@@ -12701,7 +12701,7 @@ function testRestoreShares(): void
         $j['steps'][$i] = array_merge($j['steps'][$i], rsStep($j, $i));
         $states[] = $j['steps'][$i]['state'];
     }
-    same('restore shares: the swap ran', array_fill(0, 8, 'ok'), $states);
+    same('restore shares: the swap ran', array_fill(0, 9, 'ok'), $states);
     clearstatcache();
     same('restore shares: the snapshot\'s state in place, the live one aside', ['png1', 'old text', 'live text'],
         [@file_get_contents("$mnt/hazel/zzdrop/files/f1.png"), @file_get_contents("$mnt/hazel/zzdrop/texts/t1.txt"), @file_get_contents("$mnt/hazel/zzdrop/texts.aside-$stamp/t1.txt")]);
@@ -12709,7 +12709,7 @@ function testRestoreShares(): void
     writeAtomic(rsDir($id) . '/plan.json', jsonEncode($p), 0600, 0, 0);
     rsJournalWrite($j);
     $back = rsPlanSeal(rsPlanPutback(['id' => $id], '20261006-170000'), '20261006-170000');
-    same('restore shares: the put back\'s steps', [['stop', 'aside', 'move', 'aside', 'move', 'start'], []], [array_column($back['steps'], 'do'), $back['blockers']]);
+    same('restore shares: the put back\'s steps', [['not_open', 'stop', 'aside', 'move', 'aside', 'move', 'start'], []], [array_column($back['steps'], 'do'), $back['blockers']]);
     $pb = rsJournalNew('20261006-170000-cd34', $back);
     rsPrivateDir(rsDir($pb['id']));
     $states = [];
@@ -12718,7 +12718,7 @@ function testRestoreShares(): void
         $states[] = $pb['steps'][$i]['state'];
     }
     clearstatcache();
-    same('restore shares: put back — as before, the restored state aside', [array_fill(0, 6, 'ok'), 'live text', false, 'old text', 'png1'],
+    same('restore shares: put back — as before, the restored state aside', [array_fill(0, 7, 'ok'), 'live text', false, 'old text', 'png1'],
         [$states, @file_get_contents("$mnt/hazel/zzdrop/texts/t1.txt"), file_exists("$mnt/hazel/zzdrop/files/f1.png"),
          @file_get_contents("$mnt/hazel/zzdrop/texts.putback-20261006-170000/t1.txt"), @file_get_contents("$mnt/hazel/zzdrop/files.putback-20261006-170000/f1.png")]);
 
@@ -12816,7 +12816,7 @@ function testRestoreShares(): void
     // an empty share: straight in — nothing to put aside, «put in place» by default
     $c = $ctx;
     $p = rsPlanFilesFor('/mnt/user/zzempty', '', '', false, $owner, $stamp, $c);
-    same('restore shares: an empty share is filled straight in', ['empty', 'swap', ['copy', 'stop', 'move', 'start'], [], 'after.files_place'],
+    same('restore shares: an empty share is filled straight in', ['empty', 'swap', ['copy', 'not_open', 'stop', 'move', 'start'], [], 'after.files_place'],
         [$p['share_now']['state'], $p['target']['mode'], array_column($p['steps'], 'do'), $p['aside'], $p['after'][0]['key'] ?? null]);
     check('restore shares: and says so', in_array('note.files_share_empty', array_column($p['notes'], 'key'), true));
     same('restore shares: an exclusive share is placed on its pool only', ['note.files_place', 'hazel'],
@@ -12918,7 +12918,7 @@ function testRestoreNextcloud(): void
     };
     $p = $plan('/mnt/user/zzapps/zz-nc', 'run:20261011-0300', 'swap', $owner);
     same('restore nextcloud: swapped from the engine\'s snapshot — maintenance off after the containers\' start, nothing blocks',
-        [['copy', 'stop', 'aside', 'move', 'start', 'maintenance_off'], [], ['container' => 'zz-nc-app', 'occ' => '/var/www/html/occ', 'user' => 'www-data']],
+        [['copy', 'not_open', 'stop', 'aside', 'move', 'start', 'maintenance_off'], [], ['container' => 'zz-nc-app', 'occ' => '/var/www/html/occ', 'user' => 'www-data']],
         [array_column($p['steps'], 'do'), array_column($p['blockers'], 'key'), array_intersect_key(end($p['steps']), array_flip(['container', 'occ', 'user']))]);
     same('restore nextcloud: said under «Afterwards», with the command', ['after.files_swap', 'after.nextcloud_maintenance', 'zz-nc-app', 'www-data', '/var/www/html/occ'],
         [$p['after'][0]['key'] ?? null, $p['after'][1]['key'] ?? null, $p['after'][1]['params']['container'] ?? null, $p['after'][1]['params']['user'] ?? null,
@@ -13038,7 +13038,7 @@ function testRestoreFindings(): void
     $p = rsPlanFilesFor('/mnt/user/domains/VM1', '', '', false, $owner, $stamp, $c);
     $notes = array_column($p['notes'], 'key');
     same('restore findings: an empty folder — put in place by default, as a dataset, the empty one aside',
-        [true, 'swap', ['copy', 'vms_off', 'aside', 'move'], 'empty', 'zz-maple/domains/VM1.restored-' . $stamp],
+        [true, 'swap', ['copy', 'vms_off', 'not_open', 'aside', 'move'], 'empty', 'zz-maple/domains/VM1.restored-' . $stamp],
         [$p['options']['nothing_live'], $p['target']['mode'], array_column($p['steps'], 'do'), $p['aside'][0]['what'] ?? null, $p['steps'][0]['dataset'] ?? null]);
     check('restore findings: and says so (place, the empty folder aside)', in_array('note.files_place_empty', $notes, true)
         && in_array('after.files_empty_aside', array_column($p['after'], 'key'), true) && ($p['after'][0]['key'] ?? '') === 'after.files_place', json_encode([$notes, $p['after']]));
@@ -13404,6 +13404,627 @@ function testRestoreDbStopped(): void
             str_contains($lang['errors.restore_db_stopped'] ?? '', '⟦Docker⟧') && !isset($lang['note.db_start']) && !isset($lang['note.db_stopped']));
     } finally {
         putenv("PATH=$oldPath");
+        exec('rm -rf ' . escapeshellarg($tmp));
+    }
+}
+
+/**
+ * Scenario batch C, R1 (restore-sh-names-files): awkward names at the top of a share. A name of 255 bytes restored
+ * beside (or put aside) would get a name longer than a name may be — rsync failed and the whole restore with it: what he
+ * leaves beside is cut in the middle (its beginning, a short hash, its extension — still unique, still «.restored-<stamp>»).
+ * A name with a tab comes back like the others; one with a line break is not offered but said (note.files_names_left).
+ */
+function testRestoreNames(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-rsnames-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $mnt = "$tmp/mnt";
+    @mkdir("$tmp/data/unraid-backup/state", 0700, true);
+    $GLOBALS['rs']['data'] = "$tmp/data/restore";
+    $GLOBALS['rs']['job_file'] = "$tmp/data/restore-job.json";
+    $GLOBALS['rs']['ub_data'] = "$tmp/data/unraid-backup";
+    $GLOBALS['rs']['sizes_file'] = "$tmp/data/restore-sizes.json";
+    $GLOBALS['rs']['users'] = fn (array $paths, array $roots): array => [[], []];
+    $GLOBALS['rs']['ratios'] = fn (array $snaps): array => [];
+    $GLOBALS['rs']['compresses'] = fn (string $ds): bool => false;
+    $long = str_repeat('n', 251) . '.txt';                         // 255 bytes, as the scenario's
+    $long2 = str_repeat('n', 250) . 'm.txt';                       // the same beginning, another name
+    $wide = str_repeat('Ä', 125) . '.mkv';                         // 254 bytes: cut between two letters, never inside one
+    $names = [$long, $long2, $wide, "tab\there.txt", 'plain.txt'];
+    $snapDir = "$mnt/hazel/zznames/.zfs/snapshot/manual-n";
+    @mkdir($snapDir, 0755, true);
+    @mkdir("$mnt/user", 0755, true);
+    foreach ($names as $i => $n) {
+        file_put_contents("$snapDir/$n", "old $i");
+        file_put_contents("$mnt/hazel/zznames/$n", "live $i");
+    }
+    file_put_contents("$snapDir/line\nbreak.txt", 'old nl');
+    symlink("$mnt/hazel/zznames", "$mnt/user/zznames");
+    $T1 = (int) strtotime('2026-10-19 15:00');
+    $ctx = [
+        'fs' => ['hazel' => 'zfs'], 'zfs' => ["$mnt/hazel/zznames" => 'zz-hazel/zznames'],
+        'snaps' => ['zz-hazel/zznames' => [['name' => 'manual-n', 'time' => $T1]]],
+        'asleep' => [], 'prefixes' => ['uso-backup-', 'unraidbackup-'], 'btrfs_dir' => '.btrfs-snap', 'settings' => [],
+        'cfg' => ['zznames' => ['shareUseCache' => 'only', 'shareCachePool' => 'hazel']],
+        'mnt' => $mnt, 'user' => "$mnt/user", 'disks' => ['hazel' => ['name' => 'hazel', 'fsFree' => '1000000']],
+        'shares_ini' => ['zznames' => ['exclusive' => 'yes']], 'old_shares' => "$tmp/none", 'now' => [],
+    ];
+    $owner = ['kind' => 'app', 'name' => 'zz', 'id' => 'zz', 'vm_state' => null];
+    $stamp = '20261019-160000';
+    try {
+        $c = $ctx;
+        $p = rsPlanFilesFor('/mnt/user/zznames', 'name:manual-n', 'copy', false, $owner, $stamp, $c);
+        $entries = array_column($p['options']['entries'] ?? [], 'name');
+        sort($entries);
+        $want = $names;
+        sort($want);
+        same('restore names: every name offered — the tab too; the line break not', $want, $entries);
+        $left = array_values(array_filter($p['notes'], fn ($n) => $n['key'] === 'note.files_names_left'))[0] ?? null;
+        same('restore names: the name with a line break said (escaped, as ls -b shows it), a warning', [1, 'line\nbreak.txt', true],
+            [$left['params']['n'] ?? null, $left['params']['names'] ?? null, $left['warn'] ?? null]);
+        $to = array_column(array_filter($p['steps'], fn ($s) => $s['do'] === 'copy'), 'to');
+        same('restore names: nothing blocks it', [], $p['blockers']);
+        check('restore names: every copy\'s name fits (≤ 255 bytes) and ends «.restored-<stamp>»',
+            count($to) === 5 && !array_filter($to, fn ($t) => strlen(basename($t)) > 255 || !str_ends_with($t, ".restored-$stamp") || dirname($t) !== "$mnt/user/zznames"),
+            json_encode(array_map(fn ($t) => strlen(basename($t)), $to)));
+        check('restore names: two long names with the same beginning stay apart', count(array_unique($to)) === 5);
+        $cut = array_values(array_filter($to, fn ($t) => str_starts_with(basename($t), 'nnnn') && !str_contains(basename($t), 'm.txt')));
+        check('restore names: a cut name keeps its beginning and its extension', count($cut) === 2 && !array_filter($cut, fn ($t) => !str_contains(basename($t), ".txt.restored-$stamp")),
+            json_encode(array_map('basename', $to)));
+        $w = array_values(array_filter($to, fn ($t) => str_starts_with(basename($t), 'Ä')))[0] ?? '';
+        check('restore names: cut between two letters, never inside one; the extension kept', mb_check_encoding(basename($w), 'UTF-8') && str_contains($w, ".mkv.restored-$stamp"), basename($w));
+        // the copies themselves: each back beside, the same bytes as in the snapshot (the long one failed the restore before)
+        $id = "$stamp-ab12";
+        rsPrivateDir(rsData());
+        rsPrivateDir(rsDir($id));
+        $p['stamp'] = $stamp;
+        $j = rsJournalNew($id, $p);
+        $states = [];
+        foreach (array_keys($j['steps']) as $i) {
+            $j['steps'][$i] = array_merge($j['steps'][$i], rsStep($j, $i));
+            $states[] = $j['steps'][$i]['state'];
+        }
+        clearstatcache();
+        same('restore names: every copy made', array_fill(0, 5, 'ok'), $states);
+        $got = [];
+        foreach ($j['steps'] as $s) {
+            $got[] = (string) @file_get_contents($s['to']);
+        }
+        sort($got);
+        same('restore names: the same bytes as in the snapshot', ['old 0', 'old 1', 'old 2', 'old 3', 'old 4'], $got);
+        exec('rm -rf ' . escapeshellarg("$mnt/hazel/zznames") . '/*.restored-*');
+        // swapped: what he puts aside fits too (and the tab's name goes aside like any other)
+        $c = $ctx;
+        $q = rsPlanFilesFor('/mnt/user/zznames', 'name:manual-n', 'swap', false, $owner, $stamp, $c, [$long, "tab\there.txt"]);
+        $aside = array_column($q['aside'], 'to');
+        check('restore names: what goes aside fits and ends «.aside-<stamp>»', [] === $q['blockers'] && count($aside) === 2
+            && !array_filter($aside, fn ($t) => strlen(basename($t)) > 255 || !str_ends_with($t, ".aside-$stamp")), json_encode([$q['blockers'], array_map('basename', $aside)]));
+        // a put back's name for it (filled in later) and a file's aside of his elsewhere fit as well
+        $pb = rsAsideFor("$mnt/hazel/zznames/$long", '{T}', 'putback');
+        check('restore names: a put back\'s name fits once its stamp is filled in', strlen(basename(str_replace('{T}', $stamp, $pb))) <= 255 && str_ends_with($pb, '.putback-{T}'), basename($pb));
+    } finally {
+        unset($GLOBALS['rs']['data'], $GLOBALS['rs']['job_file'], $GLOBALS['rs']['ub_data'], $GLOBALS['rs']['sizes_file'], $GLOBALS['rs']['users'],
+              $GLOBALS['rs']['ratios'], $GLOBALS['rs']['compresses']);
+        $GLOBALS['rs']['du'] = ['queue' => [], 'running' => []];
+        exec('rm -rf ' . escapeshellarg($tmp));
+    }
+}
+
+/**
+ * Scenario batch C, R2 (restore-sh-open-file-replace): «Replace» of a folder in which a process (no container) holds a
+ * file open went through without a word — the writer kept writing into what he had put aside. Now such a process blocks
+ * the plan (restore_in_use, with its name), is looked for again right before anything is replaced (step not_open), and
+ * blocks a put back the same way; a copy beside replaces nothing and isn't held up. A real `tail -f` holds the file.
+ */
+function testRestoreInUse(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-rsinuse-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $mnt = "$tmp/mnt";
+    @mkdir("$tmp/data/unraid-backup/state", 0700, true);
+    $GLOBALS['rs']['data'] = "$tmp/data/restore";
+    $GLOBALS['rs']['job_file'] = "$tmp/data/restore-job.json";
+    $GLOBALS['rs']['ub_data'] = "$tmp/data/unraid-backup";
+    $GLOBALS['rs']['sizes_file'] = "$tmp/data/restore-sizes.json";
+    $GLOBALS['rs']['users'] = fn (array $paths, array $roots): array => [[], []];
+    $GLOBALS['rs']['ratios'] = fn (array $snaps): array => [];
+    $GLOBALS['rs']['compresses'] = fn (string $ds): bool => false;
+    @mkdir("$mnt/hazel/zzopen/.zfs/snapshot/manual-o/data", 0755, true);
+    @mkdir("$mnt/hazel/zzopen/data", 0755, true);
+    @mkdir("$mnt/user", 0755, true);
+    file_put_contents("$mnt/hazel/zzopen/.zfs/snapshot/manual-o/data/open.bin", 'old');
+    file_put_contents("$mnt/hazel/zzopen/data/open.bin", 'live');
+    symlink("$mnt/hazel/zzopen", "$mnt/user/zzopen");
+    $ctx = [
+        'fs' => ['hazel' => 'zfs'], 'zfs' => ["$mnt/hazel/zzopen" => 'zz-hazel/zzopen'],
+        'snaps' => ['zz-hazel/zzopen' => [['name' => 'manual-o', 'time' => (int) strtotime('2026-10-19 15:00')]]],
+        'asleep' => [], 'prefixes' => ['uso-backup-'], 'btrfs_dir' => '.btrfs-snap', 'settings' => [],
+        'cfg' => ['zzopen' => ['shareUseCache' => 'only', 'shareCachePool' => 'hazel']],
+        'mnt' => $mnt, 'user' => "$mnt/user", 'disks' => ['hazel' => ['name' => 'hazel', 'fsFree' => '1000000']],
+        'shares_ini' => ['zzopen' => ['exclusive' => 'yes']], 'old_shares' => "$tmp/none", 'now' => [],
+    ];
+    $owner = ['kind' => 'app', 'name' => 'zz', 'id' => 'zz', 'vm_state' => null];
+    $stamp = '20261019-170000';
+    $hold = fn (string $file) => proc_open(['tail', '-f', $file], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pp);
+    $free = function ($p): void {
+        if (is_resource($p)) {
+            proc_terminate($p);
+            proc_close($p);
+        }
+    };
+    $holder = null;
+    try {
+        $holder = $hold("$mnt/user/zzopen/data/open.bin");        // opened through the share: its fd names the pool's file
+        usleep(300000);
+        $tailPid = proc_get_status($holder)['pid'];
+        $c = $ctx;
+        $p = rsPlanFilesFor('/mnt/user/zzopen/data', 'name:manual-o', 'swap', false, $owner, $stamp, $c);
+        $b = array_values(array_filter($p['blockers'], fn ($x) => $x['key'] === 'restore_in_use'))[0] ?? null;
+        same('restore in use: a process holding a file open blocks the swap, named with its pid, the folder said',
+            ["tail ($tailPid)", "$mnt/user/zzopen/data"], [$b['params']['names'] ?? null, $b['params']['path'] ?? null]);
+        $do = array_column($p['steps'], 'do');
+        same('restore in use: looked for again right before anything is replaced', ['copy', 'not_open', 'aside', 'move'], $do);
+        $c = $ctx;
+        same('restore in use: a copy beside replaces nothing — not held up', [], rsPlanFilesFor('/mnt/user/zzopen/data', 'name:manual-o', 'copy', false, $owner, $stamp, $c)['blockers']);
+        $not = ['do' => 'not_open', 'paths' => ["$mnt/user/zzopen/data", "$mnt/hazel/zzopen/data"]];
+        same('restore in use: the step finds it (and says who)', ['failed', 'in_use', "tail ($tailPid)"],
+            (fn ($r) => [$r['state'], $r['note'] ?? null, $r['params']['names'] ?? null])(function_exists('rsDoNotOpen') ? rsDoNotOpen($not) : ['state' => 'ok']));
+        $free($holder);
+        $holder = null;
+        usleep(200000);
+        same('restore in use: closed — the step goes on', 'ok', function_exists('rsDoNotOpen') ? rsDoNotOpen($not)['state'] : null);
+        $c = $ctx;
+        $p = rsPlanFilesFor('/mnt/user/zzopen/data', 'name:manual-o', 'swap', false, $owner, $stamp, $c);
+        same('restore in use: closed — nothing blocks the swap', [], $p['blockers']);
+        // the swap, then a writer on the restored state: «Put back» is held up the same way
+        $id = "$stamp-cd34";
+        rsPrivateDir(rsData());
+        rsPrivateDir(rsDir($id));
+        $p['stamp'] = $stamp;
+        $j = rsJournalNew($id, $p);
+        foreach (array_keys($j['steps']) as $i) {
+            $j['steps'][$i] = array_merge($j['steps'][$i], rsStep($j, $i));
+        }
+        $j['result'] = 'ok';
+        writeAtomic(rsDir($id) . '/plan.json', jsonEncode($p), 0600, 0, 0);
+        rsJournalWrite($j);
+        clearstatcache();
+        same('restore in use: the swap ran, the old state in place', ['ok', 'old'], [implode(',', array_unique(array_column($j['steps'], 'state'))), @file_get_contents("$mnt/hazel/zzopen/data/open.bin")]);
+        $holder = $hold("$mnt/hazel/zzopen/data/open.bin");        // this time on its pool's path
+        usleep(300000);
+        $back = rsPlanPutback(['id' => $id], '20261019-180000');
+        same('restore in use: a put back is held up too, and looks again first', [['restore_in_use'], 'not_open'],
+            [array_column($back['blockers'], 'key'), $back['steps'][0]['do'] ?? null]);
+        // a share's path stands for every pool and disk; a container's process (a mount namespace of its own) is left out
+        $proc = "$tmp/proc";
+        foreach (['self' => 'mnt:[1]', '123' => 'mnt:[1]', '124' => 'mnt:[2]'] as $pid => $ns) {
+            @mkdir("$proc/$pid/ns", 0755, true);
+            @mkdir("$proc/$pid/fd", 0755, true);
+            symlink($ns, "$proc/$pid/ns/mnt");
+            file_put_contents("$proc/$pid/comm", "$pid" === '123' ? "writer\n" : "inside\n");
+            symlink("$pid" === '124' ? '/mnt/cache/zzshare/data/x' : '/mnt/disk1/zzshare/data/x (deleted)', "$proc/$pid/fd/3");
+            symlink('pipe:[42]', "$proc/$pid/fd/4");
+        }
+        $GLOBALS['rs']['proc'] = $proc;
+        same('restore in use: /mnt/user/<share>/x is the same file on each pool and disk; a container\'s process left out; elsewhere nothing',
+            [['writer (123)'], ['writer (123)'], [], []],
+            function_exists('rsOpenHolders') ? [rsOpenHolders(['/mnt/user/zzshare/data']), rsOpenHolders(['/mnt/disk1/zzshare']), rsOpenHolders(['/mnt/user/zzshare/other']),
+                rsOpenHolders(['/mnt/addons/zzshare/data'])] : null);
+    } finally {
+        $free($holder);
+        unset($GLOBALS['rs']['data'], $GLOBALS['rs']['job_file'], $GLOBALS['rs']['ub_data'], $GLOBALS['rs']['sizes_file'], $GLOBALS['rs']['users'],
+              $GLOBALS['rs']['ratios'], $GLOBALS['rs']['compresses'], $GLOBALS['rs']['proc']);
+        $GLOBALS['rs']['du'] = ['queue' => [], 'running' => []];
+        exec('rm -rf ' . escapeshellarg($tmp));
+    }
+}
+
+/**
+ * Scenario batch D, F10 (restore-rn-hard-reset-midrun-files): after a power cut his journal said «interrupted», but its
+ * cut step still «running» — and the job file the page polls named the restore «running» — so the page drew the wave for
+ * a job that was gone. Now the step that ran reads «interrupted», the ones after it «skipped», in the journal, in what
+ * «journal» answers and in the job file; a job that lives is left alone.
+ */
+function testRestoreSettled(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-rssettled-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    @mkdir("$tmp/data", 0700, true);
+    $GLOBALS['rs']['data'] = "$tmp/data/restore";
+    $GLOBALS['rs']['job_file'] = "$tmp/data/restore-job.json";
+    try {
+        rsPrivateDir(rsData());
+        $make = function (string $id, int $pid) {
+            rsPrivateDir(rsDir($id));
+            $j = rsJournalNew($id, ['kind' => 'files', 'what' => 'zz', 'target' => ['path' => '/mnt/user/zz/data'], 'method' => 'copy', 'steps' => [
+                ['do' => 'copy', 'from' => '/a', 'to' => '/b'], ['do' => 'copy', 'from' => '/c', 'to' => '/d'], ['do' => 'copy', 'from' => '/e', 'to' => '/f']],
+                'sizes' => null, 'downtime' => 0, 'after' => [], 'putback_of' => null]);
+            $j['result'] = 'running';
+            $j['started'] = time() - 600;
+            $j['pid'] = $pid;
+            $j['steps'][0]['state'] = 'ok';
+            $j['steps'][1]['state'] = 'running';
+            $j['steps'][1]['progress'] = ['done' => 1 << 30, 'total' => 2 << 30, 'percent' => 50];
+            rsJournalWrite($j);                       // the job file names it too, as the job wrote it before the cut
+            return $j;
+        };
+        $gone = '20261019-190000-aa11';
+        $make($gone, 999999999);
+        $rows = rsJournals();
+        $j = rsJournal($gone);
+        same('restore settled: a job gone mid-step — the journal interrupted, its step interrupted, the rest skipped',
+            ['interrupted', ['ok', 'interrupted', 'skipped'], 'interrupted'], [$j['result'] ?? null, array_column($j['steps'] ?? [], 'state'), $rows[0]['result'] ?? null]);
+        $file = readJson(rsJobFile());
+        same('restore settled: the job file the page polls says so too (no wave for a job that is gone)', ['interrupted', ['ok', 'interrupted', 'skipped']],
+            [$file['result'] ?? null, array_column($file['steps'] ?? [], 'state')]);
+        $gone2 = '20261019-191000-bb22';
+        $make($gone2, 999999999);
+        $got = rsJournalGet($gone2);
+        same('restore settled: «journal» asked before any tour — settled as well', ['interrupted', ['ok', 'interrupted', 'skipped'], 'interrupted'],
+            [$got['journal']['result'] ?? null, array_column($got['journal']['steps'] ?? [], 'state'), $got['row']['result'] ?? null]);
+        // settled by an older version (result interrupted, its step left «running» — after a power cut the released agent's
+        // first tour came before the update): settled the same way now, its time kept
+        $older = '20261019-191500-dd44';
+        $j = $make($older, 999999999);
+        $j['result'] = 'interrupted';
+        $j['finished'] = 1792400000;
+        rsJournalWrite($j);
+        rsJournals();
+        same('restore settled: one an older version called interrupted, its step still running — settled now, its end kept',
+            ['interrupted', ['ok', 'interrupted', 'skipped'], 1792400000, 'interrupted'],
+            [rsJournal($older)['result'] ?? null, array_column(rsJournal($older)['steps'] ?? [], 'state'), rsJournal($older)['finished'] ?? null, readJson(rsJobFile())['steps'][1]['state'] ?? null]);
+        // a job that lives (an agent.php of this pid): untouched
+        $live = proc_open(['sh', '-c', 'sleep 30; :', 'agent.php'], [], $pp);
+        $alive = '20261019-192000-cc33';
+        $make($alive, proc_get_status($live)['pid']);
+        rsJournals();
+        same('restore settled: a job that lives is left alone', ['running', ['ok', 'running', 'pending']],
+            [rsJournal($alive)['result'] ?? null, array_column(rsJournal($alive)['steps'] ?? [], 'state')]);
+        proc_terminate($live);
+        proc_close($live);
+        $desk = (string) file_get_contents(OFFICE_WEB . '/desks/restore/desk.js');
+        $lang = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/restore/lang/en.json'), true);
+        check('restore settled: the page draws an interrupted step as such (red, no wave), in its words',
+            str_contains($desk, "running: 'running', interrupted: 'interrupted' }[s.state]") && ($lang['state.interrupted'] ?? '') === 'interrupted');
+    } finally {
+        unset($GLOBALS['rs']['data'], $GLOBALS['rs']['job_file']);
+        exec('rm -rf ' . escapeshellarg($tmp));
+    }
+}
+
+/**
+ * Scenario batch D, F5 (restore-rn-hard-reset-midrun-files, restore-rn-array-stop-midrun-rs-files): a copy beside cut by an
+ * array stop or a power cut left a half «<folder>.restored-<stamp>» with no undo step — it looked like a finished restore.
+ * Now the copy is noted in the journal before it starts (forgotten once done); cut, the journal says it is unfinished,
+ * and «Put back» becomes «Remove the unfinished copy»: only that, nothing stopped for it, into Ms. Dustdevil's storeroom
+ * through her helpers (her manifest names it, she can put it back) — never deleted.
+ */
+function testRestoreUnfinished(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-rsleft-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $mnt = "$tmp/mnt";
+    @mkdir("$tmp/data/unraid-backup/state", 0700, true);
+    $GLOBALS['rs']['data'] = "$tmp/data/restore";
+    $GLOBALS['rs']['job_file'] = "$tmp/data/restore-job.json";
+    $GLOBALS['rs']['ub_data'] = "$tmp/data/unraid-backup";
+    $GLOBALS['rs']['sizes_file'] = "$tmp/data/restore-sizes.json";
+    $GLOBALS['rs']['users'] = fn (array $paths, array $roots): array => [['zz-app'], []];
+    $GLOBALS['rs']['ratios'] = fn (array $snaps): array => [];
+    $GLOBALS['rs']['compresses'] = fn (string $ds): bool => false;
+    $GLOBALS['rs']['var_ini'] = "$tmp/var.ini";
+    file_put_contents("$tmp/var.ini", "fsState=\"Started\"\n");
+    $snap = "$mnt/hazel/zzleft/.zfs/snapshot/manual-l";
+    @mkdir("$snap/data", 0755, true);
+    @mkdir("$mnt/hazel/zzleft/data", 0755, true);
+    @mkdir("$mnt/user", 0755, true);
+    exec('head -c 40000000 /dev/urandom > ' . escapeshellarg("$snap/data/big.bin"));
+    file_put_contents("$mnt/hazel/zzleft/data/live.txt", 'live');
+    symlink("$mnt/hazel/zzleft", "$mnt/user/zzleft");
+    $ctx = [
+        'fs' => ['hazel' => 'zfs'], 'zfs' => ["$mnt/hazel/zzleft" => 'zz-hazel/zzleft'],
+        'snaps' => ['zz-hazel/zzleft' => [['name' => 'manual-l', 'time' => (int) strtotime('2026-10-19 15:00')]]],
+        'asleep' => [], 'prefixes' => ['uso-backup-'], 'btrfs_dir' => '.btrfs-snap', 'settings' => [],
+        'cfg' => ['zzleft' => ['shareUseCache' => 'only', 'shareCachePool' => 'hazel']],
+        'mnt' => $mnt, 'user' => "$mnt/user", 'disks' => ['hazel' => ['name' => 'hazel', 'fsFree' => '100000000']],
+        'shares_ini' => ['zzleft' => ['exclusive' => 'yes']], 'old_shares' => "$tmp/none", 'now' => [],
+    ];
+    $owner = ['kind' => 'app', 'name' => 'zz', 'id' => 'zz', 'vm_state' => null];
+    // where the half copy lies, as Ms. Dustdevil would look (her look needs the real /mnt): its pool's part, her storeroom
+    $GLOBALS['rs']['unfinished_place'] = function (string $path) use ($mnt): array {
+        $p = str_replace("$mnt/user/", "$mnt/hazel/", $path);
+        $trash = clLeftoverTrash($p, dirname($p));
+        return ['known' => true, 'parts' => file_exists($p) ? [['root' => 'hazel', 'path' => $p, 'dataset' => null, 'trash' => $trash, 'file' => false, 'bytes' => null]] : [],
+                'asleep' => [], 'why' => null, 'trash' => [$trash]];
+    };
+    $run = function (array $plan, string $id): array {
+        rsPrivateDir(rsData());
+        rsPrivateDir(rsDir($id));
+        writeAtomic(rsDir($id) . '/plan.json', jsonEncode($plan), 0600, 0, 0);
+        return rsJournalNew($id, $plan);
+    };
+    try {
+        // 1. the array stop ends the copy beside midway (the job's stop flag, as rsWatch sets it): failed, the half copy noted
+        $stamp = '20261019-200000';
+        $c = $ctx;
+        $p = rsPlanFilesFor('/mnt/user/zzleft/data', 'name:manual-l', 'copy', false, $owner, $stamp, $c);
+        $p['stamp'] = $stamp;
+        $id = "$stamp-aa11";
+        $j = $run($p, $id);
+        $to = "$mnt/user/zzleft/data.restored-$stamp";
+        $GLOBALS['rsStop'] = true;
+        $j['steps'][0]['state'] = 'running';
+        $res = rsStep($j, 0);                         // as the job does: the step's own notes first, then its result
+        $j['steps'][0] = array_merge($j['steps'][0], $res);
+        $GLOBALS['rsStop'] = false;
+        $j['result'] = 'failed';
+        $j['reason'] = 'restore_array_stopping';
+        rsJournalWrite($j);
+        clearstatcache();
+        $row = rsJournalRow($j);
+        same('restore unfinished: the copy cut midway — failed, its folder there, the journal knows it is unfinished, «Put back» offered',
+            ['failed', true, [$to], true], [$j['steps'][0]['state'], is_dir($to), $row['unfinished'] ?? null, $row['can_putback']]);
+        $back = rsPlanPutback(['id' => $id], '20261019-201000');
+        same('restore unfinished: «Remove the unfinished copy» — only that, nothing stopped for it, said where it goes',
+            [['unfinished'], [], [], [['what' => 'unfinished', 'from' => $to, 'to' => '']], true],
+            [array_column($back['steps'], 'do'), $back['blockers'], $back['stops'], $back['aside'], $back['unfinished'] ?? null]);
+        $back = rsPlanSeal($back, '20261019-201000');
+        $pb = $run($back, '20261019-201000-bb22');
+        rsMarkPutback($id, $pb['id'], 'running');
+        $r = rsStep($pb, 0);
+        clearstatcache();
+        $trashRun = glob("$mnt/hazel/zzleft/" . OFFICE_STOREROOM . '/*', GLOB_ONLYDIR)[0] ?? '';
+        $manifest = readJson("$trashRun/manifest.json") ?? [];
+        $item = $manifest['items'][0] ?? [];
+        same('restore unfinished: into Ms. Dustdevil\'s storeroom — gone from the share, in her run, her manifest names it (his restore, the way back)',
+            ['ok', 'unfinished_away', false, true, 'leftover', $id, "$mnt/hazel/zzleft/data.restored-$stamp"],
+            [$r['state'], $r['note'] ?? null, file_exists("$mnt/hazel/zzleft/data.restored-$stamp"), is_dir("$trashRun/" . ($item['as'] ?? '-')), $item['kind'] ?? null, $item['label'] ?? null, $item['from'] ?? null]);
+        rsMarkPutback($id, $pb['id'], 'ok');
+        same('restore unfinished: removed — no longer said unfinished, nothing more to put back', [[], false],
+            [rsJournalRow(rsJournal($id))['unfinished'] ?? null, rsJournalRow(rsJournal($id))['can_putback']]);
+        // 2. a power cut during the copy of a swap: the journal settles «interrupted» — the same offer, nothing stopped (the
+        //    containers stop only after the copy)
+        $stamp = '20261019-210000';
+        $c = $ctx;
+        $p = rsPlanFilesFor('/mnt/user/zzleft/data', 'name:manual-l', 'swap', false, $owner, $stamp, $c);
+        $p['stamp'] = $stamp;
+        $id = "$stamp-cc33";
+        $j = $run($p, $id);
+        $to = "$mnt/user/zzleft/data.restored-$stamp";
+        mkdir($to);
+        file_put_contents("$to/big.bin", 'half');
+        $j['result'] = 'running';
+        $j['pid'] = 999999999;
+        $j['steps'][0]['state'] = 'running';
+        $j['steps'][0]['unfinished'] = ['path' => $to, 'dataset' => null];      // what rsDoCopy writes before rsync starts
+        rsJournalWrite($j);
+        $row = array_values(array_filter(rsJournals(), fn ($x) => $x['id'] === $id))[0] ?? [];
+        $back = rsPlanPutback(['id' => $id], '20261019-211000');
+        same('restore unfinished: after a power cut — interrupted, said unfinished; removing it stops nothing (no stop, no start)',
+            ['interrupted', [$to], true, ['unfinished']], [$row['result'] ?? null, $row['unfinished'] ?? null, $row['can_putback'] ?? null, array_column($back['steps'], 'do')]);
+        // 3. a copy that finished: forgotten — nothing unfinished, a copy beside has nothing to put back
+        $stamp = '20261019-220000';
+        $c = $ctx;
+        $p = rsPlanFilesFor('/mnt/user/zzleft/data', 'name:manual-l', 'copy', false, $owner, $stamp, $c);
+        $p['stamp'] = $stamp;
+        $j = $run($p, "$stamp-dd44");
+        $res = rsStep($j, 0);
+        $j['steps'][0] = array_merge($j['steps'][0], $res);
+        $j['result'] = 'ok';
+        same('restore unfinished: a copy that finished — nothing noted, nothing to put back', ['ok', false, [], false],
+            [$j['steps'][0]['state'], isset($j['steps'][0]['unfinished']), rsJournalRow($j)['unfinished'] ?? null, rsJournalRow($j)['can_putback']]);
+        // 4. where it can't go now (a sleeping disk): said in the plan, never woken
+        $GLOBALS['rs']['unfinished_place'] = fn (string $path): array => ['known' => true, 'parts' => [], 'asleep' => ['disk2'], 'why' => 'asleep', 'trash' => []];
+        same('restore unfinished: on a sleeping disk — the plan says so, nothing woken', [['key' => 'restore_unfinished_asleep', 'params' => ['path' => $to, 'base' => 'disk2']]],
+            rsPlanPutback(['id' => $id], '20261019-212000')['blockers']);
+        $desk = (string) file_get_contents(OFFICE_WEB . '/desks/restore/desk.js');
+        check('restore unfinished: the page says it is unfinished and offers «Remove the unfinished copy…»',
+            str_contains($desk, "T('j.unfinished', { paths: left.join(', ') })") && str_contains($desk, "restoreButton(T('j.remove_unfinished')"));
+    } finally {
+        $GLOBALS['rsStop'] = false;
+        unset($GLOBALS['rs']['data'], $GLOBALS['rs']['job_file'], $GLOBALS['rs']['ub_data'], $GLOBALS['rs']['sizes_file'], $GLOBALS['rs']['users'],
+              $GLOBALS['rs']['ratios'], $GLOBALS['rs']['compresses'], $GLOBALS['rs']['unfinished_place'], $GLOBALS['rs']['var_ini']);
+        $GLOBALS['rs']['du'] = ['queue' => [], 'running' => []];
+        exec('rm -rf ' . escapeshellarg($tmp));
+    }
+}
+
+/**
+ * Scenario batch D, F4 (restore-rn-array-stop-midrun-rs-files, -drill-drill — a race): the office's own array-stop hook
+ * TERMed the restore or drill before Unraid's var.ini said «Stopping», so the reason read «stopped from outside (the
+ * server shut down?)». The hook knows why: at the array stop it sends SIGUSR1 to Mr. Restori's jobs (the let-go and the
+ * .plg's release keep TERM), and the jobs read SIGUSR1 as array_stopping.
+ */
+function testRestoreArrayStopWhy(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-rsstopwhy-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    @mkdir("$tmp/run", 0700, true);
+    $agent = escapeshellarg(OFFICE_DIR . '/plugin/scripts/agent.sh');
+    // stand-ins for the jobs (their command line names agent.php): each writes down the signal it got, then ends
+    $job = function (string $name) use ($tmp) {
+        $p = proc_open(['sh', '-c', 'trap "echo USR1 > $0.sig; exit 0" USR1; trap "echo TERM > $0.sig; exit 0" TERM; while :; do sleep 0.1; done', "$tmp/$name", 'agent.php'],
+            [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pp);
+        file_put_contents("$tmp/run/$name.open", proc_get_status($p)['pid'] . " 20261019-230000\n");
+        return $p;
+    };
+    $release = fn (string $env) => shell_exec('bash -c ' . escapeshellarg("source $agent; RUN=" . escapeshellarg("$tmp/run") . '; LOG=' . escapeshellarg("$tmp/agent.log")
+        . "; $env drill_release") . ' 2>&1');
+    $sig = fn (string $name) => trim((string) @file_get_contents("$tmp/$name.sig"));
+    try {
+        $procs = [$job('restore'), $job('drill'), $job('letgo')];
+        usleep(200000);
+        $release('STOP_WHY=array_stopping');
+        usleep(300000);
+        same('restore stop why: at the array stop the restore and the drill hear «the array is being stopped» (USR1), the let-go TERM',
+            ['USR1', 'USR1', 'TERM'], [$sig('restore'), $sig('drill'), $sig('letgo')]);
+        foreach ($procs as $p) {
+            proc_terminate($p);
+            proc_close($p);
+        }
+        @unlink("$tmp/restore.sig");
+        $p = $job('restore');
+        usleep(200000);
+        $release('');
+        usleep(300000);
+        same('restore stop why: the .plg\'s release (no array stop) still sends TERM', 'TERM', $sig('restore'));
+        proc_terminate($p);
+        proc_close($p);
+        $sh = (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/agent.sh');
+        check('restore stop why: the array stop sets the reason right before the release', (bool) preg_match('/\n\s+local STOP_WHY=array_stopping[^\n]*\n\s+release\s+#/', $sh));
+        // the job's side: SIGUSR1 stops it with the reason array_stopping (journal: restore_array_stopping), never «stopped»
+        $GLOBALS['rsStop'] = false;
+        $GLOBALS['rsStopWhy'] = null;
+        pcntl_async_signals(true);
+        if (function_exists('rsArrayStopSignal')) {     // (without its handler SIGUSR1 would end this very test run)
+            rsArrayStopSignal();
+            posix_kill(getmypid(), SIGUSR1);
+            usleep(50000);
+        }
+        same('restore stop why: the job hears it — stopped, the reason array_stopping', [true, 'array_stopping'], [$GLOBALS['rsStop'], $GLOBALS['rsStopWhy']]);
+        $drill = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore-drill.php');
+        check('restore stop why: the drill listens for it too', str_contains($drill, "rsArrayStopSignal();              // agent.sh's array-stop hook"));
+    } finally {
+        pcntl_signal(SIGUSR1, SIG_DFL);
+        $GLOBALS['rsStop'] = false;
+        $GLOBALS['rsStopWhy'] = null;
+        exec('rm -rf ' . escapeshellarg($tmp));
+    }
+}
+
+/**
+ * Scenario batch D, F9 (restore-dk-pool-full-files-drill, defence in depth): restore.start took a plan whose sizes were
+ * still being measured — only the dialog waited — and the copy filled the pool to 0 B. Now the agent refuses such a plan
+ * itself (restore_measuring, words the page knows), before anything is written; a measured one starts as before.
+ */
+function testRestoreMeasuring(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-rsmeasuring-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    @mkdir("$tmp/data", 0700, true);
+    $GLOBALS['rs']['data'] = "$tmp/data/restore";
+    $GLOBALS['rs']['job_file'] = "$tmp/data/restore-job.json";
+    try {
+        $plan = rsPlanBase('files', 'zz', ['path' => '/mnt/user/zz/data']);
+        $plan['stamp'] = '20261019-233000';
+        $plan['steps'] = [['do' => 'copy', 'from' => '/a', 'to' => '/b']];
+        $plan['sizes'] = ['need' => 0, 'free' => 10, 'measuring' => true, 'what' => 'files'];
+        $got = null;
+        try {
+            rsLaunch($plan, false);
+        } catch (Problem $p) {
+            $got = $p->key;
+        }
+        same('restore measuring: sizes still measured — refused, nothing written', ['restore_measuring', []],
+            [$got, array_values(array_diff(@scandir(rsData()) ?: [], ['.', '..']))]);
+        $plan['sizes']['measuring'] = false;
+        $id = rsLaunch($plan, false);
+        same('restore measuring: measured — it starts', 'queued', rsJournal($id)['result'] ?? null);
+        $lang = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/restore/lang/en.json'), true);
+        check('restore measuring: the page has words for it', isset($lang['errors.restore_measuring']));
+    } finally {
+        unset($GLOBALS['rs']['data'], $GLOBALS['rs']['job_file']);
+        exec('rm -rf ' . escapeshellarg($tmp));
+    }
+}
+
+/**
+ * Open item of batch B's fix (R11 for the put back): «Put back» of a database restore started the database (its plan's
+ * steps before and after the safety dump said «start … need») even when someone had stopped it since — the desk's rule is
+ * «never starts a container». Now a database stopped since blocks the put back (restore_db_stopped, as the restore's own
+ * plan does), the step before reads «make sure it runs» (db_running, failing — never starting — when it was stopped in
+ * the seconds between), and after the fresh way's swap it starts only when this put back stopped it. What a restore left
+ * stopped itself is still started again; what it started again and someone stopped since is not (rsLeftStopped()).
+ */
+function testRestorePutbackDb(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-rspbdb-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    @mkdir("$tmp/data", 0700, true);
+    @mkdir("$tmp/bin", 0700, true);
+    $GLOBALS['rs']['data'] = "$tmp/data/restore";
+    $GLOBALS['rs']['job_file'] = "$tmp/data/restore-job.json";
+    // docker: «ps» lists $tmp/ps, «inspect» says running for the names in $tmp/up, anything else is written down
+    file_put_contents("$tmp/bin/docker", "#!/bin/sh\ncase \"\$1\" in\n  ps) cat \"$tmp/ps\" ;;\n  inspect) grep -qx \"\$4\" \"$tmp/up\" && echo true || echo false ;;\n"
+        . "  *) echo \"\$*\" >>\"$tmp/docker.log\" ;;\nesac\nexit 0\n");
+    chmod("$tmp/bin/docker", 0755);
+    $state = function (array $up) use ($tmp): void {
+        file_put_contents("$tmp/ps", implode('', array_map(fn ($c) => "$c\t" . (in_array($c, $up, true) ? 'running' : 'exited') . "\n", ['zz-db', 'zz-app'])));
+        file_put_contents("$tmp/up", implode("\n", $up) . "\n");
+    };
+    $oldPath = getenv('PATH');
+    putenv("PATH=$tmp/bin:$oldPath");
+    $base = ['type' => 'mariadb', 'container' => 'zz-db', 'db' => 'zz', 'login' => 'root', 'user_var' => '', 'password_var' => 'MARIADB_ROOT_PASSWORD', 'client' => 'mariadb'];
+    $safety = "$tmp/place/restore/zz/20261019-120000/mariadb_zz-db_zz.sql.gz";
+    $journal = function (string $id, string $method, array $steps, array $stopped) use ($base): void {
+        $pre = $method === 'fresh' ? [['do' => 'stop', 'containers' => ['zz-app']], ['do' => 'stop', 'containers' => ['zz-db']]]
+            : [['do' => 'start', 'containers' => ['zz-db'], 'need' => true], ['do' => 'ready'] + $base + ['timeout' => 180], ['do' => 'stop', 'containers' => ['zz-app']]];
+        $post = $method === 'fresh' ? [['do' => 'start', 'containers' => ['zz-db'], 'need' => true], ['do' => 'ready'] + $base + ['timeout' => 300], ['do' => 'start', 'containers' => ['zz-app'], 'only_stopped' => true]]
+            : [['do' => 'start', 'containers' => ['zz-app'], 'only_stopped' => true]];
+        // the plan as 1.66.8 wrote it (its put back's steps «start … need»)
+        $plan = rsPlanBase('db', 'zz', ['app' => 'zz', 'file' => 'db/x.sql.gz', 'version' => null, 'container' => 'zz-db', 'type' => 'mariadb']);
+        $plan['putback_pre'] = $pre;
+        $plan['putback_post'] = $post;
+        $plan['method'] = $method;
+        $plan['steps'] = $steps;
+        rsPrivateDir(rsData());
+        rsPrivateDir(rsDir($id));
+        writeAtomic(rsDir($id) . '/plan.json', jsonEncode($plan), 0600, 0, 0);
+        $j = rsJournalNew($id, $plan);
+        $j['steps'] = $steps;
+        $j['stopped'] = $stopped;
+        $j['result'] = 'ok';
+        rsJournalWrite($j, false);
+    };
+    $play = ['do' => 'play', 'state' => 'ok', 'undo' => [['do' => 'dump', 'file' => "$tmp/place/restore/zz/{T}/x.sql.gz"] + $base, ['do' => 'play', 'file' => $safety, 'method' => 'inplace'] + $base]];
+    $starts = fn (array $p, string $c) => array_values(array_filter($p['steps'], fn ($s) => $s['do'] === 'start' && in_array($c, $s['containers'] ?? [], true)));
+    try {
+        @mkdir(dirname($safety), 0700, true);
+        file_put_contents($safety, gzencode('-- dump'));
+        // in place: the restore stopped the app and started it again; the database ran throughout
+        $journal('20261019-120000-aa11', 'inplace', [['do' => 'dump', 'state' => 'ok'], ['do' => 'stop', 'state' => 'ok', 'containers' => ['zz-app'], 'stopped' => ['zz-app']],
+            $play, ['do' => 'verify', 'state' => 'ok'], ['do' => 'start', 'state' => 'ok', 'containers' => ['zz-app'], 'only_stopped' => true, 'started' => ['zz-app']]], ['zz-app']);
+        $state(['zz-db', 'zz-app']);
+        $p = rsPlanPutback(['id' => '20261019-120000-aa11'], '20261019-130000');
+        same('restore put back db: the database runs — it must run (never started), the app stops and starts again (only what the put back stopped)',
+            [[], ['db_running', 'ready', 'stop', 'dump', 'play', 'start'], [], ['zz-app']],
+            [$p['blockers'], array_column($p['steps'], 'do'), $starts($p, 'zz-db'), $starts($p, 'zz-app')[0]['containers'] ?? null]);
+        same('restore put back db: the app\'s start is only of what this put back stops — the restore started it again itself', [true, []],
+            [$starts($p, 'zz-app')[0]['only_stopped'] ?? null, $starts($p, 'zz-app')[0]['also'] ?? null]);
+        // someone stopped the database since: blocked, said which (as the restore's own plan); no step starts it
+        $state(['zz-app']);
+        $p = rsPlanPutback(['id' => '20261019-120000-aa11'], '20261019-130000');
+        same('restore put back db: the database stopped since — blocked, said which; no step starts it', [['restore_db_stopped'], 'zz-db', []],
+            [array_column($p['blockers'], 'key'), $p['blockers'][0]['params']['container'] ?? null, $starts($p, 'zz-db')]);
+        // stopped in the seconds between the plan and the job: the step fails, nothing started
+        $j = ['id' => '20261019-130000-bb22', 'stopped' => [], 'steps' => [['do' => 'db_running', 'container' => 'zz-db']]];
+        $r = rsStep($j, 0);
+        same('restore put back db: stopped right before — the step says so and starts nothing', ['failed', 'db_stopped', false],
+            [$r['state'], $r['note'] ?? null, str_contains((string) @file_get_contents("$tmp/docker.log"), 'start')]);
+        // the fresh way: the put back stops the database, swaps its folder back, starts it again — only because it stopped it
+        $journal('20261019-140000-cc33', 'fresh', [['do' => 'dump', 'state' => 'ok'], ['do' => 'stop', 'state' => 'ok', 'containers' => ['zz-app'], 'stopped' => ['zz-app']],
+            ['do' => 'stop', 'state' => 'ok', 'containers' => ['zz-db'], 'stopped' => ['zz-db']], ['do' => 'aside', 'state' => 'ok', 'undo' => [['do' => 'move', 'from' => "$tmp/db.aside", 'to' => "$tmp/db"]]],
+            ['do' => 'start', 'state' => 'ok', 'containers' => ['zz-db'], 'need' => true, 'started' => ['zz-db']], $play,
+            ['do' => 'start', 'state' => 'ok', 'containers' => ['zz-app'], 'only_stopped' => true, 'started' => ['zz-app']]], ['zz-app', 'zz-db']);
+        mkdir("$tmp/db.aside");
+        $state(['zz-db', 'zz-app']);
+        $p = rsPlanPutback(['id' => '20261019-140000-cc33'], '20261019-150000');
+        $dbStart = $starts($p, 'zz-db')[0] ?? [];
+        same('restore put back db: the fresh way — the database starts again only if this put back stopped it', [[], true, [], true],
+            [$p['blockers'], $dbStart['only_stopped'] ?? null, $dbStart['also'] ?? null, $dbStart['need'] ?? null]);
+        // a restore that failed after stopping the database left it stopped itself: that one the put back starts again
+        $journal('20261019-160000-dd44', 'fresh', [['do' => 'dump', 'state' => 'ok'], ['do' => 'stop', 'state' => 'ok', 'containers' => ['zz-app'], 'stopped' => ['zz-app']],
+            ['do' => 'stop', 'state' => 'ok', 'containers' => ['zz-db'], 'stopped' => ['zz-db']], ['do' => 'aside', 'state' => 'ok', 'undo' => [['do' => 'move', 'from' => "$tmp/db.aside", 'to' => "$tmp/db"]]],
+            ['do' => 'fresh', 'state' => 'failed']], ['zz-app', 'zz-db']);
+        $state([]);
+        $p = rsPlanPutback(['id' => '20261019-160000-dd44'], '20261019-170000');
+        same('restore put back db: what the restore left stopped itself — no blocker, started again after', [[], ['zz-app', 'zz-db']],
+            [$p['blockers'], $starts($p, 'zz-db')[0]['also'] ?? null]);
+        check('restore put back db: the words for the step and its note', (fn ($l) => isset($l['step.db_running'], $l['ss.db_running'], $l['sn.db_stopped']))(
+            json_decode((string) file_get_contents(OFFICE_WEB . '/desks/restore/lang/en.json'), true)));
+    } finally {
+        putenv("PATH=$oldPath");
+        unset($GLOBALS['rs']['data'], $GLOBALS['rs']['job_file']);
         exec('rm -rf ' . escapeshellarg($tmp));
     }
 }
@@ -44685,7 +45306,7 @@ JS;
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
