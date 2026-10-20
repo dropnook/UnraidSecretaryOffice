@@ -85,7 +85,8 @@ data/
 ├── <desk>.json            each desk's state; <desk>-<part>.json an extra part (desk.json "parts")
 ├── logs-mine.json, logs-filters.json   Ms. Protocolli's own rules and hide words, her saved filters
 ├── mailbox/               requests from the page, answers from the agent
-├── office/                who is hired and in which order, the language for notifications
+├── office/                who is hired and in which order, the language for notifications, the notification centre
+│                          (notify.json settings, notify-held.json what waits for a summary, notify-log.json history)
 ├── unraid-backup/         the backup engine: settings.ini, state/, logs/ (root only)
 ├── partner/               the Team Lead's pairs, tickets, the door's log (root only)
 ├── restore/, restore-drill/   Mr. Restori's journals, the drill's runs, certificates and its record of throwaways
@@ -372,12 +373,29 @@ changing the dashboard too. Change Grafana's default admin/admin before it can b
 ## Notifications in detail
 
 Everything goes through `officeNotify()` (agent/lib/house.php) as the event *Unraid Secretary Office*; `warning` for
-something to fix, `alert` only when something is at risk now. The office's texts come in the language the office was
+something to fix, `alert` only when something is at risk now.
+
+**The notification centre** (the Team Lead's «Reports», 1.68) is ONE gate in front of every sender: `officeNotify()`
+(the agent, its jobs, the night shift), the engine's `ub_notify()` and `agent.sh tell` ask the same decision — send now ·
+hold for the summary · count only. PHP side `agent/lib/notifycenter.php`, bash side `backup/lib/notifygate.sh` (sourced
+by the engine and agent.sh; `testNotifyCenter` runs both over the same cases and compares the numbers). The desks send
+as before and only name themselves and the event (`officeNotify(…, $link, 'jack', 'run_failed')`, the engine's `ub_tell`
+code, `TELL_EVENT`). Files: the settings `data/office/notify.json` (tolerant; the page writes them through the agent:
+`caretaker.notify_save|notify_silent|notify_test`, his part `notify`); the senders' copy `RUN_DIR/notify.cfg` key=value
+(and on the flash for a night shift after a reboot; none = everything goes, as before); the flood guard's lines
+`RUN_DIR/notify-guard` read and written only under the flock of `notify.second`; each decision a JSON in
+`RUN_DIR/notify-in/`, folded once a minute by the agent into `data/office/notify-held.json` (its RAM copy for the night
+shift) and `data/office/notify-log.json` (30 days). Alerts are never held; held only while the agent's heartbeat is fresh
+(else it goes now). The summary goes from the agent's minute or the night shift's loop (RAM only; its summary is a
+decision that covers what it sent). A new sender passes its desk and event; a new success or resolving event goes into
+`OFFICE_NOTIFY_SUCCESS` / `OFFICE_NOTIFY_RESOLVES` and `ung_is_success` / `ung_resolves` alike. The Team Lead's and the
+Night Watchman's old switches and the engine's `notify_success` no longer decide (kept for an older version; migration
+step `notify-center`). The office's texts come in the language the office was
 last used in (`data/office/lang.json`; until then Unraid's), Unraid's menus in them in Unraid's language; the engine
 and the plugin's look at the agent write English.
 
 * **Mr. Backupsy** (the engine): a run failed or ended with errors (alert) or warnings (warning), or went well (normal,
-  can be switched off in his setup); a VM not resumed or started, a container not started, Nextcloud stuck in
+  «successes too» at the Team Lead's); a VM not resumed or started, a container not started, Nextcloud stuck in
   maintenance mode (alert); maintenance mode already on, space running out, Kopia incomplete, an aborted run repaired,
   a run skipped because the engine was busy (warning); a new folder that stays local until you decide (normal, once
   per folder); a run the array stop ended (normal) and what it left stopped brought back after the array start
@@ -389,10 +407,10 @@ and the plugin's look at the agent write English.
   (normal) — lists, dry runs and a stop asked on her page stay quiet.
 * **Mr. Restori:** a drill couldn't prove that everything comes back (warning), once per drill.
 * **The Team Lead:** something new under *Still to do* that stayed for half an hour (warning), once — again only if it
-  was solved and came back. He looks every 30 minutes, also with the office closed; a switch on his page turns it off.
+  was solved and came back. He looks every 30 minutes, also with the office closed.
   A partner office silent for 6 hours (warning), once per silence and again every 24 hours.
 * **The Night Watchman:** every new entry of his watch book that matters (warning), per kind at most once an hour —
-  also from the night shift. A switch on his page turns it off (the watch book keeps them).
+  also from the night shift (the watch book keeps them).
 * **The plugin:** the agent hasn't checked in for 10 minutes while the array runs (alert), and once it is back
   (normal).
 

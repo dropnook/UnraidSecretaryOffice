@@ -249,6 +249,17 @@ Night Watchman's new entries (each kind at most once an hour) and a parity check
 for ten minutes. The desks write
 in the language you last used the office in; the backup engine writes English.
 
+**The Team Lead's «Reports»** is the one place for all of it. Alerts — something at risk right now — always go out at
+once; nothing there stops them. Per colleague you choose how much goes out (*Everything* · *Warnings and alerts* ·
+*Alerts only*), successes too or not (Mr. Backupsy, Jack Streamer), and *right away* or *in the summary at* a time
+of day — colleagues on the same time share one summary; an empty one is never sent. *Quiet hours* and *Silent until…*
+hold everything but alerts and send it as one summary when they end; an optional daily sign of life says «All quiet»
+when nothing went out for a day. A flood guard always holds: the same notification goes out once until it is resolved
+(a run that ends well, the messenger back) or a day later; more than 5 from one colleague or 20 from the whole office
+in an hour are collected for a summary, with one notice; past 10 alerts an hour the rest go as one alert every 15
+minutes. *Send a test notification…* shows where Unraid sends each level. The tile lists what waits, how the summary
+would read, and the history of 30 days — sent, collected, counted, not sent.
+
 ## Monitoring
 
 With a Node Exporter, Prometheus and Grafana on the server (the Consultant sets them up with you), the office's own
