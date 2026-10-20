@@ -1065,7 +1065,11 @@ function srcNone(x, share, short) {
 
 /** The biggest source behind an entry's line, or that none can be seen ('' without sources: an entry of an older office) */
 function srcFrom(p) {
-  if (p.disk) return ' ' + T('gone.disk', { fs: p.fs || '' });      // written to an XFS/btrfs disk: measured for it whole
+  if (p.disk) {        // written to an XFS/btrfs disk: measured for it whole (btrfs: where, if it could tell — agent: watchmanBtrfsWhere())
+    const top = (p.where && Array.isArray(p.where.top)) ? p.where.top : [];
+    const list = top.map((x) => `${x.share} (${fmt.size(x.b || 0)})`).join(', ');
+    return ' ' + (top.length ? T(p.where.part ? 'src.disk_most_part' : 'src.disk_most', { list, n: fmt.number(20000) }) + ' ' : '') + T('gone.disk', { fs: p.fs || '' });
+  }
   const top = Array.isArray(p.src) ? p.src[0] : null;
   if (!top || top.t === 'rest') return '';
   return ' ' + (top.t === 'none' ? srcNone(top, p.share, true) : T('src.most', { what: srcWhat(top), size: fmt.size(top.b || 0) }));

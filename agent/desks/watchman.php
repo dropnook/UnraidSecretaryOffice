@@ -5008,6 +5008,8 @@ const WATCH_GONE_SNAPS    = 1800;               // a btrfs disk whose snapshots 
 const WATCH_FILES_MIN     = 2000;               // files deleted: unusual only from this many in the hour …
 const WATCH_FILES_NEW     = 20000;              // … and while still learning one round over this many
 const WATCH_FLOW_FS       = 100;                // XFS/btrfs disks and pools followed (written, files deleted)
+const WATCH_FINDNEW_LINES = 20000;              // a btrfs disk's entry: where it was written, from at most this many files …
+const WATCH_FINDNEW_SECS  = 2;                  // … and at most this long (30 000 new files on test3: 74 ms)
 const WATCH_DATASET       = '#^[A-Za-z0-9_.:-]+(?:/[^\x00-\x1F@/]+)*$#D';     // a ZFS dataset's name as zfs prints it
 const WATCH_DOCKER_LAYER  = '/^([0-9a-f]{64})(-init)?$/D';      // Docker on ZFS: a layer's or a container's dataset (its -init beside it)
 const WATCH_FLOW_BY       = 40;                 // sources of a share's pull kept (the smallest go into «the rest»)
@@ -5117,7 +5119,8 @@ function watchmanFlowLook(array $paths, ?array $containers): array
             'libvirt' => isset($paths['domain_cfg']) ? watchmanFlowLibvirt(readCfg((string) $paths['domain_cfg'])) : null,
             'holder' => $holder['holder'] ?? null, 'kopia' => $kopia !== '' ? $kopia : null,
             'office_shares' => array_values(array_unique(array_filter([BACKUP_OFFICE_SHARE, $place]))),
-            'disks' => watchmanFlowDisks($paths, $snapDirs), 'fs' => watchmanFlowFs($paths), 'moving' => watchmanFlowMovers($paths['proc'] ?? '/proc'),
+            'disks' => watchmanFlowDisks($paths, $snapDirs), 'fs' => watchmanFlowFs($paths),
+            'where' => fn (string $disk, int $gen): ?array => watchmanBtrfsWhere(rtrim($paths['mnt'] ?? '/mnt', '/') . "/$disk", $gen), 'moving' => watchmanFlowMovers($paths['proc'] ?? '/proc'),
             'runs' => watchmanFlowOfficeRuns($paths), 'move_shares' => watchmanFlowMoveShares($paths), 'moved_off' => watchmanFlowMovedOff($paths),
             'partner' => watchmanFlowPartner($paths, $holder['holder'] ?? null)];
 }
@@ -5210,7 +5213,8 @@ function watchmanFlowDisks(array $paths, array $snapDirs = ['.btrfs-snap']): ?ar
  *          nothing); `busy` while btrfs balances, replaces or removes a device, or — an array disk — Unraid syncs or
  *          rebuilds parity: then its writes aren't anybody's
  * Null: no disks.ini.
- * @return array{disks: array<string, array{fs: string, rm: ?int, w: ?int, busy: bool}>, asleep: list<string>}|null
+ * `gen` (btrfs): its generation now — where it was written since (watchmanBtrfsWhere()) is asked from there.
+ * @return array{disks: array<string, array{fs: string, rm: ?int, w: ?int, busy: bool, gen?: ?int}>, asleep: list<string>}|null
  */
 function watchmanFlowFs(array $paths): ?array
 {
@@ -5281,6 +5285,7 @@ function watchmanFlowFs(array $paths): ?array
         if ($uuid === null) {
             continue;
         }
+        $gen = trim((string) @file_get_contents("$sysBtrfs/$uuid/generation", false, null, 0, 32));
         $op = trim((string) @file_get_contents("$sysBtrfs/$uuid/exclusive_operation", false, null, 0, 64));
         $busy = $op !== '' && $op !== 'none';
         if (($v['type'] ?? '') === 'Data') {
@@ -5303,10 +5308,77 @@ function watchmanFlowFs(array $paths): ?array
             }
             $w += $written[$d];
         }
-        $out[$name] = ['fs' => 'btrfs', 'rm' => null, 'w' => $w === null ? null : intdiv($w, $copies), 'busy' => $busy];
+        $out[$name] = ['fs' => 'btrfs', 'rm' => null, 'w' => $w === null ? null : intdiv($w, $copies), 'busy' => $busy,
+                       'gen' => ctype_digit($gen) ? (int) $gen : null];
     }
     ksort($out);
     return ['disks' => $out, 'asleep' => $asleep];
+}
+
+/**
+ * Where on a btrfs disk was written since generation $gen — asked only when its entry is written (the disk is awake: it
+ * just wrote that much): `btrfs subvolume find-new` lists the files with data newer than $gen (it walks only the changed
+ * part of the tree; deletions it never shows). Their bytes summed per top folder (a share), the WATCH_FLOW_GUESS most;
+ * at most WATCH_FINDNEW_LINES files and WATCH_FINDNEW_SECS — then `part`: from the first ones only. Null: can't be told.
+ * @return array{top: list<array{share: string, b: int}>, part: bool}|null
+ */
+function watchmanBtrfsWhere(string $dir, int $gen, string $bin = 'btrfs'): ?array
+{
+    $env = ['PATH' => '/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin', 'LC_ALL' => 'C', 'HOME' => '/root'];
+    $pipes = [];
+    $proc = @proc_open([$bin, 'subvolume', 'find-new', $dir, (string) $gen], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']],
+                       $pipes, '/', $env);
+    if (!is_resource($proc)) {
+        return null;
+    }
+    stream_set_blocking($pipes[1], false);
+    $deadline = microtime(true) + WATCH_FINDNEW_SECS;
+    $per = [];
+    $lines = 0;
+    $buf = '';
+    $part = false;
+    $marker = false;
+    while (true) {
+        if (microtime(true) > $deadline || $lines >= WATCH_FINDNEW_LINES) {
+            $part = true;
+            break;
+        }
+        $r = [$pipes[1]];
+        $w = $e = null;
+        @stream_select($r, $w, $e, 0, 100000);
+        $chunk = fread($pipes[1], 65536);
+        if ($chunk !== false) {
+            $buf .= $chunk;
+        }
+        while (($at = strpos($buf, "\n")) !== false && $lines < WATCH_FINDNEW_LINES) {
+            $line = substr($buf, 0, $at);
+            $buf = substr($buf, $at + 1);
+            if (preg_match('/^inode \d+ file offset \d+ len (\d+) .*? flags \S+ ([^\/]+)\//', $line, $m)) {
+                $lines++;
+                $per[$m[2]] = ($per[$m[2]] ?? 0) + (int) $m[1];
+            } elseif (str_starts_with($line, 'transid marker')) {
+                $marker = true;
+            }
+        }
+        if (feof($pipes[1])) {
+            break;
+        }
+    }
+    fclose($pipes[1]);
+    if ($part) {
+        @proc_terminate($proc, 9);
+    }
+    $exit = proc_close($proc);
+    if (!$part && ($exit !== 0 || !$marker)) {
+        return null;                // not btrfs's answer (an error, an older btrfs)
+    }
+    $per = array_filter($per, fn ($k) => $k !== '' && $k[0] !== '.' && !storeroomName((string) $k), ARRAY_FILTER_USE_KEY);
+    arsort($per);
+    $top = [];
+    foreach (array_slice($per, 0, WATCH_FLOW_GUESS, true) as $share => $b) {
+        $top[] = ['share' => watchmanClean((string) $share, 100), 'b' => (int) $b];
+    }
+    return ['top' => $top, 'part' => $part];
 }
 
 /**
@@ -6292,8 +6364,15 @@ function watchmanFlowSourceLine(array $x, string $lang): string
 /** The biggest source behind its entry's line (' Most of it: …'), or that none can be seen; '' for the page (it words it itself) */
 function watchmanFlowFrom(array $p, ?string $lang): string
 {
-    if (($p['disk'] ?? null) !== null) {        // written to an XFS/btrfs disk: measured for it whole
-        return $lang === null ? '' : ' ' . officeNotifyText('watchman', 'gone.disk', ['fs' => (string) ($p['fs'] ?? '')], $lang);
+    if (($p['disk'] ?? null) !== null) {        // written to an XFS/btrfs disk: measured for it whole (btrfs: where, if it could tell)
+        if ($lang === null) {
+            return '';
+        }
+        $top = is_array($p['where']['top'] ?? null) ? $p['where']['top'] : [];
+        $list = implode(', ', array_map(fn ($x) => (string) ($x['share'] ?? '') . ' (' . watchmanSize((int) ($x['b'] ?? 0), $lang) . ')', $top));
+        return ' ' . ($top ? officeNotifyText('watchman', !empty($p['where']['part']) ? 'src.disk_most_part' : 'src.disk_most',
+                                              ['list' => $list, 'n' => WATCH_FINDNEW_LINES], $lang) . ' ' : '')
+            . officeNotifyText('watchman', 'gone.disk', ['fs' => (string) ($p['fs'] ?? '')], $lang);
     }
     $src = is_array($p['src'] ?? null) ? $p['src'] : [];
     $top = $src[0] ?? null;
@@ -6869,7 +6948,7 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
         }
         foreach ((array) $fsl['disks'] as $name => $d) {
             $name = (string) $name;
-            $next['fsd'][$name] = [$d['rm'], $d['w']];
+            $next['fsd'][$name] = [$d['rm'], $d['w'], $d['gen'] ?? null];
             $p = is_array($was) ? ($was[$name] ?? null) : null;
             if (!is_array($p)) {
                 continue;
@@ -6897,7 +6976,11 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
                 $used = (int) ($look['disks']['disks'][$name]['used'] ?? 0);
                 $clear = max(WATCH_FLOW_WRITE, $used > 0 ? min(WATCH_FLOW_NEW, (int) ($used * WATCH_FLOW_PART)) : WATCH_FLOW_NEW);
                 $j = watchmanFlowJudge($s, $bytes, $now, $ack("flow_written:disk:$name"), WATCH_FLOW_MIN, $clear);
-                $added[] = watchmanFlowNote($book, 'flow_written', "flow_written:disk:$name", $now, (array) $s['run'], (int) ($s['h'][intdiv($now, 3600)] ?? 0), $j, $who);
+                // btrfs: where it was written since the last round, asked only when the entry is written
+                $where = $look['where'] ?? null;
+                $gen = isset($p[2]) && is_int($p[2]) ? $p[2] : null;
+                $added[] = watchmanFlowNote($book, 'flow_written', "flow_written:disk:$name", $now, (array) $s['run'], (int) ($s['h'][intdiv($now, 3600)] ?? 0), $j,
+                    fn (): array => $who + ($d['fs'] === 'btrfs' && $gen !== null && is_callable($where) ? ['where' => $where($name, $gen)] : []));
             }
         }
     }

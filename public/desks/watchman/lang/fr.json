@@ -530,6 +530,8 @@
   "src.title": "Où cela a été écrit :",
   "src.most": "La plus grande part : {what}, {size}.",
   "src.none": "Aucune source distincte visible — {share} est un seul dataset.",
+  "src.disk_most": "L'essentiel dans : {list}.",
+  "src.disk_most_part": "L'essentiel dans (d'après les {n} premiers fichiers) : {list}.",
   "src.container": "Conteneur {name} (sa couche inscriptible)",
   "src.layers_new": {"one": "nouvelle couche d'image : {image}", "other": "{n} nouvelles couches d'image : {image}"},
   "src.layers": {"one": "couche d'image : {image}", "other": "{n} couches d'image : {image}"},

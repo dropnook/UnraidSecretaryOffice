@@ -530,6 +530,8 @@
   "src.title": "Wohin geschrieben wurde:",
   "src.most": "Das meiste: {what}, {size}.",
   "src.none": "Keine einzelne Quelle sichtbar — {share} ist ein einziges Dataset.",
+  "src.disk_most": "Das meiste davon in: {list}.",
+  "src.disk_most_part": "Das meiste davon in (aus den ersten {n} Dateien): {list}.",
   "src.container": "Container {name} (seine beschreibbare Ebene)",
   "src.layers_new": {"one": "neue Image-Ebene: {image}", "other": "{n} neue Image-Ebenen: {image}"},
   "src.layers": {"one": "Image-Ebene: {image}", "other": "{n} Image-Ebenen: {image}"},

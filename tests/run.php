@@ -16776,6 +16776,8 @@ function testWatchmanFlowFiles(): void
     symlink("$tmp/dev/dm-3", "$tmp/dev/mapper/md5p1");
     touch("$tmp/dev/dm-3");
     file_put_contents("$tmp/sys/btrfs/aaaa-1/exclusive_operation", "none\n");
+    file_put_contents("$tmp/sys/btrfs/aaaa-1/generation", "4598\n");
+    file_put_contents("$tmp/sys/btrfs/bbbb-2/generation", "66\n");
     file_put_contents("$tmp/sys/btrfs/bbbb-2/exclusive_operation", "none\n");
     file_put_contents("$tmp/disks.ini", "[parity]\nname=\"parity\"\ndevice=\"sda\"\ntype=\"Parity\"\nrotational=\"1\"\nspundown=\"0\"\n"
         . "[disk1]\nname=\"disk1\"\ndevice=\"sdb\"\ntype=\"Data\"\nfsType=\"xfs\"\nfsStatus=\"Mounted\"\nrotational=\"1\"\nspundown=\"0\"\n"
@@ -16806,8 +16808,8 @@ function testWatchmanFlowFiles(): void
               'sys_xfs' => 'spy://sys/xfs', 'sys_btrfs' => 'spy://sys/btrfs', 'dev_root' => $tmp, 'mnt' => 'spy://mnt'];
     $fs = watchmanFlowFs($paths);
     same('fs counters: XFS from its own stats (a deletion and a rename\'s old name, bytes written), btrfs from its devices (an array disk: its own device; a raid1 pool: its members, halved)',
-        [['cache', 'disk1', 'disk3'], ['fs' => 'xfs', 'rm' => 4, 'w' => 125829120, 'busy' => false], ['fs' => 'btrfs', 'rm' => null, 'w' => 512000, 'busy' => false],
-         ['fs' => 'btrfs', 'rm' => null, 'w' => 4000 * 512, 'busy' => false], ['disk2', 'disk5']],
+        [['cache', 'disk1', 'disk3'], ['fs' => 'xfs', 'rm' => 4, 'w' => 125829120, 'busy' => false], ['fs' => 'btrfs', 'rm' => null, 'w' => 512000, 'busy' => false, 'gen' => 4598],
+         ['fs' => 'btrfs', 'rm' => null, 'w' => 4000 * 512, 'busy' => false, 'gen' => 66], ['disk2', 'disk5']],
         [array_keys($fs['disks'] ?? []), $fs['disks']['disk1'] ?? null, $fs['disks']['disk3'] ?? null, $fs['disks']['cache'] ?? null, $fs['asleep'] ?? null]);
     $asked = WatchFsSpy::$asked;
     same('fs counters: a sleeping disk is never touched (not its counters, not its device) and nothing under /mnt is asked at all — RAM only',
@@ -16900,7 +16902,7 @@ function testWatchmanFlowFiles(): void
     $carried = $cnt['fsd']['disk4'] ?? null;
     [$a7, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $fsl([10, 1 * $gb, 900 * $gb, 60060, 300 * $gb])]), $book, $t0 + 2100);
     same('a balance left out, counters counted anew without an entry, a sleeping disk carried on and only its change counted after',
-        [[], [], [], [], $before, [60050, 300 * $gb], 30000 + 10],
+        [[], [], [], [], $before, [60050, 300 * $gb, null], 30000 + 10],
         [$a4, $a5, $a6, $a7, [array_sum($flow['disk_w']['disk3']['h'] ?? []), array_sum($flow['disk_w']['disk3']['o'] ?? [])], $carried,
          array_sum($flow['files']['disk:disk4']['h'] ?? [])]);
 
@@ -16941,6 +16943,42 @@ function testWatchmanFlowFiles(): void
     same('the page: files beside what vanished, a row of their own, the limits', [30000, 200 * $gb, 21000 + 25000 + 90000, 0, 21000, 2000, 20000],
         [$rows['share:Musik']['files'] ?? null, $rows['share:Musik']['day'] ?? null, $rows['share:Fotos']['files'] ?? null, $rows['share:Fotos']['day'] ?? null,
          $rows['share:Fotos']['files_ack'] ?? null, $f['limits']['files_min'] ?? null, $f['limits']['files_new'] ?? null]);
+
+    // btrfs: where a disk was written (find-new from the last round's generation) — only when its entry is written, capped
+    $bin = sys_get_temp_dir() . '/office-tests-findnew-' . getmypid();
+    @mkdir($bin, 0700, true);
+    file_put_contents("$bin/btrfs", "#!/bin/bash\n[[ \"\$1 \$2\" == 'subvolume find-new' ]] || exit 2\ncase \"\$4\" in\n"
+        . "100) printf 'inode 257 file offset 0 len 41943040 disk start 0 offset 0 gen 140 flags NONE Familienfotos/2026/a b.jpg\\n'\n"
+        . "    printf 'inode 258 file offset 0 len 2048 disk start 0 offset 0 gen 141 flags INLINE Dokumente/x.txt\\n'\n"
+        . "    printf 'inode 259 file offset 0 len 9999 disk start 0 offset 0 gen 141 flags NONE .Recycle.Bin/y\\n'\n"
+        . "    printf 'transid marker was 141\\n' ;;\n"
+        . "200) awk 'BEGIN{for(i=1;i<=25000;i++) printf \"inode %d file offset 0 len 4096 disk start 0 offset 0 gen 5 flags NONE Familienfotos/%d\\n\", i, i}' ;;\n"
+        . "*) echo 'ERROR: not a btrfs filesystem' >&2; exit 1 ;;\nesac\n");
+    chmod("$bin/btrfs", 0700);
+    same('btrfs where: bytes per share from find-new (no hidden folders); over the cap from the first files only; an error: null',
+        [['top' => [['share' => 'Familienfotos', 'b' => 41943040], ['share' => 'Dokumente', 'b' => 2048]], 'part' => false],
+         ['top' => [['share' => 'Familienfotos', 'b' => WATCH_FINDNEW_LINES * 4096]], 'part' => true], null],
+        [watchmanBtrfsWhere('/mnt/disk3', 100, "$bin/btrfs"), watchmanBtrfsWhere('/mnt/disk3', 200, "$bin/btrfs"), watchmanBtrfsWhere('/mnt/disk3', 300, "$bin/btrfs")]);
+    exec('rm -rf ' . escapeshellarg($bin));
+    $calls = [];
+    $where = function (string $disk, int $gen) use (&$calls, $gb): array {
+        $calls[] = [$disk, $gen];
+        return ['top' => [['share' => 'Familienfotos', 'b' => 55 * $gb]], 'part' => false];
+    };
+    $bfs = fn (int $w, int $gen) => ['disks' => ['disk3' => ['fs' => 'btrfs', 'rm' => null, 'w' => $w, 'busy' => false, 'gen' => $gen]], 'asleep' => []];
+    $bf = null;
+    $book = [];
+    [, $flow, $cnt] = watchmanFlowCompare($bf, [], null, $look(['disks' => $disks($used), 'fs' => $bfs(0, 100), 'where' => $where]), $book, $t0);
+    [, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $bfs(1 * $gb, 120), 'where' => $where]), $book, $t0 + 300);
+    $quiet = $calls;
+    [$w1, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $bfs(61 * $gb, 140), 'where' => $where]), $book, $t0 + 600);
+    [, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $bfs(61 * $gb, 150), 'where' => $where]), $book, $t0 + 900);
+    $we = array_column(array_filter($book, 'watchmanOpen'), null, 'key')['flow_written:disk:disk3'] ?? ['p' => []];
+    same('btrfs where: never asked for a quiet round, once for the entry (from the last round\'s generation), not again after',
+        [[], ['flow_written'], [['disk3', 120]], "61 GB written into disk3 (Familienfilme) in 10 min — more than 50 GB in one round while I'm still learning what is normal. "
+            . "Most of it into: Familienfotos (55 GB). Measured for the whole disk (btrfs), not per share."],
+        [$quiet, $w1, $calls, officeNotifyText('watchman', 'entry.flow_written', watchmanText($we, 'en'), 'en')]);
+
 }
 
 /**

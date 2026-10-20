@@ -530,6 +530,8 @@
   "src.title": "Where it was written:",
   "src.most": "Most of it: {what}, {size}.",
   "src.none": "No single source visible — {share} is one dataset.",
+  "src.disk_most": "Most of it into: {list}.",
+  "src.disk_most_part": "Most of it into (from the first {n} files): {list}.",
   "src.container": "Container {name} (its writable layer)",
   "src.layers_new": {"one": "new image layer: {image}", "other": "{n} new image layers: {image}"},
   "src.layers": {"one": "image layer: {image}", "other": "{n} image layers: {image}"},

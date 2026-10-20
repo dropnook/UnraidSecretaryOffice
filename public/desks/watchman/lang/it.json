@@ -530,6 +530,8 @@
   "src.title": "Dove è stato scritto:",
   "src.most": "La maggior parte: {what}, {size}.",
   "src.none": "Nessuna fonte singola visibile — {share} è un solo dataset.",
+  "src.disk_most": "La maggior parte in: {list}.",
+  "src.disk_most_part": "La maggior parte in (dai primi {n} file): {list}.",
   "src.container": "Container {name} (il suo livello scrivibile)",
   "src.layers_new": {"one": "nuovo livello d'immagine: {image}", "other": "{n} nuovi livelli d'immagine: {image}"},
   "src.layers": {"one": "livello d'immagine: {image}", "other": "{n} livelli d'immagine: {image}"},

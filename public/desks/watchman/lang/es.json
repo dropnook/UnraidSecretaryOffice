@@ -530,6 +530,8 @@
   "src.title": "Dónde se escribió:",
   "src.most": "La mayor parte: {what}, {size}.",
   "src.none": "No se ve ninguna fuente concreta — {share} es un solo dataset.",
+  "src.disk_most": "La mayor parte en: {list}.",
+  "src.disk_most_part": "La mayor parte en (según los primeros {n} archivos): {list}.",
   "src.container": "Contenedor {name} (su capa escribible)",
   "src.layers_new": {"one": "capa de imagen nueva: {image}", "other": "{n} capas de imagen nuevas: {image}"},
   "src.layers": {"one": "capa de imagen: {image}", "other": "{n} capas de imagen: {image}"},
