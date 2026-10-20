@@ -16705,6 +16705,285 @@ function testWatchmanFlowGone(): void
         [$d4, $d5, array_sum($flow['gone']['disk:disk1']['o'] ?? [])]);
 }
 
+/** A spy for the night watchman's readers (testWatchmanFlowFiles): serves a real folder under spy:// and notes every path asked */
+class WatchFsSpy
+{
+    public static string $root = '';
+    public static array $asked = [];
+    public $context;
+    private $h;
+    private array $list = [];
+
+    private static function real(string $url): string
+    {
+        $path = substr($url, strlen('spy://'));
+        self::$asked[] = '/' . ltrim($path, '/');
+        return self::$root . '/' . ltrim($path, '/');
+    }
+
+    public function stream_open(string $url, string $mode, int $options, ?string &$opened): bool
+    {
+        $this->h = @fopen(self::real($url), $mode);
+        return $this->h !== false;
+    }
+    public function stream_read(int $n): string|false { return fread($this->h, $n); }
+    public function stream_eof(): bool { return feof($this->h); }
+    public function stream_seek(int $offset, int $whence = SEEK_SET): bool { return fseek($this->h, $offset, $whence) === 0; }
+    public function stream_tell(): int { return (int) ftell($this->h); }
+    public function stream_stat(): array|false { return fstat($this->h); }
+    public function stream_close(): void { fclose($this->h); }
+    public function url_stat(string $url, int $flags): array|false
+    {
+        $real = self::real($url);
+        return file_exists($real) ? @stat($real) : false;
+    }
+    public function dir_opendir(string $url, int $options): bool
+    {
+        $list = @scandir(self::real($url));
+        $this->list = $list === false ? [] : $list;
+        return $list !== false;
+    }
+    public function dir_readdir(): string|false
+    {
+        $x = current($this->list);
+        next($this->list);
+        return $x;
+    }
+    public function dir_rewinddir(): bool { reset($this->list); return true; }
+    public function dir_closedir(): bool { return true; }
+}
+
+/**
+ * Files deleted and heavy writing on every filesystem (owner, 2026-10-20: very many files deleted and added again on a
+ * btrfs share — nothing told): the readers on fixtures in the shapes Unraid 7.4 (kernel 6.18, OpenZFS 2.3) gives them,
+ * a sleeping disk never touched (a spy notes every path asked), then rounds: an XFS disk's deletions, a deletion and
+ * its files back within one round, a btrfs disk written over, the movers and the office expected, a btrfs balance and a
+ * parity rebuild left out, counters counted anew, ZFS per share, «I know, thanks», the page.
+ */
+function testWatchmanFlowFiles(): void
+{
+    $gb = 1024 ** 3;
+    $tmp = sys_get_temp_dir() . '/office-tests-flow-files-' . getmypid();
+    foreach (['sys/xfs/md1p1/stats', 'sys/xfs/md2p1/stats', 'sys/xfs/dm-3/stats', 'sys/btrfs/aaaa-1/devices/md3p1', 'sys/btrfs/bbbb-2/devices/nvme0n1p1',
+              'sys/btrfs/bbbb-2/devices/nvme1n1p1', 'sys/btrfs/bbbb-2/allocation/data/raid1', 'dev/mapper', 'mnt/disk1/Fotos', 'mnt/disk2/Filme', 'kstat/tank'] as $d) {
+        @mkdir("$tmp/$d", 0700, true);
+    }
+    $xfs = fn (int $create, int $remove, int $written) => "extent_alloc 7 9 0 0\nabt 0 0 0 0\ndir 115 $create $remove 44652\ntrans 0 92 0\n"
+        . "rw 120 126\nattr 0 0 0 0\nxpc 0 $written 125829120\ndebug 0\n";
+    file_put_contents("$tmp/sys/xfs/md1p1/stats/stats", $xfs(10, 4, 125829120));
+    file_put_contents("$tmp/sys/xfs/md2p1/stats/stats", $xfs(1, 1, 1));
+    file_put_contents("$tmp/sys/xfs/dm-3/stats/stats", $xfs(5, 2, 4096));
+    symlink("$tmp/dev/dm-3", "$tmp/dev/mapper/md5p1");
+    touch("$tmp/dev/dm-3");
+    file_put_contents("$tmp/sys/btrfs/aaaa-1/exclusive_operation", "none\n");
+    file_put_contents("$tmp/sys/btrfs/aaaa-1/generation", "4598\n");
+    file_put_contents("$tmp/sys/btrfs/bbbb-2/generation", "66\n");
+    file_put_contents("$tmp/sys/btrfs/bbbb-2/exclusive_operation", "none\n");
+    file_put_contents("$tmp/disks.ini", "[parity]\nname=\"parity\"\ndevice=\"sda\"\ntype=\"Parity\"\nrotational=\"1\"\nspundown=\"0\"\n"
+        . "[disk1]\nname=\"disk1\"\ndevice=\"sdb\"\ntype=\"Data\"\nfsType=\"xfs\"\nfsStatus=\"Mounted\"\nrotational=\"1\"\nspundown=\"0\"\n"
+        . "[disk2]\nname=\"disk2\"\ndevice=\"sdc\"\ntype=\"Data\"\nfsType=\"xfs\"\nfsStatus=\"Mounted\"\nrotational=\"1\"\nspundown=\"1\"\n"
+        . "[disk3]\nname=\"disk3\"\ndevice=\"sdd\"\ntype=\"Data\"\nfsType=\"btrfs\"\nfsStatus=\"Mounted\"\nrotational=\"1\"\nspundown=\"0\"\n"
+        . "[disk5]\nname=\"disk5\"\ndevice=\"sdf\"\ntype=\"Data\"\nfsType=\"luks:xfs\"\nfsStatus=\"Mounted\"\nrotational=\"1\"\nspundown=\"1\"\n"
+        . "[cache]\nname=\"cache\"\ndevice=\"nvme0n1\"\ntype=\"Cache\"\nfsType=\"btrfs\"\nfsStatus=\"Mounted\"\nrotational=\"0\"\nspundown=\"0\"\n"
+        . "[cache2]\nname=\"cache2\"\ndevice=\"nvme1n1\"\ntype=\"Cache\"\nrotational=\"0\"\nspundown=\"0\"\n"
+        . "[tank]\nname=\"tank\"\ndevice=\"sde\"\ntype=\"Cache\"\nfsType=\"zfs\"\nfsStatus=\"Mounted\"\nrotational=\"1\"\nspundown=\"0\"\n"
+        . "[flash]\nname=\"flash\"\ndevice=\"sdg\"\ntype=\"Flash\"\nfsType=\"vfat\"\nfsStatus=\"Mounted\"\n");
+    // /proc/mounts as the spy's /mnt names it (the readers only compare the mount points, they never open one)
+    file_put_contents("$tmp/mounts", "/dev/sdg1 /boot vfat rw 0 0\n/dev/md1p1 spy://mnt/disk1 xfs rw,noatime 0 0\n/dev/md2p1 spy://mnt/disk2 xfs rw,noatime 0 0\n"
+        . "/dev/md3p1 spy://mnt/disk3 btrfs rw,noatime 0 0\n/dev/mapper/md5p1 spy://mnt/disk5 xfs rw,noatime 0 0\n/dev/nvme0n1p1 spy://mnt/cache btrfs rw,noatime,ssd 0 0\n"
+        . "tank spy://mnt/tank zfs rw 0 0\nshfs spy://mnt/user fuse.shfs rw 0 0\n");
+    $stats = fn (int $sdd, int $n0, int $n1) => "   8      48 sdd 296525 32015001 258583756 7381973 120263 10343186 $sdd 204886 0 116284 7591173 0 0 0 0 514 4312\n"
+        . " 259       0 nvme0n1 751746 0 107564664 158490 1566741 0 195696928 425577 0 402069 822812 56435 0 127036960 14531 72640 224212\n"
+        . " 259       1 nvme0n1p1 751000 0 107500000 158000 1566000 0 $n0 425000 0 402000 822000 56435 0 127036960 14531 72640 224212\n"
+        . " 259       3 nvme1n1p1 742000 0 108200000 158000 1575000 0 $n1 420000 0 400000 814000 56435 0 127036960 15495 72642 220258\n"
+        . "   9       3 md3p1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n";
+    file_put_contents("$tmp/diskstats", $stats(1000, 4000, 4000));
+    file_put_contents("$tmp/var.ini", "mdResync=\"0\"\n");
+    if (!in_array('spy', stream_get_wrappers(), true)) {
+        stream_wrapper_register('spy', 'WatchFsSpy');
+    }
+    WatchFsSpy::$root = $tmp;
+    WatchFsSpy::$asked = [];
+    $paths = ['disks_ini' => "$tmp/disks.ini", 'var_ini' => "$tmp/var.ini", 'mounts' => "$tmp/mounts", 'diskstats' => "$tmp/diskstats",
+              'sys_xfs' => 'spy://sys/xfs', 'sys_btrfs' => 'spy://sys/btrfs', 'dev_root' => $tmp, 'mnt' => 'spy://mnt'];
+    $fs = watchmanFlowFs($paths);
+    same('fs counters: XFS from its own stats (a deletion and a rename\'s old name, bytes written), btrfs from its devices (an array disk: its own device; a raid1 pool: its members, halved)',
+        [['cache', 'disk1', 'disk3'], ['fs' => 'xfs', 'rm' => 4, 'w' => 125829120, 'busy' => false], ['fs' => 'btrfs', 'rm' => null, 'w' => 512000, 'busy' => false, 'gen' => 4598],
+         ['fs' => 'btrfs', 'rm' => null, 'w' => 4000 * 512, 'busy' => false, 'gen' => 66], ['disk2', 'disk5']],
+        [array_keys($fs['disks'] ?? []), $fs['disks']['disk1'] ?? null, $fs['disks']['disk3'] ?? null, $fs['disks']['cache'] ?? null, $fs['asleep'] ?? null]);
+    $asked = WatchFsSpy::$asked;
+    same('fs counters: a sleeping disk is never touched (not its counters, not its device) and nothing under /mnt is asked at all — RAM only',
+        [[], [], true], [array_values(array_filter($asked, fn ($p) => str_contains($p, 'disk2') || str_contains($p, 'md2p1') || str_contains($p, 'disk5') || str_contains($p, 'dm-3'))),
+                         array_values(array_filter($asked, fn ($p) => str_starts_with($p, '/mnt'))), in_array('/sys/xfs/md1p1/stats/stats', $asked, true)]);
+    // the encrypted XFS disk awake: its counters under the device mapper's name (dm-3)
+    file_put_contents("$tmp/disks.ini", str_replace("rotational=\"1\"\nspundown=\"1\"\n[cache]", "rotational=\"1\"\nspundown=\"0\"\n[cache]", (string) file_get_contents("$tmp/disks.ini")));
+    // a btrfs balance on disk3, a parity rebuild: disk3 (an array disk) busy; the pool busy only while it balances itself
+    file_put_contents("$tmp/sys/btrfs/bbbb-2/exclusive_operation", "balance\n");
+    $fs2 = watchmanFlowFs($paths);
+    file_put_contents("$tmp/var.ini", "mdResync=\"1953514552\"\n");
+    $fs3 = watchmanFlowFs($paths);
+    same('fs counters: an encrypted disk by its mapper device; a balance makes its pool busy, a parity rebuild every btrfs array disk',
+        [['fs' => 'xfs', 'rm' => 2, 'w' => 4096, 'busy' => false], true, false, true, true],
+        [$fs2['disks']['disk5'] ?? null, $fs2['disks']['cache']['busy'] ?? null, $fs2['disks']['disk3']['busy'] ?? null, $fs3['disks']['disk3']['busy'] ?? null,
+         $fs3['disks']['cache']['busy'] ?? null]);
+
+    // ZFS: nunlinks per dataset from its kstat (objsetid from zfs get), never Docker's layers, a kstat of another dataset not taken
+    $kstat = fn (string $ds, int $n) => "886 1 0x01 28 7872 32143951267471 47323808257814\nname                            type data\n"
+        . "dataset_name                    7    $ds\nwrites                          4    23171\nnwritten                        4    80400304\n"
+        . "nunlinks                        4    $n\nnunlinked                       4    $n\nzil_commit_count                4    4486\n";
+    file_put_contents("$tmp/kstat/tank/objset-0x104", $kstat('tank/Fotos', 11701));
+    file_put_contents("$tmp/kstat/tank/objset-0x155", $kstat('tank/other', 5));
+    file_put_contents("$tmp/kstat/tank/objset-0x200", $kstat('tank/system/docker/' . str_repeat('a', 64), 900));
+    $sets = watchmanZfsParse("tank/Fotos\twritten\t10\ntank/Fotos\tobjsetid\t260\ntank/Musik\tobjsetid\t341\ntank/system/docker/" . str_repeat('a', 64) . "\tobjsetid\t512\n");
+    watchmanZfsUnlinks($sets, "$tmp/kstat");
+    same('ZFS files deleted: from the dataset\'s own kstat (its name checked), not Docker\'s layers', [260, 11701, null, null],
+        [$sets['tank/Fotos']['o'] ?? null, $sets['tank/Fotos']['x'] ?? null, $sets['tank/Musik']['x'] ?? null, $sets['tank/system/docker/' . str_repeat('a', 64)]['x'] ?? null]);
+    exec('rm -rf ' . escapeshellarg($tmp));
+
+    // rounds on made-up looks
+    $t0 = strtotime('2026-10-20 21:02:00');
+    $look = fn (array $o) => $o + ['conns' => [], 'smb' => ['on' => true, 'sessions' => []], 'containers' => null, 'nfs' => false, 'holder' => null, 'kopia' => 'kopia',
+                                   'zfs' => null, 'office_shares' => ['UnraidSecretaryOffice', 'backups'], 'disks' => null, 'fs' => null, 'moving' => []];
+    $disks = fn (array $used) => ['disks' => ['disk1' => ['fs' => 'xfs', 'used' => $used[0], 'snap' => null, 'shares' => ['Fotos', 'Dokumente']],
+        'disk3' => ['fs' => 'btrfs', 'used' => $used[1], 'snap' => 1791200000, 'shares' => ['Familienfilme']],
+        'disk4' => ['fs' => 'xfs', 'used' => $used[2], 'snap' => null, 'shares' => ['Filme', 'backups']]], 'asleep' => []];
+    $fsl = fn (array $c, array $busy = [], array $asleep = []) => ['disks' => array_diff_key([
+        'disk1' => ['fs' => 'xfs', 'rm' => $c[0], 'w' => $c[1], 'busy' => false], 'disk3' => ['fs' => 'btrfs', 'rm' => null, 'w' => $c[2], 'busy' => in_array('disk3', $busy, true)],
+        'disk4' => ['fs' => 'xfs', 'rm' => $c[3], 'w' => $c[4], 'busy' => false]], array_flip($asleep)), 'asleep' => $asleep];
+    $bf = null;
+    $book = [];
+    $used = [4000 * $gb, 300 * $gb, 2000 * $gb];
+    [$a0, $flow, $cnt] = watchmanFlowCompare($bf, [], null, $look(['disks' => $disks($used), 'fs' => $fsl([1000, 0, 0, 50, 0])]), $book, $t0);
+    // five minutes later: 25 000 files deleted on disk1 (and as many written back — its used space as before); disk3 (btrfs):
+    // 60 GB written, its used space as before (deleted and added again); disk4 quiet
+    [$a1, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $fsl([26000, 40 * $gb, 60 * $gb, 50, 0])]), $book, $t0 + 300);
+    $open = array_column(array_filter($book, 'watchmanOpen'), null, 'key');
+    $d1 = $open['flow_gone:files:disk:disk1']['p'] ?? [];
+    $d3 = $open['flow_written:disk:disk3']['p'] ?? [];
+    same('the first look counts nothing; then the files deleted on disk1 told, disk3\'s writing told (its used space never moved), disk1\'s 40 GB not (under 50 GB)',
+        [[], ['flow_gone', 'flow_written'], ['flow_gone:files:disk:disk1', 'flow_written:disk:disk3'], [25000, true, 'server', 'disk1'], [60 * $gb, 'disk3', 'btrfs', ['Familienfilme']]],
+        [$a0, (function (array $a) { sort($a); return $a; })($a1), (function (array $a) { sort($a); return $a; })(array_keys($open)),
+         [$d1['files'] ?? null, $d1['renames'] ?? null, $d1['from'] ?? null, $d1['disk'] ?? null], [$d3['bytes'] ?? null, $d3['disk'] ?? null, $d3['fs'] ?? null, $d3['shares'] ?? null]]);
+    same('files deleted in words', "25000 files gone from disk1 (Fotos, Dokumente) in 5 min — more than 20000 files in one round while I'm still learning what is normal. "
+        . "No client moved data over SMB, NFS or SSH then — it came from the server itself. On XFS a renamed file counts too. Measured for the whole disk (xfs), not per share.",
+        officeNotifyText('watchman', 'entry.flow_gone', watchmanText($open['flow_gone:files:disk:disk1'], 'en'), 'en'));
+    same('a disk written in words', "60 GB written into disk3 (Familienfilme) in 5 min — more than 50 GB in one round while I'm still learning what is normal. Measured for the whole disk (btrfs), not per share.",
+        officeNotifyText('watchman', 'entry.flow_written', watchmanText($open['flow_written:disk:disk3'], 'en'), 'en'));
+    same('the notification and the team lead\'s line', ['Night watchman: 25000 files gone from disk1 (Fotos, Dokumente)', 'Nachtwächter: 60 GB geschrieben in disk3 (Familienfilme)'],
+        [officeNotifyText('watchman', 'notify.flow_gone', ['n' => 1] + watchmanText($open['flow_gone:files:disk:disk1'], 'en'), 'en'),
+         officeNotifyText('watchman', 'notify.flow_written', ['n' => 1] + watchmanText($open['flow_written:disk:disk3'], 'de'), 'de')]);
+    $book = [];
+
+    // Smart Mover moves Fotos (on disk1): its deletions and writes there are hers; disk4's deletions meanwhile are told. Then a
+    // backup: disk4 holds the backup place — its writing and deleting are the office's; disk1 alone still told
+    $ms = ['smartmover' => ['Fotos'], 'mover' => ['Fotos']];
+    [$a2, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $fsl([56000, 200 * $gb, 60 * $gb, 30050, 0]),
+        'moving' => ['smartmover'], 'move_shares' => $ms]), $book, $t0 + 600);
+    $open = array_column(array_filter($book, 'watchmanOpen'), null, 'key');
+    $book = [];
+    // a quiet round: what a mover moved at the last round is still hers this one
+    [, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $fsl([56000, 200 * $gb, 60 * $gb, 30050, 0]),
+        'move_shares' => $ms]), $book, $t0 + 750);
+    [$a3, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $fsl([86000, 200 * $gb, 60 * $gb, 60050, 300 * $gb]),
+        'holder' => 'backup']), $book, $t0 + 900);
+    $open3 = array_column(array_filter($book, 'watchmanOpen'), null, 'key');
+    same('a mover\'s disk is hers, another disk\'s deletions are told; during a backup the backup place\'s disk is the office\'s, another still told',
+        [['flow_gone:files:disk:disk4'], 30000, 160 * $gb, ['flow_gone:files:disk:disk1'], 30000, 300 * $gb],
+        [array_keys($open), array_sum($flow['files']['disk:disk1']['o'] ?? []), array_sum($flow['disk_w']['disk1']['o'] ?? []), array_keys($open3),
+         array_sum($flow['files']['disk:disk4']['o'] ?? []), array_sum($flow['disk_w']['disk4']['o'] ?? [])]);
+    $book = [];
+
+    // a btrfs balance (or a parity rebuild) on disk3: its writes are nobody's — left out; counters counted anew (remounted): no
+    // entry; a sleeping disk keeps its counters, and once awake again only what changed since counts
+    $before = [array_sum($flow['disk_w']['disk3']['h'] ?? []), array_sum($flow['disk_w']['disk3']['o'] ?? [])];
+    [$a4, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $fsl([86000, 200 * $gb, 900 * $gb, 60050, 300 * $gb], ['disk3'])]), $book, $t0 + 1200);
+    [$a5, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $fsl([10, 1 * $gb, 900 * $gb, 60050, 300 * $gb])]), $book, $t0 + 1500);
+    [$a6, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $fsl([10, 1 * $gb, 900 * $gb, 0, 0], [], ['disk4'])]), $book, $t0 + 1800);
+    $carried = $cnt['fsd']['disk4'] ?? null;
+    [$a7, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $fsl([10, 1 * $gb, 900 * $gb, 60060, 300 * $gb])]), $book, $t0 + 2100);
+    same('a balance left out, counters counted anew without an entry, a sleeping disk carried on and only its change counted after',
+        [[], [], [], [], $before, [60050, 300 * $gb, null], 30000 + 10],
+        [$a4, $a5, $a6, $a7, [array_sum($flow['disk_w']['disk3']['h'] ?? []), array_sum($flow['disk_w']['disk3']['o'] ?? [])], $carried,
+         array_sum($flow['files']['disk:disk4']['h'] ?? [])]);
+
+    // ZFS: files deleted per share (its datasets summed); in the same round as much gone by bytes: said in that entry
+    $ds = fn (int $r, int $x) => ['w' => 0, 'u' => $r, 's' => 1000, 'r' => $r, 'b' => 0, 'x' => $x];
+    $zfs = fn (array $sets) => ['datasets' => ['tank' => $ds(1, 0)] + $sets, 'pools' => ['tank'], 'asleep' => []];
+    $set = ['tank/Fotos' => $ds(900 * $gb, 100), 'tank/Fotos/2025' => $ds(100 * $gb, 0), 'tank/Musik' => $ds(500 * $gb, 0)];
+    $bf = null;
+    $book = [];
+    [, $flow, $cnt] = watchmanFlowCompare($bf, [], null, $look(['zfs' => $zfs($set)]), $book, $t0);
+    $set['tank/Fotos'] = $ds(900 * $gb, 12100);
+    $set['tank/Fotos/2025'] = $ds(100 * $gb, 9000);
+    $set['tank/Musik'] = $ds(300 * $gb, 30000);
+    [$z1, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['zfs' => $zfs($set)]), $book, $t0 + 300);
+    $open = array_column(array_filter($book, 'watchmanOpen'), null, 'key');
+    same('ZFS: Fotos\' 21 000 files told per share (its datasets together); Musik\'s 200 GB told with its 30 000 files in the same entry',
+        [['flow_gone', 'flow_gone'], ['flow_gone:files:share:Fotos', 'flow_gone:share:Musik'], 21000, [200 * $gb, 30000]],
+        [$z1, (function (array $a) { sort($a); return $a; })(array_keys($open)), $open['flow_gone:files:share:Fotos']['p']['files'] ?? null,
+         [$open['flow_gone:share:Musik']['p']['bytes'] ?? null, $open['flow_gone:share:Musik']['p']['files'] ?? null]]);
+    same('ZFS: both in words (de)', ['21000 Dateien weg aus Fotos in 5 Min. — mehr als 20000 Dateien in einem Rundgang, während ich noch lerne, was normal ist. '
+        . 'Kein Client bewegte damals über SMB, NFS oder SSH Daten — es kam vom Server selbst.', '30000 Dateien wurden gelöscht.'],
+        [officeNotifyText('watchman', 'entry.flow_gone', watchmanText($open['flow_gone:files:share:Fotos'], 'de'), 'de'),
+         officeNotifyText('watchman', 'gone.files', ['n' => 30000], 'de')]);
+    // «I know, thanks» on Fotos' files: 21 000 is normal now — the next 25 000 aren't told, 90 000 are
+    $b = ['flow' => $bf];
+    watchmanFlowAdopt($b, $open['flow_gone:files:share:Fotos'], $t0 + 400);
+    $bf = $b['flow'];
+    $book = [];
+    $set['tank/Fotos'] = $ds(900 * $gb, 37100);
+    [$z2, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['zfs' => $zfs($set)]), $book, $t0 + 1200);
+    $set['tank/Fotos'] = $ds(900 * $gb, 127100);
+    [$z3, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['zfs' => $zfs($set)]), $book, $t0 + 1500);
+    same('«I know, thanks» raises the files\' normal (kept by the tidying): 25 000 now quiet, 90 000 told', [21000, [], ['flow_gone']],
+        [$bf['ack']['flow_gone:files:share:Fotos']['bytes'] ?? null, $z2, $z3]);
+
+    $f = watchmanFlowSummary($bf, $flow, $t0 + 1600);
+    $rows = array_column($f['gone'], null, 'key');
+    same('the page: files beside what vanished, a row of their own, the limits', [30000, 200 * $gb, 21000 + 25000 + 90000, 0, 21000, 2000, 20000],
+        [$rows['share:Musik']['files'] ?? null, $rows['share:Musik']['day'] ?? null, $rows['share:Fotos']['files'] ?? null, $rows['share:Fotos']['day'] ?? null,
+         $rows['share:Fotos']['files_ack'] ?? null, $f['limits']['files_min'] ?? null, $f['limits']['files_new'] ?? null]);
+
+    // btrfs: where a disk was written (find-new from the last round's generation) — only when its entry is written, capped
+    $bin = sys_get_temp_dir() . '/office-tests-findnew-' . getmypid();
+    @mkdir($bin, 0700, true);
+    file_put_contents("$bin/btrfs", "#!/bin/bash\n[[ \"\$1 \$2\" == 'subvolume find-new' ]] || exit 2\ncase \"\$4\" in\n"
+        . "100) printf 'inode 257 file offset 0 len 41943040 disk start 0 offset 0 gen 140 flags NONE Familienfotos/2026/a b.jpg\\n'\n"
+        . "    printf 'inode 258 file offset 0 len 2048 disk start 0 offset 0 gen 141 flags INLINE Dokumente/x.txt\\n'\n"
+        . "    printf 'inode 259 file offset 0 len 9999 disk start 0 offset 0 gen 141 flags NONE .Recycle.Bin/y\\n'\n"
+        . "    printf 'transid marker was 141\\n' ;;\n"
+        . "200) awk 'BEGIN{for(i=1;i<=25000;i++) printf \"inode %d file offset 0 len 4096 disk start 0 offset 0 gen 5 flags NONE Familienfotos/%d\\n\", i, i}' ;;\n"
+        . "*) echo 'ERROR: not a btrfs filesystem' >&2; exit 1 ;;\nesac\n");
+    chmod("$bin/btrfs", 0700);
+    same('btrfs where: bytes per share from find-new (no hidden folders); over the cap from the first files only; an error: null',
+        [['top' => [['share' => 'Familienfotos', 'b' => 41943040], ['share' => 'Dokumente', 'b' => 2048]], 'part' => false],
+         ['top' => [['share' => 'Familienfotos', 'b' => WATCH_FINDNEW_LINES * 4096]], 'part' => true], null],
+        [watchmanBtrfsWhere('/mnt/disk3', 100, "$bin/btrfs"), watchmanBtrfsWhere('/mnt/disk3', 200, "$bin/btrfs"), watchmanBtrfsWhere('/mnt/disk3', 300, "$bin/btrfs")]);
+    exec('rm -rf ' . escapeshellarg($bin));
+    $calls = [];
+    $where = function (string $disk, int $gen) use (&$calls, $gb): array {
+        $calls[] = [$disk, $gen];
+        return ['top' => [['share' => 'Familienfotos', 'b' => 55 * $gb]], 'part' => false];
+    };
+    $bfs = fn (int $w, int $gen) => ['disks' => ['disk3' => ['fs' => 'btrfs', 'rm' => null, 'w' => $w, 'busy' => false, 'gen' => $gen]], 'asleep' => []];
+    $bf = null;
+    $book = [];
+    [, $flow, $cnt] = watchmanFlowCompare($bf, [], null, $look(['disks' => $disks($used), 'fs' => $bfs(0, 100), 'where' => $where]), $book, $t0);
+    [, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $bfs(1 * $gb, 120), 'where' => $where]), $book, $t0 + 300);
+    $quiet = $calls;
+    [$w1, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $bfs(61 * $gb, 140), 'where' => $where]), $book, $t0 + 600);
+    // test3, 2026-10-20: the entry brought up to date a round later asked from that round's generation — the 12 GB written
+    // the round before were gone from its answer: it asks from the generation the run began at (here the round at $t0)
+    [, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $bfs(62 * $gb, 150), 'where' => $where]), $book, $t0 + 900);
+    [, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $bfs(62 * $gb, 160), 'where' => $where]), $book, $t0 + 1200);
+    $we = array_column(array_filter($book, 'watchmanOpen'), null, 'key')['flow_written:disk:disk3'] ?? ['p' => []];
+    same('btrfs where: never asked for a quiet round, for the entry from the generation its run began at — also when brought up to date',
+        [[], ['flow_written'], [['disk3', 100], ['disk3', 100]], "62 GB written into disk3 (Familienfilme) in 15 min — more than 50 GB in one round while I'm still learning what is normal. "
+            . "Most of it into: Familienfotos (55 GB). Measured for the whole disk (btrfs), not per share."],
+        [$quiet, $w1, $calls, officeNotifyText('watchman', 'entry.flow_written', watchmanText($we, 'en'), 'en')]);
+
+}
+
 /**
  * The night watchman's data flow: the parsers on real output (ss -tin, smbstatus -b, zfs get,
  * /proc/<pid>/net/dev — addresses anonymised), then rounds on made-up looks: the first look counts
@@ -47150,7 +47429,7 @@ JS;
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testHouseDockerSilent', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

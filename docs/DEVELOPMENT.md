@@ -777,7 +777,11 @@ The same thing has the same word on every desk and text; grammar follows the wor
 * **Data flow:** `ss -tin`, a container's `/proc/<pid>/net/dev`, `smbstatus -b --json`; no conntrack bytes, no file-access
   logging. Written into a ZFS share is told apart only per dataset; a share of one dataset gets a guess, marked as such
   (`watchmanFlowGuess()`: binds from `docker inspect` Mounts — never Env —, `virsh dumpxml`, Compose Manager's files on the
-  flash; running + writing first, three named). **Logins:** `webgui: (Un)successful login user <name> from <ip>` (`<name>` may be a typed password; 3 failures lock
+  flash; running + writing first, three named). XFS and btrfs disks: the filesystems' own counters in RAM
+  (`watchmanFlowFs()`: `/sys/fs/xfs/<dev>/stats/stats` `dir` removes and `xpc` bytes; btrfs from `/proc/diskstats` of its
+  devices — Unraid's `mdNp1` lines count nothing, so an array disk by its own device; statfs gives btrfs 0 inodes, so no
+  deleted-file count there); ZFS files deleted from `/proc/spl/kstat/zfs/<pool>/objset-0x<objsetid>` `nunlinks`. Nothing
+  under /mnt is opened for them, a sleeping disk's counters are carried. **Logins:** `webgui: (Un)successful login user <name> from <ip>` (`<name>` may be a typed password; 3 failures lock
   15 min); sshd as `sshd-session`. `/root/.ssh` → `/boot/config/ssh/root`.
 * **Add Container form** (`?xmlTemplate=<type>:<file>`): Apply writes `my-<Name>.xml` and **removes an existing container of
   that name**; unknown path modes become rw (`ro,rslave` → rw!); `TemplateURL` updates are off in 7.3.2.
