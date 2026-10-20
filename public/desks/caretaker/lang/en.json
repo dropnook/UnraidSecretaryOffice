@@ -197,7 +197,7 @@
   "office_how": "Unraid updates the office like any other plugin: under ⟦Plugins⟧ (it checks for updates itself). Your data stays.",
   "office_to_plugins": "To the plugins",
   "notify_title": "Notification centre",
-  "notify_sub": "Alerts — when something is at risk right now — always go out at once. Everything else you set here per colleague: everything, warnings and alerts, or alerts only; right away, or collected in a summary at a time of day.",
+  "notify_sub": "Alerts — when something is at risk right now — always go out at once. Everything else you set here per colleague: everything, warnings and alerts, or alerts only; right away, or collected in a summary at a time of day. Only the office's own notifications — Unraid's (array, SMART, updates, parity) and other plugins' stay exactly as they are; Unraid's notification settings are only read.",
   "notify_switch": "Report to Unraid's notifications",
   "notify_on": "I'll report to Unraid's notifications",
   "notify_off": "No more reports to Unraid's notifications",
@@ -212,7 +212,7 @@
     "other": "{n} new things — I'll wait and see whether they stay"
   },
   "notify_missing": "Unraid's notification script isn't there — I can't report anything.",
-  "help.notify": "The office's one place for what goes to Unraid's notifications (bell, mail, push). Alerts always go at once — nothing here stops them. Per colleague: how much (everything · warnings and alerts · alerts only), successes too or not, right away or in a summary. Quiet hours and «Silent until …» hold everything but alerts; a flood guard sends the same notification only once until it is resolved and collects the rest when someone reports a lot.",
+  "help.notify": "The office's one place for what goes to Unraid's notifications (bell, mail, push). Alerts always go at once — nothing here stops them. Per colleague: how much (everything · warnings and alerts · alerts only), successes too or not, right away or in a summary. Quiet hours and «Silent until …» hold everything but alerts; a flood guard sends the same notification only once until it is resolved and collects the rest when someone reports a lot. Only the office's own notifications — Unraid's (array, SMART, updates, parity) and other plugins' stay exactly as they are; Unraid's notification settings are only read.",
   "notify.subject": {
     "one": "Something new to do",
     "other": "{n} new things to do"

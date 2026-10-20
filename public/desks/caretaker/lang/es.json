@@ -197,7 +197,7 @@
   "office_how": "Unraid actualiza la secretaría como cualquier otro plugin: en ⟦Plugins⟧ (busca actualizaciones por sí mismo). Tus datos se quedan.",
   "office_to_plugins": "A los plugins",
   "notify_title": "Centro de notificaciones",
-  "notify_sub": "Las alertas — cuando algo está en riesgo ahora mismo — salen siempre al momento. Todo lo demás lo ajustas aquí para cada colega: todo, advertencias y alertas, o solo alertas; al momento, o reunido en un resumen a una hora del día.",
+  "notify_sub": "Las alertas — cuando algo está en riesgo ahora mismo — salen siempre al momento. Todo lo demás lo ajustas aquí para cada colega: todo, advertencias y alertas, o solo alertas; al momento, o reunido en un resumen a una hora del día. Solo las notificaciones de la secretaría — las de Unraid (array, SMART, actualizaciones, paridad) y las de otros plugins quedan exactamente como están; los ajustes de notificaciones de Unraid solo se leen.",
   "notify_switch": "Avisar a las notificaciones de Unraid",
   "notify_on": "Avisaré a las notificaciones de Unraid",
   "notify_off": "No más avisos a las notificaciones de Unraid",
@@ -212,7 +212,7 @@
     "other": "{n} cosas nuevas — espero a ver si se quedan"
   },
   "notify_missing": "El script de notificaciones de Unraid no está — no puedo avisar de nada.",
-  "help.notify": "El único lugar de la secretaría para lo que va a las notificaciones de Unraid (campana, correo, push). Las alertas salen siempre al momento — nada aquí las detiene. Para cada colega: cuánto (todo · advertencias y alertas · solo alertas), también los éxitos o no, al momento o en un resumen. Las horas de calma y «Silencio hasta …» retienen todo salvo las alertas; una protección contra avalanchas envía la misma notificación solo una vez hasta que se resuelva y reúne el resto cuando alguien avisa mucho.",
+  "help.notify": "El único lugar de la secretaría para lo que va a las notificaciones de Unraid (campana, correo, push). Las alertas salen siempre al momento — nada aquí las detiene. Para cada colega: cuánto (todo · advertencias y alertas · solo alertas), también los éxitos o no, al momento o en un resumen. Las horas de calma y «Silencio hasta …» retienen todo salvo las alertas; una protección contra avalanchas envía la misma notificación solo una vez hasta que se resuelva y reúne el resto cuando alguien avisa mucho. Solo las notificaciones de la secretaría — las de Unraid (array, SMART, actualizaciones, paridad) y las de otros plugins quedan exactamente como están; los ajustes de notificaciones de Unraid solo se leen.",
   "notify.subject": {
     "one": "Algo nuevo que hacer",
     "other": "{n} cosas nuevas que hacer"

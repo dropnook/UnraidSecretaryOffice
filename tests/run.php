@@ -17460,6 +17460,15 @@ function testNotifyCenter(): void
         trim((string) shell_exec('bash -c ' . escapeshellarg('source ' . escapeshellarg($gate) . '; ung_cfg_read "$1"; echo $?') . ' _ ' . escapeshellarg("$h/bad.cfg")))]);
     check('centre: the file carries nothing but key=value and its title line', !preg_match('/^(?!#)(?![a-z][a-z_]*(\.[a-z_]+)?=[A-Za-z0-9_-]*$).+$/m', $text), $text);
 
+    // ---- only the office's own: the centre never reads or filters a notification it didn't send, never writes Unraid's
+    // notification settings (it reads them for the test button's «where it goes»)
+    foreach (['agent/lib/notifycenter.php', 'backup/lib/notifygate.sh'] as $f) {
+        $src = (string) file_get_contents(OFFICE_DIR . "/$f");
+        check("centre own only ($f): no look into Unraid's notification folder", !preg_match('#/(unread|archive)\b|/tmp/notifications|officeNotifyDir\(#', $src));
+        check("centre own only ($f): nothing written under Unraid's dynamix settings",
+            !preg_match('#(writeAtomic|writeNewFile|file_put_contents|rename|copy|fopen)\s*\([^;\n]*dynamix|>>?\s*"?[^\s;]*dynamix#', $src));
+    }
+
     // ---- the decision: PHP and bash over the same cases
     $bashDecide = function (string $home, string $desk, string $event, string $level, string $key, int $now) use ($gate): array {
         $cmd = 'source ' . escapeshellarg($gate) . '; ung_decide "$1" "$2" "$3" "$4" "$5" "$6"; printf "%s %s %s %s" "$UNG_FATE" "${UNG_WHY:--}" "$UNG_DUE" "${UNG_NOTICE:--}"';

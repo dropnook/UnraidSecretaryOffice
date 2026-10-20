@@ -197,7 +197,7 @@
   "office_how": "Unraid aktualisiert das Sekretariat wie jedes andere Plugin: unter ⟦Plugins⟧ (es schaut selbst nach Updates). Deine Daten bleiben.",
   "office_to_plugins": "Zu den Plugins",
   "notify_title": "Mitteilungszentrale",
-  "notify_sub": "Alarme — wenn gerade etwas auf dem Spiel steht — gehen immer sofort raus. Alles andere stellst du hier pro Kollegin und Kollege ein: alles, Warnungen und Alarme oder nur Alarme; sofort oder gesammelt in einer Zusammenfassung zu einer Uhrzeit.",
+  "notify_sub": "Alarme — wenn gerade etwas auf dem Spiel steht — gehen immer sofort raus. Alles andere stellst du hier pro Kollegin und Kollege ein: alles, Warnungen und Alarme oder nur Alarme; sofort oder gesammelt in einer Zusammenfassung zu einer Uhrzeit. Nur die Meldungen des Sekretariats — Unraids eigene (Array, SMART, Updates, Parität) und die anderer Plugins bleiben genau, wie sie sind; Unraids Benachrichtigungs-Einstellungen werden nur gelesen.",
   "notify_switch": "An Unraids Benachrichtigungen melden",
   "notify_on": "Ich melde es Unraids Benachrichtigungen",
   "notify_off": "Keine Meldungen mehr an Unraids Benachrichtigungen",
@@ -212,7 +212,7 @@
     "other": "{n} neue Sachen — ich schaue, ob sie bleiben"
   },
   "notify_missing": "Unraids Benachrichtigungs-Skript fehlt — ich kann nichts melden.",
-  "help.notify": "Die eine Stelle des Sekretariats für alles, was an Unraids Benachrichtigungen geht (Glocke, Mail, Push). Alarme gehen immer sofort raus — nichts hier hält sie auf. Pro Kollegin und Kollege: wie viel (alles · Warnungen und Alarme · nur Alarme), Erfolge auch oder nicht, sofort oder in einer Zusammenfassung. Ruhezeit und «Still bis …» halten alles außer Alarmen zurück; ein Schutz vor Meldungsfluten schickt dieselbe Meldung nur einmal, bis sie sich erledigt hat, und sammelt den Rest, wenn jemand sehr viel meldet.",
+  "help.notify": "Die eine Stelle des Sekretariats für alles, was an Unraids Benachrichtigungen geht (Glocke, Mail, Push). Alarme gehen immer sofort raus — nichts hier hält sie auf. Pro Kollegin und Kollege: wie viel (alles · Warnungen und Alarme · nur Alarme), Erfolge auch oder nicht, sofort oder in einer Zusammenfassung. Ruhezeit und «Still bis …» halten alles außer Alarmen zurück; ein Schutz vor Meldungsfluten schickt dieselbe Meldung nur einmal, bis sie sich erledigt hat, und sammelt den Rest, wenn jemand sehr viel meldet. Nur die Meldungen des Sekretariats — Unraids eigene (Array, SMART, Updates, Parität) und die anderer Plugins bleiben genau, wie sie sind; Unraids Benachrichtigungs-Einstellungen werden nur gelesen.",
   "notify.subject": {
     "one": "Etwas Neues zu erledigen",
     "other": "{n} neue Dinge zu erledigen"

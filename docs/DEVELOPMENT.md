@@ -375,7 +375,8 @@ changing the dashboard too. Change Grafana's default admin/admin before it can b
 Everything goes through `officeNotify()` (agent/lib/house.php) as the event *Unraid Secretary Office*; `warning` for
 something to fix, `alert` only when something is at risk now.
 
-**The notification centre** (the Team Lead's tiles «Notification centre», «Waiting for the summary», «Notification history», 1.68) is ONE gate in front of every sender: `officeNotify()`
+**The notification centre** (the Team Lead's tiles «Notification centre», «Waiting for the summary», «Notification history», 1.68) is ONE gate in front of every sender of the office's own (never Unraid's or another plugin's: nothing reads
+or filters a notification the office didn't send; Unraid's notification settings are only read): `officeNotify()`
 (the agent, its jobs, the night shift), the engine's `ub_notify()` and `agent.sh tell` ask the same decision — send now ·
 hold for the summary · count only. PHP side `agent/lib/notifycenter.php`, bash side `backup/lib/notifygate.sh` (sourced
 by the engine and agent.sh; `testNotifyCenter` runs both over the same cases and compares the numbers). The desks send

@@ -249,7 +249,8 @@ Night Watchman's new entries (each kind at most once an hour) and a parity check
 for ten minutes. The desks write
 in the language you last used the office in; the backup engine writes English.
 
-**The Team Lead's notification centre** is the one place for all of it. Alerts — something at risk right now — always go out at
+**The Team Lead's notification centre** is the one place for all of it — for the office's own notifications only: Unraid's
+(array, SMART, updates, parity) and other plugins' stay exactly as they are, and Unraid's notification settings are only read. Alerts — something at risk right now — always go out at
 once; nothing there stops them. Per colleague you choose how much goes out (*Everything* · *Warnings and alerts* ·
 *Alerts only*), successes too or not (Mr. Backupsy, Jack Streamer), and *right away* or *in the summary at* a time
 of day — colleagues on the same time share one summary; an empty one is never sent. *Quiet hours* and *Silent until…*

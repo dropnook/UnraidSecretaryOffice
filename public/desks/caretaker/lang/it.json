@@ -197,7 +197,7 @@
   "office_how": "Unraid aggiorna la segreteria come qualsiasi altro plugin: in ⟦Plugins⟧ (cerca gli aggiornamenti da solo). I tuoi dati restano.",
   "office_to_plugins": "Ai plugin",
   "notify_title": "Centro notifiche",
-  "notify_sub": "Gli allarmi — quando qualcosa è a rischio adesso — partono sempre subito. Tutto il resto lo imposti qui per ogni collega: tutto, avvertimenti e allarmi, o solo allarmi; subito, o raccolto in un riepilogo a un'ora del giorno.",
+  "notify_sub": "Gli allarmi — quando qualcosa è a rischio adesso — partono sempre subito. Tutto il resto lo imposti qui per ogni collega: tutto, avvertimenti e allarmi, o solo allarmi; subito, o raccolto in un riepilogo a un'ora del giorno. Solo le notifiche della segreteria — quelle di Unraid (array, SMART, aggiornamenti, parità) e di altri plugin restano esattamente come sono; le impostazioni delle notifiche di Unraid vengono solo lette.",
   "notify_switch": "Segnala alle notifiche di Unraid",
   "notify_on": "Lo segnalerò alle notifiche di Unraid",
   "notify_off": "Niente più segnalazioni alle notifiche di Unraid",
@@ -212,7 +212,7 @@
     "other": "{n} cose nuove — aspetto di vedere se restano"
   },
   "notify_missing": "Lo script delle notifiche di Unraid non c'è — non posso segnalare niente.",
-  "help.notify": "L'unico posto della segreteria per ciò che va alle notifiche di Unraid (campanella, e-mail, push). Gli allarmi partono sempre subito — niente qui li ferma. Per ogni collega: quanto (tutto · avvertimenti e allarmi · solo allarmi), anche i successi o no, subito o in un riepilogo. Le ore di quiete e «Silenzio fino a …» trattengono tutto tranne gli allarmi; una protezione contro le raffiche invia la stessa notifica una sola volta finché non è risolta e raccoglie il resto quando qualcuno segnala molto.",
+  "help.notify": "L'unico posto della segreteria per ciò che va alle notifiche di Unraid (campanella, e-mail, push). Gli allarmi partono sempre subito — niente qui li ferma. Per ogni collega: quanto (tutto · avvertimenti e allarmi · solo allarmi), anche i successi o no, subito o in un riepilogo. Le ore di quiete e «Silenzio fino a …» trattengono tutto tranne gli allarmi; una protezione contro le raffiche invia la stessa notifica una sola volta finché non è risolta e raccoglie il resto quando qualcuno segnala molto. Solo le notifiche della segreteria — quelle di Unraid (array, SMART, aggiornamenti, parità) e di altri plugin restano esattamente come sono; le impostazioni delle notifiche di Unraid vengono solo lette.",
   "notify.subject": {
     "one": "Qualcosa di nuovo da fare",
     "other": "{n} cose nuove da fare"

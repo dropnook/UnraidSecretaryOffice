@@ -197,7 +197,7 @@
   "office_how": "Unraid met à jour le secrétariat comme n'importe quel autre plugin : sous ⟦Plugins⟧ (il vérifie lui-même les mises à jour). Tes données restent.",
   "office_to_plugins": "Vers les plugins",
   "notify_title": "Centre de notifications",
-  "notify_sub": "Les alertes — quand quelque chose est en danger maintenant — partent toujours tout de suite. Tout le reste se règle ici pour chaque collègue : tout, avertissements et alertes, ou alertes seulement ; tout de suite, ou rassemblé dans un résumé à une heure du jour.",
+  "notify_sub": "Les alertes — quand quelque chose est en danger maintenant — partent toujours tout de suite. Tout le reste se règle ici pour chaque collègue : tout, avertissements et alertes, ou alertes seulement ; tout de suite, ou rassemblé dans un résumé à une heure du jour. Seulement les notifications du secrétariat — celles d'Unraid (array, SMART, mises à jour, parité) et des autres plugins restent exactement comme elles sont ; les réglages de notification d'Unraid sont seulement lus.",
   "notify_switch": "Signaler aux notifications d'Unraid",
   "notify_on": "Je signalerai aux notifications d'Unraid",
   "notify_off": "Plus de signalements aux notifications d'Unraid",
@@ -212,7 +212,7 @@
     "other": "{n} nouvelles choses — j'attends de voir si elles restent"
   },
   "notify_missing": "Le script de notification d'Unraid n'est pas là — je ne peux rien signaler.",
-  "help.notify": "L'unique endroit du secrétariat pour ce qui va aux notifications d'Unraid (cloche, mail, push). Les alertes partent toujours tout de suite — rien ici ne les arrête. Pour chaque collègue : combien (tout · avertissements et alertes · alertes seulement), les réussites aussi ou non, tout de suite ou dans un résumé. Les heures calmes et « Silence jusqu'à … » retiennent tout sauf les alertes ; une protection contre les rafales n'envoie la même notification qu'une fois tant qu'elle n'est pas réglée et rassemble le reste quand quelqu'un signale beaucoup.",
+  "help.notify": "L'unique endroit du secrétariat pour ce qui va aux notifications d'Unraid (cloche, mail, push). Les alertes partent toujours tout de suite — rien ici ne les arrête. Pour chaque collègue : combien (tout · avertissements et alertes · alertes seulement), les réussites aussi ou non, tout de suite ou dans un résumé. Les heures calmes et « Silence jusqu'à … » retiennent tout sauf les alertes ; une protection contre les rafales n'envoie la même notification qu'une fois tant qu'elle n'est pas réglée et rassemble le reste quand quelqu'un signale beaucoup. Seulement les notifications du secrétariat — celles d'Unraid (array, SMART, mises à jour, parité) et des autres plugins restent exactement comme elles sont ; les réglages de notification d'Unraid sont seulement lus.",
   "notify.subject": {
     "one": "{n} nouvelle chose à faire",
     "other": "{n} nouvelles choses à faire"
