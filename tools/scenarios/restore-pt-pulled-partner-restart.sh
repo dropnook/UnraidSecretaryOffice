@@ -43,8 +43,7 @@ snap_before
 state PT-PULLED unit="share:$S"                  # = flow RS-PARTNER; its undo: «Remove what was pulled…»
 ds=$(cat "$KEEP/pt-pulled.ds" 2>/dev/null)
 j=$(fl_last_restore)
-snap=$(jq -r '.target.snap // .plan.target.snap // empty' "$D/restore/$j/journal.json" 2>/dev/null)
-[[ -n $snap ]] || snap=$(jq -r '[.pulled[]?.snap][0] // empty' "$D/restore/$j/journal.json" 2>/dev/null)
+snap=$(jq -r '[.pulled[]?.snap][0] // empty' "$D/restore/$j/journal.json" 2>/dev/null)
 mnt=$(jq -r '[.pulled[]?.mount][0] // empty' "$D/restore/$j/journal.json" 2>/dev/null)
 ro_now() { [[ -n $mnt ]] && findmnt -no SOURCE,OPTIONS --mountpoint "$mnt" 2>/dev/null | awk -v d="$ds" '$1 == d && $2 ~ /(^|,)ro(,|$)/ {f=1} END {exit !f}'; }
 if [[ $ds == "cache/$S.restored-"* ]] && zfs list -H "$ds" >/dev/null 2>&1; then
