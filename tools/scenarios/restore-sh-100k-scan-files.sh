@@ -15,7 +15,10 @@ nc_data_closed
 flow BK-RUN-MANUAL mode=backup               # the moment
 snap_before
 # his look while the sizes are measured: the preview queues the du, the page asks again and again
-ask restore.preview '{"kind":"files","path":"/mnt/user/appdata/emby","mode":"copy"}' 300 >/dev/null
+t0=$(date +%s%N); ask restore.preview '{"kind":"files","path":"/mnt/user/appdata/emby","mode":"copy"}' 300 >/dev/null
+ms=$((($(date +%s%N) - t0) / 1000000)); m=$(ask_last '.preview.sizes.measuring // false')
+[[ $m == true ]] && ((ms < 5000)) && cell du-background 1 "his preview answered in $ms ms, the sizes measured in the background" \
+    || cell du-background 0 "his preview: $ms ms, measuring «$m» (the 100 000 files' du not in the background, or done before it answered)"
 slow=0 max=0
 for i in $(seq 1 20); do
     t0=$(date +%s%N); ask restore.refresh '{}' 60 >/dev/null; ms=$((($(date +%s%N) - t0) / 1000000))
