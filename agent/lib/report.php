@@ -106,8 +106,8 @@ const REPORT_HOSTS_KEPT  = ['github.com', 'api.github.com'];
  */
 const REPORT_LOG_LABELS = [
     'office'    => ['Agent ', 'Error: ', 'PHP: ', 'Office: ', 'Metrics: ', 'Mailbox: ', 'The ', 'No doorbell', 'Created the data folder', 'Created the share',
-                    'New agent code', 'Could not ', 'agent.json '],
-    'caretaker' => ['Caretaker: ', 'Partner offices: ', 'Menu entry: '],
+                    'New agent code', 'Could not ', 'agent.json ', 'Notifications: '],
+    'caretaker' => ['Caretaker: ', 'Partner offices: ', 'Menu entry: ', 'Notifications: '],
     'snapshot'  => ['Ms. Snapshotini: ', 'Snapshot schedules: ', 'Snapshot scan', 'Deleted: ', 'Released: ', 'Renamed: ', 'Held: '],
     'backup'    => ['Backup: ', 'Mr. Backup: '],
     'restore'   => ['Mr. Restori'],
