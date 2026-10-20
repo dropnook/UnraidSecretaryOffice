@@ -203,9 +203,9 @@ scenario is committed red. Cells marked «helper» need a helper branch not merg
 | B14 | `backup-in-handedit-perms-replan-apply` | red: «Look again»/Apply answer ok while the engine refuses | 2 min | pre-release |
 | B15 | `backup-sv-docker-hung-replan-run` | red: `docker info` without a time limit — replan and run hang | 12 min | pre-release |
 | B16 | `backup-kp-s3-unreachable-run` | red: no «offsite unreachable since …» | 83 s | pre-release |
-| B17 | `backup-kp-emptied-run-accept` | helper (KP-EMPTIED on test3) | 1 min (skipped) | pre-release |
+| B17 | `backup-kp-emptied-run-accept` | helper — green with it (held, one alarm, Accept lifts it) | 4 min | pre-release |
 | B18 | `backup-sh-cfg-pool-gone-replan-run` | red: the plan doesn't name the missing pool | 19 min (two array restarts) | nightly |
-| B19 | `backup-tm-dst-run-sched` | helper (TM-DST zone) | ~70 min | nightly |
+| B19 | `backup-tm-dst-run-sched` | helper — red with it: the second 02:59 runs under the same name (btrfs «Read-only file system», errors); counter-check on a server with a real zone | 64 min | nightly |
 | B25 | `backup-dk-asleep-disk1-replan-run` | needs hdd | — | pre-release |
 | B26 | `backup-sv-docker-off-first-setup-run` | red: Docker off drops every app's settings | 55 s | pre-release |
 | B37 | `backup-kp-container-stopped-replan-apply-run` | green | 84 s | pre-release |
@@ -231,11 +231,13 @@ scenario is committed red. Cells marked «helper» need a helper branch not merg
 | M22 | `moverelli-in-update-old-resave` | red: the first unchanged save moves age_stat | 90 s | nightly |
 | M23 | `moverelli-mo-x-zero-run-sched` | green | 23 s | pre-release |
 | M24 | `moverelli-tm-utc-broken-schedule-run-sched` | red: her «next run» 2 h before crond's | 28 s | pre-release |
-| M24 | `moverelli-tm-dst-run-sched` | helper (TM-DST zone) | ~70 min | nightly |
+| M24 | `moverelli-tm-dst-run-sched` | helper — inconclusive: after the clock jump the first 02:59 started nothing (atd/dcron), the stand-in start came a minute late | 64 min | nightly |
 
 Notes for whoever runs them: the Kopia cells set uso-only and the backup place to «local + offsite» first (the plan
 proposes the place as soon as a share goes offsite) and put settings.ini back; Ms. Moverelli's cells set her up with
 the page's consent to switch Unraid's mover off and put her folder, the cron file and Unraid's schedule back. Run
 `backup-tm-clock-back-run-sched` last in a batch: the run it makes under the set-back clock has an older name, and the
 backup page reports the earlier run as «last» until the next run — later scenarios' INV-BUBBLE would inherit it.
-B15 lets Docker answer again before the checks (checks.sh INV-SETUP-MSGS asks Docker without a time limit).
+The DST cells set the clock six days ahead: crond's (and atd's) first minute after such a jump is unreliable on
+7.4 — a counter-check on a server whose zone file is there (Tower, USOTest4) without a jump of days is the better
+proof. B15 lets Docker answer again before the checks (checks.sh INV-SETUP-MSGS asks Docker without a time limit).
