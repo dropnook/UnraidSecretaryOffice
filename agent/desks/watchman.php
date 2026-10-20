@@ -6971,14 +6971,17 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
             $s['seen'] = $now;
             $excused = $mine || ($anywhere && in_array('rsync', $moving, true));
             watchmanFlowAdd($s, $bytes, $now, $prevTime, $excused);
+            if (is_array($s['run'] ?? null) && (int) $s['run']['bytes'] === $bytes) {
+                $s['run']['gen'] = isset($p[2]) && is_int($p[2]) ? $p[2] : null;      // btrfs: the generation the run began at
+            }
             $flow['disk_w'][$name] = $s;
             if (!$excused) {
                 $used = (int) ($look['disks']['disks'][$name]['used'] ?? 0);
                 $clear = max(WATCH_FLOW_WRITE, $used > 0 ? min(WATCH_FLOW_NEW, (int) ($used * WATCH_FLOW_PART)) : WATCH_FLOW_NEW);
                 $j = watchmanFlowJudge($s, $bytes, $now, $ack("flow_written:disk:$name"), WATCH_FLOW_MIN, $clear);
-                // btrfs: where it was written since the last round, asked only when the entry is written
+                // btrfs: where it was written since the run began, asked only when the entry is written (or brought up to date)
                 $where = $look['where'] ?? null;
-                $gen = isset($p[2]) && is_int($p[2]) ? $p[2] : null;
+                $gen = isset($s['run']['gen']) && is_int($s['run']['gen']) ? $s['run']['gen'] : null;
                 $added[] = watchmanFlowNote($book, 'flow_written', "flow_written:disk:$name", $now, (array) $s['run'], (int) ($s['h'][intdiv($now, 3600)] ?? 0), $j,
                     fn (): array => $who + ($d['fs'] === 'btrfs' && $gen !== null && is_callable($where) ? ['where' => $where($name, $gen)] : []));
             }

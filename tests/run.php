@@ -16972,10 +16972,13 @@ function testWatchmanFlowFiles(): void
     [, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $bfs(1 * $gb, 120), 'where' => $where]), $book, $t0 + 300);
     $quiet = $calls;
     [$w1, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $bfs(61 * $gb, 140), 'where' => $where]), $book, $t0 + 600);
-    [, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $bfs(61 * $gb, 150), 'where' => $where]), $book, $t0 + 900);
+    // test3, 2026-10-20: the entry brought up to date a round later asked from that round's generation — the 12 GB written
+    // the round before were gone from its answer: it asks from the generation the run began at (here the round at $t0)
+    [, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $bfs(62 * $gb, 150), 'where' => $where]), $book, $t0 + 900);
+    [, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $bfs(62 * $gb, 160), 'where' => $where]), $book, $t0 + 1200);
     $we = array_column(array_filter($book, 'watchmanOpen'), null, 'key')['flow_written:disk:disk3'] ?? ['p' => []];
-    same('btrfs where: never asked for a quiet round, once for the entry (from the last round\'s generation), not again after',
-        [[], ['flow_written'], [['disk3', 120]], "61 GB written into disk3 (Familienfilme) in 10 min — more than 50 GB in one round while I'm still learning what is normal. "
+    same('btrfs where: never asked for a quiet round, for the entry from the generation its run began at — also when brought up to date',
+        [[], ['flow_written'], [['disk3', 100], ['disk3', 100]], "62 GB written into disk3 (Familienfilme) in 15 min — more than 50 GB in one round while I'm still learning what is normal. "
             . "Most of it into: Familienfotos (55 GB). Measured for the whole disk (btrfs), not per share."],
         [$quiet, $w1, $calls, officeNotifyText('watchman', 'entry.flow_written', watchmanText($we, 'en'), 'en')]);
 
