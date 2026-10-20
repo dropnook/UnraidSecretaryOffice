@@ -37250,7 +37250,7 @@ function testMoverelliStop(): void
             [$r['exit'], $r['why'], $r['by'], isset((readJson($stop) ?? [])['now']), (readJson($stop) ?? [])['by'] ?? null]);
     }
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php');
-    check('mover started: «by hand» = Unraid\'s own schedule off', str_contains($src, "(int) \$h['look_every'],\n            fn (): bool => jackMoverScheduleOff((\$h['unraid'])()));"));
+    check('mover started: «by hand» = Unraid\'s own schedule off', str_contains($src, "(int) \$h['look_every'],\n            fn (): bool => jackMoverScheduleOff((\$h['unraid'])()), \$arrayStopping);"));
     $sh = (string) file_get_contents(OFFICE_DIR . '/smartmover/custommover_run.sh');
     check('smart mover: one file at a time only with CUSTOMMOVER_STOP (the office); without it the share\'s list at once, as upstream',
         str_contains($sh, "if [[ -n \"\$STOP_FILE\" ]]; then\n        # office: one file at a time") && str_contains($sh, "printf '%s\\n' \"\${FILES[@]}\" | \"\${MOVER_CMD[@]}\" >\"\$mover_out\" 2>&1"));
@@ -37340,6 +37340,461 @@ JS);
             [array_slice($o['stopping'][0] ?? [], 0, 2), $o['stopping'][1] ?? null]);
         same('run card: «Stop after this file» asks moverelli.stop', ['moverelli.stop'], $o['posts'] ?? null);
     }
+    unset($GLOBALS['moverelliHost']);
+    hardeningRm($tmp);
+}
+
+/**
+ * D-F8 (scenario M6, 2026-10-19): Unraid's ⟦Stop⟧ while her real run moves — the run cut short (1079 of 3000 moved) read
+ * «ok» in her history. Now: she looks at var.ini's fsState (every 2 s at most) while she runs and stops after the file in
+ * flight once the array is being stopped (her stop file, why array — as Unraid stops its own mover at ⟦Stop⟧); a run that
+ * ends otherwise while the array goes (Smart Mover killed, its move binary refused) is «stopped», why array, never «ok»;
+ * Smart Mover killed by TERM says so (exit 143, «failed») instead of its EXIT trap's «ok» ($? of the last command).
+ */
+function testMoverelliArrayStop(): void
+{
+    $tmp = hardeningTmp('moverelli-arraystop');
+    $v = [];
+    moverelliFixture($tmp, $v);
+    $h = moverelliHost();
+    $dir = "$tmp/data";
+    moverelliSave(moverelliTestSettings(), $h);
+    foreach (['c2.txt', 'c3.txt', 'c4.txt'] as $f) {
+        file_put_contents("$tmp/mnt/cache/Docs/$f", "docs-$f");
+    }
+    $hist = fn () => moverelliHistory($dir)[0] ?? [];
+    $var = "$tmp/var.ini";
+    // the array goes while she moves: the stand-in sets fsState «Stopping» at its first file, takes ~0.6 s per file
+    file_put_contents("$tmp/bin/move-stopping", "#!/bin/bash\nwhile IFS= read -r f; do\n  printf 'fsState=\"Stopping\"\\n' > " . escapeshellarg($var)
+        . "\n  printf '%s\\n' \"\$f\" | " . escapeshellarg("$tmp/bin/move") . "\n  sleep 0.6\ndone\nexit 0\n");
+    chmod("$tmp/bin/move-stopping", 0755);
+    $GLOBALS['moverelliHost']['env']['CUSTOMMOVER_MOVER_BIN'] = "$tmp/bin/move-stopping";
+    $exit = moverelliJob(['run', '--office'], moverelliHost());
+    $st = readJson("$dir/status.json") ?? [];
+    same('array stop: she stops after the file in flight — exit 3, stopped, why array, some of Docs still on cache',
+        [3, 'stopped', 'stopped', 'array', true], [$exit, $st['result'] ?? null, $hist()['result'] ?? null, $hist()['why'] ?? null, count(glob("$tmp/mnt/cache/Docs/*")) > 0]);
+    check('array stop: said in the office\'s log', str_contains((string) @file_get_contents(AGENT_LOG), "Ms. Moverelli: the array is being stopped — she stops after the file in flight"));
+    // Smart Mover killed by TERM (its EXIT trap saw $? = 0 and wrote «ok»): the array still started — failed, never ok
+    file_put_contents($var, "fsState=\"Started\"\n");
+    file_put_contents("$tmp/bin/move-term", "#!/bin/bash\nkill -TERM \$PPID\nsleep 0.3\nexit 0\n");
+    chmod("$tmp/bin/move-term", 0755);
+    $GLOBALS['moverelliHost']['env']['CUSTOMMOVER_MOVER_BIN'] = "$tmp/bin/move-term";
+    $exit = moverelliJob(['run', '--office'], moverelliHost());
+    usleep(600000);                                          // the move binary in flight (holding Smart Mover's lock) ends
+    $st = readJson("$dir/status.json") ?? [];
+    same('TERM: Smart Mover says it — exit 143, failed (its status and her history), never ok', [143, 'failed', 143, 'failed'],
+        [$exit, $st['result'] ?? null, $st['exit'] ?? null, $hist()['result'] ?? null]);
+    // … killed while the array is being stopped: stopped, why array
+    file_put_contents("$tmp/bin/move-term", "#!/bin/bash\nprintf 'fsState=\"Stopping\"\\n' > " . escapeshellarg($var) . "\nkill -TERM \$PPID\nsleep 0.3\nexit 0\n");
+    moverelliJob(['run', '--office'], moverelliHost());
+    usleep(600000);
+    same('TERM while the array is being stopped: stopped, why array', ['stopped', 'array'], [$hist()['result'] ?? null, $hist()['why'] ?? null]);
+    // a run that ended «ok» with files left while the array goes (the move binary refused them, shfs gone): stopped, array
+    file_put_contents($var, "fsState=\"Started\"\n");
+    file_put_contents("$tmp/bin/move-gone", "#!/bin/bash\nprintf 'fsState=\"Stopping\"\\n' > " . escapeshellarg($var) . "\nwhile IFS= read -r f; do echo \"move: \$f No such file or directory\"; done\nexit 0\n");
+    chmod("$tmp/bin/move-gone", 0755);
+    $GLOBALS['moverelliHost']['env']['CUSTOMMOVER_MOVER_BIN'] = "$tmp/bin/move-gone";
+    $GLOBALS['moverelliHost']['look_every'] = 3600;          // the watch never looks: only her end sees the array going
+    moverelliJob(['run', '--office'], moverelliHost());
+    same('files left, Smart Mover «ok», the array being stopped at her end: stopped, why array', ['stopped', 'array'], [$hist()['result'] ?? null, $hist()['why'] ?? null]);
+    // … and a run that moved all it had while the array starts to go a moment later stays «ok»
+    file_put_contents($var, "fsState=\"Started\"\n");
+    file_put_contents("$tmp/mnt/cache/Docs/last.txt", 'last');
+    file_put_contents("$tmp/bin/move-late", "#!/bin/bash\n" . escapeshellarg("$tmp/bin/move") . "\nprintf 'fsState=\"Stopping\"\\n' > " . escapeshellarg($var) . "\nexit 0\n");
+    chmod("$tmp/bin/move-late", 0755);
+    $GLOBALS['moverelliHost']['env']['CUSTOMMOVER_MOVER_BIN'] = "$tmp/bin/move-late";
+    moverelliJob(['run', '--office'], moverelliHost());
+    same('everything moved, the array stopped right after: ok', ['ok', 0], [$hist()['result'] ?? null, (int) ($hist()['status']['left'] ?? -1)]);
+    // her watch: the stop file's why array (written by her or anyone) is kept
+    $stop = "$tmp/watch-stop.json";
+    $null = [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']];
+    @unlink($stop);
+    $p = proc_open(['bash', '-c', 'for i in $(seq 30); do [ -e "$1" ] && exit 3; sleep 0.1; done; exit 0', 'x', $stop], $null, $pipes);
+    $r = moverelliRunWatch($p, $stop, fn () => false, 0, null, fn () => true);
+    same('watch: the array being stopped — the stop file, why array, exit 3', [3, 'array', 'array'], [$r['exit'], $r['why'], (readJson($stop) ?? [])['why'] ?? null]);
+    // her page: «Stopped after {file}: the array was stopped»
+    $node = testsNode();
+    if ($node === '') {
+        check('array stop: page - node is missing here - skipped', true);
+    } else {
+        file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, className: cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, dataset: {}, style: {},
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, insertBefore(c) { this.children.unshift(c); }, setAttribute() {} });
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { sections: () => ({ el: {}, render() {}, mount: () => false, places: () => [], active: () => '' }), scope: () => T, t: T, el: mk,
+  fmt: { cron: (c) => c, size: (b) => b + ' B', date: (t) => 'D' + t, time: (t) => 'T' + t, duration: (s) => Math.round(s) + 's', relative: (t) => 'R' + t },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, errorText: (e) => 'err:' + e.key,
+  dialog: () => ({ buttons: [] }), toast: () => {}, selbar: () => null, api: { post: async () => ({ ok: true }) } };
+(0, eval)(fs.readFileSync(process.argv[3], 'utf8'));
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+console.log(JSON.stringify({ array: m.runSummary({ mode: 'run', result: 'stopped', why: 'array', stop_file: '/mnt/cache/Docs/c2.txt',
+  status: { mode: 'run', result: 'stopped', files: 3000, moved: 1079, bytes: 3000, left: 1921, stop_share: 'Docs' } }) }));
+JS);
+        $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/moverelli/desk.js') . ' ' . escapeshellarg(testsRunHelpersJs($tmp)) . ' 2>&1');
+        $lines = explode("\n", trim($raw));
+        $o = json_decode((string) end($lines), true);
+        same('array stop: her history row — «Stopped after c2.txt: the array was stopped», then the counts', 'stopped_array {"file":"c2.txt"} · run_summary {"moved":1079,"files":3000,"size":"3000 B","left":"count.left {\"n\":1921}"}',
+            $o['array'] ?? $raw);
+    }
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $lang = readJson(OFFICE_WEB . "/desks/moverelli/lang/$l.json") ?? [];
+        check("array stop: the words in $l", str_contains((string) ($lang['stopped_array'] ?? ''), '{file}'));
+    }
+    $sh = (string) file_get_contents(OFFICE_DIR . '/smartmover/custommover_run.sh');
+    check('smart mover: TERM, INT and HUP end it with their own code (the EXIT trap writes it), never 0', str_contains($sh, "trap 'exit 143' TERM") && str_contains($sh, "trap 'exit 130' INT") && str_contains($sh, "trap 'exit 129' HUP"));
+    unset($GLOBALS['moverelliHost']);
+    hardeningRm($tmp);
+}
+
+/**
+ * D-F8, the power-cut half (scenario M6, 2026-10-19): a power cut during her run left no line in her history — her job
+ * never came back to write it. Now her look (moverelliScan) finds the marker of a run that has no end (office-run.json
+ * without finished) while nobody holds her run lock: one line «interrupted», why restart (another boot than the run's —
+ * a power cut or a restart) or ended (the same boot: the job died), with what Smart Mover's live status had counted by
+ * then; the marker gets its end, so the line is written once. A pid of another boot is no run going (a reused pid).
+ */
+function testMoverelliPowerCut(): void
+{
+    $tmp = hardeningTmp('moverelli-powercut');
+    $v = [];
+    moverelliFixture($tmp, $v);
+    $h = ['hired' => fn (): bool => true] + moverelliHost();
+    $dir = "$tmp/data";
+    moverelliSave(moverelliTestSettings(), $h);
+    $boot = function_exists('moverelliBootId') ? moverelliBootId() : 'unknown';
+    $t = time() - 600;
+    $live = ['mode' => 'run', 'result' => 'running', 'started' => $t + 1, 'files' => 3000, 'bytes' => 3000000000, 'done_files' => 1200,
+             'done_bytes' => 1200000000, 'errors' => 0, 'phase' => 'share', 'share' => 'uso-yes', 'shares' => [['share' => 'uso-yes']]];
+    $cut = function (array $run) use ($dir, $live): void {
+        writeAtomic("$dir/office-run.json", jsonEncode($run), 0600, 0, 0);
+        writeAtomic("$dir/status.json", jsonEncode($live), 0600, 0, 0);
+    };
+    $runs = fn () => moverelliHistory($dir);
+    // the power cut: the marker of the boot before, its pid long gone
+    $cut(['mode' => 'run', 'by' => 'night', 'started' => $t, 'pid' => 4194000, 'boot' => 'boot-before']);
+    $n0 = count($runs());
+    moverelliScan($h);
+    $r = $runs()[0] ?? [];
+    same('power cut: her look writes the cut run\'s line — interrupted, why restart, its start, by, what had moved by then',
+        [$n0 + 1, 'interrupted', 'restart', $t, 'night', 'run', 1200, 3000, 1800, 3000000000],
+        [count($runs()), $r['result'] ?? null, $r['why'] ?? null, $r['started'] ?? null, $r['by'] ?? null, $r['mode'] ?? null,
+         $r['status']['moved'] ?? null, $r['status']['files'] ?? null, $r['status']['left'] ?? null, $r['status']['bytes'] ?? null]);
+    same('power cut: the marker has its end now — no run going, the next look writes no second line', [true, false, $n0 + 1],
+        [!empty((readJson("$dir/office-run.json") ?? [])['finished']), moverelliJobInfo($dir)['running'], (function () use ($h, $runs) { moverelliScan($h); return count($runs()); })()]);
+    // the same boot, the job gone (killed): ended; a live status of another run (older) not counted
+    $cut(['mode' => 'run', 'by' => 'office', 'started' => $t + 100, 'pid' => 4194000, 'boot' => $boot]);
+    moverelliScan($h);
+    $r = $runs()[0] ?? [];
+    same('the job died (same boot): interrupted, why ended; Smart Mover\'s live status started before this run — no counts', ['interrupted', 'ended', null],
+        [$r['result'] ?? null, $r['why'] ?? null, $r['status']['moved'] ?? null]);
+    // a run going: its lock held — nothing written
+    $cut(['mode' => 'run', 'by' => 'office', 'started' => $t + 200, 'pid' => 4194000, 'boot' => $boot]);
+    $lock = fopen("$dir/office-run.lock", 'c');
+    flock($lock, LOCK_EX);
+    $n = count($runs());
+    moverelliScan($h);
+    same('her run lock held: no line, no end on the marker', [$n, false], [count($runs()), !empty((readJson("$dir/office-run.json") ?? [])['finished'])]);
+    flock($lock, LOCK_UN);
+    fclose($lock);
+    // a pid that is an agent.php — of this boot: a run going; of the boot before (a reused pid): none, the line written
+    $null = [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']];
+    $p = proc_open(['bash', '-c', 'exec -a agent.php sleep 5'], $null, $pipes);
+    $pid = (int) proc_get_status($p)['pid'];
+    usleep(200000);
+    $cut(['mode' => 'run', 'by' => 'office', 'started' => $t + 300, 'pid' => $pid, 'boot' => $boot]);
+    $going = moverelliJobInfo($dir)['running'];
+    $cut(['mode' => 'run', 'by' => 'office', 'started' => $t + 300, 'pid' => $pid, 'boot' => 'boot-before']);
+    $n = count($runs());
+    moverelliScan($h);
+    same('a pid that is an agent.php: this boot\'s — going; the boot before\'s (reused) — not going, its line written', [true, $n + 1, 'restart'],
+        [$going, count($runs()), $runs()[0]['why'] ?? null]);
+    proc_terminate($p);
+    proc_close($p);
+    // her job notes its boot
+    $GLOBALS['moverelliHost']['env']['MOVE_FAIL'] = '1';
+    moverelliJob(['run', '--office'], moverelliHost());
+    unset($GLOBALS['moverelliHost']['env']['MOVE_FAIL']);
+    same('her job\'s marker names its boot', $boot, (readJson("$dir/office-run.json") ?? [])['boot'] ?? null);
+    $node = testsNode();
+    if ($node === '') {
+        check('power cut: page - node is missing here - skipped', true);
+    } else {
+        file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, className: cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, dataset: {}, style: {},
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, insertBefore(c) { this.children.unshift(c); }, setAttribute() {} });
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { sections: () => ({ el: {}, render() {}, mount: () => false, places: () => [], active: () => '' }), scope: () => T, t: T, el: mk,
+  fmt: { cron: (c) => c, size: (b) => b + ' B', date: (t) => 'D' + t, time: (t) => 'T' + t, duration: (s) => Math.round(s) + 's', relative: (t) => 'R' + t },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, errorText: (e) => 'err:' + e.key,
+  dialog: () => ({ buttons: [] }), toast: () => {}, selbar: () => null, api: { post: async () => ({ ok: true }) } };
+(0, eval)(fs.readFileSync(process.argv[3], 'utf8'));
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+console.log(JSON.stringify({
+  restart: m.runSummary({ mode: 'run', result: 'interrupted', why: 'restart', status: { mode: 'run', result: 'interrupted', files: 3000, moved: 1200, bytes: 3000, left: 1800 } }),
+  ended: m.runSummary({ mode: 'run', result: 'interrupted', why: 'ended', status: { mode: 'run', result: 'interrupted' } }) }));
+JS);
+        $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/moverelli/desk.js') . ' ' . escapeshellarg(testsRunHelpersJs($tmp)) . ' 2>&1');
+        $lines = explode("\n", trim($raw));
+        $o = json_decode((string) end($lines), true);
+        same('power cut: her history row — «the server restarted during the run», then what had moved; the job that died — no counts it doesn\'t know',
+            ['interrupted_restart · run_summary {"moved":1200,"files":3000,"size":"3000 B","left":"count.left {\"n\":1800}"}', 'interrupted_ended'],
+            [$o['restart'] ?? $raw, $o['ended'] ?? null]);
+    }
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $lang = readJson(OFFICE_WEB . "/desks/moverelli/lang/$l.json") ?? [];
+        check("power cut: the words in $l", ($lang['result.interrupted'] ?? '') !== '' && ($lang['interrupted_restart'] ?? '') !== '' && ($lang['interrupted_ended'] ?? '') !== '');
+    }
+    unset($GLOBALS['moverelliHost']);
+    hardeningRm($tmp);
+}
+
+/**
+ * D-F7 (scenario M8, 2026-10-19): her history row of a real run that found nothing to move read «0 of 0 moved (0 B)» — it
+ * says «Nothing to move» (a dry run too); a run with files keeps its counts, a stopped one its reason.
+ */
+function testMoverelliNothingMoved(): void
+{
+    $tmp = hardeningTmp('moverelli-nothing');
+    $node = testsNode();
+    if ($node === '') {
+        check('nothing to move: node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, className: cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, dataset: {}, style: {},
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, insertBefore(c) { this.children.unshift(c); }, setAttribute() {} });
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { sections: () => ({ el: {}, render() {}, mount: () => false, places: () => [], active: () => '' }), scope: () => T, t: T, el: mk,
+  fmt: { cron: (c) => c, size: (b) => b + ' B', date: (t) => 'D' + t, time: (t) => 'T' + t, duration: (s) => Math.round(s) + 's', relative: (t) => 'R' + t },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, errorText: (e) => 'err:' + e.key,
+  dialog: () => ({ buttons: [] }), toast: () => {}, selbar: () => null, api: { post: async () => ({ ok: true }) } };
+(0, eval)(fs.readFileSync(process.argv[3], 'utf8'));
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+const st = (mode, files, moved, more) => ({ mode, result: 'ok', status: { mode, result: 'ok', files, moved, bytes: files * 10, left: files - moved, ...more } });
+console.log(JSON.stringify([m.runSummary(st('run', 0, 0)), m.runSummary(st('dry', 0, 0)), m.runSummary(st('run', 3, 3)),
+  m.runSummary({ ...st('run', 0, 0), waited: 600 }), m.runSummary(st('run', 0, 0, { errors: 1 }))]));
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/moverelli/desk.js') . ' ' . escapeshellarg(testsRunHelpersJs($tmp)) . ' 2>&1');
+    $lines = explode("\n", trim($raw));
+    $o = json_decode((string) end($lines), true);
+    same('nothing to move: a real run and a dry run with no file — «Nothing to move»; with files the counts; its wait and errors still said', [
+        'run_nothing', 'run_nothing', 'run_summary {"moved":3,"files":3,"size":"30 B","left":"count.left {\"n\":0}"}', 'run_nothing · waited {"min":10}',
+        'run_nothing · count.errors {"n":1}'], $o ?? $raw);
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $lang = readJson(OFFICE_WEB . "/desks/moverelli/lang/$l.json") ?? [];
+        check("nothing to move: the words in $l", ($lang['run_nothing'] ?? '') !== '');
+    }
+    hardeningRm($tmp);
+}
+
+/**
+ * C-M4, her run card (scenario M4, 2026-10-19): for a share of 40 × 1 MB her card lagged the disks by 25–60 points —
+ * Smart Mover wrote its live status at most once a second, so a share that moves in a second or two was read a second
+ * old. Now it is written too each time the share's files or bytes pass another 5 %: the status never more than 5 % (and
+ * the file in flight) behind what really moved, still at most ~20 writes a share more.
+ */
+function testMoverelliCardLag(): void
+{
+    $tmp = hardeningTmp('moverelli-lag');
+    $v = [];
+    moverelliFixture($tmp, $v);
+    $dir = "$tmp/data";
+    moverelliSave(moverelliTestSettings(), moverelliHost());
+    for ($i = 1; $i <= 40; $i++) {
+        file_put_contents(sprintf("$tmp/mnt/cache/Docs/f%02d.bin", $i), str_repeat('x', 1000));
+    }
+    // the stand-in notes, for each of Docs' files it is handed, how many of Docs' files it moved before and what the live
+    // status says of the share by then; fast (no sleep): the whole share in well under a second
+    file_put_contents("$tmp/bin/move-lag", "#!/bin/bash\nn=0\nwhile IFS= read -r f; do\n  case \"\$f\" in */Docs/*)\n"
+        . "    d=\$(sed -n 's/.*\"share\":\"Docs\".*\"share_done_files\":\\([0-9]*\\).*/\\1/p' " . escapeshellarg("$dir/status.json") . ")\n"
+        . "    echo \"\$n \${d:-x}\" >> " . escapeshellarg("$tmp/lag") . "; n=\$((n + 1)) ;; esac\n"
+        . "  printf '%s\\n' \"\$f\" | " . escapeshellarg("$tmp/bin/move") . "\ndone\nexit 0\n");
+    chmod("$tmp/bin/move-lag", 0755);
+    $GLOBALS['moverelliHost']['env']['CUSTOMMOVER_MOVER_BIN'] = "$tmp/bin/move-lag";
+    moverelliJob(['run', '--office'], moverelliHost());
+    $rows = array_map(fn ($l) => explode(' ', $l), file("$tmp/lag", FILE_IGNORE_NEW_LINES) ?: []);
+    $lag = max(array_map(fn ($r) => (int) $r[0] - (is_numeric($r[1]) ? (int) $r[1] : 0), $rows ?: [[99, 0]]));
+    same('run card: all 41 of Docs\' files handed over, the live status of Docs read before each', 41, count($rows));
+    check("run card: the live status never more than 5 % of Docs' 41 files (3) behind what moved (lag $lag)", $lag <= 3, json_encode($rows));
+    $writes = count(array_unique(array_column($rows, 1)));
+    check("run card: … with at most ~20 more writes for the share ($writes distinct readings)", $writes <= 22);
+    unset($GLOBALS['moverelliHost']);
+    hardeningRm($tmp);
+}
+
+/**
+ * C-M16 (scenario M16, 2026-10-19): right after Unraid renamed a share its move binary refused each of the share's files
+ * with «No medium found» — her log called them «in use, or already present at the destination», the binary's reason
+ * hidden. Now each file left is named with what the binary said of it («move: <path> <reason>», its «error: … (n):
+ * lstat: <path>» lines, «move: <src> -> <dst> <reason>»); one it said nothing of keeps «in use, or already present»; the
+ * share's most common reason goes to her status (left_why) and her page says it.
+ */
+function testMoverelliLeftWhy(): void
+{
+    $tmp = hardeningTmp('moverelli-why');
+    $v = [];
+    moverelliFixture($tmp, $v);
+    $dir = "$tmp/data";
+    moverelliSave(moverelliTestSettings(), moverelliHost());
+    foreach (['r1.txt', 'r2.txt', 'r 3.txt', 'ro.txt', 'arrow.txt', 'quiet.txt'] as $f) {
+        file_put_contents("$tmp/mnt/cache/Docs/$f", $f);
+    }
+    // the stand-in refuses Docs' r*.txt («No medium found», as after a rename), ro.txt by an lstat line, arrow.txt in the
+    // «src -> dst» form, quiet.txt without a word (in use); the rest it moves
+    file_put_contents("$tmp/bin/move-why", "#!/bin/bash\nwhile IFS= read -r f; do\n  case \"\$f\" in\n"
+        . "    */Docs/r1.txt|*/Docs/r2.txt|*/Docs/r\\ 3.txt) echo \"move: \$f No medium found\" ;;\n"
+        . "    */Docs/ro.txt) echo \"error: move_object, 812: Read-only file system (30): lstat: \$f\" ;;\n"
+        . "    */Docs/arrow.txt) echo \"move: \$f -> /mnt/disk1/Docs/arrow.txt Input/output error\" ;;\n"
+        . "    */Docs/quiet.txt) ;;\n"
+        . "    *) printf '%s\\n' \"\$f\" | " . escapeshellarg("$tmp/bin/move") . " ;;\n  esac\ndone\nexit 0\n");
+    chmod("$tmp/bin/move-why", 0755);
+    $GLOBALS['moverelliHost']['env']['CUSTOMMOVER_MOVER_BIN'] = "$tmp/bin/move-why";
+    moverelliJob(['run', '--office'], moverelliHost());
+    $log = (string) file_get_contents("$dir/smart_mover.log");
+    $st = readJson("$dir/status.json") ?? [];
+    $docs = array_values(array_filter($st['shares'] ?? [], fn ($x) => $x['share'] === 'Docs'))[0] ?? [];
+    $c = "$tmp/mnt/cache/Docs";
+    same('the binary\'s reasons: each file left named with what it said — No medium found (a name with a space too), the lstat line\'s, the arrow form\'s; the quiet one «in use, or already present»',
+        [true, true, true, true, true, true], [
+        str_contains($log, "$c/r1.txt – No medium found"), str_contains($log, "$c/r 3.txt – No medium found"), str_contains($log, "$c/ro.txt – Read-only file system"),
+        str_contains($log, "$c/arrow.txt – Input/output error"), str_contains($log, "$c/quiet.txt – in use, or already present at the destination"),
+        str_contains($log, '6 files still on the source side:')]);
+    check('the binary\'s reasons: «No medium found» explained once (Unraid\'s own mover leaves them too)', str_contains($log, "Unraid's move binary answers «No medium found»"), $log);
+    same('her status: Docs — 6 left, the most common reason', [6, 'No medium found'], [$docs['left'] ?? null, $docs['left_why'] ?? null]);
+    same('her history keeps it', 'No medium found', array_values(array_filter(moverelliHistory($dir)[0]['status']['shares'] ?? [], fn ($x) => $x['share'] === 'Docs'))[0]['left_why'] ?? null);
+    $node = testsNode();
+    if ($node === '') {
+        check('the binary\'s reasons: page - node is missing here - skipped', true);
+    } else {
+        file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, className: cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, dataset: {}, style: {},
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, insertBefore(c) { this.children.unshift(c); }, setAttribute() {} });
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { sections: () => ({ el: {}, render() {}, mount: () => false, places: () => [], active: () => '' }), scope: () => T, t: T, el: mk,
+  fmt: { cron: (c) => c, size: (b) => b + ' B', date: (t) => 'D' + t, time: (t) => 'T' + t, duration: (s) => Math.round(s) + 's', relative: (t) => 'R' + t },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, errorText: (e) => 'err:' + e.key,
+  dialog: () => ({ buttons: [] }), toast: () => {}, selbar: () => null, api: { post: async () => ({ ok: true }) } };
+(0, eval)(fs.readFileSync(process.argv[3], 'utf8'));
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+console.log(JSON.stringify([m.leftCount({ left: 6, left_why: 'No medium found' }), m.leftCount({ left: 2 }), m.leftCount({ left: 0, left_why: 'x' })]));
+JS);
+        $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/moverelli/desk.js') . ' ' . escapeshellarg(testsRunHelpersJs($tmp)) . ' 2>&1');
+        $lines = explode("\n", trim($raw));
+        same('her page: a share\'s files left with the binary\'s reason; without one as before', ['left_why {"n":6,"why":"No medium found"}', 'count.left {"n":2}', 'count.left {"n":0}'],
+            json_decode((string) end($lines), true) ?? $raw);
+    }
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $lang = readJson(OFFICE_WEB . "/desks/moverelli/lang/$l.json") ?? [];
+        check("the binary's reasons: the words in $l", str_contains(json_encode($lang['left_why'] ?? ''), '{why}'));
+    }
+    unset($GLOBALS['moverelliHost']);
+    hardeningRm($tmp);
+}
+
+/**
+ * D-F11 (scenario M6, 2026-10-19: 2 of 3000 files gone after a power cut during her run, on neither side): Unraid's move
+ * binary only hands each path to shfs (an ioctl on /mnt/user), and shfs copies to <rel>.partial, renames it and removes
+ * the source without any fsync — the copy is in RAM until the destination's own commit (XFS: up to 30 s), while the
+ * removal on the pool can reach the disk within 5 s (a ZFS txg). Unraid's own mover has the same window. She now syncs
+ * each moved file and its folder on the destination at once (before the next file is handed over); her own copy of a
+ * name ending in a space is synced before its source is removed. CUSTOMMOVER_SYNC=0: off.
+ */
+function testMoverelliSyncMoved(): void
+{
+    $tmp = hardeningTmp('moverelli-sync');
+    $v = [];
+    moverelliFixture($tmp, $v);
+    $dir = "$tmp/data";
+    moverelliSave(moverelliTestSettings(), moverelliHost());
+    file_put_contents("$tmp/mnt/disk1/Back/ws ", 'ws');            // a prefer share's name ending in a space: her own copy
+    $seq = "$tmp/seq";
+    file_put_contents("$tmp/bin/sync", "#!/bin/bash\n[[ \"\$1\" == -- ]] && shift\nprintf 'sync %s src=%s\\n' \"\$*\" \"\$([[ -e \$WS_SRC ]] && echo 1 || echo 0)\" >> " . escapeshellarg($seq) . "\n");
+    chmod("$tmp/bin/sync", 0755);
+    $GLOBALS['moverelliHost']['env'] += ['CUSTOMMOVER_SYNC_BIN' => "$tmp/bin/sync", 'MOVE_LOG' => $seq, 'WS_SRC' => "$tmp/mnt/disk1/Back/ws "];
+    moverelliJob(['run', '--office'], moverelliHost());
+    $lines = file($seq, FILE_IGNORE_NEW_LINES) ?: [];
+    $m = "$tmp/mnt";
+    $want = ["$m/disk1/Back/d.txt", "sync $m/cache/Back/d.txt $m/cache/Back src=1", "sync $m/cache/Back/ws  $m/cache/Back src=1",
+             "$m/cache/Docs/c.txt", "sync $m/disk1/Docs/c.txt $m/disk1/Docs src=0"];
+    same('each moved file synced with its folder on the destination before the next is handed over (prefer: the pool; yes: the disk it went to)',
+        $want, array_values(array_filter($lines, fn ($l) => str_contains($l, '/Back/') || str_contains($l, '/Docs/'))));
+    check('… the files of Filme too', in_array("sync $m/disk1/Filme/A/a.mkv $m/disk1/Filme/A src=0", $lines, true) && in_array("sync $m/disk1/Filme/A/a.nfo $m/disk1/Filme/A src=0", $lines, true), json_encode($lines));
+    same('her copy of «ws »: on the pool, the source gone after its sync', [true, false], [is_file("$m/cache/Back/ws "), file_exists("$m/disk1/Back/ws ")]);
+    // off
+    @unlink($seq);
+    @mkdir("$m/cache/Docs", 0700, true);                     // the first run took the emptied share folder along
+    file_put_contents("$m/cache/Docs/c2.txt", 'c2');
+    $GLOBALS['moverelliHost']['env']['CUSTOMMOVER_SYNC'] = '0';
+    moverelliJob(['run', '--office'], moverelliHost());
+    same('CUSTOMMOVER_SYNC=0: moved, nothing synced', [true, []], [is_file("$m/disk1/Docs/c2.txt"),
+        array_values(array_filter(file($seq, FILE_IGNORE_NEW_LINES) ?: [], fn ($l) => str_starts_with($l, 'sync ')))]);
+    unset($GLOBALS['moverelliHost']);
+    hardeningRm($tmp);
+}
+
+/**
+ * D-F11, the twins (USOTest4 2026-10-19: a power cut during her run with the sync — no file lost, but 104 of 3000 on both
+ * sides: the copy synced, the source's removal not yet on the pool): Unraid's move binary answers «File exists» for each
+ * and leaves it, for ever. She finishes such a move: a file the binary left whose copy at the destination is the same
+ * (size, mtime, owner, mode and content) — the copy synced, the source removed, counted as moved, said; one that differs
+ * in anything stays (named with the binary's reason).
+ */
+function testMoverelliTwins(): void
+{
+    $tmp = hardeningTmp('moverelli-twins');
+    $v = [];
+    moverelliFixture($tmp, $v);
+    $dir = "$tmp/data";
+    moverelliSave(moverelliTestSettings(), moverelliHost());
+    $c = "$tmp/mnt/cache/Docs";
+    $a = "$tmp/mnt/disk1/Docs";
+    @mkdir($a, 0700, true);
+    foreach (['t1.txt' => 'same', 't2.txt' => 'other', 't3.txt' => 'same', 't4.txt' => 'same'] as $f => $there) {
+        file_put_contents("$c/$f", 'same');
+        file_put_contents("$a/$f", $there);
+        touch("$c/$f", 1700000000);
+        touch("$a/$f", $f === 't3.txt' ? 1700000500 : 1700000000);
+    }
+    chmod("$a/t4.txt", 0600);
+    chmod("$c/t4.txt", 0644);
+    // the binary as it is: a file already at the destination — «File exists», left
+    file_put_contents("$tmp/bin/move-exists", "#!/bin/bash\nwhile IFS= read -r f; do\n  case \"\$f\" in */cache/*) to=\"\${f/\\/cache\\///disk1/}\" ;; *) to=\"\" ;; esac\n"
+        . "  if [[ -n \"\$to\" && -e \"\$to\" ]]; then echo \"move: \$f File exists\"; continue; fi\n"
+        . "  printf '%s\\n' \"\$f\" | " . escapeshellarg("$tmp/bin/move") . "\ndone\nexit 0\n");
+    chmod("$tmp/bin/move-exists", 0755);
+    file_put_contents("$tmp/bin/sync", "#!/bin/bash\n[[ \"\$1\" == -- ]] && shift\necho \"\$*\" >> " . escapeshellarg("$tmp/synced") . "\n");
+    chmod("$tmp/bin/sync", 0755);
+    $GLOBALS['moverelliHost']['env'] += ['CUSTOMMOVER_MOVER_BIN' => "$tmp/bin/move-exists", 'CUSTOMMOVER_SYNC_BIN' => "$tmp/bin/sync"];
+    $GLOBALS['moverelliHost']['env']['CUSTOMMOVER_MOVER_BIN'] = "$tmp/bin/move-exists";
+    moverelliJob(['run', '--office'], moverelliHost());
+    $log = (string) file_get_contents("$dir/smart_mover.log");
+    $st = readJson("$dir/status.json") ?? [];
+    $docs = array_values(array_filter($st['shares'] ?? [], fn ($x) => $x['share'] === 'Docs'))[0] ?? [];
+    same('twins: t1 (the same in all) — its source removed, the copy kept and synced first; t2 (other content), t3 (other mtime), t4 (other mode) stay on both sides',
+        [false, 'same', true, true, true, true, true, true], [file_exists("$c/t1.txt"), @file_get_contents("$a/t1.txt"),
+         in_array("$a/t1.txt $a", file("$tmp/synced", FILE_IGNORE_NEW_LINES) ?: [], true),
+         is_file("$c/t2.txt"), is_file("$c/t3.txt"), is_file("$c/t4.txt"), @file_get_contents("$a/t2.txt") === 'other', is_file("$a/t3.txt")]);
+    same('twins: counted — Docs 5 files (c.txt and t1 moved), 3 left «File exists»', [5, 2, 3, 'File exists'],
+        [$docs['files'] ?? null, $docs['moved'] ?? null, $docs['left'] ?? null, $docs['left_why'] ?? null]);
+    check('twins: said in her log', str_contains($log, "the same file was at the destination already (a move cut short, by a power cut?) – its source removed: $c/t1.txt")
+        && str_contains($log, "$c/t2.txt – File exists"), $log);
     unset($GLOBALS['moverelliHost']);
     hardeningRm($tmp);
 }
@@ -37969,6 +38424,20 @@ SH);
         [$exit, $share($st, 'Pics')['state'] ?? null, is_dir("$d1/2019/06 Juni "), is_dir("$d1/2019/07 Juli "), is_dir("$d1/2020"), is_file("$d1/2019/keep/k.jpg"),
          is_dir("$d1/2019"), is_dir("$c/2019/06 Juni ")]);
     check('trailing space: … said in one line', str_contains($log, '4 empty folders the move binary left on the array removed – they are on cache'), $log);
+    // C-M4 (scenario M4, 2026-10-19): the yes direction — a folder ending in a space whose files went to the array goes from
+    // the pool too (there is no /mnt/array: its copy on any data disk counts); an empty one without a copy on the array
+    // stays (which disk would be the binary's choice), as Unraid's mover leaves it
+    $reset();
+    $mk('mnt/cache/Docs/06 Juni /a.txt', 'a');
+    $mk('mnt/cache/Docs/2024 /05 Mai /b.txt', 'b');
+    @mkdir("$t/mnt/cache/Docs/leer ", 0700, true);
+    [$exit] = runEnv(['bash', $sm, '--run'], $env, 60);
+    $log = (string) file_get_contents("$t/log");
+    same('trailing space, yes share: «06 Juni » and «2024 /05 Mai » gone from the pool (their files on the array), «leer » (no copy on the array) stays',
+        [0, false, true, false, true, true, false],
+        [$exit, is_dir("$t/mnt/cache/Docs/06 Juni "), is_file("$t/mnt/disk1/Docs/06 Juni /a.txt"), is_dir("$t/mnt/cache/Docs/2024 "),
+         is_file("$t/mnt/disk1/Docs/2024 /05 Mai /b.txt"), is_dir("$t/mnt/cache/Docs/leer "), is_dir("$t/mnt/disk1/Docs/leer ")]);
+    check('trailing space, yes share: … said in one line', str_contains($log, '3 empty folders the move binary left removed – they are on the array'), $log);
     // a dry run touches nothing
     $reset();
     @mkdir("$d1/2019/06 Juni ", 0700, true);
@@ -44062,7 +44531,7 @@ JS;
 }
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],

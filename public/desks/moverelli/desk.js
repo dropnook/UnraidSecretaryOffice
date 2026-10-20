@@ -1044,12 +1044,21 @@ function runSummary(r) {
   if (s.result === 'config') return s.message || T('result.config');
   if (mode === 'list') return nOf('shares', (s.shares || []).length);
   const notes = [];
+  if (r.result === 'interrupted') {
+    // cut short without her end (a power cut, a restart, the job killed): what had moved by then, when it is known
+    const why = T(r.why === 'restart' ? 'interrupted_restart' : 'interrupted_ended');
+    if (s.files == null) return why;
+    notes.push(why);
+  }
   if (s.result === 'stopped') {
     const file = String(r.stop_file || s.stop_file || '').split('/').pop() || '?';
     notes.push(r.why === 'mover' ? T(r.mover_by === 'schedule' ? 'stopped_mover_schedule' : 'stopped_mover')
-      : r.why === 'now' ? T('stopped_now', { file }) : T('stopped_user', { file, share: s.stop_share || '?' }));
+      : r.why === 'now' ? T('stopped_now', { file }) : r.why === 'array' ? T('stopped_array', { file })
+        : T('stopped_user', { file, share: s.stop_share || '?' }));
   }
-  if (mode === 'dry') notes.push(T('dry_summary', { files: nOf('files', s.files), size: fmt.size(s.bytes || 0) }));
+  // D-F7: a run that found no file says so, never «0 of 0 moved (0 B)» (a stopped one may not have looked yet)
+  if (s.result !== 'stopped' && !Number(s.files) && !Number(s.moved) && !Number(s.left)) notes.push(T('run_nothing'));
+  else if (mode === 'dry') notes.push(T('dry_summary', { files: nOf('files', s.files), size: fmt.size(s.bytes || 0) }));
   else notes.push(T('run_summary', { moved: s.moved || 0, files: s.files || 0, size: fmt.size(s.bytes || 0), left: nOf('left', s.left) }));
   if (s.errors) notes.push(nOf('errors', s.errors));
   if (r.waited) notes.push(T('waited', { min: Math.round(r.waited / 60) }));
@@ -1602,6 +1611,8 @@ function historySection() {
   s.appendChild(box);
   return s;
 }
+/** A share's files left — with the reason Unraid's move binary gave (C-M16: «No medium found»), else «in use or already there» */
+const leftCount = (x) => (Number(x.left) > 0 && x.left_why ? T('left_why', { n: Number(x.left), why: x.left_why }) : nOf('left', x.left));
 /** The last run: how it went, a line per share that had something */
 function resultBox() {
   const last = state.last;
@@ -1611,7 +1622,7 @@ function resultBox() {
   box.appendChild(el('div', '', runSummary({ mode: last.mode, status: last, result: last.result, why: h && h.result === last.result ? h.why : null })));
   (last.shares || []).filter((x) => x.files || x.moved || x.left).forEach((x) => {
     box.appendChild(el('div', 'mo-share-line', T(last.mode === 'run' ? 'share_moved' : 'share_would', { share: x.share,
-      moved: x.moved || 0, files: nOf('files', x.files), size: fmt.size(x.bytes || 0), left: nOf('left', x.left) })));
+      moved: x.moved || 0, files: nOf('files', x.files), size: fmt.size(x.bytes || 0), left: leftCount(x) })));
   });
   // the fill: where the pool stood and whether the target was reached
   (last.shares || []).filter((x) => x.fill && x.pool_used !== '' && Number(x.pool_used) >= Number(x.threshold)).forEach((x) => {
@@ -2778,7 +2789,7 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, leftText, onWayText, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
-    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, percentText, runningText, greeting, greetOk, idleText, runEstimate, estModel, endText, shareGroups, shareRuleLines, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, ownRulesText, idleRules, fillSetupShares, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, picFlight, fileOnto, movedByPlace, movedAt, extraPlaces, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, setJackLive: (x) => { jackLive = x; }, jackPanel, jackAtWork, redrawCard, schedText, scheduleSection, historySection, footer, hints,
+    importPreview, importDone, importFileText, leftCount, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, percentText, runningText, greeting, greetOk, idleText, runEstimate, estModel, endText, shareGroups, shareRuleLines, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, ownRulesText, idleRules, fillSetupShares, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, picFlight, fileOnto, movedByPlace, movedAt, extraPlaces, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, setJackLive: (x) => { jackLive = x; }, jackPanel, jackAtWork, redrawCard, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
     setForm: (f) => { form = f; }, initForm, levelMath, levelSection, levelLines, levelNight, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }
