@@ -96,6 +96,7 @@
   "errors.bad_answer": "Il server ha risposto in modo strano (HTTP {status}).",
   "errors.rejected": "Richiesta rifiutata.",
   "errors.host_launch_failed": "Non è stato possibile passare il lavoro al servizio at del server: {detail}",
+  "errors.atd_off": "Impossibile avviare: il servizio at del server (atd) non è in esecuzione — nulla partirebbe, quindi non è stato passato nulla. Un riavvio lo fa ripartire; subito: /etc/rc.d/rc.atd start nel terminale di Unraid.",
   "errors.office_storage": "La segreteria non riesce a salvare chi lavora qui — la cartella data/office manca o non è scrivibile. Il fattorino c'è?",
   "errors.supporter_invalid": "Questa non è una chiave sostenitore valida — l'hai copiata per intero?",
   "errors.supporter_other_server": "Questa chiave è per un altro server ({id}). L'ID di questo server è {server}.",

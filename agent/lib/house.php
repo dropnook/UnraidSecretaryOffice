@@ -209,6 +209,29 @@ function houseGuiUrl(): ?string
 }
 
 const HOST_LAUNCH_MARK = '# written by the Unraid Secretary Office agent';     // in every job it hands to atd (the night watchman knows them by it)
+const HOST_ATD_PID = '/var/run/atd.pid';         // atd's pid file (Unraid's rc.atd starts /usr/sbin/atd, which writes it)
+
+/**
+ * Does the host's atd run? `at` queues a job without it all the same (exit 0) and nothing starts until atd comes back —
+ * the page said «Handed over — it should start any moment» for ever (batch D F3, scenario backup-sv-atd-off-run-apply).
+ * The pid in atd's pid file whose process is called atd; else (no pid file, a stale one) any process called atd.
+ * $GLOBALS['hostAtdLook'] = [pid file, proc folder]: the tests' stand-ins.
+ */
+function hostAtdUp(?string $pidFile = null, ?string $proc = null): bool
+{
+    [$pidFile, $proc] = [$pidFile ?? $GLOBALS['hostAtdLook'][0] ?? HOST_ATD_PID, $proc ?? $GLOBALS['hostAtdLook'][1] ?? '/proc'];
+    $atd = fn (string $comm) => trim((string) @file_get_contents($comm, false, null, 0, 64)) === 'atd';
+    $pid = trim((string) @file_get_contents($pidFile, false, null, 0, 32));
+    if (preg_match('/^[1-9][0-9]{0,9}$/D', $pid) && $atd("$proc/$pid/comm")) {
+        return true;
+    }
+    foreach (glob("$proc/[0-9]*/comm") ?: [] as $comm) {
+        if ($atd($comm)) {
+            return true;
+        }
+    }
+    return false;
+}
 
 /**
  * Hands a command to the host's atd, so it lives on without the agent: a
@@ -227,6 +250,10 @@ function hostLaunch(string $job, array $args, array $env = [], ?string $output =
     // the job file's name and the variables' names go into the script unquoted: only plain names
     if (!preg_match('/^[a-z][a-z0-9_-]{0,63}\z/', $job) || !$args) {
         throw new Problem('command_failed', ['detail' => "bad job $job"]);
+    }
+    // without atd nothing would start (at queues anyway): said now, and nothing left in its queue to start some day later
+    if (!hostAtdUp()) {
+        throw new Problem('atd_off');
     }
     $file = RUN_DIR . "/$job.sh";
     $line = implode(' ', array_map(fn ($a) => escapeshellarg((string) $a), $args));

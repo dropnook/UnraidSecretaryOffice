@@ -96,6 +96,7 @@
   "errors.bad_answer": "Der Server antwortet seltsam (HTTP {status}).",
   "errors.rejected": "Anfrage abgelehnt.",
   "errors.host_launch_failed": "Der Auftrag liess sich nicht an den at-Dienst des Servers übergeben: {detail}",
+  "errors.atd_off": "Kann nicht starten: Der at-Dienst des Servers (atd) läuft nicht — nichts würde starten, darum wurde nichts übergeben. Ein Neustart startet ihn wieder; sofort: /etc/rc.d/rc.atd start in Unraids Terminal.",
   "errors.office_storage": "Das Sekretariat kann nicht speichern, wer hier arbeitet — der Ordner data/office fehlt oder ist nicht beschreibbar. Ist der Hausbote da?",
   "errors.supporter_invalid": "Das ist kein gültiger Unterstützer-Schlüssel — vollständig kopiert?",
   "errors.supporter_other_server": "Dieser Schlüssel gehört zu einem anderen Server ({id}). Die ID dieses Servers ist {server}.",

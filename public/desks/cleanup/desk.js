@@ -559,8 +559,9 @@ function roomSection(sec) {
   }
   s.appendChild(Office.sectionHead(T('section.' + sec), T('section.' + sec + '_sub'), ...right));
   const info = { templates: templatesInfo, appdata: appdataInfo, vms: vmsInfo, scripts: scriptsInfo, flash: flashInfo, docker: dockerInfo, icons: iconsInfo,
-    leftovers: leftoversInfo, partners: partnersInfo }[sec];
-  if (info) s.appendChild(info());
+    leftovers: leftoversInfo, partners: partnersInfo, trash: trashInfo }[sec];
+  const told = info ? info() : null;
+  if (told) s.appendChild(told);
   const list = el('div', 'cl-room-list');
   if (sec === 'stacks' && !state.stacks.exists) list.appendChild(emptyNote(T('empty.no_compose', { path: state.stacks.root })));
   else if (sec === 'trash') renderTrash(list);
@@ -1904,6 +1905,15 @@ function report(results, what) {
 }
 
 // ------------------------------------------------------------------ trash
+/** Her storerooms on sleeping pools or array disks: not looked at — woken only on the user's click (C-M9) */
+function trashInfo() {
+  const asleep = state.trash.asleep || [];      // an older agent's state has none
+  if (!asleep.length) return null;
+  const box = el('div', 'cl-info');
+  box.appendChild(asleepCallout(asleep));
+  return box;
+}
+
 function renderTrash(body) {
   const runs = state.trash.runs;
   if (!runs.length) { body.appendChild(emptyNote(T('empty.trash'))); return; }

@@ -43,6 +43,7 @@ const PID_FILE      = RUN_DIR . '/agent.pid';
 const AGENT_HEARTBEAT = RUN_DIR . '/agent.json';     // who is at work; its mtime is the pulse (writeInfo(), agentPulse())
 const DOORBELL      = RUN_DIR . '/doorbell';   // a FIFO the web side rings after dropping a request (doorbellOpen(), agentNap())
 const TICK_US       = 150000;
+const AGENT_NAP_MAX = 20;       // seconds a nap lasts at most (the heartbeat's beat): no deadline ever sleeps the agent longer
 const LOG_MAX       = 512 * 1024;
 const FILE_UID      = 99;    // nobody:users, like everything else in appdata
 const FILE_GID      = 100;
@@ -186,7 +187,7 @@ function nightShift(): int
     }
     @proc_nice(10);
     $why = null;
-    $next = 0;
+    $next = -INF;               // on agentClock(): a clock stepped back never skips his rounds for as long as it went back
     $rounds = 0;
     while (!$stop) {
         clearstatcache();
@@ -199,8 +200,8 @@ function nightShift(): int
             $why = 'the array is started — the agent takes over';
             break;
         }
-        if (time() >= $next) {
-            $next = time() + WATCH_EVERY;
+        if (agentClock() >= $next) {
+            $next = agentClock() + WATCH_EVERY;
             try {
                 $r = watchmanNightRound(watchmanNightPaths());
                 if ($r === null) {
@@ -281,9 +282,11 @@ function serve(): int
 
     $code = codeStamp();
     $ready = false;
-    $lastPulse = $lastLook = $lastCleanup = 0;
+    // the rounds and naps run on agentClock() (monotonic): a clock stepped back (by hand, NTP, a scenario's aged files)
+    // never freezes the agent for as long as it went back — the heartbeat itself still carries wall time
+    $lastPulse = $lastLook = $lastCleanup = -INF;
     $bell = doorbellOpen();
-    $nextTick = 0.0;
+    $nextTick = -INF;
 
     while (!$stop) {
         clearstatcache();
@@ -295,7 +298,7 @@ function serve(): int
             if (arrayRunning() && !empty(homeTick(DATA_DIR_USER)['answer']['made']) && officeUnraidPath(DATA_DIR_USER) !== DATA_DIR) {
                 restartInPlace($lock, 'The share of the data folder is there now, reached ' . officeUnraidPath(DATA_DIR_USER));
             }
-            agentNap($bell, microtime(true) + HOME_LOOK_EVERY);
+            agentNap($bell, agentClock() + HOME_LOOK_EVERY);
             if (arrayRunning() && ($way = dataWayLook()) !== null) {
                 restartInPlace($lock, "The data folder is reached another way now ($way)");
             }
@@ -309,7 +312,7 @@ function serve(): int
         processMailbox();
         // the rest of the round as ever — 150 ms after the last one ended —, however often the doorbell wakes the
         // agent in between
-        if (microtime(true) < $nextTick) {
+        if (agentClock() < $nextTick) {
             agentNap($bell, $nextTick);
             continue;
         }
@@ -324,7 +327,7 @@ function serve(): int
         }
         metricsTick();          // the office's numbers for Prometheus, once a minute (lib/metrics.php)
 
-        $now = time();
+        $now = agentClock();
         if ($now - $lastPulse >= 20) {
             agentPulse();
             $lastPulse = $now;
@@ -347,7 +350,7 @@ function serve(): int
                 }
             }
         }
-        $nextTick = microtime(true) + TICK_US / 1e6;
+        $nextTick = agentClock() + TICK_US / 1e6;
         agentNap($bell, $nextTick);     // until the next round — or the doorbell, whichever comes first
     }
 
@@ -414,13 +417,23 @@ function doorbellClose($bell): void
 }
 
 /**
- * Waits until $until (microtime) or until the doorbell rings, whichever comes first; what rang is read away (the
+ * The agent's clock for its rounds and naps: seconds on the monotonic clock (hrtime: since boot, never stepped). The wall
+ * clock can jump — set back by hand or by NTP, or by the scenarios' aged files (40 days back for ~20 s, batch D F12):
+ * a deadline on it then lay Δ ahead, and the agent napped Δ (no round, no heartbeat) until a request rang its doorbell.
+ */
+function agentClock(): float
+{
+    return hrtime(true) / 1e9;
+}
+
+/**
+ * Waits until $until (agentClock()) or until the doorbell rings, whichever comes first; what rang is read away (the
  * bytes mean nothing but «look now»). A signal ends the wait too (the loop then looks at its stop flag). Without a
- * doorbell: a plain nap. True when it rang.
+ * doorbell: a plain nap. Never longer than AGENT_NAP_MAX, whatever $until says. True when it rang.
  */
 function agentNap($bell, float $until): bool
 {
-    $us = (int) max(0, ($until - microtime(true)) * 1e6);
+    $us = (int) max(0, min(AGENT_NAP_MAX, $until - agentClock()) * 1e6);
     if (!is_resource($bell)) {
         if ($us > 0) {
             usleep($us);
