@@ -955,6 +955,7 @@
   "message.dumps_unknown": "El lugar de las copias no existe (ya) como recurso compartido. Elige otro en «Configurar…».",
   "message.dumps_forbidden": "El lugar de las copias está en appdata, system o domains — las copias de seguridad no pintan nada ahí. Elige un recurso compartido propio en «Configurar…».",
   "message.dumps_off": "El lugar de las copias no tiene copia él mismo — los volcados no estarían a salvo en ninguna parte. Haz que el recurso compartido tenga copia en «Configurar…».",
+  "message.docker_silent": "Docker está encendido pero no responde — la copia terminó antes de detener nada; no se copió nada. Reinicia Docker en ⟦Settings⟧ → ⟦Docker⟧ y vuelve a iniciar la copia.",
   "message.no_space_packages": "No hay bastante espacio libre en el lugar de las copias {place}: {free} libres, la configuración deja al menos {need} libres — no se ha copiado nada. Haz sitio allí o baja «Espacio libre que se deja en el lugar de las copias» en «Configurar…» y vuelve a iniciar la copia.",
   "message.no_space_packages_plain": "No hay bastante espacio libre en el lugar de las copias — no se ha copiado nada. Haz sitio allí o baja «Espacio libre que se deja en el lugar de las copias» en «Configurar…» y vuelve a iniciar la copia.",
   "details": "Mostrar detalles",
@@ -1212,6 +1213,7 @@
   "stat.kopia_stopped": "{name} está detenido",
   "stat.kopia_missing_ct": "falta el contenedor {name}",
   "stat.kopia_repo_problem": "repositorio no accesible",
+  "stat.docker_silent": "Docker está encendido pero no responde",
   "stat.offsite_unreachable_since": "Fuera de casa no accesible desde {when}",
   "stat.kopia_policies_ok": "las políticas cuadran",
   "stat.kopia_policies_bad": {

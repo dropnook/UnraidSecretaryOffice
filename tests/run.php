@@ -4926,7 +4926,7 @@ function testSetupNoDocker(): void
     $bk = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh');
     check('no docker: a run with Docker off goes on, Docker on but silent still ends it',
         str_contains($bk, 'if ub_docker_service_off; then log "Docker is switched off (Settings > Docker) - no apps to back up"')
-        && str_contains($bk, 'else docker info >/dev/null 2>&1 || die "Docker is switched on but does not answer"; fi'));
+        && str_contains($bk, 'elif ! ub_docker_answers; then die_code docker_silent "Docker is switched on but does not answer ($UB_DOCKER_ANSWER s) - '));
 
     // the page: «offsite» greyed with the reason, the apps step and tile say it, a failed plan in the office's words
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
@@ -4938,6 +4938,92 @@ function testSetupNoDocker(): void
         && str_contains($js, "m.code && Office.has(`\${ID}.setup.msg.\${m.code}`) ? T('setup.msg.' + m.code, setupMsgParams(m.params)) : m.text"));
     $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/en.json'), true) ?: [];
     check('no docker (page): its words', isset($en['setup.msg.docker_off'], $en['setup.msg.docker_silent'], $en['setup.k_problem.docker_off'], $en['setup.apps_docker_off'], $en['setup.tile.docker_off']));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * Engine 2.66 + office (B15, scenario backup-sv-docker-hung-replan-run): Docker switched on but hung (dockerd stopped).
+ * Every docker call of the engine has a time limit (docker(): a look or a change UB_DOCKER_TIMEOUT, docker stop plus its
+ * own -t, an exec UB_DOCKER_EXEC_TIMEOUT; a dump or Kopia's upload UB_DOCKER_LONG, as long as it takes); a run meeting a
+ * hung Docker ends at once with the code docker_silent, nothing stopped; Mr. Backupsy's desk asks a silent Docker nothing
+ * for a while and says so (never «no containers», «Kopia missing»).
+ */
+function testDockerSilent(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-docker-silent-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $mnt = "$tmp/mnt";
+    $pool = "$mnt/maple";
+    foreach (["$tmp/bin", "$tmp/fake", "$tmp/data/state", "$tmp/boot/config/shares", "$mnt/user", "$pool/media", "$pool/UnraidSecretaryOffice/backup"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    // docker: every call noted; «hang» holds it so many seconds (dockerd stopped), then it answers
+    file_put_contents("$tmp/bin/docker", "#!/bin/bash
+echo \"\$*\" >> \"\$FAKE/docker.log\"\n[[ -s \"\$FAKE/hang\" ]] && sleep \"\$(cat \"\$FAKE/hang\")\"\n"
+        . "case \"\$1\" in version) echo 29.0 ;; esac\nexit 0\n");
+    foreach (['mountpoint' => "[[ \"\${@: -1}\" == */user ]]", 'notify' => 'exit 0', 'zfs' => 'exit 0', 'virsh' => 'exit 0'] as $b => $body) {
+        file_put_contents("$tmp/bin/$b", "#!/bin/bash\n$body\n");
+    }
+    foreach (glob("$tmp/bin/*") as $f) {
+        chmod($f, 0755);
+    }
+    file_put_contents("$tmp/boot/config/docker.cfg", "DOCKER_ENABLED=\"yes\"\n");
+    $env = "export PATH=$tmp/bin:\$PATH UB_DATA=$tmp/data UB_MNT=$mnt UB_BOOT=$tmp/boot UB_SHARES_CFG=$tmp/boot/config/shares UB_NO_NOTIFY=1"
+         . " UB_DISKS_INI=$tmp/fake/disks.ini UB_NOTIFY_BIN=$tmp/bin/notify UB_MOUNTS_FILE=$tmp/fake/mounts FAKE=$tmp/fake";
+    file_put_contents("$tmp/fake/mounts", "maple $pool zfs rw 0 0\nshfs $mnt/user fuse.shfs rw 0 0\n");
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+    $call = function (string $script, int $hang) use ($env, $lib, $tmp): array {
+        file_put_contents("$tmp/fake/hang", $hang ? (string) $hang : '');
+        $t0 = microtime(true);
+        $out = trim((string) shell_exec('bash -c ' . escapeshellarg("$env; source $lib >/dev/null 2>&1; $script; echo rc=\$?") . ' 2>&1'));
+        return [$out, round(microtime(true) - $t0)];
+    };
+    [$o1, $t1] = $call('UB_DOCKER_TIMEOUT=1 docker ps -a', 30);
+    [$o2, $t2] = $call('UB_DOCKER_EXEC_TIMEOUT=1 docker exec db mariadb -e "SELECT 1"', 30);
+    [$o3, $t3] = $call('UB_DOCKER_TIMEOUT=1 UB_DOCKER_LONG=1 docker exec db mariadb-dump --all-databases', 3);
+    [$o4, $t4] = $call('UB_DOCKER_TIMEOUT=1 DOCKER_STOP_TIMEOUT=3 docker stop -t 3 app', 2);
+    [$o5, $t5] = $call('UB_DOCKER_ANSWER=1 ub_docker_answers', 30);
+    same('docker silent 2.66: a look ends after its limit, an exec after its own; a dump (long) as long as it takes; docker stop gets its -t on top; «does Docker answer» after its',
+        [['rc=124', true], ['rc=124', true], ['rc=0', true], ['rc=0', true], ['rc=124', true]],
+        [[$o1, $t1 < 15], [$o2, $t2 < 15], [$o3, $t3 >= 3], [$o4, $t4 >= 2], [$o5, $t5 < 15]]);
+
+    // a run meeting a hung Docker: ended at once with the code, nothing stopped, nothing else asked of Docker
+    file_put_contents("$tmp/data/settings.ini", "[general]\nserver = Test\ndumps_share = UnraidSecretaryOffice\n[flash]\nmode = off\n[docker]\nstop = all\n");
+    @unlink("$tmp/fake/docker.log");
+    file_put_contents("$tmp/fake/hang", '30');
+    $t0 = microtime(true);
+    exec('bash -c ' . escapeshellarg("$env UB_DOCKER_ANSWER=2; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' </dev/null') . ' 2>&1', $out, $rc);
+    $secs = microtime(true) - $t0;
+    $st = json_decode((string) @file_get_contents("$tmp/data/state/status.json"), true) ?: [];
+    $calls = array_values(array_filter(explode("\n", (string) @file_get_contents("$tmp/fake/docker.log"))));
+    same('docker silent 2.66: the run ends at once — failed with the code docker_silent, only «version» asked, nothing stopped',
+        [1, 'failed', 'docker_silent', true, ['version --format {{.Server.Version}}']],
+        [$rc, $st['result'] ?? null, $st['message'] ?? null, $secs < 25, $calls]);
+    $log = (string) @file_get_contents("$tmp/data/logs/run-" . ($st['run'] ?? 'x') . '.log');
+    check('docker silent 2.66: … its log says why', str_contains($log, 'Docker is switched on but does not answer (2 s) - nothing was stopped'), $log);
+    file_put_contents("$tmp/fake/hang", '');
+
+    // the office: a silent Docker is asked nothing for a while and said - never «no containers», «Kopia missing»
+    $GLOBALS['backupDockerProbe'] = fn () => false;
+    $c = backupContainers(['dump|db|type' => ['mariadb'], 'kopia' => ['container' => ['kopia']]]);
+    same('docker silent (office): the containers — silent, not «none», the dumps still counted', [false, true, 0, 1, null],
+        [$c['up'], $c['silent'] ?? null, $c['total'], $c['dumps'], $c['kopia']]);
+    same('docker silent (office): Kopia\'s repository time and a Nextcloud\'s data folder not asked', [null, null],
+        [backupKopiaRepoSince(['kopia' => ['container' => ['kopia']]]), backupNextcloudDataDir('nextcloud')]);
+    $GLOBALS['backupDockerProbe'] = fn () => true;
+    check('docker silent (office): Docker answering — as before', !isset(backupContainers([])['silent']));
+    unset($GLOBALS['backupDockerProbe']);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
+    check('docker silent (office): the checks say «couldn\'t check» for Kopia\'s container, the waiting apps aren\'t asked',
+        str_contains($src, "\$out[] = finding('kopia', \$level, \$silent ? null : \$name !== null,")
+        && str_contains($src, "\$out[] = finding('kopia_running', \$level, \$c === null ? null : \$c['running'],")
+        && str_contains($src, "backupWaiting(\$settings, \$vms, backupDockerSilent() ? [] : null)"));
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('docker silent (page): the last backup\'s and Kopia\'s tiles say it', substr_count($js, "T('stat.docker_silent')") === 2);
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $lang) {
+        $l = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$lang.json"), true) ?: [];
+        check("docker silent: the words ($lang)", isset($l['stat.docker_silent'], $l['message.docker_silent']));
+    }
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -45498,7 +45584,7 @@ JS;
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

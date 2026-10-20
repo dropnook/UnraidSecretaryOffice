@@ -2115,7 +2115,23 @@ kopia_probe_propagation() {
 # acting on them needs the lock (a run going on writes its own notes there).
 recover_notes() { [[ -s "$UB_STATE/stopped" || -s "$UB_STATE/maintenance" || -s "$UB_STATE/vms" ]]; }
 # Does Docker (libvirt) answer? Without, a container (VM) would look "not stopped" and its note be lost.
-ub_docker_answers()  { timeout 20 docker version --format '{{.Server.Version}}' >/dev/null 2>&1; }
+UB_DOCKER_ANSWER="${UB_DOCKER_ANSWER:-20}"     # seconds Docker may take to answer at all (tests: less)
+ub_docker_answers()  { timeout -k 5 "$UB_DOCKER_ANSWER" docker version --format '{{.Server.Version}}' >/dev/null 2>&1; }
+# 2.66 (B15): every docker call of the engine has a time limit - a Docker that stops answering (dockerd hung) never holds a
+# run, the setup or --recover for ever: UB_DOCKER_TIMEOUT for a look or a change (docker stop: plus its own -t), an exec
+# UB_DOCKER_EXEC_TIMEOUT; what really takes long - a database's dump, Kopia's upload - runs with UB_DOCKER_LONG=1, as long
+# as it takes. `timeout ... docker` calls with their own limit run the binary itself. Ended by the limit: exit 124 (137).
+UB_DOCKER_TIMEOUT="${UB_DOCKER_TIMEOUT:-120}"
+UB_DOCKER_EXEC_TIMEOUT="${UB_DOCKER_EXEC_TIMEOUT:-900}"
+docker() {
+    [[ "${UB_DOCKER_LONG:-0}" == "1" ]] && { command docker "$@"; return; }
+    local t="$UB_DOCKER_TIMEOUT"
+    case "${1:-}" in
+        exec) t="$UB_DOCKER_EXEC_TIMEOUT" ;;
+        stop) is_uint "${DOCKER_STOP_TIMEOUT:-}" && t=$(( t + DOCKER_STOP_TIMEOUT )) ;;
+    esac
+    timeout -k 10 "$t" docker "$@"
+}
 ub_libvirt_answers() { timeout 20 virsh list --name >/dev/null 2>&1; }
 # Unraid's VM service switched off (Settings > VM Manager > Enable VMs: No, domain.cfg SERVICE="disable"): no libvirt
 # to answer, no VM to start (2.25). A missing domain.cfg is never taken for off.
@@ -2124,7 +2140,7 @@ ub_vm_service_off() { grep -qE '^SERVICE="?disable"?[[:space:]]*$' "$UB_BOOT/con
 # docker at all (2.54): no apps to back up and no Kopia container - a server of shares and VMs, never an error. A missing
 # docker.cfg is never taken for off; Docker switched on but silent stays an error where Docker is needed.
 ub_docker_service_off() {
-    command -v docker >/dev/null 2>&1 || return 0
+    type -P docker >/dev/null 2>&1 || return 0          # the binary (2.66: docker is a function of the engine too)
     grep -qE '^DOCKER_ENABLED="?no"?[[:space:]]*$' "$UB_BOOT/config/docker.cfg" 2>/dev/null
 }
 

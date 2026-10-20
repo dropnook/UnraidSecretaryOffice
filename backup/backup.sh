@@ -1,7 +1,11 @@
 #!/bin/bash
 ###############################################################################
 # unraid-backup - backup.sh                       Version 2.66 - 2026-10-20
-#   2.66 Kopia connected but unable to reach its repository (the storage down, the way there closed) is said as such: drift
+#   2.66 Every docker call has a time limit (docker() in lib/common.sh): a look or a change UB_DOCKER_TIMEOUT (120 s; docker
+#        stop plus its own -t), an exec UB_DOCKER_EXEC_TIMEOUT (900 s); a dump and Kopia's upload run as long as they take
+#        (UB_DOCKER_LONG). Docker switched on but hung (dockerd stopped) ends the run at its start after UB_DOCKER_ANSWER
+#        (20 s) with the code docker_silent, before anything is stopped - up to 2.65 `docker info` waited for ever.
+#        Kopia connected but unable to reach its repository (the storage down, the way there closed) is said as such: drift
 #        kopia_unreachable (up to 2.65 «not connected»); state/kopia-reach.json {v, since, run, last, last_run} keeps «offsite
 #        unreachable since» the first real run that couldn't reach it, from run to run, until a run reaches it (or Kopia is
 #        switched off); Kopia's own words go to the log only.
@@ -1508,10 +1512,11 @@ run_dumps() {
         [[ -n "$f" ]] || { warn "Database container '$c' belongs to no package - no dump"; continue; }
         DUMP_KEY="apps/$f"; DUMP_DIR="$PKG_STAGE/$DUMP_KEY/db"
         mkdir -p "$DUMP_DIR" || { err "Cannot create $DUMP_DIR"; DUMP_STATE[$c]="failed"; pkg_mark apps "$f" errors; continue; }
+        # a dump takes as long as the database is big: no docker time limit inside (2.66, UB_DOCKER_LONG)
         case "$t" in
-            mariadb)  dump_mariadb "$c" ;;
-            postgres) dump_postgres "$c" ;;
-            mongodb)  dump_mongodb "$c" ;;
+            mariadb)  UB_DOCKER_LONG=1 dump_mariadb "$c" ;;
+            postgres) UB_DOCKER_LONG=1 dump_postgres "$c" ;;
+            mongodb)  UB_DOCKER_LONG=1 dump_mongodb "$c" ;;
         esac
         rc=$?
         if (( rc == 0 )); then DUMP_STATE[$c]="ok"; else DUMP_STATE[$c]="failed"; pkg_mark apps "$f" errors; fi
@@ -3851,7 +3856,9 @@ for t in jq flock timeout gzip numfmt mountpoint awk; do
 done
 # 2.54: Docker switched off - a server of shares and VMs, no apps this run; switched on but silent stays an error
 if ub_docker_service_off; then log "Docker is switched off (Settings > Docker) - no apps to back up"
-else docker info >/dev/null 2>&1 || die "Docker is switched on but does not answer"; fi
+# 2.66 (B15): asked with a time limit (ub_docker_answers, 20 s) - a hung Docker ends the run here, before anything is stopped
+# (its apps could be neither stopped nor started again), with a code the office says in its words
+elif ! ub_docker_answers; then die_code docker_silent "Docker is switched on but does not answer ($UB_DOCKER_ANSWER s) - nothing was stopped, nothing backed up; restart Docker (Settings > Docker) and start the run again"; fi
 mountpoint -q "$UB_MNT/user" || die "$UB_MNT/user is not mounted - array/pools not started?"
 
 SNAP_NAME="${SNAP_PREFIX}${TS}"
@@ -4186,7 +4193,7 @@ kopia_one() { # kopia_one <name> <container path>
     # 2.24: waited for in steps of UB_ARRAY_LOOK seconds (a sleep beside it, wait -n for whichever ends
     # first), looking at var.ini each time - an array stop interrupts the upload at once (kopia_stop)
     KOPIA_CP="$cp"
-    kopia_x snapshot create "$cp" --description "$UB_KOPIA_DESC $TS" >>"$LOG_FILE" 2>&1 &
+    UB_DOCKER_LONG=1 kopia_x snapshot create "$cp" --description "$UB_KOPIA_DESC $TS" >>"$LOG_FILE" 2>&1 &     # hours: no docker limit (2.66)
     KOPIA_PID=$!
     local w got
     while :; do

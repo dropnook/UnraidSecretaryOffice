@@ -955,6 +955,7 @@
   "message.dumps_unknown": "Il deposito dei backup non esiste (più) come condivisione. Scegline un altro in «Configura…».",
   "message.dumps_forbidden": "Il deposito dei backup è in appdata, system o domains — lì i backup non vanno. Scegli una condivisione a sé in «Configura…».",
   "message.dumps_off": "Il deposito dei backup non ha a sua volta un backup — i dump non sarebbero al sicuro da nessuna parte. Fai fare il backup della condivisione in «Configura…».",
+  "message.docker_silent": "Docker è acceso ma non risponde — il backup si è fermato prima di arrestare qualcosa; niente è stato salvato. Riavvia Docker in ⟦Settings⟧ → ⟦Docker⟧, poi avvia di nuovo il backup.",
   "message.no_space_packages": "Spazio libero insufficiente nel deposito dei backup {place}: {free} liberi, la configurazione ne tiene liberi almeno {need} — non è stato salvato nulla. Fai spazio lì o abbassa «Spazio libero da tenere nel deposito dei backup» in «Configura…», poi avvia di nuovo il backup.",
   "message.no_space_packages_plain": "Spazio libero insufficiente nel deposito dei backup — non è stato salvato nulla. Fai spazio lì o abbassa «Spazio libero da tenere nel deposito dei backup» in «Configura…», poi avvia di nuovo il backup.",
   "details": "Mostra dettagli",
@@ -1212,6 +1213,7 @@
   "stat.kopia_stopped": "{name} è fermo",
   "stat.kopia_missing_ct": "manca il contenitore {name}",
   "stat.kopia_repo_problem": "repository non raggiungibile",
+  "stat.docker_silent": "Docker è acceso ma non risponde",
   "stat.offsite_unreachable_since": "Fuori sede non raggiungibile dal {when}",
   "stat.kopia_policies_ok": "le policy corrispondono",
   "stat.kopia_policies_bad": {

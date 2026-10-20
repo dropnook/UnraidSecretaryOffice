@@ -949,6 +949,7 @@
   "message.dumps_unknown": "Die Backup-Ablage gibt es nicht (mehr) als Share. Bei «Einrichten…» eine andere wählen.",
   "message.dumps_forbidden": "Die Backup-Ablage liegt in appdata, system oder domains — dort gehören keine Backups hin. Bei «Einrichten…» einen eigenen Share wählen.",
   "message.dumps_off": "Die Backup-Ablage wird selbst nicht gesichert — die Dumps wären nirgends sicher. Bei «Einrichten…» den Share sichern lassen.",
+  "message.docker_silent": "Docker ist eingeschaltet, antwortet aber nicht — das Backup hat aufgehört, bevor es etwas angehalten hat; nichts wurde gesichert. Starte Docker unter ⟦Settings⟧ → ⟦Docker⟧ neu und starte das Backup dann noch einmal.",
   "message.no_space_packages": "Zu wenig freier Platz in der Backup-Ablage {place}: {free} frei, die Einrichtung hält mindestens {need} frei — nichts wurde gesichert. Dort Platz schaffen oder bei «Einrichten…» den «Freien Platz in der Backup-Ablage» senken, dann das Backup neu starten.",
   "message.no_space_packages_plain": "Zu wenig freier Platz in der Backup-Ablage — nichts wurde gesichert. Dort Platz schaffen oder bei «Einrichten…» den «Freien Platz in der Backup-Ablage» senken, dann das Backup neu starten.",
   "details": "Details zeigen",
@@ -1206,6 +1207,7 @@
   "stat.kopia_stopped": "{name} ist angehalten",
   "stat.kopia_missing_ct": "Container {name} fehlt",
   "stat.kopia_repo_problem": "Repository nicht erreichbar",
+  "stat.docker_silent": "Docker ist eingeschaltet, antwortet aber nicht",
   "stat.offsite_unreachable_since": "Ausser Haus nicht erreichbar seit {when}",
   "stat.kopia_policies_ok": "Policies stimmen",
   "stat.kopia_policies_bad": {

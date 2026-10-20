@@ -949,6 +949,7 @@
   "message.dumps_unknown": "The backup place doesn't exist as a share (any more). Choose another one in \"Set up…\".",
   "message.dumps_forbidden": "The backup place is in appdata, system or domains — backups don't belong there. Choose a share of its own in \"Set up…\".",
   "message.dumps_off": "The backup place isn't backed up itself — the dumps would be safe nowhere. Let the share be backed up in \"Set up…\".",
+  "message.docker_silent": "Docker is switched on but doesn't answer — the run ended before it stopped anything; nothing was backed up. Restart Docker under ⟦Settings⟧ → ⟦Docker⟧, then start the run again.",
   "message.no_space_packages": "Not enough free space in the backup place {place}: {free} free, the setup keeps at least {need} free — nothing was backed up. Make room there or lower «Free space kept in the backup place» in \"Set up…\", then start the run again.",
   "message.no_space_packages_plain": "Not enough free space in the backup place — nothing was backed up. Make room there or lower «Free space kept in the backup place» in \"Set up…\", then start the run again.",
   "details": "Show details",
@@ -1206,6 +1207,7 @@
   "stat.kopia_stopped": "{name} is stopped",
   "stat.kopia_missing_ct": "container {name} missing",
   "stat.kopia_repo_problem": "repository not reachable",
+  "stat.docker_silent": "Docker is switched on but doesn't answer",
   "stat.offsite_unreachable_since": "Offsite unreachable since {when}",
   "stat.kopia_policies_ok": "policies match",
   "stat.kopia_policies_bad": {

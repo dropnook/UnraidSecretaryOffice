@@ -270,7 +270,7 @@ function backupScan(): array
         'shares'     => backupShares($settings, $history),
         'items'      => backupKopiaItems($settings, $history),
         'vms'        => $vms = backupVms($settings),
-        'waiting'    => backupWaiting($settings, $vms),   // new folders, apps and VMs waiting for a decision (engine 2.21)
+        'waiting'    => backupWaiting($settings, $vms, backupDockerSilent() ? [] : null),   // new folders, apps and VMs waiting for a decision (engine 2.21); Docker silent: no apps asked (B15)
         'containers' => backupContainers($settings),
         'partners'   => backupPartners($settings, $history, $running ? $status : null),   // engine 2.27: the last transfer per partner
         'dumps'      => backupDumps(),           // run folders of engines before 2.18, until the first 2.18 run cleared them
@@ -663,6 +663,35 @@ function backupKopiaItems(array $s, array $history): array
     return $items;
 }
 
+const BACKUP_DOCKER_LOOK   = 5;      // seconds Docker may take to say its version (B15)
+const BACKUP_DOCKER_KEEP   = 30;     // its answer kept so long - a silent Docker: BACKUP_DOCKER_AGAIN, asked again only then
+const BACKUP_DOCKER_AGAIN  = 60;
+
+/**
+ * Docker switched on but silent (B15, 2026-10-20: dockerd hung — every docker call of the desk waited its 20 s, a request
+ * of the page held the agent's round for a minute)? `docker version` with a short limit, its answer kept a while (on the
+ * agent's monotonic clock); while it is silent the desk asks Docker nothing else and says so. Docker switched off or not
+ * there: false (that is «Docker isn't running», not silence). $GLOBALS['backupDockerProbe'] stands in for the tests.
+ */
+function backupDockerSilent(): bool
+{
+    static $until = 0.0, $silent = false;
+    $probe = $GLOBALS['backupDockerProbe'] ?? null;
+    if (!$probe && (bin('docker') === null || !file_exists('/var/run/docker.sock'))) {
+        return false;
+    }
+    $now = hrtime(true) / 1e9;
+    if (!$probe && $now < $until) {
+        return $silent;
+    }
+    $silent = $probe ? !$probe() : run(['docker', 'version', '--format', '{{.Server.Version}}'], BACKUP_DOCKER_LOOK)[0] !== 0;
+    $until = $now + ($silent ? BACKUP_DOCKER_AGAIN : BACKUP_DOCKER_KEEP);
+    if ($silent) {
+        logLine('Backup: Docker is switched on but doesn\'t answer - its containers are not asked for ' . BACKUP_DOCKER_AGAIN . ' s');
+    }
+    return $silent;
+}
+
 /**
  * The containers for the overview: how many there are, how many run, which of the
  * running ones keep running for the snapshot (Kopia, docker|no_stop) — the engine
@@ -670,6 +699,10 @@ function backupKopiaItems(array $s, array $history): array
  */
 function backupContainers(array $s): array
 {
+    if (backupDockerSilent()) {          // B15: said, never counted as none
+        return ['up' => false, 'silent' => true, 'total' => 0, 'running' => 0, 'kept' => 0, 'stopped' => 0,
+                'dumps' => count(array_filter(array_keys($s), fn ($k) => str_starts_with($k, 'dump|'))), 'kopia' => null];
+    }
     $all = houseContainers();
     $running = array_keys(array_filter($all, fn ($c) => $c['running']));
     $keep = array_merge($s['docker']['no_stop'] ?? [], $s['docker']['skip'] ?? [], array_filter([backupSetting($s, 'kopia', 'container')]));
@@ -1283,7 +1316,7 @@ function backupFirstUpload(string $source, array $history, ?int $repoSince): boo
 function backupKopiaRepoSince(array $settings): ?int
 {
     $name = (string) backupSetting($settings, 'kopia', 'container', '');
-    if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/D', $name)) {
+    if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/D', $name) || backupDockerSilent()) {
         return null;
     }
     $i = houseInspect($name);
@@ -1933,7 +1966,7 @@ function backupNextcloudDataDir(string $container, ?bool &$asleep = null, array 
 {
     $asleep = false;
     $disks = sleepingDisks();
-    $c = houseInspect($container);
+    $c = backupDockerSilent() ? null : houseInspect($container);       // B15: a silent Docker is not asked
     if (!$c) {
         return null;
     }
@@ -2478,9 +2511,11 @@ function backupChecks(): array
 
     // Kopia: a must for offsite copies, otherwise a recommendation
     $level = $kopiaOn ? 'required' : 'recommended';
-    $containers = houseContainers();
-    $name = $summary['kopia_container'];
-    if (!$name || !isset($containers[$name])) {
+    // B15: Docker silent - Kopia's container can't be looked at: «couldn't check», never «missing» or «stopped»
+    $silent = backupDockerSilent();
+    $containers = $silent ? [] : houseContainers();
+    $name = $silent ? (($summary['kopia_container'] ?? '') ?: null) : $summary['kopia_container'];
+    if (!$silent && (!$name || !isset($containers[$name]))) {
         $name = null;
         foreach ($containers as $c) {
             if (stripos($c['image'], 'kopia') !== false) {
@@ -2489,15 +2524,15 @@ function backupChecks(): array
             }
         }
     }
-    $out[] = finding('kopia', $level, $name !== null, ['name' => $name ?? 'kopia'], 'apps');
+    $out[] = finding('kopia', $level, $silent ? null : $name !== null, ['name' => $name ?? 'kopia'], 'apps');
     // Kopia runs in Docker, and Docker's image lies in Unraid's share system: missing, the Team Lead says what to do
-    if ($name === null && in_array('system', array_column(homeMissing()['missing'], 'share'), true)) {
+    if (!$silent && $name === null && in_array('system', array_column(homeMissing()['missing'], 'share'), true)) {
         $out[] = finding('docker_system', $level, false, ['share' => 'system'], '#/caretaker/todo');
     }
     if ($name !== null) {
-        $c = $containers[$name];
-        $out[] = finding('kopia_running', $level, $c['running'], ['name' => $name], 'docker');
-        $inspect = houseInspect($name);
+        $c = $containers[$name] ?? null;
+        $out[] = finding('kopia_running', $level, $c === null ? null : $c['running'], ['name' => $name], 'docker');
+        $inspect = $silent ? null : houseInspect($name);
         if ($inspect) {
             $env = [];
             foreach ($inspect['Config']['Env'] ?? [] as $e) {
