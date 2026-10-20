@@ -74,7 +74,8 @@ desk('caretaker', [
         'partner_ticket_finish' => fn (array $r) => partner_ticket_finish($r),
         'partner_ticket_end'    => fn (array $r) => partner_ticket_end($r),
     ],
-    'jobs'    => ['partner-ping' => fn (array $args) => caretakerPartnerWatch()],
+    'jobs'    => ['partner-ping' => fn (array $args) => caretakerPartnerWatch(),
+                  'partner-look' => fn (array $args) => partnerLookJob((string) ($args[0] ?? ''))],     // «Ask now» (one pair)
     'checks'  => fn () => caretakerChecks(),
     'metrics' => fn (): array => caretakerMetrics(readJson(deskFile('caretaker')), staffHired()),
 ]);

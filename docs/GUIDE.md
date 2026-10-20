@@ -99,8 +99,9 @@ interrupted one left, Ms. Dustdevil clears away). What it left unchecked comes f
 When you hire him he learns what is normal (his *On watch since* tile says until when). From then on he walks his
 round every five minutes, office open or not, and writes down only what is different: a login from an address he
 hasn't seen, a burst of failed logins, a container that got special rights, a new plugin, a change on the flash, a new
-cron line, a share newly open to guests, a client or container sending far more than usual, snapshots gone that nobody
-in the office removed. Each entry names its MITRE ATT&CK technique; the important ones go to Unraid's notifications.
+cron line, a share newly open to guests, a client or container sending far more than usual, far more written to a
+share or disk than usual or many files deleted at once (ZFS per share, XFS and btrfs per disk — btrfs keeps no count of
+deleted files, only the space they free), snapshots gone that nobody in the office removed. Each entry names its MITRE ATT&CK technique; the important ones go to Unraid's notifications.
 *I know, thanks* makes it the new normal. While the array is stopped — also while an encrypted array waits for its key
 — his night shift keeps watch from RAM and the flash.
 

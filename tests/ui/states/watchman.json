@@ -20,8 +20,8 @@
   "listen_new": 2,
   "plugin_source": 1,
   "door_new": 1,
-  "flow_gone": 1,
-  "flow_written": 1,
+  "flow_gone": 2,
+  "flow_written": 2,
   "net_router_login": 1,
   "net_new_device": 1,
   "net_ips_server": 2,
@@ -32,6 +32,89 @@
   "net_sender_new": 3
  },
  "book": [
+  {
+   "id": "w1a2b3c4d5e",
+   "kind": "flow_gone",
+   "group": "flow",
+   "tell": true,
+   "attack": "T1485",
+   "time": 1791562574,
+   "last": 1791562874,
+   "count": 1,
+   "open": true,
+   "t": {
+    "share": "disk4 (Familienfilme, Dokumente)",
+    "size": "",
+    "minutes": 10,
+    "usual": "",
+    "more": ""
+   },
+   "p": {
+    "share": "disk4",
+    "disk": "disk4",
+    "fs": "xfs",
+    "shares": [
+     "Familienfilme",
+     "Dokumente"
+    ],
+    "renames": true,
+    "files": 25400,
+    "minutes": 10,
+    "usual": 0,
+    "limit": 20000,
+    "learning": true,
+    "peak": 25400,
+    "clients": [
+     "192.168.178.34 (SMB)"
+    ],
+    "users": [
+     "anna"
+    ],
+    "from": "clients"
+   },
+   "noted": null,
+   "by": null,
+   "told": 1791562574,
+   "muted": null,
+   "night": false
+  },
+  {
+   "id": "w2b3c4d5e6f",
+   "kind": "flow_written",
+   "group": "flow",
+   "tell": true,
+   "attack": "T1486",
+   "time": 1791562574,
+   "last": 1791562874,
+   "count": 1,
+   "open": true,
+   "t": {
+    "share": "disk3 (Familienfotos)",
+    "size": "64 GB",
+    "minutes": 10,
+    "usual": "",
+    "from": ""
+   },
+   "p": {
+    "share": "disk3",
+    "disk": "disk3",
+    "fs": "btrfs",
+    "shares": [
+     "Familienfotos"
+    ],
+    "bytes": 68719476736,
+    "minutes": 10,
+    "usual": 0,
+    "limit": 53687091200,
+    "learning": true,
+    "peak": 68719476736
+   },
+   "noted": null,
+   "by": null,
+   "told": 1791562574,
+   "muted": null,
+   "night": false
+  },
   {
    "id": "w54e6489316",
    "kind": "net_log_silent",
@@ -2377,12 +2460,19 @@
    },
    "disks": {
     "disks": [
-     "disk1"
+     "disk1",
+     "disk3",
+     "disk4"
     ],
     "asleep": []
    },
    "moving": [],
-   "office": null
+   "office": null,
+   "fs": {
+    "disk1": "btrfs",
+    "disk3": "btrfs",
+    "disk4": "xfs"
+   }
   },
   "clients": [
    {
@@ -2734,6 +2824,28 @@
   ],
   "gone": [
    {
+    "key": "disk:disk4",
+    "share": null,
+    "disk": "disk4",
+    "fs": "xfs",
+    "shares": [
+     "Familienfilme",
+     "Dokumente"
+    ],
+    "size": 0,
+    "day": 0,
+    "expected": 0,
+    "usual": 0,
+    "learning": 2,
+    "asleep": [],
+    "last": 1791563174,
+    "ack": 0,
+    "files": 25400,
+    "files_expected": 1200,
+    "files_usual": 40,
+    "files_ack": 0
+   },
+   {
     "key": "share:system",
     "share": "system",
     "disk": null,
@@ -2927,8 +3039,39 @@
    "part": 20,
    "keep": 14,
    "gone_new": 107374182400,
-   "gone_part": 10
-  }
+   "gone_part": 10,
+   "files_min": 2000,
+   "files_new": 20000
+  },
+  "disks": [
+   {
+    "disk": "disk3",
+    "fs": "btrfs",
+    "shares": [
+     "Familienfotos"
+    ],
+    "day": 68719476736,
+    "office": 0,
+    "usual": 2147483648,
+    "learning": 2,
+    "seen": 1791563474,
+    "ack": 0
+   },
+   {
+    "disk": "disk4",
+    "fs": "xfs",
+    "shares": [
+     "Familienfilme",
+     "Dokumente"
+    ],
+    "day": 3221225472,
+    "office": 1073741824,
+    "usual": 838860800,
+    "learning": 2,
+    "seen": 1791563474,
+    "ack": 0
+   }
+  ]
  },
  "snaps": {
   "time": 1791563474,

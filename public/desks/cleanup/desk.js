@@ -30,7 +30,7 @@ const GROUPS = {
   flash: ['stale', 'unknown', 'used'],     // share settings: whose share is gone, can't tell (array stopped), Unraid knows the share
   docker: ['drill', 'dangling', 'volume', 'unused', 'cache', 'used'],
   icons: ['template', 'compose', 'stack', 'none', 'ok'],
-  leftovers: ['leftover', 'way_back', 'unknown'],     // shown per restore (renderLeftovers), these for the CSV
+  leftovers: ['leftover', 'way_back', 'pulled', 'unknown'],     // shown per restore (renderLeftovers), these for the CSV; pulled: his to remove
   partners: ['leftover', 'dropped'],
 };
 const CANDIDATES = {
@@ -1616,8 +1616,8 @@ function restoreGroup(items) {
   return box;
 }
 
-/** What he made next to the live one (a restored copy, safety dumps) — never put aside */
-const made = (e) => ['restored', 'safety'].includes(e.what);
+/** What he made next to the live one (a restored copy, safety dumps, a dataset pulled from a partner) — never put aside */
+const made = (e) => ['restored', 'safety', 'pulled'].includes(e.what);
 
 function leftoverMeta(e, meta, figures) {
   meta.appendChild(chip(T('lo.what.' + e.what), '', T('lo.what.' + e.what + '_text')));
@@ -1642,6 +1642,13 @@ function leftoverDetail(e) {
   ]));
   box.appendChild(el('p', 'role', T('lo.what.' + e.what + '_text')));
   if (e.category === 'way_back') box.appendChild(el('p', 'role', T('lo.way_back_text')));
+  if (e.what === 'pulled') {      // read only here: his «Remove what was pulled…» destroys exactly it (BG2)
+    const a = el('a', '', T('lo.pulled_link'));
+    a.href = '#/restore/journal';
+    const p = el('p', 'role');
+    p.appendChild(a);
+    box.appendChild(p);
+  }
   if (e.asleep.length) box.appendChild(el('p', 'role', T('asleep', { disks: e.asleep.join(', ') })));
   return box;
 }

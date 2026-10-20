@@ -8,8 +8,9 @@
 #   the pool since the start: every receive without -F, no clone).
 # - OF-AGENT-RESTART: still mounted read-only. OF-ARRAY-STOP-START (the real reason a legacy mount goes — the pool is
 #   exported): the stop not held by the mount, and after the start the agent's rspRemount mounts it read-only again.
-# - Ms. Dustdevil lists it (her state names the pulled dataset); a backup run's retention leaves it (the dataset and its
-#   moment still there afterwards).
+# - Ms. Dustdevil lists it among Mr. Restori's leftovers (BG2: «pulled from a partner», read only — why «pulled», his
+#   «Remove what was pulled…» removes it); a backup run's retention leaves it (the dataset and its moment still there
+#   afterwards).
 # The undo: «Remove what was pulled…» (his put-back of the pull — destroys exactly that dataset), the share, settings.ini,
 # what USOPartner received of the share, both sides' partner files, the partner base compared. Pre-release (~8 min).
 . "$(dirname "$0")/lib.sh"
@@ -87,8 +88,14 @@ names_it() { grep -l -F -- "${ds#cache/}" "$D"/cleanup*.json "$D"/cleanup/*.json
 ask cleanup.refresh '{}' 300 >/dev/null
 wait_for 180 "Ms. Dustdevil's look to name ${ds#cache/}" bash -c "grep -qlF -- '${ds#cache/}' $D/cleanup*.json $D/cleanup/*.json 2>/dev/null"
 c=$(names_it)
-[[ -n $c ]] && cell dustdevil-lists 1 "her state names ${ds#cache/}: $(jq -c --arg n "${ds#cache/}" '[paths(type == "string" and test($n)) | map(tostring) | join(".")] | .[0:3]' "$c")" \
-    || cell dustdevil-lists 0 "no state of hers names ${ds#cache/}"
+lo=$(jq -c --arg d "$ds" '[.leftovers.list[]? | select(.path == $d)] | .[0] // empty | {what, category, why, parts: [.parts[]? | {path, dataset}]}' "$D/cleanup.json" 2>/dev/null)
+if [[ -n $lo && $(jq -r '.what + " " + .category + " " + .why' <<<"$lo") == "pulled pulled pulled" ]]; then
+    cell dustdevil-lists 1 "among Mr. Restori's leftovers, read only: $lo"
+elif [[ -n $c ]]; then
+    cell dustdevil-lists 0 "her state names ${ds#cache/} but not as a pull of his: ${lo:-$(jq -c --arg n "${ds#cache/}" '[paths(type == "string" and test($n)) | map(tostring) | join(".")] | .[0:3]' "$c")}"
+else
+    cell dustdevil-lists 0 "no state of hers names ${ds#cache/}"
+fi
 before=$(zfs list -H -r -t filesystem,snapshot -o name "$ds" 2>/dev/null | paste -sd' ')
 flow BK-RUN-MANUAL mode=backup
 after=$(zfs list -H -r -t filesystem,snapshot -o name "$ds" 2>/dev/null | paste -sd' ')

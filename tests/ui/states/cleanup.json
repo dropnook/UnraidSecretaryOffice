@@ -1324,7 +1324,45 @@
  "leftovers": {
   "restores": 3,
   "asleep": [],
-  "list": []
+  "list": [
+   {
+    "id": "leftover:5f0c1d2e3a4b5c6d7e8f",
+    "kind": "leftover",
+    "what": "pulled",
+    "name": "Familienfilme.restored-20261020-151500",
+    "path": "cache/Familienfilme.restored-20261020-151500",
+    "restore": {
+     "id": "20261020-151500-77aa",
+     "kind": "partner",
+     "what": "Familienfilme",
+     "time": 1791551000,
+     "result": "ok",
+     "undone": false
+    },
+    "time": 1791551000,
+    "parts": [
+     {
+      "root": "cache",
+      "path": "/mnt/addons/UnraidSecretaryOffice/restored/Partner-share-Familienfilme-20261020-151500",
+      "dataset": "cache/Familienfilme.restored-20261020-151500",
+      "trash": "",
+      "file": false,
+      "bytes": 4294967296,
+      "snaps": 0
+     }
+    ],
+    "asleep": [],
+    "exists": true,
+    "category": "pulled",
+    "why": "pulled",
+    "force": false,
+    "used_by": [],
+    "notes": [],
+    "measuring": false,
+    "bytes": 4294967296,
+    "snaps": 0
+   }
+  ]
  },
  "partners": {
   "asleep": [],
