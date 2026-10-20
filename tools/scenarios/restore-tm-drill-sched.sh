@@ -6,15 +6,19 @@
 # with the scheduled backup at 04:30 (restore-drill.php:475: now + its estimate > 04:30 − 15 min — any estimate) — a run, then his tick refuses (auto.json: drill_deadline: it could not end ≥ 15 min before the backup); (2) at 02:20 — a run, then the drill
 # starts by itself and its deadline lies ≥ 15 min before 04:30; (3) at 08:05 — a run, then nothing (outside the window
 # 00–07). After every step of the clock the agent's doorbell is rung (a nap across a step back sleeps until it: batch D's
-# F12). No INV-BACKUP-AFTER (the history then lies in the future). Nightly (~12 min).
+# F12). No INV-BACKUP-AFTER (the history then lies in the future). Run last: its runs on the clock set on stay in the
+# history and as snapshots dated in the future until the next base reset (another cell would take them for the newest
+# moment). Nightly (~6 min).
 . "$(dirname "$0")/lib.sh"
 scenario_begin restore-tm-drill-sched
 needs tower docker
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
 ring() { ask restore.refresh '{}' 60 >/dev/null; agent_wait 60 || _row state heartbeat red "no heartbeat within 60 s after the clock step (batch D F12?)"; }
 auto() { jq -c '{run, at, id, refused}' "$D/restore-drill/auto.json" 2>/dev/null; }
-tick_after() {   # <epoch>: his tick wrote auto.json at or after that time (≤ 150 s)
-    wait_for 150 "his tick's note (auto.json)" bash -c "(( \$(jq -r '.at // 0' '$D/restore-drill/auto.json' 2>/dev/null) >= $1 ))"; }
+tick_after() {   # his tick's note (auto.json) about the run just made (its id — the clock goes back between the steps:
+    # a note's time says nothing), ≤ 150 s
+    local run; run=$(jq -r '.run // empty' "$UB/state/last-run.json" 2>/dev/null)
+    wait_for 150 "his tick's note about run $run (auto.json)" bash -c "[[ \$(jq -r '.run // empty' '$D/restore-drill/auto.json' 2>/dev/null) == '$run' ]]"; }
 nc_data_closed
 cron=$(grep -h 'job.sh backup' "$OFFICE_FLASH"/*.cron | awk '{print $1, $2}')
 [[ $cron == '30 4' ]] || _row state schedule red "the base's backup runs at «$cron», the cell wants 04:30"
@@ -31,13 +35,13 @@ undo_push clock_restore R22-DEADLINE; undo_push clock_restore R22-WINDOW; undo_p
 # (1) 04:16 — the deadline
 clock_set R22-DEADLINE "@$((day + 4 * 3600 + 16 * 60))"; ring
 flow BK-RUN-MANUAL mode=backup
-t=$(_sc_now); tick_after "$t" && a=$(auto) || a=none
+tick_after && a=$(auto) || a=none
 [[ $(jq -r '.refused // empty' <<<"$a" 2>/dev/null) == drill_deadline ]] && cell deadline 1 "at $(date +%H:%M) his tick refused: $a" || cell deadline 0 "at $(date +%H:%M) (backup 04:30) his tick: $a"
 clock_restore R22-DEADLINE; ring
 # (2) 02:20 — the window
 clock_set R22-WINDOW "@$((day + 2 * 3600 + 20 * 60))"; ring
 flow BK-RUN-MANUAL mode=backup
-t=$(_sc_now); tick_after "$t" && a=$(auto) || a=none
+tick_after && a=$(auto) || a=none
 id=$(jq -r '.id // empty' <<<"$a" 2>/dev/null)
 if [[ -n $id ]]; then
     wait_drill 3600 >/dev/null
