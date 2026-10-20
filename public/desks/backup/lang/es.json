@@ -679,6 +679,7 @@
   "setup.msg.no_notify": "Las notificaciones de Unraid no están disponibles — no puedo decirte cómo fue una copia.",
   "setup.msg.no_user_scripts": "User Scripts no está instalado — sin el plugin de la secretaría, la copia programada lo necesita (⟦Apps⟧).",
   "setup.msg.settings_error": "Una línea de los ajustes guardados no se puede usar: {error}",
+  "setup.msg.share_pool_missing": "El recurso compartido {share} está configurado en el pool {pool}, que no existe — Unraid no escribe nada nuevo en él («No medium found»); lo que hay en los discos presentes lo copio como siempre. En ⟦Shares⟧ → {share} elige un pool que exista, o vuelve a poner el pool.",
   "setup.msg.settings_key_twice": "«{key}» está dos veces en {section} de los ajustes guardados (otra vez en la línea {line}) — se lee una vez; Aplicar lo escribe una vez.",
   "setup.msg.settings_key_differ": "«{key}» está dos veces en {section} de los ajustes guardados con dos valores — cuenta el último ({value}, línea {line}); Aplicar escribe solo ese, «{dropped}» desaparece.",
   "setup.msg.no_settings": "Aún no hay nada configurado — cada propuesta sale de lo que encontré en el servidor.",

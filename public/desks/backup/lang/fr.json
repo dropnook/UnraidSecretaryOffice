@@ -679,6 +679,7 @@
   "setup.msg.no_notify": "Les notifications d'Unraid ne sont pas disponibles — je ne peux pas te dire comment s'est passée une sauvegarde.",
   "setup.msg.no_user_scripts": "User Scripts n'est pas installé — sans le plugin du secrétariat, la sauvegarde planifiée en a besoin (⟦Apps⟧).",
   "setup.msg.settings_error": "Une ligne des réglages enregistrés est inutilisable : {error}",
+  "setup.msg.share_pool_missing": "Le partage {share} est réglé sur le pool {pool}, qui n'existe pas — Unraid n'écrit rien de nouveau dans le partage (« No medium found ») ; ce qui se trouve sur les disques présents, je le sauvegarde comme d'habitude. Dans ⟦Shares⟧ → {share}, choisis un pool qui existe, ou remets le pool.",
   "setup.msg.settings_key_twice": "« {key} » figure deux fois dans {section} des réglages enregistrés (encore à la ligne {line}) — lu une fois ; Appliquer l'écrit une fois.",
   "setup.msg.settings_key_differ": "« {key} » figure deux fois dans {section} des réglages enregistrés avec deux valeurs — la dernière compte ({value}, ligne {line}) ; Appliquer n'écrit qu'elle, « {dropped} » disparaît.",
   "setup.msg.no_settings": "Rien n'est encore configuré — chaque proposition vient de ce que j'ai trouvé sur le serveur.",

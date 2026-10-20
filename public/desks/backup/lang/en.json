@@ -673,6 +673,7 @@
   "setup.msg.no_notify": "Unraid's notifications aren't available — I can't tell you how a backup went.",
   "setup.msg.no_user_scripts": "User Scripts isn't installed — without the office's plugin the scheduled backup needs it (⟦Apps⟧).",
   "setup.msg.settings_error": "A line of the saved settings can't be used: {error}",
+  "setup.msg.share_pool_missing": "The share {share} is set to the pool {pool}, which isn't there — Unraid writes nothing new into the share («No medium found»); what lies on the disks that are there I back up as usual. In ⟦Shares⟧ → {share} choose a pool that is there, or bring the pool back.",
   "setup.msg.settings_key_twice": "«{key}» is in {section} of the saved settings twice (again in line {line}) — read once; Apply writes it once.",
   "setup.msg.settings_key_differ": "«{key}» is in {section} of the saved settings twice with two values — the last one counts ({value}, line {line}); Apply writes only that one, «{dropped}» goes.",
   "setup.msg.no_settings": "Nothing set up yet — every proposal comes from what I found on the server.",

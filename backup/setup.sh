@@ -1033,6 +1033,28 @@ appdata_suggestions() { # appdata_suggestions <share>  -> lines "folder|containe
     done | sort -u
 }
 
+# 2.66 (scenario B18): a share whose config names a pool that isn't there (removed, renamed, not mounted) - Unraid writes
+# nothing new into the share (ENOMEDIUM, «No medium found») while its files on the bases that are there stay readable and
+# are planned as usual. Said per share with the pool (share_pool_missing). A share on the array only (shareUseCache no)
+# keeps an old pool name harmlessly. Only the share configs on the flash are read, never a disk.
+share_pool_check() {
+    local s f use key p b
+    local -A pools=()
+    for b in "${INV_BASES[@]}"; do [[ "${INV_BASE_KIND[$b]:-}" == pool ]] && pools[$b]=1; done
+    for s in "${SH[@]}"; do
+        f="$UB_SHARES_CFG/$s.cfg"
+        [[ -f "$f" && ! -L "$f" ]] || continue
+        use="$(sed -n 's/^shareUseCache="\{0,1\}\([^"]*\)"\{0,1\}[[:space:]]*$/\1/p' "$f" 2>/dev/null | tail -n 1)"
+        [[ "$use" == no ]] && continue
+        for key in shareCachePool shareCachePool2; do
+            p="$(sed -n "s/^$key=\"\{0,1\}\([^\"]*\)\"\{0,1\}[[:space:]]*\$/\1/p" "$f" 2>/dev/null | tail -n 1)"
+            [[ -z "$p" || -n "${pools[$p]:-}" ]] && continue
+            wrn_as share_pool_missing "Share '$s' is set to the pool '$p', which isn't there - Unraid writes nothing new into the share (No medium found). Choose a pool that is there in Shares > $s, or bring the pool back" share "$s" pool "$p"
+        done
+    done
+    return 0
+}
+
 step_shares() {
     hdr "Shares"
     explain <<'TXT'
@@ -1055,6 +1077,7 @@ TXT
     local s mode gb
     SH=( "${INV_SHARES[@]}" )
     while IFS= read -r s; do [[ -n "$s" ]] && ! inv_has_share "$s" && SH+=( "$s" ); done < <(old_names share)
+    share_pool_check
 
     # Sizes: ZFS at once, otherwise du (with a time limit)
     local measure="no"

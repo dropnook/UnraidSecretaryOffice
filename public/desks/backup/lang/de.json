@@ -673,6 +673,7 @@
   "setup.msg.no_notify": "Unraids Benachrichtigungen sind nicht da — ich kann dir nicht melden, wie ein Backup lief.",
   "setup.msg.no_user_scripts": "User Scripts ist nicht installiert — ohne das Plugin des Sekretariats braucht das geplante Backup es (⟦Apps⟧).",
   "setup.msg.settings_error": "Eine Zeile der gespeicherten Einstellungen ist nicht brauchbar: {error}",
+  "setup.msg.share_pool_missing": "Der Share {share} ist auf den Pool {pool} eingestellt, den es nicht gibt — Unraid schreibt nichts Neues in den Share («No medium found»); was auf den vorhandenen Disks liegt, sichere ich wie gewohnt. Wähl unter ⟦Shares⟧ → {share} einen Pool, den es gibt, oder bring den Pool zurück.",
   "setup.msg.settings_key_twice": "«{key}» steht in {section} der gespeicherten Einstellungen zweimal (noch einmal in Zeile {line}) — einmal gelesen; Übernehmen schreibt es einmal.",
   "setup.msg.settings_key_differ": "«{key}» steht in {section} der gespeicherten Einstellungen zweimal mit zwei Werten — der letzte gilt ({value}, Zeile {line}); Übernehmen schreibt nur diesen, «{dropped}» fällt weg.",
   "setup.msg.no_settings": "Noch nichts eingerichtet — jeder Vorschlag kommt von dem, was ich auf dem Server gefunden habe.",
