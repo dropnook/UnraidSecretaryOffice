@@ -36,12 +36,12 @@ const NOTIFY_SUMMARY_LINES = 20;      // lines of a summary's long text, then «
 const NOTIFY_SILENT_MAX   = 60 * 86400;   // «Still bis …» at most two months ahead
 
 // the characters who send, in the page's order — `office` the office itself (scripts/agent.sh: the agent away, back)
-const OFFICE_NOTIFY_DESKS = ['caretaker', 'backup', 'snapshot', 'restore', 'watchman', 'moverelli', 'jack', 'office'];
+const OFFICE_NOTIFY_DESKS = ['caretaker', 'backup', 'snapshot', 'restore', 'watchman', 'moverelli', 'jack', 'logs', 'office'];
 // what each of them sends (the page says it; a desk without alerts shows «Nur Alarme» as «Aus»)
 const OFFICE_NOTIFY_SENDS = [
     'caretaker' => ['warning'], 'backup' => ['alert', 'warning', 'normal'], 'snapshot' => ['warning'], 'restore' => ['warning'],
     'watchman'  => ['alert', 'warning', 'normal'], 'moverelli' => ['warning', 'normal'], 'jack' => ['warning', 'normal'],
-    'office'    => ['alert', 'normal'],
+    'logs'      => ['warning'], 'office' => ['alert', 'normal'],
 ];
 // successes: the desk's «auch Erfolge» (ung_is_success in notifygate.sh)
 const OFFICE_NOTIFY_SUCCESS  = ['backup' => ['ok'], 'jack' => ['release_ok']];

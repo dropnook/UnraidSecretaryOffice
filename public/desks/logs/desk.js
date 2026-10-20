@@ -248,6 +248,7 @@ function build(root) {
     [T('help.grouped'), T('help.grouped_text')],
     [T('help.since'), T('help.since_text')],
     [T('help.space'), T('help.space_text')],
+    [T('flood.title'), T('help.flood_text')],
     [T('help.source'), T('help.source_text')],
     [T('live'), T('help.live')],
     [T('only_problems'), T('help.only')],
@@ -422,7 +423,8 @@ function bubbleText() {
   if (!state && !tour) return T('bubble.loading');
   const parts = [];
   const v = varlog();
-  if (v && v.own && v.pct >= v.full) parts.push(T('bubble.varlog_full', { pct: v.pct }));
+  const fc = floodCase();
+  if (v && v.own && v.pct >= v.full) parts.push(fc ? T('bubble.flood', { pct: v.pct, file: fc.path }) : T('bubble.varlog_full', { pct: v.pct }));
   else if (v && v.own && v.pct >= v.warn) parts.push(T('bubble.varlog_much', { pct: v.pct }));
   if (touring()) parts.push(T('bubble.touring'));
   else if (tour && tour.time) {
@@ -501,7 +503,8 @@ function varlogTile(a) {
   bar.appendChild(used);
   const files = tour?.varlog?.count;
   return Office.tile({ name: '/var/log', chip: el('span', 'lg-pct ' + fillLevel(v), v.pct + ' %'), lines: [bar,
-    [T('tile.varlog_of', { used: fmt.size(v.used), total: fmt.size(v.total) }), files !== undefined ? T('tile.varlog_files', { n: files }) : '']], ...a });
+    [T('tile.varlog_of', { used: fmt.size(v.used), total: fmt.size(v.total) }), files !== undefined ? T('tile.varlog_files', { n: files }) : ''],
+    floodCase() ? T('flood.tile', { file: floodCase().path.replace(/^\/var\/log\//, '') }) : ''], ...a });
 }
 
 /** The containers' logs: how big, how many, Docker's rotation */
@@ -650,6 +653,8 @@ function readableRow(id) {
 function varlogView() {
   const v = (tour && tour.varlog) || varlog() || {};
   const [box, none] = tourSection(T('varlog.title'), T('varlog.sub', { total: fmt.size(v.total || 0) }), 'varlog.title');
+  const flood = floodView();
+  if (flood) box.insertBefore(flood, box.children[1] || null);
   if (none) return box;
   if (v.ok && !v.own) box.appendChild(el('p', 'callout', T('varlog.not_own')));
   const files = v.files || [];
@@ -679,6 +684,76 @@ function varlogView() {
   box.appendChild(list);
   barDone('varlog', fits.length, files.length);
   box.appendChild(el('p', 'role lg-note', T('varlog.files_note', { n: v.count || 0, size: fmt.size(v.sum || 0), when: fmt.date(tour.time) })));
+  return box;
+}
+
+// ------------------------------------------------------------------ «Who fills /var/log?» (agent/desks/logs-flood.php)
+/* Her look every minute (state part «flood»): the files growing fastest; from 80 % the case — the file that fills it,
+   what it writes most, nginx's lines of this server itself and who is behind them (caught or plainly not), a known
+   poller by its addresses and, only where it is known for sure, what helps; at 90 % one notification. */
+const floodOf = () => (state && state.flood && typeof state.flood === 'object' ? state.flood : null);
+const floodCase = () => { const c = floodOf()?.case; return c && typeof c.path === 'string' ? c : null; };
+
+function floodView() {
+  const f = floodOf();
+  const look = f && f.look;
+  if (!look) return null;
+  const box = el('div', 'lg-flood');
+  const c = floodCase();
+  const span = fmt.duration(look.span || 0);
+  if (!c) {
+    const rows = (look.rows || []).filter((r) => r.grew > 0);
+    box.appendChild(el('p', 'role lg-note', T('flood.calm', { full: f.full })));
+    if (look.span > 0) {
+      box.appendChild(el('p', 'role lg-note', rows.length
+        ? T('flood.growing', { span }) + ' ' + rows.map((r) => `${r.path.replace(/^\/var\/log\//, '')} +${fmt.size(r.grew)}`).join(' · ')
+        : T('flood.none_growing', { span })));
+    }
+    return box;
+  }
+  box.appendChild(el('p', 'callout warn', c.grew > 0
+    ? T('flood.head', { pct: look.pct, file: c.path, grew: fmt.size(c.grew), span, rate: fmt.size(c.rate || 0) })
+    : T('flood.head_big', { pct: look.pct, file: c.path, size: fmt.size(c.size || 0) })));
+  if (c.binary) box.appendChild(el('p', 'role', T('flood.binary')));
+  else if ((c.kinds || []).length) {
+    box.appendChild(el('p', 'role', T('flood.kinds', { n: c.lines || 0 })));
+    const list = el('div', 'box');
+    for (const k of c.kinds) {
+      const r = el('div', 'row');
+      const main = el('div', 'row-main');
+      main.appendChild(el('div', 'row-name lg-flood-line', k.line));
+      const fig = el('div', 'figures');
+      fig.append(el('b', '', k.share + ' %'), el('span', '', fmt.number(k.n)));
+      r.append(main, fig);
+      list.appendChild(r);
+    }
+    box.appendChild(list);
+  }
+  const local = c.local;
+  if (local) {
+    box.appendChild(el('p', 'role', T('flood.local', { share: local.share, client: local.client })));
+    if ((local.paths || []).length) box.appendChild(el('p', 'role lg-flood-paths', T('flood.paths', { paths: local.paths.join(', ') })));
+    const who = f.catch && Array.isArray(f.catch.who) ? f.catch.who[0] : null;
+    if (f.catching) {
+      const p = el('p', 'role');
+      p.append(el('span', 'spin'), ' ', T('flood.catching'));
+      box.appendChild(p);
+    } else if (who) {
+      const p = el('p', 'role', who.kind === 'container'
+        ? T('flood.who_container', { name: who.name || String(who.id || '').slice(0, 12), prog: who.prog, n: who.n })
+        : T('flood.who_program', { prog: who.prog, n: who.n }));
+      if (who.cmd) p.title = who.cmd;
+      box.appendChild(p);
+    } else if (f.catch) box.appendChild(el('p', 'role', T('flood.who_none')));
+    const poller = (who && who.poller) || local.poller;
+    const tool = poller && f.pollers && f.pollers[poller] ? f.pollers[poller].tool : '';
+    const hint = poller === 'netdata' ? T('flood.poller.netdata') : poller === 'status' ? T('flood.poller.status') : tool ? T('flood.poller.tool', { tool }) : '';
+    if (hint) box.appendChild(el('p', 'role', hint));
+    if (poller === 'netdata') box.appendChild(el('p', 'callout', T('flood.todo.netdata')));
+  }
+  box.appendChild(el('p', 'role lg-note', f.told
+    ? T('flood.told', { notify: f.notify, full: f.full, when: fmt.relative(f.told) })
+    : T('flood.notify_note', { notify: f.notify, full: f.full })));
   return box;
 }
 
@@ -2251,6 +2326,7 @@ Office.places(ID, [
   { kind: 'help', key: 'only_problems', text: 'help.only' },
   { kind: 'help', key: 'help.red', text: 'help.colours' },
   ...['counted', 'rules', 'grouped', 'since', 'space', 'source', 'time', 'sort', 'saved', 'favorites', 'safe', 'wakes'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
+  { kind: 'help', key: 'flood.title', text: 'help.flood_text' },          // «Who fills /var/log?»
   // her «Set up» (#/logs/setup): her own rules, her hide words
   { kind: 'section', key: 'mine.title', text: 'help.mine_text', route: `#/${ID}/setup`, crumb: 'page.setup' },
   { kind: 'section', key: 'hide.title', text: 'help.hide_text', route: `#/${ID}/setup`, crumb: 'page.setup' },
