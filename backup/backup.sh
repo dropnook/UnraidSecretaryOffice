@@ -1,6 +1,11 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.65 - 2026-10-19
+# unraid-backup - backup.sh                       Version 2.66 - 2026-10-20
+#   2.66 A run's name (the minute: run id, log, uso-backup-<minute> snapshots) is never used twice: besides its log (2.34) a
+#        history row of a run with this id or a snapshot of the name on a pool or disk awake (ZFS <dataset>@<prefix><minute>,
+#        btrfs <base>/<btrfs_snap_dir>/<minute>) ends the run right after taking the lock, touching nothing (the autumn hour
+#        02:00-03:00 comes twice; a data folder set back or new knows nothing of the snapshots) - up to 2.65 the snapshot
+#        phase met the existing name: btrfs «Read-only file system», ZFS «dataset already exists», errors.
 #   2.65 Nextcloud no longer stays in maintenance mode after an array stop or a power cut during a run: Unraid's array
 #        start (every boot too) resets a share root that isn't of the group users to 0777 nobody:users - Nextcloud's data
 #        folder then refuses every occ call, and --recover could never switch the mode off (its note kept for ever). The
@@ -3699,6 +3704,38 @@ partner_phase() {
     status_write
 }
 
+# run_name_taken: a real backup's name (the minute: run id, log, uso-backup-<minute> snapshots) is never used twice (2.66,
+# B19) - prints what has it already and returns 0; 1 when it is free. Its log (2.34); a history row of a run with this id (its
+# log pruned or set aside); a snapshot of the name on a pool or disk awake that the data folder knows nothing of (the
+# autumn hour 02:00-03:00 comes twice, a data folder set back or new): ZFS <dataset>@<prefix><minute>, btrfs
+# <base>/<btrfs_snap_dir>/<minute>. Settings are read in a subshell (the run reads them itself later); a sleeping disk is
+# never looked at. Readers that stop early take a $( ) (never grep -q on a pipe, 2.35).
+run_name_taken() {
+    local h cfgv prefix sdir i t name fs src snaps
+    [[ -e "$LOG_FILE" ]] && { printf 'its log %s is there' "$(basename "$LOG_FILE")"; return 0; }
+    h="$(jq -r --arg r "$TS" 'select(type == "object" and .run == $r and .result != "skipped") | .run' "$UB_STATE/history.jsonl" 2>/dev/null)"
+    [[ -n "$h" ]] && { printf 'the history has a run %s' "$TS"; return 0; }
+    cfgv="$(load_settings >/dev/null 2>&1; printf '%s\x1f%s' "${SNAP_PREFIX:-$UB_SNAP_PREFIX}" "${BTRFS_SNAP_DIR:-.btrfs-snap}")"
+    IFS=$'\x1f' read -r prefix sdir <<<"$cfgv"
+    [[ -n "$prefix" && -n "$sdir" && "$sdir" != */* ]] || return 1
+    mounts_load
+    for i in "${!MT_TARGET[@]}"; do
+        t="${MT_TARGET[$i]}"; fs="${MT_FSTYPE[$i]}"; src="${MT_SOURCE[$i]}"
+        [[ "$t" == "$UB_MNT/"* ]] || continue
+        name="${t#"$UB_MNT"/}"
+        [[ -n "$name" && "$name" != */* ]] || continue
+        case "$name" in user|user0|disks|remotes|addons|rootshare) continue ;; esac
+        ub_base_sleeps "$name" && continue
+        case "$fs" in
+            btrfs) [[ -e "$t/$sdir/$TS" ]] && { printf 'a btrfs snapshot %s is there' "$t/$sdir/$TS"; return 0; } ;;
+            zfs)   [[ "$src" == */* ]] && continue      # a pool's top dataset lists the whole pool
+                   snaps="$(timeout 60 zfs list -H -t snapshot -o name -r "$src" 2>/dev/null | awk -v n="@$prefix$TS" 'index($0, n) && substr($0, length($0) - length(n) + 1) == n { print; exit }')"
+                   [[ -n "$snaps" ]] && { printf 'a ZFS snapshot %s is there' "$snaps"; return 0; } ;;
+        esac
+    done
+    return 1
+}
+
 ##############################################################################
 # Start
 ##############################################################################
@@ -3733,7 +3770,11 @@ else
     # minute would share them (ZFS refuses the existing snapshot name: "failed", one id twice in history.jsonl). Its log
     # is there already: nothing of that run is touched (lock, note, status.json, latest.log, snapshots), exit 1. 2.45: only a
     # real backup (its snapshots carry the minute); a tour or a dry run names its log by the second (the same second: refused)
-    if [[ -e "$LOG_FILE" ]]; then
+    # 2.66 (B19): not only its log - its history row, a snapshot of its name (run_name_taken)
+    if [[ "$UB_MODE" == "backup" && "$DRY" != "1" ]] && taken="$(run_name_taken)"; then
+        echo "ERROR: a run of this minute was made already ($taken) - the name $TS is never used twice, nothing touched - one run a minute: try again in $(( 60 - 10#$(date +%S) )) s" >&2
+        exit 1
+    elif [[ -e "$LOG_FILE" ]]; then
         echo "ERROR: a run of this minute was made already ($(basename "$LOG_FILE")) - one run a minute: try again in $(( 60 - 10#$(date +%S) )) s" >&2
         exit 1
     fi

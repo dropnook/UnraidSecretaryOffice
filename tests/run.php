@@ -5526,7 +5526,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.65'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.66'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -7473,9 +7473,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.65 everywhere it is named', ['2.65', '2.65', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.65"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.65** –')]);
+    same('data trust: the engine\'s version 2.66 everywhere it is named', ['2.66', '2.66', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.66"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.66** –')]);
     // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
     same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
         array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
@@ -8561,7 +8561,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.65', [1, '2.65'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.66', [1, '2.66'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -9169,7 +9169,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.65', [1, '2.65'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.66', [1, '2.66'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -32618,6 +32618,47 @@ function testBackupOneMinute(): void
         same("one a minute: … nothing of the run touched ($what)", [false, false, false, false, 1000],
             [is_file("$eng/state/status.json"), is_file("$eng/state/lock-holder.json"), is_link("$eng/logs/latest.log"), is_file("$eng/state/skipped.json"), filemtime("$eng/state/lock")]);
     }
+    // 2.66 (B19, the autumn hour twice, a data folder set back): the name is never used twice — its history row, a snapshot
+    // of the name on a pool or disk awake (a sleeping one never looked at); refused like 2.34, nothing of the run touched
+    foreach (['run', 'dryrun', 'check'] as $kind) {
+        @unlink("$eng/logs/$kind-20261008-0102.log");
+    }
+    $mnt = "$tmp/mnt";
+    foreach (["$mnt/cache/.btrfs-snap", "$mnt/disk1/.btrfs-snap/20261008-0102", "$mnt/fast"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    file_put_contents("$tmp/mounts", "/dev/sdb1 $mnt/cache btrfs rw 0 0\n/dev/md1p1 $mnt/disk1 btrfs rw 0 0\nfast $mnt/fast zfs rw 0 0\nfast/appdata $mnt/fast/appdata zfs rw 0 0\n");
+    file_put_contents("$tmp/disks.ini", "[disk1]\nspundown=\"1\"\nrotational=\"1\"\n[cache]\nspundown=\"0\"\n");
+    file_put_contents("$tmp/bin/zfs", "#!/bin/sh\n[ \"\$*\" = 'list -H -t snapshot -o name -r fast' ] && cat " . escapeshellarg("$tmp/zfs.out") . " 2>/dev/null\nexit 0\n");
+    chmod("$tmp/bin/zfs", 0755);
+    $engine = function () use ($eng, $tmp, $mnt): array {
+        $p = proc_open(['bash', OFFICE_DIR . '/backup/backup.sh'], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+            ['UB_DATA' => $eng, 'UB_NO_NOTIFY' => '1', 'PATH' => "$tmp/bin:" . getenv('PATH'), 'OFFICE_RUN_DIR' => TESTS_RUN_DIR,
+             'UB_MNT' => $mnt, 'UB_MOUNTS_FILE' => "$tmp/mounts", 'UB_DISKS_INI' => "$tmp/disks.ini"]);
+        stream_get_contents($pipes[1]);
+        $err = (string) stream_get_contents($pipes[2]);
+        $rc = proc_close($p);
+        clearstatcache();
+        return [$rc, $err, is_file("$eng/state/status.json") || is_file("$eng/logs/run-20261008-0102.log")];
+    };
+    file_put_contents("$eng/state/history.jsonl", json_encode(['run' => '20261008-0102', 'result' => 'ok']) . "\n");
+    [$rc, $err, $touched] = $engine();
+    same('one name once 2.66: a history row of this minute\'s run (its log gone) — refused, nothing touched', [1, true, false],
+        [$rc, str_contains($err, 'the history has a run 20261008-0102') && str_contains($err, 'never used twice'), $touched]);
+    file_put_contents("$eng/state/history.jsonl", json_encode(['run' => '20261008-0102', 'result' => 'skipped', 'reason' => 'skipped_busy_backup']) . "\n");
+    file_put_contents("$tmp/zfs.out", "fast/appdata@uso-backup-20261008-0101\nfast/appdata@uso-backup-20261008-0102\n");
+    [$rc, $err, $touched] = $engine();
+    same('one name once 2.66: a ZFS snapshot of the name (only a skipped row in the history) — refused', [1, true, false],
+        [$rc, str_contains($err, 'a ZFS snapshot fast/appdata@uso-backup-20261008-0102 is there'), $touched]);
+    file_put_contents("$tmp/zfs.out", "fast/appdata@uso-backup-20261008-0101\nfast/appdata@uso-backup-20261008-01020\n");
+    mkdir("$mnt/cache/.btrfs-snap/20261008-0102");
+    [$rc, $err, $touched] = $engine();
+    same('one name once 2.66: a btrfs snapshot of the name on the pool — refused', [1, true, false],
+        [$rc, str_contains($err, "a btrfs snapshot $mnt/cache/.btrfs-snap/20261008-0102 is there"), $touched]);
+    rmdir("$mnt/cache/.btrfs-snap/20261008-0102");
+    [$rc, $err] = $engine();
+    check('one name once 2.66: free — the snapshot on the sleeping disk1 never looked at, other minutes and names don\'t count, a skipped row neither',
+        !str_contains($err, 'made already'), "rc $rc: $err");
     same('one a minute: every date call one the tests\' clock knows', '', testsClockUnsupported("$tmp/clock"));
 
     // the page (2026-10-12, Benj: «Tour» right after an apply met the refusal — the apply's own tour had just run): it knows
