@@ -889,6 +889,7 @@
   "drill.code.sharefile_kept": "{file} è tornato uguale, ma {folder} non è potuta andare nel ripostiglio della signora Spolverina — resta in {share} su {base}",
   "drill.code.kopia_unavailable": "qui non si può chiedere a Kopia (il contenitore {name} non è in esecuzione, o il suo percorso è sconosciuto)",
   "drill.code.kopia_list_failed": "Kopia non è riuscito a elencare gli snapshot",
+  "drill.code.kopia_unreachable": "Kopia non ha raggiunto la copia fuori sede (il suo repository non è connesso, o il suo storage non risponde) — stavolta non verificato",
   "drill.code.kopia_none": "Kopia non ne ha ancora uno snapshot completo",
   "drill.code.kopia_incomplete": "lo snapshot più recente di Kopia è incompleto",
   "drill.code.kopia_ok": "snapshot più recente {time}, struttura intera, file riletti: {sampled}",

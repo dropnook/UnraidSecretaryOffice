@@ -805,10 +805,21 @@ function cleanUpMailbox(): void
     }
 }
 
+/**
+ * The zone the server's clock runs in — the one crond starts the office's jobs by (the «next run» on every desk is
+ * cronNext() in it): glibc's, from /etc/localtime (Unraid never sets TZ for crond or the agent). A link to a zone file
+ * that isn't there (Unraid 7.4 rc: ident.cfg and the link say Europe/Zurich, the file is missing) and no link at all are
+ * UTC for glibc, so here too — PHP's own zone database would have the name and run 2 h ahead of crond (batch E B43/M24).
+ */
+function agentZone(string $link = '/etc/localtime'): string
+{
+    $zone = preg_replace('#^.*/zoneinfo/#', '', (string) @readlink($link));
+    return in_array($zone, timezone_identifiers_list(), true) && is_file($link) ? $zone : 'UTC';
+}
+
 // =====================================================================
 
 if (PHP_SAPI === 'cli' && !defined('AGENT_LIBRARY_ONLY')) {
-    $zone = preg_replace('#^.*/zoneinfo/#', '', (string) @readlink('/etc/localtime'));
-    date_default_timezone_set(in_array($zone, timezone_identifiers_list(), true) ? $zone : 'UTC');
+    date_default_timezone_set(agentZone());
     exit(main($argv));
 }

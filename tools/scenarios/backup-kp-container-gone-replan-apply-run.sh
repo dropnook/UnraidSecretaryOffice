@@ -1,7 +1,7 @@
 #!/bin/bash
 # Cell B37 of matrix.md (batch E), state KP-CONTAINER-GONE: Kopia's container removed, its template stays. With uso-only
 # at «local + offsite» (prepared by Apply with the backup place, as the plan then proposes — put back by the undo): «Look at the server again» says it (setup.msg
-# kopia_container_missing / kopia_no_container — cell replan-hint), Apply on the page's draft changes nothing
+# kopia_container_gone: kept in settings.ini, make it anew from its template; before: kopia_container_missing / kopia_no_container — cell replan-hint), Apply on the page's draft changes nothing
 # (INV-DIFF-EXACT), the run backs up locally — the office never makes or starts a container (cells kopia-not-started).
 # Pre-release (~5 min).
 . "$(dirname "$0")/lib.sh"
@@ -21,8 +21,8 @@ snap_before
 k0=$(kstate)
 if flow BK-REPLAN; then
     c=$(jq -r '[.messages[]? | .code] | unique | join(" ")' "$KEEP/plan-replan.json")
-    grep -qE 'kopia_container_missing|kopia_no_container|kopia_container_none' <<<"$c" && cell replan-hint 1 "the plan's hint: $(grep -oE 'kopia_container_missing|kopia_no_container|kopia_container_none' <<<"$c" | paste -sd' ' -)" \
-        || cell replan-hint 0 "no hint for this state (kopia_container_missing|kopia_no_container|kopia_container_none) in the plan: $c"
+    grep -qE 'kopia_container_gone|kopia_container_missing|kopia_no_container|kopia_container_none' <<<"$c" && cell replan-hint 1 "the plan's hint: $(grep -oE 'kopia_container_gone|kopia_container_missing|kopia_no_container|kopia_container_none' <<<"$c" | paste -sd' ' -)" \
+        || cell replan-hint 0 "no hint for this state (kopia_container_gone|kopia_container_missing|kopia_no_container|kopia_container_none) in the plan: $c"
 fi
 flow BK-APPLY plan=old
 expect_diff ''                                   # Apply on the page's draft as it is: no value changes

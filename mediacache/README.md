@@ -30,6 +30,9 @@
 > * `MEDIACACHE_STOP` (a file): a real run stops after the file it is on — never inside a copy; result `stopped`, exit 3.
 > * `MEDIACACHE_PROGRESS` (a file): rewritten at every file boundary — phase, per person planned/done, the file in work
 >   with its target, person and reason, the fill's queue, the last 50 files done. Jack's live panel reads it.
+> * **Tidied per disk** (`remove_empty_on_disk`, 2026-10-20): a file filled from `/mnt/user0` leaves its folder empty on its
+>   disk while another disk still has something in it (Season 01: E01/E02 on disk2) — the folder on the disk it lay on
+>   goes as with Unraid's move; no other disk is read, the share's folder on the disk stays.
 > * **With a progress or a stop file, Unraid's move binary gets one file per call** (the cleanup): so the progress names
 >   the file in work and «stop after this file» holds exactly. Standalone: one call for all, as before. (The target of a
 >   file the binary moves is unknown until it is done — the progress gives it empty, the panel shows no part inside it.)

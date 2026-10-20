@@ -342,8 +342,8 @@ function backupReadSettings(string $file): array
 {
     $result = [];
     $section = null;
-    foreach (@file($file, FILE_IGNORE_NEW_LINES) ?: [] as $line) {
-        $line = trim($line);
+    foreach (@file($file, FILE_IGNORE_NEW_LINES) ?: [] as $i => $line) {
+        $line = trim($i === 0 && str_starts_with($line, "\xEF\xBB\xBF") ? substr($line, 3) : $line);   // a byte order mark an editor put in front
         if ($line === '' || $line[0] === '#' || $line[0] === ';') {
             continue;
         }

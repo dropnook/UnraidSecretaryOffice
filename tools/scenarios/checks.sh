@@ -482,7 +482,11 @@ check_inv_setup_msgs() {
     [[ -f $plan ]] || { echo "no setup plan"; return 3; }
     while IFS=$'\t' read -r code share; do
         [[ -n $code ]] || continue
-        jq -e --arg k "setup.msg.$code" 'has($k)' "$en" >/dev/null 2>&1 || bad+=("$code: no text setup.msg.$code")
+        # docker_volumes and more have no setup.msg text of their own: the page draws them through the volume items and
+        # as the general tile's second line (public/desks/backup/desk.js setupGeneral; batch E fix round, perms)
+        case $code in docker_volumes|more) ;; *)
+            jq -e --arg k "setup.msg.$code" 'has($k)' "$en" >/dev/null 2>&1 || bad+=("$code: no text setup.msg.$code") ;;
+        esac
         case $code in
             nextcloud_stopped) docker ps -a --filter status=exited --format '{{.Names}}' 2>/dev/null | grep -qix nextcloud || bad+=("nextcloud_stopped while Nextcloud runs") ;;
             docker_volumes) [[ -n $(docker volume ls -q 2>/dev/null) ]] || bad+=("docker_volumes without a volume") ;;
@@ -499,7 +503,9 @@ check_inv_setup_msgs() {
                     ((snapless)) || bad+=("share_no_snapshots for $share, whose parts all take snapshots")
                 fi ;;
         esac
-    done < <(jq -r '.messages[]? | [.code, (.params.share // "")] | @tsv' "$plan" 2>/dev/null)
+    # params is an object or, for a message without any, an empty list: `.params.share` on a list stops jq at that
+    # message — every later code went unchecked (batch E fix round)
+    done < <(jq -r '.messages[]? | [.code, ((.params | objects | .share) // "")] | @tsv' "$plan" 2>/dev/null)
     if ((${#bad[@]})); then echo "${bad[*]:0:4}"; return 1; fi
     echo "$(jq '[.messages[]?] | length' "$plan") message(s), each true and with its text"
 }

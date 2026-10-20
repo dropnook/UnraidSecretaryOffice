@@ -2851,7 +2851,7 @@ function jackJob(string $tool, array $args): int
     } catch (Problem $p) {
         if (!in_array($p->key, ['jack_not_configured', 'jack_gather_not_configured', 'jack_measure_none'], true)) {
             jackRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'from' => $from, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => $p->key]
-                + array_intersect_key($p->params, ['schedule' => 1, 'shares' => 1, 'file' => 1, 'detail' => 1]));
+                + jackRefusedParams($p->params));
             if (str_starts_with($p->key, 'jack_mover_')) {
                 logLine("Jack Streamer: $tool ($mode) not started — the mover could take MediaCache's files ($p->key); only dry runs go");
             }
@@ -3211,6 +3211,13 @@ function jackStatusShort(array $status): array
 function jackHistory(string $dir = JACK_DATA): array
 {
     return (array) (readJson("$dir/office-history.json")['runs'] ?? []);
+}
+
+/** What a refused run's row keeps of its reason: every placeholder of his refusals, as text — his page fills the reason from the row */
+function jackRefusedParams(array $params): array
+{
+    $keep = array_intersect_key($params, array_flip(['schedule', 'shares', 'file', 'detail', 'name']));
+    return array_map(fn ($v) => mb_substr((string) $v, 0, 300), array_filter($keep, 'is_scalar'));
 }
 
 /** A run (or one that didn't start) into his list of runs; $dir: the tests' */

@@ -1,6 +1,17 @@
 #!/bin/bash
 ###############################################################################
 # unraid-backup - setup.sh                        Version 2.66 - 2026-10-20
+#   2.66 settings.ini saved with a UTF-8 byte order mark is read (the BOM read away - up to 2.65 «line 1: not understood»).
+#        A key of one value given twice: the last counts, as bash's source reads it - said once (hint settings_key_twice,
+#        or warning settings_key_differ naming the value dropped), Apply writes it once (up to 2.65 setup_bad_decisions).
+#        A share whose config names a pool that isn't there: warning share_pool_missing {share, pool}.
+#        Kopia's container gone is kept in settings.ini and said (warning kopia_container_gone {name}, Kopia's problem
+#        container_gone) - up to 2.65 an unchanged Apply cleared it; with Docker switched off it stays as stored too.
+#        A User Script that starts this engine on a schedule of its own: warning user_script_old_backup {script, schedule}
+#        (unscheduled: hint user_script_old_idle) - looked at in every plan, no longer only at Apply.
+#        Docker asked with a time limit (ub_docker_answers, 20 s): a hung Docker ends the look with docker_silent at once,
+#        and every docker call has one (docker() in lib/common.sh). Kopia connected but unable to reach its repository is
+#        drift kopia_unreachable (lib/common.sh), no longer «not connected».
 #   2.65 A share config without a root anywhere that Unraid no longer lists (shares.ini; its roots gone, e.g. after Unraid
 #        renamed it) is no share: never proposed (up to 2.64 «still empty», Kopia), one in settings.ini is gone (why gone)
 #   2.64 Unraid's VM service switched off: every stored [vm] section stays exactly as stored (vms_off_keep) - up to 2.63
@@ -542,6 +553,7 @@ TXT
         [[ -d "$UB_BOOT/config/plugins/user.scripts" ]] && ok_as user_scripts "User Scripts installed" \
             || wrn_as no_user_scripts "Plugin 'User Scripts' not found - needed for the nightly run"
     fi
+    user_scripts_other
 }
 
 ##############################################################################
@@ -560,6 +572,18 @@ TXT
         HAVE_SETTINGS="yes"
         ok_as settings_read "settings.ini read - the decisions so far are the defaults"
         local e; for e in "${CFG_ERRORS[@]}"; do wrn_as settings_error "settings.ini: $e" error "$e"; done
+        # a key of one value given twice (cfg_load): the last one counts, Apply writes it once - said, never a list
+        local tk tl tv
+        for e in "${CFG_TWICE[@]}"; do
+            IFS=$'\x1f' read -r tk tl tv <<<"$e"
+            if [[ "$tv" == "$(cfg "$tk")" ]]; then
+                hint_as settings_key_twice "settings.ini: '${tk##*|}' is in $(sec_display "${tk%|*}") twice (again in line $tl) - read once, Apply writes it once" \
+                    key "${tk##*|}" section "$(sec_display "${tk%|*}")" line "$tl" value "$(cfg "$tk")"
+            else
+                wrn_as settings_key_differ "settings.ini: '${tk##*|}' is in $(sec_display "${tk%|*}") twice - the last one counts ('$(cfg "$tk")', line $tl), '$tv' before it is dropped at Apply" \
+                    key "${tk##*|}" section "$(sec_display "${tk%|*}")" line "$tl" value "$(cfg "$tk")" dropped "$tv"
+            fi
+        done
     else
         CFG=(); CFG_SECTIONS=(); CFG_ERRORS=()
         # the partner offices --forget kept (2.27): only their [partner] sections
@@ -662,8 +686,18 @@ TXT
     vm_load
     down_load
     apps_gone_drop
+    # Kopia's container named in settings.ini but not there (removed; its template stays): kept as stored - the user
+    # re-creates it from its template under the same name; said in the Kopia step (kopia_container_gone). Up to 2.65 the
+    # proposal was cleared and Apply on the unchanged page dropped it (and its place in docker|known). Another Kopia
+    # container there instead: that one is proposed, a change the Apply list shows. Docker off or silent: nobody knows.
+    KOPIA_GONE=""
     if [[ -z "$(pget "kopia|container")" ]] || ! in_list "$(pget "kopia|container")" "${CT_NAMES[@]}"; then
-        pset "kopia|container" "$(kopia_find_container)"
+        local kfound; kfound="$(kopia_find_container)"
+        if [[ -n "$(pget "kopia|container")" && ( -z "$kfound" || "$DOCKER_SERVICE" != "yes" ) ]]; then
+            KOPIA_GONE="$(pget "kopia|container")"
+        else
+            pset "kopia|container" "$kfound"
+        fi
         _apply_P
     fi
 }
@@ -812,6 +846,7 @@ TXT
     elif [[ -n "$has_ct" ]]; then dflt="y"
     else dflt="n"; fi
     if [[ "$DOCKER_SERVICE" == "no" ]]; then :        # 2.54: the environment step said Docker is off - Kopia needs it
+    elif [[ -n "${KOPIA_GONE:-}" ]]; then :          # its own words in the Kopia step (kopia_container_gone)
     elif [[ -n "$has_ct" ]]; then hint_as kopia_container "Kopia container found: $has_ct" name "$has_ct"
     else hint_as kopia_container_none "No Kopia container found (image with 'kopia' in its name)"; fi
     if ask_yn "Set up offsite backup with Kopia?" "$dflt"; then
@@ -1009,6 +1044,28 @@ appdata_suggestions() { # appdata_suggestions <share>  -> lines "folder|containe
     done | sort -u
 }
 
+# 2.66 (scenario B18): a share whose config names a pool that isn't there (removed, renamed, not mounted) - Unraid writes
+# nothing new into the share (ENOMEDIUM, «No medium found») while its files on the bases that are there stay readable and
+# are planned as usual. Said per share with the pool (share_pool_missing). A share on the array only (shareUseCache no)
+# keeps an old pool name harmlessly. Only the share configs on the flash are read, never a disk.
+share_pool_check() {
+    local s f use key p b
+    local -A pools=()
+    for b in "${INV_BASES[@]}"; do [[ "${INV_BASE_KIND[$b]:-}" == pool ]] && pools[$b]=1; done
+    for s in "${SH[@]}"; do
+        f="$UB_SHARES_CFG/$s.cfg"
+        [[ -f "$f" && ! -L "$f" ]] || continue
+        use="$(sed -n 's/^shareUseCache="\{0,1\}\([^"]*\)"\{0,1\}[[:space:]]*$/\1/p' "$f" 2>/dev/null | tail -n 1)"
+        [[ "$use" == no ]] && continue
+        for key in shareCachePool shareCachePool2; do
+            p="$(sed -n "s/^$key=\"\{0,1\}\([^\"]*\)\"\{0,1\}[[:space:]]*\$/\1/p" "$f" 2>/dev/null | tail -n 1)"
+            [[ -z "$p" || -n "${pools[$p]:-}" ]] && continue
+            wrn_as share_pool_missing "Share '$s' is set to the pool '$p', which isn't there - Unraid writes nothing new into the share (No medium found). Choose a pool that is there in Shares > $s, or bring the pool back" share "$s" pool "$p"
+        done
+    done
+    return 0
+}
+
 step_shares() {
     hdr "Shares"
     explain <<'TXT'
@@ -1031,6 +1088,7 @@ TXT
     local s mode gb
     SH=( "${INV_SHARES[@]}" )
     while IFS= read -r s; do [[ -n "$s" ]] && ! inv_has_share "$s" && SH+=( "$s" ); done < <(old_names share)
+    share_pool_check
 
     # Sizes: ZFS at once, otherwise du (with a time limit)
     local measure="no"
@@ -1322,6 +1380,9 @@ is_office_container() { # is_office_container <name>
 docker_off_keep() {
     local k n
     for k in "${!OLD[@]}"; do [[ "$k" =~ ^(docker|dump|nextcloud)\| ]] && P[$k]="${OLD[$k]}"; done
+    # the lists the page always sends (its apps step: no_stop, skip) are proposals even when settings.ini has none - as
+    # with Docker on; up to 2.65 the office refused the page's draft (setup_bad_decisions docker|skip)
+    for k in "docker|no_stop" "docker|skip"; do [[ -n "${P[$k]+x}" ]] || P[$k]=""; done
     while IFS= read -r n; do [[ -n "$n" ]] && NC_GROUP[$n]="$(nc_group_stored "$n")"; done <<<"$(old_names nextcloud)"
     old_has docker || [[ -n "$(old_names dump)$(old_names nextcloud)" ]] || return 0
     _apply_P
@@ -1422,6 +1483,8 @@ TXT
     else
         P[docker|known]="$(printf '%s\n' "${CT_NAMES[@]}" "${downk[@]}")"
     fi
+    # Kopia's container gone but kept (step_basis): its place among the known containers too - re-created, it is no «new»
+    [[ -n "${KOPIA_GONE:-}" ]] && in_list "$KOPIA_GONE" "${known[@]}" && plist_add "docker|known" "$KOPIA_GONE"
     # apps the user chose not to back up (the office's apps step); only containers that still exist (or are down, 2.60)
     down_keep_list "docker|skip"
     P[docker|skip]="$(old_list "docker|skip" | while IFS= read -r n; do in_list "$n" "${CT_NAMES[@]}" && printf '%s\n' "$n"; done; printf '%s\n' "${DOWN_KEPT[@]}")"
@@ -2069,6 +2132,7 @@ step_partners() {
 KOPIA_MAIN=-1          # index of the mapping that covers mount_root
 KOPIA_POLICY_READY="no"
 KOPIA_FAIL=""          # why the Kopia part did not get through (code, for --plan)
+KOPIA_GONE=""          # Kopia's container settings.ini names, not there and kept (step_basis)
 KOPIA_PROBE=""         # live test: 0 = ok, 1 = the container sees nothing, 2 = not possible
 
 step_kopia() {
@@ -2109,6 +2173,11 @@ TXT
     # --- Container
     local c n cands=()
     c="$(pget "kopia|container" "")"
+    if [[ -n "${KOPIA_GONE:-}" && "$c" == "$KOPIA_GONE" ]]; then
+        KOPIA_FAIL="container_gone"
+        wrn_as kopia_container_gone "Kopia's container '$c' is gone - kept in settings.ini: re-create it from its template (Docker > Add Container, template '$c'), then look again. Until then nothing goes offsite" name "$c"
+        return 1
+    fi
     if [[ -z "$c" ]] || ! in_list "$c" "${CT_NAMES[@]}"; then
         for n in "${CT_NAMES[@]}"; do is_kopia_image "${CT_IMAGE[$n]}" && cands+=( "$n" ); done
         if [[ ${#cands[@]} -eq 0 ]]; then
@@ -2505,10 +2574,11 @@ settings_pending() {
     [[ -f "$UB_SETTINGS" ]] || { echo '[]'; return 0; }
     local new="$UB_STATE/.settings.pending.$$"
     settings_render >"$new" 2>/dev/null || { rm -f "$new"; echo '[]'; return 0; }
-    local keyed='/^[[:space:]]*([#;]|$)/ {next}
+    local keyed='NR == 1 {sub(/^\357\273\277/, "")}
+                 /^[[:space:]]*([#;]|$)/ {next}
                  /^\[/ {sec=$0; next}
                  {gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print sec "\t" $0}'
-    comm -3 <(awk "$keyed" "$UB_SETTINGS" | LC_ALL=C sort -u) <(awk "$keyed" "$new" | LC_ALL=C sort -u) \
+    comm -3 <(LC_ALL=C awk "$keyed" "$UB_SETTINGS" | LC_ALL=C sort -u) <(LC_ALL=C awk "$keyed" "$new" | LC_ALL=C sort -u) \
         | awk -F'\t' '{ if ($1 == "") print "+\t" $2 "\t" $3; else print "-\t" $1 "\t" $2 }' \
         | jq -Rn '[inputs | split("\t") | {op: .[0], section: (.[1] | ltrimstr("[") | rtrimstr("]")), line: .[2]}]'
     rm -f "$new"
@@ -2720,14 +2790,36 @@ EOF
         fi
         hint_as user_script_schedule "Set the schedule in Settings > User Scripts: Custom, e.g. 0 3 * * *"
     fi
-    # Other User Scripts that also make snapshots or Kopia runs?
-    local f
+}
+
+# Other User Scripts that start a backup too (2.66: also in a plan - up to 2.65 only an apply looked, and a script that
+# starts this engine's backup.sh, e.g. the old «unraid-backup» from before the office, was never named): one that runs
+# this engine (its folder unraid-backup / the setup's own name, or a call of backup.sh in an unraid-backup folder or in
+# this script folder) on a schedule of its own makes a second backup - said with its schedule; one without a schedule
+# only as a hint. One that makes snapshots or Kopia runs of its own as before. Never changed, never switched off.
+user_scripts_other() {
+    local us_root="$UB_BOOT/config/plugins/user.scripts/scripts" f name sched="" freq custom line
     for f in "$us_root"/*/script; do
-        [[ -f "$f" && "$f" != "$us_dir/script" ]] || continue
-        if grep -qE 'kopia[^|]* snapshot create|zfs snapshot|btrfs subvolume snapshot' "$f" 2>/dev/null; then
-            wrn_as user_script_snapshots "User Script '$(basename "$(dirname "$f")")' also makes snapshots/Kopia runs - check whether it has been replaced (otherwise switch off its schedule there)" script "$(basename "$(dirname "$f")")"
+        [[ -f "$f" && ! -L "$f" ]] || continue
+        name="$(basename "$(dirname "$f")")"
+        # without the plugin the setup's own entry (and its old name, which step_finish renames) is the schedule; under
+        # the plugin the office's cron file runs the backup: every script is another
+        ub_is_plugin || [[ "$name" != "$UB_USER_SCRIPT" && "$name" != "$UB_NAME" ]] || continue
+        if [[ "$name" == "$UB_NAME" || "$name" == "$UB_USER_SCRIPT" ]] || grep -qE 'unraid-backup/backup\.sh' "$f" 2>/dev/null \
+            || grep -qF -- "$UB_DIR/backup.sh" "$f" 2>/dev/null; then
+            line="$(jq -r --arg k "$f" '.[$k] // {} | [(.frequency // ""), (.custom // "")] | join("\u001f")' \
+                "$UB_BOOT/config/plugins/user.scripts/schedule.json" 2>/dev/null)" || line=""
+            freq="${line%%$'\x1f'*}"; custom="${line#*$'\x1f'}"
+            case "$freq" in
+                ""|disabled) hint_as user_script_old_idle "User Script '$name' starts a backup with this engine but has no schedule - nothing runs twice; delete it in Settings > User Scripts when you like" script "$name" ;;
+                *) [[ "$freq" == custom ]] && sched="$custom" || sched="$freq"
+                   wrn_as user_script_old_backup "User Script '$name' starts a backup on a schedule of its own ($sched) - two backups on two schedules. Switch its schedule off (or delete it) in Settings > User Scripts; the backup's schedule is set at Mr. Backupsy's desk" script "$name" schedule "$sched" ;;
+            esac
+        elif grep -qE 'kopia[^|]* snapshot create|zfs snapshot|btrfs subvolume snapshot' "$f" 2>/dev/null; then
+            wrn_as user_script_snapshots "User Script '$name' also makes snapshots/Kopia runs - check whether it has been replaced (otherwise switch off its schedule there)" script "$name"
         fi
     done
+    return 0
 }
 
 summary() {

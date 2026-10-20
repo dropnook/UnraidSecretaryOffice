@@ -5,7 +5,8 @@
 # off» (setup.msg docker_off) and keeps every [app "…"] and [docker] line as it was («Docker not answering: nobody
 # knows - kept as it is», engine 2.54: cell apps-kept); the run backs up shares and the flash, no apps, ends ok or with
 # announced warnings; the page says «Docker isn't running» (common.docker_off), never «0 of 0» (INV-PAGE). settings.ini
-# put back afterwards. Pre-release (~4 min).
+# put back afterwards. The dumps stay set up (engine 2.64), so a run with Docker off skips each one with the warning
+# dump_stopped (its database can't run) — announced, not a fault. Pre-release (~4 min).
 . "$(dirname "$0")/lib.sh"
 scenario_begin backup-sv-docker-off-first-setup-run
 needs docker
@@ -15,6 +16,7 @@ mkdir -p "$KEEP_STASH/E-INI" && cp -p "$UB/settings.ini" "$KEEP_STASH/E-INI/sett
 undo_push bash -c 'cp -p "$1/settings.ini" "$2" && rm -rf "$1"' _ "$KEEP_STASH/E-INI" "$UB/settings.ini"
 nc_data_closed
 state SV-DOCKER-OFF cfg
+expect_warnings dump_stopped                     # each kept dump skipped while Docker is off (engine 2.64)
 snap_before
 apps "$UB/settings.ini" >"$KEEP/apps-before.txt"
 if flow BK-FIRST-SETUP; then

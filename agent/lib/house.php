@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 const HOUSE_PLUGINS = '/boot/config/plugins';
 const HOUSE_CACHE   = 20;          // seconds — the agent runs for weeks, one tour of checks shares one look
+const HOUSE_DOCKER_WAIT  = 10;     // seconds a docker call of houseContainers()/houseInspect() may take
+const HOUSE_DOCKER_QUIET = 120;    // after one that didn't answer: no docker call of theirs for so long (houseDockerSilent())
 
 /**
  * One finding of a check.
@@ -87,7 +89,7 @@ function officeHomeOwn(string $home): ?string
 function housePlugins(bool $fresh = false): array
 {
     static $cache = null, $at = 0;
-    if (!$fresh && $cache !== null && time() - $at < HOUSE_CACHE) {
+    if (!$fresh && $cache !== null && time() >= $at && time() - $at < HOUSE_CACHE) {      // a clock stepped back: looked at anew
         return $cache;
     }
     $cache = [];
@@ -110,12 +112,12 @@ function housePlugin(string $name): bool
 function houseContainers(bool $fresh = false): array
 {
     static $cache = null, $at = 0;
-    if (!$fresh && $cache !== null && time() - $at < HOUSE_CACHE) {
+    if (!$fresh && $cache !== null && time() >= $at && time() - $at < HOUSE_CACHE) {      // a clock stepped back: looked at anew
         return $cache;
     }
     $cache = [];
     $at = time();
-    [$exit, $out] = run(['docker', 'ps', '-a', '--format', '{{.Names}}\t{{.Image}}\t{{.State}}'], 20);
+    [$exit, $out] = houseDocker(['ps', '-a', '--format', '{{.Names}}\t{{.Image}}\t{{.State}}']);
     if ($exit === 0) {
         foreach (rows($out) as $f) {
             if (count($f) >= 3) {
@@ -126,12 +128,45 @@ function houseContainers(bool $fresh = false): array
     return $cache;
 }
 
-/** docker inspect of one container, or null */
+/** docker inspect of one container, or null (also while Docker is silent: houseDockerSilent()) */
 function houseInspect(string $name): ?array
 {
-    [$exit, $out] = run(['docker', 'inspect', $name], 20);
+    [$exit, $out] = houseDocker(['inspect', $name]);
     $j = $exit === 0 ? json_decode($out, true) : null;
     return is_array($j[0] ?? null) ? $j[0] : null;
+}
+
+/**
+ * A docker call of the house (houseContainers(), houseInspect()): at most HOUSE_DOCKER_WAIT s — and once one didn't
+ * answer in time (dockerd hung, stopped by a signal), none for HOUSE_DOCKER_QUIET s: a silent Docker costs the agent's
+ * round one short wait, not 20 s for every caller (batch E B15, backup-sv-docker-hung-replan-run: a 140 s gap in the
+ * heartbeat). Meanwhile they answer as Docker gave nothing (exit 124); callers that say so ask houseDockerSilent().
+ * $wait for the tests.
+ *
+ * @return array{0:int, 1:string, 2:string}
+ */
+function houseDocker(array $args, int $wait = HOUSE_DOCKER_WAIT): array
+{
+    if (houseDockerSilent()) {
+        return [124, '', 'Docker does not answer (no new call for ' . HOUSE_DOCKER_QUIET . ' s after a time-out)'];
+    }
+    $r = run(['docker', ...$args], $wait);
+    if ($r[0] === 124) {
+        $GLOBALS['houseDockerSilent'] = hrtime(true) / 1e9;          // the monotonic clock: a step never shortens or stretches it
+        if (function_exists('logLine')) {
+            logLine("Docker doesn't answer (docker {$args[0]} took over {$wait} s) — no docker call of the house for " . HOUSE_DOCKER_QUIET . ' s');
+        }
+    } else {
+        unset($GLOBALS['houseDockerSilent']);
+    }
+    return $r;
+}
+
+/** Did Docker not answer lately (a docker call of the house timed out within HOUSE_DOCKER_QUIET s)? */
+function houseDockerSilent(): bool
+{
+    $at = $GLOBALS['houseDockerSilent'] ?? null;
+    return is_float($at) && hrtime(true) / 1e9 - $at < HOUSE_DOCKER_QUIET;
 }
 
 const HOUSE_AUTOSTART        = '/var/lib/docker/unraid-autostart';                  // Unraid's Docker autostart list (RAM, in docker.img's folder)
@@ -305,6 +340,10 @@ const OFFICE_NOTIFY_EVENT = 'Unraid Secretary Office';
 // the backup engine (RAM; see officeNotify())
 const OFFICE_NOTIFY_STAMP = RUN_DIR . '/notify.second';
 const OFFICE_NOTIFY_LOCK_WAIT = 10;     // seconds waited at most for another's notification to end — then it goes anyway
+// the same subject in Unraid's notifications within so many seconds — from any version of the office, any of its
+// processes — is not told again (officeNotifyToldLately())
+const OFFICE_NOTIFY_SAME = 120;
+const OFFICE_NOTIFY_CFG  = '/boot/config/plugins/dynamix/dynamix.cfg';     // Settings → Notifications: [notify] path
 // the language the office was last used in (written by the page, src/desks.php) — and its copy in RAM for the night shift
 define('OFFICE_LANG_FILE', OFFICE_PRIVATE . '/lang.json');
 const OFFICE_NOTIFY_LANG_RAM = RUN_DIR . '/notify.lang';
@@ -335,6 +374,15 @@ function officeNotify(string $subject, string $description, string $level = 'nor
     if ($link !== null && $link !== '') {
         $args = [...$args, '-l', $link];
     }
+    // told a moment ago already (batch E O1: the update from 1.60 stopped the old agent while its watchman's round was
+    // telling — the round was gone before it noted «told», the new agent's first round told it all again)
+    $told = officeNotifyToldLately($args[4], officeNotifyDir(), time());
+    if ($told !== null) {
+        if (function_exists('logLine')) {
+            logLine("Not told again: «{$args[4]}» — Unraid has it from {$told} s ago");
+        }
+        return true;
+    }
     // Unraid names a notification after its event and the second its script reads the clock — somewhere between
     // our call's start and its end: one more in that second would overwrite it (the night shift lost one of three
     // sent in a row on 2026-10-07). $last is the second the last call ENDED in; a new one starts only after it.
@@ -363,6 +411,44 @@ function officeNotify(string $subject, string $description, string $level = 'nor
         fclose($h);
     }
     return $exit === 0;
+}
+
+/**
+ * Unraid's notification folder (Settings → Notifications' storage path, else /tmp/notifications); null: none to look
+ * at — a stand-in notify (the tests) looks only at the folder OFFICE_NOTIFY_DIR names.
+ */
+function officeNotifyDir(): ?string
+{
+    if (getenv('OFFICE_NOTIFY_BIN')) {
+        return getenv('OFFICE_NOTIFY_DIR') ?: null;
+    }
+    $path = rtrim((string) ((@parse_ini_file(OFFICE_NOTIFY_CFG, true, INI_SCANNER_RAW) ?: [])['notify']['path'] ?? ''), '/');
+    $path = $path !== '' && $path[0] === '/' ? trim($path, '"') : '/tmp/notifications';
+    return is_dir($path) ? $path : null;
+}
+
+/**
+ * Has Unraid a notification of the office with exactly this subject from the last OFFICE_NOTIFY_SAME s (unread or
+ * archived; by its file name's second, so older ones aren't read)? Its age in seconds, else null.
+ */
+function officeNotifyToldLately(string $subject, ?string $dir, int $now): ?int
+{
+    if ($dir === null) {
+        return null;
+    }
+    $prefix = str_replace(' ', '_', OFFICE_NOTIFY_EVENT) . '_';
+    foreach (['unread', 'archive'] as $sub) {
+        foreach (glob("$dir/$sub/$prefix*.notify") ?: [] as $file) {
+            if (!preg_match('/_(\d{9,12})\.notify$/D', $file, $m) || $now - (int) $m[1] > OFFICE_NOTIFY_SAME || (int) $m[1] > $now + 5) {
+                continue;
+            }
+            $text = (string) @file_get_contents($file, false, null, 0, 65536);
+            if (preg_match('/^subject="?(.*?)"?$/m', $text, $sm) && $sm[1] === $subject) {
+                return max(0, $now - (int) $m[1]);
+            }
+        }
+    }
+    return null;
 }
 
 /**

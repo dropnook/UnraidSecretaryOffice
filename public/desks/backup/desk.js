@@ -567,6 +567,15 @@ function waitingText() {
   return T('waiting.callout', { n: waitingCount() }) + ' ' + parts.join(' · ');
 }
 
+/** Engine 2.49: its folder or settings.ini isn't root's alone - it refuses to work, the agent starts nothing (the command shown) */
+function untrustedCallout() {
+  const t = state && state.engine_trust;
+  if (!t || t.code !== 'engine_untrusted' || typeof t.path !== 'string') return null;
+  const p = el('p', 'callout warn', T('notice.untrusted', { path: t.path }) + ' ');
+  p.appendChild(el('code', '', String(t.cmd || '')));
+  return p;
+}
+
 function notices() {
   const out = [];
   const callout = (text, warn, more) => {
@@ -584,6 +593,8 @@ function notices() {
     const go = Office.desks.has('restore') ? button(T('notice.restoring_go'), 'small plain', () => Office.go(drill ? '#/restore/drill' : '#/restore')) : null;
     callout(drill ? T('notice.drilling') : T('notice.restoring', { what: state.holder.what || '–' }), false, go);
   }
+  const untrusted = untrustedCallout();
+  if (untrusted) out.push(untrusted);
   if (!state.settings_found) callout(T('notice.no_settings'), true, button(T('setup_open'), 'small', () => Office.go(`#/${ID}/setup`)));
   // engine 2.56: the repository suddenly empty - the Kopia step held until the snapshots are back or the user says it is new
   const held = state.kopia_held;
@@ -3743,6 +3754,8 @@ function renderSetup() {
     [T('setup.forget_short'), T('help.forget')],
   ]));
 
+  const untrusted = untrustedCallout();
+  if (untrusted) root.appendChild(untrusted);
   if (setup.applied) root.appendChild(appliedCard(setup.applied));
   if (!busy && setup.plan && Date.now() / 1000 - setup.plan.time > SETUP_STALE) root.appendChild(el('p', 'callout warn', T('setup.bubble_old', { when: fmt.relative(setup.plan.time) })));
   if (!busy && !setup.plan && state && state.running) root.appendChild(el('p', 'callout', T('setup.bubble_backup_runs')));

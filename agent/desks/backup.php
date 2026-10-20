@@ -248,6 +248,9 @@ function backupScan(): array
         'interface'  => $about['interface'] ?? 0,
         'compatible' => ($about['interface'] ?? 0) >= BACKUP_INTERFACE,
         'settings_found' => is_file("$data/settings.ini"),
+        // engine 2.49 refuses a folder or settings.ini that isn't root's alone: the page says it with the command (the
+        // Team Lead's must engine_trust), and the agent starts nothing the engine would refuse (backupCheckReady())
+        'engine_trust' => backupTrustState($data),
         'running'    => $running,
         'status'     => $status,
         'step'       => $running && !$status ? lastLogStep("$data/logs/latest.log") : null,
@@ -664,32 +667,34 @@ function backupKopiaItems(array $s, array $history): array
 }
 
 const BACKUP_DOCKER_LOOK   = 5;      // seconds Docker may take to say its version (B15)
-const BACKUP_DOCKER_KEEP   = 30;     // its answer kept so long - a silent Docker: BACKUP_DOCKER_AGAIN, asked again only then
-const BACKUP_DOCKER_AGAIN  = 60;
+const BACKUP_DOCKER_KEEP   = 30;     // an answer kept so long; a silence the house keeps (houseDockerSilent(), HOUSE_DOCKER_QUIET)
 
 /**
  * Docker switched on but silent (B15, 2026-10-20: dockerd hung — every docker call of the desk waited its 20 s, a request
- * of the page held the agent's round for a minute)? `docker version` with a short limit, its answer kept a while (on the
- * agent's monotonic clock); while it is silent the desk asks Docker nothing else and says so. Docker switched off or not
- * there: false (that is «Docker isn't running», not silence). $GLOBALS['backupDockerProbe'] stands in for the tests.
+ * of the page held the agent's round for a minute)? The house's memo first (houseDockerSilent(): a docker call of the
+ * house timed out lately), else `docker version` through houseDocker() with a short limit — a time-out there starts the
+ * house's quiet time for every desk; an answer is kept a while (the monotonic clock). While it is silent the desk asks
+ * Docker nothing else and says so. Docker switched off or not there: false (that is «Docker isn't running», not
+ * silence). $GLOBALS['backupDockerProbe'] stands in for the tests.
  */
 function backupDockerSilent(): bool
 {
-    static $until = 0.0, $silent = false;
-    $probe = $GLOBALS['backupDockerProbe'] ?? null;
-    if (!$probe && (bin('docker') === null || !file_exists('/var/run/docker.sock'))) {
+    static $until = 0.0;
+    if (isset($GLOBALS['backupDockerProbe'])) {
+        return !($GLOBALS['backupDockerProbe'])();
+    }
+    if (houseDockerSilent()) {
+        return true;
+    }
+    if (bin('docker') === null || !file_exists('/var/run/docker.sock')) {
         return false;
     }
     $now = hrtime(true) / 1e9;
-    if (!$probe && $now < $until) {
-        return $silent;
+    if ($now < $until) {
+        return false;
     }
-    $silent = $probe ? !$probe() : run(['docker', 'version', '--format', '{{.Server.Version}}'], BACKUP_DOCKER_LOOK)[0] !== 0;
-    $until = $now + ($silent ? BACKUP_DOCKER_AGAIN : BACKUP_DOCKER_KEEP);
-    if ($silent) {
-        logLine('Backup: Docker is switched on but doesn\'t answer - its containers are not asked for ' . BACKUP_DOCKER_AGAIN . ' s');
-    }
-    return $silent;
+    $until = $now + BACKUP_DOCKER_KEEP;
+    return houseDocker(['version', '--format', '{{.Server.Version}}'], BACKUP_DOCKER_LOOK)[0] === 124;
 }
 
 /**
@@ -1587,7 +1592,7 @@ function backupWaiting(array $s, array $vms, ?array $containers = null, ?string 
     if ($known) {
         if ($containers === null) {
             $containers = [];
-            [$exit, $outp] = run(['docker', 'ps', '-a', '--format', '{{.Names}}' . "\t" . '{{.Label "com.docker.compose.project"}}'], 20);
+            [$exit, $outp] = houseDocker(['ps', '-a', '--format', '{{.Names}}' . "\t" . '{{.Label "com.docker.compose.project"}}']);    // B15: the house's limit and memo
             foreach ($exit === 0 ? rows($outp) : [] as $r) {
                 if (($r[0] ?? '') !== '') {
                     $containers[$r[0]] = (string) ($r[1] ?? '');
@@ -2067,6 +2072,12 @@ function backupCheckReady(): string
     if ((backupAbout($dir)['interface'] ?? 0) < BACKUP_INTERFACE) {
         throw new Problem('backup_too_old', ['version' => backupAbout($dir)['version'] ?? '?']);
     }
+    // the engine (2.49) would refuse at once (exit 4, an alert) and write no status: «Look again» or Apply would answer
+    // ok and show the old plan as fresh (scenario B14 perms, 2026-10-19) - refused here with what to do
+    $trust = backupTrustState($data);
+    if ($trust !== null) {
+        throw new Problem('engine_untrusted', ['path' => $trust['path'], 'cmd' => $trust['cmd']]);
+    }
     $holder = backupLockHolder();
     if ($holder !== null) {
         throw new Problem(match (true) {
@@ -2326,6 +2337,18 @@ function backupEngineTrust(string $data): array
     }
     $q = $bad !== null ? escapeshellarg($bad) : '';
     return ['ok' => $bad === null, 'path' => (string) $bad, 'cmd' => $bad !== null ? "chown root:root $q && chmod go-w $q" : ''];
+}
+
+/**
+ * The engine's refusal of its folder as Mr. Backupsy's state carries it: null while the engine trusts it (or there is no
+ * folder yet), else {code: engine_untrusted, path, cmd} - the same path and command as the Team Lead's must engine_trust.
+ *
+ * @return array{code: string, path: string, cmd: string}|null
+ */
+function backupTrustState(string $data): ?array
+{
+    $t = backupEngineTrust($data);
+    return $t['ok'] === false ? ['code' => 'engine_untrusted', 'path' => $t['path'], 'cmd' => $t['cmd']] : null;
 }
 
 /**
@@ -2960,7 +2983,8 @@ function backupSetupGet(): array
     $noteFile = "$data/state/" . BACKUP_REPLAN_FILE;
     $note = readJson($noteFile);
     $holder = backupLockHolder();
-    $replan = backupSetupReplan($plan, $state, $note, $holder === null && !backupSetupStatus()['running'], time());
+    $free = $holder === null && !backupSetupStatus()['running'] && backupTrustState($data) === null;   // never a plan the engine refuses
+    $replan = backupSetupReplan($plan, $state, $note, $free, time());
     if ($replan['note'] !== $note && $replan['note'] !== null) {
         try {
             writeAtomic($noteFile, jsonEncode($replan['note']), 0600, 0, 0);
@@ -2985,7 +3009,7 @@ function backupSetupGet(): array
         $pairsFile = "$data/state/" . BACKUP_REPLAN_PAIRS_FILE;
         $pairsNote = readJson($pairsFile);
         $sending = array_column(array_filter(partnerPairs(), fn ($p) => $p['my_key'] !== null), 'id');
-        $again = backupSetupPairsReplan($replan['plan'], $state, $sending, $pairsNote, $holder === null && !backupSetupStatus()['running'], time());
+        $again = backupSetupPairsReplan($replan['plan'], $state, $sending, $pairsNote, $free, time());
         if ($again['start']) {
             try {
                 writeAtomic($pairsFile, jsonEncode($again['note']), 0600, 0, 0);

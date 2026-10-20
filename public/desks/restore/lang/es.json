@@ -889,6 +889,7 @@
   "drill.code.sharefile_kept": "{file} volvió igual, pero {folder} no pudo ir al trastero de la señora Plumero — se queda en {share} en {base}",
   "drill.code.kopia_unavailable": "aquí no se puede preguntar a Kopia (el contenedor {name} no está en marcha, o su ruta es desconocida)",
   "drill.code.kopia_list_failed": "Kopia no pudo listar las instantáneas",
+  "drill.code.kopia_unreachable": "Kopia no pudo llegar a la copia fuera de casa (su repositorio no está conectado, o su almacenamiento no responde) — esta vez sin comprobar",
   "drill.code.kopia_none": "Kopia aún no tiene ninguna instantánea completa de ello",
   "drill.code.kopia_incomplete": "la instantánea más reciente de Kopia está incompleta",
   "drill.code.kopia_ok": "instantánea más reciente {time}, estructura entera, archivos releídos: {sampled}",

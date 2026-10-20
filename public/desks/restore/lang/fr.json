@@ -889,6 +889,7 @@
   "drill.code.sharefile_kept": "{file} est revenu identique, mais {folder} n'a pas pu aller dans le débarras de Madame Plumeau — il reste dans {share} sur {base}",
   "drill.code.kopia_unavailable": "impossible d'interroger Kopia ici (le conteneur {name} ne tourne pas, ou son chemin est inconnu)",
   "drill.code.kopia_list_failed": "Kopia n'a pas pu lister les snapshots",
+  "drill.code.kopia_unreachable": "Kopia n'a pas pu joindre la copie hors site (son dépôt n'est pas connecté, ou son stockage ne répond pas) — pas vérifié cette fois",
   "drill.code.kopia_none": "Kopia n'en a pas encore de snapshot complet",
   "drill.code.kopia_incomplete": "le snapshot le plus récent de Kopia est incomplet",
   "drill.code.kopia_ok": "snapshot le plus récent {time}, structure entière, fichiers relus : {sampled}",
