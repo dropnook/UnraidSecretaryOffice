@@ -3195,5 +3195,124 @@
    "note": "Pulled by mistake from a forum post; removed",
    "again": 0
   }
- ]
+ ],
+ "hold": {
+  "running": false,
+  "look": {
+   "v": 1,
+   "t": 1791563400,
+   "ms": 212,
+   "cut": false,
+   "started": true,
+   "count": 4,
+   "more": 0,
+   "holds": [
+    {
+     "kind": "shell",
+     "name": null,
+     "via": "ssh",
+     "pid": 4711,
+     "prog": "bash",
+     "files": [
+      "/mnt/user/Familienfilme/Sommerfest 2023"
+     ],
+     "more": 0,
+     "procs": 1
+    },
+    {
+     "kind": "userscript",
+     "name": "fotos_sichern",
+     "via": null,
+     "pid": 5120,
+     "prog": "rsync",
+     "files": [
+      "/mnt/disk2/Fotos/2024/IMG_0412.jpg",
+      "/mnt/disk2/Fotos/2024"
+     ],
+     "more": 3,
+     "procs": 2
+    },
+    {
+     "kind": "loop",
+     "name": "debian-13.iso",
+     "dev": "loop3",
+     "mount": "/tmp/iso",
+     "files": [
+      "/mnt/user/isos/debian-13.iso"
+     ],
+     "more": 0,
+     "via": null,
+     "pid": null,
+     "prog": null,
+     "procs": 0
+    }
+   ],
+   "vms": [
+    {
+     "name": "Heimautomation",
+     "state": "running",
+     "agent": "connected",
+     "windows": false
+    },
+    {
+     "name": "Spielwiese",
+     "state": "running",
+     "agent": "disconnected",
+     "windows": true
+    }
+   ],
+   "containers": [
+    {
+     "name": "immich_server",
+     "managed": false,
+     "own": 45,
+     "gets": 30,
+     "short": true
+    },
+    {
+     "name": "mariadb",
+     "managed": true,
+     "own": 60,
+     "gets": 20,
+     "short": true
+    },
+    {
+     "name": "plex",
+     "managed": true,
+     "own": null,
+     "gets": 20,
+     "short": false
+    }
+   ],
+   "itself": [
+    {
+     "kind": "office",
+     "desk": "backup",
+     "files": 1
+    },
+    {
+     "kind": "smb",
+     "machine": "laptop-kueche",
+     "files": 2
+    }
+   ],
+   "outside": [
+    {
+     "kind": "remote",
+     "mount": "/mnt/remotes/NAS_Familie",
+     "type": "cifs"
+    }
+   ],
+   "times": {
+    "disk": 90,
+    "vm": 60,
+    "docker": 20,
+    "containers": 50,
+    "vms": 60,
+    "margin": 30,
+    "need": 140,
+    "fits": false
+   }
+  }
+ }
 }
