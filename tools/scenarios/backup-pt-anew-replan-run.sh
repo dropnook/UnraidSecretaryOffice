@@ -23,6 +23,8 @@ scratch_drop() { local x; [[ $S == uso-wip-g-* ]] || return 1
     return 0; }
 pt_base_snap "$KEEP/ptbase" || _row state partner-base red "the partner base could not be read"
 undo_push pt_base_same
+pt_keep G-B39-ANEW || _row state partner-keep red "both sides' partner files could not be kept"
+undo_push pt_back G-B39-ANEW                     # before the first send: received/<id>.json as it was
 undo_push pt_drop_received "$S"
 mkdir -p "$KEEP_STASH/G-B39-INI" && cp -p "$UB/settings.ini" "$KEEP_STASH/G-B39-INI/settings.ini"
 undo_push bash -c 'cp -p "$1/settings.ini" "$2" && rm -rf "$1"' _ "$KEEP_STASH/G-B39-INI" "$UB/settings.ini"
@@ -51,7 +53,10 @@ ask caretaker.refresh '{}' 120 >/dev/null
 tc=$(ask caretaker.partner_state '{}' 60 | jq -c '[.partners.pairs[]? | .name]')
 oc=$(pt_ask caretaker.partner_state '{}' 60 | jq -c '[.partners.pairs[]? | .name]')
 [[ $tc == '["USOPartner"]' && $oc == '["Tower"]' ]] && cell lead-one-card 1 "Team Leads: Tower $tc, USOPartner $oc" || cell lead-one-card 0 "Team Leads: Tower $tc, USOPartner $oc"
-expect_changes "share|$S|partner" "partner|*"     # the unit to the new id; the old section goes, the new one comes
+# the Apply below is the flow's: INV-REPLAN looks after it (nothing left to Apply), INV-SETTINGS takes exactly its diff —
+# the unit to the new id, the old partner's section out, the new one's in (name, address, port, rate as before)
+expect_diff "share|$S|partner: $ID→$NEW" "partner|$ID|address: $PT_IP→" "partner|$ID|name: USOPartner→" "partner|$ID|port: 22→" \
+    "partner|$ID|rate_mbit: 0→" "partner|$NEW|address: →$PT_IP" "partner|$NEW|name: →USOPartner" "partner|$NEW|port: →22" "partner|$NEW|rate_mbit: →0"
 # 2. Apply as the page shows it, then a run
 flow BK-APPLY plan=old || cell apply 0 "Apply of the plan refused: $(ask_last '.error.key')"
 grep -A12 "^\[share \"\?$S\"\?\]" "$UB/settings.ini" | grep -q "^partner *= *$NEW" && cell apply 1 "settings.ini: $S → partner $NEW" \

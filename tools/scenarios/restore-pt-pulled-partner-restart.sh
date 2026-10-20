@@ -72,7 +72,9 @@ fi
 flow OF-AGENT-RESTART
 ro_now && cell restart-ro 1 "after the agent's restart still read-only at $mnt" || cell restart-ro 0 "after the agent's restart: $(findmnt -no TARGET,OPTIONS -S "$ds" 2>&1 | paste -sd' ')"
 agent_log_mark array
-flow OF-ARRAY-STOP-START && cell array-stop-free 1 "the array stopped and started ($(grep stop_seconds "$KEEP/.of-array" 2>/dev/null))" \
+flow OF-ARRAY-STOP-START; rc=$?
+nc_data_closed                                   # Unraid's array start opened Nextcloud's data folder (0777) — not this cell's
+((rc == 0)) && cell array-stop-free 1 "the array stopped and started ($(grep stop_seconds "$KEEP/.of-array" 2>/dev/null))" \
     || cell array-stop-free 0 "the array stop/start: $(cat "$KEEP/.of-array" 2>/dev/null | paste -sd' ')"
 if wait_for 120 "the pull mounted again" ro_now; then
     cell remount-ro 1 "after the array's start mounted read-only again: $(agent_log_since array | grep -m1 'mounted again' | cut -c1-200)"
@@ -80,9 +82,11 @@ else
     cell remount-ro 0 "after the array's start: $(findmnt -no TARGET,OPTIONS -S "$ds" 2>&1 | paste -sd' ') — agent log: $(agent_log_since array | grep -i 'restori' | tail -2 | paste -sd' ' | cut -c1-300)"
 fi
 # 3. Ms. Dustdevil lists it; a backup run's retention leaves it
+# her look is a tour of its own (a job): her state files are waited for up to 3 min to name it
+names_it() { grep -l -F -- "${ds#cache/}" "$D"/cleanup*.json "$D"/cleanup/*.json 2>/dev/null | head -1; }
 ask cleanup.refresh '{}' 300 >/dev/null
-sleep 5
-c=$(grep -l -F -- "${ds#cache/}" "$D"/cleanup*.json 2>/dev/null | head -1)
+wait_for 180 "Ms. Dustdevil's look to name ${ds#cache/}" bash -c "grep -qlF -- '${ds#cache/}' $D/cleanup*.json $D/cleanup/*.json 2>/dev/null"
+c=$(names_it)
 [[ -n $c ]] && cell dustdevil-lists 1 "her state names ${ds#cache/}: $(jq -c --arg n "${ds#cache/}" '[paths(type == "string" and test($n)) | map(tostring) | join(".")] | .[0:3]' "$c")" \
     || cell dustdevil-lists 0 "no state of hers names ${ds#cache/}"
 before=$(zfs list -H -r -t filesystem,snapshot -o name "$ds" 2>/dev/null | paste -sd' ')
@@ -91,6 +95,7 @@ after=$(zfs list -H -r -t filesystem,snapshot -o name "$ds" 2>/dev/null | paste 
 [[ -n $before && $after == "$before" ]] && cell retention-leaves 1 "after a run still: $after" || cell retention-leaves 0 "before the run: «$before», after: «$after»"
 ro_now || cell retention-leaves 0 "after the run no longer mounted read-only"
 bubble_look after-pull restore cleanup
+allow INV-TICK "the array stop ends the agent by design (CLAUDE.md: the agent — event/started starts, event/stopping stops); its heartbeat pauses until the start"
 check standard
 check final
 scenario_end

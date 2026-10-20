@@ -21,6 +21,8 @@ scratch_drop() { local x; [[ $S == uso-wip-g-* ]] || return 1
     return 0; }
 pt_base_snap "$KEEP/ptbase" || _row state partner-base red "the partner base could not be read"
 undo_push pt_base_same
+pt_keep G-B39-END || _row state partner-keep red "both sides' partner files could not be kept"
+undo_push pt_back G-B39-END                     # before the first send: received/<id>.json as it was
 undo_push pt_drop_received "$S"
 mkdir -p "$KEEP_STASH/G-B39-INI" && cp -p "$UB/settings.ini" "$KEEP_STASH/G-B39-INI/settings.ini"
 undo_push bash -c 'cp -p "$1/settings.ini" "$2" && rm -rf "$1"' _ "$KEEP_STASH/G-B39-INI" "$UB/settings.ini"
