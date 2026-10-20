@@ -31,7 +31,7 @@
     "other": "{n} Shares sind hier leer, ihre Snapshots belegen aber noch {size}: {shares}. Die alten Dateien bleiben auf dem Pool, bis diese Snapshots gehen — mit der Aufbewahrung ihres Plans oder des Backups, oder von Hand bei Frau Snapshotini. Ich selbst lösche nichts."
   },
   "check.snap_only_link": "Bei Frau Snapshotini zeigen",
-  "check.snap_kept": "Kein leeres Dataset eines Shares bleibt nur stehen, weil Snapshots es halten",
+  "check.snap_kept": {"one": "{shares}: leeres Dataset bleibt wegen Snapshots stehen", "other": "{n} leere Datasets bleiben wegen Snapshots stehen"},
   "check.snap_kept_how": {
     "one": "Der Share {shares} ist leer, sein Dataset bleibt aber stehen, weil Snapshots es halten — Frau Moverellis Lauf kann es nicht wegräumen, solange sie da sind. Brauchst du sie nicht, lösche sie bei Frau Snapshotini; Frau Moverelli räumt das leere Dataset dann beim nächsten Lauf weg. Stehen lassen ist auch in Ordnung: ein leeres Dataset kann gewollt sein.",
     "other": "{n} Shares sind leer, ihre Datasets bleiben aber stehen, weil Snapshots sie halten: {shares}. Frau Moverellis Lauf kann sie nicht wegräumen, solange sie da sind. Brauchst du sie nicht, lösche sie bei Frau Snapshotini; Frau Moverelli räumt die leeren Datasets dann beim nächsten Lauf weg. Stehen lassen ist auch in Ordnung: ein leeres Dataset kann gewollt sein."

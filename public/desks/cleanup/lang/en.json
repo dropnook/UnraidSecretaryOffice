@@ -31,7 +31,7 @@
     "other": "{n} shares are empty here, but their snapshots still hold {size}: {shares}. The old files stay on the pool until those snapshots go — by their plan's or the backup's retention, or by hand at Ms. Snapshotini. I delete nothing myself."
   },
   "check.snap_only_link": "Show at Ms. Snapshotini",
-  "check.snap_kept": "No empty share dataset stays only because snapshots hold it",
+  "check.snap_kept": {"one": "{shares}: empty dataset kept by its snapshots", "other": "{n} empty datasets kept by their snapshots"},
   "check.snap_kept_how": {
     "one": "The share {shares} is empty, but its dataset stays because snapshots hold it — Ms. Moverelli's run can't take it away while they are there. If you don't need them, delete them at Ms. Snapshotini; Ms. Moverelli then removes the empty dataset at her next run. Leaving it is fine too: an empty dataset may be wanted.",
     "other": "{n} shares are empty, but their datasets stay because snapshots hold them: {shares}. Ms. Moverelli's run can't take them away while they are there. If you don't need them, delete them at Ms. Snapshotini; Ms. Moverelli then removes the empty datasets at her next run. Leaving them is fine too: an empty dataset may be wanted."

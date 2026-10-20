@@ -45754,8 +45754,8 @@ function testCleanupSnapKept(): void
     same('snap kept: the Team Lead\'s hint — a hint, which ones, the link to Ms. Snapshotini\'s datasets',
         [['snap_kept', 'hint', false, '#/snapshot/datasets'], ['n' => 2, 'shares' => 'Familienfilme (cache), Zu (cache)']],
         [[$c[0]['id'], $c[0]['level'], $c[0]['ok'], $c[0]['link']], $c[0]['params']]);
-    same('snap kept: none — in place; a look of an older agent (no kept) — nothing', [[true], [], []],
-        [array_column(clSnapKeptChecks(['list' => [], 'asleep' => [], 'kept' => []]), 'ok'), clSnapKeptChecks(['list' => [], 'asleep' => []]), clSnapKeptChecks(null)]);
+    same('snap kept: none, or a look of an older agent (no kept) — nothing said (its head states the case)', [[], [], []],
+        [clSnapKeptChecks(['list' => [], 'asleep' => [], 'kept' => []]), clSnapKeptChecks(['list' => [], 'asleep' => []]), clSnapKeptChecks(null)]);
     $build = new ReflectionFunction('clBuild');
     $src = implode('', array_slice(file($build->getFileName()), $build->getStartLine() - 1, $build->getEndLine() - $build->getStartLine() + 1));
     check('snap kept: her state carries the tour\'s look (her checks read snap_only and snap_kept there)', str_contains($src, "'snaponly'  => \$raw['snaponly'] ?? null"));

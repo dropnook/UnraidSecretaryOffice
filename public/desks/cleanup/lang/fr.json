@@ -31,7 +31,7 @@
     "other": "{n} partages sont vides ici, mais leurs snapshots occupent encore {size} : {shares}. Les anciens fichiers restent sur le pool tant que ces snapshots sont là — ils partent avec la rétention de leur planification ou de la sauvegarde, ou à la main chez Madame Snapshotini. Je ne supprime rien moi-même."
   },
   "check.snap_only_link": "Voir chez Madame Snapshotini",
-  "check.snap_kept": "Aucun dataset vide d'un partage ne reste seulement parce que des snapshots le retiennent",
+  "check.snap_kept": {"one": "{shares} : dataset vide retenu par ses snapshots", "other": "{n} datasets vides retenus par leurs snapshots"},
   "check.snap_kept_how": {
     "one": "Le partage {shares} est vide, mais son dataset reste parce que des snapshots le retiennent — l'exécution de Madame Moverelli ne peut pas l'enlever tant qu'ils sont là. Si tu n'en as pas besoin, supprime-les chez Madame Snapshotini ; Madame Moverelli enlève ensuite le dataset vide à sa prochaine exécution. Le laisser convient aussi : un dataset vide peut être voulu.",
     "other": "{n} partages sont vides, mais leurs datasets restent parce que des snapshots les retiennent : {shares}. L'exécution de Madame Moverelli ne peut pas les enlever tant qu'ils sont là. Si tu n'en as pas besoin, supprime-les chez Madame Snapshotini ; Madame Moverelli enlève ensuite les datasets vides à sa prochaine exécution. Les laisser convient aussi : un dataset vide peut être voulu."

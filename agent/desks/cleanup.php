@@ -6208,17 +6208,17 @@ function clSnapOnlyChecks(?array $snap): array
 /**
  * The Team Lead's hint from her last tour (2026-10-21): an empty share dataset Ms. Moverelli's run left standing because
  * snapshots hold it — which, and the way to Ms. Snapshotini; once they are gone, Ms. Moverelli's next run removes it.
- * Only a hint: an empty dataset may be wanted, and snapshotting one is Unraid's standard. Her tour before this look (no
- * `kept`): nothing said.
+ * Only a hint: an empty dataset may be wanted, and snapshotting one is Unraid's standard. Said only while one is there (its
+ * head states the case — a hint has no «not yet» chip); none, or her tour before this look (no `kept`): nothing said.
  */
 function clSnapKeptChecks(?array $snap): array
 {
-    if (!is_array($snap) || !is_array($snap['kept'] ?? null)) {
+    $kept = is_array($snap) && is_array($snap['kept'] ?? null) ? $snap['kept'] : [];
+    if (!$kept) {
         return [];
     }
-    $kept = $snap['kept'];
     $names = implode(', ', array_map(fn ($x) => "{$x['share']} ({$x['pool']})", array_slice($kept, 0, 8)));
-    return [finding('snap_kept', 'hint', !$kept, ['n' => count($kept), 'shares' => $names], '#/snapshot/datasets')];
+    return [finding('snap_kept', 'hint', false, ['n' => count($kept), 'shares' => $names], '#/snapshot/datasets')];
 }
 
 /**

@@ -31,7 +31,7 @@
     "other": "{n} recursos compartidos están vacíos aquí, pero sus instantáneas todavía ocupan {size}: {shares}. Los archivos antiguos se quedan en el pool hasta que esas instantáneas se vayan — con la retención de su programación o de la copia, o a mano con la señora Snapshotini. Yo no borro nada."
   },
   "check.snap_only_link": "Ver con la señora Snapshotini",
-  "check.snap_kept": "Ningún dataset vacío de un recurso compartido se queda solo porque lo retienen instantáneas",
+  "check.snap_kept": {"one": "{shares}: dataset vacío retenido por sus instantáneas", "other": "{n} datasets vacíos retenidos por sus instantáneas"},
   "check.snap_kept_how": {
     "one": "El recurso compartido {shares} está vacío, pero su dataset se queda porque lo retienen instantáneas — la ejecución de la señora Moverelli no puede quitarlo mientras estén. Si no las necesita, bórrelas con la señora Snapshotini; la señora Moverelli quitará después el dataset vacío en su próxima ejecución. Dejarlo también está bien: un dataset vacío puede ser deseado.",
     "other": "{n} recursos compartidos están vacíos, pero sus datasets se quedan porque los retienen instantáneas: {shares}. La ejecución de la señora Moverelli no puede quitarlos mientras estén. Si no las necesita, bórrelas con la señora Snapshotini; la señora Moverelli quitará después los datasets vacíos en su próxima ejecución. Dejarlos también está bien: un dataset vacío puede ser deseado."
