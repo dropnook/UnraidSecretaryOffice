@@ -312,23 +312,26 @@ function flockProbe(string $file): bool
     return !$free && (bool) $busy;
 }
 
-/** Last main line of the running backup's log */
+/**
+ * The running backup's step in the office's words (D-F6, 2026-10-19): the status file's coded phase (state/status.json
+ * next to the log's folder) as Mr. Backupsy's step (his desk.js STEPS), from his words step.<step> in the office's last
+ * language - null when the status file names no phase of a run going on. Never a raw log line: up to 1.66.8 this was the
+ * log's last line, English on every page (Ms. Dustdevil's «Where is what»). The name stays for its callers.
+ */
 function lastLogStep(string $log): ?string
 {
-    $h = @fopen($log, 'r');
-    if (!$h) {
-        return null;
-    }
-    fseek($h, max(0, (int) @filesize($log) - 8192));
-    $tail = (string) stream_get_contents($h);
-    fclose($h);
-    $step = null;
-    foreach (explode("\n", $tail) as $line) {
-        if (preg_match('/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d  (\S.*)$/', $line, $m)) {
-            $step = preg_replace('/\s+/', ' ', trim($m[1]));
+    static $steps = ['prepare' => ['start', 'inventory'], 'dumps' => ['vm_shutdown', 'maintenance', 'manifest', 'stopping_apps', 'dumps'],
+                     'snapshots' => ['stopping', 'vms', 'snapshots', 'starting'], 'partner' => ['partner'], 'kopia' => ['mounting', 'kopia'],
+                     'finish' => ['unmounting', 'cleanup', 'aborting', 'done']];
+    $status = readJson(dirname($log, 2) . '/state/status.json');
+    $phase = is_array($status) && ($status['result'] ?? null) === 'running' && is_string($status['phase'] ?? null) ? $status['phase'] : '';
+    foreach ($steps as $step => $phases) {
+        if (in_array($phase, $phases, true)) {
+            $text = function_exists('officeNotifyText') ? officeNotifyText('backup', "step.$step", [], officeNotifyLang()) : '';
+            return $text !== '' ? $text : null;
         }
     }
-    return $step;
+    return null;
 }
 
 /**

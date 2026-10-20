@@ -5526,7 +5526,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.64'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.65'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -6111,6 +6111,10 @@ function testBackupVmWarn(): void
         [['code' => 'vm_not_shut_down', 'params' => ['name' => 'Windows11', 'seconds' => '300']], ['code' => 'vm_not_frozen', 'params' => []]],
         $run['warning_items']);
     same('vm warn: an older engine\'s run — none', [], backupRunFromStatus(['run' => 'x'])['warning_items']);
+    // engine 2.65: a coded message's params - only in a warning's shape (an older engine's run: none)
+    same('message params: an older engine\'s run none, the engine\'s kept, anything else dropped', [[], ['place' => '/mnt/cache/b', 'need' => '8589934592']],
+        [backupRunFromStatus(['run' => 'x'])['message_params'], backupRunFromStatus(['run' => 'x', 'message_params' => ['place' => '/mnt/cache/b', 'need' => '8589934592',
+         'Bad' => 'x', 'nl' => "a\nb", 'n' => 5]])['message_params']]);
     $codes = ['vm_not_shut_down', 'vm_shutdown_refused', 'vm_not_frozen', 'vm_not_paused'];
     $engine = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh');
     foreach ($codes as $c) {
@@ -6518,8 +6522,11 @@ case "\$1" in
         id) echo 33; exit 0 ;;
         php)
           shift 2
-          # \$FAKE/nc.readable: its data folder readable by others - occ refuses everything, the complaint on stdout
-          [[ -e "\$FAKE/nc.readable" ]] && { ev "occ refused \$*"; printf 'Your data directory is readable by other people.\\nPlease change the permissions to 0770 so that the directory cannot be listed by other people.\\n\\nException: Environment not properly prepared.\\n'; exit 1; }
+          # \$FAKE/nc.readable: its data folder readable by others - occ refuses everything, the complaint on stdout; so does a
+          # folder \$FAKE/nc.datadir names while others may read it (2.65: Unraid's array start opens it)
+          r=0; [[ -e "\$FAKE/nc.readable" ]] && r=1
+          d="\$(cat "\$FAKE/nc.datadir" 2>/dev/null)"; [[ -n "\$d" && "\$(stat -c %a "\$d")" != *0 ]] && r=1
+          (( r )) && { ev "occ refused \$*"; printf 'Your data directory is readable by other people.\\nPlease change the permissions to 0770 so that the directory cannot be listed by other people.\\n\\nException: Environment not properly prepared.\\n'; exit 1; }
           case "\$*" in
             "config:system:get instanceid") echo inst1 ;;
             "config:system:get maintenance") cat "\$FAKE/nc.maint" 2>/dev/null || echo false ;;
@@ -6816,6 +6823,76 @@ SH);
     $rep = array_values(preg_grep('/Aborted run repaired/', $notes()));
     check('array stop, the next run: «Aborted run repaired» is a normal notification (engine 2.25 - expected after an array stop), no warning counted',
         count($rep) === 1 && str_contains($rep[0], '-i normal') && !str_contains($log(), 'WARNING: The run the array stop ended'), json_encode($notes()));
+
+    // --- engine 2.65: Unraid's array start (every boot too) resets a share root that isn't of the group users to 0777
+    // nobody:users - Nextcloud's data folder too; occ refuses then, and up to 2.64 the --recover could never switch the
+    // maintenance mode off (the note kept for ever, Nextcloud locked). Now the run notes the folder as it found it before the
+    // mode went on, and the --recover closes exactly that again (only the folder itself), then switches the mode off
+    $ncd = "$pool/appdata/nc/data";
+    @mkdir("$ncd/someone", 0700, true);
+    chown($ncd, 33);
+    chgrp($ncd, 33);
+    chmod($ncd, 0770);
+    chmod("$ncd/someone", 0755);
+    $night('suspend');
+    [$code] = $run();
+    $noted = (string) @file_get_contents("$data/state/nc-datadir");
+    same('nc folder opened at the array start: the stopped run noted Nextcloud\'s data folder as it found it', ['aborted', "nc\t$ncd\t33\t33\t770\n"],
+        [$status()['result'] ?? null, $noted]);
+    file_put_contents("$fake/var.ini", "fsState=\"Started\"\n");
+    @unlink("$fake/stop-at");
+    @unlink("$fake/events");
+    @unlink("$fake/notify.log");
+    chown($ncd, 99);
+    chgrp($ncd, 100);
+    chmod($ncd, 0777);
+    file_put_contents("$fake/nc.datadir", $ncd);
+    [$code, , $out] = $run('--recover');
+    $n = $names();
+    clearstatcache();
+    $st = stat($ncd);
+    $rl = (string) @file_get_contents("$data/logs/recover.log");
+    check('nc folder opened at the array start: the --recover closed it again as noted and switched the maintenance mode off, nothing noted',
+        in_array('occ maintenance off', $n, true) && [$st['uid'], $st['gid'], $st['mode'] & 0777] === [33, 33, 0770] && !is_file("$data/state/maintenance")
+        && !is_file("$data/state/nc-datadir"), json_encode([$n, $st['uid'], $st['gid'], decoct($st['mode'] & 0777)]) . $out . $rl);
+    check('nc folder opened at the array start: only the folder itself — what is inside untouched', (fileperms("$ncd/someone") & 0777) === 0755);
+    check('nc folder opened at the array start: the log says what it found and the lasting fix; the notification names it',
+        str_contains($rl, "its data folder $ncd was open (777 99:100") && str_contains($rl, "chown 33:users '$ncd'")
+        && count(preg_grep('/Aborted run repaired.*its data folder closed again/', $notes())) === 1, $rl . json_encode($notes()));
+    // occ refusing for a folder that is closed (a note left open never counts either): nothing changed, the note kept
+    $night('suspend');
+    [$code] = $run();
+    file_put_contents("$fake/var.ini", "fsState=\"Started\"\n");
+    @unlink("$fake/stop-at");
+    touch("$fake/nc.readable");
+    [$code] = $run('--recover');
+    @unlink("$fake/nc.readable");
+    clearstatcache();
+    $st = stat($ncd);
+    same('nc folder closed but occ refuses: the folder left alone, Nextcloud still noted for the next start', [[33, 33, 0770], ['nc'], true],
+        [[$st['uid'], $st['gid'], $st['mode'] & 0777], array_values(array_filter(array_map('trim', @file("$data/state/maintenance") ?: []))), is_file("$data/state/nc-datadir")]);
+    [$code] = $run('--recover');
+    check('nc folder closed but occ refuses: the next --recover (occ answering) switches it off', !is_file("$data/state/maintenance") && !is_file("$data/state/nc-datadir"));
+    @unlink("$fake/nc.datadir");
+    exec('rm -rf ' . escapeshellarg($ncd));
+
+    // --- engine 2.65: too little room in the backup place for the packages (min_free_gb) - up to 2.64 an English sentence on
+    // every page (die without a code); now the code no_space_packages with what it found: the place, free and needed in bytes
+    $night();
+    $ini0 = (string) file_get_contents("$data/settings.ini");
+    file_put_contents("$data/settings.ini", str_replace("min_free_gb = 0\n", "min_free_gb = 999999\n", $ini0));
+    [$code, , $out] = $run();
+    file_put_contents("$data/settings.ini", $ini0);
+    $s = $status();
+    $mp = $s['message_params'] ?? [];
+    same('no space: refused before the packages, coded — no_space_packages with place, free and need', ['failed', 'no_space_packages', 1, true, (string) (999999 * 1073741824), true],
+        [$s['result'] ?? null, $s['message'] ?? null, $code, is_string($mp['place'] ?? null) && str_starts_with($mp['place'], "$mnt/"), $mp['need'] ?? null,
+         ctype_digit((string) ($mp['free'] ?? 'x'))], $out . $log());
+    check('no space: the history line carries the params too, nothing stopped or snapshotted',
+        ($lastHistory()['message_params']['need'] ?? null) === $mp['need'] && !preg_grep('/^(docker stop|zfs snapshot)/', $names()), json_encode($names()));
+    $nt = $notes();
+    check('no space: the alert in the office\'s words, the sizes readable', count($nt) === 1 && str_contains($nt[0], 'Not enough free space in the backup place')
+        && str_contains($nt[0], 'at least 977T') && !str_contains($nt[0], '{need}') && !str_contains($nt[0], (string) (999999 * 1073741824)), json_encode($nt));
 
     // --- at Nextcloud's maintenance mode: its container still runs - the mode goes off at once, nothing stopped
     $night('maintenance');
@@ -7396,9 +7473,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.64 everywhere it is named', ['2.64', '2.64', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.64"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.64** –')]);
+    same('data trust: the engine\'s version 2.65 everywhere it is named', ['2.65', '2.65', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.65"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.65** –')]);
     // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
     same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
         array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
@@ -8484,7 +8561,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.64', [1, '2.64'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.65', [1, '2.65'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -9092,7 +9169,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.64', [1, '2.64'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.65', [1, '2.65'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -21115,6 +21192,23 @@ function testWhereDesk(): void
     check('where desk: both parts on her page', str_contains($js, "part(T('part.where')") && str_contains($js, "part(T('part.tidy')"));
     // Docker stopped (QA 2026-10-08 #13): her facts say so instead of «0 of 0 running», and so does Mr. Backupsy
     $sys = waSystem([], [], [], ['running' => false, 'since' => null, 'step' => null]);
+    // D-F6 (2026-10-19): while a backup runs her «Where is what» showed the engine's last log line as its step — English on
+    // the German page. Now the status file's coded phase as Mr. Backupsy's step in the office's words, or no step at all
+    $wd = sys_get_temp_dir() . '/office-tests-where-step-' . getmypid();
+    @mkdir("$wd/logs", 0700, true);
+    @mkdir("$wd/state", 0700, true);
+    file_put_contents("$wd/logs/latest.log", "2026-10-19 21:05:00  Kopia: uploading share appdata (12 GB)\n");
+    $stepOf = function (?array $st) use ($wd): ?string {
+        $st === null ? @unlink("$wd/state/status.json") : file_put_contents("$wd/state/status.json", json_encode($st));
+        return lastLogStep("$wd/logs/latest.log");
+    };
+    $lang = officeNotifyLang();
+    same('where desk: the backup\'s step — the coded phase in his words (offsite, snapshots), never the log line; nothing coded, ended or no status: none',
+        [officeNotifyText('backup', 'step.kopia', [], $lang), officeNotifyText('backup', 'step.snapshots', [], $lang), null, null, null, null],
+        [$stepOf(['result' => 'running', 'phase' => 'kopia']), $stepOf(['result' => 'running', 'phase' => 'vms']), $stepOf(['result' => 'running', 'phase' => 'Kopia: up']),
+         $stepOf(['result' => 'ok', 'phase' => 'done']), $stepOf(['result' => 'running']), $stepOf(null)]);
+    check('where desk: the step\'s words exist in German', ($de = langFile(OFFICE_WEB . '/desks/backup/lang/de.json')['step.kopia'] ?? '') !== '' && $de !== 'Offsite');
+    exec('rm -rf ' . escapeshellarg($wd));
     check('where desk: whether Docker and the VM service answer', is_bool($sys['docker']['up'] ?? null) && is_bool($sys['vms']['up'] ?? null));
     check('where desk: Docker off said on her page', substr_count($js, "docker.up === false ? Office.t('common.docker_off')") >= 1
         && str_contains($js, "if (s.system.docker.up === false) return { sub: Office.t('common.docker_off') }"));
@@ -34793,6 +34887,20 @@ function testDriftCodes(): void
          ['warn', 'share_new', '', ['name' => 'a|b "c" x=y', 'locations' => 'disk1, maple', 'bytes' => '12'], "New share 'a|b'\nline 2"]],
         array_map(fn ($i) => array_merge([$i['level'] ?? null, $i['code'] ?? null, $i['value'] ?? null, $i['params'] ?? null],
             ($i['code'] ?? '') === 'share_new' ? [$i['text'] ?? null] : []), $dj['items'] ?? [$raw]));
+    // engine 2.65 (C-B29): a new VM whose disk lies on xfs was «in the snapshot of their share» - false there. Said as it is:
+    // not set up yet, and what holds the disk - Kopia's copy of its share (read live) or nothing; on ZFS the old words
+    file_put_contents("$tmp/v.ini", "[general]\ndumps_share = UnraidSecretaryOffice\nmount_root = /mnt/addons/UnraidSecretaryOffice/snapshots\n"
+        . "[kopia]\nenabled = yes\n[share \"vmk\"]\nmode = kopia\n[share \"UnraidSecretaryOffice\"]\nmode = kopia\n[vm \"setvm\"]\nmode = snapshot\nprepare = none\n");
+    $vms = ' CT_NAMES=(); VM_SERVICE=yes; VM_NAMES=(zvm xvm kvm setvm);'
+        . ' VM_SNAP=([zvm]=yes [xvm]=live [kvm]=live [setvm]=live); VM_OWN_DS=([zvm]=cache/domains/zvm);'
+        . ' VM_DISKS=([zvm]="hdc|/mnt/user/domains/zvm/v.img|cache|zfs|cache/domains/zvm|domains" [xvm]="hdc|/mnt/user/uso-vmxfs/x/v.img|disk1|xfs||uso-vmxfs"'
+        . ' [kvm]="hdc|/mnt/user/vmk/k/v.img|disk1|xfs||vmk" [setvm]="hdc|/mnt/user/vmk/s/v.img|disk1|xfs||vmk");';
+    $vraw = (string) shell_exec('bash -c ' . escapeshellarg("UB_DATA=$tmp/data2; source $lib >/dev/null 2>&1; cfg_load $tmp/v.ini; cfg_validate >/dev/null; apply_settings;"
+        . "$vms drift_check_vms; UB_STATE=$tmp/state2; mkdir -p \$UB_STATE; KP_CHECKED=no; drift_json_write; cat \$UB_STATE/drift.json") . ' 2>&1');
+    same('drift codes (bash): a new VM on ZFS in its share\'s snapshot; on xfs not set up and not held (nothing, or only Kopia\'s copy of its share); one set up the same',
+        [['info', 'new_vm', ['name' => 'zvm']], ['info', 'new_vm_unheld', ['name' => 'xvm']], ['warn', 'vm_disk_live', ['name' => 'xvm']],
+         ['info', 'new_vm_unheld', ['name' => 'kvm']], ['warn', 'vm_disk_live_kopia', ['name' => 'kvm', 'share' => 'vmk']], ['warn', 'vm_disk_live_kopia', ['name' => 'setvm', 'share' => 'vmk']]],
+        array_map(fn ($i) => [$i['level'] ?? null, $i['code'] ?? null, $i['params'] ?? null], json_decode($vraw, true)['items'] ?? [$vraw]));
     check('drift codes (bash): the English text stays as it was', str_starts_with($dj['items'][0]['text'] ?? '', "App 'zz-uso-nc' has a Kopia source of its own in settings.ini"));
     $empty = json_decode((string) shell_exec('bash -c ' . escapeshellarg("source $lib >/dev/null 2>&1; UB_STATE=$tmp/state2; mkdir -p \$UB_STATE; KP_CHECKED=no;"
         . ' drift_json_write; cat $UB_STATE/drift.json') . ' 2>&1'), true);
@@ -34854,7 +34962,10 @@ for (const lang of ['de', 'en']) {
   Object.keys(strings).forEach((k) => delete strings[k]);
   const l = JSON.parse(fs.readFileSync(`${langDir}/${lang}.json`, 'utf8'));
   Object.keys(l).forEach((k) => { strings['backup.' + k] = l[k]; });
-  out[lang] = { items: items.map((d) => b.driftText(d)), cases: cases.map((d) => b.driftText(d)) };
+  out[lang] = { items: items.map((d) => b.driftText(d)), cases: cases.map((d) => b.driftText(d)),
+    // engine 2.65: why a run ended, with its params (sizes as sizes), without them, and the engine's own words
+    msgs: [['no_space_packages', { place: '/mnt/cache/UnraidSecretaryOffice/backup', free: '1073741824', need: '8589934592', free_h: '1.0GiB' }],
+      ['no_space_packages', {}], ['no_space_packages', null], ['Cannot create /x', {}], ['array_stopping', {}]].map(([m, p]) => b.messageText(m, p)) };
 }
 console.log(JSON.stringify(out));
 JS);
@@ -34884,6 +34995,10 @@ JS);
         array_slice($c, 4, 4));
     $l = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/de.json'), true);
     same('drift codes (node): the backup place\'s problem as its message', $l['message.dumps_missing'] ?? '', $c[8]);
+    // engine 2.65 (D-F1, scenario B13): too little room for the packages - up to 2.64 the engine's English sentence on the German page
+    same('message (node): no room for the packages in German — the place, the sizes as sizes; without params the words without them; the engine\'s own words as they are',
+        ['Zu wenig freier Platz in der Backup-Ablage /mnt/cache/UnraidSecretaryOffice/backup: 1 GB frei, die Einrichtung hält mindestens 8 GB frei — nichts wurde gesichert. Dort Platz schaffen oder bei «Einrichten…» den «Freien Platz in der Backup-Ablage» senken, dann das Backup neu starten.',
+         $l['message.no_space_packages_plain'] ?? '?', $l['message.no_space_packages_plain'] ?? '?', 'Cannot create /x', $l['message.array_stopping'] ?? '?'], $r['de']['msgs'] ?? null);
     hardeningRm($tmp);
 }
 
@@ -35161,11 +35276,16 @@ SH);
         $ct('web', 'nginx', [$bind("$mnt/user/appdata/web", '/config')])]));
     file_put_contents("$data/settings.ini", "[general]\nserver = Test\nmount_root = $root\nview_root = $mnt/addons/UnraidSecretaryOffice/btrfs-snap\nsnap_prefix = uso-backup-\n"
         . "dumps_share = UnraidSecretaryOffice\n[docker]\nstop = all\nknown = kopia\nknown = ml\nknown = pg\nknown = web\n[flash]\nmode = off\n[kopia]\nenabled = yes\ncontainer = kopia\nidentity = root@kopia\n"
-        . "[share \"appdata\"]\nmode = kopia\nkopia_ignore = /kopia/\n[share \"UnraidSecretaryOffice\"]\nmode = kopia\n");
+        . "[share \"appdata\"]\nmode = kopia\nkopia_ignore = /kopia/\n[share \"UnraidSecretaryOffice\"]\nmode = kopia\n[share \"cfgsaved\"]\nmode = kopia\n");
     $env = "export PATH=$tmp/bin:\$PATH UB_DATA=$data UB_MNT=$mnt UB_BOOT=$tmp/boot UB_SHARES_CFG=$tmp/boot/config/shares"
          . " UB_DISKS_INI=$tmp/fake/disks.ini UB_NOTIFY_BIN=$tmp/bin/notify UB_MOUNTS_FILE=$tmp/fake/mounts FAKE=$tmp/fake FAKE_ROOT=$root"
          . " UB_SHARES_INI=$tmp/fake/shares.ini";
-    file_put_contents("$tmp/fake/shares.ini", "[\"appdata\"]\nname=\"appdata\"\n[\"UnraidSecretaryOffice\"]\nname=\"UnraidSecretaryOffice\"\n");
+    // engine 2.65 (C-M16): configs without a root anywhere - «fresh» Unraid lists (a share just made, still empty), «cfgonly»
+    // and «cfgsaved» (in settings.ini) it no longer lists (their roots gone, e.g. after Unraid renamed it)
+    foreach (['fresh', 'cfgonly', 'cfgsaved'] as $c) {
+        touch("$tmp/boot/config/shares/$c.cfg");
+    }
+    file_put_contents("$tmp/fake/shares.ini", "[\"appdata\"]\nname=\"appdata\"\n[\"UnraidSecretaryOffice\"]\nname=\"UnraidSecretaryOffice\"\n[\"fresh\"]\nname=\"fresh\"\n");
     $out = (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . ' --plan </dev/null') . ' 2>&1');
     $plan = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
     $msgs = is_array($plan['messages'] ?? null) ? $plan['messages'] : [];
@@ -35187,6 +35307,10 @@ SH);
         [array_values(array_filter($ks, fn ($x) => ($x['state'] ?? '') === 'orphan')),
          array_values(array_map(function ($x) { $k = array_keys($x); sort($k); return $k; }, array_filter($ks, fn ($x) => ($x['state'] ?? '') !== 'orphan')))]);
     same('setup messages (engine): the live test that couldn\'t mount - coded with the root', [['root' => $root]], $by('kopia_probe_failed'));
+    $shp = array_column(is_array($plan['shares'] ?? null) ? $plan['shares'] : [], null, 'name');
+    same('setup messages (engine): a config Unraid no longer lists is no share — never offered (2.65); one it lists is still empty; one saved is gone',
+        [false, ['kopia', 'empty'], ['gone', false]],
+        [isset($shp['cfgonly']), [$shp['fresh']['mode'] ?? null, $shp['fresh']['why'] ?? null], [$shp['cfgsaved']['why'] ?? null, $shp['cfgsaved']['exists'] ?? null]]);
     same('setup messages (engine): no message without a code - hints, warnings and (2.58) the OK and error lines too', [],
         array_values(array_map(fn ($m) => $m['text'], array_filter($msgs, fn ($m) => ($m['code'] ?? '') === ''))));
     same('setup messages (engine): the OK lines as codes with their params (2.58) - the backup place, the file systems',

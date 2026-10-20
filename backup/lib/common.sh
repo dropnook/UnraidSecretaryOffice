@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.64"
+UB_VERSION="2.65"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -782,8 +782,17 @@ inv_scan() {
     INV_BASES=( "${pools[@]}" "${disks[@]}" )
 
     # --- Share names: folders on all bases + Unraid's share configs
-    local -A names=()
-    local b d s f
+    # 2.65: a config without a root anywhere is a share only while Unraid lists it (shares.ini: a share just made, still
+    # empty) - one Unraid no longer lists (its roots gone, e.g. after Unraid renamed it) is gone, never «still empty» and
+    # offered for Kopia. Without Unraid's list (not readable, a test's own /mnt) every config counts, as up to 2.64.
+    local -A names=() listed=()
+    local b d s f sini="${UB_SHARES_INI:-}" have_list=0
+    [[ -z "$sini" && "$UB_MNT" == /mnt ]] && sini=/var/local/emhttp/shares.ini
+    if [[ -n "$sini" && -r "$sini" ]] && grep -q '^\[' "$sini" 2>/dev/null; then
+        have_list=1
+        while IFS= read -r s; do [[ -n "$s" ]] && listed[$s]=1; done \
+            < <(sed -n 's/^\["\{0,1\}\([^"]*\)"\{0,1\}\]$/\1/p; s/^name="\(.*\)"$/\1/p' "$sini")
+    fi
     for b in "${INV_BASES[@]}"; do
         for d in "${INV_BASE_PATH[$b]}"/*; do
             [[ -d "$d" && ! -L "$d" ]] || continue
@@ -795,6 +804,7 @@ inv_scan() {
     for f in "$UB_SHARES_CFG"/*.cfg; do
         [[ -f "$f" ]] || continue
         s="${f##*/}"; s="${s%.cfg}"
+        (( have_list )) && [[ -z "${names[$s]:-}" && -z "${listed[$s]:-}" ]] && continue
         names[$s]=1
     done
     mapfile -t INV_SHARES < <(printf '%s\n' "${!names[@]}" | LC_ALL=C sort | sed '/^$/d')
@@ -2250,6 +2260,43 @@ recover_containers() {
     note_write "$UB_STATE/stopped" "${keep[@]}"
 }
 
+# --- Nextcloud's data folder as the run found it (2.65) -------------------------------------------------------------
+# state/nc-datadir: one line "<container>\t<folder>\t<uid>\t<gid>\t<mode>" per Nextcloud a run put into maintenance mode -
+# its data folder's root on the pool or disk, as it was right before (closed: occ answered). Unraid's array start (every
+# boot too), like Add Share or Apply of any share, resets a share root that isn't of the group users to 0777
+# nobody:users; Nextcloud no longer owns it then, can't close it itself and refuses every occ call - so after an array
+# stop or a power cut during a run its maintenance mode could never be switched off. nc_reclose <container> puts that
+# root back exactly as noted - owner, group, mode, only the folder itself, never what is inside - when occ refused for
+# it, the note was closed and the folder is open now. Nothing looser than the owner had: it is their own setting.
+# Written with state/maintenance (save_restore_state), never older than it; an older engine leaves it alone.
+nc_reclose() {
+    local n="$1" c p u g m nu ng nm
+    [[ -s "$UB_STATE/nc-datadir" && ! "$UB_STATE/nc-datadir" -ot "$UB_STATE/maintenance" ]] || return 1
+    while IFS=$'\t' read -r c p u g m; do
+        [[ "$c" == "$n" ]] || continue
+        is_uint "$u" && is_uint "$g" && [[ "$m" =~ ^[0-7]{3,4}$ && "$p" == /* && "$p" != *'/../'* && "$p" != */.. ]] || return 1
+        (( 8#$m & 8#007 )) && return 1                          # noted open: never what makes it work
+        [[ -d "$p" && ! -L "$p" ]] || return 1
+        read -r nu ng nm <<<"$(stat -c '%u %g %a' -- "$p" 2>/dev/null)"
+        [[ "$nm" =~ ^[0-7]{3,4}$ ]] && (( 8#$nm & 8#007 )) || return 1   # closed already: occ refuses for something else
+        if chown -h "$u:$g" -- "$p" 2>>"${LOG_FILE:-/dev/null}" && chmod "$m" -- "$p" 2>>"${LOG_FILE:-/dev/null}"; then
+            log "  Nextcloud '$n': its data folder $p was open ($nm $nu:$ng - Unraid resets a share root that isn't of the group users so at the array start) - closed again as the run found it ($m $u:$g), only the folder itself. Lasting fix (Unraid then leaves it alone): chown $u:users '$p' && chmod 0770 '$p'"
+            return 0
+        fi
+        err "Nextcloud '$n': its data folder $p could not be closed again ($m $u:$g)"
+        return 1
+    done <"$UB_STATE/nc-datadir"
+    return 1
+}
+# nc_dirs_keep <container...>: state/nc-datadir keeps only the lines of these (none left - the file goes)
+nc_dirs_keep() {
+    local -a lines=()
+    local l
+    [[ -e "$UB_STATE/nc-datadir" ]] || return 0
+    while IFS= read -r l; do in_list "${l%%$'\t'*}" "$@" && lines+=( "$l" ); done <"$UB_STATE/nc-datadir"
+    note_write "$UB_STATE/nc-datadir" "${lines[@]}"
+}
+
 # recover_maintenance (recover_interrupted_run): each Nextcloud of state/maintenance out of maintenance mode - occ needs
 # its container running: one just started above, or one Unraid's autostart is still starting, so it is waited for (at
 # most UB_NC_RUN_WAIT s), then occ until it answers (a container just started needs a moment). One whose container never
@@ -2287,12 +2334,18 @@ recover_maintenance() {
         fi
         u="$(docker exec "$n" stat -c %U "$occ" 2>/dev/null)"; [[ -z "$u" || "$u" == root || "$u" == UNKNOWN ]] && u="www-data"
         for (( i = 0; i < 30; i++ )); do
-            docker exec -u "$u" "$n" php "$occ" status >/dev/null 2>&1 && break
+            out="$(docker exec -u "$u" "$n" php "$occ" status 2>&1)" && break
+            grep -q "readable by other people" <<<"$out" && break      # stays so until the folder is closed (2.65)
             array_stopping && break
             sleep 2
         done
         if out="$(docker exec -u "$u" "$n" php "$occ" maintenance:mode --off 2>&1)"; then
             list+="maintenance mode $n off "; back_nc+=( "$n" )
+        # 2.65: the array start opened its data folder (Unraid: a share root not of the group users) - closed again as the
+        # run found it, then switched off; up to 2.64 Nextcloud stayed in maintenance mode, its note kept for ever
+        elif grep -q "readable by other people" <<<"$out" && nc_reclose "$n" \
+             && out="$(docker exec -u "$u" "$n" php "$occ" maintenance:mode --off 2>&1)"; then
+            list+="maintenance mode $n off (its data folder closed again) "; back_nc+=( "$n (its data folder closed again)" )
         else
             while IFS= read -r f; do [[ -n "${f//[[:space:]]/}" ]] && log "    occ: ${f%$'\r'}"; done < <(head -20 <<<"$out")
             err "Maintenance mode of '$n' could not be switched off - it stays noted (state/maintenance)"
@@ -2301,6 +2354,7 @@ recover_maintenance() {
     done
     (( ${#keep[@]} )) && stay+="${stay:+; }maintenance mode still on (still noted): ${keep[*]}"
     note_write "$UB_STATE/maintenance" "${keep[@]}"
+    nc_dirs_keep "${keep[@]}"
 }
 
 # recover_vms (recover_interrupted_run): each VM of state/vms back as it was - thawed (while it runs), resumed (while
@@ -2457,23 +2511,45 @@ drift_check_containers() {
     done
 }
 
+# vm_live_kopia <name> -> the shares (", ") of its disks on a file system without snapshots, when Kopia is on and every one
+#   of them goes offsite with Kopia (read live, without a snapshot); 1 when one of them doesn't (2.65)
+vm_live_kopia() {
+    local target src b fs ds share out=""
+    [[ "${KOPIA_ENABLED,,}" =~ ^(yes|ja|1|true)$ ]] || return 1
+    while IFS='|' read -r target src b fs ds share; do
+        [[ -z "$target" || "$fs" == zfs || "$fs" == btrfs ]] && continue
+        [[ -n "$share" && "$(share_mode "$share")" == kopia ]] || return 1
+        [[ ", $out, " == *", $share, "* ]] || out+="${out:+, }$share"
+    done <<<"${VM_DISKS[$1]}"
+    [[ -n "$out" ]] && printf '%s' "$out"
+}
+
 drift_check_vms() {
-    local n
+    local n sh
     [[ "$VM_SERVICE" == "yes" ]] || return 0
     for n in "${VM_NAMES[@]}"; do
         if ! cfg_has "vm|$n"; then
-            drift_add info "New VM '$n' - not set up yet: its disks are in the snapshot of their share, but it is not prepared for it (keeps running) until you decide" \
-                new_vm "$n" name="$n"
-            continue
-        fi
-        [[ "$(vm_mode "$n")" == "off" ]] && {
+            # 2.65: «in the snapshot of their share» only where a snapshot can hold its disks (ZFS, btrfs) - up to 2.64 also
+            # said of a disk on xfs; a disk without a snapshot is said as it is, as for a VM set up (vm_disk_live …)
+            if [[ "${VM_SNAP[$n]}" == "yes" ]]; then
+                drift_add info "New VM '$n' - not set up yet: its disks are in the snapshot of their share, but it is not prepared for it (keeps running) until you decide" \
+                    new_vm "$n" name="$n"
+                continue
+            fi
+            drift_add info "New VM '$n' - not set up yet: it keeps running until you decide" new_vm_unheld "" name="$n"
+        elif [[ "$(vm_mode "$n")" == "off" ]]; then
             [[ -n "${VM_OWN_DS[$n]}" ]] || drift_add info "VM '$n' is set to off, but its disks share a dataset - they are in the share's snapshot anyway" \
                 vm_off_shared "" name="$n"
             continue
-        }
+        fi
         case "${VM_SNAP[$n]}" in
             block)   drift_add warn "VM '$n' uses a whole device as a disk - no snapshot holds it" vm_whole_device "" name="$n" ;;
-            live)    drift_add warn "VM '$n' has a disk on a file system without snapshots - it is not backed up" vm_disk_live "" name="$n" ;;
+            live)    if sh="$(vm_live_kopia "$n")"; then
+                         drift_add warn "VM '$n' has a disk on a file system without snapshots - no snapshot holds it, only Kopia's copy of its share ($sh), read while the VM runs" \
+                             vm_disk_live_kopia "" name="$n" share="$sh"
+                     else
+                         drift_add warn "VM '$n' has a disk on a file system without snapshots - no snapshot holds it, nothing backs it up" vm_disk_live "" name="$n"
+                     fi ;;
             missing) drift_add warn "VM '$n': a disk file was not found" vm_disk_missing "" name="$n" ;;
         esac
     done
@@ -2672,6 +2748,7 @@ ST_MODE=""                # that was turned away would overwrite the running one
 ST_PHASE=""
 ST_RESULT="running"       # running | ok | warnings | errors | failed | aborted
 ST_MESSAGE=""
+ST_MESSAGE_PARAMS=""      # since 2.65: the coded message's params, "\x1fkey=value..." (die_code) - status.json message_params
 ST_STARTED=0
 ST_FINISHED=0
 ST_ABORTED="no"
@@ -2717,6 +2794,10 @@ status_json() {
     witems="$(printf '%s\n' "${WARN_ITEMS[@]}" | jq -R 'select(length > 0) | split("\u001f")
         | {code: .[0], params: ([.[1:][] | capture("^(?<k>[^=]+)=(?<v>.*)$"; "s") | {(.k): .v}] | add // {})}' | jq -sc .)" || witems='[]'
     [[ -n "$why" ]] || why='{}'
+    local mparams
+    mparams="$(printf '%s' "$ST_MESSAGE_PARAMS" | jq -Rsc 'split("\u001f") | [.[] | select(length > 0) | capture("^(?<k>[^=]+)=(?<v>.*)$"; "s") | {(.k): .v}] | add // {}')" \
+        || mparams='{}'
+    [[ -n "$mparams" ]] || mparams='{}'
     local btrfs="null"
     if [[ -n "$ST_BTRFS_LOOKED" ]]; then
         btrfs="$(printf '%s\n' "${ST_BTRFS[@]}" | jq -R 'select(length > 0) | split("|")
@@ -2741,10 +2822,10 @@ status_json() {
         --argjson packages "${ST_PACKAGES:-null}" --argjson new_local "${ST_NEW_LOCAL:-null}" \
         --argjson partner "${partner:-null}" --argjson p_ok "${#ST_PARTNER_DONE[@]}" --argjson p_failed "${#ST_PARTNER_FAILED[@]}" \
         --argjson p_skipped "${#ST_PARTNER_SKIPPED[@]}" --argjson asleep "${asleep:-null}" --argjson skipped_why "$why" \
-        --arg skipk "${SKIPK:-0}" --argjson btrfs "$btrfs" \
+        --arg skipk "${SKIPK:-0}" --argjson btrfs "$btrfs" --argjson message_params "$mparams" \
         '{interface: $interface, name: $name, version: $version, mode: $mode, run: $run, pid: $pid, skip_kopia: ($skipk == "1"),
           started: $started, updated: $updated, finished: $finished, phase: $phase, result: $result,
-          message: $message, errors: $errors, warnings: $warnings, warning_items: $warning_items, downtime_s: $downtime,
+          message: $message, message_params: $message_params, errors: $errors, warnings: $warnings, warning_items: $warning_items, downtime_s: $downtime,
           snapshot: $snapshot, dump_bytes: $dump_bytes, log: $log, drift: $drift, vms: $vms, packages: $packages,
           new_local: $new_local, partner: $partner, partner_ok: $p_ok, partner_failed: $p_failed, partner_skipped: $p_skipped,
           asleep: $asleep, btrfs: $btrfs,

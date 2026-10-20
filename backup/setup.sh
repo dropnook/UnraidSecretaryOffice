@@ -1,6 +1,8 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.64 - 2026-10-19
+# unraid-backup - setup.sh                        Version 2.65 - 2026-10-19
+#   2.65 A share config without a root anywhere that Unraid no longer lists (shares.ini; its roots gone, e.g. after Unraid
+#        renamed it) is no share: never proposed (up to 2.64 «still empty», Kopia), one in settings.ini is gone (why gone)
 #   2.64 Unraid's VM service switched off: every stored [vm] section stays exactly as stored (vms_off_keep) - up to 2.63
 #        step_vms returned before the [vm] keys reached the proposals and Apply dropped mode, prepare and retention of
 #        every VM. Said once as a hint vm_service_off_kept {n}.
