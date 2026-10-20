@@ -387,10 +387,13 @@ share_name_ok() { [[ "$1" != *[@:\"\|]* && "$1" != *$'\n'* && -n "$1" ]]; }
 #                              so that patterns like "#recycle" stay possible)
 #
 # Internally: CFG["general|mount_root"], CFG["share|appdata|mode"], ...
-# Several values are separated by line breaks.
+# Several values of a list key (UB_LIST_KEYS) are separated by line breaks. A key that holds one value given twice (pasted
+# twice by hand): the last one counts - as cfg() always read it - and only that one is kept (CFG_TWICE: <key> US <line>
+# US <the value dropped>, for the setup to say it); before, both were kept and the setup took them for a list.
+UB_LIST_KEYS='\|(ignore|no_stop|known|skip|kopia_ignore|kopia_known|exclude_dataset|tar_exclude|folder|partner|partner_place)$'
 
 declare -gA CFG=()
-declare -ga CFG_SECTIONS=() CFG_ERRORS=()
+declare -ga CFG_SECTIONS=() CFG_ERRORS=() CFG_TWICE=()
 
 cfg_load() {
     local file="$1" line sec="" key val n=0
@@ -398,10 +401,11 @@ cfg_load() {
     local re_named='^\[([a-z]+)[[:space:]]+"(.+)"\]$'
     local re_kv='^([a-z0-9_]+)[[:space:]]*=[[:space:]]*(.*)$'
     local -A seen=()
-    CFG=(); CFG_SECTIONS=(); CFG_ERRORS=()
+    CFG=(); CFG_SECTIONS=(); CFG_ERRORS=(); CFG_TWICE=()
     [[ -r "$file" ]] || return 1
     while IFS= read -r line || [[ -n "$line" ]]; do
         n=$((n+1))
+        (( n == 1 )) && line="${line#$'\xEF\xBB\xBF'}"      # a byte order mark an editor put in front (UTF-8 BOM)
         line="${line%$'\r'}"
         line="${line#"${line%%[![:space:]]*}"}"
         line="${line%"${line##*[![:space:]]}"}"
@@ -415,7 +419,9 @@ cfg_load() {
                 CFG_ERRORS+=( "line $n: entry before the first [section]" ); continue
             fi
             key="$sec|${BASH_REMATCH[1]}"; val="${BASH_REMATCH[2]}"
-            if [[ -n "${CFG[$key]:-}" ]]; then CFG[$key]+=$'\n'"$val"; else CFG[$key]="$val"; fi
+            if [[ -z "${CFG[$key]:-}" ]]; then CFG[$key]="$val"
+            elif [[ "$key" =~ $UB_LIST_KEYS ]]; then CFG[$key]+=$'\n'"$val"
+            else CFG_TWICE+=( "$key"$'\x1f'"$n"$'\x1f'"${CFG[$key]}" ); CFG[$key]="$val"; fi
             continue
         else
             CFG_ERRORS+=( "line $n: not understood: $line" ); continue
