@@ -29022,6 +29022,31 @@ function testRestoreDrill(): void
     if ($hadNow === null) {
         unset($GLOBALS['drill']['now']);
     }
+    // batch E R18 (restore-kp-disconnected-kopia-drill, restore-kp-s3-unreachable-kopia-drill): Kopia's list failed
+    // because it can't reach the offsite copy — «not checked» with the reason, the next Kopia steps not asked again;
+    // a list that failed with the repository reached stays «failed»
+    $f = function (string $err, array &$env): array {
+        if (!function_exists('drillKopiaListFailed')) {
+            return ['no drillKopiaListFailed()'];
+        }
+        $r = drillKopiaListFailed($err, $env);
+        return [$r['state'], $r['code'], isset($env['kopia_down'])];
+    };
+    $env = [];
+    same('drill kopia: the repository not connected — not checked, kopia_unreachable',
+        ['not_checked', 'kopia_unreachable', true], $f("ERROR open repository: repository is not connected. See https://kopia.io/docs/repositories/\n", $env));
+    $env = [];
+    same('drill kopia: its S3 place refusing — not checked, kopia_unreachable',
+        ['not_checked', 'kopia_unreachable', true], $f('ERROR unable to open repository: unable to read format blob: error getting kopia.repository blob: Get "http://172.17.0.4:9000/uso/kopia.repository": dial tcp 172.17.0.4:9000: connect: connection refused', $env));
+    $env = [];
+    same('drill kopia: the repository reached, the list still failed — failed (the copy is in doubt)',
+        ['failed', 'kopia_list_failed', false], $f('ERROR error loading manifests: unable to load manifest contents: invalid checksum', $env));
+    // the following Kopia steps: not checked at once, with the same reason (no second wait on an unreachable place)
+    $env = ['kopia' => ['container' => 'Kopia', 'running' => true, 'root' => '/data'], 'kopia_down' => 'dial tcp: connection refused'];
+    $jk = ['id' => 'x', 'deadline' => time() + 600, 'made' => [], 'steps' => [['do' => 'kopia', 'source' => 'appdata']]];
+    $rk = function_exists('drillKopiaListFailed') ? drillDoKopia($jk, 0, $env) : [];      // before: a real list through the stand-in
+    same('drill kopia: once unreachable, the next Kopia step not checked at once with the reason',
+        ['not_checked', 'kopia_unreachable', 'dial tcp: connection refused'], [$rk['state'] ?? null, $rk['code'] ?? null, $rk['detail'] ?? null]);
     // the same for the night watchman's look (every WATCH_LOOK s): a next look 2 h ahead (the clock just went back 2 h)
     // is one now — before, no look (no round) for 2 h. Not hired here: the look ends at once (his mirror let go before).
     $was = [$GLOBALS['wmNextLook'] ?? null, $GLOBALS['wmRound'] ?? null, $GLOBALS['wmMirrorGone'] ?? null, $GLOBALS['wmOrphan'] ?? null];

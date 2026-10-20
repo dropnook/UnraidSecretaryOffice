@@ -91,6 +91,9 @@ const DRILL_CHECK_DAYS     = 30;              // … once packages exist for 30 
 const DRILL_AUTO_DAYS      = 7;               // the automatic drill once packages exist for 7 days
 const DRILL_SWEEP_EVERY    = 3600;
 const DRILL_TICK_EVERY     = 60;
+// Kopia's words for an offsite copy it can't reach (its repository not connected; its storage: refused, no answer, no
+// name, no route, TLS) — a Kopia step «not checked», never «failed» (drillKopiaListFailed())
+const DRILL_KOPIA_UNREACHABLE = '/repository is not connected|not connected to (a|any) repository|dial tcp|connection refused|no such host|i\/o timeout|deadline exceeded|network is unreachable|no route to host|TLS handshake timeout|connection reset by peer|server misbehaving/i';
 const DRILL_LOG_LINE       = 200;             // a client's line in the log: cut (it may quote row data)
 // what a throwaway takes from the app's container environment: only what shapes the server, never a login
 const DRILL_ENV_KEEP       = ['PGDATA', 'POSTGRES_INITDB_ARGS', 'DB_STORAGE_TYPE', 'LANG', 'LC_ALL'];
@@ -1425,6 +1428,9 @@ function drillDoKopiaDump(array &$j, int $i, array &$env): array
     if (!$k || !$k['container'] || !$k['running'] || !$k['root']) {
         return ['state' => 'not_checked', 'code' => 'kopia_unavailable', 'params' => $out['params'] + ['name' => (string) ($k['container'] ?? '')]] + $out;
     }
+    if (isset($env['kopia_down'])) {
+        return ['state' => 'not_checked', 'code' => 'kopia_unreachable', 'detail' => $env['kopia_down']] + $out;
+    }
     $env['kopia_until'] ??= min((int) $j['deadline'], time() + DRILL_BUDGET_KOPIA);
     if (time() >= $env['kopia_until'] || $bytes > $env['kopia_left']) {
         return ['state' => 'not_checked', 'code' => 'budget'] + $out;
@@ -1441,7 +1447,7 @@ function drillDoKopiaDump(array &$j, int $i, array &$env): array
     [$exit, $json, $err] = drillExec($j, drillKopiaCmd($k['container'], $env['uid'], $j['id'], ['--no-progress', 'snapshot', 'list', "{$k['root']}/{$s['source']}", '--json']),
         max(30, min(300, $env['kopia_until'] - time())));
     if ($exit !== 0) {
-        return ['state' => !empty($GLOBALS['rsStop']) ? 'skipped' : 'failed', 'code' => 'kopia_list_failed', 'detail' => drillCut($err)] + $out;
+        return drillKopiaListFailed($err, $env) + $out;
     }
     $snaps = drillKopiaParse($json);
     $snap = array_values(array_filter($snaps, fn ($x) => $x['incomplete'] === '' && $x['obj'] !== null))[0] ?? null;
@@ -2168,6 +2174,24 @@ function drillDoVmDisk(array $s, array &$env): array
 
 // --------------------------------------------------------------------- Kopia (L0, structure, L1 sample)
 
+/**
+ * Kopia's `snapshot list` failed: what he can't reach he doesn't check (batch E R18). Its repository not connected, or
+ * its storage not answering (an S3 place down, a NAS gone, no network) — the Kopia steps «not checked» with the reason
+ * and the error (the rest of the drill as usual; the following Kopia steps not asked again: $env['kopia_down']).
+ * Anything else — Kopia reached its repository and still couldn't list — is «failed»: the offsite copy is in doubt.
+ */
+function drillKopiaListFailed(string $err, array &$env): array
+{
+    if (!empty($GLOBALS['rsStop'])) {
+        return ['state' => 'skipped', 'code' => 'kopia_list_failed', 'detail' => drillCut($err)];
+    }
+    if (preg_match(DRILL_KOPIA_UNREACHABLE, $err)) {
+        $env['kopia_down'] = drillCut($err);
+        return ['state' => 'not_checked', 'code' => 'kopia_unreachable', 'detail' => $env['kopia_down']];
+    }
+    return ['state' => 'failed', 'code' => 'kopia_list_failed', 'detail' => drillCut($err)];
+}
+
 /** A kopia command inside its container as the server's user, with a fresh cache and log folder of the drill's own */
 function drillKopiaCmd(string $container, int $uid, string $id, array $args): array
 {
@@ -2280,6 +2304,9 @@ function drillDoKopia(array &$j, int $i, array &$env): array
     if (!$k || !$k['container'] || !$k['running'] || !$k['root']) {
         return ['state' => 'not_checked', 'code' => 'kopia_unavailable', 'params' => ['source' => $s['source'], 'name' => (string) ($k['container'] ?? '')]] + $out;
     }
+    if (isset($env['kopia_down'])) {
+        return ['state' => 'not_checked', 'code' => 'kopia_unreachable', 'detail' => $env['kopia_down']] + $out;
+    }
     $env['kopia_until'] ??= min((int) $j['deadline'], time() + DRILL_BUDGET_KOPIA);
     if (time() >= $env['kopia_until']) {
         return ['state' => 'not_checked', 'code' => 'budget'] + $out;
@@ -2292,7 +2319,7 @@ function drillDoKopia(array &$j, int $i, array &$env): array
     [$exit, $json, $err] = drillExec($j, drillKopiaCmd($k['container'], $env['uid'], $j['id'], ['--no-progress', 'snapshot', 'list', $path, '--json']),
         max(30, min(300, $env['kopia_until'] - time())));
     if ($exit !== 0) {
-        return ['state' => !empty($GLOBALS['rsStop']) ? 'skipped' : 'failed', 'code' => 'kopia_list_failed', 'detail' => drillCut($err)] + $out;
+        return drillKopiaListFailed($err, $env) + $out;
     }
     $snaps = drillKopiaParse($json);
     $complete = array_values(array_filter($snaps, fn ($x) => $x['incomplete'] === ''));

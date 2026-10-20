@@ -889,6 +889,7 @@
   "drill.code.sharefile_kept": "{file} kam gleich zurück, aber {folder} konnte nicht in die Abstellkammer von Frau Putzteufel — er bleibt in {share} auf {base}",
   "drill.code.kopia_unavailable": "Kopia lässt sich hier nicht fragen (der Container {name} läuft nicht, oder sein Pfad ist unbekannt)",
   "drill.code.kopia_list_failed": "Kopia konnte die Snapshots nicht auflisten",
+  "drill.code.kopia_unreachable": "Kopia hat die Kopie ausser Haus nicht erreicht (sein Repository ist nicht verbunden, oder sein Speicher antwortet nicht) — diesmal nicht geprüft",
   "drill.code.kopia_none": "Kopia hat noch keinen vollständigen Snapshot davon",
   "drill.code.kopia_incomplete": "Kopias neuester Snapshot ist unvollständig",
   "drill.code.kopia_ok": "neuester Snapshot {time}, seine Struktur ganz, zurückgelesene Dateien: {sampled}",
