@@ -19,6 +19,14 @@ tick_after() {   # his tick's note (auto.json) about the run just made (its id �
     # a note's time says nothing), ≤ 150 s
     local run; run=$(jq -r '.run // empty' "$UB/state/last-run.json" 2>/dev/null)
     wait_for 150 "his tick's note about run $run (auto.json)" bash -c "[[ \$(jq -r '.run // empty' '$D/restore-drill/auto.json' 2>/dev/null) == '$run' ]]"; }
+# a run on the clock just set, once the engine's lock is free (seen once: held right after the step, backup.start
+# refused backup_running — who held it goes into the report)
+_unlocked() { ! lock_held "$UB/state/lock"; }
+run_free() {
+    lock_held "$UB/state/lock" && say "the engine's lock held after the clock step: $(jq -c . "$UB/state/lock-holder.json" 2>/dev/null)"
+    wait_for 180 "the engine's lock free" _unlocked
+    flow BK-RUN-MANUAL mode=backup
+}
 nc_data_closed
 cron=$(grep -h 'job.sh backup' "$OFFICE_FLASH"/*.cron | awk '{print $1, $2}')
 [[ $cron == '30 4' ]] || _row state schedule red "the base's backup runs at «$cron», the cell wants 04:30"
@@ -34,13 +42,13 @@ say "his night: $(date -d "@$day" +%F) (weekday $wd), $i days on"
 undo_push clock_restore R22-DEADLINE; undo_push clock_restore R22-WINDOW; undo_push clock_restore R22-OUTSIDE
 # (1) 04:16 — the deadline
 clock_set R22-DEADLINE "@$((day + 4 * 3600 + 16 * 60))"; ring
-flow BK-RUN-MANUAL mode=backup
+run_free
 tick_after && a=$(auto) || a=none
 [[ $(jq -r '.refused // empty' <<<"$a" 2>/dev/null) == drill_deadline ]] && cell deadline 1 "at $(date +%H:%M) his tick refused: $a" || cell deadline 0 "at $(date +%H:%M) (backup 04:30) his tick: $a"
 clock_restore R22-DEADLINE; ring
 # (2) 02:20 — the window
 clock_set R22-WINDOW "@$((day + 2 * 3600 + 20 * 60))"; ring
-flow BK-RUN-MANUAL mode=backup
+run_free
 tick_after && a=$(auto) || a=none
 id=$(jq -r '.id // empty' <<<"$a" 2>/dev/null)
 if [[ -n $id ]]; then
@@ -56,7 +64,7 @@ fi
 clock_restore R22-WINDOW; ring
 # (3) 08:05 — outside the window
 clock_set R22-OUTSIDE "@$((day + 8 * 3600 + 5 * 60))"; ring
-flow BK-RUN-MANUAL mode=backup
+run_free
 a0=$(auto); sleep 130; a1=$(auto)
 [[ $a1 == "$a0" ]] && cell outside-window 1 "at 08:0x his tick tried nothing" || cell outside-window 0 "at 08:0x his tick: $a1 (was $a0)"
 clock_restore R22-OUTSIDE; ring

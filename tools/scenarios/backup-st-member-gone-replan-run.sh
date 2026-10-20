@@ -12,6 +12,9 @@ nc_data_closed
 ran=$(timeout 20 docker ps --filter name=immich_ --filter status=running --format '{{.Names}}' | paste -sd' ' -)
 undo_push bash -c 'for c in $1; do [[ -n $(docker ps -q --filter "name=^$c\$" --filter status=running) ]] || docker start "$c" >/dev/null; done' _ "$ran"
 state ST-MEMBER-GONE immich_redis
+# immich_server goes down by itself a few seconds after its redis (it can't reach it): the server as it settles is
+# what snap_before notes, not a moment before it exits (at most 60 s; still up then: it stays up)
+WAIT_SOFT=1 wait_for 60 "immich_server settled without its redis" bash -c '[[ -z $(docker ps -q --filter "name=^immich_server\$" --filter status=running) ]]'
 snap_before
 flow BK-REPLAN
 mem=$(jq -c '[.containers[]? | select(.project == "immich") | .name] | sort' "$KEEP/plan-replan.json")
