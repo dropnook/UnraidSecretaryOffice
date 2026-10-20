@@ -33363,7 +33363,7 @@ function testOffsiteReach(): void
     same('offsite reach 2.66: the first run that reaches it again ends it', false, is_file($file));
     $eng = (string) file_get_contents(OFFICE_DIR . '/backup/lib/common.sh');
     check('offsite reach 2.66: the run\'s Kopia check says kopia_unreachable and keeps the file; reached or switched off ends it',
-        str_contains($eng, 'kopia_unreachable "" name="$KOPIA_CONTAINER"' . "\n" . '            kopia_reach_save unreachable')
+        str_contains($eng, 'drift_add error "Kopia cannot reach its repository (offsite)" kopia_unreachable "" name="$KOPIA_CONTAINER"' . "\n" . '            kopia_reach_save unreachable')
         && str_contains($eng, "        return 1\n    fi\n    kopia_reach_save ok\n") && str_contains($eng, '{ KOPIA_OK="off"; kopia_reach_save ok; return 0; }'));
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
     check('offsite reach 2.66: the page\'s Kopia tile says since when (a trouble)', str_contains($js, "T('stat.offsite_unreachable_since', { when: fmt.date(away.unreachable_since) })")

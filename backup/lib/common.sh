@@ -2655,7 +2655,8 @@ drift_check_kopia() {
     if ! kopia_status_load; then
         if [[ "$KOPIA_RUNNING" != "yes" ]]; then drift_add error "Kopia container '$KOPIA_CONTAINER' is not running" kopia_not_running "" name="$KOPIA_CONTAINER"
         elif [[ "$KOPIA_UNREACHABLE" == "yes" ]]; then
-            drift_add error "Kopia cannot reach its repository (offsite): $KOPIA_REACH_WHY" kopia_unreachable "" name="$KOPIA_CONTAINER"
+            log "  Kopia: $KOPIA_REACH_WHY"          # its own words (an address, a bucket): the log only, never drift.json
+            drift_add error "Kopia cannot reach its repository (offsite)" kopia_unreachable "" name="$KOPIA_CONTAINER"
             kopia_reach_save unreachable
         else drift_add error "Kopia is not connected to a repository" kopia_not_connected "" name="$KOPIA_CONTAINER"; fi
         return 1
