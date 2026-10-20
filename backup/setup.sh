@@ -522,7 +522,7 @@ TXT
     # container); Docker switched on but silent stays an error: its apps would be left out without a word
     if ub_docker_service_off; then
         hint_as docker_off "Docker is switched off (Settings > Docker) - no apps to back up; shares, VMs and the flash as usual, offsite (Kopia) needs Docker"
-    elif docker info >/dev/null 2>&1; then
+    elif ub_docker_answers; then          # 2.66 (B15): with a time limit (UB_DOCKER_ANSWER, 20 s) - a hung Docker never holds the look
         t="$(docker version -f '{{.Server.Version}}' 2>/dev/null)"; ok_as docker_version "Docker $t" version "$t"
     else
         t="Docker is switched on but does not answer - restart it (Settings > Docker) and look again"

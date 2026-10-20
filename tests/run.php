@@ -5001,6 +5001,12 @@ echo \"\$*\" >> \"\$FAKE/docker.log\"\n[[ -s \"\$FAKE/hang\" ]] && sleep \"\$(ca
         [$rc, $st['result'] ?? null, $st['message'] ?? null, $secs < 25, $calls]);
     $log = (string) @file_get_contents("$tmp/data/logs/run-" . ($st['run'] ?? 'x') . '.log');
     check('docker silent 2.66: … its log says why', str_contains($log, 'Docker is switched on but does not answer (2 s) - nothing was stopped'), $log);
+    // «Look again» (setup.sh --plan) meeting it: ends after UB_DOCKER_ANSWER with docker_silent (up to 2.65 `docker info` waited)
+    $t0 = microtime(true);
+    exec('bash -c ' . escapeshellarg("$env UB_DOCKER_ANSWER=2 UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . ' --plan </dev/null') . ' 2>&1', $sout, $src);
+    $ss = json_decode((string) @file_get_contents("$tmp/data/state/setup-status.json"), true) ?: [];
+    same('docker silent 2.66: the setup\'s look ends at once — failed, docker_silent', [true, 'failed', true, true],
+        [$src !== 0, $ss['result'] ?? null, in_array('docker_silent', array_column($ss['messages'] ?? [], 'code'), true), microtime(true) - $t0 < 25]);
     file_put_contents("$tmp/fake/hang", '');
 
     // the office: a silent Docker is asked nothing for a while and said - never «no containers», «Kopia missing»
