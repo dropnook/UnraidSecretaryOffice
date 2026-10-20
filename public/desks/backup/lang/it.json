@@ -231,6 +231,7 @@
   "notice.asleep": "La cartella del motore è su un disco in standby. Vedi l'ultimo stato noto; non si legge niente finché il disco non è sveglio.",
   "notice.too_old": "Con unraid-backup {version} il signor Backupsi non può avviare né interrompere backup (serve la 2.5 o più recente). Ciò che fa lo mostra comunque.",
   "notice.no_settings": "Non è ancora configurato niente. Una volta «Configura…» — ti propongo tutto io:",
+  "notice.untrusted": "Ora non posso lavorare: {path} non è solo di root, e il motore di backup non legge niente che altri potrebbero aver scritto — nessun backup parte, «Ripianifica» e Applica aspettano. In un terminale sul server:",
   "notice.schedule_off": "Nessun backup pianificato — da solo non parte nessun backup.",
   "notice.drift_errors": {
     "one": "Un errore nelle impostazioni — una parte del backup viene saltata finché non applichi la modifica in «Configura…».",
@@ -296,6 +297,7 @@
   "errors.setup_running": "La configurazione è occupata in questo momento — riprova tra un attimo.",
   "errors.setup_bad_decisions": "Queste impostazioni non si possono applicare ({detail}). Rileggi il server e riprova.",
   "errors.setup_plan_old": "Le impostazioni sono state scritte dopo l'ultima volta che ho guardato il server — guardo di nuovo. Poi controlla l'elenco e applica ancora una volta.",
+  "errors.engine_untrusted": "Non avviato: {path} non è solo di root, e il motore di backup lì non lavora. In un terminale sul server: {cmd} — poi riprova.",
   "errors.orphans_stale": "La lista è cambiata nel frattempo — guardo di nuovo.",
   "errors.kopia_held_stale": "Lo stato della copia fuori sede è cambiato nel frattempo — guardo di nuovo.",
   "errors.setup_zero_partner": "{name} va a una segreteria partner, quindi dei suoi snapshot locali deve restarne almeno uno (per esempio «1 0 0» invece di «0 0 0»): un partner riceve solo ciò che è cambiato da uno snapshot che entrambe le parti hanno ancora — senza, ogni volta passerebbe tutto per intero.",

@@ -248,6 +248,9 @@ function backupScan(): array
         'interface'  => $about['interface'] ?? 0,
         'compatible' => ($about['interface'] ?? 0) >= BACKUP_INTERFACE,
         'settings_found' => is_file("$data/settings.ini"),
+        // engine 2.49 refuses a folder or settings.ini that isn't root's alone: the page says it with the command (the
+        // Team Lead's must engine_trust), and the agent starts nothing the engine would refuse (backupCheckReady())
+        'engine_trust' => backupTrustState($data),
         'running'    => $running,
         'status'     => $status,
         'step'       => $running && !$status ? lastLogStep("$data/logs/latest.log") : null,
@@ -2027,6 +2030,12 @@ function backupCheckReady(): string
     if ((backupAbout($dir)['interface'] ?? 0) < BACKUP_INTERFACE) {
         throw new Problem('backup_too_old', ['version' => backupAbout($dir)['version'] ?? '?']);
     }
+    // the engine (2.49) would refuse at once (exit 4, an alert) and write no status: «Look again» or Apply would answer
+    // ok and show the old plan as fresh (scenario B14 perms, 2026-10-19) - refused here with what to do
+    $trust = backupTrustState($data);
+    if ($trust !== null) {
+        throw new Problem('engine_untrusted', ['path' => $trust['path'], 'cmd' => $trust['cmd']]);
+    }
     $holder = backupLockHolder();
     if ($holder !== null) {
         throw new Problem(match (true) {
@@ -2286,6 +2295,18 @@ function backupEngineTrust(string $data): array
     }
     $q = $bad !== null ? escapeshellarg($bad) : '';
     return ['ok' => $bad === null, 'path' => (string) $bad, 'cmd' => $bad !== null ? "chown root:root $q && chmod go-w $q" : ''];
+}
+
+/**
+ * The engine's refusal of its folder as Mr. Backupsy's state carries it: null while the engine trusts it (or there is no
+ * folder yet), else {code: engine_untrusted, path, cmd} - the same path and command as the Team Lead's must engine_trust.
+ *
+ * @return array{code: string, path: string, cmd: string}|null
+ */
+function backupTrustState(string $data): ?array
+{
+    $t = backupEngineTrust($data);
+    return $t['ok'] === false ? ['code' => 'engine_untrusted', 'path' => $t['path'], 'cmd' => $t['cmd']] : null;
 }
 
 /**
@@ -2891,7 +2912,8 @@ function backupSetupGet(): array
     $noteFile = "$data/state/" . BACKUP_REPLAN_FILE;
     $note = readJson($noteFile);
     $holder = backupLockHolder();
-    $replan = backupSetupReplan($plan, $state, $note, $holder === null && !backupSetupStatus()['running'], time());
+    $free = $holder === null && !backupSetupStatus()['running'] && backupTrustState($data) === null;   // never a plan the engine refuses
+    $replan = backupSetupReplan($plan, $state, $note, $free, time());
     if ($replan['note'] !== $note && $replan['note'] !== null) {
         try {
             writeAtomic($noteFile, jsonEncode($replan['note']), 0600, 0, 0);
@@ -2916,7 +2938,7 @@ function backupSetupGet(): array
         $pairsFile = "$data/state/" . BACKUP_REPLAN_PAIRS_FILE;
         $pairsNote = readJson($pairsFile);
         $sending = array_column(array_filter(partnerPairs(), fn ($p) => $p['my_key'] !== null), 'id');
-        $again = backupSetupPairsReplan($replan['plan'], $state, $sending, $pairsNote, $holder === null && !backupSetupStatus()['running'], time());
+        $again = backupSetupPairsReplan($replan['plan'], $state, $sending, $pairsNote, $free, time());
         if ($again['start']) {
             try {
                 writeAtomic($pairsFile, jsonEncode($again['note']), 0600, 0, 0);

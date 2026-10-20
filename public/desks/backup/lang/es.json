@@ -231,6 +231,7 @@
   "notice.asleep": "La carpeta del motor está en un disco en reposo. Ves el último estado conocido; no se lee nada hasta que el disco esté despierto.",
   "notice.too_old": "unraid-backup {version} es demasiado antiguo para que el señor Backupsi inicie o detenga copias (hace falta la 2.5 o posterior). Lo que hace se sigue mostrando.",
   "notice.no_settings": "Todavía no hay nada configurado. Una vez «Configurar…» — te lo propongo todo:",
+  "notice.untrusted": "Ahora no puedo trabajar: {path} no es solo de root, y el motor de copias no lee nada que otros pudieran haber escrito — no corre ninguna copia, «Replanificar» y Aplicar esperan. En un terminal del servidor:",
   "notice.schedule_off": "No hay ninguna copia de seguridad programada — no se copia nada por sí solo.",
   "notice.drift_errors": {
     "one": "Un error en los ajustes — parte de la copia de seguridad se omite hasta que lo incorpores en «Configurar…».",
@@ -296,6 +297,7 @@
   "errors.setup_running": "La configuración está ocupada ahora mismo — inténtalo de nuevo en un momento.",
   "errors.setup_bad_decisions": "Estos ajustes no se pueden aplicar ({detail}). Vuelve a leer el servidor e inténtalo de nuevo.",
   "errors.setup_plan_old": "Los ajustes se escribieron después de la última vez que miré el servidor — vuelvo a mirar. Revisa luego la lista y aplica otra vez.",
+  "errors.engine_untrusted": "No iniciado: {path} no es solo de root, y el motor de copias no trabaja ahí. En un terminal del servidor: {cmd} — luego inténtalo de nuevo.",
   "errors.orphans_stale": "La lista ha cambiado mientras tanto — miro otra vez.",
   "errors.kopia_held_stale": "El estado de la copia fuera de casa ha cambiado entretanto — miro de nuevo.",
   "errors.setup_zero_partner": "{name} va a una secretaría asociada, así que de sus instantáneas locales debe quedar al menos una (por ejemplo «1 0 0» en vez de «0 0 0»): un socio solo recibe lo que cambió desde una instantánea que ambos lados aún tienen — sin ella, todo pasaría entero cada vez.",

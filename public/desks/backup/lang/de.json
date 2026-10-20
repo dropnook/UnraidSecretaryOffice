@@ -228,6 +228,7 @@
   "notice.asleep": "Der Ordner der Engine liegt auf einer schlafenden Disk. Du siehst den letzten Stand; gelesen wird erst, wenn die Disk wach ist.",
   "notice.too_old": "Mit unraid-backup {version} kann Herr Backupsi keine Backups starten oder abbrechen (2.5 oder neuer nötig). Was es tut, zeigt er trotzdem.",
   "notice.no_settings": "Noch ist nichts eingerichtet. Einmal «Einrichten…» — ich schlage alles vor:",
+  "notice.untrusted": "Ich kann gerade nicht arbeiten: {path} gehört nicht root allein, und die Backup-Engine liest nichts, was andere geschrieben haben könnten — kein Backup läuft, «Neu planen» und Übernehmen warten. Im Terminal auf dem Server:",
   "notice.schedule_off": "Es ist kein Backup geplant — von selbst wird nichts gesichert.",
   "notice.drift_errors": {
     "one": "Ein Fehler in den Einstellungen — ein Teil des Backups wird übersprungen, bis du ihn unter «Einrichten…» übernimmst.",
@@ -293,6 +294,7 @@
   "errors.setup_running": "Die Einrichtung ist gerade beschäftigt — gleich nochmals versuchen.",
   "errors.setup_bad_decisions": "Diese Einstellungen lassen sich nicht übernehmen ({detail}). Server neu einlesen und nochmals versuchen.",
   "errors.setup_plan_old": "Die Einstellungen wurden geschrieben, nachdem ich zuletzt auf den Server geschaut habe — ich schaue nochmals. Prüf dann die Liste und übernimm nochmals.",
+  "errors.engine_untrusted": "Nicht gestartet: {path} gehört nicht root allein, und die Backup-Engine arbeitet dort nicht. Im Terminal auf dem Server: {cmd} — dann nochmals versuchen.",
   "errors.orphans_stale": "Die Liste hat sich inzwischen geändert — ich schaue noch einmal nach.",
   "errors.kopia_held_stale": "Der Stand der Kopie ausser Haus hat sich inzwischen geändert — ich schaue neu nach.",
   "errors.setup_zero_partner": "{name} geht an ein Partner-Sekretariat, darum muss bei seinen lokalen Snapshots mindestens einer bleiben (zum Beispiel «1 0 0» statt «0 0 0»): Ein Partner bekommt nur, was sich seit einem Snapshot geändert hat, den beide Seiten noch haben — ohne ihn ginge jedes Mal alles vollständig hinüber.",
