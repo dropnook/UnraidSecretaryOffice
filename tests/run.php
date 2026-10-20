@@ -8321,6 +8321,10 @@ case "$1" in
     cat "$FAKE/inspect.json"; exit 0 ;;
   exec)
     shift; shift; a="$*"
+    # 2.66 (B43): «tls» - the server's own certificate not yet valid (the clock set back): every login refused unless --skip-ssl;
+    # «listerr» - the database list refused for another reason
+    [[ -f "$FAKE/tls" && "$a" == *MYSQL_PWD* && "$a" != *--skip-ssl* ]] && { echo 'ERROR 2026 (HY000): TLS/SSL error: certificate is not yet valid' >&2; exit 1; }
+    [[ -f "$FAKE/listerr" && "$a" == *schema_name* ]] && { echo "ERROR 1045 (28000): Access denied for user 'root'@'localhost'" >&2; exit 1; }
     case "$a" in
       *MARIADB_ROOT_PASSWORD:-*|*"command -v"*) exit 0 ;;
       *mariadb-dump*) printf 'CREATE TABLE t (id int);\n-- Dump completed on 2026-10-12\n' ;;
@@ -8536,6 +8540,20 @@ SH);
     [$rc, $out] = $run();
     same('inside 2.61: a folder that is no data folder (marks only deeper down) gets its package as before', [0, true, true, $n0 + 2],
         [$rc, is_file("$app/manifest.json"), is_file("$pool/appdata/c2/.uso-backup/manifest.json"), $asides()], $out);
+
+    // 2.66 (B43, the clock set back): MariaDB's own TLS certificate «not yet valid» - asked once, then through its socket
+    // without TLS; the dump made. Another refusal of the database list: said with the client's own words
+    touch("$fake/tls");
+    [$rc, $out] = $run();
+    same('inside 2.66: MariaDB refusing its own certificate (the clock set back) — said once, the dump made without TLS', [0, true, true, false],
+        [$rc, str_contains($out, "MariaDB 'c1': ERROR 2026 (HY000): TLS/SSL error: certificate is not yet valid - the server's own certificate (the clock went back since it started?): asked through its socket without TLS"),
+         str_contains($out, 'c1 / mydb') || str_contains($out, "MariaDB 'c1' / mydb"), str_contains($out, 'no database found')], $out);
+    unlink("$fake/tls");
+    touch("$fake/listerr");
+    [$rc, $out] = $run();
+    same('inside 2.66: the database list refused — the client\'s own words, not just «no database found»', true,
+        str_contains($out, "ERROR: MariaDB 'c1': no database found - ERROR 1045 (28000): Access denied for user 'root'@'localhost'"), $out);
+    unlink("$fake/listerr");
 
     // 2.48 (review 2026-10-15): keep_logs = 0 never removes the log of the run that is writing it - only the earlier ones go
     file_put_contents("$data/settings.ini", "[general]\nkeep_logs = 0\n", FILE_APPEND);

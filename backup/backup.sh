@@ -9,6 +9,10 @@
 #        kopia_unreachable (up to 2.65 «not connected»); state/kopia-reach.json {v, since, run, last, last_run} keeps «offsite
 #        unreachable since» the first real run that couldn't reach it, from run to run, until a run reaches it (or Kopia is
 #        switched off); Kopia's own words go to the log only.
+#        MariaDB 11.4+ makes a TLS certificate of its own when the server starts, and its client checks it even over the
+#        socket: after the clock was set back below that start every login failed («certificate is not yet valid») and the
+#        dump said «no database found». Asked once (SELECT 1); such a TLS error: that container's client goes through its
+#        socket without TLS (--skip-ssl), said in the log. The database list refused otherwise: the client's own words.
 #        A run's name (the minute: run id, log, uso-backup-<minute> snapshots) is never used twice: besides its log (2.34) a
 #        history row of a run with this id or a snapshot of the name on a pool or disk awake (ZFS <dataset>@<prefix><minute>,
 #        btrfs <base>/<btrfs_snap_dir>/<minute>) ends the run right after taking the lock, touching nothing (the autumn hour
@@ -1356,8 +1360,13 @@ nextcloud_maintenance_on() {
 # Database dumps
 ##############################################################################
 # Password via MYSQL_PWD instead of -p: that way it does not show in the process list.
+# 2.66 (B43): MY_NOSSL[<container>] - its client goes without TLS (--skip-ssl, through the container's own socket): MariaDB
+# 11.4+ makes a certificate of its own when the server starts, and its client checks it even over the socket - after the
+# clock was set back below that start every login fails («TLS/SSL error: certificate is not yet valid»), so did each dump
+declare -A MY_NOSSL=()
 my_exec() { # my_exec <container> <bin> <login> <pw variable> <args...>
     local c="$1" bin="$2" login="$3" pwv="$4"; shift 4
+    [[ -n "${MY_NOSSL[$c]:-}" ]] && set -- --skip-ssl "$@"
     docker exec "$c" sh -c 'eval "MYSQL_PWD=\${$3:-}"; export MYSQL_PWD; b="$1"; u="$2"; shift 3; exec "$b" -u"$u" "$@"' \
         sh "$bin" "$login" "$pwv" "$@"
 }
@@ -1402,12 +1411,21 @@ dump_mariadb() { # dump_mariadb <container>
     # Without root the rights for routines and events are missing
     if [[ "$login" == "root" ]]; then extra=( --routines --triggers --events ); else extra=( --triggers ); fi
 
+    # 2.66 (B43): asked once - its own TLS certificate refused (the clock set back since the server started): without TLS
+    out="$(my_exec "$c" "$sql_bin" "$login" "$pwv" -N -B -e 'SELECT 1' 2>&1)"
+    if [[ "$out" != "1" && ( "$out" == *"TLS/SSL error"* || "$out" == *"SSL connection error"* ) ]]; then
+        MY_NOSSL[$c]=1
+        log "  MariaDB '$c': ${out%%$'\n'*} - the server's own certificate (the clock went back since it started?): asked through its socket without TLS"
+    fi
+    local lerr=""
     if [[ -n "$single" ]]; then dbs="$single"
     else
         dbs="$(my_exec "$c" "$sql_bin" "$login" "$pwv" -N -B -e \
-            "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('information_schema','performance_schema','sys','mysql')" 2>/dev/null)"
+            "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('information_schema','performance_schema','sys','mysql')" 2>"$DUMP_DIR/.${c}_list.err")"
+        lerr="$(head -c 300 "$DUMP_DIR/.${c}_list.err" 2>/dev/null | tr -s '\n\t' '  ')"; rm -f "$DUMP_DIR/.${c}_list.err"
     fi
-    [[ -n "$dbs" ]] || { err "MariaDB '$c': no database found"; return 1; }
+    # 2.66: the client's own words when it couldn't even list them (up to 2.65 dropped - «no database found» for any failure)
+    [[ -n "$dbs" ]] || { err "MariaDB '$c': no database found${lerr:+ - $lerr}"; return 1; }
 
     local rc=0
     # one name a line (-N -B), never split at a space nor globbed (2.48); a name that can't be a file name or would end the
