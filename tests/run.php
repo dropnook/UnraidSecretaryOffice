@@ -18693,6 +18693,49 @@ function testHouseDockerSilent(): void
 }
 
 /**
+ * Batch E O1 (scenario office-in-update-old-update, USOTest3VM): the update from 1.60 stopped the old agent while its
+ * night watchman's first round was telling (one a second: the shared stamp) — the round was gone before it noted
+ * «told», and the new agent's first round told «new user benj», «parity check after an unclean stop» … again within
+ * seconds. officeNotify() now leaves out a subject Unraid already has from the last OFFICE_NOTIFY_SAME s, whoever sent
+ * it. A stand-in notify and a notification folder of the test's own (OFFICE_NOTIFY_DIR).
+ */
+function testNotifyToldLately(): void
+{
+    $tmp = hardeningTmp('notifytold');
+    @mkdir("$tmp/n/unread", 0700, true);
+    @mkdir("$tmp/n/archive", 0700, true);
+    file_put_contents("$tmp/notify", "#!/bin/sh\necho \"\$4\" >> " . escapeshellarg("$tmp/sent") . "\n");
+    chmod("$tmp/notify", 0755);
+    $env = [getenv('OFFICE_NOTIFY_BIN'), getenv('OFFICE_NOTIFY_DIR'), getenv('OFFICE_NOTIFY_STAMP')];
+    putenv("OFFICE_NOTIFY_BIN=$tmp/notify");
+    putenv("OFFICE_NOTIFY_DIR=$tmp/n");
+    putenv("OFFICE_NOTIFY_STAMP=$tmp/stamp");
+    $now = time();
+    $put = fn (string $sub, int $t, string $subject) => file_put_contents("$tmp/n/$sub/Unraid_Secretary_Office_$t.notify",
+        "timestamp=$t\nevent=\"Unraid Secretary Office\"\nsubject=\"Unraid Secretary Office: $subject\"\ndescription=\"x\"\nimportance=\"warning\"\n");
+    $put('archive', $now - 30, 'Night watchman: new user benj');          // the old agent's, 30 s ago
+    $put('unread', $now - 600, 'Night watchman: password of root changed');  // ten minutes ago: another event
+    $sent = function () use ($tmp): array {
+        $l = array_values(array_filter(explode("\n", (string) @file_get_contents("$tmp/sent"))));
+        @unlink("$tmp/sent");
+        return $l;
+    };
+    $r = [officeNotify('Night watchman: new user benj', 'A new user on the flash: benj', 'warning'), $sent()];
+    same('notify told lately: the same subject Unraid has from 30 s ago — not told again (and counted as told)', [true, []], $r);
+    officeNotify('Night watchman: password of root changed', 'The password of root was changed', 'warning');
+    same('notify told lately: the same subject ten minutes ago — told (another event)', ['Unraid Secretary Office: Night watchman: password of root changed'], $sent());
+    officeNotify('Night watchman: new user anna', 'A new user on the flash: anna', 'warning');
+    same('notify told lately: another subject — told', ['Unraid Secretary Office: Night watchman: new user anna'], $sent());
+    putenv('OFFICE_NOTIFY_DIR');
+    officeNotify('Night watchman: new user benj', 'A new user on the flash: benj', 'warning');
+    same('notify told lately: a stand-in notify without a folder named looks at none (never the server\'s)', ['Unraid Secretary Office: Night watchman: new user benj'], $sent());
+    foreach (['OFFICE_NOTIFY_BIN', 'OFFICE_NOTIFY_DIR', 'OFFICE_NOTIFY_STAMP'] as $i => $k) {
+        putenv($env[$i] === false ? $k : "$k={$env[$i]}");
+    }
+    hardeningRm($tmp);
+}
+
+/**
  * Batch D F3 (scenario backup-sv-atd-off-run-apply, 2026-10-19): with atd stopped, `at` still queues a job (exit 0) and
  * nothing starts — the page said «Handed over — it should start any moment» for ever, and the job ran whenever atd came
  * back. hostLaunch() now looks first (hostAtdUp(): the pid file's process called atd, else any process called atd) and
@@ -45457,7 +45500,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
-          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testHouseDockerSilent', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
+          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testHouseDockerSilent', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.

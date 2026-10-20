@@ -340,6 +340,10 @@ const OFFICE_NOTIFY_EVENT = 'Unraid Secretary Office';
 // the backup engine (RAM; see officeNotify())
 const OFFICE_NOTIFY_STAMP = RUN_DIR . '/notify.second';
 const OFFICE_NOTIFY_LOCK_WAIT = 10;     // seconds waited at most for another's notification to end — then it goes anyway
+// the same subject in Unraid's notifications within so many seconds — from any version of the office, any of its
+// processes — is not told again (officeNotifyToldLately())
+const OFFICE_NOTIFY_SAME = 120;
+const OFFICE_NOTIFY_CFG  = '/boot/config/plugins/dynamix/dynamix.cfg';     // Settings → Notifications: [notify] path
 // the language the office was last used in (written by the page, src/desks.php) — and its copy in RAM for the night shift
 define('OFFICE_LANG_FILE', OFFICE_PRIVATE . '/lang.json');
 const OFFICE_NOTIFY_LANG_RAM = RUN_DIR . '/notify.lang';
@@ -370,6 +374,15 @@ function officeNotify(string $subject, string $description, string $level = 'nor
     if ($link !== null && $link !== '') {
         $args = [...$args, '-l', $link];
     }
+    // told a moment ago already (batch E O1: the update from 1.60 stopped the old agent while its watchman's round was
+    // telling — the round was gone before it noted «told», the new agent's first round told it all again)
+    $told = officeNotifyToldLately($args[4], officeNotifyDir(), time());
+    if ($told !== null) {
+        if (function_exists('logLine')) {
+            logLine("Not told again: «{$args[4]}» — Unraid has it from {$told} s ago");
+        }
+        return true;
+    }
     // Unraid names a notification after its event and the second its script reads the clock — somewhere between
     // our call's start and its end: one more in that second would overwrite it (the night shift lost one of three
     // sent in a row on 2026-10-07). $last is the second the last call ENDED in; a new one starts only after it.
@@ -398,6 +411,44 @@ function officeNotify(string $subject, string $description, string $level = 'nor
         fclose($h);
     }
     return $exit === 0;
+}
+
+/**
+ * Unraid's notification folder (Settings → Notifications' storage path, else /tmp/notifications); null: none to look
+ * at — a stand-in notify (the tests) looks only at the folder OFFICE_NOTIFY_DIR names.
+ */
+function officeNotifyDir(): ?string
+{
+    if (getenv('OFFICE_NOTIFY_BIN')) {
+        return getenv('OFFICE_NOTIFY_DIR') ?: null;
+    }
+    $path = rtrim((string) ((@parse_ini_file(OFFICE_NOTIFY_CFG, true, INI_SCANNER_RAW) ?: [])['notify']['path'] ?? ''), '/');
+    $path = $path !== '' && $path[0] === '/' ? trim($path, '"') : '/tmp/notifications';
+    return is_dir($path) ? $path : null;
+}
+
+/**
+ * Has Unraid a notification of the office with exactly this subject from the last OFFICE_NOTIFY_SAME s (unread or
+ * archived; by its file name's second, so older ones aren't read)? Its age in seconds, else null.
+ */
+function officeNotifyToldLately(string $subject, ?string $dir, int $now): ?int
+{
+    if ($dir === null) {
+        return null;
+    }
+    $prefix = str_replace(' ', '_', OFFICE_NOTIFY_EVENT) . '_';
+    foreach (['unread', 'archive'] as $sub) {
+        foreach (glob("$dir/$sub/$prefix*.notify") ?: [] as $file) {
+            if (!preg_match('/_(\d{9,12})\.notify$/D', $file, $m) || $now - (int) $m[1] > OFFICE_NOTIFY_SAME || (int) $m[1] > $now + 5) {
+                continue;
+            }
+            $text = (string) @file_get_contents($file, false, null, 0, 65536);
+            if (preg_match('/^subject="?(.*?)"?$/m', $text, $sm) && $sm[1] === $subject) {
+                return max(0, $now - (int) $m[1]);
+            }
+        }
+    }
+    return null;
 }
 
 /**
