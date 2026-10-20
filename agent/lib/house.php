@@ -154,7 +154,7 @@ function houseDocker(array $args, int $wait = HOUSE_DOCKER_WAIT): array
     if ($r[0] === 124) {
         $GLOBALS['houseDockerSilent'] = hrtime(true) / 1e9;          // the monotonic clock: a step never shortens or stretches it
         if (function_exists('logLine')) {
-            logLine("Docker doesn't answer (docker {$args[0]} took over {$wait} s) — no docker call of the house for " . HOUSE_DOCKER_QUIET . ' s');
+            logLine("Office: Docker doesn't answer (docker {$args[0]} took over {$wait} s) — no docker call of the house for " . HOUSE_DOCKER_QUIET . ' s');
         }
     } else {
         unset($GLOBALS['houseDockerSilent']);
@@ -379,7 +379,7 @@ function officeNotify(string $subject, string $description, string $level = 'nor
     $told = officeNotifyToldLately($args[4], officeNotifyDir(), time());
     if ($told !== null) {
         if (function_exists('logLine')) {
-            logLine("Not told again: «{$args[4]}» — Unraid has it from {$told} s ago");
+            logLine("Office: not told again: «{$args[4]}» — Unraid has it from {$told} s ago");
         }
         return true;
     }
