@@ -360,8 +360,9 @@ EOF
 }
 
 # ------------------------------------------------------------------------------------------------- PT-PULLED, RS-PARTNER
-# held.json newer than <time>: his look ran after the click
-_pt_looked_since() { local t; t=$(jq -r '.tried // 0' "$D/partner/$1/held.json" 2>/dev/null); [[ $t =~ ^[0-9]+$ ]] && ((t >= $2)); }
+# held.json written after <time>: his look ran after the click — a `tried` in the future (a clock stepped back since,
+# Tower after batch F's clock cells: 2026-11-08) is no look of now
+_pt_looked_since() { local t; t=$(jq -r '.tried // 0' "$D/partner/$1/held.json" 2>/dev/null); [[ $t =~ ^[0-9]+$ ]] && ((t >= $2 && t <= $(date +%s) + 120)); }
 flow_rs_partner() {
     _fl_args "${@/#unit=/name=}" || return 1          # unit= rides on FL[name] (flows.sh's keys)
     local unit=${FL[name]:-} snap=${FL[snapshot]:-${FL[moment]:-}} id t0 req
