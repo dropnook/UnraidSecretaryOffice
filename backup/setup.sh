@@ -674,8 +674,18 @@ TXT
     vm_load
     down_load
     apps_gone_drop
+    # Kopia's container named in settings.ini but not there (removed; its template stays): kept as stored - the user
+    # re-creates it from its template under the same name; said in the Kopia step (kopia_container_gone). Up to 2.65 the
+    # proposal was cleared and Apply on the unchanged page dropped it (and its place in docker|known). Another Kopia
+    # container there instead: that one is proposed, a change the Apply list shows. Docker off or silent: nobody knows.
+    KOPIA_GONE=""
     if [[ -z "$(pget "kopia|container")" ]] || ! in_list "$(pget "kopia|container")" "${CT_NAMES[@]}"; then
-        pset "kopia|container" "$(kopia_find_container)"
+        local kfound; kfound="$(kopia_find_container)"
+        if [[ -n "$(pget "kopia|container")" && ( -z "$kfound" || "$DOCKER_SERVICE" != "yes" ) ]]; then
+            KOPIA_GONE="$(pget "kopia|container")"
+        else
+            pset "kopia|container" "$kfound"
+        fi
         _apply_P
     fi
 }
@@ -824,6 +834,7 @@ TXT
     elif [[ -n "$has_ct" ]]; then dflt="y"
     else dflt="n"; fi
     if [[ "$DOCKER_SERVICE" == "no" ]]; then :        # 2.54: the environment step said Docker is off - Kopia needs it
+    elif [[ -n "${KOPIA_GONE:-}" ]]; then :          # its own words in the Kopia step (kopia_container_gone)
     elif [[ -n "$has_ct" ]]; then hint_as kopia_container "Kopia container found: $has_ct" name "$has_ct"
     else hint_as kopia_container_none "No Kopia container found (image with 'kopia' in its name)"; fi
     if ask_yn "Set up offsite backup with Kopia?" "$dflt"; then
@@ -1434,6 +1445,8 @@ TXT
     else
         P[docker|known]="$(printf '%s\n' "${CT_NAMES[@]}" "${downk[@]}")"
     fi
+    # Kopia's container gone but kept (step_basis): its place among the known containers too - re-created, it is no «new»
+    [[ -n "${KOPIA_GONE:-}" ]] && in_list "$KOPIA_GONE" "${known[@]}" && plist_add "docker|known" "$KOPIA_GONE"
     # apps the user chose not to back up (the office's apps step); only containers that still exist (or are down, 2.60)
     down_keep_list "docker|skip"
     P[docker|skip]="$(old_list "docker|skip" | while IFS= read -r n; do in_list "$n" "${CT_NAMES[@]}" && printf '%s\n' "$n"; done; printf '%s\n' "${DOWN_KEPT[@]}")"
@@ -2081,6 +2094,7 @@ step_partners() {
 KOPIA_MAIN=-1          # index of the mapping that covers mount_root
 KOPIA_POLICY_READY="no"
 KOPIA_FAIL=""          # why the Kopia part did not get through (code, for --plan)
+KOPIA_GONE=""          # Kopia's container settings.ini names, not there and kept (step_basis)
 KOPIA_PROBE=""         # live test: 0 = ok, 1 = the container sees nothing, 2 = not possible
 
 step_kopia() {
@@ -2121,6 +2135,11 @@ TXT
     # --- Container
     local c n cands=()
     c="$(pget "kopia|container" "")"
+    if [[ -n "${KOPIA_GONE:-}" && "$c" == "$KOPIA_GONE" ]]; then
+        KOPIA_FAIL="container_gone"
+        wrn_as kopia_container_gone "Kopia's container '$c' is gone - kept in settings.ini: re-create it from its template (Docker > Add Container, template '$c'), then look again. Until then nothing goes offsite" name "$c"
+        return 1
+    fi
     if [[ -z "$c" ]] || ! in_list "$c" "${CT_NAMES[@]}"; then
         for n in "${CT_NAMES[@]}"; do is_kopia_image "${CT_IMAGE[$n]}" && cands+=( "$n" ); done
         if [[ ${#cands[@]} -eq 0 ]]; then
