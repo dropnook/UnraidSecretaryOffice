@@ -34769,6 +34769,23 @@ function testBackupLetGo(): void
     }
     unlink("$tmp/data/backup");
 
+    // BF4: the vms/ the clearing removed comes back with Ms. Dustdevil's «Put back» of a VM's package (as the place is)
+    $GLOBALS['clScanStub'] = function () use ($trashPool): array {
+        $GLOBALS['clCtx'] = ['roots' => [], 'asleep' => []];
+        return ['templates' => ['list' => []], 'stacks' => ['list' => [], 'root' => '/nonexistent'], 'scripts' => ['list' => []], 'appdata' => ['list' => []],
+                'vms' => ['list' => []], 'leftovers' => ['list' => []], 'partners' => ['list' => []], 'backup_running' => false, 'flash' => ['list' => []],
+                'trash' => ['runs' => array_values(array_filter(clTrashRuns([], ['ok' => false], [$trashPool]), fn ($r) => $r['root'] === $trashPool))]];
+    };
+    $win = array_values(array_filter(array_merge(...array_column(($GLOBALS['clScanStub'])()['trash']['runs'], 'items')), fn ($it) => $it['name'] === 'vms/win11'))[0] ?? [];
+    $was = is_dir("$pool/vms");
+    $back = clRestore([$win['id'] ?? '']);
+    same('let go (BF4): «Put back» of vms/win11 — its emptied vms/ made again (the place\'s mode), the package home',
+        [false, true, true, true, fileperms($pool) & 0777], [$was, $back['results'][0]['ok'] ?? null, is_dir("$pool/vms/win11/nvram"), is_dir("$pool/vms"), fileperms("$pool/vms") & 0777]);
+    $GLOBALS['clCtx'] = ['roots' => [], 'asleep' => []];
+    $other = clPackageHome("$tmp/elsewhere/backup/vms/x", $trashPool);
+    unset($GLOBALS['clScanStub'], $GLOBALS['clCtx']);
+    same('let go (BF4): … only for a package of a backup place under the storeroom\'s share', '', $other);
+
     // Ms. Dustdevil's storerooms from the journals: only /mnt/<pool or disk>/<share>/…/<storeroom>, never on a sleeping disk
     mkdir("$tmp/journals", 0700);
     file_put_contents("$tmp/journals/letgo-20261008-190000.json", json_encode(['trash' => ['/mnt/disk1/UnraidSecretaryOffice/' . CL_TRASH, '/mnt/disk2/UnraidSecretaryOffice/' . CL_TRASH,

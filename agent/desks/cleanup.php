@@ -4366,6 +4366,11 @@ function clRestore(array $ids): array
             if ($moved && ($twin = clShareTwin($it['from'])) !== null) {
                 throw new Problem('cleanup_target_exists', ['path' => $twin]);
             }
+            // a package's apps/ or vms/ the let-go removed once emptied (BF4): made again inside its backup place, as the place is
+            if ($it['kind'] === 'package' && !is_dir($home) && !is_link($home) && in_array(basename($home), ['apps', 'vms'], true)
+                && is_dir(dirname($home)) && !is_link(dirname($home))) {
+                @mkdir($home, (@fileperms(dirname($home)) ?: 0755) & 0777);
+            }
             if ($it['kind'] !== 'partner' && !is_dir($home)) {
                 throw new Problem('cleanup_no_home', ['path' => $home]);
             }
