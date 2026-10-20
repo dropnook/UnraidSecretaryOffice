@@ -31880,6 +31880,7 @@ function testLogsWakes(): void
     $GLOBALS['logsWakeNamesFile'] = "$tmp/names.json";
     $GLOBALS['logsWakeVarIni'] = "$tmp/var.ini";
     $GLOBALS['logsWakeNoJob'] = true;
+    $GLOBALS['logsWakeSharesIni'] = "$tmp/shares.ini";          // none: a share's disks not known
     $GLOBALS['disksIni'] = "$tmp/disks.ini";
     $GLOBALS['agentStaffFile'] = "$tmp/staff.json";
     file_put_contents("$tmp/staff.json", '{"hired":{"logs":{}}}');
@@ -32141,6 +32142,152 @@ function testLogsWakes(): void
         $page = logsWakesForPage();
         same('logs wakes: the page gets only wakes in exactly their shape, and the rotating disks', [5, ['parity', 'disk1', 'cache', 'cache2'], LOGS_WAKE_LOOK],
             [count($page['wakes']), $page['hdds'], $page['look']]);
+
+        // 1.68.0 on a real server named only Unraid's own look right after a wake (smartctl -A, hdparm -C, started by
+        // emhttpd): never the cause now — said apart, and she looks further: writers, shfs's clients, who started a program
+        $mk = function (string $root, int $pid, string $comm, string $state, int $ppid, string $cmd, array $o = []): void {
+            $dir = "$root/$pid";
+            foreach (['fd', 'fdinfo', 'ns'] as $d) {
+                @mkdir("$dir/$d", 0700, true);
+            }
+            file_put_contents("$dir/stat", "$pid ($comm) $state $ppid 0 0 0 -1 " . ($o['flags'] ?? 0) . " 0 0 0 0 0 0 0 0 20 0 1 0 0 0\n");
+            file_put_contents("$dir/cmdline", $cmd === '' ? '' : str_replace(' ', "\0", $cmd) . "\0");
+            file_put_contents("$dir/cgroup", $o['cgroup'] ?? "0::/\n");
+            @symlink('mnt:[4026531840]', "$dir/ns/mnt");
+            foreach ($o['fds'] ?? [] as $i => [$target, $flags, $at]) {
+                symlink($target, "$dir/fd/" . ($i + 3));
+                file_put_contents("$dir/fdinfo/" . ($i + 3), "pos:\t$at\nflags:\t$flags\nmnt_id:\t57\n");
+            }
+            if (isset($o['io'])) {
+                file_put_contents("$dir/io", "rchar: 9\nwchar: 9\nsyscr: 1\nsyscw: 1\nread_bytes: 0\nwrite_bytes: {$o['io']}\ncancelled_write_bytes: 0\n");
+            }
+        };
+        $io = fn (string $root, int $pid, int $bytes) => file_put_contents("$root/$pid/io", "rchar: 9\nwchar: 9\nread_bytes: 0\nwrite_bytes: $bytes\ncancelled_write_bytes: 0\n");
+        $fdAt = fn (string $root, int $pid, int $fd, string $flags, int $at) => file_put_contents("$root/$pid/fdinfo/$fd", "pos:\t$at\nflags:\t$flags\nmnt_id:\t57\n");
+        [$R, $W, $RW] = ['0100000', '0100001', '0100002'];
+        $kinds = fn (array $list): array => array_map(fn (array $w): array => [$w['pid'], $w['kind'], $w['by'] ?? '', $w['byname'] ?? ''], $list);
+        $p2 = "$tmp/proc2";
+        $mk($p2, 1, 'init', 'S', 0, '/sbin/init');
+        $mk($p2, 2, 'kthreadd', 'S', 0, '', ['flags' => 0x00200000]);
+        $mk($p2, 10, 'emhttpd', 'S', 1, '/usr/local/sbin/emhttpd');
+        $mk($p2, 11, 'smartctl', 'D', 10, '/usr/sbin/smartctl -A /dev/sde');
+        $mk($p2, 12, 'hdparm', 'D', 10, '/usr/sbin/hdparm -C /dev/sde');
+        $mk($p2, 13, 'smartctl', 'D', 1, '/usr/sbin/smartctl -n standby -A /dev/sdt');
+        $c = logsWakeCapture($p2);
+        same('logs wakes 2: Unraid\'s own look after a wake (smartctl -A and hdparm -C by emhttpd, smartctl -n standby) is never a cause — kept apart',
+            [[], ['smartctl', 'hdparm'], []], [$c['who'], $c['unraid'] ?? null, logsWakeCauses([$c], ['/mnt/disk4'])]);
+        // the real records, as 1.68.0 kept them: shown without Unraid's look as the cause, which is said apart
+        $real = [
+            ['id' => 'r1', 'time' => 1792522284, 'disks' => ['disk4', 'disk5'], 'how' => 'caught', 'smart' => 1792522280,
+             'who' => [['kind' => 'program', 'prog' => 'smartctl', 'cmd' => '/usr/sbin/smartctl -A /dev/sde', 'sure' => 'maybe', 'files' => []]]],
+            ['id' => 'r2', 'time' => 1792526592, 'disks' => ['parity', 'disk2'], 'how' => 'caught', 'smart' => 1792526590,
+             'who' => [['kind' => 'program', 'prog' => 'hdparm', 'cmd' => '/usr/sbin/hdparm -C /dev/sde', 'sure' => 'maybe', 'files' => []],
+                       ['kind' => 'container', 'prog' => 'rsync', 'id' => 'abc', 'cmd' => 'rsync', 'sure' => 'sure', 'files' => ['/mnt/disk2/a']]]],
+            ['id' => 'r3', 'time' => 1792526592, 'disks' => ['disk2'], 'how' => 'caught',
+             'who' => [['kind' => 'program', 'prog' => 'smartctl', 'cmd' => '/usr/sbin/smartctl -a /dev/sde', 'sure' => 'maybe', 'files' => []]]],
+        ];
+        $shaped = array_map('logsWakeShaped', $real);
+        same('logs wakes 2: the real records of 1.68.0 — Unraid\'s SMART look and its power-state ask taken out and said apart; a smartctl without Unraid\'s «read SMART» then stays',
+            [[], true, ['container'], true, ['smartctl'], false],
+            [$shaped[0]['who'], $shaped[0]['unraid'], array_column($shaped[1]['who'], 'kind'), $shaped[1]['unraid'], array_column($shaped[2]['who'], 'prog'), $shaped[2]['unraid']]);
+
+        // a program by who started it: Unraid's web page, a terminal, a plugin, a user script; a container by its cgroup
+        $mk($p2, 40, 'php-fpm', 'S', 1, 'php-fpm: pool www');
+        $mk($p2, 41, 'smartctl', 'D', 40, '/usr/sbin/smartctl -a /dev/sde');
+        $mk($p2, 50, 'sshd-session', 'S', 1, 'sshd-session: root@pts/0');
+        $mk($p2, 51, 'bash', 'S', 50, '-bash');
+        $mk($p2, 52, 'dd', 'D', 51, 'dd if=/dev/sde of=/dev/null count=1');
+        $mk($p2, 60, 'bash', 'S', 1, 'bash /usr/local/emhttp/plugins/disk.tidy/scripts/scan.sh');
+        $mk($p2, 61, 'find', 'D', 60, 'find /mnt/user/Media -name x');
+        $mk($p2, 70, 'crond', 'S', 1, '/usr/sbin/crond');
+        $mk($p2, 71, 'php', 'S', 70, '/usr/bin/php /usr/local/emhttp/plugins/user.scripts/startSchedule.php');
+        $mk($p2, 72, 'bash', 'S', 71, '/bin/bash /tmp/user.scripts/tmpScripts/copy-photos/script');
+        $mk($p2, 73, 'cp', 'D', 72, 'cp -a /mnt/disk1/Fotos /mnt/disk4/Fotos');
+        $mk($p2, 74, 'php', 'S', 70, '/usr/bin/php /usr/local/emhttp/plugins/dynamix/scripts/monitor');
+        $mk($p2, 75, 'smartctl', 'D', 74, '/usr/sbin/smartctl -A /dev/sdt');
+        $mk($p2, 80, 'containerd-shim', 'S', 1, '/usr/bin/containerd-shim-runc-v2 -namespace moby');
+        $mk($p2, 81, 'rsync', 'D', 80, 'rsync -a /data /backup', ['cgroup' => '0::/docker/' . str_repeat('cd34', 16) . "\n"]);
+        $c = logsWakeCapture($p2);
+        same('logs wakes 2: a program named with who started it — Unraid\'s web page, a terminal, a plugin, a user script; a container by its cgroup; Unraid\'s monitor reading SMART is Unraid\'s own look',
+            [[41, 'program', 'web', ''], [52, 'program', 'session', ''], [61, 'program', 'plugin', 'disk.tidy'], [73, 'program', 'user_script', 'copy-photos'], [81, 'container', '', '']],
+            $kinds($c['who']));
+        same('logs wakes 2: … and kept that way for the page', ['web', 'plugin', 'disk.tidy'],
+            (function () use ($c): array {
+                $w = logsWakeShaped(['id' => 'x', 'time' => 1, 'disks' => ['disk4'], 'how' => 'caught', 'who' => logsWakeCauses([$c], ['/mnt/disk4'])]);
+                $by = array_column($w['who'], null, 'prog');
+                return [$by['smartctl']['by'] ?? null, $by['find']['by'] ?? null, $by['find']['byname'] ?? null];
+            })());
+
+        // shfs waits for the disk: its own open files say which disk a user share's file lies on — its clients are named
+        $p3 = "$tmp/proc3";
+        $mk($p3, 1, 'init', 'S', 0, '/sbin/init');
+        $mk($p3, 20, 'shfs', 'D', 1, '/usr/libexec/unraid/shfs /mnt/user -disks 7 -o default_permissions', ['fds' => [['/mnt/disk2/Docs/Steuer.pdf', $R, 0]]]);
+        $mk($p3, 21, 'soffice.bin', 'S', 1, '/usr/lib/libreoffice/program/soffice.bin', ['fds' => [['/mnt/user/Docs/Steuer.pdf', $R, 0]]]);
+        $mk($p3, 22, 'smbd', 'S', 1, '/usr/sbin/smbd -D', ['fds' => [['/mnt/user/Media/Sommer.mkv', $R, 0]]]);
+        $mk($p3, 23, 'vlc', 'S', 1, 'vlc', ['fds' => [['/mnt/user/Media2/Herbst.mkv', $R, 0]]]);
+        $c = logsWakeCapture($p3);
+        $bases = ['Docs' => ['disk1', 'disk2'], 'Media' => ['disk2'], 'Media2' => ['disk1']];
+        $woke = logsWakeCauses([$c], ['/mnt/disk2'], $bases);
+        same('logs wakes 2: shfs waiting — its clients named: a user share\'s file by the disk shfs has it on, one in a share on that disk; not one in a share elsewhere, not shfs itself',
+            [[21, 'program', 'open', ['/mnt/disk2/Docs/Steuer.pdf']], [22, 'smb', 'open', ['/mnt/user/Media/Sommer.mkv']]],
+            array_map(fn (array $w): array => [$w['pid'], $w['kind'], $w['sure'], $w['files']], $woke));
+        same('logs wakes 2: … nobody else there: shfs stays, «something through a user share»', [['shfs', 'sure']],
+            array_map(fn (array $w): array => [$w['prog'], $w['sure']], logsWakeCauses([['who' => $c['who'], 'open' => []]], ['/mnt/disk2'], $bases)));
+
+        // writers: a file open for writing on a sleeping disk, the process's write counter moving — named when its
+        // writes wake the disk (the page cache took them; the kernel's flush woke it later, nobody waited)
+        $p4 = "$tmp/proc4";
+        $rsyncId = str_repeat('ef56', 16);
+        $mk($p4, 1, 'init', 'S', 0, '/sbin/init');
+        $mk($p4, 10, 'emhttpd', 'S', 1, '/usr/local/sbin/emhttpd');
+        $mk($p4, 20, 'shfs', 'S', 1, '/usr/libexec/unraid/shfs /mnt/user -disks 7', ['fds' => [['/mnt/disk1/Docs/neu.odt', $RW, 10]], 'io' => 0]);
+        $mk($p4, 30, 'rsync', 'S', 1, 'rsync -a /data/ /backup/', ['cgroup' => "0::/docker/$rsyncId\n", 'fds' => [['/mnt/disk1/Backup/x.tmp', $W, 1000]], 'io' => 5000]);
+        $mk($p4, 31, 'Plex Media Serv', 'S', 1, 'Plex Media Server', ['fds' => [['/mnt/disk1/Media/plex.log', $W, 200], ['/mnt/cache/appdata/plex/db', $RW, 0]], 'io' => 100]);
+        $mk($p4, 32, 'soffice.bin', 'S', 1, 'soffice.bin', ['fds' => [['/mnt/user/Docs/neu.odt', $RW, 10]], 'io' => 0]);
+        $mk($p4, 33, 'cat', 'S', 1, 'cat /mnt/disk1/Media/film.mkv', ['fds' => [['/mnt/disk1/Media/film.mkv', $R, 0]], 'io' => 0]);
+        $mk($p4, 34, 'sqlite3', 'S', 1, 'sqlite3', ['fds' => [['/mnt/cache/appdata/db', $W, 0]], 'io' => 70]);
+        $GLOBALS['logsWakeProc'] = $p4;
+        $diskstats = fn (int $writes, int $flight) => file_put_contents("$p4/diskstats", "   8      16 sdb 500 0 4000 90 $writes 0 560 40 $flight 300 130 0 0 0 0\n");
+        unset($GLOBALS['logsWake']);
+        @unlink("$tmp/mem.json");
+        $ini(['disk1']);
+        $diskstats(70, 0);
+        $tick(LOGS_WAKE_INI_NONE);
+        $hold = logsWakeMem()['hold'] ?? [];
+        same('logs wakes 2: the writers\' list while disk1 sleeps — files open for writing there (a user share\'s by shfs\'s disk); not a reader, not the cache, not shfs',
+            [[30, 31, 32], ['/mnt/disk1/Docs/neu.odt']], [array_keys($hold), $hold[32]['files'] ?? null]);
+        $io($p4, 30, 9000);
+        $fdAt($p4, 30, 3, $W, 5000);
+        $io($p4, 31, 900);                  // Plex wrote — into its database on the cache; its log on disk1 stayed
+        $io($p4, 32, 4096);
+        $fdAt($p4, 32, 3, $RW, 4106);
+        $tick();
+        $diskstats(71, 1);
+        $mk($p4, 11, 'smartctl', 'D', 10, '/usr/sbin/smartctl -A /dev/sdb');
+        $tick();
+        same('logs wakes 2: disk1 asked for — nobody waiting but Unraid\'s look; the writers caught, no second look needed',
+            [[], [30, 32], ['smartctl'], null], [logsWakeMem()['caught']['disk1']['who'] ?? null, array_column(logsWakeMem()['caught']['disk1']['wrote'] ?? [], 'pid'),
+             logsWakeMem()['caught']['disk1']['unraid'] ?? null, logsWakeMem()['retry'] ?? null]);
+        $ini([]);
+        $diskstats(71, 0);
+        $tick(LOGS_WAKE_INI);
+        $w = logsWakeShaped(array_slice(logsWakesRead()['wakes'], -1)[0]);
+        same('logs wakes 2: the wake — the container that wrote first, the share\'s writer by its disk, then who had files open there; Unraid\'s look said apart',
+            [[['container', 'wrote', ['/mnt/disk1/Backup/x.tmp']], ['program', 'wrote', ['/mnt/disk1/Docs/neu.odt']], ['program', 'open', ['/mnt/disk1/Media/plex.log']],
+              ['program', 'open', ['/mnt/disk1/Media/film.mkv']]], true],
+            [array_map(fn (array $c): array => [$c['kind'], $c['sure'], $c['files']], $w['who']), $w['unraid']]);
+        // asked for again, nobody there yet: a second look a second later catches the one who came
+        $ini(['disk1']);
+        $tick(LOGS_WAKE_INI);
+        $tick(120);
+        $diskstats(80, 1);
+        $tick();
+        $retry = logsWakeMem()['retry'] ?? null;
+        $mk($p4, 90, 'tar', 'D', 1, 'tar -cf /tmp/x.tar /mnt/disk1/Fotos', ['fds' => [['/mnt/disk1/Fotos/a.jpg', $R, 0]]]);
+        $tick(LOGS_WAKE_AGAIN_LOOK);
+        same('logs wakes 2: a capture that found nobody — a second look a second later, merged into it', [['disk1'], [90], 2, null],
+            [$retry['disks'] ?? null, array_column(logsWakeMem()['caught']['disk1']['who'] ?? [], 'pid'), logsWakeMem()['caught']['disk1']['looks'] ?? null, logsWakeMem()['retry']]);
+        exec('rm -rf ' . escapeshellarg($p2) . ' ' . escapeshellarg($p3) . ' ' . escapeshellarg($p4));
         $GLOBALS['logsWakeMonoNow'] = null;
         unset($GLOBALS['logsWakeMonoNow']);
 
@@ -32149,10 +32296,13 @@ function testLogsWakes(): void
             $c = logsWakeCapture('/proc');
             check("logs wakes: a capture over this server's /proc took {$c['ms']} ms (" . count($c['who']) . ' waiting)'
                 . ($c['cut'] ? ', cut short' : ''), $c['ms'] <= LOGS_WAKE_BUDGET_MS + 40);
+            $h = logsWakeHolders('/proc', array_values(array_filter(['disk1', 'disk2', 'disk3', 'cache'], fn (string $d): bool => is_dir("/mnt/$d"))));
+            check("logs wakes: the writers' list over this server's /proc took {$h['ms']} ms (" . count($h['hold']) . ' writing on a disk, '
+                . count($h['looked']) . ' processes looked at)' . ($h['cut'] ? ', cut short' : ''), $h['ms'] <= LOGS_WAKE_BUDGET_MS + 40);
         }
     } finally {
         unset($GLOBALS['logsWakesFile'], $GLOBALS['logsWakeMemFile'], $GLOBALS['logsWakeNamesFile'], $GLOBALS['logsWakeVarIni'],
-            $GLOBALS['logsWakeNoJob'], $GLOBALS['logsWakeProc'], $GLOBALS['logsWake']);
+            $GLOBALS['logsWakeNoJob'], $GLOBALS['logsWakeProc'], $GLOBALS['logsWake'], $GLOBALS['logsWakeSharesIni']);
         [$GLOBALS['disksIni'], $GLOBALS['agentStaffFile']] = $keep;
         if ($keep[0] === null) {
             unset($GLOBALS['disksIni']);
