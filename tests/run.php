@@ -15120,6 +15120,56 @@ function testLeftovers(): void
             'aside' => [['to' => '/mnt/a/b/c.aside-20261001-000000'], ['to' => '/mnt/a/b/c'], ['to' => '/mnt/a/b/c.aside-{T}'], ['to' => '/tmp/c.aside-20261007-090000'],
                         ['to' => '/mnt/a/../b/c.aside-20261007-090000'], ['to' => '/mnt/a/b/x.sql.gz', 'what' => 'safety_dump'], ['to' => "/mnt/a/b/c.aside-20261007-090000\n"],
                         ['to' => '/mnt/a/b/ok.aside-20261007-090000', 'to_dataset' => 'a/b/other'], ['to' => '/boot/config/.UnraidSecretaryOffice-restore/20261001-000000/x']]]));
+    // BG2 (scenario batch G, 2026-10-20): a pull from a partner names its new dataset by name (aside «pulled») — she took
+    // only /mnt/ paths and never listed it; now listed, read only (his «Remove what was pulled…» removes it)
+    $pullDs = 'cache/photos.restored-20261020-151500';
+    same('leftovers: a dataset pulled from a partner (named by its dataset in the journal) — listed, his to remove', [[$pullDs, $pullDs, 'pulled', false]],
+        $u(['id' => '20261020-151500-77aa', 'kind' => 'partner', 'result' => 'ok', 'putback' => null, 'steps' => [],
+            'aside' => [['what' => 'pulled', 'from' => 'vault: share:photos@uso-backup-20261020-0300', 'to' => $pullDs]]]));
+    same('leftovers: … never another pull — another time, a start\'s .from-, no pool, a path, «..», a step\'s copy of that name', [],
+        $u(['id' => '20261020-151500-77aa', 'kind' => 'partner', 'result' => 'ok', 'putback' => null,
+            'steps' => [['do' => 'copy', 'to' => $pullDs]],
+            'aside' => [['what' => 'pulled', 'to' => 'cache/photos.restored-20261001-000000'], ['what' => 'pulled', 'to' => 'cache/x/share-photos.from-vault-20261020-151500'],
+                        ['what' => 'pulled', 'to' => 'photos.restored-20261020-151500'], ['what' => 'pulled', 'to' => '/mnt/cache/photos.restored-20261020-151500'],
+                        ['what' => 'pulled', 'to' => 'cache/../photos.restored-20261020-151500'], ['what' => 'pulled', 'to' => "cache/photos.restored-20261020-151500\n"]]]));
+    $ctxBefore = $GLOBALS['clCtx'] ?? null;
+    $asked = [];
+    $zfs = function (array $have) use (&$asked) {
+        return function (array $cmd) use ($have, &$asked) {
+            $asked[] = array_slice($cmd, 5);
+            return [0, implode('', array_map(fn ($d) => "$d\t4096\t0\n", array_values(array_intersect(array_slice($cmd, 5), $have))))];
+        };
+    };
+    $unit = ['path' => $pullDs, 'dataset' => $pullDs, 'what' => 'pulled', 'back' => false];
+    $pulledPlace = fn (array $u, array $m, callable $z): array => function_exists('clPulledPlace') ? clPulledPlace($u, $m, $z) : ['parts' => [], 'asleep' => null, 'why' => null];
+    $mnt = '/mnt/addons/UnraidSecretaryOffice/restored/vault-share-photos-20261020-151500';
+    $GLOBALS['clCtx'] = ['roots' => [], 'asleep' => ['cache' => false, 'cache2' => true]];
+    $at = $pulledPlace($unit, [], $zfs([$pullDs]));
+    same('leftovers: a pull on a sleeping pool — named, not looked at (zfs not asked)', [[], ['cache'], 'asleep', []], [$at['parts'], $at['asleep'], $at['why'], $asked]);
+    $GLOBALS['clCtx'] = ['roots' => [], 'asleep' => ['cache' => false]];
+    $at = $pulledPlace($unit, [$mnt => ['fs' => 'zfs', 'source' => $pullDs]], $zfs([$pullDs]));
+    same('leftovers: a pull mounted read-only — its mount (the kernel\'s table), his to remove, never a storeroom', [[$mnt], [$pullDs], 'pulled', [''], []],
+        [array_column($at['parts'], 'path'), array_column($at['parts'], 'dataset'), $at['why'], array_column($at['parts'], 'trash'), $asked]);
+    $at = $pulledPlace($unit, [], $zfs([$pullDs]));
+    same('leftovers: a pull not mounted (still there by zfs) — listed by its name', [[$pullDs], 'pulled'], [array_column($at['parts'], 'path'), $at['why']]);
+    $at = $pulledPlace($unit, ['/mnt/x' => ['fs' => 'zfs', 'source' => 'cache/other']], $zfs([]));
+    same('leftovers: a pull removed by his «Remove what was pulled…» — gone from her list', [[], []], [$at['parts'], $at['asleep']]);
+    if ($ctxBefore === null) {
+        unset($GLOBALS['clCtx']);
+    } else {
+        $GLOBALS['clCtx'] = $ctxBefore;
+    }
+    same('leftovers: a pull is never put into her storeroom (a stale page sending it)', 'cleanup_pulled',
+        (function () { try { clParkCheck(['kind' => 'leftover', 'why' => 'pulled', 'force' => false, 'name' => 'photos.restored-20261020-151500'], true); return null; } catch (Problem $p) { return $p->key; } })());
+    $cl = (string) file_get_contents(OFFICE_DIR . '/agent/desks/cleanup.php');
+    check('leftovers: her list looks at a pull with clPulledPlace(), its category «pulled»',
+        str_contains($cl, "\$at = \$u['what'] === 'pulled' ? clPulledPlace(\$u, \$mounts) : clLeftoverPlace(\$u, \$libvirt, \$mounts);")
+        && str_contains($cl, "(\$u['what'] === 'pulled' ? 'pulled' : "));
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/cleanup/desk.js');
+    check('leftovers: the page links a pull to his «Remove what was pulled…» (#/restore/journal)', str_contains($js, "T('lo.pulled_link')") && str_contains($js, "a.href = '#/restore/journal';"));
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/cleanup/lang/en.json'), true) ?: [];
+    check('leftovers: the page can say it', isset($en['lo.what.pulled'], $en['lo.what.pulled_text'], $en['lo.pulled_link'], $en['why.pulled'], $en['why.pulled_text'],
+        $en['cat.leftovers.pulled'], $en['errors.cleanup_pulled']));
     same('leftovers: what «Put back» can still undo', [true, true, false, false, false, true],
         array_map('clRestoreUndoable', [['kind' => 'db', 'result' => 'ok'], ['kind' => 'files', 'result' => 'interrupted', 'putback' => ['result' => 'refused']],
             ['kind' => 'db', 'result' => 'ok', 'putback' => ['result' => 'failed']], ['kind' => 'putback', 'result' => 'ok'], ['kind' => 'kopia', 'result' => 'ok'],
