@@ -15120,18 +15120,25 @@ function testLeftovers(): void
             'aside' => [['to' => '/mnt/a/b/c.aside-20261001-000000'], ['to' => '/mnt/a/b/c'], ['to' => '/mnt/a/b/c.aside-{T}'], ['to' => '/tmp/c.aside-20261007-090000'],
                         ['to' => '/mnt/a/../b/c.aside-20261007-090000'], ['to' => '/mnt/a/b/x.sql.gz', 'what' => 'safety_dump'], ['to' => "/mnt/a/b/c.aside-20261007-090000\n"],
                         ['to' => '/mnt/a/b/ok.aside-20261007-090000', 'to_dataset' => 'a/b/other'], ['to' => '/boot/config/.UnraidSecretaryOffice-restore/20261001-000000/x']]]));
-    // BG2 (scenario batch G, 2026-10-20): a pull from a partner names its new dataset by name (aside «pulled») — she took
-    // only /mnt/ paths and never listed it; now listed, read only (his «Remove what was pulled…» removes it)
+    // BG2 (scenario batch G, 2026-10-20): a pull from a partner names its new dataset by name — its `pull` step, and
+    // `pulled` once it landed (the journal as rsJournalNew() and rsDoPull() write it; the plan's aside never goes in) —
+    // she took only /mnt/ paths and never listed it; now listed, read only (his «Remove what was pulled…» removes it)
     $pullDs = 'cache/photos.restored-20261020-151500';
-    same('leftovers: a dataset pulled from a partner (named by its dataset in the journal) — listed, his to remove', [[$pullDs, $pullDs, 'pulled', false]],
-        $u(['id' => '20261020-151500-77aa', 'kind' => 'partner', 'result' => 'ok', 'putback' => null, 'steps' => [],
-            'aside' => [['what' => 'pulled', 'from' => 'vault: share:photos@uso-backup-20261020-0300', 'to' => $pullDs]]]));
-    same('leftovers: … never another pull — another time, a start\'s .from-, no pool, a path, «..», a step\'s copy of that name', [],
-        $u(['id' => '20261020-151500-77aa', 'kind' => 'partner', 'result' => 'ok', 'putback' => null,
-            'steps' => [['do' => 'copy', 'to' => $pullDs]],
-            'aside' => [['what' => 'pulled', 'to' => 'cache/photos.restored-20261001-000000'], ['what' => 'pulled', 'to' => 'cache/x/share-photos.from-vault-20261020-151500'],
-                        ['what' => 'pulled', 'to' => 'photos.restored-20261020-151500'], ['what' => 'pulled', 'to' => '/mnt/cache/photos.restored-20261020-151500'],
-                        ['what' => 'pulled', 'to' => 'cache/../photos.restored-20261020-151500'], ['what' => 'pulled', 'to' => "cache/photos.restored-20261020-151500\n"]]]));
+    $pullMnt = '/mnt/addons/UnraidSecretaryOffice/restored/vault-share-photos-20261020-151500';
+    $pullStep = ['do' => 'pull', 'pair' => 'a1b2c3d4', 'unit' => 'share:photos', 'snap' => 'uso-backup-20261020-0300', 'dataset' => $pullDs, 'resume' => false,
+                 'parent' => null, 'partner' => 'vault', 'path' => '/mnt/user/photos', 'time' => 1792470000, 'mount' => $pullMnt, 'state' => 'done'];
+    same('leftovers: a dataset pulled from a partner (its step and «pulled» in the journal) — listed once, his to remove', [[$pullDs, $pullDs, 'pulled', false]],
+        $u(['id' => '20261020-151500-77aa', 'kind' => 'partner', 'result' => 'ok', 'putback' => null, 'aside' => [],
+            'steps' => [$pullStep, ['do' => 'mount', 'dataset' => $pullDs, 'path' => $pullMnt, 'state' => 'done']],
+            'pulled' => [['dataset' => $pullDs, 'guid' => '123', 'pair' => 'a1b2c3d4', 'partner' => 'vault', 'unit' => 'share:photos', 'snap' => 'uso-backup-20261020-0300', 'mount' => $pullMnt]]]));
+    same('leftovers: a pull cut short (only its step: zfs recv -s keeps what came) — listed too', [[$pullDs, $pullDs, 'pulled', false]],
+        $u(['id' => '20261020-151500-77aa', 'kind' => 'partner', 'result' => 'interrupted', 'putback' => null, 'aside' => [], 'steps' => [['state' => 'failed'] + $pullStep]]));
+    same('leftovers: … never another pull — another time (a resumed one\'s), a start\'s .from-, no pool, a path, «..», a line break, a copy\'s step', [],
+        $u(['id' => '20261020-151500-77aa', 'kind' => 'partner', 'result' => 'ok', 'putback' => null, 'aside' => [],
+            'steps' => [['do' => 'copy', 'dataset' => $pullDs], ['dataset' => 'cache/photos.restored-20261001-000000'] + $pullStep],
+            'pulled' => [['dataset' => 'cache/photos.restored-20261001-000000'], ['dataset' => 'cache/x/share-photos.from-vault-20261020-151500'],
+                         ['dataset' => 'photos.restored-20261020-151500'], ['dataset' => '/mnt/cache/photos.restored-20261020-151500'],
+                         ['dataset' => 'cache/../photos.restored-20261020-151500'], ['dataset' => "cache/photos.restored-20261020-151500\n"], ['dataset' => ['x']], 'x']]));
     $ctxBefore = $GLOBALS['clCtx'] ?? null;
     $asked = [];
     $zfs = function (array $have) use (&$asked) {
@@ -15142,7 +15149,7 @@ function testLeftovers(): void
     };
     $unit = ['path' => $pullDs, 'dataset' => $pullDs, 'what' => 'pulled', 'back' => false];
     $pulledPlace = fn (array $u, array $m, callable $z): array => function_exists('clPulledPlace') ? clPulledPlace($u, $m, $z) : ['parts' => [], 'asleep' => null, 'why' => null];
-    $mnt = '/mnt/addons/UnraidSecretaryOffice/restored/vault-share-photos-20261020-151500';
+    $mnt = $pullMnt;
     $GLOBALS['clCtx'] = ['roots' => [], 'asleep' => ['cache' => false, 'cache2' => true]];
     $at = $pulledPlace($unit, [], $zfs([$pullDs]));
     same('leftovers: a pull on a sleeping pool — named, not looked at (zfs not asked)', [[], ['cache'], 'asleep', []], [$at['parts'], $at['asleep'], $at['why'], $asked]);

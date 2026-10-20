@@ -2373,9 +2373,9 @@ function clRestoreUndoable(array $j): bool
  * time: what a step put aside (<name>.aside-<time>, .putback-<time>, <file>.restored-aside-<time>, the time's
  * folder of his on the flash or in libvirt.img), a copy next to the live one (<name>.restored-<time>; after a
  * swap it is the live one, gone from there) and the folder of the safety dumps. Never a guess by name. A pull from
- * a partner names its new dataset by name (aside «pulled», <pool>/…/<name>.restored-<time>): its path is that name
- * (what = pulled, clPulledPlace() looks where it is — scenario batch G, BG2: she took only /mnt/ paths and never
- * listed one).
+ * a partner names its new dataset by name (its `pull` step, and `pulled` once it landed: <pool>/…/<name>.restored-<time>):
+ * its path is that name (what = pulled, clPulledPlace() looks where it is — scenario batch G, BG2: she took only /mnt/
+ * paths and never listed one).
  *
  * @return list<array{path: string, dataset: ?string, what: string, back: bool}>  back: his «Put back» needs it
  */
@@ -2398,13 +2398,6 @@ function clLeftoverUnits(array $j): array
         if ($to === '') {
             continue;
         }
-        if (($a['what'] ?? '') === 'pulled') {
-            if (clZfsNameOk($to) && str_contains($to, '/') && preg_match(CL_LEFTOVER_NAME, $to, $x) && $x[1] === 'restored' && $x[2] === $stamp
-                && !isset($units[$to])) {
-                $units[$to] = ['path' => $to, 'dataset' => $to, 'what' => 'pulled', 'back' => false];
-            }
-            continue;
-        }
         if (($a['what'] ?? '') === 'safety_dump') {
             if (preg_match(CL_SAFETY_DUMPS, dirname($to), $x) && $x[1] === $stamp) {
                 $add(dirname($to), null, 'safety', $undoable);       // «Put back» plays the dump back
@@ -2422,6 +2415,15 @@ function clLeftoverUnits(array $j): array
         if (str_starts_with($to, '/mnt/') && preg_match(CL_LEFTOVER_NAME, $to, $x) && $x[2] === $stamp && $x[1] !== 'restored') {
             $what = ['aside' => 'aside', 'putback' => 'putback', 'restored-aside' => 'file_aside'][$x[1]];
             $add($to, $dataset($a['to_dataset'] ?? null, $to), $what, $undoable && $what !== 'putback');
+        }
+    }
+    // a pull from a partner: the dataset its step made (also one cut short: a token of zfs recv -s) and what landed
+    $pulls = array_merge(array_map(fn ($st) => is_array($st) && ($st['do'] ?? '') === 'pull' ? ($st['dataset'] ?? null) : null, (array) ($j['steps'] ?? [])),
+                         array_map(fn ($p) => is_array($p) ? ($p['dataset'] ?? null) : null, (array) ($j['pulled'] ?? [])));
+    foreach ($pulls as $ds) {
+        if (is_string($ds) && clZfsNameOk($ds) && str_contains($ds, '/') && preg_match(CL_LEFTOVER_NAME, $ds, $x) && $x[1] === 'restored' && $x[2] === $stamp
+            && !isset($units[$ds])) {
+            $units[$ds] = ['path' => $ds, 'dataset' => $ds, 'what' => 'pulled', 'back' => false];
         }
     }
     foreach ((array) ($j['steps'] ?? []) as $st) {
