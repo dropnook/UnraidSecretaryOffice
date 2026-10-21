@@ -360,27 +360,51 @@ function drillPathOk(string $path): bool
 }
 
 /**
- * Where a database image keeps its data — the big tmpfs (every other volume the image declares gets a small one): the
- * place its environment names (PGDATA, DATADIR) or a known one, on the volume that holds it (Postgres 18's PGDATA lies
+ * Where a database image keeps its data, and what gets a tmpfs: [dir => big?], the data dir first. The data dir: the
+ * place the server's own option in the image's command names (`--datadir`, `-D`, `--dbpath`), its environment
+ * (PGDATA, DATADIR) or a known one (DRILL_DATA_DIRS) — on the declared volume that holds it (Postgres 18's PGDATA lies
  * inside /var/lib/postgresql, linuxserver's MariaDB keeps its data in /config/databases: a tmpfs on the folder alone
- * would sit beside the volume's small one), else the place itself. 2026-10-21: /var/lib/mysql for linuxserver's
- * MariaDB left its data on the 64 MB tmpfs of /config — InnoDB's first redo log didn't fit (error 28).
+ * would sit beside the volume's) — the big tmpfs; the image's other volumes a small one. An image none of these
+ * places fits: its one volume is the data dir; with several, the usual place is; either way every volume and the
+ * usual place get the big one (sizes are limits: --memory caps them all together). No volume at all: the place itself. 2026-10-21: /var/lib/mysql for
+ * linuxserver's MariaDB left its data on the 64 MB tmpfs of /config — InnoDB's first redo log didn't fit (error 28).
  */
-function drillDataDir(string $type, array $c): string
+function drillDataPlaces(string $type, array $c): array
 {
+    $opt = ['postgres' => ['-D'], 'mariadb' => ['--datadir'], 'mongodb' => ['--dbpath']][$type] ?? [];
+    $said = '';
+    foreach ($c['cmd'] as $i => $a) {
+        foreach ($opt as $o) {
+            if ($a === $o) {
+                $said = (string) ($c['cmd'][$i + 1] ?? '');
+            } elseif (str_starts_with($a, "$o=")) {
+                $said = substr($a, strlen($o) + 1);
+            }
+        }
+    }
     $env = ['postgres' => 'PGDATA', 'mariadb' => 'DATADIR'][$type] ?? null;
-    $want = array_filter([$env !== null ? rtrim((string) ($c['env'][$env] ?? ''), '/') : '', ...(DRILL_DATA_DIRS[$type] ?? ['/data'])],
-        'drillPathOk');
+    $want = array_values(array_unique(array_filter(array_map(fn ($d) => rtrim($d, '/'),
+        [$said, $env !== null ? (string) ($c['env'][$env] ?? '') : '', ...(DRILL_DATA_DIRS[$type] ?? ['/data'])]), 'drillPathOk')));
     $vols = $c['volumes'];
     usort($vols, fn ($a, $b) => strlen($b) <=> strlen($a));       // the volume nearest the data
     foreach ($want as $d) {
         foreach ($vols as $v) {
             if ($d === $v || str_starts_with($d, "$v/")) {
-                return $v;
+                return [$v => true] + array_fill_keys($c['volumes'], false);
             }
         }
     }
-    return reset($want) ?: '/data';
+    $usual = $want[0] ?? '/data';
+    if (count($c['volumes']) === 1) {
+        return [$c['volumes'][0] => true, $usual => true];
+    }
+    return array_fill_keys([$usual, ...$c['volumes']], true);
+}
+
+/** The data dir of a database image (drillDataPlaces()): where the drill looks whether its tmpfs ran full */
+function drillDataDir(string $type, array $c): string
+{
+    return (string) array_key_first(drillDataPlaces($type, $c));
 }
 
 /**
@@ -410,9 +434,8 @@ function drillContainerArgs(array $c, string $type, string $name, string $id, in
     }
     // the data on tmpfs (in RAM, counted in --memory) — and every volume the image declares, or Docker would make an
     // anonymous volume of its own for it
-    $dirs = array_values(array_unique([drillDataDir($type, $c), ...$c['volumes']]));
-    foreach ($dirs as $i => $dir) {
-        $args = [...$args, '--tmpfs', $dir . ':rw,size=' . ($i === 0 ? $tmpfs : 64) . "m$owner"];
+    foreach (drillDataPlaces($type, $c) as $dir => $big) {
+        $args = [...$args, '--tmpfs', $dir . ':rw,size=' . ($big ? $tmpfs : 64) . "m$owner"];
     }
     if ($uid !== null) {
         $args = [...$args, '--user', "$uid:$gid"];

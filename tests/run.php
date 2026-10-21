@@ -30653,8 +30653,22 @@ function testDrillImageData(): void
     $bmo = $look('bitnami/mongodb:7', ['Entrypoint' => ['/opt/bitnami/scripts/mongodb/entrypoint.sh'], 'Cmd' => ['/opt/bitnami/scripts/mongodb/run.sh'], 'Volumes' => ['/bitnami/mongodb' => (object) []]], 'mongodb');
     same('drill image data: Bitnami\'s MongoDB — /bitnami/mongodb', '/bitnami/mongodb', $bmo['dir']);
     $odd = $look('example/mariadb', ['Entrypoint' => ['docker-entrypoint.sh'], 'Cmd' => ['mariadbd'], 'Env' => ['DATADIR=/config/../etc'], 'Volumes' => ['/data' => (object) []]], 'mariadb');
-    same('drill image data: a DATADIR with .. and a volume nobody knows — the known place, the volume small, DATADIR not taken',
-        ['/var/lib/mysql', ['/var/lib/mysql' => $big, '/data' => 64], false], [$odd['dir'], $odd['tmpfs'], isset($odd['env']['DATADIR'])]);
+    same('drill image data: a DATADIR with .. and one volume nobody knows — that volume is the data dir, the usual place big too, DATADIR not taken',
+        ['/data', ['/data' => $big, '/var/lib/mysql' => $big], false], [$odd['dir'], $odd['tmpfs'], isset($odd['env']['DATADIR'])]);
+    $two = $look('example/mariadb', ['Entrypoint' => ['docker-entrypoint.sh'], 'Cmd' => ['mariadbd'], 'Volumes' => ['/db' => (object) [], '/logs' => (object) []]], 'mariadb');
+    same('drill image data: several volumes nobody knows — the usual place the data dir, every volume big as well (--memory caps them together)',
+        ['/var/lib/mysql', ['/var/lib/mysql' => $big, '/db' => $big, '/logs' => $big], true], [$two['dir'], $two['tmpfs'], $two['safe']]);
+    $opt = $look('example/mariadb', ['Entrypoint' => ['docker-entrypoint.sh'], 'Cmd' => ['mariadbd', '--datadir=/db/mysql'], 'Volumes' => ['/db' => (object) [], '/logs' => (object) []]], 'mariadb');
+    same('drill image data: the server\'s own --datadir in the command — the volume that holds it big, the other small; the command kept',
+        ['/db', ['/db' => $big, '/logs' => 64], ['mariadbd', '--datadir=/db/mysql', ...DRILL_LEAN['mariadb']], true], [$opt['dir'], $opt['tmpfs'], $opt['after'], $opt['safe']]);
+    $pgD = $look('example/postgres', ['Entrypoint' => ['docker-entrypoint.sh'], 'Cmd' => ['postgres', '-D', '/srv/pg'], 'Env' => ['PGDATA=/var/lib/postgresql/data'], 'Volumes' => ['/srv' => (object) [], '/var/lib/postgresql/data' => (object) []]], 'postgres');
+    same('drill image data: Postgres\' -D in the command before PGDATA', ['/srv', ['/srv' => $big, '/var/lib/postgresql/data' => 64]], [$pgD['dir'], $pgD['tmpfs']]);
+    $mo1 = $look('example/mongo', ['Entrypoint' => ['/entry.sh'], 'Cmd' => ['mongod', '--dbpath', '/store/db'], 'Volumes' => ['/store' => (object) []]], 'mongodb');
+    $mo2 = $look('example/mongo', ['Entrypoint' => ['/entry.sh'], 'Cmd' => ['mongod'], 'Volumes' => ['/mongo-data' => (object) []]], 'mongodb');
+    same('drill image data: MongoDB — its --dbpath on its volume; an image with one volume nobody knows: that volume',
+        ['/store', ['/store' => $big], '/mongo-data', ['/mongo-data' => $big, '/data/db' => $big]], [$mo1['dir'], $mo1['tmpfs'], $mo2['dir'], $mo2['tmpfs']]);
+    $none = $look('example/postgres', ['Entrypoint' => ['docker-entrypoint.sh'], 'Cmd' => ['postgres']], 'postgres');
+    same('drill image data: no volume at all — the usual place', ['/var/lib/postgresql/data', ['/var/lib/postgresql/data' => $big]], [$none['dir'], $none['tmpfs']]);
 }
 
 function testRestoreDrill(): void
