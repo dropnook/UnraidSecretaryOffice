@@ -2236,7 +2236,7 @@ ub_exec_end() {
         [[ "$pid" =~ ^[0-9]+$ && "$ppid" =~ ^[0-9]+$ ]] || continue
         parent[$pid]="$ppid"
         [[ "$args" == "$want" && "$et" =~ ^[0-9]+$ ]] && (( et <= secs + 2 )) && mine+=( "$et $pid" )
-    done <<<"$(timeout -k 5 20 docker top "$c" -eo pid,ppid,etimes,args 2>/dev/null)"
+    done <<<"$(timeout -k 2 10 docker top "$c" -eo pid,ppid,etimes,args 2>/dev/null)"
     (( ${#mine[@]} )) || { log_file "  docker exec in '$c' ended by its limit ($secs s): its process is no longer there"; return 0; }
     mapfile -t mine < <(printf '%s\n' "${mine[@]}" | sort -n | awk '{print $2}')
     kids=( "${mine[@]}" )
