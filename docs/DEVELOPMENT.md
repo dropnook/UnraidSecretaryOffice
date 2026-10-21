@@ -474,7 +474,7 @@ where one seems to say less, the fuller one here is meant.
 ### The desks
 
 Desks know each other only through shared libraries (`backupProtection()`, `finding()`, `partnerlook.php`, `nightrun.php`,
-`poollevel.php`) and links (`#/<desk>`) — each must work on its own. Entry tests: `testSnapshot*`, `testPlanGone`,
+`nightorder.php`, `poollevel.php`) and links (`#/<desk>`) — each must work on its own. Entry tests: `testSnapshot*`, `testPlanGone`,
 `testSleepingPools`, `testBackup*`, `testSetup*`, `testJack*`, `testMoverelli*`, `testNight*`, `testPoolLevel`, `testHireNeeds`,
 `testLogs*`, `testWatchman*`, `testParityWhy`, `testCleanup*`, `testWhere*`, `testHiddenStoreroom`, `testAdvisor*`,
 `testRestore*`, `testCaretaker*`, `testAckContent`, `testPartner*`.
@@ -524,7 +524,11 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   → free (his watched, then her oldest) → recheck (≤ 3 rounds) → fill (him last, only up to X) → tell; one lock `night.lock`;
   «Stop after this file» stops the night; both pages show `Office.nightCard()` — its highlight follows the work (night.json
   `phase` + `who`: measure · his give-back · measure again · her part · his fetch, `Office.nightSteps()`), his panel real by the
-  night's word (`jackNightProgress()`); night.json `picture` = the live graphic's numbers; his refusal never stops her part (reason shown). **The pool** (agent/lib/poollevel.php): **one limit X**, nothing
+  night's word (`jackNightProgress()`); night.json `picture` = the live graphic's numbers; his refusal never stops her part (reason shown).
+  **The order with the backup** (agent/lib/nightorder.php, 2026-10-21): she first, then the scheduled backup — `job.sh backup`
+  waits in `job backup-order` while her run goes, Unraid's mover works or her line is due in its minute (60 s), ≤ 90 min, its
+  word to the engine (`UB_ORDER` → status.json `order`); her run waits only while a real backup takes its snapshots (engine
+  `snapped`), ≤ 30 min, refused from a page; a backup started here never waits (says so); one quiet line on both schedules. **The pool** (agent/lib/poollevel.php): **one limit X**, nothing
   else. He gives back only what was watched (`MEDIACACHE_WATCHED_ONLY`, never by rank); **his GB come first**: she moves the
   other caching shares' files oldest first across the pool (age = the younger of birth/ctime and mtime, `age_stat=newest`; never
   an excluded file, his list never) until his fetch ends at X (`--fill-until` = X − fetch), the age rule always; pool-only
