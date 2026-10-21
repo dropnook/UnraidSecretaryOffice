@@ -12,7 +12,7 @@
 #   opens       planned anew, the engine proposes it as the backup place, no offer; the page opens the setup (its steps,
 #               not the first step)
 # The share made here is removed by the undo only when this scenario made it (before the state puts the base's back).
-# Pre-release (~2 min).
+# Pre-release (~30 s on test4).
 . "$(dirname "$0")/lib.sh"
 scenario_begin backup-sh-office-share-missing-first-setup-gate
 needs zfs
