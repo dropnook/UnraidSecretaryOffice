@@ -39577,6 +39577,132 @@ JS, [OFFICE_WEB . '/desks/jack/desk.js', OFFICE_DIR . '/tests/ui/demo/jack.json'
 }
 
 /**
+ * Every server can be removed (2026-10-21, the owner: Emby swapped for Jellyfin, the old Emby didn't answer any more and
+ * «Remove» showed only with two or more servers). Each row has «Remove…» — the only one too, one not connected too — with
+ * a confirm saying plainly what happens: «Save» makes him forget its address, key, libraries and people; nothing on the
+ * pool moves by the click — with servers left his next run plans with them (a server that doesn't answer: nothing given
+ * back), the last one: no run until one is connected, what he laid out stays, protected by his list. A person also on
+ * another server keeps their choice and budget there. Saving with none left works over saved settings (budget, pool and
+ * the rest kept, every list empty); his runs and his schedule refuse then with «no media server set up», and the settings
+ * file stays one MediaCache's own check accepts — apart from the server list, which it refuses to run without.
+ */
+function testJackRemoveServer(): void
+{
+    $r = streamerTabRun('jack remove server', <<<'JS'
+(async () => {
+  const out = {};
+  const removes = (n) => all(n).filter((x) => x.tag === 'button' && x.textContent === 'setup.remove_server');
+  const chipsOf = () => all(e.setupServers()).filter((n) => /jo-media-card/.test(n.className)).map((n) => all(n).find((x) => /\bchip\b/.test(x.className || '')).textContent);
+  e.setState(st); e.initForm();
+  out.three = removes(e.setupServers()).length;
+  e.form().instances = [e.form().instances[0]];            // only the Emby, not connected (it doesn't answer)
+  out.one = removes(e.setupServers()).length;
+  out.chipsBefore = chipsOf();
+  removes(e.setupServers())[0].onclick();
+  const d = dialogs.at(-1);
+  out.dialog = [d.o.title, texts(d.o.body), d.o.buttons.map((b) => [b.text, b.kind || ''])];
+  out.stillThere = e.form().instances.length;              // the click alone changes nothing
+  d.o.buttons[1].act();
+  out.after = [e.form().instances.length, chipsOf(), e.setupBlocked(), texts(e.setupServers()).filter((t) => /^setup\.(connect_first|remove)/.test(t))];
+  e.form().values.cache_budget = '300';
+  posts.length = 0;
+  await e.saveSetup();
+  const s = (posts.find((p) => p[0] === 'jack.save') || [])[1];
+  out.saveNone = s ? [s.settings.instances, s.settings.libraries, s.settings.valid_users, s.settings.user_budgets, s.settings.people, s.settings.cache_path, s.settings.cache_budget] : toasts.at(-1);
+  // nothing saved to forget (a fresh setup): «Save» still asks for a server
+  e.setState({ ...st, configured: false, settings: null }); e.initForm(); e.form().instances = [];
+  out.fresh = e.setupBlocked();
+  // saved with none: his page says so, the setup's start row from his containers
+  e.setState({ ...st, configured: false, settings: { ...st.settings, instances: [] } });
+  out.noServer = e.noServer();
+  e.initForm();
+  out.freshRow = [e.form().instances.length, chipsOf().filter((c) => c === 'setup.media_set').length];
+  // two servers left: the others' words; a person on both keeps the choice and the budget there; a server removed takes its people along
+  e.setState(st); e.initForm();
+  const f = connect();
+  Object.assign(f.instances[1], { url: 'http://y', server: con.server, libraries: con.libraries, users: [{ id: 'j-anna', name: 'Anna' }], connectedAs: 'jellyfin|http://y|' });
+  con.libraries.forEach((l) => l.locations.forEach((p) => { f.instances[1].mappings[p] = f.instances[0].mappings[p]; }));
+  f.chosenUsers = new Set(['u-anna', 'u-lena', 'p-old']);
+  f.budgets = { 'u-anna': '100G' };
+  e.removeServerDialog(f.instances[0]);
+  out.othersText = texts(dialogs.at(-1).o.body)[1];
+  e.removeServer(f.instances[2]);                          // the Plex (not connected): its ids unknown here
+  e.removeServer(f.instances[0]);                          // the Emby: Anna also on the Jellyfin, Lena only here
+  out.people = [[...f.chosenUsers].sort(), f.budgets, f.instances.map((i) => i.type)];
+  e.removeServer({ type: 'emby' });                        // a row no longer in the form: nothing
+  out.gone = f.instances.length;
+  posts.length = 0;
+  await e.saveSetup();
+  const s2 = (posts.find((p) => p[0] === 'jack.save') || [])[1];
+  out.saveOne = s2 ? [s2.settings.instances.map((i) => i.type), s2.settings.valid_users, s2.settings.user_budgets] : toasts.at(-1);
+  console.log(JSON.stringify(out));
+})();
+JS, [OFFICE_WEB . '/desks/jack/desk.js', OFFICE_DIR . '/tests/ui/demo/jack.json', OFFICE_DIR . '/tests/ui/demo/post/jack.connect.json']);
+    if ($r !== null) {
+        same('remove server: three servers — «Remove…» on each', 3, $r['three']);
+        same('remove server: … the only one too, not connected (it doesn\'t answer)', 1, $r['one']);
+        same('remove server: a confirm first — its name, forgotten on «Save», the last one\'s words, «Cancel» and «Remove»',
+            ['setup.remove_title {"server":"FamilienServer"}', ['setup.remove_text {"kind":"Emby"}', 'setup.remove_last'], [['common.cancel', ''], ['setup.remove_go', 'danger']]], $r['dialog']);
+        same('remove server: … the click alone removes nothing', 1, $r['stillThere']);
+        same('remove server: removed — no row, Emby «supported» again (was «set up»), «Save» free, «Connect at least one server» said',
+            [['setup.media_set', 'setup.media_ok', 'setup.media_ok'], [0, ['setup.media_ok', 'setup.media_ok', 'setup.media_ok'], '', ['setup.connect_first']]], [$r['chipsBefore'], $r['after']]);
+        same('remove server: saved with none — every list empty, budget and pool kept', [[], [], [], [], [], '/mnt/cache', '300G'], $r['saveNone']);
+        same('remove server: … never over nothing saved (a fresh setup asks for a server)', 'setup.connect_first', $r['fresh']);
+        same('remove server: saved with none — his page knows, the setup starts with one row, nothing «set up»', [true, [1, 0]], [$r['noServer'], $r['freshRow']]);
+        same('remove server: servers left — the others\' words', 'setup.remove_others', $r['othersText']);
+        same('remove server: a person on both keeps choice and budget on the server left; one only there and an unknown id go',
+            [['j-anna', 'p-old'], ['j-anna' => '100G'], ['jellyfin']], $r['people']);
+        same('remove server: … a row no longer in the form: nothing happens', 1, $r['gone']);
+        same('remove server: … saved: the server left, only the ids it knows, the budget there', [['jellyfin'], ['j-anna'], ['j-anna' => '100G']], $r['saveOne']);
+    }
+    // the agent: a list missing never means «no server»; none only over saved settings; the refusal says why
+    $refused = function (callable $f): string {
+        try {
+            $f();
+            return 'ok';
+        } catch (Problem $p) {
+            return $p->key;
+        }
+    };
+    same('remove server: the agent — the server list missing is a bad request (never «no server»)', 'bad_request',
+        $refused(fn () => jackSave(['libraries' => [], 'library_types' => [], 'valid_users' => [], 'user_budgets' => []])));
+    if (jackReadSettings() === null) {
+        same('remove server: … none with nothing saved — a server is needed', 'jack_need_key',
+            $refused(fn () => jackSave(['instances' => [], 'libraries' => [], 'library_types' => [], 'valid_users' => [], 'user_budgets' => []])));
+    }
+    same('remove server: not set up — none left says «no media server», else «not set up yet»', ['jack_no_server', 'jack_not_configured', 'jack_not_configured'],
+        [jackNotConfigured(['instances' => [], 'cache_budget' => '300G'])->key, jackNotConfigured(['instances' => [['url' => 'x']]])->key, jackNotConfigured(['cache_budget' => '300G', 'instances' => [['url' => 'x']]])->key]);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
+    same('remove server: his runs and his schedule refuse with that reason', [3, 0], [substr_count($src, 'throw jackNotConfigured();'), substr_count($src, "throw new Problem('jack_not_configured');")]);
+    check('remove server: saved with none — libraries and people forgotten on the agent too',
+        str_contains($src, "\$cfg['libraries'] = \$instances ? array_values(array_filter(\$in['libraries'], 'is_string')) : [];")
+        && str_contains($src, "foreach (\$instances ? (array) (\$in['valid_users'] ?? []) : [] as \$id) {") && str_contains($src, 'foreach ($instances ? $people : [] as $ids) {'));
+    // MediaCache's own check on a file without a server: the rest checked with a stand-in, the file written as it is
+    if (trim((string) shell_exec('command -v python3')) === '') {
+        check('remove server: python3 is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('jackremove');
+    @mkdir("$tmp/emby", 0700, true);
+    @mkdir("$tmp/pool", 0700, true);
+    @mkdir("$tmp/run", 0700, true);
+    $cfg = ['cache_path' => "$tmp/pool", 'array_path' => $tmp, 'cache_budget' => '300G', 'instances' => [], 'libraries' => [], 'valid_users' => []];
+    $w = $refused(fn () => jackWriteSettings($cfg, "$tmp/emby", "$tmp/run"));
+    $saved = json_decode((string) @file_get_contents("$tmp/emby/mediacache_settings.json"), true);
+    same('remove server: MediaCache\'s check passes without a server — written with none, the stand-in gone, nothing left in RAM',
+        ['ok', [], '300G', [], false], [$w, $saved['instances'] ?? null, $saved['cache_budget'] ?? null, array_values(array_diff(scandir("$tmp/run"), ['.', '..'])), is_file("$tmp/emby/.mediacache_settings.trial.json")]);
+    same('remove server: … a wrong value still refused (checked with the stand-in)', 'jack_config',
+        $refused(fn () => jackWriteSettings(['min_free_percent' => 'bad'] + $cfg, "$tmp/emby", "$tmp/run")));
+    $py = 'import sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l
+try:
+    l.load_config(require_paths=False); print("ran")
+except l.ConfigError: print("refused")';
+    [, $out] = runEnv(['python3', '-c', $py, JACK_APP], ['MEDIACACHE_DIR' => "$tmp/emby"] + jackPyEnv(), 30);
+    same('remove server: … MediaCache itself refuses to run on it (no run without a server, no cleanup)', 'refused', trim($out));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * Budget mode always, the agent's side (2026-10-14): jackBudgetCheck() — a budget in total required (at least 20 GB), a
  * person's own budget at least 20 GB, together never over the total, what they leave at least 20 GB for each of the
  * others; jackSave() checks it before anything is written. Set up = a server and a budget (jackConfigured()).
@@ -48204,7 +48330,7 @@ JS;
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testWatchmanHold',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],

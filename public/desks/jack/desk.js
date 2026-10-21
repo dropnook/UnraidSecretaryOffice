@@ -467,7 +467,7 @@ function render() {
     hints.push(p);
   }
   if (!state.configured) {
-    const p = el('p', 'callout', T('notice.setup') + ' ');
+    const p = el('p', 'callout', T(noServer() ? 'notice.no_server' : 'notice.setup') + ' ');
     p.appendChild(button(T('setup_open'), 'small', () => Office.go(`#/${ID}/setup`)));
     p.appendChild(document.createTextNode(' '));
     p.appendChild(button(T('import.open'), 'small plain', importDialog)).disabled = !Office.agent.running;
@@ -1484,6 +1484,7 @@ function initForm() {
     }),
     chosenLibs: new Set(set.libraries || []),
     chosenUsers: new Set(Array.isArray(vu) ? vu : Object.keys(vu)),
+    forgotten: new Set(),          // the people of a server removed here: never saved again
     budgets,
     values: {
       cache_path: set.cache_path && state.pools.includes(set.cache_path) ? set.cache_path : (state.pools[0] || ''),
@@ -1858,7 +1859,8 @@ function setupServers() {
     if (inst.server) bar.appendChild(chip(T('setup.connected', { name: inst.server.name, type: SERVER_NAMES[inst.type], version: inst.server.version }), 'ok'));
     if (inst.server && inst.type === 'plex') box.appendChild(el('p', 'role', T('setup.plex_users')));
     if (inst.connectError) box.appendChild(el('p', 'callout danger jo-connect-error', inst.connectError));
-    if (form.instances.length > 1) bar.appendChild(button(T('setup.remove_server'), 'small plain', () => { form.instances.splice(idx, 1); renderSetup(); }));
+    // every server can go — the only one too, and one that doesn't answer (2026-10-21: an Emby left for Jellyfin stayed for good)
+    bar.appendChild(button(T('setup.remove_server'), 'small plain', () => removeServerDialog(inst)));
     // a second server of the same kind (rare): from its last row
     if (form.instances.findLastIndex((i) => i.type === inst.type) === idx) {
       bar.appendChild(button(T('setup.add_same', { kind: SERVER_NAMES[inst.type] }), 'small plain', () => {
@@ -1878,6 +1880,49 @@ function setupServers() {
   }
   return s1;
 }
+
+/**
+ * «Remove…» on a server: what it means first. Only the form changes; «Save» makes him forget it — its address, its key,
+ * and in his settings its libraries and its people. The click moves nothing on the pool: with servers left his next run
+ * plans with them and gives back what none of them asks for (a server that doesn't answer: an incomplete plan, nothing
+ * given back — mediacache/README.md); the last one: no run at all until one is connected, what he laid out stays on the
+ * pool, protected by his list.
+ */
+function removeServerDialog(inst) {
+  const name = inst.servername || SERVER_NAMES[inst.type];
+  const box = el('div');
+  box.appendChild(el('p', '', T('setup.remove_text', { kind: SERVER_NAMES[inst.type] })));
+  box.appendChild(el('p', '', T(form.instances.length > 1 ? 'setup.remove_others' : 'setup.remove_last')));
+  Office.dialog({ title: T('setup.remove_title', { server: name }), body: box, buttons: [
+    { text: Office.t('common.cancel') },
+    { text: T('setup.remove_go'), kind: 'danger', act: () => { removeServer(inst); return true; } },
+  ] });
+}
+/** The server out of the form, looked up again (the form may be new by now): its people with it — a person also on another server keeps their choice and budget there */
+function removeServer(inst) {
+  const at = form ? form.instances.indexOf(inst) : -1;
+  if (at < 0) return;
+  const gone = new Set((inst.users || []).map((u) => u.id));
+  for (const p of persons()) {
+    const left = p.ids.filter((id) => !gone.has(id));
+    if (!left.length || left.length === p.ids.length) continue;
+    if (personChosen(p)) left.forEach((id) => form.chosenUsers.add(id));
+    const b = personBudget(p);
+    if (b && !left.some((id) => budgetGb(form.budgets[id]) > 0)) form.budgets[left[0]] = b;
+  }
+  gone.forEach((id) => { form.chosenUsers.delete(id); delete form.budgets[id]; (form.forgotten ||= new Set()).add(id); });
+  form.instances.splice(at, 1);
+  if (!form.instances.length) {          // none left: nothing chosen any more (his budget, pool and «More» stay)
+    form.chosenLibs.clear();
+    form.chosenUsers.clear();
+    form.budgets = {};
+  }
+  renderSetup();
+}
+/** His saved settings have a server (saving with none left then makes him forget them) */
+const savedServers = () => !!(state && state.settings && (state.settings.instances || []).length);
+/** Settings saved, but no server in them: every one removed */
+const noServer = () => !!(state && state.settings && !(state.settings.instances || []).length);
 
 /** Where the media servers' logos come from: the same icon set as Ms. Dustdevil's container pictures (agent/desks/cleanup.php
  * CL_ICON_CDN, homarr-labs/dashboard-icons) — loaded by the browser at runtime, never shipped with the office */
@@ -2046,7 +2091,9 @@ function budgetState() {
 /** Why «Save» can't go now, '' when it can: no server to connect, no budget, or a person would get under MIN_PERSON_GB */
 function setupBlocked() {
   if (!form) return '';
-  if (!connected()) return form.instances.some(needsConnect) ? '' : T('setup.connect_first');      // «Save» connects what is typed
+  if (!form.instances.length) {            // every server removed: saving makes him forget them — when there was one saved
+    if (!savedServers()) return T('setup.connect_first');
+  } else if (!connected()) return form.instances.some(needsConnect) ? '' : T('setup.connect_first');      // «Save» connects what is typed
   if (!(budgetGb(form.values.cache_budget) > 0)) return T('setup.budget_missing');
   // never more than the pool holds (the lab, 2026-10-16)
   const size = (state.pool_sizes || {})[derivedPool()];
@@ -2638,12 +2685,15 @@ async function saveSetup(e) {
     if (!ok) { showPart('servers'); renderSetup(); return; }
     renderSetup();
   }
-  if (!connected()) { Office.toast(T('setup.connect_first'), true); showPart('servers'); return; }
+  // every server removed (savedServers(): there was one to forget): saved without — his budget, pool and «More» stay
+  const none = !form.instances.length;
+  if (!none && !connected()) { Office.toast(T('setup.connect_first'), true); showPart('servers'); return; }
+  if (none && !savedServers()) { Office.toast(T('setup.connect_first'), true); showPart('servers'); return; }
   const v = form.values;
   const libs = libraryList().filter((l) => form.chosenLibs.has(l.name));
-  if (!libs.length) { Office.toast(T('setup.no_library'), true); showPart('libraries'); return; }
-  // the pool from Unraid's share settings: one, or the one picked among several — never chosen freely
-  const cache = derivedPool();
+  if (!none && !libs.length) { Office.toast(T('setup.no_library'), true); showPart('libraries'); return; }
+  // the pool from Unraid's share settings: one, or the one picked among several — never chosen freely (none left: as saved)
+  const cache = none ? v.cache_path : derivedPool();
   if (!cache) { Office.toast(T(poolsOfChoice().size > 1 ? 'setup.pools_pick' : 'setup.pool_none'), true); showPart('libraries'); return; }
   const instances = form.instances.map((inst) => ({ type: inst.type, servername: inst.servername, url: inst.url, api_key: inst.api_key, path_mappings: {} }));
   // folders of libraries that aren't chosen: deliberately not cached (EmbyCache then skips them quietly)
@@ -2665,13 +2715,16 @@ async function saveSetup(e) {
   if (blocked) { Office.toast(blocked, true); showPart(budgetGb(v.cache_budget) > 0 ? 'users' : 'scope'); return; }
   // a person over all their servers: every id of theirs chosen, their budget once (under their first id)
   const people = chosenPersons();
+  // every server connected: only the ids they know (a server removed takes its people along, also one that didn't answer)
+  const known = form.instances.every((i) => i.server) ? new Set(everyone()) : null;
+  const keep = (id) => !(form.forgotten || new Set()).has(id) && (!known || known.has(id));
   const userBudgets = {};
   for (const p of people) if (budgetGb(personBudget(p)) > 0) userBudgets[p.ids[0]] = `${budgetGb(personBudget(p))}G`;
   const settings = {
     instances,
     libraries: libs.map((l) => l.name),
     library_types: Object.fromEntries(libs.map((l) => [l.name, l.type])),
-    valid_users: [...new Set([...form.chosenUsers, ...people.flatMap((p) => p.ids)])],     // (a server not connected keeps its ids)
+    valid_users: none ? [] : [...new Set([...form.chosenUsers, ...people.flatMap((p) => p.ids)])].filter(keep),     // (a server not connected keeps its ids)
     user_budgets: userBudgets,
     people: chosenPersons().map((p) => p.ids),
     cache_path: cache,
@@ -2982,7 +3035,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     historySection, plansSection, plansList, gatherSection, footer, scopeLine, lastRunTile, plansTile, poolTile, sharesTile, gatherTile, render,
     renderSetup, page: () => page, SETUP_TILES, setupTileData, setupTileList, setupStep, importSection, setupSwitcher, tileOf, setForm: (f) => { form = f; }, initForm, form: () => form,
     herRules, sharePart, ruleTexts, needsConnect, connectInst, resetDialog, budgetGb, budgetSplit, budgetState, budgetLine, setupBlocked, MIN_PERSON_GB, shareCase,
-    setupServers, mediaPick, newInstance, setupLibraries, setupUsers, setupScope, setupMore, saveSetup, saveBar, formKey, formChanged, formChangeCount, setupBar, derivedPool, poolsOfChoice, cacheable,
+    setupServers, mediaPick, newInstance, removeServerDialog, removeServer, noServer, setupLibraries, setupUsers, setupScope, setupMore, saveSetup, saveBar, formKey, formChanged, formChangeCount, setupBar, derivedPool, poolsOfChoice, cacheable,
     letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog, gatherSettingsDialog, gatherRunDialog, gatherCacheWords,
     progressPanel, setProgress: (p, why) => { progress = p; stopping = why || null; }, etaText, tookText, nightPanel, livePanel, chooseRun, headActions,
     setNight: (n) => { nightNow = n; }, nightGoing };

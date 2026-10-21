@@ -1414,7 +1414,7 @@ function tonightShort(p, age = null) {
  */
 function jackOutText(why) {
   if (!why) return '';
-  const k = why === 'jack_gather_first' ? 'night.jack_why_gather' : why === 'jack_not_configured' ? 'night.jack_why_setup' : 'night.jack_why_other';
+  const k = why === 'jack_gather_first' ? 'night.jack_why_gather' : why === 'jack_not_configured' || why === 'jack_no_server' ? 'night.jack_why_setup' : 'night.jack_why_other';
   return T('night.jack_out', { why: T(k) });
 }
 /** The last night in words, pure: when, how it ended (done, target missed, stopped in a phase, refused), its rounds */

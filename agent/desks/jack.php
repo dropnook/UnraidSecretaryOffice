@@ -1124,8 +1124,11 @@ function jackSave(mixed $in): array
         throw new Problem('jack_running');
     }
     $cur = jackReadSettings() ?? [];
+    if (!is_array($in['instances'] ?? null)) {
+        throw new Problem('bad_request');                // a list missing never means «no server»
+    }
     $instances = [];
-    foreach ((array) ($in['instances'] ?? []) as $i) {
+    foreach ($in['instances'] as $i) {
         if (!is_array($i)) {
             throw new Problem('bad_request');
         }
@@ -1150,7 +1153,10 @@ function jackSave(mixed $in): array
         $instances[] = array_diff_key($old, ['api_key' => 1, 'path_mappings' => 1, 'servername' => 1, 'url' => 1, 'type' => 1])
             + ['servername' => $name, 'type' => $type, 'url' => $url, 'api_key' => $key, 'path_mappings' => $maps];
     }
-    if (!$instances) {
+    // none (2026-10-21): every server removed on his page — only over saved settings (there is something to forget); he
+    // forgets their libraries and people too, keeps budget, pool and the rest, and doesn't run until one is connected
+    // (jackRunCheck(): jack_no_server). What lies on the pool stays there, protected by his list.
+    if (!$instances && !$cur) {
         throw new Problem('jack_need_key');
     }
     $cfg = $cur;
@@ -1162,7 +1168,7 @@ function jackSave(mixed $in): array
             throw new Problem('bad_request');
         }
     }
-    $cfg['libraries'] = array_values(array_filter($in['libraries'], 'is_string'));
+    $cfg['libraries'] = $instances ? array_values(array_filter($in['libraries'], 'is_string')) : [];
     // what kind each chosen library is (films, series …) — only for the office's overview, EmbyCache ignores it
     $cfg['library_types'] = [];
     foreach ((array) ($in['library_types'] ?? []) as $name => $type) {
@@ -1173,7 +1179,7 @@ function jackSave(mixed $in): array
     // people: a list of ids, or {id: {budget: "300G"}} when some have a budget of their own
     $users = [];
     $budgets = (array) ($in['user_budgets'] ?? []);
-    foreach ((array) ($in['valid_users'] ?? []) as $id) {
+    foreach ($instances ? (array) ($in['valid_users'] ?? []) : [] as $id) {
         if (is_string($id) && preg_match('/^[\w-]{1,64}$/D', $id)) {
             $b = trim(optText($budgets, $id));
             if ($b !== '' && !preg_match('/^\d+(\.\d+)?\s*[KMGTP]?B?$/iD', $b)) {
@@ -1190,7 +1196,7 @@ function jackSave(mixed $in): array
     }
     $persons = [];
     $grouped = [];
-    foreach ($people as $ids) {
+    foreach ($instances ? $people : [] as $ids) {
         if (!is_array($ids)) {
             throw new Problem('bad_request');
         }
@@ -1299,6 +1305,13 @@ function jackConfigured(?array $settings): bool
         && jackSizeBytes($settings['cache_budget']) >= JACK_MIN_PERSON_BYTES;
 }
 
+/** Not set up, as a refusal: every server removed (settings there, none in them) says so — else «not set up yet» */
+function jackNotConfigured(?array $settings = null): Problem
+{
+    $settings ??= jackReadSettings();
+    return new Problem($settings !== null && empty($settings['instances']) ? 'jack_no_server' : 'jack_not_configured');
+}
+
 // ===================================================================== set up from scratch (2026-10-14)
 /*
  * «Set up from scratch» — really zero (the owner): no copy, no way back. Gone: EmbyCache's settings (server, API key,
@@ -1379,12 +1392,20 @@ function jackWriteSettings(array $cfg, string $dir = JACK_DATA, string $tmp = RU
     }
     $trial = "$dir/.mediacache_settings.trial.json";
     @unlink($trial);
-    $py = 'import json, sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; '
-        . 'l.save_config(json.load(open(sys.argv[2], encoding="utf-8"))); l.load_config()';
+    // no server (every one removed): MediaCache's load_config() refuses that by design (so no run of it can go without one) —
+    // everything else it checks with a stand-in server, written to RAM beside the request and gone afterwards
+    $py = 'import json, sys, pathlib; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; '
+        . 'c = json.load(open(sys.argv[2], encoding="utf-8")); l.save_config(c); '
+        . 'l.CONFIG_FILE = l.CONFIG_FILE if c.get("instances") else pathlib.Path(sys.argv[3]); '
+        . 'c.get("instances") or l.save_config(dict(c, instances=[{"servername": "check", "type": "emby", "url": "http://check", '
+        . '"api_key": "check", "path_mappings": {"/check": "/mnt/user/check"}}])); l.load_config()';
+    $stand = "$tmp/.jack-settings-check.json";
+    @unlink($stand);
     try {
-        [$exit, , $err] = runEnv(['python3', '-c', $py, JACK_APP, $file], ['MEDIACACHE_DIR' => $dir] + jackPyEnv() + ['MEDIACACHE_CONFIG' => $trial], 30);
+        [$exit, , $err] = runEnv(['python3', '-c', $py, JACK_APP, $file, $stand], ['MEDIACACHE_DIR' => $dir] + jackPyEnv() + ['MEDIACACHE_CONFIG' => $trial], 30);
     } finally {
         @unlink($file);
+        @unlink($stand);
     }
     if ($exit !== 0 || !is_file($trial)) {
         @unlink($trial);
@@ -2778,7 +2799,7 @@ function jackRunCheck(string $tool, string $mode): void
             throw new Problem('unknown_target', ['target' => $mode]);
         }
         if (!jackConfigured(jackReadSettings())) {
-            throw new Problem('jack_not_configured');
+            throw jackNotConfigured();
         }
         // the gather is an optional helper (the owner, 2026-10-16): no real run waits for it any more
     } else {
@@ -3314,7 +3335,7 @@ function jackSetSchedule(string $job, ?string $cron): array
     // EmbyCache's schedule is the night run's (2026-10-13): one time for Ms. Moverelli and him — her line
     if ($job === 'embycache' && function_exists('moverelliSetSchedule') && moverelliHired()) {
         if ($cron !== null && !jackConfigured(jackReadSettings())) {
-            throw new Problem('jack_not_configured');
+            throw jackNotConfigured();
         }
         $r = moverelliSetSchedule($cron);
         if ($cron === null && officeJobSchedule('embycache')['enabled']) {
@@ -3325,7 +3346,7 @@ function jackSetSchedule(string $job, ?string $cron): array
     }
     if ($cron !== null) {
         if ($job === 'embycache' && !jackConfigured(jackReadSettings())) {
-            throw new Problem('jack_not_configured');
+            throw jackNotConfigured();
         }
         if ($job === 'gather' && !(jackGatherSettings()['shares'] ?? [])) {
             throw new Problem('jack_gather_not_configured');
