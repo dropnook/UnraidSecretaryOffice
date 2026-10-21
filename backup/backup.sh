@@ -1,6 +1,13 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.67 - 2026-10-21
+# unraid-backup - backup.sh                       Version 2.68 - 2026-10-21
+#   2.68 An upload that takes nothing no longer holds the run for ever: Kopia's upload keeps no time limit, but a stall
+#        watchdog - its process reading and writing less than UB_KOPIA_STALL_BYTES (1 MiB, /proc/<pid>/io) for
+#        UB_KOPIA_STALL (900 s) ends it (INT, KILL after UB_KOPIA_STALL_END); a warning kopia_stalled {name, minutes,
+#        since}, the later uploads skipped at once, no further Kopia step waits (kopia_silent); the run ends as always
+#        (unmount, cleanup, the lock freed); local snapshots, packages and partners as always. Every other Kopia
+#        call but the upload and the policies (--version, repository status, snapshot list) has UB_KOPIA_TIMEOUT
+#        (300 s) instead of the exec's 900 s.
 #   2.67 A docker exec ended by its time limit no longer leaves its process running inside the container (ub_exec_end:
 #        exactly that command, started since the exec, and its children - TERM, then KILL). A Kopia call ended by its limit
 #        means Kopia doesn't answer: the run's later Kopia calls with a limit are refused at once (kopia_silent) - a share
@@ -4211,9 +4218,15 @@ refresh_view
 
 # --- Kopia ----------------------------------------------------------------
 KOPIA_DONE=0; KOPIA_FAILED=0
+KOPIA_STALLED=""            # 2.68: the source whose upload took nothing for UB_KOPIA_STALL seconds (ended) - Kopia not asked again
+KOPIA_STALL_AT=0            #   the last moment it moved
 kopia_one() { # kopia_one <name> <container path>
-    local name="$1" cp="$2" t0 rc secs
+    local name="$1" cp="$2" t0 rc secs stalled=0
     t0="$(date +%s)"
+    if [[ -n "$KOPIA_STALLED" ]]; then           # 2.68: the storage takes nothing - each upload would only wait as long
+        log "Kopia: $name skipped - the offsite storage took nothing since $(date -d "@$KOPIA_STALL_AT" '+%H:%M')"
+        kopia_skip "$name"; return 0
+    fi
     log "Kopia: $name  ($cp)"
     ST_KOPIA_CUR="$name"; ST_KOPIA_CUR_T="$t0"; status_write
     # In the background + wait: a signal (abort) interrupts wait at once,
@@ -4224,6 +4237,9 @@ kopia_one() { # kopia_one <name> <container path>
     KOPIA_CP="$cp"
     UB_DOCKER_LONG=1 kopia_x snapshot create "$cp" --description "$UB_KOPIA_DESC $TS" >>"$LOG_FILE" 2>&1 &     # hours: no docker limit (2.66)
     KOPIA_PID=$!
+    # 2.68: no time limit, but a stall watchdog - the kopia process neither reading nor writing for UB_KOPIA_STALL seconds
+    # (a storage that takes no writes: Kopia waits for ever) ends it (lib/common.sh kopia_stall_look/_end)
+    kopia_stall_begin
     local w got
     while :; do
         array_stop_check "Kopia was uploading $name"
@@ -4235,13 +4251,26 @@ kopia_one() { # kopia_one <name> <container path>
             wait "$w" 2>/dev/null
             kill -0 "$KOPIA_PID" 2>/dev/null || { wait "$KOPIA_PID"; rc=$?; break; }
         fi
+        if kopia_stall_look "$cp"; then
+            stalled=1
+            log "  Kopia neither read nor wrote anything for $(dur_h $(( $(date +%s) - KS_AT ))) - the offsite storage takes nothing; the upload is ended"
+            kopia_stall_end "$KOPIA_PID"
+            wait "$KOPIA_PID" 2>/dev/null; rc=125
+            break
+        fi
     done
     kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
     KOPIA_PID=""; KOPIA_CP=""
     # it ended badly just as the array stop began (Docker going): interrupted by the stop, not failed
     if (( rc != 0 )) && array_stopping; then ST_KOPIA_INTERRUPTED="$name"; array_stop_check "Kopia ended with exit code $rc"; fi
     secs=$(( $(date +%s) - t0 ))
-    if [[ $rc -eq 0 ]]; then KOPIA_DONE=$((KOPIA_DONE+1)); log "  ok ($secs s)"
+    if (( stalled )); then
+        # 2.68: not an error of this server - a warning in the office's words; the later uploads and Kopia steps don't wait
+        KOPIA_STALLED="$name"; KOPIA_STALL_AT="$KS_AT"; KOPIA_FAILED=$((KOPIA_FAILED+1))
+        kopia_silent_mark "$secs" snapshot
+        warn_code kopia_stalled "Kopia took nothing for $(( UB_KOPIA_STALL / 60 )) min - the upload of '$name' was ended; nothing more goes offsite in this run (the offsite storage takes no writes since $(date -d "@$KS_AT" '+%Y-%m-%d %H:%M'))" \
+            name="$name" minutes="$(( UB_KOPIA_STALL / 60 ))" since="$(date -d "@$KS_AT" '+%Y-%m-%d %H:%M')"
+    elif [[ $rc -eq 0 ]]; then KOPIA_DONE=$((KOPIA_DONE+1)); log "  ok ($secs s)"
     else KOPIA_FAILED=$((KOPIA_FAILED+1)); err "Kopia snapshot of '$name' failed (exit code $rc)"; fi
     ST_KOPIA_DONE+=( "$name|$([[ $rc -eq 0 ]] && echo 1 || echo 0)|$secs|$(date +%s)" )
     ST_KOPIA_CUR=""; status_write
@@ -4326,8 +4355,10 @@ elif [[ "$KOPIA_OK" == "yes" ]]; then
             share) kopia_share_one "$ko_item" ;;
         esac
     done
-    kopia_count_save run             # 2.53: what the next run (and the Night Watchman) compares with
-    kopia_lock_save                  # 2.56: Object Lock and Kopia's maintenance (Mr. Backupsy's checks judge it)
+    if [[ -z "$KOPIA_STALLED" ]]; then   # 2.68: a storage that takes nothing - Kopia not asked again in this run
+        kopia_count_save run             # 2.53: what the next run (and the Night Watchman) compares with
+        kopia_lock_save                  # 2.56: Object Lock and Kopia's maintenance (Mr. Backupsy's checks judge it)
+    fi
     [[ $KOPIA_FAILED -gt 0 ]] && ub_tell kopia_incomplete warning "Log: $LOG_FILE" "Not everything went offsite" \
         "$KOPIA_FAILED source(s) not backed up offsite, $KOPIA_DONE done. Mr. Backupsy's page shows the details." "n=$KOPIA_FAILED" "done=$KOPIA_DONE"
 fi

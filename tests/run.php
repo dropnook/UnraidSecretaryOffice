@@ -5185,6 +5185,14 @@ SH, $sh);
     $log = (string) @file_get_contents("$tmp/lib.log");
     check('kopia hang: … the log says it once, and each call not asked', substr_count($log, 'Kopia did not answer within 2 s (kopia policy ...)') === 1
         && substr_count($log, 'Kopia not asked (it did not answer before)') === 2, $log);
+    // 2.68: a read before the upload (repository status, snapshot list) - UB_KOPIA_TIMEOUT, not the exec's limit; once
+    // it ran into it, the next one isn't asked (a run's Kopia steps before its upload never wait 900 s each)
+    $reset();
+    [$o, $secs] = $bash('FAKE_HANG="repository status" UB_DOCKER_EXEC_TIMEOUT=60 UB_KOPIA_TIMEOUT=2 kopia_x repository status --json >/dev/null; echo "rc=$?";'
+        . ' UB_DOCKER_EXEC_TIMEOUT=60 UB_KOPIA_TIMEOUT=2 kopia_x snapshot list --all --json >/dev/null; echo "list=$?"');
+    same('kopia hang 2.68: a read before the upload ends after UB_KOPIA_TIMEOUT (not the exec\'s 60 s), the next one is refused at once',
+        ["rc=124\nlist=124", true, false], [$o, $secs < 15, $alive($inner()[0] ?? 0)]);
+    array_map('unlink', glob("$data/state/.kopia-silent.*") ?: []);
     [$o] = $bash('kopia_silent && echo silent || echo quiet');
     same('kopia hang: the mark is this process\'s alone - another one (the next Apply, the next run) asks Kopia again', 'quiet', $o);
     [$o] = $bash('printf "%s 2 policy\n" "$UB_KOPIA_SILENT_ID" >"$(kopia_silent_file)"; kopia_silent && echo silent; ub_holder_clear; [[ -e "$(kopia_silent_file)" ]] && echo left || echo gone');
@@ -7221,8 +7229,11 @@ case "\$1" in
             exec perl -e '\$cp = shift; \$f = shift; \$long = shift;
               sub ev { my \$t = qx(date +%s); chomp \$t; open(my \$h, ">>", "\$f/events"); print \$h "\$t \$_[0]\\n"; close(\$h); }
               \$SIG{INT} = sub { ev("kopia interrupted \$cp"); unlink("\$f/kopia.top"); exit 0; };
+              # \$FAKE/kopia.stall: the storage takes no writes - Kopia neither reads nor writes, never ends, INT does not help
+              # (a few bytes now and then all the same, as a real Kopia moves them while it waits)
+              if (shift) { ev("kopia stalled \$cp"); \$SIG{INT} = "IGNORE"; open(my \$n, ">", "/dev/null"); for (1 .. 1500) { syswrite(\$n, "12345678"); select(undef, undef, undef, 0.2); } }
               select(undef, undef, undef, 0.1) for 1 .. (\$long ? 300 : 3);
-              ev("kopia done \$cp"); unlink("\$f/kopia.top"); exit 0;' "\$cp" "\$FAKE" "\$(grep -c Stopping "\$FAKE/var.ini")" ;;
+              ev("kopia done \$cp"); unlink("\$f/kopia.top"); exit 0;' "\$cp" "\$FAKE" "\$(grep -c Stopping "\$FAKE/var.ini")" "\$([[ -e "\$FAKE/kopia.stall" ]] && echo 1 || echo 0)" ;;
           --version*) echo "0.23.0 build" ;;
         esac
         exit 0 ;;
@@ -7417,6 +7428,36 @@ SH);
     check('nc 0777: the office says it (warn_code.nc_datadir_readable with {name} {path} {uid}, five languages)', array_filter(['en', 'de', 'it', 'fr', 'es'],
         fn ($l) => !preg_match('/\{name\}.*\{path\}.*\{uid\}/', (string) (langFile(OFFICE_WEB . "/desks/backup/lang/$l.json")['warn_code.nc_datadir_readable'] ?? ''))) === []);
     @unlink("$pool/appdata/nc/config/config.php");
+
+    // --- engine 2.68: an upload that takes nothing (the storage takes no writes - Kopia waits for ever and INT doesn't end
+    // it): its stall watchdog ends it after UB_KOPIA_STALL seconds without reads or writes; a warning, not an error; the
+    // other uploads skipped at once; the run ends as always
+    $night();
+    touch("$fake/kopia.stall");
+    foreach (['UB_KOPIA_STALL=3', 'UB_KOPIA_LOOK=1', 'UB_KOPIA_STALL_END=1'] as $kv) {
+        putenv($kv);
+    }
+    [$code, $secs, $out] = $run();
+    foreach (['UB_KOPIA_STALL', 'UB_KOPIA_LOOK', 'UB_KOPIA_STALL_END'] as $k) {
+        putenv($k);
+    }
+    @unlink("$fake/kopia.stall");
+    $s = $status();
+    $n = $names();
+    $stalledPid = (int) @file_get_contents("$fake/kopia.top");
+    $first = $s['kopia']['planned'][0] ?? '?';
+    $stall = array_values(array_filter($s['warning_items'] ?? [], fn ($i) => ($i['code'] ?? '') === 'kopia_stalled'));
+    same('stall 2.68: the run ends in seconds with a warning (not an error) - kopia_stalled names the first source',
+        [0, 'warnings', 0, 1, $first, true], [$code, $s['result'] ?? null, $s['errors'] ?? null, count($stall), $stall[0]['params']['name'] ?? null, $secs < 60], $out . $log());
+    same('stall 2.68: … that upload ended inside the container (INT ignored: KILL), the others never started, none counted done',
+        [1, 1, false, 0, 3], [count(preg_grep('/^kopia stalled /', $n)), count(preg_grep('/^kopia start /', $n)), $stalledPid > 0 && posix_kill($stalledPid, 0),
+         count(array_filter($s['kopia']['done'] ?? [], fn ($d) => $d['ok'])), count($s['kopia']['done'] ?? [])]);
+    check('stall 2.68: … its log says so, the later ones skipped at once, the lock free, «not everything went offsite» told',
+        str_contains($log(), 'the offsite storage takes nothing; the upload is ended') && substr_count($log(), 'skipped - the offsite storage took nothing since') === 2
+        && $lockFree() && count(preg_grep('/Not everything went offsite|-i warning/', $notes())) >= 1, $log() . json_encode($notes()));
+    same('stall 2.68: … the run finished its end - the snapshot mounts released, the apps running, the retention done',
+        [[], true, true], [$ours(), !in_array('stopped', array_map(fn ($f) => trim((string) file_get_contents($f)), glob("$fake/ct/*") ?: []), true),
+         in_array('zfs destroy maple/appdata@uso-backup-20200101-0100', $n, true)]);
 
     $prunedRuns = fn () => count(json_decode((string) @file_get_contents("$data/state/pruned.json"), true)['runs'] ?? []);
     $pruned0 = $prunedRuns();
@@ -8136,9 +8177,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.67 everywhere it is named', ['2.67', '2.67', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.67"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.67** –')]);
+    same('data trust: the engine\'s version 2.68 everywhere it is named', ['2.68', '2.68', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.68"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.68** –')]);
     // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
     same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
         array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
@@ -9242,7 +9283,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.67', [1, '2.67'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.68', [1, '2.68'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -9850,7 +9891,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.67', [1, '2.67'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.68', [1, '2.68'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
