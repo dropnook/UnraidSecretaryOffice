@@ -5636,7 +5636,7 @@ function testSetupUntrusted(): void
         array_fill_keys(['backupSetupPlan', 'backupSetupApply', 'backupStart', 'backupSetupForget'], ['engine_untrusted', $data, true]), $refused);
     $php = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
     check('untrusted: Mr. Backupsy\'s state carries it, his own plan anew after an engine update waits too',
-        str_contains($php, "'engine_trust' => backupTrustState(\$data),") && str_contains($php, '$free = $holder === null && !backupSetupStatus()[\'running\'] && backupTrustState($data) === null;'));
+        str_contains($php, "'engine_trust' => backupTrustState(\$data),") && str_contains($php, '$free = $holder === null && !$st[\'running\'] && backupTrustState($data) === null'));
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
     check('untrusted (page): a callout with the command on his page and in the setup', str_contains($js, "T('notice.untrusted', { path: t.path })")
         && substr_count($js, 'untrustedCallout();') === 2);

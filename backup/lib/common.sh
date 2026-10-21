@@ -2122,19 +2122,19 @@ kopia_watch_prev() {
 
 # kopia_watch - one look (--kopia-watch): the record written and printed; a turn to «stuck» told once (a warning)
 kopia_watch() {
-    local now logs rc p prev rec why="" since_h
+    local now logs rc p prev rec kw_why="" since_h
     now="$(date +%s)"
     prev="$(kopia_watch_prev)"
-    if [[ "$(docker inspect -f '{{.State.Running}}' "$KOPIA_CONTAINER" 2>/dev/null)" != "true" ]]; then why="not_running"
+    if [[ "$(docker inspect -f '{{.State.Running}}' "$KOPIA_CONTAINER" 2>/dev/null)" != "true" ]]; then kw_why="not_running"
     else
         logs="$(kopia_watch_logs)"; rc=$?
-        if (( rc == 3 )); then why="no_log"; elif (( rc != 0 )); then why="no_answer"; fi
+        if (( rc == 3 )); then kw_why="no_log"; elif (( rc != 0 )); then kw_why="no_answer"; fi
     fi
-    if [[ -n "$why" ]]; then p='{}'; else p="$(kopia_watch_parse "$now" <<<"$logs")" || p='{}'; fi
-    [[ -n "$why" || "$(jq -r '.files // 0' <<<"$p")" != "0" ]] || why="no_log"
+    if [[ -n "$kw_why" ]]; then p='{}'; else p="$(kopia_watch_parse "$now" <<<"$logs")" || p='{}'; fi
+    [[ -n "$kw_why" || "$(jq -r '.files // 0' <<<"$p")" != "0" ]] || kw_why="no_log"
     local other=false; kopia_watch_owner_other && other=true
     rec="$(jq -c -n --argjson p "$p" --argjson prev "$prev" --argjson now "$now" --argjson quiet "$UB_KOPIA_WATCH_QUIET" \
-              --arg why "$why" --argjson other "$other" '
+              --arg why "$kw_why" --argjson other "$other" '
         ($prev.state == "stuck" and ($prev.since | type) == "number") as $was
         | {v: 1, time: $now, storage: (($p.storage // "") | if . == "" then ($prev.storage // "") else . end),
            last_write: ($p.last_write // $prev.last_write // null)} as $base
