@@ -4646,8 +4646,9 @@ function testSilentControlsMore(): void
         && str_contains($sp, '{ view.wake.checked = false; view.wakeSync(); }'));
     check('silent controls: Dustdevil\'s the same', str_contains($cl, "wakeNote.append(el('span', '', T('where.wake_once')), wakeGo);")
         && str_contains($cl, 'wakeNote.hidden = !v.wake.checked || v.wakeLabel.hidden;') && str_contains($cl, '{ view.wake.checked = false; view.wakeSync(); }'));
-    check('silent controls: Jack Streamer\'s bar - drawn from his setup, gone on his other page and on other desks',
-        str_contains($jk, 'setTimeout(setupBar, 0);') && substr_count($jk, 'Office.selbar(null)') >= 3);
+    // 2026-10-21 (the owner): no floating bar on his page — «Save» at the bottom says it, «Discard» beside it
+    check('silent controls: Jack Streamer\'s «n changes» - said by «Save» at the bottom (with «Discard»), no floating bar',
+        str_contains($jk, 'setTimeout(setupBar, 0);') && !str_contains($jk, 'Office.selbar(') && str_contains($jk, "foot.append(save, discard, why, changes);"));
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         $b = $lang('backup', $l);
         $s = $lang('snapshot', $l);
@@ -38966,6 +38967,7 @@ const texts = (n) => (typeof n === 'string' ? [n] : [n.text, ...n.children.flatM
   m.setForm(null);
   m.initForm();
   out.noBar = m.setupBarSpec();
+  out.footNone = (m.saveFootEl().children.map((c) => [c.textContent, !!c.disabled, !!c.hidden]));
   const f = m.form();
   f.global.min_age = 14;
   f.global.files.push('/mnt/user/appdata/x/mediacache_exclude.txt');
@@ -38976,6 +38978,7 @@ const texts = (n) => (typeof n === 'string' ? [n] : [n.text, ...n.children.flatM
   const rows = m.setupChangeRows(m.formSettings({ global: base.settings.global, shares: { Filme: base.settings.shares.Filme, Docs: { skip: false, min_age: null, age_stat: null, move_when_used_above: null, files: [], patterns: [] } } }), m.formSettings(f));
   const spec = m.setupBarSpec();
   out.bar = [spec.title, spec.buttons.map((b) => [b.text, b.disabled])];
+  out.foot = (m.saveFootEl().children.map((c) => [c.textContent, !!c.disabled, !!c.hidden]));
   out.rows = rows.map((r) => [r.mark, r.label, r.what]);
   m.setupApply();
   let d = dialogs.pop();
@@ -39009,6 +39012,11 @@ JS);
         } else {
             same('unraid mover page: her setup unchanged and set up — no bar', null, array_key_exists('noBar', $o) ? $o['noBar'] : 'x');
             same('unraid mover page: the bar — «N changes», Discard, Apply…', ['setup.bar_changes {"n":6}', [['setup.discard', false], ['setup.save', false]]], $o['bar']);
+            // 2026-10-21 (the owner): no floating bar on her page — «Save» at its bottom, «Discard» and a quiet line beside it
+            same('unraid mover page: «Save» at the bottom — nothing changed: grey, no «Discard», no line; changed: free, «Discard», «N changes — against what is saved»',
+                [[['setup.save', true, false], ['setup.discard', false, true], ['', false, false]], [['setup.save', false, false], ['setup.discard', false, false], ['setup.bar_changes {"n":6} — setup.bar_sub', false, false]]],
+                [$o['footNone'] ?? null, $o['foot'] ?? null]);
+            check('unraid mover page: … her page sets no floating bar any more', !str_contains((string) file_get_contents(OFFICE_WEB . '/desks/moverelli/desk.js'), 'Office.selbar('));
             same('unraid mover page: the changes, Mr. Backupsy\'s marks — a value «a → b», + a list, + an own line, a share\'s own rules new, a share\'s rules changed', [
                 [null, 'setup.row_global {"what":"setup.min_age"}', 'setup.tile.days {"n":0} → setup.tile.days {"n":14}'],
                 ['add', 'setup.files', '/mnt/user/appdata/x/mediacache_exclude.txt'], ['add', 'setup.patterns', '*.nfo'],
@@ -39483,7 +39491,7 @@ function testStreamerTab(): void
   f.chosenUsers = new Set(['u-anna', 'u-lena']);
   f.budgets = { 'u-anna': '10G' };
   const bar = e.saveBar();
-  out.low = [e.setupBlocked().replace(/ \{.*$/, ''), bar.children[0].disabled, bar.children[1].textContent.replace(/ \{.*$/, ''), e.setupTileData().find((d) => d.id === 'users').alert];
+  out.low = [e.setupBlocked().replace(/ \{.*$/, ''), bar.children[0].disabled, bar.children.find((c) => /jo-save-why/.test(c.className)).textContent.replace(/ \{.*$/, ''), e.setupTileData().find((d) => d.id === 'users').alert];
   f.budgets = { 'u-anna': '200G', 'u-lena': '200G' };
   out.over = [!!e.setupBlocked(), e.budgetState().over];
   f.budgets = { 'u-anna': '100G' };
@@ -39574,6 +39582,212 @@ JS, [OFFICE_WEB . '/desks/jack/desk.js', OFFICE_DIR . '/tests/ui/demo/jack.json'
     same('streamer tab: «Save» with a new key connects first', true, $r['needs']);
     same('streamer tab: … a failure — no save, the error in the server\'s box, the server\'s part shown', [['jack.connect'], 'E:jack_connect', ['servers', 'click']], $r['connectFail']);
     same('streamer tab: … connected — then saved', ['jack.connect', 'jack.save'], $r['connectOk']);
+}
+
+/**
+ * Every server can be removed (2026-10-21, the owner: Emby swapped for Jellyfin, the old Emby didn't answer any more and
+ * «Remove» showed only with two or more servers). Each row has «Remove…» — the only one too, one not connected too — with
+ * a confirm saying plainly what happens: «Save» makes him forget its address, key, libraries and people; nothing on the
+ * pool moves by the click — with servers left his next run plans with them (a server that doesn't answer: nothing given
+ * back), the last one: no run until one is connected, what he laid out stays, protected by his list. A person also on
+ * another server keeps their choice and budget there. Saving with none left works over saved settings (budget, pool and
+ * the rest kept, every list empty); his runs and his schedule refuse then with «no media server set up», and the settings
+ * file stays one MediaCache's own check accepts — apart from the server list, which it refuses to run without.
+ */
+function testJackRemoveServer(): void
+{
+    $r = streamerTabRun('jack remove server', <<<'JS'
+(async () => {
+  const out = {};
+  const removes = (n) => all(n).filter((x) => x.tag === 'button' && x.textContent === 'setup.remove_server');
+  const chipsOf = () => all(e.setupServers()).filter((n) => /jo-media-card/.test(n.className)).map((n) => all(n).find((x) => /\bchip\b/.test(x.className || '')).textContent);
+  e.setState(st); e.initForm();
+  out.three = removes(e.setupServers()).length;
+  e.form().instances = [e.form().instances[0]];            // only the Emby, not connected (it doesn't answer)
+  out.one = removes(e.setupServers()).length;
+  out.chipsBefore = chipsOf();
+  removes(e.setupServers())[0].onclick();
+  const d = dialogs.at(-1);
+  out.dialog = [d.o.title, texts(d.o.body), d.o.buttons.map((b) => [b.text, b.kind || ''])];
+  out.stillThere = e.form().instances.length;              // the click alone changes nothing
+  d.o.buttons[1].act();
+  out.after = [e.form().instances.length, chipsOf(), e.setupBlocked(), texts(e.setupServers()).filter((t) => /^setup\.(connect_first|remove)/.test(t))];
+  e.form().values.cache_budget = '300';
+  posts.length = 0;
+  await e.saveSetup();
+  const s = (posts.find((p) => p[0] === 'jack.save') || [])[1];
+  out.saveNone = s ? [s.settings.instances, s.settings.libraries, s.settings.valid_users, s.settings.user_budgets, s.settings.people, s.settings.cache_path, s.settings.cache_budget] : toasts.at(-1);
+  // nothing saved to forget (a fresh setup): «Save» still asks for a server
+  e.setState({ ...st, configured: false, settings: null }); e.initForm(); e.form().instances = [];
+  out.fresh = e.setupBlocked();
+  // saved with none: his page says so, the setup's start row from his containers
+  e.setState({ ...st, configured: false, settings: { ...st.settings, instances: [] } });
+  out.noServer = e.noServer();
+  e.initForm();
+  out.freshRow = [e.form().instances.length, chipsOf().filter((c) => c === 'setup.media_set').length];
+  // two servers left: the others' words; a person on both keeps the choice and the budget there; a server removed takes its people along
+  e.setState(st); e.initForm();
+  const f = connect();
+  Object.assign(f.instances[1], { url: 'http://y', server: con.server, libraries: con.libraries, users: [{ id: 'j-anna', name: 'Anna' }], connectedAs: 'jellyfin|http://y|' });
+  con.libraries.forEach((l) => l.locations.forEach((p) => { f.instances[1].mappings[p] = f.instances[0].mappings[p]; }));
+  f.chosenUsers = new Set(['u-anna', 'u-lena', 'p-old']);
+  f.budgets = { 'u-anna': '100G' };
+  e.removeServerDialog(f.instances[0]);
+  out.othersText = texts(dialogs.at(-1).o.body)[1];
+  e.removeServer(f.instances[2]);                          // the Plex (not connected): its ids unknown here
+  e.removeServer(f.instances[0]);                          // the Emby: Anna also on the Jellyfin, Lena only here
+  out.people = [[...f.chosenUsers].sort(), f.budgets, f.instances.map((i) => i.type)];
+  e.removeServer({ type: 'emby' });                        // a row no longer in the form: nothing
+  out.gone = f.instances.length;
+  posts.length = 0;
+  await e.saveSetup();
+  const s2 = (posts.find((p) => p[0] === 'jack.save') || [])[1];
+  out.saveOne = s2 ? [s2.settings.instances.map((i) => i.type), s2.settings.valid_users, s2.settings.user_budgets] : toasts.at(-1);
+  console.log(JSON.stringify(out));
+})();
+JS, [OFFICE_WEB . '/desks/jack/desk.js', OFFICE_DIR . '/tests/ui/demo/jack.json', OFFICE_DIR . '/tests/ui/demo/post/jack.connect.json']);
+    if ($r !== null) {
+        same('remove server: three servers — «Remove…» on each', 3, $r['three']);
+        same('remove server: … the only one too, not connected (it doesn\'t answer)', 1, $r['one']);
+        same('remove server: a confirm first — its name, forgotten on «Save», the last one\'s words, «Cancel» and «Remove»',
+            ['setup.remove_title {"server":"FamilienServer"}', ['setup.remove_text {"kind":"Emby"}', 'setup.remove_last'], [['common.cancel', ''], ['setup.remove_go', 'danger']]], $r['dialog']);
+        same('remove server: … the click alone removes nothing', 1, $r['stillThere']);
+        same('remove server: removed — no row, Emby «supported» again (was «set up»), «Save» free, «Connect at least one server» said',
+            [['setup.media_set', 'setup.media_ok', 'setup.media_ok'], [0, ['setup.media_ok', 'setup.media_ok', 'setup.media_ok'], '', ['setup.connect_first']]], [$r['chipsBefore'], $r['after']]);
+        same('remove server: saved with none — every list empty, budget and pool kept', [[], [], [], [], [], '/mnt/cache', '300G'], $r['saveNone']);
+        same('remove server: … never over nothing saved (a fresh setup asks for a server)', 'setup.connect_first', $r['fresh']);
+        same('remove server: saved with none — his page knows, the setup starts with one row, nothing «set up»', [true, [1, 0]], [$r['noServer'], $r['freshRow']]);
+        same('remove server: servers left — the others\' words', 'setup.remove_others', $r['othersText']);
+        same('remove server: a person on both keeps choice and budget on the server left; one only there and an unknown id go',
+            [['j-anna', 'p-old'], ['j-anna' => '100G'], ['jellyfin']], $r['people']);
+        same('remove server: … a row no longer in the form: nothing happens', 1, $r['gone']);
+        same('remove server: … saved: the server left, only the ids it knows, the budget there', [['jellyfin'], ['j-anna'], ['j-anna' => '100G']], $r['saveOne']);
+    }
+    // the agent: a list missing never means «no server»; none only over saved settings; the refusal says why
+    $refused = function (callable $f): string {
+        try {
+            $f();
+            return 'ok';
+        } catch (Problem $p) {
+            return $p->key;
+        }
+    };
+    same('remove server: the agent — the server list missing is a bad request (never «no server»)', 'bad_request',
+        $refused(fn () => jackSave(['libraries' => [], 'library_types' => [], 'valid_users' => [], 'user_budgets' => []])));
+    if (jackReadSettings() === null) {
+        same('remove server: … none with nothing saved — a server is needed', 'jack_need_key',
+            $refused(fn () => jackSave(['instances' => [], 'libraries' => [], 'library_types' => [], 'valid_users' => [], 'user_budgets' => []])));
+    }
+    same('remove server: not set up — none left says «no media server», else «not set up yet»', ['jack_no_server', 'jack_not_configured', 'jack_not_configured'],
+        [jackNotConfigured(['instances' => [], 'cache_budget' => '300G'])->key, jackNotConfigured(['instances' => [['url' => 'x']]])->key, jackNotConfigured(['cache_budget' => '300G', 'instances' => [['url' => 'x']]])->key]);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
+    same('remove server: his runs and his schedule refuse with that reason', [3, 0], [substr_count($src, 'throw jackNotConfigured();'), substr_count($src, "throw new Problem('jack_not_configured');")]);
+    check('remove server: saved with none — libraries and people forgotten on the agent too',
+        str_contains($src, "\$cfg['libraries'] = \$instances ? array_values(array_filter(\$in['libraries'], 'is_string')) : [];")
+        && str_contains($src, "foreach (\$instances ? (array) (\$in['valid_users'] ?? []) : [] as \$id) {") && str_contains($src, 'foreach ($instances ? $people : [] as $ids) {'));
+    // MediaCache's own check on a file without a server: the rest checked with a stand-in, the file written as it is
+    if (trim((string) shell_exec('command -v python3')) === '') {
+        check('remove server: python3 is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('jackremove');
+    @mkdir("$tmp/emby", 0700, true);
+    @mkdir("$tmp/pool", 0700, true);
+    @mkdir("$tmp/run", 0700, true);
+    $cfg = ['cache_path' => "$tmp/pool", 'array_path' => $tmp, 'cache_budget' => '300G', 'instances' => [], 'libraries' => [], 'valid_users' => []];
+    $w = $refused(fn () => jackWriteSettings($cfg, "$tmp/emby", "$tmp/run"));
+    $saved = json_decode((string) @file_get_contents("$tmp/emby/mediacache_settings.json"), true);
+    same('remove server: MediaCache\'s check passes without a server — written with none, the stand-in gone, nothing left in RAM',
+        ['ok', [], '300G', [], false], [$w, $saved['instances'] ?? null, $saved['cache_budget'] ?? null, array_values(array_diff(scandir("$tmp/run"), ['.', '..'])), is_file("$tmp/emby/.mediacache_settings.trial.json")]);
+    same('remove server: … a wrong value still refused (checked with the stand-in)', 'jack_config',
+        $refused(fn () => jackWriteSettings(['min_free_percent' => 'bad'] + $cfg, "$tmp/emby", "$tmp/run")));
+    $py = 'import sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l
+try:
+    l.load_config(require_paths=False); print("ran")
+except l.ConfigError: print("refused")';
+    [, $out] = runEnv(['python3', '-c', $py, JACK_APP], ['MEDIACACHE_DIR' => "$tmp/emby"] + jackPyEnv(), 30);
+    same('remove server: … MediaCache itself refuses to run on it (no run without a server, no cleanup)', 'refused', trim($out));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * After «Save» his servers connect again by themselves, as on a visit (2026-10-21, the owner on his real server: «Media
+ * servers 1 · 0 connected», no people, no libraries until a reload — the settings were saved fine). While they connect
+ * the tile and the row show the wave («connecting»), never «0 connected»; once connected the people and libraries are
+ * back and the form counts no change (what connecting filled in is not the user's).
+ */
+function testJackSaveReconnect(): void
+{
+    $r = streamerTabRun('jack save reconnect', <<<'JS'
+(async () => {
+  const out = {};
+  Object.assign(Office, { deskHead: () => ({ head: el('div') }), desks: { get: () => ({}) }, withGreeting: (id, b) => b, selbar() {} });
+  e.setView(el('div'), 'setup');
+  e.setState(st); e.initForm();
+  connect();
+  answers['jack.connect'] = { ok: true, server: con.server, libraries: con.libraries, users: con.users };
+  answers['jack.save'] = { ok: true, state: st };
+  posts.length = 0;
+  await e.saveSetup();
+  const f = e.form();
+  out.saved = posts.filter((p) => p[0] === 'jack.save').length;
+  out.during = [f.instances.map((i) => !!i.connecting), e.setupTileData()[0].sub[0], all(e.setupServers()).filter((n) => n.className === 'spin').length];
+  await new Promise((res) => setTimeout(res, 20));
+  out.after = [e.form() === f, f.instances.map((i) => !!i.server), e.setupTileData()[0].sub[0], e.persons().length > 0, e.libraryList().length > 0, e.formChangeCount()];
+  console.log(JSON.stringify(out));
+})();
+JS, [OFFICE_WEB . '/desks/jack/desk.js', OFFICE_DIR . '/tests/ui/demo/jack.json', OFFICE_DIR . '/tests/ui/demo/post/jack.connect.json']);
+    if ($r === null) {
+        return;
+    }
+    same('save reconnect: saved', 1, $r['saved']);
+    same('save reconnect: right after «Save» every saved server connects again — the tile and each row show the wave, never «0 connected»',
+        [[true, true, true], 'setup.connecting', 3], $r['during']);
+    same('save reconnect: … then connected, the people and libraries back, no change counted',
+        [true, [true, true, true], 'setup.tile.connected {"n":3}', true, true, 0], $r['after']);
+}
+
+/**
+ * «Connect» again on a saved server is no change (2026-10-21, the owner on his real server: every click on «Connect» gave
+ * «1 change — not saved yet» and nothing showed what). Connecting suggests a folder for every library folder; a folder
+ * saved as deliberately not cached ('') or of a library not chosen is saved as '' whatever it suggests — it counts no
+ * more. What a connect really brings (a new folder of a chosen library) counts, and the line by «Save» names the part.
+ * No floating change bar on his page any more (the owner): «Save» at the bottom, «Discard» and that line beside it.
+ */
+function testJackConnectNoChange(): void
+{
+    $r = streamerTabRun('jack connect no change', <<<'JS'
+(async () => {
+  const out = {};
+  answers['jack.connect'] = { ok: true, server: con.server, libraries: con.libraries, users: con.users };
+  const again = async () => { e.initForm(); const i = e.form().instances[0]; const n = [e.formChangeCount()]; await e.connectInst(i); n.push(e.formChangeCount()); await e.connectInst(i); n.push(e.formChangeCount()); return n; };
+  e.setState(st);
+  out.notSaved = await again();                         // a library the setup never saved (no folder at all)
+  const st2 = JSON.parse(JSON.stringify(st));
+  st2.settings.instances[0].path_mappings['/hoerspiele'] = '';
+  e.setState(st2);
+  out.skipped = await again();                          // … saved as not cached, as «Save» writes it
+  const foot = () => { const b = e.saveBar(); return [b.children[1].hidden, b.children[3].hidden, b.children[3].textContent]; };
+  out.footNone = foot();
+  // a real change: a chosen library got a second folder on the server — the libraries' part
+  answers['jack.connect'] = { ok: true, server: con.server, users: con.users, libraries: con.libraries.map((l) => (l.name === 'Familienfilme' ? { ...l, locations: [...l.locations, '/familienfilme2'] } : l)) };
+  e.initForm(); await e.connectInst(e.form().instances[0]);
+  out.newFolder = [e.formChangeCount(), e.changedParts()];
+  // the server's name: the servers' part; with a budget too: both, in the parts' order
+  e.initForm(); e.form().instances[0].servername = 'Wohnzimmer'; e.form().values.cache_budget = '400';
+  out.named = [e.formChangeCount(), e.changedParts(), foot()];
+  console.log(JSON.stringify(out));
+})();
+JS, [OFFICE_WEB . '/desks/jack/desk.js', OFFICE_DIR . '/tests/ui/demo/jack.json', OFFICE_DIR . '/tests/ui/demo/post/jack.connect.json']);
+    if ($r === null) {
+        return;
+    }
+    same('connect no change: a saved server connected again (twice) — 0 changes, a library never saved there', [0, 0, 0], $r['notSaved']);
+    same('connect no change: … one saved as not cached', [0, 0, 0], $r['skipped']);
+    same('connect no change: nothing changed — «Discard» and the line by «Save» hidden', [true, true, ''], $r['footNone']);
+    same('connect no change: a new folder of a chosen library counts — in the libraries\' part', [1, ['setup.shares']], $r['newFolder']);
+    same('connect no change: the server\'s name and the budget — two changes, their parts named by «Save», «Discard» there',
+        [2, ['setup.server', 'setup.scope'], [false, false, 'setup.bar_changes {"n":2} (setup.server, setup.scope) setup.bar_sub']], $r['named']);
 }
 
 /**
@@ -39822,10 +40036,10 @@ out.first = all(e.budgetLine()).filter((n) => n.tag === 'p').map((n) => n.textCo
 // the save bar: «Save» disabled with the reason beside it
 f.values.cache_budget = '160G';
 const bar = e.saveBar();
-out.barRed = [bar.children[0].disabled, bar.children[1].textContent.replace(/ \{.*$/, '')];
+out.barRed = [bar.children[0].disabled, bar.children.find((c) => /jo-save-why/.test(c.className)).textContent.replace(/ \{.*$/, '')];
 f.values.cache_budget = '1000G';
 const bar2 = e.saveBar();
-out.barFine = [bar2.children[0].disabled, bar2.children[1].textContent];
+out.barFine = [bar2.children[0].disabled, bar2.children.find((c) => /jo-save-why/.test(c.className)).textContent];
 // saving with every right and wrong share: the wrong shares' folders not cached, create_share_root never sent
 posts.length = 0;
 await e.saveSetup();
@@ -41893,7 +42107,7 @@ out.noBar = m.setupBarSpec() === null;
 const btn = find(box.children.find((d) => d.children[0].text === 'nc'), (n) => n.tag === 'button');
 btn.onclick();
 out.after = texts(box.children.find((d) => d.children[0].text === 'nc'));
-out.bar = bar && bar.title;
+out.bar = (m.setupBarSpec() || {}).title;
 out.sent = Object.keys(m.formSettings(m.form()).shares);
 out.change = m.setupChangeRows(m.formSettings({ global: g, shares: { nc: m.formSettings({ global: g, shares: { nc: { skip: false, min_age: 0, move_when_used_above: null, files: ['/mnt/user/appdata/x.txt'], patterns: ['*.tmp', 'cache'] } } }).shares.nc, Alt: m.form().shares.Alt } }), m.formSettings(m.form()))
   .map((r) => [r.mark, r.label, r.what]);
@@ -48204,7 +48418,7 @@ JS;
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testWatchmanHold',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],

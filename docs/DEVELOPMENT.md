@@ -494,7 +494,9 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   Import: the user types the folder, he never searches, preview without API key, copies aside first. «Last run» from his runs,
   not status.json. **His setup: a normal «Set up» tab with tiles, GB budget only** (the total = the hard cap, ≥ 20 GB a person,
   counts are defaults inside it; the rule in plain sentences); without a budget «not set up yet» (`jackConfigured()`, no
-  migration) and not in the night run.
+  migration) and not in the night run. **Every server can be removed** (the last one too, after a confirm): with none
+  saved he is not set up, runs refuse `jack_no_server`, his list keeps what lies on the pool — nothing moves by the
+  click; MediaCache itself refuses to run without a server.
 * **`moverelli` — Ms. Moverelli.** Smart Mover beside Unraid's mover (7.3.2+; her ini, every value checked). **Unraid's own
   mover goes off with her setup:** refused unless the page's consent `mover_off: true` comes along; the old schedule noted once,
   **her let-go puts it back** through the same form (only `MOVERELLI_UNRAID_CRON` shapes). **Never a hand-written cron line.**
