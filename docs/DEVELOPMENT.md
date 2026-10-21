@@ -525,10 +525,11 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   «Stop after this file» stops the night; both pages show `Office.nightCard()` — its highlight follows the work (night.json
   `phase` + `who`: measure · his give-back · measure again · her part · his fetch, `Office.nightSteps()`), his panel real by the
   night's word (`jackNightProgress()`); night.json `picture` = the live graphic's numbers; his refusal never stops her part (reason shown).
-  **The order with the backup** (agent/lib/nightorder.php, 2026-10-21): she first, then the scheduled backup — `job.sh backup`
-  waits in `job backup-order` while her run goes, Unraid's mover works or her line is due in its minute (60 s), ≤ 90 min, its
-  word to the engine (`UB_ORDER` → status.json `order`); her run waits only while a real backup takes its snapshots (engine
-  `snapped`), ≤ 30 min, refused from a page; a backup started here never waits (says so); one quiet line on both schedules. **The pool** (agent/lib/poollevel.php): **one limit X**, nothing
+  **The order with the backup** (agent/lib/nightorder.php, 2026-10-21): never the same minute (saving either schedule on
+  the other's minute is refused; a collision from before is a quiet hint); whoever starts first runs to its end — the
+  scheduled backup waits for her whole run (`job backup-order`, `UB_ORDER` → status.json `order`), her scheduled run waits
+  while a real backup's `phase` is not past its local part (`partner`, `mounting`, `kopia`, `unmounting`, `cleanup`,
+  `done`; the whole run with a live share she moves); started by hand: refused while the other runs. **The pool** (agent/lib/poollevel.php): **one limit X**, nothing
   else. He gives back only what was watched (`MEDIACACHE_WATCHED_ONLY`, never by rank); **his GB come first**: she moves the
   other caching shares' files oldest first across the pool (age = the younger of birth/ctime and mtime, `age_stat=newest`; never
   an excluded file, his list never) until his fetch ends at X (`--fill-until` = X − fetch), the age rule always; pool-only
