@@ -715,9 +715,10 @@ function watchmanHoldRun(): int
     $look = arrayholdLook(arrayholdPaths(), ['self' => function_exists('posix_getppid') ? posix_getppid() : 0]);      // the agent: not one of them
     writeAtomic(ARRAYHOLD_FILE, jsonEncode($look), 0600, 0, 0);
     $t = $look['times'];
-    logLine($look['started'] ? "Night watchman: looked at what holds the array — would hold it up: {$look['count']} (" . count($look['holds']) . " holding a file there), "
-        . "shutdown time-out {$t['disk']} s for about {$t['need']} s ({$look['ms']} ms" . ($look['cut'] ? ', looked in part' : '') . ')'
-        : 'Night watchman: looked at what holds the array — the array is not started');
+    logLine('Night watchman: looked at what holds the array — ' . ($look['started']
+        ? "would hold it up: {$look['count']} (" . count($look['holds']) . " holding a file there), "
+            . "shutdown time-out {$t['disk']} s for about {$t['need']} s ({$look['ms']} ms" . ($look['cut'] ? ', looked in part' : '') . ')'
+        : 'the array is not started'));
     return 0;
 }
 
