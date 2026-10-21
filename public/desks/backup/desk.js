@@ -2682,7 +2682,7 @@ function setupApply() {
         const what = el('span');
         what.append(...[].concat(/\|kopia_known$/.test(k) ? knownText(saved[k], view[k])
           : Array.isArray(saved[k]) && Array.isArray(view[k]) ? listChangeText(saved[k], view[k])
-          : `${valueText(saved[k], k)} → ${valueText(view[k], k)}`));
+          : valueChange(saved[k], view[k], k)));
         li.appendChild(what);
         // a proposal of mine (the user didn't touch it): said so, and it can stay out of this Apply
         // (a line the setup doesn't know is no proposal: declined or not, Apply can't keep it)
@@ -2870,6 +2870,15 @@ function changeLabel(k) {
   if (Office.has(`${ID}.setup.key.${p.join('_')}`)) return T('setup.key.' + p.join('_'));
   return T('setup.ch_section', { section: p.slice(0, -1).join(' '), key: unknownKey(k) ? T('setup.key_unknown', { key: p[p.length - 1] }) : p[p.length - 1] });
 }
+/** A value's change in the apply dialog, «old → new»; a side without a value says so in a word, coloured like the marks
+ * (owner 2026-10-21: a grey «–» read like a minus): «ja → entfällt» when it goes, «keine → 3» when it comes */
+function valueChange(a, b, k) {
+  const none = (v) => valueText(v, k) === '–';
+  if (none(b) && !none(a)) return [`${valueText(a, k)} `, el('b', 'bk-diff gone', `→ ${T('setup.value_gone')}`)];
+  if (none(a) && !none(b)) return [el('b', 'bk-diff add', `${T('setup.value_none')} →`), ` ${valueText(b, k)}`];
+  return [`${valueText(a, k)} → ${valueText(b, k)}`];
+}
+
 function valueText(v, k = '') {
   if (v === undefined || v === null) return '–';
   if (Array.isArray(v)) return v.length ? v.join(', ') : '–';
@@ -6438,7 +6447,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     presetCardsOf, presetCardOf, presetApply, presetPartners, levelPick, modeSelect, placeLevelPick, partnerListOf, partnerListSet, setupMigrated, LEVEL_FIELDS,
     partnerNowText, partnerRateOf, runModeOf, progress, partnerUnits, partnerSectionRows, partnerApplyLines, setupChangeItems, listChangeText, knownText, diffMark, whyFold, folderOf, ownDataset, setupMakeDataset, appPartner, partnerShareLines, appDepGaps, depCovered, depTicked, depClick, setupInitLevels, setupDeclinedApply, declinedList, ownFoldersOf, setupModel, partnerApplyText, setupDecline, setupApplyChanges, minuteTaken, bubbleText, deskActions,
     presetKopiaMode, presetKopiaVm, draftMode, draftVm, setupNewItems, presetApplyNew, presetNow, presetChosen, presetNewMode, presetNewVm,
-    letGoPart, letGoLines, letGoDoneLines, letGoResult, setLetGoClock: (c) => { letGoClock = c; }, setupUnfold, UNFOLD_OWN, setupDecisions, setupApplyChanges, changeLabel, valueText, setupSplit, setupDecline,
+    letGoPart, letGoLines, letGoDoneLines, letGoResult, setLetGoClock: (c) => { letGoClock = c; }, setupUnfold, UNFOLD_OWN, setupDecisions, setupApplyChanges, changeLabel, valueText, valueChange, setupSplit, setupDecline,
     warnLines, bubbleText, setupBarSpec, setupNoPlace, setupPlaceStart, bubblePlace, setupSearchItems, brakeLine, brakeGaps, snapSeconds,
     oldSourceWords, oldUnit, orphansPick, goneCallout, unknownKey, droppedKey, engineKnows, goneShares, goneShareKey,
   };

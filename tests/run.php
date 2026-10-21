@@ -28607,6 +28607,8 @@ S.draft = { ...JSON.parse(JSON.stringify(P)), 'general|keep_logs': '30' };
 out.countPlain = [b.setupChangeItems().items.map((x) => [x.id, x.kind]), sp(b.setupSplit())];
 const m = b.diffMark('gone');
 out.mark = [m.textContent, m.title];
+// a value without a side said in a word, coloured like the marks (owner 2026-10-21: a grey «–» read like a minus)
+out.value = [flat(b.valueChange('yes', '', 'app|x|kopia_own')), flat(b.valueChange(undefined, '3', 'general|keep_logs')), flat(b.valueChange('7', '30', 'general|keep_logs'))];
 // 1.60.1 (a user): dropnook mounts Nginx-Proxy-Manager-Official's letsencrypt read-only for its certificates - that
 // folder is NPM's, never dropnook's own (no «Make it a dataset…», no partner unit there)
 const ct = (name, project, binds) => ({ name, project, binds, volumes: [], why: '', kopia: false, running: true });
@@ -28710,10 +28712,12 @@ JS);
         $bjs2 = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
         check('apply dialog marks: a gone app «−», every new thing on the server «+», a value «old → new» without a mark',
             str_contains($bjs2, "li.append(diffMark('gone'), T('setup.ch_app_gone'") && str_contains($bjs2, "li.append(diffMark('add'), name);")
-            && str_contains($bjs2, ": `\${valueText(saved[k], k)} → \${valueText(view[k], k)}`"));
+            && str_contains($bjs2, "          : valueChange(saved[k], view[k], k)));"));
+        same('apply dialog marks: a value that goes «old → removed», one that comes «none → new» (the word coloured like − and +), else «old → new»',
+            [['common.yes ', 'bk-diff gone:→ setup.value_gone'], ['bk-diff add:setup.value_none →', ' 3'], ['7 → 30']], $r['value'] ?? null);
         foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
             $bk = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$l.json"), true) ?: [];
-            same("apply dialog marks: $l — the marks' words and the partnership rows", [], array_values(array_filter(['setup.mark_add', 'setup.mark_gone', 'partner.ch_gone',
+            same("apply dialog marks: $l — the marks' words and the partnership rows", [], array_values(array_filter(['setup.mark_add', 'setup.mark_gone', 'setup.value_gone', 'setup.value_none', 'partner.ch_gone',
                 'partner.ch_new', 'partner.ch_changed', 'partner.apply_new', 'partner.apply_from'], fn ($k) => !isset($bk[$k]))));
         }
     }
