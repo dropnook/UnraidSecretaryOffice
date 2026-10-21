@@ -882,7 +882,7 @@
   "drill.code.vm_chain_ok": "complet dans le snapshot (fichiers de sa chaîne : {chain})",
   "drill.code.sharefile_ok": "{file} ({bytes}) est revenu du snapshot dans {folder} sur {base} — taille et somme de contrôle identiques ; le dossier est parti dans le débarras de Madame Plumeau",
   "drill.code.sharefile_differs": "{file} est revenu dans {folder} sur {base}, mais pas identique ({bytes} sur {want}) — le dossier est parti dans le débarras de Madame Plumeau",
-  "drill.code.sharefile_none": "aucun fichier entre 1 Ko et 16 Mo dans le snapshot de sauvegarde le plus récent de {share} sur {base}",
+  "drill.code.sharefile_none": "aucun fichier ordinaire entre 1 Ko et 16 Mo dans le snapshot de sauvegarde le plus récent de {share} sur {base} (laissés de côté : les fichiers de Kopia, les bases de données, les verrous et les fichiers modifiés peu avant le snapshot)",
   "drill.code.sharefile_no_snap": "plus de snapshot de sauvegarde de {share} sur {base}",
   "drill.code.sharefile_taken": "{folder} existe déjà dans {share} sur {base} — rien écrit par-dessus",
   "drill.code.sharefile_failed": "{file} n'a pas pu être copié dans {folder} sur {base}",

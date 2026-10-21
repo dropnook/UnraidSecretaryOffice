@@ -30601,6 +30601,7 @@ function testDrillShareFile(): void
     $photo = random_bytes(5000);
     file_put_contents("$snap/2019/Sommer/strand.jpg", $photo);
     file_put_contents("$live/2019/Sommer/strand.jpg", $photo);
+    touch("$snap/2019/Sommer/strand.jpg", 1793500000 - 86400);             // settled: a day before the snapshot (never the real clock)
     file_put_contents("$snap/2019/Sommer/tiny.txt", 'x');                   // under 1 KB: never chosen
     @symlink('/etc/passwd', "$snap/2019/Sommer/link.jpg");                  // a link: never chosen
     $ctx = ['fs' => ['maple' => 'zfs', 'oak' => 'zfs'], 'zfs' => [$live => 'maple/Familienfotos', "$tmp/mnt/maple" => 'maple'],
@@ -30659,6 +30660,40 @@ function testDrillShareFile(): void
     exec('rm -rf ' . escapeshellarg("$snap/2019"));
     same('drill share file: nothing small enough in the snapshot — not checked', ['not_checked', 'sharefile_none'],
         array_values(array_intersect_key(drillDoShareFile($j2, 0, $env), ['state' => 1, 'code' => 1])));
+
+    // only an ordinary, settled file: never Kopia's repository, cache or temp files, a database, a lock, a pid, a socket's
+    // stand-in, an empty file or one changed in the hour before the snapshot (2026-10-21: test3 took kopia.repository.f)
+    $pf = "$tmp/pick";
+    $old = 1793500000 - 7200;
+    $put = function (string $rel, int $bytes = 2048, ?int $time = null) use ($pf, $old): void {
+        @mkdir(dirname("$pf/$rel"), 0700, true);
+        file_put_contents("$pf/$rel", str_repeat('u', $bytes));
+        touch("$pf/$rel", $time ?? $old);
+    };
+    foreach (['kopia/kopia.repository.f', 'kopia/kopia.blobcfg.f', 'kopia/_log_20261020_abc.f', 'kopia/p0a/1b2/c3d4e5f6.f', 'kopia/q12/abcdef.f',
+              'repo/kopia.repository.f', 'repo/x/readme.txt', 'kopia_tmp/upload-1.tmp', 'stuff/KopiaCache/blob.bin', 'stuff/p0123abcd.f',
+              'mariadb/databases/ibdata1', 'mariadb/databases/ib_logfile0', 'mariadb/databases/app/table.ibd', 'mariadb/databases/notes.txt',
+              'pg/data/PG_VERSION', 'pg/data/base/16384/1259', 'mongo/WiredTiger.wt', 'mongo/WiredTigerHS.wt', 'mongo/collection-0.wt', 'mongo/mongod.lock',
+              'app/library.db', 'app/library.db-wal', 'app/library.db-shm', 'app/home.sqlite', 'app/home.sqlite3-journal', 'app/run/app.pid', 'app/run/app.lock',
+              'app/run/LOCK', 'app/run/app.sock', 'app/log/app.log'] as $rel) {
+        $put($rel);
+    }
+    $put('app/empty.txt', 0);
+    $put('app/fresh.txt', 2048, 1793500000 - 600);                          // changed ten minutes before the snapshot
+    $seen = [];
+    for ($n = 0; $n < 60; $n++) {
+        $seen[] = drillShareFilePickFile($pf, 1793500000)[0] ?? null;
+    }
+    same('drill share file: among Kopia\'s files, databases, locks, empty and fresh files only the settled log file is ever chosen',
+        ['app/log/app.log'], array_values(array_unique($seen)));
+    unlink("$pf/app/log/app.log");
+    same('drill share file: nothing ordinary left — none (the step says so, «not checked», the drill doesn\'t fail on it)', null,
+        drillShareFilePickFile($pf, 1793500000));
+    $words = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $words[] = str_contains((string) (json_decode((string) file_get_contents(OFFICE_WEB . "/desks/restore/lang/$code.json"), true)['drill.code.sharefile_none'] ?? ''), 'Kopia');
+    }
+    same('drill share file: «none» says what was left out, in all five languages', [true, true, true, true, true], $words);
     $env3 = $env;
     $env3['ctx']['snaps']['maple/Familienfotos'] = [['name' => 'uso-plan-x-20261031-0000', 'time' => 1793400000]];
     same('drill share file: only a plan\'s snapshot — not checked (the backup\'s is proven)', 'sharefile_no_snap', drillDoShareFile($j2, 0, $env3)['code']);
@@ -32798,7 +32833,7 @@ function testWatchmanHold(): void
     file_put_contents("$tmp/docker.cfg", "DOCKER_ENABLED=\"yes\"\nDOCKER_TIMEOUT=\"20\"\n");
     $paths = ['proc' => $proc, 'mounts' => "$tmp/mounts", 'sys_block' => "$tmp/sys", 'qemu_run' => "$tmp/qemu", 'var_ini' => "$tmp/var.ini",
               'domain_cfg' => "$tmp/domain.cfg", 'docker_cfg' => "$tmp/docker.cfg", 'docker' => "$tmp/docker", 'docker_sock' => "$tmp/docker.sock",
-              'mover_pid' => "$tmp/mover.pid"];
+              'mover_pid' => "$tmp/mover.pid", 'rsyslog_conf' => "$tmp/none.conf"];
     $sorted = function (array $list): array {
         sort($list);
         return $list;
@@ -32853,6 +32888,38 @@ function testWatchmanHold(): void
         $q = arrayholdLook($quiet, ['smb' => []]);
         same('array hold: all quiet — nothing holds it, no VMs, Docker isn\'t running (null, not «0 of 0»), 30 s to unmount fit into 90 s',
             [0, [], [], null, [], 30, true], [$q['count'], $q['holds'], $q['vms'], $q['containers'], $q['itself'], $q['times']['need'], $q['times']['fits']]);
+
+        // Unraid's local syslog server writing into a share: its event unmounting_disks/local_syslog_stop comments out
+        // «*.* ?remote» and restarts rsyslogd before the umount — it stops by itself (read on test4, 7.3.3, 2026-10-21);
+        // a file of its own elsewhere on the array (a hand-made rule) still holds it
+        $sys = $quiet;
+        $sys['proc'] = "$tmp/proc-syslog";
+        @mkdir("$tmp/proc-syslog", 0700);
+        exec('cp -a ' . escapeshellarg("$proc/1") . ' ' . escapeshellarg("$tmp/proc-syslog/1"));
+        $rs = "$tmp/proc-syslog/110";
+        @mkdir("$rs/fd", 0700, true);
+        @mkdir("$rs/ns", 0700);
+        file_put_contents("$rs/stat", "110 (rsyslogd) S 1 0 0 0 -1 0 0 0 0 0 0 0 0 20 0 1 0 0 0\n");
+        file_put_contents("$rs/cmdline", "/usr/sbin/rsyslogd\0-i\0/var/run/rsyslogd.pid\0");
+        file_put_contents("$rs/cgroup", "0::/\n");
+        symlink('mnt:[4026531840]', "$rs/ns/mnt");
+        foreach (['/var/log/syslog', '/mnt/cache/system/syslog-192.168.1.20.log', '/mnt/disk1/system/syslog-192.168.1.21.log', '/mnt/disk2/Logs/mine.log'] as $i => $target) {
+            symlink($target, "$rs/fd/" . ($i + 3));
+        }
+        $conf = "\$template remote,\"/mnt/user/system/syslog-%FROMHOST-IP%.log\"\n\$RuleSet remote\n\$FileOwner nobody\n";
+        file_put_contents("$tmp/rsyslog.conf", "$conf*.* ?remote\n\$InputUDPServerBindRuleset remote\n");
+        $sys['rsyslog_conf'] = "$tmp/rsyslog.conf";
+        $y = arrayholdLook($sys, ['smb' => []]);
+        same('array hold: Unraid\'s local syslog server stops by itself (its two files in its share on the pool and a disk); its own file elsewhere still holds',
+            [['syslog|-|2'], ['program|/mnt/disk2/Logs/mine.log'], 1],
+            [array_map(fn (array $x): string => implode('|', [$x['kind'], $x['desk'] ?? $x['machine'] ?? '-', $x['files']]), $y['itself']),
+             array_map(fn (array $h): string => $h['kind'] . '|' . implode(' ', $h['files']), $y['holds']), $y['count']]);
+        file_put_contents("$tmp/rsyslog.conf", "$conf#*.* ?remote\n");
+        $y = arrayholdLook($sys, ['smb' => []]);
+        same('array hold: the local syslog server switched off (the rule commented out) — rsyslogd with files there holds it', [[], 1, 3],
+            [$y['itself'], count($y['holds']), count($y['holds'][0]['files'] ?? [])]);
+        check('array hold: his page names Unraid\'s local syslog server among what stops by itself',
+            str_contains((string) file_get_contents(OFFICE_WEB . '/desks/watchman/desk.js'), "else if (x.kind === 'syslog') name = T('hold.syslog');"));
 
         // one process with more open files than a look reads: looked in part
         for ($i = 0; $i <= LOGS_WAKE_FDS; $i++) {
