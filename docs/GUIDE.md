@@ -159,7 +159,9 @@ than the one the office was tested on.
    else on the array) and moves in within seconds. *domains* and *isos* (VMs) are only mentioned. A share that was
    there and is gone is never created anew. Nothing happens without that click; you can also create the shares
    yourself. Is only *system* missing later, the Team Lead offers the same.
-3. For backups: Mr. Backupsy → *Set up…* (he reads the server and proposes everything with reasons; change what you
+3. For backups: Mr. Backupsy → *Set up…* — first the backup place, a share of its own for his packages: one click has
+   Unraid create `UnraidSecretaryOffice` where he proposes (you see exactly what before), or create one yourself, or
+   choose one that's there; then the rest (he reads the server and proposes everything with reasons; change what you
    like — the bar counts his proposals and your changes, *Leave out* declines one of his — then *Apply*), then
    *Schedule…*. The Team Lead lists what is still missing.
 
@@ -189,7 +191,7 @@ any more.
 | What | Where |
 |---|---|
 | Settings, state and logs of every desk, the backup engine's settings | the data folder, `appdata/UnraidSecretaryOffice/data` |
-| Mr. Backupsy's packages (templates, compose files, dumps, VM configurations) | the backup place: a share of its own, by default `UnraidSecretaryOffice` (you create it; the setup explains why and where) — their history in its snapshots |
+| Mr. Backupsy's packages (templates, compose files, dumps, VM configurations) | the backup place: a share of its own, by default `UnraidSecretaryOffice` (the setup's first step: created on your click by Unraid's own «Add Share» where he proposes, made by you in Unraid, or a share you choose) — their history in its snapshots |
 | The plugin package, where the data folder is, the schedules, partner keys, uploaded container pictures | the flash, `/boot/config/plugins/unraid-secretary-office/` |
 | The code, the messenger's sign of life, the snapshots mounted during a run, the numbers for Prometheus | RAM — nothing of the office lands on the pool every few seconds, so a pool of hard disks can sleep |
 

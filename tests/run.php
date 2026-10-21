@@ -11680,7 +11680,7 @@ function testSetupTiles(): void
         str_contains($bk, "id: `\${ID}/setup`,") && str_contains($bk, "key: 'backup.setup.tile',") && str_contains($bk, "tiles: () => setupTileList(),")
         && str_contains($bk, "if (setupSwitcher().mount(String(sub || '').split('/').slice(1).join('/'))) Office.subroute('setup');"));
     check('setup tiles: «Decide…» / «Change…» pick the target\'s step first, then reveal its row',
-        str_contains($bk, "const tile = target ? STEP_TILE[target.part] : '';") && str_contains($bk, "if (tile) sw.pick(tile, 'route'); else if (first && setupNoPlace()) setupPlaceStart(sw); else sw.render();"));
+        str_contains($bk, "const tile = target ? STEP_TILE[target.part] : '';") && str_contains($bk, "if (tile) sw.pick(tile, 'route'); else if (placed) setupPlaceStart(sw); else sw.render();"));
     check('setup tiles: the steps\' and settings\' places go by their tile\'s route (a step stands under the row only while its tile is chosen)',
         str_contains($bk, "route: setupRoute(STEP_TILE[key]) } : {})") && str_contains($bk, "route: setupRoute(STEP_TILE[PART[key] || 'setup.general'])")
         && str_contains($em, "...SETUP_TILES.map(([id, key]) => ({ kind: 'step', key, ...SETUP, route: `#/\${ID}/setup/\${id}` })),"));
@@ -11777,32 +11777,33 @@ JS);
 }
 
 /**
- * First place (2026-10-12, a fresh server: «Prüfen…» answered with a red toast, nothing before had said that a share is
- * needed): while no backup place is chosen, the setup opens on «Grundlagen» (not kept — backup.setup.tile stays the
- * user's), the tile in alert, the bar says it first («Zu den Grundlagen», «Prüfen…» grey with setup.ds_missing), and
- * his bubble on the setup page says the «Add Share» way; with a place all as before
+ * The setup's first step (2026-10-21, the owner on a fresh server again: «Einrichten» opened whole without a backup
+ * place, the missing share a yellow line and a folded guide among everything else): while the draft has no backup place
+ * (none chosen, or the one chosen is gone) the setup page is that ONE step — the five points, «Create
+ * UnraidSecretaryOffice…» (the agent's offer: where, and why when second best; grey while its pool sleeps), «Rather
+ * create it in Unraid yourself», the fitting shares to choose from; no start cards, tiles, other steps, bar or Apply,
+ * the search finds only it. A share chosen or made there: the setup opens, on «Grundlagen» with the place in view. The
+ * overview's tiles say «the backup place first». (Before 2026-10-21, testSetupFirstPlace of 2026-10-12: the page opened
+ * on «Grundlagen» with the guide first, the bar led there.)
  */
 function testSetupFirstPlace(): void
 {
     $bk = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
-    check('first place: a visit without a step\'s route marks its start; the first page with the plan opens «Grundlagen» while no place',
-        str_contains($bk, "Office.subroute('setup');\n      else setup.placeStart = true;")
-        && str_contains($bk, "if (tile) sw.pick(tile, 'route'); else if (first && setupNoPlace()) setupPlaceStart(sw); else sw.render();"));
-    check('first place: … and brings the guide up (unless the user scrolled); the bar\'s «Zu den Grundlagen» likewise',
-        str_contains($bk, "if (!tile && first && setupNoPlace() && window.scrollY < 40) setupShowPlace(false);")
-        && str_contains($bk, "setupPlaceStart(setupSwitcher());\n  setupShowPlace(true);"));
-    check('first place: … the guide first in «Grundlagen» while no place, after the settings once chosen',
-        str_contains($bk, "if (guideFirst) s.appendChild(placeGuide(plan));\n  s.appendChild(basics);") && str_contains($bk, "if (!guideFirst) s.appendChild(placeGuide(plan));"));
-    // nostromo 2026-10-17: «Share in Unraid anlegen · Namensvorschlag UnraidSecretaryOffice» although that share was the place
-    check('backup place guide: «create a share» and its name only while no place is chosen',
-        str_contains($bk, "if (!ds) {                      // the way to a new share only while none is chosen")
-        && strpos($bk, "T('setup.place_add')") > strpos($bk, "if (!ds) {                      // the way to a new share"));
-    check('first place: setupApply()\'s toast stays the last guard', str_contains($bk, "if (!ds) { Office.toast(T('setup.ds_missing'), true); return; }"));
-    check('first place: the bar\'s spec drawn by setupBar() (a button\'s title set on the bar)', str_contains($bk, "const bar = Office.selbar(spec);")
-        && str_contains($bk, "if (b.title && btns[i]) btns[i].title = b.title;"));
+    $gate = "  if (setupNoPlace()) {\n    setup.placeWas = true;\n    root.appendChild(placeFirst(plan));\n    setupBar();\n    return;\n  }";
+    $at = strpos($bk, $gate);
+    check('first step: renderSetup() draws the step alone before the start cards, the tiles and the steps while the draft has no place',
+        $at !== false && $at < (int) strpos($bk, "const start = plan.have_settings ? presetStartLine() : presetSection();")
+        && $at < (int) strpos($bk, "root.appendChild(sw.el);"));
+    check('first step: … once done, «Grundlagen» with the place in view (not kept)',
+        str_contains($bk, "if (tile) sw.pick(tile, 'route'); else if (placed) setupPlaceStart(sw); else sw.render();")
+        && str_contains($bk, "if (!tile && placed) setupShowPlace();"));
+    check('first step: setupApply()\'s toast stays the last guard', str_contains($bk, "if (!ds) { Office.toast(T('setup.ds_missing'), true); return; }"));
+    check('first step: the create click asks the agent, then plans anew; the share made becomes the place once the plan has it',
+        str_contains($bk, "Office.api.post(`\${ID}.place_make`, { pool: offer.pool || '' })") && str_contains($bk, "setup.placeMade = j.made;")
+        && str_contains($bk, "Office.placesTook(ID, j.plan, 'setup');     // its rows for the office's search (setupSearchItems()) - the plan as it came\n    setupPlaceMade();"));
     $node = testsNode();
     if ($node === '') {
-        check('first place: node is missing here - skipped', true);
+        check('first step: node is missing here - skipped', true);
         return;
     }
     $tmp = hardeningTmp('setup-first-place');
@@ -11812,12 +11813,17 @@ const [bkFile, coreFile, planFile, stateFile] = process.argv.slice(2);
 globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
 const el = (tag, cls, text) => ({ tag, className: cls || '', textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {},
-  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, setAttribute() {} });
+  classList: { add() {}, toggle() {}, remove() {} }, appendChild(c) { this.children.push(c); return c; },
+  append(...c) { this.children.push(...c.map((x) => (typeof x === 'string' ? el('text', '', x) : x))); }, setAttribute() {}, addEventListener() {} });
+globalThis.Option = function Option(text, value) { return { tag: 'option', text, value, children: [] }; };
 const store = new Map();
-globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => b + ' B', relative: () => 'now', duration: (s) => s + ' s', date: (t) => 'D' + t, time: (t) => 'H' + t, number: (n) => String(n) },
-  desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => null, has: () => false,
+let places = [];
+globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => b + ' B', relative: () => 'now', duration: (s) => s + ' s', date: (t) => 'D' + t, time: (t) => 'H' + t, number: (n) => String(n), cron: (c) => c, bitrate: (m) => m + ' Mbit/s' },
+  desk: () => {}, places: (id, list) => { places = list; }, placesFrom: () => {}, placesTook: () => {}, selbar: () => null, has: () => false,
   store: (k, v) => { if (v === undefined) return store.has(k) ? store.get(k) : null; if (v === null) store.delete(k); else store.set(k, v); return null; },
   storeJson: () => null, agent: { running: true }, place: (k, n) => n, stat: (o) => ({ stat: o }), withGreeting: (id, s) => s,
+  sectionHead: (title, sub) => { const h = el('div', 'section-head'); h.children.push(el('h2', '', title), el('p', '', sub)); return h; },
+  safeHref: (h) => h, desks: { get: () => null },
   sections: () => ({ el: el('div'), grid: el('div'), body: el('div'), active: () => '', note: () => ({ tile: '' }), places: () => [],
     mount: () => false, pick() {}, render() {}, clear() {} }),
   filterBar: () => { const bar = { el: {}, read: () => ({ words: [], only: false, pick: '', tile: '' }), set() { return bar; }, reset() { return bar; },
@@ -11828,17 +11834,14 @@ new Function('Office', core.slice(core.indexOf('const fold = '), core.indexOf('/
 const b = OFFICE_DESK_TESTS.backup;
 const S = b.setup;
 const demo = JSON.parse(fs.readFileSync(planFile, 'utf8')).plan;
-b.setState(JSON.parse(fs.readFileSync(stateFile, 'utf8')));
-const bar = () => { const x = b.setupBarSpec(); return x && { title: x.title, sub: x.sub, buttons: x.buttons.map((y) => [y.text, !!y.disabled, y.title || '']) }; };
-// a switcher as core.js's: pick() keeps a section tile's choice
-const fakeSw = (active) => { let cur = active; return { active: () => cur, pick(id, how) { cur = id; if (how !== 'start') store.set('backup.setup.tile', id); } }; };
-const startWith = (kept, active) => {
-  store.clear();
-  if (kept !== null) store.set('backup.setup.tile', kept);
-  const sw = fakeSw(active);
-  b.setupPlaceStart(sw);
-  return [sw.active(), store.has('backup.setup.tile') ? store.get('backup.setup.tile') : null];
-};
+const demoState = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+b.setState(demoState);
+// the step's texts in order (a tree of the stub's nodes), its buttons [text, disabled], its select's options
+const walk = (n, f) => { if (!n || typeof n !== 'object') return; f(n); (n.children || []).forEach((c) => walk(c, f)); };
+const look = (n) => { const o = { texts: [], buttons: [], options: [], links: [] };
+  walk(n, (x) => { if (x.textContent) o.texts.push(x.textContent); if (x.tag === 'button') o.buttons.push([x.textContent, !!x.disabled]);
+    if (x.tag === 'option') o.options.push(x.value); if (x.tag === 'a') o.links.push(x.href); }); return o; };
+const shown = (key) => { const p = places.find((x) => x.key === key); return p ? (p.shown ? p.shown() : true) : null; };
 const load = (fn) => {
   const plan = JSON.parse(JSON.stringify(demo));
   fn(plan);
@@ -11846,17 +11849,42 @@ const load = (fn) => {
   S.choice = null;
   b.setupDraftFromPlan();
 };
+const fresh = (p) => { p.have_settings = false; delete p.P['general|dumps_share']; p.shares = p.shares.filter((x) => ['appdata', 'domains', 'isos', 'system'].includes(x.name)); };
+const offer = (o) => ({ share: 'UnraidSecretaryOffice', fresh: true, pool: 'fast', fs: 'zfs', why: '', mirror: false, asleep: false, exclusive: true, appdata: 'cache', ...o });
 const out = {};
-// a fresh server: nothing set up, no share but Unraid's own (isos) — create one in Unraid
-load((p) => { p.have_settings = false; delete p.P['general|dumps_share']; p.shares = p.shares.filter((x) => ['appdata', 'domains', 'isos', 'system'].includes(x.name)); });
-out.none = { no: b.setupNoPlace(), tile: b.setupTileData(S.plan)[0], bar: bar(), bubble: b.bubbleText('setup'), main: b.bubbleText(''),
-  start: [startWith(null, ''), startWith('', ''), startWith('vms', 'vms'), startWith(null, 'basics')] };
-// shares there, none chosen — choose one or create one
+// a fresh server: no share to choose, the office's share offered on the ZFS pool fast
+load((p) => { fresh(p); p.place_offer = offer({}); });
+out.none = { no: b.setupNoPlace(), bar: b.setupBarSpec(), step: look(b.placeFirst(S.plan)), bubble: b.bubbleText('setup')[0],
+  places: [shown('setup.first.title'), shown('setup.kopia'), shown('setup.ds_label'), shown('setup.vms')] };
+// shares there, none chosen: the fitting ones to choose from
+load((p) => { p.have_settings = false; delete p.P['general|dumps_share']; p.place_offer = offer({ why: 'same_pool', asleep: true }); });
+out.choose = { no: b.setupNoPlace(), step: look(b.placeFirst(S.plan)), bubble: b.bubbleText('setup')[0] };
+// the offer's words: second best, the array, Unraid knew the share
+out.lines = [b.placeOfferLines(offer({ mirror: true })), b.placeOfferLines(offer({ why: 'same_pool' })), b.placeOfferLines(offer({ fs: 'btrfs', why: 'no_zfs' })),
+  b.placeOfferLines(offer({ fs: 'xfs', why: 'no_zfs' })), b.placeOfferLines(offer({ pool: null, fs: '', why: 'no_pool' }))];
+load((p) => { fresh(p); p.place_offer = offer({ fresh: false }); });
+out.known = look(b.placeFirst(S.plan));
+// the place chosen once and gone since (settings.ini names it, the plan finds no such share)
+load((p) => { p.P['general|dumps_share'] = 'Weg'; p.shares.push({ name: 'Weg', exists: false, folders: [], waiting: [] }); });
+out.gone = b.setupNoPlace();
+// chosen on the step: the setup opens
 load((p) => { p.have_settings = false; delete p.P['general|dumps_share']; });
-out.choose = { no: b.setupNoPlace(), bar: bar(), bubble: b.bubbleText('setup')[0] };
-// a place chosen: as before
+b.dset('general|dumps_share', 'Dokumente');
+out.chosen = [b.setupNoPlace(), shown('setup.kopia'), shown('setup.first.title')];
+// made on the step: the new plan has it, the engine proposed none (an old draft kept) - it becomes the place
+load((p) => { fresh(p); p.place_offer = offer({}); });
+S.placeMade = 'UnraidSecretaryOffice';
+S.plan.shares.push({ name: 'UnraidSecretaryOffice', exists: true, folders: [], waiting: [] });
+b.setupPlaceMade();
+out.made = [b.setupNoPlace(), b.setup.draft['general|dumps_share'], S.placeMade];
+// a place there: as before
 load(() => {});
-out.place = { no: b.setupNoPlace(), tile: b.setupTileData(S.plan)[0].alert, bar: bar(), bubble: b.bubbleText('setup'), main: b.bubbleText('') };
+out.place = [b.setupNoPlace(), b.bubblePlace()];
+// the overview's tiles: nothing set up - «the backup place first»; set up with a place - as they were
+b.setState({ ...demoState, settings_found: false });
+out.overview = [b.placeFirstNeeded(), b.overviewTiles().map((d) => [d.key, d.sub[0] || '', d.alert])];
+b.setState(demoState);
+out.overviewPlaced = [b.placeFirstNeeded(), b.overviewTiles().some((d) => (d.sub || []).includes('tile.place_first'))];
 console.log(JSON.stringify(out));
 JS);
     $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' '
@@ -11865,35 +11893,150 @@ JS);
     $r = json_decode($raw, true);
     hardeningRm($tmp);
     if (!is_array($r)) {
-        check('first place: ran under node', false, substr($raw, 0, 2000));
+        check('first step: ran under node', false, substr($raw, 0, 2000));
         return;
     }
     $n = $r['none'];
-    check('first place: a fresh server without a share — no place', $n['no'] === true);
-    same('first place: … «Grundlagen» in alert, «noch keine Backup-Ablage»', [true, 'setup.tile.no_place'], [$n['tile']['alert'], $n['tile']['sub'][0]]);
-    same('first place: … the switcher starts on «Grundlagen» whatever was kept (nothing, every step, a step), and the kept choice stays as it was',
-        [['basics', null], ['basics', ''], ['basics', 'vms'], ['basics', null]], $n['start']);
-    same('first place: … the bar: the share first, the way in Unraid, «Zu den Grundlagen», «Prüfen…» grey with setup.ds_missing',
-        ['title' => 'setup.bar_place', 'sub' => 'setup.bar_place_sub {"tile":"setup.kopia"}',
-         'buttons' => [['setup.discard', true, ''], ['setup.bar_place_go', false, ''], ['setup.review', true, 'setup.ds_missing']]], $n['bar']);
-    same('first place: … his bubble on the setup page says it first (not «no backup yet» beside it); the overview\'s stays',
-        'setup.bubble_place', $n['bubble'][0] ?? null);
-    check('first place: … the overview\'s bubble without it', !in_array('setup.bubble_place', $n['main'], true) && !in_array('setup.bubble_place', array_slice($n['bubble'], 1), true));
+    same('first step: a fresh server — no place, no bar (nothing to apply)', [true, null], [$n['no'], $n['bar']]);
+    same('first step: … the step: its title, the five points, the proposal, «Create UnraidSecretaryOffice…», the way in Unraid',
+        ['setup.first.title', 'setup.first.point_1', 'setup.first.point_5', 'setup.first.offer_pool {"pool":"fast","fs":"ZFS"}',
+         'setup.first.own_text {"name":"UnraidSecretaryOffice"}'],
+        [$n['step']['texts'][0], $n['step']['texts'][2], $n['step']['texts'][6], $n['step']['texts'][8], $n['step']['texts'][11] ?? null]);
+    same('first step: … one button, live; Unraid\'s «Add Share» as the link; nothing to choose', [[['setup.first.make {"share":"UnraidSecretaryOffice"} …', false]], ['/Shares/Share?name='], []],
+        [$n['step']['buttons'], $n['step']['links'], $n['step']['options']]);
+    same('first step: … his bubble says it; the search finds the step, none of the steps behind it', ['setup.bubble_place', [true, false, false, false]],
+        [$n['bubble'], $n['places']]);
     $c = $r['choose'];
-    same('first place: shares there, none chosen — the bar and the bubble say «choose one under Grundlagen, or create one»',
-        [true, 'setup.bar_place', 'setup.bar_place_choose {"tile":"setup.kopia"}', true, 'setup.bubble_place_choose {"tile":"setup.kopia"}'],
-        [$c['no'], $c['bar']['title'], $c['bar']['sub'], $c['bar']['buttons'][2][1], $c['bubble']]);
-    $p = $r['place'];
-    check('first place: a place chosen — as before (no first-place bar, «Prüfen…» without the reason, no alert for the place, no bubble line)',
-        $p['no'] === false && $p['tile'] === false && ($p['bar'] === null || ($p['bar']['title'] !== 'setup.bar_place' && end($p['bar']['buttons'])[2] === ''))
-        && $p['bubble'] === $p['main']);
+    same('first step: shares there — the fitting ones to choose from (never appdata, system, domains, isos), his bubble says both',
+        [true, ['', 'UnraidSecretaryOffice', 'Familienvideos', 'Dokumente', 'Familienfotos', 'paperless', 'Schule'], 'setup.bubble_place_choose'],
+        [$c['no'], $c['step']['options'], $c['bubble']]);
+    same('first step: … a pool asleep: the button grey, why said (never woken); the same pool as appdata said',
+        [[['setup.first.make {"share":"UnraidSecretaryOffice"} …', true]], true, true],
+        [$c['step']['buttons'], in_array('setup.first.asleep {"pool":"fast"}', $c['step']['texts'], true), in_array('setup.first.why_same_pool {"pool":"fast"}', $c['step']['texts'], true)]);
+    same('first step: the proposal\'s words — a mirror, appdata\'s pool, btrfs, no snapshots, the array',
+        [['setup.first.offer_pool_mirror {"pool":"fast","fs":"ZFS"}'], ['setup.first.offer_pool {"pool":"fast","fs":"ZFS"}', 'setup.first.why_same_pool {"pool":"fast"}'],
+         ['setup.first.offer_pool {"pool":"fast","fs":"btrfs"}', 'setup.first.why_no_zfs_btrfs {"pool":"fast"}'],
+         ['setup.first.offer_pool {"pool":"fast","fs":"XFS"}', 'setup.first.why_no_zfs {"pool":"fast"}'], ['setup.first.offer_array', 'setup.first.why_no_pool']], $r['lines']);
+    same('first step: Unraid knew the share — the careful text, no button', [true, []],
+        [in_array('setup.first.known {"share":"UnraidSecretaryOffice"}', $r['known']['texts'], true), $r['known']['buttons']]);
+    check('first step: a place chosen once and gone since — the step again', $r['gone'] === true);
+    same('first step: a share chosen on it — the setup opens (its steps found again, the step not)', [false, true, false], $r['chosen']);
+    same('first step: the share made on it — the backup place once the new plan has it', [false, 'UnraidSecretaryOffice', null], $r['made']);
+    same('first step: a place there — as before (no step, no bubble line)', [false, ''], $r['place']);
+    [$need, $tiles] = $r['overview'];
+    $byKey = array_column(array_map(fn ($t) => ['k' => $t[0], 'v' => [$t[1], $t[2]]], $tiles), 'v', 'k');
+    same('first step: the overview with nothing set up — the tiles of what a backup makes say «the backup place first», the last backup\'s in alert',
+        [true, ['tile.place_first', true], ['tile.place_first', false], 'stat.restore_where'],
+        [$need, $byKey['last'] ?? null, $byKey['schedule'] ?? null, $byKey['restore'][0] ?? null]);
+    same('first step: … set up with a place — the tiles as they were', [false, false], $r['overviewPlaced']);
     foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
         $l = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$code.json"), true);
-        same("first place: the words in $code", [], array_values(array_filter(['setup.bar_place', 'setup.bar_place_sub', 'setup.bar_place_choose', 'setup.bar_place_go',
-            'setup.bubble_place', 'setup.bubble_place_choose'], fn ($k) => !isset($l[$k]))));
-        check("first place: the share's kind (ZFS pool, exclusive, not the array) in the bar's way and beside «Add Share» ($code)",
-            str_contains($l['setup.bar_place_sub'], 'ZFS') && str_contains($l['setup.bar_place_choose'], 'ZFS') && str_contains($l['setup.place_name'], 'ZFS'));
+        check("first step: the five points say ZFS, appdata, the array, no secondary storage ($code)",
+            str_contains($l['setup.first.point_1'], 'appdata') && str_contains($l['setup.first.point_2'], 'ZFS') && stripos($l['setup.first.point_3'], 'array') !== false);
+        check("first step: the confirmation names Unraid's own labels ($code)",
+            $l['setup.first.c_primary'] === '⟦Primary storage⟧' && $l['setup.first.c_secondary'] === '⟦Secondary storage⟧' && str_starts_with($l['setup.first.c_export_no'], '⟦No⟧'));
     }
+}
+
+/**
+ * The office's share as the backup place, made on the setup's first step (2026-10-21): the agent's offer (backup.php
+ * backupPlaceOffer(): only while Unraid has no share of that name — shares.ini, its cfg, never a disk) goes to a ZFS
+ * pool first, one appdata doesn't lie on when there is another, a mirror before a single drive; else btrfs, else another
+ * pool, else the array — and says why when second best, whether exclusive shares are permitted and whether it sleeps.
+ * «Create» (backupPlaceMake()) looks again: refused when the share is there, Unraid knew it, the pool is unknown or
+ * asleep (never woken); else Unraid's own «Add Share» through a stand-in for emcmd (the form's fields: only on the pool,
+ * no secondary storage — the array for ''), then the share is there.
+ */
+function testBackupPlaceOffer(): void
+{
+    $tmp = hardeningTmp('placeoffer');
+    foreach (['user', 'shares', 'pools'] as $d) {
+        @mkdir("$tmp/$d", 0755, true);
+    }
+    file_put_contents("$tmp/emcmd", "#!/bin/bash\necho \"\$1\" >> " . escapeshellarg("$tmp/sent") . "\n"
+        . 'n=$(sed -n "s/.*shareName=\([^&]*\).*/\1/p" <<<"$1"); mkdir -p ' . escapeshellarg("$tmp/user") . "/\"\$n\"\n");
+    chmod("$tmp/emcmd", 0755);
+    $h = ['shares_dir' => "$tmp/shares", 'shares_ini' => "$tmp/shares.ini", 'docker_cfg' => "$tmp/docker.cfg", 'domain_cfg' => "$tmp/domain.cfg",
+          'pools_dir' => "$tmp/pools", 'mnt_user' => "$tmp/user", 'emcmd' => "$tmp/emcmd", 'wait' => 1, 'disks_ini' => "$tmp/disks.ini",
+          'share_cfg' => "$tmp/share.cfg"];
+    $sent = function () use ($tmp): array {
+        $s = array_values(array_filter(explode("\n", (string) @file_get_contents("$tmp/sent"))));
+        @unlink("$tmp/sent");
+        return $s;
+    };
+    $disks = function (array $pools) use ($tmp): void {     // name => [fsType, fsProfile, spundown]
+        $ini = "[\"disk1\"]\nname=\"disk1\"\ntype=\"Data\"\nfsType=\"xfs\"\nrotational=\"1\"\nspundown=\"0\"\n";
+        foreach ($pools as $n => [$fs, $profile, $down]) {
+            $ini .= "[\"$n\"]\nname=\"$n\"\ntype=\"Cache\"\nfsType=\"$fs\"\nfsProfile=\"$profile\"\nrotational=\"1\"\nspundown=\"$down\"\n";
+            touch("$tmp/pools/$n.cfg");
+        }
+        file_put_contents("$tmp/disks.ini", $ini);
+    };
+    $pick = fn () => array_intersect_key((array) backupPlaceOffer($h), array_flip(['pool', 'fs', 'why', 'mirror', 'asleep', 'exclusive', 'fresh']));
+    file_put_contents("$tmp/docker.cfg", "DOCKER_ENABLED=\"yes\"\n");
+    file_put_contents("$tmp/domain.cfg", "SERVICE=\"disable\"\n");
+    file_put_contents("$tmp/shares.ini", "[\"appdata\"]\nname=\"appdata\"\n");
+    file_put_contents("$tmp/shares/appdata.cfg", "shareUseCache=\"only\"\nshareCachePool=\"cache\"\nshareCachePool2=\"\"\n");
+    file_put_contents("$tmp/share.cfg", "shareUserExclusive=\"yes\"\n");
+    // the owner's kind of server: appdata on cache (ZFS), a second ZFS pool fast, a btrfs mirror
+    $disks(['cache' => ['zfs', 'mirror', '0'], 'fast' => ['zfs', '', '0'], 'tank' => ['btrfs', 'raid1', '0']]);
+    same('place offer: a ZFS pool appdata doesn\'t lie on — before appdata\'s mirror and a btrfs mirror; exclusive permitted',
+        ['fresh' => true, 'pool' => 'fast', 'fs' => 'zfs', 'why' => '', 'mirror' => false, 'asleep' => false, 'exclusive' => true], $pick());
+    $disks(['cache' => ['zfs', 'mirror', '0'], 'fast' => ['zfs', '', '0'], 'tank' => ['btrfs', 'raid1', '0'], 'safe' => ['zfs', 'raidz1', '0']]);
+    same('place offer: … a ZFS mirror apart from appdata first', ['safe', ''], array_values(array_intersect_key($pick(), ['pool' => 1, 'why' => 1])));
+    @unlink("$tmp/pools/fast.cfg");
+    @unlink("$tmp/pools/safe.cfg");
+    $disks(['cache' => ['zfs', 'mirror', '0'], 'tank' => ['btrfs', 'raid1', '0']]);
+    same('place offer: the only ZFS pool holds appdata — still ZFS, and why (same_pool)', ['cache', 'same_pool'], array_values(array_intersect_key($pick(), ['pool' => 1, 'why' => 1])));
+    @unlink("$tmp/pools/cache.cfg");
+    $disks(['tank' => ['btrfs', 'raid1', '0'], 'ssd' => ['xfs', '', '0']]);
+    file_put_contents("$tmp/share.cfg", "shareUserExclusive=\"no\"\n");
+    same('place offer: no ZFS pool — btrfs before xfs, why no_zfs; exclusive shares not permitted: said',
+        ['tank', 'btrfs', 'no_zfs', false], array_values(array_intersect_key($pick(), ['pool' => 1, 'fs' => 1, 'why' => 1, 'exclusive' => 1])));
+    $disks(['tank' => ['btrfs', 'raid1', '1']]);
+    @unlink("$tmp/pools/ssd.cfg");
+    same('place offer: its pool asleep — said (the page greys the button)', [true], array_values(array_intersect_key($pick(), ['asleep' => 1])));
+    @unlink("$tmp/pools/tank.cfg");
+    $disks([]);
+    same('place offer: no pool — the array, why no_pool', [null, 'no_pool', false], array_values(array_intersect_key($pick(), ['pool' => 1, 'why' => 1, 'exclusive' => 1])));
+
+    // «Create»: looked at again, then Unraid's «Add Share»
+    $disks(['cache' => ['zfs', 'mirror', '0'], 'fast' => ['zfs', '', '1']]);
+    $err = function (string $pool) use ($h): string {
+        try {
+            backupPlaceMake($pool, $h);
+            return 'made';
+        } catch (Problem $e) {
+            return $e->key;
+        }
+    };
+    same('place make: a pool Unraid doesn\'t know, a pool asleep — refused, nothing sent', ['place_pool_unknown', 'place_pool_asleep', []],
+        [$err('nope'), $err('fast'), $sent()]);
+    $disks(['cache' => ['zfs', 'mirror', '0'], 'fast' => ['zfs', '', '0']]);
+    file_put_contents("$tmp/disks.ini", "[\"disk1\"]\nname=\"disk1\"\ntype=\"Data\"\nrotational=\"1\"\nspundown=\"1\"\n", FILE_APPEND);
+    same('place make: the array while a disk of it sleeps — refused', ['place_array_asleep', []], [$err(''), $sent()]);
+    file_put_contents("$tmp/shares/UnraidSecretaryOffice.cfg", "shareUseCache=\"only\"\n");
+    same('place make: Unraid knew the share (its cfg on the flash) — refused, never made anew', ['place_known', []], [$err('fast'), $sent()]);
+    unlink("$tmp/shares/UnraidSecretaryOffice.cfg");
+    $r = backupPlaceMake('fast', $h);
+    $form = $sent();
+    parse_str($form[0] ?? '', $f);
+    same('place make: Unraid\'s «Add Share» with the form\'s fields — the name, only on the pool fast, no secondary storage; the share there',
+        [['ok' => true, 'made' => 'UnraidSecretaryOffice', 'pool' => 'fast'], 1, 'UnraidSecretaryOffice', 'only', 'fast', '', 'Add Share', true],
+        [$r, count($form), $f['shareName'] ?? null, $f['shareUseCache'] ?? null, $f['shareCachePool'] ?? null, $f['shareCachePool2'] ?? null, $f['cmdEditShare'] ?? null,
+         is_dir("$tmp/user/UnraidSecretaryOffice")]);
+    file_put_contents("$tmp/shares.ini", "[\"UnraidSecretaryOffice\"]\nname=\"UnraidSecretaryOffice\"\n", FILE_APPEND);
+    same('place make: … there now — no offer, a second click refused', [null, 'place_exists', []], [backupPlaceOffer($h), $err('fast'), $sent()]);
+    $bk = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
+    check('place make: the action reads its field (\'\' = the array), the plan carries the offer',
+        str_contains($bk, "'place_make'  => fn (array \$r) => backupPlaceMake(optText(\$r, 'pool')),")
+        && str_contains($bk, "\$plan['place_offer'] = backupPlaceOffer();"));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $l = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$code.json"), true);
+        same("place make: every refusal said ($code)", [], array_values(array_filter(['place_exists', 'place_known', 'place_pool_unknown', 'place_pool_asleep',
+            'place_array_asleep'], fn ($k) => !isset($l["errors.$k"]))));
+    }
+    hardeningRm($tmp);
 }
 
 /**
@@ -12074,8 +12217,8 @@ const b = OFFICE_DESK_TESTS.backup;
 const out = {};
 // the place's lines: testBackupPlaceVerdict (2026-10-17, one question decides)
 const plan = (names) => ({ shares: names.map((name) => ({ name })) });
-out.intro = [b.placeIntro(plan(['appdata', 'system', 'domains', 'isos']), ''), b.placeIntro(plan(['appdata', 'isos', 'Backups']), ''),
-  b.placeIntro(plan(['appdata', 'isos']), 'isos')];
+out.intro = [b.placeFitting(plan(['appdata', 'system', 'domains', 'isos'])), b.placeFitting(plan(['appdata', 'isos', 'Backups'])),
+  b.placeFitting({ shares: [{ name: 'Backups', exists: false }, { name: 'Dokumente' }] })];
 // a first plan: what the user picks and doesn't apply
 b.setup.plan = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
 b.setupDraftKeep();
@@ -12105,7 +12248,7 @@ JS;
         hardeningRm($tmp);
         return;
     }
-    same('backup place: Mr. Backupsy\'s word - no share to choose (only isos), choose one, none once chosen', ['setup.place_none', 'setup.place_choose', null], $r['intro']);
+    same('backup place: the shares the first step offers to choose - none (only isos), one, never a share gone', [[], ['Backups'], ['Dokumente']], $r['intro']);
     same('backup place: before the new plan - the user\'s levels in the draft', [['c2'], ['c2', 'c3']], $r['before']);
     same('backup place: a new plan keeps what the user chose (flash, a level, a hold); takes the engine\'s new proposals (the share made meanwhile, a retention)',
         ['flash' => 'off', 'ds' => 'UnraidSecretaryOffice', 'retention' => '14 4 3', 'skip' => ['c2'], 'noStop' => ['c2', 'c3'], 'levels' => [1, 0], 'held' => 'run', 'office' => 'snapshot'],
@@ -49810,7 +49953,7 @@ JS;
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testHouseDockerSilent', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
