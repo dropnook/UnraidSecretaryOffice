@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.68"
+UB_VERSION="2.69"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -1460,7 +1460,8 @@ vm_packed() {
 #   PLAN_FLASH       snapshot | tar | off  (what really applies)
 #   PLAN_KITEMS      apps and VMs with a Kopia source of their own: "kind|name|folder" (section 9)
 #   PLAN_MOUNT       shares mounted for Kopia: PLAN_KOPIA and the shares the items' parts lie in
-declare -ga PLAN_KOPIA=() PLAN_SNAP=() PLAN_ZFS=() PLAN_BTRFS=() PLAN_KITEMS=() PLAN_MOUNT=()
+#   PLAN_DELETED     shares Unraid deleted whose datasets their snapshots keep (2.69, share_deleted_left): left out
+declare -ga PLAN_KOPIA=() PLAN_SNAP=() PLAN_ZFS=() PLAN_BTRFS=() PLAN_KITEMS=() PLAN_MOUNT=() PLAN_DELETED=()
 declare -gA PLAN_ZFS_RET=() PLAN_EXCL=()
 PLAN_FLASH="off"
 
@@ -1525,7 +1526,7 @@ share_method()    { # the method that really applies
 }
 
 plan_build() {
-    PLAN_KOPIA=(); PLAN_SNAP=(); PLAN_ZFS=(); PLAN_BTRFS=(); PLAN_ZFS_RET=(); PLAN_EXCL=(); PLAN_KITEMS=(); PLAN_MOUNT=()
+    PLAN_KOPIA=(); PLAN_SNAP=(); PLAN_ZFS=(); PLAN_BTRFS=(); PLAN_ZFS_RET=(); PLAN_EXCL=(); PLAN_KITEMS=(); PLAN_MOUNT=(); PLAN_DELETED=()
     local s mode meth b m layer sub ret line ds mp
     local -A seen_b=() seen_ds=()
     local -a excl
@@ -1545,6 +1546,8 @@ plan_build() {
         [[ "$mode" == "off" ]] && continue
         meth="$(share_method "$s")"
         [[ "$meth" == "none" ]] && continue
+        # 2.69: deleted in Unraid, only its snapshots keep the dataset - no new snapshot, no Kopia (said by the drift)
+        share_deleted_left "$s" && { PLAN_DELETED+=( "$s" ); continue; }
         # mode=kopia with Kopia switched off = local snapshot only
         [[ "$mode" == "kopia" ]] && is_yes "$KOPIA_ENABLED" && PLAN_KOPIA+=( "$s" )
         [[ "$meth" == "snap" ]] || continue
@@ -1616,6 +1619,76 @@ plan_children() {
         [[ -z "$ds" || -n "${PLAN_EXCL[$ds]:-}" ]] && continue
         printf '%s|%s|%s\n' "$b" "$ds" "$mp"
     done <<<"${INV_CHILDREN[$s]:-}"
+}
+
+# --- 2.69: a share Unraid deleted, its dataset kept by snapshots -------------
+# Unraid's «Delete» of an emptied share whose ZFS dataset carries snapshots drops the share's config but can't destroy
+# the dataset: it stays mounted (and listed in shares.ini), and up to 2.68 every run snapshotted it again as the share.
+# share_deleted_left <share>  -> 0 when that is the share now: no config of it in UB_SHARES_CFG (that folder there),
+# every part of it a ZFS dataset of its own (not a folder in one) with no child datasets, nearly nothing referenced
+# (< 1 MiB, looked at before its folder is read) and nothing in it, on a base that doesn't sleep, with snapshots.
+# Sets SDL_DS (the datasets, ", "-joined) and SDL_SNAPS (their snapshots). Read only: the engine never destroys it -
+# the run leaves it out (plan_build) and says it (drift share_deleted_snapshots), the setup says the way
+share_deleted_left() {
+    local s="$1" b m layer sub n=0 c
+    SDL_DS=""; SDL_SNAPS=0
+    [[ "$HAVE_ZFS" == "yes" && -n "$s" && -d "$UB_SHARES_CFG" && ! -e "$UB_SHARES_CFG/$s.cfg" ]] || return 1
+    [[ "${INV_METHOD[$s]:-}" == "snap" && -z "${INV_CHILDREN[$s]:-}" ]] || return 1
+    while IFS='|' read -r b m layer sub; do
+        [[ -z "$b" ]] && continue
+        [[ "$m" == "zfs" && -z "$sub" && -n "$layer" ]] || return 1
+        [[ "${ZDS_REF[$layer]:-}" =~ ^[0-9]+$ ]] && (( ZDS_REF[$layer] < 1048576 )) || return 1
+        ub_base_sleeps "$b" && return 1
+        [[ -z "$(find "${INV_BASE_PATH[$b]}/$s" -mindepth 1 -maxdepth 1 ! -name .zfs -print -quit 2>/dev/null)" ]] || return 1
+        c="$(zfs list -H -t snapshot -o name -d 1 "$layer" 2>/dev/null | grep -c "^$layer@")"
+        SDL_SNAPS=$(( SDL_SNAPS + ${c:-0} ))
+        SDL_DS+="${SDL_DS:+, }$layer"; n=$((n+1))
+    done <<<"${INV_LOCS[$s]:-}"
+    (( n > 0 && SDL_SNAPS > 0 ))
+}
+
+# --- 2.69: the room left on a pool holding an app's data ---------------------
+# An app stopped for the snapshot on a pool with almost no room may not start cleanly again (a database, a lock, a log
+# written at its start), and the new snapshot keeps every block it overwrites afterwards - the pool fills to the brim.
+# Low: free below UB_POOL_LOW_PCT (2) % of the pool, that at least UB_POOL_LOW_MIN_GB (1) and at most UB_POOL_LOW_MAX_GB
+# (10) GiB. Only pools (an array disk is never asked), never a sleeping one (it isn't woken for this).
+# pool_low <base>  -> 0 when low; PL_FREE, PL_SIZE, PL_FLOOR in bytes (ZFS: the pool's root dataset, used + available;
+# else the file system's df)
+pool_low() {
+    local b="$1" r u f pct="${UB_POOL_LOW_PCT:-2}" lo="${UB_POOL_LOW_MIN_GB:-1}" hi="${UB_POOL_LOW_MAX_GB:-10}"
+    PL_FREE=0; PL_SIZE=0; PL_FLOOR=0
+    [[ "${INV_BASE_KIND[$b]:-}" == "pool" && -n "${INV_BASE_PATH[$b]:-}" ]] || return 1
+    ub_base_sleeps "$b" && return 1
+    if [[ "${INV_BASE_FS[$b]:-}" == "zfs" ]]; then
+        r="$(zfs list -H -p -o used,available "${INV_BASE_SRC[$b]%%/*}" 2>/dev/null | head -1)"
+        read -r u f <<<"$r"
+        [[ "$u" =~ ^[0-9]+$ && "$f" =~ ^[0-9]+$ ]] || return 1
+        PL_FREE=$f; PL_SIZE=$(( u + f ))
+    else
+        r="$(df -P -B1 "${INV_BASE_PATH[$b]}" 2>/dev/null | awk 'NR==2 {print $4, $2}')"
+        read -r f u <<<"$r"
+        [[ "$u" =~ ^[0-9]+$ && "$f" =~ ^[0-9]+$ ]] || return 1
+        PL_FREE=$f; PL_SIZE=$u
+    fi
+    [[ "$pct" =~ ^[0-9]+$ && "$lo" =~ ^[0-9]+$ && "$hi" =~ ^[0-9]+$ ]] || { pct=2; lo=1; hi=10; }
+    PL_FLOOR=$(( PL_SIZE / 100 * pct ))
+    (( PL_FLOOR < lo * 1073741824 )) && PL_FLOOR=$(( lo * 1073741824 ))
+    (( PL_FLOOR > hi * 1073741824 )) && PL_FLOOR=$(( hi * 1073741824 ))
+    (( PL_SIZE > 0 && PL_FREE < PL_FLOOR ))
+}
+# ct_low_pools <container>  -> the pools its folders (binds) lie on that are low (pool_low), one per line
+ct_low_pools() {
+    local src b
+    local -A seen=()
+    while IFS='|' read -r src _ _; do
+        [[ -n "$src" ]] || continue
+        while IFS= read -r b; do
+            [[ -n "$b" && -z "${seen[$b]:-}" ]] || continue
+            seen[$b]=1
+            pool_low "$b" && printf '%s\n' "$b"
+        done <<<"$(ub_path_bases "$src")"
+    done <<<"${CT_BINDS[$1]:-}"
+    return 0
 }
 
 ##############################################################################
@@ -2817,6 +2890,12 @@ drift_check_shares() {
         share_name_ok "$s" || { drift_add warn "Share '$s': the name contains @ : \" or | - not backed up" share_name_bad "" name="$s"; continue; }
         mode="$(share_mode "$s")"
         [[ "$mode" == "off" ]] && continue
+        # 2.69: Unraid deleted it, its dataset stays for its snapshots - left out (plan_build), never destroyed here
+        if share_deleted_left "$s"; then
+            drift_add warn "Share '$s' was deleted in Unraid, but its dataset ($SDL_DS) stays: $SDL_SNAPS snapshot(s) keep it - not backed up any more; delete its snapshots (Ms. Snapshotini), then delete the share in Unraid again" \
+                share_deleted_snapshots "" name="$s" datasets="$SDL_DS" snapshots="$SDL_SNAPS"
+            continue
+        fi
         meth="$(share_method "$s")"
         loc_now="$(inv_locnames "$s")"; loc_cfg="$(cfg "share|$s|locations")"
         if [[ -n "$loc_cfg" && "$loc_cfg" != "$loc_now" ]]; then

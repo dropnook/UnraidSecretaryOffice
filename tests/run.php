@@ -48551,6 +48551,195 @@ JS;
 }
 
 /**
+ * Engine 2.69 (resilience batch H on USOTest3VM): what it kept quiet about. H3 — a share Unraid deleted whose ZFS dataset
+ * only its snapshots keep (share_deleted_left): left out of the run's plan, said as drift and in the plan with the way,
+ * nothing destroyed; a share with its config, one with something in it or one without snapshots is none. H4 — a pool with
+ * almost no room under the folders of an app stopped for the snapshot (pool_low: below 2 %, 1..10 GiB): the plan and the
+ * run warn pool_low_space, the app is still stopped. H6 — Kopia's own container with anonymous volumes: the plan warns
+ * kopia_volumes with the paths; bound paths and named volumes say nothing.
+ */
+function testBackupBatchH(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-batchh-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+    $mnt = "$tmp/mnt";
+    $fast = "$mnt/fast";
+    $roomy = "$mnt/roomy";
+    $data = "$tmp/data/unraid-backup";
+    $root = "$mnt/addons/UnraidSecretaryOffice/snapshots";
+    foreach (["$tmp/bin", "$tmp/fake", "$data/state", "$tmp/boot/config/shares", "$mnt/user", $root, "$fast/appdata/web", "$fast/appdata/kopia",
+              "$fast/UnraidSecretaryOffice/backup", "$fast/gone1", "$fast/kept", "$fast/nosnap", "$fast/withcfg", "$roomy/media/x"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    file_put_contents("$fast/kept/a-file", 'x');
+    foreach (['appdata', 'UnraidSecretaryOffice', 'withcfg', 'media'] as $s) {
+        touch("$tmp/boot/config/shares/$s.cfg");
+    }
+    $ds = ['fast' => [$fast, 1000], 'fast/appdata' => ["$fast/appdata", 5000], 'fast/UnraidSecretaryOffice' => ["$fast/UnraidSecretaryOffice", 10],
+           'fast/gone1' => ["$fast/gone1", 98304], 'fast/kept' => ["$fast/kept", 98304], 'fast/nosnap' => ["$fast/nosnap", 98304],
+           'fast/withcfg' => ["$fast/withcfg", 98304], 'roomy' => [$roomy, 1000], 'roomy/media' => ["$roomy/media", 7000000]];
+    $mounts = $zfs = '';
+    foreach ($ds as $n => [$mp, $ref]) {
+        $mounts .= "$n $mp zfs rw 0 0\n";
+        $zfs .= "$n\t$mp\ton\t" . crc32($n) . "\t$ref\t-\n";
+    }
+    file_put_contents("$tmp/fake/mounts", $mounts . "shfs $mnt/user fuse.shfs rw 0 0\n");
+    file_put_contents("$tmp/fake/zfs.txt", $zfs);
+    file_put_contents("$tmp/fake/snaps.txt", "fast/gone1@uso-backup-20261021-1025\nfast/kept@uso-backup-20261021-1025\nfast/withcfg@uso-backup-20261021-1025\n");
+    // the pools' room: fast 200 MiB free of ~1.2 GiB (H4's refreservation), roomy 500 GB free
+    file_put_contents("$tmp/fake/room.txt", "fast\t1073741824\t209715200\nroomy\t1000000000\t500000000000\n");
+    file_put_contents("$tmp/fake/disks.ini", "[\"fast\"]\nname=\"fast\"\nspundown=\"0\"\n");
+    file_put_contents("$tmp/bin/zfs", <<<'SH'
+#!/bin/bash
+if [[ "$1" == list ]]; then
+  if [[ "$*" == *'-t snapshot'* ]]; then grep "^${@: -1}@" "$FAKE/snaps.txt"
+  elif [[ "$*" == *'-t filesystem'* ]]; then cat "$FAKE/zfs.txt"
+  elif [[ "$*" == *'used,available'* ]]; then awk -F'\t' -v d="${@: -1}" '$1 == d {print $2 "\t" $3}' "$FAKE/room.txt"; fi
+fi
+exit 0
+SH);
+    chmod("$tmp/bin/zfs", 0755);
+    $env = "export PATH=$tmp/bin:\$PATH UB_DATA=$data UB_MNT=$mnt UB_BOOT=$tmp/boot UB_SHARES_CFG=$tmp/boot/config/shares UB_DISKS_INI=$tmp/fake/disks.ini"
+         . " UB_MOUNTS_FILE=$tmp/fake/mounts FAKE=$tmp/fake FAKE_ROOT=$root UB_SHARES_INI=$tmp/fake/shares.ini";
+    file_put_contents("$tmp/fake/shares.ini", implode('', array_map(fn ($s) => "[\"$s\"]\nname=\"$s\"\n", ['appdata', 'UnraidSecretaryOffice', 'gone1', 'kept', 'nosnap', 'withcfg', 'media'])));
+    $sh = fn (string $code) => (string) shell_exec('bash -c ' . escapeshellarg("$env; source $lib >/dev/null 2>&1; inv_scan; $code") . ' 2>&1');
+
+    // --- H3: which share is a deleted one its snapshots keep
+    same('batch H3: only the share without its config, empty, with snapshots is «deleted, kept by its snapshots» - its dataset and their count',
+        "gone1|fast/gone1|1\n", $sh('for s in gone1 kept nosnap withcfg appdata media; do share_deleted_left "$s" && echo "$s|$SDL_DS|$SDL_SNAPS"; done'));
+    same('batch H3: … a sleeping pool is not read for it', '', $sh('UB_SPUNDOWN=([fast]=1); UB_ASLEEP_LOADED=yes; share_deleted_left gone1 && echo yes'));
+    $ini = "[general]\nserver = Test\nmount_root = $root\nsnap_prefix = uso-backup-\ndumps_share = UnraidSecretaryOffice\n[docker]\nstop = all\n[flash]\nmode = off\n[kopia]\nenabled = no\n"
+         . "[share \"appdata\"]\nmode = snapshot\n[share \"UnraidSecretaryOffice\"]\nmode = snapshot\n[share \"gone1\"]\nmode = snapshot\n[share \"withcfg\"]\nmode = snapshot\n";
+    file_put_contents("$data/settings.ini", $ini);
+    $out = $sh('load_settings >/dev/null 2>&1; plan_build; echo "zfs:${PLAN_ZFS[*]}"; echo "deleted:${PLAN_DELETED[*]}"; drift_check_shares;'
+        . ' for i in "${!DRIFT[@]}"; do [[ "${DRIFT_CODE[$i]%%$\'\x1f\'*}" == share_deleted_snapshots ]] && echo "drift:${DRIFT[$i]%%|*}:${DRIFT_PARAMS[$i]//$\'\x1f\'/,}"; done');
+    check('batch H3: the run snapshots it no more - out of the plan\'s datasets, noted as left out; the others as before',
+        str_contains($out, 'deleted:gone1') && preg_match('/^zfs:(.*)$/m', $out, $z) === 1 && !str_contains($z[1], 'fast/gone1') && str_contains($z[1], 'fast/withcfg') && str_contains($z[1], 'fast/appdata'), $out);
+    check('batch H3: … said as drift (a warning) with the share, its dataset and snapshots', str_contains($out, 'drift:warn:name=gone1,datasets=fast/gone1,snapshots=1'), $out);
+    $engine = (string) file_get_contents(OFFICE_DIR . '/backup/lib/common.sh') . file_get_contents(OFFICE_DIR . '/backup/backup.sh') . file_get_contents(OFFICE_DIR . '/backup/setup.sh');
+    check('batch H3: nothing of it is ever destroyed by the engine (no zfs destroy beside its own retention\'s)', !preg_match('/zfs destroy[^\n]*(SDL_|share_deleted)|(SDL_|share_deleted)[^\n]*zfs destroy/', $engine));
+
+    // --- H4: the room of the pools under an app's folders
+    same('batch H4: fast (200 MiB of 1.2 GiB) is low below 1 GiB, roomy (500 GB) is not; an array disk or an unknown base is never asked',
+        "fast 209715200 1283457024 1073741824\nroomy no\nnone no\n",
+        $sh('pool_low fast && echo "fast $PL_FREE $PL_SIZE $PL_FLOOR"; pool_low roomy || echo "roomy no"; pool_low disk1 || echo "none no"'));
+    same('batch H4: the floor - 2 % of the pool, at least 1 and at most 10 GiB', [1073741824, 4294967296, 10737418240],
+        array_map(fn ($sz) => (int) trim($sh("printf 'fast\\t%s\\t1\\n' $sz >\$FAKE/room.txt; pool_low fast; echo \$PL_FLOOR")), [1000000000, 214748364800, 2000000000000]));
+    file_put_contents("$tmp/fake/room.txt", "fast\t1073741824\t209715200\nroomy\t1000000000\t500000000000\n");
+    same('batch H4: an app\'s low pools from its folders - through /mnt/user (the share\'s pools) and a pool\'s own path; a roomy one none',
+        "web:fast\ndirect:fast\nmedia:\n",
+        $sh("CT_BINDS[web]=\"$mnt/user/appdata/web|/config|rw\"; CT_BINDS[direct]=\"$fast/appdata/x|/x|rw\"$'\\n'\"$roomy/media|/m|ro\"; CT_BINDS[media]=\"$mnt/user/media|/media|rw\";"
+            . ' for c in web direct media; do echo "$c:$(ct_low_pools "$c" | paste -sd, -)"; done'));
+    $bk = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh');
+    check('batch H4: the run says it before anything stops (right after the stop tiers), with a code; the app stays in its tier',
+        preg_match('/build_stop_tiers\npool_room_check /', $bk) === 1 && str_contains($bk, 'warn_code pool_low_space ') && !preg_match('/pool_room_check\(\) \{[^}]*T_APP=\(/s', $bk));
+
+    // --- setup.sh --plan: the three warnings with their params
+    $hex = str_repeat('ab12', 16);
+    file_put_contents("$tmp/bin/docker", <<<'SH'
+#!/bin/bash
+case "$1" in
+  info) exit 0 ;;
+  version) echo 29.0; exit 0 ;;
+  ps) printf 'id-kopia\nid-web\n'; exit 0 ;;
+  compose) exit 1 ;;
+  top) printf 'PID UID COMMAND\n7 0 /app/kopia server start\n'; exit 0 ;;
+  inspect)
+    shift
+    if [[ "$1" == -f ]]; then
+      case "$2" in
+        *State.Running*) echo true ;;
+        *Mounts*) printf '%s\x1e/uso\x1efalse\x1erslave\n' "$FAKE_ROOT" ;;
+      esac
+      exit 0
+    fi
+    cat "$FAKE/inspect.json"; exit 0 ;;
+  exec)
+    shift
+    while [[ "$1" == -* ]]; do case "$1" in -u|-e) shift 2 ;; *) shift ;; esac; done
+    shift
+    case "$1" in
+      cat) exit 0 ;;
+      kopia)
+        shift; [[ "$1" == --no-progress ]] && shift
+        case "$1 ${2:-}" in
+          "repository status") cat "$FAKE/repo.json" ;;
+          "policy list"|"snapshot list") echo '[]' ;;
+          --version*) echo "0.23.0 build" ;;
+        esac
+        exit 0 ;;
+    esac
+    exit 1 ;;
+esac
+exit 0
+SH);
+    foreach (['virsh' => "exit 0", 'mountpoint' => "[[ \"\${@: -1}\" == */user ]]", 'mount' => 'exit 1', 'umount' => 'exit 0', 'notify' => 'exit 0'] as $b => $body) {
+        file_put_contents("$tmp/bin/$b", "#!/bin/bash\n$body\n");
+    }
+    foreach (glob("$tmp/bin/*") as $f) {
+        chmod($f, 0755);
+    }
+    file_put_contents("$tmp/fake/repo.json", json_encode(['configFile' => '/app/config/repository.config', 'storage' => ['type' => 'filesystem'], 'clientOptions' => ['username' => 'root', 'hostname' => 'kopia']]));
+    $ct = fn ($name, $img, $mounts) => ['Name' => "/$name", 'Id' => "id-$name", 'Config' => ['Image' => $img, 'Env' => [], 'Labels' => new stdClass()],
+        'State' => ['Running' => true], 'HostConfig' => ['NetworkMode' => 'bridge'], 'Mounts' => $mounts];
+    $bind = fn ($s, $d) => ['Type' => 'bind', 'Source' => $s, 'Destination' => $d, 'RW' => true];
+    $vol = fn ($nm, $d) => ['Type' => 'volume', 'Name' => $nm, 'Source' => "/var/lib/docker/volumes/$nm/_data", 'Destination' => $d, 'RW' => true];
+    $kopiaMounts = fn (bool $bound) => array_merge([$bind("$mnt/user/appdata/kopia/config", '/app/config'), $bind($root, '/uso'), $vol('kopia-cache', '/app/cache')],
+        $bound ? [$bind("$mnt/user/appdata/kopia/backups", '/backups'), $bind("$mnt/user/appdata/kopia/source", '/source')]
+               : [$vol($hex, '/backups'), $vol(str_repeat('cd34', 16), '/source')]);
+    $plan = function (bool $bound) use ($tmp, $env, $data, $ct, $bind, $kopiaMounts, $mnt, $root) {
+        file_put_contents("$tmp/fake/inspect.json", json_encode([$ct('kopia', 'kopia/kopia', $kopiaMounts($bound)), $ct('web', 'nginx', [$bind("$mnt/user/appdata/web", '/config')])]));
+        file_put_contents("$data/settings.ini", "[general]\nserver = Test\nmount_root = $root\nsnap_prefix = uso-backup-\ndumps_share = UnraidSecretaryOffice\n[docker]\nstop = all\nknown = kopia\nknown = web\n"
+            . "[flash]\nmode = off\n[kopia]\nenabled = yes\ncontainer = kopia\nidentity = root@kopia\n[share \"appdata\"]\nmode = snapshot\n[share \"UnraidSecretaryOffice\"]\nmode = snapshot\n[share \"gone1\"]\nmode = snapshot\n");
+        @unlink("$data/state/setup-plan.json");
+        $out = (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . ' --plan </dev/null') . ' 2>&1');
+        $p = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
+        return [is_array($p['messages'] ?? null) ? $p['messages'] : [], $out, $p];
+    };
+    [$msgs, $out, $p] = $plan(false);
+    check('batch H (setup): the plan was written', $msgs !== [], $out);
+    $by = fn (array $ms, string $c) => array_values(array_map(fn ($m) => $m['params'] ?? null, array_filter($ms, fn ($m) => ($m['code'] ?? '') === $c && ($m['level'] ?? '') === 'warn')));
+    same('batch H6 (setup): Kopia\'s anonymous volumes said with their paths (a named one, /app/cache, and the bound ones not)',
+        [['app' => 'kopia', 'paths' => '/backups, /source', 'n' => '2']], $by($msgs, 'kopia_volumes'));
+    same('batch H6 (setup): … still never as an app\'s docker_volumes', [], array_values(array_filter($by($msgs, 'docker_volumes'), fn ($x) => ($x['app'] ?? '') === 'kopia')));
+    same('batch H3 (setup): the deleted share said with its dataset and snapshots', [['share' => 'gone1', 'datasets' => 'fast/gone1', 'snapshots' => '1']], $by($msgs, 'share_deleted_snapshots'));
+    $shp = array_column(is_array($p['shares'] ?? null) ? $p['shares'] : [], null, 'name');
+    same('batch H3 (setup): … its setting left as it was (nothing changed of it)', 'snapshot', $shp['gone1']['mode'] ?? null);
+    $low = $by($msgs, 'pool_low_space');
+    same('batch H4 (setup): the pool under the app stopped for the snapshot - web on fast; Kopia (never stopped) not named',
+        [['fast', 'web', '1']], array_map(fn ($x) => [$x['pool'] ?? null, $x['apps'] ?? null, $x['n'] ?? null], $low));
+    check('batch H4 (setup): … with the room in words', ($low[0]['free_h'] ?? '') !== '' && ($low[0]['size_h'] ?? '') !== '' && ($low[0]['floor_h'] ?? '') !== '');
+    [$msgs2, $out2] = $plan(true);
+    same('batch H6 (setup): bound /backups and /source - nothing said', [], $by($msgs2, 'kopia_volumes'));
+    file_put_contents("$tmp/fake/room.txt", "fast\t1073741824\t50000000000\nroomy\t1000000000\t500000000000\n");
+    [$msgs3] = $plan(true);
+    same('batch H4 (setup): room enough - nothing said', [], $by($msgs3, 'pool_low_space'));
+
+    // --- the words
+    $missing = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $s = langFile(OFFICE_WEB . "/desks/backup/lang/$l.json");
+        foreach (['setup.msg.share_deleted_snapshots' => ['share', 'datasets', 'snapshots'], 'drift_code.share_deleted_snapshots' => ['name', 'datasets', 'snapshots'],
+                  'setup.msg.pool_low_space' => ['pool', 'free_h', 'size_h', 'floor_h', 'apps'], 'warn_code.pool_low_space' => ['pool', 'free_h', 'size_h', 'floor_h', 'apps'],
+                  'setup.msg.kopia_volumes' => ['app', 'paths']] as $k => $ps) {
+            $t = $s[$k] ?? null;
+            if (!is_string($t) || array_filter($ps, fn ($x) => !str_contains($t, '{' . $x . '}'))) {
+                $missing[] = "$l $k";
+            }
+        }
+        if (!str_contains((string) ($s['setup.msg.share_deleted_snapshots'] ?? ''), 'Snapshotini') || !str_contains((string) ($s['setup.msg.share_deleted_snapshots'] ?? ''), '⟦Shares⟧')) {
+            $missing[] = "$l share_deleted_snapshots: the way (Ms. Snapshotini, ⟦Shares⟧)";
+        }
+        if (!str_contains((string) ($s['setup.msg.kopia_volumes'] ?? ''), '⟦Host Path⟧') || !str_contains((string) ($s['setup.msg.kopia_volumes'] ?? ''), '/backups')) {
+            $missing[] = "$l kopia_volumes: what lives there and how to bind it";
+        }
+    }
+    same('batch H: the three said in all five languages, every param in its sentence, with the way', [], $missing);
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * A Docker volume that is only a cache is not lost data (2026-10-17: immich's `model-cache:/cache` made the app row's chip
  * red «Docker volumes … NOT in the backup», the owner feared for his photos). The agent tags each plan container's cache
  * volumes (`backupPlanVolumeCaches()`, the one rule `backupVolumeIsCache()`, a volume's name from the docker_volumes
@@ -49380,7 +49569,7 @@ JS;
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testHouseDockerSilent', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

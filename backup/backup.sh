@@ -1,6 +1,12 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.68 - 2026-10-21
+# unraid-backup - backup.sh                       Version 2.69 - 2026-10-21
+#   2.69 An app stopped for the snapshot whose folders lie on a pool with almost no room (below 2 % of it, at least 1
+#        and at most 10 GiB, pool_low) is said before it stops: warning pool_low_space {pool, free, size, floor, apps, n}
+#        - it is still stopped and started as set up (a ZFS snapshot itself takes next to no room; a consistent
+#        snapshot is worth most just then), but it may not start cleanly there and the new snapshot keeps what it
+#        overwrites. A share Unraid deleted whose dataset only its snapshots keep (share_deleted_left) is no longer
+#        snapshotted again as the share: drift share_deleted_snapshots {name, datasets, snapshots}; nothing destroyed.
 #   2.68 An upload that takes nothing no longer holds the run for ever: Kopia's upload keeps no time limit, but a stall
 #        watchdog - its process reading and writing less than UB_KOPIA_STALL_BYTES (1 MiB, /proc/<pid>/io) for
 #        UB_KOPIA_STALL (900 s) ends it (INT, KILL after UB_KOPIA_STALL_END); a warning kopia_stalled {name, minutes,
@@ -3364,6 +3370,26 @@ ct_rests() {
     (( any ))
 }
 
+# 2.69: the pools with almost no room that hold the data of apps this run stops - said before they stop (pool_low_space,
+# one warning per pool). They are still stopped as set up: a ZFS snapshot takes next to no room, and a consistent
+# snapshot of an app is worth most when its pool is about to fill; what the room puts at risk is the app's start
+# afterwards and the blocks the new snapshot keeps - the user's to free, so it is said, not decided here
+pool_room_check() {
+    local n b
+    local -A apps=()
+    for n in "${T_APP[@]}" "${T_DB[@]}" "${T_NET[@]}"; do
+        [[ -n "$n" ]] || continue
+        while IFS= read -r b; do [[ -n "$b" ]] && apps[$b]+="${apps[$b]:+, }$n"; done <<<"$(ct_low_pools "$n")"
+    done
+    for b in $(printf '%s\n' "${!apps[@]}" | LC_ALL=C sort); do
+        pool_low "$b" || continue
+        warn_code pool_low_space "Pool '$b' has only $(human "$PL_FREE") free of $(human "$PL_SIZE") (below $(human "$PL_FLOOR")) - ${apps[$b]} keep their data there and are stopped and started for the snapshot as set up, but may not start cleanly with so little room, and the new snapshot keeps what they overwrite afterwards: make room on '$b'" \
+            pool="$b" free="$PL_FREE" size="$PL_SIZE" floor="$PL_FLOOR" free_h="$(human "$PL_FREE")" size_h="$(human "$PL_SIZE")" \
+            floor_h="$(human "$PL_FLOOR")" apps="${apps[$b]}" n="$(tr ',' '\n' <<<"${apps[$b]}" | grep -c .)"
+    done
+    return 0
+}
+
 ##############################################################################
 # Partners (2.27)
 ##############################################################################
@@ -4001,6 +4027,7 @@ asleep_plan
 
 # --- Showing the plan -----------------------------------------------------
 build_stop_tiers
+pool_room_check                      # 2.69: before anything stops - the pools with almost no room holding their data
 vm_plan
 pkg_plan
 sqlite_plan
@@ -4016,6 +4043,7 @@ log "  Nextcloud:        $(cfg_names nextcloud | paste -sd' ' -)"
 log "  Pause:            ${T_APP[*]:-} | DB: ${T_DB[*]:-} | network: ${T_NET[*]:-}"
 log "  Keep running:     ${KOPIA_CONTAINER:-} ${DOCKER_NO_STOP[*]:-}"
 (( ${#T_NEW[@]} )) && log "  New, keep running: ${T_NEW[*]} (not stopped until you decide in the setup)"
+(( ${#PLAN_DELETED[@]} )) && log "  Left out, deleted: ${PLAN_DELETED[*]} (deleted in Unraid - only their snapshots keep the datasets; see the drift above)"
 (( ${#T_PAUSED[@]} )) && log "  Paused by you:    ${T_PAUSED[*]} (left as they are - not stopped, not started; paused again afterwards)"
 (( ${#T_REST[@]} )) && log "  Asleep, keep running: ${T_REST[*]} (all their backed-up data on pools left out this run)"
 (( ${#ST_ASLEEP_POOLS[@]} )) && log "  Left out, asleep:  ${ST_ASLEEP_POOLS[*]} - shares ${ST_ASLEEP_SHARES[*]:-none}${ST_ASLEEP_VMS[*]:+, VMs ${ST_ASLEEP_VMS[*]}}"
