@@ -23,6 +23,12 @@ declare(strict_types=1);
  *         curl through hostNet(), https only, REPORT_STATUS_TIMEOUT, address and header in a 0600 config file in RAM.
  *         Only the inbox's numbers and the report ID go along — nothing the user wrote. A failure is silent (the rows
  *         keep what was known). The inbox's numbers stay in reports.json for this; the page never gets them.
+ *   office.report_inbox {}
+ *       → whether the makers' inbox takes reports right now (open | inbox | closed | unknown, null: no inbox set), so the
+ *         dialog says it before anyone writes. For that ONE GET <inbox>/api/health (reportInboxLook()) when the last look
+ *         is older than REPORT_INBOX_FRESH — nothing of this server goes along but the office's User-Agent. The Team Lead
+ *         looks the same way once a day (hourly while it takes nothing; reportInboxTick()) and gives a hint
+ *         (check.report_inbox) while it can't. 2026-10-21: the inbox was archived, every report «failed», and nobody knew.
  * Nothing user-written leaves the server without the user's click on «Send». What goes is shown before, in full.
  *
  * The caps: REPORT_CAP_DAY reports in 24 hours per office (2026-10-09; up to 1.47 it was 2 in 7 days), checked
@@ -90,6 +96,13 @@ const REPORT_STATUS_MAX     = 10;          // «Your reports»: where the newest
 const REPORT_STATUS_EVERY   = 3600;        // … each at most once an hour …
 const REPORT_STATUS_TIMEOUT = 8;           // … in one GET of at most this many seconds
 const REPORT_STATUSES       = ['received', 'seen', 'done'];
+const REPORT_INBOX_FRESH    = 600;         // the makers' inbox: the dialog asks anew when the last look is older (the Worker's own look is as old) …
+const REPORT_INBOX_EVERY    = 86400;       // … the Team Lead once a day …
+const REPORT_INBOX_CLOSED   = 3600;        // … and once an hour while it takes nothing …
+const REPORT_INBOX_TIMEOUT  = 5;           // … in one GET /api/health of at most this many seconds
+const REPORT_INBOX_STATES   = ['open', 'inbox', 'github', 'closed', 'unknown'];
+// the Worker's /api/health problems that mean no report gets in (its ready()): the inbox takes nothing, as for inbox_*
+const REPORT_INBOX_NOT_READY = ['GITHUB_TOKEN', 'ID_SALT', 'FEEDBACK_KV', 'INBOX_REPO'];
 // the public issue a report became — only one of the office's public repository, never anything else the Worker says
 const REPORT_PUBLIC_RE      = '#^https://github\.com/dropnook/UnraidSecretaryOffice/issues/([0-9]{1,9})$#D';
 const REPORT_LANGS       = ['en', 'de', 'it', 'fr', 'es'];
@@ -129,6 +142,7 @@ function officeAgentActions(): array
         'report_send'    => fn (array $r): array => reportSend($r),
         'report_diag'    => fn (array $r): array => reportDiagAnswer($r),
         'reports'        => fn (array $r): array => reportsAnswer(),
+        'report_inbox'   => fn (array $r): array => ['ok' => true, 'inbox' => reportInboxLook(REPORT_INBOX_FRESH)['state'] ?? null],
         'supporter_claim' => fn (array $r): array => supporterClaim($r),     // lib/supporter.php: the key a tip made
         'jobs'           => fn (array $r): array => ['ok' => true, 'jobs' => officeJobs()],     // lib/jobs.php: the Dashboard tile's running jobs
     ];
@@ -1558,6 +1572,9 @@ function reportSend(array $r, array $ctx = []): array
     }
     if (!$answer['ok']) {
         $giveBack();
+        if ($answer['key'] === 'report_inbox') {
+            reportInboxKeep('inbox', $now, $ctx);      // the dialog and the Team Lead know at once
+        }
         if ($answer['key'] === 'report_closed') {
             $j['closed_until'] = $now + REPORT_CLOSED_FOR;
             try {
@@ -1585,6 +1602,9 @@ function reportSend(array $r, array $ctx = []): array
     $j['reports'][] = $entry;
     $j['closed_until'] = null;
     reportsWrite($j, $ctx);
+    if (in_array(reportInboxRead($ctx)['state'] ?? null, ['inbox', 'github', 'closed'], true)) {
+        reportInboxKeep('open', $now, $ctx);          // it took this one: open again
+    }
     reportLogLine("Office: sent a report (#{$answer['number']}, {$words['kind']}, {$words['desk']}"
         . ($pictures ? ", $pictures picture" . ($pictures === 1 ? '' : 's') : '')
         . ($diagSent === null ? '' : ($diagSent === 'sent' ? ', diagnostics' : ", diagnostics not sent: $diagSent")) . ')', $ctx);
@@ -1702,6 +1722,8 @@ function reportPost(array $body, string $dir, string $token, array $ctx = []): a
  *   busy {retry_after}                      → report_busy
  *   busy {why: images} key report_images_busy → report_images_busy (the inbox's bytes of pictures for the day are used up)
  *   refused {why, field?}                   → report_refused
+ *   inbox {problem}                         → report_inbox (the inbox can't take issues: archived, issues off, the token
+ *                                             shut out — the makers' side; a Worker up to 2026-10-21 said github)
  *   github | config | internal | anything else, an answer that isn't the Worker's → report_failed
  *   no answer at all (curl failed)          → report_offline
  * The Worker's `key` is taken when it is one of these. Never a text the Worker sends: only keys.
@@ -1721,8 +1743,8 @@ function reportAnswer(int $exit, string $out, int $now): array
         return ['ok' => true, 'number' => $body['number'], 'url' => reportIssueUrl($body['url'] ?? null)];
     }
     $keys = ['closed' => 'report_closed', 'week' => 'report_day', 'day' => 'report_day', 'busy' => 'report_busy', 'refused' => 'report_refused',
-             'github' => 'report_failed', 'config' => 'report_failed', 'internal' => 'report_failed'];
-    $wireKeys = ['report_closed', 'report_week', 'report_day', 'report_busy', 'report_images_busy', 'report_refused', 'report_failed'];
+             'inbox' => 'report_inbox', 'github' => 'report_failed', 'config' => 'report_failed', 'internal' => 'report_failed'];
+    $wireKeys = ['report_closed', 'report_week', 'report_day', 'report_busy', 'report_images_busy', 'report_refused', 'report_inbox', 'report_failed'];
     $key = is_string($body['key'] ?? null) && in_array($body['key'], $wireKeys, true) ? ($body['key'] === 'report_week' ? 'report_day' : $body['key'])
         : $keys[is_string($body['error'] ?? null) ? $body['error'] : ''] ?? 'report_failed';
     if ($key === 'report_busy' && ($body['why'] ?? null) === 'images') {
@@ -1735,6 +1757,106 @@ function reportAnswer(int $exit, string $out, int $now): array
     $next = is_int($body['next'] ?? null) ? $body['next'] : (is_string($body['next'] ?? null) ? (strtotime($body['next']) ?: null) : null);
     $cap = is_int($body['cap'] ?? null) && $body['cap'] > 0 && $body['cap'] <= 1000 ? $body['cap'] : REPORT_CAP_DAY;
     return ['ok' => false, 'key' => 'report_day', 'params' => ['n' => $cap, 'next' => $next ?? ($retry !== null ? $now + $retry : null)]];
+}
+
+// ===================================================================== does the makers' inbox take reports?
+
+/** RUN_DIR/report-inbox.json {v, state, checked}: the last look (RAM — a reboot asks again; not in RUN_DIR/report, which reportTidy() clears) */
+function reportInboxFile(array $ctx = []): string
+{
+    return $ctx['inbox_file'] ?? RUN_DIR . '/report-inbox.json';
+}
+
+/** The last look, in exactly its shape — else null (never looked) */
+function reportInboxRead(array $ctx = []): ?array
+{
+    $file = reportInboxFile($ctx);
+    $j = is_link($file) ? null : readJson($file);
+    return is_array($j) && in_array($j['state'] ?? null, REPORT_INBOX_STATES, true) && is_int($j['checked'] ?? null)
+        ? ['state' => $j['state'], 'checked' => $j['checked']] : null;
+}
+
+function reportInboxKeep(string $state, int $now, array $ctx = []): void
+{
+    try {
+        writeAtomic(reportInboxFile($ctx), jsonEncode(['v' => 1, 'state' => $state, 'checked' => $now]), 0600, 0, 0);
+    } catch (Throwable) {
+        // not kept: asked again next time
+    }
+}
+
+/**
+ * Whether the makers' inbox takes reports: the last look while younger than $maxAge, else one GET <inbox>/api/health
+ * (reportInboxAsk()), kept. No inbox (FEEDBACK_URL / OFFICE_FEEDBACK_URL empty): null, nothing asked.
+ *
+ * @return array{state: string, checked: int}|null
+ */
+function reportInboxLook(int $maxAge, array $ctx = []): ?array
+{
+    $now = $ctx['now'] ?? time();
+    $base = $ctx['url'] ?? officeFeedbackUrl();
+    if ($base === '') {
+        return null;
+    }
+    $kept = reportInboxRead($ctx);
+    if ($kept !== null && $kept['checked'] > $now - $maxAge && $kept['checked'] <= $now + 300) {
+        return $kept;
+    }
+    $state = reportInboxAsk($base);
+    reportInboxKeep($state, $now, $ctx);
+    return ['state' => $state, 'checked' => $now];
+}
+
+/**
+ * The Team Lead's look (caretakerTick(), once a minute — nearly always a read in RAM): due once a day, once an hour
+ * while the inbox takes nothing (so his hint goes soon after it opens again)
+ */
+function reportInboxTick(int $now, array $ctx = []): void
+{
+    $kept = reportInboxRead($ctx);
+    reportInboxLook(in_array($kept['state'] ?? null, ['inbox', 'github'], true) ? REPORT_INBOX_CLOSED : REPORT_INBOX_EVERY, ['now' => $now] + $ctx);
+}
+
+/**
+ * GET <inbox>/api/health: curl through hostNet() (no shell), https only (http only when the plugin's .cfg says
+ * FEEDBACK_URL="http://…" — tests), REPORT_INBOX_TIMEOUT, no redirects, at most 64 KB back. Nothing of this server goes
+ * along — no report ID, no GUID: only the office's User-Agent.
+ */
+function reportInboxAsk(string $base): string
+{
+    try {
+        [$exit, $out] = hostNet(['curl', '-s', '-S', '-m', (string) REPORT_INBOX_TIMEOUT, '--proto', str_starts_with($base, 'http://') ? '=http' : '=https',
+            '--max-redirs', '0', '--max-filesize', '65536', '-H', 'Accept: application/json',
+            '-A', 'UnraidSecretaryOffice/' . AGENT_VERSION, '-w', '\n%{http_code}', "$base/api/health"], REPORT_INBOX_TIMEOUT + 5);
+    } catch (Throwable) {
+        return 'unknown';
+    }
+    return reportInboxAnswer($exit, $out);
+}
+
+/**
+ * The Worker's {ok, open, closed_by, problems, …} (200, or 503 with problems) in the office's words:
+ *   inbox    closed_by inbox, an inbox_* problem, or a setting it can't work without — no report gets in, the makers' side
+ *   github   closed by itself after GitHub's rate limit
+ *   closed   closed by hand or by the burst rule (var | switch | burst)
+ *   open     takes reports
+ *   unknown  no answer, or none of the Worker's shape (no network, a 429, an older Worker's oddity)
+ */
+function reportInboxAnswer(int $exit, string $out): string
+{
+    $cut = strrpos(rtrim($out), "\n");
+    $code = (int) substr(rtrim($out), $cut === false ? 0 : $cut + 1);
+    $body = $exit === 0 && in_array($code, [200, 503], true) ? json_decode($cut === false ? '' : substr($out, 0, $cut), true, 8) : null;
+    if (!is_array($body) || !is_bool($body['open'] ?? null)) {
+        return 'unknown';
+    }
+    $problems = is_array($body['problems'] ?? null) ? array_filter($body['problems'], 'is_string') : [];
+    $by = $body['closed_by'] ?? null;
+    if ($by === 'inbox' || array_intersect($problems, REPORT_INBOX_NOT_READY)
+        || array_filter($problems, fn (string $p): bool => str_starts_with($p, 'inbox_'))) {
+        return 'inbox';
+    }
+    return $body['open'] ? 'open' : ($by === 'github' ? 'github' : 'closed');
 }
 
 /** A line in agent.log — never a report's words; the tests keep theirs */

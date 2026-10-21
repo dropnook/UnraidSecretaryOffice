@@ -2333,6 +2333,9 @@ Office.supporterAsk = async function supporterAsk(answer) {
  * ready (size, files) and «Send» waits for them. A sleeping disk: the agent refuses (report_diag_asleep) and a second
  * tick «wake them» appears. They go after the report (the answer's `diagnostics` says whether); a preview thrown away
  * or the dialog closed drops them on the server.
+ * Whether the makers' inbox takes reports (2026-10-21: it was archived, every report «failed»): on opening the dialog
+ * asks office.report_inbox (the agent's look at the Worker's health, at most every 10 minutes) and says it before
+ * anyone writes — «Send» stays: the look can be a few minutes old, the Worker answers at once.
  */
 const REPORT_KINDS = ['bug', 'wish', 'question'];
 const REPORT_TITLE_MAX = 100;
@@ -2402,7 +2405,7 @@ Office.reportDialog = function reportDialog(deskId) {
   const draft = Office.storeJson('report.draft') || {};
   const desks = [['office', t('office.report_desk_office')]].concat(Office.staffInOrder().map((d) => [d.id, t(`${d.id}.name`)]));
   const want = deskId || draft.desk || 'office';
-  const state = { kind: REPORT_KINDS.includes(draft.kind) ? draft.kind : 'bug', preview: null, sent: false, cap: null, closed: false, images: [], imagesOk: null };
+  const state = { kind: REPORT_KINDS.includes(draft.kind) ? draft.kind : 'bug', preview: null, sent: false, cap: null, closed: false, inbox: null, images: [], imagesOk: null };
   const box = el('div', 'sso-report');
 
   // the head: the team lead's line, the other ways, the cap
@@ -2620,15 +2623,19 @@ Office.reportDialog = function reportDialog(deskId) {
 
   function paintCap() {
     const c = state.cap;
-    if (state.closed) {
+    const inboxDown = state.inbox === 'inbox';                          // the makers' side: archived, issues off …
+    const inboxClosed = state.inbox === 'closed' || state.inbox === 'github';
+    if (inboxDown) {
+      capLine.textContent = t('office.report_inbox_note');
+    } else if (state.closed || inboxClosed) {
       capLine.textContent = t('office.report_closed_note');
     } else if (c && c.left <= 0) {
       capLine.textContent = t('office.report_none_left', { when: c.next ? Office.fmt.date(c.next) : '?' });
     } else if (c) {
       capLine.textContent = t('office.report_left', { n: c.left, cap: c.cap });
     }
-    capLine.className = 'sso-report-cap' + (state.closed || (c && c.left <= 0) ? ' callout warn' : '');
-    capLine.hidden = !c && !state.closed;
+    capLine.className = 'sso-report-cap' + (state.closed || inboxDown || inboxClosed || (c && c.left <= 0) ? ' callout warn' : '');
+    capLine.hidden = !c && !state.closed && !inboxDown && !inboxClosed;
   }
   function paintYours(list) {
     yours.innerHTML = '';
@@ -2854,6 +2861,7 @@ Office.reportDialog = function reportDialog(deskId) {
       say(reportError(j.error));
       if (j.error && j.error.key === 'report_stale') changed();
       if (j.error && j.error.key === 'report_closed') state.closed = true;
+      if (j.error && j.error.key === 'report_inbox') state.inbox = 'inbox';
       if (j.error && j.error.key === 'report_day') {
         const n = Number(j.error.params && j.error.params.n) || 25;
         state.cap = { n, left: 0, cap: n, next: j.error.params && j.error.params.next };
@@ -2863,6 +2871,7 @@ Office.reportDialog = function reportDialog(deskId) {
       return false;
     }
     state.sent = true;
+    state.inbox = 'open';
     Office.store('report.draft', null);
     state.images.forEach((p) => reportPicDrop(p.url));
     state.images = [];
@@ -2878,6 +2887,14 @@ Office.reportDialog = function reportDialog(deskId) {
     dlg.buttons[0].textContent = t('common.close');
     loadYours();
     return false;
+  }
+
+  async function loadInbox() {
+    if (!Office.agent.running) return;
+    const j = await Office.api.post('office.report_inbox', {});
+    if (!j.ok || state.sent) return;
+    state.inbox = ['open', 'inbox', 'github', 'closed'].includes(j.inbox) ? j.inbox : null;
+    paintCap();
   }
 
   async function loadYours() {
@@ -2911,6 +2928,7 @@ Office.reportDialog = function reportDialog(deskId) {
   show.disabled = !Office.agent.running;
   if (!Office.agent.running) say(t('errors.agent_away'));
   title.focus();
+  loadInbox();
   loadYours();
   return dlg;
 };
