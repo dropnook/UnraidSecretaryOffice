@@ -371,7 +371,8 @@ function runCard(p, now) {
     card.appendChild(Office.runSteps(d.steps, d.at, `moverelli|${p.started}`));
     if (d.percent !== null) {
       // the share's average (Ø) and the time left — «being estimated» before a minute or 1 %, a range while unsure (runEstimate())
-      const bar = Office.runBar(d.percent, percentText(d) + (d.rate ? ' · ' + T('rc.rate_avg', { rate: fmt.size(d.rate) }) : '')
+      // (a rate below 1 B/s — tiny files over a slow start — says nothing yet: left out, H9)
+      const bar = Office.runBar(d.percent, percentText(d) + (d.rate >= 1 ? ' · ' + T('rc.rate_avg', { rate: fmt.size(d.rate) }) : '')
         + (d.range || d.left !== null ? ' · ' + leftText(d) : d.estimating ? ' · ' + T('rc.estimating') : ''));
       if (d.byTime) bar.title = T('rc.percent_tip');
       card.appendChild(bar);
@@ -381,7 +382,7 @@ function runCard(p, now) {
     if (d.file) {
       const sh = ((state && state.shares) || []).find((x) => x.share === d.share) || {};
       card.appendChild(el('div', 'card-line mo-run-file', onWayText({ name: d.file, done: d.fileBytes, size: d.fileSize, from: sh.from || nightPool(nn), to: sh.to || 'array' })
-        + (d.fileRate ? ' · ' + T('rc.rate', { rate: fmt.size(d.fileRate) }) : '')));
+        + (d.fileRate >= 1 ? ' · ' + T('rc.rate', { rate: fmt.size(d.fileRate) }) : '')));
       if (d.waking) card.appendChild(el('div', 'card-line', T('rc.waking')));
     }
     if (d.end) card.appendChild(el('div', 'card-line', endText(d.end, now)));
@@ -1067,7 +1068,7 @@ function runSummary(r) {
   // D-F7: a run that found no file says so, never «0 of 0 moved (0 B)» (a stopped one may not have looked yet)
   if (s.result !== 'stopped' && !Number(s.files) && !Number(s.moved) && !Number(s.left)) notes.push(T('run_nothing'));
   else if (mode === 'dry') notes.push(T('dry_summary', { files: nOf('files', s.files), size: fmt.size(s.bytes || 0) }));
-  else notes.push(T('run_summary', { moved: s.moved || 0, files: s.files || 0, size: fmt.size(s.bytes || 0), left: nOf('left', s.left) }));
+  else notes.push(T('run_summary', { moved: s.moved || 0, files: s.files || 0, size: fmt.size(s.bytes || 0), left: runLeft(s) }));
   if (s.errors) notes.push(nOf('errors', s.errors));
   if (r.waited) notes.push(T('waited', { min: Math.round(r.waited / 60) }));
   if (r.jack_out) notes.push(jackOutText(r.jack_out));
@@ -1619,8 +1620,42 @@ function historySection() {
   s.appendChild(box);
   return s;
 }
-/** A share's files left — with the reason Unraid's move binary gave (C-M16: «No medium found»), else «in use or already there» */
-const leftCount = (x) => (Number(x.left) > 0 && x.left_why ? T('left_why', { n: Number(x.left), why: x.left_why }) : nOf('left', x.left));
+/**
+ * A share's files left, each with its reason (batch H9: Smart Mover's `left_codes` — a name ending in a space or tab,
+ * its own copy failed, what Unraid's move binary said (C-M16: «No medium found»), a stop; the rest «in use or already
+ * there»). A status from before the codes: the binary's reason, else «in use or already there»
+ */
+const LEFT_CODES = ['ws', 'copy', 'said', 'stopped'];
+const leftCount = (x) => {
+  const n = Number(x.left) || 0;
+  const codes = x.left_codes && typeof x.left_codes === 'object' ? x.left_codes : null;
+  if (!codes) return n > 0 && x.left_why ? T('left_why', { n, why: x.left_why }) : nOf('left', x.left);
+  const parts = [];
+  let rest = n;
+  LEFT_CODES.forEach((c) => {
+    const k = Math.min(rest, Math.max(0, Math.floor(Number(codes[c]) || 0)));
+    if (!k || (c === 'said' && !x.left_why)) return;
+    parts.push(c === 'said' ? T('left_why', { n: k, why: x.left_why }) : T('left.' + c, { n: k }));
+    rest -= k;
+  });
+  if (rest > 0 || !parts.length) parts.push(nOf('left', rest));
+  return parts.join(', ');
+};
+/** A run's files left over all its shares, each code summed (the binary's reason: the share's with the most) */
+const runLeft = (s) => {
+  const shares = (s.shares || []).filter((x) => x && Number(x.left) > 0);
+  if (!shares.some((x) => x.left_codes && typeof x.left_codes === 'object')) return nOf('left', s.left);
+  const codes = {};
+  let why = '', said = 0;
+  shares.forEach((x) => {
+    Object.entries(x.left_codes || {}).forEach(([c, k]) => { codes[c] = (codes[c] || 0) + (Number(k) || 0); });
+    const k = Number((x.left_codes || {}).said) || 0;
+    if (x.left_why && k > said) { said = k; why = x.left_why; }
+  });
+  return leftCount({ left: s.left, left_codes: codes, left_why: why });
+};
+/** Files the age rule left out because their time lies in the future (H7) — over all shares of a run */
+const futureCount = (s) => (s.shares || []).reduce((a, x) => a + (x && Number(x.future) > 0 ? Math.floor(Number(x.future)) : 0), 0);
 /** The last run: how it went, a line per share that had something */
 function resultBox() {
   const last = state.last;
@@ -1632,6 +1667,9 @@ function resultBox() {
     box.appendChild(el('div', 'mo-share-line', T(last.mode === 'run' ? 'share_moved' : 'share_would', { share: x.share,
       moved: x.moved || 0, files: nOf('files', x.files), size: fmt.size(x.bytes || 0), left: leftCount(x) })));
   });
+  // H7: files with times in the future — said once, under the shares (no notification)
+  const future = futureCount(last);
+  if (future) box.appendChild(el('div', 'mo-share-line', T('run_future', { n: future })));
   // the fill: where the pool stood and whether the target was reached
   (last.shares || []).filter((x) => x.fill && x.pool_used !== '' && Number(x.pool_used) >= Number(x.threshold)).forEach((x) => {
     const reached = x.reached ? ' — ' + T('rc.fill_reached', { pct: x.pool_now }) : '';
@@ -2820,7 +2858,7 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, leftText, onWayText, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
-    importPreview, importDone, importFileText, leftCount, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, percentText, runningText, greeting, greetOk, idleText, runEstimate, estModel, endText, shareGroups, shareRuleLines, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, saveFootEl, setupProblems, ownRulesText, idleRules, fillSetupShares, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, picFlight, fileOnto, movedByPlace, movedAt, extraPlaces, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, setJackLive: (x) => { jackLive = x; }, jackPanel, jackAtWork, redrawCard, schedText, scheduleSection, historySection, footer, hints,
+    importPreview, importDone, importFileText, leftCount, runLeft, futureCount, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, percentText, runningText, greeting, greetOk, idleText, runEstimate, estModel, endText, shareGroups, shareRuleLines, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, saveFootEl, setupProblems, ownRulesText, idleRules, fillSetupShares, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, picFlight, fileOnto, movedByPlace, movedAt, extraPlaces, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, setJackLive: (x) => { jackLive = x; }, jackPanel, jackAtWork, redrawCard, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
     setForm: (f) => { form = f; }, initForm, levelMath, levelSection, levelLines, levelNight, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }

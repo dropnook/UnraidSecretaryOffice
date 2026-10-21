@@ -170,6 +170,13 @@ WARNINGS=0      # office: WARN lines so far (the run card's «N errors, N warnin
 SHARE_JSON=()
 SH_STATE=""; SH_DIRECTION=""; SH_FILES=0; SH_BYTES=0; SH_MOVED=0; SH_LEFT=0; SH_LEFT_WHY=""
 SH_AGE=""; SH_STAT=""; SH_THRESHOLD=""; SH_EXCLUDES=""
+# USO «left codes» (2026-10-21, batch H9): every file left has a reason code — ws (its name ends in a space or tab, to the
+# array: never handed to the binary), copy (such a name to a pool, the script's own move failed), said (the binary gave a
+# reason: left_why), busy (none said: in use, or already at the destination), stopped (never started: a stop) — the
+# share's `left_codes` add up to its `left`. USO «future» (H7): files the age rule leaves out because their time (the
+# age_stat's; newest: mtime or birth) lies more than FUTURE_SLACK ahead — counted in `future`, never moved for it
+SH_LC_WS=0; SH_LC_COPY=0; SH_LC_SAID=0; SH_LC_BUSY=0; SH_LC_STOP=0; SH_FUTURE=0
+FUTURE_SLACK=86400     # a client's clock a little ahead is no news; a day ahead is
 RECENT=()      # USO: the last 50 files done (JSON objects)
 KEPT=()        # USO «kept»: the share folders' datasets the binary left because they have snapshots (JSON strings)
 recent_add() {  # name bytes from to
@@ -198,6 +205,15 @@ json_num() {  # a whole number, else 0
     if [[ "$1" =~ ^[0-9]+$ ]]; then printf '%s' "$1"; else printf '0'; fi
 }
 
+left_json() {  # USO «left codes», «future»: the share's reason codes and future files as JSON members (a leading comma)
+    local m="" c n
+    for c in ws copy said busy stopped; do
+        case "$c" in ws) n=$SH_LC_WS ;; copy) n=$SH_LC_COPY ;; said) n=$SH_LC_SAID ;; busy) n=$SH_LC_BUSY ;; stopped) n=$SH_LC_STOP ;; esac
+        (( ${n:-0} > 0 )) && m+="${m:+,}\"$c\":$(json_num "$n")"
+    done
+    printf ',"left_codes":{%s},"future":%s' "$m" "$(json_num "$SH_FUTURE")"
+}
+
 fill_json() {  # USO «fill»: the share's pool and target as JSON members (a leading comma)
     printf ',"pool":%s,"until":%s,"pool_used":%s,"pool_now":%s,"fill":%s,"reached":%s' "$(json_str "$SH_POOL")" "$(json_str "$SH_UNTIL")" \
         "$(json_str "$SH_POOL_USED")" "$(json_str "$SH_POOL_NOW")" "$SH_FILL" "$SH_REACHED"
@@ -208,15 +224,17 @@ fill_json() {  # USO «fill»: the share's pool and target as JSON members (a le
 declare -A S_REC=() S_MODE=()
 SHARE_ORDER=()
 share_json() {  # name mode — SH_* as one share's JSON
-    printf '%s' "{\"share\":$(json_str "$1"),\"mode\":$(json_str "$2"),\"state\":$(json_str "$SH_STATE"),\"direction\":$(json_str "$SH_DIRECTION"),\"files\":$(json_num "$SH_FILES"),\"bytes\":$(json_num "$SH_BYTES"),\"moved\":$(json_num "$SH_MOVED"),\"left\":$(json_num "$SH_LEFT"),\"left_why\":$(json_str "$SH_LEFT_WHY"),\"min_age\":$(json_str "$SH_AGE"),\"age_stat\":$(json_str "$SH_STAT"),\"threshold\":$(json_str "$SH_THRESHOLD"),\"excludes\":$(json_str "$SH_EXCLUDES")$(fill_json)}"
+    printf '%s' "{\"share\":$(json_str "$1"),\"mode\":$(json_str "$2"),\"state\":$(json_str "$SH_STATE"),\"direction\":$(json_str "$SH_DIRECTION"),\"files\":$(json_num "$SH_FILES"),\"bytes\":$(json_num "$SH_BYTES"),\"moved\":$(json_num "$SH_MOVED"),\"left\":$(json_num "$SH_LEFT"),\"left_why\":$(json_str "$SH_LEFT_WHY"),\"min_age\":$(json_str "$SH_AGE"),\"age_stat\":$(json_str "$SH_STAT"),\"threshold\":$(json_str "$SH_THRESHOLD"),\"excludes\":$(json_str "$SH_EXCLUDES")$(fill_json)$(left_json)}"
 }
 sh_save() {  # name — SH_* into S_REC (unit separator: an empty field stays a field)
     S_REC[$1]=$(printf '%s\037' "$SH_STATE" "$SH_DIRECTION" "$SH_FILES" "$SH_BYTES" "$SH_MOVED" "$SH_LEFT" "$SH_AGE" "$SH_STAT" "$SH_THRESHOLD" \
-        "$SH_EXCLUDES" "$SH_POOL" "$SH_UNTIL" "$SH_POOL_USED" "$SH_POOL_NOW" "$SH_FILL" "$SH_REACHED" "$SH_RC" "$SH_LEFT_WHY")
+        "$SH_EXCLUDES" "$SH_POOL" "$SH_UNTIL" "$SH_POOL_USED" "$SH_POOL_NOW" "$SH_FILL" "$SH_REACHED" "$SH_RC" "$SH_LEFT_WHY" \
+        "$SH_LC_WS" "$SH_LC_COPY" "$SH_LC_SAID" "$SH_LC_BUSY" "$SH_LC_STOP" "$SH_FUTURE")
 }
 sh_load() {  # name — S_REC into SH_*
     IFS=$'\037' read -r SH_STATE SH_DIRECTION SH_FILES SH_BYTES SH_MOVED SH_LEFT SH_AGE SH_STAT SH_THRESHOLD SH_EXCLUDES SH_POOL SH_UNTIL \
-        SH_POOL_USED SH_POOL_NOW SH_FILL SH_REACHED SH_RC SH_LEFT_WHY _rest <<< "${S_REC[$1]}"
+        SH_POOL_USED SH_POOL_NOW SH_FILL SH_REACHED SH_RC SH_LEFT_WHY SH_LC_WS SH_LC_COPY SH_LC_SAID SH_LC_BUSY SH_LC_STOP SH_FUTURE \
+        _rest <<< "${S_REC[$1]}"
 }
 shares_json_rebuild() {
     local n
@@ -226,7 +244,7 @@ shares_json_rebuild() {
 
 share_status_add() {  # name mode — what process_share left in SH_*
     SHARE_ORDER+=("$1"); S_MODE[$1]="$2"; sh_save "$1"
-    SHARE_JSON+=("{\"share\":$(json_str "$1"),\"mode\":$(json_str "$2"),\"state\":$(json_str "$SH_STATE"),\"direction\":$(json_str "$SH_DIRECTION"),\"files\":$(json_num "$SH_FILES"),\"bytes\":$(json_num "$SH_BYTES"),\"moved\":$(json_num "$SH_MOVED"),\"left\":$(json_num "$SH_LEFT"),\"left_why\":$(json_str "$SH_LEFT_WHY"),\"min_age\":$(json_str "$SH_AGE"),\"age_stat\":$(json_str "$SH_STAT"),\"threshold\":$(json_str "$SH_THRESHOLD"),\"excludes\":$(json_str "$SH_EXCLUDES")$(fill_json)}")
+    SHARE_JSON+=("$(share_json "$1" "$2")")
 }
 
 write_status() {  # exit code
@@ -1110,7 +1128,7 @@ move_batch() {  # share src dest
     local ns=${OFFICE_NOT_STARTED:-0}
     OFFICE_NOT_STARTED=0
     (( TOTAL_MOVED += ${#MOVED[@]}, TOTAL_LEFT += ${#LEFT[@]} + ns )) || true
-    (( SH_MOVED += ${#MOVED[@]}, SH_LEFT += ${#LEFT[@]} + ns )) || true
+    (( SH_MOVED += ${#MOVED[@]}, SH_LEFT += ${#LEFT[@]} + ns, SH_LC_STOP += ns )) || true
     if (( ns > 0 )); then log INFO "  moved ${#MOVED[@]} of $(( ${#FILES[@]} + ns )) files ($ns not started: stopped)"
     else log INFO "  moved ${#MOVED[@]} of ${#FILES[@]} files"; fi
     if (( ${#LEFT[@]} > 0 )); then
@@ -1121,6 +1139,14 @@ move_batch() {  # share src dest
         log WARN "  ${#LEFT[@]} files still on the source side:"
         for f in "${LEFT[@]}"; do
             (( i++ )) || true
+            # USO «left codes»: each its reason (a name ending in whitespace never went to the binary: its own codes, its
+            # WARN from office_ws_files above)
+            if ends_ws "$f"; then
+                if [[ "$dest" == array ]]; then (( SH_LC_WS++ )) || true; else (( SH_LC_COPY++ )) || true; fi
+                (( i <= 10 )) && log WARN "     $f – its name ends in a space or tab (see above)"
+                continue
+            fi
+            if [[ -n "${WHY[$f]:-}" ]]; then (( SH_LC_SAID++ )) || true; else (( SH_LC_BUSY++ )) || true; fi
             (( i <= 10 )) && log WARN "     $f – ${WHY[$f]:-in use, or already present at the destination}"
         done
         (( ${#LEFT[@]} > 10 )) && log WARN "     ... $(( ${#LEFT[@]} - 10 )) more"
@@ -1229,7 +1255,7 @@ fill_more() {
 fill_pool() {  # pool
     local pool="$1" name used used_b size_b pct i f sz ph own min=101 n=0 b2=0 cap=false room=false ub="" need0="" freed=0 seg_used=0
     local -a mine=() go=()
-    local -A F_N=() F_B=() F_MOVED=() F_LEFT=() F_GONE=()
+    local -A F_N=() F_B=() F_MOVED=() F_LEFT=() F_GONE=() F_LWS=() F_LCOPY=()
     for name in "${FILL_SHARES[@]}"; do [[ "${FS_POOL[$name]}" == "$pool" ]] && mine+=("$name"); done
     # USO «moved enough»: the age step moved files off this pool moments ago — one txg before the reading (ZFS shows freed
     # space late), else the fill would count them as still there and move as much again
@@ -1307,6 +1333,9 @@ fill_pool() {  # pool
             LAST_FILE="$f"
             if [[ -e "$f" || -L "$f" ]]; then
                 (( F_LEFT[$own]++ )) || true
+                if ends_ws "$f"; then
+                    if [[ "${FS_DEST[$own]}" == array ]]; then (( F_LWS[$own]++ )) || true; else (( F_LCOPY[$own]++ )) || true; fi
+                fi
                 log WARN "  still on the source side ($WS_WHY): $f"
             else
                 (( F_MOVED[$own]++, RUN_DONE_FILES++, RUN_DONE_BYTES += sz, freed += ph )) || true
@@ -1332,6 +1361,9 @@ fill_pool() {  # pool
         (( SH_FILES += ${F_N[$name]:-0}, SH_BYTES += ${F_B[$name]:-0} )) || true
         if [[ "$DRY_RUN" == false ]]; then
             (( SH_MOVED += ${F_MOVED[$name]:-0}, SH_LEFT += ${F_LEFT[$name]:-0}, TOTAL_MOVED += ${F_MOVED[$name]:-0}, TOTAL_LEFT += ${F_LEFT[$name]:-0} )) || true
+            # USO «left codes»: the fill reads no reason from the binary — what isn't a whitespace name is «busy»
+            (( SH_LC_WS += ${F_LWS[$name]:-0}, SH_LC_COPY += ${F_LCOPY[$name]:-0},
+               SH_LC_BUSY += ${F_LEFT[$name]:-0} - ${F_LWS[$name]:-0} - ${F_LCOPY[$name]:-0} )) || true
             [[ -n "${S_RC_FILL[$name]:-}" ]] && { SH_RC=${S_RC_FILL[$name]}; SH_STATE=error; }
             if [[ -n "${F_GONE[$name]:-}" ]]; then
                 local -a gone=()
@@ -1469,8 +1501,19 @@ process_share() {  # name mode pool pool2
             b=${rec%%$'\t'*}; rec=${rec#*$'\t'}; c=${rec%%$'\t'*}
             is_int "$b" && (( b > 0 )) || b=$c
             (( b < cut )) && old+=("${rec#*$'\t'}")
+            (( b > cut + age_days * 86400 + FUTURE_SLACK )) && { (( SH_FUTURE++ )) || true; }     # USO «future»: born ahead
         done < <(printf '%s\0' "${FILES[@]}" | xargs -0 -r stat --printf '%W\t%Z\t%n\0' 2>/dev/null)
         FILES=("${old[@]}")
+    fi
+    # USO «future» (H7): files the age rule leaves out because their time lies ahead (a clock that ran ahead and was put
+    # right) — counted for her page (`future`), never moved for it; with newest a birth ahead counts too (above)
+    if (( ${#AGE_ARGS[@]} > 0 )); then
+        local -a froots=()
+        local ftest=-newermt
+        [[ "$age_stat" == ctime ]] && ftest=-newerct
+        mapfile -t froots <<< "$src"
+        (( SH_FUTURE += $(find "${froots[@]}" \( "${EXCL_ARGS[@]}" \) -prune -o \( -type f -o -type l \) "$ftest" "@$(( $(date +%s) + FUTURE_SLACK ))" -printf . 2>/dev/null | wc -c) )) || true
+        (( SH_FUTURE > 0 )) && log INFO "  $SH_FUTURE files left out of the age rule: their time ($age_stat) lies in the future (the clock ran ahead?) – they move once it has passed"
     fi
 
     local count=${#FILES[@]} bytes=0
@@ -1577,6 +1620,7 @@ for cfg in "$SHARES_DIR"/*.cfg; do
         break
     fi
     SH_STATE=""; SH_DIRECTION=""; SH_FILES=0; SH_BYTES=0; SH_MOVED=0; SH_LEFT=0; SH_LEFT_WHY=""; SH_AGE=""; SH_STAT=""; SH_THRESHOLD=""; SH_EXCLUDES=""
+    SH_LC_WS=0; SH_LC_COPY=0; SH_LC_SAID=0; SH_LC_BUSY=0; SH_LC_STOP=0; SH_FUTURE=0
     SH_POOL=""; SH_UNTIL=""; SH_POOL_USED=""; SH_POOL_NOW=""; SH_FILL=false; SH_REACHED=false; SH_RC=0
     process_share "$SHARE_NAME" "$MODE" "$POOL" "$POOL2" || { (( ERRORS++ )) || true; }
     share_status_add "$SHARE_NAME" "$MODE"

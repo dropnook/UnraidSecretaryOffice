@@ -159,6 +159,15 @@
 >   removed (empty)». Never in a dry run, never after a stop.
 > * **Kept** (2026-10-21, marked «USO «kept»»): each dataset «share root» leaves because of its snapshots is also listed
 >   in the status file's `kept` (dataset names, at most 200) — Ms. Dustdevil's hint reads it from there, never from the log.
+> * **Left codes** (2026-10-21, marked «USO «left codes»», the office's scenarios: three names ending in a space stayed
+>   with an empty `left_why`): every file left has a reason code, per share in the status file's `left_codes` (only the
+>   codes that occur, adding up to `left`): `ws` (a name ending in whitespace, to the array — never handed to the binary),
+>   `copy` (such a name to a pool, the script's own move didn't go; its WARN says why), `said` (the binary gave a reason —
+>   the most common is `left_why`), `busy` (nothing said: in use, or already at the destination; the fill reads no reason),
+>   `stopped` (never started: a stop).
+> * **Future** (2026-10-21, marked «USO «future»», after a clock that ran ahead and was put right): files the age rule
+>   leaves out because their time (the age_stat's: mtime, ctime; `newest`: modified or born) lies more than a day ahead
+>   are counted per share in `future` (a dry run too; one INFO line), never moved for it. No age rule: none counted.
 >
 > **`prefer` shares** (array → pool): their source is the array disks the share may use (above), which may wake them.
 > That is accepted here on purpose (the owner's decision): the Dynamix Cache Directories plugin keeps the folder
