@@ -666,9 +666,12 @@ function plansList() {
 function poolTile(a) {
   const c = state.cache || {};
   const pool = state.pool;
-  const held = pool && pool.keep != null;
-  const sub = !pool ? '' : held ? T('pool_tile.held', { used: fmt.size(pool.held), h: fmt.size(pool.keep), pct: fmt.number(pool.free_percent, 1) })
-    : T('pool_tile.free', { pct: fmt.number(pool.free_percent, 1), min: pool.min_free ?? '?' });
+  // what he holds against his GB budget (2026-10-14: his budget comes first — no «half» of the pool any more)
+  const held = pool && pool.held != null;
+  const gb = state.configured ? budgetGb((state.settings || {}).cache_budget) : 0;
+  const pct = pool ? fmt.number(pool.free_percent, 1) : '';
+  const sub = !pool ? '' : !held ? T('pool_tile.free', { pct, min: pool.min_free ?? '?' })
+    : gb > 0 ? T('pool_tile.held', { used: fmt.size(pool.held), budget: fmt.size(gb * 1073741824), pct }) : T('pool_tile.held_plain', { used: fmt.size(pool.held), pct });
   const tip = [pool ? T('pool_sub', { pool: pool.path, free: fmt.size(pool.free), min: pool.min_free ?? '?' }) : '', ...savedRule(), ...roomWords(),
     c.listed_at ? T('pool_tile.as_of', { when: fmt.relative(c.listed_at) }) : ''].filter(Boolean).join('\n');
   // never a break between a number and its unit («671 GB» stays on one line)
@@ -685,7 +688,7 @@ function savedRule() {
 
 /**
  * What Ms. Moverelli gives him (2026-10-13, the pool simply — agent/lib/poollevel.php): she keeps the pool below X, he may
- * fill up to Y, his half is his for sure — what he holds, the films that wait for room, what he gives back; without her
+ * fill up to Y — what he holds, the films that wait for room, what he gives back; without her
  * limit: what he keeps free, or that she isn't set up. [line, …] in his words (pure on state.pool).
  */
 function roomWords() {
@@ -694,8 +697,8 @@ function roomWords() {
   const mo = pool.moverelli;
   if (!mo) return [T('room.none')];
   if (!(mo.x > 0)) return [T('room.own', { min: pool.min_free ?? '?' })];
-  if (pool.keep == null) return [T('room.plain', { x: mo.x, y: mo.y })];
-  const out = [T('room.text', { x: mo.x, y: mo.y, h: fmt.size(pool.keep), used: fmt.size(pool.held) })];
+  if (pool.held == null) return [T('room.plain', { x: mo.x, y: mo.y })];
+  const out = [T('room.text', { x: mo.x, y: mo.y, used: fmt.size(pool.held) })];
   if (pool.never) out.push(T('room.never', { y: mo.y }));
   else if (pool.back > 0) out.push(T('room.back', { y: mo.y, back: fmt.size(pool.back) }));
   if (pool.waiting > 0) out.push(T('room.waiting', { n: pool.waiting }));

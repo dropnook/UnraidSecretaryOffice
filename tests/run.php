@@ -39061,12 +39061,12 @@ function testMoverelliUnraid(): void
     // the lab, 2026-10-16: the deadlock — his real run with her is the joint night run, which waited for a list only that run
     // makes. Jack writes his empty list once he is set up (his look, his save) — whichever was hired first, her real runs go
     $set = ['instances' => [['url' => 'http://x']], 'cache_budget' => '100G'];
-    same('jack list: not set up — no list written', [false, false], [jackListEnsure(null, "$tmp/emby"), is_file($list)]);
-    same('jack list: set up — his empty list written (root\'s, 0600), her real run goes; once', [true, '', '600', 'ok', null, false],
+    same('jack list: not set up — no list written', [null, false], [jackListEnsure(null, "$tmp/emby"), is_file($list)]);
+    same('jack list: set up — his empty list written (root\'s, 0600), her real run goes; once', ['written', '', '600', 'ok', null, null],
         [jackListEnsure($set, "$tmp/emby"), (string) @file_get_contents($list), substr(sprintf('%o', fileperms($list)), -3), $why('run'), moverelliJackListPending($h),
          jackListEnsure($set, "$tmp/emby")]);
     file_put_contents($list, "/mnt/cache/Filme/A/a.mkv\n");
-    same('jack list: a list there is never touched', [false, "/mnt/cache/Filme/A/a.mkv\n"], [jackListEnsure($set, "$tmp/emby"), file_get_contents($list)]);
+    same('jack list: a list there is never touched', [null, "/mnt/cache/Filme/A/a.mkv\n"], [jackListEnsure($set, "$tmp/emby"), file_get_contents($list)]);
     unlink($list);
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
     check('jack list: his look and his save write it (Jack hired before or after Ms. Moverelli)',
@@ -46133,6 +46133,167 @@ JS);
 }
 
 /**
+ * H1 (scenarios batch H, 2026-10-21): Jack Streamer's list gone after his real runs — his look wrote it anew EMPTY, his part
+ * of the joint run (a media server that can't be asked) «kept the list as it was» and Ms. Moverelli moved his films to the
+ * array. Now a lost (or emptied) list is written anew from what of his shares lies on his pool; her real Smart Mover keeps
+ * his files, moves the others' — and nothing is written while the pool can't be looked at.
+ */
+function testJackListLost(): void
+{
+    $t = hardeningTmp('jack-list-lost');
+    exec('rm -rf ' . escapeshellarg($t) . '/*');
+    $dir = "$t/jack";
+    $list = "$dir/mediacache_exclude.txt";
+    $cache = "$t/mnt/cache";
+    $mk = function (string $rel, string $body = 'x') use ($t): string {
+        @mkdir(dirname("$t/$rel"), 0700, true);
+        file_put_contents("$t/$rel", $body);
+        touch("$t/$rel", strtotime('2020-01-01 12:00:00'));
+        return "$t/$rel";
+    };
+    foreach (['mnt/disk1', 'mnt/user/Filme', 'mnt/user/Docs', 'shares', 'bin'] as $d) {
+        @mkdir("$t/$d", 0700, true);
+    }
+    @mkdir($dir, 0700, true);
+    $set = ['instances' => [['url' => 'http://x']], 'cache_budget' => '100G', 'cache_path' => "$cache/"];
+    $o = ['shares' => ['Filme'], 'asleep' => [], 'running' => fn (): bool => false];
+    $films = [$mk('mnt/cache/Filme/A (2001)/a.mkv'), $mk('mnt/cache/Filme/B (2002)/b.mkv'), $mk('mnt/cache/Filme/C (2003)/c.mkv')];
+    $docs = $mk('mnt/cache/Docs/old.txt');
+    @symlink('/etc/passwd', "$cache/Filme/A (2001)/link.mkv");
+
+    // before his first real run: written empty, as before (nothing of his lies there)
+    same('lost list: before his first real run — written empty, noted', ['written', '', 0], [jackListEnsure($set, $dir, $o), file_get_contents($list), readJson("$dir/" . JACK_LIST_NOTE)['lines'] ?? null]);
+    // seen with films by his look, no real run of his in his list of runs (an older office's run, a trimmed list): noted
+    file_put_contents($list, implode("\n", $films) . "\n");
+    same('lost list: seen with entries by his look — noted, it held films', [null, 3, true, true],
+        [jackListEnsure($set, $dir, $o), readJson("$dir/" . JACK_LIST_NOTE)['lines'] ?? null, readJson("$dir/" . JACK_LIST_NOTE)['had'] ?? null, jackListRan($dir)]);
+    // his real run: the list of his three films, noted as his run left it (jackJob())
+    jackRemember(['tool' => 'embycache', 'mode' => 'run', 'by' => 'night', 'started' => 1000, 'finished' => 1100, 'exit' => 0, 'result' => 'ok'], $dir);
+    file_put_contents($list, implode("\n", $films) . "\n");
+    jackListNote($dir, [], true);
+    same('lost list: a list there, his run noted it — untouched', [null, 3], [jackListEnsure($set, $dir, $o), readJson("$dir/" . JACK_LIST_NOTE)['lines'] ?? null]);
+    check('lost list: a real run of his recorded — he has worked here', jackListRan($dir));
+
+    // gone (a restore of appdata, a hand): the pool sleeps — his look doesn't wake it, nothing written (Smart Mover then leaves
+    // the shares that name it, his real runs refuse)
+    unlink($list);
+    same('lost list: gone, the pool asleep — not written now, «lost»', ['lost', false], [jackListEnsure($set, $dir, ['asleep' => ['cache' => true]] + $o), is_file($list)]);
+    // the H1 scenario: his look with the pool awake — written anew from what of his shares lies on the pool (no link, no other
+    // share), the Team Lead's hint noted
+    $r = jackListEnsure($set, $dir, $o);
+    same('lost list: his look — written anew from the pool (his three films, sorted), the hint noted', ['rebuilt', $films, 'missing', 3],
+        [$r, file($list, FILE_IGNORE_NEW_LINES), readJson("$dir/" . JACK_LIST_NOTE)['rebuilt']['was'] ?? null, readJson("$dir/" . JACK_LIST_NOTE)['rebuilt']['files'] ?? null]);
+    same('lost list: … and once only', null, jackListEnsure($set, $dir, $o));
+
+    // his part of the joint run can't plan (the media server can't be asked): MediaCache «keeps the list as it was» —
+    // its entries that still exist (mediacache_run.py: protected.update(p for p in read_exclude() if Path(p).exists()))
+    $kept = array_values(array_filter(file($list, FILE_IGNORE_NEW_LINES), 'file_exists'));
+    file_put_contents($list, implode("\n", $kept) . "\n");
+    jackListNote($dir, [], false);
+    check('lost list: an incomplete run of his keeps the hint (his list not his own again yet)', is_array(readJson("$dir/" . JACK_LIST_NOTE)['rebuilt'] ?? null));
+    // her part: the real Smart Mover with his list in her ini — his films stay, the other share's old file goes to the array
+    file_put_contents("$t/shares/Filme.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\n");
+    file_put_contents("$t/shares/Docs.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\n");
+    file_put_contents("$t/ini", "[GLOBAL]\nmin_age=0\nglobal_excludes=$list\n");
+    file_put_contents("$t/bin/move", <<<'SH'
+#!/bin/bash
+# a stand-in for Unraid's move binary: the pool → disk1
+while IFS= read -r f; do
+    case "$f" in "$MOVE_ROOT"/cache/*) to="$MOVE_ROOT/disk1/${f#"$MOVE_ROOT"/cache/}" ;; *) continue ;; esac
+    [[ -d "$f" ]] && continue
+    mkdir -p "$(dirname "$to")" && mv "$f" "$to" && echo "move: $f Success"
+done
+exit 0
+SH);
+    chmod("$t/bin/move", 0755);
+    $env = ['CUSTOMMOVER_INI' => "$t/ini", 'CUSTOMMOVER_SHARES_DIR' => "$t/shares", 'CUSTOMMOVER_MNT' => "$t/mnt", 'CUSTOMMOVER_LOG' => "$t/log",
+            'CUSTOMMOVER_LOCK' => "$t/lock", 'CUSTOMMOVER_STATUS' => "$t/st.json", 'CUSTOMMOVER_ZFS' => '/nonexistent-zfs', 'CUSTOMMOVER_MOVER_BIN' => "$t/bin/move",
+            'CUSTOMMOVER_STOP' => "$t/stop", 'CUSTOMMOVER_IGNORE_MOVER' => '1', 'CUSTOMMOVER_EXCLUDES_REQUIRED' => '1', 'MOVE_ROOT' => "$t/mnt"];
+    [$exit] = runEnv(['bash', OFFICE_DIR . '/smartmover/custommover_run.sh', '--run'], $env, 60);
+    same('lost list: her real run after it — his three films stay on the pool, the other share\'s old file goes', [0, [true, true, true], false, true],
+        [$exit, array_map('is_file', $films), is_file($docs), is_file("$t/mnt/disk1/Docs/old.txt")]);
+
+    // his complete run sets it right: the hint goes
+    jackListNote($dir, [], true);
+    check('lost list: his next complete run — the hint gone', !isset(readJson("$dir/" . JACK_LIST_NOTE)['rebuilt']));
+    // emptied by someone else (the file there, 0 bytes, not as his run left it): written anew too
+    file_put_contents($list, '');
+    touch($list, time() + 5);
+    same('lost list: emptied outside his runs — written anew', ['rebuilt', 'emptied', 3], [jackListEnsure($set, $dir, $o), readJson("$dir/" . JACK_LIST_NOTE)['rebuilt']['was'] ?? null,
+        count(file($list, FILE_IGNORE_NEW_LINES))]);
+    // … but never while a run of his goes (MediaCache rewrites it), and never what his own run emptied
+    file_put_contents($list, '');
+    touch($list, time() + 10);
+    same('lost list: emptied while a run of his goes — left to his run', null, jackListEnsure($set, $dir, ['running' => fn (): bool => true] + $o));
+    jackListNote($dir, [], true);
+    same('lost list: emptied by his own run (noted) — an empty list stays empty', [null, ''], [jackListEnsure($set, $dir, $o), file_get_contents($list)]);
+    // a link in its place: never written over
+    unlink($list);
+    symlink("$t/elsewhere", $list);
+    same('lost list: a link in its place — nothing written', [null, false], [jackListEnsure($set, $dir, $o), file_exists("$t/elsewhere")]);
+    unlink($list);
+    // «Set up from scratch» forgets his runs: a fresh start, an empty list again
+    jackReset(['dir' => $dir, 'gather' => "$t/gather", 'running' => fn (): bool => false, 'schedule' => fn (string $job) => null]);
+    same('lost list: after «Set up from scratch» — his note gone, he never ran', [false, false], [is_file("$dir/" . JACK_LIST_NOTE), jackListRan($dir)]);
+
+    // his real run (and the let-go's release) writes it anew before MediaCache reads it — or refuses without it
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
+    check('lost list: jackJob — written anew (the pool woken) before MediaCache\'s run or release, refused as jack_list_lost, noted after',
+        str_contains($src, "in_array(\$mode, ['run', 'release'], true) && jackListEnsure(jackReadSettings(), \$dir, ['wake' => true]) === 'lost') {")
+        && strpos($src, "'result' => 'refused', 'why' => 'jack_list_lost']);") < strpos($src, '$movers = jackMoversLock();')
+        && str_contains($src, "jackListNote(\$dir, [], \$exit === 0 && (\$status['incomplete'] ?? null) === false);"));
+    hardeningRm($t);
+}
+
+/**
+ * His «Ready on the pool» tile (2026-10-21, the owner on nostromo): «at least 0 B mine» was the old «half» (poollevel's
+ * `half`, 0 since 2026-10-14 — his budget comes first). Now: what he holds against his GB budget, the pool's free %;
+ * without a budget only what he holds; his room words never name a share of his.
+ */
+function testJackPoolTileBudget(): void
+{
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('pool tile budget: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('jack-pool-tile');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {} });
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }), scope: () => T, t: T, el: mk, stat: (o) => o, fmt: { size: (b) => b + ' B', number: (n) => String(n), relative: (t) => 'R' + t },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {} };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const e = OFFICE_DESK_TESTS.jack;
+const pool = { path: '/mnt/cache', free: 9, free_percent: 24.3, min_free: 30, keep: 0, held: 1024, back: 0, waiting: 0, moverelli: { x: 80, y: 70 } };
+const out = {};
+e.setState({ configured: true, settings: { cache_budget: '2G' }, cache: {}, pool });
+out.budget = e.poolTile({}).sub;
+out.room = e.roomWords();
+e.setState({ configured: false, settings: {}, cache: {}, pool });
+out.plain = e.poolTile({}).sub;
+e.setState({ configured: true, settings: { cache_budget: '2G' }, cache: {}, pool: { path: '/mnt/cache', free: 9, free_percent: 50, min_free: 20 } });
+out.free = e.poolTile({}).sub;
+console.log(JSON.stringify(out));
+JS);
+    [, $out, $err] = run([$node, "$tmp/t.js", OFFICE_WEB . '/desks/jack/desk.js'], 30);
+    $j = json_decode(trim((string) $out), true) ?? [];
+    same('pool tile budget: what he holds of his budget, the pool\'s free % — no «at least … mine»', 'pool_tile.held {"used":"1024 B","budget":"2147483648 B","pct":"24.3"}', $j['budget'] ?? $err);
+    same('pool tile budget: without a budget — what he holds and the free %', 'pool_tile.held_plain {"used":"1024 B","pct":"24.3"}', $j['plain'] ?? $err);
+    same('pool tile budget: nothing measured of his — the free % and what he keeps free, as before', 'pool_tile.free {"pct":"50","min":20}', $j['free'] ?? $err);
+    same('pool tile budget: his room words — no share of the pool named', 'room.text {"x":80,"y":70,"used":"1024 B"}', $j['room'][0] ?? $err);
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $lang = readJson(OFFICE_WEB . "/desks/jack/lang/$l.json") ?? [];
+        check("pool tile budget: lang $l — the tile and the room without «{h}»", !str_contains(($lang['pool_tile.held'] ?? '') . ($lang['room.text'] ?? ''), '{h}')
+            && str_contains($lang['pool_tile.held'] ?? '', '{budget}') && isset($lang['pool_tile.held_plain']));
+    }
+    hardeningRm($tmp);
+}
+
+/**
  * Ms. Snapshotini's pool tiles split by source (decision 3 of the tiles rebuild): tests/snappool.js runs desk.js's
  * poolSplit()/splitLines() under node — sums, the «≥» wording and its tip, sources without a snapshot left out, btrfs
  * without sizes.
@@ -48629,7 +48790,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testWatchmanHold',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testHouseDockerSilent', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
