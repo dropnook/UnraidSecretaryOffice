@@ -42,6 +42,7 @@ const BACKUP_LOG_BYTES   = 512 * 1024;
 const BACKUP_HISTORY     = 60;           // runs shown
 const BACKUP_UPLOAD_LOOK = 180;          // a first upload's rate: from looks at least this far apart (seconds) …
 const BACKUP_UPLOAD_KEEP = 900;          // … within the last 15 minutes; before that, the average since it started
+const BACKUP_OFFICE_SHARE = 'UnraidSecretaryOffice';     // the office's own share - the backup place he offers to create (the engine's UB_OFFICE_SHARE)
 const BACKUP_ASLEEP_NIGHTS = 7;          // engine 2.28: a share left out asleep so many nights in a row - the engine warned (UB_ASLEEP_NIGHTS)
 
 $GLOBALS['backup'] = null;
@@ -75,6 +76,7 @@ desk('backup', [
         'setup_get'   => fn (array $r) => backupSetupGet(),
         'setup_apply' => fn (array $r) => backupSetupApply($r['decisions'] ?? null, $r['plan_time'] ?? null),
         'setup_forget' => fn (array $r) => backupSetupForget(),
+        'place_make'  => fn (array $r) => backupPlaceMake(optText($r, 'pool')),       // 2026-10-21: the setup's first step - '' the array
         'orphans_look'   => fn (array $r) => backupOrphansLook(),                    // engine 2.51: old Kopia sources of gone units
         'orphans_get'    => fn (array $r) => ['ok' => true, 'orphans' => backupOrphans()],
         'orphans_delete' => fn (array $r) => backupOrphansDelete(idList($r, 'sources'), optText($r, 'listed')),
@@ -3152,6 +3154,7 @@ function backupSetupGet(): array
     }
     $run = readJson("$data/state/setup-status.json");
     if (is_array($plan)) {
+        $plan['place_offer'] = backupPlaceOffer();      // the office's share while Unraid has none: the setup's first step offers it
         $plan['notes'] = backupSetupNotes($plan['messages'] ?? null);   // the messages grouped, for the page
         $plan = backupPlanVolumeCaches($plan);
         // the units the pairs sent up to 1.59 (the step partner-simple): proposed at «local + partner» until applied
@@ -3524,6 +3527,108 @@ function backupPlaceBases(string $locations, array $cfg, array $disks): array
         }
     }
     return ['pools' => array_values(array_unique($pools)), 'disks' => array_values(array_unique($onDisks)), 'array' => $array];
+}
+
+/**
+ * The office's own share as the backup place, while Unraid has none of that name (owner 2026-10-21, a fresh server: the
+ * missing place was a hint among everything else — the setup now starts with it). Where it would go, the five points in
+ * order: a ZFS pool first (the packages' earlier backups in snapshots; only a dataset travels to a partner), one appdata
+ * doesn't lie on when there is another, a mirror before a single drive; no ZFS pool: another pool (btrfs first); no pool:
+ * the array. Only on that pool, no secondary storage — exclusive when Unraid permits exclusive shares (`exclusive`,
+ * ⟦Global Share Settings⟧). `why` says what is second best: '' none,
+ * `same_pool` (appdata lies on every ZFS pool), `no_zfs` (no ZFS pool here), `no_pool` (no pool: the array). `fresh`
+ * false: Unraid knew the share (its cfg on the flash, Docker's or the VMs' paths) — nothing offered, what was there may
+ * come back (lib/firsthome.php). `asleep`: the pool (or a disk of the array) sleeps — a click is refused, never woken.
+ * Cheap: shares.ini, the flash's cfgs, disks.ini — never a disk.
+ *
+ * @return array{share: string, fresh: bool, pool: ?string, fs: string, why: string, mirror: bool, asleep: bool, exclusive: bool, appdata: ?string}|null
+ */
+function backupPlaceOffer(?array $h = null): ?array
+{
+    $h ??= homeHost();
+    $state = homeShareState(BACKUP_OFFICE_SHARE, $h);
+    if ($state === null) {
+        return null;
+    }
+    $disks = readCfg($h['disks_ini'], true);
+    $asleep = [];
+    foreach ($disks as $id => $d) {
+        $asleep[(string) ($d['name'] ?? $id)] = diskAsleep($d);
+    }
+    // appdata's pools: its primary and secondary storage as its cfg on the flash says (any case, like Unraid's names)
+    $appdata = [];
+    foreach (glob($h['shares_dir'] . '/*.cfg') ?: [] as $f) {
+        if (strcasecmp(basename($f, '.cfg'), 'appdata') === 0) {
+            $c = readCfg($f);
+            if (strtolower((string) ($c['shareUseCache'] ?? 'no')) !== 'no') {
+                $appdata[] = (string) ($c['shareCachePool'] ?? '');
+            }
+            $appdata[] = (string) ($c['shareCachePool2'] ?? '');
+        }
+    }
+    $appdata = array_values(array_filter($appdata));
+    $best = null;
+    foreach (homePools($h) as $pool) {
+        $fs = preg_replace('/^luks:/', '', strtolower((string) ($disks[$pool]['fsType'] ?? '')));
+        $mirror = (bool) preg_match('/^(mirror|raidz|draid|raid1|raid5|raid6|raid10)/i', (string) ($disks[$pool]['fsProfile'] ?? ''));
+        $rank = [$fs === 'zfs' ? 2 : ($fs === 'btrfs' ? 1 : 0), in_array($pool, $appdata, true) ? 0 : 1, $mirror ? 1 : 0];
+        if ($best === null || $rank > $best['rank']) {
+            $best = ['rank' => $rank, 'pool' => $pool, 'fs' => $fs, 'mirror' => $mirror];
+        }
+    }
+    $arrayAsleep = false;
+    foreach ($asleep as $id => $sleeping) {
+        $arrayAsleep = $arrayAsleep || ($sleeping && preg_match('/^disk\d+$/D', (string) $id));
+    }
+    $appdataPool = $appdata[0] ?? null;
+    if ($best === null) {
+        return ['share' => BACKUP_OFFICE_SHARE, 'fresh' => $state['fresh'], 'pool' => null, 'fs' => '', 'why' => 'no_pool', 'mirror' => false,
+            'asleep' => $arrayAsleep, 'exclusive' => false, 'appdata' => $appdataPool];
+    }
+    $why = $best['rank'][0] < 2 ? 'no_zfs' : ($best['rank'][1] === 0 ? 'same_pool' : '');
+    return ['share' => BACKUP_OFFICE_SHARE, 'fresh' => $state['fresh'], 'pool' => $best['pool'], 'fs' => $best['fs'], 'why' => $why,
+        'mirror' => $best['mirror'], 'asleep' => baseAsleep($best['pool'], $asleep),
+        'exclusive' => strtolower((string) (readCfg($h['share_cfg'])['shareUserExclusive'] ?? '')) === 'yes', 'appdata' => $appdataPool];
+}
+
+/**
+ * «Create UnraidSecretaryOffice…» on the setup's first step: the office's share made by Unraid's own «Add Share» (lib/
+ * firsthome.php homeMake(): emcmd, the fields Unraid's form sends; only on the pool, no secondary storage, or the array
+ * for '') — the one share the office makes besides Unraid's standard ones, only on this click, never by
+ * mkdir. Looked at again first: refused when the share is there (place_exists) or Unraid knew it (place_known), the pool
+ * isn't one of Unraid's (place_pool_unknown) or it sleeps (place_pool_asleep, place_array_asleep: never woken). The page
+ * then plans anew — the engine proposes the new office's share as the backup place.
+ */
+function backupPlaceMake(string $pool, ?array $h = null): array
+{
+    $h ??= homeHost();
+    $offer = backupPlaceOffer($h);
+    if ($offer === null) {
+        throw new Problem('place_exists', ['share' => BACKUP_OFFICE_SHARE]);
+    }
+    if (!$offer['fresh']) {
+        throw new Problem('place_known', ['share' => BACKUP_OFFICE_SHARE]);
+    }
+    if ($pool !== '' && !in_array($pool, homePools($h), true)) {
+        throw new Problem('place_pool_unknown', ['pool' => mb_substr($pool, 0, 40)]);
+    }
+    $asleep = [];
+    foreach (readCfg($h['disks_ini'], true) as $id => $d) {
+        $asleep[(string) ($d['name'] ?? $id)] = diskAsleep($d);
+    }
+    $sleeps = $pool !== '' ? baseAsleep($pool, $asleep)
+        : (bool) array_filter($asleep, fn ($s, $id) => $s && preg_match('/^disk\d+$/D', (string) $id), ARRAY_FILTER_USE_BOTH);
+    if ($sleeps) {
+        throw $pool !== '' ? new Problem('place_pool_asleep', ['pool' => $pool]) : new Problem('place_array_asleep');
+    }
+    $r = homeMake(BACKUP_OFFICE_SHARE, $pool !== '' ? $pool : null, $h);
+    if (!$r['ok']) {
+        logLine('Backup: Unraid did not create the share ' . BACKUP_OFFICE_SHARE . ' (' . ($r['error']['key'] ?? '?') . ')');
+        throw new Problem($r['error']['key'], $r['error']['params']);
+    }
+    logLine('Backup: created the share ' . BACKUP_OFFICE_SHARE . " on the user's click (Unraid's «Add Share», "
+        . ($pool !== '' ? "only on the pool $pool" : 'on the array') . ') as the backup place');
+    return ['ok' => true, 'made' => BACKUP_OFFICE_SHARE, 'pool' => $pool];
 }
 
 /**

@@ -1088,8 +1088,12 @@ function overviewTiles() {
   const dr = restoriHired() ? state.drill : null;
   add({ key: 'restore', label: T('tile.restore'), value: dr ? T(dr.result === 'failed' ? 'stat.drill_failed' : 'stat.drill_passed') : Office.t('restore.name'),
     sub: [dr ? fmt.date(dr.ended) : T('stat.restore_where')], alert: !!dr && dr.result === 'failed' });
+  // no backup place yet (2026-10-21): the setup starts with it - the tiles of what a backup makes say so first
+  if (placeFirstNeeded()) out.forEach((d) => { if (!['partners', 'drift', 'restore'].includes(d.key)) { d.sub = [T('tile.place_first')]; d.tip = ''; d.alert = d.key === 'last'; } });
   return out;
 }
+/** No backup place in settings.ini (nothing set up, or set up without one): the setup's first step waits */
+const placeFirstNeeded = () => !!(state && state.found && (!state.settings_found || !(state.settings || {}).dumps_share));
 
 // ---- «Is everything protected?»: the rows as data (pure: tests/backuptiles.js), the filter on them, then the table
 /** Every row of the table: {kind share|vm|app, id, name, hay (the words the bar meets), off (unprotected), tiles (the
@@ -2590,6 +2594,7 @@ async function setupLoad() {
   if (j.plan && (!setup.plan || j.plan.time !== setup.plan.time)) {
     setup.plan = j.plan;
     setupDraftKeep();
+    setupPlaceMade();
     Office.placesTook(ID, j.plan, 'setup');     // its rows for the office's search (setupSearchItems()) - the plan as it came
   }
   const finishedForget = was && was.running && was.mode === 'forget' && !j.status.running;
@@ -3586,17 +3591,9 @@ function setupBarSpec() {
     setupDraftFromPlan();
     renderSetup();
   } };
-  // first place (2026-10-12): no backup place yet — the bar says that first and leads there; «Prüfen…» grey with the
-  // reason (setupApply()'s toast stays the last guard, for a page drawn before)
-  if (setupNoPlace()) {
-    const none = placeIntro(setup.plan, '') === 'setup.place_none';
-    return {
-      title: T('setup.bar_place'),
-      sub: T(none ? 'setup.bar_place_sub' : 'setup.bar_place_choose', { tile: T('setup.kopia') }),
-      buttons: [discard, { text: T('setup.bar_place_go'), act: setupToPlace },
-        { text: T('setup.review'), kind: 'plain', disabled: true, title: T('setup.ds_missing'), act: setupApply }],
-    };
-  }
+  // the first step (2026-10-21): no backup place yet — the page is that step alone, nothing to apply (setupApply()'s toast
+  // stays the last guard, for a page drawn before)
+  if (setupNoPlace()) return null;
   if (!edits && !fresh && proposals <= 0) return null;      // nothing to apply: no bar that keeps offering it
   // proposals only, set aside with «Discard» for this plan (2026-10-09: the button was grey — no way to say no);
   // a new plan (another «Look at the server again», an update) offers again; the list of changes still shows them
@@ -3835,6 +3832,15 @@ function renderSetup() {
   if (!setup.plan) { setupBar(); return; }
 
   const plan = setup.plan;
+  // the first step (2026-10-21, a fresh server: the whole setup opened without a backup place, the missing share a yellow
+  // line among everything else): while the draft has none, «Einrichten» is this one step - the starts, the tiles, the
+  // other steps, the bar and Apply come once it stands (a page left half-way lands here again: it follows the draft)
+  if (setupNoPlace()) {
+    setup.placeWas = true;
+    root.appendChild(placeFirst(plan));
+    setupBar();
+    return;
+  }
   // came from «Decide…» or «Change…» on the main page: the filter and the rows set so that it shows (setupFocus()) —
   // not while the plan is being made anew (SETUP_REPLAN, 2026-10-11 on a large server): the plan shown is the old one,
   // the new thing isn't in it yet, and the bar would switch «only what's new» off again (nothing new → onlyAvail false)
@@ -3853,12 +3859,12 @@ function renderSetup() {
   root.appendChild(sw.el);
   // «Decide…» / «Change…»: the target's step shows alone (its tile picked like a link), then its row is revealed
   const tile = target ? STEP_TILE[target.part] : '';
-  const first = setup.placeStart && !!setup.draft && !!setup.model;    // the visit's first page with the plan: its start
-  if (first) setup.placeStart = false;
-  if (tile) sw.pick(tile, 'route'); else if (first && setupNoPlace()) setupPlaceStart(sw); else sw.render();
+  // the first step just done (a share made or chosen on it): «Grundlagen» opens with the backup place in view
+  const placed = !!setup.placeWas;
+  setup.placeWas = false;
+  if (tile) sw.pick(tile, 'route'); else if (placed) setupPlaceStart(sw); else sw.render();
   setupBar();
-  // first place: the guide's callout and «Add Share» the first thing in view — unless the user has scrolled meanwhile
-  if (!tile && first && setupNoPlace() && window.scrollY < 40) setupShowPlace(false);
+  if (!tile && placed) setupShowPlace();
   if (target) Office.reveal(target.anchor, { part: target.part, name: target.name });
 }
 
@@ -3875,46 +3881,38 @@ const STEP_TILE = { 'setup.kopia': 'basics', 'setup.vms': 'vms', 'setup.apps': '
 const setupRoute = (id) => `#/${ID}/setup/${id}`;
 let setupSw = null;
 /** First place (2026-10-12): the plan is in and no backup place is chosen on it — the page leads to «Grundlagen» first */
-const setupNoPlace = () => !!(setup.plan && setup.draft && setup.model) && !dget('general|dumps_share', '');
+const setupNoPlace = () => !!(setup.plan && setup.draft && setup.model) && !setupPlaceStands();
+/** The draft's backup place stands: chosen, and a share the plan finds (a share chosen once and gone since doesn't) */
+function setupPlaceStands() {
+  const ds = dget('general|dumps_share', '');
+  return !!ds && (setup.plan.shares || []).some((x) => x.name === ds && x.exists !== false);
+}
 /**
- * First place (2026-10-12, a fresh server: «Prüfen…» was answered with a red toast — nothing before had said that a share
- * is needed, the guide with «Add Share» stood out of view inside «Grundlagen»): while no backup place is chosen, a visit
- * opens on «Grundlagen» (the guide's callout and «Add Share» first, the tile in alert), and the bar's «Zu den Grundlagen»
- * picks it too. Never kept: backup.setup.tile stays what the user chose (none = every step), so once the place stands
- * the usual start comes back.
+ * The first step just done (a share made or chosen on it): the steps open on «Grundlagen» once, the backup place in
+ * view. Never kept: backup.setup.tile stays what the user chose (none = every step).
  */
 function setupPlaceStart(sw) {
   if (sw.active() !== 'basics') sw.pick('basics', 'start');     // 'start': shown, never kept (core's pick)
 }
-/** The bar's «Zu den Grundlagen»: the step chosen, the guide in view, its «Add Share» focused */
-function setupToPlace() {
-  setupPlaceStart(setupSwitcher());
-  setupShowPlace(true);
-}
 /**
- * The guide in view: «Grundlagen»'s head at the top under Unraid's menu (on a phone the head stays there, sticky — the
- * guide stands first in the step while no place is chosen, so its callout and «Add Share» are right under it), marked
- * a moment like a place of the search
+ * The backup place in view: «Grundlagen»'s head at the top under Unraid's menu (on a phone the head stays there, sticky),
+ * the place's field marked a moment like a place of the search
  */
-function setupShowPlace(focus) {
-  const g = view && view.querySelector('.bk-place');
+function setupShowPlace() {
+  const g = view && view.querySelector('.bk-place-field');
   const sec = g && g.closest('[data-section]');
   const head = sec && sec.querySelector('.section-head');
   if (!g || !head) return;
-  const det = g.querySelector('details');
-  if (det && !det.open) det.open = true;
   const menu = document.getElementById('menu');
   const above = menu && /^(sticky|fixed)$/.test(getComputedStyle(menu).position) ? menu.offsetHeight : 0;
   window.scrollTo({ top: Math.max(0, Math.round(head.getBoundingClientRect().top + window.scrollY - above - 12)), behavior: 'auto' });
   g.classList.add('place-hit');
   setTimeout(() => g.classList.remove('place-hit'), 1800);
-  const a = focus ? g.querySelector('.bk-place-add a') : null;
-  if (a) a.focus({ preventScroll: true });
 }
-/** His word on the setup page while no backup place is chosen: none to choose (create one in Unraid) or choose one; '' else */
+/** His word on the setup page while the first step waits: a share to create (or one to choose); '' else */
 function bubblePlace() {
   if (!setupNoPlace()) return '';
-  return placeIntro(setup.plan, '') === 'setup.place_none' ? T('setup.bubble_place') : T('setup.bubble_place_choose', { tile: T('setup.kopia') });
+  return T(placeFitting(setup.plan).length ? 'setup.bubble_place_choose' : 'setup.bubble_place');
 }
 /** The setup's row and its steps (core.js's section switcher) — one per page life, drawn anew with every plan and click */
 function setupSwitcher() {
@@ -4220,10 +4218,6 @@ function setupKopia(plan) {
     plan.flash.dataset ? T('setup.g_flash_zfs', { ds: plan.flash.dataset }) : T('setup.g_flash_other', { fs: plan.flash.fs || '?' }))));
   const asleep = asleepChoice(plan);
   if (asleep) basics.appendChild(asleep);
-  // first place (2026-10-12): while no backup place is chosen the guide stands first — its callout and «Add Share» right
-  // under the step's head; once chosen, after the settings as before
-  const guideFirst = !dget('general|dumps_share', '');
-  if (guideFirst) s.appendChild(placeGuide(plan));
   s.appendChild(basics);
   const pl = presetLine(plan);              // engine 2.31: the default for new things
   if (pl) s.appendChild(pl);
@@ -4234,7 +4228,7 @@ function setupKopia(plan) {
     const pl = placeLevelPick(plan);
     if (pl) s.appendChild(Office.place('partner.place', pl));
   }
-  if (!guideFirst) s.appendChild(placeGuide(plan));
+  s.appendChild(placeGuide());
   const on = dget('kopia|enabled') === 'yes';
   // engine 2.54: Docker switched off - Kopia runs in a container: greyed with the reason (switched on earlier: it can be unticked)
   const dockerOff = plan.docker_service === false;
@@ -5597,37 +5591,127 @@ function placeNotes(notes) {
   return rest;
 }
 
-/** Mr. Backupsy's word above the guide while no backup place is chosen: none to choose (a fresh server: only isos), or choose one */
-function placeIntro(plan, ds) {
-  if (ds) return null;
-  return placeShares(plan).some((n) => n.toLowerCase() !== 'isos') ? 'setup.place_choose' : 'setup.place_none';
-}
+/** The shares fit to be the backup place (placeShares(): never appdata, system, domains), without isos and shares gone */
+const placeFitting = (plan) => placeShares(plan).filter((n) => n.toLowerCase() !== 'isos' && !(plan.shares || []).some((x) => x.name === n && x.exists === false));
 
-/**
- * What matters for the backup place (the five points) and the way to a new share in Unraid (Shares → Add
- * Share, same tab) - the office never creates it, the user decides where it lies; open while none is chosen
- */
-function placeGuide(plan) {
-  const ds = dget('general|dumps_share', '');
+/** What matters for the backup place (the five points), folded under the place's field once it stands */
+function placeGuide() {
   const box = el('div', 'bk-place');
-  const intro = placeIntro(plan, ds);
-  if (intro === 'setup.place_none') box.appendChild(el('p', 'callout warn', T('setup.place_none')));
-  else if (intro) box.appendChild(el('p', 'callout warn', T('setup.place_choose')));
-  const det = keepFold(el('details', 'bk-place-guide'), 'place_guide', !ds);
+  const det = keepFold(el('details', 'bk-place-guide'), 'place_guide', false);
   det.appendChild(el('summary', '', T('setup.place_title')));
   const ol = el('ol');
   [T('setup.place_1'), T('setup.place_2'), T('setup.place_3'), T('setup.place_4'), T('setup.place_5')].forEach((t) => ol.appendChild(el('li', '', t)));
   det.appendChild(ol);
-  if (!ds) {                      // the way to a new share only while none is chosen - with one chosen it's just the five points
-    const add = el('p', 'bk-place-add');
-    const a = el('a', 'btn small', T('setup.place_add'));
-    a.href = Office.safeHref('/Shares/Share?name=');
-    add.append(a, ' ', T('setup.place_name', { name: OFFICE_SHARE }));
-    det.appendChild(add);
-    det.appendChild(el('small', '', T('setup.place_back')));
-  }
   box.appendChild(det);
   return box;
+}
+
+/**
+ * The setup's first step (2026-10-21): what the backup place is and the five points, short; then three ways to it —
+ * the office's share made here by Unraid's own «Add Share» (plan.place_offer, the agent's backupPlaceOffer(): where and
+ * why, only while Unraid has no share of that name), made in Unraid by hand, or a share there already (only the fitting
+ * ones; choosing one is the step done, its warnings stand under the field in «Grundlagen»)
+ */
+function placeFirst(plan) {
+  const s = Office.place('setup.first.title', setupSection(T('setup.first.title'), T('setup.first.sub')));
+  s.classList.add('bk-first');
+  const ol = el('ol', 'bk-first-points');
+  [1, 2, 3, 4, 5].forEach((n) => ol.appendChild(el('li', '', T('setup.first.point_' + n))));
+  s.appendChild(ol);
+  const offer = plan.place_offer || null;
+  if (offer && offer.fresh) s.appendChild(placeFirstMake(offer));
+  else if (offer) s.appendChild(el('p', 'callout warn', T('setup.first.known', { share: offer.share })));
+  const own = el('div', 'bk-first-way');
+  own.appendChild(el('strong', '', T('setup.first.own_title')));
+  own.appendChild(el('p', '', T('setup.first.own_text', { name: OFFICE_SHARE })));
+  const a = el('a', 'btn small plain', T('setup.first.own'));
+  a.href = Office.safeHref('/Shares/Share?name=');
+  own.append(a, el('small', '', T('setup.place_back')));
+  s.appendChild(own);
+  const fit = placeFitting(plan);
+  if (fit.length) {
+    const pick = el('div', 'bk-first-way');
+    pick.appendChild(el('strong', '', T('setup.first.pick_title')));
+    const sel = el('select', 'picker');
+    sel.appendChild(new Option(T('setup.ds_choose'), ''));
+    fit.forEach((n) => sel.appendChild(new Option(n, n)));
+    sel.value = '';
+    sel.onchange = () => { if (!sel.value) return; dset('general|dumps_share', sel.value); setupDerive(); renderSetup(); };
+    pick.appendChild(field(T('setup.first.pick'), sel, T('setup.first.pick_hint')));
+    s.appendChild(pick);
+  }
+  return s;
+}
+
+/** Where the office's share would go (the agent's offer): the proposal and, when it is second best, why */
+function placeOfferLines(offer) {
+  const fs = offer.fs ? offer.fs.toUpperCase().replace('BTRFS', 'btrfs') : '';
+  const out = [offer.pool ? T(offer.mirror ? 'setup.first.offer_pool_mirror' : 'setup.first.offer_pool', { pool: offer.pool, fs: fs || '?' }) : T('setup.first.offer_array')];
+  if (offer.why === 'same_pool') out.push(T('setup.first.why_same_pool', { pool: offer.pool }));
+  else if (offer.why === 'no_zfs') out.push(T(offer.fs === 'btrfs' ? 'setup.first.why_no_zfs_btrfs' : 'setup.first.why_no_zfs', { pool: offer.pool }));
+  else if (offer.why === 'no_pool') out.push(T('setup.first.why_no_pool'));
+  return out;
+}
+
+/** «Create UnraidSecretaryOffice…»: the proposal, the button (grey while the pool sleeps - never woken) */
+function placeFirstMake(offer) {
+  const box = el('div', 'bk-first-way bk-first-make');
+  box.appendChild(el('strong', '', T('setup.first.make_title')));
+  placeOfferLines(offer).forEach((t) => box.appendChild(el('p', '', t)));
+  const b = button(T('setup.first.make', { share: offer.share }) + ' …', '', () => placeMakeDialog(offer));
+  const busy = !!(setup.status && setup.status.running);
+  b.disabled = busy || !Office.agent.running || !!offer.asleep;
+  box.appendChild(b);
+  if (offer.asleep) box.appendChild(el('small', 'missing', T(offer.pool ? 'setup.first.asleep' : 'setup.first.asleep_array', { pool: offer.pool || '' })));
+  return box;
+}
+
+/**
+ * The confirmation: exactly what Unraid will make (name, primary storage, secondary none, exclusive access, SMB export
+ * no — Unraid's own default for a new share, which keeps the packages off the network); «Create» asks the agent
+ * (backup.place_make), then plans anew — the engine proposes the new share as the backup place
+ */
+function placeMakeDialog(offer) {
+  const box = el('div');
+  box.appendChild(el('p', '', T('setup.first.confirm_text')));
+  const dl = el('dl', 'bk-first-what');
+  const row = (k, v) => dl.append(el('dt', '', k), el('dd', '', v));
+  row(T('setup.first.c_name'), offer.share);
+  row(T('setup.first.c_primary'), offer.pool ? `${offer.pool}${offer.fs ? ` (${offer.fs === 'btrfs' ? 'btrfs' : offer.fs.toUpperCase()})` : ''}` : T('setup.place_array'));
+  row(T('setup.first.c_secondary'), T('setup.first.c_none'));
+  row(T('setup.first.c_exclusive'), T(offer.exclusive ? 'setup.first.c_exclusive_yes' : offer.pool ? 'setup.first.c_exclusive_no' : 'setup.first.c_exclusive_array'));
+  row(T('setup.first.c_export'), T('setup.first.c_export_no'));
+  box.appendChild(dl);
+  placeOfferLines(offer).slice(1).forEach((t) => box.appendChild(el('p', 'callout warn', t)));
+  box.appendChild(el('p', 'role', T('setup.first.confirm_after')));
+  Office.dialog({
+    title: T('setup.first.confirm_title', { share: offer.share }),
+    body: box,
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('setup.first.confirm_go'), kind: '', act: () => placeMake(offer) }],
+  });
+}
+
+async function placeMake(offer) {
+  if (!(await Office.freshState(ID))) return false;
+  const j = await Office.api.post(`${ID}.place_make`, { pool: offer.pool || '' });
+  if (!j.ok) {
+    Office.toast(Office.errorText(j.error, ID), true);
+    setupLoad();                                  // the look anew: the offer as it stands now
+    return false;
+  }
+  Office.toast(T('setup.first.made', { share: j.made }));
+  setup.placeMade = j.made;                       // chosen as the place once the new plan has it (setupPlaceMade())
+  if (!(await setupPlan(false))) setupLoad();
+  return true;
+}
+
+/** The share made on the first step, once the new plan has it: the backup place (the engine proposes it too) — changeable */
+function setupPlaceMade() {
+  const made = setup.placeMade;
+  if (!made || !setup.plan || !setup.draft) return;
+  if (!(setup.plan.shares || []).some((x) => x.name === made && x.exists !== false)) return;
+  setup.placeMade = null;
+  if (!setupPlaceStands()) { dset('general|dumps_share', made); setupDerive(); }
 }
 
 /** The backup place: its own share for the packages of apps and VMs — never appdata; required */
@@ -5650,6 +5734,7 @@ function dumpsShareField(plan) {
   sel.onchange = () => { dset('general|dumps_share', sel.value || undefined); setupDerive(); Office.keepInPlace(sel, () => renderSetup()); };
   update();
   const f = field(T('setup.ds_label'), sel);
+  f.classList.add('bk-place-field');
   f.appendChild(hint);
   // what speaks against it (another pool than appdata, snapshots, one place, redundancy): said, never blocked
   placeLines(plan.shares.find((x) => x.name === sel.value)).forEach((l) => f.appendChild(el('small', l.warn ? 'bk-place-warn' : 'bk-place-info', l.text)));
@@ -6401,6 +6486,8 @@ const SETUP = { route: '#/backup/setup', crumb: 'setup.page' };
 // sources, the settings its plan has (ZFS, btrfs, libvirt, Kopia switched on)
 const mainShown = (f) => () => !state || (!!state.found && f());
 const planShown = (f) => () => !setup.plan || !setup.draft || !!f(setup.plan);
+// the setup's first step stands alone while the draft has no backup place: the steps and settings behind it aren't there
+const placeStands = () => !setup.plan || !setup.draft || !setup.model || !setupNoPlace();
 const hasFs = (fs) => (p) => (p.bases || []).some((b) => b.fs === fs);
 const kopiaOn = () => dget('kopia|enabled') === 'yes';
 const SHOWN = {
@@ -6415,7 +6502,8 @@ const SHOWN = {
   'setup.p_compression': planShown(kopiaOn), 'setup.p_ignore': planShown(kopiaOn),
 };
 const PART = { 'setup.ds_label': 'setup.kopia', 'setup.g_flash': 'setup.kopia', 'setup.g_zfs': 'setup.retention', 'setup.g_btrfs_days': 'setup.retention' };
-const when = (key) => ({ ...(SHOWN[key] ? { shown: SHOWN[key] } : {}), ...(PART[key] || key.startsWith('setup.g_') || key.startsWith('setup.p_')
+const when = (key) => ({ ...(key.startsWith('setup.') ? { shown: () => placeStands() && (!SHOWN[key] || SHOWN[key]()) } : SHOWN[key] ? { shown: SHOWN[key] } : {}),
+  ...(PART[key] || key.startsWith('setup.g_') || key.startsWith('setup.p_')
   ? { part: PART[key] || 'setup.general' } : {}) });
 // a section's route is its tile's: the switcher shows it alone, whatever was chosen before (the row and «now» are always there)
 const SECTION_TILE = { protection: 'prot', history: 'last', 'schedule.title': 'schedule', 'partner.section': 'partners', drift: 'drift', restore: 'restore' };
@@ -6430,6 +6518,7 @@ Office.places(ID, [
   // chosen — or none is); the start cards over the row by the page's
   ...['setup.preset.title', 'setup.kopia', 'setup.vms', 'setup.apps', 'setup.shares', 'setup.retention', 'setup.general', 'setup.sources',
     'setup.messages'].map((key) => ({ kind: 'step', key, ...SETUP, ...(STEP_TILE[key] ? { route: setupRoute(STEP_TILE[key]) } : {}), ...when(key) })),
+  { kind: 'step', key: 'setup.first.title', ...SETUP, shown: () => !placeStands() },
   ...['setup.ds_label', 'setup.g_flash', 'setup.g_prefix', 'setup.g_btrfs_free', 'setup.g_btrfs_all', 'setup.g_libvirt', 'setup.g_notify',
     'setup.p_compression', 'setup.p_ignore', 'setup.g_zfs', 'setup.g_btrfs_days']
     .map((key) => ({ kind: 'setting', key, ...SETUP, ...when(key), route: setupRoute(STEP_TILE[PART[key] || 'setup.general']) })),
@@ -6498,13 +6587,13 @@ if (globalThis.OFFICE_DESK_TESTS) {
     overviewTiles, tileNode, tileList, protRows, protView, protTileCounts, historyRows, PROT_TILES, PROT_ID, TILES,
     setState: (s) => { state = s; },
     setupDraftFromPlan, setupNewLines, setupNewRows, setupChanges, setupSaved, waitingFolders, waitChoice, waitSet, levelOf, waitingText, appSharesText,
-    placeLines, placeVerdict, placeOffsite, placeNotes, placeIntro, setupDraftKeep, setupDerive, dset, setupEdits,
+    placeLines, placeVerdict, placeOffsite, placeNotes, placeFitting, placeOfferLines, setupPlaceMade, setupDraftKeep, setupDerive, dset, setupEdits,
     PRESETS, presetChoose, presetForget, presetKeep, presetChanged, presetKopiaState, firstUpload, presetKeptList, presetStartText,
     presetCardsOf, presetCardOf, presetApply, presetPartners, levelPick, modeSelect, placeLevelPick, partnerListOf, partnerListSet, setupMigrated, LEVEL_FIELDS,
     partnerNowText, partnerRateOf, runModeOf, progress, partnerUnits, partnerSectionRows, partnerApplyLines, setupChangeItems, listChangeText, knownText, diffMark, whyFold, folderOf, ownDataset, setupMakeDataset, appPartner, partnerShareLines, appDepGaps, depCovered, depTicked, depClick, setupInitLevels, setupDeclinedApply, declinedList, ownFoldersOf, setupModel, partnerApplyText, setupDecline, setupApplyChanges, minuteTaken, bubbleText, deskActions,
     presetKopiaMode, presetKopiaVm, draftMode, draftVm, setupNewItems, presetApplyNew, presetNow, presetChosen, presetNewMode, presetNewVm,
     letGoPart, letGoLines, letGoDoneLines, letGoResult, setLetGoClock: (c) => { letGoClock = c; }, setupUnfold, UNFOLD_OWN, setupDecisions, setupApplyChanges, changeLabel, valueText, valueChange, setupSplit, setupDecline,
-    warnLines, bubbleText, setupBarSpec, setupNoPlace, setupPlaceStart, bubblePlace, setupSearchItems, brakeLine, brakeGaps, snapSeconds,
+    warnLines, bubbleText, setupBarSpec, setupNoPlace, setupPlaceStart, bubblePlace, placeFirst, placeFirstNeeded, setupSearchItems, brakeLine, brakeGaps, snapSeconds,
     oldSourceWords, oldUnit, orphansPick, goneCallout, unknownKey, droppedKey, engineKnows, goneShares, goneShareKey,
   };
 }

@@ -22,8 +22,9 @@ declare(strict_types=1);
  *     (officeHomeRequestFile(), the web side's officeHomeAsk()) — the mailbox lies in the very share that is missing.
  *   - the office runs, but system is missing: the Team Lead's check (caretaker.php, homeMissing()) with the same button
  *     (his action shares_make); Mr. Backupsy and the Consultant point to him where they need Docker.
- * `domains` and `isos` (VMs only) are only mentioned. The tests put stand-ins into $GLOBALS['homeHost'] (homeHost()) —
- * emcmd always a stand-in there.
+ * `domains` and `isos` (VMs only) are only mentioned. Mr. Backupsy offers the office's own share UnraidSecretaryOffice as his
+ * backup place the same way (backup.php backupPlaceOffer(), backupPlaceMake(): the pool he proposes, on the user's click).
+ * The tests put stand-ins into $GLOBALS['homeHost'] (homeHost()) — emcmd always a stand-in there.
  */
 
 const HOME_STANDARD     = ['system'];               // besides the data folder's share: Docker's image, libvirt's
@@ -44,6 +45,8 @@ function homeHost(): array
         'docker_cfg' => $h['docker_cfg'] ?? '/boot/config/docker.cfg',
         'domain_cfg' => $h['domain_cfg'] ?? '/boot/config/domain.cfg',
         'pools_dir'  => $h['pools_dir'] ?? '/boot/config/pools',
+        'disks_ini'  => $h['disks_ini'] ?? disksIniFile(),
+        'share_cfg'  => $h['share_cfg'] ?? '/boot/config/share.cfg',
         'mnt_user'   => $h['mnt_user'] ?? '/mnt/user',
         'emcmd'      => $h['emcmd'] ?? HOME_EMCMD,
         'wait'       => $h['wait'] ?? HOME_WAIT_SHARE,
@@ -66,8 +69,8 @@ function homeShareOf(string $dataUser, string $mntUser = '/mnt/user'): ?string
     return $m[1];
 }
 
-/** Unraid's pools (/boot/config/pools/<name>.cfg): cache first when there is one — Unraid's own default for these shares */
-function homePool(?array $h = null): ?string
+/** Unraid's pools (/boot/config/pools/<name>.cfg), sorted by name */
+function homePools(?array $h = null): array
 {
     $h ??= homeHost();
     $names = [];
@@ -78,6 +81,13 @@ function homePool(?array $h = null): ?string
         }
     }
     sort($names, SORT_STRING);
+    return $names;
+}
+
+/** The pool for Unraid's standard shares: cache first when there is one — Unraid's own default for these shares */
+function homePool(?array $h = null): ?string
+{
+    $names = homePools($h);
     return in_array('cache', $names, true) ? 'cache' : ($names[0] ?? null);
 }
 
