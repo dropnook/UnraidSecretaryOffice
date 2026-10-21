@@ -45,7 +45,9 @@
 .wm-tip-known .row-name, .wm-tip-known .row-detail{color:var(--muted)}
 .wm-posture-none{margin:0 2px}
 /* what holds the array: its groups' titles, a path per line (long ones wrap, never widen the page) */
-.wm-hold-group{margin:14px 0 4px; font-size:13px; font-weight:600; color:var(--ink2)}
+.wm-hold-group{margin:18px 2px 2px; font-size:13px; font-weight:600; color:var(--ink2)}
+.wm-hold > p.role{margin:2px 2px 8px}
+.wm-hold > .callout{margin-bottom:6px}
 .wm-hold .row-name, .wm-hold-file{overflow-wrap:anywhere; min-width:0}
 .wm-hold-file{font-family:var(--mono); font-size:12px}
 /* what he keeps an eye on: groups that fold, small rows */

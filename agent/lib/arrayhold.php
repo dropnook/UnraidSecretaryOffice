@@ -83,7 +83,7 @@ function arrayholdWhere(string $path): ?string
  * The look. $o: 'now' (the tests' clock), 'smb' (smbd pid => machine; else smbstatus), 'self' (a pid left out besides
  * this process).
  *
- * @return array{v: int, t: int, ms: int, cut: bool, started: bool, count: int, holds: list<array>, vms: list<array>,
+ * @return array{v: int, time: int, ms: int, cut: bool, started: bool, count: int, holds: list<array>, vms: list<array>,
  *               containers: ?list<array>, itself: list<array>, outside: list<array>, times: array}
  */
 function arrayholdLook(array $paths, array $o = []): array
@@ -91,7 +91,7 @@ function arrayholdLook(array $paths, array $o = []): array
     $t0 = hrtime(true);
     $now = (int) ($o['now'] ?? time());
     $var = readCfg((string) $paths['var_ini']);
-    $out = ['v' => 1, 't' => $now, 'ms' => 0, 'cut' => false, 'started' => ($var['fsState'] ?? '') === 'Started', 'count' => 0,
+    $out = ['v' => 1, 'time' => $now, 'ms' => 0, 'cut' => false, 'started' => ($var['fsState'] ?? '') === 'Started', 'count' => 0,
             'holds' => [], 'vms' => [], 'containers' => null, 'itself' => [], 'outside' => [], 'times' => []];
     if (!$out['started']) {
         return $out;
@@ -409,5 +409,5 @@ function arrayholdContainers(array $paths): ?array
 function arrayholdRead(string $file = ARRAYHOLD_FILE): ?array
 {
     $d = readJson($file);
-    return is_array($d) && ($d['v'] ?? null) === 1 && is_int($d['t'] ?? null) && is_array($d['holds'] ?? null) ? $d : null;
+    return is_array($d) && ($d['v'] ?? null) === 1 && is_int($d['time'] ?? null) && is_array($d['holds'] ?? null) ? $d : null;
 }

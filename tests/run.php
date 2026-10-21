@@ -31626,7 +31626,7 @@ function testWatchmanHold(): void
         // his page reads the look only in exactly its shape
         file_put_contents("$tmp/look.json", jsonEncode($l));
         same('array hold: his page carries the last look', [false, 8], [watchmanHoldPage("$tmp/look.json")['running'], watchmanHoldPage("$tmp/look.json")['look']['count']]);
-        file_put_contents("$tmp/look.json", '{"v":2,"t":1,"holds":[]}');
+        file_put_contents("$tmp/look.json", '{"v":2,"time":1,"holds":[]}');
         same('array hold: a look in another shape is no look', null, watchmanHoldPage("$tmp/look.json")['look']);
         same('array hold: none yet', null, watchmanHoldPage("$tmp/nothing.json")['look']);
     } finally {

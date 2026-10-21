@@ -1495,7 +1495,7 @@ async function holdCheck(quiet) {
 /** Opening his page looks again when the last look is older than HOLD_AGAIN (or there is none since the server started) */
 function holdAuto() {
   const l = holdLook();
-  if (!l || Date.now() / 1000 - (Number(l.t) || 0) > HOLD_AGAIN) holdCheck(true);
+  if (!l || Date.now() / 1000 - (Number(l.time) || 0) > HOLD_AGAIN) holdCheck(true);
 }
 
 function holdTile(a) {
@@ -1504,7 +1504,7 @@ function holdTile(a) {
   const short = !!(l && l.started && l.times && l.times.fits === false);
   const value = holdRunning() && !l ? T('hold.running') : !l ? '–' : !l.started ? T('tile.hold_stopped') : n ? T('tile.hold_n', { n }) : T('tile.hold_none');
   return Office.stat({ label: T('tile.hold'), value, alert: !!n || short,
-    sub: !l ? T('tile.hold_never') : [short ? T('tile.hold_short') : '', T('tile.hold_when', { when: fmt.relative(l.t) })].filter(Boolean).join(' · '), ...a });
+    sub: !l ? T('tile.hold_never') : [short ? T('tile.hold_short') : '', T('tile.hold_when', { when: fmt.relative(l.time) })].filter(Boolean).join(' · '), ...a });
 }
 
 function holdSection() {
@@ -1529,8 +1529,8 @@ function holdSection() {
   const t = l.times || {};
   s.appendChild(el('p', 'callout' + (n || t.fits === false ? ' warn' : ''), [n ? T('hold.verdict_n', { n }) : T('hold.verdict_none'),
     T(t.fits === false ? 'hold.times_short' : 'hold.times_fits', { disk: t.disk, need: t.need, detail: holdNeed(t) })].join(' ')));
-  const when = el('p', 'role', T('hold.when', { when: fmt.relative(l.t), ms: Number(l.ms) || 0 }) + (l.cut ? ' ' + T('hold.cut') : ''));
-  when.title = fmt.date(l.t);
+  const when = el('p', 'role', T('hold.when', { when: fmt.relative(l.time), ms: Number(l.ms) || 0 }) + (l.cut ? ' ' + T('hold.cut') : ''));
+  when.title = fmt.date(l.time);
   s.appendChild(when);
   const group = (key, sub, rows) => {
     s.appendChild(el('h4', 'wm-hold-group', T(key)));
