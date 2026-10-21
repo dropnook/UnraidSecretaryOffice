@@ -30659,6 +30659,40 @@ function testDrillShareFile(): void
     exec('rm -rf ' . escapeshellarg("$snap/2019"));
     same('drill share file: nothing small enough in the snapshot — not checked', ['not_checked', 'sharefile_none'],
         array_values(array_intersect_key(drillDoShareFile($j2, 0, $env), ['state' => 1, 'code' => 1])));
+
+    // only an ordinary, settled file: never Kopia's repository, cache or temp files, a database, a lock, a pid, a socket's
+    // stand-in, an empty file or one changed in the hour before the snapshot (2026-10-21: test3 took kopia.repository.f)
+    $pf = "$tmp/pick";
+    $old = 1793500000 - 7200;
+    $put = function (string $rel, int $bytes = 2048, ?int $time = null) use ($pf, $old): void {
+        @mkdir(dirname("$pf/$rel"), 0700, true);
+        file_put_contents("$pf/$rel", str_repeat('u', $bytes));
+        touch("$pf/$rel", $time ?? $old);
+    };
+    foreach (['kopia/kopia.repository.f', 'kopia/kopia.blobcfg.f', 'kopia/_log_20261020_abc.f', 'kopia/p0a/1b2/c3d4e5f6.f', 'kopia/q12/abcdef.f',
+              'repo/kopia.repository.f', 'repo/x/readme.txt', 'kopia_tmp/upload-1.tmp', 'stuff/KopiaCache/blob.bin', 'stuff/p0123abcd.f',
+              'mariadb/databases/ibdata1', 'mariadb/databases/ib_logfile0', 'mariadb/databases/app/table.ibd', 'mariadb/databases/notes.txt',
+              'pg/data/PG_VERSION', 'pg/data/base/16384/1259', 'mongo/WiredTiger.wt', 'mongo/WiredTigerHS.wt', 'mongo/collection-0.wt', 'mongo/mongod.lock',
+              'app/library.db', 'app/library.db-wal', 'app/library.db-shm', 'app/home.sqlite', 'app/home.sqlite3-journal', 'app/run/app.pid', 'app/run/app.lock',
+              'app/run/LOCK', 'app/run/app.sock', 'app/log/app.log'] as $rel) {
+        $put($rel);
+    }
+    $put('app/empty.txt', 0);
+    $put('app/fresh.txt', 2048, 1793500000 - 600);                          // changed ten minutes before the snapshot
+    $seen = [];
+    for ($n = 0; $n < 60; $n++) {
+        $seen[] = drillShareFilePickFile($pf, 1793500000)[0] ?? null;
+    }
+    same('drill share file: among Kopia\'s files, databases, locks, empty and fresh files only the settled log file is ever chosen',
+        ['app/log/app.log'], array_values(array_unique($seen)));
+    unlink("$pf/app/log/app.log");
+    same('drill share file: nothing ordinary left — none (the step says so, «not checked», the drill doesn\'t fail on it)', null,
+        drillShareFilePickFile($pf, 1793500000));
+    $words = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $words[] = str_contains((string) (json_decode((string) file_get_contents(OFFICE_WEB . "/desks/restore/lang/$code.json"), true)['drill.code.sharefile_none'] ?? ''), 'Kopia');
+    }
+    same('drill share file: «none» says what was left out, in all five languages', [true, true, true, true, true], $words);
     $env3 = $env;
     $env3['ctx']['snaps']['maple/Familienfotos'] = [['name' => 'uso-plan-x-20261031-0000', 'time' => 1793400000]];
     same('drill share file: only a plan\'s snapshot — not checked (the backup\'s is proven)', 'sharefile_no_snap', drillDoShareFile($j2, 0, $env3)['code']);

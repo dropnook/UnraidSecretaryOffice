@@ -882,7 +882,7 @@
   "drill.code.vm_chain_ok": "completo nello snapshot (file nella sua catena: {chain})",
   "drill.code.sharefile_ok": "{file} ({bytes}) è tornato dallo snapshot in {folder} su {base} — dimensione e checksum uguali; la cartella è andata nel ripostiglio della signora Spolverina",
   "drill.code.sharefile_differs": "{file} è tornato in {folder} su {base}, ma non uguale ({bytes} di {want}) — la cartella è andata nel ripostiglio della signora Spolverina",
-  "drill.code.sharefile_none": "nessun file tra 1 KB e 16 MB nello snapshot di backup più recente di {share} su {base}",
+  "drill.code.sharefile_none": "nessun file ordinario tra 1 KB e 16 MB nello snapshot di backup più recente di {share} su {base} (esclusi: i file di Kopia, database, file di blocco e file modificati poco prima dello snapshot)",
   "drill.code.sharefile_no_snap": "nessuno snapshot di backup di {share} su {base}",
   "drill.code.sharefile_taken": "{folder} c'è già in {share} su {base} — niente scritto sopra",
   "drill.code.sharefile_failed": "{file} non si è potuto copiare in {folder} su {base}",

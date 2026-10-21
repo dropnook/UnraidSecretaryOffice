@@ -882,7 +882,7 @@
   "drill.code.vm_chain_ok": "complete in the snapshot (files in its chain: {chain})",
   "drill.code.sharefile_ok": "{file} ({bytes}) came back from the snapshot into {folder} on {base} — size and checksum the same; the folder went to Ms. Dustdevil's storeroom",
   "drill.code.sharefile_differs": "{file} came back into {folder} on {base}, but not the same ({bytes} of {want}) — the folder went to Ms. Dustdevil's storeroom",
-  "drill.code.sharefile_none": "no file between 1 KB and 16 MB in the newest backup snapshot of {share} on {base}",
+  "drill.code.sharefile_none": "no ordinary file between 1 KB and 16 MB in the newest backup snapshot of {share} on {base} (left out: Kopia's files, databases, locks and files changed shortly before the snapshot)",
   "drill.code.sharefile_no_snap": "no backup snapshot of {share} on {base} any more",
   "drill.code.sharefile_taken": "{folder} is already there in {share} on {base} — nothing written over it",
   "drill.code.sharefile_failed": "{file} could not be copied into {folder} on {base}",

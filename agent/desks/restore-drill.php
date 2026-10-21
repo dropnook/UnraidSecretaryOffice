@@ -113,6 +113,12 @@ const DRILL_SCRATCH        = '.uso-drill-';   // a share file's scratch folder: 
 const DRILL_FILE_MIN       = 1024;            // the share file brought back: at least 1 KB …
 const DRILL_FILE_MAX       = 16 << 20;        // … at most 16 MB (it is written into the share)
 const DRILL_FILE_LOOKS     = 40;              // folders looked into for it
+const DRILL_FILE_SETTLED   = 3600;            // … and not changed in the hour before the snapshot (it may have been written then)
+// never the sample: Kopia's repository, cache and temp files; a database's files; locks, pids, sockets, temp files
+const DRILL_FILE_SKIP      = '/kopia|^_log_|^[a-z]?[0-9a-f]{4,}\\.f$|^ib(?:data\\d*|_logfile\\d*|_buffer_pool|tmp\\d*)$|\\.(?:ibd|myd|myi|mad|mai|frm|wt)$'
+    . '|^aria_log|^wiredtiger|^mongod\\.lock$|\\.(?:db|sqlite\\d?)$|-(?:wal|shm|journal)$|\\.(?:lock|lck|pid|sock|socket|tmp|temp|part|partial|swp)$|^\\.?lock$/i';
+// a folder holding one of these is a Kopia repository or a database's own (the engine's marks): nothing in it is taken
+const DRILL_FILE_MARKS     = ['kopia.repository.f', 'ibdata1', 'aria_log_control', 'mysql.ibd', 'PG_VERSION', 'WiredTiger'];
 
 define('DRILL_DATA', DATA_DIR . '/restore-drill');
 define('DRILL_CERT', DATA_DIR . '/restore-drill.json');           // the certificate (api part "drill")
@@ -2664,7 +2670,7 @@ function drillDoShareFile(array &$j, int $i, array &$env): array
     if (preg_match('/(\d{8}-\d{4})$/', (string) $snap['name'], $m)) {
         $out['run'] = $m[1];
     }
-    $pick = drillShareFilePickFile($snap['path']);
+    $pick = drillShareFilePickFile($snap['path'], (int) $snap['time']);
     if ($pick === null) {
         return ['state' => 'not_checked', 'code' => 'sharefile_none'] + $out;
     }
@@ -2727,27 +2733,33 @@ function drillDoShareFile(array &$j, int $i, array &$env): array
 }
 
 /**
- * A small file in a snapshot folder: walk down from the top, a random folder at each level, a random fitting file
- * where there is one (never a link, never the office's storeroom, set-aside or scratch folders). [rel, path] or null.
+ * A small, ordinary file in a snapshot folder: walk down from the top, a random folder at each level, a random fitting
+ * file where there is one (never a link, never the office's storeroom, set-aside or scratch folders; never one of
+ * DRILL_FILE_SKIP, nothing inside a folder with one of DRILL_FILE_MARKS, never a file changed in the DRILL_FILE_SETTLED
+ * before $time — the snapshot's). A folder that led nowhere isn't taken again. [rel, path] or null.
  */
-function drillShareFilePickFile(string $root): ?array
+function drillShareFilePickFile(string $root, ?int $time = null): ?array
 {
-    $skip = fn (string $n) => $n === '.' || $n === '..' || storeroomName($n) || str_starts_with($n, DRILL_SCRATCH) || str_starts_with($n, '.UnraidSecretaryOffice');
-    for ($try = 0, $looks = 0; $try < 6 && $looks < DRILL_FILE_LOOKS; $try++) {
+    $skip = fn (string $n) => $n === '.' || $n === '..' || storeroomName($n) || str_starts_with($n, DRILL_SCRATCH) || str_starts_with($n, '.UnraidSecretaryOffice')
+        || preg_match(DRILL_FILE_SKIP, $n);
+    $before = ($time > 0 ? $time : drillNow()) - DRILL_FILE_SETTLED;
+    $dead = [];
+    for ($try = 0, $looks = 0; $try < 20 && $looks < DRILL_FILE_LOOKS; $try++) {
         $dir = $root;
         $rel = '';
         for ($depth = 0; $depth < 10 && $looks < DRILL_FILE_LOOKS; $depth++) {
             $looks++;
-            $names = array_values(array_filter(@scandir($dir) ?: [], fn ($n) => !$skip($n)));
+            $all = @scandir($dir) ?: [];
+            $names = array_intersect($all, DRILL_FILE_MARKS) ? [] : array_values(array_filter($all, fn ($n) => !$skip($n)));
             $files = $dirs = [];
             foreach (array_slice($names, 0, 2000) as $n) {
                 $path = "$dir/$n";
-                if (is_link($path)) {
+                if (is_link($path) || isset($dead[$path])) {
                     continue;
                 }
                 if (is_file($path)) {
                     $size = (int) @filesize($path);
-                    if ($size >= DRILL_FILE_MIN && $size <= DRILL_FILE_MAX && is_readable($path)) {
+                    if ($size >= DRILL_FILE_MIN && $size <= DRILL_FILE_MAX && (int) @filemtime($path) < $before && is_readable($path)) {
                         $files[] = $n;
                     }
                 } elseif (is_dir($path)) {
@@ -2759,11 +2771,15 @@ function drillShareFilePickFile(string $root): ?array
                 return [ltrim("$rel/$f", '/'), "$dir/$f"];
             }
             if (!$dirs) {
+                $dead[$dir] = true;
                 break;
             }
             $d = $dirs[random_int(0, count($dirs) - 1)];
             $dir .= "/$d";
             $rel .= "/$d";
+        }
+        if (isset($dead[$root])) {
+            break;
         }
     }
     return null;
