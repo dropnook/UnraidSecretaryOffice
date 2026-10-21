@@ -2,7 +2,7 @@
 # Unraid Secretary Office - what the plugin's cron file calls (written by the
 # office: agent/lib/house.php, officeJobSetSchedule()).
 #
-#   job.sh backup      Mr. Backupsy's nightly run (the engine in backup/)
+#   job.sh backup      Mr. Backupsy's scheduled run (the engine in backup/) - after Ms. Moverelli's run
 #   job.sh snapshots   Ms. Snapshotini's schedules: the snapshots that are due
 #   job.sh embycache   Jack Streamer: MediaCache (what's watched next onto the pool; the job keeps EmbyCache's old name)
 #   job.sh gather      Jack Emby: the media gather (folders together on one disk)
@@ -45,7 +45,14 @@ exec 9>&-          # not into the job: it would hold the lock for hours
 source "$DIR/scripts/agent.sh" 2>/dev/null && array_started || exit 0
 
 case "$1" in
-    backup)    exec bash "$DIR/backup/backup.sh" ;;
+    backup)
+        # Ms. Moverelli's run first (agent/lib/nightorder.php): while it goes - or Unraid's mover works, or her line is due
+        # in this minute - the office waits here (at most 90 min) and names what it waited for (UB_ORDER, the run's log);
+        # exit 3: nothing to start now. The office not answering: the backup starts as ever
+        order=$(php "$DIR/agent/agent.php" job backup-order 2>/dev/null); rc=$?
+        (( rc == 3 )) && exit 0
+        [[ "$order" =~ ^[a-z_]+:[0-9]+$ ]] && export UB_ORDER="$order"
+        exec bash "$DIR/backup/backup.sh" ;;
     snapshots) exec php "$DIR/agent/agent.php" job snapshot-plans ;;
     embycache|gather|moverelli) exec php "$DIR/agent/agent.php" job "$1" ;;
 esac

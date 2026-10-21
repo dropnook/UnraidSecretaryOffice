@@ -35,6 +35,8 @@ declare(strict_types=1);
  * comes from state/lock-holder.json (backupLockHolder()).
  */
 
+require_once dirname(__DIR__) . '/lib/nightorder.php';    // Ms. Moverelli's run first, then the scheduled backup (shared with her)
+
 const BACKUP_INTERFACE   = 1;
 const BACKUP_MODES       = ['backup' => [], 'nokopia' => ['--no-kopia'], 'dryrun' => ['--dry-run'], 'check' => ['--check']];
 const BACKUP_LOG_NAME    = '/^(?:(run|check|dryrun|setup)-(\d{8})-(\d{4}|\d{6})\.log|unmount\.log)$/';    // engine 2.45: tours, dry runs, setups by the second
@@ -98,7 +100,9 @@ desk('backup', [
         'dataset_make' => fn (array $r) => mdStart(['kind' => optText($r, 'kind'), 'name' => optText($r, 'name'), 'share' => optText($r, 'share'), 'dir' => optText($r, 'dir'), 'stack' => optText($r, 'stack'),
                                                     'no_fresh_ok' => boolField($r, 'no_fresh_ok')]),
     ],
-    'jobs'    => ['backup-letgo' => fn (array $args) => backupLetGoJob($args)],
+    'jobs'    => ['backup-letgo' => fn (array $args) => backupLetGoJob($args),
+                  // the scheduled backup (job.sh, before the engine): Ms. Moverelli's run first (agent/lib/nightorder.php)
+                  'backup-order' => fn (array $args) => nightOrderBackupJob()],
     'tick'    => function (): void {
         backupLockTick();             // engine 2.56: Object Lock and Kopia's maintenance, asked a few times a day
         backupWatchTick();            // engine 2.68: the Kopia server's log - does the offsite storage still take writes?
@@ -903,6 +907,8 @@ function backupRunFromStatus(array $j): array
         'asleep'     => backupAsleepRun($j['asleep'] ?? null),
         'kopia_interrupted' => is_string($j['kopia']['interrupted'] ?? null) && $j['kopia']['interrupted'] !== '' ? $j['kopia']['interrupted'] : null,
         'kopia_first' => null,
+        // engine 2.70: what the run waited for before it started (Ms. Moverelli's run, Unraid's mover - agent/lib/nightorder.php)
+        'order'      => nightOrderRow($j['order'] ?? null),
         // engine 2.27: the partner phase per partner (null: the run sent to no partner)
         'partner'    => backupPartnerRun($j['partner'] ?? null),
         // engine 2.63: per btrfs disk or pool what holds after the retention and the emergency brake (null: not looked)
@@ -1965,7 +1971,8 @@ function backupLibvirtArchive(string $file): array
 /** The nightly run's schedule: a line in the plugin's cron file, to be set once the setup is done */
 function backupSchedule(): array
 {
-    return ['script' => is_file(BACKUP_DATA_DIR . '/settings.ini')] + officeJobSchedule('backup');
+    // order_hint: it starts where Ms. Moverelli's run goes - she first, he waits (agent/lib/nightorder.php; the page's quiet line)
+    return ['script' => is_file(BACKUP_DATA_DIR . '/settings.ini')] + officeJobSchedule('backup') + ['order_hint' => nightOrderHint()];
 }
 
 /**
@@ -2122,7 +2129,9 @@ function backupStart(string $mode): array
     $before = (int) (readJson("$data/state/status.json")['started'] ?? 0);
     $skipBefore = readJson("$data/state/skipped.json");
     $t0 = time();
-    backupLaunch(array_merge([$dir . '/backup.sh'], BACKUP_MODES[$mode]));
+    // started here, it never waits for Ms. Moverelli's run or Unraid's mover - but says so (agent/lib/nightorder.php)
+    $beside = in_array($mode, ['backup', 'nokopia'], true) ? nightOrderBeside() : null;
+    backupLaunch(array_merge([$dir . '/backup.sh'], BACKUP_MODES[$mode]), $beside !== null ? ['UB_ORDER' => "$beside:0"] : []);
     logLine("Backup: started backup.sh ($mode) via at");
 
     // wait a moment until it took the lock and wrote its status - or found the lock taken after all
@@ -2142,7 +2151,7 @@ function backupStart(string $mode): array
     if ($skipped) {
         logLine("Backup: backup.sh ($mode) was skipped - $skipped[reason]");
     }
-    return ['ok' => true, 'started' => $seen, 'skipped' => $skipped, 'state' => backupScan()];
+    return ['ok' => true, 'started' => $seen, 'skipped' => $skipped, 'beside' => $beside, 'state' => backupScan()];
 }
 
 const BACKUP_QUEUE_FILE = 'backup-queued.json';     // in RUN_DIR: a backup asked for within a taken minute, {at, mode}
