@@ -1,7 +1,8 @@
 #!/bin/bash
 # The setup's first step (2026-10-21, the owner on a fresh server: «Set up» opened whole without a backup place, the
 # missing share a yellow line among everything else). A fresh server's setup: no office share UnraidSecretaryOffice
-# (SH-OFFICE-SHARE-MISSING) and no backup place chosen (settings.ini's dumps_share emptied, put back by the undo).
+# (SH-OFFICE-SHARE-MISSING) and nothing set up (settings.ini aside, put back by the undo — a settings.ini that knows the
+# share keeps the engine from proposing it anew; the page then chooses the share it made itself, testSetupFirstPlace).
 #   only-step   the setup page from the server's state files shows only the step «First Mr. Backupsy needs a share of
 #               his own …» with «Create UnraidSecretaryOffice…» — none of the steps behind it, no «Review…»
 #   offer       the plan carries the agent's offer (place_offer): fresh, a pool of Unraid's, awake
@@ -19,29 +20,29 @@ cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || e
 S=UnraidSecretaryOffice
 CFG=/boot/config/shares/$S.cfg
 
-# settings.ini without a backup place (a fresh server's first setup); the undo puts the copy back
+# nothing set up (a fresh server's first setup): settings.ini aside; the undo puts it back
 _pf_unplace() {
     [[ -f $UB/settings.ini ]] || return 0
-    cp -p "$UB/settings.ini" "$KEEP/settings.ini.pf-before" || return 1
-    awk '/^\[/ { g = ($0 == "[general]") } g && /^dumps_share *=/ { print "dumps_share ="; next } { print }' "$KEEP/settings.ini.pf-before" \
-        > "$UB/settings.ini.uso-new" && mv "$UB/settings.ini.uso-new" "$UB/settings.ini"
+    mv "$UB/settings.ini" "$KEEP/settings.ini.pf-before"
 }
-_pf_replace() { [[ -f $KEEP/settings.ini.pf-before ]] || return 0; cp -p "$KEEP/settings.ini.pf-before" "$UB/settings.ini"; }
-# the share this scenario made: what the office put in it since, then Unraid's own «Delete» (share_remove)
+_pf_replace() { [[ -f $KEEP/settings.ini.pf-before ]] || return 0; mv "$KEEP/settings.ini.pf-before" "$UB/settings.ini"; }
+# the share this scenario made: what the office put in it since, then Unraid's own «Delete» (share_remove — whose last
+# look, any /mnt/*/<name>, also meets the office's own RAM folder /mnt/addons/UnraidSecretaryOffice: judged here by the
+# pools and disks alone)
 _pf_remove_made() {
     local d
     for d in $(share_roots "$S"); do
         say "undo: emptying $S on $d (made by this scenario): $(find "/mnt/$d/$S" -mindepth 1 2>/dev/null | head -5 | tr '\n' ' ')"
         find "/mnt/$d/$S" -mindepth 1 -delete || return 1
     done
-    share_remove "$S"
+    share_remove "$S" && return 0
+    ! share_exists "$S" && [[ ! -f $CFG && -z $(share_roots "$S") ]]
 }
 
 state SH-OFFICE-SHARE-MISSING
 share_exists "$S" && { _row state "$S" red "Unraid still lists $S"; scenario_end; }
-_pf_unplace && undo_push _pf_replace || _row state settings red "dumps_share not emptied"
+_pf_unplace && undo_push _pf_replace || _row state settings red "settings.ini not put aside"
 snap_before
-expect_changes 'general|dumps_share' "share|$S|*"
 flow BK-REPLAN
 
 # the plan's offer, and the step alone on the page
@@ -63,7 +64,7 @@ if ask backup.place_make "$(jq -cn --arg p "$pool" '{pool: $p}')" 120 >/dev/null
     undo_push _pf_remove_made
     use=$(_st_cfg_val "$CFG" shareUseCache 2>/dev/null) at=$(_st_cfg_val "$CFG" shareCachePool 2>/dev/null) two=$(_st_cfg_val "$CFG" shareCachePool2 2>/dev/null)
     want_use=$([[ -n $pool ]] && echo only || echo no)
-    if share_exists "$S" && [[ $use == "$want_use" && $at == "$pool" && -z $two ]]; then
+    if _st_share_seen "$S" 15 && [[ $use == "$want_use" && $at == "$pool" && -z $two ]]; then
         cell made 1 "Unraid made $S: shares.ini lists it, $CFG shareUseCache=$use shareCachePool=${at:-–} shareCachePool2=–, export $(_st_cfg_val "$CFG" shareExport)"
     else
         cell made 0 "after the click: listed $(share_exists "$S" && echo yes || echo no), cfg shareUseCache=${use:-?} shareCachePool=${at:-?} shareCachePool2=${two:-–}"
