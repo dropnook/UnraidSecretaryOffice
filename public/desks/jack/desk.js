@@ -1715,7 +1715,7 @@ function setupTileData() {
   const on = connected();
   const out = [];
   out.push({ id: 'servers', key: 'setup.server', value: String(form.instances.length),
-    sub: [T('setup.tile.connected', { n: form.instances.filter((i) => i.server).length })], alert: false });
+    sub: [form.instances.some((i) => i.connecting) ? T('setup.connecting') : T('setup.tile.connected', { n: form.instances.filter((i) => i.server).length })], alert: false });
   const libs = libraryList();
   const chosenLibs = libs.filter((l) => form.chosenLibs.has(l.name));
   const folders = on ? chosenFolders() : [];
@@ -1856,6 +1856,10 @@ function setupServers() {
       renderSetup();
     });
     bar.appendChild(connect);
+    if (inst.connecting) {           // a saved one connecting by itself (a visit, after «Save»): the wave, not «not connected»
+      connect.disabled = true;
+      bar.appendChild(el('span', 'spin'));
+    }
     if (inst.server) bar.appendChild(chip(T('setup.connected', { name: inst.server.name, type: SERVER_NAMES[inst.type], version: inst.server.version }), 'ok'));
     if (inst.server && inst.type === 'plex') box.appendChild(el('p', 'role', T('setup.plex_users')));
     if (inst.connectError) box.appendChild(el('p', 'callout danger jo-connect-error', inst.connectError));
@@ -2742,9 +2746,12 @@ async function saveSetup(e) {
   const j = await act('save', { settings });
   if (!j) return;
   Office.toast(T('setup.saved'));
-  // saved: the tab shows his setup as saved now — from its top, not left at the bottom where «Save» was
+  // saved: the tab shows his setup as saved now — from its top, not left at the bottom where «Save» was — and connects his
+  // servers again as a visit does (2026-10-21, the owner: «0 connected», no people, no libraries until a reload); the
+  // first drawing and the wave come in the same tick (connectSaved() marks them before its first await)
   form = null;
   renderSetup();
+  connectSaved();
   if (typeof window !== 'undefined') window.scrollTo(0, 0);
 }
 
@@ -3035,7 +3042,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     historySection, plansSection, plansList, gatherSection, footer, scopeLine, lastRunTile, plansTile, poolTile, sharesTile, gatherTile, render,
     renderSetup, page: () => page, SETUP_TILES, setupTileData, setupTileList, setupStep, importSection, setupSwitcher, tileOf, setForm: (f) => { form = f; }, initForm, form: () => form,
     herRules, sharePart, ruleTexts, needsConnect, connectInst, resetDialog, budgetGb, budgetSplit, budgetState, budgetLine, setupBlocked, MIN_PERSON_GB, shareCase,
-    setupServers, mediaPick, newInstance, removeServerDialog, removeServer, noServer, setupLibraries, setupUsers, setupScope, setupMore, saveSetup, saveBar, formKey, formChanged, formChangeCount, setupBar, derivedPool, poolsOfChoice, cacheable,
+    setupServers, mediaPick, newInstance, removeServerDialog, removeServer, noServer, persons, libraryList, setView: (v, p) => { view = v; page = p; }, setupLibraries, setupUsers, setupScope, setupMore, saveSetup, saveBar, formKey, formChanged, formChangeCount, setupBar, derivedPool, poolsOfChoice, cacheable,
     letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog, gatherSettingsDialog, gatherRunDialog, gatherCacheWords,
     progressPanel, setProgress: (p, why) => { progress = p; stopping = why || null; }, etaText, tookText, nightPanel, livePanel, chooseRun, headActions,
     setNight: (n) => { nightNow = n; }, nightGoing };
