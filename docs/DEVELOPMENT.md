@@ -518,7 +518,9 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   other caching shares' files oldest first across the pool (age = the younger of birth/ctime and mtime, `age_stat=newest`; never
   an excluded file, his list never) until his fetch ends at X (`--fill-until` = X − fetch), the age rule always; pool-only
   shares and whatever never moves are never pushed (they and what he keeps reach X → he fetches nothing new). Too big a budget
-  or unwatched over X: told.
+  or unwatched over X: told. **Every file left says why** (Smart Mover's `left_codes`: a name ending in whitespace, its copy,
+  the binary's words, a stop, else «in use or already there» — her share lines and run summary); files whose time lies more
+  than a day ahead (a clock put right) are counted (`future`) and said once under her last run — never notified.
 * **`logs` — Ms. Protocolli.** Reads logs from a fixed source list (ids only, never paths); lines into the page as text only;
   nothing read until chosen; routers' files only while their disks are awake. **Read only.** Unraid's syslog (and
   `syslog.1`) also by her syslog rules (`agent/desks/logs-rules/syslog_match.conf`, Enhanced Log's by dlandon and Derek Kaser,

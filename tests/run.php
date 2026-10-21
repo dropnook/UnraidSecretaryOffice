@@ -42171,6 +42171,11 @@ SH);
         [@file_get_contents("$c/plain/file end "), sprintf('%o', @fileperms("$c/plain/file end ") & 0777), @filemtime("$c/plain/file end "),
          @file_get_contents("$c/plain/tab\t"), @file_get_contents("$c/plain/foo "), @file_get_contents("$c/plain/foo"),
          file_exists("$d1/plain/file end "), file_exists("$d1/plain/foo "), file_exists("$d1/plain/foo"), file_exists("$c/plain/file end .partial")]);
+    // batch H9: every file left has its reason code — her page says why (busy.jpg: the binary said nothing; «dup », «held »:
+    // the script's own copy to the pool didn't go; «note »: to the array, never handed to the binary)
+    same('trailing space: the reason codes — Pics busy 1, copy 2; Docs ws 1 (they add up to `left`); no future files',
+        [['copy' => 2, 'busy' => 1], ['ws' => 1], 0],
+        [$share($st, 'Pics')['left_codes'] ?? null, $share($st, 'Docs')['left_codes'] ?? null, $share($st, 'Docs')['future'] ?? null]);
     same('trailing space: a file whose copy is on the pool already stays on the disk, the pool\'s untouched, named in a WARN',
         ['new', 'there', true], [@file_get_contents("$d1/dup "), @file_get_contents("$c/dup "), str_contains($log, "left: $d1/dup  – already at the destination")]);
     same('trailing space: a file in use stays where it is, named in a WARN, nothing of it on the pool',
@@ -42223,6 +42228,163 @@ SH);
     runEnv(['bash', $sm], $env, 60);
     check('trailing space: a dry run leaves the folders', is_dir("$d1/2019/06 Juni "));
     hardeningRm($t);
+}
+
+/**
+ * Batch H7 (scenario moverelli-tm-future-mtime-h-run, 2026-10-21): a clock that ran ahead and was put right leaves files
+ * whose times lie in the future — her age rule never takes them for «very old» (good), but nobody said so. Smart Mover
+ * counts them per share (`future`: the age_stat's time more than a day ahead; newest: modified or born), in a dry run
+ * too; never when no age rule applies; her history keeps it, the reason codes only in their known shape.
+ */
+function testMoverelliFuture(): void
+{
+    $t = hardeningTmp('moverelli-future');
+    foreach (['mnt/cache/Docs/f', 'mnt/user/Docs', 'mnt/disk1', 'shares', 'bin'] as $d) {
+        @mkdir("$t/$d", 0700, true);
+    }
+    file_put_contents("$t/shares/Docs.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\n");
+    file_put_contents("$t/bin/move", "#!/bin/bash\nwhile IFS= read -r f; do r=\${f#\"\$MOVE_ROOT\"/cache/}; mkdir -p \"\$(dirname \"\$MOVE_ROOT/disk1/\$r\")\" && mv \"\$f\" \"\$MOVE_ROOT/disk1/\$r\"; done\nexit 0\n");
+    chmod("$t/bin/move", 0755);
+    $env = ['CUSTOMMOVER_INI' => "$t/ini", 'CUSTOMMOVER_SHARES_DIR' => "$t/shares", 'CUSTOMMOVER_MNT' => "$t/mnt", 'CUSTOMMOVER_LOG' => "$t/log",
+            'CUSTOMMOVER_LOCK' => "$t/lock", 'CUSTOMMOVER_STATUS' => "$t/st.json", 'CUSTOMMOVER_ZFS' => '/nonexistent-zfs', 'CUSTOMMOVER_MOVER_BIN' => "$t/bin/move",
+            'CUSTOMMOVER_IGNORE_MOVER' => '1', 'MOVE_ROOT' => "$t/mnt"];
+    $sm = OFFICE_DIR . '/smartmover/custommover_run.sh';
+    $c = "$t/mnt/cache/Docs";
+    $put = function () use ($c): void {
+        $now = time();
+        foreach (['old1' => -40, 'old2' => -40, 'new' => -1, 'soon' => 0.5, 'fut1' => 30, 'fut2' => 30, 'fut3' => 30] as $f => $days) {
+            file_put_contents("$c/f/$f", $f);
+            touch("$c/f/$f", (int) ($now + $days * 86400));
+        }
+    };
+    $docs = fn () => array_values(array_filter((readJson("$t/st.json") ?? [])['shares'] ?? [], fn ($x) => $x['share'] === 'Docs'))[0] ?? [];
+    $res = [];
+    foreach (['newest', 'mtime'] as $stat) {
+        file_put_contents("$t/ini", "[GLOBAL]\nmin_age=30\nage_stat=$stat\n");
+        $put();
+        runEnv(['bash', $sm], $env, 60);                                   // a dry run counts them too
+        $dry = [$docs()['files'] ?? null, $docs()['future'] ?? null];
+        [$exit] = runEnv(['bash', $sm, '--run'], $env, 60);
+        $res[$stat] = [$dry, $exit, $docs()['moved'] ?? null, $docs()['future'] ?? null, $docs()['left_codes'] ?? null,
+            is_file("$c/f/fut1"), is_file("$t/mnt/disk1/Docs/f/old1"), is_file("$c/f/soon")];
+        exec('rm -rf ' . escapeshellarg("$t/mnt/disk1/Docs") . ' ' . escapeshellarg("$c/f") . '; mkdir -p ' . escapeshellarg("$c/f"));
+    }
+    // newest: a file here is born now (touch sets no birth) — the old ones are young by birth, the future ones counted alike
+    same('future: age 30 d (newest) — nothing old by birth; dry run and run count the 3 in the future, half a day ahead is no news',
+        [[0, 3], 0, 0, 3, [], true, false, true], $res['newest']);
+    same('future: age 30 d (mtime) — dry run 2 files, 3 in the future; the run moves the 2 old ones, the 3 stay and are counted',
+        [[2, 3], 0, 2, 3, [], true, true, true], $res['mtime']);
+    check('future: said in her log', str_contains((string) file_get_contents("$t/log"), '3 files left out of the age rule: their time (mtime) lies in the future'));
+    // no age rule (0 days): nothing is left out for its time — nothing counted
+    file_put_contents("$t/ini", "[GLOBAL]\nmin_age=0\n");
+    $put();
+    runEnv(['bash', $sm], $env, 60);
+    same('future: no age rule — 7 files, none counted', [7, 0], [$docs()['files'] ?? null, $docs()['future'] ?? null]);
+    // her history: `future` and the known reason codes kept, anything else dropped
+    $short = moverelliStatusShort(['mode' => 'run', 'shares' => [['share' => 'Docs', 'left' => 5, 'future' => 3,
+        'left_codes' => ['ws' => 2, 'busy' => 1, 'said' => 0, 'odd' => 4, 'copy' => '2', 'stopped' => 2]]]]);
+    same('future: her history keeps `future` and the known codes in their shape', ['share' => 'Docs', 'left' => 5, 'future' => 3, 'left_codes' => ['ws' => 2, 'busy' => 1, 'stopped' => 2]],
+        $short['shares'][0] ?? null);
+    hardeningRm($t);
+}
+
+/**
+ * Batch H9 + H7, her page: a share's files left each with its reason (`left_codes`: a name ending in a space or tab, its
+ * copy to the pool failed, the binary's words, a stop, the rest «in use or already there»), the run's summary the same
+ * over all shares; a status from before the codes as before; files with times in the future said once under the shares.
+ */
+function testMoverelliLeftCodesPage(): void
+{
+    $node = testsNode();
+    if ($node === '') {
+        check('left codes page: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('moverelli-codes');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, className: cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, dataset: {}, style: {},
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, insertBefore(c) { this.children.unshift(c); }, setAttribute() {} });
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { sections: () => ({ el: {}, render() {}, mount: () => false, places: () => [], active: () => '' }), scope: () => T, t: T, el: mk,
+  fmt: { cron: (c) => c, size: (b) => b + ' B', date: (t) => 'D' + t, time: (t) => 'T' + t, duration: (s) => Math.round(s) + 's', relative: (t) => 'R' + t },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, errorText: (e) => 'err:' + e.key,
+  dialog: () => ({ buttons: [] }), toast: () => {}, selbar: () => null, api: { post: async () => ({ ok: true }) } };
+(0, eval)(fs.readFileSync(process.argv[3], 'utf8'));
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+const out = {};
+out.ws = m.leftCount({ left: 3, left_why: '', left_codes: { ws: 3 } });
+out.mixed = m.leftCount({ left: 7, left_why: 'No medium found', left_codes: { ws: 1, copy: 1, said: 2, busy: 1, stopped: 2 } });
+out.saidNoWhy = m.leftCount({ left: 2, left_why: '', left_codes: { said: 2 } });
+out.none = m.leftCount({ left: 0, left_codes: {} });
+out.old = m.leftCount({ left: 6, left_why: 'No medium found' });
+const shares = [{ share: 'A', files: 7, moved: 4, left: 3, left_why: '', left_codes: { ws: 3 }, future: 0 },
+  { share: 'B', files: 4, moved: 1, left: 3, left_why: 'No medium found', left_codes: { said: 2, busy: 1 }, future: 3 }];
+const last = { mode: 'run', result: 'ok', files: 11, moved: 5, left: 6, bytes: 10, shares };
+out.summary = m.runSummary({ mode: 'run', status: last, result: 'ok' });
+out.oldSummary = m.runSummary({ mode: 'run', status: { mode: 'run', result: 'ok', files: 2, moved: 1, left: 1, bytes: 1, shares: [{ share: 'A', left: 1 }] }, result: 'ok' });
+out.future = m.futureCount(last);
+m.setState({ last, history: [] });
+const box = m.resultBox();
+out.lines = box.children.slice(1).map((c) => c.textContent);
+m.setState({ last: { ...last, shares: shares.map((x) => ({ ...x, future: 0 })) }, history: [] });
+out.noFuture = m.resultBox().children.filter((c) => c.textContent.startsWith('run_future')).length;
+console.log(JSON.stringify(out));
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/moverelli/desk.js') . ' ' . escapeshellarg(testsRunHelpersJs($tmp)) . ' 2>&1');
+    $lines = explode("\n", trim($raw));
+    $r = json_decode((string) end($lines), true);
+    if (!is_array($r)) {
+        check('left codes page: ran under node', false, $raw);
+        hardeningRm($tmp);
+        return;
+    }
+    same('left codes page: a share\'s files left, each with its reason; the binary\'s words only with them; a status from before the codes as before', [
+        'left.ws {"n":3}',
+        'left.ws {"n":1}, left.copy {"n":1}, left_why {"n":2,"why":"No medium found"}, left.stopped {"n":2}, count.left {"n":1}',
+        'count.left {"n":2}', 'count.left {"n":0}', 'left_why {"n":6,"why":"No medium found"}'],
+        [$r['ws'], $r['mixed'], $r['saidNoWhy'], $r['none'], $r['old']]);
+    same('left codes page: the run\'s summary sums the codes over its shares (the binary\'s words of the share that has them); an old run as before', [
+        'run_summary {"moved":5,"files":11,"size":"10 B","left":"left.ws {\\"n\\":3}, left_why {\\"n\\":2,\\"why\\":\\"No medium found\\"}, count.left {\\"n\\":1}"}',
+        'run_summary {"moved":1,"files":2,"size":"1 B","left":"count.left {\\"n\\":1}"}'], [$r['summary'], $r['oldSummary']]);
+    same('left codes page: files in the future — counted over the shares, said once under the share lines, nothing said without', [3, 'run_future {"n":3}', 0],
+        [$r['future'], end($r['lines']), $r['noFuture']]);
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $lang = readJson(OFFICE_WEB . "/desks/moverelli/lang/$l.json") ?? [];
+        check("left codes page: the words in $l", is_array($lang['left.ws'] ?? null) && is_array($lang['left.copy'] ?? null) && is_array($lang['left.stopped'] ?? null)
+            && str_contains(json_encode($lang['run_future'] ?? '', JSON_UNESCAPED_UNICODE), '{n}'));
+    }
+    hardeningRm($tmp);
+}
+
+/**
+ * Batch H9 (seen on her run card: «14 % · Ø 65 undefined/s»): core.js's Office.fmt.size() took the unit from log1024
+ * without a floor — below 1 B (a slow start's rate: 0.06 B/s) the index was −1. Never below B now; nothing finite: «–».
+ */
+function testOfficeFmtSize(): void
+{
+    $node = testsNode();
+    if ($node === '') {
+        check('fmt.size: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('fmt-size');
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    $a = strpos($core, 'const intl = ');
+    $b = strpos($core, '  date(seconds, withWeekday) {');
+    check('fmt.size: found in core.js', $a !== false && $b !== false && $b > $a);
+    file_put_contents("$tmp/fmt.js", "globalThis.Office = { locale: 'en' };\n" . substr($core, (int) $a, (int) $b - (int) $a) . "};\n"
+        . "console.log(JSON.stringify([0, 0.06, 0.6, 1, 5, 1023, 1024, 1536, 0.5 * 1024 ** 3, 3 * 1024 ** 5, 2 * 1024 ** 6, -2048, null, undefined, NaN, Infinity, 'x', '2048']"
+        . ".map((v) => Office.fmt.size(v))));\n");
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/fmt.js") . ' 2>&1');
+    $lines = explode("\n", trim($raw));
+    same('fmt.size: below 1 B stays in B (never «undefined»), the units as before, nothing finite «–»',
+        ['0 B', '0 B', '1 B', '1 B', '5 B', '1,023 B', '1 KB', '1.5 KB', '512 MB', '3 PB', '2,048 PB', '-2 KB', '–', '–', '–', '–', '–', '2 KB'],
+        json_decode((string) end($lines), true) ?? $raw);
+    hardeningRm($tmp);
 }
 
 /**
@@ -48787,7 +48949,7 @@ JS;
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testWatchmanHold',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
