@@ -486,8 +486,14 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
 * **`backup` — Mr. Backupsy.** The engine through its interface only. A real backup asked within the minute of the last is
   queued for the next; a tour, dry run or setup never waits. **Setup:** a level per share/VM/app (off · local · local + partner
   · local + offsite · local + partner + offsite; partner levels only with a pair and a dataset of its own); an app's further
-  shares never ticked unasked; a re-plan keeps hand changes. No backup place → opens on «Basics», says what to create — **the
-  office never makes the share**; place facts warn, never block. Apply sends only what was chosen and lists exactly what
+  shares never ticked unasked; a re-plan keeps hand changes. **No backup place (none chosen, or gone) → the setup is ONE
+  step** (2026-10-21): the five points, «Create UnraidSecretaryOffice…», the way in Unraid, the fitting shares to choose; no
+  start cards, tiles, other steps, bar or Apply until it stands (the overview's tiles say «the backup place first»). **The
+  office never makes a share — but this one, only on that click:** the office's own share UnraidSecretaryOffice, never another
+  name, where the agent proposes (`backupPlaceOffer()`: a ZFS pool appdata doesn't lie on first, only on it, no secondary
+  storage; why when second best), after a confirmation that shows exactly what Unraid makes (export: Unraid's default,
+  no), by Unraid's own «Add Share» (`backupPlaceMake()` → lib/firsthome.php `homeMake()`); refused when the share is there
+  or Unraid knew it, the pool unknown or asleep (never woken). Place facts warn, never block. Apply sends only what was chosen and lists exactly what
   changes; a plan older than settings.ini is refused; a failed plan shows its errors. **Warns about Kopia autostart, never
   starts Kopia.**
 * **`jack` — Jack Streamer (the intern).** MediaCache (Emby, Jellyfin, Plex — several servers at once; 1.65.0, before EmbyCache:

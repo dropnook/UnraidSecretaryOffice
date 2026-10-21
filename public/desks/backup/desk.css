@@ -115,6 +115,20 @@
 .bk-place-guide ol{margin:6px 0 6px 20px; padding:0}
 .bk-place-guide li{margin:3px 0}
 .bk-place-add{margin:8px 0 4px}
+/* the setup's first step (2026-10-21): the five points short, then three ways to the place — the first one marked */
+.bk-first-points{margin:4px 0 12px 20px; padding:0}
+.bk-first-points li{margin:3px 0}
+.bk-first-way{border:1px solid var(--line); border-radius:var(--radius); padding:10px 12px; margin:0 0 10px; background:var(--surface)}
+.bk-first-way > strong{display:block; margin:0 0 4px}
+.bk-first-way p{margin:0 0 6px}
+.bk-first-way > small{display:block; margin:6px 0 0; color:var(--muted)}
+.bk-first-way > small.missing{color:var(--warn)}
+.bk-first-way .field{margin:6px 0 0}
+.bk-first-make{border-color:var(--accent); background:var(--accent-soft)}
+.bk-first-what{display:grid; grid-template-columns:max-content 1fr; gap:4px 14px; margin:8px 0 10px}
+.bk-first-k{color:var(--muted)}
+.bk-first-v{overflow-wrap:anywhere}
+@media (max-width:640px){.bk-first-what{grid-template-columns:1fr; gap:0} .bk-first-v{margin:0 0 6px}}
 .bk-keep{display:grid; grid-template-columns:repeat(6, minmax(70px, 1fr)); gap:8px; grid-column:1 / -1}
 @media (max-width:640px){.bk-keep{grid-template-columns:repeat(3, 1fr)}}
 .bk-chips{display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:-4px 0 8px}
