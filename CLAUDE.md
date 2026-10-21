@@ -76,8 +76,10 @@ tests/ tools/          run.php, node tests, ui/ (harness, stubs, demo/); release
   those helpers. A path through /mnt/user may touch every disk of the share — check all its parts first.
 * **Nothing directly in /mnt** (Fix Common Problems): mounts under `/mnt/addons/UnraidSecretaryOffice/…` (RAM), desk data in the
   share `UnraidSecretaryOffice/<desk>/`. **The office never creates (or deletes) a share** — the user does (⟦Shares⟧); the
-  office says which and why. One exception: Unraid's standard shares appdata/system when never there, only on the user's click
-  (the welcome, the Team Lead's card), by Unraid's own «Add Share» (agent/lib/firsthome.php).
+  office says which and why. One exception: Unraid's standard shares appdata/system when never there, and the office's own
+  share UnraidSecretaryOffice as the backup place (Mr. Backupsy's first step) — only on the user's click (the welcome, the
+  Team Lead's card, «Create UnraidSecretaryOffice…»), by Unraid's own «Add Share» (agent/lib/firsthome.php); never on its
+  own, never another name.
 * **Never block the array stop:** nothing kept open in the pool (doorbell, heartbeat in `RUN_DIR`); the night shift never opens
   anything under `/mnt` (cwd `/`).
 * **Never delete right away** what the user may want back (storeroom, set-aside). Backups keep copies on purpose (the office's
@@ -165,8 +167,9 @@ only through shared libraries (`backupProtection()`, `finding()`, `partnerlook.p
 
 * **`snapshot` Ms. Snapshotini:** retention touches only her plans' `uso-plan-…`, never the engine's; an action on a sleeping
   pool refuses without `wake`; a partner's copies are never a target.
-* **`backup` Mr. Backupsy:** the engine through its interface only; setup levels per share/VM/app; **the office never makes the
-  share**; Apply sends only what was chosen; never starts Kopia.
+* **`backup` Mr. Backupsy:** the engine through its interface only; setup levels per share/VM/app; no place → the setup
+  is that one step; **the office never makes the share** but UnraidSecretaryOffice on its button; Apply sends only what was
+  chosen; never starts Kopia.
 * **`jack` Jack Streamer:** works only under Ms. Moverelli (`"needs"`); the API key never leaves the server; rsync both ways;
   never a real gather while someone watches Emby; never writes into Mover Tuning; Unraid's mover only via its form (`emcmd`).
 * **`moverelli` Ms. Moverelli:** Unraid's mover off only with the page's consent `mover_off: true`, her let-go puts it back;
