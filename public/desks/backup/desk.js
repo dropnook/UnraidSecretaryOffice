@@ -2588,6 +2588,15 @@ async function setupLoad() {
       if (!(await setupPlan(false, true))) setupAfterPlan();
       return;
     }
+    // engine 2.67: settings.ini written, but an error after it (a Kopia policy not set, Kopia not answering) - the
+    // settings count as applied; no plan made anew at once, so the messages stay and a silent Kopia isn't asked again
+    if (j.run && j.run.result === 'errors' && j.run.written) {
+      Office.toast(T('setup.applied_errors'), true);
+      presetForget();
+      setup.plan = { ...setup.plan, P: clone(setup.draft), pending: [] };
+      setupBar();
+      load(true);
+    }
   }
   if (page === 'setup') renderSetup();
   clearTimeout(setupTimer);
@@ -3993,7 +4002,7 @@ function setupTileData(plan) {
 function appliedCard(run) {
   const ok = run.result === 'ok' && run.written;
   const box = el('div', 'callout' + (ok ? '' : ' warn'));
-  box.appendChild(el('strong', '', ok ? T('setup.applied_ok') : T('setup.applied_failed')));
+  box.appendChild(el('strong', '', T(ok ? 'setup.applied_ok' : run.result === 'errors' && run.written ? 'setup.applied_errors' : 'setup.applied_failed')));
   if (ok && state && state.schedule && state.schedule.script && !state.schedule.enabled) {
     const b = button(T('schedule.open'), 'small', scheduleDialog);
     b.disabled = !Office.agent.running;
