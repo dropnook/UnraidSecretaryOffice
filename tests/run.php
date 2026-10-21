@@ -32832,7 +32832,7 @@ function testWatchmanHold(): void
     file_put_contents("$tmp/docker.cfg", "DOCKER_ENABLED=\"yes\"\nDOCKER_TIMEOUT=\"20\"\n");
     $paths = ['proc' => $proc, 'mounts' => "$tmp/mounts", 'sys_block' => "$tmp/sys", 'qemu_run' => "$tmp/qemu", 'var_ini' => "$tmp/var.ini",
               'domain_cfg' => "$tmp/domain.cfg", 'docker_cfg' => "$tmp/docker.cfg", 'docker' => "$tmp/docker", 'docker_sock' => "$tmp/docker.sock",
-              'mover_pid' => "$tmp/mover.pid"];
+              'mover_pid' => "$tmp/mover.pid", 'rsyslog_conf' => "$tmp/none.conf"];
     $sorted = function (array $list): array {
         sort($list);
         return $list;
@@ -32887,6 +32887,38 @@ function testWatchmanHold(): void
         $q = arrayholdLook($quiet, ['smb' => []]);
         same('array hold: all quiet — nothing holds it, no VMs, Docker isn\'t running (null, not «0 of 0»), 30 s to unmount fit into 90 s',
             [0, [], [], null, [], 30, true], [$q['count'], $q['holds'], $q['vms'], $q['containers'], $q['itself'], $q['times']['need'], $q['times']['fits']]);
+
+        // Unraid's local syslog server writing into a share: its event unmounting_disks/local_syslog_stop comments out
+        // «*.* ?remote» and restarts rsyslogd before the umount — it stops by itself (read on test4, 7.3.3, 2026-10-21);
+        // a file of its own elsewhere on the array (a hand-made rule) still holds it
+        $sys = $quiet;
+        $sys['proc'] = "$tmp/proc-syslog";
+        @mkdir("$tmp/proc-syslog", 0700);
+        exec('cp -a ' . escapeshellarg("$proc/1") . ' ' . escapeshellarg("$tmp/proc-syslog/1"));
+        $rs = "$tmp/proc-syslog/110";
+        @mkdir("$rs/fd", 0700, true);
+        @mkdir("$rs/ns", 0700);
+        file_put_contents("$rs/stat", "110 (rsyslogd) S 1 0 0 0 -1 0 0 0 0 0 0 0 0 20 0 1 0 0 0\n");
+        file_put_contents("$rs/cmdline", "/usr/sbin/rsyslogd\0-i\0/var/run/rsyslogd.pid\0");
+        file_put_contents("$rs/cgroup", "0::/\n");
+        symlink('mnt:[4026531840]', "$rs/ns/mnt");
+        foreach (['/var/log/syslog', '/mnt/cache/system/syslog-192.168.1.20.log', '/mnt/disk1/system/syslog-192.168.1.21.log', '/mnt/disk2/Logs/mine.log'] as $i => $target) {
+            symlink($target, "$rs/fd/" . ($i + 3));
+        }
+        $conf = "\$template remote,\"/mnt/user/system/syslog-%FROMHOST-IP%.log\"\n\$RuleSet remote\n\$FileOwner nobody\n";
+        file_put_contents("$tmp/rsyslog.conf", "$conf*.* ?remote\n\$InputUDPServerBindRuleset remote\n");
+        $sys['rsyslog_conf'] = "$tmp/rsyslog.conf";
+        $y = arrayholdLook($sys, ['smb' => []]);
+        same('array hold: Unraid\'s local syslog server stops by itself (its two files in its share on the pool and a disk); its own file elsewhere still holds',
+            [['syslog|-|2'], ['program|/mnt/disk2/Logs/mine.log'], 1],
+            [array_map(fn (array $x): string => implode('|', [$x['kind'], $x['desk'] ?? $x['machine'] ?? '-', $x['files']]), $y['itself']),
+             array_map(fn (array $h): string => $h['kind'] . '|' . implode(' ', $h['files']), $y['holds']), $y['count']]);
+        file_put_contents("$tmp/rsyslog.conf", "$conf#*.* ?remote\n");
+        $y = arrayholdLook($sys, ['smb' => []]);
+        same('array hold: the local syslog server switched off (the rule commented out) — rsyslogd with files there holds it', [[], 1, 3],
+            [$y['itself'], count($y['holds']), count($y['holds'][0]['files'] ?? [])]);
+        check('array hold: his page names Unraid\'s local syslog server among what stops by itself',
+            str_contains((string) file_get_contents(OFFICE_WEB . '/desks/watchman/desk.js'), "else if (x.kind === 'syslog') name = T('hold.syslog');"));
 
         // one process with more open files than a look reads: looked in part
         for ($i = 0; $i <= LOGS_WAKE_FDS; $i++) {

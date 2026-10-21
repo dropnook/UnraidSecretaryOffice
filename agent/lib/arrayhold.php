@@ -19,6 +19,11 @@ declare(strict_types=1);
  *            VM». libvirt asks the guest agent first when the VM has its channel (org.qemu.guest_agent.0) and the agent
  *            answers (state='connected' in the running domain's XML), else ACPI — which a Windows VM without the agent
  *            often ignores at first: Unraid then waits the whole time-out.
+ *   syslog   Unraid's local syslog server (Settings → Syslog Server, a folder in a share) keeps its files open in rsyslogd;
+ *            emhttpd's event unmounting_disks (before «Unmounting disks…») runs dynamix/event/unmounting_disks/
+ *            local_syslog_stop: it comments out «*.* ?remote» in /etc/rsyslog.conf and restarts rsyslogd — those files
+ *            are closed; disks_mounted/local_syslog_start turns it back on. A file of rsyslogd's own elsewhere (a
+ *            hand-made rule) is not closed by it.
  *   loop     a disk image mounted from the array (an ISO, an img) keeps its file open: rc.local_shutdown logs `losetup -a`
  *            when the time-out ran out. Unraid's own (docker.img on /var/lib/docker, libvirt.img on /etc/libvirt) it
  *            unmounts itself.
@@ -64,6 +69,7 @@ function arrayholdPaths(): array
         'docker'      => 'docker',
         'docker_sock' => '/var/run/docker.sock',
         'mover_pid'   => '/var/run/mover.pid',
+        'rsyslog_conf' => '/etc/rsyslog.conf',
     ];
 }
 
@@ -105,6 +111,7 @@ function arrayholdLook(array $paths, array $o = []): array
         $names[$c['id']] = $c['name'];
     }
     $smb = $walk['smb'] ? ($o['smb'] ?? logsWakeSmb()) : [];
+    $syslog = arrayholdSyslog((string) ($paths['rsyslog_conf'] ?? ''));
 
     $holds = [];
     $itself = [];
@@ -120,6 +127,16 @@ function arrayholdLook(array $paths, array $o = []): array
                 + ($kind === 'smb' ? ['machine' => $smb[(string) $w['pid']] ?? null] : []) + ['files' => 0];
             $itself[$key]['files'] += count($files);
             continue;
+        }
+        if ($w['prog'] === 'rsyslogd' && $syslog !== null) {
+            // Unraid's local syslog server: its files in its folder are closed before the umount
+            $own = array_values(array_filter($files, fn (string $f): bool => arrayholdShareRel($f) !== null
+                && str_starts_with((string) arrayholdShareRel($f), $syslog)));
+            if ($own) {
+                $itself['syslog:'] ??= ['kind' => 'syslog', 'files' => 0];
+                $itself['syslog:']['files'] += count($own);
+                $files = array_values(array_diff($files, $own));
+            }
         }
         if (!$files) {
             continue;                   // only the outside (a remote share, Unassigned Devices): never holds the array
@@ -288,6 +305,27 @@ function arrayholdRefine(string $proc, array $w): array
         $w['group'] = 'cron:' . $w['name'];
     }
     return $w;
+}
+
+/**
+ * Unraid's local syslog server, switched on now (rsyslog.conf's «*.* ?remote» not commented out): its folder as
+ * «<share>/<path>/» (a share's file lies on a disk or a pool: compared without /mnt/<where>/), else null
+ */
+function arrayholdSyslog(string $conf): ?string
+{
+    $text = (string) @file_get_contents($conf, false, null, 0, 256 * 1024);
+    if (!preg_match('/^\*\.\* \?remote$/m', $text) || !preg_match('/^\$template remote,"([^"\n]{1,1000})"$/m', $text, $m)) {
+        return null;
+    }
+    $folder = dirname(explode('%', $m[1])[0] . 'x');
+    $rel = arrayholdWhere($folder) === 'array' ? arrayholdShareRel("$folder/") : null;
+    return $rel !== null && $rel !== '' && $rel !== '/' ? $rel : null;
+}
+
+/** A path on the array as «<share>/<rest>» (whichever disk, pool or /mnt/user it lies on), else null */
+function arrayholdShareRel(string $path): ?string
+{
+    return preg_match('#^/mnt/[^/]+/(.+)$#D', $path, $m) && arrayholdWhere($path) === 'array' ? $m[1] : null;
 }
 
 /** /proc/self/mounts: [device, mount point, type] */
