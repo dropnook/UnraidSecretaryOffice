@@ -3936,11 +3936,12 @@ recover_interrupted_run
 [[ "$DRY" == "1" ]] && log "DRY RUN - nothing is changed."
 # 2.70: the office's order - what this run waited for before it started, or runs beside (status.json "order")
 order_load
+span="$(( (ST_ORDER_SECONDS + 30) / 60 )) min"; (( ST_ORDER_SECONDS < 60 )) && span="$ST_ORDER_SECONDS s"
 case "$ST_ORDER_CODE" in
-    waited_night)  log "Waited $(( (ST_ORDER_SECONDS + 30) / 60 )) min for the office's mover run (Ms. Moverelli) - she moves first, then this run snapshots" ;;
-    waited_mover)  log "Waited $(( (ST_ORDER_SECONDS + 30) / 60 )) min for Unraid's mover" ;;
-    gave_up_night) log "Started after $(( (ST_ORDER_SECONDS + 30) / 60 )) min although the office's mover run (Ms. Moverelli) still goes" ;;
-    gave_up_mover) log "Started after $(( (ST_ORDER_SECONDS + 30) / 60 )) min although Unraid's mover is still at work" ;;
+    waited_night)  log "Waited $span for the office's mover run (Ms. Moverelli) - she moves first, then this run snapshots" ;;
+    waited_mover)  log "Waited $span for Unraid's mover" ;;
+    gave_up_night) log "Started after $span although the office's mover run (Ms. Moverelli) still goes" ;;
+    gave_up_mover) log "Started after $span although Unraid's mover is still at work" ;;
     beside_night)  log "Started by hand while the office's mover run (Ms. Moverelli) goes - both run side by side" ;;
     beside_mover)  log "Started by hand while Unraid's mover is at work - both run side by side" ;;
 esac

@@ -156,25 +156,31 @@ function nightOrderBackupGate(?array $h = null): array
 function nightOrderBackupJob(?array $h = null): int
 {
     $g = nightOrderBackupGate($h);
-    $min = intdiv($g['seconds'] + 30, 60);
+    $min = nightOrderSpan($g['seconds']);
     if (!$g['go']) {
         logLine('Backup on schedule: not started — ' . match ($g['result'] ?? '') {
-            'array'     => "the array stopped while it waited ($min min)",
-            'meanwhile' => "a backup started here while it waited ($min min)",
+            'array'     => "the array stopped while it waited ($min)",
+            'meanwhile' => "a backup started here while it waited ($min)",
             default     => 'another scheduled start waits already',
         });
         return 3;
     }
     if ($g['code'] !== null) {
         logLine('Backup on schedule: ' . match ($g['code']) {
-            'waited_night'  => "waited $min min for Ms. Moverelli's run",
-            'waited_mover'  => "waited $min min for Unraid's mover",
-            'gave_up_night' => "starts after $min min although Ms. Moverelli's run still goes",
-            default         => "starts after $min min although Unraid's mover is still at work",
+            'waited_night'  => "waited $min for Ms. Moverelli's run",
+            'waited_mover'  => "waited $min for Unraid's mover",
+            'gave_up_night' => "starts after $min although Ms. Moverelli's run still goes",
+            default         => "starts after $min although Unraid's mover is still at work",
         });
         echo "{$g['code']}:{$g['seconds']}\n";
     }
     return 0;
+}
+
+/** A wait for the logs: «45 s», «21 min» */
+function nightOrderSpan(int $seconds): string
+{
+    return $seconds < 60 ? "$seconds s" : intdiv($seconds + 30, 60) . ' min';
 }
 
 /** A backup started here: her run or Unraid's mover going now — its word for the engine (beside_night | beside_mover), or null */

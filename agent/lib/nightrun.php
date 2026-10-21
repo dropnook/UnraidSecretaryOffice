@@ -458,9 +458,9 @@ function nightRun(array $args, ?array $h = null): int
         }
         if ($o['code'] !== null) {
             $order = ['code' => $o['code'], 'seconds' => $o['seconds']];
-            $min = intdiv($o['seconds'] + 30, 60);
-            logLine($o['code'] === 'waited_backup' ? "Night run: waited $min min for the backup's snapshots"
-                : "Night run: goes after $min min although the backup still takes its snapshots");
+            $span = nightOrderSpan($o['seconds']);
+            logLine($o['code'] === 'waited_backup' ? "Night run: waited $span for the backup's snapshots"
+                : "Night run: goes after $span although the backup still takes its snapshots");
         }
         // a scheduled night waits for Unraid's mover (as her scheduled runs always did); from a page: refused at once
         $gate = jackRunGate('moverelli', $by, ['watch' => false, 'dir' => $dir, 'waitdir' => $h['waitdir'],
