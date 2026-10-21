@@ -1,6 +1,11 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.66 - 2026-10-20
+# unraid-backup - backup.sh                       Version 2.67 - 2026-10-21
+#   2.67 A docker exec ended by its time limit no longer leaves its process running inside the container (ub_exec_end:
+#        exactly that command, started since the exec, and its children - TERM, then KILL). A Kopia call ended by its limit
+#        means Kopia doesn't answer: the run's later Kopia calls with a limit are refused at once (kopia_silent) - a share
+#        whose policy then can't be aligned is skipped as before; the uploads run as long as they take, as before.
+#        A policy look or change: UB_KOPIA_POLICY_TIMEOUT (120 s).
 #   2.66 Every docker call has a time limit (docker() in lib/common.sh): a look or a change UB_DOCKER_TIMEOUT (120 s; docker
 #        stop plus its own -t), an exec UB_DOCKER_EXEC_TIMEOUT (900 s); a dump and Kopia's upload run as long as they take
 #        (UB_DOCKER_LONG). Docker switched on but hung (dockerd stopped) ends the run at its start after UB_DOCKER_ANSWER

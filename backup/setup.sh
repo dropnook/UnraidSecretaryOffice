@@ -1,6 +1,11 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.66 - 2026-10-20
+# unraid-backup - setup.sh                        Version 2.67 - 2026-10-21
+#   2.67 A Kopia step that ran into its time limit is ended inside the container too (ub_exec_end) and said once as the
+#        error kopia_silent {seconds}: the policies this Apply wanted are not set, the Kopia steps after it are not tried
+#        (each would wait as long) - settings.ini stays written, the next Apply tries again. A policy look or change has
+#        a limit of its own, UB_KOPIA_POLICY_TIMEOUT (120 s). An Apply that wrote settings.ini but met an error ends with
+#        the result «errors» (up to 2.66 «ok»).
 #   2.66 settings.ini saved with a UTF-8 byte order mark is read (the BOM read away - up to 2.65 «line 1: not understood»).
 #        A key of one value given twice: the last counts, as bash's source reads it - said once (hint settings_key_twice,
 #        or warning settings_key_differ naming the value dropped), Apply writes it once (up to 2.65 setup_bad_decisions).
@@ -2619,12 +2624,26 @@ write_settings() {
     return 0
 }
 
+# 2.67: Kopia didn't answer a call within its limit (kopia_silent, lib/common.sh): said once, as an error - the policies
+# this Apply wanted are not set; the rest of the Apply (settings.ini) stays as it is, the next Apply tries again
+KOPIA_SILENT_SAID="no"
+kopia_silent_say() {
+    [[ "$KOPIA_SILENT_SAID" == "yes" ]] && return 0
+    KOPIA_SILENT_SAID="yes"
+    local s; s="$(kopia_silent_seconds)"
+    bad_as kopia_silent "Kopia did not answer within ${s:-?} s - its policies are not set; the next Apply tries again" seconds "${s:-?}"
+}
+
 apply_kopia_policies() {
-    [[ "$KOPIA_POLICY_READY" == "yes" ]] || { hint_as policies_not_set "Kopia policies not set (Kopia check incomplete)"; return 0; }
+    if [[ "$KOPIA_POLICY_READY" != "yes" ]]; then
+        if kopia_silent; then kopia_silent_say; else hint_as policies_not_set "Kopia policies not set (Kopia check incomplete)"; fi
+        return 0
+    fi
     load_settings >/dev/null
     plan_build
     new_local_state_load; new_local_scan_live      # folders still new stay left out (2.21)
-    kopia_mounts_load; kopia_status_load || return 1; kopia_policies_load
+    kopia_mounts_load; kopia_status_load || { kopia_silent && kopia_silent_say; return 1; }; kopia_policies_load
+    kopia_silent && { kopia_silent_say; return 0; }  # its policies not read: nothing compared, nothing set
     local kind hpath share cpath changes=0
     local -a todo=()
     sub "Kopia policies (wanted, from settings.ini)"
@@ -2646,6 +2665,7 @@ apply_kopia_policies() {
         eval "local -a args=( ${KPA[$cpath]} )"
         # shellcheck disable=SC2154
         if kopia_x policy set "$KOPIA_ID:$cpath" "${args[@]}" >>"$LOG_FILE" 2>&1; then ok_as policy_set "set: $cpath" path "$cpath"
+        elif kopia_silent; then kopia_silent_say; break      # 2.67: the changes after it not tried (each would wait as long)
         else bad_as policy_set_failed "policy set $cpath failed (see $LOG_FILE)" path "$cpath"; fi
     done
 }
@@ -2686,6 +2706,7 @@ DECIDE_RETIRE="no"
 # Old and orphaned sources
 step_kopia_sources() {
     [[ "$KOPIA_POLICY_READY" == "yes" ]] || return 0
+    kopia_silent && return 0          # 2.67: Kopia didn't answer before (said once: kopia_silent) - not asked again
     sub "Sources in the repository"
     local src u h p want_paths="" kind hpath share cpath
     while IFS='|' read -r kind hpath share; do
@@ -2734,7 +2755,9 @@ step_kopia_sources() {
     if [[ ${#tomanual[@]} -gt 0 ]] && \
        ask_yn "  Set ${#tomanual[@]} old/orphaned source(s) to 'manual' (Kopia no longer schedules them, the snapshots stay)?" y; then
         for src in "${tomanual[@]}"; do
-            if kopia_x policy set "$src" --manual >>"$LOG_FILE" 2>&1; then ok_as source_manual "manual: $src" source "$src"; else wrn_as source_manual_failed "could not switch $src" source "$src"; fi
+            if kopia_x policy set "$src" --manual >>"$LOG_FILE" 2>&1; then ok_as source_manual "manual: $src" source "$src"
+            elif kopia_silent; then kopia_silent_say; return 0
+            else wrn_as source_manual_failed "could not switch $src" source "$src"; fi
         done
     fi
     interactive || return 0
@@ -2927,9 +2950,13 @@ step_forget() {
     return 0
 }
 
+# 2.67: an Apply that wrote settings.ini but met an error afterwards (a Kopia policy not set, Kopia not answering) ends
+# with the result «errors» - up to 2.66 «ok», and the office said «Applied»
 setup_end() {
     local rc=$?
-    if (( rc == 0 )); then setup_status_write ok; else setup_status_write failed; fi
+    if (( rc != 0 )); then setup_status_write failed
+    elif [[ "$MODE" == "apply" && "$WRITTEN" == "yes" ]] && (( ERRORS > 0 )); then setup_status_write errors
+    else setup_status_write ok; fi
     ub_holder_clear
 }
 
