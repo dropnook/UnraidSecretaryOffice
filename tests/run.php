@@ -6197,7 +6197,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.67'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.68'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -10070,7 +10070,7 @@ function testKopiaEmptied(): void
     same('kopia held: the run holds Kopia\'s step (KOPIA_OK held: no mounts, no upload, no count), the local part goes on', [1, 1, 1],
         [substr_count((string) file_get_contents(OFFICE_DIR . '/backup/backup.sh'), '[[ "$KOPIA_HELD" == "yes" ]] && KOPIA_OK="held"'),
          substr_count((string) file_get_contents(OFFICE_DIR . '/backup/backup.sh'), 'elif [[ "$KOPIA_OK" == "held" ]]; then'),
-         substr_count((string) file_get_contents(OFFICE_DIR . '/backup/backup.sh'), "\n    kopia_lock_save ")]);
+         substr_count((string) file_get_contents(OFFICE_DIR . '/backup/backup.sh'), "\n        kopia_lock_save ")]);
     @unlink("$tmp/data/state/kopia-held.json");
     // the office's own deleting counts anew (setup.sh --orphans-delete calls kopia_count_save orphans)
     $sh('kopia_count_save orphans');
@@ -10079,7 +10079,7 @@ function testKopiaEmptied(): void
     same('kopia emptied: setup.sh counts anew after deleting, backup.sh before its upload and after its Kopia phase', [1, 1, 1],
         [substr_count((string) file_get_contents(OFFICE_DIR . '/backup/setup.sh'), 'kopia_count_save orphans'),
          substr_count((string) file_get_contents(OFFICE_DIR . '/backup/backup.sh'), "\n    kopia_emptied_check "),
-         substr_count((string) file_get_contents(OFFICE_DIR . '/backup/backup.sh'), "\n    kopia_count_save run ")]);
+         substr_count((string) file_get_contents(OFFICE_DIR . '/backup/backup.sh'), "\n        kopia_count_save run ")]);
 
     // backup.sh --kopia-count: the interface, read only
     file_put_contents("$tmp/data/settings.ini", "[general]\nserver = t\n[kopia]\nenabled = yes\ncontainer = kopia\n");
