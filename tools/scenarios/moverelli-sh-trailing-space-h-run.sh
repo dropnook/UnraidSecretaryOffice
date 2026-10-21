@@ -62,7 +62,7 @@ done
     || h_cell yes-ws-stay 0 "$wsok of $ws whitespace names whole on the pool: ${bad[*]}"
 sh=$(jq -c --arg s "$Y" '[.shares[]? | select(.share == $s) | {moved, left, left_why}][0]' "$D/moverelli/status.json" 2>/dev/null)
 [[ $(jq -r '.left_why // ""' <<<"$sh") != "" ]] && h_cell yes-said 1 "her status says why: $sh" \
-    || h_cell yes-said 0 "her status: $sh — $(jq -r '.left' <<<"$sh") left, no reason for the page (the WARN «rename it to move it» only in her log)"
+    || h_cell yes-said 0 "her status: $sh — $(jq -r '.left' <<<"$sh") left, no reason for the page (smartmover/README.md: «stays (WARN … rename it)» — the reason never reaches her status)"
 judge prefer "$PF" disk1 cache
 expect_changes "share|$Y|*" "share|$PF|*"
 check standard

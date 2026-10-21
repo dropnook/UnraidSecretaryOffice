@@ -22,7 +22,7 @@ nc_data_closed
 share_make "$S" only "$POOL" || _row state share_make red "Unraid's «Add Share» made no $S on $POOL"
 nc_data_closed
 put_files H3 "$POOL" "$S" 5 || _row state put_files red "no files in $S"
-undo_push files_unput H3
+undo_push rm -rf "$KEEP_STASH/H3"        # the files went with the user's «Delete»; the dataset with h_ds_destroy (after its snapshots)
 flow BK-APPLY "share|$S|mode=snapshot" || _row state prepare red "Apply of $S as local failed"
 flow BK-RUN-MANUAL mode=backup || _row state prepare red "the first run failed"
 snaps=$(zfs list -H -t snapshot -o name "$DS" 2>/dev/null | grep -c '@uso-backup-')
