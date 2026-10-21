@@ -609,6 +609,14 @@ function notices() {
     more.appendChild(ok);
     callout(T('held.callout', { when: fmt.date(held.when), before: String(held.before), now: String(held.now), since: fmt.date(held.time) }), true, more);
   }
+  // engine 2.68: the offsite storage takes nothing (Kopia's server log, or a run's upload ended by its stall watchdog) -
+  // what to look at, and «Restart Kopia…» after a confirmation (never by himself)
+  const stuck = kopiaStuck();
+  if (stuck) {
+    const b = button(T('writes.restart'), 'small plain', kopiaRestart);
+    b.disabled = !canAct() || live() || restoring();
+    callout(T('writes.callout', { since: fmt.date(stuck.since), storage: stuck.storage || '–' }), true, b);
+  }
   // engine 2.62 (nc_datadir_readable): Nextcloud's data folder readable by others, still so now (agent backupNcOpen()) -
   // one click closes it after a dialog that shows what changes (2026-10-19: instead of a command to type)
   ncOpen().forEach((o) => {
@@ -2093,6 +2101,32 @@ async function heldAccept() {
   d.buttons[0].focus();           // safe default: Enter cancels
 }
 
+/** Engine 2.68: the offsite storage takes nothing since … (agent backupKopiaWrites()) - else null (also an older agent) */
+const kopiaStuck = () => (state && state.kopia_writes && state.kopia_writes.state === 'stuck' && typeof state.kopia_writes.since === 'number' ? state.kopia_writes : null);
+
+/** «Restart Kopia…» (engine 2.68): asked once more, the safe default «Cancel»; only while the page still says it takes nothing */
+async function kopiaRestart() {
+  if (!(await Office.freshState(ID))) return;
+  if (!kopiaStuck()) { render(); return; }
+  const name = (state.settings && state.settings.kopia_container) || 'kopia';
+  const d = Office.dialog({
+    title: T('writes.restart_title'),
+    body: el('p', '', T('writes.restart_text', { name })),
+    buttons: [
+      { text: Office.t('common.cancel') },
+      { text: T('writes.restart_go'), kind: 'danger', act: async () => {
+        const j = await Office.api.post(`${ID}.kopia_restart`, {});
+        if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); if (j.error && j.error.key === 'kopia_restart_gone') load(true); return true; }
+        if (j.state) state = j.state;
+        Office.toast(T('writes.restarted', { name: j.name || name }));
+        render();
+        return true;
+      } },
+    ],
+  });
+  d.buttons[0].focus();           // safe default: Enter cancels
+}
+
 /** The Nextcloud data folders the last run found readable by others and still open now (agent backupNcOpen()); null: an older agent */
 const ncOpen = () => (state && Array.isArray(state.nc_open) ? state.nc_open : []);
 const ncOwner = (x) => `${x.user}:${x.group}`;
@@ -2548,6 +2582,8 @@ async function setupLoad() {
   const was = setup.status;
   setup.status = j.status;
   setup.run = j.run;
+  // engine 2.67: an Apply that ended «errors» stays shown (its card and messages) until the user acts - after a reload too
+  if (applyErrorsKept() && !setup.applied) setup.applied = j.run;
   Office.busy(`${ID}.setup`, !!(j.status && j.status.running) && (j.status.mode !== 'plan' || !setup.measuring));
   // a plan of an older engine (an update since) is made anew by the agent on this look, once (backupSetupReplan()):
   // no plan comes while it runs, the new one says so in its messages (setup.msg.replanned)
@@ -2601,10 +2637,16 @@ async function setupLoad() {
   if (page === 'setup') renderSetup();
   clearTimeout(setupTimer);
   if (j.status.running) setupTimer = setTimeout(setupLoad, SETUP_POLL);
-  else if (!setup.plan && !setup.asked && canPlan()) setupPlan(false);
+  else if (!setup.plan && !setup.asked && canPlan() && !applyErrorsKept()) setupPlan(false);
 }
 
 const canPlan = () => !!(state && state.found && state.compatible && Office.agent.running && !state.running);
+/**
+ * The last setup was an Apply that wrote settings.ini and ended «errors» (engine 2.67): no plan is made anew by itself
+ * (opening the page, an old plan) - it would overwrite setup-status.json and its messages with «ok»; «Look again», Apply
+ * and the other buttons are the user's and go as always.
+ */
+const applyErrorsKept = () => !!(setup.status && !setup.status.running && setup.status.mode === 'apply' && setup.status.result === 'errors' && setup.status.written);
 
 async function setupPlan(measure, quiet) {
   setup.asked = true;
@@ -2769,6 +2811,11 @@ function setupApply() {
   }
   // the backup place in one word (placeVerdict()): yellow while its packages stay only here, grey when a copy goes off-site
   placeLines(placeRow()).forEach((l) => box.appendChild(el('p', l.warn ? 'callout warn' : 'role', l.text)));
+  // engine 2.68: the offsite storage takes nothing - Kopia's policies won't be set by this Apply (the rest goes as usual)
+  const stuck = kopiaStuck();
+  if (stuck && String(dget('kopia|enabled', '')).toLowerCase() === 'yes') {
+    box.appendChild(el('p', 'callout warn', T('setup.apply_kopia_stuck', { since: fmt.date(stuck.since) })));
+  }
   box.appendChild(el('p', 'role', T(!setup.plan.have_settings ? 'setup.apply_hint_new' : 'setup.apply_hint')));
   box.appendChild(el('p', 'role', T('setup.apply_responsibility')));
   Office.dialog({
@@ -6287,7 +6334,7 @@ Office.desk({
       if (!state) await load(false);
       await setupLoad();
       // an old plan doesn't know what changed since (a share made for the backup place, moved ones): read the server again
-      if (setup.plan && Date.now() / 1000 - setup.plan.time > SETUP_REPLAN && canPlan() && !(setup.status && setup.status.running)) {
+      if (setup.plan && Date.now() / 1000 - setup.plan.time > SETUP_REPLAN && canPlan() && !(setup.status && setup.status.running) && !applyErrorsKept()) {
         setupPlan(false, true);
       }
     } else {
