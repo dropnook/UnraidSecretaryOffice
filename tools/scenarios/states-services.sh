@@ -7,6 +7,7 @@
 #   docker_hang <id>        dockerd stopped by SIGSTOP (`docker version` hangs)             docker_unhang <id>
 #   vm_service_off <id> [cfg]  rc.libvirt stop (cfg: SERVICE="disable" in domain.cfg)       vm_service_on <id>
 #   array_stop <id>         emcmd cmdStop=Stop, waits for mdState=STOPPED                    array_start <id>
+#                           (array_start: whatever the stop left — still unmounting: settled first, what holds /mnt named)
 #   atd_off <id> / atd_on <id>      rc.atd stop / start
 #   notify_off <id> [bin|agents]    bin: Unraid's notify script not executable (the engine's `no_notify`); agents: no
 #                                   agent and no mail reaches anybody (the Team Lead's «notifications» check)
@@ -126,14 +127,41 @@ array_stop() {
     _st_until 300 _st_is STOPPED _st_var mdState || { say "array_stop: not stopped after 5 min (mdState=$(_st_var mdState))"; return 1; }
     say "array_stop: the array is stopped"
 }
+# _st_mnt_holders — the processes that hold a mount under /mnt open (what keeps an array stop unmounting): pid and command
+_st_mnt_holders() {
+    local m p out=''
+    for m in $(findmnt -rn -o TARGET | grep -E '^/mnt/[^/]+(/|$)' | grep -v '^/mnt/addons'); do
+        for p in $(fuser -m "$m" 2>/dev/null); do
+            p=${p//[^0-9]/}; [[ -n $p ]] || continue
+            out+="$m: $p $(tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null | cut -c1-100) (cwd $(readlink "/proc/$p/cwd" 2>/dev/null)); "
+        done
+    done
+    printf '%s' "${out:-nothing}"
+}
+# settled: started (mdState STARTED, fsState Started) or stopped — a stop still unmounting is neither (mdState stays
+# STARTED while emhttpd retries a busy pool: Tower 2026-10-20, 07:56 → 08:07, «/mnt/cache/appdata: pool or dataset is busy»)
+_st_array_settled() { local m; m=$(_st_var mdState); [[ $m == STOPPED || ( $m == STARTED && $(_st_var fsState) == Started ) ]]; }
+_st_array_settle() {
+    local end=$((SECONDS + ${1:-900})) next=$((SECONDS + 60))
+    until _st_array_settled; do
+        ((SECONDS >= end)) && { say "array: still mdState=$(_st_var mdState) fsState=$(_st_var fsState) — holding /mnt: $(_st_mnt_holders)"; return 1; }
+        ((SECONDS >= next)) && { say "array: a stop still unmounting (fsState=$(_st_var fsState)) — holding /mnt: $(_st_mnt_holders)"; next=$((SECONDS + 120)); }
+        sleep 2
+    done
+}
+# array_start <id>: whatever a stop left — a stop still unmounting settles first (15 min at most, what holds a mount
+# named), then ⟦Start⟧ (twice at most), then what ran runs again
 array_start() {
-    local id=$1 dir; dir=$(_st_dir "$id")
+    local id=$1 dir i; dir=$(_st_dir "$id")
     [[ -f $dir/array.was ]] || return 0
-    if [[ $(_st_var mdState) != STARTED ]]; then
-        _st_emcmd 'cmdStart=Start' || return 1
-        _st_until 300 _st_is STARTED _st_var mdState || { say "array_start: not started after 5 min"; return 1; }
-        _st_until 120 _st_is Started _st_var fsState || { say "array_start: fsState=$(_st_var fsState)"; return 1; }
-    fi
+    _st_array_settle 900 || return 1
+    for ((i = 0; i < 2; i++)); do
+        [[ $(_st_var mdState) == STARTED ]] && break
+        _st_emcmd 'cmdStart=Start' || { sleep 10; continue; }
+        _st_until 300 _st_is STARTED _st_var mdState || say "array_start: not started after 5 min (mdState=$(_st_var mdState))"
+    done
+    [[ $(_st_var mdState) == STARTED ]] || { say "array_start: the array doesn't start (mdState=$(_st_var mdState))"; return 1; }
+    _st_until 120 _st_is Started _st_var fsState || { say "array_start: fsState=$(_st_var fsState)"; return 1; }
     _st_ct_back "$id" && _st_vm_back "$id" || return 1
     # the agent comes back by itself (event/started); its heartbeat fresh again before the next step
     _st_until 120 bash -c "[[ -f $RUN/agent.json ]] && (( \$(date +%s) - \$(stat -c %Y $RUN/agent.json) < 30 ))" \

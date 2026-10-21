@@ -58,9 +58,10 @@ midrun_disarm() {
         rm -f "$dir/watch.pid"
     fi
     if [[ -f $dir/fired ]]; then say "midrun: fired ($(cat "$dir/fired"))"; rm -f "$dir/fired"; else say "midrun: never fired"; fi
-    # an array stop the watcher started: wait until it settled, then start it again with what ran before
+    # an array stop the watcher started: started again with what ran before, whatever it left (array_start waits for a
+    # stop still unmounting — mdState stays STARTED meanwhile, so «STARTED or STOPPED» read it as started: Tower
+    # 2026-10-20 07:56, the array left stopped and every scenario after it on a stopped array)
     if [[ -f $dir/array.was ]]; then
-        _st_until 300 bash -c '[[ $(awk -F\" "/^mdState=/{print \$2}" '"$ST_VAR_INI"') =~ ^(STARTED|STOPPED)$ ]]'
         array_start "$id" || return 1
     fi
     rm -f "$dir/ct.running" "$dir/ct.paused" "$dir/vm.running"

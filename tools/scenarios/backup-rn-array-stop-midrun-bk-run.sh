@@ -66,7 +66,8 @@ if wait_for 300 "the array stop mid-run" _st_is STOPPED _st_var mdState; then
     [[ -n $rl ]] && evidence "$rl" recover.log >/dev/null
     evidence "$UB/logs/run-$run.log" run-aborted.log >/dev/null 2>&1
 else
-    cell aborted 0 "the array was never stopped mid-run (watcher: $(cat "$dir/fired" 2>/dev/null || echo 'never fired'))"
+    # fired but not stopped within 5 min: what holds the pool (the undo's array_start waits for the stop and starts it)
+    cell aborted 0 "the array was never stopped mid-run (watcher: $(cat "$dir/fired" 2>/dev/null || echo 'never fired'); mdState=$(_st_var mdState) fsState=$(_st_var fsState); holding /mnt: $(_st_mnt_holders))"
 fi
 WAIT_SOFT=1 wait_for 90 "Unraid's own at job after the array start" atq_quiet
 for j in $(atq 2>/dev/null | cut -f1); do say "atd's queue after the start: $(atq | grep "^$j" | tr '\t' ' ') — $(at -c "$j" 2>/dev/null | tail -2 | head -1 | cut -c1-160)"; done
