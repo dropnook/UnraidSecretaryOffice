@@ -2329,8 +2329,8 @@ Office.supporterAsk = async function supporterAsk(answer) {
  * «Send» needs one more while any is ticked: «I've looked at the pictures — nothing private on them» (the scrubber
  * can't blank a picture). Pictures are never kept in the draft.
  * Unraid's diagnostics (2026-10-15): one tick in the form, never ticked by default, never remembered. With it the
- * preview has the agent run Unraid's own anonymized diagnostics; the page asks office.report_diag until they are
- * ready (size, files) and «Send» waits for them. A sleeping disk: the agent refuses (report_diag_asleep) and a second
+ * preview has the agent run Unraid's own anonymized diagnostics and clean them once more itself; the page asks
+ * office.report_diag until they are ready (size, files, what the office hid) and «Send» waits for them. A sleeping disk: the agent refuses (report_diag_asleep) and a second
  * tick «wake them» appears. They go after the report (the answer's `diagnostics` says whether); a preview thrown away
  * or the dialog closed drops them on the server.
  * Whether the makers' inbox takes reports (2026-10-21: it was archived, every report «failed»): on opening the dialog
@@ -2776,7 +2776,7 @@ Office.reportDialog = function reportDialog(deskId) {
     d.box.innerHTML = '';
     if (d.state === 'running') {
       const p = el('div', 'sso-report-value running');      // the wave shows only inside .running
-      p.append(el('span', 'spin'), ' ', t('office.report_diag_running'));
+      p.append(el('span', 'spin'), ' ', t(d.phase === 'cleaning' ? 'office.report_diag_cleaning' : 'office.report_diag_running'));
       d.box.appendChild(p);
       d.cb.disabled = true;
     } else if (d.state === 'ready') {
@@ -2787,11 +2787,14 @@ Office.reportDialog = function reportDialog(deskId) {
       files.appendChild(el('pre', 'code sso-report-log', names));
       d.box.appendChild(files);
       d.box.appendChild(el('small', '', t('office.report_diag_note')));
+      // what the office's own pass hid in them — the same placeholders as in the log
+      const hidden = Object.entries(d.hidden || {});
+      if (hidden.length) d.box.appendChild(el('small', 'sso-report-hidden', t('office.report_hidden', { list: hidden.map(([as, was]) => `${as} = ${was}`).join(', ') })));
       d.cb.disabled = false;
     } else {
       d.box.appendChild(el('p', 'callout warn', d.state === 'too_big'
         ? t('office.report_diag_too_big', { size: Office.fmt.size(d.bytes || 0), max: Office.fmt.size(d.max || 0) })
-        : t('office.report_diag_failed')));
+        : t(d.why === 'scrub' ? 'office.report_diag_scrub_failed' : 'office.report_diag_failed')));
       d.cb.checked = false;
       d.cb.disabled = true;
     }
@@ -2806,8 +2809,12 @@ Office.reportDialog = function reportDialog(deskId) {
       const a = await Office.api.post('office.report_diag', { token });
       if (!state.preview || state.preview.token !== token || !state.diag) return;
       if (!a.ok) { state.diag.state = 'failed'; paintDiag(); return; }
-      if (a.state === 'running') continue;
-      Object.assign(state.diag, { state: a.state === 'ready' || a.state === 'too_big' ? a.state : 'failed', bytes: a.bytes, max: a.max, count: a.count, files: a.files });
+      if (a.state === 'running') {
+        if (a.phase !== state.diag.phase) { state.diag.phase = a.phase; paintDiag(); }
+        continue;
+      }
+      Object.assign(state.diag, { state: a.state === 'ready' || a.state === 'too_big' ? a.state : 'failed', bytes: a.bytes, max: a.max, count: a.count, files: a.files,
+        hidden: a.hidden, why: a.why });
       paintDiag();
     }
   }

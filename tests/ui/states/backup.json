@@ -1,5 +1,6 @@
 {
  "time": 1791551073,
+ "kopia_writes": {"state": "stuck", "why": "quiet", "since": 1791543873, "by": "server", "storage": "s3 · s4.example.net", "time": 1791551073},
  "found": true,
  "dir": "/usr/local/emhttp/plugins/unraid-secretary-office/backup",
  "data": "/mnt/cache/appdata/UnraidSecretaryOffice/data/unraid-backup",

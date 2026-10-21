@@ -40,8 +40,9 @@ declare(strict_types=1);
  * (they are theirs, and shown as typed; the preview hints at addresses, mails and tokens in them): control characters
  * out, known secrets (GUIDs, the csrf token, server and report IDs, Emby's API keys, partner and supporter keys) → •••,
  * mails → ‹mail›, paths by their structure (logsNormalizePaths() finds them; /mnt/user/<share>/… keeps Unraid's own
- * shares, every other share → ‹share-N›, every pool → ‹pool-N›, the rest → …), names (the server, partners, users,
- * shares, pools) → placeholders, then watchmanScrub() (URLs, secret settings, long tokens) and watchnetScrub() (every
+ * shares, every other share → ‹share-N›, every pool but Unraid's default «cache» → ‹pool-N›, the rest → …), the
+ * server's domains → ‹domain-N›, names (the server, partners, users, shares, pools and their further devices
+ * ‹pool-N›-2 …, Unassigned Devices' mounts) → placeholders, then watchmanScrub() (URLs, secret settings, long tokens) and watchnetScrub() (every
  * address → …, MACs halved), UUIDs. The placeholders' meaning («‹share-1› = Media») is shown in the preview, never sent.
  *
  * Pictures (dropnook/UnraidSecretaryOffice#6): up to REPORT_IMG_COUNT_MAX screenshots. The page hands each one to the
@@ -56,8 +57,12 @@ declare(strict_types=1);
  * Unraid's diagnostics (2026-10-15): only when the user ticks «send Unraid's diagnostics (anonymized)» — never ticked
  * by default, never remembered. The preview (`diagnostics: true`, `diag_wake` after report_diag_asleep) starts Unraid's
  * own tool exactly as Tools → Diagnostics with «Anonymize» does (REPORT_DIAG_BIN without -a — never the full one)
- * through atd into RUN_DIR/report/<token>.diag; the page asks office.report_diag {token} until it is ready and shows
- * its size and files. The scrubber can't go through a zip: it goes as Unraid made it. On «Send», with its part ticked:
+ * through atd into RUN_DIR/report/<token>.diag; in the same job the office goes through it itself (2026-10-21,
+ * reportDiagScrub(): every text file and file name with the scrubber's names — shares, pools and their further
+ * devices, users, the server's name and domains, devices, /mnt paths below a share, secrets, mails, public addresses;
+ * the home network's addresses and the disks' serials stay, as Unraid keeps them) into a clean zip in RAM, Unraid's
+ * own deleted. The page asks office.report_diag {token} until it is ready and shows its size, files and what was
+ * hidden. A pass that fails (or a zip it didn't make) is never sent: the report goes without. On «Send», with its part ticked:
  * the report first (unchanged — an older inbox never sees anything new), then the zip in a request of its own
  * (reportDiagPost(): POST <inbox>/api/diag); the answer says `diagnostics: sent | off | busy | failed` — the report
  * stands either way. The zip is gone after the send, the dialog's close (drop) or REPORT_TOKEN_TTL (reportTidy()).
@@ -91,6 +96,9 @@ const REPORT_DIAG_MAX    = 10 * 1024 * 1024;   // bytes of the zip (the Worker's
 const REPORT_DIAG_WAIT   = 600;                // seconds a collection may take before it counts as failed
 const REPORT_DIAG_FILES  = 500;                // names shown at most
 const REPORT_DIAG_TIMEOUT = 180;               // seconds for its upload (10 MB on a slow line)
+const REPORT_DIAG_SCRUB_TIME = 180;            // seconds the office's own pass over them may take (within REPORT_DIAG_WAIT)
+const REPORT_DIAG_UNPACKED_MAX = 160 * 1024 * 1024;   // bytes they may come to unpacked (in the pass's memory, never on a disk)
+const REPORT_DIAG_MEMORY = '768M';             // the pass's PHP memory: the clean zip is made in memory
 const REPORT_KEEP        = 50;                 // «Your reports»: the newest kept
 const REPORT_STATUS_MAX     = 10;          // «Your reports»: where the newest this many stand is asked (the Worker's batch) …
 const REPORT_STATUS_EVERY   = 3600;        // … each at most once an hour …
@@ -107,6 +115,11 @@ const REPORT_LANGS       = ['en', 'de', 'it', 'fr', 'es'];
 // Unraid's own shares and the office's: they stay in paths; every other share is the user's and becomes ‹share-N›
 const REPORT_SHARES_KEPT = ['appdata', 'system', 'domains', 'isos', 'UnraidSecretaryOffice'];
 const REPORT_HOSTS_KEPT  = ['github.com', 'api.github.com'];
+// Unraid's default pool name says nothing about anybody: it stays (cache, cache2 …) — every other pool is ‹pool-N›
+const REPORT_POOLS_KEPT  = ['cache'];
+// domains that name nobody: the makers', Unraid's, the big services' a log names (a server's own domain is ‹domain-N›)
+const REPORT_DOMAINS_KEPT = ['github.com', 'unraid.net', 'lime-technology.com', 'dropnook.app', 'docker.com', 'docker.io', 'ghcr.io'];
+const REPORT_TLDS_LOCAL  = ['local', 'lan', 'home', 'internal', 'localdomain', 'localhost', 'intranet', 'arpa', 'test', 'invalid', 'example'];
 
 /*
  * Which lines of agent.log are a desk's: its labels (the start of the text after the time) and «<desk id>:» (the
@@ -268,6 +281,11 @@ function reportKnow(array $ctx = []): array
     foreach ($partnerNames as $i => $n) {
         $names[$n] ??= ['‹partner-' . ($i + 1) . '›', true];
     }
+    // a test's $ctx names its files: one it doesn't name isn't read (never the test server's own)
+    $cfg = static function (string $key, string $real, bool $sections = false) use ($ctx): array {
+        $f = $ctx[$key] ?? (isset($ctx['var_ini']) ? '' : $real);
+        return $f === '' ? [] : readCfg($f, $sections);
+    };
     $users = [];
     foreach (@file($ctx['passwd'] ?? '/boot/config/passwd', FILE_IGNORE_NEW_LINES) ?: [] as $line) {
         $f = explode(':', $line);
@@ -275,18 +293,25 @@ function reportKnow(array $ctx = []): array
             $users[] = $f[0];
         }
     }
+    // the Unraid Connect account's name (its mail goes as ‹mail› anyway)
+    $connect = $cfg('connect', '/boot/config/plugins/dynamix.my.servers/myservers.cfg', true)['remote']['username'] ?? '';
+    if (is_string($connect) && preg_match('/^[\p{L}\p{N}_.-]{2,64}$/uD', $connect) && !in_array($connect, $users, true)) {
+        $users[] = $connect;
+    }
     sort($users, SORT_STRING);
     foreach ($users as $i => $n) {
         $names[$n] ??= ['‹user-' . ($i + 1) . '›', false];
     }
 
-    $shares = [];
+    // every share: its .cfg on the flash, and shares.ini (Unraid's list in RAM — also a share without a .cfg)
+    $all = [];
     foreach (glob(($ctx['shares_dir'] ?? '/boot/config/shares') . '/*.cfg') ?: [] as $f) {
-        $n = basename($f, '.cfg');
-        if ($n !== '' && !in_array($n, REPORT_SHARES_KEPT, true)) {
-            $shares[] = $n;
-        }
+        $all[basename($f, '.cfg')] = true;
     }
+    foreach ($cfg('shares_ini', '/var/local/emhttp/shares.ini', true) as $section => $v) {
+        $all[(string) (is_array($v) && is_string($v['name'] ?? null) ? $v['name'] : $section)] = true;
+    }
+    $shares = array_values(array_filter(array_map('strval', array_keys($all)), fn (string $n): bool => $n !== '' && !in_array($n, REPORT_SHARES_KEPT, true)));
     sort($shares, SORT_STRING);
     $shareMap = [];
     foreach ($shares as $i => $n) {
@@ -296,25 +321,104 @@ function reportKnow(array $ctx = []): array
     foreach (glob(($ctx['pools_dir'] ?? '/boot/config/pools') . '/*.cfg') ?: [] as $f) {
         $pools[basename($f, '.cfg')] = true;
     }
-    foreach ($ctx['mounts'] ?? array_column(mountTable(), 'mount') as $m) {
+    $mounts = $ctx['mounts'] ?? array_column(mountTable(), 'mount');
+    foreach ($mounts as $m) {
         if (preg_match('#^/mnt/([^/]+)$#D', (string) $m, $x) && !preg_match('/^(disk\d+|user0?|disks|remotes|addons|rootshare)$/D', $x[1])) {
             $pools[$x[1]] = true;
         }
     }
-    $pools = array_keys(array_filter($pools, fn ($ok, $n) => $n !== '', ARRAY_FILTER_USE_BOTH));
+    $pools = array_keys(array_filter($pools, fn ($ok, $n) => $n !== '' && !in_array((string) $n, REPORT_POOLS_KEPT, true), ARRAY_FILTER_USE_BOTH));
     sort($pools, SORT_STRING);
     $poolMap = [];
     foreach ($pools as $i => $n) {
         $poolMap[(string) $n] = '‹pool-' . ($i + 1) . '›';
+    }
+    // Unassigned Devices' mount points (a disk's or a remote share's name the user gave it)
+    $devices = [];
+    foreach ($mounts as $m) {
+        if (preg_match('#^/mnt/(?:disks|remotes)/([^/]+)$#D', (string) $m, $x)) {
+            $devices[$x[1]] = true;
+        }
+    }
+    $devices = array_map('strval', array_keys($devices));
+    sort($devices, SORT_STRING);
+    foreach ($devices as $i => $n) {
+        $names[$n] ??= ['‹device-' . ($i + 1) . '›', false];
     }
     foreach ($shareMap + $poolMap as $n => $as) {
         if (mb_strlen((string) $n) >= 2) {
             $names[(string) $n] ??= [$as, false];
         }
     }
+    // Unraid's diagnostics name a share by its first and last letter with dashes between (one per byte): back to its
+    // placeholder — or ‹share› when two shares look alike; the office's and Unraid's own shares as they are
+    $masks = [];
+    foreach (array_keys($all) as $n) {
+        $n = (string) $n;
+        if (strlen($n) >= 3) {
+            $masks[$n[0] . str_repeat('-', strlen($n) - 2) . $n[-1]][] = $shareMap[$n] ?? $n;
+        }
+    }
+    $masks = array_map(fn (array $as): string => count(array_unique($as)) === 1 ? $as[0] : '‹share›', $masks);
+    // the server's domains: its addresses (Unraid Connect's, Tailscale's, a certificate's, the local TLD) → ‹domain-N›
+    $hosts = [$ident['LOCAL_TLD'] ?? '', $ident['DOMAIN'] ?? ''];
+    $nginx = $cfg('nginx_ini', '/var/local/emhttp/nginx.ini');
+    foreach (['NGINX_LANFQDN', 'NGINX_LANFQDN6', 'NGINX_WANFQDN', 'NGINX_WANFQDN6', 'NGINX_CERTNAME', 'NGINX_TAILSCALEFQDN', 'NGINX_LANMDNS'] as $k) {
+        $hosts[] = $nginx[$k] ?? '';
+    }
+    $hosts[] = (string) parse_url((string) ($nginx['NGINX_DEFAULTURL'] ?? ''), PHP_URL_HOST);
+    $certs = $ctx['certs_dir'] ?? (isset($ctx['var_ini']) ? '' : '/boot/config/ssl/certs');
+    foreach ($certs === '' ? [] : (glob("$certs/*.pem") ?: []) as $pem) {
+        $x = function_exists('openssl_x509_parse') && is_file($pem) && !is_link($pem) && filesize($pem) < 65536 ? @openssl_x509_parse((string) @file_get_contents($pem)) : false;
+        if (is_array($x)) {
+            $hosts[] = (string) ($x['subject']['CN'] ?? '');
+            foreach (explode(',', (string) ($x['extensions']['subjectAltName'] ?? '')) as $alt) {
+                $hosts[] = preg_match('/^\s*DNS:(.+)$/', $alt, $a) ? $a[1] : '';
+            }
+        }
+    }
+    $domains = [];
+    foreach ($hosts as $h) {
+        if (is_string($h) && ($base = reportDomainBase($h)) !== null) {
+            $domains[$base] = true;
+        }
+    }
+    $domains = array_map('strval', array_keys($domains));
+    sort($domains, SORT_STRING);
+    $domainMap = [];
+    foreach ($domains as $i => $n) {
+        $domainMap[$n] = '‹domain-' . ($i + 1) . '›';
+    }
     $secrets = array_values(array_unique(array_filter($secrets, fn ($s) => is_string($s) && strlen($s) >= 6)));
     usort($secrets, fn ($a, $b) => strlen($b) <=> strlen($a));       // a longer secret before a part of it
-    return ['secrets' => $secrets, 'names' => $names, 'shares' => $shareMap, 'pools' => $poolMap];
+    return ['secrets' => $secrets, 'names' => $names, 'shares' => $shareMap, 'pools' => $poolMap, 'masks' => $masks, 'domains' => $domainMap];
+}
+
+/**
+ * The part of a host name that names its owner (lower case), null when none does: example.com of nas.example.com
+ * (example.co.uk of a.example.co.uk), <hash>.myunraid.net of Unraid Connect's addresses, <tailnet>.ts.net of
+ * Tailscale's; a local name (tower.local, fritz.box, home.arpa …), an address and the makers' hosts never
+ */
+function reportDomainBase(string $host): ?string
+{
+    $h = (string) preg_replace('/^\*\./', '', strtolower(trim($host, " \t.\"'")));
+    if (!preg_match('/^[a-z0-9-]{1,63}(?:\.[a-z0-9-]{1,63}){1,10}$/D', $h) || filter_var($h, FILTER_VALIDATE_IP)) {
+        return null;
+    }
+    $l = explode('.', $h);
+    $n = count($l);
+    $two = $l[$n - 2] . '.' . $l[$n - 1];
+    if (in_array($l[$n - 1], REPORT_TLDS_LOCAL, true) || in_array($two, ['home.arpa', 'fritz.box'], true) || ctype_digit($l[$n - 1])) {
+        return null;
+    }
+    if (in_array($two, ['myunraid.net', 'ts.net'], true)) {
+        return $n >= 3 ? $l[$n - 3] . ".$two" : null;
+    }
+    if (in_array($two, REPORT_DOMAINS_KEPT, true)) {
+        return null;
+    }
+    $k = strlen($l[$n - 1]) === 2 && in_array($l[$n - 2], ['co', 'com', 'org', 'net', 'ac', 'gov', 'edu', 'or', 'ne'], true) ? 3 : 2;
+    return $n >= $k ? implode('.', array_slice($l, -$k)) : null;
 }
 
 // ===================================================================== the scrubber
@@ -342,7 +446,7 @@ function reportScrub(string $s, array $know, ?array &$seen = null): string
         return "\x01" . (count($paths) - 1) . "\x02";
     });
     $s = (string) preg_replace_callback('/\x01(\d+)\x02/', fn (array $m): string => $paths[(int) $m[1]] ?? '', $s);
-    $s = reportNames($s, $know, $seen);
+    $s = reportNames(reportDomains($s, $know, $seen), $know, $seen);
     $s = (string) preg_replace('/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i', '<uuid>', $s);
     $s = watchmanScrub($s);
     $s = reportAddresses(watchnetScrub($s, []));
@@ -353,11 +457,13 @@ function reportScrub(string $s, array $know, ?array &$seen = null): string
  * Every IP address → … — also where watchnetScrub() lets one pass: at a sentence's end («from 10.0.0.5.»), with a port, and
  * IPv6 written short («fd00::1», «[fe80::1]»); only what is an address (a time like 17:02:11 is none)
  */
-function reportAddresses(string $s): string
+function reportAddresses(string $s, bool $publicOnly = false): string
 {
-    $s = (string) preg_replace_callback('/(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?!\w|\.\d)/', fn (array $m): string => filter_var($m[0], FILTER_VALIDATE_IP) ? '…' : $m[0], $s);
+    // $publicOnly (the diagnostics, as Unraid does): the home network's addresses stay, the internet's go
+    $hide = static fn (string $ip, int $flags): bool => (bool) filter_var($ip, FILTER_VALIDATE_IP, $flags | ($publicOnly ? FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE : 0));
+    $s = (string) preg_replace_callback('/(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?!\w|\.\d)/', fn (array $m): string => $hide($m[0], 0) ? '…' : $m[0], $s);
     return (string) preg_replace_callback('/(?<![\w:.])[0-9A-Fa-f]{0,4}(?::[0-9A-Fa-f]{0,4}){2,7}(?:%\w+)?(?![\w:])/',
-        fn (array $m): string => filter_var(preg_replace('/%\w+$/', '', $m[0]), FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) ? '…' : $m[0], $s);
+        fn (array $m): string => $hide((string) preg_replace('/%\w+$/', '', $m[0]), FILTER_FLAG_IPV6) ? '…' : $m[0], $s);
 }
 
 /** Is it a placeholder already (‹share-1›, ‹pool›, …)? */
@@ -393,7 +499,7 @@ function reportPath(string $p, string $kind, array $know, array &$seen): string
         return '…';
     };
     $pool = function (string $n) use ($know, &$seen): ?string {
-        if (reportPlaceholder($n)) {
+        if (reportPlaceholder($n) || in_array($n, REPORT_POOLS_KEPT, true)) {
             return $n;
         }
         if (isset($know['pools'][$n])) {
@@ -465,8 +571,10 @@ function reportUrl(string $url): string
 }
 
 /**
- * Known names (the server, partners, users, shares, pools) → their placeholders, as whole words (a name glued to
- * letters, digits, «_», «-», a placeholder's ‹›, or «.» and a letter — «backup.sh» for a share «backup» — stays)
+ * Known names (the server, partners, users, shares, pools, devices) → their placeholders, as whole words (a name glued
+ * to letters, digits, «_», «-», a placeholder's ‹›, or «.» and a letter — «backup.sh» for a share «backup» — stays; the
+ * server's and partners' names also before a dot or a number: «tower.local», «Tower-2» — avahi's when the name is taken). A pool's further devices (hive2, hive3 … in
+ * disks.ini) are its placeholder and their number: ‹pool-1›-2.
  *
  * @param array<string, string> $seen
  */
@@ -476,17 +584,42 @@ function reportNames(string $s, array $know, array &$seen): string
     if (!$names) {
         return $s;
     }
-    $keys = array_keys($names);
-    usort($keys, fn ($a, $b) => mb_strlen((string) $b) <=> mb_strlen((string) $a));
-    $alt = implode('|', array_map(fn ($n) => ($names[$n][1] ? '(?i:' . preg_quote((string) $n, '/') . ')' : preg_quote((string) $n, '/')), $keys));
+    $pools = $know['pools'] ?? [];
+    $keys = array_map('strval', array_keys($names));
+    usort($keys, fn ($a, $b) => mb_strlen($b) <=> mb_strlen($a));
+    $alt = implode('|', array_map(fn (string $n): string => $names[$n][1]
+        ? '(?i:' . preg_quote($n, '/') . ')(?![\p{L}\p{N}_›]|-[^\d])'
+        : preg_quote($n, '/') . (isset($pools[$n]) ? '(?:[2-9]|[1-9][0-9])?' : '') . '(?![\p{L}\p{N}_\-›]|\.[\p{L}\p{N}])', $keys));
     $lower = [];
     foreach ($names as $n => $v) {
         $lower[mb_strtolower((string) $n)] ??= $v[1] ? $v[0] : null;
     }
-    return (string) preg_replace_callback('/(?<![\p{L}\p{N}_\-‹]|[\p{L}\p{N}]\.)(?:' . $alt . ')(?![\p{L}\p{N}_\-›]|\.[\p{L}\p{N}])/u',
-        function (array $m) use ($names, $lower, &$seen): string {
-            $as = $names[$m[0]][0] ?? $lower[mb_strtolower($m[0])] ?? '…';
+    return (string) preg_replace_callback('/(?<![\p{L}\p{N}_\-‹]|[\p{L}\p{N}]\.)(?:' . $alt . ')/u',
+        function (array $m) use ($names, $lower, $pools, &$seen): string {
+            $as = $names[$m[0]][0] ?? $lower[mb_strtolower($m[0])] ?? null;
+            if ($as === null && preg_match('/^(.+?)([0-9]+)$/sD', $m[0], $slot) && isset($pools[$slot[1]])) {
+                $as = $pools[$slot[1]] . '-' . $slot[2];         // a pool's further device
+            }
+            $as ??= '…';
             $seen[$as] ??= $m[0];
+            return $as;
+        }, $s);
+}
+
+/** The server's domains (reportDomainBase()) with every host below them → ‹domain-N› */
+function reportDomains(string $s, array $know, array &$seen): string
+{
+    $domains = $know['domains'] ?? [];
+    if (!$domains) {
+        return $s;
+    }
+    $keys = array_map('strval', array_keys($domains));
+    usort($keys, fn ($a, $b) => strlen($b) <=> strlen($a));
+    $alt = implode('|', array_map(fn (string $d): string => preg_quote($d, '/'), $keys));
+    return (string) preg_replace_callback('/(?<![\p{L}\p{N}_.\-])(?:[\p{L}\p{N}\-]+\.)*(' . $alt . ')(?![\p{L}\p{N}_\-]|\.[\p{L}\p{N}])/iu',
+        function (array $m) use ($domains, &$seen): string {
+            $as = $domains[strtolower($m[1])] ?? '‹domain›';
+            $seen[$as] ??= strtolower($m[1]);
             return $as;
         }, $s);
 }
@@ -1291,17 +1424,199 @@ function reportDiagStart(string $dir, string $token, bool $wake, int $now, array
     return ['woke' => count($asleep)];
 }
 
-/** Unraid's tool through atd; its exit code lands in done (via a .tmp and mv: done is whole or absent) */
+/**
+ * Unraid's tool through atd, then — only when it made its zip — the office's own pass over it (reportDiagScrubJob(),
+ * niced, in the same job); the tool's exit code lands in done (via a .tmp and mv: done is whole or absent) after both
+ */
 function reportDiagLaunch(string $bin, string $zip, string $done): void
 {
-    hostLaunch('report-diagnostics', ['/bin/sh', '-c', '"$0" "$1"; echo $? >"$2.tmp" && mv "$2.tmp" "$2"', $bin, $zip, $done]);
+    hostLaunch('report-diagnostics', ['/bin/sh', '-c', '"$0" "$1"; e=$?; [ "$e" = 0 ] && nice -n 10 "$3" "$4" job report-diag-scrub "$5"; echo "$e" >"$2.tmp" && mv "$2.tmp" "$2"',
+        $bin, $zip, $done, PHP_BINARY, OFFICE_DIR . '/agent/agent.php', dirname($zip)]);
 }
 
 /**
- * Where a preview's diagnostics stand: running | ready {bytes, count, files (the first REPORT_DIAG_FILES names)} |
- * too_big {bytes, max} | failed | gone. The first look at a finished run tidies (Unraid's copy in /boot/logs goes —
- * the office made it, the user never asked for it there), checks the zip and keeps what was shown in list.json: the
- * send takes exactly that zip (its sha256), nothing collected later.
+ * php agent.php job report-diag-scrub <RUN_DIR/report/<token>.diag>: the office's own pass over Unraid's diagnostics,
+ * right after Unraid's tool (reportDiagLaunch()), in RAM: reportDiagScrub() from <name>.zip into <name>.clean.zip,
+ * the raw zip deleted whatever came of it; scrub.json says how it went (ok {hidden, seconds} | too_big | failed).
+ * Only a preview's folder of exactly that shape, the user's root's own (reportRunDirReady()).
+ */
+function reportDiagScrubJob(string $d, array $ctx = []): int
+{
+    $dir = reportRunDir($ctx);
+    if (!preg_match('/^[0-9a-f]{32}\.diag$/D', basename($d)) || dirname($d) !== $dir || !reportRunDirReady($dir) || is_link($d) || !is_dir($d)) {
+        return 2;
+    }
+    $run = readJson("$d/run.json");
+    if (!is_array($run) || !is_string($run['name'] ?? null) || !preg_match('/^uso-diagnostics-\d{8}-\d{4}$/D', $run['name'])) {
+        return 2;
+    }
+    $raw = "$d/{$run['name']}.zip";
+    @ini_set('memory_limit', REPORT_DIAG_MEMORY);
+    $t0 = hrtime(true);
+    try {
+        writeAtomic("$d/scrub.started", (string) ($ctx['now'] ?? time()), 0600, 0, 0);
+        $state = reportDiagScrub($raw, "$d/{$run['name']}.clean.zip", $ctx['know'] ?? reportKnow($ctx), $ctx['scrub_time'] ?? REPORT_DIAG_SCRUB_TIME);
+    } catch (Throwable $e) {
+        @unlink("$d/{$run['name']}.clean.zip");
+        $state = ['state' => 'failed'];
+        reportLogLine('Office: the diagnostics for a report could not be cleaned, they stay here (' . mb_substr($e->getMessage(), 0, 120) . ')', $ctx);
+    } finally {
+        @unlink($raw);
+    }
+    $state['seconds'] = round((hrtime(true) - $t0) / 1e9, 1);
+    writeAtomic("$d/scrub.json", jsonEncode($state), 0600, 0, 0);
+    return $state['state'] === 'ok' ? 0 : 1;
+}
+
+/**
+ * Unraid's anonymized zip ($raw) as the office sends it ($clean): every text file through reportDiagText(), every
+ * file's name through reportDiagName(), a binary file (a NUL in it: super.dat) as it is. Nothing half: any doubt
+ * (not a zip, more than REPORT_DIAG_UNPACKED_MAX unpacked, longer than $budget seconds, a regex giving up) throws —
+ * the diagnostics then stay here. A raw zip over REPORT_DIAG_MAX isn't looked at: too_big.
+ *
+ * @return array{state: string, hidden?: array<string, string>, bytes?: int}
+ */
+function reportDiagScrub(string $raw, string $clean, array $know, int $budget = REPORT_DIAG_SCRUB_TIME): array
+{
+    $t0 = hrtime(true);
+    if (!class_exists('ZipArchive') || !is_file($raw) || is_link($raw)) {
+        throw new RuntimeException('no zip');
+    }
+    $size = (int) filesize($raw);
+    if ($size > REPORT_DIAG_MAX) {
+        return ['state' => 'too_big', 'bytes' => $size];
+    }
+    if (file_exists($clean) || is_link($clean)) {
+        throw new RuntimeException('clean zip already there');
+    }
+    $in = new ZipArchive();
+    $out = new ZipArchive();
+    if ($in->open($raw, ZipArchive::RDONLY) !== true) {
+        throw new RuntimeException('not a zip');
+    }
+    if ($out->open($clean, ZipArchive::CREATE | ZipArchive::EXCL) !== true) {
+        throw new RuntimeException('cannot write the clean zip');
+    }
+    $seen = [];
+    $names = [];
+    $total = 0;
+    for ($i = 0; $i < $in->numFiles; $i++) {
+        $st = $in->statIndex($i);
+        $name = is_array($st) && is_string($st['name'] ?? null) ? $st['name'] : null;
+        if ($name === null) {
+            throw new RuntimeException("entry $i unreadable");
+        }
+        $as = reportDiagName($name, $know, $seen);
+        for ($n = 2; isset($names[$as]); $n++) {
+            $as = (string) preg_replace('/(\.[A-Za-z0-9]{1,8})?$/D', "-$n\$1", reportDiagName($name, $know, $seen), 1);
+        }
+        $names[$as] = true;
+        if (str_ends_with($name, '/')) {
+            $out->addEmptyDir(rtrim($as, '/'));
+            continue;
+        }
+        $total += (int) ($st['size'] ?? 0);
+        if ($total > REPORT_DIAG_UNPACKED_MAX) {
+            throw new RuntimeException('more than ' . REPORT_DIAG_UNPACKED_MAX . ' bytes unpacked');
+        }
+        $data = $in->getFromIndex($i);
+        if (!is_string($data) || strlen($data) !== (int) ($st['size'] ?? -1)) {
+            throw new RuntimeException("entry $i unreadable");
+        }
+        if (!str_contains($data, "\0")) {
+            $data = reportDiagText($data, $know, $seen);
+            if ($data === null) {
+                throw new RuntimeException("a pass gave up on entry $i");
+            }
+        }
+        if (!$out->addFromString($as, $data)) {
+            throw new RuntimeException("cannot add entry $i");
+        }
+        unset($data);
+        if ((hrtime(true) - $t0) / 1e9 > $budget) {
+            throw new RuntimeException("longer than $budget s");
+        }
+    }
+    $in->close();
+    if ($names === [] || !$out->close() || !chmod($clean, 0600)) {
+        throw new RuntimeException('cannot finish the clean zip');
+    }
+    ksort($seen, SORT_NATURAL);
+    return ['state' => 'ok', 'hidden' => $seen];
+}
+
+/**
+ * A text file of Unraid's diagnostics as the office sends it, whole (no line cut, the layout kept): known secrets →
+ * •••, mails → ‹mail›, paths under /mnt as in the log (below a share nothing: file names), the server's domains,
+ * the names (server, partners, users, shares — also as Unraid's masks —, pools and their further devices, devices),
+ * public internet addresses → … (the home network's stay, as Unraid keeps them). Null when a pass gave up.
+ *
+ * @param array<string, string> $seen
+ */
+function reportDiagText(string $s, array $know, array &$seen): ?string
+{
+    $s = mb_scrub($s, 'UTF-8');                    // invalid bytes become «?»: the passes below read UTF-8
+    foreach ($know['secrets'] as $v) {
+        $s = str_replace($v, '•••', $s);
+    }
+    $s = preg_replace('/[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/', '‹mail›', $s);
+    $s = $s === null ? null : preg_replace_callback('~^.*/mnt/.*$~m', fn (array $m): string => logsNormalizePaths($m[0],
+        function (string $p, string $kind) use ($know, &$seen): string {
+            // the finder may take words before it along («/dev/sdd1  4T … /mnt/disks/x» in df): from /mnt/ on
+            $at = $kind === 'url' ? false : strpos($p, '/mnt/');
+            return $at === false || ($at > 0 && !preg_match('/\s$/', substr($p, 0, $at))) ? $p : substr($p, 0, $at) . reportPath(substr($p, $at), $kind, $know, $seen);
+        }), $s);
+    if ($s === null || preg_last_error() !== PREG_NO_ERROR) {
+        return null;
+    }
+    $s = reportDomains($s, $know, $seen);
+    if (preg_last_error() !== PREG_NO_ERROR) {
+        return null;
+    }
+    $s = reportMasks(reportNames($s, $know, $seen), $know, $seen);
+    if (preg_last_error() !== PREG_NO_ERROR) {
+        return null;
+    }
+    $s = reportAddresses($s, true);
+    return preg_last_error() === PREG_NO_ERROR ? $s : null;
+}
+
+/** A file's name in the zip: the office's folder in front as it is, the rest through the domains, names and masks */
+function reportDiagName(string $name, array $know, array &$seen): string
+{
+    $name = reportNoUnicodeControls(mb_scrub($name, 'UTF-8'));
+    $cut = strpos($name, '/');
+    $head = $cut === false ? '' : substr($name, 0, $cut + 1);
+    $rest = $cut === false ? $name : substr($name, $cut + 1);
+    return $head . reportMasks(reportNames(reportDomains($rest, $know, $seen), $know, $seen), $know, $seen);
+}
+
+/** Unraid's masked share names (m---a) → the share's placeholder (reportKnow()'s masks) */
+function reportMasks(string $s, array $know, array &$seen): string
+{
+    $masks = $know['masks'] ?? [];
+    if (!$masks || !str_contains($s, '--')) {
+        return $s;
+    }
+    $keys = array_map('strval', array_keys($masks));
+    usort($keys, fn ($a, $b) => strlen($b) <=> strlen($a));
+    return (string) preg_replace_callback('/(?<![\p{L}\p{N}_\-])(?:' . implode('|', array_map(fn (string $m): string => preg_quote($m, '/'), $keys)) . ')(?![\p{L}\p{N}_\-])/u',
+        function (array $m) use ($masks, $know, &$seen): string {
+            $as = $masks[$m[0]];
+            if (str_starts_with($as, '‹')) {
+                $seen[$as] ??= array_search($as, $know['shares'] ?? [], true) ?: $m[0];
+            }
+            return $as;
+        }, $s);
+}
+
+/**
+ * Where a preview's diagnostics stand: running {since, phase: collecting | cleaning} | ready {bytes, count, files (the
+ * first REPORT_DIAG_FILES names), hidden (placeholder → name: shown, never sent)} | too_big {bytes, max} | failed
+ * {why: scrub — the office's own pass failed} | gone. The first look at a finished run tidies (Unraid's copy in
+ * /boot/logs goes — the office made it, the user never asked for it there; Unraid's raw zip goes, only the office's
+ * clean one is ever sent), checks the clean zip and keeps what was shown in list.json: the send takes exactly that
+ * zip (its sha256), nothing collected later.
  */
 function reportDiagState(string $d, int $now, array $ctx = []): array
 {
@@ -1316,26 +1631,34 @@ function reportDiagState(string $d, int $now, array $ctx = []): array
     }
     clearstatcache();
     if (!is_file("$d/done") || is_link("$d/done")) {
-        return $now - $run['started'] > REPORT_DIAG_WAIT ? ['state' => 'failed'] : ['state' => 'running', 'since' => $run['started']];
+        return $now - $run['started'] > REPORT_DIAG_WAIT ? ['state' => 'failed']
+            : ['state' => 'running', 'since' => $run['started'], 'phase' => is_file("$d/scrub.started") ? 'cleaning' : 'collecting'];
     }
     $exit = trim((string) @file_get_contents("$d/done", false, null, 0, 16));
-    $zip = "$d/{$run['name']}.zip";
+    @unlink("$d/{$run['name']}.zip");                  // Unraid's own (the pass deletes it; a run cut short may not have)
+    $zip = "$d/{$run['name']}.clean.zip";
     $boot = ($ctx['boot_logs'] ?? '/boot/logs') . "/{$run['name']}.zip";
     if (is_file($boot) && !is_link($boot)) {
         @unlink($boot);
     }
+    $scrub = is_link("$d/scrub.json") ? null : readJson("$d/scrub.json");
     $size = is_file($zip) && !is_link($zip) ? (int) @filesize($zip) : 0;
-    if ($exit !== '0' || $size <= 0) {
+    if ($exit !== '0') {
         $state = ['state' => 'failed'];
+    } elseif (($scrub['state'] ?? null) === 'too_big') {
+        $state = ['state' => 'too_big', 'bytes' => is_int($scrub['bytes'] ?? null) ? $scrub['bytes'] : 0, 'max' => REPORT_DIAG_MAX];
+    } elseif (($scrub['state'] ?? null) !== 'ok' || !is_array($scrub['hidden'] ?? null) || $size <= 0) {
+        $state = ['state' => 'failed', 'why' => 'scrub'];         // never Unraid's zip in its place
     } elseif ($size > REPORT_DIAG_MAX) {
         $state = ['state' => 'too_big', 'bytes' => $size, 'max' => REPORT_DIAG_MAX];
     } else {
-        $state = ['state' => 'failed'];
+        $state = ['state' => 'failed', 'why' => 'scrub'];
         $files = reportDiagFiles($zip);
         if ($files !== null) {
             sort($files, SORT_STRING);
+            $hidden = array_filter($scrub['hidden'], fn ($v, $k) => is_string($v) && is_string($k), ARRAY_FILTER_USE_BOTH);
             $state = ['state' => 'ready', 'bytes' => $size, 'count' => count($files), 'files' => array_slice($files, 0, REPORT_DIAG_FILES),
-                      'sha256' => (string) hash_file('sha256', $zip)];
+                      'hidden' => (object) $hidden, 'sha256' => (string) hash_file('sha256', $zip)];
         }
     }
     if ($state['state'] !== 'ready') {
@@ -1367,8 +1690,9 @@ function reportDiagFiles(string $zip): ?array
 }
 
 /**
- * A preview's diagnostics gone: a run still collecting stopped (Unraid's tool by the zip's path — no other process
- * names it), its folder in / (left when stopped before zipping), the copy in /boot/logs, the preview's folder.
+ * A preview's diagnostics gone: a run still collecting or being cleaned stopped (Unraid's tool and the office's pass by
+ * the preview's folder — no other process names it), its folder in / (left when stopped before zipping), the copy in
+ * /boot/logs, the preview's folder.
  */
 function reportDiagDrop(string $dir, string $token, array $ctx = []): void
 {
@@ -1380,7 +1704,8 @@ function reportDiagDrop(string $dir, string $token, array $ctx = []): void
     $name = is_array($run) && is_string($run['name'] ?? null) && preg_match('/^uso-diagnostics-\d{8}-\d{4}$/D', $run['name']) ? $run['name'] : null;
     if ($name !== null) {
         if (!is_file("$d/done")) {
-            ($ctx['diag_stop'] ?? static fn (string $zip) => run(['pkill', '-f', '--', $zip], 10))("$d/$name.zip");
+            // Unraid's tool and the office's pass both name the folder
+            ($ctx['diag_stop'] ?? static fn (string $folder) => run(['pkill', '-f', '--', $folder], 10))($d);
             $tmp = ($ctx['diag_root'] ?? '') . "/$name";
             if (is_dir($tmp) && !is_link($tmp)) {
                 run(['rm', '-rf', '--', $tmp], 60);
@@ -1541,7 +1866,8 @@ function reportSend(array $r, array $ctx = []): array
     if (in_array(REPORT_DIAG_PART, $parts, true)) {
         $diag = isset($kept['diagnostics']) ? reportDiagState(reportDiagDir($dir, $token), $now, $ctx) : ['state' => 'gone'];
         $run = readJson(reportDiagDir($dir, $token) . '/run.json');
-        $diagZip = $diag['state'] === 'ready' && is_string($run['name'] ?? null) ? reportDiagDir($dir, $token) . "/{$run['name']}.zip" : null;
+        // only the office's clean zip, never Unraid's own
+        $diagZip = $diag['state'] === 'ready' && is_string($run['name'] ?? null) ? reportDiagDir($dir, $token) . "/{$run['name']}.clean.zip" : null;
         if ($diag['state'] === 'running') {
             $giveBack();
             throw new Problem('report_diag_running');

@@ -2034,15 +2034,145 @@ kopia_lock_save() {
     return 0
 }
 
-# --- An upload that takes nothing (2.68) ------------------------------------
+# --- Offsite that takes nothing (2.68) -------------------------------------
 # Seen 2026-10-21: from one moment on every write to the repository (S3) hung for ever while reads and lists answered at
-# once - Kopia waits for ever, nothing fails, and a run's upload (no time limit: it may take hours) would hold the run and
-# its lock for ever. Its stall watchdog (kopia_one in backup.sh): the kopia process's own reads and writes
-# (/proc/<pid>/io rchar + wchar: the files it reads, the network) not moving for UB_KOPIA_STALL seconds ends it.
+# once - the Kopia server's hourly maintenance stopped after reading kopia.maintenance (its next step, writing it, never
+# returned; a container restart didn't help). Nothing failed, so nothing said it. Two guards:
+#  * --kopia-watch (the office, every few minutes): the Kopia server's own content log, read through one docker exec - never
+#    the repository opened, nothing written there. Kopia logs a storage step when it ends («n":"storage","m":"PutBlob" …
+#    "error":null}): a server that wrote its maintenance before (a PutBlob of kopia.maintenance in its newest two logs - it is
+#    the maintenance owner, it writes every hour) and has logged nothing for UB_KOPIA_WATCH_QUIET seconds (90 min: the hour
+#    of its quick maintenance and half an hour) takes nothing since the first step after its last write. A server that
+#    isn't the owner (state/kopia-lock.json says another user@host) logs nothing for days: never judged so.
+#  * a run's upload (kopia_one in backup.sh) has no time limit, but a stall watchdog: the kopia process's own reads and
+#    writes (/proc/<pid>/io rchar + wchar: the files it reads, the network) not moving for UB_KOPIA_STALL seconds ends it.
+# state/kopia-watch.json {v: 1, time, state: ok|stuck|unknown, why, since, by: server|run, told, storage, last_write}:
+# «stuck» is kept from look to look until a write newer than its `since` shows in the server's log (or an upload of a run
+# went through); `told` - its notification went (once until resolved). The office's check and page read it.
+KW_FILE="$UB_STATE/kopia-watch.json"
+UB_KOPIA_WATCH_QUIET="${UB_KOPIA_WATCH_QUIET:-5400}"
 UB_KOPIA_STALL="${UB_KOPIA_STALL:-900}"            # an upload whose process neither reads nor writes so long is ended
 UB_KOPIA_LOOK="${UB_KOPIA_LOOK:-60}"               # its reads and writes looked at every so many seconds
 UB_KOPIA_STALL_BYTES="${UB_KOPIA_STALL_BYTES:-1048576}"   # what counts as moving: so many bytes more read + written
 UB_KOPIA_STALL_END="${UB_KOPIA_STALL_END:-10}"     # seconds between INT (Kopia saves what it can) and KILL
+
+# kopia_watch_logs - the tails of the Kopia server's newest two content logs ("#file <name>" before each) and the
+# repository's storage type and address ("#storage", then up to four "key": "value" lines - never another key of the
+# file: its keys and passwords stay inside the container). 3: no content logs found
+kopia_watch_logs() {
+    UB_EXEC_LIMIT=30 docker exec -u 0 "$KOPIA_CONTAINER" sh -c '
+        d=""
+        for x in "${KOPIA_LOG_DIR:-}" "$HOME/.cache/kopia" /app/logs; do
+            [ -n "$x" ] && [ -d "$x/content-logs" ] && { d="$x/content-logs"; break; }
+        done
+        [ -n "$d" ] || exit 3
+        ls -1 "$d" | grep -e "-server-start\.[0-9]*\.log$" | sort -t. -k1,1 -k2,2n | tail -n 2 | while read -r f; do
+            echo "#file $f"; tail -n 400 "$d/$f"; echo
+        done
+        echo "#storage"
+        c="${KOPIA_CONFIG_PATH:-$HOME/.config/kopia/repository.config}"
+        [ -f "$c" ] && grep -o -E "\"(type|endpoint|host|bucket)\": *\"[^\"]*\"" "$c" | head -n 4
+        exit 0' 2>/dev/null
+}
+
+# kopia_watch_parse <now> - the logs (kopia_watch_logs) on stdin -> one line of JSON: {files, last, last_write, maint, since,
+# storage}: the newest line's time, the last storage write that went through (PutBlob/DeleteBlob, error null), whether one of
+# them wrote kopia.maintenance, the first line after that write (where it began to take nothing), "<type> · <address>"
+kopia_watch_parse() {
+    jq -R -s -c --argjson now "$1" '
+        def secs: if type == "string" then (sub("\\.[0-9]+"; "") | try fromdateiso8601 catch null) else null end;
+        def plain: gsub("[[:cntrl:]]"; "") | .[0:80];
+        (split("\n") | reduce .[] as $l ({files: 0, mode: "log", ev: [], st: {}};
+            if ($l | startswith("#file ")) then .files += 1 | .mode = "log"
+            elif $l == "#storage" then .mode = "storage"
+            elif .mode == "storage" then
+                ($l | capture("^\"(?<k>[a-z]+)\": *\"(?<v>[^\"]*)\"$")? // null) as $kv
+                | if $kv == null or .st[$kv.k] != null then . else .st[$kv.k] = $kv.v end
+            else (try ($l | fromjson) catch null) as $j
+                | if ($j | type) == "object" and ($j.t | secs) != null
+                  then .ev += [{t: ($j.t | secs), n: ($j.n // ""), m: ($j.m // ""), b: ($j.blobID // ""), e: $j.error}] else . end
+            end)) as $r
+        | ($r.ev | map(select(.n == "storage" and (.m == "PutBlob" or .m == "DeleteBlob") and .e == null))) as $w
+        | ($w | map(.t) | max) as $lw
+        | {files: $r.files, last: ($r.ev | map(.t) | max), last_write: $lw,
+           maint: ($w | any(.m == "PutBlob" and .b == "kopia.maintenance")),
+           since: (if $lw == null then null else ($r.ev | map(select(.t > $lw)) | map(.t) | min) end),
+           storage: ([($r.st.type // ""), (($r.st.endpoint // $r.st.host // "") | sub("^[a-z]+://"; "") | sub("^[^@/]*@"; "") | sub("/.*$"; ""))]
+                     | map(select(. != "") | plain) | join(" · "))}'
+}
+
+# kopia_watch_owner_other - Kopia's maintenance belongs to another user@host than this identity (state/kopia-lock.json, the
+# last time Kopia was asked): this server never writes its maintenance - its quiet means nothing
+kopia_watch_owner_other() {
+    jq -e '(if .ok == true then . else .last end) as $f | ($f.maintenance.owner // "") as $o | ($f.identity // "") as $i
+           | $o != "" and $i != "" and $o != $i' "$KL_FILE" >/dev/null 2>&1
+}
+
+# kopia_watch_write <json> - kept as a new file + mv (0600)
+kopia_watch_write() {
+    local tmp="$UB_STATE/.kopia-watch.json.$$"
+    printf '%s\n' "$1" >"$tmp" 2>/dev/null && chmod 600 "$tmp" && mv -f "$tmp" "$KW_FILE" && return 0
+    rm -f "$tmp"; return 1
+}
+# kopia_watch_prev - the last record in exactly its shape, else {}
+kopia_watch_prev() {
+    [[ -f "$KW_FILE" && ! -L "$KW_FILE" ]] || { echo '{}'; return 0; }
+    jq -c 'if type == "object" and .v == 1 and (.state | IN("ok", "stuck", "unknown")) then . else {} end' "$KW_FILE" 2>/dev/null || echo '{}'
+}
+
+# kopia_watch - one look (--kopia-watch): the record written and printed; a turn to «stuck» told once (a warning)
+kopia_watch() {
+    local now logs rc p prev rec kw_why="" since_h
+    now="$(date +%s)"
+    prev="$(kopia_watch_prev)"
+    if [[ "$(docker inspect -f '{{.State.Running}}' "$KOPIA_CONTAINER" 2>/dev/null)" != "true" ]]; then kw_why="not_running"
+    else
+        logs="$(kopia_watch_logs)"; rc=$?
+        if (( rc == 3 )); then kw_why="no_log"; elif (( rc != 0 )); then kw_why="no_answer"; fi
+    fi
+    if [[ -n "$kw_why" ]]; then p='{}'; else p="$(kopia_watch_parse "$now" <<<"$logs")" || p='{}'; fi
+    [[ -n "$kw_why" || "$(jq -r '.files // 0' <<<"$p")" != "0" ]] || kw_why="no_log"
+    local other=false; kopia_watch_owner_other && other=true
+    rec="$(jq -c -n --argjson p "$p" --argjson prev "$prev" --argjson now "$now" --argjson quiet "$UB_KOPIA_WATCH_QUIET" \
+              --arg why "$kw_why" --argjson other "$other" '
+        ($prev.state == "stuck" and ($prev.since | type) == "number") as $was
+        | {v: 1, time: $now, storage: (($p.storage // "") | if . == "" then ($prev.storage // "") else . end),
+           last_write: ($p.last_write // $prev.last_write // null)} as $base
+        | if $was and ($p.last_write // 0) > $prev.since then $base + {state: "ok", why: "wrote", since: null, by: null, told: false}
+          elif $was then $base + {state: "stuck", why: ($prev.why // "quiet"), since: $prev.since, by: ($prev.by // "server"), told: ($prev.told == true)}
+          elif $why != "" then $base + {state: "unknown", why: $why, since: null, by: null, told: false}
+          elif $other then $base + {state: "unknown", why: "not_owner", since: null, by: null, told: false}
+          elif ($p.maint == true) and ($p.last | type) == "number" and $now - $p.last > $quiet
+          then $base + {state: "stuck", why: "quiet", since: ($p.since // $p.last), by: "server", told: false}
+          elif ($p.maint == true) then $base + {state: "ok", why: "", since: null, by: null, told: false}
+          else $base + {state: "unknown", why: "no_maintenance", since: null, by: null, told: false} end')" || return 1
+    if [[ "$(jq -r '"\(.state) \(.told)"' <<<"$rec")" == "stuck false" ]]; then
+        since_h="$(date -d "@$(jq -r '.since' <<<"$rec")" '+%Y-%m-%d %H:%M')"
+        p="$(jq -r '.storage' <<<"$rec")"
+        ub_tell kopia_writes warning "Kopia's server has logged nothing since $since_h - its maintenance writes every hour. Reads may still answer; nothing goes offsite until the storage takes writes again. Check the provider's status page, its limits and whether the key may still write, then restart the Kopia container ($KOPIA_CONTAINER)." \
+            "Offsite takes nothing" "Since $since_h the offsite storage${p:+ ($p)} has taken nothing from Kopia. Check the provider's status and the key's rights, then restart the Kopia container." \
+            "since=$since_h" "storage=${p:--}" "name=$KOPIA_CONTAINER"
+        rec="$(jq -c '.told = true' <<<"$rec")"
+    fi
+    kopia_watch_write "$rec"
+    printf '%s\n' "$rec"
+}
+
+# kopia_watch_run <stuck|ok> [since] - a run's word (2.68): its upload took nothing since <since> (the stall watchdog - the
+# run says it in its own warnings and notification: told) or an upload went through (whatever the record said is over)
+kopia_watch_run() {
+    local prev rec
+    prev="$(kopia_watch_prev)"
+    if [[ "$1" == "stuck" ]]; then
+        [[ "$(jq -r '.state // ""' <<<"$prev")" == "stuck" ]] && return 0
+        rec="$(jq -c --argjson now "$(date +%s)" --argjson since "$2" \
+            '{v: 1, time: $now, state: "stuck", why: "stalled", since: $since, by: "run", told: true, storage: (.storage // ""), last_write: (.last_write // null)}' <<<"$prev")"
+    else
+        [[ "$(jq -r '.state // ""' <<<"$prev")" == "stuck" ]] || return 0
+        rec="$(jq -c --argjson now "$(date +%s)" '. + {time: $now, state: "ok", why: "uploaded", since: null, by: null, told: false}' <<<"$prev")"
+    fi
+    kopia_watch_write "$rec"
+}
 
 # kopia_upload_pid <container path> - the host pid of `kopia ... snapshot create <path>` inside the container (docker top)
 kopia_upload_pid() {
