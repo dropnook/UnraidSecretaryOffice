@@ -917,8 +917,9 @@ function jackPoolUsage(?array $settings): ?array
         return null;
     }
     $out = ['path' => $cache, 'total' => $total, 'free' => $free, 'free_percent' => round($free / $total * 100, 1), 'min_free' => $settings['min_free_percent'] ?? null];
-    // Ms. Moverelli (2026-10-13, the pool simply): she keeps the pool below X, he may fill up to Y = X − offset, his half H
-    // is his for sure — what he holds, how many files waited in his last run for room, what he gave back
+    // Ms. Moverelli (2026-10-13, the pool simply): she keeps the pool below X, he may fill up to Y = X − offset — what he
+    // holds, how many files waited in his last run for room, what he gave back (`keep`: the old «half», always 0 since
+    // 2026-10-14 — his page no longer shows it, kept for an older page)
     $look = jackPoolLook($settings);
     if ($look !== null) {
         $out['moverelli'] = ['x' => $look['rules']['x'], 'y' => $look['rules']['y'], 'k' => $look['rules']['k'],
