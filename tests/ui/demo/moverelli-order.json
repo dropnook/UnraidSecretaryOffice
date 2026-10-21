@@ -282,7 +282,7 @@
     "frequency": "custom",
     "custom": "0 2 * * *",
     "enabled": true,
-    "order_hint": "same"
+    "order_hint": true
   },
   "jack": {
     "busy": false,

@@ -1883,11 +1883,9 @@ function driftSection() {
 }
 
 /** «Schedule» as a section of one row: how often, the next backup and when it should be done — «Change…» opens the dialog */
-const ORDER_HINTS = ['same', 'inside'];
-const ORDER_CODES = ['waited_night', 'waited_mover', 'gave_up_night', 'gave_up_mover', 'beside_night', 'beside_mover'];
-/** What a run waited for before it started, or ran beside (engine 2.70 `order`, agent/lib/nightorder.php), pure — '' for none */
+/** A scheduled run that waited for Ms. Moverelli's run before it started (engine 2.70 `order`, agent/lib/nightorder.php), pure — '' for none */
 function orderText(o) {
-  if (!o || !ORDER_CODES.includes(o.code)) return '';
+  if (!o || o.code !== 'waited_night') return '';
   return T('order.' + o.code, { min: Math.max(1, Math.round((Number(o.seconds) || 0) / 60)) });
 }
 
@@ -1915,8 +1913,8 @@ function scheduleSection() {
       const took = typicalDuration();
       if (took) meta.appendChild(el('span', '', T('schedule.duration', { duration: fmt.duration(took), end: fmt.time(sc.next + took) })));
     }
-    // it starts where Ms. Moverelli's run goes: she first, he waits (agent/lib/nightorder.php) — said quietly, it's handled
-    if (ORDER_HINTS.includes(sc.order_hint)) meta.appendChild(el('span', 'note', T('schedule.order_' + sc.order_hint)));
+    // the same minute as Ms. Moverelli's run, from before the save refused it (agent/lib/nightorder.php) — said quietly
+    if (sc.order_hint === true) meta.appendChild(el('span', 'note', T('schedule.order_hint')));
   }
   main.appendChild(meta);
   row.appendChild(main);
@@ -2059,9 +2057,7 @@ async function startRun(mode) {
   // something took the lock between the agent's look and the start: the engine skipped it and says why
   if (j.skipped) Office.toast(skipText(j.skipped), true);
   else if (j.queued) Office.toast(T('minute.queued', { time: fmt.time(j.queued.at) }));
-  else Office.toast((j.started ? T('started.' + mode) : T('started_pending'))
-    // started here it never waits for Ms. Moverelli's run or Unraid's mover — said when one goes (agent/lib/nightorder.php)
-    + (j.beside === 'beside_night' || j.beside === 'beside_mover' ? ' ' + T('order.toast_' + j.beside.slice(7)) : ''));
+  else Office.toast(j.started ? T('started.' + mode) : T('started_pending'));
   render();
   schedule();
   return true;

@@ -3179,11 +3179,8 @@ drift_count() { local lvl="$1" n=0 l; for l in "${DRIFT[@]}"; do [[ "${l%%|*}" =
 #   since 2.28 "asleep" (section 13; null unless [general] asleep_pools = skip): mode, pools, shares, units (how many
 #   shares were left out), vms, containers, sources, woken, nights; and "kopia.skipped_why": {<source>: "asleep"} for
 #   the skipped sources the array stop didn't skip (a source without an entry there: the array stop, as in 2.24)
-#   since 2.70 "snapped": when all of this run's snapshots were taken (epoch; 0 until then, also in a tour or a dry run) -
-#   from then on moving files can't land between two of its snapshots (the office's Ms. Moverelli waits for it); "order":
-#   {code, seconds} | null - what a scheduled run waited for before it started, or what a run started by hand ran beside
-#   (the office says so in UB_ORDER, order_load): waited_night | waited_mover | gave_up_night | gave_up_mover |
-#   beside_night | beside_mover (night: Ms. Moverelli's mover run, mover: Unraid's mover)
+#   since 2.70 "order": {code, seconds} | null - a scheduled run waited before it started (the office says so in
+#   UB_ORDER, order_load): waited_night (for the office's mover run, Ms. Moverelli's, until it was done)
 # Writing is never critical: if it fails, the backup carries on.
 UB_INTERFACE=1
 UB_HISTORY_MAX=200
@@ -3212,17 +3209,15 @@ ST_PACKAGES="null"        # JSON object: the packages of this run (backup.sh pkg
 ST_BTRFS=()               # since 2.63: per btrfs disk or pool the retention looked at, "base|asleep" or
                           #   "base|ok|keep_days|floor_gb|free_gb|kept|oldest|released|none_left(1/0)|brake_last|held(1/0)"
 ST_BTRFS_LOOKED=""        #   (backup.sh prune_btrfs) - status.json "btrfs", null until the retention ran
-ST_SNAPPED=0              # since 2.70: when all of the run's snapshots were taken (status.json "snapped")
 ST_ORDER_CODE=""          # since 2.70: the office's order (order_load) - status.json "order"
 ST_ORDER_SECONDS=0
 
-# order_load - the office's order (2.70): UB_ORDER "<code>:<seconds>" exactly in that shape (the office's
-# agent/lib/nightorder.php: a scheduled run waited for Ms. Moverelli's mover run or Unraid's mover, or a run started
-# by hand runs beside one), else nothing
+# order_load - the office's order (2.70): UB_ORDER "waited_night:<seconds>" exactly in that shape (the office's
+# agent/lib/nightorder.php: the scheduled run waited for Ms. Moverelli's mover run), else nothing
 order_load() {
     ST_ORDER_CODE=""; ST_ORDER_SECONDS=0
-    [[ "${UB_ORDER:-}" =~ ^((waited|gave_up|beside)_(night|mover)):([0-9]{1,6})$ ]] || return 0
-    ST_ORDER_CODE="${BASH_REMATCH[1]}"; ST_ORDER_SECONDS=$(( 10#${BASH_REMATCH[4]} ))
+    [[ "${UB_ORDER:-}" =~ ^(waited_night):([0-9]{1,6})$ ]] || return 0
+    ST_ORDER_CODE="${BASH_REMATCH[1]}"; ST_ORDER_SECONDS=$(( 10#${BASH_REMATCH[2]} ))
 }
 
 status_init() { # status_init <mode>
@@ -3280,13 +3275,13 @@ status_json() {
         --argjson partner "${partner:-null}" --argjson p_ok "${#ST_PARTNER_DONE[@]}" --argjson p_failed "${#ST_PARTNER_FAILED[@]}" \
         --argjson p_skipped "${#ST_PARTNER_SKIPPED[@]}" --argjson asleep "${asleep:-null}" --argjson skipped_why "$why" \
         --arg skipk "${SKIPK:-0}" --argjson btrfs "$btrfs" --argjson message_params "$mparams" \
-        --argjson snapped "${ST_SNAPPED:-0}" --arg order "$ST_ORDER_CODE" --argjson order_s "${ST_ORDER_SECONDS:-0}" \
+        --arg order "$ST_ORDER_CODE" --argjson order_s "${ST_ORDER_SECONDS:-0}" \
         '{interface: $interface, name: $name, version: $version, mode: $mode, run: $run, pid: $pid, skip_kopia: ($skipk == "1"),
           started: $started, updated: $updated, finished: $finished, phase: $phase, result: $result,
           message: $message, message_params: $message_params, errors: $errors, warnings: $warnings, warning_items: $warning_items, downtime_s: $downtime,
           snapshot: $snapshot, dump_bytes: $dump_bytes, log: $log, drift: $drift, vms: $vms, packages: $packages,
           new_local: $new_local, partner: $partner, partner_ok: $p_ok, partner_failed: $p_failed, partner_skipped: $p_skipped,
-          asleep: $asleep, btrfs: $btrfs, snapped: $snapped,
+          asleep: $asleep, btrfs: $btrfs,
           order: (if $order == "" then null else {code: $order, seconds: $order_s} end),
           kopia: {enabled: ($kopia_enabled | ascii_downcase | test("^(yes|ja|1|true)$")), state: $kopia_ok,
                   planned: $planned, current: (if $current == "" then null else $current end),

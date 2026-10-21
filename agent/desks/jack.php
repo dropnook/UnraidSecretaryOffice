@@ -2882,10 +2882,10 @@ function jackStart(string $tool, string $mode): array
     }
     // EmbyCache's real run is the night run with Ms. Moverelli (2026-10-13): frees, rechecks, fetches last — the whole of it
     if ($tool === 'embycache' && $mode === 'run' && function_exists('nightRun') && moverelliHired()) {
-        if (nightOrderBackupSnapping()) {
-            // a backup's snapshots first (agent/lib/nightorder.php): moving now would land between them
-            logLine('Jack Streamer: the night run not started — a backup takes its snapshots');
-            throw new Problem('jack_backup_snapshots');
+        if ((nightOrderHost()['backup_holds'])()) {
+            // started here it never waits: refused while a backup does its local part (agent/lib/nightorder.php)
+            logLine('Jack Streamer: the night run not started — a backup runs');
+            throw new Problem('jack_backup_running');
         }
         hostLaunch('moverelli', [PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', 'moverelli', 'run', '--office']);
         logLine('Jack Streamer: started the night run with Ms. Moverelli via at');

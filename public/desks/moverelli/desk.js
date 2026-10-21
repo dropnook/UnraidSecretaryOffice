@@ -1428,8 +1428,8 @@ function lastNightText(l) {
     : l.result === 'refused' ? T('night.last_refused') : T('night.last_ok');
   return T(l.jack === false || l.jack_out ? 'night.last_mine' : 'night.last', { when, how }) + (Number(l.round) > 1 ? ' · ' + T('night.rounds', { n: Number(l.round) }) : '')
     + (l.mode === 'dry' ? ' · ' + T('mode.dry') : '') + (l.jack_out ? ' · ' + jackOutText(l.jack_out) : '')
-    // what it waited for before it began: a backup's snapshots (night.json `order`, agent/lib/nightorder.php)
-    + (l.order && ['waited_backup', 'gave_up_backup'].includes(l.order.code)
+    // it waited for the backup's local part before it began (night.json `order`, agent/lib/nightorder.php)
+    + (l.order && l.order.code === 'waited_backup'
       ? ' · ' + T('night.order.' + l.order.code, { min: Math.max(1, Math.round((Number(l.order.seconds) || 0) / 60)) }) : '');
 }
 /**
@@ -1510,8 +1510,8 @@ function scheduleSection() {
   const meta = el('div', 'row-meta');
   meta.appendChild(sc.enabled ? el('span', '', schedText(sc)) : chip(T('not_scheduled'), 'warn'));
   meta.appendChild(el('span', '', sc.enabled ? T(n.jack ? 'night.with_jack' : 'by_office') : T('schedule.off_hint')));
-  // the scheduled backup starts where her run goes: she first, he waits (agent/lib/nightorder.php) — said quietly, it's handled
-  if (sc.enabled && ['same', 'inside'].includes(sc.order_hint)) meta.appendChild(el('span', 'note', T('sched.order_' + sc.order_hint)));
+  // the same minute as the scheduled backup, from before the save refused it (agent/lib/nightorder.php) — said quietly
+  if (sc.enabled && sc.order_hint === true) meta.appendChild(el('span', 'note', T('sched.order_hint')));
   main.appendChild(meta);
   const change = button(T('sched.change'), 'small plain', () => scheduleDialog());
   change.disabled = !Office.agent.running;

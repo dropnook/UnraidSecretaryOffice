@@ -446,21 +446,20 @@ function nightRun(array $args, ?array $h = null): int
     $waited = 0;
     $order = null;
     if ($mode === 'run') {
-        // a backup taking its snapshots first (nightorder.php: she first, then the backup — but never into its snapshots): on
-        // schedule she waits until they are taken (at most NIGHT_BACKUP_WAIT_MAX), from a page refused at once
-        $o = nightOrderHerGate($by, $h['order']);
-        if (!$o['go']) {
-            if ($o['result'] === 'refused') {
-                return $refused('moverelli_backup_snapshots');
+        // a backup doing its local part (nightorder.php): on schedule she waits until it is done, from a page refused
+        $oh = nightOrderHost($h['order']);
+        if (($oh['backup_holds'])()) {
+            if ($by !== 'schedule') {
+                return $refused('moverelli_backup_running');
             }
-            logLine('Night run: the scheduled run stops waiting for the backup\'s snapshots (the array stopped)');
-            return 0;
-        }
-        if ($o['code'] !== null) {
-            $order = ['code' => $o['code'], 'seconds' => $o['seconds']];
-            $span = nightOrderSpan($o['seconds']);
-            logLine($o['code'] === 'waited_backup' ? "Night run: waited $span for the backup's snapshots"
-                : "Night run: goes after $span although the backup still takes its snapshots");
+            logLine('Night run: a backup runs — waiting until its local part is done');
+            $w = nightOrderWait($oh, $oh['backup_holds']);
+            if ($w === null) {
+                logLine('Night run: the scheduled run stops waiting for the backup (the array stopped)');
+                return 0;
+            }
+            $order = ['code' => 'waited_backup', 'seconds' => $w];
+            logLine('Night run: waited ' . nightOrderSpan($w) . ' for Mr. Backupsy');
         }
         // a scheduled night waits for Unraid's mover (as her scheduled runs always did); from a page: refused at once
         $gate = jackRunGate('moverelli', $by, ['watch' => false, 'dir' => $dir, 'waitdir' => $h['waitdir'],

@@ -44722,98 +44722,75 @@ function testNightPlan(): void
 }
 
 /**
- * The order of the scheduled runs (agent/lib/nightorder.php, 2026-10-21; seen on a real server: the backup and Ms. Moverelli's
- * run both at 02:00, side by side): the scheduled backup waits for her run and Unraid's mover (a cron tie gives her 60 s),
- * at most 90 min, and says so (engine 2.70 `order`); her run waits only while a backup takes its snapshots (`snapped`),
- * at most 30 min; a start here never waits; the pages' quiet line.
+ * The scheduled backup and Ms. Moverelli's run (agent/lib/nightorder.php, 2026-10-21; seen on a real server: both at 02:00,
+ * side by side): never the same minute on save; whoever starts first runs to the end, the other waits (the backup for her
+ * whole run, she for the backup's local part — the whole run with a live share she moves); started by hand: refused.
  */
 function testNightOrder(): void
 {
     $tmp = hardeningTmp('night-order');
-    @mkdir("$tmp/run", 0700, true);
-    @mkdir("$tmp/engine/state", 0700, true);
-    @mkdir("$tmp/mov", 0700, true);
-    $t0 = mktime(2, 0, 3, 10, 22, 2026);           // 02:00:03 — cron's start of the minute and the jobs' few seconds
-    // (1) the scheduled backup's gate, on a clock of its own: $at(s) = what goes s seconds after its start
-    $gate = function (callable $at, ?string $nightCron = null, array $more = []) use ($tmp, $t0): array {
+    foreach (['run', 'engine/state', 'mov', 'shares'] as $d) {
+        @mkdir("$tmp/$d", 0700, true);
+    }
+    $t0 = mktime(2, 0, 3, 10, 22, 2026);
+    // (1) the job before the scheduled backup, on a clock of its own: $busy(s) = her run goes s seconds after its start
+    $job = function (callable $busy, callable $array = null) use ($tmp, $t0): array {
         $t = $t0;
-        $sleeps = 0;
-        $GLOBALS['nightOrderHost'] = $more + [
-            'waitdir' => "$tmp/run", 'backup_data' => "$tmp/engine", 'night_dir' => "$tmp/mov",
-            'night_running' => function () use (&$t, $t0, $at) { return (bool) ($at($t - $t0)['night'] ?? false); },
-            'mover'         => function () use (&$t, $t0, $at) { return (bool) ($at($t - $t0)['mover'] ?? false); },
-            'array'         => function () use (&$t, $t0, $at) { return (bool) ($at($t - $t0)['array'] ?? true); },
-            'night_cron'    => fn () => $nightCron,
-            'night_started' => function () use (&$t, $t0, $at) { return (int) ($at($t - $t0)['began'] ?? 0); },
-            'backup_cron'   => fn () => '0 2 * * *',
-            'now'           => function () use (&$t) { return $t; },
-            'sleep'         => function (int $s) use (&$t, &$sleeps) { $t += $s; $sleeps++; },
-        ];
+        $GLOBALS['nightOrderHost'] = ['waitdir' => "$tmp/run", 'backup_data' => "$tmp/engine", 'night_dir' => "$tmp/mov",
+            'night_running' => function () use (&$t, $t0, $busy) { return $busy($t - $t0); },
+            'array' => function () use (&$t, $t0, $array) { return $array === null || $array($t - $t0); },
+            'now' => function () use (&$t) { return $t; }, 'sleep' => function (int $s) use (&$t) { $t += $s; }];
         ob_start();
         $rc = nightOrderBackupJob();
         $out = (string) ob_get_clean();
-        $t = $t0;                             // the same once more for its verdict, the clock from the start again
-        $g = nightOrderBackupGate();
         unset($GLOBALS['nightOrderHost']);
-        return ['rc' => $rc, 'out' => $out, 'go' => $g['go'], 'code' => $g['code'], 'seconds' => $g['seconds'], 'result' => $g['result'] ?? null,
-                'left' => is_file("$tmp/run/backup-wait.json")];
+        return [$rc, $out, $t - $t0];
     };
-    $free = $gate(fn ($s) => []);
-    same('night order: nothing goes — the backup starts at once, no word', ['rc' => 0, 'out' => '', 'go' => true, 'code' => null, 'seconds' => 0, 'result' => null, 'left' => false], $free);
-    $night = $gate(fn ($s) => ['night' => $s < 1200]);
-    same('night order: her run goes for 20 min — the backup waits for it and says so (waited_night 1200 s)',
-        ['rc' => 0, 'out' => "waited_night:1200\n", 'go' => true, 'code' => 'waited_night', 'seconds' => 1200, 'result' => null, 'left' => false], $night);
-    $tie = $gate(fn ($s) => ['night' => $s >= 30 && $s < 630], '0 2 * * *');
-    same('night order: a cron tie — her line due this minute, she takes her lock after 30 s: the backup waits until her run ends',
-        ['waited_night', 630], [$tie['code'], $tie['seconds']]);
-    $quick = $gate(fn ($s) => ['night' => $s < 20], '0 2 * * *');
-    same('night order: a cron tie — her run done after 20 s: the backup goes then, never waits out the rest of her 60 s',
-        ['waited_night', 30], [$quick['code'], $quick['seconds']]);
-    $short = $gate(fn ($s) => $s >= 2 ? ['began' => $t0 - 2] : [], '0 2 * * *');
-    same('night order: a cron tie — her run begun and done between two looks (night.json: begun this minute): the backup goes, it says so',
-        ['waited_night', 5], [$short['code'], $short['seconds']]);
-    $noShow = $gate(fn ($s) => [], '0 2 * * *');
-    same('night order: a cron tie she never takes (refused, not set up) — 60 s, then the backup goes without a word',
-        [0, '', true, null, 60], [$noShow['rc'], $noShow['out'], $noShow['go'], $noShow['code'], $noShow['seconds']]);
-    $other = $gate(fn ($s) => [], '5 2 * * *');
-    same('night order: her line at another minute — no tie, no wait', [null, 0], [$other['code'], $other['seconds']]);
-    $mover = $gate(fn ($s) => ['mover' => $s < 300]);
-    same('night order: Unraid\'s mover at work for 5 min — waited_mover', ["waited_mover:300\n", 'waited_mover', 300], [$mover['out'], $mover['code'], $mover['seconds']]);
-    $long = $gate(fn ($s) => ['night' => true]);
-    same('night order: her run still going after 90 min — the backup goes anyway, said (gave_up_night)',
-        [0, "gave_up_night:5400\n", true, 'gave_up_night', NIGHT_WAIT_MAX], [$long['rc'], $long['out'], $long['go'], $long['code'], $long['seconds']]);
-    $both = $gate(fn ($s) => ['mover' => $s < 100, 'night' => $s >= 90 && $s < 400]);
-    same('night order: the mover first, then her run — the word is what it waited for last', ['waited_night', 405], [$both['code'], $both['seconds']]);
-    $arr = $gate(fn ($s) => ['night' => true, 'array' => $s < 100]);
-    same('night order: the array stopped while it waited — nothing starts (exit 3, no word, the wait gone)',
-        [3, '', false, 'array', false], [$arr['rc'], $arr['out'], $arr['go'], $arr['result'], $arr['left']]);
-    writeAtomic("$tmp/engine/state/status.json", jsonEncode(['mode' => 'backup', 'result' => 'running', 'started' => $t0 + 40]), 0600, 0, 0);
-    $mean = $gate(fn ($s) => ['night' => true]);
-    same('night order: a backup started here while it waited — the scheduled one ends quietly (exit 3)', [3, '', false, 'meanwhile'], [$mean['rc'], $mean['out'], $mean['go'], $mean['result']]);
-    @unlink("$tmp/engine/state/status.json");
+    same('night order: the scheduled backup — her run not going: starts at once, no word; going for 3 h: waits the whole run (no cap), says so',
+        [[0, '', 0], [0, "waited_night:10800\n", 10800]], [$job(fn ($s) => false), $job(fn ($s) => $s < 10800)]);
+    same('night order: … the array stopped while it waited: nothing starts (exit 3)', [3, ''], array_slice($job(fn ($s) => true, fn ($s) => $s < 100), 0, 2));
     $held = fopen("$tmp/run/backup-wait.lock", 'c');
     flock($held, LOCK_EX);
-    $twice = $gate(fn ($s) => ['night' => true]);
+    $twice = $job(fn ($s) => $s < 60);
     flock($held, LOCK_UN);
     fclose($held);
-    same('night order: a second scheduled start while one waits — it ends at once (already)', [3, 'already', 0], [$twice['rc'], $twice['result'], $twice['seconds']]);
+    same('night order: … a second scheduled start while one waits ends at once', [3, '', 0], $twice);
 
-    // (2) her run's gate: only while a backup takes its snapshots; on schedule it waits (≤ 30 min), from a page refused
-    $her = function (string $by, callable $snapping, callable $array = null) use ($t0): array {
-        $t = $t0;
-        $o = nightOrderHerGate($by, ['now' => function () use (&$t) { return $t; }, 'sleep' => function (int $s) use (&$t) { $t += $s; },
-            'snapping' => function () use (&$t, $t0, $snapping) { return $snapping($t - $t0); },
-            'array' => function () use (&$t, $t0, $array) { return $array === null || $array($t - $t0); }]);
-        return [$o['go'], $o['code'], $o['seconds'], $o['result'] ?? null];
+    // (2) «must she wait?»: the engine's lock held by a real backup — by its phase, a live share she moves, its kind
+    $eng = "$tmp/engine";
+    $quiet = [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']];
+    $proc = proc_open(['bash', '-c', 'exec -a backup.sh sleep 60'], $quiet, $pipes);
+    $pid = (int) (proc_get_status($proc)['pid'] ?? 0);
+    for ($i = 0; $i < 60 && !str_contains((string) @file_get_contents("/proc/$pid/cmdline"), 'backup.sh'); $i++) {
+        usleep(50000);
+    }
+    $lock = fopen("$eng/state/lock", 'c');
+    flock($lock, LOCK_EX);
+    file_put_contents("$tmp/shares/Downloads.cfg", "shareUseCache=\"yes\"\n");
+    file_put_contents("$tmp/shares/Media.cfg", "shareUseCache=\"no\"\n");
+    $plan = fn (array $shares) => writeAtomic("$eng/state/setup-plan.json", jsonEncode(['shares' => $shares]), 0600, 0, 0);
+    $holds = function (string $phase, string $mode = 'backup', string $result = 'running') use ($eng, $pid, $tmp): bool {
+        writeAtomic("$eng/state/lock-holder.json", jsonEncode(['holder' => 'backup', 'mode' => $mode, 'run' => '20261022-0200', 'pid' => $pid, 'started' => time()]), 0600, 0, 0);
+        writeAtomic("$eng/state/status.json", jsonEncode(['mode' => $mode, 'result' => $result, 'phase' => $phase]), 0600, 0, 0);
+        return nightOrderBackupHolds($eng, "$tmp/shares");
     };
-    same('night order: her run — no backup taking snapshots: goes; one for 7 min: waits (waited_backup); one that never ends: 30 min, then goes (gave_up_backup)',
-        [[true, null, 0, null], [true, 'waited_backup', 420, null], [true, 'gave_up_backup', NIGHT_BACKUP_WAIT_MAX, null]],
-        [$her('schedule', fn ($s) => false), $her('schedule', fn ($s) => $s < 420), $her('schedule', fn ($s) => true)]);
-    same('night order: her run from a page while snapshots are taken — refused at once; the array stopped while she waited — nothing',
-        [[false, null, 0, 'refused'], [true, null, 0, null], [false, null, 60, 'array']],
-        [$her('office', fn ($s) => true), $her('office', fn ($s) => false), $her('schedule', fn ($s) => true, fn ($s) => $s < 60)]);
+    $plan([['name' => 'Downloads', 'method' => 'snap', 'mode' => 'kopia'], ['name' => 'Media', 'method' => 'live', 'mode' => 'kopia']]);
+    same('night order: she waits while the backup does its local part (inventory … starting), not from partner/kopia/cleanup on; never for a dry run or a tour',
+        [true, true, true, true, false, false, false, false, false, false],
+        [$holds('inventory'), $holds('dumps'), $holds('snapshots'), $holds('starting'), $holds('partner'), $holds('kopia'), $holds('cleanup'),
+         $holds('done'), $holds('snapshots', 'dryrun'), $holds('snapshots', 'check')]);
+    $plan([['name' => 'Downloads', 'method' => 'live', 'mode' => 'kopia'], ['name' => 'Media', 'method' => 'live', 'mode' => 'kopia']]);
+    same('night order: a share read live that she moves (Downloads, cache yes) — the whole run; a live share she doesn\'t move (Media) or one not backed up — not',
+        [true, true, ['Downloads']], [$holds('kopia'), $holds('cleanup'), nightOrderLiveMoved($eng, "$tmp/shares")]);
+    $plan([['name' => 'Downloads', 'method' => 'live', 'mode' => 'off'], ['name' => '../x', 'method' => 'live', 'mode' => 'kopia']]);
+    same('night order: … a live share left out of the backup, a name with a slash — nothing', [false, []], [$holds('kopia'), nightOrderLiveMoved($eng, "$tmp/shares")]);
+    flock($lock, LOCK_UN);
+    fclose($lock);
+    same('night order: … the lock free — nobody to wait for', false, $holds('snapshots'));
+    proc_terminate($proc);
+    proc_close($proc);
 
-    // inside her run (nightRun()): from a page refused, her row says why; on schedule night.json keeps what she waited for
+    // (3) inside her run (nightRun()): from a page refused, her row says why; on schedule she waits, night.json says so
     $mt = "$tmp/mv";
     @mkdir($mt, 0700, true);
     $v = [];
@@ -44832,90 +44809,69 @@ function testNightOrder(): void
             return 0;
         },
         'order' => ['now' => function () use (&$tt) { return $tt; }, 'sleep' => function (int $s) use (&$tt) { $tt += $s; },
-                    'snapping' => function () use (&$looks) { return $looks++ < 3; }, 'array' => fn () => true]];
+                    'backup_holds' => function () use (&$looks) { return $looks++ < 3; }, 'array' => fn () => true]];
     $rcPage = nightRun(['run', '--office']);
     $row = moverelliHistory($mdir)[0] ?? [];
     $rcSched = nightRun(['run']);
     unset($GLOBALS['nightHost'], $GLOBALS['moverelliHost']);
-    same('night order: her run — from a page while a backup takes its snapshots: refused, her row says why; on schedule: waits, then runs, night.json says so',
-        [1, 'refused', 'moverelli_backup_snapshots', 0, 1, ['code' => 'waited_backup', 'seconds' => 30]],
+    same('night order: her run — from a page while a backup runs: refused, her row says why; on schedule: waits, then runs, night.json says so',
+        [1, 'refused', 'moverelli_backup_running', 0, 1, ['code' => 'waited_backup', 'seconds' => 15]],
         [$rcPage, $row['result'] ?? null, $row['why'] ?? null, $rcSched, $herRuns, readJson("$mdir/night.json")['order'] ?? null]);
 
-    // (3) «taking its snapshots»: the engine's lock held by a real backup whose status.json has no `snapped` yet
-    $eng = "$tmp/engine";
-    $quiet = [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']];
-    $proc = proc_open(['bash', '-c', 'exec -a backup.sh sleep 60'], $quiet, $pipes);
-    $pid = (int) (proc_get_status($proc)['pid'] ?? 0);
-    for ($i = 0; $i < 60 && !str_contains((string) @file_get_contents("/proc/$pid/cmdline"), 'backup.sh'); $i++) {
-        usleep(50000);
-    }
-    $lock = fopen("$eng/state/lock", 'c');
-    flock($lock, LOCK_EX);
-    $st = function (array $status, string $mode = 'backup') use ($eng, $pid): bool {
-        writeAtomic("$eng/state/lock-holder.json", jsonEncode(['holder' => 'backup', 'mode' => $mode, 'run' => '20261022-0200', 'pid' => $pid, 'started' => time()]), 0600, 0, 0);
-        writeAtomic("$eng/state/status.json", jsonEncode($status + ['mode' => $mode, 'result' => 'running']), 0600, 0, 0);
-        return nightOrderBackupSnapping($eng);
-    };
-    same('night order: a backup before its snapshots → snapping; snapped → not; an engine before 2.70 by its phase (dumps → yes, kopia → no); a dry run, a finished run → not',
-        [true, false, true, false, false, false],
-        [$st(['phase' => 'snapshots', 'snapped' => 0]), $st(['phase' => 'starting', 'snapped' => $t0]), $st(['phase' => 'dumps']), $st(['phase' => 'kopia']),
-         $st(['phase' => 'snapshots', 'snapped' => 0], 'dryrun'), $st(['phase' => 'done', 'snapped' => 0, 'result' => 'ok'])]);
-    flock($lock, LOCK_UN);
-    fclose($lock);
-    same('night order: … the lock free — nobody snapping', false, $st(['phase' => 'snapshots', 'snapped' => 0]));
-    proc_terminate($proc);
-    proc_close($proc);
-
-    // (4) the pages' line: the same minute, inside her last run's length, apart; either off
+    // (4) never the same minute: the next 7 days of any two lines; saving refused naming the other's time; the hint
     $now = mktime(12, 0, 0, 10, 21, 2026);
-    same('night order: the overlap — same minute; 02:30 inside a 1-h run; 03:30 after it; 02:15 without a known length; her schedule off; only Mondays at her time',
-        ['same', 'inside', null, null, null, 'same'],
-        [nightOrderOverlap('0 2 * * *', '0 2 * * *', 0, $now), nightOrderOverlap('30 2 * * *', '0 2 * * *', 3600, $now), nightOrderOverlap('30 3 * * *', '0 2 * * *', 3600, $now),
-         nightOrderOverlap('15 2 * * *', '0 2 * * *', 0, $now), nightOrderOverlap('0 2 * * *', null, 0, $now), nightOrderOverlap('0 2 * * 1', '0 2 * * *', 0, $now)]);
-    writeAtomic("$tmp/mov/night.json", jsonEncode(['v' => 1, 'mode' => 'run', 'started' => $now - 9000, 'finished' => $now - 9000 + 5400]), 0600, 0, 0);
-    $hint = fn (?string $b, ?string $n) => nightOrderHint(['night_dir' => "$tmp/mov", 'backup_cron' => fn () => $b, 'night_cron' => fn () => $n], $now);
-    same('night order: the hint with her last run\'s length (90 min): 02:00 same, 03:00 inside, 04:00 none, the backup off none',
-        ['same', 'inside', null, null], [$hint('0 2 * * *', '0 2 * * *'), $hint('0 3 * * *', '0 2 * * *'), $hint('0 4 * * *', '0 2 * * *'), $hint(null, '0 2 * * *')]);
+    same('night order: the same minute — daily alike; 02:00 vs 02:01; every hour vs 02:00; Mondays vs daily; one line off',
+        ['02:00', null, '02:00', '02:00', null],
+        array_map(fn ($p) => ($at = nightOrderSameMinute($p[0], $p[1], $now)) !== null ? date('H:i', $at) : null,
+                  [['0 2 * * *', '0 2 * * *'], ['0 2 * * *', '1 2 * * *'], ['0 * * * *', '0 2 * * *'], ['0 2 * * 1', '0 2 * * *'], ['0 2 * * *', null]]));
+    $cron = "$tmp/office.cron";
+    officeJobSetSchedule('moverelli', '0 2 * * *', $cron, false);
+    $refused = function (callable $f): ?array {
+        try {
+            $f();
+            return null;
+        } catch (Problem $p) {
+            return [$p->key, $p->params];
+        }
+    };
+    same('night order: saving the backup on her minute refused, naming her time; another minute fine; her line on his minute refused; she not hired: no check',
+        [['backup_same_minute', ['time' => '02:00']], null, ['moverelli_same_minute', ['time' => '02:00']], null],
+        [$refused(fn () => nightOrderSaveCheck('backup', '0 2 * * *', $cron, true)), $refused(fn () => nightOrderSaveCheck('backup', '30 2 * * *', $cron, true)),
+         (function () use ($refused, $cron) { officeJobSetSchedule('backup', '0 2 * * *', $cron, false); return $refused(fn () => nightOrderSaveCheck('moverelli', '0 2 * * *', $cron, true)); })(),
+         $refused(fn () => nightOrderSaveCheck('backup', '0 2 * * *', $cron, false))]);
+    same('night order: a collision from before the check — the hint; gone once one moves', [true, false],
+        [nightOrderHint($cron, $now), (function () use ($cron, $now) { officeJobSetSchedule('backup', '30 3 * * *', $cron, false); return nightOrderHint($cron, $now); })()]);
+    check('night order: both desks save through the check', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php'), "nightOrderSaveCheck('backup', \$cron);")
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php'), "nightOrderSaveCheck('moverelli', \$cron, \$h['cron_file'], true);"));
 
-    // (5) the records: the backup's row reads `order` only in its shape; her night's short form carries hers
-    same('night order: the backup\'s history row — order read in its shape, anything else null',
-        [['code' => 'waited_night', 'seconds' => 1260], null, null, null],
+    // (5) the records: read only in their shape
+    same('night order: the backup\'s history row — order {waited_night} only', [['code' => 'waited_night', 'seconds' => 1260], null, null],
         array_map(fn ($o) => backupRunFromStatus(['run' => '20261022-0200', 'order' => $o])['order'],
-                  [['code' => 'waited_night', 'seconds' => 1260], ['code' => 'waited_backup', 'seconds' => 1], ['code' => 'beside_mover', 'seconds' => '9'], 'x']));
-    same('night order: her night\'s short form — her own codes only',
-        [['code' => 'waited_backup', 'seconds' => 300], null],
+                  [['code' => 'waited_night', 'seconds' => 1260], ['code' => 'waited_backup', 'seconds' => 1], ['code' => 'waited_night', 'seconds' => '9']]));
+    same('night order: her night\'s short form — {waited_backup} only', [['code' => 'waited_backup', 'seconds' => 300], null],
         [moverelliNightShort(['order' => ['code' => 'waited_backup', 'seconds' => 300]])['order'] ?? null, moverelliNightShort(['order' => ['code' => 'waited_night', 'seconds' => 3]])['order'] ?? null]);
 
-    // (6) the engine 2.70: UB_ORDER read exactly in its shape; status.json `order` and `snapped`; `snapped` set once all
-    // snapshots are taken (after the btrfs disks nobody held anything on), before the partners
+    // (6) the engine 2.70: UB_ORDER read exactly in its shape → status.json `order`
     $lib = OFFICE_DIR . '/backup/lib/common.sh';
-    $sh = function (string $order) use ($lib, $tmp): array {
-        $cmd = 'UB_DATA=' . escapeshellarg("$tmp/ubdata") . ' UB_ORDER=' . escapeshellarg($order) . ' bash -c ' . escapeshellarg(
-            'source ' . escapeshellarg($lib) . ' >/dev/null 2>&1; order_load; ST_SNAPPED=1700000000; status_json');
-        return json_decode((string) shell_exec($cmd), true) ?? [];
+    $sh = function (string $order) use ($lib, $tmp) {
+        $j = json_decode((string) shell_exec('UB_DATA=' . escapeshellarg("$tmp/ubdata") . ' UB_ORDER=' . escapeshellarg($order) . ' bash -c '
+            . escapeshellarg('source ' . escapeshellarg($lib) . ' >/dev/null 2>&1; order_load; status_json')), true) ?? [];
+        return array_key_exists('order', $j) ? $j['order'] : 'missing';
     };
-    $ok = $sh('waited_night:1260');
-    same('night order: engine — UB_ORDER «waited_night:1260» → status.json order {waited_night, 1260}, snapped as set',
-        [['code' => 'waited_night', 'seconds' => 1260], 1700000000], [$ok['order'] ?? 'missing', $ok['snapped'] ?? 'missing']);
-    same('night order: engine — anything else is no order (unknown code, extra text, a line break)', [null, null, null, null],
-        array_map(fn ($o) => array_key_exists('order', $j = $sh($o)) ? $j['order'] : 'missing', ['waited_backup:1', 'waited_night:12;rm', "beside_mover:0\nx", '']));
-    $bsh = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh');
-    $snapAt = strpos($bsh, "ST_SNAPPED=\"\$(date +%s)\"");
-    check('night order: engine — `snapped` after the btrfs disks of the restart, before the partners and Kopia',
-        $snapAt !== false && $snapAt > strpos($bsh, 'btrfs_snap "$base" "after the restart"') && $snapAt < strpos($bsh, '(( ${#ST_PARTNER_PLAN[@]} )) && partner_phase')
-        && $snapAt < strpos($bsh, 'next_phase "kopia"'));
+    same('night order: engine — «waited_night:1260» → order; anything else none (another code, extra text, a line break, empty)',
+        [['code' => 'waited_night', 'seconds' => 1260], null, null, null, null],
+        [$sh('waited_night:1260'), $sh('waited_mover:1'), $sh('waited_night:12;rm'), $sh("waited_night:0\nx"), $sh('')]);
 
-    // (7) job.sh: the office's word goes to the engine only in its shape; exit 3 starts nothing; the office failing starts it
-    @mkdir("$tmp/plugin/scripts", 0700, true);
-    @mkdir("$tmp/plugin/agent", 0700, true);
-    @mkdir("$tmp/plugin/backup", 0700, true);
-    $script = str_replace(['DIR=/usr/local/emhttp/plugins/unraid-secretary-office', 'RUN=/var/run/unraid-secretary-office', 'logger -t unraid-secretary-office'],
-                          ["DIR=$tmp/plugin", "RUN=$tmp/jobrun", "echo >> $tmp/syslog"], (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/job.sh'));
-    file_put_contents("$tmp/job.sh", $script);
+    // (7) job.sh: the word goes to the engine only in its shape; exit 3 starts nothing; the office failing starts it
+    foreach (['scripts', 'agent', 'backup'] as $d) {
+        @mkdir("$tmp/plugin/$d", 0700, true);
+    }
+    file_put_contents("$tmp/job.sh", str_replace(['DIR=/usr/local/emhttp/plugins/unraid-secretary-office', 'RUN=/var/run/unraid-secretary-office', 'logger -t unraid-secretary-office'],
+        ["DIR=$tmp/plugin", "RUN=$tmp/jobrun", "echo >> $tmp/syslog"], (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/job.sh')));
     file_put_contents("$tmp/plugin/scripts/agent.sh", "array_started() { return 0; }\n");
     file_put_contents("$tmp/plugin/agent/agent.php", "<?php echo getenv('STUB_OUT'); exit((int) getenv('STUB_RC'));\n");
     file_put_contents("$tmp/plugin/backup/backup.sh", "echo \"ran \${UB_ORDER:-none}\" >> $tmp/ran\n");
-    $job = function (string $out, int $rc) use ($tmp): string {
+    $js = function (string $out, int $rc) use ($tmp): string {
         @unlink("$tmp/ran");
         @unlink("$tmp/jobrun/job-backup.minute");
         exec('STUB_OUT=' . escapeshellarg($out) . " STUB_RC=$rc bash " . escapeshellarg("$tmp/job.sh") . ' backup 2>&1');
@@ -44923,9 +44879,9 @@ function testNightOrder(): void
     };
     same('night order: job.sh — the word handed on; exit 3: nothing; no word, junk or the office failing: the backup as ever',
         ['ran waited_night:1260', 'not started', 'ran none', 'ran none', 'ran none'],
-        [$job("waited_night:1260\n", 0), $job('', 3), $job('', 0), $job("x y\n", 0), $job('', 255)]);
+        [$js("waited_night:1260\n", 0), $js('', 3), $js('', 0), $js("x y\n", 0), $js('', 255)]);
 
-    // (8) the pages under node: the quiet line on both schedules, the run row's word, her last run's word, the toast's
+    // (8) the pages under node: the quiet line on both schedule rows, the run row's word, her last run's word
     $node = testsNode();
     if ($node === '') {
         check('night order: pages - node is missing here - skipped', true);
@@ -44946,18 +44902,14 @@ globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', not
 for (const f of process.argv.slice(2)) (0, eval)(fs.readFileSync(f, 'utf8'));
 const b = OFFICE_DESK_TESTS.backup;
 const m = OFFICE_DESK_TESTS.moverelli;
-const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
 const notes = (n) => (typeof n === 'string' ? [] : [...(n.cls === 'note' ? [n.textContent] : []), ...n.children.flatMap(notes)]);
 const out = {};
 const sched = (hint) => ({ script: true, enabled: true, frequency: 'custom', custom: '0 2 * * *', next: 1000, order_hint: hint });
-out.backup = ['same', 'inside', null, 'junk'].map((h) => { b.setState({ schedule: sched(h), history: [] }); return notes(b.scheduleSection()); });
-b.setState({ schedule: { ...sched('same'), enabled: false }, history: [] });
-out.backupOff = texts(b.scheduleSection()).filter((t) => t.startsWith('schedule.order'));
-out.order = [b.orderText({ code: 'waited_night', seconds: 1260 }), b.orderText({ code: 'beside_mover', seconds: 0 }), b.orderText({ code: 'gave_up_night', seconds: 5400 }),
-  b.orderText({ code: 'nope', seconds: 1 }), b.orderText(null)];
+out.backup = [true, false, 'same'].map((h) => { b.setState({ schedule: sched(h), history: [] }); return notes(b.scheduleSection()); });
+out.order = [b.orderText({ code: 'waited_night', seconds: 1260 }), b.orderText({ code: 'waited_night', seconds: 5 }), b.orderText({ code: 'nope', seconds: 1 }), b.orderText(null)];
 const night = { jack: true, plan: null, last: { mode: 'run', started: 100, finished: 200, result: 'ok', round: 1, jack: true, order: { code: 'waited_backup', seconds: 400 } } };
 out.last = [m.lastNightText(night.last), m.lastNightText({ ...night.last, order: { code: 'waited_night', seconds: 9 } })];
-out.mine = ['same', 'inside', null].map((h) => {
+out.mine = [true, false].map((h) => {
   m.setState({ configured: false, unraid: { ok: true }, job: {}, schedule: { enabled: true, frequency: 'custom', custom: '0 2 * * *', order_hint: h }, history: [], shares: [], night, mover: { off: true } });
   return notes(m.scheduleSection());
 });
@@ -44966,18 +44918,13 @@ JS);
     $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' '
         . escapeshellarg(OFFICE_WEB . '/desks/moverelli/desk.js') . ' 2>&1');
     $r = json_decode($raw, true) ?? [];
-    same('night order: Mr. Backupsy\'s schedule — one quiet line (a note, never a warning): same minute, inside her run; none else; none while off',
-        [[['schedule.order_same'], ['schedule.order_inside'], [], []], []],
-        [array_map(fn ($n) => array_values(array_filter($n, fn ($x) => str_starts_with($x, 'schedule.order'))), $r['backup'] ?? []), $r['backupOff'] ?? null]);
-    same('night order: the run row\'s word (minutes, at least 1), nothing for an unknown code',
-        ['order.waited_night {"min":21}', 'order.beside_mover {"min":1}', 'order.gave_up_night {"min":90}', '', ''], $r['order'] ?? $raw);
-    same('night order: her last run says what it waited for — only her own codes',
-        [true, false], [str_ends_with($r['last'][0] ?? '', ' · night.order.waited_backup {"min":7}'), str_contains($r['last'][1] ?? '', 'night.order')]);
-    same('night order: her schedule row — the quiet line', [['sched.order_same'], ['sched.order_inside'], []],
-        array_map(fn ($n) => array_values(array_filter($n, fn ($x) => str_starts_with($x, 'sched.order'))), $r['mine'] ?? []));
-    $desk = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
-    check('night order: «Back up now» says when her run or the mover goes (the toast), the row shows the word',
-        str_contains($desk, "' ' + T('order.toast_' + j.beside.slice(7))") && str_contains($desk, "if (orderText(r.order)) meta.appendChild"));
+    $only = fn (array $n, string $p) => array_values(array_filter($n, fn ($x) => str_starts_with($x, $p)));
+    same('night order: the quiet line (a note) on both schedule rows only while both share a minute',
+        [[['schedule.order_hint'], [], []], [['sched.order_hint'], []]],
+        [array_map(fn ($n) => $only($n, 'schedule.order'), $r['backup'] ?? []), array_map(fn ($n) => $only($n, 'sched.order'), $r['mine'] ?? [])]);
+    same('night order: the run row\'s word (minutes, at least 1); her last run\'s',
+        [['order.waited_night {"min":21}', 'order.waited_night {"min":1}', '', ''], true, false],
+        [$r['order'] ?? $raw, str_ends_with($r['last'][0] ?? '', ' · night.order.waited_backup {"min":7}'), str_contains($r['last'][1] ?? '', 'night.order')]);
     hardeningRm($tmp);
 }
 

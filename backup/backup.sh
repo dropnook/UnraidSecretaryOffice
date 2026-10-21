@@ -1,11 +1,9 @@
 #!/bin/bash
 ###############################################################################
 # unraid-backup - backup.sh                       Version 2.70 - 2026-10-21
-#   2.70 The office's order with its mover run (Ms. Moverelli, both scheduled at the same minute): status.json "snapped" -
-#        when all of the run's snapshots were taken (0 until then; the btrfs disks nobody held anything on included) - the
-#        office's mover run waits for it instead of moving files between two of the run's snapshots; status.json and
-#        history "order" {code, seconds} from UB_ORDER (lib/common.sh order_load): what a scheduled run waited for before it
-#        started (the office's job waits before it starts the engine), or a run started by hand ran beside; one log line.
+#   2.70 The office's order with its mover run (Ms. Moverelli): a scheduled run that waited for it before it started (the
+#        office's job waits before it starts the engine) says so - status.json and history "order" {code: waited_night,
+#        seconds} from UB_ORDER (lib/common.sh order_load), one log line. The office's mover run reads the phase.
 #   2.69 An app stopped for the snapshot whose folders lie on a pool with almost no room (below 2 % of it, at least 1
 #        and at most 10 GiB, pool_low) is said before it stops: warning pool_low_space {pool, free, size, floor, apps, n}
 #        - it is still stopped and started as set up (a ZFS snapshot itself takes next to no room; a consistent
@@ -3934,18 +3932,13 @@ log "===================== $UB_NAME $UB_VERSION - $UB_MODE $TS =================
 array_stop_check "at its start"      # before anything - also before an earlier run's containers are started again
 recover_interrupted_run
 [[ "$DRY" == "1" ]] && log "DRY RUN - nothing is changed."
-# 2.70: the office's order - what this run waited for before it started, or runs beside (status.json "order")
+# 2.70: the scheduled run waited for the office's mover run before it started (status.json "order")
 order_load
-span="$(( (ST_ORDER_SECONDS + 30) / 60 )) min"; (( ST_ORDER_SECONDS < 60 )) && span="$ST_ORDER_SECONDS s"
-case "$ST_ORDER_CODE" in
-    waited_night)  log "Waited $span for the office's mover run (Ms. Moverelli) - she moves first, then this run snapshots" ;;
-    waited_mover)  log "Waited $span for Unraid's mover" ;;
-    gave_up_night) log "Started after $span although the office's mover run (Ms. Moverelli) still goes" ;;
-    gave_up_mover) log "Started after $span although Unraid's mover is still at work" ;;
-    beside_night)  log "Started by hand while the office's mover run (Ms. Moverelli) goes - both run side by side" ;;
-    beside_mover)  log "Started by hand while Unraid's mover is at work - both run side by side" ;;
-esac
-status_write
+if [[ "$ST_ORDER_CODE" == "waited_night" ]]; then
+    span="$(( (ST_ORDER_SECONDS + 30) / 60 )) min"; (( ST_ORDER_SECONDS < 60 )) && span="$ST_ORDER_SECONDS s"
+    log "Waited $span for the office's mover run (Ms. Moverelli) until it was done"
+    status_write
+fi
 
 for t in jq flock timeout gzip numfmt mountpoint awk; do
     command -v "$t" >/dev/null 2>&1 || die "Tool '$t' is missing"
@@ -4248,9 +4241,6 @@ for base in "${PLAN_BTRFS[@]}"; do [[ -z "${BTRFS_NEED[$base]:-}" ]] && btrfs_sn
 # the nights in a row each share was left out asleep (2.28): the UB_ASLEEP_NIGHTS-th warns once; a night it was
 # snapshotted - every night with asleep_pools = wake - takes it out of state/asleep.json
 asleep_nights "${ST_ASLEEP_SHARES[@]}"
-# 2.70: all of this run's snapshots are taken - moving files now can't land between two of them (status.json "snapped")
-ST_SNAPPED="$(date +%s)"
-status_write
 
 # --- Partners (2.27): this run's snapshots to the partner offices, before Kopia's long upload ---
 (( ${#ST_PARTNER_PLAN[@]} )) && partner_phase
