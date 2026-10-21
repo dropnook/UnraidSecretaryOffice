@@ -1,6 +1,7 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.67 - 2026-10-21
+# unraid-backup - setup.sh                        Version 2.68 - 2026-10-21
+#   2.68 No change here (the engine's version: backup.sh's upload stall watchdog; Kopia's reads limited to UB_KOPIA_TIMEOUT)
 #   2.67 A Kopia step that ran into its time limit is ended inside the container too (ub_exec_end) and said once as the
 #        error kopia_silent {seconds}: the policies this Apply wanted are not set, the Kopia steps after it are not tried
 #        (each would wait as long) - settings.ini stays written, the next Apply tries again. A policy look or change has

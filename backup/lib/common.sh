@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.67"
+UB_VERSION="2.68"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -1642,9 +1642,12 @@ KOPIA_RUN_UID="0"       # UID for docker exec (= server UID, so that cache/logs 
 # is UB_KOPIA_POLICY_TIMEOUT, not the exec's UB_DOCKER_EXEC_TIMEOUT. A call its limit ended (its process inside ended
 # too, ub_exec_end) means Kopia doesn't answer: every later call of this setup or run with a limit is refused at once
 # (exit 124, kopia_silent) instead of waiting that long again; an upload (UB_DOCKER_LONG) is asked as before.
+# 2.68: every other Kopia call but the upload (--version, repository status, snapshot list - reads) UB_KOPIA_TIMEOUT
+# (300 s), not the exec's 900 s: a storage that hangs makes the first of them wait that long at most, the rest not at all
 UB_KOPIA_POLICY_TIMEOUT="${UB_KOPIA_POLICY_TIMEOUT:-120}"
+UB_KOPIA_TIMEOUT="${UB_KOPIA_TIMEOUT:-300}"
 kopia_x() {
-    local e=() t="$UB_DOCKER_EXEC_TIMEOUT" rc
+    local e=() t="$UB_KOPIA_TIMEOUT" rc
     [[ "$KOPIA_RUN_UID" != "0" ]] && e=( -e HOME=/tmp )
     [[ "${1:-}" == "policy" ]] && t="$UB_KOPIA_POLICY_TIMEOUT"
     if [[ "${UB_DOCKER_LONG:-0}" != "1" ]] && kopia_silent; then
@@ -2028,6 +2031,59 @@ kopia_lock_save() {
             '{v: 1, ok: false, why: $why, time: $time, last: $last}' >"$tmp" 2>/dev/null || { rm -f "$tmp"; return 0; }
     fi
     chmod 600 "$tmp"; mv -f "$tmp" "$KL_FILE"
+    return 0
+}
+
+# --- An upload that takes nothing (2.68) ------------------------------------
+# Seen 2026-10-21: from one moment on every write to the repository (S3) hung for ever while reads and lists answered at
+# once - Kopia waits for ever, nothing fails, and a run's upload (no time limit: it may take hours) would hold the run and
+# its lock for ever. Its stall watchdog (kopia_one in backup.sh): the kopia process's own reads and writes
+# (/proc/<pid>/io rchar + wchar: the files it reads, the network) not moving for UB_KOPIA_STALL seconds ends it.
+UB_KOPIA_STALL="${UB_KOPIA_STALL:-900}"            # an upload whose process neither reads nor writes so long is ended
+UB_KOPIA_LOOK="${UB_KOPIA_LOOK:-60}"               # its reads and writes looked at every so many seconds
+UB_KOPIA_STALL_BYTES="${UB_KOPIA_STALL_BYTES:-1048576}"   # what counts as moving: so many bytes more read + written
+UB_KOPIA_STALL_END="${UB_KOPIA_STALL_END:-10}"     # seconds between INT (Kopia saves what it can) and KILL
+
+# kopia_upload_pid <container path> - the host pid of `kopia ... snapshot create <path>` inside the container (docker top)
+kopia_upload_pid() {
+    local out pid args
+    out="$(timeout -k 2 20 docker top "$KOPIA_CONTAINER" -eo pid,args 2>/dev/null | tail -n +2)"
+    while read -r pid args; do
+        [[ "$pid" =~ ^[0-9]+$ && "$args" == *"snapshot create"* && "$args" == *"$1"* ]] && { printf '%s' "$pid"; return 0; }
+    done <<<"$out"
+    return 1
+}
+# kopia_io <pid> - what the process read and wrote so far in bytes (/proc/<pid>/io: rchar + wchar - files, network, pipes)
+kopia_io() { [[ -r "/proc/$1/io" ]] && awk '$1 == "rchar:" || $1 == "wchar:" {s += $2} END {printf "%d", s}' "/proc/$1/io" 2>/dev/null; }
+
+# The stall watchdog's look, called while an upload runs (kopia_one): every UB_KOPIA_LOOK seconds the process's reads and
+# writes; 0 once they haven't moved by UB_KOPIA_STALL_BYTES for UB_KOPIA_STALL seconds (KS_AT: the last time they did,
+# KS_IO the count then). Kopia waiting on a storage that takes nothing still moves a few bytes now and then (seen live: Go's
+# own wake-ups, 8 bytes written and some read every few seconds) - that is no progress. A look that can't measure (docker
+# top silent, the process not found yet) counts as moving - never ended on a guess.
+KS_PID=""; KS_IO=""; KS_AT=0; KS_LOOKED=0
+kopia_stall_begin() { KS_PID=""; KS_IO=""; KS_AT="$(date +%s)"; KS_LOOKED=0; }
+kopia_stall_look() {
+    local now io
+    now="$(date +%s)"
+    (( now - KS_LOOKED >= UB_KOPIA_LOOK )) || return 1
+    KS_LOOKED="$now"
+    [[ -n "$KS_PID" && -e "/proc/$KS_PID" ]] || KS_PID="$(kopia_upload_pid "$1")" || { KS_PID=""; KS_AT="$now"; return 1; }
+    io="$(kopia_io "$KS_PID")"
+    if [[ -z "$io" || -z "$KS_IO" ]] || (( io < KS_IO || io - KS_IO >= UB_KOPIA_STALL_BYTES )); then KS_IO="$io"; KS_AT="$now"; return 1; fi
+    (( now - KS_AT >= UB_KOPIA_STALL ))
+}
+# kopia_stall_end <client pid> - the stalled upload ended: INT inside the container (Kopia saves what it can), KILL after
+# UB_KOPIA_STALL_END seconds - a write that hangs keeps it from ending by itself; then its docker exec client
+kopia_stall_end() {
+    local i
+    if [[ -n "$KS_PID" ]]; then
+        kill -INT "$KS_PID" 2>/dev/null
+        for (( i = 0; i < UB_KOPIA_STALL_END * 2; i++ )); do kill -0 "$KS_PID" 2>/dev/null || break; sleep 0.5; done
+        kill -0 "$KS_PID" 2>/dev/null && { kill -KILL "$KS_PID" 2>/dev/null; log_file "  ... still there after ${UB_KOPIA_STALL_END} s: KILL"; }
+    fi
+    for (( i = 0; i < 20; i++ )); do kill -0 "$1" 2>/dev/null || return 0; sleep 0.5; done
+    kill -TERM "$1" 2>/dev/null; sleep 1; kill -KILL "$1" 2>/dev/null
     return 0
 }
 
