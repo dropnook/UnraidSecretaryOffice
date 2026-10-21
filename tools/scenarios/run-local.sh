@@ -4,7 +4,8 @@
 # in reboot halves are skipped).
 #
 #   bash run-local.sh [--all | --desk backup,… | --only name[:arg],…] [--no-reset] [--no-nightly] [--keep] [--out DIR]
-#                                         list mode: base.sh, every scenario (a dirty one → base.sh again), summary.md
+#                                         list mode: base.sh, every scenario (a dirty one → base.sh again; the
+#                                         `# run-late:` ones last, base.sh before each), summary.md
 #   bash run-local.sh --list [--all | --desk … | --only …] [--no-nightly]   the scenarios' names, one a line
 #   bash run-local.sh --one name[:arg] [--half pre|post] --out DIR     one scenario (or one half), its result file
 #   bash run-local.sh --base --out DIR                                  base.sh, its time and log noted in DIR/run.info
@@ -129,12 +130,22 @@ scenario_names() {
         echo "$n"
     done
 }
+# a scenario's `# run-late: <n> <why>` line (in its first 30): it leaves something behind until a base reset — an --all or
+# --desk list runs it after every other one, the higher n the later (R22: 9), each on a fresh base (late_reset)
+late_rank() { local f=$SC/$1.sh; [[ -f $f ]] || f=$SC/$1-pre.sh; sed -n '1,30s/^# run-late: *\([0-9]\).*/\1/p' "$f" 2>/dev/null | head -1; }
+late_last() {
+    local n i=0
+    while IFS= read -r n; do
+        [[ -n $n ]] || continue
+        printf '%s\t%05d\t%s\n' "$(late_rank "${n%%:*}" | grep . || echo 0)" $((i++)) "$n"
+    done | sort -t $'\t' -k1,1n -k2,2n | cut -f3
+}
 select_names() {
     local all n w
     all=$(scenario_names)
     case $sel in
-        all) printf '%s\n' "$all" | sed '/^$/d' ;;
-        desk) for w in ${names//,/ }; do printf '%s\n' "$all" | grep -E "^$w-" ; done ;;
+        all) printf '%s\n' "$all" | sed '/^$/d' | late_last ;;
+        desk) for w in ${names//,/ }; do printf '%s\n' "$all" | grep -E "^$w-" ; done | late_last ;;
         only) for w in ${names//,/ }; do
                   n=${w%%:*}
                   if printf '%s\n' "$all" | grep -qxF "$n" || [[ -f $SC/$n.sh || -f $SC/$n-pre.sh ]]; then echo "$w"
@@ -248,7 +259,12 @@ list=$(select_names)
 if ((reset)); then
     base || { echo "run-local: the base reset failed - no scenario runs on an unknown state" >&2; summary "$out"; exit 1; }
 fi
+ran=0
 for spec in $list; do
+    if ((reset && ran)) && [[ -n $(late_rank "${spec%%:*}") ]]; then
+        base || { echo "run-local: the base reset before $spec failed - no further scenario runs on an unknown state" >&2; summary "$out"; exit 1; }
+    fi
+    ran=1
     run_one "$spec"
     code=$?
     case $code in

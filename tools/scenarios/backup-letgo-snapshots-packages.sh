@@ -6,6 +6,7 @@
 # possible), the engine's own local snapshots go — as the dialog says, the user's explicit tick (backup-letgo.php) — but
 # never Ms. Snapshotini's plans', settings.ini and the schedule stay; hired again his plan is there. Run last: the
 # packages come back with the next base reset. Pre-release (~4 min).
+# run-late: 2 his packages are in the storeroom and his snapshots gone until a base reset
 . "$(dirname "$0")/lib.sh"
 scenario_begin backup-letgo-snapshots-packages
 needs tower docker zfs

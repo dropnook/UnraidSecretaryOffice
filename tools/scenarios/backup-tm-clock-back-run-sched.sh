@@ -5,6 +5,7 @@
 # are still there (the retention counts by what it keeps, not «newest name first» — cell first-kept), «last run» is
 # the run just made and never in the future (cell last-is-new) — files written meanwhile carry future times after the
 # undo (STATES.md), INV-TICK and INV-PAGE look at the page with them. Pre-release (~5 min).
+# run-late: 3 the run under the set-back clock reads as «last» until the next run
 . "$(dirname "$0")/lib.sh"
 scenario_begin backup-tm-clock-back-run-sched
 needs any

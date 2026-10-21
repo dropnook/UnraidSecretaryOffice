@@ -6,6 +6,7 @@
 # second one at the doubled minute and never a failed one (cells one-run, not-failed: her history). She is set up for
 # the scenario (her page's save, with its consent to switch Unraid's mover off) and put back as the base has her.
 # Nightly (~70 min: the hour between the two 02:59s is waited for; the clock guard holds the set clock 90 min).
+# run-late: 4 the clock set on: her history dated ahead stays until a base reset
 . "$(dirname "$0")/lib.sh"
 scenario_begin moverelli-tm-dst-run-sched
 needs any

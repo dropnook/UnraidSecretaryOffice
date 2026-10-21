@@ -9,7 +9,8 @@
 #      --dev-sync: then plugin/dev-sync.sh there - the code under test into the plugin (off by default: wave 1 tests the
 #      released plugin; never on USOPartner).
 #   2. base.sh (unless --no-reset).
-#   3. Each scenario (--all: every one, --desk: a desk's, --only: these, in this order; `name:arg` hands arg to it as $1):
+#   3. Each scenario (--all: every one, --desk: a desk's — the `# run-late: <n>` ones last, by n, each after a base
+#      reset; --only: these, in this order; `name:arg` hands arg to it as $1):
 #      run-local.sh --one there. Exit 3 (dirty), a timeout or an error → base.sh before the next (not with --keep).
 #      Reboot halves (<name>-pre.sh, <name>-post.sh): pre, the reports copied here, the reboot (the runner's when pre left
 #      the VM up), then wait for ssh, the array Started and a fresh heartbeat; the tree and the reports back; post.
@@ -132,9 +133,16 @@ wait_back() {
     done
 }
 
-reds=0 base_failed=0
+# a `# run-late: <n>` scenario (run-local.sh lists them last): on a fresh base, whatever ran before it
+late() { local f=$here/$1.sh; [[ -f $f ]] || f=$here/$1-pre.sh; sed -n '1,30p' "$f" 2>/dev/null | grep -q '^# run-late: *[0-9]'; }
+reds=0 base_failed=0 ran=0
 for spec in $names; do
     n=${spec%%:*}
+    if ((reset && ran)) && late "$n"; then
+        say "$n runs late: the base reset first"
+        base || { say "the base reset before $n failed - no further scenario runs on an unknown state"; base_failed=1; break; }
+    fi
+    ran=1
     if vm "test -f $TREE/tools/scenarios/$n-pre.sh -a -f $TREE/tools/scenarios/$n-post.sh"; then
         vm "bash $TREE/tools/scenarios/run-local.sh --one '$spec' --half pre $opts"
         pull

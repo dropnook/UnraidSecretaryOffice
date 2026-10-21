@@ -3,6 +3,7 @@
 # «Run now» is refused (moverelli_jack_list_pending, the file named), a dry run goes, and her cron line's joint run is
 # refused too — one row in her history counting the tries (times), never told Unraid's notifications (moverelli.php: «a scheduled
 # refusal is counted, never notified»). Two tries of the cron line: one row, times 2. Pre-release (~3 min).
+# run-late: 1 her refused row stays in her history (every later Moverelli page red on it until a base reset)
 . "$(dirname "$0")/lib.sh"
 scenario_begin moverelli-jk-list-pending-run
 needs tower docker
