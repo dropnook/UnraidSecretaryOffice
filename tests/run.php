@@ -14444,7 +14444,11 @@ function testRestoreSettled(): void
         // a job that lives (an agent.php of this pid): untouched
         $live = proc_open(['sh', '-c', 'sleep 30; :', 'agent.php'], [], $pp);
         $alive = '20261019-192000-cc33';
-        $make($alive, proc_get_status($live)['pid']);
+        $livePid = proc_get_status($live)['pid'];
+        for ($i = 0; $i < 100 && !str_contains((string) @file_get_contents("/proc/$livePid/cmdline"), 'agent.php'); $i++) {
+            usleep(20000);      // until it is sh (a slow VM: still the forked php a moment after proc_open)
+        }
+        $make($alive, $livePid);
         rsJournals();
         same('restore settled: a job that lives is left alone', ['running', ['ok', 'running', 'pending']],
             [rsJournal($alive)['result'] ?? null, array_column(rsJournal($alive)['steps'] ?? [], 'state')]);
@@ -27269,10 +27273,13 @@ const out = {};
   out.calls = calls.slice();
   out.after = {};
   for (const s of ['Wasabi', 'gangs', 'Object Lock', 'Trinkgeldkasse', 'Tippfehler', 'Ransomware Wasabi', 'Lock', 'Datei']) out.after[s] = q(s);
-  // the time it takes (warm): the queries again
-  const t0 = process.hrtime.bigint();
-  for (let i = 0; i < 5; i++) for (const s of ['Wasabi', 'Object Lock', 'Datei', 'Tippfehler', 'zzzz']) O.search.find(s);
-  out.ms = Number(process.hrtime.bigint() - t0) / 1e6 / 25;
+  // the time it takes (warm): the queries again — the best of five rounds (a slow VM's GC pause is no slow search)
+  out.ms = Infinity;
+  for (let round = 0; round < 5; round++) {
+    const t0 = process.hrtime.bigint();
+    for (let i = 0; i < 5; i++) for (const s of ['Wasabi', 'Object Lock', 'Datei', 'Tippfehler', 'zzzz']) O.search.find(s);
+    out.ms = Math.min(out.ms, Number(process.hrtime.bigint() - t0) / 1e6 / 25);
+  }
 
   // the jump: the sentence of the guide (its <details> folded), Unraid's menu sticky (50 px) — then the page settles above it
   const realTimeout = setTimeout;
