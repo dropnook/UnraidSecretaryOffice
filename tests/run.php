@@ -30601,6 +30601,7 @@ function testDrillShareFile(): void
     $photo = random_bytes(5000);
     file_put_contents("$snap/2019/Sommer/strand.jpg", $photo);
     file_put_contents("$live/2019/Sommer/strand.jpg", $photo);
+    touch("$snap/2019/Sommer/strand.jpg", 1793500000 - 86400);             // settled: a day before the snapshot (never the real clock)
     file_put_contents("$snap/2019/Sommer/tiny.txt", 'x');                   // under 1 KB: never chosen
     @symlink('/etc/passwd', "$snap/2019/Sommer/link.jpg");                  // a link: never chosen
     $ctx = ['fs' => ['maple' => 'zfs', 'oak' => 'zfs'], 'zfs' => [$live => 'maple/Familienfotos', "$tmp/mnt/maple" => 'maple'],
