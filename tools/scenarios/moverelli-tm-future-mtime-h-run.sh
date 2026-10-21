@@ -37,6 +37,10 @@ os=$(find /mnt/disk*/"$S"/old -type f 2>/dev/null | wc -l)
 grep -qiE '"result":"(failed|error)"' <<<"$r$h" && h_cell run-ok 0 "her run: $r $h" || h_cell run-ok 1 "her run: $r"
 z=$( { agent_log_since run; tail -300 "$D/moverelli/smart_mover.log" 2>/dev/null; } | grep -iE 'future|negative|in der zukunft|clock' | head -2)
 w=$(jq -c '[.. | strings | select(test("future|zukunft|clock"; "i"))] | unique | .[0:3]' "$D/moverelli.json" 2>/dev/null)
+# since the fix (batch H7): her status and history count them per share (`future`), her page says it once (run_future)
+fu=$(jq -c --arg s "$S" '[.shares[]? | select(.share == $s) | .future // 0][0] // 0' "$D/moverelli/status.json" 2>/dev/null)
+fh=$(jq -c --arg s "$S" '[.history[0].status.shares[]? | select(.share == $s) | .future // 0][0] // 0' "$D/moverelli.json" 2>/dev/null)
+[[ ${fu:-0} -ge 3 && ${fh:-0} -ge 3 ]] && w="status future $fu, history future $fh"
 [[ $w != '[]' && -n $w ]] && h_cell said 1 "her state says: $w" \
     || h_cell said 0 "nothing on her page says 3 files carry times 30 days in the future (state: none; logs: ${z:-nothing})"
 expect_changes "share|$S|*"
