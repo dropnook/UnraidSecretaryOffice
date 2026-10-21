@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.66"
+UB_VERSION="2.67"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -119,6 +119,7 @@ _log_line() {
     if [[ -n "$LOG_FILE" ]]; then printf '%s\n' "$1" >>"$LOG_FILE"; fi
 }
 log()  { _log_line "$(_ts)  $*"; }
+log_file() { [[ -n "${LOG_FILE:-}" ]] && printf '%s  %s\n' "$(_ts)" "$*" >>"$LOG_FILE"; return 0; }   # the log only (2.67)
 warn() { WARNINGS=$((WARNINGS+1)); _log_line "$(_ts)  WARNING: $*"; }
 # warn_code <code> <text> [key=value]...  (2.42) - a warning the office says in its own words: counted and logged like
 #   warn (the English text), and noted in WARN_ITEMS ("code<US>key=value<US>...") - status.json "warning_items":
@@ -1637,10 +1638,34 @@ KOPIA_RUN_UID="0"       # UID for docker exec (= server UID, so that cache/logs 
 # cache folders (0700) would appear - the server could no longer open
 # the repository afterwards ("permission denied"). Snapshots need root, though,
 # to read every file -> the server has to run as root as well.
+# 2.67: a policy look or change takes seconds once the repository is open (the Kopia check opened it before) - its limit
+# is UB_KOPIA_POLICY_TIMEOUT, not the exec's UB_DOCKER_EXEC_TIMEOUT. A call its limit ended (its process inside ended
+# too, ub_exec_end) means Kopia doesn't answer: every later call of this setup or run with a limit is refused at once
+# (exit 124, kopia_silent) instead of waiting that long again; an upload (UB_DOCKER_LONG) is asked as before.
+UB_KOPIA_POLICY_TIMEOUT="${UB_KOPIA_POLICY_TIMEOUT:-120}"
 kopia_x() {
-    local e=()
+    local e=() t="$UB_DOCKER_EXEC_TIMEOUT" rc
     [[ "$KOPIA_RUN_UID" != "0" ]] && e=( -e HOME=/tmp )
-    docker exec -u "$KOPIA_RUN_UID" "${e[@]}" "$KOPIA_CONTAINER" kopia --no-progress "$@"
+    [[ "${1:-}" == "policy" ]] && t="$UB_KOPIA_POLICY_TIMEOUT"
+    if [[ "${UB_DOCKER_LONG:-0}" != "1" ]] && kopia_silent; then
+        log_file "  Kopia not asked (it did not answer before): kopia $1 ..."
+        return 124
+    fi
+    UB_EXEC_LIMIT="$t" docker exec -u "$KOPIA_RUN_UID" "${e[@]}" "$KOPIA_CONTAINER" kopia --no-progress "$@"; rc=$?
+    [[ -n "$UB_EXEC_TIMED_OUT" && "${UB_DOCKER_LONG:-0}" != "1" ]] && kopia_silent_mark "$UB_EXEC_TIMED_OUT" "$1"
+    return "$rc"
+}
+# The mark lives in state/ (the scripts call Kopia in subshells too), for this process alone: its pid in the name, a
+# token of this start inside - a mark an earlier process of the same pid left is never taken for this one's
+UB_KOPIA_SILENT_ID="$$.$(date +%s).$RANDOM"
+kopia_silent_file() { printf '%s/.kopia-silent.%s' "$UB_STATE" "$$"; }
+kopia_silent() { local m; m="$(cat "$(kopia_silent_file)" 2>/dev/null)" && [[ "${m%% *}" == "$UB_KOPIA_SILENT_ID" ]]; }
+kopia_silent_seconds() { local m; m="$(cat "$(kopia_silent_file)" 2>/dev/null)"; m="${m#* }"; printf '%s' "${m%% *}"; }
+kopia_silent_mark() { # <seconds> <what Kopia was asked>
+    kopia_silent && return 0
+    find "$UB_STATE" -maxdepth 1 -name '.kopia-silent.*' -mmin +1440 -delete 2>/dev/null     # older processes' marks
+    printf '%s %s %s\n' "$UB_KOPIA_SILENT_ID" "$1" "$2" >"$(kopia_silent_file)" 2>/dev/null
+    log_file "  Kopia did not answer within $1 s (kopia $2 ...) - no further Kopia step waits for it"
 }
 
 # UID of the Kopia server: from the process list, otherwise the owner of the config file
@@ -2167,14 +2192,68 @@ ub_docker_answers()  { timeout -k 5 "$UB_DOCKER_ANSWER" docker version --format 
 # as it takes. `timeout ... docker` calls with their own limit run the binary itself. Ended by the limit: exit 124 (137).
 UB_DOCKER_TIMEOUT="${UB_DOCKER_TIMEOUT:-120}"
 UB_DOCKER_EXEC_TIMEOUT="${UB_DOCKER_EXEC_TIMEOUT:-900}"
+# 2.67: an exec ended by its limit leaves its process running inside the container - the limit ends only docker's own
+# client (seen: a Kopia policy change went on for 37 minutes and held the repository for the next step). ub_exec_end ends
+# it too; UB_EXEC_TIMED_OUT then holds the limit (seconds) that ended the last exec of this shell, else empty.
+# UB_EXEC_LIMIT (as a prefix of one call) gives that exec a limit of its own.
+UB_EXEC_END_WAIT="${UB_EXEC_END_WAIT:-5}"     # seconds between TERM and KILL inside the container
+UB_EXEC_TIMED_OUT=""
 docker() {
     [[ "${UB_DOCKER_LONG:-0}" == "1" ]] && { command docker "$@"; return; }
-    local t="$UB_DOCKER_TIMEOUT"
+    local t="$UB_DOCKER_TIMEOUT" t0=$SECONDS rc
     case "${1:-}" in
-        exec) t="$UB_DOCKER_EXEC_TIMEOUT" ;;
+        exec) t="${UB_EXEC_LIMIT:-$UB_DOCKER_EXEC_TIMEOUT}"; UB_EXEC_TIMED_OUT="" ;;
         stop) is_uint "${DOCKER_STOP_TIMEOUT:-}" && t=$(( t + DOCKER_STOP_TIMEOUT )) ;;
     esac
-    timeout -k 10 "$t" docker "$@"
+    timeout -k 10 "$t" docker "$@"; rc=$?
+    if [[ "${1:-}" == "exec" ]] && (( (rc == 124 || rc == 137) && SECONDS - t0 >= t )); then
+        UB_EXEC_TIMED_OUT="$t"
+        ub_exec_end "$(( SECONDS - t0 ))" "${@:2}"
+    fi
+    return "$rc"
+}
+
+# ub_exec_end <seconds> <docker exec's arguments>  -> ends what an exec its limit ended left running inside the container:
+# the processes there (docker top - the host's pids) whose command line is exactly the exec's command and that started
+# within those seconds - the newest first -, with their children; TERM, after UB_EXEC_END_WAIT seconds KILL. Never another
+# process (the Kopia server, an older call of the same command, someone's shell). Said in the log - the program's name
+# only, never its arguments (a password) - and only there: never into what a caller reads from the exec.
+ub_exec_end() {
+    local secs="$1" c="" want pid ppid et args p i
+    shift
+    while (( $# )); do
+        case "$1" in
+            -u|--user|-e|--env|-w|--workdir|--env-file|--detach-keys) shift 2 ;;
+            -*) shift ;;
+            *) c="$1"; shift; break ;;
+        esac
+    done
+    [[ -n "$c" ]] && (( $# )) || return 0
+    want="$(printf '%s ' "$@")"; want="${want% }"
+    local -a mine=() kids=()
+    local -A parent=()
+    while read -r pid ppid et args; do
+        [[ "$pid" =~ ^[0-9]+$ && "$ppid" =~ ^[0-9]+$ ]] || continue
+        parent[$pid]="$ppid"
+        [[ "$args" == "$want" && "$et" =~ ^[0-9]+$ ]] && (( et <= secs + 2 )) && mine+=( "$et $pid" )
+    done <<<"$(timeout -k 2 10 docker top "$c" -eo pid,ppid,etimes,args 2>/dev/null)"
+    (( ${#mine[@]} )) || { log_file "  docker exec in '$c' ended by its limit ($secs s): its process is no longer there"; return 0; }
+    mapfile -t mine < <(printf '%s\n' "${mine[@]}" | sort -n | awk '{print $2}')
+    kids=( "${mine[@]}" )
+    for (( i = 0; i < ${#kids[@]}; i++ )); do          # their children, theirs ... (from the same list)
+        for p in "${!parent[@]}"; do
+            [[ "${parent[$p]}" == "${kids[$i]}" ]] && ! in_list "$p" "${kids[@]}" && kids+=( "$p" )
+        done
+    done
+    log_file "  docker exec in '$c' ended by its limit ($secs s) - its process inside goes too: ${kids[*]} ($1 ...)"
+    kill -TERM "${kids[@]}" 2>/dev/null
+    for (( i = 0; i < UB_EXEC_END_WAIT * 2; i++ )); do
+        kill -0 "${kids[@]}" 2>/dev/null || return 0
+        sleep 0.5
+    done
+    kill -KILL "${kids[@]}" 2>/dev/null
+    log_file "  ... still there after ${UB_EXEC_END_WAIT} s: KILL"
+    return 0
 }
 ub_libvirt_answers() { timeout 20 virsh list --name >/dev/null 2>&1; }
 # Unraid's VM service switched off (Settings > VM Manager > Enable VMs: No, domain.cfg SERVICE="disable"): no libvirt
@@ -3001,6 +3080,7 @@ ub_holder_write() { # ub_holder_write <holder> <mode> <run> <started>
 # only our own note goes (another holder may already have written its own)
 ub_holder_clear() {
     [[ "$(jq -r '.pid // empty' "$UB_STATE/lock-holder.json" 2>/dev/null)" == "$$" ]] && rm -f "$UB_STATE/lock-holder.json"
+    kopia_silent && rm -f "$(kopia_silent_file)"        # 2.67: this process's own mark only
     return 0
 }
 # ub_pid_runs <pid> <script name>: is that process running the script (bash <path>/<script> ...)?
@@ -4012,7 +4092,11 @@ new_local_run() {
             NEW_LIST+=( "$s"$'\x1f'"$n"$'\x1f'"$bytes"$'\x1f'"$first"$'\x1f'"${rules//$'\n'/$'\x1e'}" )
             log "  New folder '$s/$n'${bytes:+ ($(human "$bytes"))} stays local: Kopia leaves it out until you decide (Set up...)"
         done < <(printf '%s\n' "${!names[@]}" | sed '/^$/d' | LC_ALL=C sort)
-        new_policy_align "$s" "$cpath" || SKIP_KOPIA[$s]="its new folders could not be left out of its policy"
+        if ! new_policy_align "$s" "$cpath"; then
+            # 2.67: Kopia not answering (kopia_silent): the shares after it aren't asked again - each would wait as long
+            if kopia_silent; then SKIP_KOPIA[$s]="Kopia did not answer - its new folders could not be left out of its policy"
+            else SKIP_KOPIA[$s]="its new folders could not be left out of its policy"; fi
+        fi
     done
     # what this run didn't look at (a share skipped or not mounted) stays as it was, while undecided
     for l in "${keep[@]}"; do

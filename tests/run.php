@@ -5081,6 +5081,169 @@ echo \"\$*\" >> \"\$FAKE/docker.log\"\n[[ -s \"\$FAKE/hang\" ]] && sleep \"\$(ca
 }
 
 /**
+ * Engine 2.67 (seen on a real server, 2026-10-21): a Kopia `policy set` hung during an Apply; the 2.66 time limit ended
+ * only the docker exec client - the kopia process inside the container went on (37 minutes later still there) and held
+ * the repository, so the next policy change hung as well, and the Apply ended «ok» though its policies were not set.
+ * A stand-in docker whose exec leaves a real process behind (its own session, as a container's process is) and whose
+ * `docker top` lists it beside the Kopia server, an older call of the same command and a child of it: the exec's limit
+ * ends exactly that process and its child; a policy look or change has a limit of its own; a Kopia call its limit ended
+ * makes every later one of the same process refuse at once (subshells too), an upload is asked as before; the Apply says
+ * kopia_silent once, tries no further policy change, keeps settings.ini written and ends with the result «errors».
+ */
+function testKopiaHang(): void
+{
+    $f = setupEfFixture('kopiahang');
+    ['tmp' => $tmp, 'data' => $data, 'fake' => $fake, 'json' => $json, 'coded' => $coded, 'apply' => $apply, 'mnt' => $mnt, 'root' => $root] = $f;
+    // the fixture's docker, with every call noted; an exec whose command holds $FAKE_HANG leaves a process behind and hangs
+    $sh = (string) file_get_contents("$tmp/bin/docker");
+    $sh = str_replace("#!/bin/bash\n", "#!/bin/bash\necho \"\$*\" >>\"\$FAKE/docker.log\"\n", $sh);
+    $sh = str_replace("  top) printf 'PID UID COMMAND\\n7 0 /app/kopia server start\\n'; exit 0 ;;\n", <<<'SH'
+  top)
+    [[ "$*" == *etimes* ]] || { printf 'PID UID COMMAND\n7 0 /app/kopia server start\n'; exit 0; }
+    printf 'PID        PPID    ELAPSED COMMAND\n%s 1 5000 /app/kopia server start\n' "$(cat "$FAKE/srv")"
+    while read -r p c; do
+      printf '%s 1 99999 %s\n' "$(cat "$FAKE/old")" "$c"
+      printf '%s 1 %s %s\n' "$p" "$(ps -o etimes= -p "$p" | tr -d ' ')" "$c"
+      printf '%s %s 1 sleep 300\n' "$(cat "$FAKE/kid")" "$p"
+    done <"$FAKE/inner"
+    exit 0 ;;
+
+SH, $sh);
+    $sh = str_replace("    shift\n    case \"\$1\" in\n      kopia)", <<<'SH'
+    shift
+    if [[ -n "${FAKE_HANG:-}" && "$*" == *"$FAKE_HANG"* ]]; then
+      setsid sleep 300 </dev/null >/dev/null 2>&1 &
+      printf '%s %s\n' "$!" "$*" >>"$FAKE/inner"
+      sleep 300
+    fi
+    [[ "$1" == cat ]] && { cat "$FAKE_ROOT${2#/uso}" 2>/dev/null; exit 0; }      # the live test's marker
+    case "$1" in
+      kopia)
+SH, $sh);
+    check('kopia hang: the stand-in docker is made', str_contains($sh, 'FAKE_HANG') && str_contains($sh, 'etimes'), $sh);
+    file_put_contents("$tmp/bin/docker", $sh);
+    $pids = [];
+    foreach (['srv', 'old', 'kid'] as $n) {
+        $pids[$n] = (int) exec('setsid sleep 300 </dev/null >/dev/null 2>&1 & echo $!');
+        file_put_contents("$fake/$n", (string) $pids[$n]);
+    }
+    $alive = fn (int $p) => $p > 0 && posix_kill($p, 0);
+    $inner = function () use ($fake): array {
+        $out = [];
+        foreach (array_filter(explode("\n", (string) @file_get_contents("$fake/inner"))) as $l) {
+            $out[] = (int) $l;
+        }
+        return $out;
+    };
+    $reset = function () use ($fake, $inner): void {
+        foreach ($inner() as $p) {
+            @posix_kill($p, 9);
+        }
+        @unlink("$fake/inner");
+        @unlink("$fake/docker.log");
+    };
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+    $env = "export PATH=$tmp/bin:\$PATH FAKE=$fake UB_DATA=$data LOG_FILE=$tmp/lib.log KOPIA_CONTAINER=kopia KOPIA_RUN_UID=0 UB_EXEC_END_WAIT=1";
+    $bash = function (string $script) use ($env, $lib): array {
+        $t0 = microtime(true);
+        $out = trim((string) shell_exec('bash -c ' . escapeshellarg("$env; source $lib >/dev/null 2>&1; $script") . ' 2>&1'));
+        return [$out, microtime(true) - $t0];
+    };
+    $calls = fn () => array_values(array_filter(explode("\n", (string) @file_get_contents("$fake/docker.log"))));
+
+    // --- an exec its limit ended: its process inside ends too - with its child; the server and an older call stay
+    $reset();
+    [$o, $secs] = $bash('FAKE_HANG="sh -c look" UB_DOCKER_EXEC_TIMEOUT=2 docker exec -u 0 -e HOME=/tmp kopia sh -c "look here"; echo "rc=$? limit=$UB_EXEC_TIMED_OUT"');
+    $in = $inner();
+    usleep(300000);
+    same('kopia hang: an exec its limit ended - 124 said, its process inside ended with its child; the server and an older call of the same command stay',
+        ['rc=124 limit=2', 1, false, false, true, true, true],
+        [$o, count($in), $alive($in[0] ?? 0), $alive($pids['kid']), $alive($pids['srv']), $alive($pids['old']), $secs < 12], $o);
+    $log = (string) @file_get_contents("$tmp/lib.log");
+    check('kopia hang: … said in the log by the program\'s name - never its arguments', str_contains($log, "docker exec in 'kopia' ended by its limit (")
+        && str_contains($log, '(sh ...)') && !str_contains($log, 'look here'), $log);
+    $pids['kid'] = (int) exec('setsid sleep 300 </dev/null >/dev/null 2>&1 & echo $!');
+    file_put_contents("$fake/kid", (string) $pids['kid']);
+    // an exec that answers in time, one that ends badly by itself: nothing ended inside, no limit noted
+    $reset();
+    [$o] = $bash('UB_DOCKER_EXEC_TIMEOUT=5 docker exec kopia sh -c "fine"; echo "rc=$? limit=[$UB_EXEC_TIMED_OUT]"; docker exec kopia nothing; echo "rc=$? limit=[$UB_EXEC_TIMED_OUT]"');
+    same('kopia hang: an exec in time, one failing by itself - no limit noted, docker top never asked', ['rc=0 limit=[]' . "\n" . 'rc=1 limit=[]', []],
+        [$o, array_values(preg_grep('/^top /', $calls()))]);
+
+    // --- Kopia: a policy call has its own limit; once one ran into it, every later call with a limit is refused at once
+    $reset();
+    @unlink("$tmp/lib.log");
+    [$o, $secs] = $bash('FAKE_HANG="policy set" UB_DOCKER_EXEC_TIMEOUT=60 UB_KOPIA_POLICY_TIMEOUT=2 kopia_x policy set root@kopia:/uso --add-ignore /x/; echo "rc=$?";'
+        . ' js="$(kopia_x policy list --json)"; echo "list=$?"; ( kopia_x --version >/dev/null; echo "sub=$?" ); kopia_silent && echo silent;'
+        . ' UB_DOCKER_LONG=1 kopia_x snapshot create /uso/media >/dev/null; echo "long=$?"; echo "secs=$(kopia_silent_seconds)"');
+    same('kopia hang: a policy change ends after UB_KOPIA_POLICY_TIMEOUT (not the exec\'s 60 s); later calls refused at once (in a subshell too), the upload asked as before',
+        ["rc=124\nlist=124\nsub=124\nsilent\nlong=0\nsecs=2", true, false],
+        [$o, $secs < 15, $alive($inner()[0] ?? 0)]);
+    same('kopia hang: … Docker asked only for the policy change, its look inside and the upload',
+        ['exec -u 0 kopia kopia --no-progress policy set root@kopia:/uso --add-ignore /x/', 'top kopia -eo pid,ppid,etimes,args', 'exec -u 0 kopia kopia --no-progress snapshot create /uso/media'],
+        $calls());
+    $log = (string) @file_get_contents("$tmp/lib.log");
+    check('kopia hang: … the log says it once, and each call not asked', substr_count($log, 'Kopia did not answer within 2 s (kopia policy ...)') === 1
+        && substr_count($log, 'Kopia not asked (it did not answer before)') === 2, $log);
+    [$o] = $bash('kopia_silent && echo silent || echo quiet');
+    same('kopia hang: the mark is this process\'s alone - another one (the next Apply, the next run) asks Kopia again', 'quiet', $o);
+    [$o] = $bash('printf "%s 2 policy\n" "$UB_KOPIA_SILENT_ID" >"$(kopia_silent_file)"; kopia_silent && echo silent; ub_holder_clear; [[ -e "$(kopia_silent_file)" ]] && echo left || echo gone');
+    same('kopia hang: its end takes its mark away', "silent\ngone", $o);
+    array_map('unlink', glob("$data/state/.kopia-silent.*") ?: []);     // the marks of the calls above (they ended without)
+
+    // --- the Apply: one policy change hangs - said once as kopia_silent, the others not tried, settings.ini written, «errors»
+    $kopia = setupEfContainer('kopia', 'imagegenius/kopia', [["$mnt/user/appdata/kopia", '/config'], [$root, '/uso', false]]);
+    file_put_contents("$fake/inspect.json", json_encode([$kopia]));
+    $f['setup']('--plan');
+    $P = $json('setup-plan.json')['P'] ?? [];
+    $reset();
+    $t0 = microtime(true);
+    putenv('FAKE_HANG=policy set');
+    putenv('UB_KOPIA_POLICY_TIMEOUT=2');
+    putenv('UB_DOCKER_EXEC_TIMEOUT=4');
+    putenv('UB_EXEC_END_WAIT=1');
+    [$rc, $out] = $apply(['kopia|enabled' => 'yes', 'share|media|mode' => 'kopia'] + $P);
+    foreach (['FAKE_HANG', 'UB_KOPIA_POLICY_TIMEOUT', 'UB_DOCKER_EXEC_TIMEOUT', 'UB_EXEC_END_WAIT'] as $k) {
+        putenv($k);
+    }
+    $secs = microtime(true) - $t0;
+    $st = $json('setup-status.json');
+    $said = $coded($st['messages'] ?? [], 'kopia_silent');
+    $sets = array_values(preg_grep('/ policy set /', $calls()));
+    same('kopia hang: the Apply - said once as an error (kopia_silent, its seconds), its process inside ended, no further policy change tried, the old sources not asked',
+        [1, 'error', '2', 1, false, []],
+        [count($said), $said[0]['level'] ?? null, $said[0]['params']['seconds'] ?? null, count($sets), $alive($inner()[0] ?? 0),
+         array_values(preg_grep('/snapshot list/', array_slice($calls(), (int) array_search($sets[0] ?? '', $calls(), true))))], $out);
+    same('kopia hang: … settings.ini stays written, the result is «errors» (not «ok»), no mark left, not waited on each step',
+        [0, 'errors', true, true, [], true],
+        [$rc, $st['result'] ?? null, $st['written'] ?? null, str_contains((string) @file_get_contents("$data/settings.ini"), "[share \"media\"]\nmode = kopia\n"),
+         glob("$data/state/.kopia-silent.*") ?: [], $secs < 40], $out);
+    // the same Apply with Kopia answering: «ok», no kopia_silent
+    $reset();
+    [$rc, $out] = $apply(['kopia|enabled' => 'yes', 'share|media|mode' => 'kopia'] + $P);
+    $st = $json('setup-status.json');
+    same('kopia hang: Kopia answering - the Apply is «ok», nothing said', ['ok', []], [$st['result'] ?? null, $coded($st['messages'] ?? [], 'kopia_silent')], $out);
+
+    // --- the words and the page
+    $bad = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $s = langFile(OFFICE_WEB . "/desks/backup/lang/$l.json");
+        if (!str_contains((string) ($s['setup.msg.kopia_silent'] ?? ''), '{seconds}') || !is_string($s['setup.applied_errors'] ?? null)) {
+            $bad[] = $l;
+        }
+    }
+    same('kopia hang: the words in five languages', [], $bad);
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('kopia hang (page): an Apply ended «errors» with settings.ini written - said as applied with errors, no plan made anew at once',
+        str_contains($js, "if (j.run && j.run.result === 'errors' && j.run.written) {") && str_contains($js, "run.result === 'errors' && run.written ? 'setup.applied_errors'"));
+    $reset();
+    foreach ($pids as $p) {
+        @posix_kill($p, 9);
+    }
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * A small server for setup.sh's hand-edit and batch-E cases (2026-10-20): ZFS pool «maple» with the shares media, appdata
  * and the office's, a fake docker listing $FAKE/inspect.json's containers (none: Docker answers with no container; the file
  * `off`: docker.cfg says «no»), Kopia's container connected. Returns the paths and closures: setup(args) → [rc, out],
@@ -6026,7 +6189,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.66'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.67'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -7973,9 +8136,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.66 everywhere it is named', ['2.66', '2.66', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.66"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.66** –')]);
+    same('data trust: the engine\'s version 2.67 everywhere it is named', ['2.67', '2.67', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.67"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.67** –')]);
     // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
     same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
         array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
@@ -9079,7 +9242,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.66', [1, '2.66'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.67', [1, '2.67'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -9687,7 +9850,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.66', [1, '2.66'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.67', [1, '2.67'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -48423,7 +48586,7 @@ JS;
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testWatchmanHold',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testWatchmanHold',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testHouseDockerSilent', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
