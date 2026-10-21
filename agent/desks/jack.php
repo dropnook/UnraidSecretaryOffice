@@ -196,17 +196,22 @@ function jackListEnsure(?array $settings, string $dir = JACK_DATA, array $o = []
         return null;
     }
     clearstatcache(true, $f);
-    $ran = $o['ran'] ?? jackListRan($dir);
     if (is_file($f)) {
-        // there: untouched — unless emptied since his last run or the office wrote it (none of his runs going)
+        // there: untouched — unless emptied since his last run or the office wrote it (none of his runs going); seen with
+        // entries: noted (once per change) — a list that goes missing later held films
         $note = readJson("$dir/" . JACK_LIST_NOTE);
-        $text = (string) @file_get_contents($f, false, null, 0, 4096);
-        if (!$ran || trim($text) !== '' || !is_array($note) || (int) ($note['lines'] ?? 0) <= 0
-            || ([(int) ($note['mtime'] ?? 0), (int) ($note['size'] ?? -1)] === [(int) filemtime($f), (int) filesize($f)])
+        $seen = is_array($note) && [(int) ($note['mtime'] ?? 0), (int) ($note['size'] ?? -1)] === [(int) filemtime($f), (int) filesize($f)];
+        if (trim((string) @file_get_contents($f, false, null, 0, 4096)) !== '') {
+            if (!$seen) {
+                jackListNote($dir);
+            }
+            return null;
+        }
+        if ($seen || !is_array($note) || (int) ($note['lines'] ?? 0) <= 0 || !($o['ran'] ?? jackListRan($dir))
             || ($o['running'] ?? fn (): bool => jackJobInfo('embycache')['running'])()) {
             return null;
         }
-    } elseif (!$ran) {
+    } elseif (!($o['ran'] ?? jackListRan($dir))) {
         writeAtomic($f, '', 0600, 0, 0);
         jackListNote($dir);
         logLine('Jack Streamer: his list written, empty until his first real run (Ms. Moverelli\'s joint night run waits for it)');
@@ -228,10 +233,14 @@ function jackListEnsure(?array $settings, string $dir = JACK_DATA, array $o = []
     return 'rebuilt';
 }
 
-/** Has he worked here — a real run of MediaCache's (or a list taken over from an old EmbyCache)? Then his list holds films. */
+/**
+ * Has he worked here — a real run of MediaCache's, a list taken over from an old EmbyCache, or his list seen with entries
+ * (its note's `had`)? Then a lost list held films.
+ */
 function jackListRan(string $dir = JACK_DATA): bool
 {
-    if (is_file("$dir/mediacache_origin.json") || glob("$dir/mediacache_{exclude.txt,origin.json}.before-import-*", GLOB_BRACE)) {
+    if (is_file("$dir/mediacache_origin.json") || glob("$dir/mediacache_{exclude.txt,origin.json}.before-import-*", GLOB_BRACE)
+        || (readJson("$dir/" . JACK_LIST_NOTE)['had'] ?? null) === true) {
         return true;
     }
     $real = fn (mixed $r): bool => is_array($r) && ($r['tool'] ?? '') === 'embycache' && in_array($r['mode'] ?? '', ['run', 'release'], true)
@@ -271,9 +280,9 @@ function jackListFromPool(string $cache, array $shares): ?array
 }
 
 /**
- * The office's note of his list as it was left — by his run (jackJob()), the office or the import: its lines, mtime and
- * size (a list emptied by anyone else is told apart by them). $extra: `rebuilt` (the Team Lead's hint) — kept until his
- * next complete run ($complete: cleared); unknown keys kept.
+ * The office's note of his list as it was left — by his run (jackJob()), the office, the import or seen by his look: its
+ * lines, mtime and size (a list emptied by anyone else is told apart by them), `had` (it once held entries). $extra:
+ * `rebuilt` (the Team Lead's hint) — kept until his next complete run ($complete: cleared); unknown keys kept.
  */
 function jackListNote(string $dir = JACK_DATA, array $extra = [], bool $complete = false): void
 {
@@ -287,7 +296,8 @@ function jackListNote(string $dir = JACK_DATA, array $extra = [], bool $complete
         unset($note['rebuilt']);
     }
     $lines = count(array_filter(array_map('trim', (array) @file($f, FILE_IGNORE_NEW_LINES)), fn ($l) => $l !== ''));
-    writeAtomic("$dir/" . JACK_LIST_NOTE, jsonEncode(['v' => 1, 'lines' => $lines, 'mtime' => (int) filemtime($f), 'size' => (int) filesize($f)] + $extra + $note), 0600, 0, 0);
+    writeAtomic("$dir/" . JACK_LIST_NOTE, jsonEncode(['v' => 1, 'lines' => $lines, 'mtime' => (int) filemtime($f), 'size' => (int) filesize($f),
+        'had' => $lines > 0 || ($note['had'] ?? null) === true] + $extra + $note), 0600, 0, 0);
 }
 
 function jackScan(): array
@@ -3055,9 +3065,20 @@ function jackJob(string $tool, array $args): int
     // his list gone (or emptied by someone else) after his runs: written anew from what lies on the pool before MediaCache
     // reads it — an incomplete plan keeps «the list as it was», never an empty one for a lost one (H1, 2026-10-21); the
     // let-go's release brings back what it names. Not to be written anew: no real run (jack_list_lost)
-    $lost = $tool === 'embycache' && in_array($mode, ['run', 'release'], true) && jackListEnsure(jackReadSettings(), $dir, ['wake' => true]) === 'lost';
+    if ($tool === 'embycache' && in_array($mode, ['run', 'release'], true) && jackListEnsure(jackReadSettings(), $dir, ['wake' => true]) === 'lost') {
+        jackWaitEnd($wait, RUN_DIR, $tool);
+        if ($hold) {
+            flock($hold, LOCK_UN);
+            fclose($hold);
+        }
+        jackRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'from' => $from, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => 'jack_list_lost']);
+        if ($mode === 'release') {
+            jackReleaseRefusedTell('jack_list_lost');
+        }
+        return 1;
+    }
     // the start lock shared with Ms. Moverelli (jack-mover.php): none of her runs going, then his marker — one at a time
-    $movers = $lost ? null : jackMoversLock();
+    $movers = jackMoversLock();
     if ($movers === null || (function_exists('moverelliBusy') && moverelliBusy())) {
         jackMoversUnlock($movers);
         jackWaitEnd($wait, RUN_DIR, $tool);
@@ -3065,10 +3086,9 @@ function jackJob(string $tool, array $args): int
             flock($hold, LOCK_UN);
             fclose($hold);
         }
-        $why = $lost ? 'jack_list_lost' : 'jack_moverelli_running';
-        jackRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'from' => $from, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => $why]);
+        jackRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'from' => $from, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => 'jack_moverelli_running']);
         if ($mode === 'release') {
-            jackReleaseRefusedTell($why);
+            jackReleaseRefusedTell('jack_moverelli_running');
         }
         return 1;
     }

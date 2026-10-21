@@ -46122,6 +46122,10 @@ function testJackListLost(): void
 
     // before his first real run: written empty, as before (nothing of his lies there)
     same('lost list: before his first real run — written empty, noted', ['written', '', 0], [jackListEnsure($set, $dir, $o), file_get_contents($list), readJson("$dir/" . JACK_LIST_NOTE)['lines'] ?? null]);
+    // seen with films by his look, no real run of his in his list of runs (an older office's run, a trimmed list): noted
+    file_put_contents($list, implode("\n", $films) . "\n");
+    same('lost list: seen with entries by his look — noted, it held films', [null, 3, true, true],
+        [jackListEnsure($set, $dir, $o), readJson("$dir/" . JACK_LIST_NOTE)['lines'] ?? null, readJson("$dir/" . JACK_LIST_NOTE)['had'] ?? null, jackListRan($dir)]);
     // his real run: the list of his three films, noted as his run left it (jackJob())
     jackRemember(['tool' => 'embycache', 'mode' => 'run', 'by' => 'night', 'started' => 1000, 'finished' => 1100, 'exit' => 0, 'result' => 'ok'], $dir);
     file_put_contents($list, implode("\n", $films) . "\n");
@@ -46194,8 +46198,8 @@ SH);
     // his real run (and the let-go's release) writes it anew before MediaCache reads it — or refuses without it
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
     check('lost list: jackJob — written anew (the pool woken) before MediaCache\'s run or release, refused as jack_list_lost, noted after',
-        str_contains($src, "in_array(\$mode, ['run', 'release'], true) && jackListEnsure(jackReadSettings(), \$dir, ['wake' => true]) === 'lost';")
-        && str_contains($src, "\$why = \$lost ? 'jack_list_lost' : 'jack_moverelli_running';")
+        str_contains($src, "in_array(\$mode, ['run', 'release'], true) && jackListEnsure(jackReadSettings(), \$dir, ['wake' => true]) === 'lost') {")
+        && strpos($src, "'result' => 'refused', 'why' => 'jack_list_lost']);") < strpos($src, '$movers = jackMoversLock();')
         && str_contains($src, "jackListNote(\$dir, [], \$exit === 0 && (\$status['incomplete'] ?? null) === false);"));
     hardeningRm($t);
 }
