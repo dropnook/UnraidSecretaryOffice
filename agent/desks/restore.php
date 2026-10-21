@@ -3888,7 +3888,10 @@ function rsDbScript(string $what, array $s): string
                 default  => throw new Problem('command_failed', ['detail' => $what]),
             };
         case 'mariadb':
-            $who = ($s['login'] ?? '') === 'user' ? "-u\"\$$u\" -p\"\$$p\"" : '-uroot -p"$' . ($p ?: 'MARIADB_ROOT_PASSWORD') . '"';
+            // root without a password (the drill's throwaway of linuxserver's image: its root@localhost has none) gets no -p:
+            // an empty -p"" makes the client ask for one — without a terminal it crashes
+            $pw = $p ?: 'MARIADB_ROOT_PASSWORD';
+            $who = ($s['login'] ?? '') === 'user' ? "-u\"\$$u\" -p\"\$$p\"" : '-uroot ${' . $pw . ':+"-p$' . $pw . '"}';
             $cli = 'B=mariadb; command -v mariadb >/dev/null 2>&1 || B=mysql; ';
             return match ($what) {
                 'dump'   => 'B=mariadb-dump; command -v mariadb-dump >/dev/null 2>&1 || B=mysqldump; exec "$B" ' . $who
