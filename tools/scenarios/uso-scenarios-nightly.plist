@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The nightly scenarios (tools/scenarios/nightly.sh) at 02:30 on the coordinator's Mac. Written, not installed: the
+  coordinator installs it only with the owner's OK. @REPO@ = the main clone on the Mac, @HOME@ = the home folder:
+
+    sed -e "s#@REPO@#$PWD#g" -e "s#@HOME@#$HOME#g" tools/scenarios/uso-scenarios-nightly.plist \
+        > ~/Library/LaunchAgents/uso-scenarios-nightly.plist
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/uso-scenarios-nightly.plist
+
+  Off again: launchctl bootout gui/$(id -u)/uso-scenarios-nightly (and the file removed). A Mac asleep at 02:30 runs it
+  when it wakes; nightly.sh keeps the Mac awake while it runs (caffeinate). ssh to Tower must work without a prompt.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>uso-scenarios-nightly</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>@REPO@/tools/scenarios/nightly.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>@REPO@</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>HOME</key>
+        <string>@HOME@</string>
+    </dict>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>2</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>@HOME@/Library/Logs/uso-scenarios-nightly.log</string>
+    <key>StandardErrorPath</key>
+    <string>@HOME@/Library/Logs/uso-scenarios-nightly.log</string>
+    <key>LowPriorityIO</key>
+    <true/>
+</dict>
+</plist>

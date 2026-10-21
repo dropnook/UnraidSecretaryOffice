@@ -342,10 +342,11 @@ active, `backup/` is left alone.
   (agent/agent.php) don't match the version. The plugin's own version is a date (Unraid compares with `strcmp`).
 * **A release** is a tag `v<version>` on `main` with English notes for users; publishing it runs
   `.github/workflows/plugin.yml`, which builds and attaches the `.plg` and the `.txz`. Maintainers make it with
-  `tools/release.sh <version> --dry`, then without `--dry` — bump, build, the click test, the suite on a test server,
+  `tools/release.sh <version> --dry`, then without `--dry` — bump, build, the click test, the scenarios of the touched
+  desks on Tower (tools/scenarios/README.md «Before a release and every night»), the suite on a test server,
   the commit, `gh release create`, the Action, the release's assets, then the servers one after another (the partner
   test server as the canary, watched 5 min, then the test server, then the main one), stopping at the first red step
-  (a red build, click test or suite, or Ctrl-C before the commit, puts the version lines back). `--no-main` stops
+  (a red build, click test, scenario or suite, or Ctrl-C before the commit, puts the version lines back). `--no-main` stops
   before the main server, `--servers-only` does only the server part of a release that is out already. If the
   release's Action run fails, run it by hand for the tag — `gh workflow run plugin.yml -f tag=v<version>` — and go on
   with `--servers-only` once it is green. The checklist around it is the release playbook (`release-playbook.md` in the

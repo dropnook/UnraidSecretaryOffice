@@ -1,7 +1,7 @@
 #!/bin/bash
 # Unraid Secretary Office - the mechanical part of a release (for the coordinator, on the Mac).
 #
-#   tools/release.sh <x.y.z> [--dry] [--no-main] [--servers-only]
+#   tools/release.sh <x.y.z> [--dry] [--no-main] [--servers-only] [--no-scenarios]
 #
 # Run it from the clone on the Mac. What must be done and checked BEFORE it (suite, browser smoke, update test from
 # the previous version) and the rules around it (order of the servers, the quiet day after a release) are in the
@@ -27,8 +27,13 @@
 #                 that opens or closes does so on its own and stays so (also when the desk draws itself anew), no
 #                 console error, no horizontal scrolling. Red stops the release like the suite; without node,
 #                 playwright-core or a Chrome it is skipped with a note (≈ 2 min)
+#   6b scenarios  the desks this release touches (the files changed since the last tag, the bump left out) and their
+#                 scenarios of the pre-release set on Tower with the code under test: tools/scenarios/prerelease.sh
+#                 (its head: which file calls which desk, tools/scenarios/quick.list: the set, ≈ 30 min at most). Red
+#                 stops the release like the suite; it waits at most 30 min for Tower held by another run (the nightly,
+#                 a worker), then stops. No desk touched: nothing runs. Its time stands in the last lines
 #    7 suite      rsync to <suite_host>:/tmp/uso-main/, php tests/run.php there ends «… passed, 0 failed»
-#                 (a red build, click test or suite puts the two version lines back)
+#                 (a red build, click test, scenario or suite puts the two version lines back)
 #    8 commit     «Version x.y.z» , push main, origin/main is that commit
 #    9 release    gh release create v<x.y.z> --target <that commit> --title «Version x.y» (x.y.z for a fix) - step 11
 #                 retitles it to the plugin's date version (2026.10.18e) and puts «Unraid Secretary Office x.y.z» atop the notes
@@ -47,13 +52,17 @@
 #                 again, only checked.
 #
 #   --dry           prints every command; runs only the read-only ones: steps 1-3, the version check (no bump), the
-#                   build with the CURRENT version (into dist/, ignored by git), the click test, the suite on a copy of
+#                   build with the CURRENT version (into dist/, ignored by git), the click test, the scenarios step's
+#                   list (the desks, the scenarios, the estimate - Tower not contacted; USO_RELEASE_DIFF=<file> takes
+#                   the changed files from <file>, one a line: an invented diff), the suite on a copy of
 #                   its own (<suite_host>:/tmp/uso-release-dry/), steps 10-11 against the CURRENT release, and on every
 #                   server but the main one `plugin check` plus the checks against what is installed. Nothing is bumped,
 #                   committed, pushed, released or updated; the main server is not contacted at all. A red step does not stop a dry
 #                   run: every red step is listed at the end (exit 1 if any).
 #   --no-main       stop before the main server - it later, when no run is active: `tools/release.sh <x.y.z> --servers-only`
 #   --servers-only  the release is out already: only steps 1, 10, 11, 12 (resume after a red server step)
+#   --no-scenarios  step 6b skipped - said loudly there and in the last lines (Tower down, a known red the release fixes
+#                   elsewhere): say why in the day's notes
 #
 # Log: <notes_dir>/releases/<x.y.z>.log - every run appended: all it prints, the suite's
 # output and every server's answers included. Exit: 0 done, 1 a red step, 2 wrong call.
@@ -68,10 +77,11 @@ canary_watch=300   # s: the canary's agent log without error/fatal before the ne
 
 usage() { sed -n '4p' "${BASH_SOURCE[0]}" | sed 's/^# *//' >&2; exit 2; }
 
-ver='' dry=0 no_main=0 servers_only=0
+ver='' dry=0 no_main=0 servers_only=0 no_scenarios=0
 for a in "$@"; do
     case $a in
         --dry) dry=1 ;;
+        --no-scenarios) no_scenarios=1 ;;
         --no-main) no_main=1 ;;
         --servers-only) servers_only=1 ;;
         -h|--help) usage ;;
@@ -149,7 +159,7 @@ const_of() { sed -n "s/^const $1 *= *'\([^']*\)';.*/\1/p" "$2" | head -n 1; }
 plg_entity() { sed -n "s/.*ENTITY $1 *\"\([^\"]*\)\".*/\1/p" | head -n 1; }
 
 echo
-echo "=== $(date '+%Y-%m-%d %H:%M:%S') tools/release.sh $ver$( ((dry)) && echo ' --dry')$( ((no_main)) && echo ' --no-main')$( ((servers_only)) && echo ' --servers-only')  ($(git -C "$repo" rev-parse --short HEAD 2>/dev/null) in $repo)"
+echo "=== $(date '+%Y-%m-%d %H:%M:%S') tools/release.sh $ver$( ((dry)) && echo ' --dry')$( ((no_main)) && echo ' --no-main')$( ((servers_only)) && echo ' --servers-only')$( ((no_scenarios)) && echo ' --no-scenarios')  ($(git -C "$repo" rev-parse --short HEAD 2>/dev/null) in $repo)"
 (( dry )) && echo "DRY RUN: nothing is bumped, committed, pushed, released or updated; $(label "$main") is not contacted."
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -250,6 +260,47 @@ else
     ok "$last"
 fi
 rm -f "$uc_out"
+
+# ---------------------------------------------------------------------------------------------------------------------
+step 6b scenarios
+scen_note=''
+if (( no_scenarios )); then
+    scen_note="!!! NO SCENARIOS: step 6b skipped (--no-scenarios) - say why in the day's notes"
+    echo "   $scen_note"
+else
+    last_tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD 2>/dev/null)
+    sc_args=(--since "$last_tag")
+    (( dry )) && sc_args+=(--dry)
+    sc_out=$(mktemp "${TMPDIR:-/tmp}/uso-release-scenarios.XXXXXX")
+    started=$(date +%s)
+    echo "   \$ bash tools/scenarios/prerelease.sh ${sc_args[*]}   (the desks, the scenarios, run.sh's lines and summary)"
+    if [[ -z "$last_tag" ]]; then
+        rc=2; echo "no v* tag before HEAD" > "$sc_out"
+    else
+        # line by line as it comes (sed into a pipe would hold half an hour of lines back)
+        bash tools/scenarios/prerelease.sh "${sc_args[@]}" < /dev/null 2>&1 | tee "$sc_out" \
+            | while IFS= read -r line; do echo "   | $line"; done
+        rc=${PIPESTATUS[0]}
+    fi
+    took=$(( $(date +%s) - started ))
+    sum=$(grep -E '^[0-9]+ scenarios: ' "$sc_out" | tail -n 1)
+    est=$(sed -n 's/^prerelease: \([0-9]* scenario(s), ≈ [0-9]* min\).*/\1/p' "$sc_out" | head -n 1)
+    note3=$(grep -m1 -E 'no desk touched|nothing to run' "$sc_out" | sed 's/^prerelease: //')
+    note4=$(grep -m1 'Tower not free' "$sc_out" | sed 's/^prerelease: //')
+    rm -f "$sc_out"
+    echo "   $(( took / 60 )) min $(( took % 60 )) s, exit $rc"
+    case $rc in
+        0) if (( dry )); then scen_note="6b scenarios (dry): ${est:-see above} would run since $last_tag"
+           else scen_note="6b scenarios: ${sum:-green} in $(( took / 60 )) min"; fi
+           ok "$scen_note" ;;
+        3) scen_note="6b scenarios: none to run ($note3)"
+           ok "$scen_note" ;;
+        4) scen_note="6b scenarios: not run - ${note4:-Tower not reachable}"
+           unbump; red "Tower was not free or not reachable (above) - later again, or --no-scenarios with a reason" ;;
+        *) scen_note="6b scenarios: RED after $(( took / 60 )) min (${sum:-no summary})"
+           unbump; red "the scenarios of the touched desks were not green (${sum:-no summary line}; the reports: the folder in run.sh's last line above)" ;;
+    esac
+fi
 
 # ---------------------------------------------------------------------------------------------------------------------
 step 7 suite
@@ -532,13 +583,16 @@ if (( dry )); then
     if (( ${#reds[@]} )); then
         echo "DRY RUN: ${#reds[@]} red step(s) - a real run would stop at the first:"
         printf '   %s\n' "${reds[@]}"
+        [[ -n "${scen_note:-}" ]] && echo "$scen_note"
         echo "Log: $log"
         exit 1
     fi
+    [[ -n "${scen_note:-}" ]] && echo "$scen_note"
     echo "DRY RUN: all green. Log: $log"
     exit 0
 fi
 echo "DONE: v$rel ($plg_ver) - ${done_at[*]:-no server}"
+[[ -n "${scen_note:-}" ]] && echo "$scen_note"
 (( no_main )) && echo "$(label "$main") not updated: when no run is active, tools/release.sh $rel --servers-only"
 echo "Next (the release playbook): tonight's run on $(label "$main"); note the release in the day's notes."
 echo "Log: $log"
