@@ -18,11 +18,12 @@
 # Moverelli's run - the plugin's own pattern - or the engine's or her lock held); the Tower lock (flock
 # /tmp/uso-scenarios.lock, resilienz/wave1/_shared.md) for the whole reset. 1 office: the agent stopped, the engine's
 # mounts under /mnt/addons/UnraidSecretaryOffice unmounted, the data folder aside, <data>.base/data.tar unpacked, CARRY
-# folders copied over from the old one, the plugin's cron file from <data>.base/cron. 2 shares: the base's from
-# base/<host>/shares.list (cfg compared with base/<host>/shares/), the test shares (base/test-shares.list) via the
-# states' share_make/put_files, others reported (share_remove where there). 3 engine leftovers aside: @uso-backup-* and
-# @uso-plan-* snapshots, .btrfs-snap, the backup place's apps/ vms/ server/ flash/, .uso-backup* in app and VM folders,
-# the storeroom, *.aside-<n>, *.restored-<n>, *.partial, .uso-drill-*. 4 apps (Tower): apps.sh all - when there.
+# folders copied over from the old one (a time in them ahead of now dropped), the plugin's cron file from
+# <data>.base/cron. 2 shares: the base's from base/<host>/shares.list (cfg compared with base/<host>/shares/), the test
+# shares (base/test-shares.list) via the states' share_make/put_files, others reported (share_remove where there).
+# 3 engine leftovers aside: @uso-backup-* and @uso-plan-* snapshots, .btrfs-snap (a share's, and a pool's or disk's
+# own), the backup place's apps/ vms/ server/ flash/, .uso-backup* in app and VM folders, the storeroom, *.aside-<n>,
+# *.restored-<n>, *.partial, .uso-drill-*. 4 apps (Tower): apps.sh all - when there.
 # 5 VMs: vm_make - when there. 6 Unraid: the mover's schedule, Mover Tuning, User Scripts, parity check, disks spun up,
 # NTP, the time zone, unread notifications archived (Unraid's notify archive). 7 the agent started, its heartbeat,
 # then `check standard` against the base (lib.sh, once it is there) and the plan's change list against
@@ -140,6 +141,10 @@ if ((prune)); then
     for x in $(ls -d "$D".aside-* 2>/dev/null | old); do act "remove the old data folder aside $x" rm -rf -- "$x"; done
     for x in $(ls -d "$DB".aside-* 2>/dev/null | old); do act "remove the old base aside $x" rm -rf -- "$x"; done
     for r in $(roots); do
+        # a pool's or disk's own (the engine's btrfs snapshots: read-only subvolumes - rm can't take them)
+        for x in $(ls -d "$r"/.uso-base-aside/[0-9]* 2>/dev/null | old); do
+            act "remove the old aside $x" bash -c 'for v in "$1"/btrfs-snap/*; do [[ -d $v ]] && btrfs subvolume delete "$v" >/dev/null; done; rm -rf -- "$1"' _ "$x"
+        done
         for s in "$r"/*/.uso-base-aside; do
             [[ -d $s ]] || continue
             for x in $(ls -d "$s"/[0-9]* 2>/dev/null | old); do act "remove the old share aside $x" rm -rf -- "$x"; done
@@ -441,6 +446,23 @@ if [[ -f $DB/data.tar ]] || ((dry && make)); then
             warn "nothing to carry: no data folder set aside has $c"
         fi
     done
+    # a carried file keeps what a clock cell wrote under its clock (2026-10-20: held.json's `tried` 2026-11-08 after
+    # R22 - Mr. Restori's own look waited until then, restore-partner.php's age < 0): a moment more than 10 min ahead
+    # of now under `tried`, `looked` or `last_heard` (the partner files' times; null is their shape's «not yet») is
+    # dropped. The clock cells' undo can't do it: a guard that put the clock back, a cell killed half-way or another
+    # branch's cell leaves them all the same
+    for c in $CARRY; do
+        dir=$D/${c%%/*}
+        [[ -d $dir ]] || continue
+        while IFS= read -r -d '' f; do
+            jq -e --argjson lim "$(( $(date +%s) + 600 ))" \
+                '[.. | objects | to_entries[] | select((.key | IN("tried", "looked", "last_heard")) and (.value | type) == "number" and .value > $lim)] | length > 0' \
+                "$f" >/dev/null 2>&1 || continue
+            act "drop the future times in ${f#"$D"/} ($(jq -c --argjson lim "$(( $(date +%s) + 600 ))" '[.. | objects | to_entries[] | select((.key | IN("tried", "looked", "last_heard")) and (.value | type) == "number" and .value > $lim) | "\(.key) \(.value | todate)"] | unique' "$f"))" \
+                bash -c 'jq -c --argjson lim "$2" '\''walk(if type == "object" then with_entries(if (.key | IN("tried", "looked", "last_heard")) and (.value | type) == "number" and .value > $lim then .value = null else . end) else . end)'\'' "$1" >"$1.base-new" && chmod --reference="$1" "$1.base-new" && mv -- "$1.base-new" "$1"' \
+                _ "$f" "$(( $(date +%s) + 600 ))"
+        done < <(find "$dir" -maxdepth 2 -name '*.json' -type f -print0 2>/dev/null)
+    done
     if [[ -f $DB/cron ]] && ! cmp -s "$DB/cron" "$CRON"; then
         act "the plugin's cron file from the base (the old one aside)" bash -c '
             mkdir -p "$3" && { [[ -f $2 ]] && cp -p "$2" "$3/"; true; } && cp "$1" "$2.new" && mv "$2.new" "$2" && /usr/local/sbin/update_cron' \
@@ -468,6 +490,27 @@ if command -v zfs >/dev/null 2>&1; then
     else
         log "no @uso-backup-*/@uso-plan-* snapshots"
     fi
+fi
+# btrfs: the engine snapshots a whole pool or disk as /mnt/<x>/.btrfs-snap/<run> (a read-only subvolume, not in a
+# share - the share loop below never sees it). Each set aside to /mnt/<x>/.uso-base-aside/<stamp>/btrfs-snap/<run>:
+# read-only lifted for the move (a subvolume moved to another folder has its «..» rewritten), set again after. A
+# leftover of a clock cell (B19's 02:59 twice) makes the next run of that minute refuse (fix-backup-run-ef, 2026-10-20)
+if command -v btrfs >/dev/null 2>&1; then
+    nb=0
+    for r in $(roots); do
+        [[ -d $r/.btrfs-snap ]] || continue
+        for x in "$r"/.btrfs-snap/*; do
+            [[ -d $x && ! -L $x ]] || continue
+            n=$(basename "$x")
+            [[ $n =~ ^[0-9]{8}-[0-9]{4}$ ]] || { warn "$x is not one of the engine's snapshots - left"; continue; }
+            nb=$((nb + 1))
+            act "set aside the engine's btrfs snapshot $x → $r/.uso-base-aside/$STAMP/btrfs-snap/$n" bash -c '
+                mkdir -p "$2" && ro=$(btrfs property get -ts "$1" ro 2>/dev/null) && btrfs property set -ts "$1" ro false &&
+                { mv -- "$1" "$2/" || { [[ $ro == ro=true ]] && btrfs property set -ts "$1" ro true; exit 1; }; } &&
+                { [[ $ro != ro=true ]] || btrfs property set -ts "$2/$(basename "$1")" ro true; }' _ "$x" "$r/.uso-base-aside/$STAMP/btrfs-snap"
+        done
+    done
+    ((nb)) || log "no engine btrfs snapshots of a pool or disk"
 fi
 place_share=$(sed -n 's/^dumps_share *= *//p' "$D/unraid-backup/settings.ini" "$D.aside-$STAMP/unraid-backup/settings.ini" 2>/dev/null | head -1)
 found=0
