@@ -1093,7 +1093,8 @@ function overviewTiles() {
   return out;
 }
 /** No backup place in settings.ini (nothing set up, or set up without one): the setup's first step waits */
-const placeFirstNeeded = () => !!(state && state.found && (!state.settings_found || !(state.settings || {}).dumps_share));
+const placeFirstNeeded = () => !!(state && state.found && (state.settings_found === false
+  || (!!state.settings && 'dumps_share' in state.settings && !state.settings.dumps_share)));
 
 // ---- «Is everything protected?»: the rows as data (pure: tests/backuptiles.js), the filter on them, then the table
 /** Every row of the table: {kind share|vm|app, id, name, hay (the words the bar meets), off (unprotected), tiles (the
@@ -2594,8 +2595,8 @@ async function setupLoad() {
   if (j.plan && (!setup.plan || j.plan.time !== setup.plan.time)) {
     setup.plan = j.plan;
     setupDraftKeep();
-    setupPlaceMade();
     Office.placesTook(ID, j.plan, 'setup');     // its rows for the office's search (setupSearchItems()) - the plan as it came
+    setupPlaceMade();
   }
   const finishedForget = was && was.running && was.mode === 'forget' && !j.status.running;
   if (finishedForget) {
@@ -5660,7 +5661,7 @@ function placeFirstMake(offer) {
   placeOfferLines(offer).forEach((t) => box.appendChild(el('p', '', t)));
   const b = button(T('setup.first.make', { share: offer.share }) + ' …', '', () => placeMakeDialog(offer));
   const busy = !!(setup.status && setup.status.running);
-  b.disabled = busy || !Office.agent.running || !!offer.asleep;
+  b.disabled = busy || !Office.agent.running || !!offer.asleep || !!setup.placeMade;     // made: the new plan is on its way
   box.appendChild(b);
   if (offer.asleep) box.appendChild(el('small', 'missing', T(offer.pool ? 'setup.first.asleep' : 'setup.first.asleep_array', { pool: offer.pool || '' })));
   return box;
@@ -6411,10 +6412,8 @@ Office.desk({
       setupFilterReset();                  // a new visit: every row again (words and «only …» are not kept)
       // #/backup/setup/<tile> (the search, a step's place) picks that step exactly like a click, the address keeps its page;
       // else the step chosen last (backup.setup.tile), none = every step
-      // (first place: a visit without a step's route opens on «Grundlagen» while no backup place is chosen — setupPlaceStart())
-      setup.placeStart = false;
+      // (no backup place in the draft: the first step alone, whatever the route — renderSetup())
       if (setupSwitcher().mount(String(sub || '').split('/').slice(1).join('/'))) Office.subroute('setup');
-      else setup.placeStart = true;
       renderSetup();
       if (!state) await load(false);
       await setupLoad();

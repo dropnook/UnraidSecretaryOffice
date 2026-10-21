@@ -11680,7 +11680,7 @@ function testSetupTiles(): void
         str_contains($bk, "id: `\${ID}/setup`,") && str_contains($bk, "key: 'backup.setup.tile',") && str_contains($bk, "tiles: () => setupTileList(),")
         && str_contains($bk, "if (setupSwitcher().mount(String(sub || '').split('/').slice(1).join('/'))) Office.subroute('setup');"));
     check('setup tiles: «Decide…» / «Change…» pick the target\'s step first, then reveal its row',
-        str_contains($bk, "const tile = target ? STEP_TILE[target.part] : '';") && str_contains($bk, "if (tile) sw.pick(tile, 'route'); else if (first && setupNoPlace()) setupPlaceStart(sw); else sw.render();"));
+        str_contains($bk, "const tile = target ? STEP_TILE[target.part] : '';") && str_contains($bk, "if (tile) sw.pick(tile, 'route'); else if (placed) setupPlaceStart(sw); else sw.render();"));
     check('setup tiles: the steps\' and settings\' places go by their tile\'s route (a step stands under the row only while its tile is chosen)',
         str_contains($bk, "route: setupRoute(STEP_TILE[key]) } : {})") && str_contains($bk, "route: setupRoute(STEP_TILE[PART[key] || 'setup.general'])")
         && str_contains($em, "...SETUP_TILES.map(([id, key]) => ({ kind: 'step', key, ...SETUP, route: `#/\${ID}/setup/\${id}` })),"));
@@ -11800,7 +11800,7 @@ function testSetupFirstPlace(): void
     check('first step: setupApply()\'s toast stays the last guard', str_contains($bk, "if (!ds) { Office.toast(T('setup.ds_missing'), true); return; }"));
     check('first step: the create click asks the agent, then plans anew; the share made becomes the place once the plan has it',
         str_contains($bk, "Office.api.post(`\${ID}.place_make`, { pool: offer.pool || '' })") && str_contains($bk, "setup.placeMade = j.made;")
-        && str_contains($bk, "setupDraftKeep();\n    setupPlaceMade();"));
+        && str_contains($bk, "Office.placesTook(ID, j.plan, 'setup');     // its rows for the office's search (setupSearchItems()) - the plan as it came\n    setupPlaceMade();"));
     $node = testsNode();
     if ($node === '') {
         check('first step: node is missing here - skipped', true);
