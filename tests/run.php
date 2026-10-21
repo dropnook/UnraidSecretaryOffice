@@ -5380,8 +5380,12 @@ SH);
     $p = backupWritesParams(['since' => $now - 7200, 'storage' => ''], 'kopia');
     same('kopia watch (office): the finding\'s words', [date('Y-m-d H:i', $now - 7200), $now - 7200, '–', 'kopia'], [$p['since'], $p['since_t'], $p['storage'], $p['name']]);
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
-    check('kopia watch (office): a must while stuck, said only once the engine looked; the tick looks every 10 minutes; restart only behind the engine\'s lock',
-        str_contains($src, "\$out[] = finding('kopia_writes', 'required', \$w['state'] === 'ok',") && str_contains($src, "if (\$w !== null && \$w['state'] !== 'unknown') {")
+    $fw = fn (?string $state) => backupWritesFinding($state === null ? null : ['state' => $state, 'since' => $now - 7200, 'storage' => 's3', 'by' => 'server', 'time' => $now, 'why' => ''], 'kopia');
+    same('kopia watch (office): the finding - none without a record or while unknown, fine when ok, a must while stuck',
+        [null, null, ['required', true], ['required', false, date('Y-m-d H:i', $now - 7200)]],
+        [$fw(null), $fw('unknown'), [$fw('ok')['level'] ?? null, $fw('ok')['ok'] ?? null], [$fw('stuck')['level'] ?? null, $fw('stuck')['ok'] ?? null, $fw('stuck')['params']['since'] ?? null]]);
+    check('kopia watch (office): the check reads the record; the tick looks every 10 minutes; restart only behind the engine\'s lock',
+        str_contains($src, "if (\$f = backupWritesFinding(backupKopiaWrites(\$settings), \$name)) {")
         && str_contains($src, "backupWatchTick();") && str_contains($src, "backupLaunch([\"\$dir/backup.sh\", '--kopia-watch']);")
         && preg_match("/function backupKopiaRestart\(\): array\n\{\n    \\\$dir = backupCheckReady\(\);/", $src) === 1
         && str_contains($src, "houseDocker(['restart', '-t', '30', \$name], 120)"));

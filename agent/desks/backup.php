@@ -2603,9 +2603,8 @@ function backupChecks(): array
             array_push($out, ...backupKopiaLockJudge(backupKopiaLockRead(), time(), $name));
             // engine 2.68: the offsite storage takes nothing (Kopia's server log, or a run's upload ended by its stall
             // watchdog) - said only once the engine looked; «unknown» (not the maintenance owner, no log) says nothing
-            $w = backupKopiaWrites($settings);
-            if ($w !== null && $w['state'] !== 'unknown') {
-                $out[] = finding('kopia_writes', 'required', $w['state'] === 'ok', $w['state'] === 'stuck' ? backupWritesParams($w, $name) : ['name' => $name], '#/backup');
+            if ($f = backupWritesFinding(backupKopiaWrites($settings), $name)) {
+                $out[] = $f;
             }
         }
     }
@@ -2813,6 +2812,20 @@ function backupWritesParams(array $w, ?string $name): array
 {
     return ['since' => date('Y-m-d H:i', (int) $w['since']), 'since_t' => (int) $w['since'],
             'storage' => $w['storage'] !== '' ? $w['storage'] : '–', 'name' => $name ?? 'kopia'];
+}
+
+/**
+ * The finding kopia_writes from the watch's record (backupKopiaWrites()): a must only while the storage takes nothing —
+ * it clears by itself once the engine sees a write go through (the record says ok); «unknown» (not the maintenance owner,
+ * no log, the container stopped before anything was seen) and no record say nothing at all. Pure.
+ */
+function backupWritesFinding(?array $w, ?string $name): ?array
+{
+    if ($w === null || !in_array($w['state'] ?? null, ['ok', 'stuck'], true)) {
+        return null;
+    }
+    $stuck = $w['state'] === 'stuck';
+    return finding('kopia_writes', 'required', !$stuck, $stuck ? backupWritesParams($w, $name) : ['name' => $name ?? 'kopia'], '#/backup');
 }
 
 const BACKUP_WATCH_ENGINE = '2.68';
