@@ -35550,21 +35550,21 @@ function testReport(): void
 
     // the scrubber
     $know = reportKnow($ctx);
-    same('report: shares and pools numbered by their names (Unraid\'s own shares kept)', [['Backups' => '‹share-1›', 'Fotos Familie' => '‹share-2›', 'Media' => '‹share-3›'], ['cache' => '‹pool-1›', 'hazel' => '‹pool-2›']],
+    same('report: shares and pools numbered by their names (Unraid\'s own shares kept)', [['Backups' => '‹share-1›', 'Fotos Familie' => '‹share-2›', 'Media' => '‹share-3›'], ['hazel' => '‹pool-1›']],
         [$know['shares'], $know['pools']]);
     $lines = [
         'moved /mnt/user/Media/My Film (2020)/My Film.mkv: done' => 'moved /mnt/user/‹share-3›/…: done',
-        'copied to /mnt/hazel/Media/My Film (2020)/My Film.mkv' => 'copied to /mnt/‹pool-2›/‹share-3›/…',
+        'copied to /mnt/hazel/Media/My Film (2020)/My Film.mkv' => 'copied to /mnt/‹pool-1›/‹share-3›/…',
         'reads /mnt/user/appdata/UnraidSecretaryOffice/data/x.json' => 'reads /mnt/user/appdata/…',
-        'reads "/mnt/disk1/Fotos Familie/2024/a.jpg", "/mnt/cache/Backups"' => 'reads "/mnt/disk1/‹share-2›/…", "/mnt/‹pool-1›/‹share-1›"',
+        'reads "/mnt/disk1/Fotos Familie/2024/a.jpg", "/mnt/cache/Backups"' => 'reads "/mnt/disk1/‹share-2›/…", "/mnt/cache/‹share-1›"',
         'at 10.0.0.5. Then 192.168.20.59:8096/x, [fe80::1] and fd00::1234:5678; not 17:02:11' => 'at …. Then …:8096/x, […] and …; not 17:02:11',
-        'created hazel/Media@uso-backup-20261008-0300, cache/Backups/sub@manual' => 'created ‹pool-2›/‹share-3›@uso-backup-20261008-0300, ‹pool-1›/‹share-1›/…@…',
+        'created hazel/Media@uso-backup-20261008-0300, cache/Backups/sub@manual' => 'created ‹pool-1›/‹share-3›@uso-backup-20261008-0300, cache/‹share-1›/…@…',
         'Tower (tower.lan) answered from 192.168.20.59 and fd00::1234:5678 via 3c:7c:3f:12:34:56' => '‹partner-1› (‹partner-2›) answered from … and … via 3c:7c:3f:…',
         'mail benj@example.com from homeserver, user benj' => 'mail ‹mail› from ‹server›, user ‹user-1›',
         'token ghp_0123456789abcdefABCDEF0123456789abcd and api_key=hunter2' => 'token … and api_key=…',
         'GET https://admin:hunter2@nas.example.org:8443/api?key=x and https://github.com/dropnook/x' => 'GET https://‹host›/… and https://github.com/…',
         "key abcdef01\x0123456789abcdef in a line, csrf 0123456789ABCDEF, GUID $guid" => 'key ••• in a line, csrf •••, GUID •••',
-        'the share Media is missing; Backups too; pool hazel asleep' => 'the share ‹share-3› is missing; ‹share-1› too; pool ‹pool-2› asleep',
+        'the share Media is missing; Backups too; pool hazel asleep' => 'the share ‹share-3› is missing; ‹share-1› too; pool ‹pool-1› asleep',
         'backup.sh ran on HomeServer, ' . $sshKey => 'backup.sh ran on ‹server›, •••',
         'cleared /boot/config/plugins/dynamix.my.servers/x.cfg: ok' => 'cleared /boot/config/plugins/dynamix.my.servers/…: ok',
         'cleared /tmp/secret/stuff: ok' => 'cleared <path>: ok',
@@ -35585,7 +35585,7 @@ function testReport(): void
     }
     $seen = [];
     reportScrub('the share Media on hazel', $know, $seen);
-    same('report: what was hidden, for the preview only', ['‹pool-2›' => 'hazel', '‹share-3›' => 'Media'], (ksort($seen) ? $seen : $seen));
+    same('report: what was hidden, for the preview only', ['‹pool-1›' => 'hazel', '‹share-3›' => 'Media'], (ksort($seen) ? $seen : $seen));
     same('report: a line is cut at 400 characters', 400, mb_strlen(reportScrub(str_repeat('word ', 200), $know)));
     same('report: Ms. Protocolli\'s comparing keeps its <path>', 'moved <path> to "<path>"', logsNormalizePaths('moved /mnt/user/Media/a.mkv to "/x/y z.mkv"'));
 
@@ -35646,10 +35646,10 @@ function testReport(): void
     same('report: the preview\'s parts', ['versions', 'unraid', 'language', 'team', 'error', 'log'], array_keys($pv['parts']));
     same('report: … versions, Unraid, languages, the team', [['office' => AGENT_VERSION], '7.3.2', ['lang' => 'de', 'browser' => 'de'], ['backup', 'caretaker', 'snapshot']],
         [$pv['parts']['versions'], $pv['parts']['unraid'], $pv['parts']['language'], $pv['parts']['team']]);
-    same('report: … the last error, its params scrubbed', ['key' => 'command_failed', 'params' => ['detail' => 'zfs: /mnt/‹pool-2›/‹share-3› busy'], 'at' => 1760000000], $pv['parts']['error']);
-    check('report: … the log of her desk, scrubbed', str_contains($pv['parts']['log'], 'Ms. Snapshotini: created ‹pool-2›/‹share-3›@…') && !str_contains($pv['parts']['log'], 'Backup:'), $pv['parts']['log']);
+    same('report: … the last error, its params scrubbed', ['key' => 'command_failed', 'params' => ['detail' => 'zfs: /mnt/‹pool-1›/‹share-3› busy'], 'at' => 1760000000], $pv['parts']['error']);
+    check('report: … the log of her desk, scrubbed', str_contains($pv['parts']['log'], 'Ms. Snapshotini: created ‹pool-1›/‹share-3›@…') && !str_contains($pv['parts']['log'], 'Backup:'), $pv['parts']['log']);
     same('report: … ticked by default (a problem: the log too)', ['versions', 'unraid', 'language', 'team', 'error', 'log'], $pv['ticked']);
-    same('report: … what was hidden, and a hint at the address in the text', [['‹pool-2›' => 'hazel', '‹share-3›' => 'Media'], ['address']], [(array) $pv['hidden'], $pv['hints']]);
+    same('report: … what was hidden, and a hint at the address in the text', [['‹pool-1›' => 'hazel', '‹share-3›' => 'Media'], ['address']], [(array) $pv['hidden'], $pv['hints']]);
     same('report: … the cap', [0, REPORT_CAP_DAY, REPORT_CAP_DAY, null, false], [$pv['n'], $pv['left'], $pv['cap'], $pv['next'], $pv['closed']]);
     $kept = "$tmp/run/{$pv['token']}.json";
     same('report: … kept in RAM under its token, 0600', [true, '600', '700'], [is_file($kept), decoct(fileperms($kept) & 0777), decoct(fileperms("$tmp/run") & 0777)]);
@@ -35894,8 +35894,8 @@ function testReportDiagnostics(): void
     $ask = $words + ['lang' => 'de'];
     $now = 1760000100;
     $refused = function (callable $f): string { try { $f(); return 'ok'; } catch (Problem $p) { return $p->key . (isset($p->params['n']) ? ":{$p->params['n']}" : ''); } };
-    // Unraid's tool as it ends: the zip, its copy in /boot/logs, the exit code
-    $finish = function (array $launch, array $files, int $exit = 0) use ($tmp): void {
+    // Unraid's tool as it ends: the zip, its copy in /boot/logs; then (it made one) the office's pass; the exit code
+    $finish = function (array $launch, array $files, int $exit = 0) use ($tmp, &$ctx): void {
         [, $zip, $done] = $launch;
         $z = new ZipArchive();
         $z->open($zip, ZipArchive::CREATE);
@@ -35904,6 +35904,9 @@ function testReportDiagnostics(): void
         }
         $z->close();
         copy($zip, "$tmp/bootlogs/" . basename($zip));
+        if ($exit === 0) {
+            reportDiagScrubJob(dirname($zip), $ctx);
+        }
         file_put_contents($done, "$exit\n");
     };
     $name = 'uso-diagnostics-' . date('Ymd-Hi', $now);
@@ -35940,9 +35943,9 @@ function testReportDiagnostics(): void
         [$refused(fn () => reportDiagAnswer(['token' => '../x'], $ctx)), $refused(fn () => reportDiagAnswer(['token' => $tok, 'drop' => 'yes'], $ctx))]);
     $finish($launched[0], $files);
     $a = reportDiagAnswer(['token' => $tok], $ctx + ['now' => $now + 9]);
-    same('report diagnostics: ready — its size, the files (sorted), no hash for the page; Unraid\'s copy in /boot/logs gone',
-        [true, 'ready', filesize("$d/$name.zip"), 3, ["$name/config/ident.cfg", "$name/logs/syslog.txt", "$name/system/vars.txt"], false, []],
-        [$a['ok'], $a['state'], $a['bytes'] ?? null, $a['count'] ?? null, $a['files'] ?? null, isset($a['sha256']), glob("$tmp/bootlogs/*") ?: []]);
+    same('report diagnostics: ready — the office\'s clean zip: its size, the files (sorted), no hash for the page; Unraid\'s zip and its copy in /boot/logs gone',
+        [true, 'ready', filesize("$d/$name.clean.zip"), 3, ["$name/config/ident.cfg", "$name/logs/syslog.txt", "$name/system/vars.txt"], false, []],
+        [$a['ok'], $a['state'], $a['bytes'] ?? null, $a['count'] ?? null, $a['files'] ?? null, isset($a['sha256']), array_merge(glob("$tmp/bootlogs/*") ?: [], glob("$d/$name.zip") ?: [])]);
 
     // the send: the report first, then the zip
     $port = 0;
@@ -35977,7 +35980,7 @@ ROUTER);
     $sctx = ['url' => "http://127.0.0.1:$port"] + $ctx;
     $req = fn (int $n): array => json_decode((string) @file_get_contents("$tmp/request-$n.json"), true) ?? [];
     $count = fn (): int => (int) @file_get_contents("$tmp/count");
-    $zip = (string) file_get_contents("$d/$name.zip");
+    $zip = (string) file_get_contents("$d/$name.clean.zip");
     $r = reportSend(['token' => $tok, 'parts' => ['versions', 'diagnostics']] + $words, ['now' => $now + 20] + $sctx);
     $report = $req(1);
     $body = json_decode(base64_decode($report['body'] ?? ''), true) ?? [];
@@ -35985,7 +35988,7 @@ ROUTER);
     same('report diagnostics: sent — the report first (nothing of the zip in it), then the zip; `diagnostics: sent`',
         [true, 71, 'sent', 2, '/api/report', false, ['versions'], '/api/diag'],
         [$r['ok'] ?? false, $r['number'] ?? null, $r['diagnostics'] ?? null, $count(), $report['uri'] ?? null, isset($body['diagnostics']) || str_contains(base64_decode($report['body'] ?? ''), "PK\x03\x04"), $body['parts'] ?? null, $up['uri'] ?? null]);
-    same('report diagnostics: … the zip raw, as previewed; the report ID and the rid as headers (the report\'s own)', ['application/zip', true, $body['report_id'] ?? 'x', $body['rid'] ?? 'x', true],
+    same('report diagnostics: … the clean zip raw, as previewed; the report ID and the rid as headers (the report\'s own)', ['application/zip', true, $body['report_id'] ?? 'x', $body['rid'] ?? 'x', true],
         [$up['type'] ?? null, base64_decode($up['body'] ?? '') === $zip, $up['office'] ?? null, $up['rid'] ?? null, str_starts_with($up['ua'] ?? '', 'UnraidSecretaryOffice/')]);
     same('report diagnostics: … gone from RAM after, the curl config too; logged', [false, [], 'Office: sent a report (#71, bug, office, diagnostics)'],
         [is_dir($d), glob("$tmp/run/*.curl") ?: [], $logged[0] ?? null]);
@@ -36021,8 +36024,8 @@ ROUTER);
     $p = reportPreview(['diagnostics' => true] + $ask, $ctx + ['now' => $now + 50]);
     $finish($launched[0], ["$name/logs/syslog.txt" => random_bytes(REPORT_DIAG_MAX + 1024)]);
     $a = reportDiagAnswer(['token' => $p['token']], $ctx + ['now' => $now + 51]);
-    same('report diagnostics: more than 10 MB — too_big with its size, the zip deleted at once', ['too_big', true, REPORT_DIAG_MAX, false],
-        [$a['state'], ($a['bytes'] ?? 0) > REPORT_DIAG_MAX, $a['max'] ?? null, is_file($launched[0][1])]);
+    same('report diagnostics: more than 10 MB — too_big with its size (not looked at), the zip deleted at once', ['too_big', true, REPORT_DIAG_MAX, false, []],
+        [$a['state'], ($a['bytes'] ?? 0) > REPORT_DIAG_MAX, $a['max'] ?? null, is_file($launched[0][1]), glob(dirname($launched[0][1]) . '/*.zip') ?: []]);
     same('report diagnostics: … a send with it ticked — report_stale', 'report_stale', $refused(fn () => reportSend(['token' => $p['token'], 'parts' => ['diagnostics']] + $words, ['now' => $now + 52] + $ctx)));
     $launched = [];
     $p = reportPreview(['diagnostics' => true] + $ask, $ctx + ['now' => $now + 60]);
@@ -36037,7 +36040,7 @@ ROUTER);
     $p = reportPreview(['diagnostics' => true] + $ask, $ctx + ['now' => $now + 80]);
     $finish($launched[0], $files);
     reportDiagAnswer(['token' => $p['token']], $ctx + ['now' => $now + 81]);
-    file_put_contents($launched[0][1], 'swapped');
+    file_put_contents(substr($launched[0][1], 0, -4) . '.clean.zip', 'swapped');
     same('report diagnostics: the zip changed after the preview — report_stale, gone', ['report_stale', false],
         [$refused(fn () => reportSend(['token' => $p['token'], 'parts' => ['diagnostics']] + $words, ['now' => $now + 82] + $ctx)), is_dir("$tmp/run/{$p['token']}.diag")]);
 
@@ -36050,7 +36053,7 @@ ROUTER);
     file_put_contents("$tmp/root/$nm/half.txt", 'x');
     file_put_contents("$tmp/bootlogs/$nm.zip", 'x');
     $a = reportDiagAnswer(['token' => $p['token'], 'drop' => true], $ctx);
-    same('report diagnostics: dropped while running — stopped by its zip\'s path, the half-made folder and any copy gone', [true, 'gone', [$launched[0][1]], false, [], false],
+    same('report diagnostics: dropped while running — stopped by its folder (Unraid\'s tool and the office\'s pass), the half-made folder and any copy gone', [true, 'gone', [dirname($launched[0][1])], false, [], false],
         [$a['ok'], $a['state'], $stopped, is_dir("$tmp/root/$nm"), glob("$tmp/bootlogs/*") ?: [], is_dir("$tmp/run/{$p['token']}.diag")]);
     // tidy: a run no preview can send any more
     $launched = [];
@@ -36066,9 +36069,10 @@ ROUTER);
          $w(429, ['ok' => false, 'error' => 'busy', 'why' => 'diagnostics']), $w(403, ['ok' => false, 'error' => 'closed']), $w(400, ['ok' => false, 'error' => 'refused', 'why' => 'bad']),
          $w(502, ['ok' => false, 'error' => 'github']), $w(200, ['ok' => true], 7)]);
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/lib/report.php');
-    check('report diagnostics: Unraid\'s own tool, anonymized — never with -a or --all; through atd',
+    check('report diagnostics: Unraid\'s own tool, anonymized — never with -a or --all; through atd, the office\'s pass after it in the same job',
         REPORT_DIAG_BIN === '/usr/local/sbin/diagnostics' && !preg_match("/'-a'|'--all'/", $src)
-        && str_contains($src, "hostLaunch('report-diagnostics', ['/bin/sh', '-c', '\"\$0\" \"\$1\"; echo \$? >\"\$2.tmp\" && mv \"\$2.tmp\" \"\$2\"', \$bin, \$zip, \$done]);"));
+        && str_contains($src, "hostLaunch('report-diagnostics', ['/bin/sh', '-c', '\"\$0\" \"\$1\"; e=\$?; [ \"\$e\" = 0 ] && nice -n 10 \"\$3\" \"\$4\" job report-diag-scrub \"\$5\"; echo \"\$e\" >\"\$2.tmp\" && mv \"\$2.tmp\" \"\$2\"',")
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/agent.php'), "=== 'report-diag-scrub') {\n                return reportDiagScrubJob("));
     check('report diagnostics: the agent answers office.report_diag, api.php hands it over', isset(officeAgentActions()['report_diag'])
         && str_contains((string) file_get_contents(OFFICE_DIR . '/src/api.php'), "'office.report_diag'"));
     $en = json_decode((string) file_get_contents(OFFICE_WEB . '/lang/en.json'), true) ?: [];
@@ -36077,6 +36081,204 @@ ROUTER);
         'office.report_diag_too_big', 'office.report_diag_failed', 'office.report_diag_sent', 'office.report_diag_not_sent.off', 'office.report_diag_not_sent.busy',
         'office.report_diag_not_sent.failed'], fn ($k) => !isset($en[$k])));
     same('report diagnostics: every key the agent and the dialog give exists', [], $missing);
+    hardeningRm($tmp);
+}
+
+/**
+ * The scrubber's names, 2026-10-21 (a report showed a pool's further devices «hive2», «hive3» next to ‹pool-1›): a
+ * pool's slots → ‹pool-N›-2 …, Unraid's default pool «cache» (and cache2) kept, a share only shares.ini knows, shares
+ * with a number at the end, the server's domains (Unraid Connect's, Tailscale's, a certificate's, the local TLD) →
+ * ‹domain-N›, the server's name before a dot (tower.local), the Unraid Connect account, Unassigned Devices' names.
+ * Every name invented.
+ */
+function testReportSlots(): void
+{
+    $tmp = hardeningTmp('reportslots');
+    foreach (['shares', 'pools'] as $d) {
+        @mkdir("$tmp/$d", 0700);
+    }
+    file_put_contents("$tmp/var.ini", "regGUID=\"0781-5583-3311-A1B2C3D4E5F6\"\n");
+    file_put_contents("$tmp/ident.cfg", "NAME=\"Larkspur\"\nLOCAL_TLD=\"quillfeather-home.org\"\n");
+    foreach (['Familienfilme', 'Urlaub', 'Urlaub2', 'appdata'] as $sh) {
+        touch("$tmp/shares/$sh.cfg");
+    }
+    file_put_contents("$tmp/shares.ini", "[\"Familienserien\"]\nname=\"Familienserien\"\n[\"Urlaub\"]\nname=\"Urlaub\"\n");
+    foreach (['hive', 'cache'] as $pl) {
+        touch("$tmp/pools/$pl.cfg");
+    }
+    file_put_contents("$tmp/passwd", "root:x:0:0::/root:/bin/bash\nottilie:x:1000:100::/:/bin/false\n");
+    file_put_contents("$tmp/myservers.cfg", "[remote]\nusername=\"ottilie_k\"\nemail=\"ottilie@quillfeather-home.org\"\n");
+    file_put_contents("$tmp/nginx.ini", "NGINX_LANFQDN=\"192-168-1-20.0123456789abcdef0123456789abcdef01234567.myunraid.net\"\nNGINX_TAILSCALEFQDN=\"larkspur.tail1a2b3.ts.net\"\n"
+        . "NGINX_CERTNAME=\"*.0123456789abcdef0123456789abcdef01234567.myunraid.net\"\nNGINX_LANMDNS=\"Larkspur.local\"\nNGINX_DEFAULTURL=\"https://nas.quillfeather-home.org\"\n");
+    $ctx = ['var_ini' => "$tmp/var.ini", 'ident' => "$tmp/ident.cfg", 'shares_dir' => "$tmp/shares", 'shares_ini' => "$tmp/shares.ini", 'pools_dir' => "$tmp/pools",
+            'mounts' => ['/mnt/disk1', '/mnt/user', '/mnt/hive', '/mnt/cache', '/mnt/disks/Sammelplatte', '/mnt/remotes/NAS2_Filme'], 'passwd' => "$tmp/passwd",
+            'connect' => "$tmp/myservers.cfg", 'nginx_ini' => "$tmp/nginx.ini", 'partner_dir' => "$tmp/none", 'jack_settings' => "$tmp/none.json",
+            'supporter' => "$tmp/none.json", 'report_id_file' => "$tmp/report-id", 'hostname' => 'larkspur'];
+    $know = reportKnow($ctx);
+    same('report slots: shares (shares.ini too, a number at the end), pools («cache» kept), domains, numbered by their names',
+        [['Familienfilme' => '‹share-1›', 'Familienserien' => '‹share-2›', 'Urlaub' => '‹share-3›', 'Urlaub2' => '‹share-4›'], ['hive' => '‹pool-1›'],
+         ['0123456789abcdef0123456789abcdef01234567.myunraid.net' => '‹domain-1›', 'quillfeather-home.org' => '‹domain-2›', 'tail1a2b3.ts.net' => '‹domain-3›']],
+        [$know['shares'], $know['pools'], $know['domains']]);
+    $lines = [
+        'pool hive: devices hive2 (sdc) and hive3, hive12 joined; cache2 is fine' => 'pool ‹pool-1›: devices ‹pool-1›-2 (sdc) and ‹pool-1›-3, ‹pool-1›-12 joined; cache2 is fine',
+        'shares Urlaub and Urlaub2, Familienserien on /mnt/hive2' => 'shares ‹share-3› and ‹share-4›, ‹share-2› on /mnt/‹pool›',
+        'Larkspur.local answered, so did larkspur.tail1a2b3.ts.net and www.quillfeather-home.org.' => '‹server›.local answered, so did ‹domain-3› and ‹domain-2›.',
+        'Host name conflict, retrying with Larkspur-2; larkspur-backup stays' => 'Host name conflict, retrying with ‹server›-2; larkspur-backup stays',
+        'address 192-168-1-20.0123456789abcdef0123456789abcdef01234567.myunraid.net works' => 'address ‹domain-1› works',
+        'mounted Sammelplatte and NAS2_Filme' => 'mounted ‹device-2› and ‹device-1›',
+        'users ottilie and ottilie_k' => 'users ‹user-1› and ‹user-2›',
+        'the cache pool on /mnt/cache/Urlaub' => 'the cache pool on /mnt/cache/‹share-3›',
+    ];
+    $leaks = ['hive', 'Urlaub', 'Familien', 'Larkspur', 'larkspur.', 'quillfeather', 'tail1a2b3', '0123456789abcdef', 'Sammelplatte', 'NAS2', 'ottilie'];
+    foreach ($lines as $line => $want) {
+        $got = reportScrub($line, $know);
+        same('report slots: scrubbed — ' . mb_substr($line, 0, 50), $want, $got);
+        foreach ($leaks as $l) {
+            check("report slots: «{$l}» doesn't survive in «" . mb_substr($line, 0, 40) . '»', !str_contains($got, $l), $got);
+        }
+        same('report slots: scrubbing twice is once — ' . mb_substr($line, 0, 40), $got, reportScrub($got, $know));
+    }
+    $seen = [];
+    reportScrub('hive2 and hive on larkspur.tail1a2b3.ts.net', $know, $seen);
+    ksort($seen);
+    same('report slots: what was hidden — the device as Unraid names it, the domain (the server\'s name in it with it)', ['‹domain-3›' => 'tail1a2b3.ts.net', '‹pool-1›' => 'hive', '‹pool-1›-2' => 'hive2'], $seen);
+    same('report slots: a host\'s owner — local names and the makers\' hosts never', ['example.co.uk', 'abc.myunraid.net', null, null, null, null, null, 'quillfeather-home.org'],
+        [reportDomainBase('nas.example.co.uk'), reportDomainBase('*.abc.myunraid.net'), reportDomainBase('tower.local'), reportDomainBase('fritz.box'),
+         reportDomainBase('github.com'), reportDomainBase('192.168.1.2'), reportDomainBase('local'), reportDomainBase('Quillfeather-Home.org.')]);
+    hardeningRm($tmp);
+}
+
+/**
+ * The office's own pass over Unraid's diagnostics (2026-10-21, reportDiagScrub(); a report showed share names in the
+ * syslog and df, the owner's domain, user names): a zip made here with invented names, as Unraid's tool leaves it; the
+ * job makes the clean zip, deletes Unraid's; names, slots, domains, users, /mnt paths, public addresses hidden in every
+ * text file and file name, Unraid's share masks (F-----------e) back to their placeholders; the home network's
+ * addresses and the serials kept; a binary file as it is; the state's size, sha256 and hidden list of the clean zip;
+ * a pass that fails (not a zip, over its time, none at all) — failed {why: scrub}, nothing of it ever sent.
+ */
+function testReportDiagScrub(): void
+{
+    $tmp = hardeningTmp('reportdiagscrub');
+    foreach (['shares', 'pools', 'run', 'bootlogs'] as $d) {
+        @mkdir("$tmp/$d", 0700);
+    }
+    $guid = '0781-5583-3311-A1B2C3D4E5F6';
+    file_put_contents("$tmp/var.ini", "regGUID=\"$guid\"\n");
+    file_put_contents("$tmp/ident.cfg", "NAME=\"Larkspur\"\nLOCAL_TLD=\"quillfeather-home.org\"\n");
+    foreach (['Familienfilme', 'Urlaub', 'Urlaub2', 'appdata', 'UnraidSecretaryOffice'] as $sh) {
+        touch("$tmp/shares/$sh.cfg");
+    }
+    foreach (['hive', 'cache'] as $pl) {
+        touch("$tmp/pools/$pl.cfg");
+    }
+    file_put_contents("$tmp/passwd", "root:x:0:0::/root:/bin/bash\nottilie:x:1000:100::/:/bin/false\n");
+    $logged = [];
+    $ctx = ['var_ini' => "$tmp/var.ini", 'ident' => "$tmp/ident.cfg", 'shares_dir' => "$tmp/shares", 'pools_dir' => "$tmp/pools",
+            'mounts' => ['/mnt/disk1', '/mnt/user', '/mnt/hive', '/mnt/disks/Sammelplatte'], 'passwd' => "$tmp/passwd", 'partner_dir' => "$tmp/none",
+            'jack_settings' => "$tmp/none.json", 'supporter' => "$tmp/none.json", 'report_id_file' => "$tmp/report-id", 'hostname' => 'larkspur',
+            'run_dir' => "$tmp/run", 'boot_logs' => "$tmp/bootlogs", 'log_lines' => function (string $l) use (&$logged): void { $logged[] = $l; }];
+    $now = 1761040800;
+    $name = 'uso-diagnostics-' . date('Ymd-Hi', $now);
+    $binary = "\x00\x01Larkspur\x00hive2\x00Familienfilme";
+    $files = [
+        "$name/logs/syslog.txt" => "Oct 21 12:00:01 Larkspur emhttpd: mounting /mnt/hive/Familienfilme/Sommer am See 2019/Tag 1.mkv\n"
+            . "Oct 21 12:00:02 Larkspur kernel: BTRFS: device fsid 9e1c devid 2 /dev/sdc1 scanned (hive2), write cache: enabled\n"
+            . "Oct 21 12:00:03 Larkspur shfs: share Urlaub2 made by ottilie, mail ottilie@quillfeather-home.org\n"
+            . "Oct 21 12:00:04 Larkspur nginx: cert for nas.quillfeather-home.org, client 203.0.113.7, lan 192.168.1.20 and fd12::5, regGUID $guid\n",
+        "$name/system/df.txt" => "Filesystem  Size  Used Avail Use% Mounted on\nhive  48G  1G  47G  2% /mnt/hive\nhive/Urlaub  48G  1G  47G  2% /mnt/hive/Urlaub\n"
+            . "shfs  600G  6G  594G  1% /mnt/user\n/dev/sdd1  4T  1T  3T  25% /mnt/disks/Sammelplatte\n",
+        "$name/system/vars.txt" => "    [NAME] => Larkspur\n    [LOCAL_TLD] => quillfeather-home.org\n",
+        "$name/shares/F-----------e.cfg" => "# Share exists on hive2\nshareUseCache=\"yes\"\n",
+        "$name/shares/U-------------------e.cfg" => "shareUseCache=\"only\"\n",
+        "$name/shares/shareDisks.txt" => "F-----------e   shareUseCache=\"yes\"   # Share exists on hive, disk1\nU-----2   shareUseCache=\"no\"   # Share exists on disk1\n",
+        "$name/smart/WDC_WD40EFRX-68N32N0_WD-WCC7K0AAAAAA-20261021-1200 hive2 (sdc).txt" => "Device Model: WDC WD40EFRX-68N32N0\nSerial Number: WD-WCC7K0AAAAAA\n",
+        "$name/config/super.dat" => $binary,
+    ];
+    $made = function (string $tok, array $files) use ($tmp, $name, $now): string {
+        $d = "$tmp/run/$tok.diag";
+        @mkdir($d, 0700);
+        file_put_contents("$d/run.json", json_encode(['started' => $now, 'name' => $name, 'wake' => false]));
+        $z = new ZipArchive();
+        $z->open("$d/$name.zip", ZipArchive::CREATE);
+        foreach ($files as $n => $text) {
+            str_ends_with($n, '/') ? $z->addEmptyDir(rtrim($n, '/')) : $z->addFromString($n, $text);
+        }
+        $z->close();
+        return $d;
+    };
+    $read = function (string $zip): array {
+        $z = new ZipArchive();
+        $out = [];
+        if ($z->open($zip, ZipArchive::RDONLY) === true) {
+            for ($i = 0; $i < $z->numFiles; $i++) {
+                $out[(string) $z->getNameIndex($i)] = (string) $z->getFromIndex($i);
+            }
+            $z->close();
+        }
+        return $out;
+    };
+
+    $tok = str_repeat('a', 32);
+    $d = $made($tok, $files + ["$name/qemu/" => '']);
+    same('report diagnostics pass: the job — 0, the clean zip made (0600), Unraid\'s gone, scrub.json ok', [0, true, '600', false, 'ok'],
+        [reportDiagScrubJob($d, $ctx), is_file("$d/$name.clean.zip"), decoct(@fileperms("$d/$name.clean.zip") & 0777), file_exists("$d/$name.zip"), (readJson("$d/scrub.json") ?? [])['state'] ?? null]);
+    $clean = $read("$d/$name.clean.zip");
+    $text = $clean;
+    unset($text["$name/config/super.dat"]);
+    $all = implode("\n", array_keys($clean)) . "\n" . implode("\n", $text);
+    foreach (['Larkspur', 'larkspur', 'hive', 'Familienfilme', 'Sommer am See', 'Tag 1', 'Urlaub', 'ottilie', 'quillfeather', '203.0.113.7', $guid, 'Sammelplatte', 'F-----------e', 'U-----2'] as $l) {
+        check("report diagnostics pass: «{$l}» survives nowhere (text files and names)", !str_contains($all, $l));
+    }
+    foreach (['192.168.1.20', 'fd12::5', 'WD-WCC7K0AAAAAA', 'write cache: enabled', '/mnt/user', '/dev/sdc1', 'UnraidSecretaryOffice.cfg'] as $k) {
+        check("report diagnostics pass: «{$k}» kept (the home network, serials, the rest)", str_contains($all, $k));
+    }
+    same('report diagnostics pass: the files\' names — masks to placeholders, the device\'s slot, the office\'s folder in front', [
+        "$name/config/super.dat", "$name/logs/syslog.txt", "$name/qemu/", "$name/shares/UnraidSecretaryOffice.cfg", "$name/shares/shareDisks.txt", "$name/shares/‹share-1›.cfg",
+        "$name/smart/WDC_WD40EFRX-68N32N0_WD-WCC7K0AAAAAA-20261021-1200 ‹pool-1›-2 (sdc).txt", "$name/system/df.txt", "$name/system/vars.txt"],
+        (function (array $k): array { sort($k, SORT_STRING); return $k; })(array_keys($clean)));
+    same('report diagnostics pass: the syslog line by line — the layout kept, below a share nothing', [
+        'Oct 21 12:00:01 ‹server› emhttpd: mounting /mnt/‹pool-1›/‹share-1›/…',
+        'Oct 21 12:00:02 ‹server› kernel: BTRFS: device fsid 9e1c devid 2 /dev/sdc1 scanned (‹pool-1›-2), write cache: enabled',
+        'Oct 21 12:00:03 ‹server› shfs: share ‹share-3› made by ‹user-1›, mail ‹mail›',
+        'Oct 21 12:00:04 ‹server› nginx: cert for ‹domain-1›, client …, lan 192.168.1.20 and fd12::5, regGUID •••', ''],
+        explode("\n", $clean["$name/logs/syslog.txt"] ?? ''));
+    same('report diagnostics pass: df and Unraid\'s share list', [
+        "Filesystem  Size  Used Avail Use% Mounted on\n‹pool-1›  48G  1G  47G  2% /mnt/‹pool-1›\n‹pool-1›/‹share-2›  48G  1G  47G  2% /mnt/‹pool-1›/‹share-2›\n"
+            . "shfs  600G  6G  594G  1% /mnt/user\n/dev/sdd1  4T  1T  3T  25% /mnt/disks/…\n",
+        "‹share-1›   shareUseCache=\"yes\"   # Share exists on ‹pool-1›, disk1\n‹share-3›   shareUseCache=\"no\"   # Share exists on disk1\n"],
+        [$clean["$name/system/df.txt"] ?? null, $clean["$name/shares/shareDisks.txt"] ?? null]);
+    same('report diagnostics pass: a binary file as it was', $binary, $clean["$name/config/super.dat"] ?? null);
+    file_put_contents("$d/done", "0\n");
+    $st = reportDiagState($d, $now + 5, $ctx);
+    same('report diagnostics pass: ready — the clean zip\'s size and sha256, the hidden list (only for the page)', ['ready', filesize("$d/$name.clean.zip"), hash_file('sha256', "$d/$name.clean.zip"), [
+        '‹domain-1›' => 'quillfeather-home.org', '‹pool-1›' => 'hive', '‹pool-1›-2' => 'hive2', '‹server›' => 'Larkspur', '‹share-1›' => 'Familienfilme', '‹share-2›' => 'Urlaub',
+        '‹share-3›' => 'Urlaub2', '‹user-1›' => 'ottilie']],
+        [$st['state'], $st['bytes'] ?? null, $st['sha256'] ?? null, (function (array $h): array { ksort($h, SORT_STRING); return $h; })((array) ($st['hidden'] ?? []))]);
+    $a = reportDiagAnswer(['token' => $tok], $ctx + ['now' => $now + 6]);
+    same('report diagnostics pass: … office.report_diag gives the page the hidden list, never the hash', [true, 8, false], [isset($a['hidden']), count((array) ($a['hidden'] ?? [])), isset($a['sha256'])]);
+
+    // the failures: never Unraid's zip in place of the clean one
+    $tok = str_repeat('b', 32);
+    $d = $made($tok, []);
+    file_put_contents("$d/$name.zip", 'not a zip at all');
+    same('report diagnostics pass: not a zip — the job says 1, failed, nothing clean, Unraid\'s gone, logged', [1, 'failed', [], true],
+        [reportDiagScrubJob($d, $ctx), (readJson("$d/scrub.json") ?? [])['state'] ?? null, glob("$d/*.zip") ?: [], str_starts_with($logged[0] ?? '', 'Office: the diagnostics for a report could not be cleaned')]);
+    file_put_contents("$d/done", "0\n");
+    same('report diagnostics pass: … the state failed {why: scrub}', ['failed', 'scrub'], array_values(array_intersect_key(reportDiagState($d, $now + 5, $ctx), ['state' => 1, 'why' => 1])));
+    $tok = str_repeat('c', 32);
+    $d = $made($tok, $files);
+    same('report diagnostics pass: over its time — failed, nothing clean', [1, []], [reportDiagScrubJob($d, ['scrub_time' => -1] + $ctx), glob("$d/*.zip") ?: []]);
+    $tok = str_repeat('e', 32);
+    $d = $made($tok, $files);
+    file_put_contents("$d/done", "0\n");            // an older agent's run: Unraid's zip, no pass
+    same('report diagnostics pass: no pass at all — failed {why: scrub}, Unraid\'s zip deleted, never sent', ['failed', 'scrub', []],
+        [($s = reportDiagState($d, $now + 5, $ctx))['state'], $s['why'] ?? null, glob("$d/*.zip") ?: []]);
+    same('report diagnostics pass: a folder not of a preview\'s shape — 2, nothing done', [2, 2], [reportDiagScrubJob("$tmp/run", $ctx), reportDiagScrubJob("$tmp/bootlogs/" . str_repeat('f', 32) . '.diag', $ctx)]);
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/lang/en.json'), true) ?: [];
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    check('report diagnostics pass: the dialog says what was hidden, that it is cleaning, and when it couldn\'t',
+        isset($en['office.report_diag_cleaning'], $en['office.report_diag_scrub_failed']) && str_contains($core, "d.why === 'scrub' ? 'office.report_diag_scrub_failed'")
+        && str_contains($core, "d.phase === 'cleaning' ? 'office.report_diag_cleaning'") && str_contains($core, 'const hidden = Object.entries(d.hidden || {});'));
     hardeningRm($tmp);
 }
 
@@ -36128,7 +36330,7 @@ const button = (label) => one((n) => n.tag === 'button' && n.textContent === lab
     'office.reports': { ok: true, reports: [], n: 0, left: 25, cap: 25, next: null, closed: false },
     'office.report_preview': previewAnswer,
     'office.report_diag': (b) => (b.drop ? { ok: true, state: 'gone' } : diagState === 'running' ? { ok: true, state: 'running' }
-      : { ok: true, state: 'ready', bytes: 104316, count: 3, files: ['d/config/ident.cfg', 'd/logs/syslog.txt'] }),
+      : { ok: true, state: 'ready', bytes: 104316, count: 3, files: ['d/config/ident.cfg', 'd/logs/syslog.txt'], hidden: { '‹pool-1›-2': 'hive2' } }),
     'office.report_send': { ok: true, number: 41, url: '', left: 24, n: 1, cap: 25, next: null, diagnostics: 'off' },
   };
   const fill = () => {
@@ -36164,7 +36366,8 @@ const button = (label) => one((n) => n.tag === 'button' && n.textContent === lab
   await sleep(2300);
   out.ready = { polled: posts.filter((p) => p.a === 'office.report_diag').map((p) => p.token), sendOn: !send.disabled, rowOn: part().checked && !part().disabled,
     size: text(one((n) => n.className === 'sso-report-diag-shown')).includes('office.report_diag_ready'),
-    files: text(one((n) => n.className === 'sso-report-diag-files')).includes('d/logs/syslog.txt') };
+    files: text(one((n) => n.className === 'sso-report-diag-files')).includes('d/logs/syslog.txt'),
+    hidden: walk(one((n) => n.className === 'sso-report-diag-shown'), (n) => n.className === 'sso-report-hidden').map(text) };
   posts.length = 0;
   await send.onclick();
   await sleep(10);
@@ -36204,8 +36407,8 @@ JS);
         [$r['asleep']['asked'], $r['asleep']['wakeShown'], $r['asleep']['row'], $r['asleep']['sendOff']]);
     same('report dialog diagnostics: with «wake» — asked so; the wave, its part ticked but off, «Send» off; nothing of it in the draft', [[[true, true]], true, true, true, true, ['kind', 'desk', 'title', 'text']],
         [$r['running']['asked'], $r['running']['sendOff'], $r['running']['wave'], $r['running']['rowDisabled'], $r['running']['rowTicked'], array_keys($r['running']['draft'])]);
-    same('report dialog diagnostics: asked again until ready — then size, files, its part on, «Send» on', [true, true, true, true, true],
-        [in_array($d, $r['ready']['polled'], true), $r['ready']['rowOn'], $r['ready']['sendOn'], $r['ready']['size'], $r['ready']['files']]);
+    same('report dialog diagnostics: asked again until ready — then size, files, what the office hid in them, its part on, «Send» on', [true, true, true, true, true, ['office.report_hidden']],
+        [in_array($d, $r['ready']['polled'], true), $r['ready']['rowOn'], $r['ready']['sendOn'], $r['ready']['size'], $r['ready']['files'], $r['ready']['hidden']]);
     same('report dialog diagnostics: «Send» names the part; the inbox didn\'t take them — said; nothing dropped after a send', [['versions', 'diagnostics'], ['office.report_diag_not_sent.off'], 0, 0],
         [$r['sent']['parts'], $r['sent']['said'], $r['sent']['drops'], $r['sentDrops']]);
     same('report dialog diagnostics: a new dialog — not ticked, nothing remembered', [false, false, 0], [$r['again']['ticked'], $r['again']['wakeShown'], $r['again']['stored']]);
@@ -48953,7 +49156,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testWatchmanHold',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
-          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testHouseDockerSilent', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
+          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testHouseDockerSilent', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.

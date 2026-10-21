@@ -1,0 +1,22 @@
+{
+ "ok": true,
+ "token": "d1a9c0e5b7f24a3c9e6d8b2f1a0c4e7d",
+ "ttl": 600,
+ "ticked": ["versions", "unraid", "language", "team", "log", "diagnostics"],
+ "id": "3fa9c2e1",
+ "hints": [],
+ "hidden": {"‹pool-1›": "speicher", "‹share-1›": "Familienfilme"},
+ "n": 1,
+ "left": 24,
+ "cap": 25,
+ "next": null,
+ "closed": false,
+ "parts": {
+  "versions": {"office": "1.69.4", "engine": "2.68"},
+  "unraid": "7.3.3",
+  "language": {"lang": "de", "browser": "de"},
+  "team": ["backup", "caretaker", "snapshot"],
+  "log": "2026-10-21 09:12:03  Agent started (v1.69.4, PID 4711, desks: backup, caretaker, snapshot)\n2026-10-21 09:14:40  Backup: the pool ‹pool-1› sleeps, /mnt/‹pool-1›/‹share-1›/… waits for the next run"
+ },
+ "diagnostics": {"state": "running"}
+}

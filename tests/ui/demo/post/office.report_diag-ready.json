@@ -1,0 +1,26 @@
+{
+ "ok": true,
+ "state": "ready",
+ "bytes": 341210,
+ "count": 79,
+ "files": [
+  "uso-diagnostics-20261021-0915/config/disk.cfg",
+  "uso-diagnostics-20261021-0915/config/ident.cfg",
+  "uso-diagnostics-20261021-0915/logs/syslog.txt",
+  "uso-diagnostics-20261021-0915/shares/shareDisks.txt",
+  "uso-diagnostics-20261021-0915/shares/‹share-1›.cfg",
+  "uso-diagnostics-20261021-0915/shares/‹share-2›.cfg",
+  "uso-diagnostics-20261021-0915/smart/WDC_WD40EFRX-68N32N0_WD-WX00A0000000-20261021-0915 ‹pool-1›-2 (sdc).txt",
+  "uso-diagnostics-20261021-0915/system/df.txt",
+  "uso-diagnostics-20261021-0915/system/vars.txt"
+ ],
+ "hidden": {
+  "‹domain-1›": "sonnberg-familie.example",
+  "‹pool-1›": "speicher",
+  "‹pool-1›-2": "speicher2",
+  "‹server›": "FamilienServer",
+  "‹share-1›": "Familienfilme",
+  "‹share-2›": "Familienserien",
+  "‹user-1›": "lena"
+ }
+}
