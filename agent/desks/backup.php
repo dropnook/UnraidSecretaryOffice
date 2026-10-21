@@ -79,6 +79,7 @@ desk('backup', [
         'orphans_get'    => fn (array $r) => ['ok' => true, 'orphans' => backupOrphans()],
         'orphans_delete' => fn (array $r) => backupOrphansDelete(idList($r, 'sources'), optText($r, 'listed')),
         'kopia_accept'   => fn (array $r) => backupKopiaAccept(textField($r, 'repo')),     // engine 2.56: «yes, this repository is new»
+        'kopia_restart'  => fn (array $r) => backupKopiaRestart(),     // engine 2.68: the offsite storage takes nothing - «Restart Kopia…» after a confirmation
         'setup_decline' => fn (array $r) => backupDecline(textField($r, 'key'), $r['value'] ?? null),          // 1.60.1: a declined proposal stays declined
         'setup_decline_undo' => fn (array $r) => backupDeclineUndo(textField($r, 'key')),
         'schedule'    => fn (array $r) => backupSetSchedule(cronField($r)),       // null: off — said, never a missing key
@@ -96,7 +97,10 @@ desk('backup', [
                                                     'no_fresh_ok' => boolField($r, 'no_fresh_ok')]),
     ],
     'jobs'    => ['backup-letgo' => fn (array $args) => backupLetGoJob($args)],
-    'tick'    => fn () => backupLockTick(),           // engine 2.56: Object Lock and Kopia's maintenance, asked a few times a day
+    'tick'    => function (): void {
+        backupLockTick();             // engine 2.56: Object Lock and Kopia's maintenance, asked a few times a day
+        backupWatchTick();            // engine 2.68: the Kopia server's log - does the offsite storage still take writes?
+    },
     'checks' => fn () => backupChecks(),
     'metrics' => fn (): array => backupMetrics(),
 ]);
@@ -287,6 +291,7 @@ function backupScan(): array
         'drill'      => backupDrillLine(),       // Mr. Restori's drill: one line from its certificate
         'kopia_held' => backupKopiaHeld(),       // engine 2.56: the Kopia step held - the repository suddenly empty
         'offsite'    => backupOffsiteReach($settings),    // engine 2.66: «offsite unreachable since …» (B16)
+        'kopia_writes' => backupKopiaWrites($settings),   // engine 2.68: does the offsite storage still take writes?
     ];
     $state['found'] = true;
     $GLOBALS['backup'] = $state;
@@ -2596,6 +2601,12 @@ function backupChecks(): array
             $held = backupKopiaHeld();
             $out[] = finding('kopia_emptied', 'required', $held === null, $held === null ? [] : backupHeldParams($held), '#/backup');
             array_push($out, ...backupKopiaLockJudge(backupKopiaLockRead(), time(), $name));
+            // engine 2.68: the offsite storage takes nothing (Kopia's server log, or a run's upload ended by its stall
+            // watchdog) - said only once the engine looked; «unknown» (not the maintenance owner, no log) says nothing
+            $w = backupKopiaWrites($settings);
+            if ($w !== null && $w['state'] !== 'unknown') {
+                $out[] = finding('kopia_writes', 'required', $w['state'] === 'ok', $w['state'] === 'stuck' ? backupWritesParams($w, $name) : ['name' => $name], '#/backup');
+            }
         }
     }
 
@@ -2771,6 +2782,97 @@ function backupOffsiteReach(array $settings, ?string $file = null): ?array
         }
     }
     return ['unreachable_since' => $j['since'], 'run' => $j['run'], 'last' => $j['last'], 'last_run' => $j['last_run']];
+}
+
+/**
+ * Engine 2.68: does the offsite storage still take what Kopia writes? state/kopia-watch.json (backup.sh --kopia-watch from
+ * Kopia's server log, or a run's stall watchdog) in exactly the engine's shape — else null. Only while Kopia is switched
+ * on in settings.ini. `state` ok | stuck | unknown; `since` (stuck) the first moment it took nothing; `by` server | run.
+ */
+function backupKopiaWrites(array $settings, ?string $file = null): ?array
+{
+    if (!in_array(strtolower((string) backupSetting($settings, 'kopia', 'enabled', 'no')), ['yes', 'ja', '1', 'true'], true)) {
+        return null;
+    }
+    $j = readJson($file ?? BACKUP_DATA_DIR . '/state/kopia-watch.json');
+    if (!is_array($j) || ($j['v'] ?? null) !== 1 || !in_array($j['state'] ?? null, ['ok', 'stuck', 'unknown'], true) || !is_int($j['time'] ?? null)) {
+        return null;
+    }
+    $stuck = $j['state'] === 'stuck';
+    if ($stuck && (!is_int($j['since'] ?? null) || $j['since'] <= 0)) {
+        return null;
+    }
+    $storage = is_string($j['storage'] ?? null) && preg_match('/^[^\x00-\x1f<>]{0,120}$/uD', $j['storage']) ? $j['storage'] : '';
+    return ['state' => $j['state'], 'since' => $stuck ? $j['since'] : null, 'by' => $stuck && ($j['by'] ?? '') === 'run' ? 'run' : ($stuck ? 'server' : null),
+            'storage' => $storage, 'time' => $j['time'],
+            'why' => is_string($j['why'] ?? null) && preg_match('/^[a-z_]{0,20}$/D', $j['why']) ? $j['why'] : ''];
+}
+
+/** The finding's words of an offsite that takes nothing: since when (as the page says it), where, which container */
+function backupWritesParams(array $w, ?string $name): array
+{
+    return ['since' => date('Y-m-d H:i', (int) $w['since']), 'since_t' => (int) $w['since'],
+            'storage' => $w['storage'] !== '' ? $w['storage'] : '–', 'name' => $name ?? 'kopia'];
+}
+
+const BACKUP_WATCH_ENGINE = '2.68';
+const BACKUP_WATCH_EVERY  = 600;         // the Kopia server's log looked at (backup.sh --kopia-watch through atd) every 10 minutes
+
+/**
+ * His tick (engine 2.68): every 10 minutes the engine reads the Kopia server's own log (backup.sh --kopia-watch through
+ * atd: one docker exec, the repository never opened) — only while Kopia is on, never with the engine's folder on a sleeping
+ * disk; a run going on doesn't matter (nothing is locked or written in the repository).
+ */
+function backupWatchTick(?int $now = null): ?string
+{
+    static $launched = 0;
+    $now ??= time();
+    if ($now - $launched < BACKUP_WATCH_EVERY && $now >= $launched) {
+        return null;
+    }
+    $launched = $now;
+    $dir = BACKUP_SCRIPT_DIR;
+    $data = BACKUP_DATA_DIR;
+    if (!is_file("$dir/backup.sh") || !is_file("$data/settings.ini") || backupHomeAsleep($data) || backupDockerSilent()
+        || !backupSettingsSummary(backupReadSettings("$data/settings.ini"))['kopia_enabled']
+        || version_compare((string) (backupAbout($dir)['version'] ?? '0'), BACKUP_WATCH_ENGINE, '<')) {
+        return null;
+    }
+    backupLaunch(["$dir/backup.sh", '--kopia-watch']);
+    return 'launched';
+}
+
+/**
+ * «Restart Kopia…» (engine 2.68, on his page while the offsite storage takes nothing, after a confirmation): `docker
+ * restart` of exactly the container settings.ini names — never by himself, never while the engine's lock is held (a run,
+ * the setup, a restore or drill: backupCheckReady()). Afterwards the watch looks again; «stuck» ends only when a write
+ * goes through (the restart alone proves nothing).
+ */
+function backupKopiaRestart(): array
+{
+    $dir = backupCheckReady();
+    if (version_compare((string) (backupAbout($dir)['version'] ?? '0'), BACKUP_WATCH_ENGINE, '<')) {
+        throw new Problem('backup_too_old', ['version' => backupAbout($dir)['version'] ?? '?']);
+    }
+    $settings = backupReadSettings(BACKUP_DATA_DIR . '/settings.ini');
+    $name = backupSettingsSummary($settings)['kopia_container'] ?? null;
+    if (!backupSettingsSummary($settings)['kopia_enabled'] || !is_string($name) || !preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/D', $name)
+        || !isset(houseContainers(true)[$name])) {
+        throw new Problem('kopia_restart_gone');
+    }
+    [$exit, , $err] = houseDocker(['restart', '-t', '30', $name], 120);
+    if ($exit !== 0) {
+        logLine("Backup: Kopia's container $name could not be restarted (exit $exit): " . trim((string) $err));
+        throw new Problem('kopia_restart_failed', ['name' => $name]);
+    }
+    logLine("Backup: Kopia's container $name restarted on the user's click (the offsite storage took nothing since "
+        . (($w = backupKopiaWrites($settings)) && $w['since'] ? date('Y-m-d H:i', $w['since']) : '–') . ')');
+    try {
+        backupLaunch(["$dir/backup.sh", '--kopia-watch']);
+    } catch (Throwable $e) {
+        logLine('Backup: the look at Kopia after its restart could not start: ' . $e->getMessage());
+    }
+    return ['ok' => true, 'name' => $name, 'state' => backupScan()];
 }
 
 /** The finding's words of a hold: counts and the dates as the page says them */
@@ -2983,7 +3085,10 @@ function backupSetupGet(): array
     $noteFile = "$data/state/" . BACKUP_REPLAN_FILE;
     $note = readJson($noteFile);
     $holder = backupLockHolder();
-    $free = $holder === null && !backupSetupStatus()['running'] && backupTrustState($data) === null;   // never a plan the engine refuses
+    $st = backupSetupStatus();
+    // never a plan the engine refuses; never over an Apply that ended «errors» (engine 2.67): its messages stay until the user acts
+    $free = $holder === null && !$st['running'] && backupTrustState($data) === null
+        && !($st['mode'] === 'apply' && $st['result'] === 'errors' && $st['written']);
     $replan = backupSetupReplan($plan, $state, $note, $free, time());
     if ($replan['note'] !== $note && $replan['note'] !== null) {
         try {
