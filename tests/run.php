@@ -45419,9 +45419,9 @@ JS);
         $o['sections'] ?? null);
     check('moverelli tiles: the footer — Smart Mover\'s and Unraid\'s versions, the credit to helmi1987',
         in_array('credit_title', $o['foot'] ?? [], true) && (bool) preg_grep('/^Smart Mover V7/', $o['foot'] ?? []) && (bool) preg_grep('/^Unraid 7\.3\.2/', $o['foot'] ?? []));
-    same('moverelli tiles: the setup page — the head with tabs, the help, its head line, the row of steps, the quiet link to an earlier install; no save button (the bar)',
-        ['deskhead', 'help', 'mo-pagehead', 'sections', 'role mo-import-link'], $o['setupPage'] ?? null);
-    same('moverelli tiles: … set up, nothing changed — no bar', null, array_key_exists('setupBar', $o) ? $o['setupBar'] : 'x');
+    same('moverelli tiles: the setup page — the head with tabs, the help, its head line, the row of steps, «Save» at the bottom (no floating bar, owner 2026-10-21), the quiet link to an earlier install',
+        ['deskhead', 'help', 'mo-pagehead', 'sections', 'toolbar mo-save', 'role mo-import-link'], $o['setupPage'] ?? null);
+    check('moverelli tiles: … her setup never raises the floating bar', !array_key_exists('setupBar', $o));
     same('moverelli tiles: the setup\'s switcher — its routes, kept as moverelli.setup.tile, every step to start, a step\'s route before her state', ['moverelli/setup', 'moverelli.setup.tile', '', true, false],
         $o['setupSpec'] ?? null);
     same('moverelli tiles: the setup\'s steps — for all (age, fill, what stays), per share (own rules, left out); no earlier install found: no tile', [
@@ -46055,7 +46055,7 @@ function testTilesMediaPages(): void
         && str_contains($jackSrc, "onPick: (cur) => fillSaveSlot(cur),") && str_contains($jackSrc, "section: () => (d.id === 'import' ? importStep() : setupStep(d.id))")
         && substr_count($jackSrc, "saveBar()") === 3);
     check('setup tabs: after saving the page shows from its top (Jack Streamer\'s, Ms. Moverelli\'s, Mr. Backupsy\'s apply)',
-        str_contains($jackSrc, "renderSetup();\n  if (typeof window !== 'undefined') window.scrollTo(0, 0);")
+        str_contains($jackSrc, "renderSetup();\n  connectSaved();\n  if (typeof window !== 'undefined') window.scrollTo(0, 0);")
         && str_contains((string) file_get_contents(OFFICE_WEB . '/desks/moverelli/desk.js'), "Office.go(`#/\${ID}`);\n      if (typeof window !== 'undefined') window.scrollTo(0, 0);")
         && str_contains((string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js'), "setupLoad();\n        if (typeof window !== 'undefined') window.scrollTo(0, 0);"));
     check('jack page: the routes of his tiles (the switcher\'s), the Team Lead\'s links to his schedules land in «Schedules» (the row revealed), #/jack/history the whole page — picked once his state is there (a pick before it broke his page, 2026-10-16), MediaCache\'s runs in the search by «Last run»',
