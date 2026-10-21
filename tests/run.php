@@ -4646,8 +4646,9 @@ function testSilentControlsMore(): void
         && str_contains($sp, '{ view.wake.checked = false; view.wakeSync(); }'));
     check('silent controls: Dustdevil\'s the same', str_contains($cl, "wakeNote.append(el('span', '', T('where.wake_once')), wakeGo);")
         && str_contains($cl, 'wakeNote.hidden = !v.wake.checked || v.wakeLabel.hidden;') && str_contains($cl, '{ view.wake.checked = false; view.wakeSync(); }'));
-    check('silent controls: Jack Streamer\'s bar - drawn from his setup, gone on his other page and on other desks',
-        str_contains($jk, 'setTimeout(setupBar, 0);') && substr_count($jk, 'Office.selbar(null)') >= 3);
+    // 2026-10-21 (the owner): no floating bar on his page — «Save» at the bottom says it, «Discard» beside it
+    check('silent controls: Jack Streamer\'s «n changes» - said by «Save» at the bottom (with «Discard»), no floating bar',
+        str_contains($jk, 'setTimeout(setupBar, 0);') && !str_contains($jk, 'Office.selbar(') && str_contains($jk, "foot.append(save, discard, why, changes);"));
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         $b = $lang('backup', $l);
         $s = $lang('snapshot', $l);
@@ -38966,6 +38967,7 @@ const texts = (n) => (typeof n === 'string' ? [n] : [n.text, ...n.children.flatM
   m.setForm(null);
   m.initForm();
   out.noBar = m.setupBarSpec();
+  out.footNone = (m.saveFootEl().children.map((c) => [c.textContent, !!c.disabled, !!c.hidden]));
   const f = m.form();
   f.global.min_age = 14;
   f.global.files.push('/mnt/user/appdata/x/mediacache_exclude.txt');
@@ -38976,6 +38978,7 @@ const texts = (n) => (typeof n === 'string' ? [n] : [n.text, ...n.children.flatM
   const rows = m.setupChangeRows(m.formSettings({ global: base.settings.global, shares: { Filme: base.settings.shares.Filme, Docs: { skip: false, min_age: null, age_stat: null, move_when_used_above: null, files: [], patterns: [] } } }), m.formSettings(f));
   const spec = m.setupBarSpec();
   out.bar = [spec.title, spec.buttons.map((b) => [b.text, b.disabled])];
+  out.foot = (m.saveFootEl().children.map((c) => [c.textContent, !!c.disabled, !!c.hidden]));
   out.rows = rows.map((r) => [r.mark, r.label, r.what]);
   m.setupApply();
   let d = dialogs.pop();
@@ -39009,6 +39012,11 @@ JS);
         } else {
             same('unraid mover page: her setup unchanged and set up — no bar', null, array_key_exists('noBar', $o) ? $o['noBar'] : 'x');
             same('unraid mover page: the bar — «N changes», Discard, Apply…', ['setup.bar_changes {"n":6}', [['setup.discard', false], ['setup.save', false]]], $o['bar']);
+            // 2026-10-21 (the owner): no floating bar on her page — «Save» at its bottom, «Discard» and a quiet line beside it
+            same('unraid mover page: «Save» at the bottom — nothing changed: grey, no «Discard», no line; changed: free, «Discard», «N changes — against what is saved»',
+                [[['setup.save', true, false], ['setup.discard', false, true], ['', false, false]], [['setup.save', false, false], ['setup.discard', false, false], ['setup.bar_changes {"n":6} — setup.bar_sub', false, false]]],
+                [$o['footNone'] ?? null, $o['foot'] ?? null]);
+            check('unraid mover page: … her page sets no floating bar any more', !str_contains((string) file_get_contents(OFFICE_WEB . '/desks/moverelli/desk.js'), 'Office.selbar('));
             same('unraid mover page: the changes, Mr. Backupsy\'s marks — a value «a → b», + a list, + an own line, a share\'s own rules new, a share\'s rules changed', [
                 [null, 'setup.row_global {"what":"setup.min_age"}', 'setup.tile.days {"n":0} → setup.tile.days {"n":14}'],
                 ['add', 'setup.files', '/mnt/user/appdata/x/mediacache_exclude.txt'], ['add', 'setup.patterns', '*.nfo'],
@@ -39483,7 +39491,7 @@ function testStreamerTab(): void
   f.chosenUsers = new Set(['u-anna', 'u-lena']);
   f.budgets = { 'u-anna': '10G' };
   const bar = e.saveBar();
-  out.low = [e.setupBlocked().replace(/ \{.*$/, ''), bar.children[0].disabled, bar.children[1].textContent.replace(/ \{.*$/, ''), e.setupTileData().find((d) => d.id === 'users').alert];
+  out.low = [e.setupBlocked().replace(/ \{.*$/, ''), bar.children[0].disabled, bar.children.find((c) => /jo-save-why/.test(c.className)).textContent.replace(/ \{.*$/, ''), e.setupTileData().find((d) => d.id === 'users').alert];
   f.budgets = { 'u-anna': '200G', 'u-lena': '200G' };
   out.over = [!!e.setupBlocked(), e.budgetState().over];
   f.budgets = { 'u-anna': '100G' };
@@ -39740,6 +39748,49 @@ JS, [OFFICE_WEB . '/desks/jack/desk.js', OFFICE_DIR . '/tests/ui/demo/jack.json'
 }
 
 /**
+ * «Connect» again on a saved server is no change (2026-10-21, the owner on his real server: every click on «Connect» gave
+ * «1 change — not saved yet» and nothing showed what). Connecting suggests a folder for every library folder; a folder
+ * saved as deliberately not cached ('') or of a library not chosen is saved as '' whatever it suggests — it counts no
+ * more. What a connect really brings (a new folder of a chosen library) counts, and the line by «Save» names the part.
+ * No floating change bar on his page any more (the owner): «Save» at the bottom, «Discard» and that line beside it.
+ */
+function testJackConnectNoChange(): void
+{
+    $r = streamerTabRun('jack connect no change', <<<'JS'
+(async () => {
+  const out = {};
+  answers['jack.connect'] = { ok: true, server: con.server, libraries: con.libraries, users: con.users };
+  const again = async () => { e.initForm(); const i = e.form().instances[0]; const n = [e.formChangeCount()]; await e.connectInst(i); n.push(e.formChangeCount()); await e.connectInst(i); n.push(e.formChangeCount()); return n; };
+  e.setState(st);
+  out.notSaved = await again();                         // a library the setup never saved (no folder at all)
+  const st2 = JSON.parse(JSON.stringify(st));
+  st2.settings.instances[0].path_mappings['/hoerspiele'] = '';
+  e.setState(st2);
+  out.skipped = await again();                          // … saved as not cached, as «Save» writes it
+  const foot = () => { const b = e.saveBar(); return [b.children[1].hidden, b.children[3].hidden, b.children[3].textContent]; };
+  out.footNone = foot();
+  // a real change: a chosen library got a second folder on the server — the libraries' part
+  answers['jack.connect'] = { ok: true, server: con.server, users: con.users, libraries: con.libraries.map((l) => (l.name === 'Familienfilme' ? { ...l, locations: [...l.locations, '/familienfilme2'] } : l)) };
+  e.initForm(); await e.connectInst(e.form().instances[0]);
+  out.newFolder = [e.formChangeCount(), e.changedParts()];
+  // the server's name: the servers' part; with a budget too: both, in the parts' order
+  e.initForm(); e.form().instances[0].servername = 'Wohnzimmer'; e.form().values.cache_budget = '400';
+  out.named = [e.formChangeCount(), e.changedParts(), foot()];
+  console.log(JSON.stringify(out));
+})();
+JS, [OFFICE_WEB . '/desks/jack/desk.js', OFFICE_DIR . '/tests/ui/demo/jack.json', OFFICE_DIR . '/tests/ui/demo/post/jack.connect.json']);
+    if ($r === null) {
+        return;
+    }
+    same('connect no change: a saved server connected again (twice) — 0 changes, a library never saved there', [0, 0, 0], $r['notSaved']);
+    same('connect no change: … one saved as not cached', [0, 0, 0], $r['skipped']);
+    same('connect no change: nothing changed — «Discard» and the line by «Save» hidden', [true, true, ''], $r['footNone']);
+    same('connect no change: a new folder of a chosen library counts — in the libraries\' part', [1, ['setup.shares']], $r['newFolder']);
+    same('connect no change: the server\'s name and the budget — two changes, their parts named by «Save», «Discard» there',
+        [2, ['setup.server', 'setup.scope'], [false, false, 'setup.bar_changes {"n":2} (setup.server, setup.scope) setup.bar_sub']], $r['named']);
+}
+
+/**
  * Budget mode always, the agent's side (2026-10-14): jackBudgetCheck() — a budget in total required (at least 20 GB), a
  * person's own budget at least 20 GB, together never over the total, what they leave at least 20 GB for each of the
  * others; jackSave() checks it before anything is written. Set up = a server and a budget (jackConfigured()).
@@ -39985,10 +40036,10 @@ out.first = all(e.budgetLine()).filter((n) => n.tag === 'p').map((n) => n.textCo
 // the save bar: «Save» disabled with the reason beside it
 f.values.cache_budget = '160G';
 const bar = e.saveBar();
-out.barRed = [bar.children[0].disabled, bar.children[1].textContent.replace(/ \{.*$/, '')];
+out.barRed = [bar.children[0].disabled, bar.children.find((c) => /jo-save-why/.test(c.className)).textContent.replace(/ \{.*$/, '')];
 f.values.cache_budget = '1000G';
 const bar2 = e.saveBar();
-out.barFine = [bar2.children[0].disabled, bar2.children[1].textContent];
+out.barFine = [bar2.children[0].disabled, bar2.children.find((c) => /jo-save-why/.test(c.className)).textContent];
 // saving with every right and wrong share: the wrong shares' folders not cached, create_share_root never sent
 posts.length = 0;
 await e.saveSetup();
@@ -42056,7 +42107,7 @@ out.noBar = m.setupBarSpec() === null;
 const btn = find(box.children.find((d) => d.children[0].text === 'nc'), (n) => n.tag === 'button');
 btn.onclick();
 out.after = texts(box.children.find((d) => d.children[0].text === 'nc'));
-out.bar = bar && bar.title;
+out.bar = (m.setupBarSpec() || {}).title;
 out.sent = Object.keys(m.formSettings(m.form()).shares);
 out.change = m.setupChangeRows(m.formSettings({ global: g, shares: { nc: m.formSettings({ global: g, shares: { nc: { skip: false, min_age: 0, move_when_used_above: null, files: ['/mnt/user/appdata/x.txt'], patterns: ['*.tmp', 'cache'] } } }).shares.nc, Alt: m.form().shares.Alt } }), m.formSettings(m.form()))
   .map((r) => [r.mark, r.label, r.what]);
@@ -48367,7 +48418,7 @@ JS;
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testWatchmanHold',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],

@@ -25,6 +25,8 @@
 /* her row of tiles and the setup's (tiles v2) */
 .mo-tiles, .mo-setup-tiles{margin:4px 0 14px}
 /* under all: the tool's versions and the credit */
+.mo-save{margin-top:14px; align-items:center; flex-wrap:wrap; gap:8px 14px}   /* «Save» at the bottom of her setup */
+.mo-save-line.mo-save-no{color:var(--danger)}
 .mo-foot{margin:22px 0 4px; padding-top:10px; border-top:1px solid var(--line)}
 .mo-tools{overflow-wrap:anywhere}
 .mo-tools .mo-old{color:var(--danger)}

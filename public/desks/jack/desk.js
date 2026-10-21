@@ -1566,7 +1566,7 @@ function renderSetup() {
   saveGate = null;
   if (!state) return;
   if (!form) initForm();
-  // every change goes into the bar at the bottom — the page tells it at each keystroke and click
+  // every change is said by «Save» at the bottom (setupBar() → saveGate) — the page tells it at each keystroke and click
   if (!root.dataset.joBar) {
     root.dataset.joBar = '1';
     const bump = () => { if (page === 'setup') setTimeout(setupBar, 0); };
@@ -1609,13 +1609,19 @@ function importStep() {
 function saveBar() {
   const foot = el('div', 'toolbar jo-save');
   const save = button(T('setup.save'), '', saveSetup);
+  const discard = button(T('setup.discard'), 'plain', () => { form = null; renderSetup(); connectSaved(); });
   const why = el('span', 'role jo-save-why');
-  foot.append(save, why);
+  const changes = el('span', 'role jo-save-changes');
+  foot.append(save, discard, why, changes);
   saveGate = () => {
     const r = running() ? T('setup.save_running') : setupBlocked();
     why.textContent = r || poolChangeWarning() || T('setup.save_hint');
     why.classList.toggle('jo-save-no', !!r);
     save.disabled = !!r || !Office.agent.running;
+    const n = formChangeCount();
+    discard.hidden = !n;
+    changes.hidden = !n;
+    changes.textContent = n ? `${T('setup.bar_changes', { n })} (${changedParts().map((k) => T(k)).join(', ')}) ${T('setup.bar_sub')}` : '';
   };
   saveGate();
   return foot;
@@ -1864,7 +1870,7 @@ function setupServers() {
     if (inst.server && inst.type === 'plex') box.appendChild(el('p', 'role', T('setup.plex_users')));
     if (inst.connectError) box.appendChild(el('p', 'callout danger jo-connect-error', inst.connectError));
     // every server can go — the only one too, and one that doesn't answer (2026-10-21: an Emby left for Jellyfin stayed for good)
-    bar.appendChild(button(T('setup.remove_server'), 'small plain', () => removeServerDialog(inst)));
+    bar.appendChild(button(T('setup.remove_server'), 'small plain jo-remove', () => removeServerDialog(inst)));
     // a second server of the same kind (rare): from its last row
     if (form.instances.findLastIndex((i) => i.type === inst.type) === idx) {
       bar.appendChild(button(T('setup.add_same', { kind: SERVER_NAMES[inst.type] }), 'small plain', () => {
@@ -2347,12 +2353,35 @@ let formStart = '';
 function formParts() {
   if (!form) return {};
   const out = {};
-  form.instances.forEach((x, i) => { out['i' + i] = JSON.stringify([x.type, x.servername, x.url, x.api_key, x.mappings, [...x.skip].sort()]); });
+  form.instances.forEach((x, i) => { out['i' + i] = JSON.stringify([x.type, x.servername, x.url, x.api_key, countedMappings(x), [...x.skip].sort()]); });
   form.chosenLibs.forEach((n) => { out['l|' + n] = '1'; });
   form.chosenUsers.forEach((n) => { out['u|' + n] = '1'; });
   Object.entries(form.budgets).forEach(([k, v]) => { out['b|' + k] = JSON.stringify(v); });
   Object.entries(form.values).forEach(([k, v]) => { out['v|' + k] = JSON.stringify(v); });
   return out;
+}
+/**
+ * A server's folders as a change counts them (2026-10-21, the owner: every «Connect» on a saved server gave «1 change»
+ * nobody could see): connecting suggests a folder for every library folder — a folder deliberately not cached (skip) or
+ * of a library not chosen is saved as '' whatever it suggests, so only the others count, sorted (a connect adds keys)
+ */
+function countedMappings(inst) {
+  const chosen = inst.server ? new Set(libraryList().filter((l) => form.chosenLibs.has(l.name)).flatMap((l) => l.at.filter(([i]) => form.instances[i] === inst).map(([, p]) => p))) : null;
+  return Object.keys(inst.mappings).sort().filter((p) => !inst.skip.has(p) && (!chosen || chosen.has(p))).map((p) => [p, inst.mappings[p]]);
+}
+/** The parts of the setup a change is in (formParts' keys → SETUP_TILES ids), in the parts' order */
+function changedParts() {
+  if (!formChanged()) return [];
+  const was = new Map(JSON.parse(formStart || '[]'));
+  const now = formParts();
+  const keys = [...new Set([...was.keys(), ...Object.keys(now)])].filter((k) => !(k in now && was.has(k) && now[k] === was.get(k)));
+  // a server's row: its address, key or name — the servers' part; only its folders — the libraries' part (they are shown there)
+  const row = (k) => { const a = JSON.parse(was.get(k) || 'null'); const b = JSON.parse(now[k] || 'null');
+    return a && b && JSON.stringify(a.slice(0, 4)) === JSON.stringify(b.slice(0, 4)) ? 'libraries' : 'servers'; };
+  const part = (k) => (k.startsWith('i') ? row(k) : k.startsWith('l|') || k === 'v|cache_path' ? 'libraries' : k.startsWith('u|') || k.startsWith('b|') ? 'users'
+    : Object.prototype.hasOwnProperty.call(MORE_DEFAULTS, k.slice(2)) ? 'more' : 'scope');
+  const ids = new Set(keys.map(part));
+  return SETUP_TILES.filter(([id]) => ids.has(id)).map(([, key]) => key);
 }
 function formKey() {
   if (!form) return '';
@@ -2369,22 +2398,12 @@ function formChangeCount() {
 }
 
 /**
- * The change bar at the bottom (Mr. Backupsy's and Ms. Moverelli's: Office.selbar) while his setup differs from what
- * is saved: «n changes · against what is saved · Discard · Save» — «Save» there too, grey with the same reason as the one
- * under the parts (2026-10-17, silent controls: a field changed said nothing until «Save» was found)
+ * What isn't saved yet, said by «Save» at the bottom (2026-10-21, the owner: no floating change bar on his page — his own
+ * «Save» is enough): «n changes (the parts) against what is saved — not saved yet» and «Discard» beside it, both only
+ * while something differs (2026-10-17, silent controls: a field changed said nothing until «Save» was found)
  */
 function setupBar() {
-  const n = page === 'setup' && view && state ? formChangeCount() : 0;
-  if (!n) { Office.selbar(null); return; }
-  const r = running() ? T('setup.save_running') : setupBlocked();
-  Office.selbar({
-    title: T('setup.bar_changes', { n }),
-    sub: r || T('setup.bar_sub'),
-    buttons: [
-      { text: T('setup.discard'), kind: 'plain', act: () => { form = null; renderSetup(); connectSaved(); } },
-      { text: T('setup.save'), disabled: !!r || !Office.agent.running, act: saveSetup },
-    ],
-  });
+  if (page === 'setup' && saveGate) saveGate();
 }
 
 /** «More»: the way back and where to read from (both ways always rsync: Unraid's move binary is never his choice), from scratch */
@@ -2946,7 +2965,6 @@ Office.desk({
       connectSaved();
       return;
     }
-    Office.selbar(null);        // the setup's change bar stays on the setup page
     bars();
     // his tiles as places (CLAUDE.md «Tiles»): #/jack/<tile> (plans, pool, runs, shares, gather) picks it exactly like a
     // click and the address is his page's again; the Team Lead's findings #/jack/schedule, #/jack/gather-schedule land
@@ -2963,7 +2981,7 @@ Office.desk({
     await load(false);
     if (whole && view === root && state && sw.active()) sw.pick('', 'route');
   },
-  unmount() { if (page === 'setup' && formChanged()) Office.toast(T('setup.left_unsaved')); Office.selbar(null); view = null; saveGate = null; clearTimeout(outTimer); clearTimeout(progTimer); progTimer = null; progBox = null; startKicks = 0; letGoNote = null; },
+  unmount() { if (page === 'setup' && formChanged()) Office.toast(T('setup.left_unsaved')); view = null; saveGate = null; clearTimeout(outTimer); clearTimeout(progTimer); progTimer = null; progBox = null; startKicks = 0; letGoNote = null; },
   letGo: letGoPart,
   poll() { if (page === 'main') load(false); },
   greetOk,
@@ -3042,7 +3060,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     historySection, plansSection, plansList, gatherSection, footer, scopeLine, lastRunTile, plansTile, poolTile, sharesTile, gatherTile, render,
     renderSetup, page: () => page, SETUP_TILES, setupTileData, setupTileList, setupStep, importSection, setupSwitcher, tileOf, setForm: (f) => { form = f; }, initForm, form: () => form,
     herRules, sharePart, ruleTexts, needsConnect, connectInst, resetDialog, budgetGb, budgetSplit, budgetState, budgetLine, setupBlocked, MIN_PERSON_GB, shareCase,
-    setupServers, mediaPick, newInstance, removeServerDialog, removeServer, noServer, persons, libraryList, setView: (v, p) => { view = v; page = p; }, setupLibraries, setupUsers, setupScope, setupMore, saveSetup, saveBar, formKey, formChanged, formChangeCount, setupBar, derivedPool, poolsOfChoice, cacheable,
+    setupServers, mediaPick, newInstance, removeServerDialog, removeServer, noServer, persons, libraryList, setView: (v, p) => { view = v; page = p; }, setupLibraries, setupUsers, setupScope, setupMore, saveSetup, saveBar, formKey, formChanged, formChangeCount, changedParts, setupBar, derivedPool, poolsOfChoice, cacheable,
     letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog, gatherSettingsDialog, gatherRunDialog, gatherCacheWords,
     progressPanel, setProgress: (p, why) => { progress = p; stopping = why || null; }, etaText, tookText, nightPanel, livePanel, chooseRun, headActions,
     setNight: (n) => { nightNow = n; }, nightGoing };

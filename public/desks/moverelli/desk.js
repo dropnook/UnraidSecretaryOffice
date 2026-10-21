@@ -2043,6 +2043,7 @@ function renderSetup() {
   const s = setupSwitcher();
   root.appendChild(s.el);
   s.render();
+  root.appendChild(saveFootEl());
   if (!found) {
     const more = el('p', 'role mo-import-link');
     const a = el('a', '', T('import.link'));
@@ -2051,7 +2052,7 @@ function renderSetup() {
     more.appendChild(a);
     root.appendChild(more);
   }
-  // every change goes into the bar at the bottom (Mr. Backupsy's: Office.selbar) — the form tells it at each keystroke
+  // every change goes into «Save» at the bottom (saveFootEl()) — the form tells it at each keystroke
   if (!root.dataset.moBar) {
     root.dataset.moBar = '1';
     const bump = () => { if (page === 'setup') setTimeout(setupChanged, 0); };
@@ -2185,10 +2186,33 @@ function setupBarSpec() {
     ],
   };
 }
-/** The form changed (or was drawn): the bar anew */
+/**
+ * «Save» at the bottom of her setup, with «Discard» and a quiet line — what differs from what is saved, or why «Save»
+ * can't go yet (bar_blocked) — drawn from setupBarSpec(); no floating change bar on her page (2026-10-21, the owner:
+ * the page's own «Save» is enough). Nothing differs (and she is set up): «Save» grey, no line, no «Discard».
+ */
+let saveDraw = null;
+function saveFootEl() {
+  const foot = el('div', 'toolbar mo-save');
+  const save = button(T('setup.save'), '', () => setupApply());
+  const discard = button(T('setup.discard'), 'plain', () => { noJack = true; form = null; renderSetup(); });
+  const line = el('span', 'role mo-save-line');
+  foot.append(save, discard, line);
+  saveDraw = () => {
+    const spec = setupBarSpec();
+    const go = spec && spec.buttons[1];
+    save.disabled = !go || !!go.disabled;
+    discard.hidden = !spec || !!spec.buttons[0].disabled;
+    line.textContent = spec ? `${spec.title} — ${spec.sub}` : '';
+    if (line.classList) line.classList.toggle('mo-save-no', !!(spec && spec.blocked));
+  };
+  saveDraw();
+  return foot;
+}
+/** The form changed (or was drawn): «Save» at the bottom anew */
 function setupChanged() {
   markLimits();
-  Office.selbar(setupBarSpec());
+  if (saveDraw) saveDraw();
 }
 
 /**
@@ -2238,9 +2262,8 @@ function setupApply() {
       Office.toast(T(j.mover_off ? 'setup.saved_mover_off' : 'setup.saved'));
       form = null;
       saved = null;
-      Office.selbar(null);
       Office.go(`#/${ID}`);
-      if (typeof window !== 'undefined') window.scrollTo(0, 0);     // saved: her overview from its top, not left at the bottom where the bar was
+      if (typeof window !== 'undefined') window.scrollTo(0, 0);     // saved: her overview from its top, not left at the bottom where «Save» was
       return true;
     } }],
   });
@@ -2727,7 +2750,7 @@ Office.desk({
       renderSetup();
       return;
     }
-    Office.selbar(null);        // the setup's change bar stays on the setup page
+    saveDraw = null;
     // her tiles as places: #/moverelli/<tile> picks it exactly like a click (the address is her page's again); the Team
     // Lead's «Open» for her schedule (#/moverelli/schedule) picks «Schedule» and opens its dialog as before
     switcher().mount(sub);
@@ -2738,7 +2761,7 @@ Office.desk({
     // changed since her last look) — the agent's tick looks too once a share's cfg changes (moverelliTick())
     if (view === root && page === 'main') lookAgain();
   },
-  unmount() { leftSetup(); view = null; clearTimeout(outTimer); clearTimeout(progTimer); progTimer = null; Office.selbar(null); },
+  unmount() { leftSetup(); view = null; saveDraw = null; clearTimeout(outTimer); clearTimeout(progTimer); progTimer = null; },
   poll() { if (page === 'main') load(false); },
   greetOk,
   agentChanged() { if (view) (page === 'setup' ? renderSetup() : render()); },
@@ -2797,7 +2820,7 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, leftText, onWayText, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
-    importPreview, importDone, importFileText, leftCount, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, percentText, runningText, greeting, greetOk, idleText, runEstimate, estModel, endText, shareGroups, shareRuleLines, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, ownRulesText, idleRules, fillSetupShares, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, picFlight, fileOnto, movedByPlace, movedAt, extraPlaces, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, setJackLive: (x) => { jackLive = x; }, jackPanel, jackAtWork, redrawCard, schedText, scheduleSection, historySection, footer, hints,
+    importPreview, importDone, importFileText, leftCount, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, percentText, runningText, greeting, greetOk, idleText, runEstimate, estModel, endText, shareGroups, shareRuleLines, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, saveFootEl, setupProblems, ownRulesText, idleRules, fillSetupShares, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, picFlight, fileOnto, movedByPlace, movedAt, extraPlaces, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, setJackLive: (x) => { jackLive = x; }, jackPanel, jackAtWork, redrawCard, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
     setForm: (f) => { form = f; }, initForm, levelMath, levelSection, levelLines, levelNight, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }
