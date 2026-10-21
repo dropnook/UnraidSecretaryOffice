@@ -167,9 +167,10 @@ Office.fmt = {
   },
   size(bytes) {
     if (bytes === 0) return '0 B';
-    if (bytes === null || bytes === undefined || isNaN(bytes)) return '–';
+    if (bytes === null || bytes === undefined || !Number.isFinite(Number(bytes))) return '–';
     const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
-    const i = Math.min(Math.floor(Math.log(Math.abs(bytes)) / Math.log(1024)), units.length - 1);
+    // never below B: a fraction (a slow start's rate, 0.06 B/s) has a negative log — «65 undefined/s» (batch H9)
+    const i = Math.max(0, Math.min(Math.floor(Math.log(Math.abs(bytes)) / Math.log(1024)), units.length - 1));
     const value = bytes / Math.pow(1024, i);
     return `${Office.fmt.number(value, i === 0 ? 0 : value < 10 ? 1 : 0)} ${units[i]}`;
   },
