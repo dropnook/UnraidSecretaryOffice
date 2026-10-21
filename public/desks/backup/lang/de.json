@@ -405,6 +405,8 @@
   "setup.list_order": "nur die Reihenfolge",
   "setup.mark_add": "kommt dazu",
   "setup.mark_gone": "fällt weg",
+  "setup.value_gone": "entfällt",
+  "setup.value_none": "keine",
   "setup.key.docker_no_stop": "Container, die weiterlaufen",
   "setup.key.docker_known": "Bekannte Container",
   "setup.key.docker_skip": "Apps, die nicht gesichert werden",

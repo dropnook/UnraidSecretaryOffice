@@ -405,6 +405,8 @@
   "setup.list_order": "only the order",
   "setup.mark_add": "added",
   "setup.mark_gone": "removed",
+  "setup.value_gone": "removed",
+  "setup.value_none": "none",
   "setup.key.docker_no_stop": "Containers that keep running",
   "setup.key.docker_known": "Known containers",
   "setup.key.docker_skip": "Apps not backed up",

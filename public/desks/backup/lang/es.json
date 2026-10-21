@@ -411,6 +411,8 @@
   "setup.list_order": "solo el orden",
   "setup.mark_add": "se añade",
   "setup.mark_gone": "se quita",
+  "setup.value_gone": "se quita",
+  "setup.value_none": "ninguno",
   "setup.key.docker_no_stop": "Contenedores que siguen funcionando",
   "setup.key.docker_known": "Contenedores conocidos",
   "setup.key.docker_skip": "Apps sin copia",
