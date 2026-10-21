@@ -497,7 +497,11 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   counts are defaults inside it; the rule in plain sentences); without a budget «not set up yet» (`jackConfigured()`, no
   migration) and not in the night run. **Every server can be removed** (the last one too, after a confirm): with none
   saved he is not set up, runs refuse `jack_no_server`, his list keeps what lies on the pool — nothing moves by the
-  click; MediaCache itself refuses to run without a server.
+  click; MediaCache itself refuses to run without a server. **A lost list is never «keep nothing»** (H1, 2026-10-21): once
+  it held films (a real run, an import, his look saw entries — `office-list.json`), a list gone or emptied outside his runs
+  is written anew from what of his shares lies on his pool (his look; his run and release before MediaCache reads it — an
+  incomplete plan keeps «the list as it was»); can't be read → nothing written, his runs refuse `jack_list_lost`, Smart
+  Mover leaves the shares naming it; the Team Lead's `list_lost` / `list_rebuilt`.
 * **`moverelli` — Ms. Moverelli.** Smart Mover beside Unraid's mover (7.3.2+; her ini, every value checked). **Unraid's own
   mover goes off with her setup:** refused unless the page's consent `mover_off: true` comes along; the old schedule noted once,
   **her let-go puts it back** through the same form (only `MOVERELLI_UNRAID_CRON` shapes). **Never a hand-written cron line.**
