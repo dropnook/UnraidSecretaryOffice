@@ -122,6 +122,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../lib/partnerlook.php';
 require_once __DIR__ . '/../lib/watchnet.php';
 require_once __DIR__ . '/../lib/paritywhy.php';
+require_once __DIR__ . '/../lib/arrayhold.php';     // «What holds the array?» (his page, on demand)
 
 const WATCH_EVERY        = 300;              // a round every 5 minutes
 const WATCH_LOOK         = 20;               // the tick looks whether one is due this often (seconds)
@@ -336,6 +337,7 @@ desk('watchman', [
     'actions' => [
         'refresh' => fn (array $r) => ['ok' => true, 'state' => watchmanPageState()],
         'round'   => fn (array $r) => watchmanRoundNow(),
+        'hold'    => fn (array $r) => watchmanHoldNow(),          // «What holds the array?»: a look now (the page polls hold.running)
         'ack'     => fn (array $r) => watchmanAck(is_array($r['id'] ?? null) ? null : ($r['id'] ?? null)),      // one id; a list is ack_some's
         'ack_all' => fn (array $r) => watchmanAck('*'),
         'ack_some' => fn (array $r) => watchmanAck(idList($r, 'ids')),       // a folded row of his page: «All n: I know, thanks»
@@ -345,7 +347,7 @@ desk('watchman', [
         'posture_ack' => fn (array $r) => watchmanPostureAck($r['id'] ?? null, $r['on'] ?? null),
         'net_lan_set' => fn (array $r) => watchmanNetLanSet($r['on'] ?? null),
     ],
-    'jobs'    => ['watchman-round' => fn (array $args) => watchmanRun()],
+    'jobs'    => ['watchman-round' => fn (array $args) => watchmanRun(), 'watchman-hold' => fn (array $args) => watchmanHoldRun()],
     'checks'  => fn (): array => watchmanChecks(),
     'metrics' => fn (): array => watchmanMetrics(),
 ]);
@@ -588,6 +590,7 @@ function watchmanRoundBusy(string $dir): bool
  */
 function watchmanTick(): void
 {
+    watchmanHoldTick();
     $job = $GLOBALS['wmRound'] ?? null;
     if ($job) {
         $status = proc_get_status($job['process']);
@@ -676,6 +679,77 @@ function watchmanRoundNow(): array
         throw new Problem('watch_start_failed');
     }
     return ['ok' => true, 'state' => watchmanPageState()];
+}
+
+// ===================================================================== «What holds the array?» (agent/lib/arrayhold.php)
+
+const WATCH_HOLD_MAX_RUN = 60;          // a look that takes longer is stopped
+
+/** "hold": a look now, in a job of its own (docker and /proc never in his tick); the page polls until hold.running is false */
+function watchmanHoldNow(): array
+{
+    if (watchmanHiredSince() === null) {
+        throw new Problem('not_hired', ['desk' => 'watchman']);
+    }
+    if (empty($GLOBALS['wmHold'])) {
+        @mkdir(RUN_DIR, 0700, true);
+        $pipes = [];
+        $process = @proc_open(['/bin/sh', '-c', 'exec "$@"' . closeInheritedFds(), 'sh',
+                               bin('nice') ?? 'nice', '-n', '10', PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', 'watchman-hold'],
+            [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', RUN_DIR . '/watchman-hold.err', 'w']], $pipes, '/');
+        if (!is_resource($process)) {
+            logLine('Night watchman: could not start his look at what holds the array');
+            throw new Problem('watch_start_failed');
+        }
+        $GLOBALS['wmHold'] = ['process' => $process, 'since' => hrtime(true) / 1e9];
+    }
+    return ['ok' => true, 'state' => watchmanPageState()];
+}
+
+/** php agent.php job watchman-hold — the look, its answer in RAM (machine names and paths: his page only, never the log) */
+function watchmanHoldRun(): int
+{
+    if (watchmanHiredSince() === null) {
+        return 0;
+    }
+    $look = arrayholdLook(arrayholdPaths(), ['self' => function_exists('posix_getppid') ? posix_getppid() : 0]);      // the agent: not one of them
+    writeAtomic(ARRAYHOLD_FILE, jsonEncode($look), 0600, 0, 0);
+    $t = $look['times'];
+    logLine($look['started'] ? "Night watchman: looked at what holds the array — would hold it up: {$look['count']} (" . count($look['holds']) . " holding a file there), "
+        . "shutdown time-out {$t['disk']} s for about {$t['need']} s ({$look['ms']} ms" . ($look['cut'] ? ', looked in part' : '') . ')'
+        : 'Night watchman: looked at what holds the array — the array is not started');
+    return 0;
+}
+
+/** His tick: the look's job done? Then his page's state again */
+function watchmanHoldTick(): void
+{
+    $job = $GLOBALS['wmHold'] ?? null;
+    if (!$job) {
+        return;
+    }
+    $status = proc_get_status($job['process']);
+    if ($status['running']) {
+        if (hrtime(true) / 1e9 - $job['since'] > WATCH_HOLD_MAX_RUN && empty($job['stopped'])) {
+            proc_terminate($job['process']);
+            $GLOBALS['wmHold']['stopped'] = true;
+            logLine('Night watchman: his look at what holds the array took longer than ' . WATCH_HOLD_MAX_RUN . ' s — stopped');
+        }
+        return;
+    }
+    proc_close($job['process']);
+    $GLOBALS['wmHold'] = null;
+    if ($status['exitcode'] > 0) {
+        $err = trim((string) @file_get_contents(RUN_DIR . '/watchman-hold.err', false, null, 0, 4096));
+        logLine('Night watchman: his look at what holds the array failed (exit ' . $status['exitcode'] . ')' . ($err !== '' ? ': ' . strtok($err, "\n") : ''));
+    }
+    watchmanPageState();
+}
+
+/** For his page: the last look (null: none since the server started) and whether one runs now */
+function watchmanHoldPage(?string $file = null): array
+{
+    return ['running' => !empty($GLOBALS['wmHold']), 'look' => arrayholdRead($file ?? ARRAYHOLD_FILE)];
 }
 
 /** php agent.php job watchman-round — one round (only one at a time, only while he works here) */
@@ -9111,6 +9185,7 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
         'notify'   => ['on' => ($st['notify'] ?? true) !== false, 'available' => is_executable(OFFICE_NOTIFY_BIN)],
         'syslog'   => ['on' => !empty($st['siem'])],
         'incidents' => $incidents,
+        'hold'     => watchmanHoldPage(),
         'chains'   => array_map(fn ($c) => array_diff_key($c, ['key' => 1]), watchmanChains($d['book'], $now)),
         // the last night shift (the array stopped, or from boot to the array's start): from, until, from which mirror
         'night'    => is_array($st['night'] ?? null) && isset($st['night']['until']) ? array_map(fn ($v) => is_int($v) ? $v : (string) $v, $st['night']) : null,

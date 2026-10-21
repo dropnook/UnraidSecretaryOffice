@@ -79,11 +79,11 @@ function mood() {
   if (state) Office.setDeskMood(ID, openCount() ? 'alert' : '');
 }
 
-/** While a round runs (and his page is shown), look again every two seconds; say when it is done */
+/** While a round or a look at what holds the array runs (and his page is shown), look again every two seconds; say when a round is done */
 function follow() {
   clearTimeout(timer);
   if (!view) return;
-  if (running()) {
+  if (running() || holdRunning()) {
     timer = setTimeout(() => load(true), POLL_MS);
     return;
   }
@@ -287,6 +287,7 @@ function render() {
     [T('help.chain'), T('help.chain_text')],
     [T('help.night'), T('help.night_text')],
     [T('help.parity'), T('help.parity_text')],
+    [T('help.hold'), T('help.hold_text')],
     [T('help.grafana'), T('help.grafana_text')],
     [T('help.notify'), T('help.notify_text')],
     [T('help.safe'), T('help.safe_text')],
@@ -313,6 +314,7 @@ const sw = Office.sections({
     { id: 'posture', key: 'tile.posture', place: 'tile.posture', tile: (a) => postureTile(a), section: () => postureSection() },
     { id: 'incidents', key: 'tile.incidents', place: 'tile.incidents', tile: (a) => incidentsTile(a), section: () => incidentsSection() },
     { id: 'watch', key: 'tile.watch', place: 'tile.watch', tile: (a) => watchTile(a), section: () => watchSection() },
+    { id: 'hold', key: 'tile.hold', place: 'tile.hold', tile: (a) => holdTile(a), section: () => holdSection() },
   ],
   sections: { book: () => bookSection() },
 });
@@ -1488,6 +1490,177 @@ function netDetails(e, p, add) {
   if (p.evidence) add(T('detail.router_line'), p.evidence, true);
 }
 
+// ------------------------------------------------------------------ what holds the array
+/*
+ * «What holds the array?» (agent/lib/arrayhold.php): what would hold up stopping the array or shutting down, right now —
+ * looked at in a job of his on the server when the page opens (at most every HOLD_AGAIN s) and on «Check now»; read only.
+ * Four groups: what holds it (a file or a working folder there), whom Unraid waits for (VMs, containers: how long), what
+ * stops by itself, what is not the array — and whether Unraid's shutdown time-out is enough.
+ */
+const HOLD_AGAIN = 120;
+const holdOf = () => (state && state.hold) || {};
+const holdLook = () => holdOf().look || null;
+const holdRunning = () => !!holdOf().running;
+
+async function holdCheck(quiet) {
+  if (holdRunning() || !Office.agent.running || !hired()) return;
+  const j = await Office.api.post(`${ID}.hold`, {});
+  if (!j.ok) { if (!quiet) Office.toast(Office.errorText(j.error, ID), true); return; }
+  if (j.state) state = j.state;
+  if (view) Office.keepInPlace(null, render);
+  follow();
+}
+
+/** Opening his page looks again when the last look is older than HOLD_AGAIN (or there is none since the server started) */
+function holdAuto() {
+  const l = holdLook();
+  if (!l || Date.now() / 1000 - (Number(l.time) || 0) > HOLD_AGAIN) holdCheck(true);
+}
+
+function holdTile(a) {
+  const l = holdLook();
+  const n = l ? Number(l.count) || 0 : 0;
+  const short = !!(l && l.started && l.times && l.times.fits === false);
+  const value = holdRunning() && !l ? T('hold.running') : !l ? '–' : !l.started ? T('tile.hold_stopped') : n ? T('tile.hold_n', { n }) : T('tile.hold_none');
+  return Office.stat({ label: T('tile.hold'), value, alert: !!n || short,
+    sub: !l ? T('tile.hold_never') : [short ? T('tile.hold_short') : '', T('tile.hold_when', { when: fmt.relative(l.time) })].filter(Boolean).join(' · '), ...a });
+}
+
+function holdSection() {
+  const s = el('section', 'section wm-hold');
+  const b = el('button', 'btn small plain' + (holdRunning() ? ' running' : ''));
+  b.type = 'button';
+  b.append(el('span', 'spin'), T('hold.check'));
+  b.title = T('hold.check_title');
+  b.disabled = !Office.agent.running || holdRunning() || !hired();
+  b.onclick = () => holdCheck(false);
+  s.appendChild(Office.sectionHead(T('hold.title'), T('hold.sub'), b, { place: 'hold.title' }));
+  const l = holdLook();
+  if (!l) {
+    s.appendChild(el('p', 'role', T(holdRunning() ? 'hold.looking' : 'hold.never')));
+    return s;
+  }
+  if (!l.started) {
+    s.appendChild(el('p', 'role', T('hold.stopped')));
+    return s;
+  }
+  const n = Number(l.count) || 0;
+  const t = l.times || {};
+  s.appendChild(el('p', 'callout' + (n || t.fits === false ? ' warn' : ''), [n ? T('hold.verdict_n', { n }) : T('hold.verdict_none'),
+    T(t.fits === false ? 'hold.times_short' : 'hold.times_fits', { disk: t.disk, need: t.need, detail: holdNeed(t) })].join(' ')));
+  const when = el('p', 'role', T('hold.when', { when: fmt.relative(l.time), ms: Number(l.ms) || 0 }) + (l.cut ? ' ' + T('hold.cut') : ''));
+  when.title = fmt.date(l.time);
+  s.appendChild(when);
+  const group = (key, sub, rows) => {
+    s.appendChild(el('h4', 'wm-hold-group', T(key)));
+    if (sub) s.appendChild(el('p', 'role', sub));
+    const box = el('div', 'box');
+    rows.forEach((r) => box.appendChild(r));
+    s.appendChild(box);
+  };
+  const holds = (l.holds || []).filter((h) => h && typeof h.kind === 'string');
+  group('hold.holds', T(holds.length ? 'hold.holds_sub' : 'hold.holds_none'), holds.map(holdRow)
+    .concat(l.more ? [el('div', 'row nocheck role', T('hold.more_things', { n: l.more }))] : []));
+  const vms = (l.vms || []).filter((v) => v && typeof v.name === 'string');
+  const cts = Array.isArray(l.containers) ? l.containers.filter((c) => c && typeof c.name === 'string') : null;
+  const waits = vms.map((v) => vmRow(v, t)).concat((cts || []).map((c) => ctRow(c, t)));
+  if (!vms.length) waits.unshift(el('div', 'row nocheck role', T('hold.no_vms')));
+  if (!cts) waits.push(el('div', 'row nocheck role', Office.t('common.docker_off')));
+  else if (!cts.length) waits.push(el('div', 'row nocheck role', T('hold.no_containers')));
+  group('hold.waits', T('hold.waits_sub', { docker: t.docker, vm: t.vm }), waits);
+  const itself = (l.itself || []).filter((x) => x && typeof x.kind === 'string');
+  if (itself.length) group('hold.itself', T('hold.itself_sub'), itself.map(itselfRow));
+  const outside = (l.outside || []).filter((x) => x && typeof x.mount === 'string');
+  if (outside.length) group('hold.outside', T('hold.outside_sub'), outside.map((x) => {
+    const r = el('div', 'row nocheck');
+    const main = el('div', 'row-main');
+    main.appendChild(el('div', 'row-name text', x.mount));
+    const meta = el('div', 'row-meta');
+    meta.appendChild(chip(T('hold.out_' + (x.kind === 'remote' ? 'remote' : 'ud')), 'quiet', T('hold.out_' + (x.kind === 'remote' ? 'remote' : 'ud') + '_title')));
+    if (x.type) meta.appendChild(chip(x.type, '', T('hold.out_type')));
+    main.appendChild(meta);
+    r.appendChild(main);
+    return r;
+  }));
+  return s;
+}
+
+/** «about 140 s: 50 s for the containers + 60 s for the VMs + 30 s to unmount» — only the parts there are */
+function holdNeed(t) {
+  return [t.containers ? T('hold.need_ct', { s: t.containers }) : '', t.vms ? T('hold.need_vm', { s: t.vms }) : '', T('hold.need_margin', { s: t.margin })]
+    .filter(Boolean).join(' + ');
+}
+
+/** One thing that holds it: what it is, its files there (five at most), what to do */
+function holdRow(h) {
+  const r = el('div', 'row nocheck wm-hold-row');
+  const main = el('div', 'row-main');
+  const kind = ['shell', 'userscript', 'plugin', 'cron', 'loop'].includes(h.kind) ? h.kind : 'program';
+  const via = ['ssh', 'web', 'tmux', 'screen'].includes(h.via) ? h.via : 'ssh';
+  main.appendChild(el('div', 'row-name text', kind === 'shell' ? T('hold.k.shell_' + via) : T('hold.k.' + kind, { name: String(h.name || ''), prog: String(h.prog || '') })));
+  const meta = el('div', 'row-meta');
+  meta.appendChild(chip(T('hold.holds_chip'), 'warn', T('hold.holds_chip_title')));
+  if (kind !== 'loop' && h.prog) meta.appendChild(chip(String(h.prog), '', T('hold.prog_title', { pid: Number(h.pid) || 0 })));
+  if (Number(h.procs) > 1) meta.appendChild(chip(T('hold.procs', { n: Number(h.procs) }), '', T('hold.procs_title')));
+  if (kind === 'loop' && h.mount) meta.appendChild(chip(T('hold.loop_at', { mount: String(h.mount) }), '', T('hold.loop_at_title')));
+  main.appendChild(meta);
+  (h.files || []).forEach((f) => { if (typeof f === 'string') main.appendChild(el('div', 'row-detail text wm-hold-file', f)); });
+  if (h.more) main.appendChild(el('div', 'row-detail role', T('hold.more_files', { n: Number(h.more) })));
+  main.appendChild(el('div', 'row-detail role', T('hold.how.' + kind)));
+  r.appendChild(main);
+  return r;
+}
+
+/** A running VM: its guest agent, how long Unraid waits for it */
+function vmRow(v, t) {
+  const r = el('div', 'row nocheck');
+  const main = el('div', 'row-main');
+  main.appendChild(el('div', 'row-name text', v.name));
+  const meta = el('div', 'row-meta');
+  const agent = ['connected', 'disconnected', 'none'].includes(v.agent) ? v.agent : 'none';
+  meta.appendChild(chip(T('hold.vm_agent_' + agent), agent === 'connected' ? 'ok' : 'warn', T('hold.vm_agent_' + agent + '_title')));
+  if (v.state === 'paused') meta.appendChild(chip(T('hold.vm_paused'), '', T('hold.vm_paused_title')));
+  meta.appendChild(chip(T('hold.wait_s', { s: t.vm }), '', T('hold.vm_wait_title', { s: t.vm })));
+  main.appendChild(meta);
+  if (agent !== 'connected') main.appendChild(el('div', 'row-detail role', T(v.windows ? 'hold.vm_windows' : 'hold.vm_no_agent', { s: t.vm })));
+  r.appendChild(main);
+  return r;
+}
+
+/** A running container: Unraid's own or not, how long it gets, whether it asks for more */
+function ctRow(c, t) {
+  const r = el('div', 'row nocheck');
+  const main = el('div', 'row-main');
+  main.appendChild(el('div', 'row-name text', c.name));
+  const meta = el('div', 'row-meta');
+  meta.appendChild(chip(T('hold.wait_s', { s: Number(c.gets) || 0 }), '', T(c.managed ? 'hold.ct_unraid_title' : 'hold.ct_compose_title', { s: Number(c.gets) || 0 })));
+  if (!c.managed) meta.appendChild(chip(T('hold.ct_compose'), 'quiet', T('hold.ct_compose_title', { s: Number(c.gets) || 0 })));
+  if (c.short) meta.appendChild(chip(T('hold.ct_short', { own: Number(c.own) || 0 }), 'warn', T('hold.ct_short_title', { own: Number(c.own) || 0, s: Number(c.gets) || 0 })));
+  main.appendChild(meta);
+  r.appendChild(main);
+  return r;
+}
+
+/** What stops by itself: the office's jobs, Unraid's mover, an SMB client's open files */
+function itselfRow(x) {
+  const r = el('div', 'row nocheck');
+  const main = el('div', 'row-main');
+  const files = Number(x.files) || 0;
+  let name;
+  if (x.kind === 'office') name = T('hold.office', { desk: Office.t(`${x.desk}.name`) });
+  else if (x.kind === 'mover') name = T('hold.mover');
+  else if (x.kind === 'smb') name = x.machine ? T('hold.smb', { machine: String(x.machine) }) : T('hold.smb_someone');
+  else name = T('hold.nfs');
+  main.appendChild(el('div', 'row-name text', name));
+  const meta = el('div', 'row-meta');
+  meta.appendChild(chip(T('hold.itself_chip'), 'ok', T('hold.itself_' + (['office', 'mover', 'smb'].includes(x.kind) ? x.kind : 'nfs') + '_title')));
+  if (files) meta.appendChild(chip(T('hold.files_open', { n: files }), '', T('hold.files_open_title')));
+  main.appendChild(meta);
+  if (x.kind === 'smb' && files) main.appendChild(el('div', 'row-detail role', T('hold.smb_text')));
+  r.appendChild(main);
+  return r;
+}
+
 // ------------------------------------------------------------------ what he keeps an eye on
 /**
  * One thing he keeps an eye on: its name, its sub lines, its chips (flags()). Its hay for the list's filter (wmHay, built
@@ -1943,6 +2116,7 @@ Office.desk({
     sw.mount(m ? 'book' : sub);    // a tile's sub-route picks it like a click (the address back to #/watchman)
     render();
     await load(false);
+    holdAuto();
   },
   unmount() { clearTimeout(timer); view = null; bookRows = []; watchGroups = []; wanted = null; },
   poll() { if (!running()) load(false); },
@@ -1976,11 +2150,12 @@ Office.places(ID, [
   { kind: 'section', key: 'book.title', route: `#/${ID}/book` },
   { kind: 'section', key: 'watch.title', route: `#/${ID}/watch` },
   { kind: 'section', key: 'incidents.title', route: `#/${ID}/incidents` },
+  { kind: 'section', key: 'hold.title', route: `#/${ID}/hold` },
   ...sw.places(),             // his tiles: the book, «Not noted yet», how secure, what he keeps an eye on
   { kind: 'help', key: 'ack', text: 'help.ack_text' },
   { kind: 'help', key: 'round_now', text: 'help.round_text' },
   ...['posture', 'book', 'serious', 'normal', 'logins', 'containers', 'plugins', 'office', 'flash', 'shares', 'sched', 'flow', 'flow_gone', 'flow_not',
-    'snaps', 'host', 'host_not', 'net', 'net_not', 'attack', 'siem', 'chain', 'night', 'parity', 'grafana', 'notify', 'safe']
+    'snaps', 'host', 'host_not', 'net', 'net_not', 'attack', 'siem', 'chain', 'night', 'parity', 'hold', 'grafana', 'notify', 'safe']
     .map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
 ]);
 

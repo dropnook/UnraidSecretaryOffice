@@ -32039,6 +32039,173 @@ function testLogsFilters(): void
 }
 
 /**
+ * «What holds the array?» (agent/lib/arrayhold.php): a /proc of the tests' own (an SSH shell, the web terminal, a User
+ * Script, a plugin's script, a cron job, a container, a VM, an SMB client, the office's backup and Ms. Moverelli, Unraid's
+ * mover and shfs), loop devices, libvirt's live domains and a docker stand-in — who holds, whom Unraid waits for and how
+ * long, what stops by itself, what is not the array
+ */
+function testWatchmanHold(): void
+{
+    $tmp = hardeningTmp('arrayhold');
+    $proc = "$tmp/proc";
+    $proc1 = function (int $pid, string $comm, int $ppid, string $cmd, array $o = []) use ($proc): void {
+        @mkdir("$proc/$pid/fd", 0700, true);
+        file_put_contents("$proc/$pid/stat", "$pid ($comm) S $ppid 0 0 0 -1 0 0 0 0 0 0 0 0 20 0 1 0 0 0\n");
+        file_put_contents("$proc/$pid/cmdline", str_replace(' ', "\0", $cmd) . "\0");
+        file_put_contents("$proc/$pid/cgroup", $o['cgroup'] ?? "0::/\n");
+        @mkdir("$proc/$pid/ns", 0700);
+        symlink($o['ns'] ?? 'mnt:[4026531840]', "$proc/$pid/ns/mnt");
+        foreach ($o['fds'] ?? [] as $i => $target) {
+            symlink($target, "$proc/$pid/fd/" . ($i + 3));
+        }
+        if (isset($o['cwd'])) {
+            symlink($o['cwd'], "$proc/$pid/cwd");
+        }
+        if (isset($o['mountinfo'])) {
+            file_put_contents("$proc/$pid/mountinfo", $o['mountinfo']);
+        }
+    };
+    $office = '/usr/local/emhttp/plugins/unraid-secretary-office';
+    $ct = str_repeat('cd34', 16);
+    $proc1(1, 'init', 0, '/sbin/init', ['mountinfo' => "20 1 0:2 / / rw - rootfs rootfs rw\n30 20 9:1 / /mnt/disk1 rw - xfs /dev/md1p1 rw\n"]);
+    $proc1(10, 'sshd-session', 1, 'sshd-session: root@pts/0');
+    $proc1(11, 'bash', 10, '-bash', ['cwd' => '/mnt/user/Familienfilme']);
+    $proc1(20, 'ttyd', 1, 'ttyd -i /var/run/ttyd.sock bash --login');
+    $proc1(21, 'bash', 20, 'bash --login', ['cwd' => '/mnt/disk1/Musik']);
+    $proc1(22, 'less', 21, 'less notes.txt', ['cwd' => '/mnt/disk1/Musik', 'fds' => ['/mnt/disk1/Musik/notes.txt']]);
+    $proc1(30, 'bash', 1, '/bin/bash /tmp/user.scripts/tmpScripts/fotos_sichern/script');
+    $proc1(31, 'rsync', 30, 'rsync -a /mnt/disk2/Fotos /mnt/remotes/NAS_share', ['fds' => ['/mnt/disk2/Fotos/a.jpg', '/mnt/remotes/NAS_share/a.jpg']]);
+    $proc1(40, 'php', 1, 'php /usr/local/emhttp/plugins/some.plugin/scripts/scan.php', ['fds' => ['/mnt/cache/appdata/x.db', 'socket:[99]']]);
+    $proc1(50, 'sleep', 1, 'sleep 100', ['cwd' => '/mnt/remotes/NAS_share']);                     // only a remote share: holds nothing
+    $proc1(51, 'cat', 1, 'cat', ['cwd' => '/mnt/addons/UnraidSecretaryOffice/metrics']);          // the office's own RAM: nothing
+    $proc1(60, 'Plex Media Serv', 1, '/usr/lib/plexmediaserver/Plex Media Server', ['cgroup' => "0::/docker/$ct\n", 'fds' => ['/mnt/user/Familienfilme/a.mkv']]);
+    $proc1(70, 'qemu-system-x86', 1, '/usr/bin/qemu-system-x86_64 -name guest=Win11,debug-threads=on', ['fds' => ['/mnt/user/domains/Win11/vdisk1.img']]);
+    $proc1(80, 'smbd', 1, '/usr/sbin/smbd -D', ['fds' => ['/mnt/user/Docs/Steuer.pdf', '/mnt/user/Docs/Brief.odt']]);
+    $proc1(90, 'job.sh', 1, "bash $office/scripts/job.sh backup");
+    $proc1(91, 'kopia', 90, 'kopia snapshot create', ['fds' => ['/mnt/disk1/Fotos/2019/a.jpg']]);
+    $proc1(95, 'shfs', 1, '/usr/libexec/unraid/shfs /mnt/user -disks 7', ['fds' => ['/mnt/disk1/Fotos/2019/a.jpg']]);
+    $proc1(96, 'php', 1, "php $office/agent/agent.php", ['fds' => ['/mnt/cache/UnraidSecretaryOffice/agent.log']]);     // the agent: left out
+    $proc1(97, 'job.sh', 1, "bash $office/scripts/job.sh moverelli");
+    $proc1(98, 'mover', 1, '/bin/bash /usr/local/sbin/mover start');
+    $proc1(99, 'crond', 1, '/usr/sbin/crond');
+    $proc1(100, 'sh', 99, '/bin/sh -c /usr/local/bin/sync-it');
+    $proc1(101, 'rsync', 100, 'rsync -a /mnt/disk3/x /tmp/y', ['cwd' => '/mnt/disk3']);
+    file_put_contents("$tmp/mover.pid", "98\n");
+    // loop devices: Unraid's docker.img (it unmounts that itself), an ISO from the array, an image on Unassigned Devices
+    foreach (['loop0' => '/mnt/user/system/docker/docker.img', 'loop1' => '/mnt/user/isos/debian-13.iso', 'loop2' => '/mnt/disks/usb/x.img', 'loop3' => ''] as $dev => $file) {
+        @mkdir("$tmp/sys/$dev/loop", 0700, true);
+        if ($file !== '') {
+            file_put_contents("$tmp/sys/$dev/loop/backing_file", "$file\n");
+        }
+    }
+    @mkdir("$tmp/sys/sda", 0700, true);
+    file_put_contents("$tmp/mounts", "/dev/md1p1 /mnt/disk1 xfs rw 0 0\n/dev/loop0 /var/lib/docker btrfs rw 0 0\n/dev/loop1 /tmp/iso iso9660 ro 0 0\n"
+        . "//nas/share /mnt/remotes/NAS_share cifs rw 0 0\n/dev/sdg1 /mnt/disks/usb xfs rw 0 0\ntmpfs /mnt/disks tmpfs rw 0 0\n"
+        . "tmpfs /mnt/addons tmpfs rw 0 0\nshfs /mnt/user fuse.shfs rw 0 0\n");
+    // libvirt's live domains: a Windows VM whose agent doesn't answer, one that answers, one without the channel
+    @mkdir("$tmp/qemu", 0700);
+    $dom = fn (string $name, string $extra) => "<domstatus state='running' reason='booted' pid='70'>\n  <domain type='kvm' id='1'>\n    <name>$name</name>\n"
+        . "    <metadata><vmtemplate xmlns=\"unraid\" name=\"x\" os=\"" . ($name === 'Win11' ? 'windows11' : 'debian') . "\"/></metadata>\n$extra  </domain>\n</domstatus>\n";
+    file_put_contents("$tmp/qemu/Win11.xml", $dom('Win11', "    <channel type='unix'><target type='virtio' name='org.qemu.guest_agent.0' state='disconnected'/></channel>\n"));
+    file_put_contents("$tmp/qemu/Debian.xml", $dom('Debian', "    <channel type='unix'><source mode='bind'/><target type='virtio' name='org.qemu.guest_agent.0' state='connected'/></channel>\n"));
+    file_put_contents("$tmp/qemu/Router.xml", $dom('Router', "    <devices><disk><target dev='hdc' bus='sata'/></disk></devices>\n"));
+    file_put_contents("$tmp/qemu/Router.pid", "77\n");
+    // Docker: two of Unraid's containers, one of Compose's; the stand-in writes down what it was asked
+    $ids = [str_repeat('a', 64), str_repeat('b', 64), str_repeat('c', 64)];
+    file_put_contents("$tmp/ps", "{$ids[0]}\tplex\ttrue\n{$ids[1]}\tmariadb\ttrue\n{$ids[2]}\timmich_server\t\n");
+    file_put_contents("$tmp/inspect", "{$ids[0]}\t<nil>\n{$ids[1]}\t60\n{$ids[2]}\t45\n");
+    file_put_contents("$tmp/docker", "#!/bin/sh\necho \"\$*\" >> " . escapeshellarg("$tmp/docker.calls") . "\ncase \"\$1\" in\n  ps) cat "
+        . escapeshellarg("$tmp/ps") . " ;;\n  inspect) cat " . escapeshellarg("$tmp/inspect") . " ;;\nesac\nexit 0\n");
+    chmod("$tmp/docker", 0755);
+    touch("$tmp/docker.sock");
+    file_put_contents("$tmp/var.ini", "fsState=\"Started\"\nshutdownTimeout=\"90\"\n");
+    file_put_contents("$tmp/domain.cfg", "SERVICE=\"enable\"\nTIMEOUT=\"60\"\n");
+    file_put_contents("$tmp/docker.cfg", "DOCKER_ENABLED=\"yes\"\nDOCKER_TIMEOUT=\"20\"\n");
+    $paths = ['proc' => $proc, 'mounts' => "$tmp/mounts", 'sys_block' => "$tmp/sys", 'qemu_run' => "$tmp/qemu", 'var_ini' => "$tmp/var.ini",
+              'domain_cfg' => "$tmp/domain.cfg", 'docker_cfg' => "$tmp/docker.cfg", 'docker' => "$tmp/docker", 'docker_sock' => "$tmp/docker.sock",
+              'mover_pid' => "$tmp/mover.pid"];
+    $sorted = function (array $list): array {
+        sort($list);
+        return $list;
+    };
+    try {
+        same('array hold: where a path lies — the array (disks, pools, user shares), not the array (remotes, Unassigned Devices), the office\'s RAM',
+            ['array', 'array', 'array', 'array', 'remote', 'ud', 'ud', null, null],
+            array_map('arrayholdWhere', ['/mnt/disk3/a', '/mnt/cache', '/mnt/user/Docs', '/mnt/user0/x', '/mnt/remotes/NAS/x', '/mnt/disks/usb', '/mnt/rootshare/x',
+                '/mnt/addons/UnraidSecretaryOffice/x', '/tmp/x']));
+
+        $l = arrayholdLook($paths, ['smb' => ['80' => 'laptop-kueche'], 'self' => 96, 'now' => 1760000000]);
+        same('array hold: who holds a file or a working folder there — an SSH shell, the web terminal (its shell and what runs in it, one thing), '
+            . 'a User Script, a plugin\'s script, a cron job, an ISO mounted from the array; never a container, a VM, SMB, the office, the mover, shfs, '
+            . 'a remote share, the office\'s RAM or the agent', $sorted([
+                'cron|/usr/local/bin/sync-it|-|/mnt/disk3', 'loop|debian-13.iso|-|/mnt/user/isos/debian-13.iso', 'plugin|some.plugin|-|/mnt/cache/appdata/x.db',
+                'shell|-|ssh|/mnt/user/Familienfilme', 'shell|-|web|/mnt/disk1/Musik /mnt/disk1/Musik/notes.txt', 'userscript|fotos_sichern|-|/mnt/disk2/Fotos/a.jpg']),
+            $sorted(array_map(fn (array $h): string => implode('|', [$h['kind'], $h['name'] ?? '-', $h['via'] ?? '-', implode(' ', $h['files'])]), $l['holds'])));
+        same('array hold: the web terminal\'s shell and the program in it are one thing (two processes)', 2,
+            array_values(array_filter($l['holds'], fn (array $h): bool => ($h['via'] ?? '') === 'web'))[0]['procs']);
+        same('array hold: what stops by itself — Samba\'s client (by its machine, its files), the office\'s backup (a file open) and Ms. Moverelli '
+            . '(none), Unraid\'s mover', $sorted(['mover|-|0', 'office|backup|1', 'office|moverelli|0', 'smb|laptop-kueche|2']),
+            $sorted(array_map(fn (array $x): string => implode('|', [$x['kind'], $x['desk'] ?? $x['machine'] ?? '-', $x['files']]), $l['itself'])));
+        same('array hold: the running VMs from libvirt\'s live XML — the guest agent answers, doesn\'t answer, no channel; Windows by Unraid\'s template', [
+            ['name' => 'Debian', 'state' => 'running', 'agent' => 'connected', 'windows' => false],
+            ['name' => 'Router', 'state' => 'running', 'agent' => 'none', 'windows' => false],
+            ['name' => 'Win11', 'state' => 'running', 'agent' => 'disconnected', 'windows' => true]], $l['vms']);
+        same('array hold: the containers — Unraid\'s own get its Docker Stop Timeout (their own stop time doesn\'t count: mariadb asks for 60 s), '
+            . 'Compose\'s their own up to dockerd\'s 30 s', [
+            ['name' => 'immich_server', 'managed' => false, 'own' => 45, 'gets' => 30, 'short' => true],
+            ['name' => 'mariadb', 'managed' => true, 'own' => 60, 'gets' => 20, 'short' => true],
+            ['name' => 'plex', 'managed' => true, 'own' => null, 'gets' => 20, 'short' => false]], $l['containers']);
+        same('array hold: the times — 20 s for Unraid\'s containers + 30 s for the others + 60 s for the VMs + 30 s to unmount = 140 s > 90 s',
+            ['disk' => 90, 'vm' => 60, 'docker' => 20, 'containers' => 50, 'vms' => 60, 'margin' => 30, 'need' => 140, 'fits' => false], $l['times']);
+        same('array hold: not the array — the remote share and Unassigned Devices\' disk (never /mnt/disks itself)', [
+            ['kind' => 'remote', 'mount' => '/mnt/remotes/NAS_share', 'type' => 'cifs'], ['kind' => 'ud', 'mount' => '/mnt/disks/usb', 'type' => 'xfs']], $l['outside']);
+        same('array hold: what would hold it up — six things holding a file there and two VMs without an agent that answers; looked at all of it',
+            [8, false, true], [$l['count'], $l['cut'], $l['started']]);
+        $calls = file("$tmp/docker.calls", FILE_IGNORE_NEW_LINES);
+        same('array hold: Docker asked only for the running containers and their stop time — never a full inspect, never the environment', [
+            'ps --no-trunc --format {{.ID}}\t{{.Names}}\t{{.Label "net.unraid.docker.managed"}}',
+            "inspect --format {{.Id}}\t{{.Config.StopTimeout}} {$ids[0]} {$ids[1]} {$ids[2]}"], $calls);
+
+        // all quiet: nothing open there, no VMs, Docker off — nothing holds it and the time-out is enough
+        $quiet = $paths;
+        $quiet['proc'] = "$tmp/proc-quiet";
+        @mkdir("$tmp/proc-quiet", 0700);
+        exec('cp -a ' . escapeshellarg("$proc/1") . ' ' . escapeshellarg("$tmp/proc-quiet/1"));
+        $quiet['qemu_run'] = "$tmp/none";
+        $quiet['docker_sock'] = "$tmp/none.sock";
+        $quiet['sys_block'] = "$tmp/none";
+        $quiet['mover_pid'] = "$tmp/none.pid";
+        $q = arrayholdLook($quiet, ['smb' => []]);
+        same('array hold: all quiet — nothing holds it, no VMs, Docker isn\'t running (null, not «0 of 0»), 30 s to unmount fit into 90 s',
+            [0, [], [], null, [], 30, true], [$q['count'], $q['holds'], $q['vms'], $q['containers'], $q['itself'], $q['times']['need'], $q['times']['fits']]);
+
+        // one process with more open files than a look reads: looked in part
+        for ($i = 0; $i <= LOGS_WAKE_FDS; $i++) {
+            symlink("/mnt/disk1/Fotos/f$i.jpg", "$tmp/proc-quiet/1/fd/" . ($i + 3));
+        }
+        $c = arrayholdLook($quiet, ['smb' => []]);
+        same('array hold: a process with more open files than one look reads — named, but «looked in part»', [true, 1, ARRAYHOLD_FILES],
+            [$c['cut'], count($c['holds']), count($c['holds'][0]['files'])]);
+
+        // the array stopped: nothing to look at (no docker, no /proc)
+        @unlink("$tmp/docker.calls");
+        file_put_contents("$tmp/var.ini", "fsState=\"Stopped\"\n");
+        $s = arrayholdLook($paths);
+        same('array hold: the array isn\'t started — nothing looked at, Docker not asked', [false, 0, [], false],
+            [$s['started'], $s['count'], $s['holds'], is_file("$tmp/docker.calls")]);
+
+        // his page reads the look only in exactly its shape
+        file_put_contents("$tmp/look.json", jsonEncode($l));
+        same('array hold: his page carries the last look', [false, 8], [watchmanHoldPage("$tmp/look.json")['running'], watchmanHoldPage("$tmp/look.json")['look']['count']]);
+        file_put_contents("$tmp/look.json", '{"v":2,"time":1,"holds":[]}');
+        same('array hold: a look in another shape is no look', null, watchmanHoldPage("$tmp/look.json")['look']);
+        same('array hold: none yet', null, watchmanHoldPage("$tmp/nothing.json")['look']);
+    } finally {
+        hardeningRm($tmp);
+    }
+}
+
+/**
  * Ms. Protocolli's lists on the page (tests/logsfilters.js under node): every list's bar with a time filter, the time in
  * the note line, a saved filter applied by its click only, «Save filter…», rename / delete, a new visit empties every bar;
  * the order (newest / oldest / by service, named only when not the list's own) and a click on a line's service;
@@ -48038,7 +48205,7 @@ JS;
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testWatchmanHold',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testHouseDockerSilent', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

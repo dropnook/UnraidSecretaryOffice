@@ -121,6 +121,15 @@ Unraid's diagnostics or its kept syslog show), or the server went off without sh
 parity at every start until a stop is clean again; he says so once, and the Team Lead lists which time-out to raise
 (Docker + VMs + a margin) until a later stop is clean. He never starts, pauses or cancels a check.
 
+**What holds the array?** Before you stop the array or shut down, his tile says what would hold it up right now: a
+shell in an SSH session or the web terminal sitting in a share, a User Script, a plugin's script or a cron job with a
+file open there, an ISO mounted from the array — each with what to do. Then whom Unraid waits for: each running VM and
+whether its guest agent answers (a Windows VM without one often ignores the first request and takes the whole *VM
+shutdown time-out*), each container with the time it gets (Unraid's own all get its *Docker Stop Timeout*, a database
+asking for more is killed earlier); what stops by itself (the office's own work, Unraid's mover, SMB clients); and
+whether the *Shutdown time-out* is long enough for all of it. He looks when his page opens and on *Check now* — read
+only, no disk wakes up, nothing is stopped.
+
 <a name="watchman-book"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/watchman-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/watchman-light.png" alt="The Night Watchman&#x27;s watch book: what was different from normal"></picture></a>
 
 ### The search
