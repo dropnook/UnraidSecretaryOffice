@@ -3790,7 +3790,7 @@ function renderSetup() {
   preset.title = T('setup.preset.sub');
   forget.hidden = !(setup.plan && setup.plan.have_settings);
   preset.hidden = forget.hidden;
-  const pageSub = setup.plan ? T(setup.plan.have_settings ? 'setup.sub_have' : 'setup.sub_new') : '';
+  const pageSub = setup.plan && !setupNoPlace() ? T(setup.plan.have_settings ? 'setup.sub_have' : 'setup.sub_new') : '';   // the first step says its own
   root.appendChild(deskHeadOf('setup'));
   // the page's own head line under the tabs: its name, what it is, and the page's actions on the right
   const ph = el('div', 'bk-pagehead');
@@ -5674,8 +5674,8 @@ function placeFirstMake(offer) {
 function placeMakeDialog(offer) {
   const box = el('div');
   box.appendChild(el('p', '', T('setup.first.confirm_text')));
-  const dl = el('dl', 'bk-first-what');
-  const row = (k, v) => dl.append(el('dt', '', k), el('dd', '', v));
+  const dl = el('div', 'bk-first-what');          // a grid of its own: the dialog lays a dl out as a form
+  const row = (k, v) => dl.append(el('span', 'bk-first-k', k), el('span', 'bk-first-v', v));
   row(T('setup.first.c_name'), offer.share);
   row(T('setup.first.c_primary'), offer.pool ? `${offer.pool}${offer.fs ? ` (${offer.fs === 'btrfs' ? 'btrfs' : offer.fs.toUpperCase()})` : ''}` : T('setup.place_array'));
   row(T('setup.first.c_secondary'), T('setup.first.c_none'));

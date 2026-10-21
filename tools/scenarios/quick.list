@@ -12,6 +12,7 @@ office-smoke-refresh                            office                          
 office-sv-docker-off-bubbles                    office                          35
 
 backup-sh-office-share-exists-first-setup       backup                          15
+backup-sh-office-share-missing-first-setup-gate backup                         120
 backup-kp-orphans-delete                        backup                          15
 backup-in-handedit-crlf-replan-apply            backup                          15
 backup-in-handedit-perms-replan-apply           backup                          15
