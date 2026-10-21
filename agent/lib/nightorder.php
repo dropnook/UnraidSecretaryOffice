@@ -50,6 +50,8 @@ function nightOrderHost(?array $h = null): array
         // her run going: its lock held, or it waits for Unraid's mover (jackRunGate()'s wait — it takes the lock before it lets go)
         'night_running' => fn (): bool => nightRunning($dir) || (function_exists('jackRunWaiting') && jackRunWaiting('moverelli') !== null),
         // her line (only while she is hired: a line left behind starts nothing)
+        // her last run's start (night.json): a tie she took and finished between two looks
+        'night_started' => fn (): int => (int) ((readJson("$dir/night.json") ?? [])['started'] ?? 0),
         'night_cron'    => fn (): ?string => in_array('moverelli', staffHired($GLOBALS['agentStaffFile'] ?? null), true) ? officeJobSchedule('moverelli', $cron)['custom'] : null,
         'backup_cron'   => fn (): ?string => officeJobSchedule('backup', $cron)['custom'],
         'mover'         => fn (): bool => function_exists('jackMoverRunning') && jackMoverRunning(),
@@ -85,9 +87,17 @@ function nightOrderBackupGate(?array $h = null): array
     $now = $h['now'];
     $since = $now();
     $tie = nightOrderDue(($h['night_cron'])(), $since);
-    $look = function () use ($h, $now, $since, $tie): ?string {
+    $came = false;
+    // the tie holds only until her run showed up — going now, or begun this minute and done already (a short run between
+    // two looks: night.json's start)
+    $look = function () use ($h, $now, $since, &$tie, &$came): ?string {
         if (($h['night_running'])()) {
+            $tie = false;
             return 'night';
+        }
+        if ($tie && ($h['night_started'])() >= $since - 60) {
+            $tie = false;
+            $came = true;
         }
         if (($h['mover'])()) {
             return 'mover';
@@ -121,7 +131,8 @@ function nightOrderBackupGate(?array $h = null): array
             return $end(['go' => true, 'code' => 'gave_up_' . ($why ?? 'night'), 'seconds' => $waited]);
         }
         writeAtomic("$waitDir/backup-wait.json", jsonEncode(['pid' => getmypid(), 'since' => $since, 'until' => $since + (int) $h['max'], 'why' => $w]), 0600, 0, 0);
-        ($h['sleep'])(max(1, min((int) $h['every'], $since + (int) $h['max'] - $now())));
+        // a tie looks more often: her run may be done within seconds
+        ($h['sleep'])(max(1, min($w === 'tie' ? 5 : (int) $h['every'], $since + (int) $h['max'] - $now())));
         if (!($h['array'])()) {
             return $end(['go' => false, 'code' => null, 'seconds' => $now() - $since, 'result' => 'array']);
         }
@@ -130,6 +141,7 @@ function nightOrderBackupGate(?array $h = null): array
             return $end(['go' => false, 'code' => null, 'seconds' => $now() - $since, 'result' => 'meanwhile']);
         }
         $w = $look();
+        $why ??= $came ? 'night' : null;
         if ($w === null) {
             return $end(['go' => true, 'code' => $why !== null ? "waited_$why" : null, 'seconds' => $now() - $since]);
         }

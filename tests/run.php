@@ -44744,6 +44744,7 @@ function testNightOrder(): void
             'mover'         => function () use (&$t, $t0, $at) { return (bool) ($at($t - $t0)['mover'] ?? false); },
             'array'         => function () use (&$t, $t0, $at) { return (bool) ($at($t - $t0)['array'] ?? true); },
             'night_cron'    => fn () => $nightCron,
+            'night_started' => function () use (&$t, $t0, $at) { return (int) ($at($t - $t0)['began'] ?? 0); },
             'backup_cron'   => fn () => '0 2 * * *',
             'now'           => function () use (&$t) { return $t; },
             'sleep'         => function (int $s) use (&$t, &$sleeps) { $t += $s; $sleeps++; },
@@ -44765,6 +44766,12 @@ function testNightOrder(): void
     $tie = $gate(fn ($s) => ['night' => $s >= 30 && $s < 630], '0 2 * * *');
     same('night order: a cron tie — her line due this minute, she takes her lock after 30 s: the backup waits until her run ends',
         ['waited_night', 630], [$tie['code'], $tie['seconds']]);
+    $quick = $gate(fn ($s) => ['night' => $s < 20], '0 2 * * *');
+    same('night order: a cron tie — her run done after 20 s: the backup goes then, never waits out the rest of her 60 s',
+        ['waited_night', 30], [$quick['code'], $quick['seconds']]);
+    $short = $gate(fn ($s) => $s >= 2 ? ['began' => $t0 - 2] : [], '0 2 * * *');
+    same('night order: a cron tie — her run begun and done between two looks (night.json: begun this minute): the backup goes, it says so',
+        ['waited_night', 5], [$short['code'], $short['seconds']]);
     $noShow = $gate(fn ($s) => [], '0 2 * * *');
     same('night order: a cron tie she never takes (refused, not set up) — 60 s, then the backup goes without a word',
         [0, '', true, null, 60], [$noShow['rc'], $noShow['out'], $noShow['go'], $noShow['code'], $noShow['seconds']]);
