@@ -446,8 +446,13 @@ function nightRun(array $args, ?array $h = null): int
     $waited = 0;
     $order = null;
     if ($mode === 'run') {
-        // a backup doing its local part (nightorder.php): on schedule she waits until it is done, from a page refused
+        // a backup doing its local part (nightorder.php): on schedule she waits until it is done, from a page refused; in
+        // the backup's own minute she first gives it time to take its lock (both crons start at once: it goes first)
         $oh = nightOrderHost($h['order']);
+        $tie = $by === 'schedule' ? nightOrderTie($oh) : 0;
+        if ($tie > 0) {
+            logLine("Night run: the backup's line is due this minute too — gave it $tie s to start");
+        }
         if (($oh['backup_holds'])()) {
             if ($by !== 'schedule') {
                 return $refused('moverelli_backup_running');
@@ -458,8 +463,8 @@ function nightRun(array $args, ?array $h = null): int
                 logLine('Night run: the scheduled run stops waiting for the backup (the array stopped)');
                 return 0;
             }
-            $order = ['code' => 'waited_backup', 'seconds' => $w];
-            logLine('Night run: waited ' . nightOrderSpan($w) . ' for Mr. Backupsy');
+            $order = ['code' => 'waited_backup', 'seconds' => $tie + $w];
+            logLine('Night run: waited ' . nightOrderSpan($tie + $w) . ' for Mr. Backupsy');
         }
         // a scheduled night waits for Unraid's mover (as her scheduled runs always did); from a page: refused at once
         $gate = jackRunGate('moverelli', $by, ['watch' => false, 'dir' => $dir, 'waitdir' => $h['waitdir'],

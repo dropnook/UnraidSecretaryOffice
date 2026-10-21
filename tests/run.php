@@ -44813,10 +44813,26 @@ function testNightOrder(): void
     $rcPage = nightRun(['run', '--office']);
     $row = moverelliHistory($mdir)[0] ?? [];
     $rcSched = nightRun(['run']);
-    unset($GLOBALS['nightHost'], $GLOBALS['moverelliHost']);
     same('night order: her run — from a page while a backup runs: refused, her row says why; on schedule: waits, then runs, night.json says so',
         [1, 'refused', 'moverelli_backup_running', 0, 1, ['code' => 'waited_backup', 'seconds' => 15]],
         [$rcPage, $row['result'] ?? null, $row['why'] ?? null, $rcSched, $herRuns, readJson("$mdir/night.json")['order'] ?? null]);
+    // the same minute (tonight's case: both at 0 2 * * *, both crons start at once): she gives the engine 90 s to take its
+    // lock — it shows after 20 s and holds its local part until 300 s: she waits for it; it never shows: she goes after 90 s
+    $tie = function (?int $shows, string $backupCron = '0 2 * * *') use ($t0, $mdir, &$herRuns): array {
+        $tt = $t0;
+        $herRuns = 0;
+        $GLOBALS['nightHost']['order'] = ['now' => function () use (&$tt) { return $tt; }, 'sleep' => function (int $s) use (&$tt) { $tt += $s; },
+            'array' => fn () => true, 'backup_cron' => fn () => $backupCron,
+            'backup_locked' => function () use (&$tt, $t0, $shows) { return $shows !== null && $tt - $t0 >= $shows; },
+            'backup_holds' => function () use (&$tt, $t0, $shows) { return $shows !== null && $tt - $t0 >= $shows && $tt - $t0 < 300; }];
+        @unlink("$mdir/night.json");
+        $rc = nightRun(['run']);
+        return [$rc, $herRuns, readJson("$mdir/night.json")['order'] ?? null, $tt - $t0];
+    };
+    same('night order: the same minute — the engine\'s lock after 20 s: she waits for its local part; never: she goes after 90 s, no word; the backup\'s line at another minute: no tie',
+        [[0, 1, ['code' => 'waited_backup', 'seconds' => 305], 305], [0, 1, null, 90], [0, 1, null, 0]],
+        [$tie(20), $tie(null), $tie(null, '5 2 * * *')]);
+    unset($GLOBALS['nightHost'], $GLOBALS['moverelliHost']);
 
     // (4) never the same minute: the next 7 days of any two lines; saving refused naming the other's time; the hint
     $now = mktime(12, 0, 0, 10, 21, 2026);

@@ -12,7 +12,9 @@ declare(strict_types=1);
  *                           - the scheduled backup (job.sh backup → `php agent.php job backup-order`, before the engine)
  *                             waits while her run goes (night.lock held) — for the whole run; its word to the engine:
  *                             UB_ORDER «waited_night:<seconds>» → status.json/history `order`
- *                           - her scheduled run (nightRun()) waits while a real backup holds the engine and hasn't done
+ *                           - her scheduled run (nightRun()) — the backup's line due in the same minute (a collision from
+ *                             before): first up to NIGHT_ORDER_TIE for the engine's lock to show (both crons start at
+ *                             once; the backup always goes first then) — waits while a real backup holds the engine and hasn't done
  *                             its local part (status.json `phase` not yet one of NIGHT_ORDER_LOCAL_DONE: the containers
  *                             are back, the snapshots taken, the packages written — partners and Kopia read only frozen
  *                             snapshots); for the whole run when it backs up a share read live that she moves
@@ -25,6 +27,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/nightrun.php';
 
 const NIGHT_ORDER_EVERY      = 15;     // s: how often a wait looks again
+const NIGHT_ORDER_TIE        = 90;     // s: her run in the backup's minute gives the engine this long to take its lock
 // the engine's phases (status.json `phase`) once its local part is done — from here it reads only frozen snapshots
 const NIGHT_ORDER_LOCAL_DONE = ['partner', 'mounting', 'kopia', 'unmounting', 'cleanup', 'done'];
 
@@ -35,12 +38,16 @@ function nightOrderHost(?array $h = null): array
     $dir = $h['night_dir'] ?? DATA_DIR . '/moverelli';
     $data = $h['backup_data'] ?? BACKUP_DATA_DIR;
     $shares = $h['shares_dir'] ?? '/boot/config/shares';
+    $cron = $h['cron_file'] ?? OFFICE_CRON;
     return $h + [
         'night_dir'     => $dir,
         'backup_data'   => $data,
         'waitdir'       => RUN_DIR,
         'night_running' => fn (): bool => nightRunning($dir),
         'backup_holds'  => fn (): bool => nightOrderBackupHolds($data, $shares),
+        'backup_cron'   => fn (): ?string => officeJobSchedule('backup', $cron)['custom'],
+        'backup_locked' => fn (): bool => (backupLockHolder($data)['holder'] ?? '') === 'backup',
+        'tie'           => NIGHT_ORDER_TIE,
         'array'         => fn (): bool => arrayRunning(),
         'sleep'         => fn (int $s) => sleep($s),
         'now'           => fn (): int => time(),
@@ -63,6 +70,23 @@ function nightOrderWait(array $h, callable $busy): ?int
         if (!($h['array'])()) {
             return null;
         }
+    }
+    return ($h['now'])() - $since;
+}
+
+/**
+ * Her scheduled run in the backup's minute (both lines due at once — a collision from before the save check): wait up to
+ * `tie` s for a backup to take the engine's lock, so that the backup always goes first. Returns the seconds waited.
+ */
+function nightOrderTie(array $h): int
+{
+    $since = ($h['now'])();
+    $f = ($c = ($h['backup_cron'])()) !== null ? cronFields($c) : null;
+    if ($f === null || !cronMatches($f, $since)) {
+        return 0;
+    }
+    while (!($h['backup_locked'])() && ($h['now'])() - $since < (int) $h['tie']) {
+        ($h['sleep'])(2);
     }
     return ($h['now'])() - $since;
 }
