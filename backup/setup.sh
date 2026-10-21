@@ -1,6 +1,12 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.68 - 2026-10-21
+# unraid-backup - setup.sh                        Version 2.69 - 2026-10-21
+#   2.69 The plan says three things it kept quiet about: a share Unraid deleted whose dataset only its snapshots keep
+#        (warning share_deleted_snapshots {share, datasets, snapshots} with the way: its snapshots deleted, then the share
+#        in Unraid again - the runs leave it out, the setup changes nothing of it); an app to be stopped whose folders
+#        lie on a pool with almost no room (pool_low_space {pool, free_h, size_h, floor_h, apps, n}; it is still stopped,
+#        as backup.sh says why); Kopia's own container keeping paths in anonymous Docker volumes - a re-made container
+#        gets new empty ones (kopia_volumes {app, paths, n}; none when they are bound).
 #   2.68 No change here (the engine's version: backup.sh's upload stall watchdog, Kopia's reads limited to UB_KOPIA_TIMEOUT, --kopia-watch)
 #   2.67 A Kopia step that ran into its time limit is ended inside the container too (ub_exec_end) and said once as the
 #        error kopia_silent {seconds}: the policies this Apply wanted are not set, the Kopia steps after it are not tried
@@ -1173,6 +1179,14 @@ TXT
     done
     _apply_P
 
+    # 2.69: a share Unraid deleted whose dataset its snapshots keep - the runs leave it out (plan_build); the way said,
+    # nothing of it changed or destroyed here
+    for s in "${SH[@]}"; do
+        share_deleted_left "$s" || continue
+        wrn_as share_deleted_snapshots "Share '$s' was deleted in Unraid, but its dataset ($SDL_DS) stays: $SDL_SNAPS snapshot(s) keep it - the runs leave it out. To let it go: delete its snapshots (Ms. Snapshotini), then delete the share in Unraid again" \
+            share "$s" datasets "$SDL_DS" snapshots "$SDL_SNAPS"
+    done
+
     # Always ignore Kopia's own folders in appdata-like shares
     local dir n line
     for s in "${SH[@]}"; do
@@ -1494,6 +1508,37 @@ TXT
     # apps the user chose not to back up (the office's apps step); only containers that still exist (or are down, 2.60)
     down_keep_list "docker|skip"
     P[docker|skip]="$(old_list "docker|skip" | while IFS= read -r n; do in_list "$n" "${CT_NAMES[@]}" && printf '%s\n' "$n"; done; printf '%s\n' "${DOWN_KEPT[@]}")"
+
+    # 2.69: the apps stopped for the snapshot whose folders lie on a pool with almost no room (pool_low) - one warning
+    # per pool; they stay stopped as chosen (backup.sh pool_room_check says why)
+    local -A lowapps=()
+    local b
+    for n in "${CT_NAMES[@]}"; do
+        [[ "$n" == "$KOPIA_CONTAINER" || "${CT_STOP[$n]:-}" != "yes" ]] && continue
+        while IFS= read -r b; do [[ -n "$b" ]] && lowapps[$b]+="${lowapps[$b]:+, }$n"; done <<<"$(ct_low_pools "$n")"
+    done
+    for b in $(printf '%s\n' "${!lowapps[@]}" | LC_ALL=C sort); do
+        pool_low "$b" || continue
+        wrn_as pool_low_space "Pool '$b' has only $(human "$PL_FREE") free of $(human "$PL_SIZE") (below $(human "$PL_FLOOR")) - ${lowapps[$b]} keep their data there and are stopped for the snapshot: they may not start cleanly with so little room, and each snapshot keeps what they overwrite - make room on '$b'" \
+            pool "$b" free_h "$(human_sp "$PL_FREE")" size_h "$(human_sp "$PL_SIZE")" floor_h "$(human_sp "$PL_FLOOR")" \
+            apps "${lowapps[$b]}" n "$(tr ',' '\n' <<<"${lowapps[$b]}" | grep -c .)"
+    done
+
+    # 2.69: Kopia's own container - paths it keeps in ANONYMOUS volumes (its image declares /app/config, /app/cache,
+    # /app/logs, /backups, /source ...; a template that doesn't bind one leaves it to Docker): every re-made container
+    # (an update, a template edit) gets new empty ones, what was there is gone from Kopia - its connection, a local
+    # repository in /backups. Named volumes stay over a re-make (as before: not said for Kopia); bound paths say nothing
+    local kv kpaths="" vn vd
+    if [[ -n "$KOPIA_CONTAINER" && -n "${CT_VOLUMES[$KOPIA_CONTAINER]:-}" ]]; then
+        while IFS='|' read -r vn vd; do
+            [[ "$vn" =~ ^[0-9a-f]{64}$ && -n "$vd" ]] && kpaths+="${kpaths:+, }$vd"
+        done <<<"${CT_VOLUMES[$KOPIA_CONTAINER]}"
+    fi
+    if [[ -n "$kpaths" ]]; then
+        kv="$(tr ',' '\n' <<<"$kpaths" | grep -c .)"
+        wrn_as kopia_volumes "Kopia's container '$KOPIA_CONTAINER' keeps $kpaths in anonymous Docker volumes - a re-made container (an update, a template edit) gets new empty ones and what was there is gone from Kopia (its connection in /app/config, a local repository in /backups). In its template map each of them to a folder in appdata" \
+            app "$KOPIA_CONTAINER" paths "$kpaths" n "$kv"
+    fi
 
     # --- Docker volumes
     local v vn vd vtxt
