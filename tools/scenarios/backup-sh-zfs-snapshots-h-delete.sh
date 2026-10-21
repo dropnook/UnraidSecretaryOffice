@@ -7,7 +7,8 @@
 # on the share left half-deleted (cell run-not-failed). The share: uso-wip-h-zdel on the ZFS pool «fast» (only), 5 files,
 # «local» by Apply, one run (its snapshot). Cell delete-blocked records what Unraid did (info: Unraid's behaviour, the
 # state itself). settings.ini put back from its copy; the scratch dataset's snapshots and the dataset destroyed in the
-# undo (uso-wip-h-* only). Pre-release (~4 min).
+# undo (uso-wip-h-* only). The user's «Delete» is part of the state (before snap_before): what it left — Unraid drops
+# the cfg, the dataset stays mounted and listed — is the state the office must speak about. Pre-release (~4 min).
 . "$(dirname "$0")/lib.sh"
 scenario_begin backup-sh-zfs-snapshots-h-delete
 needs zfs pool2
@@ -28,8 +29,6 @@ snaps=$(zfs list -H -t snapshot -o name "$DS" 2>/dev/null | grep -c '@uso-backup
 ((snaps > 0)) || _row state prepare red "no engine snapshot of $DS after the run"
 say "$DS carries $snaps engine snapshot(s)"
 cp -p "$UB/settings.ini" "$KEEP/settings-after-apply.ini"
-track_share "$S"
-snap_before
 # the user: the files away (through the pool itself), then Unraid's «Delete» in the share form
 find "/mnt/$POOL/$S" -mindepth 1 -delete
 if share_remove "$S"; then
@@ -37,6 +36,8 @@ if share_remove "$S"; then
 else
     h_info delete-blocked "Unraid's «Delete» left it: shares.ini $(share_exists "$S" && echo lists || echo "doesn't list") $S, cfg $( [[ -f /boot/config/shares/$S.cfg ]] && echo there || echo gone), $DS mounted=$(zfs get -H -o value mounted "$DS" 2>/dev/null), $(zfs list -H -t snapshot -o name "$DS" 2>/dev/null | wc -l) snapshot(s)"
 fi
+track_share "$S"
+snap_before                                  # the half-deleted share is the state: the user's «Delete» came before
 say_cmd zfs list -r -t all -o name,mounted,used "$DS"
 flow BK-REPLAN
 ask backup.refresh '{}' 120 >/dev/null
@@ -60,6 +61,7 @@ minute_wait
 flow BK-RUN-MANUAL mode=backup
 r=$(jq -r '"\(.result) \(.message // "")"' "$UB/state/status.json")
 [[ $r =~ ^(ok|warnings) ]] && h_cell run-not-failed 1 "the next run: $r" || h_cell run-not-failed 0 "the next run: $r"
+h_info snapshots-after "after the next run $DS carries $(zfs list -H -t snapshot -o name "$DS" 2>/dev/null | grep -c '@uso-backup-') engine snapshot(s) (before it: $snaps) — the share's cfg gone, the dataset still mounted"
 expect_warnings share_gone share_new share_empty
 check standard
 scenario_end

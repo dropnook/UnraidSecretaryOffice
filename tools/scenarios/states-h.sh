@@ -41,7 +41,8 @@ h_mv_put_back() {
 h_agent_stop() {
     say "h_agent_stop: the agent stopped ($1)"
     bash "$P/scripts/agent.sh" stop >/dev/null 2>&1
-    _st_until 30 bash -c "! pgrep -f '$P/agent/agent.php' >/dev/null" || { say "h_agent_stop: the agent still runs"; return 1; }
+    # (the pattern never matches its own command line: «[p]hp …agent.php run», pgrep over a bash -c sees itself otherwise)
+    _st_until 30 bash -c "! pgrep -f '[p]hp $P/agent/agent[.]php run' >/dev/null" || { say "h_agent_stop: the agent still runs"; h_agent_start "$1"; return 1; }
 }
 h_agent_start() {
     agent_mark_restart
