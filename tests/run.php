@@ -52,6 +52,14 @@ declare(strict_types=1);
  * testLiveRunUntouched() fails. The live agent never sees any of it.
  */
 const TESTS_LIVE_RUN = '/var/run/unraid-secretary-office';
+/*
+ * One zone for the whole run, whatever the host's (test VMs run on UTC on purpose; Unraid ships a trimmed zoneinfo with no
+ * Europe/Zurich, and a /etc/localtime that points at a missing file is UTC): PHP below on Europe/Zurich, and every bash
+ * engine, `date` and stand-in a test starts on the same rules through TZ — a POSIX rule, so no zone file is needed (a child
+ * started with an environment of its own names 'TZ' => getenv('TZ') too). Before (2026-10-21) on test3/test4: «expected
+ * uso-backup-20261022-0301, got …-0101» (PHP's 03:00 was the engine's 01:00), and a run's log looked for under the wrong name.
+ */
+putenv('TZ=CET-1CEST,M3.5.0,M10.5.0/3');
 if (getenv('OFFICE_TESTS_GUARD') === false && PHP_OS_FAMILY === 'Linux' && function_exists('posix_geteuid') && posix_geteuid() === 0
     && is_dir(TESTS_LIVE_RUN) && !is_link(TESTS_LIVE_RUN) && is_executable('/usr/bin/unshare')) {
     $guard = sys_get_temp_dir() . '/office-tests-guard-' . getmypid();
@@ -83,7 +91,22 @@ putenv('OFFICE_EMCMD_BIN=' . TESTS_RUN_DIR . '/no-emcmd');
 require dirname(__DIR__) . '/agent/agent.php';
 date_default_timezone_set('Europe/Zurich');
 
-$GLOBALS['results'] = ['pass' => 0, 'fail' => []];
+$GLOBALS['results'] = ['pass' => 0, 'fail' => [], 'skip' => []];
+
+/**
+ * A test that needs python3 (Jack's EmbyCache, the media cache's migration) starts with `if (!needsPython(__FUNCTION__))
+ * return;` (only a part of it: `if (needsPython(__FUNCTION__, '<the part>')) { … }`): without python3 on the host (test4 has none, on purpose) it is skipped — counted in the summary line, never red,
+ * never the end of the run (2026-10-21: an uncaught «env: 'python3': No such file or directory» ended it, exit 255, silent)
+ */
+function needsPython(string $test, string $part = ''): bool
+{
+    static $have = null;
+    $have ??= run(['python3', '--version'], 10)[0] === 0;
+    if (!$have) {
+        $GLOBALS['results']['skip'][$test . ($part !== '' ? ": $part" : '')] = 'no python3';
+    }
+    return $have;
+}
 
 /**
  * The engine tests' clock (a suite red by the clock, 2026-10-08: «expected snapshot …-1815, got …-1816», a «third night
@@ -1444,6 +1467,9 @@ JS);
  */
 function testJackImport(): void
 {
+    if (!needsPython(__FUNCTION__)) {
+        return;
+    }
     $tmp = hardeningTmp('jackimport');
     $fs = "$tmp/fs";                      // the fake server: /mnt and /boot below it
     $pool = "$tmp/pool";                  // EmbyCache's pool (load_config() wants a real folder)
@@ -2658,6 +2684,9 @@ JS);
  */
 function testJackTidyDisks(): void
 {
+    if (!needsPython(__FUNCTION__)) {
+        return;
+    }
     $tmp = hardeningTmp('jack-tidy');
     file_put_contents("$tmp/t.py", <<<'PY'
 import sys, os, json, logging
@@ -2693,6 +2722,9 @@ PY);
 
 function testJackRsync(): void
 {
+    if (!needsPython(__FUNCTION__)) {
+        return;
+    }
     // 2026-10-15 (the owner): MediaCache's own ways — filling with rsync, giving back with Unraid's move binary; written
     // into the settings by Jack, never forced through the environment
     $tmp = hardeningTmp('jackrsync');
@@ -2753,6 +2785,9 @@ function testJackRsync(): void
  */
 function testJackKeyRedirect(): void
 {
+    if (!needsPython(__FUNCTION__)) {
+        return;
+    }
     $py = 'import sys, json, threading, http.server
 sys.path.insert(0, sys.argv[1]); import mediacache_lib as l
 seen = {}
@@ -2792,6 +2827,9 @@ print(json.dumps(out, sort_keys=True))';
  */
 function testJackPersons(): void
 {
+    if (!needsPython(__FUNCTION__)) {
+        return;
+    }
     $tmp = hardeningTmp('jack-persons');
     file_put_contents("$tmp/t.py", <<<'PY'
 import sys, os, json
@@ -2848,6 +2886,9 @@ PY);
  */
 function testJackNotInBudget(): void
 {
+    if (!needsPython(__FUNCTION__)) {
+        return;
+    }
     $tmp = hardeningTmp('jack-not-in-budget');
     $py = 'import sys, json; sys.path.insert(0, sys.argv[1]); import mediacache_run as r
 from types import SimpleNamespace as N
@@ -2910,6 +2951,9 @@ JS);
 
 function testJackUpstream(): void
 {
+    if (!needsPython(__FUNCTION__)) {
+        return;
+    }
     $tmp = hardeningTmp('jackupstream');
     @mkdir("$tmp/emby", 0700, true);
     @mkdir("$tmp/pool", 0700, true);
@@ -8225,9 +8269,11 @@ function testDataTrust(): void
     @mkdir("$tmp/emby", 0700);
     file_put_contents("$tmp/emby/mediacache_settings.json", json_encode(['cache_path' => $tmp, 'array_path' => $tmp, 'rsync_args' => ['-a', '--log-file=/boot/config/go'],
         'instances' => [['servername' => 'E', 'url' => 'http://192.0.2.1:8096', 'api_key' => 'abcdefgh12345678', 'path_mappings' => ['/media' => '/mnt/user/Media']]]]));
-    [, $out] = runEnv(['python3', '-c', 'import sys, json; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; print(json.dumps(l.load_config(require_paths=False)["rsync_args"]))', JACK_APP],
-        ['MEDIACACHE_DIR' => "$tmp/emby"] + jackPyEnv(), 30);
-    same('data trust: EmbyCache\'s rsync options are the office\'s (a settings file can\'t add --log-file)', ['-aAX', '--numeric-ids'], json_decode(trim($out), true));
+    if (needsPython(__FUNCTION__, 'EmbyCache\'s rsync options')) {
+        [, $out] = runEnv(['python3', '-c', 'import sys, json; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; print(json.dumps(l.load_config(require_paths=False)["rsync_args"]))', JACK_APP],
+            ['MEDIACACHE_DIR' => "$tmp/emby"] + jackPyEnv(), 30);
+        same('data trust: EmbyCache\'s rsync options are the office\'s (a settings file can\'t add --log-file)', ['-aAX', '--numeric-ids'], json_decode(trim($out), true));
+    }
     check('data trust: the .plg says «Jack Streamer», never «Jack Emby»', !str_contains($src('plugin/unraid-secretary-office.plg'), 'Jack Emby'));
     check('data trust: the guide says a partner\'s copy is trusted like your own backup', str_contains($src('docs/GUIDE.md'), "trusts that partner like your own backup"));
     exec('rm -rf ' . escapeshellarg($tmp));
@@ -14398,7 +14444,11 @@ function testRestoreSettled(): void
         // a job that lives (an agent.php of this pid): untouched
         $live = proc_open(['sh', '-c', 'sleep 30; :', 'agent.php'], [], $pp);
         $alive = '20261019-192000-cc33';
-        $make($alive, proc_get_status($live)['pid']);
+        $livePid = proc_get_status($live)['pid'];
+        for ($i = 0; $i < 100 && !str_contains((string) @file_get_contents("/proc/$livePid/cmdline"), 'agent.php'); $i++) {
+            usleep(20000);      // until it is sh (a slow VM: still the forked php a moment after proc_open)
+        }
+        $make($alive, $livePid);
         rsJournals();
         same('restore settled: a job that lives is left alone', ['running', ['ok', 'running', 'pending']],
             [rsJournal($alive)['result'] ?? null, array_column(rsJournal($alive)['steps'] ?? [], 'state')]);
@@ -24477,8 +24527,10 @@ function testMigrateMediaCache(): void
     // MediaCache itself takes the migrated file (load_config, the paths not asked)
     $py = 'import sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; c = l.load_config(require_paths=False); '
         . 'i = c["instances"][0]; print(i["type"], sorted(i["_mappings"]), i["_skip"])';
-    [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], ['MEDIACACHE_DIR' => $new, 'PYTHONDONTWRITEBYTECODE' => '1'], 30);
-    same('mediacache: MediaCache loads the migrated settings', [0, "emby ['/mnt/media/Familienfilme'] ['/mnt/media/Privat']"], [$exit, trim($out) ?: trim($err)]);
+    if (needsPython(__FUNCTION__, 'MediaCache loads them')) {
+        [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], ['MEDIACACHE_DIR' => $new, 'PYTHONDONTWRITEBYTECODE' => '1'], 30);
+        same('mediacache: MediaCache loads the migrated settings', [0, "emby ['/mnt/media/Familienfilme'] ['/mnt/media/Privat']"], [$exit, trim($out) ?: trim($err)]);
+    }
 
     // again (a downgrade and back): nothing more; a crash after the copy: the old one only put aside
     same('mediacache: done once — again nothing', 'nothing to change (Jack Streamer had no EmbyCache folder here)', officeMigrateMediaCache($d, '1.65.0'));
@@ -27221,10 +27273,13 @@ const out = {};
   out.calls = calls.slice();
   out.after = {};
   for (const s of ['Wasabi', 'gangs', 'Object Lock', 'Trinkgeldkasse', 'Tippfehler', 'Ransomware Wasabi', 'Lock', 'Datei']) out.after[s] = q(s);
-  // the time it takes (warm): the queries again
-  const t0 = process.hrtime.bigint();
-  for (let i = 0; i < 5; i++) for (const s of ['Wasabi', 'Object Lock', 'Datei', 'Tippfehler', 'zzzz']) O.search.find(s);
-  out.ms = Number(process.hrtime.bigint() - t0) / 1e6 / 25;
+  // the time it takes (warm): the queries again — the best of five rounds (a slow VM's GC pause is no slow search)
+  out.ms = Infinity;
+  for (let round = 0; round < 5; round++) {
+    const t0 = process.hrtime.bigint();
+    for (let i = 0; i < 5; i++) for (const s of ['Wasabi', 'Object Lock', 'Datei', 'Tippfehler', 'zzzz']) O.search.find(s);
+    out.ms = Math.min(out.ms, Number(process.hrtime.bigint() - t0) / 1e6 / 25);
+  }
 
   // the jump: the sentence of the guide (its <details> folded), Unraid's menu sticky (50 px) — then the page settles above it
   const realTimeout = setTimeout;
@@ -35214,7 +35269,7 @@ function testBackupOneMinute(): void
     }
     foreach (['backup' => []] as $what => $args) {          // 2.45: only a real backup - a tour's or dry run's log carries the second
         $p = proc_open(array_merge(['bash', OFFICE_DIR . '/backup/backup.sh'], $args), [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
-            ['UB_DATA' => $eng, 'UB_NO_NOTIFY' => '1', 'PATH' => "$tmp/bin:" . getenv('PATH'), 'OFFICE_RUN_DIR' => TESTS_RUN_DIR]);
+            ['UB_DATA' => $eng, 'UB_NO_NOTIFY' => '1', 'PATH' => "$tmp/bin:" . getenv('PATH'), 'TZ' => getenv('TZ'), 'OFFICE_RUN_DIR' => TESTS_RUN_DIR]);
         $out = (string) stream_get_contents($pipes[1]);
         $err = (string) stream_get_contents($pipes[2]);
         $rc = proc_close($p);
@@ -35238,7 +35293,7 @@ function testBackupOneMinute(): void
     chmod("$tmp/bin/zfs", 0755);
     $engine = function () use ($eng, $tmp, $mnt): array {
         $p = proc_open(['bash', OFFICE_DIR . '/backup/backup.sh'], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
-            ['UB_DATA' => $eng, 'UB_NO_NOTIFY' => '1', 'PATH' => "$tmp/bin:" . getenv('PATH'), 'OFFICE_RUN_DIR' => TESTS_RUN_DIR,
+            ['UB_DATA' => $eng, 'UB_NO_NOTIFY' => '1', 'PATH' => "$tmp/bin:" . getenv('PATH'), 'TZ' => getenv('TZ'), 'OFFICE_RUN_DIR' => TESTS_RUN_DIR,
              'UB_MNT' => $mnt, 'UB_MOUNTS_FILE' => "$tmp/mounts", 'UB_DISKS_INI' => "$tmp/disks.ini"]);
         stream_get_contents($pipes[1]);
         $err = (string) stream_get_contents($pipes[2]);
@@ -44844,8 +44899,10 @@ function testJackShareDataset(): void
     $lib = (string) file_get_contents(OFFICE_DIR . '/mediacache/mediacache_lib.py');
     check('share dataset: MediaCache\'s ensure_share_root() makes it with zfs create, only where the share may use the pool',
         str_contains($lib, 'def ensure_share_root(') && str_contains($lib, '[ZFS_BIN, "create", name]') && str_contains($lib, 'SHARE_ROOT_OK_MODES'));
-    [$exit, $out, $err] = run(['python3', '-I', '-B', '-m', 'unittest', 'discover', '-s', OFFICE_DIR . '/mediacache/tests'], 120);
-    check('share dataset: MediaCache\'s own tests pass (share root on ZFS/btrfs/XFS, dry run, cleanup tools)', $exit === 0 && str_contains($out . $err, 'OK'), $out . $err);
+    if (needsPython(__FUNCTION__, 'MediaCache\'s own tests')) {
+        [$exit, $out, $err] = run(['python3', '-I', '-B', '-m', 'unittest', 'discover', '-s', OFFICE_DIR . '/mediacache/tests'], 120);
+        check('share dataset: MediaCache\'s own tests pass (share root on ZFS/btrfs/XFS, dry run, cleanup tools)', $exit === 0 && str_contains($out . $err, 'OK'), $out . $err);
+    }
 
     // his page and the Team Lead: «made at the next run» is no fault; a plain folder is a warning with the way to fix it by hand
     $js = (string) file_get_contents(dirname(__DIR__) . '/public/desks/jack/desk.js');
@@ -48966,18 +49023,46 @@ if ($unknown) {
     exec('rm -rf ' . escapeshellarg(TESTS_RUN_DIR));
     exit(2);
 }
+// A test that throws is red and the run goes on; a run that ends anyway (a fatal error, an exit()) says where and what it
+// had — Unraid's PHP shows no errors (display_errors=0, they go to /var/log/phplog), so before it ended in silence
+register_shutdown_function(function (): void {
+    if (isset($GLOBALS['testsDone'])) {
+        return;
+    }
+    $e = error_get_last();
+    $e = $e && in_array($e['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR, E_RECOVERABLE_ERROR], true) ? $e : null;
+    fwrite(STDERR, 'The run ended early, in ' . ($GLOBALS['testsNow'] ?? '(no test yet)')
+        . ($e ? ": {$e['message']} ({$e['file']}:{$e['line']})" : ' (an exit() or a signal)') . "\n");
+    foreach ($GLOBALS['results']['fail'] as $f) {
+        fwrite(STDERR, "FAIL  $f\n");
+    }
+    fprintf(STDERR, "%d passed, %d failed before it ended\n", $GLOBALS['results']['pass'], count($GLOBALS['results']['fail']));
+});
 foreach ($parts as $name => $fns) {
     foreach ($fns as $t) {
         if (!$only || in_array($name, $only, true) || in_array($t, $only, true)) {      // everything, its part, or the test by its name
-            $t();
+            $GLOBALS['testsNow'] = $t;
+            try {
+                $t();
+            } catch (Throwable $e) {
+                check("$t: ended by an uncaught " . get_class($e) . ': ' . $e->getMessage() . ' (' . $e->getFile() . ':' . $e->getLine() . ')', false);
+            }
         }
     }
 }
+$GLOBALS['testsNow'] = 'testLiveRunUntouched';
 testLiveRunUntouched();         // last: nothing of all the above reached the live agent's RAM folder
+$GLOBALS['testsDone'] = true;
 exec('rm -rf ' . escapeshellarg(TESTS_RUN_DIR));
 $fail = $GLOBALS['results']['fail'];
 foreach ($fail as $f) {
     echo "FAIL  $f\n";
 }
-printf("%d passed, %d failed\n", $GLOBALS['results']['pass'], count($fail));
+$skip = $GLOBALS['results']['skip'];
+foreach ($skip as $t => $why) {
+    echo "SKIP  $t ($why)\n";
+}
+// skipped tests only on a host without python3 — tools/release.sh takes «N passed, 0 failed» alone, so never a release from one
+printf("%d passed, %d failed%s\n", $GLOBALS['results']['pass'], count($fail),
+    $skip ? ', ' . count($skip) . ' skipped (' . implode(', ', array_unique($skip)) . ')' : '');
 exit($fail ? 1 : 0);
