@@ -79,7 +79,29 @@ first pool and the first array disk), a container (Docker only), fake notificati
 the quiet state and red on its violation; undoes all and checks INV-LEFTOVER on itself. `office-smoke-refresh.sh` is the
 toy scenario: the three desks' fresh looks, standard checks.
 
-## Flows and the remaining checks (wave 1b, H5: flows.sh, checks.sh, bubble-rules.tsv)
+## Before a release and every night (wave 3)
+
+* **Release step 6b** (`tools/release.sh`, between the click test and the suite): `prerelease.sh --since v<last>` maps
+  the files changed since the last tag to desks (the table in its head: a desk's files → it, `backup/` → backup and
+  restore, `mediacache/`/`gather/` → jack, `smartmover/` → moverelli, shared code, the web side, the plugin, office
+  strings and the scenario helpers → all; docs and tests → none) and runs their scenarios of **`quick.list`** — the
+  pre-release set: short, green lately, no reboot, clock or let-go, ≈ 27 min all together — through
+  `USO_RUN_TAG=prerelease run.sh tower --only … --dev-sync`. Red stops the release (the version lines put back);
+  `--dry` lists the desks, the scenarios and the estimate without Tower (`USO_RELEASE_DIFF=<file>`: an invented diff);
+  `--no-scenarios` skips it with a loud line; the step's time stands in the release's last lines.
+  By hand: `bash tools/scenarios/prerelease.sh --dry` (or `--only <name>` for a real run of the step).
+* **The nightly** (`nightly.sh`, launchd `uso-scenarios-nightly.plist` at 02:30 — written, installed only by the
+  coordinator with the owner's OK; the install lines are in the plist): origin/main in its own detached worktree
+  (`~/Claude/UnraidSecretaryOffice-worktrees/nightly`), `run.sh tower --all --dev-sync`, every red one once more (red,
+  then green = **flaky**, listed apart), `scenarios/<date>/nightly.md` + `nightly.tsv` with the diff to the night before
+  (new reds, fixed, flaky flips, new and gone scenarios). `--dry` says what it would do.
+* **Who has Tower** (`tower-lock.sh`): the Mac's lock `scenarios/.tower.lock` (its owner's pid; a dead owner's is taken
+  over) and no `run-local.sh` of another run on Tower (three looks) — a release waits 30 min for it, the nightly 2 h,
+  then each gives up (exit 4). A worker's run.sh takes no Mac lock; the look on Tower sees it.
+* **Self-test:** `bash tools/scenarios/prerelease.sh --self-test` (the mapping on invented file lists, quick.list, release.sh's
+  own step 6b `--dry` and `--no-scenarios` cut out of it); `nightly.sh --compare <old.tsv> <new.tsv>` prints the diff part.
+
+, H5: flows.sh, checks.sh, bubble-rules.tsv)
 
 `flow <ID> [key=value…]` runs `flow_<id>` of `flows.sh` — the request body the page's button sends (desk.js's line is
 named at each flow), through `ask`; a cron flow through the plugin's `scripts/job.sh` as crond starts it (`job <name>`,
