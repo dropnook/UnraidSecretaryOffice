@@ -25160,7 +25160,7 @@ ROUTER);
     same('claim: no curl config left in RAM', [], glob("$tmp/run/claim.*") ?: []);
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/lib/supporter.php');
     check('claim: the address with the code goes in a config file (-K), never on the command line', str_contains($src, "'-K', \$file") && !preg_match('/hostNet\(\[[^\]]*api\/claim/s', $src));
-    check('claim: an agent action, never the browser', str_contains((string) file_get_contents(OFFICE_DIR . '/src/api.php'), "'office.reports', 'office.supporter_claim'];") && isset(officeAgentActions()['supporter_claim']));
+    check('claim: an agent action, never the browser', str_contains((string) file_get_contents(OFFICE_DIR . '/src/api.php'), "'office.reports', 'office.report_inbox', 'office.supporter_claim'];") && isset(officeAgentActions()['supporter_claim']));
     proc_terminate($server);
     proc_close($server);
     putenv('OFFICE_SUPPORTER_PUBKEY');
@@ -35762,7 +35762,7 @@ function testReport(): void
             'passwd' => "$tmp/passwd", 'partner_dir' => "$tmp/partner", 'jack_settings' => "$tmp/emby.json", 'supporter' => "$tmp/supporter.json",
             'report_id_file' => "$tmp/office/report-id", 'hostname' => 'homeserver', 'reports' => "$tmp/office/reports.json", 'run_dir' => "$tmp/run",
             'hired' => ['caretaker', 'snapshot', 'backup'], 'unraid_version' => "$tmp/unraid-version", 'log' => "$tmp/agent.log",
-            'url' => ''];       // no inbox: «Your reports» asks nobody where they stand here (testReportStatus does)
+            'url' => '', 'inbox_file' => "$tmp/run-inbox.json"];       // no inbox: «Your reports» asks nobody where they stand here (testReportStatus does)
     file_put_contents("$tmp/unraid-version", "version=\"7.3.2\"\n");
 
     // the report ID: of its own, kept, never the tip page's server ID
@@ -36003,11 +36003,13 @@ ROUTER);
     // every answer the Worker may give: the office's key, the preview kept (the text too: the page keeps it)
     foreach ([[502, ['ok' => false, 'error' => 'github', 'key' => 'report_failed'], 'report_failed'], [400, ['ok' => false, 'error' => 'refused', 'key' => 'report_refused', 'why' => 'bad', 'field' => 'desk'], 'report_refused'],
               [429, ['ok' => false, 'error' => 'busy', 'key' => 'report_busy', 'retry_after' => 600], 'report_busy'], [429, ['ok' => false, 'error' => 'week', 'key' => 'report_week', 'next' => '2025-10-16T09:00:00Z', 'retry_after' => 9000], 'report_day'],
-              [500, ['oops'], 'report_failed']] as [$code, $b, $key]) {
+              [500, ['oops'], 'report_failed'], [503, ['ok' => false, 'error' => 'inbox', 'problem' => 'inbox_archived'], 'report_inbox'],
+              [503, ['ok' => false, 'error' => 'inbox', 'key' => 'report_inbox', 'problem' => 'inbox_no_issues'], 'report_inbox']] as [$code, $b, $key]) {
         $answer($code, $b);
         $r = $send($pv2, ['versions'], $t0 + 20);
         same("report: the Worker says HTTP $code " . json_encode($b) . " — $key, the preview stays for another try", [$key, true], [$r['key'] ?? 'ok', is_file("$tmp/run/{$pv2['token']}.json")]);
     }
+    same('report: the inbox took nothing — kept in RAM for the dialog and the Team Lead', ['inbox', $t0 + 20], [reportInboxRead($ctx)['state'] ?? null, reportInboxRead($ctx)['checked'] ?? null]);
     same('report: no answer at all — report_offline', 'report_offline', $refused(fn () => reportSend(['token' => $pv2['token'], 'parts' => ['versions']] + $words,
         ['now' => $t0 + 20, 'url' => 'http://127.0.0.1:' . ($port === 40000 ? 39999 : $port + 1)] + $sctx)));
 
@@ -36043,6 +36045,7 @@ ROUTER);
     $pv3 = reportPreview(['kind' => 'wish'] + $ask, $ctx + ['now' => $t0 + 50]);
     $r = $send($pv3, [], $t0 + 60, ['kind' => 'wish']);
     same('report: the 25th today — sent, none left', [true, 42, 0], [$r['ok'], $r['number'] ?? null, $r['left'] ?? null]);
+    same('report: … the inbox took it: open again', ['open', $t0 + 60], [reportInboxRead($ctx)['state'] ?? null, reportInboxRead($ctx)['checked'] ?? null]);
     $body = json_decode(json_decode((string) @file_get_contents("$tmp/request-{$count()}.json"), true)['body'] ?? '', true) ?? [];
     same('report: … nothing ticked — only the words and the ID', [['v', 'rid', 'report_id', 'kind', 'desk', 'title', 'text', 'name', 'facts', 'parts'], [], []],
         [array_keys($body), $body['facts'] ?? null, $body['parts'] ?? null]);
@@ -36081,7 +36084,7 @@ ROUTER);
     same('report: the agent answers office.reports', true, handle(json_encode(['action' => 'office.reports']))['ok'] ?? null);
     same('report: … and nothing else of office.*', 'unknown_action', handle(json_encode(['action' => 'office.nonsense']))['error']['key'] ?? null);
     $api = (string) file_get_contents(OFFICE_DIR . '/src/api.php');
-    check('report: api.php hands office.report_* to the agent', str_contains($api, "const OFFICE_AGENT_ACTIONS = ['office.report_preview', 'office.report_send', 'office.report_diag', 'office.reports', 'office.supporter_claim'];")
+    check('report: api.php hands office.report_* to the agent', str_contains($api, "const OFFICE_AGENT_ACTIONS = ['office.report_preview', 'office.report_send', 'office.report_diag', 'office.reports', 'office.report_inbox', 'office.supporter_claim'];")
         && str_contains($api, '$office = in_array($action, OFFICE_AGENT_ACTIONS, true);'));
     hardeningRm($tmp);
 }
@@ -36781,6 +36784,114 @@ ROUTER);
 }
 
 /**
+ * Does the makers' inbox take reports? (agent/lib/report.php reportInboxLook(), 2026-10-21: the inbox was archived,
+ * every report «failed», the Worker's health said ok, nobody knew.) One GET <inbox>/api/health — nothing of this server
+ * but the User-Agent — kept in RAM; the dialog asks at most every 10 minutes; the Worker's answer in the office's words
+ * (an older Worker's too); no inbox: nothing asked. Only the makers need to know: no Team Lead finding.
+ */
+function testReportInbox(): void
+{
+    $tmp = hardeningTmp('report-inbox');
+    $guid = '0781-5583-3311-A1B2C3D4E5F6';
+    $port = 0;
+    for ($i = 0; $i < 20 && !$port; $i++) {
+        $try = random_int(20000, 40000);
+        $s = @stream_socket_server("tcp://127.0.0.1:$try");
+        if ($s) {
+            fclose($s);
+            $port = $try;
+        }
+    }
+    file_put_contents("$tmp/router.php", <<<'ROUTER'
+<?php
+$dir = __DIR__;
+$n = (int) @file_get_contents("$dir/count") + 1;
+file_put_contents("$dir/count", (string) $n);
+file_put_contents("$dir/request-$n.json", json_encode(['uri' => $_SERVER['REQUEST_URI'], 'method' => $_SERVER['REQUEST_METHOD'],
+    'headers' => array_change_key_case(getallheaders()), 'body' => file_get_contents('php://input')]));
+[$code, $body] = json_decode((string) file_get_contents("$dir/answer.json"), true);
+http_response_code($code);
+header('Content-Type: application/json');
+echo is_string($body) ? $body : json_encode($body);
+ROUTER);
+    $answer = fn (int $code, mixed $body) => file_put_contents("$tmp/answer.json", json_encode([$code, $body]));
+    $server = proc_open([PHP_BINARY, '-d', 'auto_prepend_file=', '-S', "127.0.0.1:$port", "$tmp/router.php"], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, $tmp);
+    for ($i = 0; $i < 50 && !@fsockopen('127.0.0.1', $port); $i++) {
+        usleep(100000);
+    }
+    $ctx = ['url' => "http://127.0.0.1:$port", 'inbox_file' => "$tmp/inbox.json"];
+    $count = fn (): int => (int) @file_get_contents("$tmp/count");
+    $req = fn (int $n): array => json_decode((string) @file_get_contents("$tmp/request-$n.json"), true) ?? [];
+    $health = fn (bool $open, ?string $by = null, array $problems = []): array => ['ok' => !$problems, 'open' => $open, 'closed_by' => $by, 'inbox' => 'dropnook/uso-inbox',
+        'today' => 3, 'caps' => [], 'diagnostics' => true, 'token_expires' => null, 'problems' => $problems];
+    $t0 = 1760000100;
+
+    // the Worker's answer in the office's words
+    $as = fn (int $code, mixed $body, int $exit = 0): string => reportInboxAnswer($exit, (is_string($body) ? $body : json_encode($body)) . "\n$code");
+    same('report inbox: open; archived, issues off, the token shut out (closed_by inbox, or only named under problems); a setting it can\'t work without',
+        ['open', 'inbox', 'inbox', 'inbox', 'inbox', 'inbox'],
+        [$as(200, $health(true)), $as(503, $health(false, 'inbox', ['inbox_archived'])), $as(503, $health(false, 'var', ['inbox_no_issues'])),
+         $as(503, $health(true, null, ['inbox_token_denied'])), $as(503, $health(true, null, ['GITHUB_TOKEN', 'ID_SALT'])), $as(503, $health(false, 'inbox', []))]);
+    same('report inbox: … closed by GitHub\'s limit — github; by hand or the burst rule — closed; a token about to expire or a bad cap — still open',
+        ['github', 'closed', 'closed', 'closed', 'open', 'open'],
+        [$as(200, $health(false, 'github')), $as(200, $health(false, 'var')), $as(200, $health(false, 'switch')), $as(200, $health(false, 'burst')),
+         $as(503, $health(true, null, ['GITHUB_TOKEN_EXPIRES'])), $as(503, $health(true, null, ['CAP_DAY']))]);
+    same('report inbox: … an older Worker (no inbox look): its open; no answer, a 429, a 404, not its shape — unknown',
+        ['open', 'unknown', 'unknown', 'unknown', 'unknown', 'unknown', 'unknown'],
+        [$as(200, ['ok' => true, 'open' => true, 'closed_by' => null, 'problems' => []]), $as(0, '', 7), $as(429, ['ok' => false, 'error' => 'busy']), $as(404, ['ok' => false, 'error' => 'not_found']),
+         $as(200, 'not json'), $as(200, ['ok' => true, 'open' => 'yes']), $as(200, ['ok' => true, 'closed_by' => 'inbox'])]);
+
+    // the look: one GET /api/health, nothing of this server, kept in RAM (0600)
+    $answer(503, $health(false, 'inbox', ['inbox_archived']));
+    $look = reportInboxLook(REPORT_INBOX_FRESH, ['now' => $t0] + $ctx);
+    $q = $req(1);
+    same('report inbox: archived — one GET /api/health, no body', [['state' => 'inbox', 'checked' => $t0], 1, 'GET', '/api/health', ''],
+        [$look, $count(), $q['method'] ?? null, $q['uri'] ?? null, $q['body'] ?? null]);
+    same('report inbox: … only the office\'s User-Agent and Accept: no report ID, no X-Office', ['UnraidSecretaryOffice/' . AGENT_VERSION, 'application/json', false],
+        [$q['headers']['user-agent'] ?? null, $q['headers']['accept'] ?? null, isset($q['headers']['x-office'])]);
+    check('report inbox: … nothing of the GUID or the report ID in the request', !stripos(json_encode($q), $guid) && !str_contains(json_encode($q), hash('sha256', 'uso-report:' . $guid)));
+    same('report inbox: … kept in RAM: its shape, 0600', [['v', 'state', 'checked'], 'inbox', '600'],
+        [array_keys(json_decode((string) @file_get_contents("$tmp/inbox.json"), true) ?? []), reportInboxRead($ctx)['state'] ?? null, decoct(@fileperms("$tmp/inbox.json") & 0777)]);
+    // the dialog: at most every 10 minutes
+    $answer(200, $health(true));
+    same('report inbox: the dialog within 10 minutes — the last look, nobody asked', ['inbox', 1], [reportInboxLook(REPORT_INBOX_FRESH, ['now' => $t0 + 599] + $ctx)['state'] ?? null, $count()]);
+    same('report inbox: … after them — asked anew: open again', ['open', 2], [reportInboxLook(REPORT_INBOX_FRESH, ['now' => $t0 + 601] + $ctx)['state'] ?? null, $count()]);
+    reportInboxLook(REPORT_INBOX_FRESH, ['now' => $t0 - 1000] + $ctx);
+    same('report inbox: … a look from the future (a clock set back) is asked anew', 3, $count());
+
+    // no answer (no network): unknown
+    proc_terminate($server);
+    proc_close($server);
+    @unlink("$tmp/inbox.json");
+    same('report inbox: no answer at all — unknown, kept (asked again after 10 minutes)', ['unknown', 'unknown'],
+        [reportInboxLook(REPORT_INBOX_FRESH, ['now' => $t0] + $ctx)['state'] ?? null, reportInboxRead($ctx)['state'] ?? null]);
+
+    // no inbox at all: nothing asked, nothing kept
+    @unlink("$tmp/inbox.json");
+    same('report inbox: no inbox (FEEDBACK_URL empty) — null, nothing kept', [null, false], [reportInboxLook(REPORT_INBOX_FRESH, ['now' => $t0, 'url' => ''] + $ctx), is_file("$tmp/inbox.json")]);
+    // a file of another shape, a link: never looked at
+    file_put_contents("$tmp/inbox.json", json_encode(['v' => 1, 'state' => 'constructor', 'checked' => $t0]));
+    same('report inbox: a kept look of another shape — none', null, reportInboxRead($ctx));
+    @unlink("$tmp/inbox.json");
+    file_put_contents("$tmp/other.json", json_encode(['v' => 1, 'state' => 'inbox', 'checked' => $t0]));
+    symlink("$tmp/other.json", "$tmp/inbox.json");
+    same('report inbox: … a link — none', null, reportInboxRead($ctx));
+
+    // the dialog's action, the web side hands it over
+    check('report inbox: the agent answers office.report_inbox', isset(officeAgentActions()['report_inbox']));
+    $api = (string) file_get_contents(OFFICE_DIR . '/src/api.php');
+    check('report inbox: … api.php hands it to the agent', str_contains($api, "'office.reports', 'office.report_inbox', 'office.supporter_claim'];"));
+
+    $ct = (string) file_get_contents(OFFICE_DIR . '/agent/desks/caretaker.php');
+    check('report inbox: only the makers need to know — no finding, no look of the Team Lead\'s (the owner, 2026-10-21)', !str_contains($ct, 'reportInbox'));
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/lib/report.php');
+    check('report inbox: https only (http only by FEEDBACK_URL), 5 s, no report ID', REPORT_INBOX_TIMEOUT === 5
+        && preg_match('/function reportInboxAsk\(.*?\n\}/s', $src, $m) && str_contains($m[0], "str_starts_with(\$base, 'http://') ? '=http' : '=https'")
+        && !str_contains($m[0], 'reportId(') && !str_contains($m[0], 'X-Office'));
+    hardeningRm($tmp);
+}
+
+/**
  * «Report a problem or a wish…» on the page (core.js Office.reportDialog()) under node, on a stand-in page: it opens
  * with the desk shown, asks only for «Your reports», «Send» stays off until the preview was looked at; the preview
  * request carries the words, the languages and the desk's last error; a word changed takes the preview (and «Send")
@@ -36850,7 +36961,8 @@ const button = (label) => one((n) => n.tag === 'button' && n.textContent === lab
 (async () => {
   await sleep(30);
   O.strings = { 'office.report_sent': 'Sent. Thank you!', 'office.report_hidden': 'Hidden: {list}', 'errors.report_day': { one: '{n} in 24 hours; next from {when}.', other: '{n} in 24 hours; next from {when}.' },
-    'office.report_status.received': 'Received', 'office.report_status.seen': 'Looked at', 'office.report_status.done': 'Done', 'office.report_public': 'Issue #{number}' };
+    'office.report_status.received': 'Received', 'office.report_status.seen': 'Looked at', 'office.report_status.done': 'Done', 'office.report_public': 'Issue #{number}',
+    'errors.report_inbox': 'The makers\' inbox isn\'t taking anything right now.' };
   O.agent = { running: true };
   O.desk({ id: 'snapshot' });
   O.desk({ id: 'caretaker' });
@@ -36929,6 +37041,28 @@ const button = (label) => one((n) => n.tag === 'button' && n.textContent === lab
   await sleep(10);
   out.reopened = walk(body(), (n) => n.tag === 'input' && n.className === 'input')[0].value;
   dlg3.close();
+  // the makers' inbox takes nothing (2026-10-21: archived): said on opening, before anyone writes — «Send» not barred by it
+  const capOf = () => one((n) => typeof n.className === 'string' && n.className.startsWith('sso-report-cap'));
+  out.inbox = {};
+  for (const st of ['inbox', 'github', 'closed', 'open', 'constructor']) {
+    answers['office.report_inbox'] = { ok: true, inbox: st };
+    posts.length = 0;
+    const d = O.reportDialog();
+    await sleep(20);
+    const c = capOf();
+    out.inbox[st] = { asked: posts.map((p) => p.a).sort(), text: c.hidden ? null : c.textContent, warn: c.className.includes('callout warn') };
+    d.close();
+  }
+  // a send the inbox refused: its own sentence, and the note from then on; «Send» stays for a later try
+  answers['office.report_inbox'] = { ok: true, inbox: 'open' };
+  answers['office.report_send'] = { ok: false, error: { key: 'report_inbox', params: {} } };
+  const d4 = O.reportDialog();
+  await sleep(20);
+  await button('office.report_preview').onclick();
+  await d4.buttons[1].onclick();
+  await sleep(10);
+  out.inbox.refused = { msg: text(one((n) => n.className === 'callout warn' && !n.hidden) || {}), note: capOf().textContent, sendOff: d4.buttons[1].disabled };
+  d4.close();
   // written whole before the exit: to a pipe, process.exit() right after console.log() cuts the output at 64 KiB
   process.stdout.write(JSON.stringify(out) + '\n', () => process.exit(0));
 })().catch((e) => { process.stdout.write(JSON.stringify({ error: String(e && e.stack || e) }) + '\n', () => process.exit(1)); });
@@ -36941,7 +37075,7 @@ JS);
         return;
     }
     $o = $r['opened'];
-    same('report dialog: opens wide with the desk shown, asks only for «Your reports», «Send» off', ['office.report_title', 'snapshot', ['office', 'caretaker', 'snapshot'], true, ['office.reports'], true],
+    same('report dialog: opens wide with the desk shown, asks only for «Your reports» and whether the inbox takes them, «Send» off', ['office.report_title', 'snapshot', ['office', 'caretaker', 'snapshot'], true, ['office.report_inbox', 'office.reports'], true],
         [$o['title'], $o['desk'], $o['deskOptions'], $o['sendOff'], $o['asked'], str_contains($o['wide'], 'wide') && str_contains($o['wide'], 'sso-report-dialog')]);
     same('report dialog: … the GitHub issues for account holders (no forum yet), «Your reports» without the private inbox\'s numbers', [['https://github.com/dropnook/UnraidSecretaryOffice/issues'], true], [$o['issues'], $o['yours']]);
     $pub14 = 'https://github.com/dropnook/UnraidSecretaryOffice/issues/14';
@@ -36972,6 +37106,15 @@ JS);
     check('report dialog: report_day says its time, «Send» stays off; no desk given and no draft: the office as a whole', str_starts_with($r['week']['msg'], '25 in 24 hours; next from ') && !str_contains($r['week']['msg'], '{when}')
         && $r['week']['sendOff'] === true && $r['week']['desk'] === 'office', json_encode($r['week']));
     same('report dialog: closed without sending — the draft stays and comes back', ['Another', 'Another'], [$r['keptDraft'], $r['reopened']]);
+    $in = $r['inbox'] ?? [];
+    $asked = ['office.report_inbox', 'office.reports'];
+    same('report dialog: the inbox takes nothing (archived …) — said on opening, before anyone writes, a quiet line', ['asked' => $asked, 'text' => 'office.report_inbox_note', 'warn' => false], $in['inbox'] ?? null);
+    same('report dialog: … closed (by hand, the burst rule, GitHub\'s limit) — «closed for now»', [['asked' => $asked, 'text' => 'office.report_closed_note', 'warn' => true], ['asked' => $asked, 'text' => 'office.report_closed_note', 'warn' => true]],
+        [$in['github'] ?? null, $in['closed'] ?? null]);
+    same('report dialog: … open, or a word it doesn\'t know — only the day\'s reports left', [['asked' => $asked, 'text' => 'office.report_left', 'warn' => false], ['asked' => $asked, 'text' => 'office.report_left', 'warn' => false]],
+        [$in['open'] ?? null, $in['constructor'] ?? null]);
+    same('report dialog: a send the inbox refused — its own sentence (not «had a problem»), the note from then on, «Send» stays for later', ["The makers' inbox isn't taking anything right now.", 'office.report_inbox_note', false],
+        [$in['refused']['msg'] ?? null, $in['refused']['note'] ?? null, $in['refused']['sendOff'] ?? null]);
     $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
     check('report dialog: the ⋯ menu\'s item, only with an inbox, about the desk shown',
         str_contains($core, "if (CONFIG.report) items.push({ text: t('office.report_menu'), act: () => Office.reportDialog(Office.current ? Office.current.id : 'office') });"));
@@ -49383,7 +49526,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
-          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testHouseDockerSilent', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
+          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testHouseDockerSilent', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.
