@@ -277,7 +277,9 @@ else
     if [[ -z "$last_tag" ]]; then
         rc=2; echo "no v* tag before HEAD" > "$sc_out"
     else
-        bash tools/scenarios/prerelease.sh "${sc_args[@]}" < /dev/null 2>&1 | tee "$sc_out" | sed 's/^/   | /'
+        # line by line as it comes (sed into a pipe would hold half an hour of lines back)
+        bash tools/scenarios/prerelease.sh "${sc_args[@]}" < /dev/null 2>&1 | tee "$sc_out" \
+            | while IFS= read -r line; do echo "   | $line"; done
         rc=${PIPESTATUS[0]}
     fi
     took=$(( $(date +%s) - started ))
