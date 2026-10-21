@@ -103,6 +103,9 @@ function main(array $argv): int
             if (($argv[2] ?? '') === 'snapshot-plans' && is_dir(DATA_DIR)) {
                 return snapPlansRunDue();
             }
+            if (($argv[2] ?? '') === 'report-diag-scrub') {
+                return reportDiagScrubJob((string) ($argv[3] ?? ''));     // a report's diagnostics, right after Unraid's tool
+            }
             foreach (desks() as $desk) {
                 if (isset($desk['jobs'][$argv[2] ?? ''])) {
                     return is_dir(DATA_DIR) ? (int) $desk['jobs'][$argv[2]](array_slice($argv, 3)) : 0;
