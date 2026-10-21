@@ -607,3 +607,75 @@ partner files of USOPartner exactly as before.
 
 The batch: `scenarios/2026-10-20/tower-scenarios-batch-g` (run 4: ended, anew, R19, 6 h — 26 min with the page checks) and
 `…/tower-scenarios-batch-g-1444` (run 3: all pre-release cells, 34 min with the page checks).
+
+## Batch H — the parked resilience findings (USOTest3VM)
+
+The nine findings of waves 1/1b that were parked instead of tested (parking lot «Resilienz-Funde»), each as a scenario
+on **USOTest3VM** (7.4.0-rc.1, btrfs cache + ZFS pool «fast», Docker, Kopia, MinIO, no VM service; office 1.69.2 /
+engine 2.66 from main, `run.sh test3`). Files `*-h-*.sh`; helpers only in `states-h.sh` (h_cell, h_mv_set_up — her setup
+on a base that keeps her not set up —, h_jack_hire_standin, h_put_future, h_agent_stop/start, h_share_drop,
+h_snaps_drop, h_ds_destroy, h_fresh_beat). Red = a product finding, committed red (playbook §6); no product code here.
+
+**Jack Streamer on USOTest3VM:** its Emby has no admin and no API key for him (none was made — no account is created on
+a test VM by a scenario). `h_jack_hire_standin` sets him up as his page saves him with the scenarios' stand-in key:
+Emby answers his runs 401 — exactly an Emby that can't be asked. H1 needs that (his part can't plan, «keeps the list as
+it was»); H2 judges only the list. A cell that needs Emby's real plan stays Tower's.
+
+| # | Finding | Scenario | Verdict (2026-10-21, test3) | Time |
+|---|---|---|---|---|
+| 1 | Jack Streamer's list missing → written empty → films given back | `moverelli-jk-list-empty-h-run` | **red** list-not-emptied, films-stay (twice) | 41 s |
+| 2 | MediaCache's dry run never writes his list | `jack-jk-hired-list-h-dry` | green (by design: the dry run never writes it) | 22 s |
+| 3 | ZFS share with @uso-backup-* can't be deleted in Unraid | `backup-sh-zfs-snapshots-h-delete` | **red** says-snapshots | 2 min |
+| 4 | Full ZFS pool: he stops and starts its apps anyway | `backup-dk-app-pool-full-h-run` | **red** warns-before-stop | 2 min |
+| 5 | Kopia Object Lock: extending the locks off by default | `backup-kp-object-lock-default-h-look` | green (the Team Lead's kopia_lock_extend opens; said, not set) | 40 s |
+| 6 | Kopia re-made → its anonymous image volumes gone | `backup-kp-volumes-recreated-h-replan` | **red** said-before, said-after | 71 s |
+| 7 | Clock ahead and back: files with times in the future | `moverelli-tm-future-mtime-h-run`, `backup-tm-future-mtime-h-run` | **red** said only (both: nothing moved wrongly, nothing failed) | 61 s, 109 s |
+| 8 | VM overlay `vdisk1.<name>qcow2`, libvirt's snapshot list dropped | `restore-vm-overlay-nolist-h-vm` | skipped: `needs tower vm` (USOTest3VM has no VM service) — written, never run | — |
+| 9 | Unraid's move binary drops trailing whitespace (our fix) | `moverelli-sh-trailing-space-h-run` | **red** yes-said, INV-PAGE (core.js fmt.size below 1 B/s); the fix holds (prefer: moved exactly, yes: stays whole) | 37 s |
+
+Findings (red stays red until fixed), ranked by risk:
+- **H1 (data placement, high)** after a real run of his, his list gone (a restore of appdata, a hand), his next look writes
+  it anew EMPTY — agent/desks/jack.php jackListEnsure() (:183) writes '' whenever the file is missing, «empty until his
+  first real run», even after his runs. In the joint run his part can't plan (Emby 401) and «keeps the list as it was»
+  (mediacache_run.py: «Planung unvollständig … bisherige Exclude-Liste bleibt geschützt» → «Exclude-Liste: 0 Einträge»),
+  then her part (age rule 30 d) moves all 3 of his films to disk1 — night.json steps jack free ok, her free ok, jack fill
+  ok; her status media moved 3. A missing list after a real run must never become «nothing to keep» (rebuild it from
+  what of his lies on the pool, or refuse his share until his next real run writes it). Batch F's M19 «list gone» was
+  green only because it reads the list after the run (an empty list → its loop vacuous).
+- **H4 (app data, medium)** the pool holding an app's data at 199 MiB free (refreservation): the run stops and starts the
+  app anyway — `uso-wip-h-dkapp` started again 09:53:09, the run «warnings» (only the backup place not offsite and
+  immich's compose files), no word about the pool's room. B13's min_free_gb guards only the backup place. Docker's own
+  folder on a full pool (Tower's case: broken layers after a pull) not covered — USOTest3VM keeps docker.img on cache
+  with the place (that is B13).
+- **H6 (offsite repository, medium)** Kopia's image VOLUMEs (/backups — where a local filesystem repository goes —,
+  /source) unbound in the template: anonymous volumes, a new empty one at every re-make (the file in /backups gone from
+  the container, the old volume dangling). Nothing says it before or after: the engine's docker_volumes warning skips
+  Kopia on purpose (backup/setup.sh ~1495 `"$n" != "$KOPIA_CONTAINER"`), the Consultant's look names nothing.
+- **H3 (space, medium)** Unraid's «Delete» of an emptied ZFS share with one @uso-backup-* snapshot: the cfg goes, the
+  dataset stays mounted and listed in shares.ini. «Look at the server again», his look, Ms. Snapshotini's and the Team
+  Lead's say nothing (only her list carries the dataset and snapshot as entries); the next run makes a second snapshot of
+  the half-deleted share (1 → 2) and ends «warnings» as usual. Expected: a hint naming the share's snapshots and the way.
+- **H9 (said, low)** the trailing-space fix holds: prefer share (array → pool) all 7 names moved exactly, «twin» and
+  «twin » two files, nothing left on disk1; yes share (pool → array) the 4 plain names moved, the 3 ending in whitespace
+  stay whole on the pool as smartmover/README.md says («stays (WARN … rename it)»). But her status for the share carries
+  `left: 3, left_why: ""` — the reason never reaches her page (cell yes-said). First run's yes cells expected
+  «everything moves» — against the README's design, reshaped (scenario bug). Seen beside it (INV-PAGE, Mac-side, the
+  look during her run): her run card read «14 % · Ø 65 undefined/s» — public/assets/core.js:172 `Office.fmt.size()` takes
+  the unit index from log1024(bytes) without a floor, so a rate below 1 B/s (274 bytes of tiny files over a slow start:
+  ~0.06 B/s) gives index −1: «undefined» as the unit, the value ×1024.
+- **H7 (said, low)** files born 30 days ahead: her age rule leaves them (never «very old»), the 40-day control moves, her
+  run ok — her status counts them nowhere (`left: 0`): they stay unmoved for 30 days + the rule without a word. His run
+  backs them up (snapshot, Kopia has all 4) without a word either. Neither side says «times in the future».
+Green: **H2** — the dry run leaves his list byte for byte, and with it gone writes none (his look's empty one is H1's);
+the brief's question «is that right?» — yes, by design (mediacache_run.py writes the list only in run mode). **H5** —
+the real repository (GOVERNANCE 7 d, `--extend-object-locks=false`): the engine's look sees `extend: false`, the Team
+Lead's kopia_lock_extend opens alone with the console command; the office never switches it on itself (only the
+Consultant's confirmed install does).
+
+Notes for whoever runs them: every `pgrep -f` inside a `bash -c` must not match its own command line (`[p]hp …`,
+`[m]ediacache_run[.]py`) — the first runs hung (H2: 10 min) and left the agent stopped (H7: h_agent_stop saw itself).
+H7's future files are written with the agent stopped (agent.sh stop/start): batch F's BF5 (a clock stepped back freezes
+the agent) is not this finding. H3's user «Delete» is part of the state (before snap_before): otherwise INV-LEFTOVER and
+INV-UNRAID-SAME report the user's own act. H8 needs Tower's uso-vm-plain and Unraid's VM manager (VM-MANY-SNAPSHOTS);
+it is written against states-vm.sh but has never run — run it on Tower before trusting its cells. Reports:
+`scenarios/2026-10-21/test3-scenarios-batch-h*` (`-0947`: all; `-1010`: H1, H9, H7 again; the last folder: H3 with its undo fixed — red only says-snapshots, undo green).
