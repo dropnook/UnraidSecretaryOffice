@@ -2634,7 +2634,7 @@ Office.reportDialog = function reportDialog(deskId) {
     } else if (c) {
       capLine.textContent = t('office.report_left', { n: c.left, cap: c.cap });
     }
-    capLine.className = 'sso-report-cap' + (state.closed || inboxDown || inboxClosed || (c && c.left <= 0) ? ' callout warn' : '');
+    capLine.className = 'sso-report-cap' + (state.closed || inboxClosed || (c && c.left <= 0) ? ' callout warn' : '');     // the makers' inbox: a quiet line
     capLine.hidden = !c && !state.closed && !inboxDown && !inboxClosed;
   }
   function paintYours(list) {

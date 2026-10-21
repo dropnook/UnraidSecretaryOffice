@@ -134,12 +134,6 @@ function caretakerScan(bool $checkUpdate = false): array
     return $state;
 }
 
-/** The makers' inbox takes nothing (archived, closed by GitHub's limit …): a hint while it lasts — never a must, nothing to do */
-function caretakerInboxFinding(?array $look): ?array
-{
-    return in_array($look['state'] ?? null, ['inbox', 'github'], true) ? finding('report_inbox', 'hint', false) : null;
-}
-
 /**
  * Every ~150 ms — so nearly always just a comparison. Once a minute it looks
  * whether a tour is due: when nobody had the page open for 30 minutes (the
@@ -166,9 +160,6 @@ function caretakerTick(): void
     $GLOBALS['ctNextLook'] = $now + 60;
     caretakerWatchCron($now);
     caretakerPartnerTick($now);
-    if ($now - (int) ($GLOBALS['started'] ?? 0) >= CARETAKER_TOUR_AFTER) {
-        reportInboxTick($now);                  // does the makers' inbox take reports? (lib/report.php: a read in RAM, a GET once a day)
-    }
     if ($now - (int) ($GLOBALS['started'] ?? 0) >= CARETAKER_TOUR_AFTER && $now - (int) ($GLOBALS['ctLastScan'] ?? 0) >= CARETAKER_TOUR_EVERY) {
         $GLOBALS['ctLastScan'] = $now;          // a tour that fails isn't tried again every minute
         caretakerScan();
@@ -631,10 +622,6 @@ function caretakerChecks(): array
     $subject = trim((string) ($cfg['ssmtp']['Subject'] ?? ''));
     if ($mail && $subject !== '' && stripos($subject, hostname()) === false) {
         $out[] = finding('mail_subject', 'hint', false, ['subject' => $subject, 'host' => hostname()], 'notifications');
-    }
-    // the makers' inbox (lib/report.php, his daily look in RAM): «Report a problem…» can't reach them now — their side, a hint
-    if ($inbox = caretakerInboxFinding(reportInboxRead())) {
-        $out[] = $inbox;
     }
     // Unraid's own API service: its notification bell (the office's reports show there too) and parts of its web UI need it
     if ($api = caretakerApiFinding(caretakerApiUp())) {

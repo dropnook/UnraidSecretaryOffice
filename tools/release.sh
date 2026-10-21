@@ -1,7 +1,7 @@
 #!/bin/bash
 # Unraid Secretary Office - the mechanical part of a release (for the coordinator, on the Mac).
 #
-#   tools/release.sh <x.y.z> [--dry] [--no-main] [--servers-only] [--no-scenarios]
+#   tools/release.sh <x.y.z> [--dry] [--no-main] [--servers-only] [--no-scenarios] [--no-inbox-check]
 #
 # Run it from the clone on the Mac. What must be done and checked BEFORE it (suite, browser smoke, update test from
 # the previous version) and the rules around it (order of the servers, the quiet day after a release) are in the
@@ -16,7 +16,9 @@
 #
 # Its steps:
 #
-#    1 tools      git, gh (logged in), rsync, ssh, curl there; the version looks like x.y.z
+#    1 tools      git, gh (logged in), rsync, ssh, curl there; the version looks like x.y.z; the makers' feedback inbox
+#                 takes reports (tools/inbox-health.sh: the Worker's /api/health open, no problems - else red; no answer:
+#                 a note, no stop)
 #    2 clone      on main, nothing uncommitted, main == origin/main; the tag v<x.y.z> not taken yet
 #    3 notes      <notes_dir>/release-<x.y.z>-notes.md exists and isn't empty
 #    4 bump       OFFICE_VERSION (src/bootstrap.php) == AGENT_VERSION (agent/agent.php), both older than x.y.z;
@@ -61,6 +63,7 @@
 #                   run: every red step is listed at the end (exit 1 if any).
 #   --no-main       stop before the main server - it later, when no run is active: `tools/release.sh <x.y.z> --servers-only`
 #   --servers-only  the release is out already: only steps 1, 10, 11, 12 (resume after a red server step)
+#   --no-inbox-check  step 1's look at the feedback inbox skipped - said loudly there: say why in the day's notes
 #   --no-scenarios  step 6b skipped - said loudly there and in the last lines (Tower down, a known red the release fixes
 #                   elsewhere): say why in the day's notes
 #
@@ -77,11 +80,12 @@ canary_watch=300   # s: the canary's agent log without error/fatal before the ne
 
 usage() { sed -n '4p' "${BASH_SOURCE[0]}" | sed 's/^# *//' >&2; exit 2; }
 
-ver='' dry=0 no_main=0 servers_only=0 no_scenarios=0
+ver='' dry=0 no_main=0 servers_only=0 no_scenarios=0 no_inbox_check=0
 for a in "$@"; do
     case $a in
         --dry) dry=1 ;;
         --no-scenarios) no_scenarios=1 ;;
+        --no-inbox-check) no_inbox_check=1 ;;
         --no-main) no_main=1 ;;
         --servers-only) servers_only=1 ;;
         -h|--help) usage ;;
@@ -171,6 +175,18 @@ elif ! gh auth status >/dev/null 2>&1; then red "gh is not logged in (gh auth st
 else ok "git gh rsync ssh curl; gh logged in; version $ver"; fi
 github=$(plg_entity github < "plugin/$name.plg")
 [[ -n "$github" ]] || red "no ENTITY github in plugin/$name.plg"
+# the makers' feedback inbox (2026-10-21: archived, every report failed, nobody knew) - only we need to know
+if (( no_inbox_check )); then
+    echo "   !!! NOT CHECKED: the feedback inbox (--no-inbox-check) - say why in the day's notes"
+else
+    inbox=$(bash tools/inbox-health.sh); inbox_rc=$?
+    if (( inbox_rc == 0 )); then ok "feedback inbox $inbox"
+    elif (( inbox_rc == 3 )); then echo "   NOTE: the feedback inbox didn't answer - $inbox (not stopped; look at it after the release)"
+    else
+        echo "   !!! THE FEEDBACK INBOX TAKES NO REPORTS !!!"
+        red "the feedback inbox: $inbox - fix it first (uso-support feedback/SETUP.md), or --no-inbox-check"
+    fi
+fi
 
 cur_office=$(const_of OFFICE_VERSION src/bootstrap.php)
 cur_agent=$(const_of AGENT_VERSION agent/agent.php)

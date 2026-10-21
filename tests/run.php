@@ -36358,9 +36358,8 @@ ROUTER);
 /**
  * Does the makers' inbox take reports? (agent/lib/report.php reportInboxLook(), 2026-10-21: the inbox was archived,
  * every report «failed», the Worker's health said ok, nobody knew.) One GET <inbox>/api/health — nothing of this server
- * but the User-Agent — kept in RAM; the dialog asks at most every 10 minutes, the Team Lead once a day (hourly while it
- * takes nothing); the Worker's answer in the office's words (an older Worker's too); no inbox: nothing asked; the Team
- * Lead's hint only while it takes nothing — never a must.
+ * but the User-Agent — kept in RAM; the dialog asks at most every 10 minutes; the Worker's answer in the office's words
+ * (an older Worker's too); no inbox: nothing asked. Only the makers need to know: no Team Lead finding.
  */
 function testReportInbox(): void
 {
@@ -36432,26 +36431,12 @@ ROUTER);
     reportInboxLook(REPORT_INBOX_FRESH, ['now' => $t0 - 1000] + $ctx);
     same('report inbox: … a look from the future (a clock set back) is asked anew', 3, $count());
 
-    // the Team Lead: once a day while open, once an hour while it takes nothing
-    $base = $t0 + 10000;
-    file_put_contents("$tmp/inbox.json", json_encode(['v' => 1, 'state' => 'open', 'checked' => $base]));
-    $before = $count();
-    reportInboxTick($base + 86399, $ctx);
-    same('report inbox: Team Lead — open: not asked within the day', $before, $count());
-    $answer(503, $health(false, 'inbox', ['inbox_archived']));
-    reportInboxTick($base + 86401, $ctx);
-    same('report inbox: … after it: asked, archived', [$before + 1, 'inbox'], [$count(), reportInboxRead($ctx)['state'] ?? null]);
-    reportInboxTick($base + 86401 + 3599, $ctx);
-    same('report inbox: … while it takes nothing: not within the hour', $before + 1, $count());
-    $answer(200, $health(true));
-    reportInboxTick($base + 86401 + 3601, $ctx);
-    same('report inbox: … after the hour: asked again — open', [$before + 2, 'open'], [$count(), reportInboxRead($ctx)['state'] ?? null]);
-    // no answer (no network): unknown, asked again only the next day
+    // no answer (no network): unknown
     proc_terminate($server);
     proc_close($server);
     @unlink("$tmp/inbox.json");
-    same('report inbox: no answer at all — unknown, kept (asked again the next day)', ['unknown', 'unknown'],
-        [reportInboxLook(REPORT_INBOX_EVERY, ['now' => $t0] + $ctx)['state'] ?? null, reportInboxRead($ctx)['state'] ?? null]);
+    same('report inbox: no answer at all — unknown, kept (asked again after 10 minutes)', ['unknown', 'unknown'],
+        [reportInboxLook(REPORT_INBOX_FRESH, ['now' => $t0] + $ctx)['state'] ?? null, reportInboxRead($ctx)['state'] ?? null]);
 
     // no inbox at all: nothing asked, nothing kept
     @unlink("$tmp/inbox.json");
@@ -36469,14 +36454,8 @@ ROUTER);
     $api = (string) file_get_contents(OFFICE_DIR . '/src/api.php');
     check('report inbox: … api.php hands it to the agent', str_contains($api, "'office.reports', 'office.report_inbox', 'office.supporter_claim'];"));
 
-    // the Team Lead's hint: only while it takes nothing — never a must, never «required»
-    $f = caretakerInboxFinding(['state' => 'inbox', 'checked' => $t0]);
-    same('report inbox: Team Lead — a hint while the inbox takes nothing', ['report_inbox', 'hint', false], [$f['id'] ?? null, $f['level'] ?? null, $f['ok'] ?? 'x']);
-    same('report inbox: … also while GitHub\'s limit closed it', 'hint', caretakerInboxFinding(['state' => 'github', 'checked' => $t0])['level'] ?? null);
-    same('report inbox: … none while open, closed by hand, unknown, never looked', [null, null, null, null],
-        [caretakerInboxFinding(['state' => 'open', 'checked' => $t0]), caretakerInboxFinding(['state' => 'closed', 'checked' => $t0]), caretakerInboxFinding(['state' => 'unknown', 'checked' => $t0]), caretakerInboxFinding(null)]);
     $ct = (string) file_get_contents(OFFICE_DIR . '/agent/desks/caretaker.php');
-    check('report inbox: … his checks read the RAM look only; his minute look asks', str_contains($ct, 'caretakerInboxFinding(reportInboxRead())') && str_contains($ct, 'reportInboxTick($now);'));
+    check('report inbox: only the makers need to know — no finding, no look of the Team Lead\'s (the owner, 2026-10-21)', !str_contains($ct, 'reportInbox'));
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/lib/report.php');
     check('report inbox: https only (http only by FEEDBACK_URL), 5 s, no report ID', REPORT_INBOX_TIMEOUT === 5
         && preg_match('/function reportInboxAsk\(.*?\n\}/s', $src, $m) && str_contains($m[0], "str_starts_with(\$base, 'http://') ? '=http' : '=https'")
@@ -36701,7 +36680,7 @@ JS);
     same('report dialog: closed without sending — the draft stays and comes back', ['Another', 'Another'], [$r['keptDraft'], $r['reopened']]);
     $in = $r['inbox'] ?? [];
     $asked = ['office.report_inbox', 'office.reports'];
-    same('report dialog: the inbox takes nothing (archived …) — said on opening, before anyone writes, as a warning', ['asked' => $asked, 'text' => 'office.report_inbox_note', 'warn' => true], $in['inbox'] ?? null);
+    same('report dialog: the inbox takes nothing (archived …) — said on opening, before anyone writes, a quiet line', ['asked' => $asked, 'text' => 'office.report_inbox_note', 'warn' => false], $in['inbox'] ?? null);
     same('report dialog: … closed (by hand, the burst rule, GitHub\'s limit) — «closed for now»', [['asked' => $asked, 'text' => 'office.report_closed_note', 'warn' => true], ['asked' => $asked, 'text' => 'office.report_closed_note', 'warn' => true]],
         [$in['github'] ?? null, $in['closed'] ?? null]);
     same('report dialog: … open, or a word it doesn\'t know — only the day\'s reports left', [['asked' => $asked, 'text' => 'office.report_left', 'warn' => false], ['asked' => $asked, 'text' => 'office.report_left', 'warn' => false]],

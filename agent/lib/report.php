@@ -26,9 +26,9 @@ declare(strict_types=1);
  *   office.report_inbox {}
  *       → whether the makers' inbox takes reports right now (open | inbox | closed | unknown, null: no inbox set), so the
  *         dialog says it before anyone writes. For that ONE GET <inbox>/api/health (reportInboxLook()) when the last look
- *         is older than REPORT_INBOX_FRESH — nothing of this server goes along but the office's User-Agent. The Team Lead
- *         looks the same way once a day (hourly while it takes nothing; reportInboxTick()) and gives a hint
- *         (check.report_inbox) while it can't. 2026-10-21: the inbox was archived, every report «failed», and nobody knew.
+ *         is older than REPORT_INBOX_FRESH — nothing of this server goes along but the office's User-Agent. Nothing else
+ *         asks it: only the makers need to know (the owner, 2026-10-21 — the Worker's own daily alarm, the release's and
+ *         the nightly run's look). 2026-10-21: the inbox was archived, every report «failed», and nobody knew.
  * Nothing user-written leaves the server without the user's click on «Send». What goes is shown before, in full.
  *
  * The caps: REPORT_CAP_DAY reports in 24 hours per office (2026-10-09; up to 1.47 it was 2 in 7 days), checked
@@ -97,8 +97,6 @@ const REPORT_STATUS_EVERY   = 3600;        // … each at most once an hour …
 const REPORT_STATUS_TIMEOUT = 8;           // … in one GET of at most this many seconds
 const REPORT_STATUSES       = ['received', 'seen', 'done'];
 const REPORT_INBOX_FRESH    = 600;         // the makers' inbox: the dialog asks anew when the last look is older (the Worker's own look is as old) …
-const REPORT_INBOX_EVERY    = 86400;       // … the Team Lead once a day …
-const REPORT_INBOX_CLOSED   = 3600;        // … and once an hour while it takes nothing …
 const REPORT_INBOX_TIMEOUT  = 5;           // … in one GET /api/health of at most this many seconds
 const REPORT_INBOX_STATES   = ['open', 'inbox', 'github', 'closed', 'unknown'];
 // the Worker's /api/health problems that mean no report gets in (its ready()): the inbox takes nothing, as for inbox_*
@@ -1573,7 +1571,7 @@ function reportSend(array $r, array $ctx = []): array
     if (!$answer['ok']) {
         $giveBack();
         if ($answer['key'] === 'report_inbox') {
-            reportInboxKeep('inbox', $now, $ctx);      // the dialog and the Team Lead know at once
+            reportInboxKeep('inbox', $now, $ctx);      // the dialog knows at once
         }
         if ($answer['key'] === 'report_closed') {
             $j['closed_until'] = $now + REPORT_CLOSED_FOR;
@@ -1805,16 +1803,6 @@ function reportInboxLook(int $maxAge, array $ctx = []): ?array
     $state = reportInboxAsk($base);
     reportInboxKeep($state, $now, $ctx);
     return ['state' => $state, 'checked' => $now];
-}
-
-/**
- * The Team Lead's look (caretakerTick(), once a minute — nearly always a read in RAM): due once a day, once an hour
- * while the inbox takes nothing (so his hint goes soon after it opens again)
- */
-function reportInboxTick(int $now, array $ctx = []): void
-{
-    $kept = reportInboxRead($ctx);
-    reportInboxLook(in_array($kept['state'] ?? null, ['inbox', 'github'], true) ? REPORT_INBOX_CLOSED : REPORT_INBOX_EVERY, ['now' => $now] + $ctx);
 }
 
 /**
