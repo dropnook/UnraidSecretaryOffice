@@ -1520,7 +1520,7 @@ TXT
     for b in $(printf '%s\n' "${!lowapps[@]}" | LC_ALL=C sort); do
         pool_low "$b" || continue
         wrn_as pool_low_space "Pool '$b' has only $(human "$PL_FREE") free of $(human "$PL_SIZE") (below $(human "$PL_FLOOR")) - ${lowapps[$b]} keep their data there and are stopped for the snapshot: they may not start cleanly with so little room, and each snapshot keeps what they overwrite - make room on '$b'" \
-            pool "$b" free_h "$(human "$PL_FREE")" size_h "$(human "$PL_SIZE")" floor_h "$(human "$PL_FLOOR")" \
+            pool "$b" free_h "$(human_sp "$PL_FREE")" size_h "$(human_sp "$PL_SIZE")" floor_h "$(human_sp "$PL_FLOOR")" \
             apps "${lowapps[$b]}" n "$(tr ',' '\n' <<<"${lowapps[$b]}" | grep -c .)"
     done
 

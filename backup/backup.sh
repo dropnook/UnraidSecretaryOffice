@@ -3384,8 +3384,8 @@ pool_room_check() {
     for b in $(printf '%s\n' "${!apps[@]}" | LC_ALL=C sort); do
         pool_low "$b" || continue
         warn_code pool_low_space "Pool '$b' has only $(human "$PL_FREE") free of $(human "$PL_SIZE") (below $(human "$PL_FLOOR")) - ${apps[$b]} keep their data there and are stopped and started for the snapshot as set up, but may not start cleanly with so little room, and the new snapshot keeps what they overwrite afterwards: make room on '$b'" \
-            pool="$b" free="$PL_FREE" size="$PL_SIZE" floor="$PL_FLOOR" free_h="$(human "$PL_FREE")" size_h="$(human "$PL_SIZE")" \
-            floor_h="$(human "$PL_FLOOR")" apps="${apps[$b]}" n="$(tr ',' '\n' <<<"${apps[$b]}" | grep -c .)"
+            pool="$b" free="$PL_FREE" size="$PL_SIZE" floor="$PL_FLOOR" free_h="$(human_sp "$PL_FREE")" size_h="$(human_sp "$PL_SIZE")" \
+            floor_h="$(human_sp "$PL_FLOOR")" apps="${apps[$b]}" n="$(tr ',' '\n' <<<"${apps[$b]}" | grep -c .)"
     done
     return 0
 }
