@@ -17073,6 +17073,24 @@ function testWatchmanBootNoise(): void
     same('cron file: a new line is told; the file as before again — the entry closed by himself (back)', [['cron_file'], ['*/5 * * * * /tmp/.x/run'], 'back', false],
         [$added, $e[0]['p']['jobs'] ?? null, $e[0]['by'] ?? null, watchmanOpen($e[0] ?? [])]);
 
+    // «I know, thanks» reaches the flash at once (else a reboot within the hour starts the night on the old normal); a
+    // change alone waits for the hour
+    $fm = "$tmp/flashmirror/ack-mirror.json";
+    $cron2 = $cron . "15 3 * * 0 /usr/local/emhttp/plugins/user.scripts/startCustom.php /boot/config/plugins/user.scripts/scripts/Sicherung/script > /dev/null 2>&1\n";
+    $first = watchmanMirrorWrite($day, $ram, $fm, $d + 1250, $boot2);
+    touch($fm, $d + 1250);
+    file_put_contents($cronFile, $cron2);
+    touch($cronFile, $d + 1260);
+    $told = $round($d + 1270);
+    $held = watchmanMirrorWrite($day, $ram, $fm, $d + 1280, $boot2);
+    watchmanAck('*', $day, $d + 1290, false);
+    $acked = watchmanMirrorWrite($day, $ram, $fm, $d + 1300, $boot2);
+    same('flash mirror: a change within the hour waits; «I know, thanks» goes at once, the new line normal there', ['flash', ['cron_file'], 'ram', 'flash', 2],
+        [$first, $told, $held, $acked, count((array) (readJson($fm)['baseline']['sched']['files']['user.scripts/customSchedule.cron']['lines'] ?? []))]);
+    file_put_contents($cronFile, $cron);
+    touch($cronFile, $d + 1310);
+    $round($d + 1320);
+
     // the owner's server: the three entries the night shift's look during the boot left open (before this fix) close at the next look
     $old = watchmanLoad($day);
     $stale = [watchmanEntry('cron_file', 'cron_file:user.scripts/customSchedule.cron', $t + 200, ['file' => 'user.scripts/customSchedule.cron', 'plugin' => 'user.scripts',

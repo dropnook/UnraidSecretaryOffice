@@ -964,7 +964,8 @@ function watchmanMirrorOk(mixed $m): bool
 
 /**
  * After a round (and «I know, thanks», a switch on his page): the mirror for the night shift — in RAM always, on the
- * flash when it changed and its last write there is WATCH_MIRROR_EVERY old (else at a round after that). No
+ * flash when it changed and its last write there is WATCH_MIRROR_EVERY old (else at a round after that), or something
+ * was noted since («I know, thanks»: at once). No
  * baseline (not on watch): both go.
  *
  * @return string  what was written: ram, flash, none
@@ -993,7 +994,15 @@ function watchmanMirrorWrite(string $dir, string $ram = WATCH_MIRROR_RAM, ?strin
         return 'ram';
     }
     $mtime = @filemtime($flash);
-    if (is_array($old) && $mtime !== false && $now >= $mtime && $now - $mtime < WATCH_MIRROR_EVERY) {
+    // an «I know, thanks» since its last write (his page, the team lead) goes to the flash at once — else a reboot
+    // within the hour starts the night shift on the old normal, and it tells again what was just noted
+    $acked = 0;
+    foreach ((array) $d['book'] as $e) {
+        if (in_array($e['by'] ?? null, ['page', 'teamlead'], true)) {
+            $acked = max($acked, (int) ($e['noted'] ?? 0));
+        }
+    }
+    if (is_array($old) && $mtime !== false && $now >= $mtime && $now - $mtime < WATCH_MIRROR_EVERY && $acked < $mtime) {
         return 'ram';                       // changed, but the flash wears: at a round after the hour
     }
     writeAtomic($flash, jsonEncode($m + ['sum' => $sum]), 0600, 0, 0);
