@@ -409,6 +409,56 @@ function hostLaunch(string $job, array $args, array $env = [], ?string $output =
     }
 }
 
+const HOST_AT_SPOOL = '/var/spool/atjobs';      // atd's queue: a file a job, its name <queue><job number, 5 hex><due minute, 8 hex>
+const HOST_AT_LATE  = 120;                       // seconds a job of the office's may lie ahead before it counts as stranded
+
+/**
+ * The office's own jobs stranded in atd's queue (scenario full run 2026-10-21/22, the F12/BF5 family): `at now` takes the
+ * wall clock's minute when the job is queued — queued while the clock was set ahead (by hand, a scenario, a bad NTP), the
+ * job waits in atd's queue for that moment once the clock is put back: a partner's look, the Team Lead's ping, the Kopia
+ * watch for hours or days. The office only ever queues «now» (hostLaunch(), agent.sh), so a job of its own (the mark) due
+ * more than HOST_AT_LATE ahead is one of those: queued anew for now (its own script, as hostLaunch() wrote it — what at
+ * put around it stays out), then the old one taken out of the queue; another's job (Unraid's, a plugin's, a user's) and a
+ * running one (`=`) are never touched. Looked at by the agent every few seconds: one scandir, a file read only for a job
+ * that lies ahead. The job numbers queued anew; $spool, $now and $bins ([at, atrm]) the tests' stand-ins.
+ *
+ * @return list<int>
+ */
+function hostAtRequeue(?string $spool = null, ?int $now = null, array $bins = ['at', 'atrm']): array
+{
+    $spool ??= HOST_AT_SPOOL;
+    $now ??= time();
+    $done = [];
+    foreach (@scandir($spool) ?: [] as $f) {
+        if (!preg_match('/^[a-z]([0-9a-f]{5})([0-9a-f]{8})$/D', $f, $m) || hexdec($m[2]) * 60 <= $now + HOST_AT_LATE
+            || !is_file("$spool/$f") || is_link("$spool/$f")) {
+            continue;
+        }
+        $text = (string) @file_get_contents("$spool/$f", false, null, 0, 65536);
+        $from = strpos($text, "#!/bin/sh\n" . HOST_LAUNCH_MARK . "\n");
+        if ($from === false || $from === 0) {
+            continue;               // not the office's (at's own header comes first in every job file)
+        }
+        $file = RUN_DIR . '/at-requeue.sh';
+        @mkdir(RUN_DIR, 0700, true);
+        // what follows the office's script (at's closing line) is never reached: the script ends in exec
+        if (@file_put_contents($file, substr($text, $from)) === false) {
+            continue;
+        }
+        [$exit] = run([$bins[0], '-M', '-f', $file, 'now'], 20);
+        @unlink($file);
+        if ($exit !== 0) {
+            continue;               // the old one stays: late is better than lost
+        }
+        $job = (int) hexdec($m[1]);
+        run([$bins[1], (string) $job], 20);
+        logLine('Office: job ' . $job . ' in atd\'s queue was due ' . date('Y-m-d H:i', (int) hexdec($m[2]) * 60)
+            . ' (queued while the clock was ahead) - queued anew for now');
+        $done[] = $job;
+    }
+    return $done;
+}
+
 /**
  * Runs a command that needs the network (curl, git, notify's mail and push) right away. The agent
  * runs on the host, so this is run() — kept as the one name for "this goes out to the network".
