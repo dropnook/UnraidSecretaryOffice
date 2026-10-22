@@ -39,6 +39,11 @@ INI
 chmod 600 "$INI"
 snap_before
 flow OF-UPDATE plg=tree
+# Mr. Backupsy's Apply list on the 1.60 fixture names the keys a 1.60 settings.ini never had (app|<name>|folder, |kopia —
+# proposed with their defaults): announced as a whole, as O1 does on the same fixture; her part of INV-REPLAN (the
+# re-save leaves her ini as it was) is this cell's (until 2026-10-22 the check found the engine's lock held and stayed
+# «pending»)
+expect_changes '*'
 evidence "$INI" smart_mover-after-update.ini >/dev/null
 left=$(grep -E '^(move_until_used_below|jack_slice_percent|jack_min_percent)=' "$INI" | paste -sd' ' -)
 [[ -z $left ]] && grep -qx 'move_when_used_above=80' "$INI" && grep -qx 'age_stat=newest' "$INI" && ls "$INI".before-* >/dev/null 2>&1 \
