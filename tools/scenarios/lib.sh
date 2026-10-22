@@ -1080,7 +1080,12 @@ check_inv_leftover() {
             [[ -n $x ]] && bad+=("new empty folders in $s: ${x//$'\n'/ }")
         done <"$KEEP/.shares"
     fi
-    x=$(pgrep -af "$P/backup/(backup|setup)\.sh|$P/agent/agent\.php job |[c]ustommover_run|/run/unraid-secretary-office/[a-z0-9_-]+\.sh" | head -3)
+    # the office's jobs: a job the agent started just now (the clock put forward again by an undo makes its due ones start
+    # at once — a watchman round, the Kopia count: B43 clock-back, 2026-10-22) ends by itself — 2 min for it, then judged
+    _office_procs() { pgrep -af "$P/backup/(backup|setup)\.sh|$P/agent/agent\.php job |[c]ustommover_run|/run/unraid-secretary-office/[a-z0-9_-]+\.sh" | head -3; }
+    _no_office_procs() { [[ -z $(_office_procs) ]]; }
+    _no_office_procs || WAIT_SOFT=1 wait_for 120 "the office's jobs to end" _no_office_procs >/dev/null 2>&1
+    x=$(_office_procs)
     [[ -n $x ]] && bad+=("processes: ${x//$'\n'/; }")
     # /tmp: the scenarios' own folders and the suite's (tests/run.php: uso-tmp-<name>-<pid>, a worker's copy uso-<task>) apart
     x=$(find /tmp -maxdepth 1 -name '*uso*' -newer "$KEEP/.start" -not -name 'uso-keep' -not -name 'uso-scenarios*' \
