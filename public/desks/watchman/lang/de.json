@@ -202,6 +202,7 @@
   "noted.office": "Von selbst zur Kenntnis genommen am {when}: Das hat das Sekretariat selbst installiert (der Berater) — nichts zu melden.",
   "noted.unraid": "Von selbst zur Kenntnis genommen am {when}: Unraids eigener Job nach einem Array-Start (reload_services) — nichts zu melden.",
   "noted.plugin": "Von selbst zur Kenntnis genommen am {when}: ein eigener Job eines installierten Plugins (er führt eine Datei des Plugins aus, als root) — nichts zu melden.",
+  "noted.back": "Von selbst zur Kenntnis genommen am {when}: der Zeitplan des Plugins ist wieder wie zuvor — dieselben Zeilen; halb geschrieben gesehen (ein Plugin schreibt seine Datei neu, wenn der Server startet) — nichts zu melden.",
   "group.login": "Anmeldung",
   "group.container": "Container",
   "group.plugin": "Plugin",
