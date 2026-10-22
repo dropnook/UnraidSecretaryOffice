@@ -36390,7 +36390,7 @@ function testAgentHired(): void
     @unlink($staff);
     $agent = (string) file_get_contents(OFFICE_DIR . '/agent/agent.php');
     check('hired: the dispatch asks before the handler', ($g = strpos($agent, "!agentDeskMayAct(\$deskId, \$action)")) !== false
-        && $g < strpos($agent, 'return $handler($request);'));
+        && $g < strpos($agent, '$handler($request)'));
 }
 
 /** For testRequestTypes(): a warning raised under `@` */
