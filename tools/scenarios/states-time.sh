@@ -89,6 +89,15 @@ clock_restore() {
     else
         say "clock_restore: the guard put the clock back already"
     fi
+    # the office's own at jobs handed to atd «now» under the clock set ahead wait for that moment once it is back
+    # (restore-partner-look, partner-ping, --kopia-watch: 2026-10-22, three for «Sun Oct 25 02:58» after the DST cell) —
+    # the state's leftovers: removed (a minor product finding of its own, README «Full run»)
+    local j at_t lim=$(( $(date +%s) + 600 ))
+    for j in $(atq 2>/dev/null | awk '{print $1}'); do
+        at -c "$j" 2>/dev/null | grep -q 'unraid-secretary-office' || continue
+        at_t=$(date -d "$(atq 2>/dev/null | awk -v j="$j" '$1 == j {print $2, $3, $4, $5, $6}')" +%s 2>/dev/null) || continue
+        ((at_t > lim)) && atrm "$j" 2>/dev/null && say "clock_restore: the office's at job $j for $(date -d "@$at_t" '+%F %T') (queued under the clock set ahead) removed"
+    done
     [[ -f $dir/clock.guard ]] && kill "$(cat "$dir/clock.guard")" 2>/dev/null
     pkill -f "[u]so-clock-guard.sh $note" 2>/dev/null
     rm -f "$dir/clock.note" "$dir/clock.guard"

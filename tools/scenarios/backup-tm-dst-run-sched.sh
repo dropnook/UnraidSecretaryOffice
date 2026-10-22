@@ -9,6 +9,7 @@
 # for the night, never a failed one, nothing touched by the refused one (cells one-run, said). Nightly (~70 min: the
 # hour between the two 02:59s is waited for; the clock guard holds the set clock 90 min).
 # run-late: 4 the clock set on: runs and snapshots dated ahead stay until a base reset
+# timeout: 5400 the clock goes through the repeated hour in real time (~64 min, batch E)
 . "$(dirname "$0")/lib.sh"
 scenario_begin backup-tm-dst-run-sched
 needs any

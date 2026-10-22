@@ -7,6 +7,7 @@
 # the scenario (her page's save, with its consent to switch Unraid's mover off) and put back as the base has her.
 # Nightly (~70 min: the hour between the two 02:59s is waited for; the clock guard holds the set clock 90 min).
 # run-late: 4 the clock set on: her history dated ahead stays until a base reset
+# timeout: 5400 the clock goes through the repeated hour in real time (~64 min, batch E)
 . "$(dirname "$0")/lib.sh"
 scenario_begin moverelli-tm-dst-run-sched
 needs any
