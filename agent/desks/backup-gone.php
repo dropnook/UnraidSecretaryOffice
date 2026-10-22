@@ -24,12 +24,15 @@ declare(strict_types=1);
  *     Ms. Dustdevil finds it also in a dataset of its own (backupLetGoTrashRoots()).
  */
 
-/** docker, virsh — the tests put stand-ins in $GLOBALS['goneHost'] (each a fn returning ?list<string>) */
+/**
+ * docker, virsh — the tests put stand-ins in $GLOBALS['goneHost'] (each a fn returning ?list<string>). Docker through
+ * houseDocker(): his state is built in the agent's round — a silent Docker is not asked (unknown, never gone; B15)
+ */
 function backupGoneHost(): array
 {
     $h = $GLOBALS['goneHost'] ?? [];
     $lines = function (array $cmd): ?array {
-        [$exit, $out] = run($cmd, 20);
+        [$exit, $out] = $cmd[0] === 'docker' ? houseDocker(array_slice($cmd, 1)) : run($cmd, 20);
         return $exit === 0 ? array_values(array_filter(array_map('trim', explode("\n", (string) $out)), fn ($l) => $l !== '')) : null;
     };
     $docker = fn () => bin('docker') !== null && file_exists('/var/run/docker.sock');

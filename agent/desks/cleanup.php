@@ -556,22 +556,22 @@ function clWake(array $names): array
 
 // --------------------------------------------------------------------- docker
 
+/** Docker's containers, images, volumes — every call through houseDocker() with its short wait: her look runs in the agent's round (B15) */
 function clDocker(): array
 {
     $out = ['ok' => false, 'enabled' => (readCfg('/boot/config/docker.cfg')['DOCKER_ENABLED'] ?? 'no') === 'yes', 'compose' => false,
             'containers' => [], 'images' => [], 'repos' => [], 'volumes' => [], 'by_id' => [], 'volume_info' => []];
-    $docker = bin('docker');
-    if (!$docker || !file_exists('/var/run/docker.sock')) {
+    if (!bin('docker') || !file_exists('/var/run/docker.sock')) {
         return $out;
     }
-    [$exit, $ids] = run([$docker, 'ps', '-aq', '--no-trunc'], 30);
+    [$exit, $ids] = houseDocker(['ps', '-aq', '--no-trunc']);
     if ($exit !== 0) {
         return $out;
     }
     $ids = array_values(array_filter(array_map('trim', explode("\n", $ids))));
     $data = [];
     if ($ids) {
-        [$exit, $json] = run(array_merge([$docker, 'inspect'], $ids), 60);
+        [$exit, $json] = houseDocker(array_merge(['inspect'], $ids));
         $data = $exit === 0 ? json_decode($json, true) : null;
         if (!is_array($data)) {
             return $out;
@@ -605,7 +605,7 @@ function clDocker(): array
     }
 
     // every top-level image (dangling ones too): id => its tags, size, age
-    [$exit, $list] = run([$docker, 'image', 'ls', '--no-trunc', '--format', "{{.ID}}\t{{.Repository}}\t{{.Tag}}"], 30);
+    [$exit, $list] = houseDocker(['image', 'ls', '--no-trunc', '--format', "{{.ID}}\t{{.Repository}}\t{{.Tag}}"]);
     foreach ($exit === 0 ? rows($list) : [] as $f) {
         if (count($f) < 3) {
             continue;
@@ -616,7 +616,7 @@ function clDocker(): array
             $out['by_id'][$f[0]]['refs'][] = "$f[1]:$f[2]";
         }
     }
-    [$exit, $list] = run([$docker, 'image', 'ls', '--no-trunc', '--filter', 'dangling=true', '--format', '{{.ID}}'], 30);
+    [$exit, $list] = houseDocker(['image', 'ls', '--no-trunc', '--filter', 'dangling=true', '--format', '{{.ID}}']);
     foreach ($exit === 0 ? rows($list) : [] as $f) {
         $out['by_id'][$f[0]] ??= ['id' => $f[0], 'refs' => [], 'bytes' => null, 'created' => null];
     }
@@ -627,7 +627,7 @@ function clDocker(): array
         }
     }
     if ($out['by_id']) {
-        [$exit, $sizes] = run(array_merge([$docker, 'image', 'inspect', '--format', "{{.Id}}\t{{.Size}}\t{{.Created}}"], array_keys($out['by_id'])), 30);
+        [$exit, $sizes] = houseDocker(array_merge(['image', 'inspect', '--format', "{{.Id}}\t{{.Size}}\t{{.Created}}"], array_keys($out['by_id'])));
         foreach ($exit === 0 ? rows($sizes) : [] as $f) {
             if (count($f) >= 3 && isset($out['by_id'][$f[0]])) {
                 $out['by_id'][$f[0]]['bytes'] = (int) $f[1];
@@ -649,12 +649,12 @@ function clDocker(): array
         $out['repos'][clRepo($ref)] = true;
     }
 
-    [$exit, $vols] = run([$docker, 'volume', 'ls', '--format', "{{.Name}}\t{{.Label \"com.docker.compose.project\"}}"], 30);
+    [$exit, $vols] = houseDocker(['volume', 'ls', '--format', "{{.Name}}\t{{.Label \"com.docker.compose.project\"}}"]);
     foreach ($exit === 0 ? rows($vols) : [] as $f) {
         $out['volumes'][$f[0]] = $f[1] ?? '';
     }
     if ($out['volumes']) {
-        [$exit, $json] = run(array_merge([$docker, 'volume', 'inspect'], array_map('strval', array_keys($out['volumes']))), 30);
+        [$exit, $json] = houseDocker(array_merge(['volume', 'inspect'], array_map('strval', array_keys($out['volumes']))));
         foreach ($exit === 0 ? (json_decode($json, true) ?: []) : [] as $v) {
             $labels = (array) ($v['Labels'] ?? []);
             $out['volume_info'][(string) $v['Name']] = [
@@ -667,8 +667,8 @@ function clDocker(): array
             ];
         }
     }
-    $out['compose'] = run([$docker, 'compose', 'version'], 15)[0] === 0;
-    $out['ok'] = true;
+    $out['compose'] = houseDocker(['compose', 'version'])[0] === 0;
+    $out['ok'] = !houseDockerSilent();          // one of the lists got no answer: not a look to judge by (B15)
     return $out;
 }
 
@@ -4324,7 +4324,7 @@ function clPark(array $ids, bool $force, bool $zfsOk = false): array
                                         'image' => $e['image']];
             } elseif ($e['kind'] === 'stack') {
                 if ($e['containers']) {
-                    [$exit, , $err] = run(array_merge(['docker'], clComposeArgs($e), ['down']), 180);
+                    [$exit, , $err] = houseDocker(array_merge(clComposeArgs($e), ['down']), 180);      // a silent Docker: refused at once (B15)
                     if ($exit !== 0) {
                         throw new Problem('cleanup_down_failed', ['name' => $e['folder'], 'detail' => trim(substr($err, -300))]);
                     }
@@ -4789,7 +4789,7 @@ function clPurge(array $ids, bool $volumes, bool $images): array
             }
             foreach ($images ? $it['images'] : [] as $i) {
                 $done['images'][] = ($known['images'][clNormImage($i)]['id'] ?? null) !== null
-                    ? ['name' => $i, 'ok' => run([$docker, 'image', 'rm', $i], 120)[0] === 0]
+                    ? ['name' => $i, 'ok' => houseDocker(['image', 'rm', $i], 120, $docker)[0] === 0]
                     : ['name' => $i, 'ok' => true, 'absent' => true];
             }
         }
@@ -4846,10 +4846,10 @@ function clRemove(array $ids): array
         }
         // a tagged image goes by its tags (removing the id would refuse while it has several), a dangling one by its id
         $command = match ($e['kind']) {
-            'image'  => array_merge([$docker, 'image', 'rm'], $e['refs'] ?: [$e['image_id']]),
-            'cache'  => [$docker, 'builder', 'prune', '-f'],
+            'image'  => array_merge(['image', 'rm'], $e['refs'] ?: [$e['image_id']]),
+            'cache'  => ['builder', 'prune', '-f'],
         };
-        [$exit, , $err] = run($command, 300);
+        [$exit, , $err] = houseDocker($command, 300, $docker);      // a silent Docker: refused at once (B15)
         if ($exit === 0) {
             $results[] = ['id' => $e['id'], 'ok' => true];
             logLine("Dustdevil removed Docker's {$e['kind']} {$e['name']}" . ($e['bytes'] ? ' (' . clHuman($e['bytes']) . ')' : ''));
@@ -4913,7 +4913,7 @@ function clVolumeInspect(string $docker, string $name): ?array
     if (!preg_match(CL_VOLUME_NAME, $name)) {
         return null;
     }
-    [$exit, $json] = run([$docker, 'volume', 'inspect', $name], 30);
+    [$exit, $json] = houseDocker(['volume', 'inspect', $name], 30, $docker);
     $v = $exit === 0 ? (json_decode($json, true)[0] ?? null) : null;
     if (!is_array($v) || ($v['Name'] ?? null) !== $name) {
         return null;
@@ -4961,9 +4961,9 @@ function clVolumeRecord(mixed $v, string $name): ?array
  */
 function clVolumeRm(string $docker, string $name): void
 {
-    [$exit, , $err] = run([$docker, 'volume', 'rm', $name], 120);
+    [$exit, , $err] = houseDocker(['volume', 'rm', $name], 120, $docker);
     if ($exit !== 0 && stripos($err, 'no such file or directory') !== false) {
-        [$exit, , $err] = run([$docker, 'volume', 'rm', '-f', $name], 120);
+        [$exit, , $err] = houseDocker(['volume', 'rm', '-f', $name], 120, $docker);
     }
     if ($exit !== 0) {
         throw new Problem('cleanup_docker_failed', ['name' => $name, 'detail' => trim(substr($err, -300))]);
@@ -5135,12 +5135,12 @@ function clVolumeBack(string $docker, array $run, array $it): void
     if (clVolumeInspect($docker, $name) !== null) {
         throw new Problem('cleanup_volume_exists', ['name' => $name]);
     }
-    $create = [$docker, 'volume', 'create', '--driver', 'local'];
+    $create = ['volume', 'create', '--driver', 'local'];
     foreach ($v['labels'] as $k => $x) {
         array_push($create, '--label', "$k=$x");
     }
     $create[] = $name;
-    [$exit, , $err] = run($create, 60);
+    [$exit, , $err] = houseDocker($create, 60, $docker);
     if ($exit !== 0) {
         throw new Problem('cleanup_volume_back_failed', ['name' => $name, 'detail' => trim(substr($err, -300))]);
     }

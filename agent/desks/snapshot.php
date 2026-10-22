@@ -492,12 +492,15 @@ function snapshotReadZfs(?array $old = null, bool $wake = false, ?array $host = 
     ];
 }
 
-/** Docker's zfs storage driver keeps every image layer as its own dataset. ($host: tests — `docker` null: not asked) */
+/**
+ * Docker's zfs storage driver keeps every image layer as its own dataset. ($host: tests — `docker` null: not asked.)
+ * Through houseDocker(): her look runs in the agent's round — a silent Docker keeps the last answer (B15).
+ */
 function snapshotDockerParent(?array $host = null): ?string
 {
     $docker = array_key_exists('docker', $host ?? []) ? $host['docker'] : bin('docker');
     if ($docker && file_exists('/var/run/docker.sock')) {
-        [$exit, $out] = run([$docker, 'info', '--format', '{{json .DriverStatus}}'], 15);
+        [$exit, $out] = houseDocker(['info', '--format', '{{json .DriverStatus}}'], HOUSE_DOCKER_WAIT, $docker);
         if ($exit === 0) {
             foreach ((array) json_decode(trim($out), true) as $pair) {
                 if (is_array($pair) && ($pair[0] ?? '') === 'Parent Dataset' && is_string($pair[1] ?? null)) {
