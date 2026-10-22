@@ -49,6 +49,13 @@ flow MV-RUN
 evidence "$D/moverelli/night.json" night.json >/dev/null
 say "the joint run's steps: $(jq -c '[.steps[]? | {who, phase, result}] + [{jack_out: (.jack_out // null), result: (.result // null)}]' "$D/moverelli/night.json" 2>/dev/null)"
 say "media in her status: $(jq -c '[.shares[]? | select(.share == "media") | {state, moved, left}]' "$D/moverelli/status.json" 2>/dev/null)"
+# the cell's premise: his part can't ask Emby (the stand-in key) and keeps the list as it was. Where his Emby answers
+# anyway (Tower 2026-10-22: «On deck: 17 Dateien», the users' budgets) MediaCache plans and gives back what is on nobody's
+# deck — our three films, rightly: no verdict then
+if grep -qE 'On deck: [0-9]+' <(awk -v t="$(date -d "@$SC_START" '+%F %T')" 'substr($0, 1, 19) >= t' "$D/mediacache/logs/mediacache.log" 2>/dev/null); then
+    printf 'his Emby answered in the run (MediaCache planned: «On deck» in its log) — the premise «Emby can'"'"'t be asked» does not hold here: no verdict\n' >"$KEEP/.skip"
+    say "his Emby answered in the run — no verdict (skipped)"
+fi
 stay=0 gone=()
 while IFS= read -r f; do [[ -f $f ]] && stay=$((stay + 1)) || gone+=("$(ls /mnt/disk*/media/"$F"/"$(basename "$f")" 2>/dev/null | head -1)"); done <<<"$films"
 ((stay == 3)) && h_cell films-stay 1 "all 3 films of his list still on the pool" \

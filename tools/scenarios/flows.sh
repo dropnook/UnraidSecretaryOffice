@@ -648,6 +648,9 @@ _mv_start() {
         _mv_at_work && bubble_look "mid-moverelli-$mode" moverelli
     fi
     wait_moverelli 7200 || return 1
+    # with Jack Streamer hired her «Run now» is a joint run (by: night): his last step comes after hers — waited for too
+    # (2026-10-22: H1 judged and undid at her end, the joint run 11 s on: her save refused moverelli_running, dirty)
+    if [[ $(jq -r '.by // empty' "$D/moverelli/office-run.json" 2>/dev/null) == night ]]; then wait_night 7200 || return 1; fi
     local ex
     ex=$(jq -r '.exit // empty' "$D/moverelli/office-run.json" 2>/dev/null)
     [[ -z $ex || $ex == 0 ]] || { say "Ms. Moverelli's $mode ended with exit $ex"; return 1; }
