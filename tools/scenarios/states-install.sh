@@ -120,7 +120,22 @@ _st_build_tree() {
 }
 
 _st_plg_url() { printf 'https://github.com/%s/releases/download/%s/%s.plg' "$ST_PLG_REPO" "$1" "$ST_PLG_NAME"; }
-_st_release_tags() { curl -fsSL "https://api.github.com/repos/$ST_PLG_REPO/releases?per_page=10" | jq -r '.[] | select(.draft == false and .prerelease == false) | .tag_name'; }
+# GitHub's releases, newest first. Its API allows 60 calls an hour unasked: a release's step 6b ran it dry (1.70.3,
+# 2026-10-22: «GitHub's release list didn't answer» — IN-DOWNGRADE/IN-UPDATE-PREV red), so the last answer is kept
+# (scenarios-cache/release-tags.txt): fresh for 10 min, and a day old still taken when GitHub doesn't answer twice
+_st_release_tags() {
+    local c f t i
+    c=$(_st_cache release-tags.txt)
+    if [[ -s $c ]] && (( $(date +%s) - $(stat -c %Y "$c") < 600 )); then cat "$c"; return 0; fi
+    for i in 1 2; do
+        t=$(curl -fsSL --max-time 20 "https://api.github.com/repos/$ST_PLG_REPO/releases?per_page=10" 2>/dev/null \
+            | jq -r '.[] | select(.draft == false and .prerelease == false) | .tag_name' 2>/dev/null)
+        if [[ -n $t ]]; then mkdir -p "$(dirname "$c")" && printf '%s\n' "$t" > "$c.new" && mv -f "$c.new" "$c"; printf '%s\n' "$t"; return 0; fi
+        sleep 5
+    done
+    if [[ -s $c ]] && (( $(date +%s) - $(stat -c %Y "$c") < 86400 )); then say "GitHub's release list didn't answer — its answer of $(date -r "$c" +%H:%M) taken"; cat "$c"; return 0; fi
+    return 1
+}
 
 plugin_install() {
     local id=$1 what=$2 plg tag
