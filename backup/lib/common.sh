@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.69"
+UB_VERSION="2.70"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -3179,6 +3179,8 @@ drift_count() { local lvl="$1" n=0 l; for l in "${DRIFT[@]}"; do [[ "${l%%|*}" =
 #   since 2.28 "asleep" (section 13; null unless [general] asleep_pools = skip): mode, pools, shares, units (how many
 #   shares were left out), vms, containers, sources, woken, nights; and "kopia.skipped_why": {<source>: "asleep"} for
 #   the skipped sources the array stop didn't skip (a source without an entry there: the array stop, as in 2.24)
+#   since 2.70 "order": {code, seconds} | null - a scheduled run waited before it started (the office says so in
+#   UB_ORDER, order_load): waited_night (for the office's mover run, Ms. Moverelli's, until it was done)
 # Writing is never critical: if it fails, the backup carries on.
 UB_INTERFACE=1
 UB_HISTORY_MAX=200
@@ -3207,6 +3209,16 @@ ST_PACKAGES="null"        # JSON object: the packages of this run (backup.sh pkg
 ST_BTRFS=()               # since 2.63: per btrfs disk or pool the retention looked at, "base|asleep" or
                           #   "base|ok|keep_days|floor_gb|free_gb|kept|oldest|released|none_left(1/0)|brake_last|held(1/0)"
 ST_BTRFS_LOOKED=""        #   (backup.sh prune_btrfs) - status.json "btrfs", null until the retention ran
+ST_ORDER_CODE=""          # since 2.70: the office's order (order_load) - status.json "order"
+ST_ORDER_SECONDS=0
+
+# order_load - the office's order (2.70): UB_ORDER "waited_night:<seconds>" exactly in that shape (the office's
+# agent/lib/nightorder.php: the scheduled run waited for Ms. Moverelli's mover run), else nothing
+order_load() {
+    ST_ORDER_CODE=""; ST_ORDER_SECONDS=0
+    [[ "${UB_ORDER:-}" =~ ^(waited_night):([0-9]{1,6})$ ]] || return 0
+    ST_ORDER_CODE="${BASH_REMATCH[1]}"; ST_ORDER_SECONDS=$(( 10#${BASH_REMATCH[2]} ))
+}
 
 status_init() { # status_init <mode>
     ST_MODE="$1"; ST_STARTED="$(date +%s)"; ST_ACTIVE="yes"; ST_PHASE="start"
@@ -3263,12 +3275,14 @@ status_json() {
         --argjson partner "${partner:-null}" --argjson p_ok "${#ST_PARTNER_DONE[@]}" --argjson p_failed "${#ST_PARTNER_FAILED[@]}" \
         --argjson p_skipped "${#ST_PARTNER_SKIPPED[@]}" --argjson asleep "${asleep:-null}" --argjson skipped_why "$why" \
         --arg skipk "${SKIPK:-0}" --argjson btrfs "$btrfs" --argjson message_params "$mparams" \
+        --arg order "$ST_ORDER_CODE" --argjson order_s "${ST_ORDER_SECONDS:-0}" \
         '{interface: $interface, name: $name, version: $version, mode: $mode, run: $run, pid: $pid, skip_kopia: ($skipk == "1"),
           started: $started, updated: $updated, finished: $finished, phase: $phase, result: $result,
           message: $message, message_params: $message_params, errors: $errors, warnings: $warnings, warning_items: $warning_items, downtime_s: $downtime,
           snapshot: $snapshot, dump_bytes: $dump_bytes, log: $log, drift: $drift, vms: $vms, packages: $packages,
           new_local: $new_local, partner: $partner, partner_ok: $p_ok, partner_failed: $p_failed, partner_skipped: $p_skipped,
           asleep: $asleep, btrfs: $btrfs,
+          order: (if $order == "" then null else {code: $order, seconds: $order_s} end),
           kopia: {enabled: ($kopia_enabled | ascii_downcase | test("^(yes|ja|1|true)$")), state: $kopia_ok,
                   planned: $planned, current: (if $current == "" then null else $current end),
                   current_since: (if $current == "" then null else $current_since end), done: $done,

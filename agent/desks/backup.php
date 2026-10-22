@@ -35,6 +35,8 @@ declare(strict_types=1);
  * comes from state/lock-holder.json (backupLockHolder()).
  */
 
+require_once dirname(__DIR__) . '/lib/nightorder.php';    // never the same minute as Ms. Moverelli's run; the first one runs, the other waits (shared with her)
+
 const BACKUP_INTERFACE   = 1;
 const BACKUP_MODES       = ['backup' => [], 'nokopia' => ['--no-kopia'], 'dryrun' => ['--dry-run'], 'check' => ['--check']];
 const BACKUP_LOG_NAME    = '/^(?:(run|check|dryrun|setup)-(\d{8})-(\d{4}|\d{6})\.log|unmount\.log)$/';    // engine 2.45: tours, dry runs, setups by the second
@@ -98,7 +100,9 @@ desk('backup', [
         'dataset_make' => fn (array $r) => mdStart(['kind' => optText($r, 'kind'), 'name' => optText($r, 'name'), 'share' => optText($r, 'share'), 'dir' => optText($r, 'dir'), 'stack' => optText($r, 'stack'),
                                                     'no_fresh_ok' => boolField($r, 'no_fresh_ok')]),
     ],
-    'jobs'    => ['backup-letgo' => fn (array $args) => backupLetGoJob($args)],
+    'jobs'    => ['backup-letgo' => fn (array $args) => backupLetGoJob($args),
+                  // the scheduled backup (job.sh, before the engine): waits while Ms. Moverelli's run goes (agent/lib/nightorder.php)
+                  'backup-order' => fn (array $args) => nightOrderBackupJob()],
     'tick'    => function (): void {
         backupLockTick();             // engine 2.56: Object Lock and Kopia's maintenance, asked a few times a day
         backupWatchTick();            // engine 2.68: the Kopia server's log - does the offsite storage still take writes?
@@ -903,6 +907,8 @@ function backupRunFromStatus(array $j): array
         'asleep'     => backupAsleepRun($j['asleep'] ?? null),
         'kopia_interrupted' => is_string($j['kopia']['interrupted'] ?? null) && $j['kopia']['interrupted'] !== '' ? $j['kopia']['interrupted'] : null,
         'kopia_first' => null,
+        // engine 2.70: the scheduled run waited for Ms. Moverelli's run before it started (agent/lib/nightorder.php)
+        'order'      => nightOrderRow($j['order'] ?? null, 'waited_night'),
         // engine 2.27: the partner phase per partner (null: the run sent to no partner)
         'partner'    => backupPartnerRun($j['partner'] ?? null),
         // engine 2.63: per btrfs disk or pool what holds after the retention and the emergency brake (null: not looked)
@@ -1965,7 +1971,8 @@ function backupLibvirtArchive(string $file): array
 /** The nightly run's schedule: a line in the plugin's cron file, to be set once the setup is done */
 function backupSchedule(): array
 {
-    return ['script' => is_file(BACKUP_DATA_DIR . '/settings.ini')] + officeJobSchedule('backup');
+    // order_hint: the same minute as Ms. Moverelli's run, from before the save check (agent/lib/nightorder.php; a quiet line)
+    return ['script' => is_file(BACKUP_DATA_DIR . '/settings.ini')] + officeJobSchedule('backup') + ['order_hint' => nightOrderHint()];
 }
 
 /**
@@ -2047,6 +2054,7 @@ function backupSetSchedule(?string $cron): array
     if ($cron !== null && !is_file(BACKUP_DATA_DIR . '/settings.ini')) {
         throw new Problem('backup_no_settings');
     }
+    nightOrderSaveCheck('backup', $cron);           // never on Ms. Moverelli's minute (agent/lib/nightorder.php)
     $live = officeJobSetSchedule('backup', $cron);
     logLine('Mr. Backup: schedule ' . ($cron !== null ? "set to $cron" : 'switched off') . ($live ? '' : ' (not in the crontab yet)'));
     return ['ok' => true, 'live' => $live, 'state' => backupScan()];
@@ -2113,6 +2121,10 @@ function backupStart(string $mode): array
     $data = BACKUP_DATA_DIR;
     if (!is_file("$data/settings.ini")) {
         throw new Problem('backup_no_settings');
+    }
+    // started here it never waits: refused while Ms. Moverelli's run goes (agent/lib/nightorder.php)
+    if (in_array($mode, ['backup', 'nokopia'], true) && (nightOrderHost()['night_running'])()) {
+        throw new Problem('backup_night_running');
     }
     // one a minute only for a real backup (its snapshots carry the minute, 1.60.1): taken - it starts at the next minute,
     // queued through atd (backupQueue()), cancellable; the engine refuses a second one in a minute all the same

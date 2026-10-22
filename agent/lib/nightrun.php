@@ -322,6 +322,8 @@ function nightHost(?array $h = null): array
         'level'       => $n['level'] ?? fn (array $g, array $hh, bool $wake): ?array => nightLevel($g, $hh, $wake),
         // Unraid's bookkeeping of the disks: the array's size and use for the picture (the tests: a file of their own)
         'disks_ini'   => $n['disks_ini'] ?? disksIniFile(),
+        // the order with the scheduled backup (nightorder.php's host; null: its own — the tests: stand-ins)
+        'order'       => $n['order'] ?? null,
     ];
 }
 
@@ -442,7 +444,28 @@ function nightRun(array $args, ?array $h = null): int
     }
     $wait = null;
     $waited = 0;
+    $order = null;
     if ($mode === 'run') {
+        // a backup doing its local part (nightorder.php): on schedule she waits until it is done, from a page refused; in
+        // the backup's own minute she first gives it time to take its lock (both crons start at once: it goes first)
+        $oh = nightOrderHost($h['order']);
+        $tie = $by === 'schedule' ? nightOrderTie($oh) : 0;
+        if ($tie > 0) {
+            logLine("Night run: the backup's line is due this minute too — gave it $tie s to start");
+        }
+        if (($oh['backup_holds'])()) {
+            if ($by !== 'schedule') {
+                return $refused('moverelli_backup_running');
+            }
+            logLine('Night run: a backup runs — waiting until its local part is done');
+            $w = nightOrderWait($oh, $oh['backup_holds']);
+            if ($w === null) {
+                logLine('Night run: the scheduled run stops waiting for the backup (the array stopped)');
+                return 0;
+            }
+            $order = ['code' => 'waited_backup', 'seconds' => $tie + $w];
+            logLine('Night run: waited ' . nightOrderSpan($tie + $w) . ' for Mr. Backupsy');
+        }
         // a scheduled night waits for Unraid's mover (as her scheduled runs always did); from a page: refused at once
         $gate = jackRunGate('moverelli', $by, ['watch' => false, 'dir' => $dir, 'waitdir' => $h['waitdir'],
             'mover' => fn (): bool => ($h['mover_running'])(), 'scheduled' => $h['scheduled']] + $h['gate']);
@@ -478,7 +501,7 @@ function nightRun(array $args, ?array $h = null): int
     nightInside(true);
     @unlink("$dir/night-stop.json");
     try {
-        return nightSteps($mode, $by, $waited, $h);
+        return nightSteps($mode, $by, $waited, $h, $order);
     } finally {
         nightInside(false);
         @unlink("$dir/night-stop.json");
@@ -501,7 +524,7 @@ function nightDryFetch(array $h): int
 }
 
 /** The steps of a night (inside its lock) — see nightRun() */
-function nightSteps(string $mode, string $by, int $waited, array $h): int
+function nightSteps(string $mode, string $by, int $waited, array $h, ?array $order = null): int
 {
     $dir = $h['dir'];
     $real = $mode === 'run';
@@ -511,7 +534,7 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
     // «Measure» on the card while the pool is measured (it may wake the pool: seconds): the night as it begins, the plan
     // and the picture follow once measured (2026-10-15 — the step highlight sits where the work is)
     nightWrite($dir, ['v' => 1, 'mode' => $mode, 'by' => $by, 'pid' => getmypid(), 'started' => $started, 'phase' => 'check', 'round' => 1, 'who' => null,
-                      'jack' => $jack, 'steps' => [], 'result' => null] + ($waited > 0 ? ['waited' => $waited] : []));
+                      'jack' => $jack, 'steps' => [], 'result' => null] + ($waited > 0 ? ['waited' => $waited] : []) + ($order !== null ? ['order' => $order] : []));
     writeAtomic("$dir/" . NIGHT_OUTPUT, '', 0600, 0, 0);     // this night's steps, from the first
     // the pool measured: Jack Emby's while he takes part, else the pool of her shares (her picture on every night)
     $level = ($h['level'])($g, $h, $real && $jack);
@@ -526,7 +549,7 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
                      // a btrfs/xfs pool: its numbers estimated (poolLevelPlain()) — the picture says so
                      + (!empty($level['estimated']) ? ['estimated' => true] : []) + [
                         'phases' => ['check' => $pic($plan)], 'files' => []],
-          'steps' => [], 'result' => null] + ($waited > 0 ? ['waited' => $waited] : []);
+          'steps' => [], 'result' => null] + ($waited > 0 ? ['waited' => $waited] : []) + ($order !== null ? ['order' => $order] : []);
     nightWrite($dir, $n);
     logLine("Night run ($mode): " . ($jack ? 'Jack Streamer and Ms. Moverelli' : 'Ms. Moverelli alone') . ($plan['measured']
         ? " — pool $pool at {$plan['used_pct']} %, X {$plan['x']} %: " . ($jack ? 'Jack Streamer gives back what was watched, the others about ' : 'about ')
