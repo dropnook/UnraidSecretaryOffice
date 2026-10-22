@@ -7,6 +7,7 @@
 #   usonet-lab.sh up       the container uso-lab-headscale on port 8085 (http://<test3>:8085), a user «uso»
 #   usonet-lab.sh key      a new auth key (one-off, tag:uso, 1 h) on stdout — a secret: into a 0600 file, never a log
 #   usonet-lab.sh status   the nodes it knows (name, address, online)
+#   usonet-lab.sh tidy     the offices' nodes that are offline (left) deleted — Headscale never expires a tagged one
 #   usonet-lab.sh down     the container and its data gone
 set -u
 NAME=uso-lab-headscale
@@ -77,7 +78,9 @@ key() {
 case "${1:-}" in
     up) up ;;
     key) key ;;
+    tidy) hs nodes list -o json 2>/dev/null | jq -r '.[] | select((.online // false) | not) | select(.given_name | startswith("uso")) | .id' |
+              while read -r id; do hs nodes delete -i "$id" --force >/dev/null 2>&1; done ;;    # the offices' nodes gone offline (left)
     status) hs nodes list -o json 2>/dev/null | jq -r '.[] | "\(.given_name) \(.ip_addresses[0]) online=\(.online // false)"' ;;
     down) docker rm -f "$NAME" >/dev/null 2>&1; rm -rf "$DIR"; echo "usonet-lab: down" ;;
-    *) echo "usage: bash $0 up|key|status|down"; exit 2 ;;
+    *) echo "usage: bash $0 up|key|status|tidy|down"; exit 2 ;;
 esac

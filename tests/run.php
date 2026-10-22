@@ -50848,6 +50848,12 @@ function testUsoNetStatus(): void
         [, $c] = $state($foreign);
         same('USO network check: a peer without tag:uso — the policy is too wide (a must)', false, $c['usonet_policy']);
         same('USO network card: the foreign peer counted', 1, usonetPublic($now)['foreign']);
+        $again = usonetTestStatus();
+        $again['peers'][] = ['name' => 'uso-partner', 'ips' => ['100.64.0.2'], 'tags' => ['tag:uso'], 'online' => false, 'direct' => false, 'relay' => '', 'last_seen' => $now - 900];
+        $again['peers'][] = ['name' => 'uso-partner', 'ips' => ['100.64.0.1'], 'tags' => ['tag:uso'], 'online' => false, 'direct' => false, 'relay' => '', 'last_seen' => $now - 9000];
+        file_put_contents("$run/status.json", json_encode($again));
+        same('USO network card: a server that joined anew — one row, the online node', [['uso-partner', ['100.64.0.3', 'fd7a:115c:a1e0::3']]],
+            array_map(fn ($p) => [$p['name'], $p['ips']], usonetPublic($now)['peers']));
         [, $c] = $state(usonetTestStatus(['tags' => []]));
         same('USO network check: the node not tagged (a must)', false, $c['usonet_tagged']);
         same('USO network card: the key was refused or is used up', 'needs_key', $state(usonetTestStatus(['backend' => 'NeedsLogin', 'ips' => []]))[0]);

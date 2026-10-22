@@ -232,12 +232,20 @@ function usonetPublic(?int $now = null): array
         $out['name'] = $s['name'];
         $out['ips'] = $s['ips'];
         $out['tagged'] = in_array(USONET_TAG, $s['tags'], true);
+        // one row per name: a server that joined anew leaves its old node behind (offline; Headscale never expires a
+        // tagged one) — the online one, else the one seen last, stands for it
+        $byName = [];
         foreach ($s['peers'] as $p) {
             $tagged = in_array(USONET_TAG, $p['tags'], true);
             $out['foreign'] += $tagged ? 0 : 1;
-            $out['peers'][] = ['name' => $p['name'], 'ips' => $p['ips'], 'online' => $p['online'], 'direct' => $p['direct'],
+            $row = ['name' => $p['name'], 'ips' => $p['ips'], 'online' => $p['online'], 'direct' => $p['direct'],
                 'relay' => $p['relay'], 'tagged' => $tagged, 'last_seen' => $p['last_seen'] ?: null];
+            $had = $byName[$p['name']] ?? null;
+            if ($had === null || [$row['online'], $row['last_seen'] ?? PHP_INT_MAX] > [$had['online'], $had['last_seen'] ?? PHP_INT_MAX]) {
+                $byName[$p['name']] = $row;
+            }
         }
+        $out['peers'] = array_values($byName);
     }
     $since = usonetNoContactSince($fresh ? $s : null, $now);
     if ($refused === 'checksum' || $refused === 'missing') {

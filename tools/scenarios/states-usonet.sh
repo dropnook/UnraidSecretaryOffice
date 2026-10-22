@@ -78,7 +78,7 @@ state_un_joined() {
     un_join >/dev/null || return 1
     un_wait in 180
 }
-undo_un_joined() { [[ $(un_card .joined) == true ]] || return 0; un_leave; }
+undo_un_joined() { [[ $(un_card .joined) == true ]] && un_leave; bash "$UN_LAB_SH" tidy; return 0; }
 
 state_un_helper_down() {
     [[ $(un_card .state) == in ]] || { say "UN-HELPER-DOWN: the network isn't «in»"; return 1; }
