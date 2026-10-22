@@ -475,9 +475,13 @@ flow_rs_files() {
         _fl_ask restore.preview "$req" 300 >/dev/null
         rc=$?; ((rc == 0)) || { _fl_end $rc; return; }
         plan=$(ask_last '.preview')
-        snap=$(jq -r '[(.options.moments // .options.snaps // [])[] | (.id // .snap // .name // .)] | map(select(type == "string")) | .[0] // empty' <<<"$plan")
+        # the page makes the user choose (desk.js: «choose…», nothing preselected): the newest of Mr. Backupsy's own
+        # moments (ours), as the user picks the backup just made — the newest offered can be any snapshot of the dataset
+        # (2026-10-22 on Tower: base.sh's @uso-aside-… of a clock cell's runs, created «2026-11-01» — 0 files restored)
+        snap=$(jq -r '[(.options.moments // .options.snaps // [])[] | select(type == "object" and .ours == true) | (.id // .snap // .name)] | map(select(type == "string")) | .[0] // empty' <<<"$plan")
+        [[ -n $snap ]] || snap=$(jq -r '[(.options.moments // .options.snaps // [])[] | (.id // .snap // .name // .)] | map(select(type == "string")) | .[0] // empty' <<<"$plan")
         [[ -n $snap ]] || snap=$(jq -r '.target.snap // .snap // empty' <<<"$plan")
-        say "RS-FILES: moment $snap (the newest offered)"
+        say "RS-FILES: moment $snap (the newest of Mr. Backupsy's, else the newest offered)"
     fi
     [[ -n $snap ]] && req=$(jq -c --arg s "$snap" '. + {snap: $s}' <<<"$req")
     _rs_go "$req" || return 1
