@@ -375,7 +375,7 @@ function serve(): int
             try {
                 hostAtRequeue();        // the office's jobs queued «now» while the clock was ahead (lib/house.php)
             } catch (Throwable $e) {
-                logLine('atd: ' . $e->getMessage());
+                logLine('Office: atd\'s queue: ' . $e->getMessage());
             }
             $new = codeStamp();
             if ($new !== $code) {

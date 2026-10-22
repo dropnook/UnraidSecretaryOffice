@@ -452,7 +452,7 @@ function hostAtRequeue(?string $spool = null, ?int $now = null, array $bins = ['
         }
         $job = (int) hexdec($m[1]);
         run([$bins[1], (string) $job], 20);
-        logLine('atd: the office\'s job ' . $job . ' was due ' . date('Y-m-d H:i', (int) hexdec($m[2]) * 60)
+        logLine('Office: job ' . $job . ' in atd\'s queue was due ' . date('Y-m-d H:i', (int) hexdec($m[2]) * 60)
             . ' (queued while the clock was ahead) - queued anew for now');
         $done[] = $job;
     }
