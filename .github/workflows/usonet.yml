@@ -1,0 +1,70 @@
+# The USO network's helper (helper/, Go): built reproducibly on every change and checked against the SHA-256 the
+# office pins (helper/uso-net.sha256 = USONET_HELPER in agent/lib/usonet.php). A tag uso-net-<version> publishes it
+# as a release of its own — a prerelease, never «latest» (Unraid's plugin manager finds the office's .plg through
+# releases/latest) — with its SHA-256 and the licences of everything built into it.
+name: USO network helper
+
+on:
+  push:
+    branches: ['**']
+    paths: ['helper/**', '.github/workflows/usonet.yml']
+    tags: ['uso-net-*']
+  pull_request:
+    paths: ['helper/**', '.github/workflows/usonet.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: helper/go.mod
+          cache: false
+
+      - name: Build and compare with the pinned SHA-256
+        env:
+          GOTOOLCHAIN: local
+        run: bash helper/build.sh --check
+
+      - name: Licences of what is built in
+        working-directory: helper
+        env:
+          GOTOOLCHAIN: local
+        run: |
+          {
+            echo "uso-net (the Unraid Secretary Office's USO network helper) is built from these modules."
+            echo "Tailscale is a trademark of Tailscale Inc.; this helper is not made or endorsed by Tailscale."
+            go list -tags ts_omit_logtail -deps -f '{{with .Module}}{{.Path}}@{{.Version}} {{.Dir}}{{end}}' . | sort -u |
+              while read -r mod dir; do
+                [[ -n "$dir" ]] || continue
+                for f in "$dir"/LICENSE* "$dir"/COPYING* "$dir"/NOTICE*; do
+                  [[ -f "$f" ]] || continue
+                  printf '\n==== %s (%s)\n\n' "$mod" "${f##*/}"; cat "$f"
+                done
+              done
+          } > dist/NOTICE.txt
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: uso-net
+          path: helper/dist/
+
+      - name: Release (tag uso-net-<version> only)
+        if: startsWith(github.ref, 'refs/tags/uso-net-')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          version=$(sed -n 's/^const Version = "\(.*\)"$/\1/p' helper/main.go)
+          [[ "$TAG" == "uso-net-$version" ]] || { echo "tag $TAG is not uso-net-$version (helper/main.go)"; exit 1; }
+          cp helper/uso-net.sha256 "helper/dist/uso-net-$version-linux-amd64.sha256"
+          gh release create "$TAG" --prerelease --latest=false --title "USO network helper $version" \
+            --notes "The helper of the Unraid Secretary Office's USO network (helper/ in this repository, built reproducibly: bash helper/build.sh --check). The office fetches it only when the USO network is turned on, by this URL and the SHA-256 pinned in its code." \
+            "helper/dist/uso-net-$version-linux-amd64" "helper/dist/uso-net-$version-linux-amd64.sha256" helper/dist/NOTICE.txt
