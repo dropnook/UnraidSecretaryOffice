@@ -1,6 +1,6 @@
 #!/bin/bash
 # Cell M22 of matrix.md (batch E): an old install updated (IN-UPDATE-OLD: v1.60.0 with the 1.60 fixture), then the
-# plugin manager's update to the release installed here (OF-UPDATE). The fixture has no Ms. Moverelli (in training in
+# plugin manager's update to the code under test, this tree built as a release is (OF-UPDATE plg=tree). The fixture has no Ms. Moverelli (in training in
 # 1.60, hired by none): her ini as a 1.61 install left it — the halves (X and her target Y, move_until_used_below), Jack
 # Emby's slice and floor, age_stat=mtime, in her writer's own form — is laid into the old data folder before the update, Unraid's mover switched
 # off as her 1.61 setup did (put back by the undo). After the update: Y, the slice and the floor are gone, X stays,
@@ -38,7 +38,12 @@ move_until_used_below=60
 INI
 chmod 600 "$INI"
 snap_before
-flow OF-UPDATE "plg=$OFFICE_RELEASES/v$cur/unraid-secretary-office.plg"
+flow OF-UPDATE plg=tree
+# Mr. Backupsy's Apply list on the 1.60 fixture names the keys a 1.60 settings.ini never had (app|<name>|folder, |kopia —
+# proposed with their defaults): announced as a whole, as O1 does on the same fixture; her part of INV-REPLAN (the
+# re-save leaves her ini as it was) is this cell's (until 2026-10-22 the check found the engine's lock held and stayed
+# «pending»)
+expect_changes '*'
 evidence "$INI" smart_mover-after-update.ini >/dev/null
 left=$(grep -E '^(move_until_used_below|jack_slice_percent|jack_min_percent)=' "$INI" | paste -sd' ' -)
 [[ -z $left ]] && grep -qx 'move_when_used_above=80' "$INI" && grep -qx 'age_stat=newest' "$INI" && ls "$INI".before-* >/dev/null 2>&1 \

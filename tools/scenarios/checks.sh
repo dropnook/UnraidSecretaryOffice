@@ -378,6 +378,14 @@ _ck_known_changes() {
     f=$SC_DIR/base/$role/plan-changes.known
     [[ -f $f ]] && grep -v '^[[:space:]]*#' "$f" | sed '/^[[:space:]]*$/d'
 }
+# values_unknown: diff lines of flat ini values («< key=value» / «> key=value», stdin) without what any Apply writes on this
+# base: a share's identity keys (id, locations — setup.sh spots renames and moves by them; Tower's uso-yes is a folder
+# while the base's settings.ini names a dataset) and the base's known changes (plan-changes.known: Tower's [partner])
+values_unknown() {
+    local known; known=$(_ck_known_changes | sed 's/[][\.*^$|+?(){}]/\\&/g' | paste -sd'|' -)
+    grep -vE '^[<>] share\|[^|]*\|(id|locations)=' | if [[ -n $known ]]; then grep -vE "^[<>] ($known)="; else cat; fi
+}
+_ck_engine_free() { ! lock_held "$UB/state/lock"; }
 _ck_change_ok() {   # <key>: in the known list or an expect_changes line (a trailing * matches the rest)
     local k=$1 p
     while IFS= read -r p; do
@@ -403,13 +411,24 @@ check_inv_replan() {
         echo "Mr. Backupsy not set up here"
         return 3
     fi
+    # the engine's lock a moment after an update or an agent start (its first look, the --recover): waited for, 5 min
+    # at most — M22 found it held 1 s after OF-UPDATE (2026-10-22) and gave up at once
+    lock_held "$UB/state/lock" && WAIT_SOFT=1 wait_for 300 "the engine's lock free" _ck_engine_free >/dev/null 2>&1
     lock_held "$UB/state/lock" && { echo "a backup run holds the engine — no plan now${bad:+; ${bad[*]}}"; ((${#bad[@]})) && return 1; return 2; }
     # «Look at the server again» — straight through ask.php (the check's own look, not one of the scenario's requests)
     _setup_done || WAIT_SOFT=1 wait_for 900 "a setup look to end" _setup_done >/dev/null 2>&1
     local t0 out
     t0=$(_sc_now)
     out=$(php "$SC_DIR/ask.php" --wait 120 backup.setup_plan '{"measure":false}' 2>/dev/null)
-    jq -e .ok <<<"$out" >/dev/null 2>&1 || { echo "no plan now: setup_plan refused ($(jq -r '.error.key // "?"' <<<"$out"))${bad:+; ${bad[*]}}"; ((${#bad[@]})) && return 1; return 2; }
+    if ! jq -e .ok <<<"$out" >/dev/null 2>&1; then
+        local key; key=$(jq -r '.error.key // "?"' <<<"$out")
+        # refused with the very key the scenario's state makes every look end in (expect_err <key> green: B14 perms —
+        # the engine refuses settings.ini 666 by design): no plan can be made here, n/a — not «pending» for ever
+        if ((${#bad[@]} == 0)) && grep -qP "^expect_err\t\Q$key\E\tgreen\t" "$KEEP/.rows" 2>/dev/null; then
+            echo "no plan here: setup_plan refused with $key, as the scenario's state makes it (expect_err)"; return 3
+        fi
+        echo "no plan now: setup_plan refused ($key)${bad:+; ${bad[*]}}"; ((${#bad[@]})) && return 1; return 2
+    fi
     sleep 2
     WAIT_SOFT=1 wait_for 900 "the replan to end" _setup_done >/dev/null 2>&1
     local i
@@ -485,6 +504,10 @@ check_inv_setup_msgs() {
     local plan=$KEEP/after/replan.json bad=() code share en=$SC_TREE/public/desks/backup/lang/en.json
     [[ -f $plan ]] || plan=$UB/state/setup-plan.json
     [[ -f $plan ]] || { echo "no setup plan"; return 3; }
+    # a plan made before the scenario's state says what was true then (2026-10-22: the base's plan with Docker on, judged
+    # with Docker off — «docker_volumes without a volume»): only a plan of this scenario is judged
+    jq -e --argjson t "${SC_START:-0}" '(.time // 0) >= $t' "$plan" >/dev/null 2>&1 ||
+        { echo "no plan made in this scenario (the newest is from $(jq -r '.time // 0' "$plan" | xargs -I{} date -d @{} +%T 2>/dev/null))"; return 3; }
     while IFS=$'\t' read -r code share; do
         [[ -n $code ]] || continue
         # docker_volumes and more have no setup.msg text of their own: the page draws them through the volume items and
