@@ -122,10 +122,18 @@ h_jack_hire_standin() {
 # h_share_drop <share> — a scratch share (uso-wip-h-* only) away: its files on every root, Unraid's «Delete», a cfg it
 # left; a ZFS dataset Unraid only unmounted goes with h_ds_destroy (after the snapshots: h_snaps_drop)
 h_share_drop() {
-    local s=$1 r
+    local s=$1 r x
     [[ $s == uso-wip-h-* ]] || { say "h_share_drop: $s is no scratch share — left"; return 1; }
     for r in /mnt/*/"$s"; do [[ -d $r && ! -L $r && $r != /mnt/user*/* ]] && find "$r" -mindepth 1 -delete; done
+    # a run's snapshots of the scratch dataset first: Unraid can't delete a ZFS share that has snapshots — its «Delete»
+    # drops the cfg and leaves the dataset, a share every later plan lists (Tower 2026-10-21: cache/uso-wip-h-futb
+    # @uso-backup-20261021-1550 — INV-REPLAN red in every scenario after it, the base reset red)
+    zfs list -H -o name 2>/dev/null | grep -E "^[^/]+/$s\$" | while read -r x; do
+        zfs list -H -r -t snapshot,bookmark -o name "$x" 2>/dev/null | grep -E '[@#]uso-(backup|plan)-' | while read -r y; do zfs destroy "$y" && say "h_share_drop: destroyed $y"; done
+    done
     share_exists "$s" && { share_remove "$s" || { sleep 3; _st_emcmd 'cmdStatus=Apply'; share_remove "$s"; }; }
     rm -f "/boot/config/shares/$s.cfg"
-    return 0
+    # nothing of it left — else the undo says so (a scratch share left behind reddens every later scenario)
+    x=$(ls -d /mnt/*/"$s" 2>/dev/null; zfs list -H -o name 2>/dev/null | grep -E "^[^/]+/$s\$")
+    [[ -z $x ]] || { say "h_share_drop: $s is still there: ${x//$'\n'/ }"; return 1; }
 }
