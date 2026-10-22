@@ -23345,7 +23345,7 @@ function testCaretakerNetworks(): void
     // read-only: Docker is only asked (ps, inspect, network ls), never told
     $rf = new ReflectionFunction('caretakerNetworkFacts');
     $src = implode('', array_slice(file($rf->getFileName()), $rf->getStartLine() - 1, $rf->getEndLine() - $rf->getStartLine() + 1));
-    preg_match_all("/\\[\\\$docker,\\s*'([a-z]+)'(?:,\\s*'([a-z]+)')?/", $src, $m, PREG_SET_ORDER);
+    preg_match_all("/houseDocker\\((?:array_merge\\()?\\['([a-z]+)'(?:,\\s*'([a-z]+)')?/", $src, $m, PREG_SET_ORDER);       // B15: through houseDocker()
     same('networks: read-only — Docker is asked ps, inspect and network ls, nothing else',
         ['ps', 'inspect', 'network ls'], array_map(fn ($x) => $x[1] === 'network' ? 'network ' . ($x[2] ?? '') : $x[1], $m));
     check('networks: read-only — no word that changes a container or a network', !preg_match('/\'(?:rm|create|connect|disconnect|start|stop|restart|prune|update)\'/', $src));

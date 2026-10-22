@@ -4913,7 +4913,7 @@ function clVolumeInspect(string $docker, string $name): ?array
     if (!preg_match(CL_VOLUME_NAME, $name)) {
         return null;
     }
-    [$exit, $json] = houseDocker(['volume', 'inspect', $name], 30, $docker);
+    [$exit, $json] = houseDocker(['volume', 'inspect', $name], HOUSE_DOCKER_WAIT, $docker);      // a look: the house's short wait
     $v = $exit === 0 ? (json_decode($json, true)[0] ?? null) : null;
     if (!is_array($v) || ($v['Name'] ?? null) !== $name) {
         return null;
