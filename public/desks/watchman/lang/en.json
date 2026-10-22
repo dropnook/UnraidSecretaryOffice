@@ -202,6 +202,7 @@
   "noted.office": "Noted by himself on {when}: the office installed it itself (the consultant) — nothing to tell.",
   "noted.unraid": "Noted by himself on {when}: Unraid's own job after an array start (reload_services) — nothing to tell.",
   "noted.plugin": "Noted by himself on {when}: an installed plugin's own job (it runs one of the plugin's files, as root) — nothing to tell.",
+  "noted.back": "Noted by himself on {when}: the plugin's schedule is as it was again — the same lines; seen half written (a plugin writes its file anew at boot) — nothing to tell.",
   "group.login": "Login",
   "group.container": "Container",
   "group.plugin": "Plugin",
