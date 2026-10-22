@@ -248,6 +248,17 @@ a **restore ticket** — a door for seven days that only hands over those copies
 pulls the backup place first, then the shares and VMs. ZFS only, and the partner can read the copies — for a friend,
 Kopia is the encrypted way.
 
+**The USO network (Tailscale), optional.** Two servers behind different routers (or behind CGNAT) need a network that
+reaches both. Any you already have works — your LAN, your VPN, your own Tailscale. Or the Team Lead joins this server to
+a tailnet of the offices' own: *Join the USO network…* under the partner offices takes an auth key that whoever runs the
+tailnet made (one-off, tagged `tag:uso`; Tailscale's free plan for home use, or your own Headscale). The office then
+runs a Tailscale node of its own — its own device in its own network namespace, its own door for partners, a helper
+fetched from the office's GitHub release and checked against the fingerprint in this version. Nothing of your router,
+your own Tailscale, Unraid's network, DNS or firewall changes. Then pair as always, picking the node's address. The card
+shows the node, the other offices in the network (online, direct or relayed) and the lines for the tailnet's policy;
+the Team Lead says when the node isn't tagged, when other devices can reach it, or when it has no contact. *Leave the
+USO network…* (and the plugin's removal) takes everything of it away again.
+
 <a name="backup-levels"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/levels-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/levels-light.png" alt="Mr. Backupsy&#x27;s setup: a level switch per VM with five fields — off, local, local + partner, local + offsite, local + partner + offsite; the partner fields grey where a VM has no ZFS dataset of its own"></picture></a>
 
 <a name="caretaker-partner"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/partner-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/partner-light.png" alt="The Team Lead&#x27;s partner card: what this server sends to the partner and what it keeps of the partner, each with its use and retention"></picture></a>

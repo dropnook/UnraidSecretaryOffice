@@ -298,7 +298,14 @@ them in English. Details in «Words» below.
 
 ## Development
 
-No build step, no dependencies: plain PHP 8.4 (Unraid's own), vanilla JS, one CSS file. Work in a git clone and put it
+No build step, no dependencies: plain PHP 8.4 (Unraid's own), vanilla JS, one CSS file — one exception (owner, D3 of the
+USO network concept, 2026-10-22): the USO network's helper `helper/` is a small Go module, built reproducibly
+(`bash helper/build.sh --check`: Go and `tailscale.com` pinned in `go.mod`, `-trimpath -buildvcs=false`, no build id,
+`ts_omit_logtail`), checked in CI against the SHA-256 the office pins (`helper/uso-net.sha256` = `USONET_HELPER` in
+`agent/lib/usonet.php` = `HELPER_SHA256` in `scripts/usonet.sh`, `testUsoNetPin`) and published by a tag
+`uso-net-<version>` as a prerelease of its own (never «latest»). It is never in the package: the agent fetches it only
+on *Join*, by the pinned URL (a test server may name another with `USONET_URL="…"` in the plugin's .cfg — the
+SHA-256 is checked either way). A new helper = a new `Version` in `helper/main.go`, a new pin, a new office version. Work in a git clone and put it
 into the installed plugin with `bash plugin/dev-sync.sh` on the host: it copies the working copy into the plugin in RAM —
 live until the next reboot or plugin update; the page reads its files on every request, and the agent restarts itself
 (after `php -l`) when one of its files changes ("Agent code changed" in `data/agent.log`). While a backup run is
@@ -450,6 +457,39 @@ gone server's copies — and Mr. Restori's *Onto a new server* pulls the backup 
 The Night Watchman knows the door's line and its refusals, Ms. Snapshotini keeps her hands off a partner's copies, Ms.
 Dustdevil puts away what an ended partnership left, Ms. Protocolli reads the door's log. The security of the door:
 [HARDENING.md](../HARDENING.md).
+
+## The USO network (the office's own Tailscale node)
+
+Underneath the partner offices only (concept `uso-partner-tunnel`, owner's decisions D1–D10, 2026-10-22). The pairing
+doesn't change — blocks, safety code, the door line with its `from=`, keys, the door: two or more offices join one tailnet
+as tagged devices (`tag:uso`) and pair over the node's 100.x address like over any other network.
+
+* **The host side** (`plugin/scripts/usonet.sh check|stop|leave|status`): the namespace `uso-net` holds only the helper's
+  device `uso0` (the node's addresses, routes to `100.64.0.0/10` and `fd7a:115c:a1e0::/48` only) and the office's own
+  sshd on those addresses, port `PORTSSH` — Unraid's `/usr/sbin/sshd` started as `uso-sshd` (a link: Unraid's `rc.sshd`
+  stops sshd by name and counts it by path, never this one), Unraid's ed25519 host key (what partners pinned),
+  `AuthorizedKeysFile none`, `AuthorizedKeysCommand scripts/usonet-keys.sh` (only `uso-partner:`/`uso-ticket:` lines of
+  Unraid's authorized_keys, as written), forced commands only. The helper's device is born inside the namespace (tsnet
+  with a TUN of its own, `setns` while it is opened), so sshd there sees each partner's real tailnet address and `from=`
+  holds as written; its UDP (41642, not the user's Tailscale's 41641) and control traffic leave the normal way. `check`
+  runs every minute from `usonet.cron` (independent of the array), at `agent.sh start` and after a join; the helper is
+  checked by its pinned SHA-256 on the flash and again in RAM before every start; nothing is opened under `/mnt`.
+* **The office's side** (`agent/lib/usonet.php`): the Team Lead's `usonet_join` (the auth key a secret — RAM inbox, then
+  `usonet/authkey` 0600 on the flash only until the node is in; `OFFICE_SECRET_ACTIONS`), `usonet_leave`, `usonet_look`;
+  their atd jobs (fetch and check, start, wait ≤ 90 s; a failed join leaves nothing); `usonetPublic()` (his state's
+  `usonet`, never a key); `usonetChecks()` (tagged, only `tag:uso` peers — the tailnet's policy, shown and never edited
+  —, the helper pinned and running, contact).
+* **The one rule the partner code asks:** a pair whose address is a peer of this node (the node's own peer list in
+  `RUN_DIR/usonet/status.json` — never the 100.64/10 range, which the user's own tailnet uses too) is called from inside
+  the namespace: `partnerSshArgs()` → `usonetWrap()`, the engine's `partner_ssh_cmd` → `usonet_peer` (2.71). Not joined:
+  as before. `partnerMyAddresses()` lists the node's addresses («USO network» in the picker).
+* **Files:** `/boot/config/plugins/unraid-secretary-office/usonet/` (usonet.cfg, the helper, `state/` — the node's key,
+  written at its login), `…/usonet.cron`; RAM `RUN_DIR/usonet/` (status.json every 10–30 s, logs, sshd_config) and
+  `/usr/local/lib/unraid-secretary-office/` (the helper's and sshd's runnable copies). `usonet.sh leave` (the page's
+  *Leave*, the `.plg`'s remove) logs the node out and removes all of them; `agent.sh release` (array stop) leaves the
+  network up — a partner's ping reaches the door with the array stopped.
+* **Tests:** `testUsoNetPin`, `testUsoNetRule`, `testUsoNetStatus`, `testUsoNetKeys`, `testUsoNetScript`, `testUsoNetJoin`,
+  `testPlgRemove`; scenarios `caretaker-un-*` (tools/scenarios).
 
 ## The network
 
@@ -680,6 +720,7 @@ The same thing has the same word on every desk and text; grammar follows the wor
 | Unraid's bell · user → makers · menu item | notifications · report · Report a problem or a wish… | die Benachrichtigungen (one sent: eine Meldung) · die Rückmeldung · Problem oder Wunsch mitteilen… | le notifiche · la segnalazione · Segnala un problema o un desiderio… | les notifications · le signalement · Signaler un problème ou un souhait… | las notificaciones · el comentario · Contar un problema o un deseo… |
 | the Team Lead's settings for them (1.68) · a summary · quiet hours · silent until · the flood guard | Notification centre · summary · quiet hours · Silent until… · flood guard | die Mitteilungszentrale (items stay «Meldung») · die Zusammenfassung · die Ruhezeit · Still bis… · der Schutz vor Meldungsfluten | il centro notifiche · il riepilogo · le ore di quiete · Silenzio fino a… · la protezione contro le raffiche | le centre de notifications · le résumé · les heures calmes · Silence jusqu'à… · la protection contre les rafales | el centro de notificaciones · el resumen · las horas de calma · Silencio hasta… · la protección contra avalanchas |
 | partner · pair · its key line · code | partner office · pair · the door · safety code | das Partner-Sekretariat · verbinden · die Tür · der Sicherheitscode | la segreteria partner · abbinare · la porta · il codice di sicurezza | le secrétariat partenaire · appairer · la porte · le code de sécurité | la secretaría asociada (el socio) · emparejar · la puerta · el código de seguridad |
+| the office's own tailnet node (Team Lead, under the partner offices) | USO network | das USO-Netz | la rete USO | le réseau USO | la red USO |
 | kept at partner · pull back · new server's start · temp door | At <partner> · Bring back · Start from a partner's copy… · ticket | Beim Partner <name> · Vom Partner zurückholen · Von der Kopie eines Partners starten… · das Ticket | Presso <partner> · Recupera · Parti dalla copia di un partner… · il ticket | Chez <partenaire> · Rapatrier · Partir de la copie d'un partenaire… · le ticket | En <socio> · Traer · Empezar desde la copia de un socio… · el ticket |
 
 * **Kopia** is the tool (container, repository, KopiaUI, policies, its errors), never the place — the place is «offsite». First
