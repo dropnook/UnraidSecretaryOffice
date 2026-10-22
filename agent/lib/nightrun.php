@@ -591,6 +591,11 @@ function nightSteps(string $mode, string $by, int $waited, array $h, ?array $ord
                     $counts[$k] = array_map('intval', array_intersect_key($st[$k], array_flip(['planned', 'done', 'bytes_planned', 'bytes_done'])));
                 }
             }
+            // the files his step could not copy or bring back (2026-10-22: two lost, the night still «done» on her card)
+            $failed = nightJackFailed($st);
+            if ($failed > 0) {
+                $counts['failed'] = $failed;
+            }
             nightOutputAdd($dir, "Jack Streamer · $phase · round {$n['round']}", ($h['jack_output'])());
         } else {
             // without Jack Emby (not taking part, or his step refused tonight): her part alone, her record says why
@@ -711,6 +716,15 @@ function nightSteps(string $mode, string $by, int $waited, array $h, ?array $ord
         $phase('done', nightPlan($end, 0, 0));
     }
     $n['result'] ??= 'ok';
+    // his steps lost files (not copied to the pool, not brought back): said with the night, never «done» alone — `errors`
+    // (an older page reads it as done; night.json `jack_failed` the count)
+    $jackFailed = array_sum(array_map(fn ($x): int => ($x['who'] ?? '') === 'jack' ? (int) ($x['failed'] ?? 0) : 0, $n['steps']));
+    if ($jackFailed > 0) {
+        $n['jack_failed'] = $jackFailed;
+        if ($n['result'] === 'ok') {
+            $n['result'] = 'errors';
+        }
+    }
     $with = $jack && !isset($n['jack_out']);
     // over X (Jack Emby fills up to X exactly — at X is no miss)
     if ($go && $with && $end !== null && $end['x'] > 0 && $end['need'] > 0) {
@@ -726,8 +740,21 @@ function nightSteps(string $mode, string $by, int $waited, array $h, ?array $ord
     $n['who'] = null;
     $n['finished'] = time();
     nightWrite($dir, $n);
-    logLine("Night run ($mode): {$n['result']}" . (isset($n['jack_out']) ? " (without Jack Streamer: {$n['jack_out']})" : '') . (isset($n['stopped_in']) ? " (in {$n['stopped_in']})" : '') . ($n['round'] > 1 ? ", {$n['round']} rounds" : ''));
+    logLine("Night run ($mode): {$n['result']}" . ($jackFailed > 0 ? " (Jack Streamer: $jackFailed files not copied or brought back)" : '') . (isset($n['jack_out']) ? " (without Jack Streamer: {$n['jack_out']})" : '') . (isset($n['stopped_in']) ? " (in {$n['stopped_in']})" : '') . ($n['round'] > 1 ? ", {$n['round']} rounds" : ''));
     return match ($n['result']) { 'stopped' => 3, 'refused' => 1, default => 0 };
+}
+
+/**
+ * The files Jack Streamer's step could not copy to the pool or bring back to the array — MediaCache's result `failed`
+ * (per file; its log has two ERROR lines for one), read only in its shape; 0 without it
+ */
+function nightJackFailed(array $status): int
+{
+    $f = $status['failed'] ?? null;
+    if (!is_array($f) || !is_int($f['fill'] ?? null) || !is_int($f['back'] ?? null)) {
+        return 0;
+    }
+    return max(0, $f['fill']) + max(0, $f['back']);
 }
 
 /**

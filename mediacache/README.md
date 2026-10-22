@@ -33,6 +33,13 @@
 > * **Tidied per disk** (`remove_empty_on_disk`, 2026-10-20): a file filled from `/mnt/user0` leaves its folder empty on its
 >   disk while another disk still has something in it (Season 01: E01/E02 on disk2) — the folder on the disk it lay on
 >   goes as with Unraid's move; no other disk is read, the share's folder on the disk stays.
+> * **A copy whose temporary file vanished is tried once more** (`VANISHED_RE`, «vanished», 2026-10-22, seen on a real
+>   server: a User Script mirroring into the share with `rsync --delete` through /mnt/user removed two of rsync's
+>   `.<name>.XXXXXX` before their rename — code 23, «rename … No such file or directory»): the fill and the rsync
+>   give-back copy such a file once more; any other error or a stop stays as before. Lost again: one ERROR line in plain
+>   words («Ein anderes Programm hat die halb kopierte Datei gelöscht … die Quelle ist unversehrt»), not rsync's. The
+>   result's `failed` counts the files not copied / not brought back (`fill`, `back`, of them `vanished`, the first 20
+>   `files` with `why`, `retried`) — per file, where the log has two ERROR lines for one.
 > * **With a progress or a stop file, Unraid's move binary gets one file per call** (the cleanup): so the progress names
 >   the file in work and «stop after this file» holds exactly. Standalone: one call for all, as before. (The target of a
 >   file the binary moves is unknown until it is done — the progress gives it empty, the panel shows no part inside it.)

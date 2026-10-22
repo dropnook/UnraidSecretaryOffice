@@ -373,6 +373,8 @@ function watchmanPaths(): array
         'userscripts' => '/boot/config/plugins/user.scripts',
         'atjobs'     => '/var/spool/atjobs',
         'emhttp_plugins' => '/usr/local/emhttp/plugins',            // the plugins' files (RAM): a plugin's README names it (watchmanAtPluginName())
+        'update_helper' => WATCH_UPDATE_HELPER,                    // ich777's Plugin-Update-Helper, as his plugins put it there (watchmanUpdateHelper())
+        'emhttpd'    => '/proc',                                    // is emhttpd up — at boot: the plugins installed (watchmanBootPluginsDone())
         'office_installs' => DATA_DIR . '/advisor/installs.json',    // the consultant's record of what he installed (root only)
         'drill_record' => DATA_DIR . '/restore-drill/record.json',  // Mr. Restori's drill: the throwaways it made (root only)
         'agents'     => '/boot/config/plugins/dynamix/notifications/agents',
@@ -937,7 +939,9 @@ function watchmanMirror(array $d, string $boot, int $now, bool $flash): array
             }
         }
         if (is_array($mb['sched']['files'] ?? null)) {
-            $mb['sched']['files'] = array_map(fn ($f) => ['h' => (string) ($f['h'] ?? ''), 'lines' => $hashes($f['lines'] ?? [])], $mb['sched']['files']);
+            // with the lines that went lately and when a file went (hashes and times: watchmanCronFileKnown())
+            $mb['sched']['files'] = array_map(fn ($f) => ['h' => (string) ($f['h'] ?? ''), 'lines' => $hashes($f['lines'] ?? [])]
+                + array_intersect_key((array) $f, ['was' => 1, 'gone' => 1]), $mb['sched']['files']);
         }
     }
     if (is_array($mb['host'])) {
@@ -960,7 +964,8 @@ function watchmanMirrorOk(mixed $m): bool
 
 /**
  * After a round (and «I know, thanks», a switch on his page): the mirror for the night shift — in RAM always, on the
- * flash when it changed and its last write there is WATCH_MIRROR_EVERY old (else at a round after that). No
+ * flash when it changed and its last write there is WATCH_MIRROR_EVERY old (else at a round after that), or something
+ * was noted since («I know, thanks»: at once). No
  * baseline (not on watch): both go.
  *
  * @return string  what was written: ram, flash, none
@@ -989,7 +994,15 @@ function watchmanMirrorWrite(string $dir, string $ram = WATCH_MIRROR_RAM, ?strin
         return 'ram';
     }
     $mtime = @filemtime($flash);
-    if (is_array($old) && $mtime !== false && $now >= $mtime && $now - $mtime < WATCH_MIRROR_EVERY) {
+    // an «I know, thanks» since its last write (his page, the team lead) goes to the flash at once — else a reboot
+    // within the hour starts the night shift on the old normal, and it tells again what was just noted
+    $acked = 0;
+    foreach ((array) $d['book'] as $e) {
+        if (in_array($e['by'] ?? null, ['page', 'teamlead'], true)) {
+            $acked = max($acked, (int) ($e['noted'] ?? 0));
+        }
+    }
+    if (is_array($old) && $mtime !== false && $now >= $mtime && $now - $mtime < WATCH_MIRROR_EVERY && $acked < $mtime) {
         return 'ram';                       // changed, but the flash wears: at a round after the hour
     }
     writeAtomic($flash, jsonEncode($m + ['sum' => $sum]), 0600, 0, 0);
@@ -1066,6 +1079,23 @@ function watchmanNightBegin(array $paths, string $night, int $now, string $ram =
     return ['hired' => $b['hired'], 'from' => $from];
 }
 
+/**
+ * Has Unraid installed this boot's plugins? rc.local installs every plugin on the flash first and starts emhttpd after
+ * them (from the go file) — so: is emhttpd up ($paths['emhttpd']: /proc). Not looked at (no such path): yes.
+ */
+function watchmanBootPluginsDone(array $paths): bool
+{
+    if (!isset($paths['emhttpd'])) {
+        return true;
+    }
+    foreach (glob($paths['emhttpd'] . '/[0-9]*/comm', GLOB_NOSORT) ?: [] as $f) {
+        if (trim((string) @file_get_contents($f, false, null, 0, 32)) === 'emhttpd') {
+            return true;
+        }
+    }
+    return false;
+}
+
 /** Docker during the night: down — no container runs, a program from an odd place is the server's; still or again up — not looked at */
 function watchmanNightDocker(string $pidFile = '/var/run/dockerd.pid'): ?array
 {
@@ -1094,6 +1124,12 @@ function watchmanNightRound(array $paths, string $night = WATCH_NIGHT_DIR, ?int 
             return null;
         }
         $b = readJson("$night/baseline.json") ?? [];
+    }
+    if (!watchmanBootPluginsDone($paths)) {
+        // at boot Unraid installs the plugins one after the other and starts emhttpd after them (rc.local): until then their
+        // .cron files (one written anew), root's crontab and atd's queue (a job a plugin queued as it installed) are half
+        // there, a plugin not installed yet — not looked at; the first round after it compares them with the baseline
+        $paths = array_diff_key($paths, array_flip(['crontabs', 'cron_d', 'cron_files', 'atjobs']));
     }
     // the team lead's notes lie in the pool: none in the night
     $r = watchmanRound($paths, $night, (int) ($b['hired'] ?? 0), $now, $docker ?? fn (): ?array => watchmanNightDocker(), $notify, "$night/no-acks.json");
@@ -4541,10 +4577,11 @@ function watchmanAtJobs(array $paths, ?array $prev): ?array
     }
     $pst = isset($paths['plugins']) ? @stat($paths['plugins']) : false;
     $pm = $pst ? (int) $pst['mtime'] : null;
-    if (is_array($prev) && ($prev['m'] ?? null) === (int) $st['mtime'] && ($prev['pm'] ?? null) === $pm && ($prev['v'] ?? null) === 2
+    if (is_array($prev) && ($prev['m'] ?? null) === (int) $st['mtime'] && ($prev['pm'] ?? null) === $pm && ($prev['v'] ?? null) === 3
         && is_array($prev['jobs'] ?? null)) {
         return $prev;
     }
+    $helper = watchmanUpdateHelper($paths);
     $jobs = [];
     foreach (@scandir($paths['atjobs']) ?: [] as $f) {
         if (!preg_match('/^[a-zA-Z=][0-9a-f]{5}([0-9a-f]{8})$/D', $f, $m) || count($jobs) >= 200 || !watchmanPlain($paths['atjobs'] . "/$f")) {
@@ -4559,10 +4596,54 @@ function watchmanAtJobs(array $paths, ?array $prev): ?array
             $jobs[$f]['plugin'] = $plugin;
             $jobs[$f]['pname'] = watchmanAtPluginName($plugin, $paths['emhttp_plugins'] ?? null);
             $jobs[$f]['file'] = watchmanAtPluginFile((string) watchmanAtOnlyCommand($text));
+        } elseif (!$ours && $helper !== null && watchmanAtHelperJob($text)) {
+            $jobs[$f]['plugin'] = $helper;
+            $jobs[$f]['pname'] = watchmanAtPluginName($helper, $paths['emhttp_plugins'] ?? null);
+            $jobs[$f]['file'] = WATCH_UPDATE_HELPER;
         }
     }
     ksort($jobs);
-    return ['v' => 2, 'm' => (int) $st['mtime'], 'pm' => $pm, 'jobs' => $jobs];
+    // helper: the installed plugin whose copy the Plugin-Update-Helper is (an old entry of its job is closed: watchmanAtPluginClose())
+    return ['v' => 3, 'm' => (int) $st['mtime'], 'pm' => $pm, 'jobs' => $jobs, 'helper' => $helper];
+}
+
+/**
+ * ich777's Plugin-Update-Helper (2026-10-22, his Nvidia Driver, DVB Driver, Coral Driver …): each of his plugins keeps a copy
+ * in its folder on the flash, puts it in /usr/bin as it installs (at every boot) and queues it once with
+ * `echo "/usr/bin/plugin_update_helper" | at now -M` — atd runs it when the load is low (after the boot, often minutes
+ * later); it waits for an Unraid update to fetch the plugin's driver for the new kernel. A plugin's own job, then.
+ */
+const WATCH_UPDATE_HELPER = '/usr/bin/plugin_update_helper';
+
+/**
+ * The installed plugin (its .plg in /var/log/plugins) whose copy on the flash ($paths['cron_files']/<plugin>/plugin_update_helper)
+ * /usr/bin/plugin_update_helper is — the same content — or null
+ */
+function watchmanUpdateHelper(array $paths): ?string
+{
+    if (!isset($paths['update_helper'], $paths['plugins'], $paths['cron_files'])) {
+        return null;
+    }
+    $st = watchmanPlain($paths['update_helper']);
+    $h = $st && $st['size'] <= 1 << 20 ? @hash_file('sha256', $paths['update_helper']) : false;
+    if (!$h) {
+        return null;
+    }
+    foreach (glob($paths['plugins'] . '/*.plg') ?: [] as $plg) {
+        $name = basename($plg, '.plg');
+        $copy = $paths['cron_files'] . "/$name/plugin_update_helper";
+        if (preg_match('/^[A-Za-z0-9._+-]{1,100}$/D', $name) && !in_array($name, ['.', '..'], true) && watchmanPlain($copy)
+            && @hash_file('sha256', $copy) === $h) {
+            return $name;
+        }
+    }
+    return null;
+}
+
+/** The Plugin-Update-Helper's job: exactly that one command, as root, with an environment that runs nothing else (watchmanAtOnlyCommand()) */
+function watchmanAtHelperJob(string $text): bool
+{
+    return preg_match('/^# atrun uid=0 /m', $text) === 1 && watchmanAtOnlyCommand($text) === WATCH_UPDATE_HELPER;
 }
 
 /**
@@ -4798,17 +4879,20 @@ function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, ar
             foreach ($files as $name => $f) {
                 $k = $known['files'][$name] ?? null;
                 if ($k !== null && $k['h'] === $f['h']) {
+                    unset($known['files'][$name]['gone']);      // back as it was
                     continue;
                 }
-                $new = $k === null ? $f['lines'] : array_diff_key($f['lines'], (array) $k['lines']);
+                // its lines against those he knows — and those that went from it lately: a plugin that writes its file anew
+                // (at boot, say) leaves it empty a moment, or gone; the same lines again are no news
+                $new = $k === null ? $f['lines'] : array_diff_key($f['lines'], (array) $k['lines'], (array) ($k['was'] ?? []));
                 if (!$new) {
-                    $known['files'][$name] = ['h' => $f['h'], 'lines' => $f['lines']];      // lines gone, or no lines at all: normal
+                    $known['files'][$name] = watchmanCronFileKnown($k, $f, $now);      // lines gone, back, or none at all: normal
                     continue;
                 }
                 $plugin = (string) strtok((string) $name, '/');
                 if ($plugin === OFFICE_PLUGIN && !array_diff_key($new, array_flip((array) ($f['own'] ?? [])))) {
                     // the office's own schedule, exactly as it writes it (a time changed on a desk's page): noted by himself
-                    $known['files'][$name] = ['h' => $f['h'], 'lines' => $f['lines']];
+                    $known['files'][$name] = watchmanCronFileKnown($k, $f, $now);
                     watchmanOfficeNoteSchedule($book, (string) $name, $now, ['file' => (string) $name, 'plugin' => $plugin, 'new' => $k === null, 'office' => true] + watchmanJobs($new));
                     continue;
                 }
@@ -4816,7 +4900,18 @@ function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, ar
                 $added[] = watchmanSet($book, $kind, "$kind:$name", $now,
                     ['file' => (string) $name, 'plugin' => $plugin, 'new' => $k === null, 'office' => $plugin === OFFICE_PLUGIN] + watchmanJobs($new) + ['_f' => $f['h']]);
             }
-            $known['files'] = array_intersect_key($known['files'], $files);
+            // a file gone is normal — known a while still (WATCH_FORGET), so one that comes back as it was is no news
+            foreach ($known['files'] as $name => $k) {
+                if (!isset($files[$name])) {
+                    $gone = is_int($k['gone'] ?? null) ? $k['gone'] : $now;
+                    if ($now - $gone > WATCH_FORGET) {
+                        unset($known['files'][$name]);
+                    } else {
+                        $known['files'][$name]['gone'] = $gone;
+                    }
+                }
+            }
+            watchmanCronFileClose($book, $known['files'], $files, $now);
         }
     }
 
@@ -4851,7 +4946,7 @@ function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, ar
         // the office's own (hostLaunch()) and Unraid's own (reload_services after an array start) are never news
         $foreign = array_filter((array) $at['jobs'], fn ($j) => empty($j['ours']) && empty($j['unraid']));
         watchmanAtUnraidClose($book, $now);
-        watchmanAtPluginClose($book, $installed, $now);
+        watchmanAtPluginClose($book, $installed, $now, is_string($at['helper'] ?? null) ? $at['helper'] : null);
         foreach ($foreign as $f => $j) {
             if (is_string($j['us'] ?? null) && $j['us'] !== '') {
                 unset($foreign[$f]);
@@ -4891,6 +4986,40 @@ function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, ar
 }
 
 /**
+ * A plugin's .cron file as he knows it after a look ($k: as he knew it, null: not yet; $f: as it is now): its lines, and
+ * the lines that went from it lately (`was`: hash => when, kept WATCH_FORGET) — back as they were, they are no news
+ */
+function watchmanCronFileKnown(?array $k, array $f, int $now): array
+{
+    $was = array_filter((array) ($k['was'] ?? []), fn ($t) => is_int($t) && $now - $t <= WATCH_FORGET);
+    foreach (array_keys(array_diff_key((array) ($k['lines'] ?? []), $f['lines'])) as $h) {
+        $was[$h] = $now;
+    }
+    $was = array_diff_key($was, $f['lines']);
+    if (count($was) > WATCH_SCHED_MAX) {
+        arsort($was);
+        $was = array_slice($was, 0, WATCH_SCHED_MAX, true);
+    }
+    return ['h' => $f['h'], 'lines' => $f['lines']] + ($was ? ['was' => $was] : []);
+}
+
+/**
+ * Open entries about a plugin's .cron file that is as he knows it again (its lines as before — a plugin wrote it anew,
+ * a round saw it half there: at boot, before the night shift waited for the plugins) — closed, noted by himself (`by` back)
+ */
+function watchmanCronFileClose(array &$book, array $known, array $files, int $now): void
+{
+    foreach ($book as $i => $e) {
+        $name = (string) ($e['p']['file'] ?? '');
+        if (in_array($e['kind'] ?? '', ['cron_file', 'cron_file_foreign'], true) && watchmanOpen($e) && isset($files[$name], $known[$name]['h'])
+            && empty($known[$name]['gone']) && $known[$name]['h'] === $files[$name]['h']) {
+            $book[$i]['noted'] = $now;
+            $book[$i]['by'] = 'back';
+        }
+    }
+}
+
+/**
  * A User Script started «in the background»: a line in the book, noted by itself (never open, never
  * told, nothing for the team lead) — once per job, which keeps its number while atd runs it
  * (a<number> waiting, =<number> running).
@@ -4907,15 +5036,17 @@ function watchmanAtUnraidClose(array &$book, int $now): void
 }
 
 /**
- * Open entries that were only a plugin's own job (Fix Common Problems' scan before 1.48): closed, noted by himself
- * (`by` plugin) — the command as kept (watchmanAtCommand(), whole: no «…») a file of a plugin installed now, as root
+ * Open entries that were only a plugin's own job (Fix Common Problems' scan before 1.48; the Plugin-Update-Helper until
+ * 2026-10-22): closed, noted by himself (`by` plugin) — the command as kept (watchmanAtCommand(), whole: no «…») a file of a
+ * plugin installed now, as root; or the helper's, while it is an installed plugin's copy ($helper: watchmanUpdateHelper())
  */
-function watchmanAtPluginClose(array &$book, array $plugins, int $now): void
+function watchmanAtPluginClose(array &$book, array $plugins, int $now, ?string $helper = null): void
 {
     foreach ($book as $i => $e) {
         $cmd = (string) ($e['p']['cmd'] ?? '');
-        if (($e['kind'] ?? '') === 'at_job' && watchmanOpen($e) && ($e['p']['uid'] ?? null) === 0 && preg_match(WATCH_AT_PLUGIN, $cmd, $m)
-            && isset($plugins[$m[1]]) && !preg_match('#(?:^|/)\.\.?(?:/|$)#', $m[2])) {
+        if (($e['kind'] ?? '') === 'at_job' && watchmanOpen($e) && ($e['p']['uid'] ?? null) === 0
+            && (($helper !== null && $cmd === WATCH_UPDATE_HELPER)
+                || (preg_match(WATCH_AT_PLUGIN, $cmd, $m) && isset($plugins[$m[1]]) && !preg_match('#(?:^|/)\.\.?(?:/|$)#', $m[2])))) {
             $book[$i]['noted'] = $now;
             $book[$i]['by'] = 'plugin';
         }
@@ -4976,7 +5107,8 @@ function watchmanSchedAdopt(array &$b, string $kind, array $p, array $seen): voi
             $f = $s['files'][$p['file'] ?? ''] ?? null;
             if (is_array($f)) {
                 $b['sched']['files'] = $part('files', []);
-                $b['sched']['files'][(string) $p['file']] = ['h' => $f['h'], 'lines' => $f['lines']];
+                $was = array_intersect_key((array) ($b['sched']['files'][(string) $p['file']] ?? []), ['was' => 1]);
+                $b['sched']['files'][(string) $p['file']] = ['h' => $f['h'], 'lines' => $f['lines']] + $was;
             }
             break;
         case 'script_new':
@@ -9339,6 +9471,9 @@ function watchmanSchedSummary(?array $s): ?array
     $c = is_array($s['crontab'] ?? null) ? $s['crontab'] : null;
     $files = [];
     foreach ((array) ($s['files'] ?? []) as $name => $f) {
+        if (!empty($f['gone'])) {
+            continue;           // gone: only remembered (watchmanSchedCompare())
+        }
         $files[] = ['file' => (string) $name, 'lines' => count((array) ($f['lines'] ?? []))];
     }
     $scripts = [];

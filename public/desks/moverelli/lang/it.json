@@ -476,6 +476,8 @@
   "night.dry_started_mine": "Prova a secco avviata — guardo cosa farebbe la prossima esecuzione.",
   "night.last": "Ultima esecuzione comune {when}: {how}",
   "night.jack_out": "Jack Streamer non c'era: {why}",
+  "night.jack_failed": {"one": "Jack Streamer: {n} file non preparato", "other": "Jack Streamer: {n} file non preparati"},
+  "night.jack_failed_tip": "La sua parte dell'esecuzione comune non ha potuto copiare questi file — restano dove erano. La sua pagina dice quali e perché.",
   "night.jack_why_gather": "prima avvia una volta «Consolida cartelle» sulla sua pagina",
   "night.jack_why_setup": "non è ancora configurato",
   "night.jack_why_other": "non è partito — il motivo è sulla sua pagina",

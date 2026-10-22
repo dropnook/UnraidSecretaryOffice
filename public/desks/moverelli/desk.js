@@ -1419,13 +1419,21 @@ function jackOutText(why) {
     : why === 'jack_list_lost' ? 'night.jack_why_list' : 'night.jack_why_other';
   return T('night.jack_out', { why: T(k) });
 }
-/** The last night in words, pure: when, how it ended (done, target missed, stopped in a phase, refused), its rounds */
+/** The files Jack Streamer's steps of a night could not copy or bring back (night.json `jack_failed`), 0: none */
+const jackFailed = (l) => (l && Number.isInteger(l.jack_failed) && l.jack_failed > 0 ? l.jack_failed : 0);
+/** «Jack Streamer: 2 files not laid out» for a night whose steps of his lost files — '' when none */
+const jackFailedText = (l) => (jackFailed(l) ? T('night.jack_failed', { n: jackFailed(l) }) : '');
+/**
+ * The last night in words, pure: when, how it ended (done, target missed, stopped in a phase, refused; done with files
+ * Jack Streamer couldn't lay out — `errors`), its rounds
+ */
 function lastNightText(l) {
   if (!l || !l.started) return '';
   const when = fmt.relative(l.finished || l.started);
-  const how = l.result === 'missed' ? T(l.why === 'jack' ? 'night.last_missed_jack' : 'night.last_missed', { pct: l.end_pct ?? '?' })
+  const how = (l.result === 'missed' ? T(l.why === 'jack' ? 'night.last_missed_jack' : 'night.last_missed', { pct: l.end_pct ?? '?' })
     : l.result === 'stopped' ? T('night.last_stopped', { phase: Office.nightStoppedName(l, T) })
-    : l.result === 'refused' ? T('night.last_refused') : T('night.last_ok');
+    : l.result === 'refused' ? T('night.last_refused') : T('night.last_ok'))
+    + (jackFailed(l) ? ' — ' + jackFailedText(l) : '');
   return T(l.jack === false || l.jack_out ? 'night.last_mine' : 'night.last', { when, how }) + (Number(l.round) > 1 ? ' · ' + T('night.rounds', { n: Number(l.round) }) : '')
     + (l.mode === 'dry' ? ' · ' + T('mode.dry') : '') + (l.jack_out ? ' · ' + jackOutText(l.jack_out) : '')
     // it waited for the backup's local part before it began (night.json `order`, agent/lib/nightorder.php)
@@ -1492,7 +1500,11 @@ function lastRunTile(a) {
     value = fmt.relative(last.finished);
     sub.push(`${T('mode.' + last.mode)} · ${T('result.' + (last.result || 'failed'))}`);
     if (last.jack_out) sub.push(jackOutText(last.jack_out));
-    alert = !!((last.status && last.status.errors) || !['ok', 'stopped'].includes(last.result));
+    // her part of a joint run that is over, Jack Streamer's step after it lost files: said here too, never «done» alone
+    const l = night().last;
+    const ofNight = !!(l && l.finished && !l.running && last.started >= l.started && last.started <= l.finished);
+    if (ofNight && jackFailed(l)) sub.push(jackFailedText(l));
+    alert = !!((last.status && last.status.errors) || !['ok', 'stopped'].includes(last.result) || (ofNight && jackFailed(l)));
   }
   return Office.stat({ label: T('last_run'), value, sub, tip: sub.join('\n'), alert, ...a });
 }
@@ -1525,6 +1537,11 @@ function scheduleSection() {
     pm.appendChild(el('div', 'row-name', tonightText(n.plan, !!n.jack)));
     const last = lastNightText(n.last);
     pm.appendChild(el('div', 'row-meta', T(n.jack ? 'night.steps' : 'night.steps_mine') + (last ? ' · ' + last : '')));
+    // Jack Streamer's step lost files in the last joint run: a warning line under it, to his page
+    if (jackFailed(n.last)) {
+      const w = pm.appendChild(el('div', 'row-meta'));
+      w.append(chip(jackFailedText(n.last), 'warn', T('night.jack_failed_tip')), ' ', link(T('night.jack_open'), () => Office.go('#/jack/runs')));
+    }
     // Jack Streamer not in the last night: to his page, where he says what to do
     if (n.last && n.last.jack_out) pm.appendChild(el('div', 'row-meta')).appendChild(link(T('night.jack_open'), () => Office.go(n.last.jack_out === 'jack_gather_first' ? '#/jack/gather' : '#/jack')));
     const dry = button(T('night.dry'), 'small plain', async () => { dry.disabled = true; await act('start_run', { mode: 'dry' }, T(n.jack ? 'night.dry_started' : 'night.dry_started_mine')); });
@@ -2864,7 +2881,7 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, leftText, onWayText, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
-    importPreview, importDone, importFileText, leftCount, runLeft, futureCount, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, percentText, runningText, greeting, greetOk, idleText, runEstimate, estModel, endText, shareGroups, shareRuleLines, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, saveFootEl, setupProblems, ownRulesText, idleRules, fillSetupShares, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, picFlight, fileOnto, movedByPlace, movedAt, extraPlaces, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, setJackLive: (x) => { jackLive = x; }, jackPanel, jackAtWork, redrawCard, schedText, scheduleSection, historySection, footer, hints,
+    importPreview, importDone, importFileText, leftCount, runLeft, futureCount, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, percentText, runningText, greeting, greetOk, idleText, runEstimate, estModel, endText, shareGroups, shareRuleLines, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, saveFootEl, setupProblems, ownRulesText, idleRules, fillSetupShares, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, picFlight, fileOnto, movedByPlace, movedAt, extraPlaces, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, jackFailedText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, setJackLive: (x) => { jackLive = x; }, jackPanel, jackAtWork, redrawCard, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
     setForm: (f) => { form = f; }, initForm, levelMath, levelSection, levelLines, levelNight, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }

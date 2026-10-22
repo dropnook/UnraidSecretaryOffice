@@ -202,6 +202,7 @@
   "noted.office": "Anotado por sí mismo el {when}: lo instaló la propia secretaría (el consultor) — nada que contar.",
   "noted.unraid": "Anotado por sí mismo el {when}: la tarea del propio Unraid tras un inicio del array (reload_services) — nada que contar.",
   "noted.plugin": "Anotado por sí mismo el {when}: una tarea propia de un plugin instalado (ejecuta uno de los archivos del plugin, como root) — nada que contar.",
+  "noted.back": "Anotado por sí mismo el {when}: la programación del plugin vuelve a ser como antes — las mismas líneas; vista a medio escribir (un plugin reescribe su archivo al arrancar) — nada que contar.",
   "group.login": "Acceso",
   "group.container": "Contenedor",
   "group.plugin": "Plugin",

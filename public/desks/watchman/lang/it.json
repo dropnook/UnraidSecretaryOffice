@@ -202,6 +202,7 @@
   "noted.office": "Preso atto da sé il {when}: l'ha installato la segreteria stessa (il consulente) — niente da segnalare.",
   "noted.unraid": "Preso atto da sé il {when}: il job di Unraid stesso dopo un avvio dell'array (reload_services) — niente da segnalare.",
   "noted.plugin": "Preso atto da sé il {when}: un job di un plugin installato (esegue uno dei file del plugin, come root) — niente da segnalare.",
+  "noted.back": "Preso atto da sé il {when}: la pianificazione del plugin è di nuovo com'era — le stesse righe; vista scritta a metà (un plugin riscrive il suo file all'avvio) — niente da segnalare.",
   "group.login": "Accesso",
   "group.container": "Container",
   "group.plugin": "Plugin",
