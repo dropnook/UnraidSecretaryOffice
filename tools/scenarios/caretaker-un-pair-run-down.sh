@@ -26,12 +26,25 @@ line=$(un_peer_sh "grep -F 'uso-partner:$ID' /boot/config/ssh/root/authorized_ke
 # 2. «Ask now» through the network; the door saw this node's address
 look=$(pt_card_ask "$ID" 90)
 [[ $(jq -r .reachable <<<"$look") == true ]] && cell ask-reaches 1 "the card: $look" || cell ask-reaches 0 "the card: ${look:-no answer}"
-heard=$(un_peer_sh "tail -n 20 \$(sed -n 's/^DATA_DIR=\"\\(.*\\)\"/\\1/p' /boot/config/plugins/unraid-secretary-office/unraid-secretary-office.cfg)/partner/door.log" | grep -F "$me" | tail -1)
-[[ -n $heard ]] && cell door-real-address 1 "the peer's door.log: ${heard:0:140}" || cell door-real-address 0 "no line from $me in the peer's door.log"
 
 # 3. a real run: the scratch share's copy goes through the tunnel
+mkdir -p "$KEEP_STASH/UN-INI" && cp -p "$UB/settings.ini" "$KEEP_STASH/UN-INI/settings.ini"
+undo_push bash -c 'cp -p "$1/settings.ini" "$2" && rm -rf "$1"' _ "$KEEP_STASH/UN-INI" "$UB/settings.ini"
 state SH-ZFS "$S"
+# Unraid's «Add Share» on USOTest3VM also leaves an empty folder on the pool cache: the share would be split (no partner
+# unit) — an empty one beside the ZFS pool goes
+zp=$(_st_disk_of_fs zfs)
+for d in /mnt/*/"$S"; do
+    [[ $d == "/mnt/$zp/$S" || $d == "/mnt/user/$S" || $d == "/mnt/user0/$S" ]] && continue
+    rmdir "$d" 2>/dev/null && say "an empty $d beside the ZFS pool removed (the share must be one dataset to travel)"
+done
 track_share "$S"
+# the run's snapshots and the partner bookmark first (the share's own undo can't take a dataset that keeps them)
+un_scratch_drop() { local x ds; [[ $1 == uso-wip-* ]] || return 1
+    ds=$(zfs list -H -o name 2>/dev/null | grep -E "/$1\$" | head -1); [[ -n $ds ]] || return 0
+    zfs list -H -t snapshot,bookmark -o name -r "$ds" 2>/dev/null | grep -E '@uso-(backup|plan)-|#uso-partner-' | while read -r x; do zfs destroy "$x" && say "undo: destroyed $x"; done
+    return 0; }
+undo_push un_scratch_drop "$S"
 undo_push un_peer_sh "zfs destroy -r cache/UnraidSecretaryOffice-partners/$ID/share-$S 2>/dev/null; true"
 flow BK-APPLY "share|$S|mode=snapshot" "share|$S|partner=[\"$ID\"]" || _row state prepare red "Apply of $S as local + partner failed"
 snap_before
@@ -40,6 +53,9 @@ sent=$(jq -c --arg i "$ID" '[.partner.partners[]? | select(.id == $i) | .units[]
 got=$(un_peer_sh "zfs list -H -t snapshot -o name -r cache/UnraidSecretaryOffice-partners/$ID 2>/dev/null | grep -c '@uso-backup-'")
 [[ $got -ge 1 ]] && cell run-through-net 1 "the peer holds $got snapshot(s) of $S; the run: $sent" || cell run-through-net 0 "the peer holds none; the run: $sent"
 expect_warnings
+# the peer's door wrote down this node's real tailnet address (its log line of the receive: «<pair> <address> recv …»)
+heard=$(un_peer_sh "tail -n 30 /mnt/user/appdata/UnraidSecretaryOffice/data/partner/door.log" | grep -F " $me recv " | tail -1)
+[[ -n $heard ]] && cell door-real-address 1 "the peer's door.log: ${heard:0:160}" || cell door-real-address 0 "no receive from $me in the peer's door.log"
 
 # 4. the helper down: unreachable, nothing local fails
 state UN-HELPER-DOWN || _row state un-helper-down red "the helper couldn't be stopped"
@@ -56,6 +72,7 @@ expect_warnings partner_missed
 undo_un_helper_down
 look=$(pt_card_ask "$ID" 120)
 [[ $(jq -r .reachable <<<"$look") == true ]] && cell back-reaches 1 "the card: $look" || cell back-reaches 0 "the card: ${look:-no answer}"
+allow INV-SETTINGS "pairs.json: the pair's last answer and contact (Ask now, the runs) — the pairing's own bookkeeping"
 allow INV-REPLAN "only the lab's container uso-lab-headscale is new to the setup (docker known/no_stop) — the test bed, not the flow"
 check standard
 scenario_end
