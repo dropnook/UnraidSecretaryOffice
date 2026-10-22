@@ -18,7 +18,10 @@ undo_push office_back O2
 # a partner line as the door writes one (a throwaway key — nobody holds its private half after the scenario)
 mkdir -p "$KEEP/key" && ssh-keygen -q -t ed25519 -N '' -C uso-wip-e -f "$KEEP/key/k" >/dev/null 2>&1
 [[ -s $KEYS && -n $(tail -c 1 "$KEYS") ]] && printf '\n' >>"$KEYS"     # its last line ended (Unraid's file may end without one)
-others=$(md5sum <"$KEYS" 2>/dev/null)
+# every line that isn't the office's: the remove takes all of its uso-partner:/uso-ticket: lines by design — a real
+# pairing's too (Tower's with USOPartner; pt_ok/the undo put it back) — the rest must stay byte for byte
+nonoffice() { grep -v ' uso-partner:\| uso-ticket:' "$KEYS" 2>/dev/null | md5sum; }
+others=$(nonoffice)
 printf '%s uso-partner:00e0e0e0\n' "$(cut -d' ' -f1,2 "$KEEP/key/k.pub")" >>"$KEYS"
 rm -rf "$KEEP/key"
 nc_data_closed
@@ -56,7 +59,7 @@ flow OF-REMOVE-REINSTALL
 if grep -q 'uso-partner:00e0e0e0' "$KEYS" 2>/dev/null; then
     cell partner-lines 0 "the partner line is still in $KEYS after the remove"
 else
-    [[ $(md5sum <"$KEYS" 2>/dev/null) == "$others" ]] && cell partner-lines 1 "the partner line gone, every other line byte for byte" \
+    [[ $(nonoffice) == "$others" ]] && cell partner-lines 1 "the partner line gone, every line not the office's byte for byte" \
         || cell partner-lines 0 "the partner line gone, but the other lines changed"
 fi
 check standard
