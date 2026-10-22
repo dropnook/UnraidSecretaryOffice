@@ -476,6 +476,8 @@
   "night.dry_started_mine": "Dry run started — I look at what the next run would do.",
   "night.last": "Last joint run {when}: {how}",
   "night.jack_out": "Jack Streamer wasn't in it: {why}",
+  "night.jack_failed": {"one": "Jack Streamer: {n} file not laid out", "other": "Jack Streamer: {n} files not laid out"},
+  "night.jack_failed_tip": "His part of the joint run could not copy these files — they stay where they were. His page says which and why.",
   "night.jack_why_gather": "run «Consolidate folders» on his page once first",
   "night.jack_why_setup": "he isn't set up yet",
   "night.jack_why_other": "he didn't start — his page says why",

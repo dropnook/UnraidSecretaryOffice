@@ -79,6 +79,14 @@ async function act(action, data, okText) {
 
 /** EmbyCache runs for real (run, or the let-go's release): the live panel instead of the output button */
 const realRun = () => !!(state && state.jobs && state.jobs.embycache.running && ['run', 'release'].includes(state.jobs.embycache.mode));
+/**
+ * EmbyCache only looks (2026-10-22: «I'm laying things out» during a 5-s «What's next»): a report or a dry run going —
+ * its mode, else null. Nothing is laid out: the bubble, the notice and «Last run» say what it is.
+ */
+const lookRun = () => {
+  const j = state && state.jobs && state.jobs.embycache;
+  return j && j.running && ['report', 'dry'].includes(j.mode) ? j.mode : null;
+};
 /** The night run with Ms. Moverelli going for real (she or he at work in it, or between their steps) */
 const nightGoing = () => !!nightNow;
 /** Something on his page to follow live: EmbyCache's real run, or the night run */
@@ -249,8 +257,19 @@ function runSummary(r) {
   if ((s.mode || r.mode) === 'release') return stopped + T('release_summary', { back: c.done || 0, planned: c.planned || 0, left: s.protected || 0 });
   const key = (s.mode || r.mode) === 'run' ? 'run_summary' : 'dry_summary';
   const files = (n) => (key === 'dry_summary' ? nOf('files', n) : n || 0);     // «would bring 1 file back»; the run's «1 of 3» stays a number
+  const lost = failedText(s);
   return stopped + T(key, { back: c.done || 0, back_planned: files(c.planned),
-    fill: f.done || 0, fill_planned: files(f.planned), fill_size: fmt.size(f.bytes_planned || 0) }) + budgetNote(s);
+    fill: f.done || 0, fill_planned: files(f.planned), fill_size: fmt.size(f.bytes_planned || 0) }) + (lost ? ' · ' + lost : '') + budgetNote(s);
+}
+/**
+ * The files a run could not lay out or bring back (MediaCache's `failed`, per file — its log has two error lines for one;
+ * an older status has none: nothing said), pure: «2 files not laid out · 1 not brought back», '' when none
+ */
+function failedText(s) {
+  const f = s && s.failed;
+  if (!f || typeof f !== 'object') return '';
+  const n = (v) => (Number.isInteger(v) && v > 0 ? v : 0);
+  return [n(f.fill) ? T('failed.fill', { n: n(f.fill) }) : '', n(f.back) ? T('failed.back', { n: n(f.back) }) : ''].filter(Boolean).join(' · ');
 }
 /**
  * What waits beyond the budget (MediaCache's `not_in_budget`, USO 2026-10-16; an older status has none: nothing said), pure:
@@ -371,7 +390,7 @@ function bubbleText() {
   if (!state.python) return `${intro} ${T('bubble.no_python')}`;
   if (!state.configured) return `${intro} ${T('bubble.setup')}`;
   if (state.jobs.gather.running) return T('bubble.gathering');
-  if (state.jobs.embycache.running) return T('bubble.running');
+  if (state.jobs.embycache.running) return T(lookRun() ? `bubble.running_${lookRun()}` : 'bubble.running');
   if (state.gather.waiting) return T(state.gather.waiting.why === 'mover' ? 'bubble.mover_waiting' : 'bubble.gather_waiting');
   if (!moverOk()) return T('bubble.mover_dry');
   const c = state.cache;
@@ -461,9 +480,13 @@ function render() {
   if (wait) hints.push(moverWaitLine(wait));
   if (state.old_clone) hints.push(el('p', 'callout', T('notice.old_clone')));
   if (running()) {
-    const p = el('p', 'callout', T(state.jobs.gather.running ? 'notice.gathering' : 'notice.running') + ' ');
-    // a real EmbyCache run: its panel right under this has the raw output
-    if (!realRun()) p.appendChild(button(T('show_output_now'), 'small', () => showOutput(state.jobs.gather.running ? 'gather' : 'embycache', true))).disabled = !Office.agent.running;
+    const look = state.jobs.gather.running ? null : lookRun();
+    const p = el('p', 'callout', T(state.jobs.gather.running ? 'notice.gathering' : look ? `notice.running_${look}` : 'notice.running') + ' ');
+    // a real EmbyCache run: its panel right under this has the raw output; a look: its output, nothing to watch
+    if (!realRun()) {
+      p.appendChild(button(look ? T('show_output', { mode: T('mode.' + look) }) : T('show_output_now'), 'small',
+        () => showOutput(state.jobs.gather.running ? 'gather' : 'embycache', true))).disabled = !Office.agent.running;
+    }
     hints.push(p);
   }
   if (!state.configured) {
@@ -589,7 +612,9 @@ function lastRunTile(a) {
   const sub = [];
   let value = T('never');
   let alert = false;
-  if (job.running) {
+  const look = lookRun();
+  if (look) sub.push(T('last.looking', { mode: T('mode.' + look), time: fmt.time(job.started) }));   // a look: the last run stays
+  if (job.running && !look) {
     value = T('last.running', { time: fmt.time(job.started) });
     sub.push(T('mode.' + (job.mode || 'dry')));
   } else if (main) {
@@ -600,6 +625,8 @@ function lastRunTile(a) {
     if (main.result && !['ok', 'errors'].includes(main.result)) parts.push(T('result.' + main.result));
     parts.push(T('counts', { errors: nOf('errors', st.errors), warnings: nOf('warnings', st.warnings) }));
     sub.push(parts.join(' · '));
+    const lost = failedText(st);
+    if (lost) sub.push(lost);
     if (newer) sub.push(T('last.newer', { mode: T('mode.' + (newer.mode || 'dry')), when: fmt.relative(newer.finished || newer.started) }));
     alert = !!(st.errors || (main.result && main.result !== 'ok'));
   }
@@ -3059,7 +3086,7 @@ Office.places(ID, [
 ]);
 
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.jack = { setState: (s) => { state = s; }, greetOk, roomWords, tonightText, rankItem, progFile, sizesLine, readyOf, poolTile, shareSection, poolView, poolHay, poolSection, bars, lastRuns, sw,
+  globalThis.OFFICE_DESK_TESTS.jack = { setState: (s) => { state = s; }, greetOk, bubbleText, lookRun, failedText, roomWords, tonightText, rankItem, progFile, sizesLine, readyOf, poolTile, shareSection, poolView, poolHay, poolSection, bars, lastRuns, sw,
     historySection, plansSection, plansList, gatherSection, footer, scopeLine, lastRunTile, plansTile, poolTile, sharesTile, gatherTile, render,
     renderSetup, page: () => page, SETUP_TILES, setupTileData, setupTileList, setupStep, importSection, setupSwitcher, tileOf, setForm: (f) => { form = f; }, initForm, form: () => form,
     herRules, sharePart, ruleTexts, needsConnect, connectInst, resetDialog, budgetGb, budgetSplit, budgetState, budgetLine, setupBlocked, MIN_PERSON_GB, shareCase,

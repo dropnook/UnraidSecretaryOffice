@@ -1848,7 +1848,7 @@ function moverelliNight(array $h, ?array $settings): array
 function moverelliNightShort(array $n): array
 {
     return array_intersect_key($n, array_flip(['mode', 'by', 'started', 'finished', 'phase', 'round', 'who', 'jack', 'pool', 'plan', 'steps',
-        'result', 'stopped_in', 'stopped_who', 'missed', 'end_pct', 'running', 'waited', 'why', 'picture', 'jack_out']))
+        'result', 'stopped_in', 'stopped_who', 'missed', 'end_pct', 'running', 'waited', 'why', 'picture', 'jack_out', 'jack_failed']))
         // her run waited for the backup's local part before it began (nightorder.php), read back only in its shape
         + (($o = nightOrderRow($n['order'] ?? null, 'waited_backup')) !== null ? ['order' => $o] : []);
 }

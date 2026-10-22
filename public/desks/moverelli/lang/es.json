@@ -476,6 +476,8 @@
   "night.dry_started_mine": "Simulación iniciada — miro qué haría la próxima ejecución.",
   "night.last": "Última ejecución conjunta {when}: {how}",
   "night.jack_out": "Jack Streamer no participó: {why}",
+  "night.jack_failed": {"one": "Jack Streamer: {n} archivo no preparado", "other": "Jack Streamer: {n} archivos no preparados"},
+  "night.jack_failed_tip": "Su parte de la ejecución conjunta no pudo copiar estos archivos — se quedan donde estaban. Su página dice cuáles y por qué.",
   "night.jack_why_gather": "primero ejecuta una vez «Agrupar carpetas» en su página",
   "night.jack_why_setup": "aún no está configurado",
   "night.jack_why_other": "no empezó — en su página dice por qué",

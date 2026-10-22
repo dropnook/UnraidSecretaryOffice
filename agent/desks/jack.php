@@ -3301,6 +3301,10 @@ function jackNotify(string $tool, string $mode, string $result, array $status, i
     $lang = officeNotifyLang();
     $problems = (int) ($status['errors'] ?? 0)
               + ($tool === 'gather' ? (int) ($status['conflicts'] ?? 0) + (int) ($status['full'] ?? 0) + (int) ($status['dirs_failed'] ?? 0) : 0);
+    // MediaCache's files not copied / not brought back, counted per file (2026-10-22: «4 problems» for two files — its
+    // log has two ERROR lines for one); its other problems stay counted as before
+    $files = $tool === 'embycache' ? jackFailedText(jackFailedFiles($status), $lang) : '';
+    $said = $files !== '' ? $files : ($problems > 0 ? officeNotifyText('jack', 'notify.problems', ['n' => $problems], $lang) : '');
     $message = trim((string) ($status['message'] ?? ''));
     $c = (array) ($status['cleanup'] ?? []);
     if (in_array($outcome, ['stopped_mover', 'stopped_user'], true)) {
@@ -3308,18 +3312,18 @@ function jackNotify(string $tool, string $mode, string $result, array $status, i
         $detail = officeNotifyText('jack', "notify.$outcome" . ($tool === 'gather' ? '_gather' : ($mode === 'release' ? '_release' : '')),
             $tool === 'gather' ? ['done' => (int) ($status['folders_done'] ?? 0), 'total' => (int) ($status['folders'] ?? 0)]
                                : ['n' => (int) ($c['done'] ?? 0) + (int) ($f['done'] ?? 0)], $lang)
-                . ($problems > 0 ? ' ' . officeNotifyText('jack', 'notify.problems', ['n' => $problems], $lang) : '');
+                . ($said !== '' ? " $said" : '');
     } elseif ($mode === 'release' && $status && in_array($outcome, ['ok', 'errors'], true)) {
         $left = (int) ($status['protected'] ?? 0);
         $detail = officeNotifyText('jack', 'notify.released', ['n' => (int) ($c['done'] ?? 0)], $lang)
                 . ($left > 0 ? ' ' . officeNotifyText('jack', 'notify.released_left', ['n' => $left], $lang) : '')
-                . ($problems > 0 ? ' ' . officeNotifyText('jack', 'notify.problems', ['n' => $problems], $lang) : '');
+                . ($said !== '' ? " $said" : '');
     } elseif (!$status) {
         $detail = officeNotifyText('jack', 'notify.no_status', ['exit' => $exit], $lang);
     } elseif ($message !== '' && $message !== 'Signal') {
         $detail = $message;
     } else {
-        $detail = $problems > 0 ? officeNotifyText('jack', 'notify.problems', ['n' => $problems], $lang) : '';
+        $detail = $said;
     }
     if (!empty($status['incomplete']) && !in_array($outcome, ['stopped_mover', 'stopped_user'], true)) {
         // a server (or plex.tv for Plex's people) didn't answer fully: said plainly — nothing went back, the pool stays protected
@@ -3336,6 +3340,31 @@ function jackNotify(string $tool, string $mode, string $result, array $status, i
         logLine("Jack Streamer: told Unraid's notifications — $tool ($mode) $outcome");
     }
     return $sent;
+}
+
+/**
+ * The files a MediaCache run could not copy to the pool / bring back to the array — its result's `failed` (per file),
+ * read only in its shape: {fill, back}; null without it (a run that never got that far, an older status)
+ */
+function jackFailedFiles(array $status): ?array
+{
+    $f = $status['failed'] ?? null;
+    if (!is_array($f) || !is_int($f['fill'] ?? null) || !is_int($f['back'] ?? null)) {
+        return null;
+    }
+    return ['fill' => max(0, $f['fill']), 'back' => max(0, $f['back'])];
+}
+
+/** «2 files not copied to the pool — they stay on the array.» (and the way back) — '' when none failed */
+function jackFailedText(?array $failed, string $lang): string
+{
+    $parts = [];
+    foreach (['fill' => 'notify.not_copied', 'back' => 'notify.not_back'] as $k => $key) {
+        if (($failed[$k] ?? 0) > 0) {
+            $parts[] = officeNotifyText('jack', $key, ['n' => $failed[$k]], $lang);
+        }
+    }
+    return implode(' ', $parts);
 }
 
 /**
