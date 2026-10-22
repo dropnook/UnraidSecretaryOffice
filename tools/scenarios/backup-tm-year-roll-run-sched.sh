@@ -5,6 +5,7 @@
 # (cell year-kept: its snapshots still there after the new year's run). Needs a licence valid past 2027-01-01: Unraid's
 # trial ends with a date — a clock beyond it may end the trial on this server (USOTest3VM runs a trial: skipped there).
 # Nightly (~5 min).
+# run-late: 4 the clock set on: runs and snapshots dated ahead stay until a base reset
 . "$(dirname "$0")/lib.sh"
 scenario_begin backup-tm-year-roll-run-sched
 needs any

@@ -20,11 +20,13 @@ t0=$SECONDS
 if ask backup.setup_plan '{"measure":false}' 120 >/dev/null; then
     sleep 2
     if wait_for 120 "the replan to end" _setup_done; then
-        _bk_plan_get "$KEEP/plan-replan.json"
         cell replan-ends 1 "«Look again» ended in $((SECONDS - t0)) s"
-        jq -e '[.messages[]? | .code] | index("docker_silent")' "$KEEP/plan-replan.json" >/dev/null 2>&1 \
-            && cell replan-says 1 "the plan says docker_silent" \
-            || cell replan-says 0 "no docker_silent in the plan: $(jq -c '[.messages[]? | .code] | unique' "$KEEP/plan-replan.json" 2>/dev/null | head -c 300)"
+        # the look stops at docker_silent before it writes a plan (setup.sh exit 1): the message is in setup-status.json
+        # — the plan file still holds the last good look, which the page shows under the status's messages
+        cp "$UB/state/setup-status.json" "$KEEP/setup-status-replan.json" 2>/dev/null
+        jq -e '[.messages[]? | .code] | index("docker_silent")' "$KEEP/setup-status-replan.json" >/dev/null 2>&1 \
+            && cell replan-says 1 "the look says docker_silent ($(jq -r '.result' "$KEEP/setup-status-replan.json"))" \
+            || cell replan-says 0 "no docker_silent in the look's status: $(jq -c '{result, codes: ([.messages[]? | .code // empty] | unique)}' "$KEEP/setup-status-replan.json" 2>/dev/null | head -c 300)"
     else
         cell replan-ends 0 "«Look again» still at work after $((SECONDS - t0)) s: $(pstree -a "$(jq -r '.pid // 0' "$UB/state/setup-status.json")" 2>/dev/null | sed -n 2p | sed 's/^[ |`-]*//')"
         docker_unhang SV-DOCKER-HUNG; wait_setup 600; docker_hang SV-DOCKER-HUNG

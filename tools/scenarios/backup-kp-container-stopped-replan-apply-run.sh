@@ -1,7 +1,8 @@
 #!/bin/bash
 # Cell B37 of matrix.md (batch E), state KP-CONTAINER-STOPPED: Kopia's container stopped by the user. With uso-only at
 # «local + offsite» (prepared by Apply with the backup place, as the plan then proposes — put back by the undo): «Look at the server again» says it (setup.msg
-# kopia_not_running — cell replan-hint), Apply on the page's draft changes nothing (INV-DIFF-EXACT), the run backs up
+# kopia_not_running — cell replan-hint), Apply on the page's draft changes nothing (INV-DIFF-EXACT) and ends «errors», only
+# Kopia's (engine 2.67: up to 2.66 «ok»), the run backs up
 # locally and says Kopia's part is out — the office never starts Kopia (cells kopia-not-started: the container's state
 # after Apply and after the run as the user left it). Pre-release (~5 min).
 . "$(dirname "$0")/lib.sh"
@@ -24,7 +25,7 @@ if flow BK-REPLAN; then
     grep -qE 'kopia_not_running|kopia_connect' <<<"$c" && cell replan-hint 1 "the plan's hint: $(grep -oE 'kopia_not_running|kopia_connect' <<<"$c" | paste -sd' ' -)" \
         || cell replan-hint 0 "no hint for this state (kopia_not_running|kopia_connect) in the plan: $c"
 fi
-flow BK-APPLY plan=old
+flow BK-APPLY plan=old errors=kopia            # engine 2.67: Kopia unreachable → Apply ends «errors» (written), only Kopia's
 expect_diff ''                                   # Apply on the page's draft as it is: no value changes
 [[ $(kstate) == "$k0" ]] && cell kopia-not-started 1 "Kopia's container $k0 after Apply" || cell kopia-not-started 0 "Kopia's container $k0 → $(kstate) after Apply"
 minute_wait

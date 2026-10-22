@@ -10,6 +10,7 @@
 # INV-TICK is allowed: the heartbeat's own times jump with the clock this scenario sets — not a stall (agent-beats says
 # whether it kept beating). The undo: the clock back first, then the rule; both sides' partner files back (state.json's
 # «told» and the looks' «tried» of the clock set ahead go with them), the partner base compared. Nightly (~5 min).
+# run-late: 5 the clock set 6 h on: the partner looks and runs dated ahead stay until a base reset
 . "$(dirname "$0")/lib.sh"
 scenario_begin backup-pt-offline-silent-6h
 needs tower partner

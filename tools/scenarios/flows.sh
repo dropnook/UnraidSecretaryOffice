@@ -20,7 +20,7 @@
 #   Ms. Moverelli  MV-SETUP [x=80] [mover_off=1] [rule=<share>:<days>…]   MV-RESAVE   MV-LIST   MV-DRY   MV-RUN [look=s]
 #                  MV-RUN-SCHED   MV-STOP-AFTER-FILE [share=] (= MV-NIGHT-STOP)   MV-SCHEDULE cron=…|cron=   MV-MOVER-OFF
 #                  MV-IMPORT folder=   MV-LETGO
-#   The office     OF-UPDATE plg=<file|url>|update|worktree | from=<version>   OF-REMOVE-REINSTALL [plg=]   OF-ARRAY-STOP-START
+#   The office     OF-UPDATE plg=<file|url>|update|worktree|tree | from=<version>   OF-REMOVE-REINSTALL [plg=]   OF-ARRAY-STOP-START
 #                  OF-REBOOT (the pre half: notes for the post half, the runner reboots)   OF-REBOOT-BACK (the post half)
 #                  OF-AGENT-RESTART   OF-HIRE desk=   OF-FIRE desk=
 #
@@ -52,7 +52,7 @@ _fl_args() {
     FL=() FL_LIST=() FL_KV=()
     local a
     for a in "$@"; do
-        if [[ $a =~ ^(refuse|measure|preset|plan|mode|after|cron|delete|kind|folder|name|share|dir|stack|no_fresh_ok|clear|path|moment|wake|app|file|version|container|vm|source|snapshot|of|x|mover_off|look|plg|desk|key|value|from)=(.*)$ ]]; then
+        if [[ $a =~ ^(refuse|measure|preset|plan|mode|after|cron|delete|kind|folder|name|share|dir|stack|no_fresh_ok|clear|path|moment|wake|app|file|version|container|vm|source|snapshot|of|x|mover_off|look|plg|desk|key|value|from|errors)=(.*)$ ]]; then
             FL[${BASH_REMATCH[1]}]=${BASH_REMATCH[2]}
         elif [[ $a == rule=* ]]; then
             FL_LIST+=("${a#rule=}")
@@ -156,7 +156,9 @@ flow_bk_first_setup() {
     _bk_apply_body "$body"
 }
 
-# Apply's request and its end (setup-status.json mode=apply, result ok|warnings)
+# Apply's request and its end (setup-status.json mode=apply, result ok|warnings). errors=kopia (BK-APPLY, BK-FIRST-SETUP):
+# «errors» with settings.ini written is the expected end when every error is Kopia's (kopia_*) — engine 2.67: an Apply
+# that couldn't set Kopia's policies (its container stopped, disconnected) ends «errors», up to 2.66 «ok»
 _bk_apply_body() {
     local body=$1 rc
     printf '%s\n' "$body" >"$KEEP/apply-body.json"
@@ -165,6 +167,11 @@ _bk_apply_body() {
     rc=$?; ((rc == 0)) || { _fl_end $rc; return; }
     wait_setup 1800 || return 1
     local st=$UB/state/setup-status.json
+    if [[ ${FL[errors]:-} == kopia ]] && jq -e '.mode == "apply" and .result == "errors" and .written == true
+            and ([.messages[]? | select(.level == "error") | .code // ""] | length > 0 and all(startswith("kopia_")))' "$st" >/dev/null 2>&1; then
+        say "Apply ended «errors» as expected (errors=kopia): $(jq -c '[.messages[]? | select(.level == "error") | .code]' "$st")"
+        return 0
+    fi
     if ! jq -e '.mode == "apply" and (.result == "ok" or .result == "warnings")' "$st" >/dev/null 2>&1; then
         say "Apply ended: $(jq -c '{mode, result, errors}' "$st" 2>/dev/null)"
         return 1
@@ -746,9 +753,10 @@ flow_of_agent_restart() { _fl_args "$@" || return 1; agent_restart; }
 # the office's version as the plugin's files say and as the agent says
 _of_versions() { printf '%s agent %s' "$(sed -n -E "s/^const OFFICE_VERSION = '([^']+)'.*/\1/p" "$P/src/bootstrap.php" 2>/dev/null)" "$(jq -r '.version // "?"' "$RUN/agent.json" 2>/dev/null)"; }
 
-# OF-UPDATE plg=<file|url>|update|worktree | from=<version>: the plugin manager's update — `plugin update` (update), a
-# release's .plg installed (plg=<address or file>; the manager installs only another version, never an older one),
-# the synced tree into the plugin (worktree: plugin/dev-sync.sh, the coordinator's deploy) — or from=<version>: the
+# OF-UPDATE plg=<file|url>|update|worktree|tree | from=<version>: the plugin manager's update — `plugin update` (update),
+# a release's .plg installed (plg=<address or file>; the manager installs only another version, never an older one),
+# the synced tree into the plugin (worktree: plugin/dev-sync.sh, the coordinator's deploy), this tree built as a
+# release (tree: plugin/build.sh, plugin version <today>z, the package on the flash — nothing downloaded) — or from=<version>: the
 # whole way a user goes, from that older release to the one installed now: `plugin remove`, `plugin install` of
 # v<version>'s .plg (an older office starts on the newer one's data folder), then the release installed before
 # installed again (its .plg by its tag — an update from the older one). Waited for until a new agent is at work. The
@@ -770,6 +778,9 @@ flow_of_update() {
     fi
     case $how in
         worktree) cmd="bash $(printf %q "$SC_TREE/plugin/dev-sync.sh")" ;;
+        # the plugin manager's update to this tree's code, built as a release is (plugin/build.sh) — proves a fix before
+        # it is released (a release's address installs what GitHub has)
+        tree) how=$(_st_build_tree) || return 1; cmd="plugin install $(printf %q "$how")" ;;
         update) cmd='plugin update unraid-secretary-office.plg' ;;
         *) cmd="plugin install $(printf %q "$how")" ;;            # a release's .plg (its address or a file)
     esac

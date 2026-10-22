@@ -72,6 +72,12 @@ Report `/tmp/uso-scenarios/<date>/<name>.md` (or `$USO_SC_OUT/<name>.md` from th
 `VERDICT <green|red|skipped|dirty> exit=<n> red=<ids>`; beside it `<name>.result` (`verdict= red= pending= keep= why=`)
 and `<name>.pending` (Mac-side checks). Evidence in `/tmp/uso-keep/<name>/` (`before/`, `after/`, `ask/`, `undo.log`).
 
+**Run late.** A scenario that leaves something behind until the next base reset (a row in a history, packages in the
+storeroom, runs dated ahead by a clock cell) carries a line `# run-late: <n> <why>` in its header: `--all` and `--desk`
+lists run it after every other one, the higher `n` the later (R22: 9, the last), each after a base reset of its own
+(run.sh and run-local.sh alike); `--only` keeps the order given. Today: M19 pending (1), B49 let-go (2), B43 clock back
+(3), the clock-ahead cells year roll and both DST cells (4), B39's 6 h of silence (5), R22 (9).
+
 ## Self-test
 
 `flock -o /tmp/uso-scenarios.lock bash tools/scenarios/lib.sh --self-test` — makes a `uso-wip-h1-st` share (files on the
@@ -114,7 +120,7 @@ Apply's body is desk.js's own `setupDecisions()` under node (`decisions_from_pla
 | Mr. Backupsy | `BK-FIRST-SETUP [preset=…] [key=value…]` · `BK-REPLAN` · `BK-APPLY [plan=old] key=value…` · `BK-DECLINE key= [value=]` · `BK-RUN-MANUAL mode=backup\|nokopia\|dryrun\|check` · `BK-RUN-SCHED` · `BK-RUN-QUEUED` · `BK-ABORT [after=s]` · `BK-UNMOUNT` · `BK-SCHEDULE cron=…` · `BK-ORPHANS [delete=…\|all]` · `BK-PACKAGE-ASIDE kind= folder=` · `BK-DATASET-MAKE kind= name= share= dir=` · `BK-LETGO [clear=yes]` · `BK-FORGET` |
 | Mr. Restori | `RS-SCAN` · `RS-FILES mode=beside\|replace path= [moment=]` (`RS-FILES-BESIDE`, `-REPLACE`) · `RS-DB app= file=` · `RS-SQLITE app= container=` · `RS-CONFIG app=` · `RS-VM vm=` · `RS-KOPIA source= [snapshot=]` · `RS-PUTBACK of=<id>\|last` · `RS-DRILL` |
 | Ms. Moverelli | `MV-SETUP [x=] [rule=<share>:<days>…] [mover_off=1]` · `MV-RESAVE` · `MV-LIST` · `MV-DRY` · `MV-RUN` · `MV-RUN-SCHED` · `MV-STOP-AFTER-FILE` · `MV-SCHEDULE cron=…` · `MV-MOVER-OFF` · `MV-IMPORT folder=` · `MV-LETGO` |
-| The office | `OF-UPDATE plg=<file\|url>\|update\|worktree` · `OF-REMOVE-REINSTALL [plg=]` · `OF-ARRAY-STOP-START` · `OF-REBOOT` (pre half) / `OF-REBOOT-BACK` (post half) · `OF-AGENT-RESTART` · `OF-HIRE desk=` · `OF-FIRE desk=` |
+| The office | `OF-UPDATE plg=<file\|url>\|update\|worktree\|tree` · `OF-REMOVE-REINSTALL [plg=]` · `OF-ARRAY-STOP-START` · `OF-REBOOT` (pre half) / `OF-REBOOT-BACK` (post half) · `OF-AGENT-RESTART` · `OF-HIRE desk=` · `OF-FIRE desk=` |
 
 Checks added to the standard set (n/a where they don't apply): INV-SETUP-MSGS, INV-STOPPED-KEEPS, INV-NC-MAINT-OFF,
 INV-MOUNTS-GONE, INV-NO-MNT-OPEN, INV-COMPARE, INV-MIGRATE-IDEMPOTENT; INV-REPLAN (the Apply list = the base's

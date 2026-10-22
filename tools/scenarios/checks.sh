@@ -289,15 +289,20 @@ _ck_tiles_moverelli() {
     fi
 }
 # _ck_moved_pct <share> <file>: the share's inventory now (kept in file); the percent of the bytes that were on the side
-# her run takes from at snap_before (prefer: the array; yes: the pool) and are on the other side now
+# her run takes from at snap_before (prefer: the array; yes: the pool) and are on the other side now — hers only: a
+# file on Jack Streamer's list at snap_before or now is his (her run leaves it; his give-back in a joint run takes a
+# film his look dropped from the list to the array — M7, 2026-10-20: «0 % on the card, 21 % across» was his film)
 _ck_moved_pct() {
     local use
     use=$(_ck_share_use "$1")
     inventory "$1" >"$2"
-    awk -F'\t' -v pre="$use" 'function src(b) { return (pre == "prefer") ? (b ~ /^disk[0-9]+$/) : (b !~ /^disk[0-9]+$/) }
-        NR == FNR { if ($0 !~ /^#/ && src($5)) { size[$1] = $2; total += $2 } next }
+    awk -F'\t' -v pre="$use" -v sh="$1" 'function src(b) { return (pre == "prefer") ? (b ~ /^disk[0-9]+$/) : (b !~ /^disk[0-9]+$/) }
+        FILENAME == ARGV[1] { p = $0; if (sub("^/mnt/[^/]+/" sh "/", "", p)) jack[p] = 1; next }
+        FILENAME == ARGV[2] { if ($0 !~ /^#/ && src($5) && !($1 in jack)) { size[$1] = $2; total += $2 } next }
         ($0 !~ /^#/) && ($1 in size) && !src($5) { done += size[$1] }
-        END { if (total > 0) printf "%d", 100 * done / total }' "$KEEP/before/inventory/$1.tsv" "$2"
+        END { if (total > 0) printf "%d", 100 * done / total }' \
+        <(cat "$KEEP/before/files/mediacache_exclude.txt" "$D/mediacache/mediacache_exclude.txt" 2>/dev/null; echo) \
+        "$KEEP/before/inventory/$1.tsv" "$2"
 }
 
 # the last look after the flow — once per check run (INV-PAGE and INV-BUBBLE share it)

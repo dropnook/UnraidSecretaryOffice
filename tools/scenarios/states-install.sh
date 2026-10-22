@@ -80,8 +80,18 @@ office_back() {
     _st_agent_stop
     # the code as it ran (a dev-synced tree is not the package), the data folder as it was
     find "$P" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + && tar -C "$P" -xpf "$dir/plugin.tar" || return 1
-    # the state's data folder goes (a <data>.aside-* would be taken for base.sh's: its CARRY picks the newest one)
-    [[ -e $D ]] && { rm -rf -- "$D" || return 1; }
+    # the state's data folder goes (a <data>.aside-* would be taken for base.sh's: its CARRY picks the newest one) —
+    # once nothing of the office writes there: an install's agent hands a look (setup.sh) to atd, which outlives the
+    # agent's stop and writes state/ while rm runs («Directory not empty», batch E O1, 2026-10-20)
+    _st_jobs_quiet 300 || say "office_back: a job of the office still runs: $(pgrep -af "$ST_JOBS" | head -1 | cut -c1-120)"
+    local i
+    for ((i = 0; i < 3; i++)); do
+        [[ -e $D ]] || break
+        rm -rf -- "$D" 2>"$KEEP/office-back-rm.err" && break
+        say "office_back: $(head -1 "$KEEP/office-back-rm.err") — again"
+        _st_agent_stop; _st_jobs_quiet 120; sleep 2
+    done
+    [[ -e $D ]] && { say "office_back: the state's data folder could not be removed"; return 1; }
     tar -C "$(dirname "$D")" -xpf "$dir/data.tar" || return 1
     tar -C "$ST_PLG_FLASH" -xpf "$dir/flash.tar"            # the install's script may have rewritten cfg or cron
     for f in "${ST_KEYS[@]}"; do k=$dir/keys.$(md5sum <<<"$f" | cut -c1-8); [[ -f $k ]] && cp -p "$k" "$f"; done
@@ -91,24 +101,36 @@ office_back() {
     rm -rf -- "$dir"
 }
 
+# the office's jobs (base.sh's pattern) and atd's queue of them: none
+ST_JOBS="^((/usr)?(/bin/)?bash $P/backup/(backup|setup)\.sh|([^ ]*/)?php $P/agent/agent\.php job )"
+_st_office_atq() { local id; for id in $(atq 2>/dev/null | awk '{print $1}'); do at -c "$id" 2>/dev/null | grep -q "$ST_PLG_NAME" && echo "$id"; done; }
+_st_jobs_none() { ! pgrep -f "$ST_JOBS" >/dev/null && [[ -z $(_st_office_atq) ]]; }
+_st_jobs_quiet() { _st_until "$1" _st_jobs_none; }
+
+# _st_build_tree → the path of a .plg built from this tree (plugin/build.sh, plugin version <today>z — newer than any
+# release of today by strcmp), its package laid on the flash first so the install downloads nothing
+_st_build_tree() {
+    local office ver
+    office=$(sed -n "s/^const OFFICE_VERSION = '\([^']*\)'.*/\1/p" "$SC_TREE/src/bootstrap.php")
+    ver=$(date -u +%Y.%m.%d)z
+    (cd "$SC_TREE" && bash plugin/build.sh "$office" "$ver") > "$KEEP/build.out" 2>&1 \
+        || { say "plugin/build.sh failed: $(tail -2 "$KEEP/build.out" | tr '\n' ' ')"; return 1; }
+    cp -p "$SC_TREE/dist/$ST_PLG_NAME-$ver.txz" "$ST_PLG_FLASH/" || return 1
+    printf '%s' "$SC_TREE/dist/$ST_PLG_NAME.plg"
+}
+
 _st_plg_url() { printf 'https://github.com/%s/releases/download/%s/%s.plg' "$ST_PLG_REPO" "$1" "$ST_PLG_NAME"; }
 _st_release_tags() { curl -fsSL "https://api.github.com/repos/$ST_PLG_REPO/releases?per_page=10" | jq -r '.[] | select(.draft == false and .prerelease == false) | .tag_name'; }
 
 plugin_install() {
-    local id=$1 what=$2 plg tag office ver
+    local id=$1 what=$2 plg tag
     office_keep "$id" || return 1
     case $what in
         http*://*) plg=$what ;;
         latest) tag=$(_st_release_tags | sed -n 1p); plg=$(_st_plg_url "$tag") ;;
         previous) tag=$(_st_release_tags | sed -n 2p); plg=$(_st_plg_url "$tag") ;;
         v[0-9]*) tag=$what; plg=$(_st_plg_url "$tag") ;;
-        worktree)
-            office=$(sed -n "s/^const OFFICE_VERSION = '\([^']*\)'.*/\1/p" "$SC_TREE/src/bootstrap.php")
-            ver=$(date -u +%Y.%m.%d)z
-            (cd "$SC_TREE" && bash plugin/build.sh "$office" "$ver") > "$KEEP/build.out" 2>&1 \
-                || { say "plugin_install: plugin/build.sh failed: $(tail -2 "$KEEP/build.out" | tr '\n' ' ')"; return 1; }
-            cp -p "$SC_TREE/dist/$ST_PLG_NAME-$ver.txz" "$ST_PLG_FLASH/" || return 1
-            plg=$SC_TREE/dist/$ST_PLG_NAME.plg ;;
+        worktree) plg=$(_st_build_tree) || return 1 ;;
         *) say "plugin_install: url|latest|previous|vX.Y.Z|worktree, not $what"; return 1 ;;
     esac
     [[ $what == previous || $what == latest ]] && [[ -z $tag ]] && { say "plugin_install: GitHub's release list didn't answer"; return 1; }

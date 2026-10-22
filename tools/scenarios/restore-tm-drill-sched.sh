@@ -13,6 +13,7 @@
 # F12). No INV-BACKUP-AFTER (the history then lies in the future). Run last: its runs on the clock set on stay in the
 # history and as snapshots dated in the future until the next base reset (another cell would take them for the newest
 # moment). Nightly (~10 min).
+# run-late: 9 the last of all: its clock steps days on and back, its runs dated ahead stay until a base reset
 . "$(dirname "$0")/lib.sh"
 scenario_begin restore-tm-drill-sched
 needs tower docker

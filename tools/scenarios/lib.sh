@@ -780,7 +780,8 @@ _snap() {
     rm -rf -- "$dir"
     mkdir -p "$dir/files" "$dir/inventory"
     _settings_files | _md5_list >"$dir/settings.md5"
-    for f in "$UB/settings.ini" "$D/moverelli/smart_mover.ini" "$OFFICE_FLASH/"*.cron; do
+    # (+ Jack Streamer's list: his look rewrites it during a joint run — checks.sh's run card tells his moves from hers)
+    for f in "$UB/settings.ini" "$D/moverelli/smart_mover.ini" "$OFFICE_FLASH/"*.cron "$D/mediacache/mediacache_exclude.txt"; do
         [[ -f $f ]] && cp -p -- "$f" "$dir/files/$(basename "$f")"
     done
     _unraid_files | _md5_list >"$dir/unraid.md5"

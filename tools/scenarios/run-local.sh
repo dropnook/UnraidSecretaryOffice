@@ -4,7 +4,8 @@
 # in reboot halves are skipped).
 #
 #   bash run-local.sh [--all | --desk backup,… | --only name[:arg],…] [--no-reset] [--no-nightly] [--keep] [--out DIR]
-#                                         list mode: base.sh, every scenario (a dirty one → base.sh again), summary.md
+#                                         list mode: base.sh, every scenario (a dirty one → base.sh again; the
+#                                         `# run-late:` ones last, base.sh before each), summary.md
 #   bash run-local.sh --list [--all | --desk … | --only …] [--no-nightly]   the scenarios' names, one a line
 #   bash run-local.sh --one name[:arg] [--half pre|post] --out DIR     one scenario (or one half), its result file
 #   bash run-local.sh --base --out DIR                                  base.sh, its time and log noted in DIR/run.info
@@ -12,7 +13,8 @@
 #
 # A scenario is tools/scenarios/<desk|office>-<…>.sh (desk = a folder of public/desks); one that reboots is two halves
 # <name>-pre.sh and <name>-post.sh. `name:arg` hands `arg` to the scenario as $1. Each runs as root under the Tower lock
-# (flock /tmp/uso-scenarios.lock, resilienz/wave1/_shared.md), at most --timeout s (default 3600), with
+# (flock /tmp/uso-scenarios.lock, resilienz/wave1/_shared.md), at most --timeout s (default 3600; a `# timeout: <s>`
+# line in the scenario's head gives it longer), with
 #   USO_SC_OUT   the run's report folder - lib.sh writes <name>.md, <name>.result, <name>.pending there
 #   USO_SC_TREE  the tree the scenario runs from;   USO_SC_KEEP=1  with --keep (lib.sh: leave the state for a look)
 # (flock -o: the lock's fd is not handed down - an agent a scenario restarts would hold the lock for its whole life.)
@@ -129,12 +131,22 @@ scenario_names() {
         echo "$n"
     done
 }
+# a scenario's `# run-late: <n> <why>` line (in its first 30): it leaves something behind until a base reset — an --all or
+# --desk list runs it after every other one, the higher n the later (R22: 9), each on a fresh base (late_reset)
+late_rank() { local f=$SC/$1.sh; [[ -f $f ]] || f=$SC/$1-pre.sh; sed -n '1,30s/^# run-late: *\([0-9]\).*/\1/p' "$f" 2>/dev/null | head -1; }
+late_last() {
+    local n i=0
+    while IFS= read -r n; do
+        [[ -n $n ]] || continue
+        printf '%s\t%05d\t%s\n' "$(late_rank "${n%%:*}" | grep . || echo 0)" $((i++)) "$n"
+    done | sort -t $'\t' -k1,1n -k2,2n | cut -f3
+}
 select_names() {
     local all n w
     all=$(scenario_names)
     case $sel in
-        all) printf '%s\n' "$all" | sed '/^$/d' ;;
-        desk) for w in ${names//,/ }; do printf '%s\n' "$all" | grep -E "^$w-" ; done ;;
+        all) printf '%s\n' "$all" | sed '/^$/d' | late_last ;;
+        desk) for w in ${names//,/ }; do printf '%s\n' "$all" | grep -E "^$w-" ; done | late_last ;;
         only) for w in ${names//,/ }; do
                   n=${w%%:*}
                   if printf '%s\n' "$all" | grep -qxF "$n" || [[ -f $SC/$n.sh || -f $SC/$n-pre.sh ]]; then echo "$w"
@@ -215,10 +227,15 @@ run_one() {
         rm -f "$out/$name.result" "$out/$name.pending" "$out/$name.result-pre" "$out/$name.out" "$out/$name.md"
     fi
     t0=$SECONDS
-    ( cd / && timeout "$tmo" flock -o -w 1800 -E 75 "$LOCK" bash "$file" ${arg:+"$arg"} ) >> "$out/$name.out" 2>&1 < /dev/null
+    # a scenario's own `# timeout: <s>` line (in its first 30) when it needs longer than --timeout (M14: a 50-min run and
+    # the checks of 100 000 files)
+    local lim=$tmo own
+    own=$(sed -n '1,30s/^# timeout: *\([0-9][0-9]*\).*/\1/p' "$file" | head -1)
+    [[ -n $own ]] && ((own > lim)) && lim=$own
+    ( cd / && timeout "$lim" flock -o -w 1800 -E 75 "$LOCK" bash "$file" ${arg:+"$arg"} ) >> "$out/$name.out" 2>&1 < /dev/null
     code=$?
     case $code in
-        0) v=green ;; 1) v=red ;; 2) v=skipped ;; 3) v=dirty ;; 124) v=timeout; why="ran longer than $tmo s" ;;
+        0) v=green ;; 1) v=red ;; 2) v=skipped ;; 3) v=dirty ;; 124) v=timeout; why="ran longer than $lim s" ;;
         75) v=busy; why='the Tower lock stayed busy for 30 min' ;; *) v=error; why="exit $code" ;;
     esac
     if [[ ! -s $out/$name.result ]] || ((code == 124 || code == 75)); then
@@ -248,7 +265,12 @@ list=$(select_names)
 if ((reset)); then
     base || { echo "run-local: the base reset failed - no scenario runs on an unknown state" >&2; summary "$out"; exit 1; }
 fi
+ran=0
 for spec in $list; do
+    if ((reset && ran)) && [[ -n $(late_rank "${spec%%:*}") ]]; then
+        base || { echo "run-local: the base reset before $spec failed - no further scenario runs on an unknown state" >&2; summary "$out"; exit 1; }
+    fi
+    ran=1
     run_one "$spec"
     code=$?
     case $code in

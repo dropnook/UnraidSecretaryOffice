@@ -8,6 +8,7 @@
 # name, or ends refused and says so in words (the engine: «the name exists — touching nothing», 2.34); never two runs
 # for the night, never a failed one, nothing touched by the refused one (cells one-run, said). Nightly (~70 min: the
 # hour between the two 02:59s is waited for; the clock guard holds the set clock 90 min).
+# run-late: 4 the clock set on: runs and snapshots dated ahead stay until a base reset
 . "$(dirname "$0")/lib.sh"
 scenario_begin backup-tm-dst-run-sched
 needs any

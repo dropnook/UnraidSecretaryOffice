@@ -2,7 +2,8 @@
 # Cell B37 of matrix.md (batch E), state KP-DISCONNECTED: Kopia's container runs, its repository not connected. With
 # uso-only at «local + offsite» (prepared by Apply with the backup place, as the plan then proposes — put back by the undo): «Look at the server again» says it (setup.msg
 # kopia_no_repo / kopia_connect: «I never make that connection» — cell replan-hint), Apply on the page's draft changes
-# nothing (INV-DIFF-EXACT) and sets no policy while Kopia can't be reached, the run backs up locally and says Kopia's part
+# nothing (INV-DIFF-EXACT) and sets no policy while Kopia can't be reached (it ends «errors», only Kopia's — engine 2.67:
+# up to 2.66 «ok»), the run backs up locally and says Kopia's part
 # is out (cells run-local, kopia-not-started). Pre-release (~5 min).
 . "$(dirname "$0")/lib.sh"
 scenario_begin backup-kp-disconnected-replan-apply-run
@@ -24,7 +25,7 @@ if flow BK-REPLAN; then
     grep -qE 'kopia_no_repo|kopia_connect' <<<"$c" && cell replan-hint 1 "the plan's hint: $(grep -oE 'kopia_no_repo|kopia_connect' <<<"$c" | paste -sd' ' -)" \
         || cell replan-hint 0 "no hint for this state (kopia_no_repo|kopia_connect) in the plan: $c"
 fi
-flow BK-APPLY plan=old
+flow BK-APPLY plan=old errors=kopia            # engine 2.67: Kopia unreachable → Apply ends «errors» (written), only Kopia's
 expect_diff ''                                   # Apply on the page's draft as it is: no value changes
 [[ $(kstate) == "$k0" ]] && cell kopia-not-started 1 "Kopia's container $k0 after Apply" || cell kopia-not-started 0 "Kopia's container $k0 → $(kstate) after Apply"
 minute_wait

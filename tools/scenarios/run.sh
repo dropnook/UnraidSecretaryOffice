@@ -9,14 +9,16 @@
 #      --dev-sync: then plugin/dev-sync.sh there - the code under test into the plugin (off by default: wave 1 tests the
 #      released plugin; never on USOPartner).
 #   2. base.sh (unless --no-reset).
-#   3. Each scenario (--all: every one, --desk: a desk's, --only: these, in this order; `name:arg` hands arg to it as $1):
+#   3. Each scenario (--all: every one, --desk: a desk's — the `# run-late: <n>` ones last, by n, each after a base
+#      reset; --only: these, in this order; `name:arg` hands arg to it as $1):
 #      run-local.sh --one there. Exit 3 (dirty), a timeout or an error → base.sh before the next (not with --keep).
 #      Reboot halves (<name>-pre.sh, <name>-post.sh): pre, the reports copied here, the reboot (the runner's when pre left
 #      the VM up), then wait for ssh, the array Started and a fresh heartbeat; the tree and the reports back; post.
 #   4. The reports to ~/Claude/UnraidSecretaryOffice-briefs/scenarios/<date>/<host>[-<worktree>]/ (<name>.md, .result, .pending, .out,
 #      run.info, base-*.log); Mac-side checks of <name>.pending (plan_changes: tools/scenarios/plan-changes.mjs on the
 #      copied plan, page_text / page_clean / page_value: page.mjs on the copied state files — with the page of the release
-#      the scenario installed (IN-DOWNGRADE <tag>; USO_PAGE_TREE=<tag> for all) — done here - a failing one turns the
+#      the scenario installed (IN-DOWNGRADE <tag>; USO_PAGE_TREE=<tag> for all) — done here right after each scenario
+#      (its state files are on the VM then: a later reboot cell empties /tmp/uso-keep) - a failing one turns the
 #      scenario red, and with all of them done a scenario whose other checks were green is green;
 #      summary.md (red first) written and printed.
 # Hosts: tower (ssh uso-test, 192.168.7.111), test3 (ssh uso-test3, 192.168.7.197) and test4 (ssh uso-test4,
@@ -132,51 +134,6 @@ wait_back() {
     done
 }
 
-reds=0 base_failed=0
-for spec in $names; do
-    n=${spec%%:*}
-    if vm "test -f $TREE/tools/scenarios/$n-pre.sh -a -f $TREE/tools/scenarios/$n-post.sh"; then
-        vm "bash $TREE/tools/scenarios/run-local.sh --one '$spec' --half pre $opts"
-        pull
-        # pre left the VM up (it noted reboot=1, or simply ended): the runner reboots it
-        sleep 20
-        if vm true 2>/dev/null; then
-            say "$n: rebooting $host"
-            vm 'nohup sh -c "sleep 2; /sbin/reboot" >/dev/null 2>&1 &' 2>/dev/null
-        fi
-        if ! wait_back; then
-            say "$n: $host did not come back (ssh, array, agent) - stopping here"
-            printf 'verdict=error\nwhy=the VM did not come back after the reboot\n' >> "$local_dir/$n.result"
-            break
-        fi
-        say "$n: $host is back"
-        sync_tree
-        # the boot put the released plugin back (dev-sync lives in RAM): the code under test again before the post half
-        if ((devsync)); then
-            say "dev-sync on $host again (the boot put the released plugin back)"
-            vm "bash $TREE/plugin/dev-sync.sh" || say "dev-sync after the reboot failed"
-        fi
-        vm "mkdir -p $OUT" && rsync -a -e "$SSH" "$local_dir/" "$alias:$OUT/"
-        vm "bash $TREE/tools/scenarios/run-local.sh --one '$spec' --half post $opts"
-        code=$?
-    else
-        vm "bash $TREE/tools/scenarios/run-local.sh --one '$spec' $opts"
-        code=$?
-    fi
-    case $code in
-        0|2) ;;
-        1) reds=$((reds + 1)) ;;
-        255) say "$n: the connection broke"; reds=$((reds + 1)) ;;
-        *) reds=$((reds + 1))
-           if ((!keep)) && ! base; then
-               say "the base reset after $n failed - no further scenario runs on an unknown state"
-               base_failed=1
-               break
-           fi ;;
-    esac
-done
-pull
-
 # ------------------------------------------------------------------------------------------- the Mac-side checks
 rkey() { sed -n "s/^$2=//p" "$1" 2>/dev/null | tail -1; }
 setkey() {          # setkey <file> <key> <value>: the key's line replaced (or added)
@@ -194,11 +151,15 @@ fetch() {           # fetch <path on VM> <local path>: a file, or a folder's con
         vm "cat '$1'" > "$2"
     fi
 }
-for pf in "$local_dir"/*.pending; do
-    [[ -s $pf ]] || continue
+# mac_check <name>.pending: its Mac-side checks, done once (mac=done in the result). Run right after each scenario —
+# its state files are on the VM then: a reboot cell later in the same call empties /tmp/uso-keep (2026-10-21's full
+# run: every scenario before the last reboot «did not draw», 96 red), and a base reset doesn't touch them
+mac_check() {
+    local pf=$1 n rf work macred i ptree keep inv kind f popts ltree a b c d e ok detail got code keys want ini args macs pend red
+    [[ -s $pf ]] || return 0
     n=$(basename "$pf" .pending)
     rf=$local_dir/$n.result
-    [[ $(rkey "$rf" mac) == done ]] && continue
+    [[ $(rkey "$rf" mac) == done ]] && return 0
     work=$(mktemp -d "${TMPDIR:-/tmp}/uso-mac.XXXXXX")
     macred='' i=0
     # the page drawn: the release the scenario installed (state IN-DOWNGRADE <tag>: its page, not this tree's — a page-only
@@ -282,8 +243,68 @@ for pf in "$local_dir"/*.pending; do
         setkey "$rf" red "${red:+$red,}$macred"
         if [[ $(rkey "$rf" verdict) == green ]]; then setkey "$rf" verdict red; reds=$((reds + 1)); fi
     fi
+    # back to the VM's report folder too: the next pull would put its older copies over them
+    rsync -a -e "$SSH" "$local_dir/$n.md" "$rf" "$alias:$OUT/" 2>/dev/null
     say "$n: Mac-side checks $([[ -n $macred ]] && echo "red ($macred)" || echo green)"
+}
+mac_checks() { local pf; pull; for pf in "$local_dir"/*.pending; do mac_check "$pf"; done; }
+
+# a `# run-late: <n>` scenario (run-local.sh lists them last): on a fresh base, whatever ran before it
+late() { local f=$here/$1.sh; [[ -f $f ]] || f=$here/$1-pre.sh; sed -n '1,30p' "$f" 2>/dev/null | grep -q '^# run-late: *[0-9]'; }
+reds=0 base_failed=0 ran=0
+for spec in $names; do
+    n=${spec%%:*}
+    if ((reset && ran)) && late "$n"; then
+        say "$n runs late: the base reset first"
+        base || { say "the base reset before $n failed - no further scenario runs on an unknown state"; base_failed=1; break; }
+    fi
+    ran=1
+    if vm "test -f $TREE/tools/scenarios/$n-pre.sh -a -f $TREE/tools/scenarios/$n-post.sh"; then
+        vm "bash $TREE/tools/scenarios/run-local.sh --one '$spec' --half pre $opts"
+        pull
+        # pre left the VM up (it noted reboot=1, or simply ended): the runner reboots it
+        sleep 20
+        if vm true 2>/dev/null; then
+            say "$n: rebooting $host"
+            vm 'nohup sh -c "sleep 2; /sbin/reboot" >/dev/null 2>&1 &' 2>/dev/null
+        fi
+        if ! wait_back; then
+            say "$n: $host did not come back (ssh, array, agent) - stopping here"
+            printf 'verdict=error\nwhy=the VM did not come back after the reboot\n' >> "$local_dir/$n.result"
+            break
+        fi
+        say "$n: $host is back"
+        sync_tree
+        # the boot put the released plugin back (dev-sync lives in RAM): the code under test again before the post half
+        if ((devsync)); then
+            say "dev-sync on $host again (the boot put the released plugin back)"
+            vm "bash $TREE/plugin/dev-sync.sh" || say "dev-sync after the reboot failed"
+        fi
+        vm "mkdir -p $OUT" && rsync -a -e "$SSH" "$local_dir/" "$alias:$OUT/"
+        vm "bash $TREE/tools/scenarios/run-local.sh --one '$spec' --half post $opts"
+        code=$?
+    else
+        vm "bash $TREE/tools/scenarios/run-local.sh --one '$spec' $opts"
+        code=$?
+    fi
+    mac_checks
+    case $code in
+        0|2) ;;
+        1) reds=$((reds + 1)) ;;
+        255) say "$n: the connection broke"; reds=$((reds + 1)) ;;
+        *) reds=$((reds + 1))
+           if ((!keep)) && ! base; then
+               say "the base reset after $n failed - no further scenario runs on an unknown state"
+               base_failed=1
+               break
+           fi ;;
+    esac
 done
+pull
+
+
+# the Mac-side checks not done yet (a scenario whose run broke off)
+mac_checks
 
 echo
 bash "$here/run-local.sh" --summary "$local_dir"
