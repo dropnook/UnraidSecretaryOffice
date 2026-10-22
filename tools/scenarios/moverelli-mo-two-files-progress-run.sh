@@ -1,9 +1,10 @@
 #!/bin/bash
 # BF3 of batch F (M15, seen once): her live progress named the small file before a big one for the whole time the big one
 # moved, with 0 bytes done — her card is written at most once a second (and per 5 % of the share), and a file that
-# started in the same second as the one before was never named. Here one share holds twenty 1 MB files and one of 4 GiB
-# (media has no age rule; ZFS lists a folder in hash order, so the big one goes somewhere among the small ones — the
-# cell judges only a run where at least one small file went before it). «Run now» (MV-RUN); while the big file is on its
+# started in the same second as the one before was never named. Here one folder of a share holds twenty 1 MB files and
+# one of 4 GiB (media has no age rule; ZFS lists a folder in hash order, so the big one goes somewhere among the small
+# ones — until 2026-10-22 two folders, and the big one's went first in half the runs; now about 1 in 21: that run is
+# «skipped», no verdict, the cell judges only a run where at least one small file went before it). «Run now» (MV-RUN); while the big file is on its
 # way (some of its bytes on the array, not all) every look at her progress names it (cell named) and its bytes done
 # (file_bytes — what the card's rate comes from) grow at the rate the bytes really arrive on the array, within a factor
 # of 2 (cell rate). Pre-release (~2 min).
@@ -11,18 +12,18 @@
 scenario_begin moverelli-mo-two-files-progress-run
 needs tower
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
-put_files BF3 cache media/uso-wip-f-bf3s 20 --name a-small.bin && put_files BF3 cache media/uso-wip-f-bf3b 1 --size 4G --name z-big.bin \
+put_files BF3 cache media/uso-wip-f-bf3s 20 --name a-small.bin && put_files BF3 cache media/uso-wip-f-bf3s 1 --size 4G --name z-big.bin \
     || _row state put_files red "the files could not be written"
 undo_push files_unput BF3
 undo_push bash -c 'rm -rf /mnt/*/media/uso-wip-f-bf3s /mnt/*/media/uso-wip-f-bf3b'
-big=$(stat -c %s /mnt/cache/media/uso-wip-f-bf3b/z-big.bin 2>/dev/null)
+big=$(stat -c %s /mnt/cache/media/uso-wip-f-bf3s/z-big.bin 2>/dev/null)
 track_share media
 snap_before
 # her progress about three times a second while it runs: the file in flight and its bytes done; what of the big file
 # reached the array, how many small ones are over
 (while :; do t=$(date +%s.%N)
     php "$SC_DIR/ask.php" --wait 5 --raw moverelli.progress '{}' 2>/dev/null | jq -c --arg t "$t" '{t: ($t|tonumber), file: (.state.progress.file // ""), fb: (.state.progress.file_bytes // null)}'
-    printf '{"t":%s,"arrived":%s,"small":%s}\n' "$(date +%s.%N)" "$(du -B1 -c /mnt/disk*/media/uso-wip-f-bf3b/z-big.bin* 2>/dev/null | tail -1 | cut -f1)" \
+    printf '{"t":%s,"arrived":%s,"small":%s}\n' "$(date +%s.%N)" "$(du -B1 -c /mnt/disk*/media/uso-wip-f-bf3s/z-big.bin* 2>/dev/null | tail -1 | cut -f1)" \
         "$(find /mnt/disk*/media/uso-wip-f-bf3s -name 'a-small-*.bin' 2>/dev/null | wc -l)"
     sleep 0.3; done) >"$KEEP/progress.jsonl" 2>/dev/null & ppid=$!
 flow MV-RUN
@@ -40,7 +41,8 @@ say "while the big file moved: $n looks; small files over when it was first seen
 if ((n < 2)); then
     _row state SH-BIG-FILE red "fewer than two looks while the big file was on its way ($n) — no verdict"
 elif [[ -z $first || $first == 0 ]]; then
-    _row state SH-BIG-FILE red "the big file went first (no small file before it) — the case BF3 needs did not come; no verdict"
+    printf 'the big file went first (ZFS hash order, about 1 in 21) — the case BF3 needs did not come: no verdict, run it again\n' >"$KEEP/.skip"
+    say "the big file went first — no verdict (skipped)"
 elif [[ $wrong == '[]' ]]; then cell named 1 "all $n looks while the big file moved name it ($first small file(s) went before it)"
 else cell named 0 "looks while the big file moved name ${wrong} instead"; fi
 her=$(jq '[.[] | select(.file | test("z-big")) | select(.fb != null and .fb > 0 and .fb < '"${big:-0}"')] | if length > 1 then ((.[-1].fb - .[0].fb) / (.[-1].t - .[0].t)) else 0 end' "$KEEP/inflight.json" 2>/dev/null)
