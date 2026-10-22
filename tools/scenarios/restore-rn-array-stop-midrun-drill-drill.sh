@@ -1,5 +1,5 @@
 #!/bin/bash
-# Cell R5 of matrix.md, the drill: Unraid's ⟦Stop⟧ while Mr. Restori's drill works (3 s in: a throwaway database
+# Cell R5 of matrix.md, the drill: Unraid's ⟦Stop⟧ while Mr. Restori's drill works (as soon as it works: a throwaway database
 # container checks a dump). The drill ends at once — «aborted / array_stopping», never «failed», its throwaways
 # removed (fast, the rest at the next agent start: the sweeper) —; after ⟦Start⟧: no uso-drill-* container, no
 # .uso-drill-* folder (INV-LEFTOVER), nothing «running», the engine's lock free, the certificate not «failed», and the
@@ -16,13 +16,23 @@ declare -F state_ct_autostart >/dev/null || { printf 'needs the helper CT-AUTOST
 nc_data_closed
 state CT-AUTOSTART
 flow BK-RUN-MANUAL mode=backup               # packages for the drill
-state RN-ARRAY-STOP-MIDRUN-DRILL 3 300
+# the stop as soon as the drill is at work (0 s: a drill that checks no database — Tower's dumps are too big for RAM,
+# 1.70.2 — ends in ~2 s; 3 s in found it over on 2026-10-22)
+state RN-ARRAY-STOP-MIDRUN-DRILL 0 300
 dir=$(_st_dir RN-ARRAY-STOP-MIDRUN-DRILL)
 snap_before
 agent_mark_restart
 t0=$(_sc_now)
 (flow_rs_drill >/dev/null 2>&1) & fpid=$!
-if wait_for 300 "the array stop while the drill works" _st_is STOPPED _st_var mdState; then
+stopped_or_missed() { _st_is STOPPED _st_var mdState || grep -qs 'ended before' "$dir/fired"; }
+wait_for 300 "the array stop while the drill works" stopped_or_missed
+if grep -qs 'ended before' "$dir/fired"; then
+    # the drill was over before the stop could come: nothing was cut — no verdict on this server (a drill that checks
+    # a dump in a throwaway container takes long enough: USOTest4's)
+    wait "$fpid"
+    printf 'the drill ended before the stop could come (%s) — nothing was cut: no verdict here\n' "$(ask restore.drill_state '{}' 60 >/dev/null; ask_last '[.drills[]?][0] | "\(.result // "?") in \(((.finished // 0) - (.started // 0))) s"')" >"$KEEP/.skip"
+    say "the drill was too quick to be cut — no verdict (skipped)"
+elif _st_is STOPPED _st_var mdState; then
     _st_emcmd cmdStart=Start
     wait_for 300 "the array started again" _st_is Started _st_var fsState
     agent_wait 300
