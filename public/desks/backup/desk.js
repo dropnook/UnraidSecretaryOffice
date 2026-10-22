@@ -2215,7 +2215,8 @@ const LIST_KEY = /\|(ignore|no_stop|known|skip|kopia_ignore|kopia_known|exclude_
 let setup = { plan: null, draft: null, status: null, run: null, applied: null, open: new Set(), retire: true, asked: false, focus: null,
   model: null, levels: {}, held: {}, deps: new Set(), locks: {}, itemKeep: {},
   depsOff: new Set(), depNote: new Map(),   // «… mitsichern» unticked by the user, and the word a click left on its row
-  choice: null,              // the default chosen on this page, not applied yet: {kind: auto | local | kopia, all, items}
+  viaShare: new Set(),       // apps and VMs offsite inside their share's Kopia source, as saved (setupInitLevels()), as item keys
+  choice: null,             // the default chosen on this page, not applied yet: {kind: auto | local | kopia, all, items}
   newItems: new Set() };     // what is new since the last setup (setupNewItems()), as item keys
 let setupTimer = null;
 
@@ -2288,6 +2289,7 @@ function setupDraftFromPlan() {
   setup.base = clone(setup.draft);         // what the assistant proposes (with the default), before the user clicks
   setup.baseLevels = { ...setup.levels };
   setup.baseHeld = { ...setup.held };
+  setup.baseViaShare = new Set(setup.viaShare);
 }
 
 /**
@@ -2323,7 +2325,8 @@ function setupMigrated() {
  */
 function setupDraftKeep() {
   const old = setup.draft && setup.base ? { draft: setup.draft, base: setup.base, levels: setup.levels, held: setup.held,
-    baseLevels: setup.baseLevels || {}, baseHeld: setup.baseHeld || {}, deps: setup.deps, depsOff: setup.depsOff, depNote: setup.depNote } : null;
+    baseLevels: setup.baseLevels || {}, baseHeld: setup.baseHeld || {}, deps: setup.deps, depsOff: setup.depsOff, depNote: setup.depNote,
+    viaShare: setup.viaShare, baseViaShare: setup.baseViaShare || new Set() } : null;
   setupDraftFromPlan();
   if (!old) return;
   const keys = new Set([...Object.keys(old.base), ...Object.keys(old.draft)]);
@@ -2340,6 +2343,8 @@ function setupDraftKeep() {
   Object.keys(old.held).forEach((k) => {
     if (old.held[k] !== old.baseHeld[k] && k in setup.held) { setup.held[k] = old.held[k]; kept++; }
   });
+  // an app or VM whose level was clicked (a source of its own from then on) stays so
+  old.baseViaShare.forEach((k) => { if (!old.viaShare.has(k) && setup.viaShare.delete(k)) kept++; });
   // the «… mitsichern» boxes clicked: kept while that app still uses that share
   const there = new Set(setup.model.apps.flatMap((a) => a.deps.map((d) => `${a.id}|${d.share}`)));
   old.deps.forEach((k) => { if (there.has(k)) { setup.deps.add(k); kept++; } });
@@ -3094,12 +3099,14 @@ function presetApply(kind, items) {
   // the partner levels (2.42): every unit that can travel to every partner — or to none
   presetPartners(presetToPartner(kind), has);
   const before = { ...setup.levels };
-  m.apps.forEach((a) => { if (has('app:' + a.id)) setup.levels['app:' + a.id] = lv; });
+  // a level picked for everything: like a click on each row (at «local + Kopia» a source of its own, setupDeriveItems())
+  m.apps.forEach((a) => { if (has('app:' + a.id)) { setup.levels['app:' + a.id] = lv; setup.viaShare.delete('app:' + a.id); } });
   m.vms.forEach((x) => {
     if (!has('vm:' + x.name) || presetVmKeep(x)) return;
     // from «not» up: freeze or pause proposed again, like a click on its row (a VM of its own kept running at «not»)
     if (!before['vm:' + x.name]) dset(`vm|${x.name}|prepare`, undefined);
     setup.levels['vm:' + x.name] = lv;
+    setup.viaShare.delete('vm:' + x.name);
   });
   plan.shares.forEach((sh) => {
     if (sh.exists && has('share:' + sh.name) && !presetKeep(sh, plan)) dset(`share|${sh.name}|mode`, lv === 1 ? shareLocal(sh.name) : LV[lv]);
@@ -4772,11 +4779,17 @@ function setupInitLevels() {
   setup.deps = new Set();
   setup.depsOff = new Set();
   setup.depNote = new Map();
+  // at "local + Kopia" only through its share (its folders in a share at Kopia, no [app|vm] section of its own saved - a
+  // settings.ini of an older office or of the terminal): it stays in the share's source until its level is clicked here.
+  // Made a source of its own unasked, Apply listed its kopia and folder keys as changes nobody made (2026-10-22, the
+  // update from 1.60: 15 of them) and its offsite history went on in a new source
+  setup.viaShare = new Set();
   m.apps.forEach((a) => {
     // every app has at least its template or compose file: "not" only when the user said so (docker|skip)
     // a Kopia source of its own (engine 2.19) says "local + Kopia" also for an app without folders of its own
     let l = a.members.every((n) => skip.includes(n)) ? 0 : onKopia(a.folders) || dget(`app|${a.name}|kopia`) === 'yes' ? 2 : 1;
     if (fresh || a.isNew) l = Math.min(l, 1);           // new: never Kopia unasked
+    if (l === 2 && dget(`app|${a.name}|kopia`) !== 'yes') setup.viaShare.add('app:' + a.id);
     setup.levels['app:' + a.id] = l;      // an app's further shares are never ticked unasked (they grow fast)
     // during the snapshot: the engine's proposal - media servers and apps without changing data keep running
     setup.held[a.id] = a.members.every((n) => nostop.includes(n) || skip.includes(n)) ? 'run' : 'stop';
@@ -4789,6 +4802,7 @@ function setupInitLevels() {
     const unheld = dget(k('prepare')) === 'none' && !x.own;
     let l = shareOff || dget(k('mode')) === 'off' || unheld ? 0 : onKopia(x.folders) || dget(k('kopia')) === 'yes' ? 2 : 1;
     if (fresh || x.isNew) l = Math.min(l, 1);
+    if (l === 2 && dget(k('kopia')) !== 'yes') setup.viaShare.add('vm:' + x.name);
     setup.levels['vm:' + x.name] = l;
   });
 }
@@ -4899,7 +4913,7 @@ function itemFolders() {
   const m = setup.model;
   const owner = new Map();
   m.apps.forEach((a) => {
-    if (levelOf('app:' + a.id) < 2) return;
+    if (levelOf('app:' + a.id) < 2 || setup.viaShare.has('app:' + a.id)) return;     // in its share's source: none of its own
     a.folders.forEach((f) => {
       const key = `${f.share}|${f.dir}`;
       const named = [a.name, ...a.members].some((n) => n.toLowerCase() === f.dir.toLowerCase());
@@ -4930,7 +4944,7 @@ function setupDeriveItems() {
   };
   const names = new Set();
   m.apps.forEach((a) => {
-    const yes = on && levelOf('app:' + a.id) === 2 && !names.has(a.name);
+    const yes = on && levelOf('app:' + a.id) === 2 && !setup.viaShare.has('app:' + a.id) && !names.has(a.name);
     names.add(a.name);
     const mine = a.folders.filter((f) => (owner.get(`${f.share}|${f.dir}`) || {}).id === a.id).map((f) => `${f.share}/${f.dir}`);
     // a partner level: its own folders (ownFoldersOf()), the first being the unit's dataset
@@ -4938,7 +4952,7 @@ function setupDeriveItems() {
     set('app', a.name, yes, yes ? mine : (dget(`app|${a.name}|partner`, []) || []).length ? own : []);
   });
   m.vms.forEach((x) => {
-    const yes = on && levelOf('vm:' + x.name) === 2;
+    const yes = on && levelOf('vm:' + x.name) === 2 && !setup.viaShare.has('vm:' + x.name);
     set('vm', x.name, yes, yes ? x.folders.map((f) => `${f.share}/${f.dir}`) : []);
   });
 }
@@ -5218,6 +5232,7 @@ function levelPick(key, onPick, partner) {
     b.onclick = () => {
       if (f.id === nowId) return;
       setup.levels[key] = f.lv;
+      setup.viaShare.delete(key);            // a level picked here: «local + Kopia» is then a source of its own (engine 2.19)
       if (withPartner) partnerListSet(partner.key, f.partner);
       if (onPick) onPick(f.lv);
       setupDerive();
