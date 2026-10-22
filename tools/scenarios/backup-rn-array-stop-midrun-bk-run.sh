@@ -58,6 +58,11 @@ if wait_for 300 "the array stop mid-run" _st_is STOPPED _st_var mdState; then
     o=$(state_json backup '"\(.status.result // "")/\(.status.message // "")/\(.status.interrupted // false)"' 2>/dev/null)
     [[ $h == aborted && $o == aborted/array_stopping/false ]] && cell office-says 1 "his page: the run aborted for the array stop (history «$h»)" \
         || cell office-says 0 "his page: status «$o», history of $run «$h»"
+    # Docker's autostart starts the list in order and waits 5 s after each database (rc.docker «wait 5 seconds»): the
+    # apps come ~15 s after the start — the cell judged at that very moment once (Tower 2026-10-22 10:11:39, five apps
+    # «exited» that ran a few seconds later); 3 min for the list to be through
+    all_back() { local c; while IFS= read -r c; do [[ -z $c || $(ct_status "$c") == running ]] || return 1; done <"$dir/ct.running"; }
+    WAIT_SOFT=1 wait_for 180 "Docker's autostart to be through" all_back
     missing=()
     while IFS= read -r c; do [[ -n $c && $(ct_status "$c") != running ]] && missing+=("$c ($(ct_status "$c"))"); done <"$dir/ct.running"
     ((${#missing[@]} == 0)) && cell back 1 "every container that ran before the run runs again ($(wc -l <"$dir/ct.running"))" \
