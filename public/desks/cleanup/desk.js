@@ -2717,7 +2717,8 @@ function reception() {
   if (!state) return { summary: '', findings: 0, facts: [] };
   const sys = state.system;
   const facts = [
-    sys.docker.up === false ? Office.t('common.docker_off') : T('where.fact.docker', { running: sys.docker.running, total: sys.docker.total }),
+    sys.docker.up === false ? Office.t('common.docker_off') : sys.docker.silent ? Office.t('common.docker_silent')
+      : T('where.fact.docker', { running: sys.docker.running, total: sys.docker.total }),
     sys.vms.total ? T('where.fact.vms', { running: sys.vms.running, total: sys.vms.total }) : T('where.fact.vms_none'),
     T('where.fact.smb', { n: state.smb.sessions.length }),
   ];
@@ -2834,6 +2835,7 @@ function tileFace(id) {
     case 'docker': {
       const stopped = s.containers.filter((c) => c.autostart && c.state !== 'running').length;
       if (sys.docker.up === false) return face('–', Office.t('common.docker_off'));
+      if (sys.docker.silent) return face('–', Office.t('common.docker_silent'), { alert: true });      // B15: never «0 / 0»
       return face(`${sys.docker.running} / ${sys.docker.total}`, T('where.tile.docker_sub', { stacks: nOf('stacks', s.compose.length) }), { alert: stopped > 0 });
     }
     case 'vms':
@@ -3097,6 +3099,7 @@ function sectionSummary(id) {
     }
     case 'docker': {
       if (s.system.docker.up === false) return { sub: Office.t('common.docker_off') };
+      if (s.system.docker.silent) return { sub: Office.t('common.docker_silent'), alert: true };
       const run = s.containers.filter((c) => c.state === 'running').length;
       const stopped = s.containers.filter((c) => c.autostart && c.state !== 'running').length;
       return { sub: T('where.sum.docker', { run: n(run), total: n(s.containers.length), stacks: nOf('stacks', s.compose.length) }), alert: stopped > 0 };
