@@ -199,6 +199,8 @@ if [[ $mode == base ]]; then
     exit $?
 fi
 
+# seconds since boot — a clock step never moves it
+_up() { local u; read -r u _ </proc/uptime; echo "${u%.*}"; }
 # one scenario (or a half): its file, under the lock, at most $tmo s; the result file made when lib.sh wrote none
 run_one() {
     local spec=$1 name arg file code t0 v why label x
@@ -230,14 +232,30 @@ run_one() {
     else
         rm -f "$out/$name.result" "$out/$name.pending" "$out/$name.result-pre" "$out/$name.out" "$out/$name.md"
     fi
-    t0=$SECONDS
+    t0=$(_up)
     # a scenario's own `# timeout: <s>` line (in its first 30) when it needs longer than --timeout (M14: a 50-min run and
     # the checks of 100 000 files)
-    local lim=$tmo own
+    local lim=$tmo own pid killed=0
     own=$(sed -n '1,30s/^# timeout: *\([0-9][0-9]*\).*/\1/p' "$file" | head -1)
     [[ -n $own ]] && ((own > lim)) && lim=$own
-    ( cd / && timeout "$lim" flock -o -w 1800 -E 75 "$LOCK" bash "$file" ${arg:+"$arg"} ) >> "$out/$name.out" 2>&1 < /dev/null
+    # the time limit on the time since boot (/proc/uptime), never the wall clock: GNU timeout's timer is the wall clock's,
+    # and a clock cell that sets it days ahead fired it at once (backup-tm-dst-run-sched 2026-10-22: «timeout in 213948
+    # s», the scenario killed half-way). Its own process group (setsid): TERM to all of it as timeout did — the scenario's
+    # EXIT trap undoes, then it ends
+    ( cd / && exec setsid flock -o -w 1800 -E 75 "$LOCK" bash "$file" ${arg:+"$arg"} ) >> "$out/$name.out" 2>&1 < /dev/null &
+    pid=$!
+    while kill -0 "$pid" 2>/dev/null; do
+        if (($(_up) - t0 >= lim)); then kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null; killed=1; break; fi
+        sleep 2
+    done
+    wait "$pid"
     code=$?
+    if ((killed)); then
+        code=124
+        # flock ends at the TERM, the scenario's bash goes on with its undo: the group waited for (20 min at most)
+        local w=$(_up)
+        while pgrep -g "$pid" >/dev/null 2>&1 && (($(_up) - w < 1200)); do sleep 2; done
+    fi
     case $code in
         0) v=green ;; 1) v=red ;; 2) v=skipped ;; 3) v=dirty ;; 124) v=timeout; why="ran longer than $lim s" ;;
         75) v=busy; why='the Tower lock stayed busy for 30 min' ;; *) v=error; why="exit $code" ;;
@@ -246,13 +264,13 @@ run_one() {
         { echo "verdict=$v"; [[ -n ${why:-} ]] && echo "why=$why"; } > "$out/$name.result"
     fi
     echo "exit=$code" >> "$out/$name.result"
-    echo "seconds=$((SECONDS - t0))" >> "$out/$name.result"
+    echo "seconds=$(($(_up) - t0))" >> "$out/$name.result"
     [[ -n $half ]] && echo "half=$half" >> "$out/$name.result"
     if [[ ! -s $out/$name.md ]]; then
         { echo "# $name"; echo; echo "No report from lib.sh - the scenario's output (last 60 lines):"; echo; echo '```';
           tail -60 "$out/$name.out"; echo '```'; } > "$out/$name.md"
     fi
-    echo "$label${half:+ ($half)}: $(rkey "$out/$name.result" verdict) in $((SECONDS - t0)) s"
+    echo "$label${half:+ ($half)}: $(rkey "$out/$name.result" verdict) in $(($(_up) - t0)) s"
     if [[ $label != "$name" ]]; then
         for x in md result pending out result-pre; do [[ -f $out/$name.$x ]] && mv -f "$out/$name.$x" "$out/$label.$x"; done
     fi

@@ -5,7 +5,8 @@
 # backs such a VM up with libvirt's list there; this cell drops libvirt's list (virsh snapshot-delete --metadata: the
 # overlay and Unraid's snapshotdb stay — what Unraid leaves), backs the VM up, then the VM gone (undefined, its folder
 # kept as Unraid's ⟦Remove VM⟧ without disks) and Mr. Restori's «Restore VM» (RS-VM). Expected: the run doesn't fail
-# and its package holds the whole chain — the overlay and the image under it (cell package-chain); the restored VM's
+# and its package holds the whole chain — the overlay and the image under it, copied or in the dataset's snapshot its
+# manifest names (cell package-chain); the restored VM's
 # disk is the overlay with its backing file resolved (cell chain-resolves: qemu-img info --backing-chain) and Unraid's
 # snapshotdb back (cell snapshotdb-back). Needs the VM service (Tower: uso-vm-plain) — USOTest3VM has none: skipped
 # there (2026-10-21). Pre-release (~5 min).
@@ -21,7 +22,14 @@ say "libvirt's list now: $(virsh snapshot-list --name "$VM" 2>/dev/null | paste 
 snap_before
 flow BK-RUN-MANUAL mode=backup
 r=$(jq -r '"\(.result) \(.message // "")"' "$UB/state/status.json")
+# the package's disks: copied into its folder, or — a disk on ZFS — kept as the dataset's snapshot its manifest names
+# (disks[].snapshot; the package folder then holds only the xml and the snapshotdb): the files of that snapshot count
 pk=$(find "$PLACE/vms/$VM" -type f \( -name '*.img' -o -name '*qcow2' \) 2>/dev/null | sed "s#^$PLACE/vms/$VM/##" | paste -sd' ' -)
+while IFS=$'\t' read -r base ds snap; do
+    [[ -n $snap ]] || continue
+    sd=/mnt/$base/${ds#*/}/.zfs/snapshot/${snap#*@}
+    pk="$pk $(find "$sd" -maxdepth 1 -type f \( -name '*.img' -o -name '*qcow2' \) -printf '%f ' 2>/dev/null)(in ${snap})"
+done < <(jq -r '.disks[]? | select(.snapshot != null) | [.base, .dataset, .snapshot] | @tsv' "$PLACE/vms/$VM/manifest.json" 2>/dev/null)
 [[ $r =~ ^(ok|warnings) && $pk == *"$(basename "${OVERLAY:-x}")"* && $pk == *vdisk1.img* ]] && h_cell package-chain 1 "the run $r; the package: $pk" \
     || h_cell package-chain 0 "the run $r; the package's disks: ${pk:-none} (overlay $(basename "${OVERLAY:-?}") and vdisk1.img both needed)"
 state VM-GONE plain

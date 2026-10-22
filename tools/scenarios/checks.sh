@@ -199,12 +199,21 @@ bubble_look() {
     echo "$n" >"$KEEP/.looks"
     dir=$KEEP/looks/$(printf %02d "$n")-$label
     mkdir -p "$dir/states/post"
-    # the page's fresh look first (opening a desk asks <desk>.refresh) — straight through ask.php, not the scenario's ask
+    # the page's fresh look first (opening a desk asks <desk>.refresh) — straight through ask.php, not the scenario's ask.
+    # The facts «at work» are taken before it and after it, either counts: a job of a second or two (a partner pull, a
+    # short run of hers) seen by the refresh can end before the facts are read (R19 2026-10-22: «I'm restoring», right
+    # when the state was written; batch F's M10)
+    local facts0
+    facts0=$(bubble_facts)
     for d in "${desks[@]}"; do
         [[ $d == caretaker ]] && continue
         php "$SC_DIR/ask.php" --wait 120 "$d.refresh" '{}' >/dev/null 2>&1
     done
     facts=$(bubble_facts)
+    facts=$(jq -c --argjson a "$facts0" '.backup.running = (.backup.running or ($a.backup.running // false))
+        | .moverelli.running = (.moverelli.running or ($a.moverelli.running // false))
+        | .restore.running = (.restore.running or ($a.restore.running // false))
+        | .restore.drill_running = (.restore.drill_running or ($a.restore.drill_running // false))' <<<"$facts" 2>/dev/null || printf '%s' "$facts")
     printf '%s\n' "$facts" >"$dir/facts.json"
     find "$D" -maxdepth 1 -type f -name '*.json' -exec cp -p {} "$dir/states/" \;
     [[ -d $SC_POST ]] && find "$SC_POST" -maxdepth 1 -type f -name '*.json' -exec cp -p {} "$dir/states/post/" \;
@@ -334,7 +343,10 @@ _ck_mac_n() { grep -c "^$1	" "${REPORT%.md}.pending" 2>/dev/null || echo 0; }
 check_inv_tick() {
     local gap ms t0 age
     [[ -s $KEEP/.pulse ]] || { echo "no heartbeat samples (snap_before starts them)"; return 3; }
-    gap=$(awk 'NR==1{p=$1} $1!=p{if ($1-p>g) g=$1-p; p=$1} END{print g+0}' "$KEEP/.pulse")
+    # mtimes from before the scenario began are a clock step's leftovers, not a pulse: put_files --age writes with the
+    # clock set back 40 days, and a heartbeat written meanwhile carries that time until the agent's next beat (M3,
+    # 2026-10-22: «gap 3456020 s» = 40 days) — a stalled agent still shows, its mtimes stay recent
+    gap=$(awk -v lo="$(( ${SC_START:-0} - 120 ))" '$1 < lo {next} !n++{p=$1} $1!=p{if ($1-p>g) g=$1-p; p=$1} END{print g+0}' "$KEEP/.pulse")
     age=$(_agent_age)
     t0=$(date +%s%N)
     php "$SC_DIR/ask.php" --wait 5 office.ping '{}' >/dev/null 2>&1

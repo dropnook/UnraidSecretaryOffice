@@ -691,3 +691,42 @@ the agent) is not this finding. H3's user «Delete» is part of the state (befor
 INV-UNRAID-SAME report the user's own act. H8 needs Tower's uso-vm-plain and Unraid's VM manager (VM-MANY-SNAPSHOTS);
 it is written against states-vm.sh but has never run — run it on Tower before trusting its cells. Reports:
 `scenarios/2026-10-21/test3-scenarios-batch-h*` (`-0947`: all; `-1010`: H1, H9, H7 again; the last folder: H3 with its undo fixed — red only says-snapshots, undo green).
+
+## Full run 2026-10-21/22 (Tower, office 1.70.2, engine 2.70)
+
+One run of all scenarios on Tower, triaged (task/scenarios-fixup): `scenarios/2026-10-22/tower-scenarios-fixup` (100 of
+the then 156, 08:30–12:32, stopped when a power cut left Tower's passed-through boot stick dead — the power-cut cells
+need `--powercut` since) and `…/tower-scenarios-fixup-final` (the other 58 and the reruns, 13:10–17:32); round 2 (the
+reruns of the last tool fixes and six run-late cells) was stopped for the 1.70.3 release. Tool and scenario bugs were
+fixed in this branch, each its own commit; product bugs are findings for fix workers.
+
+| Verdict (latest per scenario) | Count |
+|---|---|
+| green | 128 (B15 ×3 counted apart) |
+| skipped (`needs` unmet on Tower: hdd, pool2, btrfs, compose, test3, the Emby premise of H1) | 10 |
+| red or dirty, tool — fixed here, rerun pending (round 2) | 11 |
+| red, product | 3 (below) |
+| error (the power cut: Tower didn't come back) | 1 |
+| not run (round 2 stopped): year roll, Moverelli's DST, B39's 6 h, R22 · power cuts (`--powercut`) | 4 · 4 |
+
+Product findings:
+- **B15** `backup-sv-docker-hung-replan-run` — INV-TICK: a 39 s heartbeat gap while dockerd is SIGSTOPped (red 2 of 3,
+  docker calls of the agent's round outside houseDocker()). Fixed on main by task/docker-guard (554bcaa8): INV-TICK green
+  in three reruns. Its side effect, INV-BUBBLE red in 2 of 3: right after Docker answers again Ms. Dustdevil still says
+  «Docker doesn't answer» — houseDockerSilent()'s 120 s window (HOUSE_DOCKER_QUIET) keeps her refresh from asking.
+- **Batch H #7** `backup-tm-future-mtime-h-run` — «said» red as documented: nothing says files carry times in the future.
+- **Clock set ahead, then back** (seen in the DST cell's leftovers): the office's own at jobs handed to atd «now»
+  under the clock set ahead (restore-partner-look, partner-ping, --kopia-watch) wait until that moment once the clock is
+  put back — minor, the F12/BF5 family. Parked by the coordinator: the agent noticing a zone change at runtime (B43).
+
+Tool fixes (the cell, then what was wrong): B12/M6/R5 judged or snapshotted mid-autostart (`ct_autostart_wait`); B43/M24
+need test3 (a zone broken at runtime mixes zones); H2 predates the list rebuild (H1 fix); M8's run card measured against
+the whole share, not what her rules move; H1 waited for her part of a joint run only, and on Tower Emby answers (no
+verdict); M18's bubble fact read `others`, her state says `foreign`; M3's INV-TICK counted a clock step's mtime; O2
+expected a real pairing's key line to survive the remove; R12's leftover check didn't skip a restore's copy of base.sh's
+aside; R9 demanded free > 0 (the room is above the share's floor); R19's bubble facts raced a second-long pull; R5 drill
+too quick to cut on Tower (no dump fits in RAM: no verdict); R15/R1 wrote files fresher than the drill's hour; H8 looked
+for VM disks in the package, a ZFS disk is the dataset's snapshot; B43 clock-back's leftover check met the agent's due
+jobs; the DST cell was killed by GNU timeout's wall clock (run-local's limit is the time since boot now). Earlier in this
+branch: page checks right after each scenario (a reboot empties /tmp/uso-keep), stale stashes set aside by base.sh,
+h_share_drop, CT-AUTOSTART, BK-APPLY errors=kopia (engine 2.67), INV-SETUP-MSGS on this scenario's plan only.

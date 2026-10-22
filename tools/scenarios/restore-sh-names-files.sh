@@ -29,6 +29,9 @@ undo_push share_unuse C-R1
 state SH-NAMES "$S"                          # the share is there (only): the twelve names into it
 mapfile -t NAMES < <(find "/mnt/cache/$S" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
 ((${#NAMES[@]} == 12)) || _row state SH-NAMES red "${#NAMES[@]} names in $S, not 12"
+# settled files: the drill's sample is a file not changed in the hour before the snapshot (1.70.2, restore-drill.php
+# DRILL_FILE_SETTLED, by mtime) — written now they'd all be too fresh, the step «not checked» (sharefile_none)
+find "/mnt/cache/$S" -type f -exec touch -m -d '1 day ago' {} +
 declare -A SUM=(); for f in "${NAMES[@]}"; do SUM[$f]=$(md5sum <"/mnt/cache/$S/$f"); done
 # today's drill pick: pads so that it is this share (see the header)
 pick=($(awk -F'"' '/^\[share "/ { s = $2; next } /^\[/ { s = "" } s != "" && /^mode *= */ { m = $0; sub(/^mode *= */, "", m); if (m != "off") print s }' "$UB/settings.ini" \

@@ -840,7 +840,8 @@ snap_after() {
 # The office's own folders inside a share (left out of an inventory: INV-LEFTOVER looks at them)
 _INV_PRUNE=(-name .uso-backup -o -name '.uso-backup.new-*' -o -name '.uso-drill-*' -o -name .UnraidSecretaryOffice-trash
     -o -name '*.aside-*' -o -name '*.restored-*' -o -name '*.putback-*' -o -name .btrfs-snap -o -name .zfs
-    -o -name .uso-base-aside)   # base.sh's asides: a pool's and a disk's may hold the same names (batch A: INV-COUNTS)
+    -o -name '.uso-base-aside*')   # base.sh's asides (and a restore's copy of one beside, .uso-base-aside.restored-…): a
+                                   # pool's and a disk's may hold the same names (batch A: INV-COUNTS)
 
 # inventory <share>…: one line per file of the share on every awake disk and pool — rel-path, size, mtime, inode, place
 # — read on the disk or pool itself (never through /mnt/user: no look at a disk that sleeps); a base asleep: `#asleep`
@@ -1049,10 +1050,10 @@ check_inv_leftover() {
         base_asleep "$b" && continue
         # base.sh's asides (<share root>/.uso-base-aside/<stamp>/~…~) are kept on purpose, never leftovers: skipped
         # (a drill's .uso-drill-* in a storeroom base.sh set aside is no leftover either — coordinator, 2026-10-18)
-        x=$(find "/mnt/$b" -maxdepth 3 -name .uso-base-aside -prune -o -name '.uso-backup*' -print 2>/dev/null |
+        x=$(find "/mnt/$b" -maxdepth 3 -name '.uso-base-aside*' -prune -o -name '.uso-backup*' -print 2>/dev/null |
             grep -Ev "^/mnt/$b/(appdata|domains)/[^/]+/\.uso-backup$" | head -3)
         [[ -n $x ]] && bad+=("${x//$'\n'/ }")
-        x=$(timeout 60 find "/mnt/$b" -path "/mnt/$b/system/docker" -prune -o -path '*/.UnraidSecretaryOffice-trash' -prune -o -name .uso-base-aside -prune -o \
+        x=$(timeout 60 find "/mnt/$b" -path "/mnt/$b/system/docker" -prune -o -path '*/.UnraidSecretaryOffice-trash' -prune -o -name '.uso-base-aside*' -prune -o \
             \( -name '*.partial' -o -name '.uso-drill-*' \) -print 2>/dev/null | head -3)
         [[ -n $x ]] && bad+=("${x//$'\n'/ }")
     done
@@ -1079,7 +1080,12 @@ check_inv_leftover() {
             [[ -n $x ]] && bad+=("new empty folders in $s: ${x//$'\n'/ }")
         done <"$KEEP/.shares"
     fi
-    x=$(pgrep -af "$P/backup/(backup|setup)\.sh|$P/agent/agent\.php job |[c]ustommover_run|/run/unraid-secretary-office/[a-z0-9_-]+\.sh" | head -3)
+    # the office's jobs: a job the agent started just now (the clock put forward again by an undo makes its due ones start
+    # at once — a watchman round, the Kopia count: B43 clock-back, 2026-10-22) ends by itself — 2 min for it, then judged
+    _office_procs() { pgrep -af "$P/backup/(backup|setup)\.sh|$P/agent/agent\.php job |[c]ustommover_run|/run/unraid-secretary-office/[a-z0-9_-]+\.sh" | head -3; }
+    _no_office_procs() { [[ -z $(_office_procs) ]]; }
+    _no_office_procs || WAIT_SOFT=1 wait_for 120 "the office's jobs to end" _no_office_procs >/dev/null 2>&1
+    x=$(_office_procs)
     [[ -n $x ]] && bad+=("processes: ${x//$'\n'/; }")
     # /tmp: the scenarios' own folders and the suite's (tests/run.php: uso-tmp-<name>-<pid>, a worker's copy uso-<task>) apart
     x=$(find /tmp -maxdepth 1 -name '*uso*' -newer "$KEEP/.start" -not -name 'uso-keep' -not -name 'uso-scenarios*' \

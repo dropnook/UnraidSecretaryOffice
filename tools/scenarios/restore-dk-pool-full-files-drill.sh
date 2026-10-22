@@ -23,8 +23,10 @@ snap_before
 n0=$(find "$D/restore" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
 flow RS-FILES mode=beside path="$U" refuse=ok
 b=$(jq -c '[.blockers[]? | select(.key == "restore_no_space") | .params][0] // null' "$KEEP/rs-preview.json" 2>/dev/null)
-need=$(jq -r '.need // 0' <<<"$b") free=$(jq -r '.free // 0' <<<"$b")
-[[ $b != null ]] && ((need > 0 && free > 0)) && cell blocked-with-number 1 "restore_no_space: need $((need >> 20)) MiB, free $((free >> 20)) MiB" \
+need=$(jq -r '.need // 0' <<<"$b") free=$(jq -r '.free // -1 | if type == "number" then . else -1 end' <<<"$b")
+# free may be 0: the room is what the pool has above the share's minimum free space (restore.php rsShareSpace() — the
+# floor takes the 1 GiB DK-POOL-FULL leaves on Tower); a number it must be
+[[ $b != null ]] && ((need > 0 && free >= 0)) && cell blocked-with-number 1 "restore_no_space: need $((need >> 20)) MiB, free $((free >> 20)) MiB" \
     || cell blocked-with-number 0 "the plan's blockers: $(jq -c '[.blockers[]?.key]' "$KEEP/rs-preview.json" 2>/dev/null) (want restore_no_space with need and free)"
 n1=$(find "$D/restore" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
 left=$(find /mnt/cache/appdata -maxdepth 1 -name 'emby.*' 2>/dev/null | paste -sd' ' -)
