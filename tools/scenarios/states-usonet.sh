@@ -91,3 +91,85 @@ undo_un_helper_down() {
     bash "$P/scripts/usonet.sh" check
     un_wait in 120
 }
+
+# ------------------------------------------------------------------------------------------------ a second office (peer)
+# The pairing cells need a second office in the lab's tailnet: USOTest4 by default (UN_PEER_IP), reached as root with a
+# key of USOTest3VM's own — $OFFICE_FLASH/scenarios-usonet.key (0600, the peer's host key pinned beside it in .known);
+# the peer's authorized_keys carries `from="<test3>" ssh-ed25519 … uso-scenarios-usonet` (never a uso-partner: line: the
+# office there never writes or removes it). un_peer_setup makes both once (bash -c 'source lib.sh; un_peer_setup' with a
+# root shell to the peer already open from the Mac — see tools/scenarios/README.md «USO network»).
+#
+#   un_needs_peer            the key works and the peer runs the office (else the scenario is skipped)
+#   un_peer_sh <cmd…>        a command on the peer as root (ssh joins the words), its output; stdin never read
+#   un_peer_ask <desk.action> [json]   the button on the peer's page (ask.php copied to /tmp/uso-un/ask.php there)
+#   un_peer_join             the peer's join, its key from the lab stashed in the peer's RAM inbox (as the page does)
+#   un_peer_card [jq]        the peer's card
+#
+# States:
+#   UN-PAIRED                both offices in the lab's tailnet and paired over the node's 100.x addresses as the Team
+#                            Lead's three dialogs do it: this server offers (its node's address), the peer accepts
+#                            (receive into its pool `cache`, quota 20 GB, 2 0 0) — this server pastes the answer with the
+#                            safety code. Its id in $KEEP/un-pair.id. Undo: the partnership ended on both sides (the
+#                            peer's received datasets of scratch shares destroyed first), both leave.
+UN_PEER_IP=${UN_PEER_IP:-192.168.7.193}
+UN_PEER_KEY=$OFFICE_FLASH/scenarios-usonet.key
+
+un_peer_sh() { ssh -n -i "$UN_PEER_KEY" -o IdentitiesOnly=yes -o BatchMode=yes -o "UserKnownHostsFile=$UN_PEER_KEY.known" \
+    -o StrictHostKeyChecking=yes -o ConnectTimeout=10 "root@$UN_PEER_IP" "$*"; }
+
+un_needs_peer() {
+    if [[ -f $UN_PEER_KEY ]] && un_peer_sh "test -d $P/agent" 2>/dev/null; then
+        cat "$SC_DIR/ask.php" | ssh -i "$UN_PEER_KEY" -o IdentitiesOnly=yes -o BatchMode=yes -o "UserKnownHostsFile=$UN_PEER_KEY.known" \
+            "root@$UN_PEER_IP" 'mkdir -p /tmp/uso-un && cat > /tmp/uso-un/ask.php' && return 0
+    fi
+    printf '%s\n' "no second office at $UN_PEER_IP (the key $UN_PEER_KEY, the office there)" >"$KEEP/.skip"
+    say "skipped: no second office for the USO network at $UN_PEER_IP"
+    scenario_end
+}
+
+un_peer_ask() { un_peer_sh "php /tmp/uso-un/ask.php $(printf %q "$1") $(printf %q "${2:-{\}}")"; }
+_un_peer_is() { [[ $(un_peer_card .state) == "$1" ]]; }
+un_peer_card() { local j; j=$(un_peer_ask caretaker.usonet_look); if [[ $# -gt 0 ]]; then jq -r ".usonet | $1" <<<"$j"; else jq -c .usonet <<<"$j"; fi; }
+
+un_peer_join() {
+    local id key
+    key=$(bash "$UN_LAB_SH" key)
+    [[ -n $key ]] || return 1
+    id=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
+    printf '%s' "$key" | jq -Rc '{key: .}' | ssh -i "$UN_PEER_KEY" -o IdentitiesOnly=yes -o BatchMode=yes -o "UserKnownHostsFile=$UN_PEER_KEY.known" \
+        "root@$UN_PEER_IP" "mkdir -p $RUN/inbox && chmod 700 $RUN/inbox && (umask 177; cat > $RUN/inbox/$id.secret)"
+    unset key
+    un_peer_ask caretaker.usonet_join "{\"secret_ref\":\"$id\",\"control\":\"$UN_LAB\"}"
+}
+
+state_un_paired() {
+    local me peer id block code r
+    un_needs_peer
+    [[ $(un_card .state) == in ]] || { state_un_joined || return 1; }
+    if [[ $(un_peer_card .state) != in ]]; then
+        un_peer_join >/dev/null || return 1
+        wait_for 180 "the peer's card «in»" _un_peer_is in || return 1
+    fi
+    me=$(un_card '.ips[0]'); peer=$(un_peer_card '.ips[0]')
+    say "UN-PAIRED: this server $me, the peer $peer (the lab's tailnet)"
+    r=$(ask caretaker.partner_add "$(jq -cn --arg a "$me" '{step:"do", address:$a, port:22, trust:"mine"}')") || return 1
+    id=$(jq -r .id <<<"$r"); block=$(jq -r .block <<<"$r")
+    r=$(un_peer_ask caretaker.partner_accept "$(jq -cn --arg b "$block" --arg a "$peer" \
+        '{step:"do", confirm:true, block:$b, receive:{pool:"cache", quota_gb:20, retention:"2 0 0"}, send_too:false, address:$a, port:22, trust:"mine"}')")
+    jq -e .ok <<<"$r" >/dev/null || { say "UN-PAIRED: the peer's accept: $(jq -c .error <<<"$r")"; return 1; }
+    block=$(jq -r .block <<<"$r"); code=$(jq -r .code <<<"$r")
+    ask caretaker.partner_finish "$(jq -cn --arg b "$block" --arg c "$code" '{step:"do", confirm:true, block:$b, code:$c}')" >/dev/null || return 1
+    echo "$id" >"$KEEP/un-pair.id"
+    say "UN-PAIRED: paired $id over $me ↔ $peer"
+}
+undo_un_paired() {
+    local id
+    id=$(cat "$KEEP/un-pair.id" 2>/dev/null)
+    if [[ -n $id ]]; then
+        un_peer_sh "for d in \$(zfs list -H -o name -r cache/UnraidSecretaryOffice-partners/$id 2>/dev/null | tac); do zfs destroy -r \"\$d\"; done" >/dev/null 2>&1
+        ask caretaker.partner_end "$(jq -cn --arg i "$id" '{id:$i}')" >/dev/null
+        un_peer_ask caretaker.partner_end "$(jq -cn --arg i "$id" '{id:$i}')" >/dev/null
+    fi
+    [[ $(un_peer_card .joined) == true ]] && { un_peer_ask caretaker.usonet_leave >/dev/null; wait_for 120 "the peer «off»" _un_peer_is off; }
+    undo_un_joined
+}

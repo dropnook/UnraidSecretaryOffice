@@ -691,3 +691,13 @@ the agent) is not this finding. H3's user «Delete» is part of the state (befor
 INV-UNRAID-SAME report the user's own act. H8 needs Tower's uso-vm-plain and Unraid's VM manager (VM-MANY-SNAPSHOTS);
 it is written against states-vm.sh but has never run — run it on Tower before trusting its cells. Reports:
 `scenarios/2026-10-21/test3-scenarios-batch-h*` (`-0947`: all; `-1010`: H1, H9, H7 again; the last folder: H3 with its undo fixed — red only says-snapshots, undo green).
+
+## USO network (the office's own Tailscale node)
+
+`usonet-lab.sh up` makes the lab tailnet on USOTest3VM (a Headscale container, data in RAM, policy tag:uso → tag:uso);
+`states-usonet.sh` has UN-JOINED, UN-HELPER-DOWN and UN-PAIRED. `caretaker-un-join-leave` needs only the lab;
+`caretaker-un-pair-run-down` also a second office in the lab's tailnet (USOTest4 by default, `UN_PEER_IP`), reached as
+root with USOTest3VM's key `$OFFICE_FLASH/scenarios-usonet.key` (+ `.known`; the peer's authorized_keys line
+`from="192.168.7.197" … uso-scenarios-usonet`, never a uso-partner: line) — without either the cell is skipped. Never the
+owner's real tailnet: the real-Tailscale check is done by hand with the owner's test key, which never lands in a file
+here.
