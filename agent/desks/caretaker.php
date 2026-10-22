@@ -738,14 +738,14 @@ function caretakerNetworkList(string $ls): array
 /**
  * What caretakerNetworkGaps() needs, from Docker: [inspect of all containers, network list] — or null (Docker down,
  * no answer). The networks are listed after the inspect: one created in between can't make a container look lost.
+ * Through houseDocker(): his checks run in the agent's round (B15).
  */
 function caretakerNetworkFacts(): ?array
 {
-    $docker = bin('docker');
-    if (!$docker || !file_exists('/var/run/docker.sock')) {
+    if (!bin('docker') || !file_exists('/var/run/docker.sock')) {
         return null;
     }
-    [$exit, $ids] = run([$docker, 'ps', '-aq', '--no-trunc'], 20);
+    [$exit, $ids] = houseDocker(['ps', '-aq', '--no-trunc']);
     $ids = array_values(array_filter(array_map('trim', explode("\n", $ids))));
     if ($exit !== 0) {
         return null;
@@ -754,12 +754,12 @@ function caretakerNetworkFacts(): ?array
         return [[], []];
     }
     // exit 1 when a container went away meanwhile — the others are still in the answer
-    [, $out] = run(array_merge([$docker, 'inspect'], $ids), 30);
+    [, $out] = houseDocker(array_merge(['inspect'], $ids));
     $inspect = json_decode($out, true);
     if (!is_array($inspect)) {
         return null;
     }
-    [$exit, $ls] = run([$docker, 'network', 'ls', '--no-trunc', '--format', '{{.ID}}\t{{.Name}}'], 20);
+    [$exit, $ls] = houseDocker(['network', 'ls', '--no-trunc', '--format', '{{.ID}}\t{{.Name}}']);
     $networks = caretakerNetworkList($ls);
     return $exit === 0 && $networks ? [$inspect, $networks] : null;
 }

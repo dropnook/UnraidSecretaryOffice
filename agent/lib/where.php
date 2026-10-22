@@ -471,18 +471,18 @@ function waFolders(array $shares, array $roots, array $asleep, array $datasets, 
 
 // --------------------------------------------------------------------- docker
 
+/** Every container, inspected — through houseDocker(): her look runs in the agent's round (B15: a silent Docker, none) */
 function waContainers(): array
 {
-    $docker = bin('docker');
-    if (!$docker || !file_exists('/var/run/docker.sock')) {
+    if (!bin('docker') || !file_exists('/var/run/docker.sock')) {
         return [];
     }
-    [$exit, $ids] = run([$docker, 'ps', '-aq', '--no-trunc'], 30);
+    [$exit, $ids] = houseDocker(['ps', '-aq', '--no-trunc']);
     $ids = array_values(array_filter(array_map('trim', explode("\n", $ids))));
     if ($exit !== 0 || !$ids) {
         return [];
     }
-    [$exit, $out] = run(array_merge([$docker, 'inspect'], $ids), 60);
+    [$exit, $out] = houseDocker(array_merge(['inspect'], $ids));
     $data = json_decode($out, true);
     if ($exit !== 0 || !is_array($data)) {
         return [];
@@ -2153,7 +2153,8 @@ function waSystem(array $containers, array $vms, array $scripts, array $backupSc
         'scrubs'    => $scrubs,
         // up: the service answers where waContainers() / waVms() ask it — off, the page says so instead of «0 of 0»
         'docker'    => ['running' => count(array_filter($containers, fn ($c) => $c['state'] === 'running')), 'total' => count($containers),
-                        'up' => bin('docker') !== null && file_exists('/var/run/docker.sock')],
+                        'up' => bin('docker') !== null && file_exists('/var/run/docker.sock'),
+                        'silent' => houseDockerSilent()],      // switched on but no answer (B15): said, never «0 of 0»
         'vms'       => ['running' => count(array_filter($vms, fn ($v) => $v['running'])), 'total' => count($vms),
                         'up' => bin('virsh') !== null && file_exists('/var/run/libvirt/libvirt-sock')],
         'scripts'   => array_values(array_map(fn ($s) => $s['name'], array_filter($scripts, fn ($s) => $s['running']))),

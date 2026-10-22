@@ -2080,7 +2080,7 @@ function rspStackLater(string $id, string $name): array
 /** Is `docker compose` here (without the Compose Manager: a stack then won't show in Unraid's Docker tab)? */
 function rspComposeCli(): bool
 {
-    return (bool) ($GLOBALS['rs']['compose_cli'] ?? (run(['docker', 'compose', 'version'], 20)[0] === 0));
+    return (bool) ($GLOBALS['rs']['compose_cli'] ?? (houseDocker(['compose', 'version'])[0] === 0));      // a plan's look, in the agent's round (B15)
 }
 
 /**

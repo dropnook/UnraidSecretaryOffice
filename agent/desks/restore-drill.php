@@ -2888,10 +2888,11 @@ function drillCleanup(array &$j, ?array $env, bool $public = true, bool $fast = 
                 $j['made'][$n]['trash'] = $to;           // the storeroom it went into (Ms. Dustdevil finds it by this: drillTrashRoots())
             }
         } elseif ($x['kind'] === 'kopia_tmp' && $x['name'] === "/tmp/uso-drill-{$j['id']}" && preg_match('/^[\w.-]+$/D', (string) ($x['container'] ?? ''))) {
+            // through houseDocker(): the sweeper also runs in the agent's round (his tick, Ms. Dustdevil's «remove») — a silent Docker is not asked (B15)
             if (!empty($GLOBALS['rsStop'])) {
-                run(drillCmd(['docker', 'exec', (string) $x['container'], 'pkill', '-INT', '-f', "uso-drill-{$j['id']}"]), 15);
+                houseDocker(['exec', (string) $x['container'], 'pkill', '-INT', '-f', "uso-drill-{$j['id']}"], 15, drillCmd(['docker'])[0]);
             }
-            [$exit] = run(drillCmd(['docker', 'exec', '-u', (string) (int) ($x['uid'] ?? 0), (string) $x['container'], 'rm', '-rf', '--', (string) $x['name']]), 60);
+            [$exit] = houseDocker(['exec', '-u', (string) (int) ($x['uid'] ?? 0), (string) $x['container'], 'rm', '-rf', '--', (string) $x['name']], 60, drillCmd(['docker'])[0]);
             $gone = $exit === 0;
         } else {
             continue;
@@ -2911,20 +2912,26 @@ function drillRamFileOk(string $path, string $id): bool
         && !is_link($path) && !is_link(drillRamDir());
 }
 
-/** A throwaway removed — only one that is exactly ours: its name and its label name the same drill */
+/**
+ * A throwaway removed — only one that is exactly ours: its name and its label name the same drill. Through houseDocker()
+ * (the sweeper also runs in the agent's round): Docker silent — not touched, not gone (B15)
+ */
 function drillRemoveContainer(string $name, string $id): bool
 {
     if (!preg_match(DRILL_CONTAINER, $name, $m) || $m[1] !== $id) {
         return false;
     }
-    [$exit, $out] = run(drillCmd(['docker', 'inspect', '--format', '{{index .Config.Labels "' . DRILL_LABEL . '"}}', $name]), 20);
+    [$exit, $out] = houseDocker(['inspect', '--format', '{{index .Config.Labels "' . DRILL_LABEL . '"}}', $name], HOUSE_DOCKER_WAIT, drillCmd(['docker'])[0]);
+    if ($exit === 124) {
+        return false;                        // no answer: still there for all we know
+    }
     if ($exit !== 0) {
         return true;                         // not there (any more)
     }
     if (trim($out) !== $id) {
         return false;                        // not ours: never touched
     }
-    return run(drillCmd(['docker', 'rm', '-f', '-v', $name]), 60)[0] === 0;
+    return houseDocker(['rm', '-f', '-v', $name], 60, drillCmd(['docker'])[0])[0] === 0;
 }
 
 /**
@@ -2958,7 +2965,8 @@ function drillSweepFind(?string $current = null, bool $deep = false, ?string $si
     }
     if ($deep || $docker || $out['journals']) {
         $running = drillRunning();
-        [$exit, $out2] = run(drillCmd(['docker', 'ps', '-a', '--filter', 'label=' . DRILL_LABEL, '--format', '{{.Names}}']), 20);
+        // through houseDocker(): his tick and Ms. Dustdevil's look run the sweeper in the agent's round (B15)
+        [$exit, $out2] = houseDocker(['ps', '-a', '--filter', 'label=' . DRILL_LABEL, '--format', '{{.Names}}'], HOUSE_DOCKER_WAIT, drillCmd(['docker'])[0]);
         foreach ($exit === 0 ? array_filter(explode("\n", trim($out2))) : [] as $name) {
             if (preg_match(DRILL_CONTAINER, $name, $m) && $m[1] !== $current && $m[1] !== ($running['id'] ?? null)) {
                 $out['orphans'][$name] = $m[1];

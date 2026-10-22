@@ -1905,10 +1905,16 @@ function rsPlanVersion(array $r, array $place, string $kind, array $current): ar
     throw new Problem('unknown_target', ['target' => $want]);
 }
 
-/** The containers on the server right now: name => running (not cached: a plan needs the truth) */
+/**
+ * The containers on the server right now: name => running (not cached: a plan needs the truth). Through houseDocker():
+ * a plan is made in the agent's round — a silent Docker refuses it at once, never a plan as if there were none (B15)
+ */
 function rsContainersNow(): array
 {
-    [$exit, $out] = run(['docker', 'ps', '-a', '--format', '{{.Names}}\t{{.State}}'], 20);
+    [$exit, $out] = houseDocker(['ps', '-a', '--format', '{{.Names}}\t{{.State}}']);
+    if ($exit === 124) {
+        throw new Problem('docker_silent');
+    }
     $all = [];
     if ($exit === 0) {
         foreach (rows($out) as $f) {
@@ -2825,12 +2831,19 @@ function rsUsers(array $paths, array $roots = []): array
     if (isset($GLOBALS['rs']['users'])) {
         return ($GLOBALS['rs']['users'])($paths, $roots);          // tests: no docker
     }
-    [$exit, $out] = run(['docker', 'ps', '-q'], 20);
+    // through houseDocker() (a plan is made in the agent's round): a silent Docker is no «nobody writes there» (B15)
+    [$exit, $out] = houseDocker(['ps', '-q']);
     $ids = array_values(array_filter(explode("\n", trim($out)), fn ($x) => (bool) preg_match('/^[0-9a-f]{6,64}$/D', $x)));
+    if ($exit === 124) {
+        throw new Problem('docker_silent');
+    }
     if ($exit !== 0 || !$ids) {
         return [[], []];
     }
-    [$exit, $out] = run(array_merge(['docker', 'inspect'], $ids), 30);
+    [$exit, $out] = houseDocker(array_merge(['inspect'], $ids));
+    if ($exit === 124) {
+        throw new Problem('docker_silent');
+    }
     $users = $parents = [];
     foreach ((array) json_decode($out, true) as $c) {
         $name = ltrim((string) ($c['Name'] ?? ''), '/');
@@ -4676,13 +4689,13 @@ function rsDoKopia(array &$j, int $i): array
  */
 function rsKopiaUid(string $container): int
 {
-    [$exit, $out] = run(['docker', 'top', $container, '-eo', 'pid,uid,args'], 20);
+    [$exit, $out] = houseDocker(['top', $container, '-eo', 'pid,uid,args']);          // a plan's look, in the agent's round (B15)
     foreach ($exit === 0 ? explode("\n", $out) : [] as $line) {
         if (preg_match('#^\s*\d+\s+(\d+)\s+(?:\S*/)?kopia\s+server\b#', $line, $m)) {
             return (int) $m[1];
         }
     }
-    [$exit, $out] = run(['docker', 'exec', $container, 'sh', '-c', 'stat -c %u "${KOPIA_CONFIG_PATH:-$HOME/.config/kopia/repository.config}"'], 20);
+    [$exit, $out] = houseDocker(['exec', $container, 'sh', '-c', 'stat -c %u "${KOPIA_CONFIG_PATH:-$HOME/.config/kopia/repository.config}"']);
     return $exit === 0 && ctype_digit(trim($out)) ? (int) trim($out) : 0;
 }
 
@@ -4752,7 +4765,12 @@ function rsKopiaSnapshots(array $k, string $source): array
     if (!$k['root']) {
         throw new Problem('restore_kopia_root');
     }
-    [$exit, $out, $err] = run(rsKopiaCmd($k['container'], rsKopiaUid($k['container']), ['--no-progress', 'snapshot', 'list', "{$k['root']}/$source", '--json']), 180);
+    // a page's request: Kopia may take its time — only once Docker answers (houseDocker()'s short look first; B15)
+    $uid = rsKopiaUid($k['container']);
+    [$exit, $out, $err] = houseDocker(array_slice(rsKopiaCmd($k['container'], $uid, ['--no-progress', 'snapshot', 'list', "{$k['root']}/$source", '--json']), 1), 180);
+    if ($exit === 124 && houseDockerSilent()) {
+        throw new Problem('docker_silent');
+    }
     if ($exit !== 0) {
         throw new Problem('restore_kopia_list', ['detail' => mb_substr(trim($err), 0, 300)]);
     }
@@ -4808,7 +4826,11 @@ function rsPlanKopia(array $r, string $stamp): array
         $plan['blockers'][] = ['key' => 'restore_no_space', 'params' => ['need' => $snap['bytes'], 'free' => (int) $free]];
     }
     $plan['source'] = ['path' => "{$k['root']}/$source", 'time' => $snap['time'], 'bytes' => $snap['bytes'], 'files' => $snap['files']];
-    $plan['steps'] = [['do' => 'kopia', 'container' => $k['container'], 'uid' => rsKopiaUid($k['container']), 'snapshot' => $snapshot, 'dest' => $dest, 'host' => $host,
+    $uid = rsKopiaUid($k['container']);
+    if (houseDockerSilent()) {
+        throw new Problem('docker_silent');            // never a plan as root because Docker didn't say Kopia's user
+    }
+    $plan['steps'] = [['do' => 'kopia', 'container' => $k['container'], 'uid' => $uid, 'snapshot' => $snapshot, 'dest' => $dest, 'host' => $host,
                        'source' => "{$k['root']}/$source"]];
     $plan['notes'][] = ['key' => 'note.kopia', 'params' => []];
     $plan['after'][] = ['key' => 'after.kopia', 'params' => ['path' => $host]];

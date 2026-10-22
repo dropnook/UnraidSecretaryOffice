@@ -9,8 +9,9 @@ declare(strict_types=1);
 
 const HOUSE_PLUGINS = '/boot/config/plugins';
 const HOUSE_CACHE   = 20;          // seconds — the agent runs for weeks, one tour of checks shares one look
-const HOUSE_DOCKER_WAIT  = 10;     // seconds a docker call of houseContainers()/houseInspect() may take
+const HOUSE_DOCKER_WAIT  = 10;     // seconds a docker call of the house (houseDocker()) may take — every one in the agent's round
 const HOUSE_DOCKER_QUIET = 120;    // after one that didn't answer: no docker call of theirs for so long (houseDockerSilent())
+const HOUSE_DOCKER_FRESH = 30;     // a longer docker call only when Docker answered within so long — else a short look first
 
 /**
  * One finding of a check.
@@ -137,29 +138,67 @@ function houseInspect(string $name): ?array
 }
 
 /**
- * A docker call of the house (houseContainers(), houseInspect()): at most HOUSE_DOCKER_WAIT s — and once one didn't
- * answer in time (dockerd hung, stopped by a signal), none for HOUSE_DOCKER_QUIET s: a silent Docker costs the agent's
- * round one short wait, not 20 s for every caller (batch E B15, backup-sv-docker-hung-replan-run: a 140 s gap in the
- * heartbeat). Meanwhile they answer as Docker gave nothing (exit 124); callers that say so ask houseDockerSilent().
- * $wait for the tests.
+ * A docker call of the house (houseContainers(), houseInspect() and every docker call that can run in the agent's own
+ * round: the desks' looks, the page's requests): at most HOUSE_DOCKER_WAIT s — and once one didn't answer in time
+ * (dockerd hung, stopped by a signal), none for HOUSE_DOCKER_QUIET s: a silent Docker costs the agent's round one short
+ * wait, not 20 s for every caller (batch E B15, backup-sv-docker-hung-replan-run: a 140 s gap in the heartbeat, then
+ * 39 s on 1.70.2 from the desks' own `docker ps`). Meanwhile they answer as Docker gave nothing (exit 124); callers
+ * that say so ask houseDockerSilent(). A longer $wait (a page's `docker logs`, a user's removal, Kopia in its
+ * container) only once Docker answered within HOUSE_DOCKER_FRESH s — else `docker version` with the short wait first:
+ * a hung Docker never holds the agent for the long one. Before each wait the agent's pulse (houseDockerPulse()).
+ * $docker: the tests' stand-in.
  *
  * @return array{0:int, 1:string, 2:string}
  */
-function houseDocker(array $args, int $wait = HOUSE_DOCKER_WAIT): array
+function houseDocker(array $args, int $wait = HOUSE_DOCKER_WAIT, string $docker = 'docker'): array
 {
     if (houseDockerSilent()) {
         return [124, '', 'Docker does not answer (no new call for ' . HOUSE_DOCKER_QUIET . ' s after a time-out)'];
     }
-    $r = run(['docker', ...$args], $wait);
+    if ($wait > HOUSE_DOCKER_WAIT && !houseDockerAnsweredLately()) {
+        $look = houseDockerCall($docker, ['version', '--format', '{{.Server.Version}}'], HOUSE_DOCKER_WAIT);
+        if ($look[0] === 124) {
+            return $look;
+        }
+    }
+    return houseDockerCall($docker, $args, $wait);
+}
+
+/** One docker call of houseDocker(): its answer starts or ends the quiet time */
+function houseDockerCall(string $docker, array $args, int $wait): array
+{
+    houseDockerPulse();
+    $r = run([$docker, ...$args], $wait);
     if ($r[0] === 124) {
         $GLOBALS['houseDockerSilent'] = hrtime(true) / 1e9;          // the monotonic clock: a step never shortens or stretches it
+        unset($GLOBALS['houseDockerAnswered']);
         if (function_exists('logLine')) {
             logLine("Office: Docker doesn't answer (docker {$args[0]} took over {$wait} s) — no docker call of the house for " . HOUSE_DOCKER_QUIET . ' s');
         }
     } else {
         unset($GLOBALS['houseDockerSilent']);
+        $GLOBALS['houseDockerAnswered'] = hrtime(true) / 1e9;
     }
     return $r;
+}
+
+/** Did a docker call of the house come back in time within HOUSE_DOCKER_FRESH s? */
+function houseDockerAnsweredLately(): bool
+{
+    $at = $GLOBALS['houseDockerAnswered'] ?? null;
+    return is_float($at) && hrtime(true) / 1e9 - $at < HOUSE_DOCKER_FRESH;
+}
+
+/**
+ * The agent's pulse before a docker call waits (only in the agent itself — its pid in PID_FILE —, never in a job, which
+ * must not keep a gone agent's heartbeat alive): the heartbeat beats every 20 s after the round, so a round's one short
+ * wait that began late in those 20 s would stretch the gap past them (scenarios' INV-TICK: 25 s)
+ */
+function houseDockerPulse(): void
+{
+    if (function_exists('agentPulse') && defined('PID_FILE') && (int) @file_get_contents(PID_FILE) === getmypid()) {
+        agentPulse();
+    }
 }
 
 /** Did Docker not answer lately (a docker call of the house timed out within HOUSE_DOCKER_QUIET s)? */

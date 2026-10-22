@@ -1495,6 +1495,10 @@ function advisorKopiaRepo(array $r, ?string $inbox = null, ?array $target = null
             }
         }
         $docker = advisorDocker();
+        // the agent waits for Kopia below (a page's request): only once Docker answers — a silent one refused at once (B15)
+        if (houseDocker(['version', '--format', '{{.Server.Version}}'], HOUSE_DOCKER_WAIT, $docker)[0] === 124) {
+            throw new Problem('docker_silent');
+        }
         [$exit, $out, $err] = advisorRunStdin([$docker, 'exec', '-i', $k['name'], 'sh', '-c', ADVISOR_KOPIA_SH, 'sh', ...$spec['args']],
             $spec['stdin'], 300);
         $said = advisorScrub(trim($out . "\n" . $err), $secret);
@@ -1504,18 +1508,18 @@ function advisorKopiaRepo(array $r, ?string $inbox = null, ?array $target = null
         }
         if ($spec['client'] !== null) {
             [$u, $h] = explode('@', $spec['client'], 2);
-            run([$docker, 'exec', $k['name'], 'kopia', 'repository', 'set-client', "--username=$u", "--hostname=$h"], 60);
+            houseDocker(['exec', $k['name'], 'kopia', 'repository', 'set-client', "--username=$u", "--hostname=$h"], 60, $docker);
         }
         $extend = null;
         if ($spec['lock'] !== null) {
             // what Kopia still needs keeps its lock: extended at every full maintenance (daily; the period is a week at least)
-            [$x] = run([$docker, 'exec', $k['name'], 'kopia', 'maintenance', 'set', '--extend-object-locks=true'], 60);
+            [$x] = houseDocker(['exec', $k['name'], 'kopia', 'maintenance', 'set', '--extend-object-locks=true'], 60, $docker);
             $extend = $x === 0;
             logLine("Consultant: Kopia extends the object locks at its full maintenance - exit $x");
         }
         $lock = advisorKopiaLock($docker, $k['name'], $extend);
-        [$version] = array_pad(preg_split('/\s+/', trim(run([$docker, 'exec', $k['name'], 'kopia', '--version'], 30)[1])) ?: [], 1, '');
-        [$restarted] = run([$docker, 'restart', '-t', '30', $k['name']], 90);
+        [$version] = array_pad(preg_split('/\s+/', trim(houseDocker(['exec', $k['name'], 'kopia', '--version'], 30, $docker)[1])) ?: [], 1, '');
+        [$restarted] = houseDocker(['restart', '-t', '30', $k['name']], 90, $docker);
         $repo = $k['info']['config'] !== null ? advisorKopiaRepoFacts($k['info']['config'] . '/repository.config') : ['connected' => true];
         $facts = [
             'server' => hostname(), 'time' => time(), 'container' => $k['name'], 'image' => $k['image'], 'version' => $version,
@@ -1862,7 +1866,7 @@ function advisorHttps(string $url, array $headers, int $timeout = 15): array
  */
 function advisorKopiaLock(string $docker, string $name, ?bool $extend): ?array
 {
-    [$exit, $out] = run([$docker, 'exec', $name, 'kopia', 'repository', 'status', '--json'], 30);
+    [$exit, $out] = houseDocker(['exec', $name, 'kopia', 'repository', 'status', '--json'], 30, $docker);
     $j = $exit === 0 ? json_decode(substr($out, (int) strpos($out, '{')), true) : null;
     if (!is_array($j)) {
         return null;
@@ -1873,7 +1877,7 @@ function advisorKopiaLock(string $docker, string $name, ?bool $extend): ?array
         return ['mode' => null];
     }
     if ($extend === null) {
-        [$x, $info] = run([$docker, 'exec', $name, 'kopia', 'maintenance', 'info', '--json'], 20);
+        [$x, $info] = houseDocker(['exec', $name, 'kopia', 'maintenance', 'info', '--json'], 20, $docker);
         $i = $x === 0 ? json_decode(substr($info, (int) strpos($info, '{')), true) : null;
         $extend = is_array($i) && is_bool($i['extendObjectLocks'] ?? null) ? $i['extendObjectLocks'] : null;
     }
@@ -1936,7 +1940,7 @@ function advisorDocker(): string
  */
 function advisorDockerUp(): bool
 {
-    return run([advisorDocker(), 'info', '--format', '{{.ServerVersion}}'], 10)[0] === 0;
+    return houseDocker(['info', '--format', '{{.ServerVersion}}'], HOUSE_DOCKER_WAIT, advisorDocker())[0] === 0;      // his look runs in the agent's round (B15)
 }
 
 /**

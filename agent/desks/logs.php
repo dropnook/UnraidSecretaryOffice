@@ -657,6 +657,9 @@ function logsClean(string $line): string
 function logsRead(string $id, int $lines, ?int $offset): array
 {
     $src = logsSources()[$id] ?? null;
+    if (!$src && str_starts_with($id, 'container:') && houseDockerSilent()) {
+        throw new Problem('docker_silent');          // the containers' list is empty only because Docker is silent (B15)
+    }
     if (!$src) {
         throw new Problem('logs_unknown', ['source' => $id]);
     }
@@ -695,8 +698,12 @@ function logsRead(string $id, int $lines, ?int $offset): array
         return ['ok' => true, 'lines' => array_map('logsClean', array_slice($all, -$lines)), 'follow' => 'replace'];
     }
 
-    // docker logs: stdout and stderr, merged by their timestamps
-    [$exit, $out, $err] = run(['docker', 'logs', '--tail', (string) $lines, '--timestamps', $src['target']], 30);
+    // docker logs: stdout and stderr, merged by their timestamps. A page's request, answered in the agent's loop:
+    // through houseDocker() — a big log may take its 30 s, but only once Docker answers (its short look first, B15)
+    [$exit, $out, $err] = houseDocker(['logs', '--tail', (string) $lines, '--timestamps', $src['target']], 30);
+    if ($exit === 124 && houseDockerSilent() && trim($out) === '') {
+        throw new Problem('docker_silent');
+    }
     if ($exit !== 0 && trim($out) === '') {
         throw new Problem('logs_unreadable', ['source' => $id, 'detail' => trim($err)]);
     }
