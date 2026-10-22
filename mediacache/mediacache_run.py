@@ -79,6 +79,7 @@ import argparse
 import collections
 import contextlib
 import os
+import re
 import sys
 import threading
 import time
@@ -88,6 +89,20 @@ from pathlib import Path
 STOP_FILE = os.environ.get("MEDIACACHE_STOP") or ""
 NO_FILL = os.environ.get("MEDIACACHE_NO_FILL") == "1"     # USO: nur freigeben, nichts holen (das Office)
 WATCHED_ONLY = os.environ.get("MEDIACACHE_WATCHED_ONLY") == "1"   # USO: zurück nur, was geschaut ist (das Office, nur X)
+
+
+# USO «vanished» (2026-10-22, seen on a real server): another program mirroring into the share with rsync --delete
+# (a User Script, through /mnt/user) removed rsync's temporary .<name>.XXXXXX in the target before its rename — code 23,
+# «rename "…/.<name>.XXXXXX" -> "<name>": No such file or directory», the file not copied, its source still there
+VANISHED_RE = re.compile(r'rename "[^"\n]*" -> "[^"\n]*": No such file or directory')
+# its words in the log when it happened again on the second try (one line, never «rsync error» alone)
+VANISHED_SAID = ("Ein anderes Programm hat die halb kopierte Datei gelöscht (z. B. ein Sync mit --delete auf diesen Share) "
+                 "– die Quelle ist unversehrt, der nächste Lauf versucht es wieder: {rel}")
+
+
+def vanished(rc, out):
+    """USO «vanished»: rsync's temporary file was deleted in the target before its rename"""
+    return rc == 23 and bool(VANISHED_RE.search(out))
 
 
 def stop_requested():
@@ -802,6 +817,10 @@ class Runner:
         self.office_pool = self.give_back_free or WATCHED_ONLY   # USO: was er hält und was wartet, in den Status
 
         self.fill_failures = 0
+        # USO: files not copied / not brought back, per file (the office counts these, never log lines); «vanished» retries
+        self.failed_files = {"fill": 0, "back": 0, "vanished": 0}
+        self.failed_list = []
+        self.retried = 0
         self._lock = threading.Lock()  # Zähler und Löschen/Ordner-Aufräumen bei parallelen Kopien
         self.status = Status(mode, log, enabled=self.run_mode, log_interval=cfg["status_log_interval"])
 
@@ -843,10 +862,15 @@ class Runner:
             cmd = self.rsync_cmd(src, dst)
             log.debug("rsync-Aufruf (Cleanup): " + " ".join(cmd))
             self.progress.start("back", rel, sizes.get(p, 0), dst, why=self.back_why.get(p))
-            rc, out = run_rsync(cmd, lambda done, speed, eta: self.status.job_progress(key, done, speed, eta))
+            rc, out = self.rsync_copy(cmd, dst, rel, lambda done, speed, eta: self.status.job_progress(key, done, speed, eta))
             if rc != 0:
                 failures += 1
-                log.error(f"rsync-Fehler (Code {rc}) bei {rel}: {out.strip()}")
+                if vanished(rc, out):
+                    log.error(VANISHED_SAID.format(rel=rel))
+                    self.failed("back", rel, "vanished")
+                else:
+                    log.error(f"rsync-Fehler (Code {rc}) bei {rel}: {out.strip()}")
+                    self.failed("back", rel)
                 protected.add(p)
                 self.status.job_end(key, False)
                 self.progress.drop_back(sizes.get(p, 0))
@@ -855,6 +879,7 @@ class Runner:
             try:
                 if dst.stat().st_size != src.stat().st_size:
                     log.error(f"Grösse stimmt nicht überein nach rsync, Datei bleibt auf dem Cache: {rel}")
+                    self.failed("back", rel)
                     protected.add(p)
                     self.status.job_end(key, False)
                     self.progress.drop_back(sizes.get(p, 0))
@@ -862,6 +887,7 @@ class Runner:
                 src.unlink()
             except OSError as e:
                 log.error(f"Quelle konnte nicht gelöscht werden (Datei liegt jetzt doppelt!): {src} ({e})")
+                self.failed("back", rel)
                 protected.add(p)
                 self.status.job_end(key, False)
                 self.progress.drop_back(sizes.get(p, 0))
@@ -1197,6 +1223,27 @@ class Runner:
         extra = ["--info=progress2"] if self.cfg["copy_progress"] else []
         return ["rsync", *self.cfg["rsync_args"], *extra, str(src), str(dst)]
 
+    def rsync_copy(self, cmd, dst, rel, on_progress):
+        """USO «vanished»: rsync once; when its temporary file vanished before the rename (someone else deleted it in the
+        target, nothing there yet), once more — the next time it is usually through. Any other error stays an error."""
+        rc, out = run_rsync(cmd, on_progress)
+        if vanished(rc, out) and not dst.exists() and not self.halt():
+            log.warning(f"Die Kopie von {rel} verschwand im Ziel vor dem Umbenennen (ein anderes Programm hat sie gelöscht, "
+                        "z. B. ein Abgleich mit --delete) – noch ein Versuch")
+            with self._lock:
+                self.retried += 1
+            rc, out = run_rsync(cmd, on_progress)
+        return rc, out
+
+    def failed(self, phase, rel, why=None):
+        """USO: a file this run could not copy or bring back — counted per file (not per log line) for the office;
+        why «vanished» (someone else deleted its half copy) counted apart too. A parallel fill calls it holding self._lock."""
+        self.failed_files[phase] += 1
+        if why == "vanished":
+            self.failed_files["vanished"] += 1
+        if len(self.failed_list) < 20:
+            self.failed_list.append({"phase": phase, "rel": str(rel)} | ({"why": why} if why else {}))
+
     def copy_one(self, loc, f, src, disk, index, count):
         """Eine Datei Array -> Cache per rsync, Grössenvergleich, dann Quelle löschen. Thread-sicher."""
         dst = loc.on_cache(f.rel)
@@ -1210,22 +1257,29 @@ class Runner:
             cmd = self.rsync_cmd(src, dst)
             log.debug("rsync-Aufruf: " + " ".join(cmd))
             self.progress.start("fill", f.rel, f.size, dst, f)
-            rc, out = run_rsync(cmd, lambda done, speed, eta: self.status.job_progress(key, done, speed, eta))
+            rc, out = self.rsync_copy(cmd, dst, f.rel, lambda done, speed, eta: self.status.job_progress(key, done, speed, eta))
             if rc != 0:
+                gone = vanished(rc, out)
                 with self._lock:
                     self.fill_failures += 1
-                log.error(f"rsync-Fehler (Code {rc}) bei {f.rel}: {out.strip()}")
-                log.error("Quelle bleibt auf dem Array; Ziel prüfen, sonst liegt die Datei doppelt")
+                    self.failed("fill", f.rel, "vanished" if gone else None)
+                if gone:
+                    log.error(VANISHED_SAID.format(rel=f.rel))
+                else:
+                    log.error(f"rsync-Fehler (Code {rc}) bei {f.rel}: {out.strip()}")
+                    log.error("Quelle bleibt auf dem Array; Ziel prüfen, sonst liegt die Datei doppelt")
                 return
             with self._lock:
                 self.fill_failures = 0
                 try:
                     if dst.stat().st_size != src.stat().st_size:
                         log.error(f"Grösse stimmt nicht überein nach rsync, Quelle bleibt: {f.rel}")
+                        self.failed("fill", f.rel)
                         return
                     src.unlink()
                 except OSError as e:
                     log.error(f"Quelle konnte nicht gelöscht werden (Datei liegt jetzt doppelt!): {src} ({e})")
+                    self.failed("fill", f.rel)
                     return
                 self.copied += 1
                 self.copied_bytes += f.size
@@ -1510,6 +1564,7 @@ class Runner:
                                "bytes_planned": self.to_cache, "bytes_done": self.copied_bytes}
         self.result["protected"] = len(protected)
         self.result["incomplete"] = bool(planner.errors or not sessions_ok)
+        self.result["failed"] = dict(self.failed_files, files=self.failed_list, retried=self.retried)   # USO
         if self.office_pool:              # USO: was er hält, sein Boden, was zurückging (in Worten fürs Office), was wartet
             self.result["pool"] = {"keep": self.keep, "held": self.held, "waiting": self.waiting, "waiting_bytes": self.waiting_bytes}
             self.result["give_back"] = {"files": self.given_back, "bytes": self.given_back_bytes, "items": self.given_back_list}
@@ -1543,6 +1598,7 @@ class Runner:
         self.result["fill"] = {"planned": 0, "done": 0, "bytes_planned": 0, "bytes_done": 0}
         self.result["protected"] = len(left)
         self.result["incomplete"] = not sessions_ok
+        self.result["failed"] = dict(self.failed_files, files=self.failed_list, retried=self.retried)   # USO
         return 3 if self.stopped else 0
 
 
