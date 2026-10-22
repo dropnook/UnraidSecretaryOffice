@@ -42,6 +42,7 @@ const BACKUP_LOG_BYTES   = 512 * 1024;
 const BACKUP_HISTORY     = 60;           // runs shown
 const BACKUP_UPLOAD_LOOK = 180;          // a first upload's rate: from looks at least this far apart (seconds) …
 const BACKUP_UPLOAD_KEEP = 900;          // … within the last 15 minutes; before that, the average since it started
+const BACKUP_OFFICE_SHARE = 'UnraidSecretaryOffice';     // the office's own share - the backup place he offers to create (the engine's UB_OFFICE_SHARE)
 const BACKUP_ASLEEP_NIGHTS = 7;          // engine 2.28: a share left out asleep so many nights in a row - the engine warned (UB_ASLEEP_NIGHTS)
 
 $GLOBALS['backup'] = null;
@@ -75,10 +76,12 @@ desk('backup', [
         'setup_get'   => fn (array $r) => backupSetupGet(),
         'setup_apply' => fn (array $r) => backupSetupApply($r['decisions'] ?? null, $r['plan_time'] ?? null),
         'setup_forget' => fn (array $r) => backupSetupForget(),
+        'place_make'  => fn (array $r) => backupPlaceMake(optText($r, 'pool')),       // 2026-10-21: the setup's first step - '' the array
         'orphans_look'   => fn (array $r) => backupOrphansLook(),                    // engine 2.51: old Kopia sources of gone units
         'orphans_get'    => fn (array $r) => ['ok' => true, 'orphans' => backupOrphans()],
         'orphans_delete' => fn (array $r) => backupOrphansDelete(idList($r, 'sources'), optText($r, 'listed')),
         'kopia_accept'   => fn (array $r) => backupKopiaAccept(textField($r, 'repo')),     // engine 2.56: «yes, this repository is new»
+        'kopia_restart'  => fn (array $r) => backupKopiaRestart(),     // engine 2.68: the offsite storage takes nothing - «Restart Kopia…» after a confirmation
         'setup_decline' => fn (array $r) => backupDecline(textField($r, 'key'), $r['value'] ?? null),          // 1.60.1: a declined proposal stays declined
         'setup_decline_undo' => fn (array $r) => backupDeclineUndo(textField($r, 'key')),
         'schedule'    => fn (array $r) => backupSetSchedule(cronField($r)),       // null: off — said, never a missing key
@@ -96,7 +99,10 @@ desk('backup', [
                                                     'no_fresh_ok' => boolField($r, 'no_fresh_ok')]),
     ],
     'jobs'    => ['backup-letgo' => fn (array $args) => backupLetGoJob($args)],
-    'tick'    => fn () => backupLockTick(),           // engine 2.56: Object Lock and Kopia's maintenance, asked a few times a day
+    'tick'    => function (): void {
+        backupLockTick();             // engine 2.56: Object Lock and Kopia's maintenance, asked a few times a day
+        backupWatchTick();            // engine 2.68: the Kopia server's log - does the offsite storage still take writes?
+    },
     'checks' => fn () => backupChecks(),
     'metrics' => fn (): array => backupMetrics(),
 ]);
@@ -287,6 +293,7 @@ function backupScan(): array
         'drill'      => backupDrillLine(),       // Mr. Restori's drill: one line from its certificate
         'kopia_held' => backupKopiaHeld(),       // engine 2.56: the Kopia step held - the repository suddenly empty
         'offsite'    => backupOffsiteReach($settings),    // engine 2.66: «offsite unreachable since …» (B16)
+        'kopia_writes' => backupKopiaWrites($settings),   // engine 2.68: does the offsite storage still take writes?
     ];
     $state['found'] = true;
     $GLOBALS['backup'] = $state;
@@ -2596,6 +2603,11 @@ function backupChecks(): array
             $held = backupKopiaHeld();
             $out[] = finding('kopia_emptied', 'required', $held === null, $held === null ? [] : backupHeldParams($held), '#/backup');
             array_push($out, ...backupKopiaLockJudge(backupKopiaLockRead(), time(), $name));
+            // engine 2.68: the offsite storage takes nothing (Kopia's server log, or a run's upload ended by its stall
+            // watchdog) - said only once the engine looked; «unknown» (not the maintenance owner, no log) says nothing
+            if ($f = backupWritesFinding(backupKopiaWrites($settings), $name)) {
+                $out[] = $f;
+            }
         }
     }
 
@@ -2771,6 +2783,111 @@ function backupOffsiteReach(array $settings, ?string $file = null): ?array
         }
     }
     return ['unreachable_since' => $j['since'], 'run' => $j['run'], 'last' => $j['last'], 'last_run' => $j['last_run']];
+}
+
+/**
+ * Engine 2.68: does the offsite storage still take what Kopia writes? state/kopia-watch.json (backup.sh --kopia-watch from
+ * Kopia's server log, or a run's stall watchdog) in exactly the engine's shape — else null. Only while Kopia is switched
+ * on in settings.ini. `state` ok | stuck | unknown; `since` (stuck) the first moment it took nothing; `by` server | run.
+ */
+function backupKopiaWrites(array $settings, ?string $file = null): ?array
+{
+    if (!in_array(strtolower((string) backupSetting($settings, 'kopia', 'enabled', 'no')), ['yes', 'ja', '1', 'true'], true)) {
+        return null;
+    }
+    $j = readJson($file ?? BACKUP_DATA_DIR . '/state/kopia-watch.json');
+    if (!is_array($j) || ($j['v'] ?? null) !== 1 || !in_array($j['state'] ?? null, ['ok', 'stuck', 'unknown'], true) || !is_int($j['time'] ?? null)) {
+        return null;
+    }
+    $stuck = $j['state'] === 'stuck';
+    if ($stuck && (!is_int($j['since'] ?? null) || $j['since'] <= 0)) {
+        return null;
+    }
+    $storage = is_string($j['storage'] ?? null) && preg_match('/^[^\x00-\x1f<>]{0,120}$/uD', $j['storage']) ? $j['storage'] : '';
+    return ['state' => $j['state'], 'since' => $stuck ? $j['since'] : null, 'by' => $stuck && ($j['by'] ?? '') === 'run' ? 'run' : ($stuck ? 'server' : null),
+            'storage' => $storage, 'time' => $j['time'],
+            'why' => is_string($j['why'] ?? null) && preg_match('/^[a-z_]{0,20}$/D', $j['why']) ? $j['why'] : ''];
+}
+
+/** The finding's words of an offsite that takes nothing: since when (as the page says it), where, which container */
+function backupWritesParams(array $w, ?string $name): array
+{
+    return ['since' => date('Y-m-d H:i', (int) $w['since']), 'since_t' => (int) $w['since'],
+            'storage' => $w['storage'] !== '' ? $w['storage'] : '–', 'name' => $name ?? 'kopia'];
+}
+
+/**
+ * The finding kopia_writes from the watch's record (backupKopiaWrites()): a must only while the storage takes nothing —
+ * it clears by itself once the engine sees a write go through (the record says ok); «unknown» (not the maintenance owner,
+ * no log, the container stopped before anything was seen) and no record say nothing at all. Pure.
+ */
+function backupWritesFinding(?array $w, ?string $name): ?array
+{
+    if ($w === null || !in_array($w['state'] ?? null, ['ok', 'stuck'], true)) {
+        return null;
+    }
+    $stuck = $w['state'] === 'stuck';
+    return finding('kopia_writes', 'required', !$stuck, $stuck ? backupWritesParams($w, $name) : ['name' => $name ?? 'kopia'], '#/backup');
+}
+
+const BACKUP_WATCH_ENGINE = '2.68';
+const BACKUP_WATCH_EVERY  = 600;         // the Kopia server's log looked at (backup.sh --kopia-watch through atd) every 10 minutes
+
+/**
+ * His tick (engine 2.68): every 10 minutes the engine reads the Kopia server's own log (backup.sh --kopia-watch through
+ * atd: one docker exec, the repository never opened) — only while Kopia is on, never with the engine's folder on a sleeping
+ * disk; a run going on doesn't matter (nothing is locked or written in the repository).
+ */
+function backupWatchTick(?int $now = null): ?string
+{
+    static $launched = 0;
+    $now ??= time();
+    if ($now - $launched < BACKUP_WATCH_EVERY && $now >= $launched) {
+        return null;
+    }
+    $launched = $now;
+    $dir = BACKUP_SCRIPT_DIR;
+    $data = BACKUP_DATA_DIR;
+    if (!is_file("$dir/backup.sh") || !is_file("$data/settings.ini") || backupHomeAsleep($data) || backupDockerSilent()
+        || !backupSettingsSummary(backupReadSettings("$data/settings.ini"))['kopia_enabled']
+        || version_compare((string) (backupAbout($dir)['version'] ?? '0'), BACKUP_WATCH_ENGINE, '<')) {
+        return null;
+    }
+    backupLaunch(["$dir/backup.sh", '--kopia-watch']);
+    return 'launched';
+}
+
+/**
+ * «Restart Kopia…» (engine 2.68, on his page while the offsite storage takes nothing, after a confirmation): `docker
+ * restart` of exactly the container settings.ini names — never by himself, never while the engine's lock is held (a run,
+ * the setup, a restore or drill: backupCheckReady()). Afterwards the watch looks again; «stuck» ends only when a write
+ * goes through (the restart alone proves nothing).
+ */
+function backupKopiaRestart(): array
+{
+    $dir = backupCheckReady();
+    if (version_compare((string) (backupAbout($dir)['version'] ?? '0'), BACKUP_WATCH_ENGINE, '<')) {
+        throw new Problem('backup_too_old', ['version' => backupAbout($dir)['version'] ?? '?']);
+    }
+    $settings = backupReadSettings(BACKUP_DATA_DIR . '/settings.ini');
+    $name = backupSettingsSummary($settings)['kopia_container'] ?? null;
+    if (!backupSettingsSummary($settings)['kopia_enabled'] || !is_string($name) || !preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/D', $name)
+        || !isset(houseContainers(true)[$name])) {
+        throw new Problem('kopia_restart_gone');
+    }
+    [$exit, , $err] = houseDocker(['restart', '-t', '30', $name], 120);
+    if ($exit !== 0) {
+        logLine("Backup: Kopia's container $name could not be restarted (exit $exit): " . trim((string) $err));
+        throw new Problem('kopia_restart_failed', ['name' => $name]);
+    }
+    logLine("Backup: Kopia's container $name restarted on the user's click (the offsite storage took nothing since "
+        . (($w = backupKopiaWrites($settings)) && $w['since'] ? date('Y-m-d H:i', $w['since']) : '–') . ')');
+    try {
+        backupLaunch(["$dir/backup.sh", '--kopia-watch']);
+    } catch (Throwable $e) {
+        logLine('Backup: the look at Kopia after its restart could not start: ' . $e->getMessage());
+    }
+    return ['ok' => true, 'name' => $name, 'state' => backupScan()];
 }
 
 /** The finding's words of a hold: counts and the dates as the page says them */
@@ -2983,7 +3100,10 @@ function backupSetupGet(): array
     $noteFile = "$data/state/" . BACKUP_REPLAN_FILE;
     $note = readJson($noteFile);
     $holder = backupLockHolder();
-    $free = $holder === null && !backupSetupStatus()['running'] && backupTrustState($data) === null;   // never a plan the engine refuses
+    $st = backupSetupStatus();
+    // never a plan the engine refuses; never over an Apply that ended «errors» (engine 2.67): its messages stay until the user acts
+    $free = $holder === null && !$st['running'] && backupTrustState($data) === null
+        && !($st['mode'] === 'apply' && $st['result'] === 'errors' && $st['written']);
     $replan = backupSetupReplan($plan, $state, $note, $free, time());
     if ($replan['note'] !== $note && $replan['note'] !== null) {
         try {
@@ -3034,6 +3154,7 @@ function backupSetupGet(): array
     }
     $run = readJson("$data/state/setup-status.json");
     if (is_array($plan)) {
+        $plan['place_offer'] = backupPlaceOffer();      // the office's share while Unraid has none: the setup's first step offers it
         $plan['notes'] = backupSetupNotes($plan['messages'] ?? null);   // the messages grouped, for the page
         $plan = backupPlanVolumeCaches($plan);
         // the units the pairs sent up to 1.59 (the step partner-simple): proposed at «local + partner» until applied
@@ -3406,6 +3527,108 @@ function backupPlaceBases(string $locations, array $cfg, array $disks): array
         }
     }
     return ['pools' => array_values(array_unique($pools)), 'disks' => array_values(array_unique($onDisks)), 'array' => $array];
+}
+
+/**
+ * The office's own share as the backup place, while Unraid has none of that name (owner 2026-10-21, a fresh server: the
+ * missing place was a hint among everything else — the setup now starts with it). Where it would go, the five points in
+ * order: a ZFS pool first (the packages' earlier backups in snapshots; only a dataset travels to a partner), one appdata
+ * doesn't lie on when there is another, a mirror before a single drive; no ZFS pool: another pool (btrfs first); no pool:
+ * the array. Only on that pool, no secondary storage — exclusive when Unraid permits exclusive shares (`exclusive`,
+ * ⟦Global Share Settings⟧). `why` says what is second best: '' none,
+ * `same_pool` (appdata lies on every ZFS pool), `no_zfs` (no ZFS pool here), `no_pool` (no pool: the array). `fresh`
+ * false: Unraid knew the share (its cfg on the flash, Docker's or the VMs' paths) — nothing offered, what was there may
+ * come back (lib/firsthome.php). `asleep`: the pool (or a disk of the array) sleeps — a click is refused, never woken.
+ * Cheap: shares.ini, the flash's cfgs, disks.ini — never a disk.
+ *
+ * @return array{share: string, fresh: bool, pool: ?string, fs: string, why: string, mirror: bool, asleep: bool, exclusive: bool, appdata: ?string}|null
+ */
+function backupPlaceOffer(?array $h = null): ?array
+{
+    $h ??= homeHost();
+    $state = homeShareState(BACKUP_OFFICE_SHARE, $h);
+    if ($state === null) {
+        return null;
+    }
+    $disks = readCfg($h['disks_ini'], true);
+    $asleep = [];
+    foreach ($disks as $id => $d) {
+        $asleep[(string) ($d['name'] ?? $id)] = diskAsleep($d);
+    }
+    // appdata's pools: its primary and secondary storage as its cfg on the flash says (any case, like Unraid's names)
+    $appdata = [];
+    foreach (glob($h['shares_dir'] . '/*.cfg') ?: [] as $f) {
+        if (strcasecmp(basename($f, '.cfg'), 'appdata') === 0) {
+            $c = readCfg($f);
+            if (strtolower((string) ($c['shareUseCache'] ?? 'no')) !== 'no') {
+                $appdata[] = (string) ($c['shareCachePool'] ?? '');
+            }
+            $appdata[] = (string) ($c['shareCachePool2'] ?? '');
+        }
+    }
+    $appdata = array_values(array_filter($appdata));
+    $best = null;
+    foreach (homePools($h) as $pool) {
+        $fs = preg_replace('/^luks:/', '', strtolower((string) ($disks[$pool]['fsType'] ?? '')));
+        $mirror = (bool) preg_match('/^(mirror|raidz|draid|raid1|raid5|raid6|raid10)/i', (string) ($disks[$pool]['fsProfile'] ?? ''));
+        $rank = [$fs === 'zfs' ? 2 : ($fs === 'btrfs' ? 1 : 0), in_array($pool, $appdata, true) ? 0 : 1, $mirror ? 1 : 0];
+        if ($best === null || $rank > $best['rank']) {
+            $best = ['rank' => $rank, 'pool' => $pool, 'fs' => $fs, 'mirror' => $mirror];
+        }
+    }
+    $arrayAsleep = false;
+    foreach ($asleep as $id => $sleeping) {
+        $arrayAsleep = $arrayAsleep || ($sleeping && preg_match('/^disk\d+$/D', (string) $id));
+    }
+    $appdataPool = $appdata[0] ?? null;
+    if ($best === null) {
+        return ['share' => BACKUP_OFFICE_SHARE, 'fresh' => $state['fresh'], 'pool' => null, 'fs' => '', 'why' => 'no_pool', 'mirror' => false,
+            'asleep' => $arrayAsleep, 'exclusive' => false, 'appdata' => $appdataPool];
+    }
+    $why = $best['rank'][0] < 2 ? 'no_zfs' : ($best['rank'][1] === 0 ? 'same_pool' : '');
+    return ['share' => BACKUP_OFFICE_SHARE, 'fresh' => $state['fresh'], 'pool' => $best['pool'], 'fs' => $best['fs'], 'why' => $why,
+        'mirror' => $best['mirror'], 'asleep' => baseAsleep($best['pool'], $asleep),
+        'exclusive' => strtolower((string) (readCfg($h['share_cfg'])['shareUserExclusive'] ?? '')) === 'yes', 'appdata' => $appdataPool];
+}
+
+/**
+ * «Create UnraidSecretaryOffice…» on the setup's first step: the office's share made by Unraid's own «Add Share» (lib/
+ * firsthome.php homeMake(): emcmd, the fields Unraid's form sends; only on the pool, no secondary storage, or the array
+ * for '') — the one share the office makes besides Unraid's standard ones, only on this click, never by
+ * mkdir. Looked at again first: refused when the share is there (place_exists) or Unraid knew it (place_known), the pool
+ * isn't one of Unraid's (place_pool_unknown) or it sleeps (place_pool_asleep, place_array_asleep: never woken). The page
+ * then plans anew — the engine proposes the new office's share as the backup place.
+ */
+function backupPlaceMake(string $pool, ?array $h = null): array
+{
+    $h ??= homeHost();
+    $offer = backupPlaceOffer($h);
+    if ($offer === null) {
+        throw new Problem('place_exists', ['share' => BACKUP_OFFICE_SHARE]);
+    }
+    if (!$offer['fresh']) {
+        throw new Problem('place_known', ['share' => BACKUP_OFFICE_SHARE]);
+    }
+    if ($pool !== '' && !in_array($pool, homePools($h), true)) {
+        throw new Problem('place_pool_unknown', ['pool' => mb_substr($pool, 0, 40)]);
+    }
+    $asleep = [];
+    foreach (readCfg($h['disks_ini'], true) as $id => $d) {
+        $asleep[(string) ($d['name'] ?? $id)] = diskAsleep($d);
+    }
+    $sleeps = $pool !== '' ? baseAsleep($pool, $asleep)
+        : (bool) array_filter($asleep, fn ($s, $id) => $s && preg_match('/^disk\d+$/D', (string) $id), ARRAY_FILTER_USE_BOTH);
+    if ($sleeps) {
+        throw $pool !== '' ? new Problem('place_pool_asleep', ['pool' => $pool]) : new Problem('place_array_asleep');
+    }
+    $r = homeMake(BACKUP_OFFICE_SHARE, $pool !== '' ? $pool : null, $h);
+    if (!$r['ok']) {
+        logLine('Backup: Unraid did not create the share ' . BACKUP_OFFICE_SHARE . ' (' . ($r['error']['key'] ?? '?') . ')');
+        throw new Problem($r['error']['key'], $r['error']['params']);
+    }
+    logLine('Backup: created the share ' . BACKUP_OFFICE_SHARE . " on the user's click (Unraid's «Add Share», "
+        . ($pool !== '' ? "only on the pool $pool" : 'on the array') . ') as the backup place');
+    return ['ok' => true, 'made' => BACKUP_OFFICE_SHARE, 'pool' => $pool];
 }
 
 /**

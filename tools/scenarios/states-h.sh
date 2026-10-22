@@ -113,6 +113,9 @@ h_jack_hire_standin() {
     list=$(_st_jack_list)
     find /mnt/cache/media -type f 2>/dev/null | sort | head -200 > "$list.uso-new" && chmod 600 "$list.uso-new" && mv "$list.uso-new" "$list" || return 1
     n=$(grep -c . "$list")
+    # his page looked at once (as whenever it is open): the office sees his list with its films — the trace his real run
+    # leaves (fix H1: a list that held films and goes missing is written anew from the pool, never empty)
+    ask jack.refresh '{}' 120 >/dev/null || say "h_jack_hire_standin: his look didn't answer"
     set=$(jq -c --arg l "$(_st_jack_list_user)" '.shares.media = ((.shares.media // {skip: false, min_age: null, move_when_used_above: null,
         files: [], patterns: []}) | .files = ((.files // []) + [$l] | unique))' "$dir/moverelli.settings")
     mv_settings_save "$set" || { say "h_jack_hire_standin: her save refused: $(ask_last '.error')"; return 1; }

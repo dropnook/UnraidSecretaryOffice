@@ -167,9 +167,10 @@ Office.fmt = {
   },
   size(bytes) {
     if (bytes === 0) return '0 B';
-    if (bytes === null || bytes === undefined || isNaN(bytes)) return '–';
+    if (bytes === null || bytes === undefined || !Number.isFinite(Number(bytes))) return '–';
     const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
-    const i = Math.min(Math.floor(Math.log(Math.abs(bytes)) / Math.log(1024)), units.length - 1);
+    // never below B: a fraction (a slow start's rate, 0.06 B/s) has a negative log — «65 undefined/s» (batch H9)
+    const i = Math.max(0, Math.min(Math.floor(Math.log(Math.abs(bytes)) / Math.log(1024)), units.length - 1));
     const value = bytes / Math.pow(1024, i);
     return `${Office.fmt.number(value, i === 0 ? 0 : value < 10 ? 1 : 0)} ${units[i]}`;
   },
@@ -2328,10 +2329,13 @@ Office.supporterAsk = async function supporterAsk(answer) {
  * «Send» needs one more while any is ticked: «I've looked at the pictures — nothing private on them» (the scrubber
  * can't blank a picture). Pictures are never kept in the draft.
  * Unraid's diagnostics (2026-10-15): one tick in the form, never ticked by default, never remembered. With it the
- * preview has the agent run Unraid's own anonymized diagnostics; the page asks office.report_diag until they are
- * ready (size, files) and «Send» waits for them. A sleeping disk: the agent refuses (report_diag_asleep) and a second
+ * preview has the agent run Unraid's own anonymized diagnostics and clean them once more itself; the page asks
+ * office.report_diag until they are ready (size, files, what the office hid) and «Send» waits for them. A sleeping disk: the agent refuses (report_diag_asleep) and a second
  * tick «wake them» appears. They go after the report (the answer's `diagnostics` says whether); a preview thrown away
  * or the dialog closed drops them on the server.
+ * Whether the makers' inbox takes reports (2026-10-21: it was archived, every report «failed»): on opening the dialog
+ * asks office.report_inbox (the agent's look at the Worker's health, at most every 10 minutes) and says it before
+ * anyone writes — «Send» stays: the look can be a few minutes old, the Worker answers at once.
  */
 const REPORT_KINDS = ['bug', 'wish', 'question'];
 const REPORT_TITLE_MAX = 100;
@@ -2401,7 +2405,7 @@ Office.reportDialog = function reportDialog(deskId) {
   const draft = Office.storeJson('report.draft') || {};
   const desks = [['office', t('office.report_desk_office')]].concat(Office.staffInOrder().map((d) => [d.id, t(`${d.id}.name`)]));
   const want = deskId || draft.desk || 'office';
-  const state = { kind: REPORT_KINDS.includes(draft.kind) ? draft.kind : 'bug', preview: null, sent: false, cap: null, closed: false, images: [], imagesOk: null };
+  const state = { kind: REPORT_KINDS.includes(draft.kind) ? draft.kind : 'bug', preview: null, sent: false, cap: null, closed: false, inbox: null, images: [], imagesOk: null };
   const box = el('div', 'sso-report');
 
   // the head: the team lead's line, the other ways, the cap
@@ -2619,15 +2623,19 @@ Office.reportDialog = function reportDialog(deskId) {
 
   function paintCap() {
     const c = state.cap;
-    if (state.closed) {
+    const inboxDown = state.inbox === 'inbox';                          // the makers' side: archived, issues off …
+    const inboxClosed = state.inbox === 'closed' || state.inbox === 'github';
+    if (inboxDown) {
+      capLine.textContent = t('office.report_inbox_note');
+    } else if (state.closed || inboxClosed) {
       capLine.textContent = t('office.report_closed_note');
     } else if (c && c.left <= 0) {
       capLine.textContent = t('office.report_none_left', { when: c.next ? Office.fmt.date(c.next) : '?' });
     } else if (c) {
       capLine.textContent = t('office.report_left', { n: c.left, cap: c.cap });
     }
-    capLine.className = 'sso-report-cap' + (state.closed || (c && c.left <= 0) ? ' callout warn' : '');
-    capLine.hidden = !c && !state.closed;
+    capLine.className = 'sso-report-cap' + (state.closed || inboxClosed || (c && c.left <= 0) ? ' callout warn' : '');     // the makers' inbox: a quiet line
+    capLine.hidden = !c && !state.closed && !inboxDown && !inboxClosed;
   }
   function paintYours(list) {
     yours.innerHTML = '';
@@ -2768,7 +2776,7 @@ Office.reportDialog = function reportDialog(deskId) {
     d.box.innerHTML = '';
     if (d.state === 'running') {
       const p = el('div', 'sso-report-value running');      // the wave shows only inside .running
-      p.append(el('span', 'spin'), ' ', t('office.report_diag_running'));
+      p.append(el('span', 'spin'), ' ', t(d.phase === 'cleaning' ? 'office.report_diag_cleaning' : 'office.report_diag_running'));
       d.box.appendChild(p);
       d.cb.disabled = true;
     } else if (d.state === 'ready') {
@@ -2779,11 +2787,14 @@ Office.reportDialog = function reportDialog(deskId) {
       files.appendChild(el('pre', 'code sso-report-log', names));
       d.box.appendChild(files);
       d.box.appendChild(el('small', '', t('office.report_diag_note')));
+      // what the office's own pass hid in them — the same placeholders as in the log
+      const hidden = Object.entries(d.hidden || {});
+      if (hidden.length) d.box.appendChild(el('small', 'sso-report-hidden', t('office.report_hidden', { list: hidden.map(([as, was]) => `${as} = ${was}`).join(', ') })));
       d.cb.disabled = false;
     } else {
       d.box.appendChild(el('p', 'callout warn', d.state === 'too_big'
         ? t('office.report_diag_too_big', { size: Office.fmt.size(d.bytes || 0), max: Office.fmt.size(d.max || 0) })
-        : t('office.report_diag_failed')));
+        : t(d.why === 'scrub' ? 'office.report_diag_scrub_failed' : 'office.report_diag_failed')));
       d.cb.checked = false;
       d.cb.disabled = true;
     }
@@ -2798,8 +2809,12 @@ Office.reportDialog = function reportDialog(deskId) {
       const a = await Office.api.post('office.report_diag', { token });
       if (!state.preview || state.preview.token !== token || !state.diag) return;
       if (!a.ok) { state.diag.state = 'failed'; paintDiag(); return; }
-      if (a.state === 'running') continue;
-      Object.assign(state.diag, { state: a.state === 'ready' || a.state === 'too_big' ? a.state : 'failed', bytes: a.bytes, max: a.max, count: a.count, files: a.files });
+      if (a.state === 'running') {
+        if (a.phase !== state.diag.phase) { state.diag.phase = a.phase; paintDiag(); }
+        continue;
+      }
+      Object.assign(state.diag, { state: a.state === 'ready' || a.state === 'too_big' ? a.state : 'failed', bytes: a.bytes, max: a.max, count: a.count, files: a.files,
+        hidden: a.hidden, why: a.why });
       paintDiag();
     }
   }
@@ -2853,6 +2868,7 @@ Office.reportDialog = function reportDialog(deskId) {
       say(reportError(j.error));
       if (j.error && j.error.key === 'report_stale') changed();
       if (j.error && j.error.key === 'report_closed') state.closed = true;
+      if (j.error && j.error.key === 'report_inbox') state.inbox = 'inbox';
       if (j.error && j.error.key === 'report_day') {
         const n = Number(j.error.params && j.error.params.n) || 25;
         state.cap = { n, left: 0, cap: n, next: j.error.params && j.error.params.next };
@@ -2862,6 +2878,7 @@ Office.reportDialog = function reportDialog(deskId) {
       return false;
     }
     state.sent = true;
+    state.inbox = 'open';
     Office.store('report.draft', null);
     state.images.forEach((p) => reportPicDrop(p.url));
     state.images = [];
@@ -2877,6 +2894,14 @@ Office.reportDialog = function reportDialog(deskId) {
     dlg.buttons[0].textContent = t('common.close');
     loadYours();
     return false;
+  }
+
+  async function loadInbox() {
+    if (!Office.agent.running) return;
+    const j = await Office.api.post('office.report_inbox', {});
+    if (!j.ok || state.sent) return;
+    state.inbox = ['open', 'inbox', 'github', 'closed'].includes(j.inbox) ? j.inbox : null;
+    paintCap();
   }
 
   async function loadYours() {
@@ -2910,6 +2935,7 @@ Office.reportDialog = function reportDialog(deskId) {
   show.disabled = !Office.agent.running;
   if (!Office.agent.running) say(t('errors.agent_away'));
   title.focus();
+  loadInbox();
   loadYours();
   return dlg;
 };

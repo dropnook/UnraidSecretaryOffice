@@ -126,9 +126,9 @@ shell in an SSH session or the web terminal sitting in a share, a User Script, a
 file open there, an ISO mounted from the array — each with what to do. Then whom Unraid waits for: each running VM and
 whether its guest agent answers (a Windows VM without one often ignores the first request and takes the whole *VM
 shutdown time-out*), each container with the time it gets (Unraid's own all get its *Docker Stop Timeout*, a database
-asking for more is killed earlier); what stops by itself (the office's own work, Unraid's mover, SMB clients); and
-whether the *Shutdown time-out* is long enough for all of it. He looks when his page opens and on *Check now* — read
-only, no disk wakes up, nothing is stopped.
+asking for more is killed earlier); what stops by itself (the office's own work, Unraid's mover, SMB clients, Unraid's
+local syslog server writing into a share); and whether the *Shutdown time-out* is long enough for all of it. He looks
+when his page opens and on *Check now* — read only, no disk wakes up, nothing is stopped.
 
 <a name="watchman-book"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/watchman-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/watchman-light.png" alt="The Night Watchman&#x27;s watch book: what was different from normal"></picture></a>
 
@@ -159,7 +159,9 @@ than the one the office was tested on.
    else on the array) and moves in within seconds. *domains* and *isos* (VMs) are only mentioned. A share that was
    there and is gone is never created anew. Nothing happens without that click; you can also create the shares
    yourself. Is only *system* missing later, the Team Lead offers the same.
-3. For backups: Mr. Backupsy → *Set up…* (he reads the server and proposes everything with reasons; change what you
+3. For backups: Mr. Backupsy → *Set up…* — first the backup place, a share of its own for his packages: one click has
+   Unraid create `UnraidSecretaryOffice` where he proposes (you see exactly what before), or create one yourself, or
+   choose one that's there; then the rest (he reads the server and proposes everything with reasons; change what you
    like — the bar counts his proposals and your changes, *Leave out* declines one of his — then *Apply*), then
    *Schedule…*. The Team Lead lists what is still missing.
 
@@ -189,7 +191,7 @@ any more.
 | What | Where |
 |---|---|
 | Settings, state and logs of every desk, the backup engine's settings | the data folder, `appdata/UnraidSecretaryOffice/data` |
-| Mr. Backupsy's packages (templates, compose files, dumps, VM configurations) | the backup place: a share of its own, by default `UnraidSecretaryOffice` (you create it; the setup explains why and where) — their history in its snapshots |
+| Mr. Backupsy's packages (templates, compose files, dumps, VM configurations) | the backup place: a share of its own, by default `UnraidSecretaryOffice` (the setup's first step: created on your click by Unraid's own «Add Share» where he proposes, made by you in Unraid, or a share you choose) — their history in its snapshots |
 | The plugin package, where the data folder is, the schedules, partner keys, uploaded container pictures | the flash, `/boot/config/plugins/unraid-secretary-office/` |
 | The code, the messenger's sign of life, the snapshots mounted during a run, the numbers for Prometheus | RAM — nothing of the office lands on the pool every few seconds, so a pool of hard disks can sleep |
 

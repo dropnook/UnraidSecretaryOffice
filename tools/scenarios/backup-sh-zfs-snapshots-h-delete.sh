@@ -62,6 +62,6 @@ flow BK-RUN-MANUAL mode=backup
 r=$(jq -r '"\(.result) \(.message // "")"' "$UB/state/status.json")
 [[ $r =~ ^(ok|warnings) ]] && h_cell run-not-failed 1 "the next run: $r" || h_cell run-not-failed 0 "the next run: $r"
 h_info snapshots-after "after the next run $DS carries $(zfs list -H -t snapshot -o name "$DS" 2>/dev/null | grep -c '@uso-backup-') engine snapshot(s) (before it: $snaps) — the share's cfg gone, the dataset still mounted"
-expect_warnings share_gone share_new share_empty
+expect_warnings share_gone share_new share_empty share_deleted_snapshots
 check standard
 scenario_end

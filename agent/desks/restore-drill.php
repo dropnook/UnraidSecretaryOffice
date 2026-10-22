@@ -78,7 +78,8 @@ const DRILL_DUMP_FACTOR    = 4;
 const DRILL_DUMP_FLOOR     = 512 << 20;
 // the throwaway server's own options after the image's command (never the live one's): nothing kept for a crash,
 // Postgres' WAL recycled at 256 MB instead of piling up (Immich's config allows 5 GB), InnoDB's redo small, no binlog,
-// MariaDB's room for the dump's biggest rows. drillArgsSafe() lets exactly these through and nothing else.
+// MariaDB's room for the dump's biggest rows. drillArgsSafe() lets exactly these through and nothing else. An image
+// started by s6's /init (linuxserver's) gets them through the environment its service hands the server (drillServerEnv())
 const DRILL_LEAN = [
     'postgres' => ['fsync=off', 'synchronous_commit=off', 'full_page_writes=off', 'wal_level=minimal', 'max_wal_senders=0', 'archive_mode=off',
                    'max_wal_size=256MB', 'min_wal_size=64MB', 'checkpoint_timeout=30s', 'shared_buffers=128MB'],
@@ -96,7 +97,15 @@ const DRILL_TICK_EVERY     = 60;
 const DRILL_KOPIA_UNREACHABLE = '/repository is not connected|not connected to (a|any) repository|dial tcp|connection refused|no such host|i\/o timeout|deadline exceeded|network is unreachable|no route to host|TLS handshake timeout|connection reset by peer|server misbehaving/i';
 const DRILL_LOG_LINE       = 200;             // a client's line in the log: cut (it may quote row data)
 // what a throwaway takes from the app's container environment: only what shapes the server, never a login
-const DRILL_ENV_KEEP       = ['PGDATA', 'POSTGRES_INITDB_ARGS', 'DB_STORAGE_TYPE', 'LANG', 'LC_ALL'];
+// (DATADIR: where linuxserver's MariaDB keeps its data)
+const DRILL_ENV_KEEP       = ['PGDATA', 'DATADIR', 'POSTGRES_INITDB_ARGS', 'DB_STORAGE_TYPE', 'LANG', 'LC_ALL'];
+// where a database image keeps its data when its environment doesn't say (PGDATA, DATADIR): the official images',
+// linuxserver's MariaDB (/config/databases, also its DATADIR), Bitnami's
+const DRILL_DATA_DIRS      = [
+    'postgres' => ['/var/lib/postgresql/data', '/bitnami/postgresql/data'],
+    'mariadb'  => ['/var/lib/mysql', '/config/databases', '/bitnami/mariadb/data'],
+    'mongodb'  => ['/data/db', '/bitnami/mongodb/data/db'],
+];
 // the main table of a media server's library (rows against the live database)
 const DRILL_SQLITE_TABLES  = ['MediaItems', 'TypedBaseItems', 'BaseItems', 'metadata_items'];
 const DRILL_STEP_KINDS     = ['package', 'dump', 'sqlite', 'vmdisk', 'kopia', 'sharefile'];
@@ -104,6 +113,12 @@ const DRILL_SCRATCH        = '.uso-drill-';   // a share file's scratch folder: 
 const DRILL_FILE_MIN       = 1024;            // the share file brought back: at least 1 KB …
 const DRILL_FILE_MAX       = 16 << 20;        // … at most 16 MB (it is written into the share)
 const DRILL_FILE_LOOKS     = 40;              // folders looked into for it
+const DRILL_FILE_SETTLED   = 3600;            // … and not changed in the hour before the snapshot (it may have been written then)
+// never the sample: Kopia's repository, cache and temp files; a database's files; locks, pids, sockets, temp files
+const DRILL_FILE_SKIP      = '/kopia|^_log_|^[a-z]?[0-9a-f]{4,}\\.f$|^ib(?:data\\d*|_logfile\\d*|_buffer_pool|tmp\\d*)$|\\.(?:ibd|myd|myi|mad|mai|frm|wt)$'
+    . '|^aria_log|^wiredtiger|^mongod\\.lock$|\\.(?:db|sqlite\\d?)$|-(?:wal|shm|journal)$|\\.(?:lock|lck|pid|sock|socket|tmp|temp|part|partial|swp)$|^\\.?lock$/i';
+// a folder holding one of these is a Kopia repository or a database's own (the engine's marks): nothing in it is taken
+const DRILL_FILE_MARKS     = ['kopia.repository.f', 'ibdata1', 'aria_log_control', 'mysql.ibd', 'PG_VERSION', 'WiredTiger'];
 
 define('DRILL_DATA', DATA_DIR . '/restore-drill');
 define('DRILL_CERT', DATA_DIR . '/restore-drill.json');           // the certificate (api part "drill")
@@ -316,7 +331,8 @@ function drillContainerOf(array $manifest, string $name): ?array
         $env = [];
         foreach ($list($cfg['Env'] ?? null) as $e) {
             [$k, $v] = array_pad(explode('=', $e, 2), 2, '');
-            if (in_array($k, DRILL_ENV_KEEP, true) && !preg_match('/[\x00-\x1f]/', $v)) {
+            if (in_array($k, DRILL_ENV_KEEP, true) && !preg_match('/[\x00-\x1f]/', $v)
+                && (!in_array($k, ['PGDATA', 'DATADIR'], true) || drillPathOk($v))) {
                 $env[$k] = $v;
             }
         }
@@ -343,15 +359,58 @@ function drillContainerOf(array $manifest, string $name): ?array
     return null;
 }
 
-/** Where a database image keeps its data (each gets a tmpfs; so does every volume the image declares) */
+/** A plain absolute path (no .., no ., nothing to quote) */
+function drillPathOk(string $path): bool
+{
+    return (bool) preg_match('#^/[A-Za-z0-9_./-]{1,200}$#D', $path) && !preg_match('#/\.\.?(/|$)#', $path);
+}
+
+/**
+ * Where a database image keeps its data, and what gets a tmpfs: [dir => big?], the data dir first. The data dir: the
+ * place the server's own option in the image's command names (`--datadir`, `-D`, `--dbpath`), its environment
+ * (PGDATA, DATADIR) or a known one (DRILL_DATA_DIRS) — on the declared volume that holds it (Postgres 18's PGDATA lies
+ * inside /var/lib/postgresql, linuxserver's MariaDB keeps its data in /config/databases: a tmpfs on the folder alone
+ * would sit beside the volume's) — the big tmpfs; the image's other volumes a small one. An image none of these
+ * places fits: its one volume is the data dir; with several, the usual place is; either way every volume and the
+ * usual place get the big one (sizes are limits: --memory caps them all together). No volume at all: the place itself. 2026-10-21: /var/lib/mysql for
+ * linuxserver's MariaDB left its data on the 64 MB tmpfs of /config — InnoDB's first redo log didn't fit (error 28).
+ */
+function drillDataPlaces(string $type, array $c): array
+{
+    $opt = ['postgres' => ['-D'], 'mariadb' => ['--datadir'], 'mongodb' => ['--dbpath']][$type] ?? [];
+    $said = '';
+    foreach ($c['cmd'] as $i => $a) {
+        foreach ($opt as $o) {
+            if ($a === $o) {
+                $said = (string) ($c['cmd'][$i + 1] ?? '');
+            } elseif (str_starts_with($a, "$o=")) {
+                $said = substr($a, strlen($o) + 1);
+            }
+        }
+    }
+    $env = ['postgres' => 'PGDATA', 'mariadb' => 'DATADIR'][$type] ?? null;
+    $want = array_values(array_unique(array_filter(array_map(fn ($d) => rtrim($d, '/'),
+        [$said, $env !== null ? (string) ($c['env'][$env] ?? '') : '', ...(DRILL_DATA_DIRS[$type] ?? ['/data'])]), 'drillPathOk')));
+    $vols = $c['volumes'];
+    usort($vols, fn ($a, $b) => strlen($b) <=> strlen($a));       // the volume nearest the data
+    foreach ($want as $d) {
+        foreach ($vols as $v) {
+            if ($d === $v || str_starts_with($d, "$v/")) {
+                return [$v => true] + array_fill_keys($c['volumes'], false);
+            }
+        }
+    }
+    $usual = $want[0] ?? '/data';
+    if (count($c['volumes']) === 1) {
+        return [$c['volumes'][0] => true, $usual => true];
+    }
+    return array_fill_keys([$usual, ...$c['volumes']], true);
+}
+
+/** The data dir of a database image (drillDataPlaces()): where the drill looks whether its tmpfs ran full */
 function drillDataDir(string $type, array $c): string
 {
-    return match ($type) {
-        'postgres' => rtrim($c['env']['PGDATA'] ?? '', '/') ?: '/var/lib/postgresql/data',
-        'mariadb'  => '/var/lib/mysql',
-        'mongodb'  => '/data/db',
-        default    => '/data',
-    };
+    return (string) array_key_first(drillDataPlaces($type, $c));
 }
 
 /**
@@ -381,19 +440,20 @@ function drillContainerArgs(array $c, string $type, string $name, string $id, in
     }
     // the data on tmpfs (in RAM, counted in --memory) — and every volume the image declares, or Docker would make an
     // anonymous volume of its own for it
-    $dirs = array_values(array_unique([drillDataDir($type, $c), ...$c['volumes']]));
-    foreach ($dirs as $i => $dir) {
-        $args = [...$args, '--tmpfs', $dir . ':rw,size=' . ($i === 0 ? $tmpfs : 64) . "m$owner"];
+    foreach (drillDataPlaces($type, $c) as $dir => $big) {
+        $args = [...$args, '--tmpfs', $dir . ':rw,size=' . ($big ? $tmpfs : 64) . "m$owner"];
     }
     if ($uid !== null) {
         $args = [...$args, '--user', "$uid:$gid"];
     }
-    foreach ($c['env'] as $k => $v) {
+    foreach ([...$c['env'], ...drillServerEnv($c, $type)] as $k => $v) {
         $args = [...$args, '-e', "$k=$v"];
     }
     $args = [...$args, ...match ($type) {
         'postgres' => ['-e', 'POSTGRES_HOST_AUTH_METHOD=trust'],
-        'mariadb'  => ['-e', "MARIADB_ROOT_PASSWORD=$password", '-e', "MYSQL_ROOT_PASSWORD=$password"],
+        // linuxserver's init keeps root@localhost and root@127.0.0.1 without a password, and the drill only ever asks
+        // from inside (no network): no password at all there, or its own one would be refused
+        'mariadb'  => drillS6($c) ? [] : ['-e', "MARIADB_ROOT_PASSWORD=$password", '-e', "MYSQL_ROOT_PASSWORD=$password"],
         'mongodb'  => [],
     }];
     $ep = $c['entrypoint'];
@@ -408,16 +468,33 @@ function drillContainerArgs(array $c, string $type, string $name, string $id, in
 /**
  * The throwaway server's own options (DRILL_LEAN), when the command starts the server: `postgres` / `mariadbd` /
  * `mysqld`, or options only (the image's entrypoint puts the server in front and passes them on — also to the server
- * it runs for its init). Any other command (a script of the app's own) gets none.
+ * it runs for its init). Any other command (a script of the app's own) gets none; neither does an image started by
+ * s6's /init (it would run them as a program of its own: drillServerEnv()).
  */
 function drillServerArgs(array $c, string $type): array
 {
     $cmd = $c['cmd'];
     $server = ['postgres' => ['postgres'], 'mariadb' => ['mariadbd', 'mysqld']][$type] ?? null;
-    if ($server === null || !($cmd ? in_array(basename($cmd[0]), $server, true) || ($c['entrypoint'] && str_starts_with($cmd[0], '-')) : (bool) $c['entrypoint'])) {
+    if ($server === null || drillS6($c) || !($cmd ? in_array(basename($cmd[0]), $server, true) || ($c['entrypoint'] && str_starts_with($cmd[0], '-')) : (bool) $c['entrypoint'])) {
         return [];
     }
     return $type === 'postgres' ? array_merge(...array_map(fn ($o) => ['-c', $o], DRILL_LEAN['postgres'])) : DRILL_LEAN['mariadb'];
+}
+
+/**
+ * The lean options for an image started by s6's /init: linuxserver's MariaDB service starts the server with
+ * `${CLI_OPTS}` (its first-start init runs one with the defaults: InnoDB's 96 MiB redo log, resized at the real start).
+ * Others under /init get none: their server keeps its defaults (the data's tmpfs holds them).
+ */
+function drillServerEnv(array $c, string $type): array
+{
+    return $type === 'mariadb' && drillS6($c) ? ['CLI_OPTS' => implode(' ', DRILL_LEAN['mariadb'])] : [];
+}
+
+/** Is the image started by s6-overlay's /init (linuxserver's images)? */
+function drillS6(array $c): bool
+{
+    return $c['entrypoint'] === ['/init'];
 }
 
 /**
@@ -442,9 +519,11 @@ function drillArgsSafe(array $args, array $c, string $type): bool
     if (count($net) !== 1 || ($args[$net[0] + 1] ?? '') !== 'none') {
         return false;
     }
+    $own = drillServerEnv($c, $type);
     foreach ($args as $i => $a) {
-        if ($a === '-e' && preg_match('/^(\w+)=/', (string) ($args[$i + 1] ?? ''), $m)
-            && !in_array($m[1], [...DRILL_ENV_KEEP, 'POSTGRES_HOST_AUTH_METHOD', 'MARIADB_ROOT_PASSWORD', 'MYSQL_ROOT_PASSWORD'], true)) {
+        if ($a === '-e' && preg_match('/^(\w+)=(.*)$/sD', (string) ($args[$i + 1] ?? ''), $m)
+            && !in_array($m[1], [...DRILL_ENV_KEEP, 'POSTGRES_HOST_AUTH_METHOD', 'MARIADB_ROOT_PASSWORD', 'MYSQL_ROOT_PASSWORD'], true)
+            && ($own[$m[1]] ?? null) !== $m[2]) {
             return false;
         }
     }
@@ -2591,7 +2670,7 @@ function drillDoShareFile(array &$j, int $i, array &$env): array
     if (preg_match('/(\d{8}-\d{4})$/', (string) $snap['name'], $m)) {
         $out['run'] = $m[1];
     }
-    $pick = drillShareFilePickFile($snap['path']);
+    $pick = drillShareFilePickFile($snap['path'], (int) $snap['time']);
     if ($pick === null) {
         return ['state' => 'not_checked', 'code' => 'sharefile_none'] + $out;
     }
@@ -2654,27 +2733,33 @@ function drillDoShareFile(array &$j, int $i, array &$env): array
 }
 
 /**
- * A small file in a snapshot folder: walk down from the top, a random folder at each level, a random fitting file
- * where there is one (never a link, never the office's storeroom, set-aside or scratch folders). [rel, path] or null.
+ * A small, ordinary file in a snapshot folder: walk down from the top, a random folder at each level, a random fitting
+ * file where there is one (never a link, never the office's storeroom, set-aside or scratch folders; never one of
+ * DRILL_FILE_SKIP, nothing inside a folder with one of DRILL_FILE_MARKS, never a file changed in the DRILL_FILE_SETTLED
+ * before $time — the snapshot's). A folder that led nowhere isn't taken again. [rel, path] or null.
  */
-function drillShareFilePickFile(string $root): ?array
+function drillShareFilePickFile(string $root, ?int $time = null): ?array
 {
-    $skip = fn (string $n) => $n === '.' || $n === '..' || storeroomName($n) || str_starts_with($n, DRILL_SCRATCH) || str_starts_with($n, '.UnraidSecretaryOffice');
-    for ($try = 0, $looks = 0; $try < 6 && $looks < DRILL_FILE_LOOKS; $try++) {
+    $skip = fn (string $n) => $n === '.' || $n === '..' || storeroomName($n) || str_starts_with($n, DRILL_SCRATCH) || str_starts_with($n, '.UnraidSecretaryOffice')
+        || preg_match(DRILL_FILE_SKIP, $n);
+    $before = ($time > 0 ? $time : drillNow()) - DRILL_FILE_SETTLED;
+    $dead = [];
+    for ($try = 0, $looks = 0; $try < 20 && $looks < DRILL_FILE_LOOKS; $try++) {
         $dir = $root;
         $rel = '';
         for ($depth = 0; $depth < 10 && $looks < DRILL_FILE_LOOKS; $depth++) {
             $looks++;
-            $names = array_values(array_filter(@scandir($dir) ?: [], fn ($n) => !$skip($n)));
+            $all = @scandir($dir) ?: [];
+            $names = array_intersect($all, DRILL_FILE_MARKS) ? [] : array_values(array_filter($all, fn ($n) => !$skip($n)));
             $files = $dirs = [];
             foreach (array_slice($names, 0, 2000) as $n) {
                 $path = "$dir/$n";
-                if (is_link($path)) {
+                if (is_link($path) || isset($dead[$path])) {
                     continue;
                 }
                 if (is_file($path)) {
                     $size = (int) @filesize($path);
-                    if ($size >= DRILL_FILE_MIN && $size <= DRILL_FILE_MAX && is_readable($path)) {
+                    if ($size >= DRILL_FILE_MIN && $size <= DRILL_FILE_MAX && (int) @filemtime($path) < $before && is_readable($path)) {
                         $files[] = $n;
                     }
                 } elseif (is_dir($path)) {
@@ -2686,11 +2771,15 @@ function drillShareFilePickFile(string $root): ?array
                 return [ltrim("$rel/$f", '/'), "$dir/$f"];
             }
             if (!$dirs) {
+                $dead[$dir] = true;
                 break;
             }
             $d = $dirs[random_int(0, count($dirs) - 1)];
             $dir .= "/$d";
             $rel .= "/$d";
+        }
+        if (isset($dead[$root])) {
+            break;
         }
     }
     return null;

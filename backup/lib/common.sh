@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.68"
+UB_VERSION="2.69"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -1460,7 +1460,8 @@ vm_packed() {
 #   PLAN_FLASH       snapshot | tar | off  (what really applies)
 #   PLAN_KITEMS      apps and VMs with a Kopia source of their own: "kind|name|folder" (section 9)
 #   PLAN_MOUNT       shares mounted for Kopia: PLAN_KOPIA and the shares the items' parts lie in
-declare -ga PLAN_KOPIA=() PLAN_SNAP=() PLAN_ZFS=() PLAN_BTRFS=() PLAN_KITEMS=() PLAN_MOUNT=()
+#   PLAN_DELETED     shares Unraid deleted whose datasets their snapshots keep (2.69, share_deleted_left): left out
+declare -ga PLAN_KOPIA=() PLAN_SNAP=() PLAN_ZFS=() PLAN_BTRFS=() PLAN_KITEMS=() PLAN_MOUNT=() PLAN_DELETED=()
 declare -gA PLAN_ZFS_RET=() PLAN_EXCL=()
 PLAN_FLASH="off"
 
@@ -1525,7 +1526,7 @@ share_method()    { # the method that really applies
 }
 
 plan_build() {
-    PLAN_KOPIA=(); PLAN_SNAP=(); PLAN_ZFS=(); PLAN_BTRFS=(); PLAN_ZFS_RET=(); PLAN_EXCL=(); PLAN_KITEMS=(); PLAN_MOUNT=()
+    PLAN_KOPIA=(); PLAN_SNAP=(); PLAN_ZFS=(); PLAN_BTRFS=(); PLAN_ZFS_RET=(); PLAN_EXCL=(); PLAN_KITEMS=(); PLAN_MOUNT=(); PLAN_DELETED=()
     local s mode meth b m layer sub ret line ds mp
     local -A seen_b=() seen_ds=()
     local -a excl
@@ -1545,6 +1546,8 @@ plan_build() {
         [[ "$mode" == "off" ]] && continue
         meth="$(share_method "$s")"
         [[ "$meth" == "none" ]] && continue
+        # 2.69: deleted in Unraid, only its snapshots keep the dataset - no new snapshot, no Kopia (said by the drift)
+        share_deleted_left "$s" && { PLAN_DELETED+=( "$s" ); continue; }
         # mode=kopia with Kopia switched off = local snapshot only
         [[ "$mode" == "kopia" ]] && is_yes "$KOPIA_ENABLED" && PLAN_KOPIA+=( "$s" )
         [[ "$meth" == "snap" ]] || continue
@@ -1616,6 +1619,76 @@ plan_children() {
         [[ -z "$ds" || -n "${PLAN_EXCL[$ds]:-}" ]] && continue
         printf '%s|%s|%s\n' "$b" "$ds" "$mp"
     done <<<"${INV_CHILDREN[$s]:-}"
+}
+
+# --- 2.69: a share Unraid deleted, its dataset kept by snapshots -------------
+# Unraid's «Delete» of an emptied share whose ZFS dataset carries snapshots drops the share's config but can't destroy
+# the dataset: it stays mounted (and listed in shares.ini), and up to 2.68 every run snapshotted it again as the share.
+# share_deleted_left <share>  -> 0 when that is the share now: no config of it in UB_SHARES_CFG (that folder there),
+# every part of it a ZFS dataset of its own (not a folder in one) with no child datasets, nearly nothing referenced
+# (< 1 MiB, looked at before its folder is read) and nothing in it, on a base that doesn't sleep, with snapshots.
+# Sets SDL_DS (the datasets, ", "-joined) and SDL_SNAPS (their snapshots). Read only: the engine never destroys it -
+# the run leaves it out (plan_build) and says it (drift share_deleted_snapshots), the setup says the way
+share_deleted_left() {
+    local s="$1" b m layer sub n=0 c
+    SDL_DS=""; SDL_SNAPS=0
+    [[ "$HAVE_ZFS" == "yes" && -n "$s" && -d "$UB_SHARES_CFG" && ! -e "$UB_SHARES_CFG/$s.cfg" ]] || return 1
+    [[ "${INV_METHOD[$s]:-}" == "snap" && -z "${INV_CHILDREN[$s]:-}" ]] || return 1
+    while IFS='|' read -r b m layer sub; do
+        [[ -z "$b" ]] && continue
+        [[ "$m" == "zfs" && -z "$sub" && -n "$layer" ]] || return 1
+        [[ "${ZDS_REF[$layer]:-}" =~ ^[0-9]+$ ]] && (( ZDS_REF[$layer] < 1048576 )) || return 1
+        ub_base_sleeps "$b" && return 1
+        [[ -z "$(find "${INV_BASE_PATH[$b]}/$s" -mindepth 1 -maxdepth 1 ! -name .zfs -print -quit 2>/dev/null)" ]] || return 1
+        c="$(zfs list -H -t snapshot -o name -d 1 "$layer" 2>/dev/null | grep -c "^$layer@")"
+        SDL_SNAPS=$(( SDL_SNAPS + ${c:-0} ))
+        SDL_DS+="${SDL_DS:+, }$layer"; n=$((n+1))
+    done <<<"${INV_LOCS[$s]:-}"
+    (( n > 0 && SDL_SNAPS > 0 ))
+}
+
+# --- 2.69: the room left on a pool holding an app's data ---------------------
+# An app stopped for the snapshot on a pool with almost no room may not start cleanly again (a database, a lock, a log
+# written at its start), and the new snapshot keeps every block it overwrites afterwards - the pool fills to the brim.
+# Low: free below UB_POOL_LOW_PCT (2) % of the pool, that at least UB_POOL_LOW_MIN_GB (1) and at most UB_POOL_LOW_MAX_GB
+# (10) GiB. Only pools (an array disk is never asked), never a sleeping one (it isn't woken for this).
+# pool_low <base>  -> 0 when low; PL_FREE, PL_SIZE, PL_FLOOR in bytes (ZFS: the pool's root dataset, used + available;
+# else the file system's df)
+pool_low() {
+    local b="$1" r u f pct="${UB_POOL_LOW_PCT:-2}" lo="${UB_POOL_LOW_MIN_GB:-1}" hi="${UB_POOL_LOW_MAX_GB:-10}"
+    PL_FREE=0; PL_SIZE=0; PL_FLOOR=0
+    [[ "${INV_BASE_KIND[$b]:-}" == "pool" && -n "${INV_BASE_PATH[$b]:-}" ]] || return 1
+    ub_base_sleeps "$b" && return 1
+    if [[ "${INV_BASE_FS[$b]:-}" == "zfs" ]]; then
+        r="$(zfs list -H -p -o used,available "${INV_BASE_SRC[$b]%%/*}" 2>/dev/null | head -1)"
+        read -r u f <<<"$r"
+        [[ "$u" =~ ^[0-9]+$ && "$f" =~ ^[0-9]+$ ]] || return 1
+        PL_FREE=$f; PL_SIZE=$(( u + f ))
+    else
+        r="$(df -P -B1 "${INV_BASE_PATH[$b]}" 2>/dev/null | awk 'NR==2 {print $4, $2}')"
+        read -r f u <<<"$r"
+        [[ "$u" =~ ^[0-9]+$ && "$f" =~ ^[0-9]+$ ]] || return 1
+        PL_FREE=$f; PL_SIZE=$u
+    fi
+    [[ "$pct" =~ ^[0-9]+$ && "$lo" =~ ^[0-9]+$ && "$hi" =~ ^[0-9]+$ ]] || { pct=2; lo=1; hi=10; }
+    PL_FLOOR=$(( PL_SIZE / 100 * pct ))
+    (( PL_FLOOR < lo * 1073741824 )) && PL_FLOOR=$(( lo * 1073741824 ))
+    (( PL_FLOOR > hi * 1073741824 )) && PL_FLOOR=$(( hi * 1073741824 ))
+    (( PL_SIZE > 0 && PL_FREE < PL_FLOOR ))
+}
+# ct_low_pools <container>  -> the pools its folders (binds) lie on that are low (pool_low), one per line
+ct_low_pools() {
+    local src b
+    local -A seen=()
+    while IFS='|' read -r src _ _; do
+        [[ -n "$src" ]] || continue
+        while IFS= read -r b; do
+            [[ -n "$b" && -z "${seen[$b]:-}" ]] || continue
+            seen[$b]=1
+            pool_low "$b" && printf '%s\n' "$b"
+        done <<<"$(ub_path_bases "$src")"
+    done <<<"${CT_BINDS[$1]:-}"
+    return 0
 }
 
 ##############################################################################
@@ -2034,15 +2107,145 @@ kopia_lock_save() {
     return 0
 }
 
-# --- An upload that takes nothing (2.68) ------------------------------------
+# --- Offsite that takes nothing (2.68) -------------------------------------
 # Seen 2026-10-21: from one moment on every write to the repository (S3) hung for ever while reads and lists answered at
-# once - Kopia waits for ever, nothing fails, and a run's upload (no time limit: it may take hours) would hold the run and
-# its lock for ever. Its stall watchdog (kopia_one in backup.sh): the kopia process's own reads and writes
-# (/proc/<pid>/io rchar + wchar: the files it reads, the network) not moving for UB_KOPIA_STALL seconds ends it.
+# once - the Kopia server's hourly maintenance stopped after reading kopia.maintenance (its next step, writing it, never
+# returned; a container restart didn't help). Nothing failed, so nothing said it. Two guards:
+#  * --kopia-watch (the office, every few minutes): the Kopia server's own content log, read through one docker exec - never
+#    the repository opened, nothing written there. Kopia logs a storage step when it ends («n":"storage","m":"PutBlob" …
+#    "error":null}): a server that wrote its maintenance before (a PutBlob of kopia.maintenance in its newest two logs - it is
+#    the maintenance owner, it writes every hour) and has logged nothing for UB_KOPIA_WATCH_QUIET seconds (90 min: the hour
+#    of its quick maintenance and half an hour) takes nothing since the first step after its last write. A server that
+#    isn't the owner (state/kopia-lock.json says another user@host) logs nothing for days: never judged so.
+#  * a run's upload (kopia_one in backup.sh) has no time limit, but a stall watchdog: the kopia process's own reads and
+#    writes (/proc/<pid>/io rchar + wchar: the files it reads, the network) not moving for UB_KOPIA_STALL seconds ends it.
+# state/kopia-watch.json {v: 1, time, state: ok|stuck|unknown, why, since, by: server|run, told, storage, last_write}:
+# «stuck» is kept from look to look until a write newer than its `since` shows in the server's log (or an upload of a run
+# went through); `told` - its notification went (once until resolved). The office's check and page read it.
+KW_FILE="$UB_STATE/kopia-watch.json"
+UB_KOPIA_WATCH_QUIET="${UB_KOPIA_WATCH_QUIET:-5400}"
 UB_KOPIA_STALL="${UB_KOPIA_STALL:-900}"            # an upload whose process neither reads nor writes so long is ended
 UB_KOPIA_LOOK="${UB_KOPIA_LOOK:-60}"               # its reads and writes looked at every so many seconds
 UB_KOPIA_STALL_BYTES="${UB_KOPIA_STALL_BYTES:-1048576}"   # what counts as moving: so many bytes more read + written
 UB_KOPIA_STALL_END="${UB_KOPIA_STALL_END:-10}"     # seconds between INT (Kopia saves what it can) and KILL
+
+# kopia_watch_logs - the tails of the Kopia server's newest two content logs ("#file <name>" before each) and the
+# repository's storage type and address ("#storage", then up to four "key": "value" lines - never another key of the
+# file: its keys and passwords stay inside the container). 3: no content logs found
+kopia_watch_logs() {
+    UB_EXEC_LIMIT=30 docker exec -u 0 "$KOPIA_CONTAINER" sh -c '
+        d=""
+        for x in "${KOPIA_LOG_DIR:-}" "$HOME/.cache/kopia" /app/logs; do
+            [ -n "$x" ] && [ -d "$x/content-logs" ] && { d="$x/content-logs"; break; }
+        done
+        [ -n "$d" ] || exit 3
+        ls -1 "$d" | grep -e "-server-start\.[0-9]*\.log$" | sort -t. -k1,1 -k2,2n | tail -n 2 | while read -r f; do
+            echo "#file $f"; tail -n 400 "$d/$f"; echo
+        done
+        echo "#storage"
+        c="${KOPIA_CONFIG_PATH:-$HOME/.config/kopia/repository.config}"
+        [ -f "$c" ] && grep -o -E "\"(type|endpoint|host|bucket)\": *\"[^\"]*\"" "$c" | head -n 4
+        exit 0' 2>/dev/null
+}
+
+# kopia_watch_parse <now> - the logs (kopia_watch_logs) on stdin -> one line of JSON: {files, last, last_write, maint, since,
+# storage}: the newest line's time, the last storage write that went through (PutBlob/DeleteBlob, error null), whether one of
+# them wrote kopia.maintenance, the first line after that write (where it began to take nothing), "<type> · <address>"
+kopia_watch_parse() {
+    jq -R -s -c --argjson now "$1" '
+        def secs: if type == "string" then (sub("\\.[0-9]+"; "") | try fromdateiso8601 catch null) else null end;
+        def plain: gsub("[[:cntrl:]]"; "") | .[0:80];
+        (split("\n") | reduce .[] as $l ({files: 0, mode: "log", ev: [], st: {}};
+            if ($l | startswith("#file ")) then .files += 1 | .mode = "log"
+            elif $l == "#storage" then .mode = "storage"
+            elif .mode == "storage" then
+                ($l | capture("^\"(?<k>[a-z]+)\": *\"(?<v>[^\"]*)\"$")? // null) as $kv
+                | if $kv == null or .st[$kv.k] != null then . else .st[$kv.k] = $kv.v end
+            else (try ($l | fromjson) catch null) as $j
+                | if ($j | type) == "object" and ($j.t | secs) != null
+                  then .ev += [{t: ($j.t | secs), n: ($j.n // ""), m: ($j.m // ""), b: ($j.blobID // ""), e: $j.error}] else . end
+            end)) as $r
+        | ($r.ev | map(select(.n == "storage" and (.m == "PutBlob" or .m == "DeleteBlob") and .e == null))) as $w
+        | ($w | map(.t) | max) as $lw
+        | {files: $r.files, last: ($r.ev | map(.t) | max), last_write: $lw,
+           maint: ($w | any(.m == "PutBlob" and .b == "kopia.maintenance")),
+           since: (if $lw == null then null else ($r.ev | map(select(.t > $lw)) | map(.t) | min) end),
+           storage: ([($r.st.type // ""), (($r.st.endpoint // $r.st.host // "") | sub("^[a-z]+://"; "") | sub("^[^@/]*@"; "") | sub("/.*$"; ""))]
+                     | map(select(. != "") | plain) | join(" · "))}'
+}
+
+# kopia_watch_owner_other - Kopia's maintenance belongs to another user@host than this identity (state/kopia-lock.json, the
+# last time Kopia was asked): this server never writes its maintenance - its quiet means nothing
+kopia_watch_owner_other() {
+    jq -e '(if .ok == true then . else .last end) as $f | ($f.maintenance.owner // "") as $o | ($f.identity // "") as $i
+           | $o != "" and $i != "" and $o != $i' "$KL_FILE" >/dev/null 2>&1
+}
+
+# kopia_watch_write <json> - kept as a new file + mv (0600)
+kopia_watch_write() {
+    local tmp="$UB_STATE/.kopia-watch.json.$$"
+    printf '%s\n' "$1" >"$tmp" 2>/dev/null && chmod 600 "$tmp" && mv -f "$tmp" "$KW_FILE" && return 0
+    rm -f "$tmp"; return 1
+}
+# kopia_watch_prev - the last record in exactly its shape, else {}
+kopia_watch_prev() {
+    [[ -f "$KW_FILE" && ! -L "$KW_FILE" ]] || { echo '{}'; return 0; }
+    jq -c 'if type == "object" and .v == 1 and (.state | IN("ok", "stuck", "unknown")) then . else {} end' "$KW_FILE" 2>/dev/null || echo '{}'
+}
+
+# kopia_watch - one look (--kopia-watch): the record written and printed; a turn to «stuck» told once (a warning)
+kopia_watch() {
+    local now logs rc p prev rec kw_why="" since_h
+    now="$(date +%s)"
+    prev="$(kopia_watch_prev)"
+    if [[ "$(docker inspect -f '{{.State.Running}}' "$KOPIA_CONTAINER" 2>/dev/null)" != "true" ]]; then kw_why="not_running"
+    else
+        logs="$(kopia_watch_logs)"; rc=$?
+        if (( rc == 3 )); then kw_why="no_log"; elif (( rc != 0 )); then kw_why="no_answer"; fi
+    fi
+    if [[ -n "$kw_why" ]]; then p='{}'; else p="$(kopia_watch_parse "$now" <<<"$logs")" || p='{}'; fi
+    [[ -n "$kw_why" || "$(jq -r '.files // 0' <<<"$p")" != "0" ]] || kw_why="no_log"
+    local other=false; kopia_watch_owner_other && other=true
+    rec="$(jq -c -n --argjson p "$p" --argjson prev "$prev" --argjson now "$now" --argjson quiet "$UB_KOPIA_WATCH_QUIET" \
+              --arg why "$kw_why" --argjson other "$other" '
+        ($prev.state == "stuck" and ($prev.since | type) == "number") as $was
+        | {v: 1, time: $now, storage: (($p.storage // "") | if . == "" then ($prev.storage // "") else . end),
+           last_write: ($p.last_write // $prev.last_write // null)} as $base
+        | if $was and ($p.last_write // 0) > $prev.since then $base + {state: "ok", why: "wrote", since: null, by: null, told: false}
+          elif $was then $base + {state: "stuck", why: ($prev.why // "quiet"), since: $prev.since, by: ($prev.by // "server"), told: ($prev.told == true)}
+          elif $why != "" then $base + {state: "unknown", why: $why, since: null, by: null, told: false}
+          elif $other then $base + {state: "unknown", why: "not_owner", since: null, by: null, told: false}
+          elif ($p.maint == true) and ($p.last | type) == "number" and $now - $p.last > $quiet
+          then $base + {state: "stuck", why: "quiet", since: ($p.since // $p.last), by: "server", told: false}
+          elif ($p.maint == true) then $base + {state: "ok", why: "", since: null, by: null, told: false}
+          else $base + {state: "unknown", why: "no_maintenance", since: null, by: null, told: false} end')" || return 1
+    if [[ "$(jq -r '"\(.state) \(.told)"' <<<"$rec")" == "stuck false" ]]; then
+        since_h="$(date -d "@$(jq -r '.since' <<<"$rec")" '+%Y-%m-%d %H:%M')"
+        p="$(jq -r '.storage' <<<"$rec")"
+        ub_tell kopia_writes warning "Kopia's server has logged nothing since $since_h - its maintenance writes every hour. Reads may still answer; nothing goes offsite until the storage takes writes again. Check the provider's status page, its limits and whether the key may still write, then restart the Kopia container ($KOPIA_CONTAINER)." \
+            "Offsite takes nothing" "Since $since_h the offsite storage${p:+ ($p)} has taken nothing from Kopia. Check the provider's status and the key's rights, then restart the Kopia container." \
+            "since=$since_h" "storage=${p:--}" "name=$KOPIA_CONTAINER"
+        rec="$(jq -c '.told = true' <<<"$rec")"
+    fi
+    kopia_watch_write "$rec"
+    printf '%s\n' "$rec"
+}
+
+# kopia_watch_run <stuck|ok> [since] - a run's word (2.68): its upload took nothing since <since> (the stall watchdog - the
+# run says it in its own warnings and notification: told) or an upload went through (whatever the record said is over)
+kopia_watch_run() {
+    local prev rec
+    prev="$(kopia_watch_prev)"
+    if [[ "$1" == "stuck" ]]; then
+        [[ "$(jq -r '.state // ""' <<<"$prev")" == "stuck" ]] && return 0
+        rec="$(jq -c --argjson now "$(date +%s)" --argjson since "$2" \
+            '{v: 1, time: $now, state: "stuck", why: "stalled", since: $since, by: "run", told: true, storage: (.storage // ""), last_write: (.last_write // null)}' <<<"$prev")"
+    else
+        [[ "$(jq -r '.state // ""' <<<"$prev")" == "stuck" ]] || return 0
+        rec="$(jq -c --argjson now "$(date +%s)" '. + {time: $now, state: "ok", why: "uploaded", since: null, by: null, told: false}' <<<"$prev")"
+    fi
+    kopia_watch_write "$rec"
+}
 
 # kopia_upload_pid <container path> - the host pid of `kopia ... snapshot create <path>` inside the container (docker top)
 kopia_upload_pid() {
@@ -2687,6 +2890,12 @@ drift_check_shares() {
         share_name_ok "$s" || { drift_add warn "Share '$s': the name contains @ : \" or | - not backed up" share_name_bad "" name="$s"; continue; }
         mode="$(share_mode "$s")"
         [[ "$mode" == "off" ]] && continue
+        # 2.69: Unraid deleted it, its dataset stays for its snapshots - left out (plan_build), never destroyed here
+        if share_deleted_left "$s"; then
+            drift_add warn "Share '$s' was deleted in Unraid, but its dataset ($SDL_DS) stays: $SDL_SNAPS snapshot(s) keep it - not backed up any more; delete its snapshots (Ms. Snapshotini), then delete the share in Unraid again" \
+                share_deleted_snapshots "" name="$s" datasets="$SDL_DS" snapshots="$SDL_SNAPS"
+            continue
+        fi
         meth="$(share_method "$s")"
         loc_now="$(inv_locnames "$s")"; loc_cfg="$(cfg "share|$s|locations")"
         if [[ -n "$loc_cfg" && "$loc_cfg" != "$loc_now" ]]; then

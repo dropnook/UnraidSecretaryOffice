@@ -28,6 +28,7 @@
     "setup.apply",
     "setup.apps",
     "setup.ds_label",
+    "setup.first.title",
     "setup.forget_short",
     "setup.g_btrfs_all",
     "setup.g_btrfs_days",

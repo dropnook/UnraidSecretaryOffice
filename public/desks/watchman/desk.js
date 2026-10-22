@@ -1641,7 +1641,7 @@ function ctRow(c, t) {
   return r;
 }
 
-/** What stops by itself: the office's jobs, Unraid's mover, an SMB client's open files */
+/** What stops by itself: the office's jobs, Unraid's mover, an SMB client's open files, Unraid's local syslog server */
 function itselfRow(x) {
   const r = el('div', 'row nocheck');
   const main = el('div', 'row-main');
@@ -1650,10 +1650,11 @@ function itselfRow(x) {
   if (x.kind === 'office') name = T('hold.office', { desk: Office.t(`${x.desk}.name`) });
   else if (x.kind === 'mover') name = T('hold.mover');
   else if (x.kind === 'smb') name = x.machine ? T('hold.smb', { machine: String(x.machine) }) : T('hold.smb_someone');
+  else if (x.kind === 'syslog') name = T('hold.syslog');
   else name = T('hold.nfs');
   main.appendChild(el('div', 'row-name text', name));
   const meta = el('div', 'row-meta');
-  meta.appendChild(chip(T('hold.itself_chip'), 'ok', T('hold.itself_' + (['office', 'mover', 'smb'].includes(x.kind) ? x.kind : 'nfs') + '_title')));
+  meta.appendChild(chip(T('hold.itself_chip'), 'ok', T('hold.itself_' + (['office', 'mover', 'smb', 'syslog'].includes(x.kind) ? x.kind : 'nfs') + '_title')));
   if (files) meta.appendChild(chip(T('hold.files_open', { n: files }), '', T('hold.files_open_title')));
   main.appendChild(meta);
   if (x.kind === 'smb' && files) main.appendChild(el('div', 'row-detail role', T('hold.smb_text')));

@@ -60,8 +60,9 @@ done
     || h_cell yes-others-moved 0 "$ok of $((${#NAMES[@]} - ws)) on the array: ${bad[*]}"
 ((wsok == ws)) && h_cell yes-ws-stay 1 "the $ws names ending in whitespace still on the pool, each with its own content («twin» moved, «twin » stayed)" \
     || h_cell yes-ws-stay 0 "$wsok of $ws whitespace names whole on the pool: ${bad[*]}"
-sh=$(jq -c --arg s "$Y" '[.shares[]? | select(.share == $s) | {moved, left, left_why}][0]' "$D/moverelli/status.json" 2>/dev/null)
-[[ $(jq -r '.left_why // ""' <<<"$sh") != "" ]] && h_cell yes-said 1 "her status says why: $sh" \
+sh=$(jq -c --arg s "$Y" '[.shares[]? | select(.share == $s) | {moved, left, left_why, left_codes}][0]' "$D/moverelli/status.json" 2>/dev/null)
+# since the fix (batch H9): every file left has its reason code — the three here `ws`, which her page words
+[[ $(jq -r '((.left_codes.ws // 0) == .left and .left > 0) or (.left_why // "") != ""' <<<"$sh") == true ]] && h_cell yes-said 1 "her status says why: $sh" \
     || h_cell yes-said 0 "her status: $sh — $(jq -r '.left' <<<"$sh") left, no reason for the page (smartmover/README.md: «stays (WARN … rename it)» — the reason never reaches her status)"
 judge prefer "$PF" disk1 cache
 expect_changes "share|$Y|*" "share|$PF|*"

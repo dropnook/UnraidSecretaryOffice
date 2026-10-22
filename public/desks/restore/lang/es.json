@@ -882,7 +882,7 @@
   "drill.code.vm_chain_ok": "completo en la instantánea (archivos en su cadena: {chain})",
   "drill.code.sharefile_ok": "{file} ({bytes}) volvió de la instantánea a {folder} en {base} — tamaño y suma de comprobación iguales; la carpeta fue al trastero de la señora Plumero",
   "drill.code.sharefile_differs": "{file} volvió a {folder} en {base}, pero no igual ({bytes} de {want}) — la carpeta fue al trastero de la señora Plumero",
-  "drill.code.sharefile_none": "ningún archivo entre 1 KB y 16 MB en la instantánea de copia más reciente de {share} en {base}",
+  "drill.code.sharefile_none": "ningún archivo corriente entre 1 KB y 16 MB en la instantánea de copia más reciente de {share} en {base} (se dejan fuera: los archivos de Kopia, bases de datos, bloqueos y archivos cambiados poco antes de la instantánea)",
   "drill.code.sharefile_no_snap": "ya no hay instantánea de copia de {share} en {base}",
   "drill.code.sharefile_taken": "{folder} ya existe en {share} en {base} — nada escrito encima",
   "drill.code.sharefile_failed": "{file} no se pudo copiar a {folder} en {base}",

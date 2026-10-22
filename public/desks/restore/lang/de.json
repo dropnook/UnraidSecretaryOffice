@@ -882,7 +882,7 @@
   "drill.code.vm_chain_ok": "vollständig im Snapshot (Dateien in ihrer Kette: {chain})",
   "drill.code.sharefile_ok": "{file} ({bytes}) kam aus dem Snapshot nach {folder} auf {base} zurück — Grösse und Prüfsumme gleich; der Ordner ist in der Abstellkammer von Frau Putzteufel",
   "drill.code.sharefile_differs": "{file} kam nach {folder} auf {base} zurück, aber nicht gleich ({bytes} von {want}) — der Ordner ist in der Abstellkammer von Frau Putzteufel",
-  "drill.code.sharefile_none": "keine Datei zwischen 1 KB und 16 MB im neuesten Backup-Snapshot von {share} auf {base}",
+  "drill.code.sharefile_none": "keine gewöhnliche Datei zwischen 1 KB und 16 MB im neuesten Backup-Snapshot von {share} auf {base} (ausgelassen: Dateien von Kopia, Datenbanken, Sperrdateien und kurz vor dem Snapshot geänderte Dateien)",
   "drill.code.sharefile_no_snap": "kein Backup-Snapshot von {share} auf {base} mehr",
   "drill.code.sharefile_taken": "{folder} gibt es in {share} auf {base} schon — nichts darüber geschrieben",
   "drill.code.sharefile_failed": "{file} liess sich nicht nach {folder} auf {base} kopieren",

@@ -52,6 +52,14 @@ declare(strict_types=1);
  * testLiveRunUntouched() fails. The live agent never sees any of it.
  */
 const TESTS_LIVE_RUN = '/var/run/unraid-secretary-office';
+/*
+ * One zone for the whole run, whatever the host's (test VMs run on UTC on purpose; Unraid ships a trimmed zoneinfo with no
+ * Europe/Zurich, and a /etc/localtime that points at a missing file is UTC): PHP below on Europe/Zurich, and every bash
+ * engine, `date` and stand-in a test starts on the same rules through TZ — a POSIX rule, so no zone file is needed (a child
+ * started with an environment of its own names 'TZ' => getenv('TZ') too). Before (2026-10-21) on test3/test4: «expected
+ * uso-backup-20261022-0301, got …-0101» (PHP's 03:00 was the engine's 01:00), and a run's log looked for under the wrong name.
+ */
+putenv('TZ=CET-1CEST,M3.5.0,M10.5.0/3');
 if (getenv('OFFICE_TESTS_GUARD') === false && PHP_OS_FAMILY === 'Linux' && function_exists('posix_geteuid') && posix_geteuid() === 0
     && is_dir(TESTS_LIVE_RUN) && !is_link(TESTS_LIVE_RUN) && is_executable('/usr/bin/unshare')) {
     $guard = sys_get_temp_dir() . '/office-tests-guard-' . getmypid();
@@ -83,7 +91,22 @@ putenv('OFFICE_EMCMD_BIN=' . TESTS_RUN_DIR . '/no-emcmd');
 require dirname(__DIR__) . '/agent/agent.php';
 date_default_timezone_set('Europe/Zurich');
 
-$GLOBALS['results'] = ['pass' => 0, 'fail' => []];
+$GLOBALS['results'] = ['pass' => 0, 'fail' => [], 'skip' => []];
+
+/**
+ * A test that needs python3 (Jack's EmbyCache, the media cache's migration) starts with `if (!needsPython(__FUNCTION__))
+ * return;` (only a part of it: `if (needsPython(__FUNCTION__, '<the part>')) { … }`): without python3 on the host (test4 has none, on purpose) it is skipped — counted in the summary line, never red,
+ * never the end of the run (2026-10-21: an uncaught «env: 'python3': No such file or directory» ended it, exit 255, silent)
+ */
+function needsPython(string $test, string $part = ''): bool
+{
+    static $have = null;
+    $have ??= run(['python3', '--version'], 10)[0] === 0;
+    if (!$have) {
+        $GLOBALS['results']['skip'][$test . ($part !== '' ? ": $part" : '')] = 'no python3';
+    }
+    return $have;
+}
 
 /**
  * The engine tests' clock (a suite red by the clock, 2026-10-08: «expected snapshot …-1815, got …-1816», a «third night
@@ -1444,6 +1467,9 @@ JS);
  */
 function testJackImport(): void
 {
+    if (!needsPython(__FUNCTION__)) {
+        return;
+    }
     $tmp = hardeningTmp('jackimport');
     $fs = "$tmp/fs";                      // the fake server: /mnt and /boot below it
     $pool = "$tmp/pool";                  // EmbyCache's pool (load_config() wants a real folder)
@@ -2658,6 +2684,9 @@ JS);
  */
 function testJackTidyDisks(): void
 {
+    if (!needsPython(__FUNCTION__)) {
+        return;
+    }
     $tmp = hardeningTmp('jack-tidy');
     file_put_contents("$tmp/t.py", <<<'PY'
 import sys, os, json, logging
@@ -2693,6 +2722,9 @@ PY);
 
 function testJackRsync(): void
 {
+    if (!needsPython(__FUNCTION__)) {
+        return;
+    }
     // 2026-10-15 (the owner): MediaCache's own ways — filling with rsync, giving back with Unraid's move binary; written
     // into the settings by Jack, never forced through the environment
     $tmp = hardeningTmp('jackrsync');
@@ -2753,6 +2785,9 @@ function testJackRsync(): void
  */
 function testJackKeyRedirect(): void
 {
+    if (!needsPython(__FUNCTION__)) {
+        return;
+    }
     $py = 'import sys, json, threading, http.server
 sys.path.insert(0, sys.argv[1]); import mediacache_lib as l
 seen = {}
@@ -2792,6 +2827,9 @@ print(json.dumps(out, sort_keys=True))';
  */
 function testJackPersons(): void
 {
+    if (!needsPython(__FUNCTION__)) {
+        return;
+    }
     $tmp = hardeningTmp('jack-persons');
     file_put_contents("$tmp/t.py", <<<'PY'
 import sys, os, json
@@ -2848,6 +2886,9 @@ PY);
  */
 function testJackNotInBudget(): void
 {
+    if (!needsPython(__FUNCTION__)) {
+        return;
+    }
     $tmp = hardeningTmp('jack-not-in-budget');
     $py = 'import sys, json; sys.path.insert(0, sys.argv[1]); import mediacache_run as r
 from types import SimpleNamespace as N
@@ -2910,6 +2951,9 @@ JS);
 
 function testJackUpstream(): void
 {
+    if (!needsPython(__FUNCTION__)) {
+        return;
+    }
     $tmp = hardeningTmp('jackupstream');
     @mkdir("$tmp/emby", 0700, true);
     @mkdir("$tmp/pool", 0700, true);
@@ -5252,6 +5296,169 @@ SH, $sh);
 }
 
 /**
+ * Engine 2.68 (seen on a real server, 2026-10-21): from one moment on every write to the S3 repository hung for ever while
+ * reads answered - the Kopia server's hourly maintenance stopped after reading kopia.maintenance, nothing said so.
+ * backup.sh --kopia-watch reads the Kopia server's own content log through one docker exec (a stand-in docker runs the real
+ * script against a fake log folder and a repository.config with a secret in it): the maintenance owner quiet for longer than
+ * UB_KOPIA_WATCH_QUIET is «stuck» since the first step after its last write, told once (a warning), kept from look to look
+ * (a container restart, a new log without a write) until a newer write shows; a server that isn't the owner or never wrote
+ * its maintenance is never judged; the secret never leaves the container. Then the office: the check, the page's words.
+ */
+function testKopiaWatch(): void
+{
+    if (posix_getuid() !== 0) {
+        check('kopia watch: backup.sh runs as root only — not run here', true);
+        return;
+    }
+    $tmp = sys_get_temp_dir() . '/office-tests-kopiawatch-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $data = "$tmp/data/unraid-backup";
+    $fake = "$tmp/fake";
+    foreach (["$tmp/bin", "$fake/log/content-logs", "$fake/home", "$data/state"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    chmod("$tmp/data/unraid-backup", 0700);
+    // docker: inspect says running (unless $FAKE/down), exec runs the command here with the container's environment
+    file_put_contents("$tmp/bin/docker", <<<'SH'
+#!/bin/bash
+echo "$1 $2 $3 $4 $5" >>"$FAKE/docker.log"
+case "$1" in
+  inspect) [[ -e "$FAKE/down" ]] && echo false || echo true; exit 0 ;;
+  exec) shift; while [[ "$1" == -* ]]; do case "$1" in -u|-e) shift 2 ;; *) shift ;; esac; done; shift
+        export KOPIA_LOG_DIR="$FAKE/log" KOPIA_CONFIG_PATH="$FAKE/repository.config" HOME="$FAKE/home"; exec "$@" ;;
+esac
+exit 1
+SH);
+    file_put_contents("$tmp/bin/notify", "#!/bin/bash\nprintf '%s\\n' \"\$*\" >>\"\$FAKE/notify.log\"\n");
+    foreach (glob("$tmp/bin/*") as $f) {
+        chmod($f, 0755);
+    }
+    $clock = "$fake/clock";
+    $now = testsClock("$tmp/bin", $clock);
+    file_put_contents("$data/settings.ini", "[general]\nserver = Test\n[kopia]\nenabled = yes\ncontainer = kopia\n");
+    chmod("$data/settings.ini", 0600);
+    file_put_contents("$fake/repository.config", json_encode(['storage' => ['type' => 's3', 'config' => ['bucket' => 'bk', 'endpoint' => 's4.example.net',
+        'accessKeyID' => 'AKIDSECRET1', 'secretAccessKey' => 'VERYSECRET2']], 'caching' => ['cacheDirectory' => '/cache']], JSON_PRETTY_PRINT));
+    $env = "export PATH=$tmp/bin:\$PATH UB_DATA=$data UB_NOTIFY_BIN=$tmp/bin/notify UB_NOTIFY_HOME= FAKE=$fake UB_KOPIA_WATCH_QUIET=5400";
+    $line = fn (int $t, string $n, string $m, array $more = []) => json_encode(['t' => gmdate('Y-m-d\TH:i:s', $t) . '.123456Z', 'n' => $n, 'm' => $m] + $more);
+    $cycle = fn (int $t, bool $write) => [$line($t, 'epoch-manager', 'refreshAttempt started'), $line($t, 'storage', 'ListBlobs', ['prefix' => 'xn0_', 'error' => null, 'duration' => 900]),
+        $line($t + 1, 'storage', 'GetBlob', ['blobID' => 'kopia.maintenance', 'error' => null, 'duration' => 200]),
+        ...($write ? [$line($t + 2, 'storage', 'PutBlob', ['blobID' => 'kopia.maintenance', 'error' => null, 'duration' => 4000])] : [])];
+    $log = function (string $name, array $lines) use ($fake): void {
+        file_put_contents("$fake/log/content-logs/$name", implode("\n", $lines) . "\n");
+    };
+    $watch = function () use ($env): array {
+        $out = trim((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --kopia-watch </dev/null') . ' 2>&1'));
+        return json_decode($out, true) ?: ['out' => $out];
+    };
+    $file = fn () => json_decode((string) @file_get_contents("$data/state/kopia-watch.json"), true) ?: [];
+    $notes = fn () => array_values(array_filter(explode("\n", (string) @file_get_contents("$fake/notify.log"))));
+    $pick = fn (array $j) => [$j['state'] ?? null, $j['why'] ?? null, $j['since'] ?? null, $j['by'] ?? null, $j['told'] ?? null];
+
+    // the maintenance owner, writing every hour: ok (an older log of a server before it beside)
+    $log('kopia-20261020-100000-170-server-start.0.log', $cycle($now - 9 * 3600, true));
+    $log('kopia-20261021-080000-181-server-start.0.log', [...$cycle($now - 3 * 3600, true), ...$cycle($now - 2 * 3600, true), ...$cycle($now - 1200, true)]);
+    $j = $watch();
+    same('kopia watch: the owner writing every hour - ok, the storage as type and address', ['ok', '', null, null, false, 's3 · s4.example.net', $now - 1200 + 2],
+        [...$pick($j), $j['storage'] ?? null, $j['last_write'] ?? null]);
+    // its writes hang from one cycle on (it read kopia.maintenance, the write never came back): quiet for 2 hours
+    $log('kopia-20261021-080000-181-server-start.0.log', [...$cycle($now - 4 * 3600, true), ...$cycle($now - 3 * 3600, true), ...$cycle($now - 2 * 3600, false)]);
+    $j = $watch();
+    same('kopia watch: quiet for 2 hours after its last write - stuck since the first step after it, by the server, told',
+        ['stuck', 'quiet', $now - 2 * 3600, 'server', true], $pick($j));
+    $n = $notes();
+    $when = trim((string) shell_exec('date -d @' . ($now - 2 * 3600) . " '+%Y-%m-%d %H:%M'"));     // the engine's time zone
+    check('kopia watch: … one warning, its time and the storage in it', count($n) === 1 && str_contains($n[0], '-i warning')
+        && str_contains($n[0], "Since $when the offsite storage (s3 · s4.example.net)"), json_encode($n));
+    $raw = (string) @file_get_contents("$data/state/kopia-watch.json") . implode("\n", $n);
+    check('kopia watch: … no key or secret of the repository\'s config anywhere (state, notification)', !str_contains($raw, 'SECRET') && !str_contains($raw, 'accessKey'), $raw);
+    // the container restarted: a new log, the same spot at once (no write in it) - still stuck since then, not told again
+    $log('kopia-20261021-120000-190-server-start.0.log', $cycle($now - 1800, false));
+    $j = $watch();
+    same('kopia watch: restarted, the same spot again - stuck since the first moment, not told again', ['stuck', 'quiet', $now - 2 * 3600, 'server', true, 1],
+        [...$pick($j), count($notes())]);
+    @touch("$fake/down");
+    $j = $watch();
+    same('kopia watch: the container stopped - stuck kept (it says nothing about the storage)', ['stuck', $now - 2 * 3600], [$j['state'] ?? null, $j['since'] ?? null]);
+    @unlink("$fake/down");
+    // a write goes through again: ok, resolved
+    $log('kopia-20261021-120000-190-server-start.0.log', [...$cycle($now - 1800, false), ...$cycle($now - 60, true)]);
+    $j = $watch();
+    same('kopia watch: a newer write - ok again (wrote)', ['ok', 'wrote', null, null, false], $pick($j));
+    // quiet again later: told anew (a new stuck)
+    $log('kopia-20261021-120000-190-server-start.0.log', [...$cycle($now - 4 * 3600, true), ...$cycle($now - 3 * 3600, false)]);
+    $j = $watch();
+    same('kopia watch: stuck once more - told once more', ['stuck', 2], [$j['state'] ?? null, count($notes())]);
+
+    // a server that never wrote its maintenance (not the owner, or none due): days of quiet mean nothing
+    @unlink("$data/state/kopia-watch.json");
+    array_map('unlink', glob("$fake/log/content-logs/*") ?: []);
+    $log('kopia-20261019-233708-180-server-start.0.log', $cycle($now - 5 * 86400, false));
+    same('kopia watch: no maintenance write in the logs - unknown, never stuck', ['unknown', 'no_maintenance'], array_slice($pick($watch()), 0, 2));
+    // the owner says another user@host (kopia-lock.json): its quiet isn't this server's
+    $log('kopia-20261019-233708-180-server-start.0.log', [...$cycle($now - 5 * 86400, true), ...$cycle($now - 4 * 86400, false)]);
+    file_put_contents("$data/state/kopia-lock.json", json_encode(['v' => 1, 'ok' => true, 'time' => $now, 'identity' => 'root@tower',
+        'maintenance' => ['owner' => 'admin@laptop']]));
+    same('kopia watch: another maintenance owner - unknown (not_owner)', ['unknown', 'not_owner'], array_slice($pick($watch()), 0, 2));
+    @unlink("$data/state/kopia-lock.json");
+    array_map('unlink', glob("$fake/log/content-logs/*") ?: []);
+    same('kopia watch: no server log - unknown (no_log)', ['unknown', 'no_log'], array_slice($pick($watch()), 0, 2));
+    file_put_contents("$data/settings.ini", "[general]\nserver = Test\n[kopia]\nenabled = no\n");
+    same('kopia watch: Kopia off - nothing looked at', ['ok' => false, 'why' => 'off'], $watch());
+    $calls = array_values(array_filter(explode("\n", (string) @file_get_contents("$fake/docker.log"))));
+    check('kopia watch: Docker only asked whether it runs and for the one look inside (never kopia itself)',
+        array_values(array_unique($calls)) === ['inspect -f {{.State.Running}} kopia ', 'exec -u 0 kopia sh'], json_encode($calls));
+    same('kopia watch: every date call one the tests\' clock knows', '', testsClockUnsupported($clock));
+
+    // --- the office: his check reads the record in exactly its shape
+    $st = "$tmp/office.json";
+    $on = ['kopia' => ['enabled' => ['yes']]];
+    file_put_contents($st, json_encode(['v' => 1, 'time' => $now, 'state' => 'stuck', 'why' => 'quiet', 'since' => $now - 7200, 'by' => 'server', 'told' => true, 'storage' => 's3 · s4.example.net', 'last_write' => null]));
+    $w = backupKopiaWrites($on, $st);
+    same('kopia watch (office): stuck read - since, by, storage', ['stuck', $now - 7200, 'server', 's3 · s4.example.net'], [$w['state'] ?? null, $w['since'] ?? null, $w['by'] ?? null, $w['storage'] ?? null]);
+    same('kopia watch (office): Kopia off - nothing', null, backupKopiaWrites(['kopia' => ['enabled' => ['no']]], $st));
+    file_put_contents($st, json_encode(['v' => 1, 'time' => $now, 'state' => 'stuck', 'since' => 'soon']));
+    same('kopia watch (office): a record not in its shape - nothing', null, backupKopiaWrites($on, $st));
+    file_put_contents($st, json_encode(['v' => 1, 'time' => $now, 'state' => 'stuck', 'since' => $now - 60, 'storage' => '<img src=x>']));
+    same('kopia watch (office): a storage word with markup - left out', '', backupKopiaWrites($on, $st)['storage'] ?? null);
+    $p = backupWritesParams(['since' => $now - 7200, 'storage' => ''], 'kopia');
+    same('kopia watch (office): the finding\'s words', [date('Y-m-d H:i', $now - 7200), $now - 7200, '–', 'kopia'], [$p['since'], $p['since_t'], $p['storage'], $p['name']]);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
+    $fw = fn (?string $state) => backupWritesFinding($state === null ? null : ['state' => $state, 'since' => $now - 7200, 'storage' => 's3', 'by' => 'server', 'time' => $now, 'why' => ''], 'kopia');
+    same('kopia watch (office): the finding - none without a record or while unknown, fine when ok, a must while stuck',
+        [null, null, ['required', true], ['required', false, date('Y-m-d H:i', $now - 7200)]],
+        [$fw(null), $fw('unknown'), [$fw('ok')['level'] ?? null, $fw('ok')['ok'] ?? null], [$fw('stuck')['level'] ?? null, $fw('stuck')['ok'] ?? null, $fw('stuck')['params']['since'] ?? null]]);
+    check('kopia watch (office): the check reads the record; the tick looks every 10 minutes; restart only behind the engine\'s lock',
+        str_contains($src, "if (\$f = backupWritesFinding(backupKopiaWrites(\$settings), \$name)) {")
+        && str_contains($src, "backupWatchTick();") && str_contains($src, "backupLaunch([\"\$dir/backup.sh\", '--kopia-watch']);")
+        && preg_match("/function backupKopiaRestart\(\): array\n\{\n    \\\$dir = backupCheckReady\(\);/", $src) === 1
+        && str_contains($src, "houseDocker(['restart', '-t', '30', \$name], 120)"));
+    $bad = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $s = langFile(OFFICE_WEB . "/desks/backup/lang/$l.json");
+        $need = ['check.kopia_writes' => [], 'check.kopia_writes_how' => ['since', 'storage', 'name'], 'notify.kopia_writes.subject' => [],
+                 'notify.kopia_writes' => ['since', 'storage', 'name'], 'warn_code.kopia_stalled' => ['since', 'name', 'minutes'], 'writes.callout' => ['since', 'storage'],
+                 'writes.restart' => [], 'writes.restart_title' => [], 'writes.restart_text' => ['name'], 'writes.restart_go' => [], 'writes.restarted' => ['name'],
+                 'setup.apply_kopia_stuck' => ['since'], 'errors.kopia_restart_gone' => [], 'errors.kopia_restart_failed' => ['name']];
+        foreach ($need as $k => $ps) {
+            if (!is_string($s[$k] ?? null) || array_filter($ps, fn ($x) => !str_contains($s[$k], '{' . $x . '}'))) {
+                $bad[] = "$l:$k";
+            }
+        }
+    }
+    same('kopia watch: the words in five languages', [], $bad);
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('kopia watch (page): the callout with «Restart Kopia…» (asked first, Cancel the default), the Apply dialog says it',
+        str_contains($js, "callout(T('writes.callout', { since: fmt.date(stuck.since), storage: stuck.storage || '–' }), true, b);")
+        && str_contains($js, "const j = await Office.api.post(`\${ID}.kopia_restart`, {});") && str_contains($js, "box.appendChild(el('p', 'callout warn', T('setup.apply_kopia_stuck'"));
+    check('kopia hang (page): an Apply ended «errors» stays shown - no plan made anew by itself, not on opening the page, not by the agent',
+        str_contains($js, "else if (!setup.plan && !setup.asked && canPlan() && !applyErrorsKept()) setupPlan(false);")
+        && str_contains($js, "&& !(setup.status && setup.status.running) && !applyErrorsKept()) {") && str_contains($js, "if (applyErrorsKept() && !setup.applied) setup.applied = j.run;")
+        && str_contains($src, "&& !(\$st['mode'] === 'apply' && \$st['result'] === 'errors' && \$st['written']);"));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * A small server for setup.sh's hand-edit and batch-E cases (2026-10-20): ZFS pool «maple» with the shares media, appdata
  * and the office's, a fake docker listing $FAKE/inspect.json's containers (none: Docker answers with no container; the file
  * `off`: docker.cfg says «no»), Kopia's container connected. Returns the paths and closures: setup(args) → [rc, out],
@@ -5473,7 +5680,7 @@ function testSetupUntrusted(): void
         array_fill_keys(['backupSetupPlan', 'backupSetupApply', 'backupStart', 'backupSetupForget'], ['engine_untrusted', $data, true]), $refused);
     $php = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
     check('untrusted: Mr. Backupsy\'s state carries it, his own plan anew after an engine update waits too',
-        str_contains($php, "'engine_trust' => backupTrustState(\$data),") && str_contains($php, '$free = $holder === null && !backupSetupStatus()[\'running\'] && backupTrustState($data) === null;'));
+        str_contains($php, "'engine_trust' => backupTrustState(\$data),") && str_contains($php, '$free = $holder === null && !$st[\'running\'] && backupTrustState($data) === null'));
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
     check('untrusted (page): a callout with the command on his page and in the setup', str_contains($js, "T('notice.untrusted', { path: t.path })")
         && substr_count($js, 'untrustedCallout();') === 2);
@@ -6197,7 +6404,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.68'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.69'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -7431,7 +7638,7 @@ SH);
 
     // --- engine 2.68: an upload that takes nothing (the storage takes no writes - Kopia waits for ever and INT doesn't end
     // it): its stall watchdog ends it after UB_KOPIA_STALL seconds without reads or writes; a warning, not an error; the
-    // other uploads skipped at once; the run ends as always
+    // other uploads skipped at once; the record for the office (stuck, by the run, told by the run's own words)
     $night();
     touch("$fake/kopia.stall");
     foreach (['UB_KOPIA_STALL=3', 'UB_KOPIA_LOOK=1', 'UB_KOPIA_STALL_END=1'] as $kv) {
@@ -7458,6 +7665,13 @@ SH);
     same('stall 2.68: … the run finished its end - the snapshot mounts released, the apps running, the retention done',
         [[], true, true], [$ours(), !in_array('stopped', array_map(fn ($f) => trim((string) file_get_contents($f)), glob("$fake/ct/*") ?: []), true),
          in_array('zfs destroy maple/appdata@uso-backup-20200101-0100', $n, true)]);
+    $kw = json_decode((string) @file_get_contents("$data/state/kopia-watch.json"), true) ?: [];
+    same('stall 2.68: … the office\'s record - stuck, by the run, already told', ['stuck', 'run', true, 'stalled'], [$kw['state'] ?? null, $kw['by'] ?? null, $kw['told'] ?? null, $kw['why'] ?? null]);
+    // the next run uploads again: the record says ok
+    $night();
+    [$code, , $out] = $run();
+    $kw = json_decode((string) @file_get_contents("$data/state/kopia-watch.json"), true) ?: [];
+    same('stall 2.68: the next run\'s upload went through - ok again (uploaded)', [0, 'ok', 'uploaded'], [$code, $kw['state'] ?? null, $kw['why'] ?? null], $out);
 
     $prunedRuns = fn () => count(json_decode((string) @file_get_contents("$data/state/pruned.json"), true)['runs'] ?? []);
     $pruned0 = $prunedRuns();
@@ -8177,9 +8391,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.68 everywhere it is named', ['2.68', '2.68', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.68"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.68** –')]);
+    same('data trust: the engine\'s version 2.69 everywhere it is named', ['2.69', '2.69', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.69"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.69** –')]);
     // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
     same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
         array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
@@ -8225,9 +8439,11 @@ function testDataTrust(): void
     @mkdir("$tmp/emby", 0700);
     file_put_contents("$tmp/emby/mediacache_settings.json", json_encode(['cache_path' => $tmp, 'array_path' => $tmp, 'rsync_args' => ['-a', '--log-file=/boot/config/go'],
         'instances' => [['servername' => 'E', 'url' => 'http://192.0.2.1:8096', 'api_key' => 'abcdefgh12345678', 'path_mappings' => ['/media' => '/mnt/user/Media']]]]));
-    [, $out] = runEnv(['python3', '-c', 'import sys, json; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; print(json.dumps(l.load_config(require_paths=False)["rsync_args"]))', JACK_APP],
-        ['MEDIACACHE_DIR' => "$tmp/emby"] + jackPyEnv(), 30);
-    same('data trust: EmbyCache\'s rsync options are the office\'s (a settings file can\'t add --log-file)', ['-aAX', '--numeric-ids'], json_decode(trim($out), true));
+    if (needsPython(__FUNCTION__, 'EmbyCache\'s rsync options')) {
+        [, $out] = runEnv(['python3', '-c', 'import sys, json; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; print(json.dumps(l.load_config(require_paths=False)["rsync_args"]))', JACK_APP],
+            ['MEDIACACHE_DIR' => "$tmp/emby"] + jackPyEnv(), 30);
+        same('data trust: EmbyCache\'s rsync options are the office\'s (a settings file can\'t add --log-file)', ['-aAX', '--numeric-ids'], json_decode(trim($out), true));
+    }
     check('data trust: the .plg says «Jack Streamer», never «Jack Emby»', !str_contains($src('plugin/unraid-secretary-office.plg'), 'Jack Emby'));
     check('data trust: the guide says a partner\'s copy is trusted like your own backup', str_contains($src('docs/GUIDE.md'), "trusts that partner like your own backup"));
     exec('rm -rf ' . escapeshellarg($tmp));
@@ -9283,7 +9499,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.68', [1, '2.68'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.69', [1, '2.69'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -9891,7 +10107,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.68', [1, '2.68'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.69', [1, '2.69'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -11464,7 +11680,7 @@ function testSetupTiles(): void
         str_contains($bk, "id: `\${ID}/setup`,") && str_contains($bk, "key: 'backup.setup.tile',") && str_contains($bk, "tiles: () => setupTileList(),")
         && str_contains($bk, "if (setupSwitcher().mount(String(sub || '').split('/').slice(1).join('/'))) Office.subroute('setup');"));
     check('setup tiles: «Decide…» / «Change…» pick the target\'s step first, then reveal its row',
-        str_contains($bk, "const tile = target ? STEP_TILE[target.part] : '';") && str_contains($bk, "if (tile) sw.pick(tile, 'route'); else if (first && setupNoPlace()) setupPlaceStart(sw); else sw.render();"));
+        str_contains($bk, "const tile = target ? STEP_TILE[target.part] : '';") && str_contains($bk, "if (tile) sw.pick(tile, 'route'); else if (placed) setupPlaceStart(sw); else sw.render();"));
     check('setup tiles: the steps\' and settings\' places go by their tile\'s route (a step stands under the row only while its tile is chosen)',
         str_contains($bk, "route: setupRoute(STEP_TILE[key]) } : {})") && str_contains($bk, "route: setupRoute(STEP_TILE[PART[key] || 'setup.general'])")
         && str_contains($em, "...SETUP_TILES.map(([id, key]) => ({ kind: 'step', key, ...SETUP, route: `#/\${ID}/setup/\${id}` })),"));
@@ -11561,32 +11777,33 @@ JS);
 }
 
 /**
- * First place (2026-10-12, a fresh server: «Prüfen…» answered with a red toast, nothing before had said that a share is
- * needed): while no backup place is chosen, the setup opens on «Grundlagen» (not kept — backup.setup.tile stays the
- * user's), the tile in alert, the bar says it first («Zu den Grundlagen», «Prüfen…» grey with setup.ds_missing), and
- * his bubble on the setup page says the «Add Share» way; with a place all as before
+ * The setup's first step (2026-10-21, the owner on a fresh server again: «Einrichten» opened whole without a backup
+ * place, the missing share a yellow line and a folded guide among everything else): while the draft has no backup place
+ * (none chosen, or the one chosen is gone) the setup page is that ONE step — the five points, «Create
+ * UnraidSecretaryOffice…» (the agent's offer: where, and why when second best; grey while its pool sleeps), «Rather
+ * create it in Unraid yourself», the fitting shares to choose from; no start cards, tiles, other steps, bar or Apply,
+ * the search finds only it. A share chosen or made there: the setup opens, on «Grundlagen» with the place in view. The
+ * overview's tiles say «the backup place first». (Before 2026-10-21, testSetupFirstPlace of 2026-10-12: the page opened
+ * on «Grundlagen» with the guide first, the bar led there.)
  */
 function testSetupFirstPlace(): void
 {
     $bk = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
-    check('first place: a visit without a step\'s route marks its start; the first page with the plan opens «Grundlagen» while no place',
-        str_contains($bk, "Office.subroute('setup');\n      else setup.placeStart = true;")
-        && str_contains($bk, "if (tile) sw.pick(tile, 'route'); else if (first && setupNoPlace()) setupPlaceStart(sw); else sw.render();"));
-    check('first place: … and brings the guide up (unless the user scrolled); the bar\'s «Zu den Grundlagen» likewise',
-        str_contains($bk, "if (!tile && first && setupNoPlace() && window.scrollY < 40) setupShowPlace(false);")
-        && str_contains($bk, "setupPlaceStart(setupSwitcher());\n  setupShowPlace(true);"));
-    check('first place: … the guide first in «Grundlagen» while no place, after the settings once chosen',
-        str_contains($bk, "if (guideFirst) s.appendChild(placeGuide(plan));\n  s.appendChild(basics);") && str_contains($bk, "if (!guideFirst) s.appendChild(placeGuide(plan));"));
-    // nostromo 2026-10-17: «Share in Unraid anlegen · Namensvorschlag UnraidSecretaryOffice» although that share was the place
-    check('backup place guide: «create a share» and its name only while no place is chosen',
-        str_contains($bk, "if (!ds) {                      // the way to a new share only while none is chosen")
-        && strpos($bk, "T('setup.place_add')") > strpos($bk, "if (!ds) {                      // the way to a new share"));
-    check('first place: setupApply()\'s toast stays the last guard', str_contains($bk, "if (!ds) { Office.toast(T('setup.ds_missing'), true); return; }"));
-    check('first place: the bar\'s spec drawn by setupBar() (a button\'s title set on the bar)', str_contains($bk, "const bar = Office.selbar(spec);")
-        && str_contains($bk, "if (b.title && btns[i]) btns[i].title = b.title;"));
+    $gate = "  if (setupNoPlace()) {\n    setup.placeWas = true;\n    root.appendChild(placeFirst(plan));\n    setupBar();\n    return;\n  }";
+    $at = strpos($bk, $gate);
+    check('first step: renderSetup() draws the step alone before the start cards, the tiles and the steps while the draft has no place',
+        $at !== false && $at < (int) strpos($bk, "const start = plan.have_settings ? presetStartLine() : presetSection();")
+        && $at < (int) strpos($bk, "root.appendChild(sw.el);"));
+    check('first step: … once done, «Grundlagen» with the place in view (not kept)',
+        str_contains($bk, "if (tile) sw.pick(tile, 'route'); else if (placed) setupPlaceStart(sw); else sw.render();")
+        && str_contains($bk, "if (!tile && placed) setupShowPlace();"));
+    check('first step: setupApply()\'s toast stays the last guard', str_contains($bk, "if (!ds) { Office.toast(T('setup.ds_missing'), true); return; }"));
+    check('first step: the create click asks the agent, then plans anew; the share made becomes the place once the plan has it',
+        str_contains($bk, "Office.api.post(`\${ID}.place_make`, { pool: offer.pool || '' })") && str_contains($bk, "setup.placeMade = j.made;")
+        && str_contains($bk, "Office.placesTook(ID, j.plan, 'setup');     // its rows for the office's search (setupSearchItems()) - the plan as it came\n    setupPlaceMade();"));
     $node = testsNode();
     if ($node === '') {
-        check('first place: node is missing here - skipped', true);
+        check('first step: node is missing here - skipped', true);
         return;
     }
     $tmp = hardeningTmp('setup-first-place');
@@ -11596,12 +11813,17 @@ const [bkFile, coreFile, planFile, stateFile] = process.argv.slice(2);
 globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
 const el = (tag, cls, text) => ({ tag, className: cls || '', textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {},
-  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, setAttribute() {} });
+  classList: { add() {}, toggle() {}, remove() {} }, appendChild(c) { this.children.push(c); return c; },
+  append(...c) { this.children.push(...c.map((x) => (typeof x === 'string' ? el('text', '', x) : x))); }, setAttribute() {}, addEventListener() {} });
+globalThis.Option = function Option(text, value) { return { tag: 'option', text, value, children: [] }; };
 const store = new Map();
-globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => b + ' B', relative: () => 'now', duration: (s) => s + ' s', date: (t) => 'D' + t, time: (t) => 'H' + t, number: (n) => String(n) },
-  desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => null, has: () => false,
+let places = [];
+globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => b + ' B', relative: () => 'now', duration: (s) => s + ' s', date: (t) => 'D' + t, time: (t) => 'H' + t, number: (n) => String(n), cron: (c) => c, bitrate: (m) => m + ' Mbit/s' },
+  desk: () => {}, places: (id, list) => { places = list; }, placesFrom: () => {}, placesTook: () => {}, selbar: () => null, has: () => false,
   store: (k, v) => { if (v === undefined) return store.has(k) ? store.get(k) : null; if (v === null) store.delete(k); else store.set(k, v); return null; },
   storeJson: () => null, agent: { running: true }, place: (k, n) => n, stat: (o) => ({ stat: o }), withGreeting: (id, s) => s,
+  sectionHead: (title, sub) => { const h = el('div', 'section-head'); h.children.push(el('h2', '', title), el('p', '', sub)); return h; },
+  safeHref: (h) => h, desks: { get: () => null },
   sections: () => ({ el: el('div'), grid: el('div'), body: el('div'), active: () => '', note: () => ({ tile: '' }), places: () => [],
     mount: () => false, pick() {}, render() {}, clear() {} }),
   filterBar: () => { const bar = { el: {}, read: () => ({ words: [], only: false, pick: '', tile: '' }), set() { return bar; }, reset() { return bar; },
@@ -11612,17 +11834,14 @@ new Function('Office', core.slice(core.indexOf('const fold = '), core.indexOf('/
 const b = OFFICE_DESK_TESTS.backup;
 const S = b.setup;
 const demo = JSON.parse(fs.readFileSync(planFile, 'utf8')).plan;
-b.setState(JSON.parse(fs.readFileSync(stateFile, 'utf8')));
-const bar = () => { const x = b.setupBarSpec(); return x && { title: x.title, sub: x.sub, buttons: x.buttons.map((y) => [y.text, !!y.disabled, y.title || '']) }; };
-// a switcher as core.js's: pick() keeps a section tile's choice
-const fakeSw = (active) => { let cur = active; return { active: () => cur, pick(id, how) { cur = id; if (how !== 'start') store.set('backup.setup.tile', id); } }; };
-const startWith = (kept, active) => {
-  store.clear();
-  if (kept !== null) store.set('backup.setup.tile', kept);
-  const sw = fakeSw(active);
-  b.setupPlaceStart(sw);
-  return [sw.active(), store.has('backup.setup.tile') ? store.get('backup.setup.tile') : null];
-};
+const demoState = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+b.setState(demoState);
+// the step's texts in order (a tree of the stub's nodes), its buttons [text, disabled], its select's options
+const walk = (n, f) => { if (!n || typeof n !== 'object') return; f(n); (n.children || []).forEach((c) => walk(c, f)); };
+const look = (n) => { const o = { texts: [], buttons: [], options: [], links: [] };
+  walk(n, (x) => { if (x.textContent) o.texts.push(x.textContent); if (x.tag === 'button') o.buttons.push([x.textContent, !!x.disabled]);
+    if (x.tag === 'option') o.options.push(x.value); if (x.tag === 'a') o.links.push(x.href); }); return o; };
+const shown = (key) => { const p = places.find((x) => x.key === key); return p ? (p.shown ? p.shown() : true) : null; };
 const load = (fn) => {
   const plan = JSON.parse(JSON.stringify(demo));
   fn(plan);
@@ -11630,17 +11849,42 @@ const load = (fn) => {
   S.choice = null;
   b.setupDraftFromPlan();
 };
+const fresh = (p) => { p.have_settings = false; delete p.P['general|dumps_share']; p.shares = p.shares.filter((x) => ['appdata', 'domains', 'isos', 'system'].includes(x.name)); };
+const offer = (o) => ({ share: 'UnraidSecretaryOffice', fresh: true, pool: 'fast', fs: 'zfs', why: '', mirror: false, asleep: false, exclusive: true, appdata: 'cache', ...o });
 const out = {};
-// a fresh server: nothing set up, no share but Unraid's own (isos) — create one in Unraid
-load((p) => { p.have_settings = false; delete p.P['general|dumps_share']; p.shares = p.shares.filter((x) => ['appdata', 'domains', 'isos', 'system'].includes(x.name)); });
-out.none = { no: b.setupNoPlace(), tile: b.setupTileData(S.plan)[0], bar: bar(), bubble: b.bubbleText('setup'), main: b.bubbleText(''),
-  start: [startWith(null, ''), startWith('', ''), startWith('vms', 'vms'), startWith(null, 'basics')] };
-// shares there, none chosen — choose one or create one
+// a fresh server: no share to choose, the office's share offered on the ZFS pool fast
+load((p) => { fresh(p); p.place_offer = offer({}); });
+out.none = { no: b.setupNoPlace(), bar: b.setupBarSpec(), step: look(b.placeFirst(S.plan)), bubble: b.bubbleText('setup')[0],
+  places: [shown('setup.first.title'), shown('setup.kopia'), shown('setup.ds_label'), shown('setup.vms')] };
+// shares there, none chosen: the fitting ones to choose from
+load((p) => { p.have_settings = false; delete p.P['general|dumps_share']; p.place_offer = offer({ why: 'same_pool', asleep: true }); });
+out.choose = { no: b.setupNoPlace(), step: look(b.placeFirst(S.plan)), bubble: b.bubbleText('setup')[0] };
+// the offer's words: second best, the array, Unraid knew the share
+out.lines = [b.placeOfferLines(offer({ mirror: true })), b.placeOfferLines(offer({ why: 'same_pool' })), b.placeOfferLines(offer({ fs: 'btrfs', why: 'no_zfs' })),
+  b.placeOfferLines(offer({ fs: 'xfs', why: 'no_zfs' })), b.placeOfferLines(offer({ pool: null, fs: '', why: 'no_pool' }))];
+load((p) => { fresh(p); p.place_offer = offer({ fresh: false }); });
+out.known = look(b.placeFirst(S.plan));
+// the place chosen once and gone since (settings.ini names it, the plan finds no such share)
+load((p) => { p.P['general|dumps_share'] = 'Weg'; p.shares.push({ name: 'Weg', exists: false, folders: [], waiting: [] }); });
+out.gone = b.setupNoPlace();
+// chosen on the step: the setup opens
 load((p) => { p.have_settings = false; delete p.P['general|dumps_share']; });
-out.choose = { no: b.setupNoPlace(), bar: bar(), bubble: b.bubbleText('setup')[0] };
-// a place chosen: as before
+b.dset('general|dumps_share', 'Dokumente');
+out.chosen = [b.setupNoPlace(), shown('setup.kopia'), shown('setup.first.title')];
+// made on the step: the new plan has it, the engine proposed none (an old draft kept) - it becomes the place
+load((p) => { fresh(p); p.place_offer = offer({}); });
+S.placeMade = 'UnraidSecretaryOffice';
+S.plan.shares.push({ name: 'UnraidSecretaryOffice', exists: true, folders: [], waiting: [] });
+b.setupPlaceMade();
+out.made = [b.setupNoPlace(), b.setup.draft['general|dumps_share'], S.placeMade];
+// a place there: as before
 load(() => {});
-out.place = { no: b.setupNoPlace(), tile: b.setupTileData(S.plan)[0].alert, bar: bar(), bubble: b.bubbleText('setup'), main: b.bubbleText('') };
+out.place = [b.setupNoPlace(), b.bubblePlace()];
+// the overview's tiles: nothing set up - «the backup place first»; set up with a place - as they were
+b.setState({ ...demoState, settings_found: false });
+out.overview = [b.placeFirstNeeded(), b.overviewTiles().map((d) => [d.key, d.sub[0] || '', d.alert])];
+b.setState(demoState);
+out.overviewPlaced = [b.placeFirstNeeded(), b.overviewTiles().some((d) => (d.sub || []).includes('tile.place_first'))];
 console.log(JSON.stringify(out));
 JS);
     $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' '
@@ -11649,35 +11893,150 @@ JS);
     $r = json_decode($raw, true);
     hardeningRm($tmp);
     if (!is_array($r)) {
-        check('first place: ran under node', false, substr($raw, 0, 2000));
+        check('first step: ran under node', false, substr($raw, 0, 2000));
         return;
     }
     $n = $r['none'];
-    check('first place: a fresh server without a share — no place', $n['no'] === true);
-    same('first place: … «Grundlagen» in alert, «noch keine Backup-Ablage»', [true, 'setup.tile.no_place'], [$n['tile']['alert'], $n['tile']['sub'][0]]);
-    same('first place: … the switcher starts on «Grundlagen» whatever was kept (nothing, every step, a step), and the kept choice stays as it was',
-        [['basics', null], ['basics', ''], ['basics', 'vms'], ['basics', null]], $n['start']);
-    same('first place: … the bar: the share first, the way in Unraid, «Zu den Grundlagen», «Prüfen…» grey with setup.ds_missing',
-        ['title' => 'setup.bar_place', 'sub' => 'setup.bar_place_sub {"tile":"setup.kopia"}',
-         'buttons' => [['setup.discard', true, ''], ['setup.bar_place_go', false, ''], ['setup.review', true, 'setup.ds_missing']]], $n['bar']);
-    same('first place: … his bubble on the setup page says it first (not «no backup yet» beside it); the overview\'s stays',
-        'setup.bubble_place', $n['bubble'][0] ?? null);
-    check('first place: … the overview\'s bubble without it', !in_array('setup.bubble_place', $n['main'], true) && !in_array('setup.bubble_place', array_slice($n['bubble'], 1), true));
+    same('first step: a fresh server — no place, no bar (nothing to apply)', [true, null], [$n['no'], $n['bar']]);
+    same('first step: … the step: its title, the five points, the proposal, «Create UnraidSecretaryOffice…», the way in Unraid',
+        ['setup.first.title', 'setup.first.point_1', 'setup.first.point_5', 'setup.first.offer_pool {"pool":"fast","fs":"ZFS"}',
+         'setup.first.own_text {"name":"UnraidSecretaryOffice"}'],
+        [$n['step']['texts'][0], $n['step']['texts'][2], $n['step']['texts'][6], $n['step']['texts'][8], $n['step']['texts'][11] ?? null]);
+    same('first step: … one button, live; Unraid\'s «Add Share» as the link; nothing to choose', [[['setup.first.make {"share":"UnraidSecretaryOffice"} …', false]], ['/Shares/Share?name='], []],
+        [$n['step']['buttons'], $n['step']['links'], $n['step']['options']]);
+    same('first step: … his bubble says it; the search finds the step, none of the steps behind it', ['setup.bubble_place', [true, false, false, false]],
+        [$n['bubble'], $n['places']]);
     $c = $r['choose'];
-    same('first place: shares there, none chosen — the bar and the bubble say «choose one under Grundlagen, or create one»',
-        [true, 'setup.bar_place', 'setup.bar_place_choose {"tile":"setup.kopia"}', true, 'setup.bubble_place_choose {"tile":"setup.kopia"}'],
-        [$c['no'], $c['bar']['title'], $c['bar']['sub'], $c['bar']['buttons'][2][1], $c['bubble']]);
-    $p = $r['place'];
-    check('first place: a place chosen — as before (no first-place bar, «Prüfen…» without the reason, no alert for the place, no bubble line)',
-        $p['no'] === false && $p['tile'] === false && ($p['bar'] === null || ($p['bar']['title'] !== 'setup.bar_place' && end($p['bar']['buttons'])[2] === ''))
-        && $p['bubble'] === $p['main']);
+    same('first step: shares there — the fitting ones to choose from (never appdata, system, domains, isos), his bubble says both',
+        [true, ['', 'UnraidSecretaryOffice', 'Familienvideos', 'Dokumente', 'Familienfotos', 'paperless', 'Schule'], 'setup.bubble_place_choose'],
+        [$c['no'], $c['step']['options'], $c['bubble']]);
+    same('first step: … a pool asleep: the button grey, why said (never woken); the same pool as appdata said',
+        [[['setup.first.make {"share":"UnraidSecretaryOffice"} …', true]], true, true],
+        [$c['step']['buttons'], in_array('setup.first.asleep {"pool":"fast"}', $c['step']['texts'], true), in_array('setup.first.why_same_pool {"pool":"fast"}', $c['step']['texts'], true)]);
+    same('first step: the proposal\'s words — a mirror, appdata\'s pool, btrfs, no snapshots, the array',
+        [['setup.first.offer_pool_mirror {"pool":"fast","fs":"ZFS"}'], ['setup.first.offer_pool {"pool":"fast","fs":"ZFS"}', 'setup.first.why_same_pool {"pool":"fast"}'],
+         ['setup.first.offer_pool {"pool":"fast","fs":"btrfs"}', 'setup.first.why_no_zfs_btrfs {"pool":"fast"}'],
+         ['setup.first.offer_pool {"pool":"fast","fs":"XFS"}', 'setup.first.why_no_zfs {"pool":"fast"}'], ['setup.first.offer_array', 'setup.first.why_no_pool']], $r['lines']);
+    same('first step: Unraid knew the share — the careful text, no button', [true, []],
+        [in_array('setup.first.known {"share":"UnraidSecretaryOffice"}', $r['known']['texts'], true), $r['known']['buttons']]);
+    check('first step: a place chosen once and gone since — the step again', $r['gone'] === true);
+    same('first step: a share chosen on it — the setup opens (its steps found again, the step not)', [false, true, false], $r['chosen']);
+    same('first step: the share made on it — the backup place once the new plan has it', [false, 'UnraidSecretaryOffice', null], $r['made']);
+    same('first step: a place there — as before (no step, no bubble line)', [false, ''], $r['place']);
+    [$need, $tiles] = $r['overview'];
+    $byKey = array_column(array_map(fn ($t) => ['k' => $t[0], 'v' => [$t[1], $t[2]]], $tiles), 'v', 'k');
+    same('first step: the overview with nothing set up — the tiles of what a backup makes say «the backup place first», the last backup\'s in alert',
+        [true, ['tile.place_first', true], ['tile.place_first', false], 'stat.restore_where'],
+        [$need, $byKey['last'] ?? null, $byKey['schedule'] ?? null, $byKey['restore'][0] ?? null]);
+    same('first step: … set up with a place — the tiles as they were', [false, false], $r['overviewPlaced']);
     foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
         $l = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$code.json"), true);
-        same("first place: the words in $code", [], array_values(array_filter(['setup.bar_place', 'setup.bar_place_sub', 'setup.bar_place_choose', 'setup.bar_place_go',
-            'setup.bubble_place', 'setup.bubble_place_choose'], fn ($k) => !isset($l[$k]))));
-        check("first place: the share's kind (ZFS pool, exclusive, not the array) in the bar's way and beside «Add Share» ($code)",
-            str_contains($l['setup.bar_place_sub'], 'ZFS') && str_contains($l['setup.bar_place_choose'], 'ZFS') && str_contains($l['setup.place_name'], 'ZFS'));
+        check("first step: the five points say ZFS, appdata, the array, no secondary storage ($code)",
+            str_contains($l['setup.first.point_1'], 'appdata') && str_contains($l['setup.first.point_2'], 'ZFS') && stripos($l['setup.first.point_3'], 'array') !== false);
+        check("first step: the confirmation names Unraid's own labels ($code)",
+            $l['setup.first.c_primary'] === '⟦Primary storage⟧' && $l['setup.first.c_secondary'] === '⟦Secondary storage⟧' && str_starts_with($l['setup.first.c_export_no'], '⟦No⟧'));
     }
+}
+
+/**
+ * The office's share as the backup place, made on the setup's first step (2026-10-21): the agent's offer (backup.php
+ * backupPlaceOffer(): only while Unraid has no share of that name — shares.ini, its cfg, never a disk) goes to a ZFS
+ * pool first, one appdata doesn't lie on when there is another, a mirror before a single drive; else btrfs, else another
+ * pool, else the array — and says why when second best, whether exclusive shares are permitted and whether it sleeps.
+ * «Create» (backupPlaceMake()) looks again: refused when the share is there, Unraid knew it, the pool is unknown or
+ * asleep (never woken); else Unraid's own «Add Share» through a stand-in for emcmd (the form's fields: only on the pool,
+ * no secondary storage — the array for ''), then the share is there.
+ */
+function testBackupPlaceOffer(): void
+{
+    $tmp = hardeningTmp('placeoffer');
+    foreach (['user', 'shares', 'pools'] as $d) {
+        @mkdir("$tmp/$d", 0755, true);
+    }
+    file_put_contents("$tmp/emcmd", "#!/bin/bash\necho \"\$1\" >> " . escapeshellarg("$tmp/sent") . "\n"
+        . 'n=$(sed -n "s/.*shareName=\([^&]*\).*/\1/p" <<<"$1"); mkdir -p ' . escapeshellarg("$tmp/user") . "/\"\$n\"\n");
+    chmod("$tmp/emcmd", 0755);
+    $h = ['shares_dir' => "$tmp/shares", 'shares_ini' => "$tmp/shares.ini", 'docker_cfg' => "$tmp/docker.cfg", 'domain_cfg' => "$tmp/domain.cfg",
+          'pools_dir' => "$tmp/pools", 'mnt_user' => "$tmp/user", 'emcmd' => "$tmp/emcmd", 'wait' => 1, 'disks_ini' => "$tmp/disks.ini",
+          'share_cfg' => "$tmp/share.cfg"];
+    $sent = function () use ($tmp): array {
+        $s = array_values(array_filter(explode("\n", (string) @file_get_contents("$tmp/sent"))));
+        @unlink("$tmp/sent");
+        return $s;
+    };
+    $disks = function (array $pools) use ($tmp): void {     // name => [fsType, fsProfile, spundown]
+        $ini = "[\"disk1\"]\nname=\"disk1\"\ntype=\"Data\"\nfsType=\"xfs\"\nrotational=\"1\"\nspundown=\"0\"\n";
+        foreach ($pools as $n => [$fs, $profile, $down]) {
+            $ini .= "[\"$n\"]\nname=\"$n\"\ntype=\"Cache\"\nfsType=\"$fs\"\nfsProfile=\"$profile\"\nrotational=\"1\"\nspundown=\"$down\"\n";
+            touch("$tmp/pools/$n.cfg");
+        }
+        file_put_contents("$tmp/disks.ini", $ini);
+    };
+    $pick = fn () => array_intersect_key((array) backupPlaceOffer($h), array_flip(['pool', 'fs', 'why', 'mirror', 'asleep', 'exclusive', 'fresh']));
+    file_put_contents("$tmp/docker.cfg", "DOCKER_ENABLED=\"yes\"\n");
+    file_put_contents("$tmp/domain.cfg", "SERVICE=\"disable\"\n");
+    file_put_contents("$tmp/shares.ini", "[\"appdata\"]\nname=\"appdata\"\n");
+    file_put_contents("$tmp/shares/appdata.cfg", "shareUseCache=\"only\"\nshareCachePool=\"cache\"\nshareCachePool2=\"\"\n");
+    file_put_contents("$tmp/share.cfg", "shareUserExclusive=\"yes\"\n");
+    // the owner's kind of server: appdata on cache (ZFS), a second ZFS pool fast, a btrfs mirror
+    $disks(['cache' => ['zfs', 'mirror', '0'], 'fast' => ['zfs', '', '0'], 'tank' => ['btrfs', 'raid1', '0']]);
+    same('place offer: a ZFS pool appdata doesn\'t lie on — before appdata\'s mirror and a btrfs mirror; exclusive permitted',
+        ['fresh' => true, 'pool' => 'fast', 'fs' => 'zfs', 'why' => '', 'mirror' => false, 'asleep' => false, 'exclusive' => true], $pick());
+    $disks(['cache' => ['zfs', 'mirror', '0'], 'fast' => ['zfs', '', '0'], 'tank' => ['btrfs', 'raid1', '0'], 'safe' => ['zfs', 'raidz1', '0']]);
+    same('place offer: … a ZFS mirror apart from appdata first', ['safe', ''], array_values(array_intersect_key($pick(), ['pool' => 1, 'why' => 1])));
+    @unlink("$tmp/pools/fast.cfg");
+    @unlink("$tmp/pools/safe.cfg");
+    $disks(['cache' => ['zfs', 'mirror', '0'], 'tank' => ['btrfs', 'raid1', '0']]);
+    same('place offer: the only ZFS pool holds appdata — still ZFS, and why (same_pool)', ['cache', 'same_pool'], array_values(array_intersect_key($pick(), ['pool' => 1, 'why' => 1])));
+    @unlink("$tmp/pools/cache.cfg");
+    $disks(['tank' => ['btrfs', 'raid1', '0'], 'ssd' => ['xfs', '', '0']]);
+    file_put_contents("$tmp/share.cfg", "shareUserExclusive=\"no\"\n");
+    same('place offer: no ZFS pool — btrfs before xfs, why no_zfs; exclusive shares not permitted: said',
+        ['tank', 'btrfs', 'no_zfs', false], array_values(array_intersect_key($pick(), ['pool' => 1, 'fs' => 1, 'why' => 1, 'exclusive' => 1])));
+    $disks(['tank' => ['btrfs', 'raid1', '1']]);
+    @unlink("$tmp/pools/ssd.cfg");
+    same('place offer: its pool asleep — said (the page greys the button)', [true], array_values(array_intersect_key($pick(), ['asleep' => 1])));
+    @unlink("$tmp/pools/tank.cfg");
+    $disks([]);
+    same('place offer: no pool — the array, why no_pool', [null, 'no_pool', false], array_values(array_intersect_key($pick(), ['pool' => 1, 'why' => 1, 'exclusive' => 1])));
+
+    // «Create»: looked at again, then Unraid's «Add Share»
+    $disks(['cache' => ['zfs', 'mirror', '0'], 'fast' => ['zfs', '', '1']]);
+    $err = function (string $pool) use ($h): string {
+        try {
+            backupPlaceMake($pool, $h);
+            return 'made';
+        } catch (Problem $e) {
+            return $e->key;
+        }
+    };
+    same('place make: a pool Unraid doesn\'t know, a pool asleep — refused, nothing sent', ['place_pool_unknown', 'place_pool_asleep', []],
+        [$err('nope'), $err('fast'), $sent()]);
+    $disks(['cache' => ['zfs', 'mirror', '0'], 'fast' => ['zfs', '', '0']]);
+    file_put_contents("$tmp/disks.ini", "[\"disk1\"]\nname=\"disk1\"\ntype=\"Data\"\nrotational=\"1\"\nspundown=\"1\"\n", FILE_APPEND);
+    same('place make: the array while a disk of it sleeps — refused', ['place_array_asleep', []], [$err(''), $sent()]);
+    file_put_contents("$tmp/shares/UnraidSecretaryOffice.cfg", "shareUseCache=\"only\"\n");
+    same('place make: Unraid knew the share (its cfg on the flash) — refused, never made anew', ['place_known', []], [$err('fast'), $sent()]);
+    unlink("$tmp/shares/UnraidSecretaryOffice.cfg");
+    $r = backupPlaceMake('fast', $h);
+    $form = $sent();
+    parse_str($form[0] ?? '', $f);
+    same('place make: Unraid\'s «Add Share» with the form\'s fields — the name, only on the pool fast, no secondary storage; the share there',
+        [['ok' => true, 'made' => 'UnraidSecretaryOffice', 'pool' => 'fast'], 1, 'UnraidSecretaryOffice', 'only', 'fast', '', 'Add Share', true],
+        [$r, count($form), $f['shareName'] ?? null, $f['shareUseCache'] ?? null, $f['shareCachePool'] ?? null, $f['shareCachePool2'] ?? null, $f['cmdEditShare'] ?? null,
+         is_dir("$tmp/user/UnraidSecretaryOffice")]);
+    file_put_contents("$tmp/shares.ini", "[\"UnraidSecretaryOffice\"]\nname=\"UnraidSecretaryOffice\"\n", FILE_APPEND);
+    same('place make: … there now — no offer, a second click refused', [null, 'place_exists', []], [backupPlaceOffer($h), $err('fast'), $sent()]);
+    $bk = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
+    check('place make: the action reads its field (\'\' = the array), the plan carries the offer',
+        str_contains($bk, "'place_make'  => fn (array \$r) => backupPlaceMake(optText(\$r, 'pool')),")
+        && str_contains($bk, "\$plan['place_offer'] = backupPlaceOffer();"));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $l = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$code.json"), true);
+        same("place make: every refusal said ($code)", [], array_values(array_filter(['place_exists', 'place_known', 'place_pool_unknown', 'place_pool_asleep',
+            'place_array_asleep'], fn ($k) => !isset($l["errors.$k"]))));
+    }
+    hardeningRm($tmp);
 }
 
 /**
@@ -11858,8 +12217,8 @@ const b = OFFICE_DESK_TESTS.backup;
 const out = {};
 // the place's lines: testBackupPlaceVerdict (2026-10-17, one question decides)
 const plan = (names) => ({ shares: names.map((name) => ({ name })) });
-out.intro = [b.placeIntro(plan(['appdata', 'system', 'domains', 'isos']), ''), b.placeIntro(plan(['appdata', 'isos', 'Backups']), ''),
-  b.placeIntro(plan(['appdata', 'isos']), 'isos')];
+out.intro = [b.placeFitting(plan(['appdata', 'system', 'domains', 'isos'])), b.placeFitting(plan(['appdata', 'isos', 'Backups'])),
+  b.placeFitting({ shares: [{ name: 'Backups', exists: false }, { name: 'Dokumente' }] })];
 // a first plan: what the user picks and doesn't apply
 b.setup.plan = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
 b.setupDraftKeep();
@@ -11889,7 +12248,7 @@ JS;
         hardeningRm($tmp);
         return;
     }
-    same('backup place: Mr. Backupsy\'s word - no share to choose (only isos), choose one, none once chosen', ['setup.place_none', 'setup.place_choose', null], $r['intro']);
+    same('backup place: the shares the first step offers to choose - none (only isos), one, never a share gone', [[], ['Backups'], ['Dokumente']], $r['intro']);
     same('backup place: before the new plan - the user\'s levels in the draft', [['c2'], ['c2', 'c3']], $r['before']);
     same('backup place: a new plan keeps what the user chose (flash, a level, a hold); takes the engine\'s new proposals (the share made meanwhile, a retention)',
         ['flash' => 'off', 'ds' => 'UnraidSecretaryOffice', 'retention' => '14 4 3', 'skip' => ['c2'], 'noStop' => ['c2', 'c3'], 'levels' => [1, 0], 'held' => 'run', 'office' => 'snapshot'],
@@ -14398,7 +14757,11 @@ function testRestoreSettled(): void
         // a job that lives (an agent.php of this pid): untouched
         $live = proc_open(['sh', '-c', 'sleep 30; :', 'agent.php'], [], $pp);
         $alive = '20261019-192000-cc33';
-        $make($alive, proc_get_status($live)['pid']);
+        $livePid = proc_get_status($live)['pid'];
+        for ($i = 0; $i < 100 && !str_contains((string) @file_get_contents("/proc/$livePid/cmdline"), 'agent.php'); $i++) {
+            usleep(20000);      // until it is sh (a slow VM: still the forked php a moment after proc_open)
+        }
+        $make($alive, $livePid);
         rsJournals();
         same('restore settled: a job that lives is left alone', ['running', ['ok', 'running', 'pending']],
             [rsJournal($alive)['result'] ?? null, array_column(rsJournal($alive)['steps'] ?? [], 'state')]);
@@ -24477,8 +24840,10 @@ function testMigrateMediaCache(): void
     // MediaCache itself takes the migrated file (load_config, the paths not asked)
     $py = 'import sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; c = l.load_config(require_paths=False); '
         . 'i = c["instances"][0]; print(i["type"], sorted(i["_mappings"]), i["_skip"])';
-    [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], ['MEDIACACHE_DIR' => $new, 'PYTHONDONTWRITEBYTECODE' => '1'], 30);
-    same('mediacache: MediaCache loads the migrated settings', [0, "emby ['/mnt/media/Familienfilme'] ['/mnt/media/Privat']"], [$exit, trim($out) ?: trim($err)]);
+    if (needsPython(__FUNCTION__, 'MediaCache loads them')) {
+        [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], ['MEDIACACHE_DIR' => $new, 'PYTHONDONTWRITEBYTECODE' => '1'], 30);
+        same('mediacache: MediaCache loads the migrated settings', [0, "emby ['/mnt/media/Familienfilme'] ['/mnt/media/Privat']"], [$exit, trim($out) ?: trim($err)]);
+    }
 
     // again (a downgrade and back): nothing more; a crash after the copy: the old one only put aside
     same('mediacache: done once — again nothing', 'nothing to change (Jack Streamer had no EmbyCache folder here)', officeMigrateMediaCache($d, '1.65.0'));
@@ -24938,7 +25303,7 @@ ROUTER);
     same('claim: no curl config left in RAM', [], glob("$tmp/run/claim.*") ?: []);
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/lib/supporter.php');
     check('claim: the address with the code goes in a config file (-K), never on the command line', str_contains($src, "'-K', \$file") && !preg_match('/hostNet\(\[[^\]]*api\/claim/s', $src));
-    check('claim: an agent action, never the browser', str_contains((string) file_get_contents(OFFICE_DIR . '/src/api.php'), "'office.reports', 'office.supporter_claim'];") && isset(officeAgentActions()['supporter_claim']));
+    check('claim: an agent action, never the browser', str_contains((string) file_get_contents(OFFICE_DIR . '/src/api.php'), "'office.reports', 'office.report_inbox', 'office.supporter_claim'];") && isset(officeAgentActions()['supporter_claim']));
     proc_terminate($server);
     proc_close($server);
     putenv('OFFICE_SUPPORTER_PUBKEY');
@@ -27221,10 +27586,13 @@ const out = {};
   out.calls = calls.slice();
   out.after = {};
   for (const s of ['Wasabi', 'gangs', 'Object Lock', 'Trinkgeldkasse', 'Tippfehler', 'Ransomware Wasabi', 'Lock', 'Datei']) out.after[s] = q(s);
-  // the time it takes (warm): the queries again
-  const t0 = process.hrtime.bigint();
-  for (let i = 0; i < 5; i++) for (const s of ['Wasabi', 'Object Lock', 'Datei', 'Tippfehler', 'zzzz']) O.search.find(s);
-  out.ms = Number(process.hrtime.bigint() - t0) / 1e6 / 25;
+  // the time it takes (warm): the queries again — the best of five rounds (a slow VM's GC pause is no slow search)
+  out.ms = Infinity;
+  for (let round = 0; round < 5; round++) {
+    const t0 = process.hrtime.bigint();
+    for (let i = 0; i < 5; i++) for (const s of ['Wasabi', 'Object Lock', 'Datei', 'Tippfehler', 'zzzz']) O.search.find(s);
+    out.ms = Math.min(out.ms, Number(process.hrtime.bigint() - t0) / 1e6 / 25);
+  }
 
   // the jump: the sentence of the guide (its <details> folded), Unraid's menu sticky (50 px) — then the page settles above it
   const realTimeout = setTimeout;
@@ -30233,6 +30601,7 @@ function testDrillShareFile(): void
     $photo = random_bytes(5000);
     file_put_contents("$snap/2019/Sommer/strand.jpg", $photo);
     file_put_contents("$live/2019/Sommer/strand.jpg", $photo);
+    touch("$snap/2019/Sommer/strand.jpg", 1793500000 - 86400);             // settled: a day before the snapshot (never the real clock)
     file_put_contents("$snap/2019/Sommer/tiny.txt", 'x');                   // under 1 KB: never chosen
     @symlink('/etc/passwd', "$snap/2019/Sommer/link.jpg");                  // a link: never chosen
     $ctx = ['fs' => ['maple' => 'zfs', 'oak' => 'zfs'], 'zfs' => [$live => 'maple/Familienfotos', "$tmp/mnt/maple" => 'maple'],
@@ -30291,6 +30660,40 @@ function testDrillShareFile(): void
     exec('rm -rf ' . escapeshellarg("$snap/2019"));
     same('drill share file: nothing small enough in the snapshot — not checked', ['not_checked', 'sharefile_none'],
         array_values(array_intersect_key(drillDoShareFile($j2, 0, $env), ['state' => 1, 'code' => 1])));
+
+    // only an ordinary, settled file: never Kopia's repository, cache or temp files, a database, a lock, a pid, a socket's
+    // stand-in, an empty file or one changed in the hour before the snapshot (2026-10-21: test3 took kopia.repository.f)
+    $pf = "$tmp/pick";
+    $old = 1793500000 - 7200;
+    $put = function (string $rel, int $bytes = 2048, ?int $time = null) use ($pf, $old): void {
+        @mkdir(dirname("$pf/$rel"), 0700, true);
+        file_put_contents("$pf/$rel", str_repeat('u', $bytes));
+        touch("$pf/$rel", $time ?? $old);
+    };
+    foreach (['kopia/kopia.repository.f', 'kopia/kopia.blobcfg.f', 'kopia/_log_20261020_abc.f', 'kopia/p0a/1b2/c3d4e5f6.f', 'kopia/q12/abcdef.f',
+              'repo/kopia.repository.f', 'repo/x/readme.txt', 'kopia_tmp/upload-1.tmp', 'stuff/KopiaCache/blob.bin', 'stuff/p0123abcd.f',
+              'mariadb/databases/ibdata1', 'mariadb/databases/ib_logfile0', 'mariadb/databases/app/table.ibd', 'mariadb/databases/notes.txt',
+              'pg/data/PG_VERSION', 'pg/data/base/16384/1259', 'mongo/WiredTiger.wt', 'mongo/WiredTigerHS.wt', 'mongo/collection-0.wt', 'mongo/mongod.lock',
+              'app/library.db', 'app/library.db-wal', 'app/library.db-shm', 'app/home.sqlite', 'app/home.sqlite3-journal', 'app/run/app.pid', 'app/run/app.lock',
+              'app/run/LOCK', 'app/run/app.sock', 'app/log/app.log'] as $rel) {
+        $put($rel);
+    }
+    $put('app/empty.txt', 0);
+    $put('app/fresh.txt', 2048, 1793500000 - 600);                          // changed ten minutes before the snapshot
+    $seen = [];
+    for ($n = 0; $n < 60; $n++) {
+        $seen[] = drillShareFilePickFile($pf, 1793500000)[0] ?? null;
+    }
+    same('drill share file: among Kopia\'s files, databases, locks, empty and fresh files only the settled log file is ever chosen',
+        ['app/log/app.log'], array_values(array_unique($seen)));
+    unlink("$pf/app/log/app.log");
+    same('drill share file: nothing ordinary left — none (the step says so, «not checked», the drill doesn\'t fail on it)', null,
+        drillShareFilePickFile($pf, 1793500000));
+    $words = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $words[] = str_contains((string) (json_decode((string) file_get_contents(OFFICE_WEB . "/desks/restore/lang/$code.json"), true)['drill.code.sharefile_none'] ?? ''), 'Kopia');
+    }
+    same('drill share file: «none» says what was left out, in all five languages', [true, true, true, true, true], $words);
     $env3 = $env;
     $env3['ctx']['snaps']['maple/Familienfotos'] = [['name' => 'uso-plan-x-20261031-0000', 'time' => 1793400000]];
     same('drill share file: only a plan\'s snapshot — not checked (the backup\'s is proven)', 'sharefile_no_snap', drillDoShareFile($j2, 0, $env3)['code']);
@@ -30346,6 +30749,104 @@ function testDrillSqliteAppIndex(): void
         check("drill sqlite app index: $l says it, with the index's name", str_contains((string) ($j['drill.code.sqlite_ok_app_index'] ?? ''), '{indexes}'));
     }
     exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * The throwaway's data where the image keeps it (its env DATADIR/PGDATA or the known place, on the volume that holds
+ * it) and its lean options where that server takes them — stand-ins for the images seen on owners' servers.
+ * 2026-10-21: linuxserver's MariaDB keeps its data under /config/databases; the drill gave /var/lib/mysql the big tmpfs
+ * and /config 64 MB, so InnoDB's first redo log (96 MiB) ran out of room (error 28) and the step failed «not ready».
+ */
+function testDrillImageData(): void
+{
+    $id = '20261101-041200-ab12';
+    $n = 0;
+    $look = function (string $image, array $cfg, string $type) use ($id, &$n): array {
+        $n++;
+        $m = ['containers' => [['name' => "db$n", 'image' => $image, 'image_id' => 'sha256:' . str_repeat(dechex($n % 16), 64), 'inspect' => ['Config' => $cfg]]]];
+        $c = drillContainerOf($m, "db$n");
+        $args = drillContainerArgs($c, $type, DRILL_PREFIX . "$id-$n", $id, 2 << 30, 'drill-own-pw');
+        $tmpfs = [];
+        foreach (array_keys($args, '--tmpfs', true) as $i) {
+            [$dir, $opt] = explode(':', $args[$i + 1], 2);
+            $tmpfs[$dir] = (int) preg_replace('/^rw,size=(\d+)m.*/', '$1', $opt);
+        }
+        $env = [];
+        foreach (array_keys($args, '-e', true) as $i) {
+            [$k, $v] = explode('=', $args[$i + 1], 2);
+            $env[$k] = $v;
+        }
+        return ['c' => $c, 'args' => $args, 'dir' => drillDataDir($type, $c), 'tmpfs' => $tmpfs, 'env' => $env,
+                'after' => array_slice($args, array_search($c['image_id'], $args, true) + 1), 'safe' => drillArgsSafe($args, $c, $type)];
+    };
+    $big = 2048 - intdiv(DRILL_SERVER_RAM, 1 << 20);
+    $lean = implode(' ', DRILL_LEAN['mariadb']);
+    $pgLean = array_merge(...array_map(fn ($o) => ['-c', $o], DRILL_LEAN['postgres']));
+
+    $lsio = $look('lscr.io/linuxserver/mariadb:latest', ['Entrypoint' => ['/init'], 'Cmd' => null, 'Volumes' => ['/config' => (object) []],
+        'Env' => ['PATH=/lsiopy/bin:/usr/bin', 'S6_CMD_WAIT_FOR_SERVICES_MAXTIME=0', 'MYSQL_DIR=/config', 'DATADIR=/config/databases', 'PUID=99', 'MYSQL_ROOT_PASSWORD=SECRET', 'CLI_OPTS=--init-file=/config/x.sql']], 'mariadb');
+    same('drill image data: linuxserver\'s MariaDB — its data under /config (DATADIR), the big tmpfs there and nowhere else', ['/config', ['/config' => $big]], [$lsio['dir'], $lsio['tmpfs']]);
+    same('drill image data: linuxserver\'s MariaDB — nothing after the image (s6\'s /init would run options as a program of its own)', [], $lsio['after']);
+    same('drill image data: linuxserver\'s MariaDB — the lean options through CLI_OPTS (its service passes them to the server), its DATADIR; no root password (its init keeps root@localhost without one), never the app\'s',
+        ['DATADIR' => '/config/databases', 'CLI_OPTS' => $lean], $lsio['env']);
+    $tmp = sys_get_temp_dir() . '/office-tests-drill-image-' . getmypid();
+    @mkdir($tmp, 0700, true);
+    file_put_contents("$tmp/mariadb", "#!/bin/sh\nfor a in \"\$@\"; do printf '[%s]' \"\$a\"; done\n");
+    chmod("$tmp/mariadb", 0700);
+    $ready = rsDbScript('ready', ['type' => 'mariadb', 'login' => 'root', 'user_var' => '', 'password_var' => 'MARIADB_ROOT_PASSWORD', 'tcp' => true]);
+    $said = fn (string $pw) => run(['env', "PATH=$tmp:/usr/bin:/bin", "MARIADB_ROOT_PASSWORD=$pw", 'sh', '-c', $ready], 10)[1];
+    same('drill image data: root without a password — no -p at all (an empty -p"" makes the client ask: without a terminal it crashes); with one — that one, as one word',
+        ['[-h127.0.0.1][--protocol=TCP][-uroot][-N][-B][-e][SELECT 1]', '[-h127.0.0.1][--protocol=TCP][-uroot][-pa b$c][-N][-B][-e][SELECT 1]'], [$said(''), $said('a b$c')]);
+    exec('rm -rf ' . escapeshellarg($tmp));
+    check('drill image data: linuxserver\'s MariaDB keeps to the gate', $lsio['safe'], implode(' ', $lsio['args']));
+    $swap = fn (array $args, string $from, string $to) => array_map(fn ($a) => $a === $from ? $to : $a, $args);
+    check('drill image data: the gate refuses other CLI_OPTS', !drillArgsSafe($swap($lsio['args'], "CLI_OPTS=$lean", "CLI_OPTS=$lean --init-file=/tmp/x.sql"), $lsio['c'], 'mariadb'));
+    check('drill image data: the gate refuses CLI_OPTS for an image that doesn\'t take them',
+        !drillArgsSafe([...array_slice($lsio['args'], 0, 4), '-e', "CLI_OPTS=$lean", ...array_slice($lsio['args'], 4)], ['entrypoint' => ['docker-entrypoint.sh']] + $lsio['c'], 'mariadb'));
+    check('drill image data: the gate refuses the lean options behind s6\'s /init', !drillArgsSafe([...$lsio['args'], ...DRILL_LEAN['mariadb']], $lsio['c'], 'mariadb'));
+
+    $off = $look('mariadb:11', ['Entrypoint' => ['docker-entrypoint.sh'], 'Cmd' => ['mariadbd'], 'Volumes' => ['/var/lib/mysql' => (object) []]], 'mariadb');
+    same('drill image data: MariaDB\'s official image — /var/lib/mysql, the lean options after its command, no CLI_OPTS',
+        ['/var/lib/mysql', ['/var/lib/mysql' => $big], ['mariadbd', ...DRILL_LEAN['mariadb']], false, true],
+        [$off['dir'], $off['tmpfs'], $off['after'], isset($off['env']['CLI_OPTS']), $off['safe']]);
+    $bit = $look('bitnami/mariadb:11.4', ['Entrypoint' => ['/opt/bitnami/scripts/mariadb/entrypoint.sh'], 'Cmd' => ['/opt/bitnami/scripts/mariadb/run.sh'],
+        'User' => '1001', 'Volumes' => ['/bitnami/mariadb' => (object) []]], 'mariadb');
+    same('drill image data: Bitnami\'s MariaDB — its volume /bitnami/mariadb (data/ inside), its own script, no options',
+        ['/bitnami/mariadb', ['/bitnami/mariadb' => $big], ['/opt/bitnami/scripts/mariadb/run.sh'], true], [$bit['dir'], $bit['tmpfs'], $bit['after'], $bit['safe']]);
+
+    $pg16 = $look('postgres:16', ['Entrypoint' => ['docker-entrypoint.sh'], 'Cmd' => ['postgres'], 'Env' => ['PGDATA=/var/lib/postgresql/data'], 'Volumes' => ['/var/lib/postgresql/data' => (object) []]], 'postgres');
+    same('drill image data: Postgres up to 17 — PGDATA, its volume', ['/var/lib/postgresql/data', ['/var/lib/postgresql/data' => $big], ['postgres', ...$pgLean], true],
+        [$pg16['dir'], $pg16['tmpfs'], $pg16['after'], $pg16['safe']]);
+    $pg18 = $look('postgres:18', ['Entrypoint' => ['docker-entrypoint.sh'], 'Cmd' => ['postgres'], 'Env' => ['PGDATA=/var/lib/postgresql/18/docker'], 'Volumes' => ['/var/lib/postgresql' => (object) []]], 'postgres');
+    same('drill image data: Postgres 18 — PGDATA inside the volume /var/lib/postgresql: the big tmpfs on the volume, no 64 MB one over it',
+        ['/var/lib/postgresql', ['/var/lib/postgresql' => $big], true], [$pg18['dir'], $pg18['tmpfs'], $pg18['safe']]);
+    $sub = $look('postgres:16', ['Entrypoint' => ['docker-entrypoint.sh'], 'Cmd' => ['postgres'], 'Env' => ['PGDATA=/var/lib/postgresql/data/pgdata'], 'Volumes' => ['/var/lib/postgresql/data' => (object) []]], 'postgres');
+    same('drill image data: PGDATA in a folder of the volume — the volume', ['/var/lib/postgresql/data', ['/var/lib/postgresql/data' => $big]], [$sub['dir'], $sub['tmpfs']]);
+    $bpg = $look('bitnami/postgresql:16', ['Entrypoint' => ['/opt/bitnami/scripts/postgresql/entrypoint.sh'], 'Cmd' => ['/opt/bitnami/scripts/postgresql/run.sh'], 'User' => '1001',
+        'Volumes' => ['/bitnami/postgresql' => (object) [], '/docker-entrypoint-initdb.d' => (object) [], '/docker-entrypoint-preinitdb.d' => (object) []]], 'postgres');
+    same('drill image data: Bitnami\'s PostgreSQL — /bitnami/postgresql big, its other volumes small',
+        ['/bitnami/postgresql', ['/bitnami/postgresql' => $big, '/docker-entrypoint-initdb.d' => 64, '/docker-entrypoint-preinitdb.d' => 64]], [$bpg['dir'], $bpg['tmpfs']]);
+    $mongo = $look('mongo:7', ['Entrypoint' => ['docker-entrypoint.sh'], 'Cmd' => ['mongod'], 'Volumes' => ['/data/configdb' => (object) [], '/data/db' => (object) []]], 'mongodb');
+    same('drill image data: MongoDB — /data/db big, /data/configdb small', ['/data/db', ['/data/db' => $big, '/data/configdb' => 64]], [$mongo['dir'], $mongo['tmpfs']]);
+    $bmo = $look('bitnami/mongodb:7', ['Entrypoint' => ['/opt/bitnami/scripts/mongodb/entrypoint.sh'], 'Cmd' => ['/opt/bitnami/scripts/mongodb/run.sh'], 'Volumes' => ['/bitnami/mongodb' => (object) []]], 'mongodb');
+    same('drill image data: Bitnami\'s MongoDB — /bitnami/mongodb', '/bitnami/mongodb', $bmo['dir']);
+    $odd = $look('example/mariadb', ['Entrypoint' => ['docker-entrypoint.sh'], 'Cmd' => ['mariadbd'], 'Env' => ['DATADIR=/config/../etc'], 'Volumes' => ['/data' => (object) []]], 'mariadb');
+    same('drill image data: a DATADIR with .. and one volume nobody knows — that volume is the data dir, the usual place big too, DATADIR not taken',
+        ['/data', ['/data' => $big, '/var/lib/mysql' => $big], false], [$odd['dir'], $odd['tmpfs'], isset($odd['env']['DATADIR'])]);
+    $two = $look('example/mariadb', ['Entrypoint' => ['docker-entrypoint.sh'], 'Cmd' => ['mariadbd'], 'Volumes' => ['/db' => (object) [], '/logs' => (object) []]], 'mariadb');
+    same('drill image data: several volumes nobody knows — the usual place the data dir, every volume big as well (--memory caps them together)',
+        ['/var/lib/mysql', ['/var/lib/mysql' => $big, '/db' => $big, '/logs' => $big], true], [$two['dir'], $two['tmpfs'], $two['safe']]);
+    $opt = $look('example/mariadb', ['Entrypoint' => ['docker-entrypoint.sh'], 'Cmd' => ['mariadbd', '--datadir=/db/mysql'], 'Volumes' => ['/db' => (object) [], '/logs' => (object) []]], 'mariadb');
+    same('drill image data: the server\'s own --datadir in the command — the volume that holds it big, the other small; the command kept',
+        ['/db', ['/db' => $big, '/logs' => 64], ['mariadbd', '--datadir=/db/mysql', ...DRILL_LEAN['mariadb']], true], [$opt['dir'], $opt['tmpfs'], $opt['after'], $opt['safe']]);
+    $pgD = $look('example/postgres', ['Entrypoint' => ['docker-entrypoint.sh'], 'Cmd' => ['postgres', '-D', '/srv/pg'], 'Env' => ['PGDATA=/var/lib/postgresql/data'], 'Volumes' => ['/srv' => (object) [], '/var/lib/postgresql/data' => (object) []]], 'postgres');
+    same('drill image data: Postgres\' -D in the command before PGDATA', ['/srv', ['/srv' => $big, '/var/lib/postgresql/data' => 64]], [$pgD['dir'], $pgD['tmpfs']]);
+    $mo1 = $look('example/mongo', ['Entrypoint' => ['/entry.sh'], 'Cmd' => ['mongod', '--dbpath', '/store/db'], 'Volumes' => ['/store' => (object) []]], 'mongodb');
+    $mo2 = $look('example/mongo', ['Entrypoint' => ['/entry.sh'], 'Cmd' => ['mongod'], 'Volumes' => ['/mongo-data' => (object) []]], 'mongodb');
+    same('drill image data: MongoDB — its --dbpath on its volume; an image with one volume nobody knows: that volume',
+        ['/store', ['/store' => $big], '/mongo-data', ['/mongo-data' => $big, '/data/db' => $big]], [$mo1['dir'], $mo1['tmpfs'], $mo2['dir'], $mo2['tmpfs']]);
+    $none = $look('example/postgres', ['Entrypoint' => ['docker-entrypoint.sh'], 'Cmd' => ['postgres']], 'postgres');
+    same('drill image data: no volume at all — the usual place', ['/var/lib/postgresql/data', ['/var/lib/postgresql/data' => $big]], [$none['dir'], $none['tmpfs']]);
 }
 
 function testRestoreDrill(): void
@@ -32332,7 +32833,7 @@ function testWatchmanHold(): void
     file_put_contents("$tmp/docker.cfg", "DOCKER_ENABLED=\"yes\"\nDOCKER_TIMEOUT=\"20\"\n");
     $paths = ['proc' => $proc, 'mounts' => "$tmp/mounts", 'sys_block' => "$tmp/sys", 'qemu_run' => "$tmp/qemu", 'var_ini' => "$tmp/var.ini",
               'domain_cfg' => "$tmp/domain.cfg", 'docker_cfg' => "$tmp/docker.cfg", 'docker' => "$tmp/docker", 'docker_sock' => "$tmp/docker.sock",
-              'mover_pid' => "$tmp/mover.pid"];
+              'mover_pid' => "$tmp/mover.pid", 'rsyslog_conf' => "$tmp/none.conf"];
     $sorted = function (array $list): array {
         sort($list);
         return $list;
@@ -32387,6 +32888,38 @@ function testWatchmanHold(): void
         $q = arrayholdLook($quiet, ['smb' => []]);
         same('array hold: all quiet — nothing holds it, no VMs, Docker isn\'t running (null, not «0 of 0»), 30 s to unmount fit into 90 s',
             [0, [], [], null, [], 30, true], [$q['count'], $q['holds'], $q['vms'], $q['containers'], $q['itself'], $q['times']['need'], $q['times']['fits']]);
+
+        // Unraid's local syslog server writing into a share: its event unmounting_disks/local_syslog_stop comments out
+        // «*.* ?remote» and restarts rsyslogd before the umount — it stops by itself (read on test4, 7.3.3, 2026-10-21);
+        // a file of its own elsewhere on the array (a hand-made rule) still holds it
+        $sys = $quiet;
+        $sys['proc'] = "$tmp/proc-syslog";
+        @mkdir("$tmp/proc-syslog", 0700);
+        exec('cp -a ' . escapeshellarg("$proc/1") . ' ' . escapeshellarg("$tmp/proc-syslog/1"));
+        $rs = "$tmp/proc-syslog/110";
+        @mkdir("$rs/fd", 0700, true);
+        @mkdir("$rs/ns", 0700);
+        file_put_contents("$rs/stat", "110 (rsyslogd) S 1 0 0 0 -1 0 0 0 0 0 0 0 0 20 0 1 0 0 0\n");
+        file_put_contents("$rs/cmdline", "/usr/sbin/rsyslogd\0-i\0/var/run/rsyslogd.pid\0");
+        file_put_contents("$rs/cgroup", "0::/\n");
+        symlink('mnt:[4026531840]', "$rs/ns/mnt");
+        foreach (['/var/log/syslog', '/mnt/cache/system/syslog-192.168.1.20.log', '/mnt/disk1/system/syslog-192.168.1.21.log', '/mnt/disk2/Logs/mine.log'] as $i => $target) {
+            symlink($target, "$rs/fd/" . ($i + 3));
+        }
+        $conf = "\$template remote,\"/mnt/user/system/syslog-%FROMHOST-IP%.log\"\n\$RuleSet remote\n\$FileOwner nobody\n";
+        file_put_contents("$tmp/rsyslog.conf", "$conf*.* ?remote\n\$InputUDPServerBindRuleset remote\n");
+        $sys['rsyslog_conf'] = "$tmp/rsyslog.conf";
+        $y = arrayholdLook($sys, ['smb' => []]);
+        same('array hold: Unraid\'s local syslog server stops by itself (its two files in its share on the pool and a disk); its own file elsewhere still holds',
+            [['syslog|-|2'], ['program|/mnt/disk2/Logs/mine.log'], 1],
+            [array_map(fn (array $x): string => implode('|', [$x['kind'], $x['desk'] ?? $x['machine'] ?? '-', $x['files']]), $y['itself']),
+             array_map(fn (array $h): string => $h['kind'] . '|' . implode(' ', $h['files']), $y['holds']), $y['count']]);
+        file_put_contents("$tmp/rsyslog.conf", "$conf#*.* ?remote\n");
+        $y = arrayholdLook($sys, ['smb' => []]);
+        same('array hold: the local syslog server switched off (the rule commented out) — rsyslogd with files there holds it', [[], 1, 3],
+            [$y['itself'], count($y['holds']), count($y['holds'][0]['files'] ?? [])]);
+        check('array hold: his page names Unraid\'s local syslog server among what stops by itself',
+            str_contains((string) file_get_contents(OFFICE_WEB . '/desks/watchman/desk.js'), "else if (x.kind === 'syslog') name = T('hold.syslog');"));
 
         // one process with more open files than a look reads: looked in part
         for ($i = 0; $i <= LOGS_WAKE_FDS; $i++) {
@@ -35214,7 +35747,7 @@ function testBackupOneMinute(): void
     }
     foreach (['backup' => []] as $what => $args) {          // 2.45: only a real backup - a tour's or dry run's log carries the second
         $p = proc_open(array_merge(['bash', OFFICE_DIR . '/backup/backup.sh'], $args), [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
-            ['UB_DATA' => $eng, 'UB_NO_NOTIFY' => '1', 'PATH' => "$tmp/bin:" . getenv('PATH'), 'OFFICE_RUN_DIR' => TESTS_RUN_DIR]);
+            ['UB_DATA' => $eng, 'UB_NO_NOTIFY' => '1', 'PATH' => "$tmp/bin:" . getenv('PATH'), 'TZ' => getenv('TZ'), 'OFFICE_RUN_DIR' => TESTS_RUN_DIR]);
         $out = (string) stream_get_contents($pipes[1]);
         $err = (string) stream_get_contents($pipes[2]);
         $rc = proc_close($p);
@@ -35238,7 +35771,7 @@ function testBackupOneMinute(): void
     chmod("$tmp/bin/zfs", 0755);
     $engine = function () use ($eng, $tmp, $mnt): array {
         $p = proc_open(['bash', OFFICE_DIR . '/backup/backup.sh'], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
-            ['UB_DATA' => $eng, 'UB_NO_NOTIFY' => '1', 'PATH' => "$tmp/bin:" . getenv('PATH'), 'OFFICE_RUN_DIR' => TESTS_RUN_DIR,
+            ['UB_DATA' => $eng, 'UB_NO_NOTIFY' => '1', 'PATH' => "$tmp/bin:" . getenv('PATH'), 'TZ' => getenv('TZ'), 'OFFICE_RUN_DIR' => TESTS_RUN_DIR,
              'UB_MNT' => $mnt, 'UB_MOUNTS_FILE' => "$tmp/mounts", 'UB_DISKS_INI' => "$tmp/disks.ini"]);
         stream_get_contents($pipes[1]);
         $err = (string) stream_get_contents($pipes[2]);
@@ -35537,7 +36070,7 @@ function testReport(): void
             'passwd' => "$tmp/passwd", 'partner_dir' => "$tmp/partner", 'jack_settings' => "$tmp/emby.json", 'supporter' => "$tmp/supporter.json",
             'report_id_file' => "$tmp/office/report-id", 'hostname' => 'homeserver', 'reports' => "$tmp/office/reports.json", 'run_dir' => "$tmp/run",
             'hired' => ['caretaker', 'snapshot', 'backup'], 'unraid_version' => "$tmp/unraid-version", 'log' => "$tmp/agent.log",
-            'url' => ''];       // no inbox: «Your reports» asks nobody where they stand here (testReportStatus does)
+            'url' => '', 'inbox_file' => "$tmp/run-inbox.json"];       // no inbox: «Your reports» asks nobody where they stand here (testReportStatus does)
     file_put_contents("$tmp/unraid-version", "version=\"7.3.2\"\n");
 
     // the report ID: of its own, kept, never the tip page's server ID
@@ -35550,21 +36083,21 @@ function testReport(): void
 
     // the scrubber
     $know = reportKnow($ctx);
-    same('report: shares and pools numbered by their names (Unraid\'s own shares kept)', [['Backups' => '‹share-1›', 'Fotos Familie' => '‹share-2›', 'Media' => '‹share-3›'], ['cache' => '‹pool-1›', 'hazel' => '‹pool-2›']],
+    same('report: shares and pools numbered by their names (Unraid\'s own shares kept)', [['Backups' => '‹share-1›', 'Fotos Familie' => '‹share-2›', 'Media' => '‹share-3›'], ['hazel' => '‹pool-1›']],
         [$know['shares'], $know['pools']]);
     $lines = [
         'moved /mnt/user/Media/My Film (2020)/My Film.mkv: done' => 'moved /mnt/user/‹share-3›/…: done',
-        'copied to /mnt/hazel/Media/My Film (2020)/My Film.mkv' => 'copied to /mnt/‹pool-2›/‹share-3›/…',
+        'copied to /mnt/hazel/Media/My Film (2020)/My Film.mkv' => 'copied to /mnt/‹pool-1›/‹share-3›/…',
         'reads /mnt/user/appdata/UnraidSecretaryOffice/data/x.json' => 'reads /mnt/user/appdata/…',
-        'reads "/mnt/disk1/Fotos Familie/2024/a.jpg", "/mnt/cache/Backups"' => 'reads "/mnt/disk1/‹share-2›/…", "/mnt/‹pool-1›/‹share-1›"',
+        'reads "/mnt/disk1/Fotos Familie/2024/a.jpg", "/mnt/cache/Backups"' => 'reads "/mnt/disk1/‹share-2›/…", "/mnt/cache/‹share-1›"',
         'at 10.0.0.5. Then 192.168.20.59:8096/x, [fe80::1] and fd00::1234:5678; not 17:02:11' => 'at …. Then …:8096/x, […] and …; not 17:02:11',
-        'created hazel/Media@uso-backup-20261008-0300, cache/Backups/sub@manual' => 'created ‹pool-2›/‹share-3›@uso-backup-20261008-0300, ‹pool-1›/‹share-1›/…@…',
+        'created hazel/Media@uso-backup-20261008-0300, cache/Backups/sub@manual' => 'created ‹pool-1›/‹share-3›@uso-backup-20261008-0300, cache/‹share-1›/…@…',
         'Tower (tower.lan) answered from 192.168.20.59 and fd00::1234:5678 via 3c:7c:3f:12:34:56' => '‹partner-1› (‹partner-2›) answered from … and … via 3c:7c:3f:…',
         'mail benj@example.com from homeserver, user benj' => 'mail ‹mail› from ‹server›, user ‹user-1›',
         'token ghp_0123456789abcdefABCDEF0123456789abcd and api_key=hunter2' => 'token … and api_key=…',
         'GET https://admin:hunter2@nas.example.org:8443/api?key=x and https://github.com/dropnook/x' => 'GET https://‹host›/… and https://github.com/…',
         "key abcdef01\x0123456789abcdef in a line, csrf 0123456789ABCDEF, GUID $guid" => 'key ••• in a line, csrf •••, GUID •••',
-        'the share Media is missing; Backups too; pool hazel asleep' => 'the share ‹share-3› is missing; ‹share-1› too; pool ‹pool-2› asleep',
+        'the share Media is missing; Backups too; pool hazel asleep' => 'the share ‹share-3› is missing; ‹share-1› too; pool ‹pool-1› asleep',
         'backup.sh ran on HomeServer, ' . $sshKey => 'backup.sh ran on ‹server›, •••',
         'cleared /boot/config/plugins/dynamix.my.servers/x.cfg: ok' => 'cleared /boot/config/plugins/dynamix.my.servers/…: ok',
         'cleared /tmp/secret/stuff: ok' => 'cleared <path>: ok',
@@ -35585,7 +36118,7 @@ function testReport(): void
     }
     $seen = [];
     reportScrub('the share Media on hazel', $know, $seen);
-    same('report: what was hidden, for the preview only', ['‹pool-2›' => 'hazel', '‹share-3›' => 'Media'], (ksort($seen) ? $seen : $seen));
+    same('report: what was hidden, for the preview only', ['‹pool-1›' => 'hazel', '‹share-3›' => 'Media'], (ksort($seen) ? $seen : $seen));
     same('report: a line is cut at 400 characters', 400, mb_strlen(reportScrub(str_repeat('word ', 200), $know)));
     same('report: Ms. Protocolli\'s comparing keeps its <path>', 'moved <path> to "<path>"', logsNormalizePaths('moved /mnt/user/Media/a.mkv to "/x/y z.mkv"'));
 
@@ -35646,10 +36179,10 @@ function testReport(): void
     same('report: the preview\'s parts', ['versions', 'unraid', 'language', 'team', 'error', 'log'], array_keys($pv['parts']));
     same('report: … versions, Unraid, languages, the team', [['office' => AGENT_VERSION], '7.3.2', ['lang' => 'de', 'browser' => 'de'], ['backup', 'caretaker', 'snapshot']],
         [$pv['parts']['versions'], $pv['parts']['unraid'], $pv['parts']['language'], $pv['parts']['team']]);
-    same('report: … the last error, its params scrubbed', ['key' => 'command_failed', 'params' => ['detail' => 'zfs: /mnt/‹pool-2›/‹share-3› busy'], 'at' => 1760000000], $pv['parts']['error']);
-    check('report: … the log of her desk, scrubbed', str_contains($pv['parts']['log'], 'Ms. Snapshotini: created ‹pool-2›/‹share-3›@…') && !str_contains($pv['parts']['log'], 'Backup:'), $pv['parts']['log']);
+    same('report: … the last error, its params scrubbed', ['key' => 'command_failed', 'params' => ['detail' => 'zfs: /mnt/‹pool-1›/‹share-3› busy'], 'at' => 1760000000], $pv['parts']['error']);
+    check('report: … the log of her desk, scrubbed', str_contains($pv['parts']['log'], 'Ms. Snapshotini: created ‹pool-1›/‹share-3›@…') && !str_contains($pv['parts']['log'], 'Backup:'), $pv['parts']['log']);
     same('report: … ticked by default (a problem: the log too)', ['versions', 'unraid', 'language', 'team', 'error', 'log'], $pv['ticked']);
-    same('report: … what was hidden, and a hint at the address in the text', [['‹pool-2›' => 'hazel', '‹share-3›' => 'Media'], ['address']], [(array) $pv['hidden'], $pv['hints']]);
+    same('report: … what was hidden, and a hint at the address in the text', [['‹pool-1›' => 'hazel', '‹share-3›' => 'Media'], ['address']], [(array) $pv['hidden'], $pv['hints']]);
     same('report: … the cap', [0, REPORT_CAP_DAY, REPORT_CAP_DAY, null, false], [$pv['n'], $pv['left'], $pv['cap'], $pv['next'], $pv['closed']]);
     $kept = "$tmp/run/{$pv['token']}.json";
     same('report: … kept in RAM under its token, 0600', [true, '600', '700'], [is_file($kept), decoct(fileperms($kept) & 0777), decoct(fileperms("$tmp/run") & 0777)]);
@@ -35778,11 +36311,13 @@ ROUTER);
     // every answer the Worker may give: the office's key, the preview kept (the text too: the page keeps it)
     foreach ([[502, ['ok' => false, 'error' => 'github', 'key' => 'report_failed'], 'report_failed'], [400, ['ok' => false, 'error' => 'refused', 'key' => 'report_refused', 'why' => 'bad', 'field' => 'desk'], 'report_refused'],
               [429, ['ok' => false, 'error' => 'busy', 'key' => 'report_busy', 'retry_after' => 600], 'report_busy'], [429, ['ok' => false, 'error' => 'week', 'key' => 'report_week', 'next' => '2025-10-16T09:00:00Z', 'retry_after' => 9000], 'report_day'],
-              [500, ['oops'], 'report_failed']] as [$code, $b, $key]) {
+              [500, ['oops'], 'report_failed'], [503, ['ok' => false, 'error' => 'inbox', 'problem' => 'inbox_archived'], 'report_inbox'],
+              [503, ['ok' => false, 'error' => 'inbox', 'key' => 'report_inbox', 'problem' => 'inbox_no_issues'], 'report_inbox']] as [$code, $b, $key]) {
         $answer($code, $b);
         $r = $send($pv2, ['versions'], $t0 + 20);
         same("report: the Worker says HTTP $code " . json_encode($b) . " — $key, the preview stays for another try", [$key, true], [$r['key'] ?? 'ok', is_file("$tmp/run/{$pv2['token']}.json")]);
     }
+    same('report: the inbox took nothing — kept in RAM for the dialog and the Team Lead', ['inbox', $t0 + 20], [reportInboxRead($ctx)['state'] ?? null, reportInboxRead($ctx)['checked'] ?? null]);
     same('report: no answer at all — report_offline', 'report_offline', $refused(fn () => reportSend(['token' => $pv2['token'], 'parts' => ['versions']] + $words,
         ['now' => $t0 + 20, 'url' => 'http://127.0.0.1:' . ($port === 40000 ? 39999 : $port + 1)] + $sctx)));
 
@@ -35818,6 +36353,7 @@ ROUTER);
     $pv3 = reportPreview(['kind' => 'wish'] + $ask, $ctx + ['now' => $t0 + 50]);
     $r = $send($pv3, [], $t0 + 60, ['kind' => 'wish']);
     same('report: the 25th today — sent, none left', [true, 42, 0], [$r['ok'], $r['number'] ?? null, $r['left'] ?? null]);
+    same('report: … the inbox took it: open again', ['open', $t0 + 60], [reportInboxRead($ctx)['state'] ?? null, reportInboxRead($ctx)['checked'] ?? null]);
     $body = json_decode(json_decode((string) @file_get_contents("$tmp/request-{$count()}.json"), true)['body'] ?? '', true) ?? [];
     same('report: … nothing ticked — only the words and the ID', [['v', 'rid', 'report_id', 'kind', 'desk', 'title', 'text', 'name', 'facts', 'parts'], [], []],
         [array_keys($body), $body['facts'] ?? null, $body['parts'] ?? null]);
@@ -35856,7 +36392,7 @@ ROUTER);
     same('report: the agent answers office.reports', true, handle(json_encode(['action' => 'office.reports']))['ok'] ?? null);
     same('report: … and nothing else of office.*', 'unknown_action', handle(json_encode(['action' => 'office.nonsense']))['error']['key'] ?? null);
     $api = (string) file_get_contents(OFFICE_DIR . '/src/api.php');
-    check('report: api.php hands office.report_* to the agent', str_contains($api, "const OFFICE_AGENT_ACTIONS = ['office.report_preview', 'office.report_send', 'office.report_diag', 'office.reports', 'office.supporter_claim'];")
+    check('report: api.php hands office.report_* to the agent', str_contains($api, "const OFFICE_AGENT_ACTIONS = ['office.report_preview', 'office.report_send', 'office.report_diag', 'office.reports', 'office.report_inbox', 'office.supporter_claim'];")
         && str_contains($api, '$office = in_array($action, OFFICE_AGENT_ACTIONS, true);'));
     hardeningRm($tmp);
 }
@@ -35894,8 +36430,8 @@ function testReportDiagnostics(): void
     $ask = $words + ['lang' => 'de'];
     $now = 1760000100;
     $refused = function (callable $f): string { try { $f(); return 'ok'; } catch (Problem $p) { return $p->key . (isset($p->params['n']) ? ":{$p->params['n']}" : ''); } };
-    // Unraid's tool as it ends: the zip, its copy in /boot/logs, the exit code
-    $finish = function (array $launch, array $files, int $exit = 0) use ($tmp): void {
+    // Unraid's tool as it ends: the zip, its copy in /boot/logs; then (it made one) the office's pass; the exit code
+    $finish = function (array $launch, array $files, int $exit = 0) use ($tmp, &$ctx): void {
         [, $zip, $done] = $launch;
         $z = new ZipArchive();
         $z->open($zip, ZipArchive::CREATE);
@@ -35904,6 +36440,9 @@ function testReportDiagnostics(): void
         }
         $z->close();
         copy($zip, "$tmp/bootlogs/" . basename($zip));
+        if ($exit === 0) {
+            reportDiagScrubJob(dirname($zip), $ctx);
+        }
         file_put_contents($done, "$exit\n");
     };
     $name = 'uso-diagnostics-' . date('Ymd-Hi', $now);
@@ -35940,9 +36479,9 @@ function testReportDiagnostics(): void
         [$refused(fn () => reportDiagAnswer(['token' => '../x'], $ctx)), $refused(fn () => reportDiagAnswer(['token' => $tok, 'drop' => 'yes'], $ctx))]);
     $finish($launched[0], $files);
     $a = reportDiagAnswer(['token' => $tok], $ctx + ['now' => $now + 9]);
-    same('report diagnostics: ready — its size, the files (sorted), no hash for the page; Unraid\'s copy in /boot/logs gone',
-        [true, 'ready', filesize("$d/$name.zip"), 3, ["$name/config/ident.cfg", "$name/logs/syslog.txt", "$name/system/vars.txt"], false, []],
-        [$a['ok'], $a['state'], $a['bytes'] ?? null, $a['count'] ?? null, $a['files'] ?? null, isset($a['sha256']), glob("$tmp/bootlogs/*") ?: []]);
+    same('report diagnostics: ready — the office\'s clean zip: its size, the files (sorted), no hash for the page; Unraid\'s zip and its copy in /boot/logs gone',
+        [true, 'ready', filesize("$d/$name.clean.zip"), 3, ["$name/config/ident.cfg", "$name/logs/syslog.txt", "$name/system/vars.txt"], false, []],
+        [$a['ok'], $a['state'], $a['bytes'] ?? null, $a['count'] ?? null, $a['files'] ?? null, isset($a['sha256']), array_merge(glob("$tmp/bootlogs/*") ?: [], glob("$d/$name.zip") ?: [])]);
 
     // the send: the report first, then the zip
     $port = 0;
@@ -35977,7 +36516,7 @@ ROUTER);
     $sctx = ['url' => "http://127.0.0.1:$port"] + $ctx;
     $req = fn (int $n): array => json_decode((string) @file_get_contents("$tmp/request-$n.json"), true) ?? [];
     $count = fn (): int => (int) @file_get_contents("$tmp/count");
-    $zip = (string) file_get_contents("$d/$name.zip");
+    $zip = (string) file_get_contents("$d/$name.clean.zip");
     $r = reportSend(['token' => $tok, 'parts' => ['versions', 'diagnostics']] + $words, ['now' => $now + 20] + $sctx);
     $report = $req(1);
     $body = json_decode(base64_decode($report['body'] ?? ''), true) ?? [];
@@ -35985,7 +36524,7 @@ ROUTER);
     same('report diagnostics: sent — the report first (nothing of the zip in it), then the zip; `diagnostics: sent`',
         [true, 71, 'sent', 2, '/api/report', false, ['versions'], '/api/diag'],
         [$r['ok'] ?? false, $r['number'] ?? null, $r['diagnostics'] ?? null, $count(), $report['uri'] ?? null, isset($body['diagnostics']) || str_contains(base64_decode($report['body'] ?? ''), "PK\x03\x04"), $body['parts'] ?? null, $up['uri'] ?? null]);
-    same('report diagnostics: … the zip raw, as previewed; the report ID and the rid as headers (the report\'s own)', ['application/zip', true, $body['report_id'] ?? 'x', $body['rid'] ?? 'x', true],
+    same('report diagnostics: … the clean zip raw, as previewed; the report ID and the rid as headers (the report\'s own)', ['application/zip', true, $body['report_id'] ?? 'x', $body['rid'] ?? 'x', true],
         [$up['type'] ?? null, base64_decode($up['body'] ?? '') === $zip, $up['office'] ?? null, $up['rid'] ?? null, str_starts_with($up['ua'] ?? '', 'UnraidSecretaryOffice/')]);
     same('report diagnostics: … gone from RAM after, the curl config too; logged', [false, [], 'Office: sent a report (#71, bug, office, diagnostics)'],
         [is_dir($d), glob("$tmp/run/*.curl") ?: [], $logged[0] ?? null]);
@@ -36021,8 +36560,8 @@ ROUTER);
     $p = reportPreview(['diagnostics' => true] + $ask, $ctx + ['now' => $now + 50]);
     $finish($launched[0], ["$name/logs/syslog.txt" => random_bytes(REPORT_DIAG_MAX + 1024)]);
     $a = reportDiagAnswer(['token' => $p['token']], $ctx + ['now' => $now + 51]);
-    same('report diagnostics: more than 10 MB — too_big with its size, the zip deleted at once', ['too_big', true, REPORT_DIAG_MAX, false],
-        [$a['state'], ($a['bytes'] ?? 0) > REPORT_DIAG_MAX, $a['max'] ?? null, is_file($launched[0][1])]);
+    same('report diagnostics: more than 10 MB — too_big with its size (not looked at), the zip deleted at once', ['too_big', true, REPORT_DIAG_MAX, false, []],
+        [$a['state'], ($a['bytes'] ?? 0) > REPORT_DIAG_MAX, $a['max'] ?? null, is_file($launched[0][1]), glob(dirname($launched[0][1]) . '/*.zip') ?: []]);
     same('report diagnostics: … a send with it ticked — report_stale', 'report_stale', $refused(fn () => reportSend(['token' => $p['token'], 'parts' => ['diagnostics']] + $words, ['now' => $now + 52] + $ctx)));
     $launched = [];
     $p = reportPreview(['diagnostics' => true] + $ask, $ctx + ['now' => $now + 60]);
@@ -36037,7 +36576,7 @@ ROUTER);
     $p = reportPreview(['diagnostics' => true] + $ask, $ctx + ['now' => $now + 80]);
     $finish($launched[0], $files);
     reportDiagAnswer(['token' => $p['token']], $ctx + ['now' => $now + 81]);
-    file_put_contents($launched[0][1], 'swapped');
+    file_put_contents(substr($launched[0][1], 0, -4) . '.clean.zip', 'swapped');
     same('report diagnostics: the zip changed after the preview — report_stale, gone', ['report_stale', false],
         [$refused(fn () => reportSend(['token' => $p['token'], 'parts' => ['diagnostics']] + $words, ['now' => $now + 82] + $ctx)), is_dir("$tmp/run/{$p['token']}.diag")]);
 
@@ -36050,7 +36589,7 @@ ROUTER);
     file_put_contents("$tmp/root/$nm/half.txt", 'x');
     file_put_contents("$tmp/bootlogs/$nm.zip", 'x');
     $a = reportDiagAnswer(['token' => $p['token'], 'drop' => true], $ctx);
-    same('report diagnostics: dropped while running — stopped by its zip\'s path, the half-made folder and any copy gone', [true, 'gone', [$launched[0][1]], false, [], false],
+    same('report diagnostics: dropped while running — stopped by its folder (Unraid\'s tool and the office\'s pass), the half-made folder and any copy gone', [true, 'gone', [dirname($launched[0][1])], false, [], false],
         [$a['ok'], $a['state'], $stopped, is_dir("$tmp/root/$nm"), glob("$tmp/bootlogs/*") ?: [], is_dir("$tmp/run/{$p['token']}.diag")]);
     // tidy: a run no preview can send any more
     $launched = [];
@@ -36066,9 +36605,10 @@ ROUTER);
          $w(429, ['ok' => false, 'error' => 'busy', 'why' => 'diagnostics']), $w(403, ['ok' => false, 'error' => 'closed']), $w(400, ['ok' => false, 'error' => 'refused', 'why' => 'bad']),
          $w(502, ['ok' => false, 'error' => 'github']), $w(200, ['ok' => true], 7)]);
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/lib/report.php');
-    check('report diagnostics: Unraid\'s own tool, anonymized — never with -a or --all; through atd',
+    check('report diagnostics: Unraid\'s own tool, anonymized — never with -a or --all; through atd, the office\'s pass after it in the same job',
         REPORT_DIAG_BIN === '/usr/local/sbin/diagnostics' && !preg_match("/'-a'|'--all'/", $src)
-        && str_contains($src, "hostLaunch('report-diagnostics', ['/bin/sh', '-c', '\"\$0\" \"\$1\"; echo \$? >\"\$2.tmp\" && mv \"\$2.tmp\" \"\$2\"', \$bin, \$zip, \$done]);"));
+        && str_contains($src, "hostLaunch('report-diagnostics', ['/bin/sh', '-c', '\"\$0\" \"\$1\"; e=\$?; [ \"\$e\" = 0 ] && nice -n 10 \"\$3\" \"\$4\" job report-diag-scrub \"\$5\"; echo \"\$e\" >\"\$2.tmp\" && mv \"\$2.tmp\" \"\$2\"',")
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/agent.php'), "=== 'report-diag-scrub') {\n                return reportDiagScrubJob("));
     check('report diagnostics: the agent answers office.report_diag, api.php hands it over', isset(officeAgentActions()['report_diag'])
         && str_contains((string) file_get_contents(OFFICE_DIR . '/src/api.php'), "'office.report_diag'"));
     $en = json_decode((string) file_get_contents(OFFICE_WEB . '/lang/en.json'), true) ?: [];
@@ -36077,6 +36617,204 @@ ROUTER);
         'office.report_diag_too_big', 'office.report_diag_failed', 'office.report_diag_sent', 'office.report_diag_not_sent.off', 'office.report_diag_not_sent.busy',
         'office.report_diag_not_sent.failed'], fn ($k) => !isset($en[$k])));
     same('report diagnostics: every key the agent and the dialog give exists', [], $missing);
+    hardeningRm($tmp);
+}
+
+/**
+ * The scrubber's names, 2026-10-21 (a report showed a pool's further devices «hive2», «hive3» next to ‹pool-1›): a
+ * pool's slots → ‹pool-N›-2 …, Unraid's default pool «cache» (and cache2) kept, a share only shares.ini knows, shares
+ * with a number at the end, the server's domains (Unraid Connect's, Tailscale's, a certificate's, the local TLD) →
+ * ‹domain-N›, the server's name before a dot (tower.local), the Unraid Connect account, Unassigned Devices' names.
+ * Every name invented.
+ */
+function testReportSlots(): void
+{
+    $tmp = hardeningTmp('reportslots');
+    foreach (['shares', 'pools'] as $d) {
+        @mkdir("$tmp/$d", 0700);
+    }
+    file_put_contents("$tmp/var.ini", "regGUID=\"0781-5583-3311-A1B2C3D4E5F6\"\n");
+    file_put_contents("$tmp/ident.cfg", "NAME=\"Larkspur\"\nLOCAL_TLD=\"quillfeather-home.org\"\n");
+    foreach (['Familienfilme', 'Urlaub', 'Urlaub2', 'appdata'] as $sh) {
+        touch("$tmp/shares/$sh.cfg");
+    }
+    file_put_contents("$tmp/shares.ini", "[\"Familienserien\"]\nname=\"Familienserien\"\n[\"Urlaub\"]\nname=\"Urlaub\"\n");
+    foreach (['hive', 'cache'] as $pl) {
+        touch("$tmp/pools/$pl.cfg");
+    }
+    file_put_contents("$tmp/passwd", "root:x:0:0::/root:/bin/bash\nottilie:x:1000:100::/:/bin/false\n");
+    file_put_contents("$tmp/myservers.cfg", "[remote]\nusername=\"ottilie_k\"\nemail=\"ottilie@quillfeather-home.org\"\n");
+    file_put_contents("$tmp/nginx.ini", "NGINX_LANFQDN=\"192-168-1-20.0123456789abcdef0123456789abcdef01234567.myunraid.net\"\nNGINX_TAILSCALEFQDN=\"larkspur.tail1a2b3.ts.net\"\n"
+        . "NGINX_CERTNAME=\"*.0123456789abcdef0123456789abcdef01234567.myunraid.net\"\nNGINX_LANMDNS=\"Larkspur.local\"\nNGINX_DEFAULTURL=\"https://nas.quillfeather-home.org\"\n");
+    $ctx = ['var_ini' => "$tmp/var.ini", 'ident' => "$tmp/ident.cfg", 'shares_dir' => "$tmp/shares", 'shares_ini' => "$tmp/shares.ini", 'pools_dir' => "$tmp/pools",
+            'mounts' => ['/mnt/disk1', '/mnt/user', '/mnt/hive', '/mnt/cache', '/mnt/disks/Sammelplatte', '/mnt/remotes/NAS2_Filme'], 'passwd' => "$tmp/passwd",
+            'connect' => "$tmp/myservers.cfg", 'nginx_ini' => "$tmp/nginx.ini", 'partner_dir' => "$tmp/none", 'jack_settings' => "$tmp/none.json",
+            'supporter' => "$tmp/none.json", 'report_id_file' => "$tmp/report-id", 'hostname' => 'larkspur'];
+    $know = reportKnow($ctx);
+    same('report slots: shares (shares.ini too, a number at the end), pools («cache» kept), domains, numbered by their names',
+        [['Familienfilme' => '‹share-1›', 'Familienserien' => '‹share-2›', 'Urlaub' => '‹share-3›', 'Urlaub2' => '‹share-4›'], ['hive' => '‹pool-1›'],
+         ['0123456789abcdef0123456789abcdef01234567.myunraid.net' => '‹domain-1›', 'quillfeather-home.org' => '‹domain-2›', 'tail1a2b3.ts.net' => '‹domain-3›']],
+        [$know['shares'], $know['pools'], $know['domains']]);
+    $lines = [
+        'pool hive: devices hive2 (sdc) and hive3, hive12 joined; cache2 is fine' => 'pool ‹pool-1›: devices ‹pool-1›-2 (sdc) and ‹pool-1›-3, ‹pool-1›-12 joined; cache2 is fine',
+        'shares Urlaub and Urlaub2, Familienserien on /mnt/hive2' => 'shares ‹share-3› and ‹share-4›, ‹share-2› on /mnt/‹pool›',
+        'Larkspur.local answered, so did larkspur.tail1a2b3.ts.net and www.quillfeather-home.org.' => '‹server›.local answered, so did ‹domain-3› and ‹domain-2›.',
+        'Host name conflict, retrying with Larkspur-2; larkspur-backup stays' => 'Host name conflict, retrying with ‹server›-2; larkspur-backup stays',
+        'address 192-168-1-20.0123456789abcdef0123456789abcdef01234567.myunraid.net works' => 'address ‹domain-1› works',
+        'mounted Sammelplatte and NAS2_Filme' => 'mounted ‹device-2› and ‹device-1›',
+        'users ottilie and ottilie_k' => 'users ‹user-1› and ‹user-2›',
+        'the cache pool on /mnt/cache/Urlaub' => 'the cache pool on /mnt/cache/‹share-3›',
+    ];
+    $leaks = ['hive', 'Urlaub', 'Familien', 'Larkspur', 'larkspur.', 'quillfeather', 'tail1a2b3', '0123456789abcdef', 'Sammelplatte', 'NAS2', 'ottilie'];
+    foreach ($lines as $line => $want) {
+        $got = reportScrub($line, $know);
+        same('report slots: scrubbed — ' . mb_substr($line, 0, 50), $want, $got);
+        foreach ($leaks as $l) {
+            check("report slots: «{$l}» doesn't survive in «" . mb_substr($line, 0, 40) . '»', !str_contains($got, $l), $got);
+        }
+        same('report slots: scrubbing twice is once — ' . mb_substr($line, 0, 40), $got, reportScrub($got, $know));
+    }
+    $seen = [];
+    reportScrub('hive2 and hive on larkspur.tail1a2b3.ts.net', $know, $seen);
+    ksort($seen);
+    same('report slots: what was hidden — the device as Unraid names it, the domain (the server\'s name in it with it)', ['‹domain-3›' => 'tail1a2b3.ts.net', '‹pool-1›' => 'hive', '‹pool-1›-2' => 'hive2'], $seen);
+    same('report slots: a host\'s owner — local names and the makers\' hosts never', ['example.co.uk', 'abc.myunraid.net', null, null, null, null, null, 'quillfeather-home.org'],
+        [reportDomainBase('nas.example.co.uk'), reportDomainBase('*.abc.myunraid.net'), reportDomainBase('tower.local'), reportDomainBase('fritz.box'),
+         reportDomainBase('github.com'), reportDomainBase('192.168.1.2'), reportDomainBase('local'), reportDomainBase('Quillfeather-Home.org.')]);
+    hardeningRm($tmp);
+}
+
+/**
+ * The office's own pass over Unraid's diagnostics (2026-10-21, reportDiagScrub(); a report showed share names in the
+ * syslog and df, the owner's domain, user names): a zip made here with invented names, as Unraid's tool leaves it; the
+ * job makes the clean zip, deletes Unraid's; names, slots, domains, users, /mnt paths, public addresses hidden in every
+ * text file and file name, Unraid's share masks (F-----------e) back to their placeholders; the home network's
+ * addresses and the serials kept; a binary file as it is; the state's size, sha256 and hidden list of the clean zip;
+ * a pass that fails (not a zip, over its time, none at all) — failed {why: scrub}, nothing of it ever sent.
+ */
+function testReportDiagScrub(): void
+{
+    $tmp = hardeningTmp('reportdiagscrub');
+    foreach (['shares', 'pools', 'run', 'bootlogs'] as $d) {
+        @mkdir("$tmp/$d", 0700);
+    }
+    $guid = '0781-5583-3311-A1B2C3D4E5F6';
+    file_put_contents("$tmp/var.ini", "regGUID=\"$guid\"\n");
+    file_put_contents("$tmp/ident.cfg", "NAME=\"Larkspur\"\nLOCAL_TLD=\"quillfeather-home.org\"\n");
+    foreach (['Familienfilme', 'Urlaub', 'Urlaub2', 'appdata', 'UnraidSecretaryOffice'] as $sh) {
+        touch("$tmp/shares/$sh.cfg");
+    }
+    foreach (['hive', 'cache'] as $pl) {
+        touch("$tmp/pools/$pl.cfg");
+    }
+    file_put_contents("$tmp/passwd", "root:x:0:0::/root:/bin/bash\nottilie:x:1000:100::/:/bin/false\n");
+    $logged = [];
+    $ctx = ['var_ini' => "$tmp/var.ini", 'ident' => "$tmp/ident.cfg", 'shares_dir' => "$tmp/shares", 'pools_dir' => "$tmp/pools",
+            'mounts' => ['/mnt/disk1', '/mnt/user', '/mnt/hive', '/mnt/disks/Sammelplatte'], 'passwd' => "$tmp/passwd", 'partner_dir' => "$tmp/none",
+            'jack_settings' => "$tmp/none.json", 'supporter' => "$tmp/none.json", 'report_id_file' => "$tmp/report-id", 'hostname' => 'larkspur',
+            'run_dir' => "$tmp/run", 'boot_logs' => "$tmp/bootlogs", 'log_lines' => function (string $l) use (&$logged): void { $logged[] = $l; }];
+    $now = 1761040800;
+    $name = 'uso-diagnostics-' . date('Ymd-Hi', $now);
+    $binary = "\x00\x01Larkspur\x00hive2\x00Familienfilme";
+    $files = [
+        "$name/logs/syslog.txt" => "Oct 21 12:00:01 Larkspur emhttpd: mounting /mnt/hive/Familienfilme/Sommer am See 2019/Tag 1.mkv\n"
+            . "Oct 21 12:00:02 Larkspur kernel: BTRFS: device fsid 9e1c devid 2 /dev/sdc1 scanned (hive2), write cache: enabled\n"
+            . "Oct 21 12:00:03 Larkspur shfs: share Urlaub2 made by ottilie, mail ottilie@quillfeather-home.org\n"
+            . "Oct 21 12:00:04 Larkspur nginx: cert for nas.quillfeather-home.org, client 203.0.113.7, lan 192.168.1.20 and fd12::5, regGUID $guid\n",
+        "$name/system/df.txt" => "Filesystem  Size  Used Avail Use% Mounted on\nhive  48G  1G  47G  2% /mnt/hive\nhive/Urlaub  48G  1G  47G  2% /mnt/hive/Urlaub\n"
+            . "shfs  600G  6G  594G  1% /mnt/user\n/dev/sdd1  4T  1T  3T  25% /mnt/disks/Sammelplatte\n",
+        "$name/system/vars.txt" => "    [NAME] => Larkspur\n    [LOCAL_TLD] => quillfeather-home.org\n",
+        "$name/shares/F-----------e.cfg" => "# Share exists on hive2\nshareUseCache=\"yes\"\n",
+        "$name/shares/U-------------------e.cfg" => "shareUseCache=\"only\"\n",
+        "$name/shares/shareDisks.txt" => "F-----------e   shareUseCache=\"yes\"   # Share exists on hive, disk1\nU-----2   shareUseCache=\"no\"   # Share exists on disk1\n",
+        "$name/smart/WDC_WD40EFRX-68N32N0_WD-WCC7K0AAAAAA-20261021-1200 hive2 (sdc).txt" => "Device Model: WDC WD40EFRX-68N32N0\nSerial Number: WD-WCC7K0AAAAAA\n",
+        "$name/config/super.dat" => $binary,
+    ];
+    $made = function (string $tok, array $files) use ($tmp, $name, $now): string {
+        $d = "$tmp/run/$tok.diag";
+        @mkdir($d, 0700);
+        file_put_contents("$d/run.json", json_encode(['started' => $now, 'name' => $name, 'wake' => false]));
+        $z = new ZipArchive();
+        $z->open("$d/$name.zip", ZipArchive::CREATE);
+        foreach ($files as $n => $text) {
+            str_ends_with($n, '/') ? $z->addEmptyDir(rtrim($n, '/')) : $z->addFromString($n, $text);
+        }
+        $z->close();
+        return $d;
+    };
+    $read = function (string $zip): array {
+        $z = new ZipArchive();
+        $out = [];
+        if ($z->open($zip, ZipArchive::RDONLY) === true) {
+            for ($i = 0; $i < $z->numFiles; $i++) {
+                $out[(string) $z->getNameIndex($i)] = (string) $z->getFromIndex($i);
+            }
+            $z->close();
+        }
+        return $out;
+    };
+
+    $tok = str_repeat('a', 32);
+    $d = $made($tok, $files + ["$name/qemu/" => '']);
+    same('report diagnostics pass: the job — 0, the clean zip made (0600), Unraid\'s gone, scrub.json ok', [0, true, '600', false, 'ok'],
+        [reportDiagScrubJob($d, $ctx), is_file("$d/$name.clean.zip"), decoct(@fileperms("$d/$name.clean.zip") & 0777), file_exists("$d/$name.zip"), (readJson("$d/scrub.json") ?? [])['state'] ?? null]);
+    $clean = $read("$d/$name.clean.zip");
+    $text = $clean;
+    unset($text["$name/config/super.dat"]);
+    $all = implode("\n", array_keys($clean)) . "\n" . implode("\n", $text);
+    foreach (['Larkspur', 'larkspur', 'hive', 'Familienfilme', 'Sommer am See', 'Tag 1', 'Urlaub', 'ottilie', 'quillfeather', '203.0.113.7', $guid, 'Sammelplatte', 'F-----------e', 'U-----2'] as $l) {
+        check("report diagnostics pass: «{$l}» survives nowhere (text files and names)", !str_contains($all, $l));
+    }
+    foreach (['192.168.1.20', 'fd12::5', 'WD-WCC7K0AAAAAA', 'write cache: enabled', '/mnt/user', '/dev/sdc1', 'UnraidSecretaryOffice.cfg'] as $k) {
+        check("report diagnostics pass: «{$k}» kept (the home network, serials, the rest)", str_contains($all, $k));
+    }
+    same('report diagnostics pass: the files\' names — masks to placeholders, the device\'s slot, the office\'s folder in front', [
+        "$name/config/super.dat", "$name/logs/syslog.txt", "$name/qemu/", "$name/shares/UnraidSecretaryOffice.cfg", "$name/shares/shareDisks.txt", "$name/shares/‹share-1›.cfg",
+        "$name/smart/WDC_WD40EFRX-68N32N0_WD-WCC7K0AAAAAA-20261021-1200 ‹pool-1›-2 (sdc).txt", "$name/system/df.txt", "$name/system/vars.txt"],
+        (function (array $k): array { sort($k, SORT_STRING); return $k; })(array_keys($clean)));
+    same('report diagnostics pass: the syslog line by line — the layout kept, below a share nothing', [
+        'Oct 21 12:00:01 ‹server› emhttpd: mounting /mnt/‹pool-1›/‹share-1›/…',
+        'Oct 21 12:00:02 ‹server› kernel: BTRFS: device fsid 9e1c devid 2 /dev/sdc1 scanned (‹pool-1›-2), write cache: enabled',
+        'Oct 21 12:00:03 ‹server› shfs: share ‹share-3› made by ‹user-1›, mail ‹mail›',
+        'Oct 21 12:00:04 ‹server› nginx: cert for ‹domain-1›, client …, lan 192.168.1.20 and fd12::5, regGUID •••', ''],
+        explode("\n", $clean["$name/logs/syslog.txt"] ?? ''));
+    same('report diagnostics pass: df and Unraid\'s share list', [
+        "Filesystem  Size  Used Avail Use% Mounted on\n‹pool-1›  48G  1G  47G  2% /mnt/‹pool-1›\n‹pool-1›/‹share-2›  48G  1G  47G  2% /mnt/‹pool-1›/‹share-2›\n"
+            . "shfs  600G  6G  594G  1% /mnt/user\n/dev/sdd1  4T  1T  3T  25% /mnt/disks/…\n",
+        "‹share-1›   shareUseCache=\"yes\"   # Share exists on ‹pool-1›, disk1\n‹share-3›   shareUseCache=\"no\"   # Share exists on disk1\n"],
+        [$clean["$name/system/df.txt"] ?? null, $clean["$name/shares/shareDisks.txt"] ?? null]);
+    same('report diagnostics pass: a binary file as it was', $binary, $clean["$name/config/super.dat"] ?? null);
+    file_put_contents("$d/done", "0\n");
+    $st = reportDiagState($d, $now + 5, $ctx);
+    same('report diagnostics pass: ready — the clean zip\'s size and sha256, the hidden list (only for the page)', ['ready', filesize("$d/$name.clean.zip"), hash_file('sha256', "$d/$name.clean.zip"), [
+        '‹domain-1›' => 'quillfeather-home.org', '‹pool-1›' => 'hive', '‹pool-1›-2' => 'hive2', '‹server›' => 'Larkspur', '‹share-1›' => 'Familienfilme', '‹share-2›' => 'Urlaub',
+        '‹share-3›' => 'Urlaub2', '‹user-1›' => 'ottilie']],
+        [$st['state'], $st['bytes'] ?? null, $st['sha256'] ?? null, (function (array $h): array { ksort($h, SORT_STRING); return $h; })((array) ($st['hidden'] ?? []))]);
+    $a = reportDiagAnswer(['token' => $tok], $ctx + ['now' => $now + 6]);
+    same('report diagnostics pass: … office.report_diag gives the page the hidden list, never the hash', [true, 8, false], [isset($a['hidden']), count((array) ($a['hidden'] ?? [])), isset($a['sha256'])]);
+
+    // the failures: never Unraid's zip in place of the clean one
+    $tok = str_repeat('b', 32);
+    $d = $made($tok, []);
+    file_put_contents("$d/$name.zip", 'not a zip at all');
+    same('report diagnostics pass: not a zip — the job says 1, failed, nothing clean, Unraid\'s gone, logged', [1, 'failed', [], true],
+        [reportDiagScrubJob($d, $ctx), (readJson("$d/scrub.json") ?? [])['state'] ?? null, glob("$d/*.zip") ?: [], str_starts_with($logged[0] ?? '', 'Office: the diagnostics for a report could not be cleaned')]);
+    file_put_contents("$d/done", "0\n");
+    same('report diagnostics pass: … the state failed {why: scrub}', ['failed', 'scrub'], array_values(array_intersect_key(reportDiagState($d, $now + 5, $ctx), ['state' => 1, 'why' => 1])));
+    $tok = str_repeat('c', 32);
+    $d = $made($tok, $files);
+    same('report diagnostics pass: over its time — failed, nothing clean', [1, []], [reportDiagScrubJob($d, ['scrub_time' => -1] + $ctx), glob("$d/*.zip") ?: []]);
+    $tok = str_repeat('e', 32);
+    $d = $made($tok, $files);
+    file_put_contents("$d/done", "0\n");            // an older agent's run: Unraid's zip, no pass
+    same('report diagnostics pass: no pass at all — failed {why: scrub}, Unraid\'s zip deleted, never sent', ['failed', 'scrub', []],
+        [($s = reportDiagState($d, $now + 5, $ctx))['state'], $s['why'] ?? null, glob("$d/*.zip") ?: []]);
+    same('report diagnostics pass: a folder not of a preview\'s shape — 2, nothing done', [2, 2], [reportDiagScrubJob("$tmp/run", $ctx), reportDiagScrubJob("$tmp/bootlogs/" . str_repeat('f', 32) . '.diag', $ctx)]);
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/lang/en.json'), true) ?: [];
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    check('report diagnostics pass: the dialog says what was hidden, that it is cleaning, and when it couldn\'t',
+        isset($en['office.report_diag_cleaning'], $en['office.report_diag_scrub_failed']) && str_contains($core, "d.why === 'scrub' ? 'office.report_diag_scrub_failed'")
+        && str_contains($core, "d.phase === 'cleaning' ? 'office.report_diag_cleaning'") && str_contains($core, 'const hidden = Object.entries(d.hidden || {});'));
     hardeningRm($tmp);
 }
 
@@ -36128,7 +36866,7 @@ const button = (label) => one((n) => n.tag === 'button' && n.textContent === lab
     'office.reports': { ok: true, reports: [], n: 0, left: 25, cap: 25, next: null, closed: false },
     'office.report_preview': previewAnswer,
     'office.report_diag': (b) => (b.drop ? { ok: true, state: 'gone' } : diagState === 'running' ? { ok: true, state: 'running' }
-      : { ok: true, state: 'ready', bytes: 104316, count: 3, files: ['d/config/ident.cfg', 'd/logs/syslog.txt'] }),
+      : { ok: true, state: 'ready', bytes: 104316, count: 3, files: ['d/config/ident.cfg', 'd/logs/syslog.txt'], hidden: { '‹pool-1›-2': 'hive2' } }),
     'office.report_send': { ok: true, number: 41, url: '', left: 24, n: 1, cap: 25, next: null, diagnostics: 'off' },
   };
   const fill = () => {
@@ -36164,7 +36902,8 @@ const button = (label) => one((n) => n.tag === 'button' && n.textContent === lab
   await sleep(2300);
   out.ready = { polled: posts.filter((p) => p.a === 'office.report_diag').map((p) => p.token), sendOn: !send.disabled, rowOn: part().checked && !part().disabled,
     size: text(one((n) => n.className === 'sso-report-diag-shown')).includes('office.report_diag_ready'),
-    files: text(one((n) => n.className === 'sso-report-diag-files')).includes('d/logs/syslog.txt') };
+    files: text(one((n) => n.className === 'sso-report-diag-files')).includes('d/logs/syslog.txt'),
+    hidden: walk(one((n) => n.className === 'sso-report-diag-shown'), (n) => n.className === 'sso-report-hidden').map(text) };
   posts.length = 0;
   await send.onclick();
   await sleep(10);
@@ -36204,8 +36943,8 @@ JS);
         [$r['asleep']['asked'], $r['asleep']['wakeShown'], $r['asleep']['row'], $r['asleep']['sendOff']]);
     same('report dialog diagnostics: with «wake» — asked so; the wave, its part ticked but off, «Send» off; nothing of it in the draft', [[[true, true]], true, true, true, true, ['kind', 'desk', 'title', 'text']],
         [$r['running']['asked'], $r['running']['sendOff'], $r['running']['wave'], $r['running']['rowDisabled'], $r['running']['rowTicked'], array_keys($r['running']['draft'])]);
-    same('report dialog diagnostics: asked again until ready — then size, files, its part on, «Send» on', [true, true, true, true, true],
-        [in_array($d, $r['ready']['polled'], true), $r['ready']['rowOn'], $r['ready']['sendOn'], $r['ready']['size'], $r['ready']['files']]);
+    same('report dialog diagnostics: asked again until ready — then size, files, what the office hid in them, its part on, «Send» on', [true, true, true, true, true, ['office.report_hidden']],
+        [in_array($d, $r['ready']['polled'], true), $r['ready']['rowOn'], $r['ready']['sendOn'], $r['ready']['size'], $r['ready']['files'], $r['ready']['hidden']]);
     same('report dialog diagnostics: «Send» names the part; the inbox didn\'t take them — said; nothing dropped after a send', [['versions', 'diagnostics'], ['office.report_diag_not_sent.off'], 0, 0],
         [$r['sent']['parts'], $r['sent']['said'], $r['sent']['drops'], $r['sentDrops']]);
     same('report dialog diagnostics: a new dialog — not ticked, nothing remembered', [false, false, 0], [$r['again']['ticked'], $r['again']['wakeShown'], $r['again']['stored']]);
@@ -36353,6 +37092,114 @@ ROUTER);
 }
 
 /**
+ * Does the makers' inbox take reports? (agent/lib/report.php reportInboxLook(), 2026-10-21: the inbox was archived,
+ * every report «failed», the Worker's health said ok, nobody knew.) One GET <inbox>/api/health — nothing of this server
+ * but the User-Agent — kept in RAM; the dialog asks at most every 10 minutes; the Worker's answer in the office's words
+ * (an older Worker's too); no inbox: nothing asked. Only the makers need to know: no Team Lead finding.
+ */
+function testReportInbox(): void
+{
+    $tmp = hardeningTmp('report-inbox');
+    $guid = '0781-5583-3311-A1B2C3D4E5F6';
+    $port = 0;
+    for ($i = 0; $i < 20 && !$port; $i++) {
+        $try = random_int(20000, 40000);
+        $s = @stream_socket_server("tcp://127.0.0.1:$try");
+        if ($s) {
+            fclose($s);
+            $port = $try;
+        }
+    }
+    file_put_contents("$tmp/router.php", <<<'ROUTER'
+<?php
+$dir = __DIR__;
+$n = (int) @file_get_contents("$dir/count") + 1;
+file_put_contents("$dir/count", (string) $n);
+file_put_contents("$dir/request-$n.json", json_encode(['uri' => $_SERVER['REQUEST_URI'], 'method' => $_SERVER['REQUEST_METHOD'],
+    'headers' => array_change_key_case(getallheaders()), 'body' => file_get_contents('php://input')]));
+[$code, $body] = json_decode((string) file_get_contents("$dir/answer.json"), true);
+http_response_code($code);
+header('Content-Type: application/json');
+echo is_string($body) ? $body : json_encode($body);
+ROUTER);
+    $answer = fn (int $code, mixed $body) => file_put_contents("$tmp/answer.json", json_encode([$code, $body]));
+    $server = proc_open([PHP_BINARY, '-d', 'auto_prepend_file=', '-S', "127.0.0.1:$port", "$tmp/router.php"], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, $tmp);
+    for ($i = 0; $i < 50 && !@fsockopen('127.0.0.1', $port); $i++) {
+        usleep(100000);
+    }
+    $ctx = ['url' => "http://127.0.0.1:$port", 'inbox_file' => "$tmp/inbox.json"];
+    $count = fn (): int => (int) @file_get_contents("$tmp/count");
+    $req = fn (int $n): array => json_decode((string) @file_get_contents("$tmp/request-$n.json"), true) ?? [];
+    $health = fn (bool $open, ?string $by = null, array $problems = []): array => ['ok' => !$problems, 'open' => $open, 'closed_by' => $by, 'inbox' => 'dropnook/uso-inbox',
+        'today' => 3, 'caps' => [], 'diagnostics' => true, 'token_expires' => null, 'problems' => $problems];
+    $t0 = 1760000100;
+
+    // the Worker's answer in the office's words
+    $as = fn (int $code, mixed $body, int $exit = 0): string => reportInboxAnswer($exit, (is_string($body) ? $body : json_encode($body)) . "\n$code");
+    same('report inbox: open; archived, issues off, the token shut out (closed_by inbox, or only named under problems); a setting it can\'t work without',
+        ['open', 'inbox', 'inbox', 'inbox', 'inbox', 'inbox'],
+        [$as(200, $health(true)), $as(503, $health(false, 'inbox', ['inbox_archived'])), $as(503, $health(false, 'var', ['inbox_no_issues'])),
+         $as(503, $health(true, null, ['inbox_token_denied'])), $as(503, $health(true, null, ['GITHUB_TOKEN', 'ID_SALT'])), $as(503, $health(false, 'inbox', []))]);
+    same('report inbox: … closed by GitHub\'s limit — github; by hand or the burst rule — closed; a token about to expire or a bad cap — still open',
+        ['github', 'closed', 'closed', 'closed', 'open', 'open'],
+        [$as(200, $health(false, 'github')), $as(200, $health(false, 'var')), $as(200, $health(false, 'switch')), $as(200, $health(false, 'burst')),
+         $as(503, $health(true, null, ['GITHUB_TOKEN_EXPIRES'])), $as(503, $health(true, null, ['CAP_DAY']))]);
+    same('report inbox: … an older Worker (no inbox look): its open; no answer, a 429, a 404, not its shape — unknown',
+        ['open', 'unknown', 'unknown', 'unknown', 'unknown', 'unknown', 'unknown'],
+        [$as(200, ['ok' => true, 'open' => true, 'closed_by' => null, 'problems' => []]), $as(0, '', 7), $as(429, ['ok' => false, 'error' => 'busy']), $as(404, ['ok' => false, 'error' => 'not_found']),
+         $as(200, 'not json'), $as(200, ['ok' => true, 'open' => 'yes']), $as(200, ['ok' => true, 'closed_by' => 'inbox'])]);
+
+    // the look: one GET /api/health, nothing of this server, kept in RAM (0600)
+    $answer(503, $health(false, 'inbox', ['inbox_archived']));
+    $look = reportInboxLook(REPORT_INBOX_FRESH, ['now' => $t0] + $ctx);
+    $q = $req(1);
+    same('report inbox: archived — one GET /api/health, no body', [['state' => 'inbox', 'checked' => $t0], 1, 'GET', '/api/health', ''],
+        [$look, $count(), $q['method'] ?? null, $q['uri'] ?? null, $q['body'] ?? null]);
+    same('report inbox: … only the office\'s User-Agent and Accept: no report ID, no X-Office', ['UnraidSecretaryOffice/' . AGENT_VERSION, 'application/json', false],
+        [$q['headers']['user-agent'] ?? null, $q['headers']['accept'] ?? null, isset($q['headers']['x-office'])]);
+    check('report inbox: … nothing of the GUID or the report ID in the request', !stripos(json_encode($q), $guid) && !str_contains(json_encode($q), hash('sha256', 'uso-report:' . $guid)));
+    same('report inbox: … kept in RAM: its shape, 0600', [['v', 'state', 'checked'], 'inbox', '600'],
+        [array_keys(json_decode((string) @file_get_contents("$tmp/inbox.json"), true) ?? []), reportInboxRead($ctx)['state'] ?? null, decoct(@fileperms("$tmp/inbox.json") & 0777)]);
+    // the dialog: at most every 10 minutes
+    $answer(200, $health(true));
+    same('report inbox: the dialog within 10 minutes — the last look, nobody asked', ['inbox', 1], [reportInboxLook(REPORT_INBOX_FRESH, ['now' => $t0 + 599] + $ctx)['state'] ?? null, $count()]);
+    same('report inbox: … after them — asked anew: open again', ['open', 2], [reportInboxLook(REPORT_INBOX_FRESH, ['now' => $t0 + 601] + $ctx)['state'] ?? null, $count()]);
+    reportInboxLook(REPORT_INBOX_FRESH, ['now' => $t0 - 1000] + $ctx);
+    same('report inbox: … a look from the future (a clock set back) is asked anew', 3, $count());
+
+    // no answer (no network): unknown
+    proc_terminate($server);
+    proc_close($server);
+    @unlink("$tmp/inbox.json");
+    same('report inbox: no answer at all — unknown, kept (asked again after 10 minutes)', ['unknown', 'unknown'],
+        [reportInboxLook(REPORT_INBOX_FRESH, ['now' => $t0] + $ctx)['state'] ?? null, reportInboxRead($ctx)['state'] ?? null]);
+
+    // no inbox at all: nothing asked, nothing kept
+    @unlink("$tmp/inbox.json");
+    same('report inbox: no inbox (FEEDBACK_URL empty) — null, nothing kept', [null, false], [reportInboxLook(REPORT_INBOX_FRESH, ['now' => $t0, 'url' => ''] + $ctx), is_file("$tmp/inbox.json")]);
+    // a file of another shape, a link: never looked at
+    file_put_contents("$tmp/inbox.json", json_encode(['v' => 1, 'state' => 'constructor', 'checked' => $t0]));
+    same('report inbox: a kept look of another shape — none', null, reportInboxRead($ctx));
+    @unlink("$tmp/inbox.json");
+    file_put_contents("$tmp/other.json", json_encode(['v' => 1, 'state' => 'inbox', 'checked' => $t0]));
+    symlink("$tmp/other.json", "$tmp/inbox.json");
+    same('report inbox: … a link — none', null, reportInboxRead($ctx));
+
+    // the dialog's action, the web side hands it over
+    check('report inbox: the agent answers office.report_inbox', isset(officeAgentActions()['report_inbox']));
+    $api = (string) file_get_contents(OFFICE_DIR . '/src/api.php');
+    check('report inbox: … api.php hands it to the agent', str_contains($api, "'office.reports', 'office.report_inbox', 'office.supporter_claim'];"));
+
+    $ct = (string) file_get_contents(OFFICE_DIR . '/agent/desks/caretaker.php');
+    check('report inbox: only the makers need to know — no finding, no look of the Team Lead\'s (the owner, 2026-10-21)', !str_contains($ct, 'reportInbox'));
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/lib/report.php');
+    check('report inbox: https only (http only by FEEDBACK_URL), 5 s, no report ID', REPORT_INBOX_TIMEOUT === 5
+        && preg_match('/function reportInboxAsk\(.*?\n\}/s', $src, $m) && str_contains($m[0], "str_starts_with(\$base, 'http://') ? '=http' : '=https'")
+        && !str_contains($m[0], 'reportId(') && !str_contains($m[0], 'X-Office'));
+    hardeningRm($tmp);
+}
+
+/**
  * «Report a problem or a wish…» on the page (core.js Office.reportDialog()) under node, on a stand-in page: it opens
  * with the desk shown, asks only for «Your reports», «Send» stays off until the preview was looked at; the preview
  * request carries the words, the languages and the desk's last error; a word changed takes the preview (and «Send")
@@ -36422,7 +37269,8 @@ const button = (label) => one((n) => n.tag === 'button' && n.textContent === lab
 (async () => {
   await sleep(30);
   O.strings = { 'office.report_sent': 'Sent. Thank you!', 'office.report_hidden': 'Hidden: {list}', 'errors.report_day': { one: '{n} in 24 hours; next from {when}.', other: '{n} in 24 hours; next from {when}.' },
-    'office.report_status.received': 'Received', 'office.report_status.seen': 'Looked at', 'office.report_status.done': 'Done', 'office.report_public': 'Issue #{number}' };
+    'office.report_status.received': 'Received', 'office.report_status.seen': 'Looked at', 'office.report_status.done': 'Done', 'office.report_public': 'Issue #{number}',
+    'errors.report_inbox': 'The makers\' inbox isn\'t taking anything right now.' };
   O.agent = { running: true };
   O.desk({ id: 'snapshot' });
   O.desk({ id: 'caretaker' });
@@ -36501,6 +37349,28 @@ const button = (label) => one((n) => n.tag === 'button' && n.textContent === lab
   await sleep(10);
   out.reopened = walk(body(), (n) => n.tag === 'input' && n.className === 'input')[0].value;
   dlg3.close();
+  // the makers' inbox takes nothing (2026-10-21: archived): said on opening, before anyone writes — «Send» not barred by it
+  const capOf = () => one((n) => typeof n.className === 'string' && n.className.startsWith('sso-report-cap'));
+  out.inbox = {};
+  for (const st of ['inbox', 'github', 'closed', 'open', 'constructor']) {
+    answers['office.report_inbox'] = { ok: true, inbox: st };
+    posts.length = 0;
+    const d = O.reportDialog();
+    await sleep(20);
+    const c = capOf();
+    out.inbox[st] = { asked: posts.map((p) => p.a).sort(), text: c.hidden ? null : c.textContent, warn: c.className.includes('callout warn') };
+    d.close();
+  }
+  // a send the inbox refused: its own sentence, and the note from then on; «Send» stays for a later try
+  answers['office.report_inbox'] = { ok: true, inbox: 'open' };
+  answers['office.report_send'] = { ok: false, error: { key: 'report_inbox', params: {} } };
+  const d4 = O.reportDialog();
+  await sleep(20);
+  await button('office.report_preview').onclick();
+  await d4.buttons[1].onclick();
+  await sleep(10);
+  out.inbox.refused = { msg: text(one((n) => n.className === 'callout warn' && !n.hidden) || {}), note: capOf().textContent, sendOff: d4.buttons[1].disabled };
+  d4.close();
   // written whole before the exit: to a pipe, process.exit() right after console.log() cuts the output at 64 KiB
   process.stdout.write(JSON.stringify(out) + '\n', () => process.exit(0));
 })().catch((e) => { process.stdout.write(JSON.stringify({ error: String(e && e.stack || e) }) + '\n', () => process.exit(1)); });
@@ -36513,7 +37383,7 @@ JS);
         return;
     }
     $o = $r['opened'];
-    same('report dialog: opens wide with the desk shown, asks only for «Your reports», «Send» off', ['office.report_title', 'snapshot', ['office', 'caretaker', 'snapshot'], true, ['office.reports'], true],
+    same('report dialog: opens wide with the desk shown, asks only for «Your reports» and whether the inbox takes them, «Send» off', ['office.report_title', 'snapshot', ['office', 'caretaker', 'snapshot'], true, ['office.report_inbox', 'office.reports'], true],
         [$o['title'], $o['desk'], $o['deskOptions'], $o['sendOff'], $o['asked'], str_contains($o['wide'], 'wide') && str_contains($o['wide'], 'sso-report-dialog')]);
     same('report dialog: … the GitHub issues for account holders (no forum yet), «Your reports» without the private inbox\'s numbers', [['https://github.com/dropnook/UnraidSecretaryOffice/issues'], true], [$o['issues'], $o['yours']]);
     $pub14 = 'https://github.com/dropnook/UnraidSecretaryOffice/issues/14';
@@ -36544,6 +37414,15 @@ JS);
     check('report dialog: report_day says its time, «Send» stays off; no desk given and no draft: the office as a whole', str_starts_with($r['week']['msg'], '25 in 24 hours; next from ') && !str_contains($r['week']['msg'], '{when}')
         && $r['week']['sendOff'] === true && $r['week']['desk'] === 'office', json_encode($r['week']));
     same('report dialog: closed without sending — the draft stays and comes back', ['Another', 'Another'], [$r['keptDraft'], $r['reopened']]);
+    $in = $r['inbox'] ?? [];
+    $asked = ['office.report_inbox', 'office.reports'];
+    same('report dialog: the inbox takes nothing (archived …) — said on opening, before anyone writes, a quiet line', ['asked' => $asked, 'text' => 'office.report_inbox_note', 'warn' => false], $in['inbox'] ?? null);
+    same('report dialog: … closed (by hand, the burst rule, GitHub\'s limit) — «closed for now»', [['asked' => $asked, 'text' => 'office.report_closed_note', 'warn' => true], ['asked' => $asked, 'text' => 'office.report_closed_note', 'warn' => true]],
+        [$in['github'] ?? null, $in['closed'] ?? null]);
+    same('report dialog: … open, or a word it doesn\'t know — only the day\'s reports left', [['asked' => $asked, 'text' => 'office.report_left', 'warn' => false], ['asked' => $asked, 'text' => 'office.report_left', 'warn' => false]],
+        [$in['open'] ?? null, $in['constructor'] ?? null]);
+    same('report dialog: a send the inbox refused — its own sentence (not «had a problem»), the note from then on, «Send» stays for later', ["The makers' inbox isn't taking anything right now.", 'office.report_inbox_note', false],
+        [$in['refused']['msg'] ?? null, $in['refused']['note'] ?? null, $in['refused']['sendOff'] ?? null]);
     $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
     check('report dialog: the ⋯ menu\'s item, only with an inbox, about the desk shown',
         str_contains($core, "if (CONFIG.report) items.push({ text: t('office.report_menu'), act: () => Office.reportDialog(Office.current ? Office.current.id : 'office') });"));
@@ -39061,12 +39940,12 @@ function testMoverelliUnraid(): void
     // the lab, 2026-10-16: the deadlock — his real run with her is the joint night run, which waited for a list only that run
     // makes. Jack writes his empty list once he is set up (his look, his save) — whichever was hired first, her real runs go
     $set = ['instances' => [['url' => 'http://x']], 'cache_budget' => '100G'];
-    same('jack list: not set up — no list written', [false, false], [jackListEnsure(null, "$tmp/emby"), is_file($list)]);
-    same('jack list: set up — his empty list written (root\'s, 0600), her real run goes; once', [true, '', '600', 'ok', null, false],
+    same('jack list: not set up — no list written', [null, false], [jackListEnsure(null, "$tmp/emby"), is_file($list)]);
+    same('jack list: set up — his empty list written (root\'s, 0600), her real run goes; once', ['written', '', '600', 'ok', null, null],
         [jackListEnsure($set, "$tmp/emby"), (string) @file_get_contents($list), substr(sprintf('%o', fileperms($list)), -3), $why('run'), moverelliJackListPending($h),
          jackListEnsure($set, "$tmp/emby")]);
     file_put_contents($list, "/mnt/cache/Filme/A/a.mkv\n");
-    same('jack list: a list there is never touched', [false, "/mnt/cache/Filme/A/a.mkv\n"], [jackListEnsure($set, "$tmp/emby"), file_get_contents($list)]);
+    same('jack list: a list there is never touched', [null, "/mnt/cache/Filme/A/a.mkv\n"], [jackListEnsure($set, "$tmp/emby"), file_get_contents($list)]);
     unlink($list);
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
     check('jack list: his look and his save write it (Jack hired before or after Ms. Moverelli)',
@@ -42171,6 +43050,11 @@ SH);
         [@file_get_contents("$c/plain/file end "), sprintf('%o', @fileperms("$c/plain/file end ") & 0777), @filemtime("$c/plain/file end "),
          @file_get_contents("$c/plain/tab\t"), @file_get_contents("$c/plain/foo "), @file_get_contents("$c/plain/foo"),
          file_exists("$d1/plain/file end "), file_exists("$d1/plain/foo "), file_exists("$d1/plain/foo"), file_exists("$c/plain/file end .partial")]);
+    // batch H9: every file left has its reason code — her page says why (busy.jpg: the binary said nothing; «dup », «held »:
+    // the script's own copy to the pool didn't go; «note »: to the array, never handed to the binary)
+    same('trailing space: the reason codes — Pics busy 1, copy 2; Docs ws 1 (they add up to `left`); no future files',
+        [['copy' => 2, 'busy' => 1], ['ws' => 1], 0],
+        [$share($st, 'Pics')['left_codes'] ?? null, $share($st, 'Docs')['left_codes'] ?? null, $share($st, 'Docs')['future'] ?? null]);
     same('trailing space: a file whose copy is on the pool already stays on the disk, the pool\'s untouched, named in a WARN',
         ['new', 'there', true], [@file_get_contents("$d1/dup "), @file_get_contents("$c/dup "), str_contains($log, "left: $d1/dup  – already at the destination")]);
     same('trailing space: a file in use stays where it is, named in a WARN, nothing of it on the pool',
@@ -42223,6 +43107,163 @@ SH);
     runEnv(['bash', $sm], $env, 60);
     check('trailing space: a dry run leaves the folders', is_dir("$d1/2019/06 Juni "));
     hardeningRm($t);
+}
+
+/**
+ * Batch H7 (scenario moverelli-tm-future-mtime-h-run, 2026-10-21): a clock that ran ahead and was put right leaves files
+ * whose times lie in the future — her age rule never takes them for «very old» (good), but nobody said so. Smart Mover
+ * counts them per share (`future`: the age_stat's time more than a day ahead; newest: modified or born), in a dry run
+ * too; never when no age rule applies; her history keeps it, the reason codes only in their known shape.
+ */
+function testMoverelliFuture(): void
+{
+    $t = hardeningTmp('moverelli-future');
+    foreach (['mnt/cache/Docs/f', 'mnt/user/Docs', 'mnt/disk1', 'shares', 'bin'] as $d) {
+        @mkdir("$t/$d", 0700, true);
+    }
+    file_put_contents("$t/shares/Docs.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\n");
+    file_put_contents("$t/bin/move", "#!/bin/bash\nwhile IFS= read -r f; do r=\${f#\"\$MOVE_ROOT\"/cache/}; mkdir -p \"\$(dirname \"\$MOVE_ROOT/disk1/\$r\")\" && mv \"\$f\" \"\$MOVE_ROOT/disk1/\$r\"; done\nexit 0\n");
+    chmod("$t/bin/move", 0755);
+    $env = ['CUSTOMMOVER_INI' => "$t/ini", 'CUSTOMMOVER_SHARES_DIR' => "$t/shares", 'CUSTOMMOVER_MNT' => "$t/mnt", 'CUSTOMMOVER_LOG' => "$t/log",
+            'CUSTOMMOVER_LOCK' => "$t/lock", 'CUSTOMMOVER_STATUS' => "$t/st.json", 'CUSTOMMOVER_ZFS' => '/nonexistent-zfs', 'CUSTOMMOVER_MOVER_BIN' => "$t/bin/move",
+            'CUSTOMMOVER_IGNORE_MOVER' => '1', 'MOVE_ROOT' => "$t/mnt"];
+    $sm = OFFICE_DIR . '/smartmover/custommover_run.sh';
+    $c = "$t/mnt/cache/Docs";
+    $put = function () use ($c): void {
+        $now = time();
+        foreach (['old1' => -40, 'old2' => -40, 'new' => -1, 'soon' => 0.5, 'fut1' => 30, 'fut2' => 30, 'fut3' => 30] as $f => $days) {
+            file_put_contents("$c/f/$f", $f);
+            touch("$c/f/$f", (int) ($now + $days * 86400));
+        }
+    };
+    $docs = fn () => array_values(array_filter((readJson("$t/st.json") ?? [])['shares'] ?? [], fn ($x) => $x['share'] === 'Docs'))[0] ?? [];
+    $res = [];
+    foreach (['newest', 'mtime'] as $stat) {
+        file_put_contents("$t/ini", "[GLOBAL]\nmin_age=30\nage_stat=$stat\n");
+        $put();
+        runEnv(['bash', $sm], $env, 60);                                   // a dry run counts them too
+        $dry = [$docs()['files'] ?? null, $docs()['future'] ?? null];
+        [$exit] = runEnv(['bash', $sm, '--run'], $env, 60);
+        $res[$stat] = [$dry, $exit, $docs()['moved'] ?? null, $docs()['future'] ?? null, $docs()['left_codes'] ?? null,
+            is_file("$c/f/fut1"), is_file("$t/mnt/disk1/Docs/f/old1"), is_file("$c/f/soon")];
+        exec('rm -rf ' . escapeshellarg("$t/mnt/disk1/Docs") . ' ' . escapeshellarg("$c/f") . '; mkdir -p ' . escapeshellarg("$c/f"));
+    }
+    // newest: a file here is born now (touch sets no birth) — the old ones are young by birth, the future ones counted alike
+    same('future: age 30 d (newest) — nothing old by birth; dry run and run count the 3 in the future, half a day ahead is no news',
+        [[0, 3], 0, 0, 3, [], true, false, true], $res['newest']);
+    same('future: age 30 d (mtime) — dry run 2 files, 3 in the future; the run moves the 2 old ones, the 3 stay and are counted',
+        [[2, 3], 0, 2, 3, [], true, true, true], $res['mtime']);
+    check('future: said in her log', str_contains((string) file_get_contents("$t/log"), '3 files left out of the age rule: their time (mtime) lies in the future'));
+    // no age rule (0 days): nothing is left out for its time — nothing counted
+    file_put_contents("$t/ini", "[GLOBAL]\nmin_age=0\n");
+    $put();
+    runEnv(['bash', $sm], $env, 60);
+    same('future: no age rule — 7 files, none counted', [7, 0], [$docs()['files'] ?? null, $docs()['future'] ?? null]);
+    // her history: `future` and the known reason codes kept, anything else dropped
+    $short = moverelliStatusShort(['mode' => 'run', 'shares' => [['share' => 'Docs', 'left' => 5, 'future' => 3,
+        'left_codes' => ['ws' => 2, 'busy' => 1, 'said' => 0, 'odd' => 4, 'copy' => '2', 'stopped' => 2]]]]);
+    same('future: her history keeps `future` and the known codes in their shape', ['share' => 'Docs', 'left' => 5, 'future' => 3, 'left_codes' => ['ws' => 2, 'busy' => 1, 'stopped' => 2]],
+        $short['shares'][0] ?? null);
+    hardeningRm($t);
+}
+
+/**
+ * Batch H9 + H7, her page: a share's files left each with its reason (`left_codes`: a name ending in a space or tab, its
+ * copy to the pool failed, the binary's words, a stop, the rest «in use or already there»), the run's summary the same
+ * over all shares; a status from before the codes as before; files with times in the future said once under the shares.
+ */
+function testMoverelliLeftCodesPage(): void
+{
+    $node = testsNode();
+    if ($node === '') {
+        check('left codes page: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('moverelli-codes');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, className: cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, dataset: {}, style: {},
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, insertBefore(c) { this.children.unshift(c); }, setAttribute() {} });
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { sections: () => ({ el: {}, render() {}, mount: () => false, places: () => [], active: () => '' }), scope: () => T, t: T, el: mk,
+  fmt: { cron: (c) => c, size: (b) => b + ' B', date: (t) => 'D' + t, time: (t) => 'T' + t, duration: (s) => Math.round(s) + 's', relative: (t) => 'R' + t },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, errorText: (e) => 'err:' + e.key,
+  dialog: () => ({ buttons: [] }), toast: () => {}, selbar: () => null, api: { post: async () => ({ ok: true }) } };
+(0, eval)(fs.readFileSync(process.argv[3], 'utf8'));
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+const out = {};
+out.ws = m.leftCount({ left: 3, left_why: '', left_codes: { ws: 3 } });
+out.mixed = m.leftCount({ left: 7, left_why: 'No medium found', left_codes: { ws: 1, copy: 1, said: 2, busy: 1, stopped: 2 } });
+out.saidNoWhy = m.leftCount({ left: 2, left_why: '', left_codes: { said: 2 } });
+out.none = m.leftCount({ left: 0, left_codes: {} });
+out.old = m.leftCount({ left: 6, left_why: 'No medium found' });
+const shares = [{ share: 'A', files: 7, moved: 4, left: 3, left_why: '', left_codes: { ws: 3 }, future: 0 },
+  { share: 'B', files: 4, moved: 1, left: 3, left_why: 'No medium found', left_codes: { said: 2, busy: 1 }, future: 3 }];
+const last = { mode: 'run', result: 'ok', files: 11, moved: 5, left: 6, bytes: 10, shares };
+out.summary = m.runSummary({ mode: 'run', status: last, result: 'ok' });
+out.oldSummary = m.runSummary({ mode: 'run', status: { mode: 'run', result: 'ok', files: 2, moved: 1, left: 1, bytes: 1, shares: [{ share: 'A', left: 1 }] }, result: 'ok' });
+out.future = m.futureCount(last);
+m.setState({ last, history: [] });
+const box = m.resultBox();
+out.lines = box.children.slice(1).map((c) => c.textContent);
+m.setState({ last: { ...last, shares: shares.map((x) => ({ ...x, future: 0 })) }, history: [] });
+out.noFuture = m.resultBox().children.filter((c) => c.textContent.startsWith('run_future')).length;
+console.log(JSON.stringify(out));
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/moverelli/desk.js') . ' ' . escapeshellarg(testsRunHelpersJs($tmp)) . ' 2>&1');
+    $lines = explode("\n", trim($raw));
+    $r = json_decode((string) end($lines), true);
+    if (!is_array($r)) {
+        check('left codes page: ran under node', false, $raw);
+        hardeningRm($tmp);
+        return;
+    }
+    same('left codes page: a share\'s files left, each with its reason; the binary\'s words only with them; a status from before the codes as before', [
+        'left.ws {"n":3}',
+        'left.ws {"n":1}, left.copy {"n":1}, left_why {"n":2,"why":"No medium found"}, left.stopped {"n":2}, count.left {"n":1}',
+        'count.left {"n":2}', 'count.left {"n":0}', 'left_why {"n":6,"why":"No medium found"}'],
+        [$r['ws'], $r['mixed'], $r['saidNoWhy'], $r['none'], $r['old']]);
+    same('left codes page: the run\'s summary sums the codes over its shares (the binary\'s words of the share that has them); an old run as before', [
+        'run_summary {"moved":5,"files":11,"size":"10 B","left":"left.ws {\\"n\\":3}, left_why {\\"n\\":2,\\"why\\":\\"No medium found\\"}, count.left {\\"n\\":1}"}',
+        'run_summary {"moved":1,"files":2,"size":"1 B","left":"count.left {\\"n\\":1}"}'], [$r['summary'], $r['oldSummary']]);
+    same('left codes page: files in the future — counted over the shares, said once under the share lines, nothing said without', [3, 'run_future {"n":3}', 0],
+        [$r['future'], end($r['lines']), $r['noFuture']]);
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $lang = readJson(OFFICE_WEB . "/desks/moverelli/lang/$l.json") ?? [];
+        check("left codes page: the words in $l", is_array($lang['left.ws'] ?? null) && is_array($lang['left.copy'] ?? null) && is_array($lang['left.stopped'] ?? null)
+            && str_contains(json_encode($lang['run_future'] ?? '', JSON_UNESCAPED_UNICODE), '{n}'));
+    }
+    hardeningRm($tmp);
+}
+
+/**
+ * Batch H9 (seen on her run card: «14 % · Ø 65 undefined/s»): core.js's Office.fmt.size() took the unit from log1024
+ * without a floor — below 1 B (a slow start's rate: 0.06 B/s) the index was −1. Never below B now; nothing finite: «–».
+ */
+function testOfficeFmtSize(): void
+{
+    $node = testsNode();
+    if ($node === '') {
+        check('fmt.size: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('fmt-size');
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    $a = strpos($core, 'const intl = ');
+    $b = strpos($core, '  date(seconds, withWeekday) {');
+    check('fmt.size: found in core.js', $a !== false && $b !== false && $b > $a);
+    file_put_contents("$tmp/fmt.js", "globalThis.Office = { locale: 'en' };\n" . substr($core, (int) $a, (int) $b - (int) $a) . "};\n"
+        . "console.log(JSON.stringify([0, 0.06, 0.6, 1, 5, 1023, 1024, 1536, 0.5 * 1024 ** 3, 3 * 1024 ** 5, 2 * 1024 ** 6, -2048, null, undefined, NaN, Infinity, 'x', '2048']"
+        . ".map((v) => Office.fmt.size(v))));\n");
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/fmt.js") . ' 2>&1');
+    $lines = explode("\n", trim($raw));
+    same('fmt.size: below 1 B stays in B (never «undefined»), the units as before, nothing finite «–»',
+        ['0 B', '0 B', '1 B', '1 B', '5 B', '1,023 B', '1 KB', '1.5 KB', '512 MB', '3 PB', '2,048 PB', '-2 KB', '–', '–', '–', '–', '–', '2 KB'],
+        json_decode((string) end($lines), true) ?? $raw);
+    hardeningRm($tmp);
 }
 
 /**
@@ -44682,8 +45723,10 @@ function testJackShareDataset(): void
     $lib = (string) file_get_contents(OFFICE_DIR . '/mediacache/mediacache_lib.py');
     check('share dataset: MediaCache\'s ensure_share_root() makes it with zfs create, only where the share may use the pool',
         str_contains($lib, 'def ensure_share_root(') && str_contains($lib, '[ZFS_BIN, "create", name]') && str_contains($lib, 'SHARE_ROOT_OK_MODES'));
-    [$exit, $out, $err] = run(['python3', '-I', '-B', '-m', 'unittest', 'discover', '-s', OFFICE_DIR . '/mediacache/tests'], 120);
-    check('share dataset: MediaCache\'s own tests pass (share root on ZFS/btrfs/XFS, dry run, cleanup tools)', $exit === 0 && str_contains($out . $err, 'OK'), $out . $err);
+    if (needsPython(__FUNCTION__, 'MediaCache\'s own tests')) {
+        [$exit, $out, $err] = run(['python3', '-I', '-B', '-m', 'unittest', 'discover', '-s', OFFICE_DIR . '/mediacache/tests'], 120);
+        check('share dataset: MediaCache\'s own tests pass (share root on ZFS/btrfs/XFS, dry run, cleanup tools)', $exit === 0 && str_contains($out . $err, 'OK'), $out . $err);
+    }
 
     // his page and the Team Lead: «made at the next run» is no fault; a plain folder is a warning with the way to fix it by hand
     $js = (string) file_get_contents(dirname(__DIR__) . '/public/desks/jack/desk.js');
@@ -46129,6 +47172,167 @@ JS);
     same('no schedule on: «off», as a warning', ['plans.off', true], $r['off'] ?? null, $raw);
     same('nothing ran (a refused start only): «never» — still the tile of «Recent runs»', ['never', [], 'clicked runs'], $r['never'] ?? null, $raw);
     same('not set up: no «Pool», no «Shares»', ['runs', 'plans', 'gather'], $r['unset'] ?? null, $raw);
+    hardeningRm($tmp);
+}
+
+/**
+ * H1 (scenarios batch H, 2026-10-21): Jack Streamer's list gone after his real runs — his look wrote it anew EMPTY, his part
+ * of the joint run (a media server that can't be asked) «kept the list as it was» and Ms. Moverelli moved his films to the
+ * array. Now a lost (or emptied) list is written anew from what of his shares lies on his pool; her real Smart Mover keeps
+ * his files, moves the others' — and nothing is written while the pool can't be looked at.
+ */
+function testJackListLost(): void
+{
+    $t = hardeningTmp('jack-list-lost');
+    exec('rm -rf ' . escapeshellarg($t) . '/*');
+    $dir = "$t/jack";
+    $list = "$dir/mediacache_exclude.txt";
+    $cache = "$t/mnt/cache";
+    $mk = function (string $rel, string $body = 'x') use ($t): string {
+        @mkdir(dirname("$t/$rel"), 0700, true);
+        file_put_contents("$t/$rel", $body);
+        touch("$t/$rel", strtotime('2020-01-01 12:00:00'));
+        return "$t/$rel";
+    };
+    foreach (['mnt/disk1', 'mnt/user/Filme', 'mnt/user/Docs', 'shares', 'bin'] as $d) {
+        @mkdir("$t/$d", 0700, true);
+    }
+    @mkdir($dir, 0700, true);
+    $set = ['instances' => [['url' => 'http://x']], 'cache_budget' => '100G', 'cache_path' => "$cache/"];
+    $o = ['shares' => ['Filme'], 'asleep' => [], 'running' => fn (): bool => false];
+    $films = [$mk('mnt/cache/Filme/A (2001)/a.mkv'), $mk('mnt/cache/Filme/B (2002)/b.mkv'), $mk('mnt/cache/Filme/C (2003)/c.mkv')];
+    $docs = $mk('mnt/cache/Docs/old.txt');
+    @symlink('/etc/passwd', "$cache/Filme/A (2001)/link.mkv");
+
+    // before his first real run: written empty, as before (nothing of his lies there)
+    same('lost list: before his first real run — written empty, noted', ['written', '', 0], [jackListEnsure($set, $dir, $o), file_get_contents($list), readJson("$dir/" . JACK_LIST_NOTE)['lines'] ?? null]);
+    // seen with films by his look, no real run of his in his list of runs (an older office's run, a trimmed list): noted
+    file_put_contents($list, implode("\n", $films) . "\n");
+    same('lost list: seen with entries by his look — noted, it held films', [null, 3, true, true],
+        [jackListEnsure($set, $dir, $o), readJson("$dir/" . JACK_LIST_NOTE)['lines'] ?? null, readJson("$dir/" . JACK_LIST_NOTE)['had'] ?? null, jackListRan($dir)]);
+    // his real run: the list of his three films, noted as his run left it (jackJob())
+    jackRemember(['tool' => 'embycache', 'mode' => 'run', 'by' => 'night', 'started' => 1000, 'finished' => 1100, 'exit' => 0, 'result' => 'ok'], $dir);
+    file_put_contents($list, implode("\n", $films) . "\n");
+    jackListNote($dir, [], true);
+    same('lost list: a list there, his run noted it — untouched', [null, 3], [jackListEnsure($set, $dir, $o), readJson("$dir/" . JACK_LIST_NOTE)['lines'] ?? null]);
+    check('lost list: a real run of his recorded — he has worked here', jackListRan($dir));
+
+    // gone (a restore of appdata, a hand): the pool sleeps — his look doesn't wake it, nothing written (Smart Mover then leaves
+    // the shares that name it, his real runs refuse)
+    unlink($list);
+    same('lost list: gone, the pool asleep — not written now, «lost»', ['lost', false], [jackListEnsure($set, $dir, ['asleep' => ['cache' => true]] + $o), is_file($list)]);
+    // the H1 scenario: his look with the pool awake — written anew from what of his shares lies on the pool (no link, no other
+    // share), the Team Lead's hint noted
+    $r = jackListEnsure($set, $dir, $o);
+    same('lost list: his look — written anew from the pool (his three films, sorted), the hint noted', ['rebuilt', $films, 'missing', 3],
+        [$r, file($list, FILE_IGNORE_NEW_LINES), readJson("$dir/" . JACK_LIST_NOTE)['rebuilt']['was'] ?? null, readJson("$dir/" . JACK_LIST_NOTE)['rebuilt']['files'] ?? null]);
+    same('lost list: … and once only', null, jackListEnsure($set, $dir, $o));
+
+    // his part of the joint run can't plan (the media server can't be asked): MediaCache «keeps the list as it was» —
+    // its entries that still exist (mediacache_run.py: protected.update(p for p in read_exclude() if Path(p).exists()))
+    $kept = array_values(array_filter(file($list, FILE_IGNORE_NEW_LINES), 'file_exists'));
+    file_put_contents($list, implode("\n", $kept) . "\n");
+    jackListNote($dir, [], false);
+    check('lost list: an incomplete run of his keeps the hint (his list not his own again yet)', is_array(readJson("$dir/" . JACK_LIST_NOTE)['rebuilt'] ?? null));
+    // her part: the real Smart Mover with his list in her ini — his films stay, the other share's old file goes to the array
+    file_put_contents("$t/shares/Filme.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\n");
+    file_put_contents("$t/shares/Docs.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\n");
+    file_put_contents("$t/ini", "[GLOBAL]\nmin_age=0\nglobal_excludes=$list\n");
+    file_put_contents("$t/bin/move", <<<'SH'
+#!/bin/bash
+# a stand-in for Unraid's move binary: the pool → disk1
+while IFS= read -r f; do
+    case "$f" in "$MOVE_ROOT"/cache/*) to="$MOVE_ROOT/disk1/${f#"$MOVE_ROOT"/cache/}" ;; *) continue ;; esac
+    [[ -d "$f" ]] && continue
+    mkdir -p "$(dirname "$to")" && mv "$f" "$to" && echo "move: $f Success"
+done
+exit 0
+SH);
+    chmod("$t/bin/move", 0755);
+    $env = ['CUSTOMMOVER_INI' => "$t/ini", 'CUSTOMMOVER_SHARES_DIR' => "$t/shares", 'CUSTOMMOVER_MNT' => "$t/mnt", 'CUSTOMMOVER_LOG' => "$t/log",
+            'CUSTOMMOVER_LOCK' => "$t/lock", 'CUSTOMMOVER_STATUS' => "$t/st.json", 'CUSTOMMOVER_ZFS' => '/nonexistent-zfs', 'CUSTOMMOVER_MOVER_BIN' => "$t/bin/move",
+            'CUSTOMMOVER_STOP' => "$t/stop", 'CUSTOMMOVER_IGNORE_MOVER' => '1', 'CUSTOMMOVER_EXCLUDES_REQUIRED' => '1', 'MOVE_ROOT' => "$t/mnt"];
+    [$exit] = runEnv(['bash', OFFICE_DIR . '/smartmover/custommover_run.sh', '--run'], $env, 60);
+    same('lost list: her real run after it — his three films stay on the pool, the other share\'s old file goes', [0, [true, true, true], false, true],
+        [$exit, array_map('is_file', $films), is_file($docs), is_file("$t/mnt/disk1/Docs/old.txt")]);
+
+    // his complete run sets it right: the hint goes
+    jackListNote($dir, [], true);
+    check('lost list: his next complete run — the hint gone', !isset(readJson("$dir/" . JACK_LIST_NOTE)['rebuilt']));
+    // emptied by someone else (the file there, 0 bytes, not as his run left it): written anew too
+    file_put_contents($list, '');
+    touch($list, time() + 5);
+    same('lost list: emptied outside his runs — written anew', ['rebuilt', 'emptied', 3], [jackListEnsure($set, $dir, $o), readJson("$dir/" . JACK_LIST_NOTE)['rebuilt']['was'] ?? null,
+        count(file($list, FILE_IGNORE_NEW_LINES))]);
+    // … but never while a run of his goes (MediaCache rewrites it), and never what his own run emptied
+    file_put_contents($list, '');
+    touch($list, time() + 10);
+    same('lost list: emptied while a run of his goes — left to his run', null, jackListEnsure($set, $dir, ['running' => fn (): bool => true] + $o));
+    jackListNote($dir, [], true);
+    same('lost list: emptied by his own run (noted) — an empty list stays empty', [null, ''], [jackListEnsure($set, $dir, $o), file_get_contents($list)]);
+    // a link in its place: never written over
+    unlink($list);
+    symlink("$t/elsewhere", $list);
+    same('lost list: a link in its place — nothing written', [null, false], [jackListEnsure($set, $dir, $o), file_exists("$t/elsewhere")]);
+    unlink($list);
+    // «Set up from scratch» forgets his runs: a fresh start, an empty list again
+    jackReset(['dir' => $dir, 'gather' => "$t/gather", 'running' => fn (): bool => false, 'schedule' => fn (string $job) => null]);
+    same('lost list: after «Set up from scratch» — his note gone, he never ran', [false, false], [is_file("$dir/" . JACK_LIST_NOTE), jackListRan($dir)]);
+
+    // his real run (and the let-go's release) writes it anew before MediaCache reads it — or refuses without it
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
+    check('lost list: jackJob — written anew (the pool woken) before MediaCache\'s run or release, refused as jack_list_lost, noted after',
+        str_contains($src, "in_array(\$mode, ['run', 'release'], true) && jackListEnsure(jackReadSettings(), \$dir, ['wake' => true]) === 'lost') {")
+        && strpos($src, "'result' => 'refused', 'why' => 'jack_list_lost']);") < strpos($src, '$movers = jackMoversLock();')
+        && str_contains($src, "jackListNote(\$dir, [], \$exit === 0 && (\$status['incomplete'] ?? null) === false);"));
+    hardeningRm($t);
+}
+
+/**
+ * His «Ready on the pool» tile (2026-10-21, the owner on nostromo): «at least 0 B mine» was the old «half» (poollevel's
+ * `half`, 0 since 2026-10-14 — his budget comes first). Now: what he holds against his GB budget, the pool's free %;
+ * without a budget only what he holds; his room words never name a share of his.
+ */
+function testJackPoolTileBudget(): void
+{
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('pool tile budget: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('jack-pool-tile');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {} });
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }), scope: () => T, t: T, el: mk, stat: (o) => o, fmt: { size: (b) => b + ' B', number: (n) => String(n), relative: (t) => 'R' + t },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {} };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const e = OFFICE_DESK_TESTS.jack;
+const pool = { path: '/mnt/cache', free: 9, free_percent: 24.3, min_free: 30, keep: 0, held: 1024, back: 0, waiting: 0, moverelli: { x: 80, y: 70 } };
+const out = {};
+e.setState({ configured: true, settings: { cache_budget: '2G' }, cache: {}, pool });
+out.budget = e.poolTile({}).sub;
+out.room = e.roomWords();
+e.setState({ configured: false, settings: {}, cache: {}, pool });
+out.plain = e.poolTile({}).sub;
+e.setState({ configured: true, settings: { cache_budget: '2G' }, cache: {}, pool: { path: '/mnt/cache', free: 9, free_percent: 50, min_free: 20 } });
+out.free = e.poolTile({}).sub;
+console.log(JSON.stringify(out));
+JS);
+    [, $out, $err] = run([$node, "$tmp/t.js", OFFICE_WEB . '/desks/jack/desk.js'], 30);
+    $j = json_decode(trim((string) $out), true) ?? [];
+    same('pool tile budget: what he holds of his budget, the pool\'s free % — no «at least … mine»', 'pool_tile.held {"used":"1024 B","budget":"2147483648 B","pct":"24.3"}', $j['budget'] ?? $err);
+    same('pool tile budget: without a budget — what he holds and the free %', 'pool_tile.held_plain {"used":"1024 B","pct":"24.3"}', $j['plain'] ?? $err);
+    same('pool tile budget: nothing measured of his — the free % and what he keeps free, as before', 'pool_tile.free {"pct":"50","min":20}', $j['free'] ?? $err);
+    same('pool tile budget: his room words — no share of the pool named', 'room.text {"x":80,"y":70,"used":"1024 B"}', $j['room'][0] ?? $err);
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $lang = readJson(OFFICE_WEB . "/desks/jack/lang/$l.json") ?? [];
+        check("pool tile budget: lang $l — the tile and the room without «{h}»", !str_contains(($lang['pool_tile.held'] ?? '') . ($lang['room.text'] ?? ''), '{h}')
+            && str_contains($lang['pool_tile.held'] ?? '', '{budget}') && isset($lang['pool_tile.held_plain']));
+    }
     hardeningRm($tmp);
 }
 
@@ -47798,6 +49002,195 @@ JS;
 }
 
 /**
+ * Engine 2.69 (resilience batch H on USOTest3VM): what it kept quiet about. H3 — a share Unraid deleted whose ZFS dataset
+ * only its snapshots keep (share_deleted_left): left out of the run's plan, said as drift and in the plan with the way,
+ * nothing destroyed; a share with its config, one with something in it or one without snapshots is none. H4 — a pool with
+ * almost no room under the folders of an app stopped for the snapshot (pool_low: below 2 %, 1..10 GiB): the plan and the
+ * run warn pool_low_space, the app is still stopped. H6 — Kopia's own container with anonymous volumes: the plan warns
+ * kopia_volumes with the paths; bound paths and named volumes say nothing.
+ */
+function testBackupBatchH(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-batchh-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+    $mnt = "$tmp/mnt";
+    $fast = "$mnt/fast";
+    $roomy = "$mnt/roomy";
+    $data = "$tmp/data/unraid-backup";
+    $root = "$mnt/addons/UnraidSecretaryOffice/snapshots";
+    foreach (["$tmp/bin", "$tmp/fake", "$data/state", "$tmp/boot/config/shares", "$mnt/user", $root, "$fast/appdata/web", "$fast/appdata/kopia",
+              "$fast/UnraidSecretaryOffice/backup", "$fast/gone1", "$fast/kept", "$fast/nosnap", "$fast/withcfg", "$roomy/media/x"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    file_put_contents("$fast/kept/a-file", 'x');
+    foreach (['appdata', 'UnraidSecretaryOffice', 'withcfg', 'media'] as $s) {
+        touch("$tmp/boot/config/shares/$s.cfg");
+    }
+    $ds = ['fast' => [$fast, 1000], 'fast/appdata' => ["$fast/appdata", 5000], 'fast/UnraidSecretaryOffice' => ["$fast/UnraidSecretaryOffice", 10],
+           'fast/gone1' => ["$fast/gone1", 98304], 'fast/kept' => ["$fast/kept", 98304], 'fast/nosnap' => ["$fast/nosnap", 98304],
+           'fast/withcfg' => ["$fast/withcfg", 98304], 'roomy' => [$roomy, 1000], 'roomy/media' => ["$roomy/media", 7000000]];
+    $mounts = $zfs = '';
+    foreach ($ds as $n => [$mp, $ref]) {
+        $mounts .= "$n $mp zfs rw 0 0\n";
+        $zfs .= "$n\t$mp\ton\t" . crc32($n) . "\t$ref\t-\n";
+    }
+    file_put_contents("$tmp/fake/mounts", $mounts . "shfs $mnt/user fuse.shfs rw 0 0\n");
+    file_put_contents("$tmp/fake/zfs.txt", $zfs);
+    file_put_contents("$tmp/fake/snaps.txt", "fast/gone1@uso-backup-20261021-1025\nfast/kept@uso-backup-20261021-1025\nfast/withcfg@uso-backup-20261021-1025\n");
+    // the pools' room: fast 200 MiB free of ~1.2 GiB (H4's refreservation), roomy 500 GB free
+    file_put_contents("$tmp/fake/room.txt", "fast\t1073741824\t209715200\nroomy\t1000000000\t500000000000\n");
+    file_put_contents("$tmp/fake/disks.ini", "[\"fast\"]\nname=\"fast\"\nspundown=\"0\"\n");
+    file_put_contents("$tmp/bin/zfs", <<<'SH'
+#!/bin/bash
+if [[ "$1" == list ]]; then
+  if [[ "$*" == *'-t snapshot'* ]]; then grep "^${@: -1}@" "$FAKE/snaps.txt"
+  elif [[ "$*" == *'-t filesystem'* ]]; then cat "$FAKE/zfs.txt"
+  elif [[ "$*" == *'used,available'* ]]; then awk -F'\t' -v d="${@: -1}" '$1 == d {print $2 "\t" $3}' "$FAKE/room.txt"; fi
+fi
+exit 0
+SH);
+    chmod("$tmp/bin/zfs", 0755);
+    $env = "export PATH=$tmp/bin:\$PATH UB_DATA=$data UB_MNT=$mnt UB_BOOT=$tmp/boot UB_SHARES_CFG=$tmp/boot/config/shares UB_DISKS_INI=$tmp/fake/disks.ini"
+         . " UB_MOUNTS_FILE=$tmp/fake/mounts FAKE=$tmp/fake FAKE_ROOT=$root UB_SHARES_INI=$tmp/fake/shares.ini";
+    file_put_contents("$tmp/fake/shares.ini", implode('', array_map(fn ($s) => "[\"$s\"]\nname=\"$s\"\n", ['appdata', 'UnraidSecretaryOffice', 'gone1', 'kept', 'nosnap', 'withcfg', 'media'])));
+    $sh = fn (string $code) => (string) shell_exec('bash -c ' . escapeshellarg("$env; source $lib >/dev/null 2>&1; inv_scan; $code") . ' 2>&1');
+
+    // --- H3: which share is a deleted one its snapshots keep
+    same('batch H3: only the share without its config, empty, with snapshots is «deleted, kept by its snapshots» - its dataset and their count',
+        "gone1|fast/gone1|1\n", $sh('for s in gone1 kept nosnap withcfg appdata media; do share_deleted_left "$s" && echo "$s|$SDL_DS|$SDL_SNAPS"; done'));
+    same('batch H3: … a sleeping pool is not read for it', '', $sh('UB_SPUNDOWN=([fast]=1); UB_ASLEEP_LOADED=yes; share_deleted_left gone1 && echo yes'));
+    $ini = "[general]\nserver = Test\nmount_root = $root\nsnap_prefix = uso-backup-\ndumps_share = UnraidSecretaryOffice\n[docker]\nstop = all\n[flash]\nmode = off\n[kopia]\nenabled = no\n"
+         . "[share \"appdata\"]\nmode = snapshot\n[share \"UnraidSecretaryOffice\"]\nmode = snapshot\n[share \"gone1\"]\nmode = snapshot\n[share \"withcfg\"]\nmode = snapshot\n";
+    file_put_contents("$data/settings.ini", $ini);
+    $out = $sh('load_settings >/dev/null 2>&1; plan_build; echo "zfs:${PLAN_ZFS[*]}"; echo "deleted:${PLAN_DELETED[*]}"; drift_check_shares;'
+        . ' for i in "${!DRIFT[@]}"; do [[ "${DRIFT_CODE[$i]%%$\'\x1f\'*}" == share_deleted_snapshots ]] && echo "drift:${DRIFT[$i]%%|*}:${DRIFT_PARAMS[$i]//$\'\x1f\'/,}"; done');
+    check('batch H3: the run snapshots it no more - out of the plan\'s datasets, noted as left out; the others as before',
+        str_contains($out, 'deleted:gone1') && preg_match('/^zfs:(.*)$/m', $out, $z) === 1 && !str_contains($z[1], 'fast/gone1') && str_contains($z[1], 'fast/withcfg') && str_contains($z[1], 'fast/appdata'), $out);
+    check('batch H3: … said as drift (a warning) with the share, its dataset and snapshots', str_contains($out, 'drift:warn:name=gone1,datasets=fast/gone1,snapshots=1'), $out);
+    $engine = (string) file_get_contents(OFFICE_DIR . '/backup/lib/common.sh') . file_get_contents(OFFICE_DIR . '/backup/backup.sh') . file_get_contents(OFFICE_DIR . '/backup/setup.sh');
+    check('batch H3: nothing of it is ever destroyed by the engine (no zfs destroy beside its own retention\'s)', !preg_match('/zfs destroy[^\n]*(SDL_|share_deleted)|(SDL_|share_deleted)[^\n]*zfs destroy/', $engine));
+
+    // --- H4: the room of the pools under an app's folders
+    same('batch H4: fast (200 MiB of 1.2 GiB) is low below 1 GiB, roomy (500 GB) is not; an array disk or an unknown base is never asked',
+        "fast 209715200 1283457024 1073741824\nroomy no\nnone no\n",
+        $sh('pool_low fast && echo "fast $PL_FREE $PL_SIZE $PL_FLOOR"; pool_low roomy || echo "roomy no"; pool_low disk1 || echo "none no"'));
+    same('batch H4: the floor - 2 % of the pool, at least 1 and at most 10 GiB', [1073741824, 4294967296, 10737418240],
+        array_map(fn ($sz) => (int) trim($sh("printf 'fast\\t%s\\t1\\n' $sz >\$FAKE/room.txt; pool_low fast; echo \$PL_FLOOR")), [1000000000, 214748364800, 2000000000000]));
+    file_put_contents("$tmp/fake/room.txt", "fast\t1073741824\t209715200\nroomy\t1000000000\t500000000000\n");
+    same('batch H4: an app\'s low pools from its folders - through /mnt/user (the share\'s pools) and a pool\'s own path; a roomy one none',
+        "web:fast\ndirect:fast\nmedia:\n",
+        $sh("CT_BINDS[web]=\"$mnt/user/appdata/web|/config|rw\"; CT_BINDS[direct]=\"$fast/appdata/x|/x|rw\"$'\\n'\"$roomy/media|/m|ro\"; CT_BINDS[media]=\"$mnt/user/media|/media|rw\";"
+            . ' for c in web direct media; do echo "$c:$(ct_low_pools "$c" | paste -sd, -)"; done'));
+    $bk = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh');
+    check('batch H4: the run says it before anything stops (right after the stop tiers), with a code; the app stays in its tier',
+        preg_match('/build_stop_tiers\npool_room_check /', $bk) === 1 && str_contains($bk, 'warn_code pool_low_space ') && !preg_match('/pool_room_check\(\) \{[^}]*T_APP=\(/s', $bk));
+
+    // --- setup.sh --plan: the three warnings with their params
+    $hex = str_repeat('ab12', 16);
+    file_put_contents("$tmp/bin/docker", <<<'SH'
+#!/bin/bash
+case "$1" in
+  info) exit 0 ;;
+  version) echo 29.0; exit 0 ;;
+  ps) printf 'id-kopia\nid-web\n'; exit 0 ;;
+  compose) exit 1 ;;
+  top) printf 'PID UID COMMAND\n7 0 /app/kopia server start\n'; exit 0 ;;
+  inspect)
+    shift
+    if [[ "$1" == -f ]]; then
+      case "$2" in
+        *State.Running*) echo true ;;
+        *Mounts*) printf '%s\x1e/uso\x1efalse\x1erslave\n' "$FAKE_ROOT" ;;
+      esac
+      exit 0
+    fi
+    cat "$FAKE/inspect.json"; exit 0 ;;
+  exec)
+    shift
+    while [[ "$1" == -* ]]; do case "$1" in -u|-e) shift 2 ;; *) shift ;; esac; done
+    shift
+    case "$1" in
+      cat) exit 0 ;;
+      kopia)
+        shift; [[ "$1" == --no-progress ]] && shift
+        case "$1 ${2:-}" in
+          "repository status") cat "$FAKE/repo.json" ;;
+          "policy list"|"snapshot list") echo '[]' ;;
+          --version*) echo "0.23.0 build" ;;
+        esac
+        exit 0 ;;
+    esac
+    exit 1 ;;
+esac
+exit 0
+SH);
+    foreach (['virsh' => "exit 0", 'mountpoint' => "[[ \"\${@: -1}\" == */user ]]", 'mount' => 'exit 1', 'umount' => 'exit 0', 'notify' => 'exit 0'] as $b => $body) {
+        file_put_contents("$tmp/bin/$b", "#!/bin/bash\n$body\n");
+    }
+    foreach (glob("$tmp/bin/*") as $f) {
+        chmod($f, 0755);
+    }
+    file_put_contents("$tmp/fake/repo.json", json_encode(['configFile' => '/app/config/repository.config', 'storage' => ['type' => 'filesystem'], 'clientOptions' => ['username' => 'root', 'hostname' => 'kopia']]));
+    $ct = fn ($name, $img, $mounts) => ['Name' => "/$name", 'Id' => "id-$name", 'Config' => ['Image' => $img, 'Env' => [], 'Labels' => new stdClass()],
+        'State' => ['Running' => true], 'HostConfig' => ['NetworkMode' => 'bridge'], 'Mounts' => $mounts];
+    $bind = fn ($s, $d) => ['Type' => 'bind', 'Source' => $s, 'Destination' => $d, 'RW' => true];
+    $vol = fn ($nm, $d) => ['Type' => 'volume', 'Name' => $nm, 'Source' => "/var/lib/docker/volumes/$nm/_data", 'Destination' => $d, 'RW' => true];
+    $kopiaMounts = fn (bool $bound) => array_merge([$bind("$mnt/user/appdata/kopia/config", '/app/config'), $bind($root, '/uso'), $vol('kopia-cache', '/app/cache')],
+        $bound ? [$bind("$mnt/user/appdata/kopia/backups", '/backups'), $bind("$mnt/user/appdata/kopia/source", '/source')]
+               : [$vol($hex, '/backups'), $vol(str_repeat('cd34', 16), '/source')]);
+    $plan = function (bool $bound) use ($tmp, $env, $data, $ct, $bind, $kopiaMounts, $mnt, $root) {
+        file_put_contents("$tmp/fake/inspect.json", json_encode([$ct('kopia', 'kopia/kopia', $kopiaMounts($bound)), $ct('web', 'nginx', [$bind("$mnt/user/appdata/web", '/config')])]));
+        file_put_contents("$data/settings.ini", "[general]\nserver = Test\nmount_root = $root\nsnap_prefix = uso-backup-\ndumps_share = UnraidSecretaryOffice\n[docker]\nstop = all\nknown = kopia\nknown = web\n"
+            . "[flash]\nmode = off\n[kopia]\nenabled = yes\ncontainer = kopia\nidentity = root@kopia\n[share \"appdata\"]\nmode = snapshot\n[share \"UnraidSecretaryOffice\"]\nmode = snapshot\n[share \"gone1\"]\nmode = snapshot\n");
+        @unlink("$data/state/setup-plan.json");
+        $out = (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . ' --plan </dev/null') . ' 2>&1');
+        $p = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
+        return [is_array($p['messages'] ?? null) ? $p['messages'] : [], $out, $p];
+    };
+    [$msgs, $out, $p] = $plan(false);
+    check('batch H (setup): the plan was written', $msgs !== [], $out);
+    $by = fn (array $ms, string $c) => array_values(array_map(fn ($m) => $m['params'] ?? null, array_filter($ms, fn ($m) => ($m['code'] ?? '') === $c && ($m['level'] ?? '') === 'warn')));
+    same('batch H6 (setup): Kopia\'s anonymous volumes said with their paths (a named one, /app/cache, and the bound ones not)',
+        [['app' => 'kopia', 'paths' => '/backups, /source', 'n' => '2']], $by($msgs, 'kopia_volumes'));
+    same('batch H6 (setup): … still never as an app\'s docker_volumes', [], array_values(array_filter($by($msgs, 'docker_volumes'), fn ($x) => ($x['app'] ?? '') === 'kopia')));
+    same('batch H3 (setup): the deleted share said with its dataset and snapshots', [['share' => 'gone1', 'datasets' => 'fast/gone1', 'snapshots' => '1']], $by($msgs, 'share_deleted_snapshots'));
+    $shp = array_column(is_array($p['shares'] ?? null) ? $p['shares'] : [], null, 'name');
+    same('batch H3 (setup): … its setting left as it was (nothing changed of it)', 'snapshot', $shp['gone1']['mode'] ?? null);
+    $low = $by($msgs, 'pool_low_space');
+    same('batch H4 (setup): the pool under the app stopped for the snapshot - web on fast; Kopia (never stopped) not named',
+        [['fast', 'web', '1']], array_map(fn ($x) => [$x['pool'] ?? null, $x['apps'] ?? null, $x['n'] ?? null], $low));
+    check('batch H4 (setup): … with the room in words', ($low[0]['free_h'] ?? '') !== '' && ($low[0]['size_h'] ?? '') !== '' && ($low[0]['floor_h'] ?? '') !== '');
+    [$msgs2, $out2] = $plan(true);
+    same('batch H6 (setup): bound /backups and /source - nothing said', [], $by($msgs2, 'kopia_volumes'));
+    file_put_contents("$tmp/fake/room.txt", "fast\t1073741824\t50000000000\nroomy\t1000000000\t500000000000\n");
+    [$msgs3] = $plan(true);
+    same('batch H4 (setup): room enough - nothing said', [], $by($msgs3, 'pool_low_space'));
+
+    // --- the words
+    $missing = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $s = langFile(OFFICE_WEB . "/desks/backup/lang/$l.json");
+        foreach (['setup.msg.share_deleted_snapshots' => ['share', 'datasets', 'snapshots'], 'drift_code.share_deleted_snapshots' => ['name', 'datasets', 'snapshots'],
+                  'setup.msg.pool_low_space' => ['pool', 'free_h', 'size_h', 'floor_h', 'apps'], 'warn_code.pool_low_space' => ['pool', 'free_h', 'size_h', 'floor_h', 'apps'],
+                  'setup.msg.kopia_volumes' => ['app', 'paths']] as $k => $ps) {
+            $t = $s[$k] ?? null;
+            if (!is_string($t) || array_filter($ps, fn ($x) => !str_contains($t, '{' . $x . '}'))) {
+                $missing[] = "$l $k";
+            }
+        }
+        if (!str_contains((string) ($s['setup.msg.share_deleted_snapshots'] ?? ''), 'Snapshotini') || !str_contains((string) ($s['setup.msg.share_deleted_snapshots'] ?? ''), '⟦Shares⟧')) {
+            $missing[] = "$l share_deleted_snapshots: the way (Ms. Snapshotini, ⟦Shares⟧)";
+        }
+        if (!str_contains((string) ($s['setup.msg.kopia_volumes'] ?? ''), '⟦Host Path⟧') || !str_contains((string) ($s['setup.msg.kopia_volumes'] ?? ''), '/backups')) {
+            $missing[] = "$l kopia_volumes: what lives there and how to bind it";
+        }
+    }
+    same('batch H: the three said in all five languages, every param in its sentence, with the way', [], $missing);
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * A Docker volume that is only a cache is not lost data (2026-10-17: immich's `model-cache:/cache` made the app row's chip
  * red «Docker volumes … NOT in the backup», the owner feared for his photos). The agent tags each plan container's cache
  * volumes (`backupPlanVolumeCaches()`, the one rule `backupVolumeIsCache()`, a volume's name from the docker_volumes
@@ -48626,11 +50019,11 @@ JS;
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testWatchmanHold',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
-          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testHouseDockerSilent', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
+          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testHouseDockerSilent', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.
@@ -48643,18 +50036,46 @@ if ($unknown) {
     exec('rm -rf ' . escapeshellarg(TESTS_RUN_DIR));
     exit(2);
 }
+// A test that throws is red and the run goes on; a run that ends anyway (a fatal error, an exit()) says where and what it
+// had — Unraid's PHP shows no errors (display_errors=0, they go to /var/log/phplog), so before it ended in silence
+register_shutdown_function(function (): void {
+    if (isset($GLOBALS['testsDone'])) {
+        return;
+    }
+    $e = error_get_last();
+    $e = $e && in_array($e['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR, E_RECOVERABLE_ERROR], true) ? $e : null;
+    fwrite(STDERR, 'The run ended early, in ' . ($GLOBALS['testsNow'] ?? '(no test yet)')
+        . ($e ? ": {$e['message']} ({$e['file']}:{$e['line']})" : ' (an exit() or a signal)') . "\n");
+    foreach ($GLOBALS['results']['fail'] as $f) {
+        fwrite(STDERR, "FAIL  $f\n");
+    }
+    fprintf(STDERR, "%d passed, %d failed before it ended\n", $GLOBALS['results']['pass'], count($GLOBALS['results']['fail']));
+});
 foreach ($parts as $name => $fns) {
     foreach ($fns as $t) {
         if (!$only || in_array($name, $only, true) || in_array($t, $only, true)) {      // everything, its part, or the test by its name
-            $t();
+            $GLOBALS['testsNow'] = $t;
+            try {
+                $t();
+            } catch (Throwable $e) {
+                check("$t: ended by an uncaught " . get_class($e) . ': ' . $e->getMessage() . ' (' . $e->getFile() . ':' . $e->getLine() . ')', false);
+            }
         }
     }
 }
+$GLOBALS['testsNow'] = 'testLiveRunUntouched';
 testLiveRunUntouched();         // last: nothing of all the above reached the live agent's RAM folder
+$GLOBALS['testsDone'] = true;
 exec('rm -rf ' . escapeshellarg(TESTS_RUN_DIR));
 $fail = $GLOBALS['results']['fail'];
 foreach ($fail as $f) {
     echo "FAIL  $f\n";
 }
-printf("%d passed, %d failed\n", $GLOBALS['results']['pass'], count($fail));
+$skip = $GLOBALS['results']['skip'];
+foreach ($skip as $t => $why) {
+    echo "SKIP  $t ($why)\n";
+}
+// skipped tests only on a host without python3 — tools/release.sh takes «N passed, 0 failed» alone, so never a release from one
+printf("%d passed, %d failed%s\n", $GLOBALS['results']['pass'], count($fail),
+    $skip ? ', ' . count($skip) . ' skipped (' . implode(', ', array_unique($skip)) . ')' : '');
 exit($fail ? 1 : 0);

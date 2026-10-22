@@ -26,6 +26,7 @@ track_share "$S"
 snap_before
 agent_log_mark run
 flow MV-RUN
+h_fresh_beat moverelli              # her state file (history) refreshed after the run before it is read
 evidence "$D/moverelli/status.json" status.json >/dev/null
 r=$(jq -c '{result: (.result // null), exit: (.exit // null), shares: [.shares[]? | select(.share == "'"$S"'") | {state, moved, left}]}' "$D/moverelli/status.json" 2>/dev/null)
 h=$(jq -c '.[0] // {} | {result, why: (.why // null)}' <(jq -c '.history // []' "$D/moverelli.json" 2>/dev/null) 2>/dev/null)
@@ -37,6 +38,11 @@ os=$(find /mnt/disk*/"$S"/old -type f 2>/dev/null | wc -l)
 grep -qiE '"result":"(failed|error)"' <<<"$r$h" && h_cell run-ok 0 "her run: $r $h" || h_cell run-ok 1 "her run: $r"
 z=$( { agent_log_since run; tail -300 "$D/moverelli/smart_mover.log" 2>/dev/null; } | grep -iE 'future|negative|in der zukunft|clock' | head -2)
 w=$(jq -c '[.. | strings | select(test("future|zukunft|clock"; "i"))] | unique | .[0:3]' "$D/moverelli.json" 2>/dev/null)
+# since the fix (batch H7): her status counts them per share (`future`) — her page's last run (state.last = this status)
+# says it once (run_future); her history keeps it too (noted, not judged: the history row may lag a tick)
+fu=$(jq -c --arg s "$S" '[.shares[]? | select(.share == $s) | .future // 0][0] // 0' "$D/moverelli/status.json" 2>/dev/null)
+fh=$(jq -c --arg s "$S" '[.history[0].status.shares[]? | select(.share == $s) | .future // 0][0] // 0' "$D/moverelli.json" 2>/dev/null)
+((${fu:-0} >= 3)) && w="her last run's status: future $fu (history: future ${fh:-none})"
 [[ $w != '[]' && -n $w ]] && h_cell said 1 "her state says: $w" \
     || h_cell said 0 "nothing on her page says 3 files carry times 30 days in the future (state: none; logs: ${z:-nothing})"
 expect_changes "share|$S|*"

@@ -35,6 +35,7 @@ const MOVERELLI_LINES_MAX = 2000;           // lines of one of her own exclude l
 const MOVERELLI_SHARE     = '/^[\w.\- ]{1,64}$/uD';     // a share name she writes as an INI section and a file name
 const MOVERELLI_KEPT_NAME = '#^[A-Za-z0-9][\w.:-]{0,254}/[\w.\- ]{1,64}$#uD';   // a share's dataset a run left standing: <pool>/<share>
 const MOVERELLI_KEPT_DAYS = 30;             // … remembered from her runs of this many days
+const MOVERELLI_LEFT_CODES = ['ws', 'copy', 'said', 'busy', 'stopped'];   // Smart Mover's reasons a file stayed (status `left_codes`)
 // (2026-10-14: only X — move_until_used_below, the offset and jack_min_percent are gone; officeMigratePoolX() takes them out)
 // which date counts (2026-10-14): always the younger of created (birth, else ctime) and modified — Smart Mover's office
 // value age_stat=newest, written by the office for all, never a setting
@@ -1616,7 +1617,14 @@ function moverelliStatusShort(array $status): array
     $out['shares'] = [];
     foreach (array_slice((array) ($status['shares'] ?? []), 0, 200) as $s) {
         if (is_array($s)) {
-            $out['shares'][] = array_intersect_key($s, array_flip(['share', 'state', 'files', 'bytes', 'moved', 'left', 'left_why', 'pool', 'until', 'pool_used', 'pool_now', 'fill', 'reached']));
+            $x = array_intersect_key($s, array_flip(['share', 'state', 'files', 'bytes', 'moved', 'left', 'left_why', 'pool', 'until', 'pool_used', 'pool_now', 'fill', 'reached', 'future']));
+            // USO «left codes» (batch H9): why each file stayed — only the known codes, whole counts
+            $codes = array_filter(array_intersect_key(is_array($s['left_codes'] ?? null) ? $s['left_codes'] : [], array_flip(MOVERELLI_LEFT_CODES)),
+                fn ($n) => is_int($n) && $n > 0);
+            if ($codes) {
+                $x['left_codes'] = $codes;
+            }
+            $out['shares'][] = $x;
         }
     }
     // USO «kept» (2026-10-21): the share datasets the run left standing, empty but held by snapshots

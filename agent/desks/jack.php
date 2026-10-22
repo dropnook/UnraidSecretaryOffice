@@ -35,6 +35,8 @@ const GATHER_CACHE_ONLY = ['skip', 'most-free'];   // a folder only on the cache
 const JACK_SIZES_SHARES = 200;     // shares kept in sizes.json
 const JACK_SIZES_ROOTS  = 64;      // disks/pools per share
 const JACK_POOL_GROUPS  = 5000;    // what lies on the pool, by film/series folder: the current state, all of it (a bound against a broken list only)
+const JACK_LIST_NOTE    = 'office-list.json';   // his list as his last run (or the office) left it: lines, mtime, size (jackListNote())
+const JACK_LIST_REBUILD_MAX = 200000;          // files of his shares on the pool a lost list is written anew from (more: not written)
 const JACK_SETTINGS = ['cache_path', 'cache_budget', 'number_episodes', 'movie_share_percent', 'max_episodes_per_series',
                        'max_resume_items', 'max_resume_movies', 'max_resume_series', 'max_favorite_series', 'use_next_up', 'min_free_percent', 'movie_mode',
                        'array_source', 'array_path', 'user_path',
@@ -176,19 +178,126 @@ function jackMigratePending(): void
 }
 
 /**
- * Set up, his list there — empty until his first real run (the lab, 2026-10-16: with Ms. Moverelli hired his real run is
- * the joint night run, which waited for a list only that run makes — a fresh install never started). An empty list
- * protects nothing; MediaCache rewrites it at its first real run. Never over a link or something there. True: written now.
+ * Set up, his list there — and never «keep nothing» by accident (H1, 2026-10-21). Before his first real run nothing of his
+ * lies on the pool: written empty (the lab, 2026-10-16: with Ms. Moverelli hired his real run is the joint night run, which
+ * waited for a list only that run makes — a fresh install never started; MediaCache rewrites it at its first real run).
+ * After one (or a list taken over from an old EmbyCache), a list that went missing — or was emptied by anyone but his runs
+ * and the office (its note, JACK_LIST_NOTE) — is written anew from what of his shares lies on his pool: an incomplete plan
+ * (a media server that can't be asked) «keeps the list as it was», and an empty one let Ms. Moverelli move his films back
+ * to the array. More than his films may stand on it (a download not yet moved): his next complete run sets it right.
+ * Where the pool can't be looked at (asleep and not $o['wake'], unreadable, too many files) nothing is written: a missing
+ * list makes Smart Mover leave the shares that name it (its ERROR) and his real runs refuse (jack_list_lost). Never over a
+ * link. $o (the tests): wake, ran, running, shares, asleep. Answer: 'written' (empty, the first), 'rebuilt', 'lost', null.
  */
-function jackListEnsure(?array $settings, string $dir = JACK_DATA): bool
+function jackListEnsure(?array $settings, string $dir = JACK_DATA, array $o = []): ?string
 {
     $f = "$dir/mediacache_exclude.txt";
-    if (!jackConfigured($settings) || !is_dir($dir) || is_link($f) || file_exists($f)) {
-        return false;
+    if (!jackConfigured($settings) || !is_dir($dir) || is_link($f) || (file_exists($f) && !is_file($f))) {
+        return null;
     }
-    writeAtomic($f, '', 0600, 0, 0);
-    logLine('Jack Streamer: his list written, empty until his first real run (Ms. Moverelli\'s joint night run waits for it)');
-    return true;
+    clearstatcache(true, $f);
+    if (is_file($f)) {
+        // there: untouched — unless emptied since his last run or the office wrote it (none of his runs going); seen with
+        // entries: noted (once per change) — a list that goes missing later held films
+        $note = readJson("$dir/" . JACK_LIST_NOTE);
+        $seen = is_array($note) && [(int) ($note['mtime'] ?? 0), (int) ($note['size'] ?? -1)] === [(int) filemtime($f), (int) filesize($f)];
+        if (trim((string) @file_get_contents($f, false, null, 0, 4096)) !== '') {
+            if (!$seen) {
+                jackListNote($dir);
+            }
+            return null;
+        }
+        if ($seen || !is_array($note) || (int) ($note['lines'] ?? 0) <= 0 || !($o['ran'] ?? jackListRan($dir))
+            || ($o['running'] ?? fn (): bool => jackJobInfo('embycache')['running'])()) {
+            return null;
+        }
+    } elseif (!($o['ran'] ?? jackListRan($dir))) {
+        writeAtomic($f, '', 0600, 0, 0);
+        jackListNote($dir);
+        logLine('Jack Streamer: his list written, empty until his first real run (Ms. Moverelli\'s joint night run waits for it)');
+        return 'written';
+    }
+    $was = is_file($f) ? 'emptied' : 'missing';
+    $cache = rtrim((string) $settings['cache_path'], '/');
+    $asleep = $cache !== '' && baseAsleep(basename($cache), $o['asleep'] ?? sleepingDisks());
+    $paths = $cache === '' || ($asleep && empty($o['wake'])) ? null : jackListFromPool($cache, $o['shares'] ?? jackMappedShares($settings));
+    if ($paths === null) {
+        logLine("Jack Streamer: his list is $was — not written anew now (" . ($asleep && empty($o['wake']) ? 'the pool sleeps' : 'the pool can\'t be read')
+            . '): Ms. Moverelli leaves the shares that name it, his real runs wait');
+        return 'lost';
+    }
+    writeAtomic($f, $paths ? implode("\n", $paths) . "\n" : '', 0600, 0, 0);
+    jackListNote($dir, ['rebuilt' => ['at' => time(), 'was' => $was, 'files' => count($paths)]]);
+    logLine("Jack Streamer: his list was $was after his runs — written anew from what of his shares lies on the pool (" . count($paths)
+        . ' files); his next complete run sets it right');
+    return 'rebuilt';
+}
+
+/**
+ * Has he worked here — a real run of MediaCache's, a list taken over from an old EmbyCache, or his list seen with entries
+ * (its note's `had`)? Then a lost list held films.
+ */
+function jackListRan(string $dir = JACK_DATA): bool
+{
+    if (is_file("$dir/mediacache_origin.json") || glob("$dir/mediacache_{exclude.txt,origin.json}.before-import-*", GLOB_BRACE)
+        || (readJson("$dir/" . JACK_LIST_NOTE)['had'] ?? null) === true) {
+        return true;
+    }
+    $real = fn (mixed $r): bool => is_array($r) && ($r['tool'] ?? '') === 'embycache' && in_array($r['mode'] ?? '', ['run', 'release'], true)
+        && !in_array($r['result'] ?? '', ['refused', 'skipped'], true);
+    return (bool) array_filter(jackHistory($dir), $real) || $real(readJson("$dir/office-run.json"));
+}
+
+/**
+ * Every file of his shares on his pool (absolute pool paths, as MediaCache writes them; no links, no line breaks), sorted —
+ * null: a share's folder can't be read or there are more than JACK_LIST_REBUILD_MAX
+ */
+function jackListFromPool(string $cache, array $shares): ?array
+{
+    $out = [];
+    foreach ($shares as $share) {
+        $root = "$cache/$share";
+        if (!is_dir($root)) {
+            continue;
+        }
+        try {
+            foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS)) as $file) {
+                $path = $file->getPathname();
+                if ($file->isLink() || !$file->isFile() || str_contains($path, "\n") || str_contains($path, "\r")) {
+                    continue;
+                }
+                $out[] = $path;
+                if (count($out) > JACK_LIST_REBUILD_MAX) {
+                    return null;
+                }
+            }
+        } catch (UnexpectedValueException) {
+            return null;
+        }
+    }
+    sort($out, SORT_STRING);
+    return array_values(array_unique($out));
+}
+
+/**
+ * The office's note of his list as it was left — by his run (jackJob()), the office, the import or seen by his look: its
+ * lines, mtime and size (a list emptied by anyone else is told apart by them), `had` (it once held entries). $extra:
+ * `rebuilt` (the Team Lead's hint) — kept until his next complete run ($complete: cleared); unknown keys kept.
+ */
+function jackListNote(string $dir = JACK_DATA, array $extra = [], bool $complete = false): void
+{
+    $f = "$dir/mediacache_exclude.txt";
+    clearstatcache(true, $f);
+    if (!is_file($f) || is_link($f)) {
+        return;
+    }
+    $note = (array) (readJson("$dir/" . JACK_LIST_NOTE) ?? []);
+    if ($complete) {
+        unset($note['rebuilt']);
+    }
+    $lines = count(array_filter(array_map('trim', (array) @file($f, FILE_IGNORE_NEW_LINES)), fn ($l) => $l !== ''));
+    writeAtomic("$dir/" . JACK_LIST_NOTE, jsonEncode(['v' => 1, 'lines' => $lines, 'mtime' => (int) filemtime($f), 'size' => (int) filesize($f),
+        'had' => $lines > 0 || ($note['had'] ?? null) === true] + $extra + $note), 0600, 0, 0);
 }
 
 function jackScan(): array
@@ -808,8 +917,9 @@ function jackPoolUsage(?array $settings): ?array
         return null;
     }
     $out = ['path' => $cache, 'total' => $total, 'free' => $free, 'free_percent' => round($free / $total * 100, 1), 'min_free' => $settings['min_free_percent'] ?? null];
-    // Ms. Moverelli (2026-10-13, the pool simply): she keeps the pool below X, he may fill up to Y = X − offset, his half H
-    // is his for sure — what he holds, how many files waited in his last run for room, what he gave back
+    // Ms. Moverelli (2026-10-13, the pool simply): she keeps the pool below X, he may fill up to Y = X − offset — what he
+    // holds, how many files waited in his last run for room, what he gave back (`keep`: the old «half», always 0 since
+    // 2026-10-14 — his page no longer shows it, kept for an older page)
     $look = jackPoolLook($settings);
     if ($look !== null) {
         $out['moverelli'] = ['x' => $look['rules']['x'], 'y' => $look['rules']['y'], 'k' => $look['rules']['k'],
@@ -1315,7 +1425,7 @@ function jackNotConfigured(?array $settings = null): Problem
 // ===================================================================== set up from scratch (2026-10-14)
 /*
  * «Set up from scratch» — really zero (the owner): no copy, no way back. Gone: EmbyCache's settings (server, API key,
- * libraries, people, amounts, N days), the import's and the updates' copies (*.before-*), his origin (mediacache_origin.json),
+ * libraries, people, amounts, N days), the import's and the updates' copies (*.before-*), his origin (mediacache_origin.json), his list's note (office-list.json),
  * his runs' state and history (office-run/-history/-output/-stop, the progress, status.json); the gather's settings
  * and state (gather.json, its ini files, last-real, sizes, status, its office-* files); his own schedules (EmbyCache's,
  * the gather's — Ms. Moverelli's night run is hers and stays; it leaves him out while he has no settings). His list is
@@ -1324,7 +1434,7 @@ function jackNotConfigured(?array $settings = null): Problem
  * becomes ordinary cache: she moves it by her rules (the age rule, from X). Kept: the logs (Ms. Protocolli shows
  * embycache.log and consolidate.log) and the lock files. Never while a run of his (EmbyCache or the gather) goes.
  */
-const JACK_RESET_GONE   = ['mediacache_settings.json', '.mediacache_settings.trial.json', 'mediacache_origin.json', 'office-history.json',
+const JACK_RESET_GONE   = ['mediacache_settings.json', '.mediacache_settings.trial.json', 'mediacache_origin.json', 'office-history.json', JACK_LIST_NOTE,
                            'office-run.json', 'office-output.txt', 'office-stop.json', 'jack-progress.json', 'jack-progress-speed.json', 'status.json'];
 const GATHER_RESET_GONE = ['gather.json', 'consolidate.ini', 'measure.ini', 'last-real.json', 'sizes.json', 'status.json', 'office-history.json',
                            'office-run.json', 'office-output.txt', 'office-stop.json'];
@@ -2307,6 +2417,7 @@ function jackImportApply(array $do, array $ctx): array
         }
         if ($e['exclude'] !== null) {
             writeAtomic($ctx['jack_dir'] . '/mediacache_exclude.txt', $e['exclude'] ? implode("\n", $e['exclude']) . "\n" : '', 0600, 0, 0);
+            jackListNote($ctx['jack_dir']);             // the list as taken over: an emptied one later is told apart
         }
     }
     $emby = readJson($ctx['jack_dir'] . '/mediacache_settings.json') ?? [];
@@ -2952,6 +3063,21 @@ function jackJob(string $tool, array $args): int
         }
     }
     jackDataDir($dir);
+    // his list gone (or emptied by someone else) after his runs: written anew from what lies on the pool before MediaCache
+    // reads it — an incomplete plan keeps «the list as it was», never an empty one for a lost one (H1, 2026-10-21); the
+    // let-go's release brings back what it names. Not to be written anew: no real run (jack_list_lost)
+    if ($tool === 'embycache' && in_array($mode, ['run', 'release'], true) && jackListEnsure(jackReadSettings(), $dir, ['wake' => true]) === 'lost') {
+        jackWaitEnd($wait, RUN_DIR, $tool);
+        if ($hold) {
+            flock($hold, LOCK_UN);
+            fclose($hold);
+        }
+        jackRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'from' => $from, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => 'jack_list_lost']);
+        if ($mode === 'release') {
+            jackReleaseRefusedTell('jack_list_lost');
+        }
+        return 1;
+    }
     // the start lock shared with Ms. Moverelli (jack-mover.php): none of her runs going, then his marker — one at a time
     $movers = jackMoversLock();
     if ($movers === null || (function_exists('moverelliBusy') && moverelliBusy())) {
@@ -3032,6 +3158,11 @@ function jackJob(string $tool, array $args): int
         fclose($hold);
     }
     $status = readJson("$dir/status.json") ?? [];
+    if ($tool === 'embycache' && in_array($mode, ['run', 'release'], true)) {
+        // his list as his run left it (before the run shows finished: a look meanwhile never takes it for emptied by someone
+        // else); a complete plan ends a «written anew» — the list is his own again
+        jackListNote($dir, [], $exit === 0 && ($status['incomplete'] ?? null) === false);
+    }
     $run += ['finished' => time(), 'exit' => $exit];
     writeAtomic("$dir/office-run.json", jsonEncode($run), 0600, 0, 0);
     $result = (string) ($status['result'] ?? ($exit === 0 ? 'ok' : 'failed'));
@@ -3521,6 +3652,11 @@ function jackChecks(): array
     $out[] = finding('share_fit', 'recommended', !$unfit, ['shares' => implode(', ', $unfit)], '#/jack');
     // EmbyCache runs in the night run with Ms. Moverelli (her line) — or, without her, on a line of its own
     $out[] = finding('schedule', 'recommended', officeJobSchedule('moverelli')['enabled'] || officeJobSchedule('embycache')['enabled'], [], '#/jack/schedule');
+    // his list (H1, 2026-10-21): gone after his runs and not written anew yet (his shares stay where they are, his runs
+    // wait); written anew from the pool — to know, his next complete run sets it right
+    $list = JACK_DATA . '/mediacache_exclude.txt';
+    $out[] = finding('list_lost', 'recommended', is_file($list) || !jackListRan(), ['file' => $list], '#/jack');
+    $out[] = finding('list_rebuilt', 'hint', !is_array(readJson(JACK_DATA . '/' . JACK_LIST_NOTE)['rebuilt'] ?? null), ['file' => $list], '#/jack');
     // the gather: optional — a calm hint, never a point that stays open (the owner, 2026-10-16)
     $out[] = finding('gather_optional', 'hint', true, [], '#/jack');
     $foreign = array_filter(jackForeignSchedules(), fn ($f) => $f['enabled']);

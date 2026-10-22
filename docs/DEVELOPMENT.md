@@ -332,10 +332,15 @@ active, `backup/` is left alone.
   label map, a stand-in inbox with `php -S`), `testReportDialog` (node). **Unraid's diagnostics** (a tick in the dialog,
   never pre-ticked or remembered): the preview runs `/usr/local/sbin/diagnostics <zip>` — exactly Tools → Diagnostics
   with «Anonymize» (never `-a`) — through atd into RAM (`office.report_diag` polled; a sleeping disk refuses without the
-  user's «wake»; Unraid's copy in `/boot/logs` removed); after the report the raw zip goes to `<inbox>/api/diag` (headers
-  X-Office, X-Rid) — the inbox keeps it at most 10 days behind an unguessable link in the private issue; an older or
-  switched-off inbox answers 404/`off` and the report stands. Unraid's «anonymized» keeps
-  the server's name, local IPs, disk serials and the logs — the dialog says so. Tests: `testReportDiagnostics`,
+  user's «wake»; Unraid's copy in `/boot/logs` removed). In the same atd job the office's own pass
+  (`php agent.php job report-diag-scrub <folder>`, `reportDiagScrub()`): every text file and file name of the zip through
+  the scrubber's names (shares — also Unraid's masks `F-----------e` —, pools and their further devices `hive2` →
+  `‹pool-1›-2`, users, the Connect account, the server's name and domains, devices, `/mnt` paths below a share, secrets,
+  mails, public addresses; local IPs and disk serials stay, binary files untouched) into `<name>.clean.zip` in RAM,
+  Unraid's zip deleted; a failed pass (`scrub.json`) is `failed {why: scrub}` and never sent. After the report the clean
+  zip goes to `<inbox>/api/diag` (headers X-Office, X-Rid) — the inbox keeps it at most 10 days behind an unguessable link
+  in the private issue; an older or switched-off inbox answers 404/`off` and the report stands. What stays (local IPs,
+  serials, the rest of the logs) the dialog says. Tests: `testReportDiagnostics`, `testReportDiagScrub`, `testReportSlots`,
   `testReportDialogDiagnostics`.
 * **The package:** `bash plugin/build.sh <office-version>` builds `dist/unraid-secretary-office-<date>.txz` and
   `dist/unraid-secretary-office.plg`; it refuses when `OFFICE_VERSION` (src/bootstrap.php) and `AGENT_VERSION`
@@ -481,8 +486,14 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
 * **`backup` — Mr. Backupsy.** The engine through its interface only. A real backup asked within the minute of the last is
   queued for the next; a tour, dry run or setup never waits. **Setup:** a level per share/VM/app (off · local · local + partner
   · local + offsite · local + partner + offsite; partner levels only with a pair and a dataset of its own); an app's further
-  shares never ticked unasked; a re-plan keeps hand changes. No backup place → opens on «Basics», says what to create — **the
-  office never makes the share**; place facts warn, never block. Apply sends only what was chosen and lists exactly what
+  shares never ticked unasked; a re-plan keeps hand changes. **No backup place (none chosen, or gone) → the setup is ONE
+  step** (2026-10-21): the five points, «Create UnraidSecretaryOffice…», the way in Unraid, the fitting shares to choose; no
+  start cards, tiles, other steps, bar or Apply until it stands (the overview's tiles say «the backup place first»). **The
+  office never makes a share — but this one, only on that click:** the office's own share UnraidSecretaryOffice, never another
+  name, where the agent proposes (`backupPlaceOffer()`: a ZFS pool appdata doesn't lie on first, only on it, no secondary
+  storage; why when second best), after a confirmation that shows exactly what Unraid makes (export: Unraid's default,
+  no), by Unraid's own «Add Share» (`backupPlaceMake()` → lib/firsthome.php `homeMake()`); refused when the share is there
+  or Unraid knew it, the pool unknown or asleep (never woken). Place facts warn, never block. Apply sends only what was chosen and lists exactly what
   changes; a plan older than settings.ini is refused; a failed plan shows its errors. **Warns about Kopia autostart, never
   starts Kopia.**
 * **`jack` — Jack Streamer (the intern).** MediaCache (Emby, Jellyfin, Plex — several servers at once; 1.65.0, before EmbyCache:
@@ -497,7 +508,11 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   counts are defaults inside it; the rule in plain sentences); without a budget «not set up yet» (`jackConfigured()`, no
   migration) and not in the night run. **Every server can be removed** (the last one too, after a confirm): with none
   saved he is not set up, runs refuse `jack_no_server`, his list keeps what lies on the pool — nothing moves by the
-  click; MediaCache itself refuses to run without a server.
+  click; MediaCache itself refuses to run without a server. **A lost list is never «keep nothing»** (H1, 2026-10-21): once
+  it held films (a real run, an import, his look saw entries — `office-list.json`), a list gone or emptied outside his runs
+  is written anew from what of his shares lies on his pool (his look; his run and release before MediaCache reads it — an
+  incomplete plan keeps «the list as it was»); can't be read → nothing written, his runs refuse `jack_list_lost`, Smart
+  Mover leaves the shares naming it; the Team Lead's `list_lost` / `list_rebuilt`.
 * **`moverelli` — Ms. Moverelli.** Smart Mover beside Unraid's mover (7.3.2+; her ini, every value checked). **Unraid's own
   mover goes off with her setup:** refused unless the page's consent `mover_off: true` comes along; the old schedule noted once,
   **her let-go puts it back** through the same form (only `MOVERELLI_UNRAID_CRON` shapes). **Never a hand-written cron line.**
@@ -514,7 +529,9 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   other caching shares' files oldest first across the pool (age = the younger of birth/ctime and mtime, `age_stat=newest`; never
   an excluded file, his list never) until his fetch ends at X (`--fill-until` = X − fetch), the age rule always; pool-only
   shares and whatever never moves are never pushed (they and what he keeps reach X → he fetches nothing new). Too big a budget
-  or unwatched over X: told.
+  or unwatched over X: told. **Every file left says why** (Smart Mover's `left_codes`: a name ending in whitespace, its copy,
+  the binary's words, a stop, else «in use or already there» — her share lines and run summary); files whose time lies more
+  than a day ahead (a clock put right) are counted (`future`) and said once under her last run — never notified.
 * **`logs` — Ms. Protocolli.** Reads logs from a fixed source list (ids only, never paths); lines into the page as text only;
   nothing read until chosen; routers' files only while their disks are awake. **Read only.** Unraid's syslog (and
   `syslog.1`) also by her syslog rules (`agent/desks/logs-rules/syslog_match.conf`, Enhanced Log's by dlandon and Derek Kaser,
@@ -620,7 +637,8 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
 * **Reports** (`agent/lib/report.php`): **never a request without the user's click on «Send»**; the send takes only the preview
   kept in RAM; `reportScrub()` over every log line and param (the user's own words never scrubbed); https only; report ID ≠
   supporter ID; the page never gets the private inbox's number or link; pictures redrawn without metadata, tick «nothing private
-  on them» required; Unraid's diagnostics only when ticked, ≤ 10 MB, sent after the report, deleted here at once. `testReport*`.
+  on them» required; Unraid's diagnostics only when ticked, only as the office's clean zip (`reportDiagScrub()`; a failed pass
+  sends nothing of them), ≤ 10 MB, sent after the report, deleted here at once. `testReport*`.
 * **Characters:** Frau Snapshotini (Italian); Herr Backupsi (nervous, checks three times — never «scatterbrained»); Jack
   Streamer (the intern, only under Frau Moverelli's eye, says so with a grin); Frau Protokolli (reads everything, understands
   nothing); Frau Putzteufel (dust everywhere, never throws away at once, knows every corner); der Teamchef (plain, friendly);

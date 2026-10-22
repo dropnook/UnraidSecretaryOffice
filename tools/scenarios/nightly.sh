@@ -15,7 +15,8 @@
 #      Tower has). Only Tower: run.sh refuses USOPartner and nostromo by their addresses.
 #   4. Every red one (red, dirty, error, timeout, busy; at most 20) once more: `USO_RUN_TAG=nightly-rerun run.sh tower
 #      --only <them>`. Red and then green = flaky, listed apart; red twice = red.
-#   5. ~/Claude/UnraidSecretaryOffice-briefs/scenarios/<date>/nightly.md (and nightly.tsv: name, verdict, first verdict,
+#   5. ~/Claude/UnraidSecretaryOffice-briefs/scenarios/<date>/nightly.md (atop: the feedback inbox, tools/inbox-health.sh -
+#      red when it takes no reports; and nightly.tsv: name, verdict, first verdict,
 #      seconds, red invariants - what the next night compares with), the diff to the last night before: new reds, fixed,
 #      flaky flips, new and gone scenarios; run.sh's own reports beside in tower-nightly/ and tower-nightly-rerun/.
 #   --dry: says what it would do (the tree, the lock, the last night) - nothing runs, Tower is not contacted.
@@ -114,8 +115,13 @@ echo "=== $started nightly.sh $*"
 # the Mac stays awake while the run lasts (launchd starts it, nobody is at the Mac)
 command -v caffeinate >/dev/null 2>&1 && { caffeinate -i -w $$ & }
 
+# the makers' feedback inbox, atop nightly.md (tools/inbox-health.sh; 2026-10-21: archived, nobody knew) - red when not open
+inbox=$(bash "$here/../inbox-health.sh"); inbox_rc=$?
+if ((inbox_rc == 0)); then inbox_md="Feedback inbox: $inbox"; else inbox_md="🔴 **Feedback inbox: $inbox**"; fi
+say "feedback inbox: $inbox"
+
 not_run() {     # not_run <why>: a nightly.md that says so (the next night compares with the last real one)
-    { echo "# Nightly scenarios - $day"; echo; echo "**Not run:** $1 ($started)."; } > "$md"
+    { echo "# Nightly scenarios - $day"; echo; echo "$inbox_md"; echo; echo "**Not run:** $1 ($started)."; } > "$md"
     say "not run: $1"
 }
 
@@ -206,6 +212,8 @@ g=$(count green) r=$(count red) f=$(count flaky) s=$(count skipped)
 took=$(( ($(date +%s) - t_start) / 60 ))
 {
     echo "# Nightly scenarios - $day"
+    echo
+    echo "$inbox_md"
     echo
     echo "Tower · tree $desc ($( [[ -n $devsync ]] && echo 'the code under test, dev-synced' || echo 'the plugin Tower has')) · started $started · $took min"
     echo

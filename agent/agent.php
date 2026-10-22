@@ -37,7 +37,7 @@ declare(strict_types=1);
 require dirname(__DIR__) . '/src/place.php';
 require_once dirname(__DIR__) . '/src/words.php';     // Unraid's own words in the texts (shared with the web side)
 
-const AGENT_VERSION = '1.69.4';
+const AGENT_VERSION = '1.70.1';
 define('RUN_DIR', officeRunDir());          // RAM, root only (0700); the web side's officeRunDir()
 const PID_FILE      = RUN_DIR . '/agent.pid';
 const AGENT_HEARTBEAT = RUN_DIR . '/agent.json';     // who is at work; its mtime is the pulse (writeInfo(), agentPulse())
@@ -102,6 +102,9 @@ function main(array $argv): int
             // jobs the host runs on its own (the plugin's cron file, atd), e.g. Ms. Snapshotini's schedules
             if (($argv[2] ?? '') === 'snapshot-plans' && is_dir(DATA_DIR)) {
                 return snapPlansRunDue();
+            }
+            if (($argv[2] ?? '') === 'report-diag-scrub') {
+                return reportDiagScrubJob((string) ($argv[3] ?? ''));     // a report's diagnostics, right after Unraid's tool
             }
             foreach (desks() as $desk) {
                 if (isset($desk['jobs'][$argv[2] ?? ''])) {

@@ -1,6 +1,12 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.68 - 2026-10-21
+# unraid-backup - backup.sh                       Version 2.69 - 2026-10-21
+#   2.69 An app stopped for the snapshot whose folders lie on a pool with almost no room (below 2 % of it, at least 1
+#        and at most 10 GiB, pool_low) is said before it stops: warning pool_low_space {pool, free, size, floor, apps, n}
+#        - it is still stopped and started as set up (a ZFS snapshot itself takes next to no room; a consistent
+#        snapshot is worth most just then), but it may not start cleanly there and the new snapshot keeps what it
+#        overwrites. A share Unraid deleted whose dataset only its snapshots keep (share_deleted_left) is no longer
+#        snapshotted again as the share: drift share_deleted_snapshots {name, datasets, snapshots}; nothing destroyed.
 #   2.68 An upload that takes nothing no longer holds the run for ever: Kopia's upload keeps no time limit, but a stall
 #        watchdog - its process reading and writing less than UB_KOPIA_STALL_BYTES (1 MiB, /proc/<pid>/io) for
 #        UB_KOPIA_STALL (900 s) ends it (INT, KILL after UB_KOPIA_STALL_END); a warning kopia_stalled {name, minutes,
@@ -8,6 +14,8 @@
 #        (unmount, cleanup, the lock freed); local snapshots, packages and partners as always. Every other Kopia
 #        call but the upload and the policies (--version, repository status, snapshot list) has UB_KOPIA_TIMEOUT
 #        (300 s) instead of the exec's 900 s.
+#        --kopia-watch: does the offsite storage still take writes? From the Kopia server's own content log only
+#        (state/kopia-watch.json; a turn to «stuck» told once, notify kopia_writes; a run's stall and upload write it too).
 #   2.67 A docker exec ended by its time limit no longer leaves its process running inside the container (ub_exec_end:
 #        exactly that command, started since the exec, and its children - TERM, then KILL). A Kopia call ended by its limit
 #        means Kopia doesn't answer: the run's later Kopia calls with a limit are refused at once (kopia_silent) - a share
@@ -391,6 +399,7 @@
 #                     --about      name, version and interface as JSON
 #                     --kopia-count the offsite repository's snapshots and sources now, as JSON (read only, 2.53)
 #                     --kopia-lock  Object Lock and Kopia's maintenance now -> state/kopia-lock.json (2.56; Kopia read only)
+#                     --kopia-watch does the offsite storage still take writes? -> state/kopia-watch.json (2.68; Kopia's server log only)
 #                     --kopia-accept=<repo>  «yes, this repository is new»: the hold of the Kopia step ends (2.56)
 #   UB_DATA=/path                  another data folder (default <office>/data/unraid-backup)
 #   UB_SETTINGS=/path/settings.ini another settings file
@@ -426,6 +435,7 @@ for a in "$@"; do
         --recover)  UB_MODE="recover" ;;
         --kopia-count) UB_MODE="kopia_count" ;;
         --kopia-lock) UB_MODE="kopia_lock" ;;
+        --kopia-watch) UB_MODE="kopia_watch" ;;
         --kopia-accept=*) UB_MODE="kopia_accept"; KA_REPO="${a#--kopia-accept=}" ;;
         --dry-run)  UB_DRY_RUN=1 ;;
         --no-kopia) UB_SKIP_KOPIA=1 ;;
@@ -438,7 +448,7 @@ done
 UB_MODE="${UB_MODE:-backup}"
 DRY="${UB_DRY_RUN:-0}"
 SKIPK="${UB_SKIP_KOPIA:-0}"
-case "$UB_MODE" in backup|check|unmount|recover|kopia_count|kopia_lock|kopia_accept) ;; *) echo "UB_MODE=$UB_MODE is unknown"; exit 2 ;; esac
+case "$UB_MODE" in backup|check|unmount|recover|kopia_count|kopia_lock|kopia_watch|kopia_accept) ;; *) echo "UB_MODE=$UB_MODE is unknown"; exit 2 ;; esac
 
 [[ $EUID -eq 0 ]] || { echo "Please run as root."; exit 1; }
 # --recover (2.25): no note of an interrupted run - nothing to do, nothing written; the array being
@@ -477,6 +487,19 @@ if [[ "$UB_MODE" == "kopia_lock" ]]; then
     fi
     kopia_lock_save
     cat "$KL_FILE"
+    exit 0
+fi
+# --kopia-watch (2.68): does the offsite storage still take what Kopia writes? Kopia's server's own content log, read through
+# one docker exec (lib/common.sh kopia_watch) - the repository never opened, nothing written there; no lock (a run may be
+# going on: it reads the same), no log; state/kopia-watch.json written and printed, a turn to «stuck» told once
+if [[ "$UB_MODE" == "kopia_watch" ]]; then
+    LOG_FILE=""
+    kw_not() { jq -nc --arg why "$1" '{ok: false, why: $why}'; exit 0; }
+    ub_data_dirs || { echo "Cannot create folders in $UB_DATA"; exit 1; }
+    load_settings >/dev/null 2>&1 || kw_not no_settings
+    is_yes "$KOPIA_ENABLED" || kw_not off
+    [[ -n "$KOPIA_CONTAINER" ]] || kw_not no_container
+    kopia_watch || kw_not write
     exit 0
 fi
 # --kopia-accept=<repo> (2.56): «yes, this repository is new» - the office's one click, behind the engine's lock (busy: refused)
@@ -3347,6 +3370,26 @@ ct_rests() {
     (( any ))
 }
 
+# 2.69: the pools with almost no room that hold the data of apps this run stops - said before they stop (pool_low_space,
+# one warning per pool). They are still stopped as set up: a ZFS snapshot takes next to no room, and a consistent
+# snapshot of an app is worth most when its pool is about to fill; what the room puts at risk is the app's start
+# afterwards and the blocks the new snapshot keeps - the user's to free, so it is said, not decided here
+pool_room_check() {
+    local n b
+    local -A apps=()
+    for n in "${T_APP[@]}" "${T_DB[@]}" "${T_NET[@]}"; do
+        [[ -n "$n" ]] || continue
+        while IFS= read -r b; do [[ -n "$b" ]] && apps[$b]+="${apps[$b]:+, }$n"; done <<<"$(ct_low_pools "$n")"
+    done
+    for b in $(printf '%s\n' "${!apps[@]}" | LC_ALL=C sort); do
+        pool_low "$b" || continue
+        warn_code pool_low_space "Pool '$b' has only $(human "$PL_FREE") free of $(human "$PL_SIZE") (below $(human "$PL_FLOOR")) - ${apps[$b]} keep their data there and are stopped and started for the snapshot as set up, but may not start cleanly with so little room, and the new snapshot keeps what they overwrite afterwards: make room on '$b'" \
+            pool="$b" free="$PL_FREE" size="$PL_SIZE" floor="$PL_FLOOR" free_h="$(human_sp "$PL_FREE")" size_h="$(human_sp "$PL_SIZE")" \
+            floor_h="$(human_sp "$PL_FLOOR")" apps="${apps[$b]}" n="$(tr ',' '\n' <<<"${apps[$b]}" | grep -c .)"
+    done
+    return 0
+}
+
 ##############################################################################
 # Partners (2.27)
 ##############################################################################
@@ -3984,6 +4027,7 @@ asleep_plan
 
 # --- Showing the plan -----------------------------------------------------
 build_stop_tiers
+pool_room_check                      # 2.69: before anything stops - the pools with almost no room holding their data
 vm_plan
 pkg_plan
 sqlite_plan
@@ -3999,6 +4043,7 @@ log "  Nextcloud:        $(cfg_names nextcloud | paste -sd' ' -)"
 log "  Pause:            ${T_APP[*]:-} | DB: ${T_DB[*]:-} | network: ${T_NET[*]:-}"
 log "  Keep running:     ${KOPIA_CONTAINER:-} ${DOCKER_NO_STOP[*]:-}"
 (( ${#T_NEW[@]} )) && log "  New, keep running: ${T_NEW[*]} (not stopped until you decide in the setup)"
+(( ${#PLAN_DELETED[@]} )) && log "  Left out, deleted: ${PLAN_DELETED[*]} (deleted in Unraid - only their snapshots keep the datasets; see the drift above)"
 (( ${#T_PAUSED[@]} )) && log "  Paused by you:    ${T_PAUSED[*]} (left as they are - not stopped, not started; paused again afterwards)"
 (( ${#T_REST[@]} )) && log "  Asleep, keep running: ${T_REST[*]} (all their backed-up data on pools left out this run)"
 (( ${#ST_ASLEEP_POOLS[@]} )) && log "  Left out, asleep:  ${ST_ASLEEP_POOLS[*]} - shares ${ST_ASLEEP_SHARES[*]:-none}${ST_ASLEEP_VMS[*]:+, VMs ${ST_ASLEEP_VMS[*]}}"
@@ -4268,9 +4313,10 @@ kopia_one() { # kopia_one <name> <container path>
         # 2.68: not an error of this server - a warning in the office's words; the later uploads and Kopia steps don't wait
         KOPIA_STALLED="$name"; KOPIA_STALL_AT="$KS_AT"; KOPIA_FAILED=$((KOPIA_FAILED+1))
         kopia_silent_mark "$secs" snapshot
+        kopia_watch_run stuck "$KS_AT"
         warn_code kopia_stalled "Kopia took nothing for $(( UB_KOPIA_STALL / 60 )) min - the upload of '$name' was ended; nothing more goes offsite in this run (the offsite storage takes no writes since $(date -d "@$KS_AT" '+%Y-%m-%d %H:%M'))" \
             name="$name" minutes="$(( UB_KOPIA_STALL / 60 ))" since="$(date -d "@$KS_AT" '+%Y-%m-%d %H:%M')"
-    elif [[ $rc -eq 0 ]]; then KOPIA_DONE=$((KOPIA_DONE+1)); log "  ok ($secs s)"
+    elif [[ $rc -eq 0 ]]; then KOPIA_DONE=$((KOPIA_DONE+1)); log "  ok ($secs s)"; kopia_watch_run ok
     else KOPIA_FAILED=$((KOPIA_FAILED+1)); err "Kopia snapshot of '$name' failed (exit code $rc)"; fi
     ST_KOPIA_DONE+=( "$name|$([[ $rc -eq 0 ]] && echo 1 || echo 0)|$secs|$(date +%s)" )
     ST_KOPIA_CUR=""; status_write
