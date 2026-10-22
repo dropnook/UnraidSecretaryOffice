@@ -780,7 +780,7 @@ function handle(string $raw): array
         if ($deskId !== 'office' && !agentDeskMayAct($deskId, $action)) {
             throw new Problem('not_hired', ['desk' => $deskId]);
         }
-        return $handler($request);
+        return houseDockerForPage(fn () => $handler($request));     // a page's request: a silent Docker may be looked at again (lib/house.php)
     } catch (Problem $p) {
         return ['ok' => false, 'error' => $p->toArray()];
     } catch (Throwable $e) {

@@ -10,7 +10,9 @@ declare(strict_types=1);
 const HOUSE_PLUGINS = '/boot/config/plugins';
 const HOUSE_CACHE   = 20;          // seconds — the agent runs for weeks, one tour of checks shares one look
 const HOUSE_DOCKER_WAIT  = 10;     // seconds a docker call of the house (houseDocker()) may take — every one in the agent's round
-const HOUSE_DOCKER_QUIET = 120;    // after one that didn't answer: no docker call of theirs for so long (houseDockerSilent())
+const HOUSE_DOCKER_QUIET = 60;     // after one that didn't answer, nor its short look: no docker call of theirs for so long (houseDockerSilent())
+const HOUSE_DOCKER_LOOK  = 5;      // seconds `docker version` may take when it only looks whether Docker answers at all (houseDockerAnswers())
+const HOUSE_DOCKER_AGAIN = 15;     // while Docker is silent, a page's request looks again once so long after the last look
 const HOUSE_DOCKER_FRESH = 30;     // a longer docker call only when Docker answered within so long — else a short look first
 
 /**
@@ -137,26 +139,32 @@ function houseInspect(string $name): ?array
     return is_array($j[0] ?? null) ? $j[0] : null;
 }
 
+/** The short look whether Docker answers: its server's version */
+const HOUSE_DOCKER_VERSION = ['version', '--format', '{{.Server.Version}}'];
+
 /**
  * A docker call of the house (houseContainers(), houseInspect() and every docker call that can run in the agent's own
  * round: the desks' looks, the page's requests): at most HOUSE_DOCKER_WAIT s — and once one didn't answer in time
- * (dockerd hung, stopped by a signal), none for HOUSE_DOCKER_QUIET s: a silent Docker costs the agent's round one short
- * wait, not 20 s for every caller (batch E B15, backup-sv-docker-hung-replan-run: a 140 s gap in the heartbeat, then
- * 39 s on 1.70.2 from the desks' own `docker ps`). Meanwhile they answer as Docker gave nothing (exit 124); callers
- * that say so ask houseDockerSilent(). A longer $wait (a page's `docker logs`, a user's removal, Kopia in its
- * container) only once Docker answered within HOUSE_DOCKER_FRESH s — else `docker version` with the short wait first:
- * a hung Docker never holds the agent for the long one. Before each wait the agent's pulse (houseDockerPulse()).
- * $docker: the tests' stand-in.
+ * (dockerd hung, stopped by a signal) and `docker version` then didn't either (houseDockerAnswers()), none for
+ * HOUSE_DOCKER_QUIET s: a silent Docker costs the agent's round one short wait and one short look, not 20 s for every
+ * caller (batch E B15, backup-sv-docker-hung-replan-run: a 140 s gap in the heartbeat, then 39 s on 1.70.2 from the
+ * desks' own `docker ps`). One slow answer is no silence (a joint mover/media run, a backup: scenario M7
+ * moverelli-jk-hired-list-run, 2026-10-22 — two minutes of «Docker doesn't answer» on every page while it worked): that
+ * call failed, Docker didn't. Meanwhile they answer as Docker gave nothing (exit 124); callers that say so ask
+ * houseDockerSilent() — in a page's request it looks again (houseDockerForPage()). A longer $wait (a page's
+ * `docker logs`, a user's removal, Kopia in its container) only once Docker answered within HOUSE_DOCKER_FRESH s — else
+ * `docker version` with the short wait first: a hung Docker never holds the agent for the long one. Before each wait the
+ * agent's pulse (houseDockerPulse()). $docker: the tests' stand-in.
  *
  * @return array{0:int, 1:string, 2:string}
  */
 function houseDocker(array $args, int $wait = HOUSE_DOCKER_WAIT, string $docker = 'docker'): array
 {
-    if (houseDockerSilent()) {
+    if (houseDockerSilent($docker)) {
         return [124, '', 'Docker does not answer (no new call for ' . HOUSE_DOCKER_QUIET . ' s after a time-out)'];
     }
     if ($wait > HOUSE_DOCKER_WAIT && !houseDockerAnsweredLately()) {
-        $look = houseDockerCall($docker, ['version', '--format', '{{.Server.Version}}'], HOUSE_DOCKER_WAIT);
+        $look = houseDockerCall($docker, HOUSE_DOCKER_VERSION, HOUSE_DOCKER_WAIT);
         if ($look[0] === 124) {
             return $look;
         }
@@ -164,22 +172,42 @@ function houseDocker(array $args, int $wait = HOUSE_DOCKER_WAIT, string $docker 
     return houseDockerCall($docker, $args, $wait);
 }
 
-/** One docker call of houseDocker(): its answer starts or ends the quiet time */
+/**
+ * One docker call of houseDocker(): an answer ends the quiet time; a time-out starts it only when Docker doesn't say
+ * its version either (houseDockerAnswers() — unless the call was that look itself)
+ */
 function houseDockerCall(string $docker, array $args, int $wait): array
 {
     houseDockerPulse();
     $r = run([$docker, ...$args], $wait);
-    if ($r[0] === 124) {
+    if ($r[0] !== 124) {
+        houseDockerHeard();
+    } elseif ($args !== HOUSE_DOCKER_VERSION && houseDockerAnswers($docker)) {
+        houseDockerHeard();         // one slow answer: this call failed, Docker didn't — no quiet time, nothing logged
+    } else {
         $GLOBALS['houseDockerSilent'] = hrtime(true) / 1e9;          // the monotonic clock: a step never shortens or stretches it
         unset($GLOBALS['houseDockerAnswered']);
         if (function_exists('logLine')) {
-            logLine("Office: Docker doesn't answer (docker {$args[0]} took over {$wait} s) — no docker call of the house for " . HOUSE_DOCKER_QUIET . ' s');
+            $look = $args === HOUSE_DOCKER_VERSION ? '' : ', docker version over ' . HOUSE_DOCKER_LOOK . ' s';
+            logLine("Office: Docker doesn't answer (docker {$args[0]} took over {$wait} s{$look}) — no docker call of the house for " . HOUSE_DOCKER_QUIET . ' s');
         }
-    } else {
-        unset($GLOBALS['houseDockerSilent']);
-        $GLOBALS['houseDockerAnswered'] = hrtime(true) / 1e9;
     }
     return $r;
+}
+
+/** Does Docker answer at all? `docker version` within HOUSE_DOCKER_LOOK s (the agent's pulse before the wait) */
+function houseDockerAnswers(string $docker): bool
+{
+    houseDockerPulse();
+    $GLOBALS['houseDockerLooked'] = hrtime(true) / 1e9;
+    return run([$docker, ...HOUSE_DOCKER_VERSION], HOUSE_DOCKER_LOOK)[0] !== 124;
+}
+
+/** Docker answered: no quiet time, and a longer call may follow without the short look (HOUSE_DOCKER_FRESH) */
+function houseDockerHeard(): void
+{
+    unset($GLOBALS['houseDockerSilent']);
+    $GLOBALS['houseDockerAnswered'] = hrtime(true) / 1e9;
 }
 
 /** Did a docker call of the house come back in time within HOUSE_DOCKER_FRESH s? */
@@ -201,11 +229,39 @@ function houseDockerPulse(): void
     }
 }
 
-/** Did Docker not answer lately (a docker call of the house timed out within HOUSE_DOCKER_QUIET s)? */
-function houseDockerSilent(): bool
+/**
+ * Did Docker not answer lately (a docker call of the house and its short look timed out within HOUSE_DOCKER_QUIET s)?
+ * In a page's request (houseDockerForPage()) — never the agent's round — it looks again once HOUSE_DOCKER_AGAIN s after
+ * the last look: Docker back, the page says so at once, not up to a minute later (B15's stale bubble); still silent,
+ * the quiet time starts anew. A look costs one short wait (HOUSE_DOCKER_LOOK), at most one per HOUSE_DOCKER_AGAIN s.
+ */
+function houseDockerSilent(string $docker = 'docker'): bool
 {
     $at = $GLOBALS['houseDockerSilent'] ?? null;
-    return is_float($at) && hrtime(true) / 1e9 - $at < HOUSE_DOCKER_QUIET;
+    if (!is_float($at) || hrtime(true) / 1e9 - $at >= HOUSE_DOCKER_QUIET) {
+        return false;
+    }
+    $looked = max($at, (float) ($GLOBALS['houseDockerLooked'] ?? $at));
+    if (empty($GLOBALS['houseDockerPage']) || hrtime(true) / 1e9 - $looked < HOUSE_DOCKER_AGAIN) {
+        return true;
+    }
+    if (!houseDockerAnswers($docker)) {
+        $GLOBALS['houseDockerSilent'] = hrtime(true) / 1e9;
+        return true;
+    }
+    houseDockerHeard();
+    return false;
+}
+
+/** A page's request (agent.php handle()): while it runs, a silent Docker may be looked at again (houseDockerSilent()) */
+function houseDockerForPage(callable $f): mixed
+{
+    $GLOBALS['houseDockerPage'] = true;
+    try {
+        return $f();
+    } finally {
+        unset($GLOBALS['houseDockerPage']);
+    }
 }
 
 const HOUSE_AUTOSTART        = '/var/lib/docker/unraid-autostart';                  // Unraid's Docker autostart list (RAM, in docker.img's folder)

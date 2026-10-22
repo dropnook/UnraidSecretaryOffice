@@ -20861,8 +20861,9 @@ function testAgentZone(): void
 /**
  * Batch E B15 (scenario backup-sv-docker-hung-replan-run, dockerd SIGSTOPped): houseContainers() and houseInspect()
  * waited 20 s each while Docker was silent, inside the agent's round (the Team Lead's checks, the desks) — a 140 s gap
- * in the heartbeat. Now one short wait (HOUSE_DOCKER_WAIT), then no docker call of the house for HOUSE_DOCKER_QUIET s
- * (houseDockerSilent()); a docker that answers again ends it. A docker stand-in of the test's own on PATH.
+ * in the heartbeat. Now one short wait (HOUSE_DOCKER_WAIT) and one short look (docker version, HOUSE_DOCKER_LOOK), then no
+ * docker call of the house for HOUSE_DOCKER_QUIET s (houseDockerSilent()); a docker that answers again ends it. A docker
+ * stand-in of the test's own on PATH.
  */
 function testHouseDockerSilent(): void
 {
@@ -20880,7 +20881,8 @@ function testHouseDockerSilent(): void
     };
     $ok = function_exists('houseDocker');
     [$first, $t1] = $ok ? $timed(fn () => houseDocker(['ps'], 1)[0]) : ['no houseDocker()', 0];
-    same('docker silent: the first call that gets no answer waits its short time and says so (124)', [124, true], [$first, $t1 >= 0.9 && $t1 < 5]);
+    same('docker silent: the first call that gets no answer waits its short time and its short look (docker version), then says so (124)',
+        [124, true], [$first, $t1 >= 0.9 && $t1 < 1 + (defined('HOUSE_DOCKER_LOOK') ? HOUSE_DOCKER_LOOK : 0) + 3]);
     same('docker silent: Docker counts as silent now', true, $ok && houseDockerSilent());
     [$list, $t2] = $timed(fn () => houseContainers(true));
     [$one, $t3] = $timed(fn () => houseInspect('x'));
@@ -20946,13 +20948,19 @@ function testNotifyToldLately(): void
  * Docker is silent nothing is asked and the round stays far under the heartbeat (a plan or a log says
  * errors.docker_silent, a look «unknown»); a long wait (a page's docker logs, 30 s) only after Docker answered — else the
  * short look first; the agent's pulse before a wait (in the agent only, never in a job). A docker stand-in on PATH.
+ * 2026-10-22 (scenario M7 moverelli-jk-hired-list-run: one `docker ps` over its wait during a joint run, then two
+ * minutes of «Docker doesn't answer» on every page; B15's stale bubble after Docker came back): one slow call is no
+ * silence — only when `docker version` doesn't answer either; a page's request (never the round) looks again once
+ * HOUSE_DOCKER_AGAIN s after the last look and ends the silence when Docker answers.
  */
 function testDockerGuard(): void
 {
     $tmp = hardeningTmp('dockerguard');
     $path = getenv('PATH');
+    // hung: every call sleeps so long; slow: every call but `docker version` (a busy Docker that still says its version)
     file_put_contents("$tmp/docker", "#!/bin/sh\necho \"\$*\" >>" . escapeshellarg("$tmp/calls") . "\n[ -f " . escapeshellarg("$tmp/hung") . ' ] && sleep "$(cat '
-        . escapeshellarg("$tmp/hung") . ")\"\nexit 0\n");
+        . escapeshellarg("$tmp/hung") . ")\"\n[ -f " . escapeshellarg("$tmp/slow") . ' ] && [ "$1" != version ] && sleep "$(cat '
+        . escapeshellarg("$tmp/slow") . ")\"\nexit 0\n");
     chmod("$tmp/docker", 0755);
     putenv("PATH=$tmp:$path");
     $calls = fn (): array => array_values(array_filter(explode("\n", (string) @file_get_contents("$tmp/calls")), 'strlen'));
@@ -21028,8 +21036,66 @@ function testDockerGuard(): void
     houseDocker(['ps']);
     same('docker guard: answering — the short look once, then the long calls and the short ones', ['version --format {{.Server.Version}}', 'logs x', 'logs y', 'ps'], $calls());
 
+    // 4. One slow call (a joint mover/media run, a backup): it fails, but Docker says its version at once — not silent
+    $version = 'version --format {{.Server.Version}}';
+    $look = defined('HOUSE_DOCKER_LOOK') ? HOUSE_DOCKER_LOOK : 0;
+    unset($GLOBALS['houseDockerSilent'], $GLOBALS['houseDockerAnswered'], $GLOBALS['houseDockerLooked']);
+    file_put_contents("$tmp/slow", '4');
+    @unlink("$tmp/calls");
+    $t = microtime(true);
+    $r = houseDocker(['ps'], 1);
+    $secs = microtime(true) - $t;
+    same('docker guard: one slow call — it fails (124), the short look answers: Docker not silent, the next call asked',
+        [124, ['ps', $version], false, true], [$r[0], $calls(), houseDockerSilent(), $secs < 3]);
+
+    // 5. A slow call and no answer to the short look either: silent — one short wait and one short look, no more
+    unlink("$tmp/slow");
+    file_put_contents("$tmp/hung", '8');
+    unset($GLOBALS['houseDockerSilent'], $GLOBALS['houseDockerAnswered'], $GLOBALS['houseDockerLooked']);
+    @unlink("$tmp/calls");
+    $t = microtime(true);
+    $r = houseDocker(['ps'], 1);
+    $secs = microtime(true) - $t;
+    same('docker guard: a slow call and no version within HOUSE_DOCKER_LOOK s either — Docker silent after the short wait and the look',
+        [124, ['ps', $version], true, true], [$r[0], $calls(), houseDockerSilent(), $secs > $look && $secs < 1 + $look + 3]);
+
+    // 6. Silent: the agent's round never looks again; a page's request does, once HOUSE_DOCKER_AGAIN s after the last look
+    $again = defined('HOUSE_DOCKER_AGAIN') ? HOUSE_DOCKER_AGAIN : 15;
+    $asPage = fn (callable $f) => function_exists('houseDockerForPage') ? houseDockerForPage($f) : $f();
+    unlink("$tmp/hung");
+    @unlink("$tmp/calls");
+    $GLOBALS['houseDockerSilent'] = $GLOBALS['houseDockerLooked'] = hrtime(true) / 1e9 - 5;
+    same('docker guard: silent, looked 5 s ago — neither the round nor a page asks Docker anything', [124, 124, []],
+        [houseDocker(['ps'])[0], $asPage(fn () => houseDocker(['ps'])[0]), $calls()]);
+    $GLOBALS['houseDockerSilent'] = $GLOBALS['houseDockerLooked'] = hrtime(true) / 1e9 - $again - 1;
+    $round = houseDocker(['ps'])[0];
+    $page = $asPage(fn () => houseDocker(['ps'])[0]);
+    same('docker guard: silent, looked HOUSE_DOCKER_AGAIN s ago — the round still asks nothing; a page looks (docker version), Docker answers: no longer silent, its call made',
+        [124, 0, [$version, 'ps'], false], [$round, $page, $calls(), houseDockerSilent()]);
+    file_put_contents("$tmp/hung", '8');
+    @unlink("$tmp/calls");
+    $GLOBALS['houseDockerSilent'] = $GLOBALS['houseDockerLooked'] = hrtime(true) / 1e9 - $again - 1;
+    $page = $asPage(fn () => houseDocker(['ps'])[0]);
+    same('docker guard: silent and still hung — a page\'s look gets no answer: silent anew, nothing else asked', [124, [$version], true],
+        [$page, $calls(), houseDockerSilent() && hrtime(true) / 1e9 - $GLOBALS['houseDockerSilent'] < 2]);
+    // through the agent's dispatch: a container's log on the page (logs.read) is a page's request
+    unlink("$tmp/hung");
+    @unlink("$tmp/calls");
+    $staffBefore = $GLOBALS['agentStaffFile'] ?? null;
+    $GLOBALS['agentStaffFile'] = "$tmp/staff.json";
+    file_put_contents("$tmp/staff.json", json_encode(['hired' => ['logs' => 1]]));
+    $GLOBALS['houseDockerSilent'] = $GLOBALS['houseDockerLooked'] = hrtime(true) / 1e9 - $again - 1;
+    $said = handle(json_encode(['action' => 'logs.read', 'source' => 'container:x']))['error']['key'] ?? 'ok';
+    same('docker guard: the page\'s log of a container after Docker came back — looked again, no «Docker doesn\'t answer» (no container x here)',
+        ['logs_unknown', $version, false], [$said, $calls()[0] ?? null, houseDockerSilent()]);
+    if ($staffBefore === null) {
+        unset($GLOBALS['agentStaffFile']);
+    } else {
+        $GLOBALS['agentStaffFile'] = $staffBefore;
+    }
+
     putenv("PATH=$path");
-    unset($GLOBALS['houseDockerSilent'], $GLOBALS['houseDockerAnswered']);
+    unset($GLOBALS['houseDockerSilent'], $GLOBALS['houseDockerAnswered'], $GLOBALS['houseDockerLooked']);
     if ($hadUsers !== null) {
         $GLOBALS['rs']['users'] = $hadUsers;
     }
