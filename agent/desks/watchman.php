@@ -341,7 +341,8 @@ desk('watchman', [
         'ack'     => fn (array $r) => watchmanAck(is_array($r['id'] ?? null) ? null : ($r['id'] ?? null)),      // one id; a list is ack_some's
         'ack_all' => fn (array $r) => watchmanAck('*'),
         'ack_some' => fn (array $r) => watchmanAck(idList($r, 'ids')),       // a folded row of his page: «All n: I know, thanks»
-        'ack_serious' => fn (array $r) => watchmanSerious(textField($r, 'id'), optText($r, 'note')),     // «Acknowledge — this was serious»
+        'ack_serious' => fn (array $r) => watchmanSerious(textField($r, 'id'), optText($r, 'note')),     // «This was a real incident…»
+        'serious_undo' => fn (array $r) => watchmanSeriousUndo(textField($r, 'id')),     // «Not serious after all…» on his list of serious incidents
         'notify_set' => fn (array $r) => watchmanNotifySet($r['on'] ?? null),
         'syslog_set' => fn (array $r) => watchmanSyslogSet($r['on'] ?? null),
         'posture_ack' => fn (array $r) => watchmanPostureAck($r['id'] ?? null, $r['on'] ?? null),
@@ -8527,9 +8528,7 @@ function watchmanAck(mixed $id, ?string $dir = null, ?int $now = null, bool $pag
             if (!watchmanOpen($e) || (!$all && !isset($id[$e['id']]))) {
                 continue;
             }
-            watchmanAdopt($b, $e, $seen, $now);
-            $book[$i]['noted'] = $now;
-            $book[$i]['by'] = 'page';
+            watchmanNoteByPage($b, $book, $i, $seen, $now);
             $noted[] = $e['kind'];
         }
         if (!$noted && !$all) {
@@ -8550,8 +8549,16 @@ function watchmanAck(mixed $id, ?string $dir = null, ?int $now = null, bool $pag
     return ['ok' => true, 'noted' => count($noted), 'state' => watchmanPageState()];
 }
 
+/** «I know, thanks» on the book's entry $i: what it tells of becomes normal, noted by the page */
+function watchmanNoteByPage(array &$b, array &$book, int $i, array $seen, int $now): void
+{
+    watchmanAdopt($b, $book[$i], $seen, $now);
+    $book[$i]['noted'] = $now;
+    $book[$i]['by'] = 'page';
+}
+
 /**
- * «Acknowledge — this was serious»: the entry leaves what is open like «I know, thanks», but nothing of it becomes
+ * «This was a real incident…» (once «Acknowledge — this was serious»): the entry leaves what is open like «I know, thanks», but nothing of it becomes
  * normal (an attacker's address never a known one, a pull never the new normal — still there, it is told again) and it
  * goes into his history of serious incidents (incidents.json: the entry as it was, when, the note). For
  * WATCH_SERIOUS_DAYS the same kind from the same source (its key) is louder: told at once, even when its kind is quiet
@@ -8596,6 +8603,67 @@ function watchmanSerious(string $id, string $note, ?string $dir = null, ?int $no
     logLine("Night watchman: a serious incident acknowledged ($kind) — the same from the same source is louder for " . WATCH_SERIOUS_DAYS . ' days');
     watchmanMirrorKeep($dir);
     return ['ok' => true, 'state' => watchmanPageState()];
+}
+
+/**
+ * «Not serious after all…» on his list of serious incidents: it leaves the list, so the same from the same source is no
+ * longer louder, and everything ends as «I know, thanks» would have left it — the entry itself (or, pruned from the book
+ * meanwhile, the incident as it was kept) and every entry that came back louder because of it (`again`, its kind and
+ * source) become normal, those still open are noted. Other incidents and entries the list doesn't know are kept.
+ */
+function watchmanSeriousUndo(string $id, ?string $dir = null, ?int $now = null, bool $page = true): array
+{
+    if (!preg_match(WATCH_ID, $id)) {
+        throw new Problem('bad_request');
+    }
+    $dir ??= watchmanDir();
+    $now ??= time();
+    [$kind, $settled] = watchmanLocked($dir, function () use ($dir, $id, $now): array {
+        $d = watchmanLoad($dir);
+        if (!is_array($d['baseline'])) {
+            throw new Problem('watch_gone');
+        }
+        $x = array_column(watchmanIncidents($dir), null, 'id')[$id] ?? null;
+        if ($x === null) {
+            throw new Problem('watch_incident_gone');
+        }
+        $seen = readJson("$dir/seen.json") ?? [];
+        $b = $d['baseline'];
+        $book = $d['book'];
+        $own = false;
+        $settled = 0;
+        foreach ($book as $i => $e) {
+            if ($e['id'] === $id) {
+                $own = true;            // noted by the page already, when it was called serious
+                unset($book[$i]['serious']);
+                watchmanAdopt($b, $e, $seen, $now);
+            } elseif (($e['again'] ?? null) === $id && $e['kind'] === $x['kind'] && (string) ($e['key'] ?? '') === $x['key']) {
+                unset($book[$i]['again']);
+                if (watchmanOpen($e)) {
+                    watchmanNoteByPage($b, $book, $i, $seen, $now);
+                    $settled++;
+                }
+            }
+        }
+        if (!$own) {
+            watchmanAdopt($b, $x, $seen, $now);
+        }
+        $st = $d['state'];
+        $st['open'] = watchmanOpenCounts($book);
+        watchmanSave($dir, $d, ['baseline' => $b, 'book' => $book, 'state' => $st]);
+        // the list as it is on disk, only this incident out (entries in a shape it doesn't know are kept)
+        $raw = readJson("$dir/incidents.json");
+        $raw = is_array($raw) ? $raw : [];
+        $list = array_values(array_filter((array) ($raw['incidents'] ?? []), fn ($y) => !is_array($y) || ($y['id'] ?? null) !== $id));
+        writeAtomic("$dir/incidents.json", jsonEncode(['incidents' => $list] + $raw + ['v' => 1]));
+        return [(string) $x['kind'], $settled];
+    });
+    if (!$page) {
+        return ['ok' => true, 'kind' => $kind, 'settled' => $settled];
+    }
+    logLine("Night watchman: a serious incident taken back ($kind) — noted like «I know, thanks»" . ($settled ? ", with $settled that came back since" : ''));
+    watchmanMirrorKeep($dir);
+    return ['ok' => true, 'settled' => $settled, 'state' => watchmanPageState()];
 }
 
 /** The note to a serious incident: one line, no control characters, at most WATCH_NOTE_MAX characters */

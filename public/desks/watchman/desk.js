@@ -123,10 +123,11 @@ async function ack(e, b) {
 }
 
 /**
- * «Acknowledge — this was serious»: closes the entry as a real incident (nothing of it becomes normal), with an optional
- * one-line note; it goes into his history of serious incidents and the same from the same source is louder for a while
+ * «This was a real incident…»: closes the entry as a real incident (nothing of it becomes normal), with an optional
+ * one-line note; it goes into his history of serious incidents and the same from the same source is louder for a while.
+ * The dialog says what follows and offers «I know, thanks» ($ab, the row's button) as the other answer.
  */
-function seriousAck(e, b) {
+function seriousAck(e, b, ab) {
   const days = seriousDays();
   const box = el('div');
   box.appendChild(el('p', 'wm-serious-what', entryName(e)));
@@ -143,9 +144,9 @@ function seriousAck(e, b) {
   f.append(label, note);
   box.appendChild(f);
   Office.dialog({
-    title: T('serious'),
+    title: T('serious_dialog_title'),
     body: box,
-    buttons: [{ text: Office.t('common.cancel') }, { text: T('serious'), kind: 'danger', act: async () => {
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('serious_confirm'), kind: 'plain danger', act: async () => {
       if (!Office.agent.running) return false;
       const j = await Office.api.post(`${ID}.ack_serious`, { id: e.id, note: note.value.trim() });
       if (!j.ok) {
@@ -157,6 +158,43 @@ function seriousAck(e, b) {
       mood();
       renderKeeping(e.id);
       Office.toast(T('serious_done'));
+      return true;
+    } }, { text: T('ack'), kind: '', act: async () => {
+      if (!Office.agent.running) return false;
+      await ack(e, ab);
+      return true;
+    } }],
+  });
+  if (b) b.blur();
+}
+
+/**
+ * «Not serious after all…» on a row of his list of serious incidents: it leaves the list, the louder time ends, and it
+ * ends as «I know, thanks» would have left it — also what came back louder since from the same source
+ */
+async function seriousUndo(shown, b) {
+  if (!(await Office.freshState(ID))) return;
+  const x = ((state && state.incidents) || []).find((y) => y && y.id === shown.id);
+  if (!x) { Office.toast(T('errors.watch_incident_gone'), true); renderAt('.wm-incidents'); return; }
+  const box = el('div');
+  box.appendChild(el('p', 'wm-serious-what', entryName(x)));
+  box.appendChild(el('p', 'role', T('serious_undo_text')));
+  if (x.again) box.appendChild(el('p', 'role', T('serious_undo_again', { n: x.again })));
+  Office.dialog({
+    title: T('serious_undo'),
+    body: box,
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('serious_undo_confirm'), kind: '', act: async () => {
+      if (!Office.agent.running) return false;
+      const j = await Office.api.post(`${ID}.serious_undo`, { id: x.id });
+      if (!j.ok) {
+        Office.toast(Office.errorText(j.error, ID), true);
+        if (j.error && (j.error.key === 'watch_incident_gone' || j.error.key === 'watch_gone')) { await load(true); return true; }
+        return false;
+      }
+      if (j.state) state = j.state;
+      mood();
+      renderAt('.wm-incidents', '.wm-book');
+      Office.toast(T('serious_undo_done'));
       return true;
     } }],
   });
@@ -404,6 +442,14 @@ function incidentRow(x) {
   main.appendChild(meta);
   if (x.note) main.appendChild(el('div', 'row-detail wm-incident-note', x.note));
   r.appendChild(main);
+  const acts = el('div', 'wm-entry-acts');
+  const b = el('button', 'btn small plain', T('serious_undo'));
+  b.type = 'button';
+  b.title = T('serious_undo_title');
+  b.disabled = !Office.agent.running;
+  b.onclick = () => seriousUndo(x, b);
+  acts.appendChild(b);
+  r.appendChild(acts);
   return r;
 }
 
@@ -954,11 +1000,11 @@ function entryRow(e, owner) {
     b.onclick = () => ack(e, b);
     acts.appendChild(b);
     if (!watch) {
-      const sb = el('button', 'btn small plain danger wm-serious', T('serious'));
+      const sb = el('button', 'btn small plain wm-serious', T('serious'));
       sb.type = 'button';
       sb.title = T('serious_title', { days: seriousDays() });
       sb.disabled = !Office.agent.running;
-      sb.onclick = () => seriousAck(e, sb);
+      sb.onclick = () => seriousAck(e, sb, b);
       acts.appendChild(sb);
     }
     r.appendChild(acts);

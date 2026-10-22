@@ -16715,6 +16715,146 @@ function testWatchmanSerious(): void
 }
 
 /**
+ * «Not serious after all…» on his list of serious incidents: the incident leaves the list, the same from the same source
+ * is no longer louder, and everything ends as «I know, thanks» would have left it — the entry itself becomes normal (also
+ * when the book pruned it meanwhile), entries that came back louder because of it are noted; another incident, an
+ * entry of another source and entries of a shape the list doesn't know are kept; an old list (an older office's) works.
+ */
+function testWatchmanSeriousUndo(): void
+{
+    $now = strtotime('2026-10-06 12:00:00');
+    $tmp = sys_get_temp_dir() . '/office-tests-serious-undo-' . getmypid();
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    foreach (['plugins', 'extra', 'ssh/root'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini",
+              'share_cfg' => "$src/share.cfg", 'etc_passwd' => "$src/passwd"];
+    $line = fn (int $t, string $s) => date('M ', $t) . str_pad(date('j', $t), 2, ' ', STR_PAD_LEFT) . date(' H:i:s', $t) . " Tower $s\n";
+    file_put_contents($paths['syslog'], $line($now - 7200, 'webgui: Successful login user root from 192.168.20.10'));
+    file_put_contents("$src/plugins/ca.plg", "<PLUGIN name=\"ca\" version=\"1\" pluginURL=\"https://raw.githubusercontent.com/unraid/ca/master/ca.plg\">\n");
+    file_put_contents($paths['go'], "#!/bin/bash\n/usr/local/sbin/emhttp &\n");
+    file_put_contents($paths['passwd'], "root:x:0:0:Console and webGui login account:/root:/bin/bash\n");
+    file_put_contents($paths['shadow'], 'root:$6$aa$bb:20000:0:99999:7:::' . "\n");
+    file_put_contents($paths['sec'], "[\"appdata\"]\nexport=\"e\"\nsecurity=\"private\"\n");
+    file_put_contents($paths['sec_nfs'], '');
+    file_put_contents($paths['share_cfg'], "shareSMBEnabled=\"yes\"\nshareNFSEnabled=\"no\"\n");
+    $containers = ['plex' => ['image' => 'plex', 'tokens' => ['-p 32400:32400/tcp']]];
+    $docker = function () use (&$containers) {
+        return $containers;
+    };
+    $acks = "$tmp/acks.json";
+    $envBefore = getenv('OFFICE_NOTIFY_BIN');
+    putenv("OFFICE_NOTIFY_BIN=$tmp/no-notify");
+    $openOf = fn (string $kind) => array_values(array_filter(watchmanLoad($data)['book'], fn ($e) => watchmanOpen($e) && $e['kind'] === $kind));
+    $known = fn () => array_keys((array) (watchmanLoad($data)['baseline']['ips'] ?? []));
+
+    watchmanRound($paths, $data, 1000, $now, $docker, true, $acks);
+    // two new addresses and a new published port; the first address and the port called serious
+    file_put_contents($paths['syslog'], $line($now + 300, 'webgui: Successful login user root from 10.9.8.7')
+        . $line($now + 310, 'webgui: Successful login user root from 10.9.8.8'), FILE_APPEND);
+    $containers['plex']['tokens'][] = '-p 8080:80/tcp';
+    watchmanRound($paths, $data, 1000, $now + 600, $docker, true, $acks);
+    $byKey = array_column($openOf('login_new_ip'), null, 'key');
+    $login = $byKey['login_new_ip:10.9.8.7'];
+    $ports = $openOf('container_ports')[0];
+    watchmanSerious($login['id'], 'my own laptop', $data, $now + 700, false);
+    watchmanSerious($ports['id'], '', $data, $now + 710, false);
+    // the same address again: back louder
+    file_put_contents($paths['syslog'], $line($now + 800, 'sshd-session[5]: Accepted publickey for root from 10.9.8.7 port 2 ssh2: ED25519 SHA256:x'), FILE_APPEND);
+    watchmanRound($paths, $data, 1000, $now + 900, $docker, true, $acks);
+    $again = array_values(array_filter($openOf('login_new_ip'), fn ($e) => ($e['again'] ?? null) === $login['id']))[0] ?? null;
+    same('serious undo: before — the address unknown, back louder', [false, true], [in_array('10.9.8.7', $known(), true), $again !== null]);
+    // a file with an entry the list doesn't know (a newer office's) — kept
+    $raw = json_decode((string) file_get_contents("$data/incidents.json"), true);
+    $raw['incidents'][] = ['id' => 'w00000000ff', 'kind' => 'some_newer_kind', 'key' => 'x', 'time' => 1, 'at' => 1, 'until' => 2, 'p' => []];
+    $raw['newer'] = 'kept';
+    file_put_contents("$data/incidents.json", json_encode($raw));
+
+    foreach (['nope', 'w' . str_repeat('0', 10) . "\n"] as $bad) {
+        try {
+            watchmanSeriousUndo($bad, $data, $now + 1000, false);
+            check('serious undo: a bad id is refused', false);
+        } catch (Problem $e) {
+            same('serious undo: a bad id is refused', 'bad_request', $e->key);
+        }
+    }
+    try {
+        watchmanSeriousUndo($byKey['login_new_ip:10.9.8.8']['id'], $data, $now + 1000, false);
+        check('serious undo: an entry that is no incident is refused', false);
+    } catch (Problem $e) {
+        same('serious undo: an entry that is no incident is refused', 'watch_incident_gone', $e->key);
+    }
+
+    $r = watchmanSeriousUndo($login['id'], $data, $now + 1000, false);
+    $d = watchmanLoad($data);
+    $book = array_column($d['book'], null, 'id');
+    same('serious undo: taken back — one that came back is settled', [true, 'login_new_ip', 1], [$r['ok'], $r['kind'], $r['settled']]);
+    same('serious undo: the entry is what «I know, thanks» makes it — noted by the page, no longer serious, the address known',
+        [false, $now + 700, 'page', false, true],
+        [watchmanOpen($book[$login['id']]), $book[$login['id']]['noted'], $book[$login['id']]['by'], isset($book[$login['id']]['serious']), in_array('10.9.8.7', $known(), true)]);
+    same('serious undo: the one that came back louder is noted by the page, no longer «again»', [false, $now + 1000, 'page', false],
+        [watchmanOpen($book[$again['id']]), $book[$again['id']]['noted'], $book[$again['id']]['by'], isset($book[$again['id']]['again'])]);
+    same('serious undo: another source stays open, unknown', [true, false],
+        [watchmanOpen($book[$byKey['login_new_ip:10.9.8.8']['id']]), in_array('10.9.8.8', $known(), true)]);
+    same('serious undo: only this incident leaves the list — the other and the unknown one kept, the file\'s other keys too',
+        [[$ports['id'], 'w00000000ff'], 'kept', 1],
+        (function () use ($data) {
+            $j = json_decode((string) file_get_contents("$data/incidents.json"), true);
+            return [array_column($j['incidents'], 'id'), $j['newer'] ?? null, $j['v'] ?? null];
+        })());
+    $s = watchmanPageState($data, $now + 1000, false);
+    $sb = array_column($s['book'], null, 'id');
+    same('serious undo page: the list without it, the entry not marked serious', [[$ports['id']], false, false],
+        [array_column($s['incidents'], 'id'), $sb[$login['id']]['serious'], $sb[$again['id']]['again']]);
+    try {
+        watchmanSeriousUndo($login['id'], $data, $now + 1001, false);
+        check('serious undo: twice is refused', false);
+    } catch (Problem $e) {
+        same('serious undo: twice is refused', 'watch_incident_gone', $e->key);
+    }
+    // no longer louder: the same address again is plain, the address known — nothing new at all
+    file_put_contents($paths['syslog'], $line($now + 1100, 'webgui: Successful login user root from 10.9.8.7'), FILE_APPEND);
+    watchmanRound($paths, $data, 1000, $now + 1200, $docker, true, $acks);
+    same('serious undo: the same source afterwards — not louder, nothing open of it', [],
+        array_values(array_filter($openOf('login_new_ip'), fn ($e) => $e['key'] === 'login_new_ip:10.9.8.7')));
+
+    // the entry pruned from the book meanwhile: the incident as it was kept becomes normal (the port)
+    $d = watchmanLoad($data);
+    watchmanSave($data, $d, ['book' => array_values(array_filter($d['book'], fn ($e) => $e['id'] !== $ports['id']))]);
+    same('serious undo: before — the port not normal', false, in_array('-p 8080:80/tcp', (array) watchmanLoad($data)['baseline']['containers']['plex']['tokens'], true));
+    $r = watchmanSeriousUndo($ports['id'], $data, $now + 1300, false);
+    // (the port still there came back louder in the round after: settled with it)
+    same('serious undo: pruned from the book — the incident itself becomes normal, what came back noted, the list keeps only the unknown entry',
+        [true, 1, true, [], ['w00000000ff']],
+        [$r['ok'], $r['settled'], in_array('-p 8080:80/tcp', (array) watchmanLoad($data)['baseline']['containers']['plex']['tokens'], true), $openOf('container_ports'),
+         array_column(json_decode((string) file_get_contents("$data/incidents.json"), true)['incidents'], 'id')]);
+
+    // an older list (entries without last, count, note) is taken back as well
+    file_put_contents("$data/incidents.json", json_encode(['v' => 1, 'incidents' => [
+        ['id' => 'w00000000aa', 'kind' => 'login_new_ip', 'key' => 'login_new_ip:10.1.1.1', 'time' => $now, 'p' => ['ip' => '10.1.1.1', 'users' => ['root'], 'services' => ['webgui']],
+         'at' => $now, 'until' => $now + 86400]]]));
+    $r = watchmanSeriousUndo('w00000000aa', $data, $now + 1400, false);
+    same('serious undo: an old list — taken back, the address known, the list empty', [true, true, []],
+        [$r['ok'], in_array('10.1.1.1', $known(), true), json_decode((string) file_get_contents("$data/incidents.json"), true)['incidents']]);
+
+    // the page offers it on every row of the list, the dialog says what follows, the serious button no longer reads like «I know»
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/watchman/desk.js');
+    check('serious undo page: the row\'s button posts serious_undo', str_contains($js, "`\${ID}.serious_undo`") && str_contains($js, "T('serious_undo')"));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $t = json_decode((string) file_get_contents(OFFICE_DIR . "/public/desks/watchman/lang/$l.json"), true);
+        check("serious undo: the serious button doesn't start like «I know, thanks»'s word ($l)",
+            !str_starts_with(mb_strtolower($t['serious']), mb_strtolower(explode(' ', $t['acked'])[0])) && !preg_match('/^(quittier|acknowledg|preso atto|pris en compte|entendido)/iu', $t['serious']));
+        check("serious undo: the dialog offers «I know, thanks» as the other way ($l)", str_contains($t['serious_text'], $t['ack']));
+    }
+
+    putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * A User Script started «in the background» goes through atd (User Scripts' backgroundScript.sh:
  * echo startBackground.php "/tmp/user.scripts/tmpScripts/<name>/script" | at NOW -M): a plain line in
  * the book, noted by itself — only when the job is exactly that, for a script that exists, with an
@@ -51122,7 +51262,7 @@ function testUsoNetJoin(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testHouseDockerSilent', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],
