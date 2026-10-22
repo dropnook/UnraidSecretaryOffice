@@ -4,7 +4,7 @@
 # run_mode — write_exclude() under `if self.run_mode`), so the cell holds what must be true: his dry run («Try it out»,
 # jack.start_run {mode: dry}) leaves his list exactly as it was — the same bytes, the same time (cell dry-list-same) — and
 # with his list gone, a dry run doesn't make one either (cell dry-no-list) — only his look does (jackListEnsure, finding
-# 1: moverelli-jk-list-empty-h-run). His dry run itself ends (cell dry-ends) and says it changed nothing (its status
+# 1: moverelli-jk-list-empty-h-run; since 1.70 a list lost after a real run of his is rebuilt from the pool). His dry run itself ends (cell dry-ends) and says it changed nothing (its status
 # mode dry). His Emby answers 401 here (the stand-in key, h_jack_hire_standin): the dry run can't plan — the list must
 # stay all the same. Ms. Moverelli set up for the scenario, put back after.
 # Pre-release (~3 min).
@@ -41,12 +41,16 @@ t0=$(_sc_now); sleep 1
 ask jack.start_run '{"mode":"dry"}' >/dev/null && expect_ok jack.start_run
 dry_wait "$((t0 + 1))" || h_cell dry-ends 0 "his second dry run (list gone) didn't end"
 evidence "$st" status-dry2.json >/dev/null
-# his look (the answer to start_run is his fresh state: jackScan → jackListEnsure) writes an EMPTY list when it is missing
-# (finding 1); a dry run that wrote one would write what of his lies on the pool (our fill's file) — so: empty or none
+# his look (the answer to start_run is his fresh state: jackScan → jackListEnsure) writes the list when it is missing:
+# empty before his first real run (finding 1), and since 1.70 (H1, jack.php jackListEnsure) after one written anew from
+# what of his shares lies on the pool, noted as «rebuilt» in office-list.json — so: empty, none, or his look's rebuild
+# (its note at or after the dry run's start); a list without that note is the dry run's
 if [[ -f $l ]]; then
     c=$(grep -c . "$l")
-    ((c == 0)) && h_cell dry-no-list 1 "the dry run wrote nothing; the list there is the empty one his look wrote ($(stat -c %y "$l"))" \
-        || h_cell dry-no-list 0 "a list with $c lines after a dry run with the list gone"
+    rb=$(jq -r '.rebuilt.at // 0' "$(dirname "$l")/office-list.json" 2>/dev/null)
+    if ((c == 0)); then h_cell dry-no-list 1 "the dry run wrote nothing; the list there is the empty one his look wrote ($(stat -c %y "$l"))"
+    elif ((${rb:-0} >= t0)); then h_cell dry-no-list 1 "the dry run wrote nothing; his look wrote the list anew from the pool ($c lines, rebuilt $(date -d "@$rb" +%T))"
+    else h_cell dry-no-list 0 "a list with $c lines after a dry run with the list gone, not his look's rebuild (office-list.json: $(head -c 200 "$(dirname "$l")/office-list.json" 2>/dev/null))"; fi
 else
     h_cell dry-no-list 1 "no list after his dry run with the list gone"
 fi
