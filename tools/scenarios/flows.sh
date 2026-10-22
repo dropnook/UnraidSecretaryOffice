@@ -52,7 +52,7 @@ _fl_args() {
     FL=() FL_LIST=() FL_KV=()
     local a
     for a in "$@"; do
-        if [[ $a =~ ^(refuse|measure|preset|plan|mode|after|cron|delete|kind|folder|name|share|dir|stack|no_fresh_ok|clear|path|moment|wake|app|file|version|container|vm|source|snapshot|of|x|mover_off|look|plg|desk|key|value|from)=(.*)$ ]]; then
+        if [[ $a =~ ^(refuse|measure|preset|plan|mode|after|cron|delete|kind|folder|name|share|dir|stack|no_fresh_ok|clear|path|moment|wake|app|file|version|container|vm|source|snapshot|of|x|mover_off|look|plg|desk|key|value|from|errors)=(.*)$ ]]; then
             FL[${BASH_REMATCH[1]}]=${BASH_REMATCH[2]}
         elif [[ $a == rule=* ]]; then
             FL_LIST+=("${a#rule=}")
@@ -156,7 +156,9 @@ flow_bk_first_setup() {
     _bk_apply_body "$body"
 }
 
-# Apply's request and its end (setup-status.json mode=apply, result ok|warnings)
+# Apply's request and its end (setup-status.json mode=apply, result ok|warnings). errors=kopia (BK-APPLY, BK-FIRST-SETUP):
+# «errors» with settings.ini written is the expected end when every error is Kopia's (kopia_*) — engine 2.67: an Apply
+# that couldn't set Kopia's policies (its container stopped, disconnected) ends «errors», up to 2.66 «ok»
 _bk_apply_body() {
     local body=$1 rc
     printf '%s\n' "$body" >"$KEEP/apply-body.json"
@@ -165,6 +167,11 @@ _bk_apply_body() {
     rc=$?; ((rc == 0)) || { _fl_end $rc; return; }
     wait_setup 1800 || return 1
     local st=$UB/state/setup-status.json
+    if [[ ${FL[errors]:-} == kopia ]] && jq -e '.mode == "apply" and .result == "errors" and .written == true
+            and ([.messages[]? | select(.level == "error") | .code // ""] | length > 0 and all(startswith("kopia_")))' "$st" >/dev/null 2>&1; then
+        say "Apply ended «errors» as expected (errors=kopia): $(jq -c '[.messages[]? | select(.level == "error") | .code]' "$st")"
+        return 0
+    fi
     if ! jq -e '.mode == "apply" and (.result == "ok" or .result == "warnings")' "$st" >/dev/null 2>&1; then
         say "Apply ended: $(jq -c '{mode, result, errors}' "$st" 2>/dev/null)"
         return 1
