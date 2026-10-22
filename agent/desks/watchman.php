@@ -4454,7 +4454,11 @@ function watchmanSyslogAround(string $syslog, int $t, int $now, string $pattern 
     return array_values(array_unique(array_column($hits, 2)));
 }
 
-/** The plugins' cron files on the flash: "<plugin>/<file>" => size, time, fingerprint, its lines (hash => short) */
+/** The USO network's one cron line, exactly as scripts/usonet.sh writes it (CRON_LINE there; testUsoNetScript compares) */
+const WATCH_USONET_CRON = '* * * * * bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/usonet.sh check > /dev/null 2>&1';
+
+/** The plugins' cron files on the flash: "<plugin>/<file>" => size, time, fingerprint, its lines (hash => short) — the
+ *  office's schedules and the USO network's line carry `own`: those lines, exactly as the office writes them */
 function watchmanCronFiles(array $paths, array $prev): ?array
 {
     if (!isset($paths['cron_files'])) {
@@ -4468,7 +4472,8 @@ function watchmanCronFiles(array $paths, array $prev): ?array
             continue;
         }
         $p = $prev[$name] ?? null;
-        $office = $name === OFFICE_PLUGIN . '/' . OFFICE_PLUGIN . '.cron';
+        $usonet = $name === OFFICE_PLUGIN . '/usonet.cron';         // the USO network's look every minute (scripts/usonet.sh)
+        $office = $name === OFFICE_PLUGIN . '/' . OFFICE_PLUGIN . '.cron' || $usonet;
         if (watchmanSameFile($p, $st) && is_array($p['lines'] ?? null) && (!$office || is_array($p['own'] ?? null))) {
             $out[$name] = $p;
             continue;
@@ -4477,7 +4482,7 @@ function watchmanCronFiles(array $paths, array $prev): ?array
         $lines = $own = [];
         foreach (array_slice(watchmanCronJobs($text), 0, WATCH_SCHED_MAX) as $l) {
             $lines[watchmanHash($l)] = watchmanCronShort($l);
-            if ($office && watchmanOfficeCronLine($l)) {
+            if ($office && ($usonet ? trim($l) === WATCH_USONET_CRON : watchmanOfficeCronLine($l))) {
                 $own[] = watchmanHash($l);
             }
         }

