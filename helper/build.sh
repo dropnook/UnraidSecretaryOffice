@@ -11,7 +11,7 @@ go_version=$(sed -n "s/^go \([0-9.]*\)$/\1/p" "$here/go.mod")     # an exact ver
 version=$(sed -n 's/^const Version = "\(.*\)"$/\1/p' "$here/main.go")
 out="uso-net-$version-linux-amd64"
 mkdir -p "$here/dist"
-build='CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOAMD64=v1 GOFLAGS=-mod=readonly go build -trimpath -tags ts_omit_logtail -ldflags="-s -w -buildid=" -o dist/'"$out"' .'
+build='CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOAMD64=v1 GOFLAGS=-mod=readonly go build -trimpath -buildvcs=false -tags ts_omit_logtail -ldflags="-s -w -buildid=" -o dist/'"$out"' .'
 if command -v go >/dev/null 2>&1 && [[ "$(go env GOVERSION)" == "go$go_version" ]]; then
     (cd "$here" && eval "$build")
 else
