@@ -579,6 +579,14 @@ if ((nu)); then
         'for f in /tmp/notifications/unread/*; do /usr/local/emhttp/webGui/scripts/notify archive "$(basename "$f")" >/dev/null 2>&1; done; true'
 else log "no unread notifications"; fi
 
+# a scenario's stash with files left by an undo that failed: the reset just made the server base again, so it is moot -
+# set aside beside it (<name>.stash-stale-<stamp>), or that scenario's next run is «dirty in 0 s» (scenario_begin)
+for st in /tmp/uso-keep/*/stash; do
+    [[ -d $st && $st != /tmp/uso-keep/_lib/stash ]] || continue
+    [[ -n $(find "$st" -type f -print -quit 2>/dev/null) ]] || continue
+    act "set aside the stash an undo left: $st → ${st%/stash}.stash-stale-$STAMP" mv -- "$st" "${st%/stash}.stash-stale-$STAMP"
+done
+
 # ------------------------------------------------------------------------------------------ 7. at work and verified
 step "7 the agent, the check"
 if ((dry)); then

@@ -128,7 +128,8 @@ bubble_facts() {
     [[ -d /boot/config/plugins/ca.mover.tuning ]] && others=true
     # a mover of someone else's on schedule (a User Script calling Unraid's mover — her state's others.movers): the page
     # says «only dry runs» for it too (public/desks/moverelli/desk.js otherMovers(); batch F, M18 on Tower)
-    [[ $(jq -r '(.others.movers // []) | length' "$D/moverelli.json" 2>/dev/null) -gt 0 ]] 2>/dev/null && others=true
+    # (her state's key is `foreign` — desk.js foreign().movers, .tuning.active; `others` was its first name, read too)
+    jq -e '((.foreign.movers // .others.movers // []) | length) > 0 or (.foreign.tuning.active // false)' "$D/moverelli.json" >/dev/null 2>&1 && others=true
     _ck_cron_has moverelli && mv_sched=true
 
     # Ms. Dustdevil: containers that show a question mark (no icon label — what Unraid's Docker page shows), Compose
@@ -263,6 +264,10 @@ _ck_tiles_moverelli() {
     [[ -n $share && -s $KEEP/before/inventory/$share.tsv ]] && real1=$(_ck_moved_pct "$share" "$dir/inventory-$share-1.tsv")
     p=$(jq -c '.progress // empty' <<<"$prog")
     [[ -n $p && $p != null && $(jq -r '.share // empty' <<<"$p") == "$share" ]] || return 0
+    # «across» as a part of what her run takes of the share (share_bytes: the files her rules move — a share's young
+    # files stay: M8 2026-10-22, half of uso-yes 1 day old, the card 100 % and the disks «50 %»), else of all its bytes
+    local sb; sb=$(jq -r '(.share_bytes // 0) | tonumber' <<<"$p" 2>/dev/null)
+    real0=$(_ck_pct_of "${real0:-}" "$sb"); real1=$(_ck_pct_of "${real1:-}" "$sb")
     use=$(_ck_share_use "$share")
     pool=$(_ck_share_pool "$share")
     # what the card can show from her answer: its percent lies between the share's files % and bytes % (the file in
@@ -288,7 +293,14 @@ _ck_tiles_moverelli() {
         fi
     fi
 }
-# _ck_moved_pct <share> <file>: the share's inventory now (kept in file); the percent of the bytes that were on the side
+# _ck_pct_of «<done> <total>» <share_bytes>: the percent across of share_bytes when her answer has it, else of total
+_ck_pct_of() {
+    local d t; read -r d t <<<"$1"
+    [[ -n $d && -n $t ]] || return 0
+    (($2 > 0)) && t=$2
+    ((t > 0)) && echo $((100 * d / t > 100 ? 100 : 100 * d / t))
+}
+# _ck_moved_pct <share> <file>: the share's inventory now (kept in file); «<done> <total>» — the bytes that were on the side
 # her run takes from at snap_before (prefer: the array; yes: the pool) and are on the other side now — hers only: a
 # file on Jack Streamer's list at snap_before or now is his (her run leaves it; his give-back in a joint run takes a
 # film his look dropped from the list to the array — M7, 2026-10-20: «0 % on the card, 21 % across» was his film)
@@ -300,7 +312,7 @@ _ck_moved_pct() {
         FILENAME == ARGV[1] { p = $0; if (sub("^/mnt/[^/]+/" sh "/", "", p)) jack[p] = 1; next }
         FILENAME == ARGV[2] { if ($0 !~ /^#/ && src($5) && !($1 in jack)) { size[$1] = $2; total += $2 } next }
         ($0 !~ /^#/) && ($1 in size) && !src($5) { done += size[$1] }
-        END { if (total > 0) printf "%d", 100 * done / total }' \
+        END { if (total > 0) printf "%d %d", done, total }' \
         <(cat "$KEEP/before/files/mediacache_exclude.txt" "$D/mediacache/mediacache_exclude.txt" 2>/dev/null; echo) \
         "$KEEP/before/inventory/$1.tsv" "$2"
 }

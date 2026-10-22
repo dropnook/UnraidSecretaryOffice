@@ -3,7 +3,7 @@
 # scenario, and what the nightly cron on Tower runs alone (no Mac: the Mac-side checks stay «pending (mac)», scenarios
 # in reboot halves are skipped).
 #
-#   bash run-local.sh [--all | --desk backup,… | --only name[:arg],…] [--no-reset] [--no-nightly] [--keep] [--out DIR]
+#   bash run-local.sh [--all | --desk backup,… | --only name[:arg],…] [--no-reset] [--no-nightly] [--powercut] [--keep] [--out DIR]
 #                                         list mode: base.sh, every scenario (a dirty one → base.sh again; the
 #                                         `# run-late:` ones last, base.sh before each), summary.md
 #   bash run-local.sh --list [--all | --desk … | --only …] [--no-nightly]   the scenarios' names, one a line
@@ -28,7 +28,7 @@ SC=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 TREE=$(cd "$SC/../.." && pwd)
 LOCK=/tmp/uso-scenarios.lock
 
-mode=list sel=all names='' out='' half='' reset=1 nightly=1 keep=0 tmo=3600 one=''
+mode=list sel=all names='' out='' half='' reset=1 nightly=1 keep=0 tmo=3600 one='' powercut=0
 while (($#)); do
     case $1 in
         --all) sel=all; shift ;;
@@ -42,6 +42,7 @@ while (($#)); do
         --out) out=${2:-}; shift 2 ;;
         --no-reset) reset=0; shift ;;
         --no-nightly) nightly=0; shift ;;
+        --powercut) powercut=1; shift ;;
         --keep) keep=1; shift ;;
         --timeout) tmo=${2:-3600}; shift 2 ;;
         -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
@@ -128,6 +129,8 @@ scenario_names() {
         [[ $n == *-post ]] && continue
         n=${n%-pre}
         if ((!nightly)) && head -5 "$f" | grep -qw nightly; then continue; fi
+        # a power cut (`# needs-powercut:`) only with --powercut (a VM booting from a vdisk, or the owner nearby)
+        if ((!powercut)) && sed -n '1,30p' "$f" | grep -q '^# needs-powercut:'; then continue; fi
         echo "$n"
     done
 }
@@ -162,6 +165,7 @@ fi
 [[ -n $out ]] || out=/tmp/uso-scenarios/$(date +%Y%m%d-%H%M)-$(hostname)
 mkdir -p "$out" || exit 2
 export USO_SC_OUT=$out USO_SC_TREE=$TREE
+((powercut)) && export USO_POWERCUT=1
 ((keep)) && export USO_SC_KEEP=1
 
 # what this run is: the summary's head (written once per folder; base= added by each reset)

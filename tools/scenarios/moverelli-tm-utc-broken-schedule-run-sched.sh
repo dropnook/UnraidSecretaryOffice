@@ -7,7 +7,10 @@
 # her. Pre-release (~3 min).
 . "$(dirname "$0")/lib.sh"
 scenario_begin moverelli-tm-utc-broken-schedule-run-sched
-needs any
+# needs test3: the cell is a server whose zone file is missing from its boot on (USOTest3VM's base). Broken at runtime
+# (Tower, 2026-10-22: tz_break) the processes started before keep their zone — the run named 11:13 CEST while `date`
+# says 09:14 UTC — a mix no server boots into, not this cell
+needs test3
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
 cron_next() { local t; t=$(date -d "today $2:$1" +%s); (( t <= $(date +%s) )) && t=$(date -d "tomorrow $2:$1" +%s); echo "$t"; }
 MVK=$KEEP_STASH/E-MV

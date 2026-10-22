@@ -289,6 +289,12 @@ state_ct_autostart() { local f=/var/lib/docker/unraid-autostart dir n names=() d
     { if [[ -f $f ]]; then cat "$f"; fi; if ((${#db[@]})); then printf '%s 5\n' "${db[@]}"; fi
       if ((${#rest[@]})); then printf '%s\n' "${rest[@]}"; fi; } > "$f.uso-new" && mv -f "$f.uso-new" "$f" || return 1
     say "CT-AUTOSTART: $(wc -l < "$f") container(s) on Docker's autostart (databases first: ${db[*]:-none})"; }
+# ct_autostart_wait [s]: after an array start, until every container on Docker's autostart list runs (rc.docker starts it
+# in order and waits 5 s after each database: the apps come ~15 s after the start) — default 180 s, soft; a snapshot or a
+# cell taken meanwhile sees apps «exited» that run a few seconds later (Tower 2026-10-22: B12's back, M6's
+# INV-UNRAID-SAME)
+_ct_autostart_up() { local n; while read -r n _; do [[ -z $n || $(ct_status "$n") == running ]] || return 1; done < /var/lib/docker/unraid-autostart; }
+ct_autostart_wait() { [[ -s /var/lib/docker/unraid-autostart ]] || return 0; WAIT_SOFT=1 wait_for "${1:-180}" "Docker's autostart to be through" _ct_autostart_up; }
 undo_ct_autostart() { local f=/var/lib/docker/unraid-autostart dir; dir=$(_st_dir CT-AUTOSTART)
     if [[ -f $dir/autostart.before ]]; then cp -p "$dir/autostart.before" "$f" && rm -f "$dir/autostart.before"
     elif [[ -f $dir/autostart.none ]]; then rm -f "$f" && rm -f "$dir/autostart.none"; fi; }
