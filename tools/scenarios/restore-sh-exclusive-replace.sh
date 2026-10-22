@@ -24,6 +24,9 @@ undo_push bash -c 'mv -f "$1/settings.ini" "$2" && rmdir "$1"' _ "$KEEP_STASH/C-
 nc_data_closed
 state SH-EXCLUSIVE "$S"
 put_files C-R15 cache "$S/dir" 4 --size 64K || _row state files red "dir/ could not be written"
+# settled files: the drill's sample is a file not changed in the hour before the snapshot (1.70.2, restore-drill.php
+# DRILL_FILE_SETTLED, by mtime) — written now they'd all be too fresh, the step «not checked» (sharefile_none)
+find "/mnt/cache/$S/dir" -type f -exec touch -m -d '1 day ago' {} +
 undo_push files_gone C-R15             # what the flow left in them goes with the share's undo
 # today's pick of the drill: the shares backed up locally (settings.ini, mode not off, a name the drill takes, not the
 # office's own) + this one + pads, sorted; index = day number % count — pads before (a) or after (z) this one until it is
