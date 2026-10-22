@@ -197,7 +197,7 @@ function netBox(n) {
   // this server in it: its name and address (the one to pick at «Add a partner…»), whether it carries the tag
   const me = Office.place('usonet:node', el('div', 'row nocheck ct-partner'));
   const main = el('div', 'row-main');
-  main.appendChild(el('div', 'row-name text', '🖧 ' + T('usonet.node', { name: n.name || n.node })));
+  main.appendChild(el('div', 'row-name text', '🏠 ' + T('usonet.node', { name: n.name || n.node })));
   const meta = el('div', 'row-meta');
   meta.appendChild(n.tagged === false ? chip('danger', T('usonet.untagged_chip'), T('usonet.untagged')) : chip('ok', 'tag:uso', T('usonet.tagged_tip')));
   n.ips.forEach((a) => meta.appendChild(el('span', 'mono', a)));
