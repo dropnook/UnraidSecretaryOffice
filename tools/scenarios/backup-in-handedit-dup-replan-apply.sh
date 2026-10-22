@@ -18,7 +18,7 @@ if flow BK-REPLAN; then
     [[ -z $er ]] && cell no-settings-error 1 "no settings_error" || cell no-settings-error 0 "settings_error: ${er:0:300}"
 fi
 flow BK-APPLY plan=old
-d=$(diff <(cat "$KEEP/values-before.txt") <(flat "$UB/settings.ini") | grep '^[<>]' | head -6)
+d=$(diff <(cat "$KEEP/values-before.txt") <(flat "$UB/settings.ini") | grep '^[<>]' | values_unknown | head -6)   # (checks.sh: what any Apply on this base writes left out)
 [[ -z $d ]] && cell same-values 1 "the same values as before (line ends left out)" || cell same-values 0 "values changed by Apply: ${d//$'\n'/ | }"
 allow INV-SETTINGS "Apply writes settings.ini anew (setup.sh's header: «Another setup.sh run takes over all values but writes the comments anew») — the values are compared by cell same-values"
 check standard

@@ -20,7 +20,7 @@ if flow BK-REPLAN; then
 fi
 flow BK-APPLY plan=old
 grep -q $'\r' "$UB/settings.ini" && cell written-lf 0 "settings.ini after Apply still has «\\r»" || cell written-lf 1 "Apply wrote settings.ini without «\\r»"
-d=$(diff <(cat "$KEEP/values-before.txt") <(flat "$UB/settings.ini") | grep '^[<>]' | head -6)
+d=$(diff <(cat "$KEEP/values-before.txt") <(flat "$UB/settings.ini") | grep '^[<>]' | values_unknown | head -6)   # (checks.sh: what any Apply on this base writes left out)
 [[ -z $d ]] && cell same-values 1 "the same values as before (line ends left out)" || cell same-values 0 "values changed by Apply: ${d//$'\n'/ | }"
 allow INV-SETTINGS "Apply writes settings.ini anew (setup.sh's header: «Another setup.sh run takes over all values but writes the comments anew»): the line ends change — the values are compared by cell same-values"
 check standard

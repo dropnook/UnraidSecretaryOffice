@@ -20,7 +20,7 @@ if flow BK-REPLAN; then
 fi
 flow BK-APPLY plan=old
 [[ $(head -c3 "$UB/settings.ini" | od -An -tx1 | tr -d ' ') == efbbbf ]] && cell written-plain 0 "settings.ini after Apply still starts with the BOM" || cell written-plain 1 "Apply wrote settings.ini without the BOM"
-d=$(diff <(cat "$KEEP/values-before.txt") <(flat "$UB/settings.ini") | grep '^[<>]' | head -6)
+d=$(diff <(cat "$KEEP/values-before.txt") <(flat "$UB/settings.ini") | grep '^[<>]' | values_unknown | head -6)   # (checks.sh: what any Apply on this base writes left out)
 [[ -z $d ]] && cell same-values 1 "the same values as before (line ends left out)" || cell same-values 0 "values changed by Apply: ${d//$'\n'/ | }"
 allow INV-SETTINGS "Apply writes settings.ini anew (setup.sh's header: «Another setup.sh run takes over all values but writes the comments anew»): the BOM goes — the values are compared by cell same-values"
 check standard
