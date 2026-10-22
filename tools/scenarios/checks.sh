@@ -199,12 +199,21 @@ bubble_look() {
     echo "$n" >"$KEEP/.looks"
     dir=$KEEP/looks/$(printf %02d "$n")-$label
     mkdir -p "$dir/states/post"
-    # the page's fresh look first (opening a desk asks <desk>.refresh) — straight through ask.php, not the scenario's ask
+    # the page's fresh look first (opening a desk asks <desk>.refresh) — straight through ask.php, not the scenario's ask.
+    # The facts «at work» are taken before it and after it, either counts: a job of a second or two (a partner pull, a
+    # short run of hers) seen by the refresh can end before the facts are read (R19 2026-10-22: «I'm restoring», right
+    # when the state was written; batch F's M10)
+    local facts0
+    facts0=$(bubble_facts)
     for d in "${desks[@]}"; do
         [[ $d == caretaker ]] && continue
         php "$SC_DIR/ask.php" --wait 120 "$d.refresh" '{}' >/dev/null 2>&1
     done
     facts=$(bubble_facts)
+    facts=$(jq -c --argjson a "$facts0" '.backup.running = (.backup.running or ($a.backup.running // false))
+        | .moverelli.running = (.moverelli.running or ($a.moverelli.running // false))
+        | .restore.running = (.restore.running or ($a.restore.running // false))
+        | .restore.drill_running = (.restore.drill_running or ($a.restore.drill_running // false))' <<<"$facts" 2>/dev/null || printf '%s' "$facts")
     printf '%s\n' "$facts" >"$dir/facts.json"
     find "$D" -maxdepth 1 -type f -name '*.json' -exec cp -p {} "$dir/states/" \;
     [[ -d $SC_POST ]] && find "$SC_POST" -maxdepth 1 -type f -name '*.json' -exec cp -p {} "$dir/states/post/" \;
