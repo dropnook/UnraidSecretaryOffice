@@ -385,6 +385,7 @@ values_unknown() {
     local known; known=$(_ck_known_changes | sed 's/[][\.*^$|+?(){}]/\\&/g' | paste -sd'|' -)
     grep -vE '^[<>] share\|[^|]*\|(id|locations)=' | if [[ -n $known ]]; then grep -vE "^[<>] ($known)="; else cat; fi
 }
+_ck_engine_free() { ! lock_held "$UB/state/lock"; }
 _ck_change_ok() {   # <key>: in the known list or an expect_changes line (a trailing * matches the rest)
     local k=$1 p
     while IFS= read -r p; do
@@ -410,6 +411,9 @@ check_inv_replan() {
         echo "Mr. Backupsy not set up here"
         return 3
     fi
+    # the engine's lock a moment after an update or an agent start (its first look, the --recover): waited for, 5 min
+    # at most — M22 found it held 1 s after OF-UPDATE (2026-10-22) and gave up at once
+    lock_held "$UB/state/lock" && WAIT_SOFT=1 wait_for 300 "the engine's lock free" _ck_engine_free >/dev/null 2>&1
     lock_held "$UB/state/lock" && { echo "a backup run holds the engine — no plan now${bad:+; ${bad[*]}}"; ((${#bad[@]})) && return 1; return 2; }
     # «Look at the server again» — straight through ask.php (the check's own look, not one of the scenario's requests)
     _setup_done || WAIT_SOFT=1 wait_for 900 "a setup look to end" _setup_done >/dev/null 2>&1

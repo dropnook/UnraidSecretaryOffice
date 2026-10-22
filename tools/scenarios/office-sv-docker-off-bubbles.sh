@@ -8,7 +8,7 @@
 scenario_begin office-sv-docker-off-bubbles
 needs any
 [[ -n ${1:-} ]] && state IN-DOWNGRADE "$1"
-state SV-DOCKER-OFF
+state SV-DOCKER-OFF cfg                    # switched off as the user does (docker.cfg): stopped alone is «on but silent», no plan
 snap_before
 files_strict
 for desk in cleanup caretaker backup restore advisor; do
