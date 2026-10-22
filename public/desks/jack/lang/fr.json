@@ -126,6 +126,7 @@
   "result.errors": "avec des problèmes",
   "failed.fill": {"one": "{n} fichier non préparé", "other": "{n} fichiers non préparés"},
   "failed.back": {"one": "{n} fichier non ramené", "other": "{n} fichiers non ramenés"},
+  "failed.vanished": {"one": "Un autre programme a supprimé le fichier à moitié copié (p. ex. une synchronisation avec --delete sur ce partage) — la source est intacte, la prochaine exécution réessaie.", "other": "Un autre programme a supprimé les fichiers à moitié copiés (p. ex. une synchronisation avec --delete sur ce partage) — les sources sont intactes, la prochaine exécution réessaie."},
   "result.failed": "échoué",
   "result.aborted": "interrompu",
   "result.busy": "autre chose tournait",

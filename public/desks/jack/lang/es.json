@@ -126,6 +126,7 @@
   "result.errors": "con problemas",
   "failed.fill": {"one": "{n} archivo no preparado", "other": "{n} archivos no preparados"},
   "failed.back": {"one": "{n} archivo no devuelto", "other": "{n} archivos no devueltos"},
+  "failed.vanished": {"one": "Otro programa borró el archivo copiado a medias (p. ej. una sincronización con --delete en este recurso compartido) — el original está intacto, la próxima ejecución lo vuelve a intentar.", "other": "Otro programa borró los archivos copiados a medias (p. ej. una sincronización con --delete en este recurso compartido) — los originales están intactos, la próxima ejecución lo vuelve a intentar."},
   "result.failed": "fallido",
   "result.aborted": "interrumpido",
   "result.busy": "se estaba ejecutando otra cosa",

@@ -126,6 +126,7 @@
   "result.errors": "mit Problemen",
   "failed.fill": {"one": "{n} Datei nicht bereitgelegt", "other": "{n} Dateien nicht bereitgelegt"},
   "failed.back": {"one": "{n} Datei nicht zurückgebracht", "other": "{n} Dateien nicht zurückgebracht"},
+  "failed.vanished": {"one": "Ein anderes Programm hat die halb kopierte Datei gelöscht (z. B. ein Sync mit --delete auf diesen Share) — die Quelle ist unversehrt, der nächste Lauf versucht es wieder.", "other": "Ein anderes Programm hat die halb kopierten Dateien gelöscht (z. B. ein Sync mit --delete auf diesen Share) — die Quellen sind unversehrt, der nächste Lauf versucht es wieder."},
   "result.failed": "fehlgeschlagen",
   "result.aborted": "abgebrochen",
   "result.busy": "es lief schon etwas",

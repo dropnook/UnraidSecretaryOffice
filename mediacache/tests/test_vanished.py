@@ -64,7 +64,7 @@ class VanishedFillTests(unittest.TestCase):
         self.assertEqual(mirror.calls, 2)
         self.assertTrue((self.env.cache / self.f.rel).is_file())
         self.assertFalse((self.env.array / self.f.rel).exists())
-        self.assertEqual((runner.copied, runner.failed_files, runner.retried), (1, {"fill": 0, "back": 0}, 1))
+        self.assertEqual((runner.copied, runner.failed_files, runner.retried), (1, {"fill": 0, "back": 0, "vanished": 0}, 1))
         self.assertIn("verschwand im Ziel vor dem Umbenennen", out)
         self.assertNotIn("ERROR:MediaCache:", out)
 
@@ -74,14 +74,17 @@ class VanishedFillTests(unittest.TestCase):
         self.assertEqual(mirror.calls, 2)                      # once more, never a third time
         self.assertTrue((self.env.array / self.f.rel).is_file())
         self.assertFalse((self.env.cache / self.f.rel).exists())
-        self.assertEqual((runner.copied, runner.failed_files["fill"]), (0, 1))
-        self.assertEqual(runner.failed_list, [{"phase": "fill", "rel": str(self.f.rel)}])
-        self.assertEqual(out.count("ERROR:MediaCache:"), 2)    # two log lines — one file
+        self.assertEqual((runner.copied, runner.failed_files["fill"], runner.failed_files["vanished"]), (0, 1, 1))
+        self.assertEqual(runner.failed_list, [{"phase": "fill", "rel": str(self.f.rel), "why": "vanished"}])
+        self.assertEqual(out.count("ERROR:MediaCache:"), 1)    # one line, in plain words
+        self.assertIn("Ein anderes Programm hat die halb kopierte Datei gelöscht", out)
+        self.assertIn("die Quelle ist unversehrt", out)
 
     def test_other_rsync_error_is_not_retried(self):
         mirror = Mirror(other='rsync: [receiver] mkstemp "/x/.a.mkv.AbCdEf" failed: Permission denied (13)')
-        runner, _ = self.fill(mirror)
-        self.assertEqual((mirror.calls, runner.retried, runner.failed_files["fill"]), (1, 0, 1))
+        runner, out = self.fill(mirror)
+        self.assertEqual((mirror.calls, runner.retried, runner.failed_files["fill"], runner.failed_files["vanished"]), (1, 0, 1, 0))
+        self.assertIn("rsync-Fehler (Code 23)", out)               # any other error as before
 
     def test_stop_requested_is_not_retried(self):
         runner = run.Runner(self.env.cfg, "run")
@@ -127,7 +130,7 @@ class VanishedBackTests(unittest.TestCase):
         with mock.patch.object(run, "run_rsync", side_effect=Mirror(vanish=5)):
             runner.cleanup(self.env.loc(), set(), NO_SESSIONS, set())
         self.assertTrue(self.src.exists())
-        self.assertEqual(runner.failed_files["back"], 1)
+        self.assertEqual((runner.failed_files["back"], runner.failed_files["vanished"]), (1, 1))
 
 
 if __name__ == "__main__":

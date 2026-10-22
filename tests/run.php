@@ -45688,9 +45688,9 @@ function testJackChaos(): void
     }
 
     // (2) the notification counts files, not log lines; an older status (no `failed`) as before; the gather unchanged
-    same('jack chaos: jackFailedFiles — in its shape only', [['fill' => 2, 'back' => 1], null, null, ['fill' => 0, 'back' => 0]],
-        [jackFailedFiles(['failed' => ['fill' => 2, 'back' => 1, 'files' => []]]), jackFailedFiles(['failed' => ['fill' => '2', 'back' => 0]]), jackFailedFiles([]),
-         jackFailedFiles(['failed' => ['fill' => -1, 'back' => 0]])]);
+    same('jack chaos: jackFailedFiles — in its shape only (vanished optional)', [['fill' => 2, 'back' => 1, 'vanished' => 2], null, null, ['fill' => 0, 'back' => 0, 'vanished' => 0]],
+        [jackFailedFiles(['failed' => ['fill' => 2, 'back' => 1, 'vanished' => 2, 'files' => []]]), jackFailedFiles(['failed' => ['fill' => '2', 'back' => 0]]), jackFailedFiles([]),
+         jackFailedFiles(['failed' => ['fill' => -1, 'back' => 0, 'vanished' => 'x']])]);
     $bin = "$tmp/notify";
     file_put_contents($bin, "#!/bin/bash\nprintf '%s\\n' \"\$@\" >> " . escapeshellarg("$tmp/notified") . "\n");
     chmod($bin, 0755);
@@ -45704,12 +45704,13 @@ function testJackChaos(): void
         return (string) @file_get_contents("$tmp/notified");
     };
     $two = $sent(['result' => 'ok', 'errors' => 4, 'warnings' => 0, 'cleanup' => ['done' => 0], 'fill' => ['planned' => 370, 'done' => 368],
-                  'failed' => ['fill' => 2, 'back' => 0, 'files' => [['phase' => 'fill', 'rel' => 'Serien/A/a.mkv']], 'retried' => 0]]);
-    check('jack chaos: the notification — a warning, «2 files not copied to the pool — they stay on the array.», never «4 problems»',
-        str_contains($two, "-i\nwarning") && str_contains($two, '2 files not copied to the pool — they stay on the array.') && !str_contains($two, '4 problems'), $two);
+                  'failed' => ['fill' => 2, 'back' => 0, 'vanished' => 2, 'files' => [['phase' => 'fill', 'rel' => 'Serien/A/a.mkv', 'why' => 'vanished']], 'retried' => 2]]);
+    check('jack chaos: the notification — a warning, «2 files not copied to the pool — they stay on the array.», why in plain words (another program deleted the half copies, the sources untouched), never «4 problems»',
+        str_contains($two, "-i\nwarning") && str_contains($two, '2 files not copied to the pool — they stay on the array. Another program deleted the half-copied files (e.g. a sync with --delete into this share) — the sources are untouched; the next run tries again.')
+        && !str_contains($two, '4 problems'), $two);
     $back = $sent(['result' => 'ok', 'errors' => 3, 'failed' => ['fill' => 1, 'back' => 1, 'files' => [], 'retried' => 0]]);
-    check('jack chaos: … both ways, each counted («1 file … 1 file not brought back to the array»)',
-        str_contains($back, '1 file not copied to the pool — it stays on the array. 1 file not brought back to the array — it stays on the pool.'), $back);
+    check('jack chaos: … both ways, each counted («1 file … 1 file not brought back to the array»), no reason without vanished ones',
+        str_contains($back, '1 file not copied to the pool — it stays on the array. 1 file not brought back to the array — it stays on the pool.') && !str_contains($back, 'Another program'), $back);
     $old = $sent(['result' => 'ok', 'errors' => 4]);
     check('jack chaos: … an older status without `failed`: its problems counted as before', str_contains($old, '4 problems.'), $old);
     $gather = $sent(['result' => 'errors', 'errors' => 1, 'conflicts' => 1, 'failed' => ['fill' => 9, 'back' => 0]], 'gather');
@@ -45758,7 +45759,8 @@ for (const mode of ['report', 'dry', 'run', null]) {
   const t = e.lastRunTile({});
   out.tile[mode] = [t.value, t.sub, t.alert];
 }
-out.failed = [e.failedText(real.status), e.failedText({ failed: { fill: 0, back: 1 } }), e.failedText({ errors: 4 }), e.failedText({ failed: { fill: '2', back: 0 } })];
+out.failed = [e.failedText(real.status), e.failedText({ failed: { fill: 0, back: 1 } }), e.failedText({ errors: 4 }), e.failedText({ failed: { fill: '2', back: 0 } }),
+  e.failedText({ failed: { fill: 1, back: 0, vanished: 1 } })];
 out.summary = e.runSummary(real);
 // her page: the joint run's last night with his 2 failed files; her own «Last run» record of that night
 const herRun = { mode: 'run', by: 'night', started: 150, finished: 160, result: 'ok', status: { moved: 0, left: 0 } };
@@ -45795,7 +45797,7 @@ JS);
     same('jack chaos page: … the run\'s files not laid out under it, the tile a warning', ['failed.fill {"n":2}', true],
         [end($j['tile']['null'][1]) ?: null, $j['tile']['null'][2] ?? null]);
     same('jack chaos page: failedText — per file, both ways, nothing without `failed` or out of its shape',
-        ['failed.fill {"n":2}', 'failed.back {"n":1}', '', ''], $j['failed'] ?? null);
+        ['failed.fill {"n":2}', 'failed.back {"n":1}', '', '', 'failed.fill {"n":1} — failed.vanished {"n":1}'], $j['failed'] ?? null);
     check('jack chaos page: … in the run\'s summary in his list', str_contains((string) ($j['summary'] ?? ''), ' · failed.fill {"n":2}'), (string) ($j['summary'] ?? ''));
     same('jack chaos page: her last joint run — «done — Jack Streamer: 2 files not laid out»; done alone without; missed keeps its words',
         ['night.last {"when":"R2000","how":"night.last_ok — night.jack_failed {\"n\":2}"}', 'night.last {"when":"R2000","how":"night.last_ok"}',
@@ -45813,6 +45815,7 @@ JS);
             is_string($jl['bubble.running_report'] ?? null) && is_string($jl['bubble.running_dry'] ?? null) && is_string($jl['notice.running_report'] ?? null)
             && is_string($jl['notice.running_dry'] ?? null) && str_contains((string) ($jl['last.looking'] ?? ''), '{mode}')
             && is_array($jl['failed.fill'] ?? null) && is_array($jl['failed.back'] ?? null) && is_array($jl['notify.not_copied'] ?? null) && is_array($jl['notify.not_back'] ?? null)
+            && str_contains((string) ($jl['failed.vanished']['other'] ?? ''), '--delete')
             && is_array($ml['night.jack_failed'] ?? null) && str_contains((string) ($ml['night.jack_failed']['other'] ?? ''), 'Jack Streamer') && is_string($ml['night.jack_failed_tip'] ?? null));
     }
     $de = readJson(OFFICE_WEB . '/desks/jack/lang/de.json') ?? [];

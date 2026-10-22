@@ -126,6 +126,7 @@
   "result.errors": "with problems",
   "failed.fill": {"one": "{n} file not laid out", "other": "{n} files not laid out"},
   "failed.back": {"one": "{n} file not brought back", "other": "{n} files not brought back"},
+  "failed.vanished": {"one": "Another program deleted the half-copied file (e.g. a sync with --delete into this share) — the source is untouched; the next run tries again.", "other": "Another program deleted the half-copied files (e.g. a sync with --delete into this share) — the sources are untouched; the next run tries again."},
   "result.failed": "failed",
   "result.aborted": "aborted",
   "result.busy": "something else was running",

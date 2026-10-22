@@ -126,6 +126,7 @@
   "result.errors": "con problemi",
   "failed.fill": {"one": "{n} file non preparato", "other": "{n} file non preparati"},
   "failed.back": {"one": "{n} file non riportato", "other": "{n} file non riportati"},
+  "failed.vanished": {"one": "Un altro programma ha cancellato il file copiato a metà (p. es. una sincronizzazione con --delete su questa condivisione) — l'originale è intatto, la prossima esecuzione riprova.", "other": "Un altro programma ha cancellato i file copiati a metà (p. es. una sincronizzazione con --delete su questa condivisione) — gli originali sono intatti, la prossima esecuzione riprova."},
   "result.failed": "non riuscito",
   "result.aborted": "interrotto",
   "result.busy": "c'era già qualcos'altro in corso",

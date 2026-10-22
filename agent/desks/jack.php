@@ -3352,10 +3352,13 @@ function jackFailedFiles(array $status): ?array
     if (!is_array($f) || !is_int($f['fill'] ?? null) || !is_int($f['back'] ?? null)) {
         return null;
     }
-    return ['fill' => max(0, $f['fill']), 'back' => max(0, $f['back'])];
+    return ['fill' => max(0, $f['fill']), 'back' => max(0, $f['back']), 'vanished' => is_int($f['vanished'] ?? null) ? max(0, $f['vanished']) : 0];
 }
 
-/** «2 files not copied to the pool — they stay on the array.» (and the way back) — '' when none failed */
+/**
+ * «2 files not copied to the pool — they stay on the array.» (and the way back), and why when someone else deleted their
+ * half copies (a sync with --delete into the share, 2026-10-22) — '' when none failed
+ */
 function jackFailedText(?array $failed, string $lang): string
 {
     $parts = [];
@@ -3363,6 +3366,9 @@ function jackFailedText(?array $failed, string $lang): string
         if (($failed[$k] ?? 0) > 0) {
             $parts[] = officeNotifyText('jack', $key, ['n' => $failed[$k]], $lang);
         }
+    }
+    if ($parts && ($failed['vanished'] ?? 0) > 0) {
+        $parts[] = officeNotifyText('jack', 'failed.vanished', ['n' => $failed['vanished']], $lang);
     }
     return implode(' ', $parts);
 }

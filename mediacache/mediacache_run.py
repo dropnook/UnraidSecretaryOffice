@@ -95,6 +95,14 @@ WATCHED_ONLY = os.environ.get("MEDIACACHE_WATCHED_ONLY") == "1"   # USO: zurück
 # (a User Script, through /mnt/user) removed rsync's temporary .<name>.XXXXXX in the target before its rename — code 23,
 # «rename "…/.<name>.XXXXXX" -> "<name>": No such file or directory», the file not copied, its source still there
 VANISHED_RE = re.compile(r'rename "[^"\n]*" -> "[^"\n]*": No such file or directory')
+# its words in the log when it happened again on the second try (one line, never «rsync error» alone)
+VANISHED_SAID = ("Ein anderes Programm hat die halb kopierte Datei gelöscht (z. B. ein Sync mit --delete auf diesen Share) "
+                 "– die Quelle ist unversehrt, der nächste Lauf versucht es wieder: {rel}")
+
+
+def vanished(rc, out):
+    """USO «vanished»: rsync's temporary file was deleted in the target before its rename"""
+    return rc == 23 and bool(VANISHED_RE.search(out))
 
 
 def stop_requested():
@@ -810,7 +818,7 @@ class Runner:
 
         self.fill_failures = 0
         # USO: files not copied / not brought back, per file (the office counts these, never log lines); «vanished» retries
-        self.failed_files = {"fill": 0, "back": 0}
+        self.failed_files = {"fill": 0, "back": 0, "vanished": 0}
         self.failed_list = []
         self.retried = 0
         self._lock = threading.Lock()  # Zähler und Löschen/Ordner-Aufräumen bei parallelen Kopien
@@ -857,8 +865,12 @@ class Runner:
             rc, out = self.rsync_copy(cmd, dst, rel, lambda done, speed, eta: self.status.job_progress(key, done, speed, eta))
             if rc != 0:
                 failures += 1
-                log.error(f"rsync-Fehler (Code {rc}) bei {rel}: {out.strip()}")
-                self.failed("back", rel)
+                if vanished(rc, out):
+                    log.error(VANISHED_SAID.format(rel=rel))
+                    self.failed("back", rel, "vanished")
+                else:
+                    log.error(f"rsync-Fehler (Code {rc}) bei {rel}: {out.strip()}")
+                    self.failed("back", rel)
                 protected.add(p)
                 self.status.job_end(key, False)
                 self.progress.drop_back(sizes.get(p, 0))
@@ -1215,7 +1227,7 @@ class Runner:
         """USO «vanished»: rsync once; when its temporary file vanished before the rename (someone else deleted it in the
         target, nothing there yet), once more — the next time it is usually through. Any other error stays an error."""
         rc, out = run_rsync(cmd, on_progress)
-        if rc == 23 and VANISHED_RE.search(out) and not dst.exists() and not self.halt():
+        if vanished(rc, out) and not dst.exists() and not self.halt():
             log.warning(f"Die Kopie von {rel} verschwand im Ziel vor dem Umbenennen (ein anderes Programm hat sie gelöscht, "
                         "z. B. ein Abgleich mit --delete) – noch ein Versuch")
             with self._lock:
@@ -1223,12 +1235,14 @@ class Runner:
             rc, out = run_rsync(cmd, on_progress)
         return rc, out
 
-    def failed(self, phase, rel):
-        """USO: a file this run could not copy or bring back — counted per file (not per log line) for the office.
-        A parallel fill calls it holding self._lock."""
+    def failed(self, phase, rel, why=None):
+        """USO: a file this run could not copy or bring back — counted per file (not per log line) for the office;
+        why «vanished» (someone else deleted its half copy) counted apart too. A parallel fill calls it holding self._lock."""
         self.failed_files[phase] += 1
+        if why == "vanished":
+            self.failed_files["vanished"] += 1
         if len(self.failed_list) < 20:
-            self.failed_list.append({"phase": phase, "rel": str(rel)})
+            self.failed_list.append({"phase": phase, "rel": str(rel)} | ({"why": why} if why else {}))
 
     def copy_one(self, loc, f, src, disk, index, count):
         """Eine Datei Array -> Cache per rsync, Grössenvergleich, dann Quelle löschen. Thread-sicher."""
@@ -1245,11 +1259,15 @@ class Runner:
             self.progress.start("fill", f.rel, f.size, dst, f)
             rc, out = self.rsync_copy(cmd, dst, f.rel, lambda done, speed, eta: self.status.job_progress(key, done, speed, eta))
             if rc != 0:
+                gone = vanished(rc, out)
                 with self._lock:
                     self.fill_failures += 1
-                    self.failed("fill", f.rel)
-                log.error(f"rsync-Fehler (Code {rc}) bei {f.rel}: {out.strip()}")
-                log.error("Quelle bleibt auf dem Array; Ziel prüfen, sonst liegt die Datei doppelt")
+                    self.failed("fill", f.rel, "vanished" if gone else None)
+                if gone:
+                    log.error(VANISHED_SAID.format(rel=f.rel))
+                else:
+                    log.error(f"rsync-Fehler (Code {rc}) bei {f.rel}: {out.strip()}")
+                    log.error("Quelle bleibt auf dem Array; Ziel prüfen, sonst liegt die Datei doppelt")
                 return
             with self._lock:
                 self.fill_failures = 0

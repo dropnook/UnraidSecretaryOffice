@@ -263,13 +263,16 @@ function runSummary(r) {
 }
 /**
  * The files a run could not lay out or bring back (MediaCache's `failed`, per file — its log has two error lines for one;
- * an older status has none: nothing said), pure: «2 files not laid out · 1 not brought back», '' when none
+ * an older status has none: nothing said), pure: «2 files not laid out · 1 not brought back», why when another program
+ * deleted their half copies; '' when none
  */
 function failedText(s) {
   const f = s && s.failed;
   if (!f || typeof f !== 'object') return '';
   const n = (v) => (Number.isInteger(v) && v > 0 ? v : 0);
-  return [n(f.fill) ? T('failed.fill', { n: n(f.fill) }) : '', n(f.back) ? T('failed.back', { n: n(f.back) }) : ''].filter(Boolean).join(' · ');
+  const lost = [n(f.fill) ? T('failed.fill', { n: n(f.fill) }) : '', n(f.back) ? T('failed.back', { n: n(f.back) }) : ''].filter(Boolean).join(' · ');
+  // someone else deleted their half copies (a sync with --delete into the share): said why, in plain words
+  return lost && n(f.vanished) ? `${lost} — ${T('failed.vanished', { n: n(f.vanished) })}` : lost;
 }
 /**
  * What waits beyond the budget (MediaCache's `not_in_budget`, USO 2026-10-16; an older status has none: nothing said), pure:
