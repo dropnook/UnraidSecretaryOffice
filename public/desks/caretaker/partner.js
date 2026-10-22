@@ -113,7 +113,183 @@ function section(state) {
   held.forEach((t) => box.appendChild(ticketCard(t)));
   asked.forEach((q) => box.appendChild(ticketRequestRow(q)));
   s.appendChild(box);
+  s.appendChild(netBox(state && state.usonet));
   return s;
+}
+
+// ------------------------------------------------------------------ the USO network (agent/lib/usonet.php)
+/* The office's own Tailscale node underneath the pairing (owner's concept, D1–D10): this server and its partner offices
+   see each other in a tailnet of their own; then they pair as always, over the node's address (the picker lists it).
+   His state's `usonet` (usonetPublic(): never a key); while it joins, leaves or starts the page looks every few seconds. */
+const NET_BUSY = ['joining', 'leaving', 'starting'];
+// a fold the user opened or closed stays so while the page lives (every render builds the section anew)
+const folds = new Map();
+function keepFold(det, key, open) {
+  det.open = folds.has(key) ? folds.get(key) : open;
+  let shown = det.open;
+  det.addEventListener('toggle', () => {
+    if (det.open === shown) return;
+    shown = det.open;
+    folds.set(key, det.open);
+  });
+  return det;
+}
+let netLooks = 0;
+let netTimer = null;
+
+/** The network's answer into his state (desk.js tookNet), and while it is busy another look in a few seconds */
+function netTook(n) {
+  if (!n) return;
+  if (ctx && ctx.tookNet) ctx.tookNet(n);
+  clearTimeout(netTimer);
+  if (NET_BUSY.includes(n.state) && netLooks < 40) {
+    netLooks += 1;
+    netTimer = setTimeout(async () => {
+      const j = await Office.api.post(`${ID}.usonet_look`, {});
+      if (j.ok) netTook(j.usonet);
+    }, 4000);
+  } else {
+    netLooks = 0;
+  }
+}
+
+function netChip(n) {
+  const cls = { in: 'ok', joining: 'quiet', leaving: 'quiet', starting: 'quiet', off: 'quiet' }[n.state] || 'danger';
+  const c = chip(cls, T('usonet.state.' + n.state), T('usonet.tip.' + n.state));
+  if (NET_BUSY.includes(n.state)) c.prepend(el('span', 'spin'), ' ');
+  return c;
+}
+
+function netBox(n) {
+  n = n || { state: 'off', joined: false, peers: [], ips: [] };
+  const box = el('div', 'box ct-group ct-net');
+  Office.place('usonet', box);
+  const head = el('div', 'ct-subhead');
+  const words = el('div', 'ct-subhead-words');
+  words.append(el('strong', '', T('usonet.title')), el('span', '', T('usonet.sub')));
+  head.append(words, netChip(n));
+  if (!n.joined && !NET_BUSY.includes(n.state)) {
+    const join = el('button', 'btn small', T('usonet.join'));
+    join.type = 'button';
+    join.disabled = busyOff();
+    join.onclick = () => joinDialog(n);
+    head.appendChild(join);
+  } else if (n.joined && n.state !== 'leaving') {
+    const leave = el('button', 'btn small plain', T('usonet.leave'));
+    leave.type = 'button';
+    leave.disabled = busyOff() || n.state === 'joining';
+    leave.onclick = () => leaveDialog();
+    head.appendChild(leave);
+  }
+  box.appendChild(head);
+  const say = (cls, text) => { const r = el('div', 'row nocheck'); r.appendChild(el('p', cls, text)); box.appendChild(r); };
+  if (n.state === 'joining' || n.state === 'leaving') say('role', T('usonet.' + n.state + '_text'));
+  else if (n.state === 'failed') say('callout warn', T('usonet.why.' + (n.why || 'no_contact')));
+  else if (n.state === 'refused') say('callout warn', T('usonet.why.' + (n.why || 'checksum')));
+  else if (n.state === 'off') say('role', T('usonet.terms'));
+  else if (['no_contact', 'down', 'needs_key'].includes(n.state)) {
+    say('callout warn', T('usonet.' + n.state + '_text', { since: n.since ? T('usonet.since', { when: fmt.relative(n.since) }) : '' }));
+  }
+  if (!n.joined || !n.ips || !n.ips.length) {
+    if (n.joined) NET_BUSY.includes(n.state) && netTook(n);
+    return box;
+  }
+  // this server in it: its name and address (the one to pick at «Add a partner…»), whether it carries the tag
+  const me = Office.place('usonet:node', el('div', 'row nocheck ct-partner'));
+  const main = el('div', 'row-main');
+  main.appendChild(el('div', 'row-name text', '🏠 ' + T('usonet.node', { name: n.name || n.node })));
+  const meta = el('div', 'row-meta');
+  meta.appendChild(n.tagged === false ? chip('danger', T('usonet.untagged_chip'), T('usonet.untagged')) : chip('ok', 'tag:uso', T('usonet.tagged_tip')));
+  n.ips.forEach((a) => meta.appendChild(el('span', 'mono', a)));
+  main.appendChild(meta);
+  main.appendChild(el('div', 'row-detail', T('usonet.address', { address: n.ips[0] })));
+  if (n.foreign) main.appendChild(el('p', 'callout warn', T('usonet.foreign', { n: n.foreign })));
+  me.appendChild(main);
+  box.appendChild(me);
+  // the other offices in the network
+  if (!(n.peers || []).length) say('role', T('usonet.peers_none'));
+  (n.peers || []).forEach((p) => {
+    const r = Office.place(`usonet:${p.name}`, el('div', 'row nocheck ct-partner'));
+    const m = el('div', 'row-main');
+    m.appendChild(el('div', 'row-name text', '🏢 ' + p.name));
+    const pm = el('div', 'row-meta');
+    pm.appendChild(p.online ? chip('ok', T('usonet.peer_online'), T('usonet.peer_online_tip'))
+      : chip('warn', T('usonet.peer_offline'), p.last_seen ? T('usonet.peer_offline_tip', { when: fmt.date(p.last_seen) }) : T('usonet.peer_offline_never')));
+    if (p.online) pm.appendChild(p.direct ? chip('quiet', T('usonet.peer_direct'), T('usonet.peer_direct_tip'))
+      : chip('warn', T('usonet.peer_relay', { relay: p.relay || '?' }), T('usonet.peer_relay_tip')));
+    if (!p.tagged) pm.appendChild(chip('danger', T('usonet.peer_untagged'), T('usonet.peer_untagged_tip')));
+    (p.ips || []).slice(0, 1).forEach((a) => pm.appendChild(el('span', 'mono', a)));
+    m.appendChild(pm);
+    r.appendChild(m);
+    box.appendChild(r);
+  });
+  // the policy lines (D6: shown and checked, never edited) — folded
+  const det = keepFold(el('details', 'ct-net-policy'), 'usonet-policy', false);
+  det.appendChild(el('summary', '', T('usonet.policy')));
+  det.appendChild(el('p', 'role', T('usonet.step_policy')));
+  det.appendChild(codeBox((n.policy || {}).tailscale || ''));
+  det.appendChild(el('p', 'role', T('usonet.policy_headscale')));
+  det.appendChild(codeBox((n.policy || {}).headscale || ''));
+  const pr = el('div', 'row nocheck');
+  pr.appendChild(det);
+  box.appendChild(pr);
+  if (NET_BUSY.includes(n.state)) netTook(n);
+  return box;
+}
+
+/** «Join the USO network…»: what the network's owner does once, the key, the optional Headscale — then the agent's job */
+function joinDialog(n) {
+  const box = el('div');
+  box.appendChild(el('p', '', T('usonet.join_text')));
+  const ol = el('ol', 'ct-net-steps');
+  const li1 = el('li');
+  li1.append(el('span', '', T('usonet.step_policy')), codeBox((n.policy || {}).tailscale || ''));
+  const li2 = el('li', '', T('usonet.step_key'));
+  ol.append(li1, li2);
+  box.appendChild(ol);
+  const key = input('password', '', 'mono');
+  key.setAttribute('autocomplete', 'off');
+  key.spellcheck = false;
+  key.placeholder = 'tskey-auth-…';
+  box.appendChild(field(T('usonet.key'), key, T('usonet.key_help')));
+  const control = input('text', n.control || '', 'mono');
+  control.placeholder = 'https://headscale.example.org';
+  control.setAttribute('autocomplete', 'off');
+  box.appendChild(field(T('usonet.control'), control, T('usonet.control_help')));
+  box.appendChild(el('p', 'callout', T('usonet.fetch_note')));
+  box.appendChild(el('p', 'role', T('usonet.terms')));
+  Office.dialog({
+    title: T('usonet.join_title'),
+    body: box,
+    wide: true,
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('usonet.join_go'), kind: '', act: async () => {
+      const k = key.value.trim();
+      if (!k) { key.focus(); return false; }
+      const j = await Office.api.post(`${ID}.usonet_join`, { control: control.value.trim(), secret: { key: k } });
+      key.value = '';
+      if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return false; }
+      Office.toast(T('usonet.join_started'));
+      netLooks = 0;
+      netTook(j.usonet);
+      return true;
+    } }],
+  });
+  setTimeout(() => key.focus(), 0);
+}
+
+function leaveDialog() {
+  Office.dialog({
+    title: T('usonet.leave_title'),
+    body: T('usonet.leave_text'),
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('usonet.leave_go'), kind: 'danger', act: async () => {
+      const j = await Office.api.post(`${ID}.usonet_leave`, {});
+      if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return false; }
+      Office.toast(T('usonet.leave_started'));
+      netLooks = 0;
+      netTook(j.usonet);
+      return true;
+    } }],
+  });
 }
 
 function chip(cls, text, tip) {
@@ -353,7 +529,7 @@ function addressPicker(addresses, port) {
   const box = el('div');
   const sel = el('select', 'input');
   (addresses || []).forEach((a) => {
-    const o = el('option', '', `${a.address} (${a.iface})${a.private ? '' : ' — ' + T('partner.public')}`);
+    const o = el('option', '', `${a.address} (${a.usonet ? T('usonet.picker') : a.iface})${a.private ? '' : ' — ' + T('partner.public')}`);
     o.value = a.address;
     sel.appendChild(o);
   });

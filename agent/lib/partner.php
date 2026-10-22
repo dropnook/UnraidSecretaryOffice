@@ -43,6 +43,10 @@ declare(strict_types=1);
  *   keeps only what its Team Lead agreed to: the mutual watch offers it the units Mr. Backupsy sends (the door's `offer`).
  */
 
+// the USO network (the office's own tailnet node, underneath the pairing): a pair whose address is a peer of it is
+// called from inside its namespace (partnerSshArgs()), its address is one more in the picker (partnerMyAddresses())
+require_once __DIR__ . '/usonet.php';
+
 const PARTNER_FLASH_DIR     = '/boot/config/plugins/unraid-secretary-office/partners';
 const PARTNER_AUTH_KEYS     = '/boot/config/ssh/root/authorized_keys';
 const PARTNER_HOST_KEY      = '/etc/ssh/ssh_host_ed25519_key.pub';
@@ -508,6 +512,12 @@ function partnerMyAddresses(): array
         }
         $seen[$ip] = true;
         $out[] = ['address' => $ip, 'iface' => $iface, 'private' => partnerAddressPrivate($ip)];
+    }
+    // the USO network's node lives in a namespace of its own (ip addr here doesn't see it): its addresses from its status
+    foreach (usonetMyAddresses() as $a) {
+        if (!isset($seen[$a['address']])) {
+            $out[] = $a;
+        }
     }
     return $out;
 }
@@ -1120,12 +1130,13 @@ function partnerAppend(string $file, string $line): bool
 
 // ===================================================================== the client: ping, status
 
-/** The ssh command of a pair's call (plan §3.5): its key, its known_hosts, the office's options */
+/** The ssh command of a pair's call (plan §3.5): its key, its known_hosts, the office's options — from inside the USO
+ *  network's namespace when the pair's address is a peer there (usonetWrap(); the engine's partner_ssh_cmd the same) */
 function partnerSshArgs(array $pair, string $remote): array
 {
     $ssh = partnerBin('ssh') ?? 'ssh';
-    return array_merge([$ssh, '-i', partnerKeyFile($pair['id']), '-o', 'UserKnownHostsFile=' . partnerKnownFile($pair['id'])],
-        PARTNER_SSH_OPTIONS, ['-p', (string) $pair['port'], 'root@' . $pair['address'], $remote]);
+    return usonetWrap(array_merge([$ssh, '-i', partnerKeyFile($pair['id']), '-o', 'UserKnownHostsFile=' . partnerKnownFile($pair['id'])],
+        PARTNER_SSH_OPTIONS, ['-p', (string) $pair['port'], 'root@' . $pair['address'], $remote]), (string) $pair['address']);
 }
 
 /**

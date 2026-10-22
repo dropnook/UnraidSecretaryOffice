@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.70"
+UB_VERSION="2.71"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -4436,6 +4436,10 @@ UB_PARTNER_PAIRS="${UB_PARTNER_PAIRS:-$(dirname "$UB_DATA")/partner/pairs.json}"
 UB_PARTNER_ASK="${UB_PARTNER_ASK:-60}"           # seconds for a short question to the door (ping, list, resume)
 UB_PARTNER_SNAP_RE='^uso-backup-[0-9]{8}-[0-9]{4}$'   # the only snapshot names the door accepts
 UB_PARTNER_BOOKMARK="uso-partner-"               # <dataset>#uso-partner-<id>: the last snapshot sent to that partner
+# the office's USO network (2.71): its node's status in RAM (the helper's), its namespace, how the call gets there
+UB_USONET_STATUS="${UB_USONET_STATUS-$(ub_is_plugin && echo /var/run/unraid-secretary-office/usonet/status.json)}"
+UB_USONET_NETNS="uso-net"
+UB_USONET_NSENTER="${UB_USONET_NSENTER:-/usr/bin/nsenter}"
 
 partner_id_ok()        { [[ "$1" =~ ^[0-9a-f]{8}$ ]]; }
 partner_unit_name_ok() { [[ "$1" =~ ^[A-Za-z0-9._-]{1,64}$ && "$1" != .* ]]; }   # one word through the door, a dataset name there
@@ -4562,12 +4566,23 @@ ub_host_name() {
 # partner_ssh_cmd <id>  -> PSSH: the ssh call to that partner's door - the one place for its options (plan 3.5):
 # the pair's own key only, never a password or agent, the pinned host keys only, a fast AEAD cipher, no compression
 # (zfs send -c sends compressed blocks), a dead link noticed within two minutes
+# 2.71: a partner whose address is a peer of the office's USO network node (its status in RAM, UB_USONET_STATUS) is
+# called from inside the network's namespace - the same rule as the office's partnerSshArgs() (agent/lib/usonet.php)
 partner_ssh_cmd() {
+    local addr
+    addr="$(cfg "partner|$1|address")"
     PSSH=( ssh -i "$UB_PARTNER_DIR/$1.key" -o IdentitiesOnly=yes -o BatchMode=yes
            -o "UserKnownHostsFile=$UB_PARTNER_DIR/$1.known" -o StrictHostKeyChecking=yes
            -o Ciphers=aes128-gcm@openssh.com,aes256-gcm@openssh.com,chacha20-poly1305@openssh.com -o Compression=no
            -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=4
-           -p "$(cfg "partner|$1|port" 22)" "root@$(cfg "partner|$1|address")" )
+           -p "$(cfg "partner|$1|port" 22)" "root@$addr" )
+    if usonet_peer "$addr"; then PSSH=( "$UB_USONET_NSENTER" "--net=/run/netns/$UB_USONET_NETNS" "${PSSH[@]}" ); fi
+}
+# usonet_peer <address>  - is it a peer of this office's USO network node? Its own peer list (never the 100.64/10 range:
+# the user's own tailnet uses the same addresses); not joined, no status: no
+usonet_peer() {
+    [[ -n "$1" && -f "$UB_USONET_STATUS" && ! -L "$UB_USONET_STATUS" ]] || return 1
+    jq -e --arg a "${1,,}" '.v == 1 and ([.peers[]?.ips[]? | ascii_downcase] | index($a) != null)' "$UB_USONET_STATUS" >/dev/null 2>&1
 }
 # partner_ssh <id> <verb> [words...]  - the door's verb and its words as one command line (each word checked before)
 partner_ssh() { local id="$1"; shift; partner_ssh_cmd "$id"; "${PSSH[@]}" "$*"; }

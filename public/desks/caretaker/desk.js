@@ -37,6 +37,7 @@ const ME = document.currentScript && document.currentScript.src;
 Office.ctPartnerLoaded = () => {
   Office.ctPartner.use({
     took(partners) { if (state) state.partners = partners; if (view) Office.keepInPlace(null, render); },
+    tookNet(usonet) { if (state) state.usonet = usonet; if (view) Office.keepInPlace(null, render); },     // the USO network's card
     reload: () => load(true),
     peek: () => load(false),          // his state as kept (the cards anew after a partner job: partnerRescanAsk())
   });
@@ -166,6 +167,7 @@ function render() {
     [T('notify_title'), T('help.notify')],
     [T('help.parity_term'), T('help.parity')],
     [T('partner.title'), T('partner.help')],
+    [T('usonet.title'), T('usonet.help')],
   ]));
   if (!state) { root.appendChild(el('p', 'empty', Office.t('common.loading'))); return; }
   root.appendChild(sw.el);          // the row and under it the chosen section — or, nothing chosen, all of them

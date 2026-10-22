@@ -50,7 +50,8 @@ tests/ tools/          run.php, node tests, ui/ (harness, stubs, demo/); release
 
 ### Build and code
 * **No build step, no dependencies.** PHP 8.4 (Unraid's — nothing newer), vanilla JS, office.css + optional `desk.css`; look
-  tokens in `office.css :root`. The only build is `plugin/build.sh`.
+  tokens in `office.css :root`. The only build is `plugin/build.sh` — one exception: the USO network's helper `helper/`
+  (Go, reproducible, pinned by SHA-256 in usonet.php and usonet.sh, never in the package; docs/DEVELOPMENT.md).
 * **The web side never touches the host** (php-fpm is root anyway). zfs, docker, /boot/config, /proc → the agent
   (`Office.api.post('<desk>.<action>')` → `agent/desks/<desk>.php`). Exceptions: night-shift RAM state; secrets typed for the
   agent go through `apiSecretStash()` (0600 file in the RAM inbox, never the mailbox on the pool; only `OFFICE_SECRET_ACTIONS`
@@ -183,6 +184,9 @@ only through shared libraries (`backupProtection()`, `finding()`, `partnerlook.p
 * **`caretaker` the Team Lead:** hires/fires, collects checks; «I know, thanks» never for musts; he only pairs partners.
 * **Partner offices:** only `uso-partner:`/`uso-ticket:` lines in authorized_keys are touched; the door receives with
   `zfs recv -s -u`, never `-F`; nothing destroyed.
+* **USO network** (the office's own Tailscale node, agent/lib/usonet.php, scripts/usonet.sh): only the network underneath —
+  the pairing unchanged, the partner code asks only `usonetWrap()`/`usonet_peer`; nothing of the host's network, the user's
+  Tailscale or Unraid's sshd touched; the helper pinned by SHA-256; the auth key a secret; leave/remove leaves nothing.
 * **Staff:** unhired desks get no write actions (`testAgentHired`); firing hides a desk, data stays. **Supporter key:** nothing
   ever locked, never a modal. **Reports:** never a request without the user's click on «Send», `reportScrub()` over all.
 * **Characters and names:** each desk's `name` key; **always «Jack Streamer», never just «Jack»**; chatty bubbles may carry

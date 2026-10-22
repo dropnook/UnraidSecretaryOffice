@@ -730,3 +730,13 @@ for VM disks in the package, a ZFS disk is the dataset's snapshot; B43 clock-bac
 jobs; the DST cell was killed by GNU timeout's wall clock (run-local's limit is the time since boot now). Earlier in this
 branch: page checks right after each scenario (a reboot empties /tmp/uso-keep), stale stashes set aside by base.sh,
 h_share_drop, CT-AUTOSTART, BK-APPLY errors=kopia (engine 2.67), INV-SETUP-MSGS on this scenario's plan only.
+
+## USO network (the office's own Tailscale node)
+
+`usonet-lab.sh up` makes the lab tailnet on USOTest3VM (a Headscale container, data in RAM, policy tag:uso → tag:uso);
+`states-usonet.sh` has UN-JOINED, UN-HELPER-DOWN and UN-PAIRED. `caretaker-un-join-leave` needs only the lab;
+`caretaker-un-pair-run-down` also a second office in the lab's tailnet (USOTest4 by default, `UN_PEER_IP`), reached as
+root with USOTest3VM's key `$OFFICE_FLASH/scenarios-usonet.key` (+ `.known`; the peer's authorized_keys line
+`from="192.168.7.197" … uso-scenarios-usonet`, never a uso-partner: line) — without either the cell is skipped. Never the
+owner's real tailnet: the real-Tailscale check is done by hand with the owner's test key, which never lands in a file
+here.

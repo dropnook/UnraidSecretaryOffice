@@ -1,6 +1,8 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.70 - 2026-10-21
+# unraid-backup - backup.sh                       Version 2.71 - 2026-10-22
+#   2.71 The office's USO network (its own Tailscale node): a partner whose address is a peer of that node is called from
+#        inside the network's namespace (lib/common.sh partner_ssh_cmd, usonet_peer) - nothing else changes
 #   2.70 The office's order with its mover run (Ms. Moverelli): a scheduled run that waited for it before it started (the
 #        office's job waits before it starts the engine) says so - status.json and history "order" {code: waited_night,
 #        seconds} from UB_ORDER (lib/common.sh order_load), one log line. The office's mover run reads the phase.

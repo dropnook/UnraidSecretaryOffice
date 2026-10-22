@@ -17,7 +17,8 @@
 #                      back (backup.sh --unmount / --recover, engine 2.25); a partner's
 #                      transfer through the door ends at the stop (partner_release)
 #   agent.sh release   everything the office holds let go (the .plg's remove, before the code goes): the agent
-#                      stopped, then what "array stopping" releases - no night shift after it
+#                      stopped, then what "array stopping" releases - no night shift after it (the USO network
+#                      stays: the .plg's remove takes it with scripts/usonet.sh leave)
 #   agent.sh nightshift  the night shift alone (php agent.php nightshift: RAM and
 #                      flash only - nothing under /mnt; it ends by itself without
 #                      the night watchman's mirror, when the array is started or
@@ -149,9 +150,11 @@ night_stop() {
     echo "Night shift ended."
 }
 
-# start: never the agent and the night shift at once - the array decides which
+# start: never the agent and the night shift at once - the array decides which. The USO network (when this server
+# joined it) comes up whatever the array does: a partner's ping reaches the door with the array stopped too
 start() {
     watch_cron
+    usonet_check
     night_stop
     if ! array_started; then
         night_start
@@ -215,6 +218,13 @@ agent_stop() {
     pkill -KILL -s "$pid" 2>/dev/null
     rm -f "$SUPERVISOR" "$STOPPING"
     echo "Agent stopped."
+}
+
+# The USO network's namespace, helper and sshd (scripts/usonet.sh check: nothing when not joined; its own cron line
+# looks every minute after that) - in the background, never holding up a start (emhttp may be waiting)
+usonet_check() {
+    [[ -f "$DIR/scripts/usonet.sh" ]] || return 0
+    setsid bash "$DIR/scripts/usonet.sh" check </dev/null >/dev/null 2>&1 &
 }
 
 # The watch's line in a cron file of its own (the office rewrites its schedules' file), in root's
