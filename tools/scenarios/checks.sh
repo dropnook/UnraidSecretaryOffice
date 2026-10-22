@@ -128,7 +128,8 @@ bubble_facts() {
     [[ -d /boot/config/plugins/ca.mover.tuning ]] && others=true
     # a mover of someone else's on schedule (a User Script calling Unraid's mover — her state's others.movers): the page
     # says «only dry runs» for it too (public/desks/moverelli/desk.js otherMovers(); batch F, M18 on Tower)
-    [[ $(jq -r '(.others.movers // []) | length' "$D/moverelli.json" 2>/dev/null) -gt 0 ]] 2>/dev/null && others=true
+    # (her state's key is `foreign` — desk.js foreign().movers, .tuning.active; `others` was its first name, read too)
+    jq -e '((.foreign.movers // .others.movers // []) | length) > 0 or (.foreign.tuning.active // false)' "$D/moverelli.json" >/dev/null 2>&1 && others=true
     _ck_cron_has moverelli && mv_sched=true
 
     # Ms. Dustdevil: containers that show a question mark (no icon label — what Unraid's Docker page shows), Compose
