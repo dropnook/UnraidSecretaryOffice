@@ -13,7 +13,8 @@
 #
 # A scenario is tools/scenarios/<desk|office>-<…>.sh (desk = a folder of public/desks); one that reboots is two halves
 # <name>-pre.sh and <name>-post.sh. `name:arg` hands `arg` to the scenario as $1. Each runs as root under the Tower lock
-# (flock /tmp/uso-scenarios.lock, resilienz/wave1/_shared.md), at most --timeout s (default 3600), with
+# (flock /tmp/uso-scenarios.lock, resilienz/wave1/_shared.md), at most --timeout s (default 3600; a `# timeout: <s>`
+# line in the scenario's head gives it longer), with
 #   USO_SC_OUT   the run's report folder - lib.sh writes <name>.md, <name>.result, <name>.pending there
 #   USO_SC_TREE  the tree the scenario runs from;   USO_SC_KEEP=1  with --keep (lib.sh: leave the state for a look)
 # (flock -o: the lock's fd is not handed down - an agent a scenario restarts would hold the lock for its whole life.)
@@ -226,10 +227,15 @@ run_one() {
         rm -f "$out/$name.result" "$out/$name.pending" "$out/$name.result-pre" "$out/$name.out" "$out/$name.md"
     fi
     t0=$SECONDS
-    ( cd / && timeout "$tmo" flock -o -w 1800 -E 75 "$LOCK" bash "$file" ${arg:+"$arg"} ) >> "$out/$name.out" 2>&1 < /dev/null
+    # a scenario's own `# timeout: <s>` line (in its first 30) when it needs longer than --timeout (M14: a 50-min run and
+    # the checks of 100 000 files)
+    local lim=$tmo own
+    own=$(sed -n '1,30s/^# timeout: *\([0-9][0-9]*\).*/\1/p' "$file" | head -1)
+    [[ -n $own ]] && ((own > lim)) && lim=$own
+    ( cd / && timeout "$lim" flock -o -w 1800 -E 75 "$LOCK" bash "$file" ${arg:+"$arg"} ) >> "$out/$name.out" 2>&1 < /dev/null
     code=$?
     case $code in
-        0) v=green ;; 1) v=red ;; 2) v=skipped ;; 3) v=dirty ;; 124) v=timeout; why="ran longer than $tmo s" ;;
+        0) v=green ;; 1) v=red ;; 2) v=skipped ;; 3) v=dirty ;; 124) v=timeout; why="ran longer than $lim s" ;;
         75) v=busy; why='the Tower lock stayed busy for 30 min' ;; *) v=error; why="exit $code" ;;
     esac
     if [[ ! -s $out/$name.result ]] || ((code == 124 || code == 75)); then

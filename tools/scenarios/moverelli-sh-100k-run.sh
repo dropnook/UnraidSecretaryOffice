@@ -5,6 +5,7 @@
 # moving all 100 000 to the array (none left on the pool), her progress while at work growing (sampled every 10 s
 # from her status.json, the counts her run card shows), the agent's heartbeat steady (INV-TICK). The times go into the
 # README «Batch C». Nightly (~20 min).
+# timeout: 5400 the real run alone may take 50 min, the checks of 100 000 files after it ~10 min
 . "$(dirname "$0")/lib.sh"
 scenario_begin moverelli-sh-100k-run
 needs tower
