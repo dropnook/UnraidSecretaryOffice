@@ -476,6 +476,8 @@
   "night.dry_started_mine": "Probelauf gestartet — ich schaue, was der nächste Lauf täte.",
   "night.last": "Letzter gemeinsamer Lauf {when}: {how}",
   "night.jack_out": "Jack Streamer war nicht dabei: {why}",
+  "night.jack_failed": {"one": "Jack Streamer: {n} Datei nicht bereitgelegt", "other": "Jack Streamer: {n} Dateien nicht bereitgelegt"},
+  "night.jack_failed_tip": "Sein Teil des gemeinsamen Laufs konnte diese Dateien nicht kopieren — sie bleiben, wo sie waren. Seine Seite sagt, welche und warum.",
   "night.jack_why_gather": "zuerst einmal «Ordner zusammenführen» auf seiner Seite laufen lassen",
   "night.jack_why_setup": "er ist noch nicht eingerichtet",
   "night.jack_why_other": "er hat nicht angefangen — warum, steht auf seiner Seite",

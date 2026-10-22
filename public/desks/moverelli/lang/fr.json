@@ -476,6 +476,8 @@
   "night.dry_started_mine": "Essai à blanc lancé — je regarde ce que ferait la prochaine exécution.",
   "night.last": "Dernière exécution commune {when} : {how}",
   "night.jack_out": "Jack Streamer n'y était pas : {why}",
+  "night.jack_failed": {"one": "Jack Streamer : {n} fichier non préparé", "other": "Jack Streamer : {n} fichiers non préparés"},
+  "night.jack_failed_tip": "Sa part de l'exécution commune n'a pas pu copier ces fichiers — ils restent où ils étaient. Sa page dit lesquels et pourquoi.",
   "night.jack_why_gather": "lancer d'abord une fois «Regrouper les dossiers» sur sa page",
   "night.jack_why_setup": "il n'est pas encore configuré",
   "night.jack_why_other": "il n'a pas démarré — sa page dit pourquoi",

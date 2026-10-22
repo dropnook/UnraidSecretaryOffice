@@ -202,6 +202,7 @@
   "noted.office": "Noté de lui-même le {when} : le secrétariat l'a installé lui-même (le consultant) — rien à signaler.",
   "noted.unraid": "Noté de lui-même le {when} : la tâche d'Unraid lui-même après un démarrage de l'array (reload_services) — rien à signaler.",
   "noted.plugin": "Noté de lui-même le {when} : une tâche propre d'un plugin installé (elle exécute un des fichiers du plugin, en root) — rien à signaler.",
+  "noted.back": "Noté de lui-même le {when} : la planification du plugin est de nouveau comme avant — les mêmes lignes ; vue à moitié écrite (un plugin réécrit son fichier au démarrage) — rien à signaler.",
   "group.login": "Connexion",
   "group.container": "Conteneur",
   "group.plugin": "Plugin",
