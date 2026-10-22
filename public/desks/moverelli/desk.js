@@ -1427,7 +1427,10 @@ function lastNightText(l) {
     : l.result === 'stopped' ? T('night.last_stopped', { phase: Office.nightStoppedName(l, T) })
     : l.result === 'refused' ? T('night.last_refused') : T('night.last_ok');
   return T(l.jack === false || l.jack_out ? 'night.last_mine' : 'night.last', { when, how }) + (Number(l.round) > 1 ? ' · ' + T('night.rounds', { n: Number(l.round) }) : '')
-    + (l.mode === 'dry' ? ' · ' + T('mode.dry') : '') + (l.jack_out ? ' · ' + jackOutText(l.jack_out) : '');
+    + (l.mode === 'dry' ? ' · ' + T('mode.dry') : '') + (l.jack_out ? ' · ' + jackOutText(l.jack_out) : '')
+    // it waited for the backup's local part before it began (night.json `order`, agent/lib/nightorder.php)
+    + (l.order && l.order.code === 'waited_backup'
+      ? ' · ' + T('night.order.' + l.order.code, { min: Math.max(1, Math.round((Number(l.order.seconds) || 0) / 60)) }) : '');
 }
 /**
  * The rules of the shares that move as they really are, pure (the owner, 2026-10-18: the tile said only the global rule
@@ -1507,6 +1510,8 @@ function scheduleSection() {
   const meta = el('div', 'row-meta');
   meta.appendChild(sc.enabled ? el('span', '', schedText(sc)) : chip(T('not_scheduled'), 'warn'));
   meta.appendChild(el('span', '', sc.enabled ? T(n.jack ? 'night.with_jack' : 'by_office') : T('schedule.off_hint')));
+  // the same minute as the scheduled backup, from before the save refused it (agent/lib/nightorder.php) — said quietly
+  if (sc.enabled && sc.order_hint === true) meta.appendChild(el('span', 'note', T('sched.order_hint')));
   main.appendChild(meta);
   const change = button(T('sched.change'), 'small plain', () => scheduleDialog());
   change.disabled = !Office.agent.running;

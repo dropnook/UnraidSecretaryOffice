@@ -6404,7 +6404,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.69'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.70'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -8391,9 +8391,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.69 everywhere it is named', ['2.69', '2.69', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.69"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.69** –')]);
+    same('data trust: the engine\'s version 2.70 everywhere it is named', ['2.70', '2.70', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.70"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.70** –')]);
     // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
     same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
         array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
@@ -9499,7 +9499,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.69', [1, '2.69'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.70', [1, '2.70'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -10107,7 +10107,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.69', [1, '2.69'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.70', [1, '2.70'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -44789,6 +44789,229 @@ function testNightPlan(): void
 }
 
 /**
+ * The scheduled backup and Ms. Moverelli's run (agent/lib/nightorder.php, 2026-10-21; seen on a real server: both at 02:00,
+ * side by side): never the same minute on save; whoever starts first runs to the end, the other waits (the backup for her
+ * whole run, she for the backup's local part — the whole run with a live share she moves); started by hand: refused.
+ */
+function testNightOrder(): void
+{
+    $tmp = hardeningTmp('night-order');
+    foreach (['run', 'engine/state', 'mov', 'shares'] as $d) {
+        @mkdir("$tmp/$d", 0700, true);
+    }
+    $t0 = mktime(2, 0, 3, 10, 22, 2026);
+    // (1) the job before the scheduled backup, on a clock of its own: $busy(s) = her run goes s seconds after its start
+    $job = function (callable $busy, callable $array = null) use ($tmp, $t0): array {
+        $t = $t0;
+        $GLOBALS['nightOrderHost'] = ['waitdir' => "$tmp/run", 'backup_data' => "$tmp/engine", 'night_dir' => "$tmp/mov",
+            'night_running' => function () use (&$t, $t0, $busy) { return $busy($t - $t0); },
+            'array' => function () use (&$t, $t0, $array) { return $array === null || $array($t - $t0); },
+            'now' => function () use (&$t) { return $t; }, 'sleep' => function (int $s) use (&$t) { $t += $s; }];
+        ob_start();
+        $rc = nightOrderBackupJob();
+        $out = (string) ob_get_clean();
+        unset($GLOBALS['nightOrderHost']);
+        return [$rc, $out, $t - $t0];
+    };
+    same('night order: the scheduled backup — her run not going: starts at once, no word; going for 3 h: waits the whole run (no cap), says so',
+        [[0, '', 0], [0, "waited_night:10800\n", 10800]], [$job(fn ($s) => false), $job(fn ($s) => $s < 10800)]);
+    same('night order: … the array stopped while it waited: nothing starts (exit 3)', [3, ''], array_slice($job(fn ($s) => true, fn ($s) => $s < 100), 0, 2));
+    $held = fopen("$tmp/run/backup-wait.lock", 'c');
+    flock($held, LOCK_EX);
+    $twice = $job(fn ($s) => $s < 60);
+    flock($held, LOCK_UN);
+    fclose($held);
+    same('night order: … a second scheduled start while one waits ends at once', [3, '', 0], $twice);
+
+    // (2) «must she wait?»: the engine's lock held by a real backup — by its phase, a live share she moves, its kind
+    $eng = "$tmp/engine";
+    $quiet = [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']];
+    $proc = proc_open(['bash', '-c', 'exec -a backup.sh sleep 60'], $quiet, $pipes);
+    $pid = (int) (proc_get_status($proc)['pid'] ?? 0);
+    for ($i = 0; $i < 60 && !str_contains((string) @file_get_contents("/proc/$pid/cmdline"), 'backup.sh'); $i++) {
+        usleep(50000);
+    }
+    $lock = fopen("$eng/state/lock", 'c');
+    flock($lock, LOCK_EX);
+    file_put_contents("$tmp/shares/Downloads.cfg", "shareUseCache=\"yes\"\n");
+    file_put_contents("$tmp/shares/Media.cfg", "shareUseCache=\"no\"\n");
+    $plan = fn (array $shares) => writeAtomic("$eng/state/setup-plan.json", jsonEncode(['shares' => $shares]), 0600, 0, 0);
+    $holds = function (string $phase, string $mode = 'backup', string $result = 'running') use ($eng, $pid, $tmp): bool {
+        writeAtomic("$eng/state/lock-holder.json", jsonEncode(['holder' => 'backup', 'mode' => $mode, 'run' => '20261022-0200', 'pid' => $pid, 'started' => time()]), 0600, 0, 0);
+        writeAtomic("$eng/state/status.json", jsonEncode(['mode' => $mode, 'result' => $result, 'phase' => $phase]), 0600, 0, 0);
+        return nightOrderBackupHolds($eng, "$tmp/shares");
+    };
+    $plan([['name' => 'Downloads', 'method' => 'snap', 'mode' => 'kopia'], ['name' => 'Media', 'method' => 'live', 'mode' => 'kopia']]);
+    same('night order: she waits while the backup does its local part (inventory … starting), not from partner/kopia/cleanup on; never for a dry run or a tour',
+        [true, true, true, true, false, false, false, false, false, false],
+        [$holds('inventory'), $holds('dumps'), $holds('snapshots'), $holds('starting'), $holds('partner'), $holds('kopia'), $holds('cleanup'),
+         $holds('done'), $holds('snapshots', 'dryrun'), $holds('snapshots', 'check')]);
+    $plan([['name' => 'Downloads', 'method' => 'live', 'mode' => 'kopia'], ['name' => 'Media', 'method' => 'live', 'mode' => 'kopia']]);
+    same('night order: a share read live that she moves (Downloads, cache yes) — the whole run; a live share she doesn\'t move (Media) or one not backed up — not',
+        [true, true, ['Downloads']], [$holds('kopia'), $holds('cleanup'), nightOrderLiveMoved($eng, "$tmp/shares")]);
+    $plan([['name' => 'Downloads', 'method' => 'live', 'mode' => 'off'], ['name' => '../x', 'method' => 'live', 'mode' => 'kopia']]);
+    same('night order: … a live share left out of the backup, a name with a slash — nothing', [false, []], [$holds('kopia'), nightOrderLiveMoved($eng, "$tmp/shares")]);
+    flock($lock, LOCK_UN);
+    fclose($lock);
+    same('night order: … the lock free — nobody to wait for', false, $holds('snapshots'));
+    proc_terminate($proc);
+    proc_close($proc);
+
+    // (3) inside her run (nightRun()): from a page refused, her row says why; on schedule she waits, night.json says so
+    $mt = "$tmp/mv";
+    @mkdir($mt, 0700, true);
+    $v = [];
+    moverelliFixture($mt, $v);
+    $GLOBALS['moverelliHost'] += ['cron_file' => "$mt/office.cron", 'cron_apply' => false, 'jack_scheduled' => fn () => false];
+    $mdir = "$mt/data";
+    moverelliSave(moverelliTestSettings(['move_when_used_above' => 80]), moverelliHost());
+    $tt = $t0;
+    $looks = 0;
+    $herRuns = 0;
+    $GLOBALS['nightHost'] = ['settle' => 0, 'jack_on' => fn () => false, 'level' => fn () => null, 'disks_ini' => "$mt/none.ini",
+        'her_job' => function (array $args, array $hh) use ($mdir, &$herRuns) {
+            $herRuns++;
+            writeAtomic("$mdir/status.json", jsonEncode(['result' => 'ok']), 0600, 0, 0);
+            moverelliRemember(['mode' => $args[0], 'by' => 'night', 'started' => time(), 'finished' => time(), 'result' => 'ok'], $mdir);
+            return 0;
+        },
+        'order' => ['now' => function () use (&$tt) { return $tt; }, 'sleep' => function (int $s) use (&$tt) { $tt += $s; },
+                    'backup_holds' => function () use (&$looks) { return $looks++ < 3; }, 'array' => fn () => true]];
+    $rcPage = nightRun(['run', '--office']);
+    $row = moverelliHistory($mdir)[0] ?? [];
+    $rcSched = nightRun(['run']);
+    same('night order: her run — from a page while a backup runs: refused, her row says why; on schedule: waits, then runs, night.json says so',
+        [1, 'refused', 'moverelli_backup_running', 0, 1, ['code' => 'waited_backup', 'seconds' => 15]],
+        [$rcPage, $row['result'] ?? null, $row['why'] ?? null, $rcSched, $herRuns, readJson("$mdir/night.json")['order'] ?? null]);
+    // the same minute (tonight's case: both at 0 2 * * *, both crons start at once): she gives the engine 90 s to take its
+    // lock — it shows after 20 s and holds its local part until 300 s: she waits for it; it never shows: she goes after 90 s
+    $tie = function (?int $shows, string $backupCron = '0 2 * * *') use ($t0, $mdir, &$herRuns): array {
+        $tt = $t0;
+        $herRuns = 0;
+        $GLOBALS['nightHost']['order'] = ['now' => function () use (&$tt) { return $tt; }, 'sleep' => function (int $s) use (&$tt) { $tt += $s; },
+            'array' => fn () => true, 'backup_cron' => fn () => $backupCron,
+            'backup_locked' => function () use (&$tt, $t0, $shows) { return $shows !== null && $tt - $t0 >= $shows; },
+            'backup_holds' => function () use (&$tt, $t0, $shows) { return $shows !== null && $tt - $t0 >= $shows && $tt - $t0 < 300; }];
+        @unlink("$mdir/night.json");
+        $rc = nightRun(['run']);
+        return [$rc, $herRuns, readJson("$mdir/night.json")['order'] ?? null, $tt - $t0];
+    };
+    same('night order: the same minute — the engine\'s lock after 20 s: she waits for its local part; never: she goes after 90 s, no word; the backup\'s line at another minute: no tie',
+        [[0, 1, ['code' => 'waited_backup', 'seconds' => 305], 305], [0, 1, null, 90], [0, 1, null, 0]],
+        [$tie(20), $tie(null), $tie(null, '5 2 * * *')]);
+    unset($GLOBALS['nightHost'], $GLOBALS['moverelliHost']);
+
+    // (4) never the same minute: the next 7 days of any two lines; saving refused naming the other's time; the hint
+    $now = mktime(12, 0, 0, 10, 21, 2026);
+    same('night order: the same minute — daily alike; 02:00 vs 02:01; every hour vs 02:00; Mondays vs daily; one line off',
+        ['02:00', null, '02:00', '02:00', null],
+        array_map(fn ($p) => ($at = nightOrderSameMinute($p[0], $p[1], $now)) !== null ? date('H:i', $at) : null,
+                  [['0 2 * * *', '0 2 * * *'], ['0 2 * * *', '1 2 * * *'], ['0 * * * *', '0 2 * * *'], ['0 2 * * 1', '0 2 * * *'], ['0 2 * * *', null]]));
+    $cron = "$tmp/office.cron";
+    officeJobSetSchedule('moverelli', '0 2 * * *', $cron, false);
+    $refused = function (callable $f): ?array {
+        try {
+            $f();
+            return null;
+        } catch (Problem $p) {
+            return [$p->key, $p->params];
+        }
+    };
+    same('night order: saving the backup on her minute refused, naming her time; another minute fine; her line on his minute refused; she not hired: no check',
+        [['backup_same_minute', ['time' => '02:00']], null, ['moverelli_same_minute', ['time' => '02:00']], null],
+        [$refused(fn () => nightOrderSaveCheck('backup', '0 2 * * *', $cron, true)), $refused(fn () => nightOrderSaveCheck('backup', '30 2 * * *', $cron, true)),
+         (function () use ($refused, $cron) { officeJobSetSchedule('backup', '0 2 * * *', $cron, false); return $refused(fn () => nightOrderSaveCheck('moverelli', '0 2 * * *', $cron, true)); })(),
+         $refused(fn () => nightOrderSaveCheck('backup', '0 2 * * *', $cron, false))]);
+    same('night order: a collision from before the check — the hint; gone once one moves', [true, false],
+        [nightOrderHint($cron, $now), (function () use ($cron, $now) { officeJobSetSchedule('backup', '30 3 * * *', $cron, false); return nightOrderHint($cron, $now); })()]);
+    check('night order: both desks save through the check', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php'), "nightOrderSaveCheck('backup', \$cron);")
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php'), "nightOrderSaveCheck('moverelli', \$cron, \$h['cron_file'], true);"));
+
+    // (5) the records: read only in their shape
+    same('night order: the backup\'s history row — order {waited_night} only', [['code' => 'waited_night', 'seconds' => 1260], null, null],
+        array_map(fn ($o) => backupRunFromStatus(['run' => '20261022-0200', 'order' => $o])['order'],
+                  [['code' => 'waited_night', 'seconds' => 1260], ['code' => 'waited_backup', 'seconds' => 1], ['code' => 'waited_night', 'seconds' => '9']]));
+    same('night order: her night\'s short form — {waited_backup} only', [['code' => 'waited_backup', 'seconds' => 300], null],
+        [moverelliNightShort(['order' => ['code' => 'waited_backup', 'seconds' => 300]])['order'] ?? null, moverelliNightShort(['order' => ['code' => 'waited_night', 'seconds' => 3]])['order'] ?? null]);
+
+    // (6) the engine 2.70: UB_ORDER read exactly in its shape → status.json `order`
+    $lib = OFFICE_DIR . '/backup/lib/common.sh';
+    $sh = function (string $order) use ($lib, $tmp) {
+        $j = json_decode((string) shell_exec('UB_DATA=' . escapeshellarg("$tmp/ubdata") . ' UB_ORDER=' . escapeshellarg($order) . ' bash -c '
+            . escapeshellarg('source ' . escapeshellarg($lib) . ' >/dev/null 2>&1; order_load; status_json')), true) ?? [];
+        return array_key_exists('order', $j) ? $j['order'] : 'missing';
+    };
+    same('night order: engine — «waited_night:1260» → order; anything else none (another code, extra text, a line break, empty)',
+        [['code' => 'waited_night', 'seconds' => 1260], null, null, null, null],
+        [$sh('waited_night:1260'), $sh('waited_mover:1'), $sh('waited_night:12;rm'), $sh("waited_night:0\nx"), $sh('')]);
+
+    // (7) job.sh: the word goes to the engine only in its shape; exit 3 starts nothing; the office failing starts it
+    foreach (['scripts', 'agent', 'backup'] as $d) {
+        @mkdir("$tmp/plugin/$d", 0700, true);
+    }
+    file_put_contents("$tmp/job.sh", str_replace(['DIR=/usr/local/emhttp/plugins/unraid-secretary-office', 'RUN=/var/run/unraid-secretary-office', 'logger -t unraid-secretary-office'],
+        ["DIR=$tmp/plugin", "RUN=$tmp/jobrun", "echo >> $tmp/syslog"], (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/job.sh')));
+    file_put_contents("$tmp/plugin/scripts/agent.sh", "array_started() { return 0; }\n");
+    file_put_contents("$tmp/plugin/agent/agent.php", "<?php echo getenv('STUB_OUT'); exit((int) getenv('STUB_RC'));\n");
+    file_put_contents("$tmp/plugin/backup/backup.sh", "echo \"ran \${UB_ORDER:-none}\" >> $tmp/ran\n");
+    $js = function (string $out, int $rc) use ($tmp): string {
+        @unlink("$tmp/ran");
+        @unlink("$tmp/jobrun/job-backup.minute");
+        exec('STUB_OUT=' . escapeshellarg($out) . " STUB_RC=$rc bash " . escapeshellarg("$tmp/job.sh") . ' backup 2>&1');
+        return trim((string) @file_get_contents("$tmp/ran")) ?: 'not started';
+    };
+    same('night order: job.sh — the word handed on; exit 3: nothing; no word, junk or the office failing: the backup as ever',
+        ['ran waited_night:1260', 'not started', 'ran none', 'ran none', 'ran none'],
+        [$js("waited_night:1260\n", 0), $js('', 3), $js('', 0), $js("x y\n", 0), $js('', 255)]);
+
+    // (8) the pages under node: the quiet line on both schedule rows, the run row's word, her last run's word
+    $node = testsNode();
+    if ($node === '') {
+        check('night order: pages - node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, checked: false, dataset: {}, style: {},
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {}, scrollIntoView() {} });
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }),
+  scope: () => T, t: T, el: mk, fmt: { cron: (c) => 'C' + c, relative: (t) => 'R' + t, size: (b) => b + ' B', number: (n) => String(n), time: (t) => 'T' + t, duration: (s) => s + 's', date: (t) => 'D' + t },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {},
+  sectionHead: (t) => mk('h', '', t), stat: (o) => o, has: () => true, errorText: (e) => 'err:' + e.key };
+for (const f of process.argv.slice(2)) (0, eval)(fs.readFileSync(f, 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const m = OFFICE_DESK_TESTS.moverelli;
+const notes = (n) => (typeof n === 'string' ? [] : [...(n.cls === 'note' ? [n.textContent] : []), ...n.children.flatMap(notes)]);
+const out = {};
+const sched = (hint) => ({ script: true, enabled: true, frequency: 'custom', custom: '0 2 * * *', next: 1000, order_hint: hint });
+out.backup = [true, false, 'same'].map((h) => { b.setState({ schedule: sched(h), history: [] }); return notes(b.scheduleSection()); });
+out.order = [b.orderText({ code: 'waited_night', seconds: 1260 }), b.orderText({ code: 'waited_night', seconds: 5 }), b.orderText({ code: 'nope', seconds: 1 }), b.orderText(null)];
+const night = { jack: true, plan: null, last: { mode: 'run', started: 100, finished: 200, result: 'ok', round: 1, jack: true, order: { code: 'waited_backup', seconds: 400 } } };
+out.last = [m.lastNightText(night.last), m.lastNightText({ ...night.last, order: { code: 'waited_night', seconds: 9 } })];
+out.mine = [true, false].map((h) => {
+  m.setState({ configured: false, unraid: { ok: true }, job: {}, schedule: { enabled: true, frequency: 'custom', custom: '0 2 * * *', order_hint: h }, history: [], shares: [], night, mover: { off: true } });
+  return notes(m.scheduleSection());
+});
+console.log(JSON.stringify(out));
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' '
+        . escapeshellarg(OFFICE_WEB . '/desks/moverelli/desk.js') . ' 2>&1');
+    $r = json_decode($raw, true) ?? [];
+    $only = fn (array $n, string $p) => array_values(array_filter($n, fn ($x) => str_starts_with($x, $p)));
+    same('night order: the quiet line (a note) on both schedule rows only while both share a minute',
+        [[['schedule.order_hint'], [], []], [['sched.order_hint'], []]],
+        [array_map(fn ($n) => $only($n, 'schedule.order'), $r['backup'] ?? []), array_map(fn ($n) => $only($n, 'sched.order'), $r['mine'] ?? [])]);
+    same('night order: the run row\'s word (minutes, at least 1); her last run\'s',
+        [['order.waited_night {"min":21}', 'order.waited_night {"min":1}', '', ''], true, false],
+        [$r['order'] ?? $raw, str_ends_with($r['last'][0] ?? '', ' · night.order.waited_backup {"min":7}'), str_contains($r['last'][1] ?? '', 'night.order')]);
+    hardeningRm($tmp);
+}
+
+/**
  * The night run itself (nightRun(), stand-ins for both tools and the pool): the concept's night 1 with a download burst while
  * they free — Jack Emby frees, she by age, the pool measured anew and a second pass for Jack Emby, he fetches last; one lock
  * (the runs inside pass, others are refused); a stop in «free» ends it (stopped, nothing after); «Stop after this file»
@@ -50019,7 +50242,7 @@ JS;
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],

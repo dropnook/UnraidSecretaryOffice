@@ -1,6 +1,7 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.69 - 2026-10-21
+# unraid-backup - setup.sh                        Version 2.70 - 2026-10-21
+#   2.70 Nothing new in the setup (backup.sh: status.json "order", the office's order with its mover run)
 #   2.69 The plan says three things it kept quiet about: a share Unraid deleted whose dataset only its snapshots keep
 #        (warning share_deleted_snapshots {share, datasets, snapshots} with the way: its snapshots deleted, then the share
 #        in Unraid again - the runs leave it out, the setup changes nothing of it); an app to be stopped whose folders

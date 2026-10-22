@@ -1,6 +1,9 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.69 - 2026-10-21
+# unraid-backup - backup.sh                       Version 2.70 - 2026-10-21
+#   2.70 The office's order with its mover run (Ms. Moverelli): a scheduled run that waited for it before it started (the
+#        office's job waits before it starts the engine) says so - status.json and history "order" {code: waited_night,
+#        seconds} from UB_ORDER (lib/common.sh order_load), one log line. The office's mover run reads the phase.
 #   2.69 An app stopped for the snapshot whose folders lie on a pool with almost no room (below 2 % of it, at least 1
 #        and at most 10 GiB, pool_low) is said before it stops: warning pool_low_space {pool, free, size, floor, apps, n}
 #        - it is still stopped and started as set up (a ZFS snapshot itself takes next to no room; a consistent
@@ -3929,6 +3932,13 @@ log "===================== $UB_NAME $UB_VERSION - $UB_MODE $TS =================
 array_stop_check "at its start"      # before anything - also before an earlier run's containers are started again
 recover_interrupted_run
 [[ "$DRY" == "1" ]] && log "DRY RUN - nothing is changed."
+# 2.70: the scheduled run waited for the office's mover run before it started (status.json "order")
+order_load
+if [[ "$ST_ORDER_CODE" == "waited_night" ]]; then
+    span="$(( (ST_ORDER_SECONDS + 30) / 60 )) min"; (( ST_ORDER_SECONDS < 60 )) && span="$ST_ORDER_SECONDS s"
+    log "Waited $span for the office's mover run (Ms. Moverelli) until it was done"
+    status_write
+fi
 
 for t in jq flock timeout gzip numfmt mountpoint awk; do
     command -v "$t" >/dev/null 2>&1 || die "Tool '$t' is missing"

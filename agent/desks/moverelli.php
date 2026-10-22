@@ -62,6 +62,7 @@ const MOVERELLI_CRON_LINE = '/^(?:@(?:reboot|yearly|annually|monthly|weekly|dail
 
 require_once dirname(__DIR__) . '/lib/poollevel.php';    // the pool, simply: her X/Y and Jack Emby's half (shared with him)
 require_once dirname(__DIR__) . '/lib/nightrun.php';     // the night run: Jack Emby and she, one run, one schedule (shared with him)
+require_once dirname(__DIR__) . '/lib/nightorder.php';   // never the scheduled backup's minute; the first one runs, the other waits (shared with Mr. Backupsy)
 
 define('MOVERELLI_APP', OFFICE_DIR . '/smartmover');
 define('MOVERELLI_DATA', DATA_DIR . '/moverelli');
@@ -1190,7 +1191,8 @@ function moverelliScan(?array $h = null): array
         'stopping'   => $stop !== null ? (in_array($stop['why'] ?? '', ['mover', 'array'], true) ? $stop['why'] : 'user') : null,
         'last'       => readJson("$dir/status.json"),
         'history'    => array_slice(moverelliHistory($dir), 0, 20),
-        'schedule'   => officeJobSchedule('moverelli', $h['cron_file']),
+        // order_hint: the same minute as the scheduled backup, from before the save check (nightorder.php; a quiet line)
+        'schedule'   => officeJobSchedule('moverelli', $h['cron_file']) + ['order_hint' => nightOrderHint($h['cron_file'])],
         // the night run (nightrun.php): the last one or the one going (phase, round, who works), and tonight's plan
         'night'      => moverelliNight($h, $settings),
         // Jack Emby: a run of his going (hers wait), EmbyCache's list and his shares her ini doesn't keep it away from;
@@ -1274,6 +1276,11 @@ function moverelliStart(string $mode): array
     if ($mode === 'run' && ($h['mover_running'])()) {
         logLine("Ms. Moverelli: Smart Mover ($mode) not started — Unraid's mover is at work");
         throw new Problem('moverelli_mover_running');
+    }
+    if ($mode === 'run' && (nightOrderHost()['backup_holds'])()) {
+        // started here it never waits: refused while the backup does its local part (nightorder.php)
+        logLine("Ms. Moverelli: Smart Mover ($mode) not started — a backup runs");
+        throw new Problem('moverelli_backup_running');
     }
     hostLaunch('moverelli', [PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', 'moverelli', $mode, '--office']);
     logLine("Ms. Moverelli: started Smart Mover ($mode) via at");
@@ -1803,6 +1810,7 @@ function moverelliSetSchedule(?string $cron, ?array $h = null): array
     if ($cron !== null && !moverelliConfigured($h['dir'])) {
         throw new Problem('moverelli_not_configured');
     }
+    nightOrderSaveCheck('moverelli', $cron, $h['cron_file'], true);      // never on the backup's minute (nightorder.php)
     $live = officeJobSetSchedule('moverelli', $cron, $h['cron_file'], (bool) $h['cron_apply']);
     if ($cron !== null && officeJobSchedule('embycache', $h['cron_file'])['enabled']) {
         officeJobSetSchedule('embycache', null, $h['cron_file'], (bool) $h['cron_apply']);
@@ -1840,7 +1848,9 @@ function moverelliNight(array $h, ?array $settings): array
 function moverelliNightShort(array $n): array
 {
     return array_intersect_key($n, array_flip(['mode', 'by', 'started', 'finished', 'phase', 'round', 'who', 'jack', 'pool', 'plan', 'steps',
-        'result', 'stopped_in', 'stopped_who', 'missed', 'end_pct', 'running', 'waited', 'why', 'picture', 'jack_out']));
+        'result', 'stopped_in', 'stopped_who', 'missed', 'end_pct', 'running', 'waited', 'why', 'picture', 'jack_out']))
+        // her run waited for the backup's local part before it began (nightorder.php), read back only in its shape
+        + (($o = nightOrderRow($n['order'] ?? null, 'waited_backup')) !== null ? ['order' => $o] : []);
 }
 
 /**

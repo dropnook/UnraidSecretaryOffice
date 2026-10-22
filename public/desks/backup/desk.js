@@ -1733,6 +1733,7 @@ function historySection() {
     if (ks) meta.appendChild(el('span', '', T('kopia_skipped_count', { n: ks })));
     if (asleepUnits(r)) meta.appendChild(el('span', '', T('asleep.left_out', { n: asleepUnits(r) })));
     if (r.downtime) meta.appendChild(el('span', '', T('downtime_short', { duration: fmt.duration(r.downtime) })));
+    if (orderText(r.order)) meta.appendChild(el('span', '', orderText(r.order)));
     if (r.packages && (r.packages.apps || r.packages.vms)) meta.appendChild(el('span', '', T('pk.history', { apps: nOf('apps', r.packages.apps), vms: nOf('vms', r.packages.vms) })));
     if (r.errors || r.warnings) meta.appendChild(el('span', '', T('counts', { errors: nOf('errors', r.errors), warnings: nOf('warnings', r.warnings) })));
     if (r.message && r.result !== 'ok') meta.append(el('span', 'note', messageText(r.message, r.message_params)));
@@ -1882,6 +1883,12 @@ function driftSection() {
 }
 
 /** «Schedule» as a section of one row: how often, the next backup and when it should be done — «Change…» opens the dialog */
+/** A scheduled run that waited for Ms. Moverelli's run before it started (engine 2.70 `order`, agent/lib/nightorder.php), pure — '' for none */
+function orderText(o) {
+  if (!o || o.code !== 'waited_night') return '';
+  return T('order.' + o.code, { min: Math.max(1, Math.round((Number(o.seconds) || 0) / 60)) });
+}
+
 function scheduleSection() {
   const sc = state.schedule || {};
   const change = button(T('schedule.change'), 'small', scheduleDialog);
@@ -1906,6 +1913,8 @@ function scheduleSection() {
       const took = typicalDuration();
       if (took) meta.appendChild(el('span', '', T('schedule.duration', { duration: fmt.duration(took), end: fmt.time(sc.next + took) })));
     }
+    // the same minute as Ms. Moverelli's run, from before the save refused it (agent/lib/nightorder.php) — said quietly
+    if (sc.order_hint === true) meta.appendChild(el('span', 'note', T('schedule.order_hint')));
   }
   main.appendChild(meta);
   row.appendChild(main);
@@ -6582,7 +6591,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     get sf() { const f = setupFilter().read(); return { text: f.words.join(' '), onlyNew: f.only }; },
     setupFilter,
     setupFits, setupFirstNew, setupFocus, setupTileData, setupTileList, setupNewCounts, setupSwitcher, SETUP_TILES, STEP_TILE,
-    driftText, driftParams, messageText,
+    driftText, driftParams, messageText, orderText, scheduleSection,
     overviewTiles, tileNode, tileList, protRows, protView, protTileCounts, historyRows, PROT_TILES, PROT_ID, TILES,
     setState: (s) => { state = s; },
     setupDraftFromPlan, setupNewLines, setupNewRows, setupChanges, setupSaved, waitingFolders, waitChoice, waitSet, levelOf, waitingText, appSharesText,
