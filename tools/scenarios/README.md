@@ -72,6 +72,12 @@ Report `/tmp/uso-scenarios/<date>/<name>.md` (or `$USO_SC_OUT/<name>.md` from th
 `VERDICT <green|red|skipped|dirty> exit=<n> red=<ids>`; beside it `<name>.result` (`verdict= red= pending= keep= why=`)
 and `<name>.pending` (Mac-side checks). Evidence in `/tmp/uso-keep/<name>/` (`before/`, `after/`, `ask/`, `undo.log`).
 
+**Power cuts.** A scenario whose pre half cuts the power (`sysrq b`: the four `*-rn-hard-reset-midrun-*` cells) carries
+`# needs-powercut:` and `needs … powercut`: left out of every list and skipped (its reboot and post half too) unless
+`run.sh --powercut` — only on a VM that boots from a vdisk, or with the owner nearby: after one on 2026-10-22 Tower's
+passed-through USB boot stick no longer enumerated («error -71») and the VM couldn't start. Clean reboots
+(`office-of-reboot-all-hired`) stay in the lists.
+
 **Run late.** A scenario that leaves something behind until the next base reset (a row in a history, packages in the
 storeroom, runs dated ahead by a clock cell) carries a line `# run-late: <n> <why>` in its header: `--all` and `--desk`
 lists run it after every other one, the higher `n` the later (R22: 9, the last), each after a base reset of its own

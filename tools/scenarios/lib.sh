@@ -140,6 +140,8 @@ needs() {
             tower) host_is tower || host_is test4 || why+=("not an apps server (Tower/USOTest4)") ;;
             test3 | test4 | any) host_is "$n" || why+=("not $n") ;;
             reboot) _row needs reboot info "the runner runs this scenario in halves" ;;
+            # a power cut (sysrq b): only when the runner says so (run.sh / run-local.sh --powercut → USO_POWERCUT=1)
+            powercut) [[ ${USO_POWERCUT:-} == 1 ]] || why+=("a power cut — only with a vdisk boot or the owner nearby (--powercut)") ;;
             docker | nodocker | vm | vmagent | hdd | zfs | btrfs | kopia | minio | jack | partner | pool2 | compose | exclusive)
                 has "$n" || why+=("no $n") ;;
             *) why+=("unknown need $n") ;;

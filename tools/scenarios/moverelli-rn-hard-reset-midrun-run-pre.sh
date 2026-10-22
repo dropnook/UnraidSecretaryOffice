@@ -4,9 +4,11 @@
 # This half writes the files, notes what must come back (OF-REBOOT), puts the demo set on Docker's autostart
 # (CT-AUTOSTART — undone by the post half), arms the cut and ends; a detached «Run now» starts her run once this half's
 # result is written.
+# needs-powercut: a power cut (sysrq b) — only on a VM that boots from a vdisk, or with the owner nearby: Tower's
+# passed-through USB boot stick didn't enumerate again after one (2026-10-22, «error -71»); run.sh --powercut lists it
 . "$(dirname "$0")/lib.sh"
 scenario_begin moverelli-rn-hard-reset-midrun-run-pre
-needs tower docker reboot
+needs tower docker reboot powercut
 declare -F state_ct_autostart >/dev/null || { printf 'needs the helper CT-AUTOSTART (task/scenarios-helper-ct-autostart): without Docker autostart nothing comes back after a power cut\n' >"$KEEP/.skip"; scenario_end; }
 note=${USO_SC_OUT:-$SC_REPORTS}/moverelli-rn-hard-reset-midrun-run.prenotes
 { [[ -f /var/lib/docker/unraid-autostart ]] && echo autostart=had || echo autostart=none; } >"$note"

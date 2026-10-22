@@ -7,9 +7,11 @@
 # written, so the runner has its report before the server goes. The post half checks the boot. $1 = users: Nextcloud's
 # data folder first as the office's «Close the folder…» leaves it (33:users 0770) — Unraid's array start at the boot
 # leaves that alone (B12's finding: 33:33 is opened to 0777 and the --recover's occ is refused).
+# needs-powercut: a power cut (sysrq b) — only on a VM that boots from a vdisk, or with the owner nearby: Tower's
+# passed-through USB boot stick didn't enumerate again after one (2026-10-22, «error -71»); run.sh --powercut lists it
 . "$(dirname "$0")/lib.sh"
 scenario_begin backup-rn-hard-reset-midrun-run-pre
-needs tower docker reboot
+needs tower docker reboot powercut
 declare -F state_ct_autostart >/dev/null || { printf 'needs the helper CT-AUTOSTART (task/scenarios-helper-ct-autostart): without Docker autostart nothing comes back after a power cut\n' >"$KEEP/.skip"; scenario_end; }
 note=${USO_SC_OUT:-$SC_REPORTS}/backup-rn-hard-reset-midrun-run.prenotes
 { [[ -f /var/lib/docker/unraid-autostart ]] && echo autostart=had || echo autostart=none; } >"$note"

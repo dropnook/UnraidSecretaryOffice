@@ -3,7 +3,8 @@
 # one by one there (tools/scenarios/run-local.sh), the Mac-side checks completed, the reports collected.
 #
 #   bash tools/scenarios/run.sh <tower|test3|test4> [--all | --desk backup,… | --only name[:arg],…] [--no-sync] [--no-reset]
-#                               [--keep] [--no-nightly] [--dev-sync] [--timeout s]
+#                               [--keep] [--no-nightly] [--powercut] [--dev-sync] [--timeout s]
+#   (--powercut: the `# needs-powercut:` scenarios too — sysrq b; only on a VM booting from a vdisk, or the owner nearby)
 #
 #   1. rsync -a --delete --exclude .git ./ → <vm>:/tmp/uso-scenarios/tree[-<worktree>]/ (unless --no-sync), its git describe beside it;
 #      --dev-sync: then plugin/dev-sync.sh there - the code under test into the plugin (off by default: wave 1 tests the
@@ -37,7 +38,7 @@ TREE=$VMDIR/tree${tag:+-$tag}
 
 host=${1:-}
 shift || true
-sel='--all' sync=1 reset=1 keep=0 nightly=1 devsync=0 tmo=3600
+sel='--all' sync=1 reset=1 keep=0 nightly=1 devsync=0 tmo=3600 powercut=0
 while (($#)); do
     case $1 in
         --all) sel='--all'; shift ;;
@@ -46,6 +47,7 @@ while (($#)); do
         --no-reset) reset=0; shift ;;
         --keep) keep=1; shift ;;
         --no-nightly) nightly=0; shift ;;
+        --powercut) powercut=1; shift ;;
         --dev-sync) devsync=1; shift ;;
         --timeout) tmo=${2:-3600}; shift 2 ;;
         -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
@@ -57,7 +59,7 @@ case $host in
     test3) alias=uso-test3 ip=192.168.7.197 ;;
     test4) alias=uso-test4 ip=192.168.7.193 ;;
     -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
-    *) echo "usage: run.sh <tower|test3|test4> [--all | --desk … | --only …] [--no-sync] [--no-reset] [--keep] [--no-nightly] [--dev-sync]" >&2; exit 2 ;;
+    *) echo "usage: run.sh <tower|test3|test4> [--all | --desk … | --only …] [--no-sync] [--no-reset] [--keep] [--no-nightly] [--powercut] [--dev-sync]" >&2; exit 2 ;;
 esac
 
 SSH="ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4"
@@ -89,6 +91,7 @@ mkdir -p "$local_dir" || exit 2
 opts="--out $OUT --timeout $tmo"
 ((keep)) && opts="$opts --keep"
 ((nightly)) || opts="$opts --no-nightly"
+((powercut)) && opts="$opts --powercut"
 t_start=$SECONDS
 
 sync_tree() {
@@ -111,7 +114,7 @@ if ((devsync)); then
 fi
 vm "mkdir -p $OUT"
 
-names=$(vm "bash $TREE/tools/scenarios/run-local.sh --list $sel $( ((nightly)) || echo --no-nightly)") || exit 2
+names=$(vm "bash $TREE/tools/scenarios/run-local.sh --list $sel $( ((nightly)) || echo --no-nightly) $( ((powercut)) && echo --powercut)") || exit 2
 [[ -n $names ]] || { say "no scenario to run"; exit 2; }
 say "$(echo "$names" | wc -l | tr -d ' ') scenario(s): $(echo $names)"
 
@@ -262,6 +265,8 @@ for spec in $names; do
     if vm "test -f $TREE/tools/scenarios/$n-pre.sh -a -f $TREE/tools/scenarios/$n-post.sh"; then
         vm "bash $TREE/tools/scenarios/run-local.sh --one '$spec' --half pre $opts"
         pull
+        # a pre half that was skipped (its needs unmet — a power cut without --powercut): no reboot, no post half
+        if grep -q '^verdict=skipped' "$local_dir/$n.result" 2>/dev/null; then say "$n: the pre half was skipped — no reboot"; continue; fi
         # pre left the VM up (it noted reboot=1, or simply ended): the runner reboots it
         sleep 20
         if vm true 2>/dev/null; then
