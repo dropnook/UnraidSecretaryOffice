@@ -334,7 +334,10 @@ _ck_mac_n() { grep -c "^$1	" "${REPORT%.md}.pending" 2>/dev/null || echo 0; }
 check_inv_tick() {
     local gap ms t0 age
     [[ -s $KEEP/.pulse ]] || { echo "no heartbeat samples (snap_before starts them)"; return 3; }
-    gap=$(awk 'NR==1{p=$1} $1!=p{if ($1-p>g) g=$1-p; p=$1} END{print g+0}' "$KEEP/.pulse")
+    # mtimes from before the scenario began are a clock step's leftovers, not a pulse: put_files --age writes with the
+    # clock set back 40 days, and a heartbeat written meanwhile carries that time until the agent's next beat (M3,
+    # 2026-10-22: «gap 3456020 s» = 40 days) — a stalled agent still shows, its mtimes stay recent
+    gap=$(awk -v lo="$(( ${SC_START:-0} - 120 ))" '$1 < lo {next} !n++{p=$1} $1!=p{if ($1-p>g) g=$1-p; p=$1} END{print g+0}' "$KEEP/.pulse")
     age=$(_agent_age)
     t0=$(date +%s%N)
     php "$SC_DIR/ask.php" --wait 5 office.ping '{}' >/dev/null 2>&1
