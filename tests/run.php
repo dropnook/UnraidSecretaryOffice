@@ -20745,6 +20745,110 @@ function testNotifyToldLately(): void
 }
 
 /**
+ * B15 on 1.70.2 (backup-sv-docker-hung-replan-run, dockerd SIGSTOPped: a 39 s gap in the heartbeat): the desks' own
+ * docker calls inside the agent's round — Mr. Backupsy's gone packages, the Team Lead's network check, «Where is what»,
+ * Ms. Dustdevil's look, the snapshot's Docker dataset, Mr. Restori's plans, the Consultant's look, a container's log on
+ * the page, the drill's sweeper — waited 20–60 s each while Docker was silent. Now all through houseDocker(): while
+ * Docker is silent nothing is asked and the round stays far under the heartbeat (a plan or a log says
+ * errors.docker_silent, a look «unknown»); a long wait (a page's docker logs, 30 s) only after Docker answered — else the
+ * short look first; the agent's pulse before a wait (in the agent only, never in a job). A docker stand-in on PATH.
+ */
+function testDockerGuard(): void
+{
+    $tmp = hardeningTmp('dockerguard');
+    $path = getenv('PATH');
+    file_put_contents("$tmp/docker", "#!/bin/sh\necho \"\$*\" >>" . escapeshellarg("$tmp/calls") . "\n[ -f " . escapeshellarg("$tmp/hung") . ' ] && sleep "$(cat '
+        . escapeshellarg("$tmp/hung") . ")\"\nexit 0\n");
+    chmod("$tmp/docker", 0755);
+    putenv("PATH=$tmp:$path");
+    $calls = fn (): array => array_values(array_filter(explode("\n", (string) @file_get_contents("$tmp/calls")), 'strlen'));
+    $key = function (callable $f): string {
+        try {
+            $f();
+            return 'answered';
+        } catch (Problem $p) {
+            return $p->key;
+        }
+    };
+    $hadUsers = $GLOBALS['rs']['users'] ?? null;
+    unset($GLOBALS['rs']['users']);
+    $hadDrill = $GLOBALS['drill']['docker'] ?? null;
+    $GLOBALS['drill']['docker'] = "$tmp/docker";
+
+    // 1. Docker silent (a docker call of the house timed out lately): every look of the round answers at once
+    file_put_contents("$tmp/hung", '3');
+    $GLOBALS['houseDockerSilent'] = hrtime(true) / 1e9;
+    $t = microtime(true);
+    $gone = backupGoneHost();
+    $said = [
+        'gone'     => [$gone['containers'](), $gone['images']()],
+        'networks' => caretakerNetworkFacts(),
+        'where'    => waContainers(),
+        'cleanup'  => clDocker()['ok'],
+        'snapshot' => snapshotDockerParent(['docker' => "$tmp/docker"]) === ($GLOBALS['dockerParent'] ?? null),
+        'advisor'  => advisorDockerUp(),
+        'plan'     => $key(fn () => rsContainersNow()),
+        'users'    => $key(fn () => rsUsers(['/mnt/user/appdata/x'])),
+        'log'      => $key(fn () => logsRead('container:x', 100, null)),
+        'sweep'    => drillSweepFind(null, true)['orphans'],
+        'drill_rm' => drillRemoveContainer(DRILL_PREFIX . '20261101-030000-aaaa-0', '20261101-030000-aaaa'),
+    ];
+    $secs = microtime(true) - $t;
+    same('docker guard: Docker silent — the looks say «unknown», a plan and a log errors.docker_silent, the drill\'s throwaway not called gone',
+        ['gone' => [null, null], 'networks' => null, 'where' => [], 'cleanup' => false, 'snapshot' => true, 'advisor' => false,
+         'plan' => 'docker_silent', 'users' => 'docker_silent', 'log' => 'docker_silent', 'sweep' => [], 'drill_rm' => false], $said);
+    same('docker guard: Docker silent — nothing asked of it, the round far under the heartbeat', [[], true], [$calls(), $secs < 2]);
+
+    // 2. Docker hung, not yet known as silent: a long call (a page's docker logs, 30 s) waits only the short look
+    unset($GLOBALS['houseDockerSilent'], $GLOBALS['houseDockerAnswered']);
+    file_put_contents("$tmp/hung", '15');
+    @unlink("$tmp/calls");
+    $hadPid = @file_get_contents(PID_FILE);
+    @mkdir(dirname(PID_FILE), 0700, true);
+    file_put_contents(PID_FILE, (string) getmypid());           // this process is the agent
+    file_put_contents(AGENT_HEARTBEAT, '{}');
+    touch(AGENT_HEARTBEAT, time() - 50);
+    $t = microtime(true);
+    $r = houseDocker(['logs', '--tail', '10', 'x'], 30);
+    $secs = microtime(true) - $t;
+    clearstatcache();
+    same('docker guard: hung — a long call waits only the short look (docker version, HOUSE_DOCKER_WAIT s), then Docker counts as silent',
+        [124, true, ['version --format {{.Server.Version}}'], true],
+        [$r[0], $secs > HOUSE_DOCKER_WAIT - 1 && $secs < HOUSE_DOCKER_WAIT + 3, $calls(), houseDockerSilent()]);
+    same('docker guard: hung — the agent beat before it waited', true, filemtime(AGENT_HEARTBEAT) >= (int) $t - 1);
+    unset($GLOBALS['houseDockerSilent'], $GLOBALS['houseDockerAnswered']);
+    file_put_contents(PID_FILE, '4194305');                      // a job: not the agent
+    touch(AGENT_HEARTBEAT, time() - 50);
+    houseDocker(['ps'], 1);
+    clearstatcache();
+    same('docker guard: hung — a job never beats for the agent', true, filemtime(AGENT_HEARTBEAT) <= time() - 49);
+    $hadPid === false ? @unlink(PID_FILE) : file_put_contents(PID_FILE, $hadPid);
+    @unlink(AGENT_HEARTBEAT);
+
+    // 3. Docker answers: the short look once, then the long calls without another one
+    unset($GLOBALS['houseDockerSilent'], $GLOBALS['houseDockerAnswered']);
+    unlink("$tmp/hung");
+    @unlink("$tmp/calls");
+    houseDocker(['logs', 'x'], 30);
+    houseDocker(['logs', 'y'], 30);
+    houseDocker(['ps']);
+    same('docker guard: answering — the short look once, then the long calls and the short ones', ['version --format {{.Server.Version}}', 'logs x', 'logs y', 'ps'], $calls());
+
+    putenv("PATH=$path");
+    unset($GLOBALS['houseDockerSilent'], $GLOBALS['houseDockerAnswered']);
+    if ($hadUsers !== null) {
+        $GLOBALS['rs']['users'] = $hadUsers;
+    }
+    if ($hadDrill === null) {
+        unset($GLOBALS['drill']['docker']);
+    } else {
+        $GLOBALS['drill']['docker'] = $hadDrill;
+    }
+    houseContainers(true);          // the cache as the other tests find it: whatever this server's docker says
+    hardeningRm($tmp);
+}
+
+/**
  * Batch D F3 (scenario backup-sv-atd-off-run-apply, 2026-10-19): with atd stopped, `at` still queues a job (exit 0) and
  * nothing starts — the page said «Handed over — it should start any moment» for ever, and the job ran whenever atd came
  * back. hostLaunch() now looks first (hostAtdUp(): the pid file's process called atd, else any process called atd) and
@@ -50246,7 +50350,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
-          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testHouseDockerSilent', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
+          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testHouseDockerSilent', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.
