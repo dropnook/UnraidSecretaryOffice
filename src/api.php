@@ -510,8 +510,8 @@ const API_IMAGE_TTL = 900;
 /** The office's own actions the agent answers (agent/lib/report.php officeAgentActions()) — no desk, never «not hired» */
 const OFFICE_AGENT_ACTIONS = ['office.report_preview', 'office.report_send', 'office.report_diag', 'office.reports', 'office.report_inbox', 'office.supporter_claim'];
 
-/** The only actions that may carry secrets (the Consultant's Kopia setup) */
-const OFFICE_SECRET_ACTIONS = ['advisor.kopia_repo'];
+/** The only actions that may carry secrets (the Consultant's Kopia setup, the USO network's auth key) */
+const OFFICE_SECRET_ACTIONS = ['advisor.kopia_repo', 'caretaker.usonet_join'];
 
 /**
  * Secrets for the agent (keys, passwords the user types) must never touch

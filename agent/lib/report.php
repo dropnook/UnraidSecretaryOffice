@@ -131,7 +131,7 @@ const REPORT_TLDS_LOCAL  = ['local', 'lan', 'home', 'internal', 'localdomain', '
 const REPORT_LOG_LABELS = [
     'office'    => ['Agent ', 'Error: ', 'PHP: ', 'Office: ', 'Metrics: ', 'Mailbox: ', 'The ', 'No doorbell', 'Created the data folder', 'Created the share',
                     'New agent code', 'Could not ', 'agent.json ', 'Notifications: '],
-    'caretaker' => ['Caretaker: ', 'Partner offices: ', 'Menu entry: ', 'Notifications: '],
+    'caretaker' => ['Caretaker: ', 'Partner offices: ', 'USO network: ', 'Menu entry: ', 'Notifications: '],
     'snapshot'  => ['Ms. Snapshotini: ', 'Snapshot schedules: ', 'Snapshot scan', 'Deleted: ', 'Released: ', 'Renamed: ', 'Held: '],
     'backup'    => ['Backup: ', 'Mr. Backup: '],
     'restore'   => ['Mr. Restori'],
@@ -437,6 +437,7 @@ function reportScrub(string $s, array $know, ?array &$seen = null): string
         $s = mb_convert_encoding($s, 'UTF-8', 'UTF-8');                    // invalid bytes become «?»
     }
     $s = advisorScrub(reportNoUnicodeControls($s), $know['secrets']);
+    $s = (string) preg_replace('/\b(?:tskey|hskey)-[A-Za-z0-9_-]+/', '‹key›', $s);        // a tailnet's auth key (the USO network), whatever its length
     $s = (string) preg_replace('/[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/', '‹mail›', $s);
     // paths: found as Ms. Protocolli finds them, each replaced by what its structure may keep — through a stand-in
     // (\x01n\x02, no slash) so the finder's later rules never meet a path it has already put right

@@ -73,9 +73,15 @@ desk('caretaker', [
         'partner_ticket_make'   => fn (array $r) => partner_ticket_make($r),
         'partner_ticket_finish' => fn (array $r) => partner_ticket_finish($r),
         'partner_ticket_end'    => fn (array $r) => partner_ticket_end($r),
+        // the USO network underneath the pairing (agent/lib/usonet.php): join (the key a secret, through RAM), leave, a look
+        'usonet_join'   => fn (array $r) => caretakerPartnerDone(usonet_join($r)),
+        'usonet_leave'  => fn (array $r) => caretakerPartnerDone(usonet_leave($r)),
+        'usonet_look'   => fn (array $r) => ['ok' => true, 'usonet' => usonetPublic()],
     ],
     'jobs'    => ['partner-ping' => fn (array $args) => caretakerPartnerWatch(),
-                  'partner-look' => fn (array $args) => partnerLookJob((string) ($args[0] ?? ''))],     // «Ask now» (one pair)
+                  'partner-look' => fn (array $args) => partnerLookJob((string) ($args[0] ?? '')),      // «Ask now» (one pair)
+                  'usonet-join'  => fn (array $args) => usonetJoinJob(),
+                  'usonet-leave' => fn (array $args) => usonetLeaveJob()],
     'checks'  => fn () => caretakerChecks(),
     'metrics' => fn (): array => caretakerMetrics(readJson(deskFile('caretaker')), staffHired()),
 ]);
@@ -128,6 +134,7 @@ function caretakerScan(bool $checkUpdate = false): array
         'hired'       => $hired,
         'notify'      => caretakerNotifyPublic($notify),
         'partners'    => caretakerPartners(),
+        'usonet'      => caretakerUsonet(),
     ];
     writeAtomic(deskFile('caretaker'), jsonEncode($state));
     $GLOBALS['ctLastScan'] = time();
@@ -663,6 +670,9 @@ function caretakerChecks(): array
     }
     array_push($out, ...caretakerMonitoringChecks());
     array_push($out, ...caretakerPartnerFindings());
+    // the USO network (agent/lib/usonet.php): only while this server is in it — the node tagged, its peers only USO nodes,
+    // its helper the pinned one and running, contact with its coordination server (RAM and the flash only)
+    array_push($out, ...usonetChecks());
     // Unraid's syslog server for the router (agent/lib/watchnet.php): the share, rotation, exports, UDP 514, a loop; the server
     // off while the night watchman is hired and the Consultant's router guide was opened — the flash and emhttp's ini files only
     if (function_exists('watchnetChecks')) {
@@ -910,6 +920,17 @@ function caretakerPartners(): array
     } catch (Throwable $e) {
         logLine('Partner offices: the cards failed: ' . $e->getMessage());
         return ['pairs' => [], 'pending' => [], 'silent_after' => PARTNER_SILENT_AFTER];
+    }
+}
+
+/** His state's `usonet`: the USO network's card (agent/lib/usonet.php usonetPublic(): never a key) */
+function caretakerUsonet(): array
+{
+    try {
+        return usonetPublic();
+    } catch (Throwable $e) {
+        logLine('USO network: the card failed: ' . $e->getMessage());
+        return ['joined' => false, 'state' => 'off'];
     }
 }
 
