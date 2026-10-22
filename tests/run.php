@@ -50546,6 +50546,24 @@ function testUsoNetScript(): void
         [$sh('helper_ready; echo $?'), @file_get_contents("$tmp/run/helper.refused"), file_exists("$tmp/bin/uso-net")]);
     unlink("$tmp/flash/" . USONET_HELPER['file']);
     same('usonet.sh: no helper on the flash — refused (missing)', ["1\n", "missing\n"], [$sh('helper_ready; echo $?'), @file_get_contents("$tmp/run/helper.refused")]);
+    // an office update pinned another helper while the old one runs: it runs on, the new one is asked for (helper.refused
+    // «update»: the agent's tick fetches it); a helper started with the pin isn't touched
+    $old = proc_open(['bash', '-c', 'exec -a "uso-net up" sleep 30'], [], $pp);
+    usleep(200000);
+    file_put_contents("$tmp/run/helper.pid", (string) proc_get_status($old)['pid']);
+    file_put_contents("$tmp/run/helper.sha", "an-older-pin\n");
+    same('usonet.sh: a newer pin while the old helper runs — it runs on, the new one asked for', ["0\n", "update\n", true],
+        [$sh('helper_up; echo $?'), @file_get_contents("$tmp/run/helper.refused"), proc_get_status($old)['running']]);
+    file_put_contents("$tmp/run/helper.sha", USONET_HELPER['sha256'] . "\n");
+    @unlink("$tmp/run/helper.refused");
+    same('usonet.sh: the helper started with the pin — left alone', ["0\n", false, true], [$sh('helper_up; echo $?'), file_exists("$tmp/run/helper.refused"), proc_get_status($old)['running']]);
+    proc_terminate($old, SIGKILL);
+    proc_close($old);
+    @unlink("$tmp/run/helper.pid");
+    $lib = (string) file_get_contents(OFFICE_DIR . '/agent/lib/usonet.php');
+    check('USO network: the Team Lead\'s tick fetches the pinned helper when usonet.sh asks (missing, checksum, update), at most hourly',
+        str_contains($lib, "in_array(\$why, ['missing', 'checksum', 'update'], true)") && str_contains($lib, '< 3600')
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/caretaker.php'), 'usonetTick($now);'));
     // not joined: check does nothing, a leftover goes
     same('usonet.sh check, not joined: nothing started, no cron line', ['', false, false], [$sh('check'), file_exists("$tmp/run/helper.pid"), file_exists("$tmp/usonet.cron")]);
     $text = (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/usonet.sh');

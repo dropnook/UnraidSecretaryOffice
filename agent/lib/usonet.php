@@ -26,7 +26,7 @@ const USONET_HELPER = [
     'version' => '1',
     'file'    => 'uso-net-1-linux-amd64',
     'url'     => 'https://github.com/dropnook/UnraidSecretaryOffice/releases/download/uso-net-1/uso-net-1-linux-amd64',
-    'sha256'  => '61bec7969716174cad94f2ea736f242db4d98a63b51c29e45e839a65e9d95b83',
+    'sha256'  => 'efb987e2e33734b2f53e62d2f2bb17b27c88d0ec63af8c87bc2cc3e47ea0c9cd',
     'bytes'   => 22081660,
 ];
 const USONET_NETNS      = 'uso-net';
@@ -226,7 +226,7 @@ function usonetPublic(?int $now = null): array
         $out['why'] = $out['state'] === 'failed' ? $last['why'] : '';
         return $out;
     }
-    $refused = trim((string) @file_get_contents(usonetRunDir() . '/helper.refused', false, null, 0, 32));
+    $refused = trim((string) @file_get_contents(usonetRunDir() . '/helper.refused', false, null, 0, 32));     // «update»: the old one runs on
     $fresh = $s !== null && $now - $s['time'] <= USONET_STALE;
     if ($s !== null) {
         $out['name'] = $s['name'];
@@ -425,7 +425,53 @@ function usonetFetch(): bool
         throw new Problem('usonet_checksum');
     }
     @chmod($part, 0600);
-    return @rename($part, $file);
+    if (!@rename($part, $file)) {
+        return false;
+    }
+    foreach (glob(usonetFlashDir() . '/uso-net-*-linux-amd64') ?: [] as $old) {     // an earlier version's helper
+        if ($old !== $file && preg_match('#/uso-net-\d{1,4}-linux-amd64$#D', $old)) {
+            @unlink($old);
+        }
+    }
+    return true;
+}
+
+/**
+ * Every minute from the Team Lead's tick (RAM only): when usonet.sh asks for the pinned helper (helper.refused: missing,
+ * checksum, or «update» — an office update pinned a newer one while the old one runs), a job fetches and checks it —
+ * at most once an hour; usonet.sh swaps it in at its next look.
+ */
+function usonetTick(?int $now = null): void
+{
+    $now ??= time();
+    $run = usonetRunDir();
+    $why = trim((string) @file_get_contents("$run/helper.refused", false, null, 0, 32));
+    if (!in_array($why, ['missing', 'checksum', 'update'], true) || !usonetJoined() || usonetJoining() !== null
+        || $now - (int) @filemtime("$run/fetch.tried") < 3600) {
+        return;
+    }
+    @touch("$run/fetch.tried");
+    try {
+        hostLaunch('usonet-fetch', [PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', 'usonet-fetch']);
+    } catch (Throwable $e) {
+        logLine('USO network: the helper\'s fetch could not be started: ' . $e->getMessage());
+    }
+}
+
+/** The fetch's job (atd): the pinned helper onto the flash, then usonet.sh's look (it swaps or starts it) */
+function usonetFetchJob(): array
+{
+    try {
+        $ok = usonetFetch();
+    } catch (Problem $e) {
+        $ok = false;
+    }
+    if ($ok) {
+        @unlink(usonetRunDir() . '/helper.refused');
+        run(['bash', usonetScript(), 'check'], 60);
+    }
+    logLine('USO network: the pinned helper ' . ($ok ? 'is on the flash (version ' . USONET_HELPER['version'] . ')' : 'could not be fetched — tried again in an hour'));
+    return ['ok' => $ok];
 }
 
 /** The join's job (atd): the helper fetched and checked, the node started, waited for — the key removed once it is in */
@@ -475,12 +521,11 @@ function usonetJoinJob(?int $wait = null): array
     return $result(false, $why);
 }
 
-/** The leave's job (atd) */
+/** The leave's job (atd): usonet.sh leave says in one line whether the node could log out (its RAM folder goes with it) */
 function usonetLeaveJob(): array
 {
-    [$exit] = run(['bash', usonetScript(), 'leave'], 90);
-    @mkdir(usonetRunDir(), 0700, true);
+    [$exit, $out] = run(['bash', usonetScript(), 'leave'], 90);
     @unlink(usonetRunDir() . '/job.json');
-    logLine('USO network: this server left it' . ($exit === 0 ? '' : " (usonet.sh leave: $exit)"));
+    logLine('USO network: this server left it — ' . (trim((string) $out) ?: "usonet.sh leave: $exit"));
     return ['ok' => $exit === 0];
 }

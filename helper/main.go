@@ -7,7 +7,7 @@
 // host's network changes: no device, address, route, DNS or firewall rule outside the namespace.
 //
 //	uso-net up -state DIR -netns NAME -status FILE [-hostname H] [-port P] [-control URL] [-authkey-file F]
-//	uso-net logout -state DIR [-control URL]     the node leaves its tailnet (the office's «Leave»)
+//	uso-net logout -state DIR [-hostname H] [-control URL]   the node leaves its tailnet (the office's «Leave»)
 //	uso-net version
 //
 // Built with ts_omit_logtail: nothing is uploaded and no log is written into the state folder (it lies on the
@@ -279,11 +279,12 @@ func logout(args []string) {
 	fs := flag.NewFlagSet("logout", flag.ExitOnError)
 	state := fs.String("state", "", "state folder")
 	control := fs.String("control", "", "coordination server")
+	hostname := fs.String("hostname", "uso", "the node's name (as at «up»: the coordination server sees it once more)")
 	fs.Parse(args)
 	if *state == "" {
 		log.Fatal("logout: -state is needed")
 	}
-	s := &tsnet.Server{Dir: *state, ControlURL: *control, Hostname: "uso", UserLogf: func(string, ...any) {}, Logf: func(string, ...any) {}}
+	s := &tsnet.Server{Dir: *state, ControlURL: *control, Hostname: *hostname, UserLogf: func(string, ...any) {}, Logf: func(string, ...any) {}}
 	if err := s.Start(); err != nil {
 		log.Fatalf("start: %v", err)
 	}

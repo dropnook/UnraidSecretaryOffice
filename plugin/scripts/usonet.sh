@@ -37,7 +37,7 @@ SSHD=${USONET_SSHD:-/usr/sbin/sshd}
 HOST_KEY=/etc/ssh/ssh_host_ed25519_key
 HELPER_VERSION=1
 HELPER_FILE=uso-net-$HELPER_VERSION-linux-amd64
-HELPER_SHA256=61bec7969716174cad94f2ea736f242db4d98a63b51c29e45e839a65e9d95b83
+HELPER_SHA256=efb987e2e33734b2f53e62d2f2bb17b27c88d0ec63af8c87bc2cc3e47ea0c9cd
 UDP_PORT=41642
 # a coordination server of the user's own (Headscale): scheme, host[:port], an optional plain path - the same rule as USONET_CONTROL_RE
 CONTROL_RE='^https?://[][A-Za-z0-9.:_-]+(/[A-Za-z0-9._/-]*)?$'
@@ -82,9 +82,20 @@ helper_ready() {
 }
 
 helper_up() {
-    local pid key=() control
+    local pid key=() control i
     pid=$(pid_of "$RUN/helper.pid" "uso-net up")
-    [[ -n "$pid" ]] && return 0
+    if [[ -n "$pid" ]]; then
+        [[ "$(cat "$RUN/helper.sha" 2>/dev/null)" == "$HELPER_SHA256" ]] && return 0
+        # an office update pinned another helper: swapped once the pinned one is on the flash (the agent fetches it,
+        # asked by helper.refused «update»); until then the running one goes on
+        if [[ "$(sha "$FLASH/$HELPER_FILE")" != "$HELPER_SHA256" ]]; then
+            echo update >"$RUN/helper.refused"; return 0
+        fi
+        log "a new helper is pinned - the running one (PID $pid) makes way"
+        kill -TERM "$pid" 2>/dev/null
+        for ((i = 0; i < 20; i++)); do kill -0 "$pid" 2>/dev/null || break; sleep 0.25; done
+        kill -KILL "$pid" 2>/dev/null
+    fi
     helper_ready || return 1
     [[ -f "$FLASH/authkey" && ! -L "$FLASH/authkey" ]] && key=(-authkey-file "$FLASH/authkey")
     control=$(conf CONTROL)
@@ -94,6 +105,7 @@ helper_up() {
     TS_NO_LOGS_NO_SUPPORT=true setsid "$BIN_DIR/uso-net" up -state "$FLASH/state" -netns "$NETNS" -status "$RUN/status.json" \
         -hostname "$(conf NAME)" -port "$UDP_PORT" ${control:+-control "$control"} "${key[@]}" </dev/null >>"$RUN/helper.log" 2>&1 8>&- &
     echo $! >"$RUN/helper.pid"
+    echo "$HELPER_SHA256" >"$RUN/helper.sha"
     log "helper started (PID $!)"
 }
 
@@ -187,19 +199,25 @@ stop() {
         ip netns pids "$NETNS" 2>/dev/null | xargs -r kill -TERM 2>/dev/null
         ip netns del "$NETNS" 2>/dev/null
     fi
-    rm -f "$RUN/helper.pid" "$RUN/sshd.pid" "$RUN/status.json" "$RUN/sshd_config"
+    rm -f "$RUN/helper.pid" "$RUN/helper.sha" "$RUN/sshd.pid" "$RUN/status.json" "$RUN/sshd_config"
     log "stopped"
 }
 
 leave() {
-    local control
+    local control said="nothing to log out (it never logged in)"
     stop
     if [[ -d "$FLASH/state" ]] && helper_ready; then
         control=$(conf CONTROL)
         [[ "$control" =~ $CONTROL_RE ]] || control=""
-        (cd / && TS_NO_LOGS_NO_SUPPORT=true timeout 40 "$BIN_DIR/uso-net" logout -state "$FLASH/state" ${control:+-control "$control"}) >>"$LOG" 2>&1 \
-            && log "the node left its tailnet" || log "the node could not log out (offline?) - it stays listed in the tailnet until removed there"
+        if (cd / && TS_NO_LOGS_NO_SUPPORT=true timeout 40 "$BIN_DIR/uso-net" logout -state "$FLASH/state" -hostname "$(conf NAME)" \
+                ${control:+-control "$control"}) >>"$LOG" 2>&1; then
+            said="the node logged out of its tailnet"
+        else
+            said="the node could not log out (offline?) - it stays listed in the tailnet until removed there"
+        fi
     fi
+    log "$said"
+    echo "$said"
     rm -rf "$FLASH" "$BIN_DIR"
     if [[ -f "$CRON_FILE" ]]; then
         rm -f "$CRON_FILE"

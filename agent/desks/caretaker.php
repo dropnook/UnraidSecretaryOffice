@@ -81,7 +81,8 @@ desk('caretaker', [
     'jobs'    => ['partner-ping' => fn (array $args) => caretakerPartnerWatch(),
                   'partner-look' => fn (array $args) => partnerLookJob((string) ($args[0] ?? '')),      // «Ask now» (one pair)
                   'usonet-join'  => fn (array $args) => usonetJoinJob(),
-                  'usonet-leave' => fn (array $args) => usonetLeaveJob()],
+                  'usonet-leave' => fn (array $args) => usonetLeaveJob(),
+                  'usonet-fetch' => fn (array $args) => usonetFetchJob()],
     'checks'  => fn () => caretakerChecks(),
     'metrics' => fn (): array => caretakerMetrics(readJson(deskFile('caretaker')), staffHired()),
 ]);
@@ -167,6 +168,7 @@ function caretakerTick(): void
     $GLOBALS['ctNextLook'] = $now + 60;
     caretakerWatchCron($now);
     caretakerPartnerTick($now);
+    usonetTick($now);           // the USO network: a newer pinned helper fetched when usonet.sh asks for it
     if ($now - (int) ($GLOBALS['started'] ?? 0) >= CARETAKER_TOUR_AFTER && $now - (int) ($GLOBALS['ctLastScan'] ?? 0) >= CARETAKER_TOUR_EVERY) {
         $GLOBALS['ctLastScan'] = $now;          // a tour that fails isn't tried again every minute
         caretakerScan();
