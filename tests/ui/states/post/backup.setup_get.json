@@ -639,7 +639,16 @@
     "Node-Exporter"
    ],
    "drift|ignore": [],
-   "share|media|method": "auto"
+   "share|media|method": "auto",
+   "vm|Windows-Druckserver|mode": "snapshot",
+   "vm|Windows-Druckserver|prepare": "freeze",
+   "vm|Linux-Werkstatt|mode": "snapshot",
+   "vm|Linux-Werkstatt|prepare": "none",
+   "vm|Linux-Werkstatt|partner": [
+    "2ec7accd"
+   ],
+   "vm|Bastel-VM|mode": "snapshot",
+   "vm|Bastel-VM|prepare": "none"
   },
   "O": {
    "partner|2ec7accd|port": "22",
@@ -759,7 +768,16 @@
    "app|zz-old-stack|kopia": "yes",
    "app|zz-old-stack|folder": [
     "appdata/zz-old-stack"
-   ]
+   ],
+   "vm|Windows-Druckserver|mode": "snapshot",
+   "vm|Windows-Druckserver|prepare": "freeze",
+   "vm|Linux-Werkstatt|mode": "snapshot",
+   "vm|Linux-Werkstatt|prepare": "none",
+   "vm|Linux-Werkstatt|partner": [
+    "2ec7accd"
+   ],
+   "vm|Bastel-VM|mode": "snapshot",
+   "vm|Bastel-VM|prepare": "none"
   },
   "pending": [
    {
@@ -859,8 +877,8 @@
     "partner": [
      "2ec7accd"
     ],
-    "partner_ok": false,
-    "partner_why": "not_agreed",
+    "partner_ok": true,
+    "partner_why": null,
     "place": [],
     "asleep_bases": [],
     "pool_asleep": false,
@@ -1420,7 +1438,87 @@
     "preexisting": "abort"
    }
   ],
-  "vms": [],
+  "vms": [
+   {
+    "name": "Windows-Druckserver",
+    "state": "running",
+    "agent": "yes",
+    "tpm": true,
+    "hostdev": 0,
+    "snap": "yes",
+    "own": [],
+    "disks": [
+     {
+      "share": "domains",
+      "source": "/mnt/user/domains/Windows-Druckserver/vdisk1.img",
+      "bytes": 21000000000,
+      "apparent": 64000000000
+     }
+    ],
+    "why": "previous",
+    "partner": [],
+    "partner_ok": false,
+    "partner_why": "no_dataset",
+    "asleep_bases": [],
+    "pool_asleep": false,
+    "bytes": 21000000000,
+    "apparent": 64000000000
+   },
+   {
+    "name": "Linux-Werkstatt",
+    "state": "running",
+    "agent": "no",
+    "tpm": false,
+    "hostdev": 0,
+    "snap": "yes",
+    "own": [
+     "cache/domains/Linux-Werkstatt"
+    ],
+    "disks": [
+     {
+      "share": "domains",
+      "source": "/mnt/user/domains/Linux-Werkstatt/vdisk1.img",
+      "bytes": 21000000000,
+      "apparent": 64000000000
+     }
+    ],
+    "why": "previous",
+    "partner": [
+     "2ec7accd"
+    ],
+    "partner_ok": true,
+    "partner_why": null,
+    "asleep_bases": [],
+    "pool_asleep": false,
+    "bytes": 21000000000,
+    "apparent": 64000000000
+   },
+   {
+    "name": "Bastel-VM",
+    "state": "running",
+    "agent": "no",
+    "tpm": false,
+    "hostdev": 0,
+    "snap": "yes",
+    "own": [],
+    "disks": [
+     {
+      "share": "domains",
+      "source": "/mnt/user/domains/Bastel-VM/vdisk1.img",
+      "bytes": 21000000000,
+      "apparent": 64000000000
+     }
+    ],
+    "why": "previous",
+    "partner": [],
+    "partner_ok": false,
+    "partner_why": "no_dataset",
+    "asleep_bases": [],
+    "pool_asleep": false,
+    "bytes": 21000000000,
+    "apparent": 64000000000
+   }
+  ],
   "vm_service": true,
   "partners": [
    {

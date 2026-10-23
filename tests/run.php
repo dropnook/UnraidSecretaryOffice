@@ -50646,6 +50646,139 @@ function testSetupViaShare(): void
 }
 
 /**
+ * A VM or app travelling to a partner inside its share's dataset (2026-10-23, the owner on StedyUnraid: a VM in domains at
+ * «local + partner» showed «local» lit, the partner field grey with «no dataset of its own»; apps showed a green «goes to
+ * Nostromo with appdata» beside «off | local» only): under node with the desk's code on the UI stub's plan (three VMs:
+ * one in domains' dataset, one in a dataset of its own at the partner kept running, one in domains kept running) -
+ * the partner field lit with «via <share>», the fields without it greyed with the reason, a click on the offsite part
+ * never writes a partner key of the unit's own, «not» stays the unit's; the warning for a VM whose configuration
+ * doesn't travel; an app without a folder gets no partner field (its package goes with the backup place); the apply
+ * dialog's word «local + partner» for it too.
+ */
+function testSetupTravelPicture(): void
+{
+    $node = testsNode();
+    if ($node === '') {
+        check('travel picture: node is there', false, 'no node');
+        return;
+    }
+    $tmp = hardeningTmp('travel-picture');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const el = (tag, cls, t) => ({ tag, className: cls || '', textContent: t == null ? '' : String(t), children: [], dataset: {}, style: {}, title: '', disabled: false,
+  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, setAttribute() {}, addEventListener() {} });
+globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => `${b} B` }, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {},
+  has: () => false, store: () => null, storeJson: () => null, agent: { running: true }, place: (k, n) => n, keepInPlace: () => {} };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const S = b.setup;
+const plan = JSON.parse(fs.readFileSync(process.argv[3], 'utf8')).plan;
+const seg = (g) => {
+  const box = g.className === 'bk-via-seg' ? g.children[0] : g;
+  return { fields: box.children.map((x) => (x.className === 'on' ? '*' : '') + (x.disabled ? '-' : '') + x.textContent),
+    via: g.className === 'bk-via-seg' ? g.children[1].textContent : null, buttons: box.children };
+};
+const out = {};
+const load = (p) => { S.plan = JSON.parse(JSON.stringify(p)); b.setupDraftFromPlan(); };
+load(plan);
+const vm = (n) => S.model.vms.find((x) => x.name === n);
+const vp = (n) => { const x = b.vmPartner(vm(n), S.plan); return [x.share, x.withShare.map((p) => p.name)]; };
+out.vp = ['Windows-Druckserver', 'Linux-Werkstatt', 'Bastel-VM'].map(vp);
+out.levels = ['Windows-Druckserver', 'Linux-Werkstatt', 'Bastel-VM'].map((n) => b.levelOf('vm:' + n));
+const via = (n) => ({ via: b.vmPartner(vm(n), S.plan).withShare, share: 'domains' });
+let g = seg(b.levelPick('vm:Windows-Druckserver', null, via('Windows-Druckserver')));
+out.win = [g.fields, g.via, g.buttons[1].title, g.buttons[2].title === 'partner.via_vm ' + JSON.stringify({ share: 'domains', where: 'partner.where_partner {"partners":"PartnerNAS"}' }) + ' partner.via_decides'];
+g = seg(b.levelPick('vm:Bastel-VM', null, via('Bastel-VM')));
+out.bastel = [g.fields, g.via];
+// its own dataset at the partner: the unit's own choice, as before
+g = seg(b.levelPick('vm:Linux-Werkstatt', null, { key: 'vm|Linux-Werkstatt|partner', ok: true, why: null }));
+out.own = g.fields;
+// the apply dialog's word for it, and the share taken off the partner: «local» again, the partner field grey
+out.word = [b.levelWord('vm:Windows-Druckserver', 'vm|Windows-Druckserver|partner'), b.unitVia('vm:Bastel-VM').length];
+b.dset('share|domains|partner', []);
+out.off = [b.vmPartner(vm('Windows-Druckserver'), S.plan).withShare.length, b.levelWord('vm:Windows-Druckserver', 'vm|Windows-Druckserver|partner')];
+// Kopia on: five fields; the partner ones lit, the offsite one clickable - it sets the level, never a partner key of its own
+const pk = JSON.parse(JSON.stringify(plan));
+pk.P['kopia|enabled'] = pk.O['kopia|enabled'] = 'yes';
+load(pk);
+g = seg(b.levelPick('vm:Windows-Druckserver', null, via('Windows-Druckserver')));
+out.kopia = g.fields;
+g.buttons[4].onclick();
+out.kopiaClick = [b.levelOf('vm:Windows-Druckserver'), S.draft['vm|Windows-Druckserver|partner'] === undefined || (S.draft['vm|Windows-Druckserver|partner'] || []).length === 0,
+  S.draft['share|domains|partner'], seg(b.levelPick('vm:Windows-Druckserver', null, via('Windows-Druckserver'))).fields];
+// «not» stays the unit's
+g = seg(b.levelPick('vm:Windows-Druckserver', null, via('Windows-Druckserver')));
+g.buttons[0].onclick();
+out.not = [b.levelOf('vm:Windows-Druckserver'), seg(b.levelPick('vm:Windows-Druckserver', null, via('Windows-Druckserver'))).fields];
+// apps: inside appdata (at the partner) - lit, «via appdata»; without a folder of its own - no partner field
+load(plan);
+const app = (n) => S.model.apps.find((a) => a.name === n);
+const ap = b.appPartner(app('Grafana'), S.plan);
+g = seg(b.levelPick('app:' + app('Grafana').id, null, { via: ap.withShare, share: ap.f.share }));
+out.app = [ap.withShare.map((p) => p.name), g.fields, g.via, b.levelWord('app:' + app('Grafana').id, 'app|Grafana|partner')];
+const ne = b.appPartner(app('Node-Exporter'), S.plan);
+out.nodata = [ne.f, ne.withShare.length, b.placeGoesTo(S.plan).map((p) => p.name)];
+// offsite through its share (2026-10-23, the same picture for every level): appdata at Kopia as a whole, no [app] sections -
+// the apps in setup.viaShare, «local + offsite» lit and said «offsite via appdata»; with appdata at the partner too, both
+const kp = JSON.parse(JSON.stringify(plan));
+kp.P['kopia|enabled'] = kp.O['kopia|enabled'] = 'yes';
+kp.P['share|appdata|mode'] = kp.O['share|appdata|mode'] = 'kopia';
+kp.P['share|appdata|kopia_known'] = kp.O['share|appdata|kopia_known'] = ['/emby/', '/grafana/', '/immich/', '/mariadb-nextcloud/', '/nextcloud/', '/prometheus/'];
+load(kp);
+const gid = 'app:' + app('Grafana').id;
+const gp = () => { const x = b.appPartner(app('Grafana'), S.plan); return seg(b.levelPick(gid, null, x.withShare.length ? { via: x.withShare, share: 'appdata' } : { key: x.key, ok: x.own, why: 'not_dataset' }, 'appdata')); };
+g = gp();
+out.both = [S.viaShare.has(gid), g.fields, g.via, b.viaChip(gid, 'appdata', 'PartnerNAS', true).textContent];
+b.dset('share|appdata|partner', []);
+g = gp();
+out.kopiaVia = [g.fields, g.via, g.buttons[3].title.startsWith('partner.via_app'), g.buttons[3].title.includes('partner.via_own_source'), b.viaChip(gid, 'appdata', '', true).textContent];
+g.buttons[1].onclick();          // «local»: its folder left out of appdata's source, no longer via the share
+out.kopiaLocal = [b.levelOf(gid), S.viaShare.has(gid), (S.draft['share|appdata|kopia_ignore'] || []).includes('/grafana/'), gp().via];
+// «not» stays «not»: its files still in the snapshot - said by the label, never lit as «local»
+out.notLabel = [b.offChip('vm', ['domains']).textContent, b.offChip('app', ['appdata']).title];
+console.log(JSON.stringify(out));
+JS);
+    $r = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' '
+        . escapeshellarg(OFFICE_DIR . '/tests/ui/states/post/backup.setup_get.json') . ' 2>&1'), true) ?: [];
+    same('travel picture: a VM in domains\' dataset travels with domains; one in a dataset of its own is a unit of its own; the stub\'s VMs as set',
+        [[['domains', ['PartnerNAS']], ['domains', []], ['domains', ['PartnerNAS']]], [1, 1, 0]], [$r['vp'] ?? $r, $r['levels'] ?? null]);
+    $tip = 'partner.via_fixed {"share":"domains","partners":"PartnerNAS"}';
+    same('travel picture: … its level lit at «local + partner», «via domains» under it, «local» greyed with the reason, the partner field\'s tip in plain words',
+        [['setup.level.0', '-setup.level.1', '*setup.level.partner'], 'partner.via_share_partner {"share":"domains"}', $tip, true], $r['win'] ?? null);
+    same('travel picture: … at «not» (kept running in a shared dataset): «not» lit, no «via»', [['*setup.level.0', '-setup.level.1', 'setup.level.partner'], null], $r['bastel'] ?? null);
+    same('travel picture: a VM in a dataset of its own keeps its own choice', ['setup.level.0', 'setup.level.1', '*setup.level.partner'], $r['own'] ?? null);
+    same('travel picture: the apply dialog says «local + partner» for it; at «not» it reaches no partner', ['setup.level.partner', 0], $r['word'] ?? null);
+    same('travel picture: domains taken off the partner: «local» again', [0, 'setup.level.1'], $r['off'] ?? null);
+    same('travel picture: Kopia on - five fields, the ones without the partner greyed',
+        ['setup.level.0', '-setup.level.1', '*setup.level.partner', '-setup.level.2', 'setup.level.partner_kopia'], $r['kopia'] ?? null);
+    same('travel picture: … the offsite part clicked: level 2, no partner key of its own, domains\' partners as they were',
+        [2, true, ['2ec7accd'], ['setup.level.0', '-setup.level.1', 'setup.level.partner', '-setup.level.2', '*setup.level.partner_kopia']], $r['kopiaClick'] ?? null);
+    same('travel picture: … «not» stays the unit\'s', [0, ['*setup.level.0', '-setup.level.1', 'setup.level.partner', '-setup.level.2', 'setup.level.partner_kopia']], $r['not'] ?? null);
+    same('travel picture: an app in appdata at the partner - lit, «via appdata», the apply dialog\'s word',
+        [['PartnerNAS'], ['setup.level.0', '-setup.level.1', '*setup.level.partner'], 'partner.via_share_partner {"share":"appdata"}', 'setup.level.partner'], $r['app'] ?? null);
+    same('travel picture: an app without a folder (Node-Exporter) - no partner unit, its package with the backup place', [null, 0, ['PartnerNAS']], $r['nodata'] ?? null);
+    $five = fn (string $lit, bool $local, bool $p) => ['setup.level.0', ($local ? '' : '-') . 'setup.level.1', ($lit === 'p' ? '*' : '') . ($p ? '' : '-') . 'setup.level.partner',
+        ($lit === '2' ? '*' : '') . ($local ? '' : '-') . 'setup.level.2', ($lit === 'pk' ? '*' : '') . ($p ? '' : '-') . 'setup.level.partner_kopia'];
+    same('travel picture: appdata at Kopia and at the partner - an app inside it lit at «local + partner + offsite», «via appdata», the label says both',
+        [true, $five('pk', false, true), 'partner.via_share {"share":"appdata"}', 'partner.with_share_both {"share":"appdata","partners":"PartnerNAS"}'], $r['both'] ?? $r);
+    same('travel picture: appdata at Kopia only - «local + offsite» lit, «offsite via appdata», «local» still a choice, the tip says what goes and that a level here is its own',
+        [$five('2', true, false), 'partner.via_share_offsite {"share":"appdata"}', true, true, 'partner.with_share_offsite {"share":"appdata","partners":""}'], $r['kopiaVia'] ?? null);
+    same('travel picture: … «local» clicked: level 1, out of appdata\'s source (kopia_ignore), no «via» any more', [1, false, true, null], $r['kopiaLocal'] ?? null);
+    same('travel picture: «not» stays lit at «not»; the label says its files are still in the snapshot, the tip what that lacks',
+        ['setup.off_in_share {"share":"domains"}', 'setup.off_in_share_hint_app {"share":"appdata"}'], $r['notLabel'] ?? null);
+    $desk = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('travel picture: the page gives an app without a folder no partner field, a VM in its share the label «goes … with <share>» and the warning when its configuration stays behind',
+        str_contains($desk, "const apPick = !setupPartners().length || !ap.f ? null")
+        && str_contains($desk, "meta.appendChild(viaChip('vm:' + v.name, vp.withShare.length ? vp.share : kShare, pNames, kVia));")
+        && str_contains($desk, "if (l === 0 && aShares.length) main.appendChild(el('div', 'row-meta')).appendChild(offChip('app', aShares));")
+        && str_contains($desk, "unheld.hidden = !(toPartner && (l === 0 || dget(k('prepare')) === 'none'));")
+        && !str_contains($desk, "T('partner.with_share_hint')"));
+    hardeningRm($tmp);
+}
+
+/**
  * Nextcloud's data folder readable by others (engine 2.62's warning nc_datadir_readable, 2026-10-19): listed while still
  * open (one stat, never a sleeping disk), only a folder the engine named in exactly its shape; «Close the folder»
  * changes its root only - Nextcloud's user, group users, 0770 - after checking it is that Nextcloud's data folder now,
@@ -51618,7 +51751,7 @@ function testUsoNetJoin(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],
