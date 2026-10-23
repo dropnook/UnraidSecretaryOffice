@@ -195,6 +195,7 @@ function nightShift(): int
     $rounds = 0;
     $GLOBALS['officeNotifySender'] = true;     // the night shift sends the Team Lead's summaries meanwhile (RAM only)
     $nextNotify = -INF;
+    $zoneSeen = null;
     while (!$stop) {
         clearstatcache();
         $agent = runningAgent();
@@ -208,6 +209,10 @@ function nightShift(): int
         }
         if (agentClock() >= $nextNotify) {
             $nextNotify = agentClock() + 60;
+            if (($zone = agentZoneChanged($zoneSeen)) !== null) {      // the zone set anew meanwhile: his times in it
+                nightLog("zone changed: $zone");
+                date_default_timezone_set($zoneSeen);
+            }
             try {
                 officeNotifyNightTick();        // what waits for a summary goes when due (lib/notifycenter.php)
             } catch (Throwable $e) {
@@ -302,6 +307,7 @@ function serve(): int
     $lastPulse = $lastLook = $lastCleanup = -INF;
     $bell = doorbellOpen();
     $nextTick = -INF;
+    $zoneSeen = null;
 
     while (!$stop) {
         clearstatcache();
@@ -362,6 +368,15 @@ function serve(): int
         }
         if ($now - $lastLook >= 3) {
             $lastLook = $now;
+            // a zone set anew while the server runs: started anew in it — every time, «next run» and log line in one zone
+            if (($zone = agentZoneChanged($zoneSeen)) !== null) {
+                restartInPlace($lock, "zone changed: $zone");
+            }
+            try {
+                hostAtRequeue();        // the office's jobs queued «now» while the clock was ahead (lib/house.php)
+            } catch (Throwable $e) {
+                logLine('Office: atd\'s queue: ' . $e->getMessage());
+            }
             $new = codeStamp();
             if ($new !== $code) {
                 $code = $new;
@@ -835,6 +850,21 @@ function agentZone(string $link = '/etc/localtime'): string
 {
     $zone = preg_replace('#^.*/zoneinfo/#', '', (string) @readlink($link));
     return in_array($zone, timezone_identifiers_list(), true) && is_file($link) ? $zone : 'UTC';
+}
+
+/**
+ * The zone changed while the agent runs (Unraid's Settings → Date and Time, scenario full run 2026-10-21/22, B43 on Tower): the
+ * agent took it once at its start and kept it — its times, the desks' «next run» and its log mixed two zones. Looked at
+ * every few seconds (one readlink and a stat): a zone other than the process's, seen at two looks in a row (Unraid relinks
+ * /etc/localtime: a look in between may find no link) — "<old> → <new>", else null. $seen: the zone the last look found.
+ */
+function agentZoneChanged(?string &$seen, string $link = '/etc/localtime'): ?string
+{
+    $zone = agentZone($link);
+    $last = $seen;
+    $seen = $zone;
+    $now = date_default_timezone_get();
+    return $zone !== $now && $zone === $last ? "$now → $zone" : null;
 }
 
 // =====================================================================

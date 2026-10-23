@@ -20999,6 +20999,100 @@ function testAgentZone(): void
 }
 
 /**
+ * Full scenario run 2026-10-21/22 (B43 on Tower): the zone set anew in Unraid's Settings → Date and Time while the agent
+ * runs — it kept the zone of its start, and its times, «next run» and log mixed two zones. agentZoneChanged(): a zone other
+ * than the process's, seen at two looks in a row ("old → new"); the agent's loop starts it anew then (restartInPlace), the
+ * night shift switches its zone. A link and zone files of the test's own.
+ */
+function testAgentZoneChange(): void
+{
+    $tmp = hardeningTmp('agentzonechange');
+    @mkdir("$tmp/zoneinfo/Europe", 0700, true);
+    file_put_contents("$tmp/zoneinfo/Europe/Zurich", 'TZif');
+    file_put_contents("$tmp/zoneinfo/UTC", 'TZif');
+    $link = "$tmp/localtime";
+    $was = date_default_timezone_get();
+    date_default_timezone_set('UTC');
+    symlink("$tmp/zoneinfo/UTC", $link);
+    $seen = null;
+    $look = function () use (&$seen, $link) {
+        return function_exists('agentZoneChanged') ? agentZoneChanged($seen, $link) : 'no agentZoneChanged()';
+    };
+    same('zone change: the zone of the start — nothing changed', [null, null], [$look(), $look()]);
+    unlink($link);
+    symlink("$tmp/zoneinfo/Europe/Zurich", $link);
+    same('zone change: another zone at one look — not yet (Unraid may be relinking)', null, $look());
+    same('zone change: seen at the next look too — "old → new"', 'UTC → Europe/Zurich', $look());
+    unlink($link);
+    same('zone change: no link for one look (rm, then ln) — nothing said', null, $look());
+    symlink("$tmp/zoneinfo/UTC", $link);
+    same('zone change: back to the zone of the process — nothing to change', [null, null], [$look(), $look()]);
+    date_default_timezone_set($was);
+    $src = function (string $fn) {
+        $r = new ReflectionFunction($fn);
+        return implode('', array_slice(file($r->getFileName()), $r->getStartLine() - 1, $r->getEndLine() - $r->getStartLine() + 1));
+    };
+    check('zone change: the agent\'s loop looks every few seconds and starts anew in the new zone',
+        (bool) preg_match('/if \(\(\$zone = agentZoneChanged\(\$zoneSeen\)\) !== null\) \{\s+restartInPlace\(\$lock, "zone changed: \$zone"\);/', $src('serve')));
+    check('zone change: the night shift says so and switches its zone',
+        (bool) preg_match('/agentZoneChanged\(\$zoneSeen\)\) !== null\) \{.*?\s+nightLog\("zone changed: \$zone"\);\s+date_default_timezone_set\(\$zoneSeen\);/s', $src('nightShift')));
+    hardeningRm($tmp);
+}
+
+/**
+ * Full scenario run 2026-10-21/22 (F12/BF5 family: restore-partner-look, partner-ping, --kopia-watch): a job the office
+ * queued «now» while the clock was set ahead waited in atd's queue for that moment once the clock was put back.
+ * hostAtRequeue(): the office's own jobs (its mark) due more than HOST_AT_LATE ahead are queued anew for now — their own
+ * script, without at's header — and the old ones taken out; another's job, a running one and one due now are left alone;
+ * a failed `at` leaves the old one. A spool folder and stand-ins for at and atrm of the test's own.
+ */
+function testHostAtRequeue(): void
+{
+    $tmp = hardeningTmp('atrequeue');
+    $spool = "$tmp/atjobs";
+    @mkdir($spool, 0700, true);
+    $log = "$tmp/log";
+    file_put_contents("$tmp/at", "#!/bin/sh\necho \"at \$*\" >>" . escapeshellarg($log) . "\ncat \"\$3\" >" . escapeshellarg("$tmp/queued") . "\n");
+    file_put_contents("$tmp/at-off", "#!/bin/sh\necho \"at \$*\" >>" . escapeshellarg($log) . "\nexit 1\n");
+    file_put_contents("$tmp/atrm", "#!/bin/sh\necho \"atrm \$*\" >>" . escapeshellarg($log) . "\n");
+    foreach (['at', 'at-off', 'atrm'] as $b) {
+        chmod("$tmp/$b", 0755);
+    }
+    $now = 1792000000;
+    $min = intdiv($now, 60);
+    $ours = "#!/bin/sh\n" . HOST_LAUNCH_MARK . "\nPATH=/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin\nexport PATH\ncd '/'\n"
+          . "exec '/usr/bin/php' '/x/agent/agent.php' 'job' 'partner-ping' </dev/null >/dev/null 2>&1\n";
+    $job = fn (string $body) => "#!/bin/sh\n# atrun uid=0 gid=0\n# mail root 0\numask 22\nSHELL=/bin/sh; export SHELL\n"
+          . "cd /root || {\n\t echo 'Execution directory inaccessible' >&2\n\t exit 1\n}\n\${SHELL:-/bin/sh} << 'marcinDELIMITER2f1e0a3b'\n\n$body\nmarcinDELIMITER2f1e0a3b\n";
+    $name = fn (string $q, int $n, int $m) => sprintf('%s%05x%08x', $q, $n, $m);
+    file_put_contents("$spool/" . $name('a', 0x12, $min + 600), $job($ours));                         // ours, 10 hours ahead: stranded
+    file_put_contents("$spool/" . $name('a', 0x13, $min), $job($ours));                               // ours, due now
+    file_put_contents("$spool/" . $name('a', 0x14, $min + 600), $job("/usr/bin/plugin_update_helper\n"));    // another's
+    file_put_contents("$spool/" . $name('=', 0x15, $min + 600), $job($ours));                         // ours, running
+    file_put_contents("$spool/" . $name('a', 0x16, $min + 1), $job($ours));                           // ours, a minute ahead (at's rounding)
+    file_put_contents("$spool/.SEQ", "16\n");
+    $ok = function_exists('hostAtRequeue');
+    $done = $ok ? hostAtRequeue($spool, $now, ["$tmp/at", "$tmp/atrm"]) : 'no hostAtRequeue()';
+    same('at requeue: only the office\'s job stranded ahead is queued anew', [18], $done);
+    same('at requeue: queued anew for now, then the old one taken out of the queue',
+        ['at -M -f ' . RUN_DIR . '/at-requeue.sh now', 'atrm 18'], file($log, FILE_IGNORE_NEW_LINES) ?: []);
+    $queued = (string) @file_get_contents("$tmp/queued");
+    same('at requeue: what is queued is the office\'s own script, as hostLaunch() wrote it (at\'s header left out)', true,
+        str_starts_with($queued, $ours) && !str_contains($queued, '# atrun'));
+    same('at requeue: its script file is gone again', false, file_exists(RUN_DIR . '/at-requeue.sh'));
+    @unlink($log);
+    same('at requeue: `at` fails — nothing taken out (late is better than lost)', [[], ['at -M -f ' . RUN_DIR . '/at-requeue.sh now']],
+        [$ok ? hostAtRequeue($spool, $now, ["$tmp/at-off", "$tmp/atrm"]) : null, file($log, FILE_IGNORE_NEW_LINES) ?: []]);
+    @unlink($log);
+    same('at requeue: with the clock where it was when queued, nothing is stranded', [[], false],
+        [$ok ? hostAtRequeue($spool, ($min + 600) * 60, ["$tmp/at", "$tmp/atrm"]) : null, file_exists($log)]);
+    $r = new ReflectionFunction('serve');
+    $serve = implode('', array_slice(file($r->getFileName()), $r->getStartLine() - 1, $r->getEndLine() - $r->getStartLine() + 1));
+    check('at requeue: the agent\'s loop looks every few seconds', $ok && preg_match('/\$lastLook = \$now;.*?hostAtRequeue\(\);/s', $serve));
+    hardeningRm($tmp);
+}
+
+/**
  * Batch E B15 (scenario backup-sv-docker-hung-replan-run, dockerd SIGSTOPped): houseContainers() and houseInspect()
  * waited 20 s each while Docker was silent, inside the agent's round (the Team Lead's checks, the desks) — a 140 s gap
  * in the heartbeat. Now one short wait (HOUSE_DOCKER_WAIT) and one short look (docker version, HOUSE_DOCKER_LOOK), then no
@@ -50395,6 +50489,60 @@ function testSetupApplyHonest(): void
 }
 
 /**
+ * An app or VM offsite inside its share's Kopia source stays there (2026-10-22, scenarios M22/O1 on the 1.60 fixture: after
+ * the update Mr. Backupsy's Apply listed 15 changes nobody made, app|<name>|kopia and |folder for every app in appdata):
+ * a settings.ini whose appdata goes to Kopia without an [app] section of its own (an older office's, the terminal's) reads
+ * as «local + Kopia» and Apply sends it as it is; a section saved is kept; a folder of a section that differs from the
+ * server still shows. Run with the scenarios' own plan-changes.mjs on the UI stub's plan, the list Apply's dialog makes.
+ */
+function testSetupViaShare(): void
+{
+    $node = testsNode();
+    if ($node === '') {
+        check('via share: node is there', false, 'no node');
+        return;
+    }
+    $tmp = hardeningTmp('via-share');
+    $plan = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/states/post/backup.setup_get.json'), true)['plan'];
+    $plan['P']['kopia|enabled'] = $plan['O']['kopia|enabled'] = 'yes';
+    // appdata at Kopia as a whole, its folders recorded, no [app] section (the 1.60 fixture's settings.ini)
+    $known = ['/emby/', '/grafana/', '/immich/', '/mariadb-nextcloud/', '/nextcloud/', '/prometheus/'];
+    $via = $plan;
+    $via['P']['share|appdata|mode'] = $via['O']['share|appdata|mode'] = 'kopia';
+    $via['P']['share|appdata|kopia_known'] = $via['O']['share|appdata|kopia_known'] = $known;
+    // EmbyServer a source of its own, saved (the engine carries [app] sections over into P)
+    $own = $via;
+    foreach (['kopia' => 'yes', 'folder' => ['appdata/emby']] as $k => $v) {
+        $own['P']["app|EmbyServer|$k"] = $own['O']["app|EmbyServer|$k"] = $v;
+    }
+    // … its folder saved as another one than the server has now: a real difference
+    $moved = $own;
+    $moved['P']['app|EmbyServer|folder'] = $moved['O']['app|EmbyServer|folder'] = ['appdata/emby-old'];
+    $out = [];
+    foreach (['via' => $via, 'own' => $own, 'moved' => $moved] as $n => $p) {
+        file_put_contents("$tmp/$n.json", json_encode($p));
+        $out[$n] = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg(OFFICE_DIR . '/tools/scenarios/plan-changes.mjs') . ' '
+            . escapeshellarg("$tmp/$n.json") . ' 2>&1'), true);
+    }
+    // the stub's gone app (zz-old-stack, its section dropped) is no app of this test
+    $apps = fn (?array $l) => array_values(array_map(fn ($c) => $c['key'] . ': ' . json_encode($c['was'], JSON_UNESCAPED_SLASHES) . ' → ' . json_encode($c['is'], JSON_UNESCAPED_SLASHES),
+        array_filter($l ?? [], fn ($c) => str_starts_with($c['key'], 'app|') && !str_starts_with($c['key'], 'app|zz-old-stack|'))));
+    check('via share: the stub\'s plans read', is_array($out['via']) && is_array($out['own']) && is_array($out['moved']), json_encode($out));
+    same('via share: appdata at Kopia without [app] sections - Apply makes no app a source of its own unasked (no app key among its changes)',
+        [], $apps($out['via']));
+    check('via share: … and leaves the apps\' folders in appdata\'s source (no kopia_ignore, kopia_known as saved)',
+        !preg_grep('/^share\|appdata\|kopia_(ignore|known)$/', array_column($out['via'] ?? [], 'key')), json_encode($out['via']));
+    same('via share: an app with a source of its own saved keeps it - nothing to change', [], $apps($out['own']));
+    same('via share: … its folder saved as another one than the server has: the difference is listed',
+        ['app|EmbyServer|folder: ["appdata/emby-old"] → ["appdata/emby"]'], $apps($out['moved']));
+    $desk = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('via share: a level clicked on the page makes it a source of its own (the click drops it from setup.viaShare), kept over a new plan',
+        str_contains($desk, "setup.levels[key] = f.lv;\n      setup.viaShare.delete(key);")
+        && str_contains($desk, 'old.baseViaShare.forEach((k) => { if (!old.viaShare.has(k) && setup.viaShare.delete(k)) kept++; });'));
+    hardeningRm($tmp);
+}
+
+/**
  * Nextcloud's data folder readable by others (engine 2.62's warning nc_datadir_readable, 2026-10-19): listed while still
  * open (one stat, never a sleeping disk), only a folder the engine named in exactly its shape; «Close the folder»
  * changes its root only - Nextcloud's user, group users, 0770 - after checking it is that Nextcloud's data folder now,
@@ -51262,10 +51410,10 @@ function testUsoNetJoin(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
-          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testHouseDockerSilent', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],
+          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.
