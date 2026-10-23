@@ -4428,6 +4428,14 @@ async function start() {
   searchKeys();
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideMenu(); });
   initTips();
+  // the office's own links (#/<desk>…) are no third party: Unraid's page layout asks «External Link» for every <a>
+  // whose href doesn't start with "/" unless it carries localURL (BodyInlineJS.php, its click on body; nostromo
+  // 2026-10-23, 7.3.4: a click on the Teamchef's tab showed the dialog, OK left an empty page). Marked in the capture
+  // phase, before Unraid's handler looks
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest && e.target.closest('a[href^="#"]');
+    if (a) a.classList.add('localURL');
+  }, true);
   // a mouse button or finger down: a new picture waits until the click is done (calm())
   document.addEventListener('pointerdown', () => { pressed = Date.now(); }, true);
   ['pointerup', 'pointercancel'].forEach((ev) => document.addEventListener(ev, () => setTimeout(() => { pressed = 0; }, 0), true));

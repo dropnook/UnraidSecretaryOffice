@@ -41,9 +41,18 @@
   --accent-ink:color-mix(in srgb, var(--brand-orange, #ff8c2f) 72%, var(--text-color));
   --danger:color-mix(in srgb, var(--red-800, #e22828) 78%, var(--text-color));
   --danger-soft:color-mix(in srgb, var(--red-800, #e22828) 15%, var(--mild-background-color));
+  /* a red fill under white text (.btn.danger, .toast.warn): --danger reached only 3.7:1 in the black theme; a darker
+     red, the same in every theme, ≥ 4.5:1 (WCAG AA) */
+  --danger-fill:color-mix(in srgb, var(--red-800, #e22828) 85%, var(--black, #000));
+  /* a chip's text on --danger-soft and --warn-soft: a chip has no border, its colour is all it says («missing», «not
+     yet»), so the text stays red and orange — mixed further into the text (--danger and --warn there reached only 3.7:1
+     in the black theme, 2.9:1 orange in the white one) for ≥ 4.5:1. A warning box writes in the text's colour; its red
+     border and soft background say it. Azure and gray below */
+  --danger-ink:color-mix(in srgb, var(--red-800, #e22828) 55%, var(--text-color));
   --good:color-mix(in srgb, var(--green-500, #17bf0b) 75%, var(--text-color));
   --warn:color-mix(in srgb, var(--orange-200, #ff9900) 75%, var(--text-color));
   --warn-soft:color-mix(in srgb, var(--orange-200, #ff9900) 15%, var(--mild-background-color));
+  --warn-ink:color-mix(in srgb, var(--orange-200, #ff9900) 45%, var(--text-color));
   --on-fill:var(--white, #fff);
   --data:color-mix(in srgb, var(--text-color) 30%, var(--mild-background-color));
   /* Ms. Protocolli's syslog categories (her syslog rules, public/desks/logs): no two alike, Enhanced Log's defaults where
@@ -76,6 +85,18 @@
   font:14px/1.55 var(--font);
   color:var(--ink);
   &.with-selbar{padding-bottom:calc(84px + var(--under) + env(safe-area-inset-bottom))}
+
+/* Unraid's azure and gray themes write in a mid grey-blue (#606e7f) on light and on dark alike: mixed with it a chip's
+   red and orange stay pale on azure and dark on gray (3.6 and 3.2:1) — there they mix with black and with white (the
+   theme switch's Dark and Light bring black's and white's text) */
+.Theme--azure &:not([data-theme]){
+  --danger-ink:color-mix(in srgb, var(--red-800, #e22828) 55%, var(--black, #000));
+  --warn-ink:color-mix(in srgb, var(--orange-200, #ff9900) 45%, var(--black, #000));
+}
+.Theme--gray &:not([data-theme]){
+  --danger-ink:color-mix(in srgb, var(--red-800, #e22828) 55%, var(--white, #fff));
+  --warn-ink:color-mix(in srgb, var(--orange-200, #ff9900) 45%, var(--white, #fff));
+}
 
 & *{box-sizing:border-box}
 & h1, & h2, & h3{margin:0; font-weight:650; letter-spacing:-.01em}
@@ -130,7 +151,7 @@
 
 .notice{
   margin:12px 20px 0; font-size:13px; line-height:1.4;
-  color:var(--danger); background:var(--danger-soft); border:1px solid var(--line);
+  color:var(--ink); background:var(--danger-soft); border:1px solid var(--line);
   border-left:3px solid var(--danger); border-radius:0 var(--radius) var(--radius) 0; padding:8px 12px;
 }
 .notice.info{color:var(--accent-ink); background:var(--accent-soft); border-left-color:var(--accent)}
@@ -167,7 +188,7 @@
 .btn:disabled{cursor:default; background:transparent; color:var(--muted); border-color:var(--line); filter:none}
 .btn.plain{background:transparent; color:var(--accent); border-color:var(--line2)}
 .btn.plain:hover:not(:disabled){background:var(--accent-soft)}
-.btn.danger{border-color:var(--danger); background:var(--danger); color:var(--on-fill)}
+.btn.danger{border-color:var(--danger-fill); background:var(--danger-fill); color:var(--on-fill)}
 .btn.danger.plain{background:transparent; color:var(--danger); border-color:var(--line2)}
 .btn.danger.plain:hover:not(:disabled){background:var(--danger-soft)}
 .btn.small{padding:3px 9px; font-size:12.5px}
@@ -187,7 +208,7 @@
 }
 &.in-unraid .btn:not(.plain):not(.danger):hover:not(:disabled){filter:brightness(1.1)}
 &.in-unraid .btn.danger, &.in-unraid .btn.danger.plain{background:transparent; border:1px solid var(--danger); color:var(--danger)}
-&.in-unraid .btn.danger:hover:not(:disabled){background:var(--danger); color:var(--on-fill)}
+&.in-unraid .btn.danger:hover:not(:disabled){background:var(--danger-fill); color:var(--on-fill)}
 &.in-unraid .btn:disabled{opacity:.45; cursor:default; color:var(--button-text-color); background:var(--button-background); background-size:var(--button-background-size, auto)}
 &.in-unraid .btn.small{font-size:12px; padding:3px 9px}
 /* Unraid's sidebar themes (azure, gray): a thin frame in the theme's colour
@@ -444,8 +465,8 @@
   background:var(--surface2); border:1px solid var(--line); color:var(--ink2);
 }
 .chip.accent{background:var(--accent-soft); border-color:transparent; color:var(--accent-ink)}
-.chip.warn{background:var(--warn-soft); border-color:transparent; color:var(--warn)}
-.chip.danger{background:var(--danger-soft); border-color:transparent; color:var(--danger)}
+.chip.warn{background:var(--warn-soft); border-color:transparent; color:var(--warn-ink)}
+.chip.danger{background:var(--danger-soft); border-color:transparent; color:var(--danger-ink)}
 .chip.ok{background:transparent; border-color:var(--good); color:var(--good)}
 .chip.solid{background:var(--accent); border-color:var(--accent); color:var(--on-fill)}
 .chip.outline{background:transparent; border-color:var(--accent); color:var(--accent-ink)}
@@ -598,7 +619,7 @@
 .menu button:hover:not(:disabled){background:var(--accent-soft)}
 .menu button:disabled{color:var(--muted); cursor:default}
 .menu button.danger{color:var(--danger)}
-.menu button.danger:hover:not(:disabled){background:var(--danger-soft)}
+.menu button.danger:hover:not(:disabled){background:var(--danger-soft); color:var(--ink)}
 .menu hr{border:0; border-top:1px solid var(--line); margin:4px 2px}
 
 /* ---------------------------------------------------------------- dialog */
@@ -658,7 +679,7 @@
 .target.along{background:color-mix(in srgb, var(--accent-soft) 55%, var(--surface))}
 
 .callout{font-size:13px; line-height:1.45; padding:9px 12px; margin:0 0 12px; border-left:3px solid var(--accent); background:var(--accent-soft); color:var(--accent-ink); border-radius:0 var(--radius) var(--radius) 0}
-.callout.warn{border-color:var(--danger); background:var(--danger-soft); color:var(--danger)}
+.callout.warn{border-color:var(--danger); background:var(--danger-soft); color:var(--ink)}
 .shortlist{margin:0 0 12px; padding:0; list-style:none; max-height:220px; overflow:auto; border:1px solid var(--line); border-radius:var(--radius)}
 .shortlist li{padding:5px 10px; font:12.5px/1.4 var(--mono); color:var(--ink); border-top:1px solid var(--line); overflow-wrap:anywhere; display:flex; flex-wrap:wrap; justify-content:space-between; gap:2px 10px}
 .shortlist li:first-child{border-top:0}
@@ -691,7 +712,7 @@
 .toasts{position:fixed; left:50%; transform:translateX(-50%); bottom:calc(20px + var(--under)); z-index:10040; display:flex; flex-direction:column; gap:8px; align-items:center; pointer-events:none; width:min(520px, calc(100% - 32px)); transition:bottom .18s}
 &.with-selbar .toasts{bottom:calc(96px + var(--under) + env(safe-area-inset-bottom))}
 .toast{background:var(--ink); color:var(--bg); font-size:13.5px; padding:10px 15px; border-radius:6px; box-shadow:0 10px 30px -12px rgba(0,0,0,.6); animation:up .18s ease-out; transition:opacity .25s}
-.toast.warn{background:var(--danger); color:var(--on-fill)}
+.toast.warn{background:var(--danger-fill); color:var(--on-fill)}
 @media (prefers-reduced-motion:reduce){& *{animation:none !important; transition:none !important}}
 
 /* ---------------------------------------------------------------- narrow */
