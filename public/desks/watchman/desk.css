@@ -41,7 +41,7 @@
    incidents (each row: «Not serious after all…») */
 .wm-entry-acts{display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; align-items:flex-start}
 .wm-entry-acts .btn.wm-serious{color:var(--muted); border-color:transparent}
-.wm-entry-acts .btn.wm-serious:hover:not(:disabled){color:var(--danger); background:var(--danger-soft)}
+.wm-entry-acts .btn.wm-serious:hover:not(:disabled){color:var(--danger-ink); background:var(--danger-soft)}
 .row.wm-incident{grid-template-columns:minmax(0,1fr) auto; align-items:start}
 .wm-serious-what{font-weight:600; overflow-wrap:anywhere}
 .wm-incident-note{overflow-wrap:anywhere}
