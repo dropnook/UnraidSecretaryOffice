@@ -753,3 +753,14 @@ to be shown by the DST cells on the fixed tree. Owed (nostromo's VM service stop
 backup DST, B39's 6 h, R22.
 Product findings since: **docker-calm** (1.71.0) for the docker guard's stale «Docker doesn't answer» (B15, M7 2026-10-22:
 one `docker version` over 5 s under a joint run's load held the house's docker calls for 120 s).
+
+**Round 4 (Tower, office 1.71.0, 2026-10-23 12:55–15:42) — the owed cells, green:** Moverelli DST (64 min: one joint
+run for the night, the second 02:59 refused by job.sh's minute stamp — her 02:00 on a real server likewise), backup DST
+(63 min: one run named 20261025-0259), R22, B39's 6 h. Tool fixes on the way: the base reset starts the base's stopped
+containers (after the VM itself was stopped nothing came back, Nextcloud's install waited in vain); a future
+`last_heard` is put to now, not null (null read «never heard»: B39's silence had no «since»).
+
+**Final, every scenario of the full run on Tower (1.70.2 → 1.71.0):** green or its intended skip, except — product:
+B15's stale «Docker doesn't answer» (docker-calm, 1.71.0), batch H #7 (future file times not said), the at jobs queued
+under a clock set ahead (minor); coverage gap: R5 drill (no verdict on Tower, parkplatz); not run: the four power cuts
+(`--powercut`), year roll (needs a licence past 2027).
