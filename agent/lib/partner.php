@@ -538,13 +538,62 @@ function partnerMyPort(): int
  * server is in it, its own USO address and the door's port there (what it gives a partner without a choice), the USO
  * peers to pick from; for «Accept a partner…» whether the partner's address is a peer of this node, or at least of a
  * tailnet's range (the page then takes the USO address by itself — or says to join first).
+ * `wait` (2026-10-23, the first real pairing gave the LAN): joined, or joining, but its address not known yet — the
+ * page says so and waits, never the LAN instead; `state` the network's state then (usonetPublic()). `match`: the
+ * online USO peer named like the partner ($name, the block's) — its address offered when the block's isn't a peer.
  */
-function partnerUsonet(?string $address = null): array
+function partnerUsonet(?string $address = null, ?string $name = null): array
 {
     $s = usonetStatus();
     $ip = usonetMyIp4($s);
+    $wait = $ip === null && (usonetJoined() || usonetJoining() === 'join');
     return ['in' => $ip !== null, 'address' => $ip, 'port' => partnerMyPort(), 'peers' => usonetPeersToPick($s),
-            'peer' => $address !== null && usonetPeerAddress($address, $s), 'range' => $address !== null && usonetAddressRange($address)];
+            'peer' => $address !== null && usonetPeerAddress($address, $s), 'range' => $address !== null && usonetAddressRange($address),
+            'wait' => $wait, 'state' => $ip !== null ? 'in' : ($wait ? usonetPublic()['state'] : 'off'),
+            'match' => $ip !== null && $name !== null && !($address !== null && usonetPeerAddress($address, $s)) ? usonetPeerNamed($name, $s) : null];
+}
+
+/**
+ * The address this office gives a partner, checked against the USO network (2026-10-23): in it, that is this server's
+ * USO address — another only when the page says it was chosen on purpose (`other`: the fold «Another address…» open);
+ * joined but its address not known yet: refused until it is (or another chosen on purpose). A page opened before an
+ * update (it doesn't know the USO address) never hands out the LAN without a word.
+ */
+function partnerAddressChosen(array $r, string $address): void
+{
+    $other = $r['other'] ?? false;
+    if (!is_bool($other)) {
+        throw new Problem('bad_request');
+    }
+    if ($other) {
+        return;
+    }
+    $mine = usonetMyIp4();
+    if ($mine !== null && usonetIp($address) !== $mine) {
+        throw new Problem('partner_address_usonet', ['address' => $mine]);
+    }
+    if ($mine === null && (usonetJoined() || usonetJoining() === 'join')) {
+        throw new Problem('partner_usonet_wait');
+    }
+}
+
+/**
+ * The partner's address as this side takes it (2026-10-23): its block's — or, said on purpose (`their_address`), the
+ * address of the online USO peer named like it when its block brought one outside the network (an older office, an
+ * old page, the LAN chosen there). Only that peer's address is taken; the port stays the block's (the office's door
+ * listens on the same port in the network). Returns [address, port].
+ */
+function partnerTheirAddress(array $r, array $block): array
+{
+    $want = optText($r, 'their_address');
+    if ($want === '' || $want === $block['address']) {
+        return [$block['address'], $block['port']];
+    }
+    $peer = usonetPeerNamed($block['name']);
+    if ($peer === null || $peer['address'] !== $want) {
+        throw new Problem('partner_receive', ['field' => 'their_address']);
+    }
+    return [$want, $block['port']];
 }
 
 /** The trust a request names — optional since 2026-10-23 (the question is gone from the dialogs): «mine» unless said */
@@ -1160,19 +1209,20 @@ function partnerAppend(string $file, string $line): bool
 
 /** The ssh command of a pair's call (plan §3.5): its key, its known_hosts, the office's options — from inside the USO
  *  network's namespace when the pair's address is a peer there (usonetWrap(); the engine's partner_ssh_cmd the same) */
-function partnerSshArgs(array $pair, string $remote): array
+function partnerSshArgs(array $pair, string $remote, ?string $known = null): array
 {
     $ssh = partnerBin('ssh') ?? 'ssh';
-    return usonetWrap(array_merge([$ssh, '-i', partnerKeyFile($pair['id']), '-o', 'UserKnownHostsFile=' . partnerKnownFile($pair['id'])],
+    return usonetWrap(array_merge([$ssh, '-i', partnerKeyFile($pair['id']), '-o', 'UserKnownHostsFile=' . ($known ?? partnerKnownFile($pair['id']))],
         PARTNER_SSH_OPTIONS, ['-p', (string) $pair['port'], 'root@' . $pair['address'], $remote]), (string) $pair['address']);
 }
 
 /**
- * A call through the partner's door: $verb and $args are words of the door's language (validated here too).
+ * A call through the partner's door: $verb and $args are words of the door's language (validated here too). $known:
+ * another known_hosts than the pair's (its host keys pinned at an address still to be tried: partner_address()).
  *
  * @return array{0:int, 1:string, 2:string}  exit, stdout, stderr
  */
-function partnerSsh(array $pair, string $verb, array $args = [], int $timeout = PARTNER_SSH_TIMEOUT): array
+function partnerSsh(array $pair, string $verb, array $args = [], int $timeout = PARTNER_SSH_TIMEOUT, ?string $known = null): array
 {
     $words = array_merge([$verb], $args);
     foreach ($words as $w) {
@@ -1180,10 +1230,10 @@ function partnerSsh(array $pair, string $verb, array $args = [], int $timeout = 
             return [2, '', 'bad word'];
         }
     }
-    if (!partnerPairValid($pair) || $pair['my_key'] === null || !is_file(partnerKeyFile($pair['id'])) || !is_file(partnerKnownFile($pair['id']))) {
+    if (!partnerPairValid($pair) || $pair['my_key'] === null || !is_file(partnerKeyFile($pair['id'])) || !is_file($known ?? partnerKnownFile($pair['id']))) {
         return [2, '', 'no key for this pair'];
     }
-    return run(partnerSshArgs($pair, implode(' ', $words)), $timeout);
+    return run(partnerSshArgs($pair, implode(' ', $words), $known), $timeout);
 }
 
 /** The first line of an answer that is a JSON object */
@@ -1245,13 +1295,13 @@ function partnerStatusClean(mixed $s): ?array
  *
  * @return array{time:int, reachable:bool, answer:?array, status:?array, why:?string}|null
  */
-function partnerAsk(array $pair): ?array
+function partnerAsk(array $pair, ?string $known = null): ?array
 {
     if ($pair['my_key'] === null) {
         return null;
     }
     $now = time();
-    [$exit, $out, $err] = partnerSsh($pair, 'ping');
+    [$exit, $out, $err] = partnerSsh($pair, 'ping', [], PARTNER_SSH_TIMEOUT, $known);
     $j = partnerJsonLine($out);
     $ok = $exit === 0 && is_array($j) && ($j['ok'] ?? null) === true && ($j['pair'] ?? null) === $pair['id']
         && in_array($j['array'] ?? null, ['started', 'stopped'], true) && is_bool($j['night'] ?? null)
@@ -1268,7 +1318,7 @@ function partnerAsk(array $pair): ?array
     $answer = ['array' => $j['array'], 'night' => $j['night'], 'v' => $j['v'], 'time' => is_int($j['time'] ?? null) ? $j['time'] : null];
     $status = $why = null;
     if ($j['array'] === 'started') {
-        [$exit, $out] = partnerSsh($pair, 'status');
+        [$exit, $out] = partnerSsh($pair, 'status', [], PARTNER_SSH_TIMEOUT, $known);
         $s = partnerJsonLine($out);
         $status = $exit === 0 ? partnerStatusClean($s) : null;
         // an older door answers `ping` before it looks for the pair: its refused status says it
@@ -1716,6 +1766,8 @@ function partnerPublic(): array
     $now = time();
     $ready = partnerReady();
     $apply = partnerApplyPending(null, $pairs);          // 1.60.1: an ended partner's units waiting for Mr. Backupsy's Apply
+    $net = usonetStatus();
+    $netIn = usonetMyIp4($net) !== null;
     $cards = [];
     foreach ($pairs as $p) {
         $e = is_array($state['pairs'][$p['id']] ?? null) ? $state['pairs'][$p['id']] : [];
@@ -1770,10 +1822,25 @@ function partnerPublic(): array
             'i_keep_units' => partnerReceivedUnits($got, $now),  // each with new/stale
             'last_transfer' => partnerLastTransfer($p['id']),
             'tickets'    => $tickets['given'][$p['id']] ?? [],
+            // 2026-10-23: the partner is online in the USO network (the peer of its name) at another address than the
+            // one stored — one outside the network, or an earlier node of it (joined anew: a new address, the old node
+            // stays offline in the list): the card offers «Change the address…» to that one ({name, address, online,
+            // direct, was_peer}; null otherwise)
+            'usonet_match' => $netIn ? partnerUsonetMatch($p, $net) : null,
         ];
     }
     return ['pairs' => $cards, 'pending' => array_map(fn ($o) => ['id' => $o['id'], 'created' => $o['created'], 'address' => $o['address'],
         'units' => $o['units'], 'trust' => $o['trust']], $pending), 'silent_after' => PARTNER_SILENT_AFTER, 'ready' => $ready] + $tickets['lists'];
+}
+
+/** The online USO peer named like the pair's partner, when it is at another address than the stored one (partnerPublic()) */
+function partnerUsonetMatch(array $pair, ?array $net): ?array
+{
+    $m = usonetPeerNamed($pair['name'], $net);
+    if ($m === null || usonetIp($m['address']) === usonetIp($pair['address'])) {
+        return null;
+    }
+    return $m + ['was_peer' => usonetPeerAddress($pair['address'], $net)];
 }
 
 /**
@@ -1874,6 +1941,7 @@ function partner_add(array $r): array
         throw new Problem('bad_request');
     }
     [$address, $port] = partnerAddressFrom($r);
+    partnerAddressChosen($r, $address);
     $trust = partnerTrustFrom($r);
     // the USO peer picked on the page (its name as the node's status lists it): for the log line only — the block
     // carries this server's address, the partner is whoever pastes it
@@ -1957,11 +2025,15 @@ function partner_accept(array $r): array
         return ['ok' => true, 'partner' => partnerBlockFacts($a), 'pools' => partnerPools(), 'defaults' => PARTNER_DEFAULTS,
                 'line' => $from !== null ? partnerDoorLine($a['id'], $from, $a['pub_key']) : null,
                 'name' => partnerMyName(), 'addresses' => partnerMyAddresses(), 'port' => partnerMyPort(), 'units' => partnerUnits(),
-                'host_key' => partnerHostKeys() !== [], 'usonet' => partnerUsonet($a['address'])];
+                'host_key' => partnerHostKeys() !== [], 'usonet' => $net = partnerUsonet($a['address'], $a['name']),
+                // the line for the partner's USO address instead (its block brought one outside the network: partnerTheirAddress())
+                'line_match' => $net['match'] !== null ? partnerDoorLine($a['id'], $net['match']['address'], $a['pub_key']) : null];
     }
     if ($step !== 'do' || ($r['confirm'] ?? null) !== true) {
         throw new Problem('bad_request');
     }
+    [$theirAddress, $theirPort] = partnerTheirAddress($r, $a);
+    $from = partnerFromList($theirAddress);
     $host = partnerHostKeys();
     if (!$host) {
         throw new Problem('partner_host_key');
@@ -1970,7 +2042,7 @@ function partner_accept(array $r): array
     if (($r['receive'] ?? null) !== null) {
         $receive = partnerReceiveFrom($r['receive'], partnerPools());
         if ($from === null) {
-            throw new Problem('partner_unresolved', ['address' => $a['address']]);
+            throw new Problem('partner_unresolved', ['address' => $theirAddress]);
         }
     }
     $sendToo = ($r['send_too'] ?? null) === true;
@@ -1978,17 +2050,18 @@ function partner_accept(array $r): array
         throw new Problem('partner_nothing');
     }
     [$address, $port] = partnerAddressFrom($r);
+    partnerAddressChosen($r, $address);
     $trust = partnerTrustFrom($r);
     $myUnits = $sendToo ? partnerUnitsOk() : [];          // for an older partner's dialog only (see partner_add)
     $myPub = $sendToo ? partnerKeyMake($a['id']) : null;
     $pairs = partnerPairs();
-    $pair = ['id' => $a['id'], 'name' => $a['name'], 'address' => $a['address'], 'port' => $a['port'],
+    $pair = ['id' => $a['id'], 'name' => $a['name'], 'address' => $theirAddress, 'port' => $theirPort,
              'host_keys' => array_values(array_map('partnerFingerprint', $a['host_keys'])), 'my_key' => $myPub !== null ? partnerFingerprint($myPub) : null,
              'their_key' => $receive !== null ? partnerFingerprint($a['pub_key']) : null, 'send' => partnerSendNew(),
              'receive' => $receive, 'trust' => $trust, 'paired' => time(), 'last_heard' => null, 'last_answer' => null];
     try {
         if ($myPub !== null) {
-            partnerKnownWrite($a['id'], $a['address'], $a['port'], $a['host_keys']);
+            partnerKnownWrite($a['id'], $theirAddress, $theirPort, $a['host_keys']);
         }
         partnerPairsWrite(array_merge($pairs, [$pair]));
         if ($receive !== null) {
@@ -2002,7 +2075,8 @@ function partner_accept(array $r): array
     if ($receive !== null) {
         partnerOrphansQuiet((string) $from);
     }
-    partnerLog("paired with {$a['name']} ({$a['id']}, {$a['address']}:{$a['port']}) — accepted their offer"
+    partnerLog("paired with {$a['name']} ({$a['id']}, $theirAddress:$theirPort) — accepted their offer"
+        . ($theirAddress !== $a['address'] ? " (their block said {$a['address']}: their USO address taken instead)" : '')
         . ($receive !== null ? ', their line in authorized_keys' : '') . ($myPub !== null ? ', I send too' : ''));
     $block = partnerBlockEncode(['v' => 1, 'block' => 'B', 'id' => $a['id'], 'name' => partnerMyName(), 'address' => $address, 'port' => $port,
         'host_keys' => $host, 'pub_key' => $myPub, 'receive' => $receive !== null ? partnerReceiveForBlock($receive, $a['units']) : null, 'units' => $myUnits]);
@@ -2074,17 +2148,21 @@ function partner_finish(array $r): array
     $from = partnerFromList($b['address']);
     $step = optText($r, 'step', 'look');
     if ($step === 'look') {
+        $net = partnerUsonet($b['address'], $b['name']);
         return ['ok' => true, 'partner' => partnerBlockFacts($b), 'code' => $code, 'pools' => $b['pub_key'] !== null ? partnerPools() : [],
-                'defaults' => PARTNER_DEFAULTS, 'line' => $b['pub_key'] !== null && $from !== null ? partnerDoorLine($b['id'], $from, (string) $b['pub_key']) : null];
+                'defaults' => PARTNER_DEFAULTS, 'line' => $b['pub_key'] !== null && $from !== null ? partnerDoorLine($b['id'], $from, (string) $b['pub_key']) : null,
+                'usonet' => $net, 'line_match' => $b['pub_key'] !== null && $net['match'] !== null ? partnerDoorLine($b['id'], $net['match']['address'], (string) $b['pub_key']) : null];
     }
     if ($step !== 'do' || ($r['confirm'] ?? null) !== true || ($r['code'] ?? null) !== $code) {
         throw new Problem('bad_request');
     }
+    [$theirAddress, $theirPort] = partnerTheirAddress($r, $b);
+    $from = partnerFromList($theirAddress);
     $receive = null;
     if ($b['pub_key'] !== null && ($r['receive'] ?? null) !== null) {        // B sends (it brought a key): I may keep what comes
         $receive = partnerReceiveFrom($r['receive'], partnerPools());
         if ($from === null) {
-            throw new Problem('partner_unresolved', ['address' => $b['address']]);
+            throw new Problem('partner_unresolved', ['address' => $theirAddress]);
         }
     }
     $sends = $b['receive'] !== null;    // they keep what I send: my key is needed there
@@ -2092,13 +2170,13 @@ function partner_finish(array $r): array
         throw new Problem('partner_nothing');
     }
     $pairs = partnerPairs();
-    $pair = ['id' => $b['id'], 'name' => $b['name'], 'address' => $b['address'], 'port' => $b['port'],
+    $pair = ['id' => $b['id'], 'name' => $b['name'], 'address' => $theirAddress, 'port' => $theirPort,
              'host_keys' => array_values(array_map('partnerFingerprint', $b['host_keys'])), 'my_key' => $sends ? partnerFingerprint($offer['pub_key']) : null,
              'their_key' => $receive !== null ? partnerFingerprint((string) $b['pub_key']) : null, 'send' => partnerSendNew(),
              'receive' => $receive, 'trust' => $offer['trust'], 'paired' => time(), 'last_heard' => null, 'last_answer' => null];
     try {
         if ($sends) {
-            partnerKnownWrite($b['id'], $b['address'], $b['port'], $b['host_keys']);
+            partnerKnownWrite($b['id'], $theirAddress, $theirPort, $b['host_keys']);
         }
         partnerPairsWrite(array_merge($pairs, [$pair]));
         if ($receive !== null) {
@@ -2117,20 +2195,21 @@ function partner_finish(array $r): array
         @unlink(partnerKeyFile($b['id']) . '.pub');
     }
     partnerWritePrivate(partnerDir() . '/pending.json', ['offers' => array_values(array_filter(partnerPending(), fn ($o) => $o['id'] !== $b['id']))]);
-    partnerLog("paired with {$b['name']} ({$b['id']}, {$b['address']}:{$b['port']}) — their answer taken, the codes matched"
+    partnerLog("paired with {$b['name']} ({$b['id']}, $theirAddress:$theirPort) — their answer taken, the codes matched"
+        . ($theirAddress !== $b['address'] ? " (their block said {$b['address']}: their USO address taken instead)" : '')
         . ($receive !== null ? ', their line in authorized_keys' : ''));
     $ask = $sends ? partnerAskAndKeep($b['id']) : null;
     return ['ok' => true, 'ask' => $ask, 'partners' => partnerPublic()];
 }
 
-/** Asks one partner now and keeps the answer (state.json, the pair's last_heard/last_answer) */
-function partnerAskAndKeep(string $id): ?array
+/** Asks one partner now and keeps the answer (state.json, the pair's last_heard/last_answer) — $ask: one just made, kept as it is */
+function partnerAskAndKeep(string $id, ?array $ask = null): ?array
 {
     $pair = partnerPair($id);
     if ($pair === null) {
         throw new Problem('partner_unknown');
     }
-    $ask = partnerAsk($pair);
+    $ask ??= partnerAsk($pair);
     $state = partnerStateRead();
     $entry = partnerStateEntry(is_array($state['pairs'][$id] ?? null) ? $state['pairs'][$id] : [], $ask, $pair);
     if ($ask !== null && $ask['reachable']) {
@@ -2233,6 +2312,202 @@ function partnerLookJob(string $id): int
         }
         partnerRescanAsk();
     }
+}
+
+// ===================================================================== «Change the address…» (2026-10-23)
+
+const PARTNER_ADDRESS_LOOKING = 120;        // a look at a new address older than this without its outcome: given up
+
+/**
+ * «Change the address…» (2026-10-23, the first real pairing: both sides had stored each other's LAN — two LANs apart,
+ * the pair reached neither way): this side's address of the partner changed without pairing anew — pairs.json's
+ * address and port, its known_hosts pinned at the new address, and this door's from= for its key (its calls come from
+ * there). The partner changes its address of this server the same way; blocks, keys and the pairs.json shape stay.
+ *   try    the new address looked at first — a job (an ssh waits up to 15 s; never inside the request): the partner's
+ *          host keys pinned at the pairing must answer there, then it is stored. Its door saying no counts as found (it
+ *          still knows this server by its old address — the page says to change it there too); another host key never.
+ *   look   how the try went (RAM: partner/address-<id>.json)
+ *   save   stored without a look (`confirm`): a pair that only receives here (no key of mine to knock with), or after a
+ *          try that reached nobody — on the user's click
+ * $GLOBALS['partnerAddressLaunch']: the tests' stand-in for the job's launch.
+ */
+function partner_address(array $r): array
+{
+    $id = optText($r, 'id');
+    if (!preg_match(PARTNER_ID_RE, $id)) {
+        throw new Problem('bad_request');
+    }
+    $pair = partnerPair($id);
+    if ($pair === null) {
+        throw new Problem('partner_unknown');
+    }
+    $step = optText($r, 'step', 'look');
+    if ($step === 'look') {
+        return ['ok' => true, 'look' => partnerAddressLook($id), 'partners' => partnerPublic()];
+    }
+    [$address, $port] = partnerAddressFrom($r);
+    if (partnerFromList($address) === null) {
+        throw new Problem('partner_unresolved', ['address' => $address]);
+    }
+    if ($step === 'save') {
+        if (($r['confirm'] ?? null) !== true) {
+            throw new Problem('bad_request');
+        }
+        partnerAddressSave($pair, $address, $port);
+        // the record of it stays in RAM (state «saved»): the night watchman takes the door line's new from= as the office's own
+        writeAtomic(partnerAddressMark($id), jsonEncode(['address' => $address, 'port' => $port, 'time' => time(), 'state' => 'saved']), 0600, 0, 0);
+        return ['ok' => true, 'saved' => true, 'partners' => partnerPublic()];
+    }
+    if ($step !== 'try') {
+        throw new Problem('bad_request');
+    }
+    if ($pair['my_key'] === null || !is_file(partnerKnownFile($id))) {
+        return ['ok' => true, 'look' => ['state' => 'no_key', 'address' => $address, 'port' => $port], 'partners' => partnerPublic()];
+    }
+    if (!partnerDirReady(partnerRunDir())) {
+        throw new Problem('command_failed', ['detail' => 'no partner folder in RAM']);
+    }
+    $look = partnerAddressLook($id);
+    if (($look['state'] ?? null) === 'looking') {
+        return ['ok' => true, 'look' => $look, 'partners' => partnerPublic()];      // one look at a time per pair
+    }
+    $mark = ['address' => $address, 'port' => $port, 'time' => time(), 'state' => 'looking'];
+    writeAtomic(partnerAddressMark($id), jsonEncode($mark), 0600, 0, 0);
+    $launch = $GLOBALS['partnerAddressLaunch'] ?? fn (string $id) => hostLaunch('partner-address', [PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', 'partner-address', $id]);
+    try {
+        $launch($id);
+    } catch (Throwable $e) {
+        @unlink(partnerAddressMark($id));
+        throw $e;
+    }
+    return ['ok' => true, 'look' => $mark, 'partners' => partnerPublic()];
+}
+
+function partnerAddressMark(string $id): string
+{
+    return partnerRunDir() . "/address-$id.json";
+}
+
+/** The last look at a new address for this pair (state looking · saved · unreachable · wrong_key), or null */
+function partnerAddressLook(string $id): ?array
+{
+    $m = partnerReadPrivate(partnerAddressMark($id));
+    if (!is_array($m) || !is_string($m['address'] ?? null) || !is_int($m['port'] ?? null) || !is_int($m['time'] ?? null)
+        || !in_array($m['state'] ?? null, ['looking', 'saved', 'unreachable', 'wrong_key'], true)) {
+        return null;
+    }
+    if ($m['state'] === 'looking' && time() - $m['time'] > PARTNER_ADDRESS_LOOKING) {
+        $m['state'] = 'unreachable';        // the job never wrote its outcome (atd away?): said as nobody reached
+        $m['why'] = 'timeout';
+    }
+    return ['address' => $m['address'], 'port' => $m['port'], 'time' => $m['time'], 'state' => $m['state'],
+            'why' => is_string($m['why'] ?? null) ? $m['why'] : null];
+}
+
+/** The partner's full host keys as pinned at the pairing (its known_hosts: "<name> ssh-ed25519 AAAA…" per line) */
+function partnerKnownKeys(string $id): array
+{
+    $keys = [];
+    foreach (preg_split('/\r?\n/', (string) @file_get_contents(partnerKnownFile($id), false, null, 0, 64 * 1024)) ?: [] as $l) {
+        $parts = preg_split('/\s+/', trim($l));
+        if (count($parts) >= 3 && ($k = partnerKeyNorm($parts[1] . ' ' . $parts[2])) !== null) {
+            $keys[] = $k;
+        }
+    }
+    return array_values(array_unique($keys));
+}
+
+/**
+ * php agent.php job partner-address <id>: the look its mark names — the pair's host keys pinned at the new address in
+ * RAM, a ping there; found → stored (partnerAddressSave()), the answer kept like «Ask now»'s; the outcome into the mark,
+ * the Team Lead's cards anew whatever happens.
+ */
+function partnerAddressJob(string $id): int
+{
+    if (!preg_match(PARTNER_ID_RE, $id) || !partnerDirReady(partnerRunDir())) {
+        return 1;
+    }
+    $mark = partnerAddressLook($id);
+    $pair = partnerPair($id);
+    if ($mark === null || $mark['state'] !== 'looking' || $pair === null) {
+        return 1;
+    }
+    $out = $mark;
+    $known = partnerRunDir() . "/address-$id.known";
+    try {
+        $keys = partnerKnownKeys($id);
+        if (!$keys) {
+            throw new Problem('partner_shape');
+        }
+        writeAtomic($known, partnerKnownText($mark['address'], $mark['port'], $keys), 0600, 0, 0);
+        $ask = partnerAsk(['address' => $mark['address'], 'port' => $mark['port']] + $pair, $known);
+        $why = $ask['why'] ?? 'unreachable';
+        // the pinned host key answered there: its door may still refuse (it knows this server by its old address) — found
+        $found = $ask !== null && ($ask['reachable'] || in_array($why, ['denied', 'bad_answer'], true));
+        if ($found) {
+            partnerAddressSave($pair, $mark['address'], $mark['port']);
+            $out['time'] = time();          // when it was stored (the night watchman compares it with the door line's write)
+            partnerAskAndKeep($id, $ask);
+        }
+        $out['state'] = $found ? 'saved' : ($why === 'host_key' ? 'wrong_key' : 'unreachable');
+        $out['why'] = ($ask['reachable'] ?? false) ? $ask['why'] : $why;
+        partnerLog("looked for {$pair['name']} ($id) at {$mark['address']}:{$mark['port']}: " . ($found ? 'found' . ($why === 'denied' ? ' (its door still knows this server by another address)' : '') : 'not there (' . $why . ')'));
+    } catch (Throwable $e) {
+        $out['state'] = 'unreachable';
+        $out['why'] = 'bad_answer';
+        partnerLog("looking for $id at {$mark['address']} failed: " . $e->getMessage());
+    } finally {
+        @unlink($known);
+        try {
+            writeAtomic(partnerAddressMark($id), jsonEncode($out), 0600, 0, 0);
+        } catch (Throwable $e) {
+        }
+        partnerRescanAsk();
+    }
+    return 0;
+}
+
+/**
+ * The partner's new address stored: pairs.json (address, port — under its lock, the shape as it is), its known_hosts
+ * at the new address (my key knocks there), and this door's line for its key with from= the new address — only a line
+ * in exactly the office's shape (a line changed by hand stays as it is: the card says «door changed»).
+ */
+function partnerAddressSave(array $pair, string $address, int $port): void
+{
+    $id = $pair['id'];
+    $from = partnerFromList($address);
+    if ($from === null) {
+        throw new Problem('partner_unresolved', ['address' => $address]);
+    }
+    $line = $pair['receive'] !== null ? partnerAuthKeysLine($id) : null;
+    $pub = null;
+    if ($line !== null && preg_match('/^restrict,from="[^"]*",command="' . preg_quote(PARTNER_DOOR . ' ' . $id, '/') . '" (ssh-ed25519 [A-Za-z0-9+\/=]+) uso-partner:' . $id . '$/D', $line, $m)) {
+        $pub = $m[1];
+    }
+    $keys = $pair['my_key'] !== null ? partnerKnownKeys($id) : [];
+    $was = "{$pair['address']}:{$pair['port']}";
+    if (partnerPairUpdate($id, function (array $p) use ($address, $port) {
+        $p['address'] = $address;
+        $p['port'] = $port;
+        return $p;
+    }) === null) {
+        throw new Problem('partner_unknown');
+    }
+    if ($keys) {
+        partnerKnownWrite($id, $address, $port, $keys);
+    }
+    if ($pub !== null) {
+        partnerAuthKeysEdit($id, partnerDoorLine($id, $from, $pub));
+    }
+    // what was heard at the old address isn't the new one's: the card asks anew
+    $state = partnerStateRead();
+    if (isset($state['pairs'][$id]) && is_array($state['pairs'][$id])) {
+        $state['pairs'][$id]['reachable'] = null;
+        $state['pairs'][$id]['why'] = null;
+        partnerWritePrivate(partnerDir() . '/state.json', $state);
+    }
+    partnerLog("the address of {$pair['name']} ($id) changed: $was → $address:$port" . ($keys ? ', its host keys pinned there' : '')
+        . ($pub !== null ? ", the door's line lets it in from $from" : ''));
 }
 
 /**

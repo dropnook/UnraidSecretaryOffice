@@ -233,6 +233,21 @@ function usonetPeersToPick(?array $s = null): array
 }
 
 /**
+ * The online USO peer that is the partner named $name (a block's or a pair's name — the partner's host name, partnerMyName()):
+ * its node is called as usonetNodeName() makes it of that host name (StedyUnraid → uso-stedyunraid). Null: none online.
+ */
+function usonetPeerNamed(string $name, ?array $s = null): ?array
+{
+    $node = usonetNodeName($name);
+    foreach (usonetPeersToPick($s) as $p) {
+        if ($p['online'] && strtolower($p['name']) === $node) {
+            return $p;
+        }
+    }
+    return null;
+}
+
+/**
  * A small probe to every online peer still reached over a relay (at most once per USONET_PROBE_EVERY per peer, in the
  * background): Tailscale starts every path over its relay and goes direct once traffic flows — so the card's «relayed»
  * is true only for a moment, and a copy that follows starts on the direct path. Three pings inside the namespace,

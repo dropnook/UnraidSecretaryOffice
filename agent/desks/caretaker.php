@@ -67,6 +67,8 @@ desk('caretaker', [
         'partner_end'    => fn (array $r) => caretakerPartnerDone(partner_end($r)),
         'partner_state'  => fn (array $r) => partner_state($r),
         'partner_ping'   => fn (array $r) => caretakerPartnerDone(partner_ping($r)),
+        // «Change the address…» (2026-10-23): try (a job looks), save; the page's looks at the try only read RAM — no rescan
+        'partner_address' => fn (array $r) => ($r['step'] ?? null) === 'look' ? partner_address($r) : caretakerPartnerDone(partner_address($r)),
         'partner_line_remove' => fn (array $r) => caretakerPartnerLineRemove($r),
         // restore tickets (stage 3): a gone server's copies handed to a new server
         'partner_ticket_start'  => fn (array $r) => partner_ticket_start($r),
@@ -80,6 +82,7 @@ desk('caretaker', [
     ],
     'jobs'    => ['partner-ping' => fn (array $args) => caretakerPartnerWatch(),
                   'partner-look' => fn (array $args) => partnerLookJob((string) ($args[0] ?? '')),      // «Ask now» (one pair)
+                  'partner-address' => fn (array $args) => partnerAddressJob((string) ($args[0] ?? '')),   // «Change the address…»: the look, then stored
                   'usonet-join'  => fn (array $args) => usonetJoinJob(),
                   'usonet-leave' => fn (array $args) => usonetLeaveJob(),
                   'usonet-fetch' => fn (array $args) => usonetFetchJob()],
@@ -928,11 +931,13 @@ function caretakerPartners(): array
 
 /**
  * His kept state (data/caretaker.json, what every look of the page shows first) follows the USO network between his
- * tours: a join or leave under way, its step, the node in, a peer online or direct — when the card's picture changed,
- * only the state's `usonet` is written anew (the tour's other parts stay as they are, with the tour's time). Before
- * (1.71.0) the picture written mid-join — «joining, fetching the helper» — was served as fresh for up to five minutes
- * after the node was in, and the page fell back to it after every look (2026-10-23, the lab). Every 5 s at most; RAM
- * and the flash only (usonetPublic()).
+ * tours: a join or leave under way, its step, the node in, a peer online, direct or at a new address — when the card's
+ * picture changed, the state's `usonet` and the partner cards are written anew (the tour's other parts stay as they
+ * are, with the tour's time). Before (1.71.0) the picture written mid-join — «joining, fetching the helper» — was
+ * served as fresh for up to five minutes after the node was in, and the page fell back to it after every look
+ * (2026-10-23, the lab). The partner cards follow pairs.json and Mr. Backupsy's settings.ini too (a changed address,
+ * the levels he applied: the cards say it at once, 2026-10-23). Every 5 s at most; RAM and the flash only (usonetPublic()),
+ * two stats.
  */
 function caretakerUsonetFollow(int $now): void
 {
@@ -942,22 +947,52 @@ function caretakerUsonetFollow(int $now): void
     $GLOBALS['ctNetNext'] = $now + 5;
     $p = caretakerUsonet();
     $sig = md5(jsonEncode([$p['state'] ?? '', $p['job'] ?? null, $p['slow'] ?? false, $p['ips'] ?? [], $p['tagged'] ?? null, $p['foreign'] ?? 0, $p['why'] ?? '',
-        array_map(fn (array $x) => [$x['name'], $x['online'], $x['direct'], $x['relay'], $x['tagged']], $p['peers'] ?? [])]));
-    if ($sig === ($GLOBALS['ctNetSig'] ?? null)) {
+        array_map(fn (array $x) => [$x['name'], $x['ips'], $x['online'], $x['direct'], $x['relay'], $x['tagged']], $p['peers'] ?? [])]));
+    $files = caretakerPartnersStamp();
+    $netNew = $sig !== ($GLOBALS['ctNetSig'] ?? null);
+    $filesNew = $files !== ($GLOBALS['ctPartSig'] ?? null);
+    if (!$netNew && !$filesNew) {
         return;
     }
     $GLOBALS['ctNetSig'] = $sig;
+    $GLOBALS['ctPartSig'] = $files;
     $file = deskFile('caretaker');
     $state = readJson($file);
-    if (!is_array($state) || !array_key_exists('usonet', $state) || jsonEncode((array) $state['usonet']) === jsonEncode($p)) {
-        return;         // no tour yet (the first one writes it), or the same picture already
+    if (!is_array($state) || !array_key_exists('usonet', $state)) {
+        return;         // no tour yet (the first one writes it)
     }
-    $state['usonet'] = $p;
+    $changed = false;
+    if (jsonEncode((array) $state['usonet']) !== jsonEncode($p)) {
+        $state['usonet'] = $p;
+        $changed = true;
+    }
+    // the partner cards too (files only): which pair's partner is online in the network at another address follows the
+    // network — a partner that joined anew has a new address (2026-10-23, the lab: the card said nothing until a tour)
+    if (array_key_exists('partners', $state) && ($changed || $filesNew)) {
+        $state['partners'] = caretakerPartners();
+        $changed = true;
+    }
+    if (!$changed) {
+        return;         // the same picture already
+    }
     try {
         writeAtomic($file, jsonEncode($state));
     } catch (Throwable $e) {
         logLine('USO network: the card in the kept state could not be written: ' . $e->getMessage());
     }
+}
+
+/** When pairs.json and Mr. Backupsy's settings.ini were written last (the partner cards follow them between tours) */
+function caretakerPartnersStamp(): string
+{
+    $out = '';
+    foreach ([partnerDir() . '/pairs.json', defined('BACKUP_DATA_DIR') ? BACKUP_DATA_DIR . '/settings.ini' : null] as $f) {
+        if ($f !== null) {
+            clearstatcache(true, $f);
+            $out .= @filemtime($f) . ':' . @filesize($f) . ';';
+        }
+    }
+    return $out;
 }
 
 /** His state's `usonet`: the USO network's card (agent/lib/usonet.php usonetPublic(): never a key) */

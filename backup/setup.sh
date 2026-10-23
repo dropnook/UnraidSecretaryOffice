@@ -1,6 +1,7 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.71 - 2026-10-22
+# unraid-backup - setup.sh                        Version 2.72 - 2026-10-23
+#   2.72 Nothing new in the setup (lib/common.sh: partner_addr - the run takes a partner's address from pairs.json)
 #   2.71 Nothing new in the setup (lib/common.sh: partner_ssh_cmd and the office's USO network)
 #   2.70 Nothing new in the setup (backup.sh: status.json "order", the office's order with its mover run)
 #   2.69 The plan says three things it kept quiet about: a share Unraid deleted whose dataset only its snapshots keep

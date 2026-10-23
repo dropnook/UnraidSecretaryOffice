@@ -12,6 +12,7 @@ declare(strict_types=1);
  *   data/partner/deletes.jsonl         what the door's retention destroyed (read by the night watchman by offset)
  *   RUN_DIR/partner/door-<pid>.json    a transfer going on (the door's process, its pair, unit, dataset)
  *   RUN_DIR/partner/refused-<id>.json  the times of a pair's recent refusals (the last hour)
+ *   RUN_DIR/partner/address-<id>.json  «Change the address…»: the pair's address the Team Lead stored last, and when
  *   authorized_keys                    the office's lines (comment uso-partner:<id>), parsed — never their key kept
  *   <pool>/UnraidSecretaryOffice-partners/<id>/<unit>   the copies kept here for a pair
  */
@@ -247,6 +248,26 @@ function partnerLookRefused(string $runDir): array
         sort($times);
         $last = is_string($r['last'] ?? null) && preg_match('/^[a-z_]{1,40}$/D', $r['last']) ? $r['last'] : '';
         $out[$m[1]] = ['times' => array_slice($times, -200), 'last' => $last];
+    }
+    return $out;
+}
+
+/**
+ * The pairs whose address the Team Lead changed («Change the address…», 2026-10-23: RUN_DIR/partner/address-<id>.json
+ * in the state «saved» — the address stored and when): id => [address, time]. The night watchman takes the door line's
+ * new from= as the office's own when it is that address, written then (watchmanPartnerMovedLine()).
+ *
+ * @return array<string, array{address: string, time: int}>
+ */
+function partnerLookMoved(string $runDir): array
+{
+    $out = [];
+    foreach (glob("$runDir/address-*.json") ?: [] as $f) {
+        if (!preg_match('/address-([0-9a-f]{8})\.json$/D', $f, $m) || ($r = partnerLookRecord($f)) === null || ($r['state'] ?? null) !== 'saved'
+            || !is_string($r['address'] ?? null) || !partnerAddressValid($r['address']) || !is_int($r['time'] ?? null)) {
+            continue;
+        }
+        $out[$m[1]] = ['address' => $r['address'], 'time' => $r['time']];
     }
     return $out;
 }

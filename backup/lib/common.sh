@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.71"
+UB_VERSION="2.72"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -4568,15 +4568,30 @@ ub_host_name() {
 # (zfs send -c sends compressed blocks), a dead link noticed within two minutes
 # 2.71: a partner whose address is a peer of the office's USO network node (its status in RAM, UB_USONET_STATUS) is
 # called from inside the network's namespace - the same rule as the office's partnerSshArgs() (agent/lib/usonet.php)
+# 2.72: the address and port from partner_addr (the Team Lead's pairs.json first)
 partner_ssh_cmd() {
-    local addr
-    addr="$(cfg "partner|$1|address")"
+    partner_addr "$1"
     PSSH=( ssh -i "$UB_PARTNER_DIR/$1.key" -o IdentitiesOnly=yes -o BatchMode=yes
            -o "UserKnownHostsFile=$UB_PARTNER_DIR/$1.known" -o StrictHostKeyChecking=yes
            -o Ciphers=aes128-gcm@openssh.com,aes256-gcm@openssh.com,chacha20-poly1305@openssh.com -o Compression=no
            -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=4
-           -p "$(cfg "partner|$1|port" 22)" "root@$addr" )
-    if usonet_peer "$addr"; then PSSH=( "$UB_USONET_NSENTER" "--net=/run/netns/$UB_USONET_NETNS" "${PSSH[@]}" ); fi
+           -p "$PPORT" "root@$PADDR" )
+    if usonet_peer "$PADDR"; then PSSH=( "$UB_USONET_NSENTER" "--net=/run/netns/$UB_USONET_NETNS" "${PSSH[@]}" ); fi
+}
+# partner_addr <id>  -> PADDR, PPORT: where that partner's door is (2.72) - the Team Lead's pairs.json (partner_pairs_load,
+# exactly its shape) when it names the pair: «Change the address…» there (a partner moved into the USO network, joined
+# anew with a new address) reaches the run at once, without Mr. Backupsy's Apply; else - no pairs.json, one not in its
+# shape, a pair it doesn't name - settings.ini's [partner "<id>"] as before. The pairs read into a PAIRS of its own (a
+# caller looping over PAIRS keeps its list)
+partner_addr() {
+    local l
+    local -a PAIRS=()
+    PADDR="$(cfg "partner|$1|address")"; PPORT="$(cfg "partner|$1|port" 22)"
+    partner_pairs_load || return 0
+    for l in "${PAIRS[@]}"; do
+        if [[ "${l%%|*}" == "$1" ]]; then IFS='|' read -r _ _ PADDR PPORT _ <<<"$l"; return 0; fi
+    done
+    return 0
 }
 # usonet_peer <address>  - is it a peer of this office's USO network node? Its own peer list (never the 100.64/10 range:
 # the user's own tailnet uses the same addresses); not joined, no status: no
