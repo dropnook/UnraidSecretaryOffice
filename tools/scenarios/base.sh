@@ -273,6 +273,16 @@ apps_step() {
         if [[ -f $SC/apps.sh ]]; then act "the demo apps (apps.sh$( ((full)) && echo ' --recreate') all)" bash "$SC/apps.sh" $( ((full)) && echo --recreate) all
         else log "skipped: apps - not built yet (apps.sh, H2)"; fi
     fi
+    # every container of the base runs: one stopped (the VM itself stopped and started — nothing of Tower's base comes
+    # back by itself, it has no autostart list: 2026-10-23) is started, databases first; scratch ones (uso-wip-*,
+    # uso-drill-*) left
+    if [[ $DOCKER == yes ]] && timeout 10 docker info >/dev/null 2>&1; then
+        local stopped
+        stopped=$(docker ps -a --filter status=exited --filter status=created --format '{{.Names}}' | grep -vE '^uso-(wip|drill)-' \
+            | awk '/mariadb|postgres|redis|valkey|db/ {print; next} {r = r $0 "\n"} END {printf "%s", r}')
+        for c in $stopped; do act "start the base's container $c (stopped)" docker start "$c"; done
+        [[ -n $stopped ]] || log "every container of the base runs"
+    fi
     # Docker's autostart list: the base has none (the array-stop cells add one with CT-AUTOSTART, their undo puts it
     # back) - one left by a cell whose undo didn't run is set aside: with it every later array stop brings the apps
     # back by itself (Tower 2026-10-21: the list of the dirty B12 run of 2026-10-20 07:56)
