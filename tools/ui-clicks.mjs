@@ -863,10 +863,12 @@ async function pairAddress(browser) {
     const now = Math.floor(Date.now() / 1000);
     let looks = 0;
     let tried = null;
+    const cards = { ...base.partners, pairs: [pair] };
     h.setPost('caretaker.partner_address', (d) => {
-      if (d.step === 'try') { tried = d; return { look: { address: d.address, port: d.port, time: now, state: 'looking' } }; }
+      if (d.step === 'try') { tried = d; return { look: { address: d.address, port: d.port, time: now, state: 'looking' }, partners: cards }; }
+      if (!tried) return { look: null, partners: cards };          // the dialog's own look when it opens (the pair taken anew)
       looks++;
-      return { look: { address: '100.64.0.3', port: 22, time: now, state: looks < 2 ? 'looking' : 'saved', why: 'denied' } };
+      return { look: { address: '100.64.0.3', port: 22, time: now, state: looks < 2 ? 'looking' : 'saved', why: 'denied' }, partners: cards };
     });
     await page.goto(`${h.url}#/caretaker/partner?fresh=1`, { waitUntil: 'load' });
     await page.waitForSelector('.ct-switch button', { timeout: 15000 }).catch(() => fail('change: no hint on the card'));

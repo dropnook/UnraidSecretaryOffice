@@ -542,7 +542,13 @@ function switchHint(x) {
   return d;
 }
 
-function addressDialog(x) {
+async function addressDialog(card) {
+  // as things are now: his state looked at again, the pair taken anew by its id (gone meanwhile: said)
+  await Office.freshState(ID);
+  const fresh = await Office.api.post(`${ID}.partner_address`, { id: card.id, step: 'look' });
+  if (!took(fresh)) return;
+  const x = ((fresh.partners || {}).pairs || []).find((p) => p.id === card.id);
+  if (!x) { Office.toast(Office.errorText({ key: 'partner_unknown' }, ID), true); return; }
   const n = netShown || {};
   const peers = n.state === 'in' ? (n.peers || []).filter((p) => p.online && p.tagged !== false && ip4(p.ips)) : [];
   const want = (x.usonet_match && x.usonet_match.name) || nodeName(x.name);

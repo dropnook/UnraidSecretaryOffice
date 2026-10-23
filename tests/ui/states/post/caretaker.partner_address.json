@@ -1,3 +1,181 @@
 {
-  "look": {"address": "100.64.0.3", "port": 22, "time": 1791561400, "state": "saved", "why": null}
+ "look": {
+  "address": "100.64.0.3",
+  "port": 22,
+  "time": 1791561400,
+  "state": "saved",
+  "why": null
+ },
+ "partners": {
+  "pairs": [
+   {
+    "id": "2ec7accd",
+    "name": "PartnerNAS",
+    "address": "192.168.1.190",
+    "port": 22,
+    "public": false,
+    "trust": "mine",
+    "paired": 1791411224,
+    "last_heard": 1791561334,
+    "last_try": 1791561334,
+    "reachable": true,
+    "why": null,
+    "array": "started",
+    "night": false,
+    "version": "1.52.0",
+    "silent": false,
+    "tailnet": null,
+    "sends": true,
+    "send_units": [
+     "place",
+     "share:domains"
+    ],
+    "offer": {
+     "time": 1791444993,
+     "ok": true,
+     "why": null,
+     "pending": [
+      "place"
+     ]
+    },
+    "status_time": 1791561334,
+    "receive": null,
+    "door": null,
+    "they_keep": {
+     "name": "PartnerNAS",
+     "array": "started",
+     "version": "1.52.0",
+     "lead": {
+      "must": 0,
+      "recommended": 3
+     },
+     "last_run": {
+      "run": "20261008-1736",
+      "result": "aborted",
+      "time": 1791473780
+     },
+     "pool": {
+      "free_bytes": 15129260032,
+      "asleep": false
+     },
+     "quota": {
+      "bytes": null,
+      "used_bytes": 988725248
+     },
+     "units": {
+      "share:appdata": {
+       "snaps": 5,
+       "newest": "uso-backup-20261008-0937",
+       "used_bytes": 252571648
+      },
+      "share:domains": {
+       "snaps": 7,
+       "newest": "uso-backup-20261009-0430",
+       "used_bytes": 98304
+      },
+      "place": {
+       "snaps": 5,
+       "newest": "uso-backup-20261009-0430",
+       "used_bytes": 735956992
+      }
+     },
+     "agreed": [
+      "share:appdata",
+      "share:domains",
+      "place"
+     ],
+     "wish": [],
+     "takes_all": true
+    },
+    "i_keep": null,
+    "last_transfer": {
+     "bytes": 151389568,
+     "mbit": 1211.1
+    },
+    "tickets": [],
+    "older": false,
+    "named": null,
+    "i_keep_units": []
+   },
+   {
+    "id": "26bbb6eb",
+    "name": "PartnerNAS",
+    "address": "192.168.1.190",
+    "port": 22,
+    "public": false,
+    "trust": "mine",
+    "paired": 1791455144,
+    "last_heard": 1791561328,
+    "last_try": null,
+    "reachable": null,
+    "why": null,
+    "array": null,
+    "night": null,
+    "version": null,
+    "silent": false,
+    "tailnet": null,
+    "sends": false,
+    "send_units": [],
+    "offer": null,
+    "status_time": null,
+    "receive": {
+     "pool": "big",
+     "quota_gb": 0,
+     "retention": "7 4 6",
+     "wake": true
+    },
+    "door": "open",
+    "they_keep": null,
+    "i_keep": {
+     "pair": "26bbb6eb",
+     "units": {
+      "place": {
+       "snap": "uso-backup-20261008-1701",
+       "bytes": 3153920,
+       "seconds": 0,
+       "time": 1791471681,
+       "snaps": 4
+      },
+      "share:pdata": {
+       "snap": "uso-backup-20261008-1701",
+       "bytes": 0,
+       "seconds": 0,
+       "time": 1791471681,
+       "snaps": 4
+      }
+     },
+     "used_bytes": 170270720,
+     "time": 1791471681
+    },
+    "last_transfer": null,
+    "tickets": [],
+    "older": false,
+    "named": null,
+    "i_keep_units": [
+     {
+      "unit": "place",
+      "snap": "uso-backup-20261008-1701",
+      "snaps": 4,
+      "time": 1791471681,
+      "first": 1791471681,
+      "new": true,
+      "stale": false
+     },
+     {
+      "unit": "share:pdata",
+      "snap": "uso-backup-20261008-1701",
+      "snaps": 4,
+      "time": 1791471681,
+      "first": 1791471681,
+      "new": true,
+      "stale": false
+     }
+    ]
+   }
+  ],
+  "pending": [],
+  "silent_after": 21600,
+  "ticket_pairs": [],
+  "ticket_requests": []
+ }
 }
