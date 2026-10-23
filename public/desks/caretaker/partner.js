@@ -175,7 +175,7 @@ function netWatch(n) {
 function netChip(n) {
   const cls = { in: 'ok', joining: 'quiet', leaving: 'quiet', starting: 'quiet', off: 'quiet' }[n.state] || 'danger';
   const c = chip(cls, T('usonet.state.' + n.state), T('usonet.tip.' + n.state));
-  if (NET_BUSY.includes(n.state)) c.prepend(el('span', 'spin'), ' ');
+  if (NET_BUSY.includes(n.state)) { c.classList.add('running'); c.prepend(el('span', 'spin'), ' '); }     // .running shows the wave (office.css)
   return c;
 }
 
@@ -209,19 +209,20 @@ function netBox(n) {
     r.appendChild(codeBox(n.log.join('\n')));
     box.appendChild(r);
   };
-  if (n.state === 'joining' || n.state === 'leaving') {
-    // the wave, the step and the time since the start (the job's mark); after a few minutes: it drags on, and why it might
+  if (NET_BUSY.includes(n.state)) {
+    // one line: the wave, the step and the time since the start (the job's mark; starting has none: the helper's state);
+    // after a few minutes: it drags on, and why it might — the log's last lines
     const job = n.job || {};
     const r = el('div', 'row nocheck ct-net-busy');
-    const p = el('p', 'role');
-    p.append(el('span', 'spin'), ' ', T('usonet.step.' + (job.step || 'queued')));
+    const p = el('p', 'role running');          // .running shows the wave (office.css)
+    p.append(el('span', 'spin'), ' ', n.state === 'starting' ? T('usonet.tip.starting') : T('usonet.step.' + (job.step || 'queued')));
     if (job.since) p.append(' · ', T('usonet.for', { time: fmt.duration(Math.max(1, Math.round(Date.now() / 1000) - job.since)) }));
     r.appendChild(p);
     box.appendChild(r);
     if (n.slow) {
       say('callout warn', T('usonet.slow', { time: fmt.duration(Math.max(1, Math.round(Date.now() / 1000) - (job.since || 0))) }));
       logLines();
-    } else say('role', T('usonet.' + n.state + '_text'));
+    }
   } else if (n.state === 'failed') {
     say('callout warn', T('usonet.why.' + (n.why || 'no_contact')));
     if ((n.log || []).length) { say('role', T('usonet.log_lines')); logLines(); }
@@ -783,7 +784,6 @@ async function addDialog() {
   box.appendChild(el('p', 'role', T('partner.add_levels')));
   { const need = needLine('send'); if (need) { need.className = 'callout'; box.appendChild(need); } }
   if (!(j.units || []).some((u) => u.ok)) box.appendChild(el('p', 'callout', T('partner.units_none')));
-  box.appendChild(el('p', 'callout', T('partner.clear_copies')));
   Office.dialog({
     title: T('partner.add_title'),
     body: box,

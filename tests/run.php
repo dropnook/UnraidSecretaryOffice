@@ -51322,8 +51322,9 @@ function testUsoNetStatus(): void
         $again = usonetTestStatus();
         $again['peers'][] = ['name' => 'uso-partner', 'ips' => ['100.64.0.2'], 'tags' => ['tag:uso'], 'online' => false, 'direct' => false, 'relay' => '', 'last_seen' => $now - 900];
         $again['peers'][] = ['name' => 'uso-partner', 'ips' => ['100.64.0.1'], 'tags' => ['tag:uso'], 'online' => false, 'direct' => false, 'relay' => '', 'last_seen' => $now - 9000];
+        $again['peers'][] = ['name' => 'uso-tower', 'ips' => ['100.64.0.9'], 'tags' => ['tag:uso'], 'online' => false, 'direct' => false, 'relay' => '', 'last_seen' => $now - 500];    // this server's own earlier node
         file_put_contents("$run/status.json", json_encode($again));
-        same('USO network card: a server that joined anew — one row, the online node', [['uso-partner', ['100.64.0.3', 'fd7a:115c:a1e0::3']]],
+        same('USO network card: a server that joined anew — one row, the online node; this server\'s own earlier node never a peer', [['uso-partner', ['100.64.0.3', 'fd7a:115c:a1e0::3']]],
             array_map(fn ($p) => [$p['name'], $p['ips']], usonetPublic($now)['peers']));
         [, $c] = $state(usonetTestStatus(['tags' => []]));
         same('USO network check: the node not tagged (a must)', false, $c['usonet_tagged']);

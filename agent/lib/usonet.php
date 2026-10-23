@@ -384,6 +384,9 @@ function usonetPublic(?int $now = null): array
         // tagged one) — the online one, else the one seen last, stands for it
         $byName = [];
         foreach ($s['peers'] as $p) {
+            if ($p['name'] === $s['name']) {
+                continue;       // this server's own earlier node (joined anew; Headscale keeps the old one): not a partner office
+            }
             $tagged = in_array(USONET_TAG, $p['tags'], true);
             $out['foreign'] += $tagged ? 0 : 1;
             $row = ['name' => $p['name'], 'ips' => $p['ips'], 'online' => $p['online'], 'direct' => $p['direct'],
