@@ -6,7 +6,7 @@
 </h1>
 
 A whole team supports you in running your Unraid server, right in Unraid's web UI: backups and restore, snapshots, a media
-cache for Emby, Jellyfin and Plex, the mover, a night watchman and every log in one place — free, open source, no account. More on the [product page](https://uso.dropnook.app).
+cache for Emby, Jellyfin and Plex, the mover, a night watchman and every log in one place. More on the [product page](https://uso.dropnook.app).
 
 <a name="team"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/team-dark.webp"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/team-light.webp" alt="The team of the Unraid Secretary Office: the Team Lead, Mr. Backupsy, Mr. Restori, Ms. Snapshotini, Jack Streamer, Ms. Moverelli, the Night Watchman, Ms. Dustdevil, Ms. Protocolli and the Consultant — each with one sentence about their work"></picture></a>
 
@@ -51,7 +51,7 @@ Plus Ms. Snapshotini, Ms. Dustdevil, Ms. Protocolli and the Consultant; five lan
   ransomware, it can delete or overwrite nothing on the other.
 - **Only what the desks define.** The service on the server can do what root can, but it only offers the actions
   written in the desks' code.
-- **Open source.** GPL-3.0-or-later — every line is here. What was checked: [HARDENING.md](HARDENING.md).
+- **Checked.** What was looked at, and what it found: [HARDENING.md](HARDENING.md).
 
 ## Install
 
@@ -66,8 +66,8 @@ updates come through Unraid's plugin manager either way.
 
 ## Support
 
-Free and complete — nothing is locked; a [tip](https://tip.uso.dropnook.app/) is welcome. Problems and wishes: right in
-the office, no account needed (*⋯ → Report a problem or a wish…*, you see every part before it is sent), or
+A [tip](https://tip.uso.dropnook.app/) is welcome. Problems and wishes: right in
+the office, no GitHub account needed (*⋯ → Report a problem or a wish…*, you see every part before it is sent), or
 [GitHub issues](https://github.com/dropnook/UnraidSecretaryOffice/issues).
 
 ## Special thanks
@@ -86,7 +86,7 @@ in `agent/desks/logs-rules/`. Thank you.
 
 Copyright (c) 2026 Benjamin Müller
 
-This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public
+License: GPL-3.0-or-later. This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public
 License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later
 version. It is distributed WITHOUT ANY WARRANTY; see [LICENSE](LICENSE).
 
