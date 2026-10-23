@@ -510,6 +510,10 @@ function partnerMyAddresses(): array
         if (preg_match('/^(docker\d*|virbr\d*|shim-|veth|br-|vhost|lo$)/', $iface) || isset($seen[$ip]) || !partnerAddressValid($ip)) {
             continue;
         }
+        // a tailnet's IPv6 (fd7a:115c:a1e0::/48 — the user's own Tailscale or the USO node) never: its IPv4 is the one to pick (2026-10-23)
+        if (str_contains($ip, ':') && usonetAddressRange($ip)) {
+            continue;
+        }
         $seen[$ip] = true;
         $out[] = ['address' => $ip, 'iface' => $iface, 'private' => partnerAddressPrivate($ip)];
     }
@@ -522,11 +526,35 @@ function partnerMyAddresses(): array
     return $out;
 }
 
-/** The port this server's sshd listens on (Unraid's ⟦Management Access⟧, ident.cfg PORTSSH) */
+/** The port this server's sshd listens on (Unraid's ⟦Management Access⟧, ident.cfg PORTSSH) — the office's door in the USO network listens on the same */
 function partnerMyPort(): int
 {
     $port = (int) (readCfg(PARTNER_IDENT)['PORTSSH'] ?? 22);
     return $port >= 1 && $port <= 65535 ? $port : 22;
+}
+
+/**
+ * The USO network for the pairing dialogs (2026-10-23, «pairing over the USO network must be simple»): whether this
+ * server is in it, its own USO address and the door's port there (what it gives a partner without a choice), the USO
+ * peers to pick from; for «Accept a partner…» whether the partner's address is a peer of this node, or at least of a
+ * tailnet's range (the page then takes the USO address by itself — or says to join first).
+ */
+function partnerUsonet(?string $address = null): array
+{
+    $s = usonetStatus();
+    $ip = usonetMyIp4($s);
+    return ['in' => $ip !== null, 'address' => $ip, 'port' => partnerMyPort(), 'peers' => usonetPeersToPick($s),
+            'peer' => $address !== null && usonetPeerAddress($address, $s), 'range' => $address !== null && usonetAddressRange($address)];
+}
+
+/** The trust a request names — optional since 2026-10-23 (the question is gone from the dialogs): «mine» unless said */
+function partnerTrustFrom(array $r): string
+{
+    $trust = optText($r, 'trust', 'mine');
+    if (!in_array($trust, PARTNER_TRUST, true)) {
+        throw new Problem('partner_receive', ['field' => 'trust']);
+    }
+    return $trust;
 }
 
 /** This office's name for its partners: the host name, in the blocks' characters */
@@ -1832,7 +1860,7 @@ function partner_add(array $r): array
     $step = optText($r, 'step', 'look');
     if ($step === 'look') {
         return ['ok' => true, 'name' => partnerMyName(), 'addresses' => partnerMyAddresses(), 'port' => partnerMyPort(),
-                'units' => partnerUnits(), 'host_key' => partnerHostKeys() !== []];
+                'units' => partnerUnits(), 'host_key' => partnerHostKeys() !== [], 'usonet' => partnerUsonet()];
     }
     if ($step === 'show') {
         foreach (partnerPending(true) as $o) {
@@ -1846,9 +1874,12 @@ function partner_add(array $r): array
         throw new Problem('bad_request');
     }
     [$address, $port] = partnerAddressFrom($r);
-    $trust = optText($r, 'trust');
-    if (!in_array($trust, PARTNER_TRUST, true)) {
-        throw new Problem('partner_receive', ['field' => 'trust']);
+    $trust = partnerTrustFrom($r);
+    // the USO peer picked on the page (its name as the node's status lists it): for the log line only — the block
+    // carries this server's address, the partner is whoever pastes it
+    $peer = optText($r, 'peer');
+    if ($peer !== '' && !in_array($peer, array_column(usonetPeersToPick(), 'name'), true)) {
+        throw new Problem('partner_receive', ['field' => 'peer']);
     }
     $host = partnerHostKeys();
     if (!$host) {
@@ -1868,7 +1899,7 @@ function partner_add(array $r): array
         partnerKeyDrop($id);
         throw $e;
     }
-    partnerLog("offer $id made (address $address:$port)");
+    partnerLog("offer $id made (address $address:$port" . ($peer !== '' ? ", for $peer in the USO network" : '') . ')');
     return ['ok' => true, 'id' => $id, 'block' => partnerBlockA($offer), 'public' => !partnerAddressPrivate($address)];
 }
 
@@ -1926,7 +1957,7 @@ function partner_accept(array $r): array
         return ['ok' => true, 'partner' => partnerBlockFacts($a), 'pools' => partnerPools(), 'defaults' => PARTNER_DEFAULTS,
                 'line' => $from !== null ? partnerDoorLine($a['id'], $from, $a['pub_key']) : null,
                 'name' => partnerMyName(), 'addresses' => partnerMyAddresses(), 'port' => partnerMyPort(), 'units' => partnerUnits(),
-                'host_key' => partnerHostKeys() !== []];
+                'host_key' => partnerHostKeys() !== [], 'usonet' => partnerUsonet($a['address'])];
     }
     if ($step !== 'do' || ($r['confirm'] ?? null) !== true) {
         throw new Problem('bad_request');
@@ -1947,10 +1978,7 @@ function partner_accept(array $r): array
         throw new Problem('partner_nothing');
     }
     [$address, $port] = partnerAddressFrom($r);
-    $trust = optText($r, 'trust');
-    if (!in_array($trust, PARTNER_TRUST, true)) {
-        throw new Problem('partner_receive', ['field' => 'trust']);
-    }
+    $trust = partnerTrustFrom($r);
     $myUnits = $sendToo ? partnerUnitsOk() : [];          // for an older partner's dialog only (see partner_add)
     $myPub = $sendToo ? partnerKeyMake($a['id']) : null;
     $pairs = partnerPairs();

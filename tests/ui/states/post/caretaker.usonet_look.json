@@ -1,0 +1,63 @@
+{
+ "usonet": {
+  "joined": true,
+  "state": "in",
+  "name": "uso-tower",
+  "ips": [
+   "100.64.0.4",
+   "fd7a:115c:a1e0::4"
+  ],
+  "tagged": true,
+  "peers": [
+   {
+    "name": "uso-partnernas",
+    "ips": [
+     "100.64.0.3",
+     "fd7a:115c:a1e0::3"
+    ],
+    "online": true,
+    "direct": true,
+    "relay": "fra",
+    "tagged": true,
+    "last_seen": null
+   },
+   {
+    "name": "uso-backupbox",
+    "ips": [
+     "100.64.0.6"
+    ],
+    "online": false,
+    "direct": false,
+    "relay": "",
+    "tagged": true,
+    "last_seen": 1791554674
+   },
+   {
+    "name": "laptop",
+    "ips": [
+     "100.64.0.9"
+    ],
+    "online": true,
+    "direct": true,
+    "relay": "",
+    "tagged": false,
+    "last_seen": null
+   }
+  ],
+  "foreign": 1,
+  "since": null,
+  "control": "",
+  "policy": {
+   "tailscale": "\"tagOwners\": { \"tag:uso\": [\"autogroup:admin\"] },\n\"grants\": [ { \"src\": [\"tag:uso\"], \"dst\": [\"tag:uso\"], \"ip\": [\"*\"] } ]",
+   "headscale": "\"tagOwners\": { \"tag:uso\": [\"<user>@\"] },\n\"acls\": [ { \"action\": \"accept\", \"src\": [\"tag:uso\"], \"dst\": [\"tag:uso:*\"] } ]"
+  },
+  "node": "uso-tower",
+  "port": 41642,
+  "helper": "1",
+  "why": "",
+  "joining": null,
+  "job": null,
+  "slow": false,
+  "log": []
+ }
+}

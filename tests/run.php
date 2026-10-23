@@ -35703,6 +35703,109 @@ function testPlgGuard(): void
  * ticket-pairs.json keep every entry a version doesn't recognise — a newer office's, met after a downgrade — where it
  * stood, as it was, through every write that touches another entry; a file of another `v` is not written over.
  */
+/**
+ * Pairing over the USO network is a pick (2026-10-23): «Add a partner…» offers the USO peers and this server's own USO
+ * address with the door's port, «Accept a partner…» takes them by itself when the block's address is of the network; the
+ * trust question is gone (every new pair «mine»), while the blocks still carry it — an older partner reads them as before.
+ */
+function testPartnerUsonetSimple(): void
+{
+    if (posix_geteuid() !== 0) {
+        check('partner over the USO network: root only (the pairs file is root\'s) — not run here', true);
+        return;
+    }
+    $tmp = hardeningTmp('partner-usonet');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $dsOf = fn (array $names) => array_fill_keys($names, ['used' => 0]);
+    $net = function (array $office, string $me, string $peer, string $peerName) use ($tmp): array {
+        $dir = "$tmp/" . basename($office['root']) . '-net';
+        @mkdir("$dir/run", 0700, true);
+        @mkdir("$dir/flash", 0700, true);
+        file_put_contents("$dir/flash/usonet.cfg", "JOINED=\"yes\"\nNAME=\"uso-" . basename($office['root']) . "\"\nCONTROL=\"\"\n");
+        file_put_contents("$dir/run/status.json", json_encode(usonetTestStatus(['name' => 'uso-' . basename($office['root']), 'ips' => [$me, 'fd7a:115c:a1e0::' . substr($me, -1)],
+            'peers' => [['name' => $peerName, 'ips' => [$peer, 'fd7a:115c:a1e0::' . substr($peer, -1)], 'tags' => ['tag:uso'], 'online' => true, 'direct' => false, 'relay' => 'fra', 'last_seen' => 0],
+                        ['name' => 'uso-attic', 'ips' => ['100.64.0.9'], 'tags' => ['tag:uso'], 'online' => false, 'direct' => false, 'relay' => '', 'last_seen' => 1700000000]]])));
+        $office['env'] += ['USONET_RUN' => "$dir/run", 'USONET_FLASH' => "$dir/flash"];
+        return $office;
+    };
+    $A = partnerTestOffice("$tmp/A");
+    $B = partnerTestOffice("$tmp/B", 'vault');
+    foreach ([$A, $B] as $o) {
+        file_put_contents("$o[data]/unraid-backup/state/setup-plan.json", json_encode(['bases' => [['name' => 'tank', 'fs' => 'zfs', 'kind' => 'pool']],
+            'shares' => [['name' => 'appdata', 'layout' => 'single', 'locations' => 'tank']], 'vms' => []]));
+    }
+    partnerTestBin($A['bin'], ['pools' => ['tank'], 'ds' => $dsOf(['tank', 'tank/appdata'])]);
+    partnerTestBin($B['bin'], ['pools' => ['vault'], 'ds' => $dsOf(['vault', 'vault/appdata'])]);
+    $A = $net($A, '100.64.0.4', '100.64.0.3', 'uso-b');
+    $Bnet = $net($B, '100.64.0.3', '100.64.0.4', 'uso-a');
+
+    // A, in the network: the look offers the peers to pick and A's own USO address with the door's port; the picker lists no fd7a
+    $look = partnerTestAs($A, 'return partner_add(["step" => "look"]);');
+    same('USO pairing: «Add a partner…» — in the network, this server\'s USO IPv4 and door port, the online peer to pick (the offline one after it)',
+        [true, '100.64.0.4', 22, [['uso-b', '100.64.0.3', true], ['uso-attic', '100.64.0.9', false]]],
+        [$look['usonet']['in'] ?? null, $look['usonet']['address'] ?? null, $look['usonet']['port'] ?? null,
+         array_map(fn ($p) => [$p['name'], $p['address'], $p['online']], $look['usonet']['peers'] ?? [])]);
+    check('USO pairing: no tailnet IPv6 in the address picker', !array_filter($look['addresses'] ?? [], fn ($a) => str_starts_with($a['address'], 'fd7a:')));
+    same('USO pairing: a peer that isn\'t one is refused', 'partner_receive',
+        partnerTestAs($A, 'return partner_add(["step" => "do", "address" => "100.64.0.4", "port" => 22, "peer" => "uso-evil"]);')['problem'] ?? null);
+    // the offer without a trust (the question is gone): «mine», and BLOCK-A still carries it for an older partner
+    $made = partnerTestAs($A, 'return partner_add(["step" => "do", "address" => "100.64.0.4", "port" => 22, "peer" => "uso-b"]);');
+    $blockA = (string) ($made['block'] ?? '');
+    $a = partnerBlockDecode($blockA, 'A');
+    same('USO pairing: BLOCK-A as before — the USO address, trust «mine» without a question (an office of 1.71.0 reads it)',
+        ['100.64.0.4', 22, 'mine', 1], [$a['address'], $a['port'], $a['trust'], $a['v']]);
+    same('USO pairing: the pending offer «mine»', ['mine'], array_column(partnerTestAs($A, 'return partnerPending();'), 'trust'));
+    check('USO pairing: the log names the peer picked', str_contains((string) @file_get_contents("$A[data]/agent.log"), 'for uso-b in the USO network'));
+
+    // B, in the network too: the block's address is its peer — B's own USO address and port come by themselves
+    $lookB = partnerTestAs($Bnet, 'return partner_accept(["step" => "look", "block" => ' . var_export($blockA, true) . ']);');
+    same('USO pairing: «Accept a partner…» — the partner\'s address is a peer of this node: this server\'s USO address and door port, nothing to choose',
+        [true, '100.64.0.3', 22, true, true], [$lookB['usonet']['in'] ?? null, $lookB['usonet']['address'] ?? null, $lookB['usonet']['port'] ?? null,
+         $lookB['usonet']['peer'] ?? null, $lookB['usonet']['range'] ?? null]);
+    // B not in the network: the block's address is of a tailnet's range all the same — the page says to join first
+    $lookB2 = partnerTestAs($B, 'return partner_accept(["step" => "look", "block" => ' . var_export($blockA, true) . ']);');
+    same('USO pairing: not in the network — in false, the range seen (the page says to join first)', [false, null, false, true],
+        [$lookB2['usonet']['in'] ?? null, $lookB2['usonet']['address'] ?? null, $lookB2['usonet']['peer'] ?? null, $lookB2['usonet']['range'] ?? null]);
+    // B accepts without a trust (sends too, keeps nothing: no door line needed here): the pair «mine», BLOCK-B as before
+    $accepted = partnerTestAs($Bnet, 'return partner_accept(["step" => "do", "block" => ' . var_export($blockA, true) . ', "confirm" => true, "address" => "100.64.0.3", "port" => 22, "send_too" => true, "receive" => null]);');
+    $b = partnerBlockDecode((string) ($accepted['block'] ?? ''), 'B');
+    same('USO pairing: B\'s pair «mine», BLOCK-B carries B\'s USO address and port (no trust field, as always)', ['mine', '100.64.0.3', 22, false],
+        [partnerTestAs($Bnet, 'return partnerPairs();')[0]['trust'] ?? null, $b['address'], $b['port'], array_key_exists('trust', $b)]);
+    // an older partner's BLOCK-A with a trust of its own (1.71.0 asked «Who is the partner?»): read as before, B's own pair stays «mine»
+    $old = ['v' => 1, 'block' => 'A', 'id' => 'c0ffee01', 'name' => 'OldOffice', 'address' => '100.64.0.8', 'port' => 22, 'host_keys' => [partnerTestKey()],
+            'pub_key' => partnerTestKey(), 'trust' => 'friend', 'units' => ['place']];
+    $lookOld = partnerTestAs($Bnet, 'return partner_accept(["step" => "look", "block" => ' . var_export(partnerBlockEncode($old), true) . ']);');
+    same('USO pairing: an older partner\'s block with «friend» is read — its facts, the range seen, not a peer', ['OldOffice', 'friend', true, false],
+        [$lookOld['partner']['name'] ?? null, $lookOld['partner']['trust'] ?? null, $lookOld['usonet']['range'] ?? null, $lookOld['usonet']['peer'] ?? null]);
+    $oldDone = partnerTestAs($Bnet, 'return partner_accept(["step" => "do", "block" => ' . var_export(partnerBlockEncode($old), true) . ', "confirm" => true, "address" => "100.64.0.3", "port" => 22, "send_too" => true, "receive" => null]);');
+    same('USO pairing: accepted; an explicit trust is still taken when a page sends one', ['mine', 'family'],
+        [array_column(partnerTestAs($Bnet, 'return partnerPairs();'), 'trust', 'id')['c0ffee01'] ?? null,
+         (function () use ($Bnet, $old) {
+             $old['id'] = 'c0ffee02';
+             $old['pub_key'] = partnerTestKey();
+             partnerTestAs($Bnet, 'return partner_accept(["step" => "do", "block" => ' . var_export(partnerBlockEncode($old), true) . ', "confirm" => true, "address" => "100.64.0.3", "port" => 22, "send_too" => true, "receive" => null, "trust" => "family"]);');
+             return array_column(partnerTestAs($Bnet, 'return partnerPairs();'), 'trust', 'id')['c0ffee02'] ?? null;
+         })()]);
+    check('USO pairing: BLOCK-B made', ($oldDone['block'] ?? '') !== '');
+    // the page: no trust question, the peer picker, the one line on accept, the fold «Another address…», the WireGuard hint only outside the network
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/caretaker/partner.js');
+    check('USO pairing page: the trust question is gone, one sentence instead; the peer picker and the folded other way',
+        !str_contains($js, 'trustPicker(') && str_contains($js, 'function trustNote()') && str_contains($js, 'function peerPicker(') && str_contains($js, 'function myAddress(')
+        && str_contains($js, "T('partner.usonet_not_in'") && str_contains($js, "if (!(usonet && usonet.in)) f.appendChild(el('small', '', T('partner.address_hint')"));
+    check('USO pairing page: relayed is a plain chip, never a warning; the busy card shows the wave, the step and the time', !str_contains($js, "chip('warn', T('usonet.peer_relay'")
+        && str_contains($js, "T('usonet.step.' + (job.step || 'queued'))") && str_contains($js, "T('usonet.for', { time:"));
+    // 1.71.0 drew itself into «Maximum call stack size exceeded»: the render (netBox) called netTook, which rendered. The
+    // render only arms the look (netWatch: a timer, never a render); the look's answer renders (netTook) and arms again.
+    $netBox = substr($js, strpos($js, 'function netBox('), strpos($js, 'function joinDialog(') - strpos($js, 'function netBox('));
+    $netWatch = substr($js, strpos($js, 'function netWatch('), strpos($js, 'function netChip(') - strpos($js, 'function netWatch('));
+    check('partner door: a unit received asks for the Team Lead\'s cards anew at once (not his next tour)',
+        preg_match('/doorLog\(\$id, "recv \$unit \$snap done[^\n]*\n\s*partnerRescanAsk\(\);/', (string) file_get_contents(OFFICE_DIR . '/agent/partner-door.php')) === 1);
+    check('USO network card: the render never renders again — netBox arms the look only, netWatch never draws',
+        $netBox !== '' && !str_contains($netBox, 'netTook(') && !str_contains($netBox, 'tookNet') && str_contains($netBox, 'netWatch(n);')
+        && $netWatch !== '' && !str_contains($netWatch, 'tookNet') && !str_contains($netWatch, 'render') && str_contains($netWatch, 'if (netTimer ||'));
+    hardeningRm($tmp);
+}
+
 function testPartnerTolerant(): void
 {
     if (posix_geteuid() !== 0) {
@@ -51151,8 +51254,22 @@ function testUsoNetRule(): void
             check('USO network rule: a status not in its shape — no rule (' . substr($bad, 0, 20) . ')', partnerSshArgs($pair, 'ping')[0] !== '/usr/bin/nsenter');
         }
         file_put_contents("$run/status.json", json_encode(usonetTestStatus()));
-        same('USO network: the node\'s addresses in the pairing\'s picker', [['address' => '100.64.0.4', 'iface' => 'uso-net', 'private' => true, 'usonet' => true],
-            ['address' => 'fd7a:115c:a1e0::4', 'iface' => 'uso-net', 'private' => true, 'usonet' => true]], usonetMyAddresses());
+        same('USO network: the node\'s address in the pairing\'s picker — its IPv4 only (2026-10-23: never the tailnet\'s fd7a)',
+            [['address' => '100.64.0.4', 'iface' => 'uso-net', 'private' => true, 'usonet' => true]], usonetMyAddresses());
+        same('USO network: the node\'s own IPv4', '100.64.0.4', usonetMyIp4());
+        same('USO network: of a tailnet\'s ranges — 100.64/10 and fd7a:115c:a1e0::/48, nothing else', [true, true, true, false, false, false, false],
+            array_map('usonetAddressRange', ['100.64.0.3', '100.127.255.254', 'fd7a:115c:a1e0::3', '100.128.0.1', '192.168.7.20', 'fd7a:115c:a1e1::3', 'tower.ts.net']));
+        // the peers a pairing picks from: tagged, with an IPv4, the online ones first, one row per name (the online one stands)
+        $pick = usonetTestStatus(['peers' => [
+            ['name' => 'uso-vault', 'ips' => ['100.64.0.6'], 'tags' => ['tag:uso'], 'online' => false, 'direct' => false, 'relay' => '', 'last_seen' => 1700000000],
+            ['name' => 'uso-vault', 'ips' => ['100.64.0.7', 'fd7a:115c:a1e0::7'], 'tags' => ['tag:uso'], 'online' => true, 'direct' => false, 'relay' => 'fra', 'last_seen' => 0],
+            ['name' => 'laptop', 'ips' => ['100.64.0.9'], 'tags' => [], 'online' => true, 'direct' => true, 'relay' => '', 'last_seen' => 0],
+            ['name' => 'uso-six', 'ips' => ['fd7a:115c:a1e0::8'], 'tags' => ['tag:uso'], 'online' => true, 'direct' => true, 'relay' => '', 'last_seen' => 0],
+            ['name' => 'uso-attic', 'ips' => ['100.64.0.5'], 'tags' => ['tag:uso'], 'online' => false, 'direct' => false, 'relay' => '', 'last_seen' => 1700000500],
+            ['name' => 'uso-partner', 'ips' => ['100.64.0.3'], 'tags' => ['tag:uso'], 'online' => true, 'direct' => true, 'relay' => 'fra', 'last_seen' => 0]]]);
+        same('USO network picker: tagged peers with an IPv4, online first, one per name', [['uso-partner', '100.64.0.3', true, true], ['uso-vault', '100.64.0.7', true, false], ['uso-attic', '100.64.0.5', false, false]],
+            array_map(fn ($p) => [$p['name'], $p['address'], $p['online'], $p['direct']], usonetPeersToPick($pick)));
+        same('USO network picker: not in — nobody to pick', [], usonetPeersToPick(usonetTestStatus(['backend' => 'NeedsLogin'])));
         file_put_contents("$run/status.json", json_encode(usonetTestStatus(['backend' => 'NeedsLogin'])));
         same('USO network: not in yet — no address in the picker', [], usonetMyAddresses());
 
@@ -51224,6 +51341,96 @@ function testUsoNetStatus(): void
         check('USO network card: the policy lines to paste, the node\'s name, no key', str_contains($public, 'autogroup:admin') && str_contains($public, 'tag:uso')
             && !str_contains($public, 'tskey'));
         same('USO network: the node\'s name', ['uso-tower', 'uso-my-nas-2', 'uso-unraid'], [usonetNodeName('Tower'), usonetNodeName('My NAS (2)'), usonetNodeName('---')]);
+
+        // ---- a join under way (2026-10-23: the card showed no step, no time, and stayed on «joining» until a reload)
+        unlink("$flash/usonet.cfg");
+        @unlink("$run/status.json");
+        @unlink("$run/join.json");
+        usonetJobMark('join');
+        $p = usonetPublic($now);
+        same('USO network card: joining — the job\'s step and start for the wave, not slow yet, no log', ['joining', 'join', 'queued', true, false, []],
+            [$p['state'], $p['job']['what'] ?? null, $p['job']['step'] ?? null, abs(($p['job']['since'] ?? 0) - $now) <= 2, $p['slow'], $p['log']]);
+        usonetJobStep('fetch');
+        $m = readJson("$run/job.json");
+        same('USO network job: the step written with the job\'s pid, the start kept', ['fetch', getmypid(), true], [$m['step'] ?? null, $m['pid'] ?? null, abs(($m['time'] ?? 0) - $now) <= 2]);
+        file_put_contents("$run/usonet.log", "2026-10-23 11:59:00 the namespace made\n2026-10-23 12:00:00 helper started (PID 4242)\n2026-10-23 12:00:01 key tskey-auth-kSecret99-ZyXwVuTsRqPoNmLk used\n");
+        file_put_contents("$run/helper.log", implode("\n", array_map(fn ($i) => "line $i of the helper", range(1, 12))) . "\n");
+        $p = usonetPublic($now + USONET_SLOW_AFTER + 1);
+        same('USO network card: a join that drags on — slow, with the logs\' last lines (3 + 5), never the key', [true, 'joining', 8, true, false],
+            [$p['slow'], $p['state'], count($p['log']), $p['log'][7] === 'line 12 of the helper' && $p['log'][0] === '2026-10-23 11:59:00 the namespace made',
+             str_contains(json_encode($p), 'kSecret99')]);
+        check('USO network card: the key in a log line scrubbed', str_contains($p['log'][2], 'tskey-…') && !str_contains($p['log'][2], 'ZyXw'));
+        // the job's process gone (the agent or the server restarted mid-join): no «joining» forever — failed, job_gone, the log shown
+        $dead = proc_open(['sleep', '30'], [], $pp);
+        $pid = proc_get_status($dead)['pid'];
+        proc_terminate($dead, SIGKILL);
+        proc_close($dead);
+        file_put_contents("$run/job.json", json_encode(['what' => 'join', 'time' => $now - 30, 'step' => 'login', 'pid' => $pid]));
+        $p = usonetPublic($now);
+        same('USO network card: the join\'s job died — failed (job_gone), its mark gone, the log lines shown', ['failed', 'job_gone', false, 8],
+            [$p['state'], $p['why'], file_exists("$run/job.json"), count($p['log'])]);
+        file_put_contents("$run/job.json", json_encode(['what' => 'join', 'time' => $now - USONET_JOB_QUEUED - 5, 'step' => 'queued', 'pid' => null]));
+        same('USO network card: a job atd never started — given up', ['failed', 'job_gone'], [usonetPublic($now)['state'], usonetPublic($now)['why']]);
+        file_put_contents("$run/job.json", json_encode(['what' => 'join', 'time' => $now - 10, 'step' => 'queued', 'pid' => null]));
+        same('USO network card: a job just queued — joining', 'joining', usonetPublic($now)['state']);
+        @unlink("$run/job.json");
+        @unlink("$run/join.json");
+        @unlink("$run/usonet.log");
+        @unlink("$run/helper.log");
+        // a failed join: its leave took the logs — the lines kept with the outcome are shown (the lab, 2026-10-23: the card said only why)
+        file_put_contents("$run/join.json", json_encode(['time' => $now - 30, 'ok' => false, 'why' => 'key_refused', 'log' => ['helper started (PID 7)', 'control: auth key invalid', 42]]));
+        $p = usonetPublic($now);
+        same('USO network card: a failed join shows the lines its outcome kept', ['failed', 'key_refused', ['helper started (PID 7)', 'control: auth key invalid']], [$p['state'], $p['why'], $p['log']]);
+        check('USO network join job: the logs\' last lines are taken before the leave, with every failed outcome',
+            substr_count((string) file_get_contents(OFFICE_DIR . '/agent/lib/usonet.php'), '$log = usonetLogTail();') === 3
+            && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/lib/usonet.php'), "return \$result(false, \$why, \$log);"));
+        @unlink("$run/join.json");
+
+        // ---- the probe: a relayed online peer gets a few pings (in the background, once per USONET_PROBE_EVERY), a direct one none
+        file_put_contents("$flash/usonet.cfg", "JOINED=\"yes\"\nNAME=\"uso-tower\"\nCONTROL=\"\"\n");
+        file_put_contents("$run/status.json", json_encode(usonetTestStatus(['peers' => [
+            ['name' => 'uso-partner', 'ips' => ['100.64.0.3', 'fd7a:115c:a1e0::3'], 'tags' => ['tag:uso'], 'online' => true, 'direct' => false, 'relay' => 'fra', 'last_seen' => 0],
+            ['name' => 'uso-vault', 'ips' => ['100.64.0.7'], 'tags' => ['tag:uso'], 'online' => true, 'direct' => true, 'relay' => '', 'last_seen' => 0],
+            ['name' => 'uso-attic', 'ips' => ['100.64.0.5'], 'tags' => ['tag:uso'], 'online' => false, 'direct' => false, 'relay' => '', 'last_seen' => 0],
+            ['name' => 'laptop', 'ips' => ['100.64.0.9'], 'tags' => [], 'online' => true, 'direct' => false, 'relay' => 'fra', 'last_seen' => 0]]])));
+        file_put_contents("$run/probe.sh", "#!/bin/bash\necho \"\$1\" >> \"$run/probed\"\n");
+        chmod("$run/probe.sh", 0755);
+        putenv("USONET_PROBE=$run/probe.sh");
+        usonetProbe(usonetPublic($now), $now);
+        usonetProbe(usonetPublic($now), $now + 60);
+        same('USO network probe: the relayed USO peer once (not the direct one, not the offline one, never a foreign device), not again within three minutes',
+            "100.64.0.3\n", @file_get_contents("$run/probed"));
+        usonetProbe(usonetPublic($now), $now + USONET_PROBE_EVERY + 1);
+        same('USO network probe: after three minutes once more', "100.64.0.3\n100.64.0.3\n", @file_get_contents("$run/probed"));
+        putenv('USONET_PROBE');
+        // his kept state follows the network between tours: the picture written mid-join is not served as fresh once the node is in
+        $kept = deskFile('caretaker');
+        $was = is_file($kept) ? (string) file_get_contents($kept) : null;
+        file_put_contents($kept, json_encode(['time' => $now - 200, 'usonet' => ['state' => 'joining', 'job' => ['what' => 'join', 'step' => 'fetch', 'since' => $now - 230]], 'staff' => ['x']]));
+        unset($GLOBALS['ctNetSig'], $GLOBALS['ctNetNext']);
+        caretakerUsonetFollow($now);
+        $k = readJson($kept);
+        same('USO network card: the kept state\'s picture follows the network (in, its peers), the tour\'s other parts and time untouched',
+            ['in', ['uso-partner', 'uso-vault', 'uso-attic', 'laptop'], $now - 200, ['x'], true],
+            [$k['usonet']['state'] ?? null, array_column($k['usonet']['peers'] ?? [], 'name'), $k['time'] ?? null, $k['staff'] ?? null, is_int($k['usonet']['time'] ?? null)]);
+        file_put_contents($kept, json_encode(['time' => $now - 100, 'usonet' => ['state' => 'off'], 'staff' => ['y']]));
+        caretakerUsonetFollow($now + 2);
+        same('USO network card: within 5 s no second look', 'off', readJson($kept)['usonet']['state'] ?? null);
+        caretakerUsonetFollow($now + 6);
+        same('USO network card: the same picture as last written — nothing rewritten (the signature remembers it)', 'off', readJson($kept)['usonet']['state'] ?? null);
+        unset($GLOBALS['ctNetSig']);
+        caretakerUsonetFollow($now + 12);
+        same('USO network card: a changed picture is written', 'in', readJson($kept)['usonet']['state'] ?? null);
+        if ($was === null) {
+            @unlink($kept);
+        } else {
+            file_put_contents($kept, $was);
+        }
+        unset($GLOBALS['ctNetSig'], $GLOBALS['ctNetNext']);
+        check('USO network card: the Team Lead\'s tick lets the kept state follow', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/caretaker.php'), 'caretakerUsonetFollow($now);'));
+        check('USO network probe: the Team Lead\'s card sends it; inside the namespace, a few pings, detached',
+            str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/caretaker.php'), 'usonetProbe($p);')
+            && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/lib/usonet.php'), "['setsid', '-f', getenv('USONET_NSENTER') ?: '/usr/bin/nsenter', '--net=/run/netns/' . USONET_NETNS, 'ping', '-c', '3', '-W', '2', '-q', \$ip]"));
     });
     hardeningRm($tmp);
     $ct = (string) file_get_contents(OFFICE_DIR . '/agent/desks/caretaker.php');
@@ -51411,7 +51618,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];

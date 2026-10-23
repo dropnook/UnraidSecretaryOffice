@@ -645,6 +645,80 @@ async function firstHome(browser) {
   res.ms = Date.now() - t0;
   return res;
 }
+// ------------------------------------------------------------------ the USO network's card while it is busy (2026-10-23)
+// The card drawn with a join under way: the wave, the step and the time, no page error (1.71.0 rendered itself into a
+// «Maximum call stack size exceeded»: the render armed the look, the look rendered), the page looks again on its own
+// (POST caretaker.usonet_look) and flips to «in the network» with the answer - then looks no more. The failed and the
+// leaving state drawn too (the log's lines, the wave).
+async function netBusy(browser) {
+  const res = { route: 'USO network card', theme: 'dark', width: 1440, tested: 0, skipped: 0, capped: 0, hidden: 0, sections: 0, fails: [], ms: 0 };
+  const t0 = Date.now();
+  const fail = (what) => res.fails.push(what);
+  const h = await startHarness({});
+  const base = JSON.parse(fs.readFileSync(path.join(REPO, 'tests', 'ui', 'states', 'caretaker.json'), 'utf8'));
+  const withNet = (usonet) => ({ ...base, usonet: { ...base.usonet, ...usonet } });
+  const now = Math.floor(Date.now() / 1000);
+  try {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'en-US' });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(`page error: ${String(e.message).slice(0, 160)}`));
+    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text().slice(0, 200)); });
+    // joining, not in yet (JOINED=no while the helper is fetched): the wave, the step, the time
+    h.setState('caretaker', withNet({ joined: false, state: 'joining', joining: 'join', ips: [], peers: [], job: { what: 'join', step: 'fetch', since: now - 47 }, slow: false, log: [] }));
+    await page.goto(`${h.url}#/caretaker/partner`, { waitUntil: 'load' });
+    const busy = await page.waitForSelector('.ct-net .ct-net-busy .spin', { state: 'attached', timeout: 15000 }).then(() => true, () => false);
+    res.tested++;
+    if (!busy) fail('joining: no wave on the card');
+    const words = await page.evaluate(() => (document.querySelector('.ct-net .ct-net-busy') || {}).textContent || '');
+    if (!/Fetching the helper/.test(words) || !/for \d+ s/.test(words)) fail(`joining: the step and the time are not said (${JSON.stringify(words)})`);
+    const chip = await page.evaluate(() => { const c = document.querySelector('.ct-net .ct-subhead .chip'); return c ? { text: c.textContent.trim(), spin: !!c.querySelector('.spin') } : null; });
+    if (!chip || !/joining/.test(chip.text) || !chip.spin) fail(`joining: the chip is not «joining» with the wave (${JSON.stringify(chip)})`);
+    // the page looks again on its own; the look's answer (states/post/caretaker.usonet_look.json) says «in»: the card flips, the looks end
+    const flipped = await page.waitForFunction(() => { const c = document.querySelector('.ct-net .ct-subhead .chip'); return c && /in the network/.test(c.textContent) && !document.querySelector('.ct-net .ct-net-busy'); }, null, { timeout: 12000 }).then(() => true, () => false);
+    res.tested++;
+    const looks = () => h.posts.filter((p) => p.action === 'caretaker.usonet_look').length;
+    if (!flipped) fail(`joining → in: the card did not flip on its own (looks posted: ${looks()})`);
+    const seen = looks();
+    await page.waitForTimeout(5500);
+    res.tested++;
+    if (looks() !== seen) fail(`in the network: the page still looks at it (${looks() - seen} more looks)`);
+    if (seen < 1) fail('the page never looked at the network while it was joining');
+    // failed: the why and the log's lines; leaving: the wave; starting: the chip with the wave - each drawn without an error
+    for (const [name, usonet, want] of [
+      ['failed', { joined: false, state: 'failed', why: 'key_refused', job: null, slow: false, log: ['2026-10-23 13:40:02 helper started (PID 4242)', 'control: the key was refused'] }, '.ct-net .callout.warn, .ct-net pre.code'],
+      ['slow', { joined: true, state: 'joining', joining: 'join', job: { what: 'join', step: 'login', since: now - 260 }, slow: true, log: ['control: no response yet'] }, '.ct-net .callout.warn'],
+      ['leaving', { joined: true, state: 'leaving', joining: 'leave', job: { what: 'leave', step: 'leave', since: now - 5 }, slow: false, log: [] }, '.ct-net .ct-net-busy .spin'],
+      ['starting', { joined: true, state: 'starting', joining: null, job: null, slow: false, log: [] }, '.ct-net .ct-subhead .chip .spin'],
+      ['down', { joined: true, state: 'down', joining: null, job: null, since: now - 20, slow: false, log: [] }, '.ct-net .callout.warn'],
+    ]) {
+      h.setState('caretaker', withNet(usonet));
+      await page.reload({ waitUntil: 'load' });
+      const there = await page.waitForSelector(want, { state: 'attached', timeout: 15000 }).then(() => true, () => false);
+      res.tested++;
+      if (!there) fail(`${name}: not drawn as it should be («${want}» missing)`);
+      if (name === 'failed') {
+        const log = await page.evaluate(() => (document.querySelector('.ct-net pre.code') || {}).textContent || '');
+        if (!/key was refused/.test(log)) fail('failed: the log\'s lines are not shown');
+      }
+      if (name === 'down') {
+        // the helper is started again every minute: the page keeps looking (the lab, 2026-10-23: «not running» stood until a reload)
+        const before = looks();
+        const again = await page.waitForFunction(() => /in the network/.test((document.querySelector('.ct-net .ct-subhead .chip') || {}).textContent || ''), null, { timeout: 12000 }).then(() => true, () => false);
+        res.tested++;
+        if (!again || looks() <= before) fail(`down: the page did not look again on its own (looks: ${looks() - before})`);
+      }
+      await page.waitForTimeout(600);
+    }
+    for (const e of [...new Set(errors)]) fail(e);
+    await ctx.close();
+  } catch (e) {
+    fail(String(e.message || e).split('\n')[0].slice(0, 200));
+  }
+  await h.close();
+  res.ms = Date.now() - t0;
+  return res;
+}
 // ------------------------------------------------------------------ the routes walk (2026-10-16)
 // Every place Jack Streamer's and Ms. Moverelli's search names (Office.placesOf: sections, tiles, setup steps; the items
 // of their demo states: Office.itemsOf) and every '#/<desk>…' address their pages link to: each opened cold (a fresh
@@ -713,6 +787,7 @@ const walks = opt.states ? [] : WALK.filter((d) => !opt.only || routes.includes(
 results.push(...await Promise.all(walks.map((d) => routeWalk(browser, harness, d))));
 if (!opt.states && (!opt.only || routes.includes('jack/setup'))) results.push(await dialogStack(browser, harness));
 if (!opt.states && (!opt.only || routes.includes('caretaker'))) results.push(await firstHome(browser));
+if (!opt.states && (!opt.only || routes.includes('caretaker'))) results.push(await netBusy(browser));
 await browser.close();
 await harness.close();
 
