@@ -432,6 +432,14 @@ function card(x) {
     toSetup();
   }
   main.appendChild(send);
+  if (x.send_at) {
+    // the address changed here, Mr. Backupsy's run still has the old one until his Apply (settings.ini) — said, with the way
+    const at = el('div', 'row-detail callout warn ct-send-at', T('partner.send_at', { name: x.name, address: x.send_at }) + ' ');
+    const go = el('a', 'ct-plink', T('partner.i_send_setup'));
+    go.href = '#/backup/setup';
+    at.appendChild(go);
+    main.appendChild(at);
+  }
   if (x.sends) { const need = needLine('send'); if (need) main.appendChild(need); }
   if (x.sends) sendLines(x).forEach((n) => main.appendChild(n));
   const tk = x.no_pair ? null : x.they_keep;         // what it said before it forgot this pair isn't how it is now
@@ -521,10 +529,11 @@ const ip4 = (ips) => (ips || []).find((a) => /^\d+\.\d+\.\d+\.\d+$/.test(a)) || 
 /** The card's line when its address is outside the USO network while the partner is online in it (`usonet_match`) */
 function switchHint(x) {
   const m = x.usonet_match;
-  if (!m || x.reachable === true) return null;
+  // reached over its LAN address: nothing to say; an earlier node of the network is offline — a «reached» from before counts not
+  if (!m || (x.reachable === true && !m.was_peer)) return null;
   const d = el('div', 'row-detail callout warn ct-switch');
   d.append(x.reachable === false ? T('partner.usonet_switch_unreached', { name: x.name, address: m.address })
-    : T('partner.usonet_switch', { name: x.name, address: m.address }), ' ');
+    : T(m.was_peer ? 'partner.usonet_switch_moved' : 'partner.usonet_switch', { name: x.name, address: m.address, old: x.address }), ' ');
   const b = el('button', 'btn small', T('partner.usonet_switch_btn'));
   b.type = 'button';
   b.disabled = busyOff();

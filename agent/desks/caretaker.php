@@ -931,8 +931,9 @@ function caretakerPartners(): array
 
 /**
  * His kept state (data/caretaker.json, what every look of the page shows first) follows the USO network between his
- * tours: a join or leave under way, its step, the node in, a peer online or direct — when the card's picture changed,
- * only the state's `usonet` is written anew (the tour's other parts stay as they are, with the tour's time). Before
+ * tours: a join or leave under way, its step, the node in, a peer online, direct or at a new address — when the card's
+ * picture changed, the state's `usonet` and the partner cards are written anew (the tour's other parts stay as they
+ * are, with the tour's time). Before
  * (1.71.0) the picture written mid-join — «joining, fetching the helper» — was served as fresh for up to five minutes
  * after the node was in, and the page fell back to it after every look (2026-10-23, the lab). Every 5 s at most; RAM
  * and the flash only (usonetPublic()).
@@ -945,7 +946,7 @@ function caretakerUsonetFollow(int $now): void
     $GLOBALS['ctNetNext'] = $now + 5;
     $p = caretakerUsonet();
     $sig = md5(jsonEncode([$p['state'] ?? '', $p['job'] ?? null, $p['slow'] ?? false, $p['ips'] ?? [], $p['tagged'] ?? null, $p['foreign'] ?? 0, $p['why'] ?? '',
-        array_map(fn (array $x) => [$x['name'], $x['online'], $x['direct'], $x['relay'], $x['tagged']], $p['peers'] ?? [])]));
+        array_map(fn (array $x) => [$x['name'], $x['ips'], $x['online'], $x['direct'], $x['relay'], $x['tagged']], $p['peers'] ?? [])]));
     if ($sig === ($GLOBALS['ctNetSig'] ?? null)) {
         return;
     }
@@ -956,6 +957,11 @@ function caretakerUsonetFollow(int $now): void
         return;         // no tour yet (the first one writes it), or the same picture already
     }
     $state['usonet'] = $p;
+    // the partner cards too (files only): which pair's partner is online in the network at another address follows the
+    // network — a partner that joined anew has a new address (2026-10-23, the lab: the card said nothing until a tour)
+    if (array_key_exists('partners', $state)) {
+        $state['partners'] = caretakerPartners();
+    }
     try {
         writeAtomic($file, jsonEncode($state));
     } catch (Throwable $e) {

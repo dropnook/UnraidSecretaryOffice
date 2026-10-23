@@ -32649,6 +32649,27 @@ function testWatchmanPartner(): void
     same('watch partner: another from= — door_changed again', [['door_changed'], ['from'], '192.168.77.99', '192.168.77.2'],
         [$r['added'], array_column($open(), null, 'kind')['door_changed']['p']['what'] ?? null,
          array_column($open(), null, 'kind')['door_changed']['p']['from'] ?? null, array_column($open(), null, 'kind')['door_changed']['p']['from_old'] ?? null]);
+    // the Team Lead's «Change the address…»: the pair's new address in pairs.json, his record in RAM, the line's from= — his own, quiet
+    watchmanAck('*', $data, $now + 1501, false);
+    $round($now + 1502);                                 // the line with .99 known as it is
+    $edit('from="192.168.77.99"', 'from="100.64.0.7"');
+    partnerPairsWrite([['address' => '100.64.0.7'] + $pairA, $pairC, $pairD], $paths['partner_pairs']);
+    file_put_contents("$src/prun/address-a1b2c3d4.json", json_encode(['address' => '100.64.0.7', 'port' => 22, 'time' => $now + 1505, 'state' => 'saved']));
+    chmod("$src/prun/address-a1b2c3d4.json", 0600);
+    touch($keys, $now + 1506);
+    $r = $round($now + 1510);
+    same('watch partner: from= changed by the Team Lead to the pair\'s new address — quiet, the new normal', [[], '100.64.0.7'],
+        [$r['added'], watchmanLoad($data)['baseline']['partner']['lines']['a1b2c3d4']['from'] ?? null]);
+    // the same by hand — from= another address than the pair's, or without his record: door_changed
+    $edit('from="100.64.0.7"', 'from="100.64.0.8"');
+    touch($keys, $now + 1515);
+    $r = $round($now + 1520);
+    same('watch partner: from= not the pair\'s address — door_changed all the same', ['door_changed'], $r['added']);
+    @unlink("$src/prun/address-a1b2c3d4.json");
+    partnerPairsWrite([$pairA, $pairC, $pairD], $paths['partner_pairs']);
+    $edit('from="100.64.0.8"', 'from="192.168.77.99"');
+    watchmanAck('*', $data, $now + 1525, false);
+    $round($now + 1530);
     $edit('from="192.168.77.99"', 'from="192.168.77.2"');
     $round($now + 1550);
     watchmanAck('*', $data, $now + 1560, false);
@@ -35904,6 +35925,16 @@ function testPartnerAddress(): void
         array_intersect_key($card['usonet_match'] ?? [], ['name' => 1, 'address' => 1]));
     $cardOut = partnerTestAs($A, 'return partnerPublic();')['pairs'][0] ?? [];
     same('USO card: not in the network — no match', [true, null], [array_key_exists('usonet_match', $cardOut), $cardOut['usonet_match'] ?? null]);
+    // the partner joined anew: a new node and address, its old one offline in the list — the stored address is a peer
+    // still, but not the partner's now: matched too (the lab, 2026-10-23: the card said nothing)
+    $moved = usonetTestStatus(['peers' => [
+        ['name' => 'uso-stedy', 'ips' => ['100.64.0.2'], 'tags' => ['tag:uso'], 'online' => false, 'direct' => false, 'relay' => '', 'last_seen' => 1700000000],
+        ['name' => 'uso-stedy', 'ips' => ['100.64.0.3'], 'tags' => ['tag:uso'], 'online' => true, 'direct' => true, 'relay' => '', 'last_seen' => 0]]]);
+    same('USO card: joined anew — the online node\'s address, said as an earlier one of the network', ['100.64.0.3', true],
+        array_values(array_intersect_key(partnerUsonetMatch(['name' => 'Stedy', 'address' => '100.64.0.2'], $moved) ?? [], ['address' => 1, 'was_peer' => 1])));
+    same('USO card: outside the network — said as outside', ['100.64.0.3', false],
+        array_values(array_intersect_key(partnerUsonetMatch(['name' => 'Stedy', 'address' => '192.168.3.20'], $moved) ?? [], ['address' => 1, 'was_peer' => 1])));
+    same('USO card: at the online node\'s address already — no match', null, partnerUsonetMatch(['name' => 'Stedy', 'address' => '100.64.0.3'], $moved));
 
     // ---- «Change the address…»: the look is a job; found → stored, the door's from= follows
     $launch = '$GLOBALS["partnerAddressLaunch"] = function (string $i) { file_put_contents(RUN_DIR . "/launched.log", "$i\n", FILE_APPEND); };';
@@ -35930,6 +35961,14 @@ function testPartnerAddress(): void
     same('USO change: the pair keeps its shape (keys, rules, trust as they were)', [partnerFingerprint($pubB), ['pool' => 'tank', 'quota_gb' => 0, 'retention' => '7 4 6', 'wake' => true], 'mine'],
         [$pairA()['their_key'] ?? null, $pairA()['receive'] ?? null, $pairA()['trust'] ?? null]);
     check('USO change: the log says it', str_contains((string) @file_get_contents("$A[data]/agent.log"), "changed: 192.168.77.2:22 → 100.64.0.3:22"));
+    // Mr. Backupsy's run still has the old address until his Apply (settings.ini): the card says so — and not once it matches
+    $ini = fn (string $addr) => file_put_contents("$A[data]/unraid-backup/settings.ini", "[general]\ndumps_share = UnraidSecretaryOffice\n[partner \"$id\"]\nname = x\naddress = $addr\nport = 22\n[share \"appdata\"]\nmode = snapshot\npartner = $id\n");
+    $ini('192.168.77.2');
+    $sendAt = partnerTestAs($A, 'return partnerSendAt(partnerPairs()[0]);');
+    $ini('100.64.0.3');
+    same('USO change: the run still sends to the old address until Mr. Backupsy\'s Apply — said; after it, not', ['192.168.77.2:22', null],
+        [$sendAt, partnerTestAs($A, 'return partnerSendAt(partnerPairs()[0]);')]);
+    @unlink("$A[data]/unraid-backup/settings.ini");
     same('USO change: the card asks at the new address — reached, the match gone', [true, null],
         (function () use ($Anet) { $c = partnerTestAs($Anet, 'return partnerPublic();')['pairs'][0] ?? []; return [$c['reachable'] ?? null, $c['usonet_match'] ?? null]; })());
     // its door doesn't know this server by the address it calls from: found (the pinned host key answered) — saved, said
@@ -51600,6 +51639,11 @@ function testUsoNetStatus(): void
         unset($GLOBALS['ctNetSig']);
         caretakerUsonetFollow($now + 12);
         same('USO network card: a changed picture is written', 'in', readJson($kept)['usonet']['state'] ?? null);
+        // the partner cards follow with it (a partner joined anew: the card's «at another address» needs the new picture)
+        file_put_contents($kept, json_encode(['time' => $now - 100, 'usonet' => ['state' => 'off'], 'partners' => ['pairs' => ['stale']], 'staff' => ['y']]));
+        unset($GLOBALS['ctNetSig']);
+        caretakerUsonetFollow($now + 18);
+        same('USO network card: the partner cards written anew with the picture', [], readJson($kept)['partners']['pairs'] ?? null);
         if ($was === null) {
             @unlink($kept);
         } else {

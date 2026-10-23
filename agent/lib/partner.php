@@ -1521,6 +1521,25 @@ function partnerSendUnits(string $id): array
 }
 
 /**
+ * Where Mr. Backupsy's run sends to this pair (settings.ini [partner "<id>"], written by his Apply from pairs.json) when
+ * that isn't the pair's address any more — «Change the address…» stores the pair, the run follows only after his next
+ * Apply (2026-10-23): "address:port", else null (the same, no section, or nothing sent).
+ */
+function partnerSendAt(array $pair): ?string
+{
+    if ($pair['my_key'] === null || !function_exists('backupReadSettings') || !defined('BACKUP_DATA_DIR')) {
+        return null;
+    }
+    foreach (backupPartnersFromSettings(backupReadSettings(BACKUP_DATA_DIR . '/settings.ini')) as $p) {
+        if ($p['id'] === $pair['id'] && $p['address'] !== '' && $p['units']
+            && (usonetIp($p['address']) ?? $p['address']) . ':' . $p['port'] !== (usonetIp($pair['address']) ?? $pair['address']) . ':' . $pair['port']) {
+            return "{$p['address']}:{$p['port']}";
+        }
+    }
+    return null;
+}
+
+/**
  * After a look at a partner (partnerAsk()): a partner of today takes any unit of this office up to its quota (its
  * status says `takes_all`); an older one (up to 1.59) keeps only what its Team Lead agreed to (status.agreed) — so
  * while something Mr. Backupsy sends there isn't agreed, the door's `offer` names it and that Team Lead sees the wish
@@ -1822,13 +1841,26 @@ function partnerPublic(): array
             'i_keep_units' => partnerReceivedUnits($got, $now),  // each with new/stale
             'last_transfer' => partnerLastTransfer($p['id']),
             'tickets'    => $tickets['given'][$p['id']] ?? [],
-            // 2026-10-23: its address isn't in the USO network, but the partner is (an online peer of its name) — the
-            // card offers «Change the address…» to that one ({name, address, online, direct}; null otherwise)
-            'usonet_match' => $netIn && !usonetPeerAddress($p['address'], $net) ? usonetPeerNamed($p['name'], $net) : null,
+            // 2026-10-23: the partner is online in the USO network (the peer of its name) at another address than the
+            // one stored — one outside the network, or an earlier node of it (joined anew: a new address, the old node
+            // stays offline in the list): the card offers «Change the address…» to that one ({name, address, online,
+            // direct, was_peer}; null otherwise)
+            'usonet_match' => $netIn ? partnerUsonetMatch($p, $net) : null,
+            'send_at'    => $ready['backup_hired'] ? partnerSendAt($p) : null,     // his run still sends to another address (until his Apply)
         ];
     }
     return ['pairs' => $cards, 'pending' => array_map(fn ($o) => ['id' => $o['id'], 'created' => $o['created'], 'address' => $o['address'],
         'units' => $o['units'], 'trust' => $o['trust']], $pending), 'silent_after' => PARTNER_SILENT_AFTER, 'ready' => $ready] + $tickets['lists'];
+}
+
+/** The online USO peer named like the pair's partner, when it is at another address than the stored one (partnerPublic()) */
+function partnerUsonetMatch(array $pair, ?array $net): ?array
+{
+    $m = usonetPeerNamed($pair['name'], $net);
+    if ($m === null || usonetIp($m['address']) === usonetIp($pair['address'])) {
+        return null;
+    }
+    return $m + ['was_peer' => usonetPeerAddress($pair['address'], $net)];
 }
 
 /**
@@ -2342,7 +2374,8 @@ function partner_address(array $r): array
             throw new Problem('bad_request');
         }
         partnerAddressSave($pair, $address, $port);
-        @unlink(partnerAddressMark($id));
+        // the record of it stays in RAM (state «saved»): the night watchman takes the door line's new from= as the office's own
+        writeAtomic(partnerAddressMark($id), jsonEncode(['address' => $address, 'port' => $port, 'time' => time(), 'state' => 'saved']), 0600, 0, 0);
         return ['ok' => true, 'saved' => true, 'partners' => partnerPublic()];
     }
     if ($step !== 'try') {
@@ -2433,6 +2466,7 @@ function partnerAddressJob(string $id): int
         $found = $ask !== null && ($ask['reachable'] || in_array($why, ['denied', 'bad_answer'], true));
         if ($found) {
             partnerAddressSave($pair, $mark['address'], $mark['port']);
+            $out['time'] = time();          // when it was stored (the night watchman compares it with the door line's write)
             partnerAskAndKeep($id, $ask);
         }
         $out['state'] = $found ? 'saved' : ($why === 'host_key' ? 'wrong_key' : 'unreachable');

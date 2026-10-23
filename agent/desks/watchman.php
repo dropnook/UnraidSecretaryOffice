@@ -2549,6 +2549,7 @@ function watchmanPartnerLook(array $paths): ?array
         'tickets' => isset($paths['partner_tickets']) ? partnerLookTickets((string) $paths['partner_tickets'], (array) $pairs) : null,
         'doors'   => $run !== null ? partnerLookDoors((string) $run) : [],
         'refused' => $run !== null ? partnerLookRefused((string) $run) : [],
+        'moved'   => $run !== null ? partnerLookMoved((string) $run) : [],      // «Change the address…» (the Team Lead's, RAM)
     ];
 }
 
@@ -2579,6 +2580,22 @@ function watchmanPartnerOwnLine(array $l, array $pair, ?int $mtime): bool
     return !empty($l['exact']) && empty($l['twice']) && ($pair['fp'] ?? null) !== null && ($l['fp'] ?? null) === $pair['fp']
         && $ips && count($ips) === count(explode(',', $from)) && ((array) $pair['ips'] === [] || $ips === array_values((array) $pair['ips']))
         && $mtime !== null && $mtime >= (int) $pair['paired'] - 5 && $mtime <= (int) $pair['paired'] + WATCH_PARTNER_PAIRED;
+}
+
+/**
+ * A known pair's line whose from= the Team Lead changed («Change the address…», 2026-10-23): exactly the office's shape,
+ * once, the pair's key, from= the pair's address as pairs.json has it now — the one his record in RAM names
+ * (partnerLookMoved()) — and the file written within WATCH_PARTNER_PAIRED after that record. The office's own change.
+ */
+function watchmanPartnerMovedLine(array $l, ?array $pair, ?array $moved, ?int $mtime): bool
+{
+    if (!is_array($pair) || !is_array($moved) || $mtime === null) {
+        return false;
+    }
+    $ips = partnerLookFromIps((string) ($l['from'] ?? ''));
+    return !empty($l['exact']) && empty($l['twice']) && ($pair['fp'] ?? null) !== null && ($l['fp'] ?? null) === $pair['fp']
+        && count($ips) === 1 && $ips === array_values((array) $pair['ips']) && $ips === [partnerLookIp((string) $moved['address'])]
+        && $mtime >= (int) $moved['time'] - 5 && $mtime <= (int) $moved['time'] + WATCH_PARTNER_PAIRED;
 }
 
 /**
@@ -2702,7 +2719,7 @@ function watchmanPartnerLogin(array $doors, string $ip, ?string $fp): ?array
 
 /**
  * After the flash watch: a known pair's line changed (door_changed — what changed, the from= then and now; only
- * `restrict` added is safer and adopts itself), one taken out is forgotten (the partnership ended); the door's
+ * `restrict` added is safer and adopts itself, a from= the Team Lead changed to the pair's new address too), one taken out is forgotten (the partnership ended); the door's
  * refusals (door_refused: WATCH_REFUSED_BURST within WATCH_REFUSED_WINDOW, one of them new since the last round).
  *
  * @return list<string>  the kinds of new entries
@@ -2738,6 +2755,12 @@ function watchmanPartnerCompare(array &$b, ?array $seen, array &$book, array &$s
         }
         if (!$what || ($what === ['restrict'] && $l['restrict'])) {
             $b['partner']['lines'][$id] = watchmanPartnerLineKeep($l);       // the same (spacing), or narrower: normal
+            continue;
+        }
+        // its from= follows the pair's new address — the Team Lead's «Change the address…»: the new normal by itself
+        if ($what === ['from'] && watchmanPartnerMovedLine($l, is_array($seen['pairs'] ?? null) ? ($seen['pairs'][$id] ?? null) : null,
+            $seen['moved'][$id] ?? null, $seen['mtime'] ?? null)) {
+            $b['partner']['lines'][$id] = watchmanPartnerLineKeep($l);
             continue;
         }
         $added[] = watchmanSet($book, 'door_changed', "door_changed:$id", $now, ['id' => $id, 'name' => $name($id), 'what' => $what,
