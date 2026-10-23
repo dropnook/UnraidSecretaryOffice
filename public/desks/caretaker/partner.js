@@ -432,14 +432,6 @@ function card(x) {
     toSetup();
   }
   main.appendChild(send);
-  if (x.send_at) {
-    // the address changed here, Mr. Backupsy's run still has the old one until his Apply (settings.ini) — said, with the way
-    const at = el('div', 'row-detail callout warn ct-send-at', T('partner.send_at', { name: x.name, address: x.send_at }) + ' ');
-    const go = el('a', 'ct-plink', T('partner.i_send_setup'));
-    go.href = '#/backup/setup';
-    at.appendChild(go);
-    main.appendChild(at);
-  }
   if (x.sends) { const need = needLine('send'); if (need) main.appendChild(need); }
   if (x.sends) sendLines(x).forEach((n) => main.appendChild(n));
   const tk = x.no_pair ? null : x.they_keep;         // what it said before it forgot this pair isn't how it is now

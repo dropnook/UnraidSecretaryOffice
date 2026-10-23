@@ -1,6 +1,8 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.71 - 2026-10-22
+# unraid-backup - backup.sh                       Version 2.72 - 2026-10-23
+#   2.72 A partner's address and port from the Team Lead's pairs.json when it names the pair (lib/common.sh partner_addr):
+#        «Change the address…» there reaches the run without Mr. Backupsy's Apply; else settings.ini as before
 #   2.71 The office's USO network (its own Tailscale node): a partner whose address is a peer of that node is called from
 #        inside the network's namespace (lib/common.sh partner_ssh_cmd, usonet_peer) - nothing else changes
 #   2.70 The office's order with its mover run (Ms. Moverelli): a scheduled run that waited for it before it started (the
@@ -3747,7 +3749,8 @@ partner_phase() {
     PARTNER_TMP="$(mktemp -d "${TMPDIR:-/tmp}/uso-partner.XXXXXX")" || { err "Partners: no temporary folder - nothing sent"; return 0; }
     for line in "${ST_PARTNER_IDS[@]}"; do
         id="${line%%|*}"; name="$(partner_name "$id")"
-        log "Partner $name ($id, $(cfg "partner|$id|address"):$(cfg "partner|$id|port" 22)) ..."
+        partner_addr "$id"
+        log "Partner $name ($id, $PADDR:$PPORT) ..."
         why=""
         key="$UB_PARTNER_DIR/$id.key"
         if partner_ended "$id"; then

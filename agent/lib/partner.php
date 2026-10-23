@@ -1521,25 +1521,6 @@ function partnerSendUnits(string $id): array
 }
 
 /**
- * Where Mr. Backupsy's run sends to this pair (settings.ini [partner "<id>"], written by his Apply from pairs.json) when
- * that isn't the pair's address any more — «Change the address…» stores the pair, the run follows only after his next
- * Apply (2026-10-23): "address:port", else null (the same, no section, or nothing sent).
- */
-function partnerSendAt(array $pair): ?string
-{
-    if ($pair['my_key'] === null || !function_exists('backupReadSettings') || !defined('BACKUP_DATA_DIR')) {
-        return null;
-    }
-    foreach (backupPartnersFromSettings(backupReadSettings(BACKUP_DATA_DIR . '/settings.ini')) as $p) {
-        if ($p['id'] === $pair['id'] && $p['address'] !== '' && $p['units']
-            && (usonetIp($p['address']) ?? $p['address']) . ':' . $p['port'] !== (usonetIp($pair['address']) ?? $pair['address']) . ':' . $pair['port']) {
-            return "{$p['address']}:{$p['port']}";
-        }
-    }
-    return null;
-}
-
-/**
  * After a look at a partner (partnerAsk()): a partner of today takes any unit of this office up to its quota (its
  * status says `takes_all`); an older one (up to 1.59) keeps only what its Team Lead agreed to (status.agreed) — so
  * while something Mr. Backupsy sends there isn't agreed, the door's `offer` names it and that Team Lead sees the wish
@@ -1846,7 +1827,6 @@ function partnerPublic(): array
             // stays offline in the list): the card offers «Change the address…» to that one ({name, address, online,
             // direct, was_peer}; null otherwise)
             'usonet_match' => $netIn ? partnerUsonetMatch($p, $net) : null,
-            'send_at'    => $ready['backup_hired'] ? partnerSendAt($p) : null,     // his run still sends to another address (until his Apply)
         ];
     }
     return ['pairs' => $cards, 'pending' => array_map(fn ($o) => ['id' => $o['id'], 'created' => $o['created'], 'address' => $o['address'],

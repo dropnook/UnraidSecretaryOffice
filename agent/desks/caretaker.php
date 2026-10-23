@@ -936,7 +936,7 @@ function caretakerPartners(): array
  * are, with the tour's time). Before (1.71.0) the picture written mid-join — «joining, fetching the helper» — was
  * served as fresh for up to five minutes after the node was in, and the page fell back to it after every look
  * (2026-10-23, the lab). The partner cards follow pairs.json and Mr. Backupsy's settings.ini too (a changed address,
- * his Apply: «still sends to …» goes at once, 2026-10-23). Every 5 s at most; RAM and the flash only (usonetPublic()),
+ * the levels he applied: the cards say it at once, 2026-10-23). Every 5 s at most; RAM and the flash only (usonetPublic()),
  * two stats.
  */
 function caretakerUsonetFollow(int $now): void

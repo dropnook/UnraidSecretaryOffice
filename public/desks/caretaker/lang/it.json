@@ -371,7 +371,6 @@
   "partner.usonet_switch": "{name} è nella rete USO ({address}); l'indirizzo salvato qui è fuori — raggiungibile solo nella stessa LAN.",
   "partner.usonet_switch_moved": "{name} ora è nella rete USO su {address}; {old}, salvato qui, è un suo indirizzo precedente lì.",
   "partner.usonet_switch_btn": "Cambia l'indirizzo…",
-  "partner.send_at": "Il signor Backupsi manda ancora a {name} su {address}: apri la sua configurazione e applicala — poi le copie vanno all'indirizzo qui sopra.",
   "partner.trust_note": "Chi gestisce il server partner può leggere le copie lì (la strada fin lì è cifrata, SSH). Va bene per il tuo secondo server o quello della famiglia; per un server che non è tuo o della tua famiglia, Kopia (cifrato) è la via migliore — il consulente la spiega.",
   "partner.address_placeholder": "p. es. 100.101.102.103 o tower.tail1234.ts.net",
   "partner.address_hint": "Via WireGuard? Scegli l'indirizzo del tunnel (wg0) — compare finché il tunnel è attivo (⟦Settings⟧ → ⟦VPN Manager⟧); il consulente spiega la strada.",

@@ -502,8 +502,8 @@ as tagged devices (`tag:uso`) and pair over the node's 100.x address like over a
   as found), then pairs.json, known_hosts and the door line's from= (only in exactly its shape); its record stays in
   RAM (`address-<id>.json`, «saved») and the Night Watchman takes that from= change as the office's own
   (`partnerLookMoved()`, `watchmanPartnerMovedLine()`). The card: `usonet_match` (the partner online elsewhere in the
-  network — outside it, or an earlier node of it) and `send_at` (Mr. Backupsy's run still has the old address until his
-  Apply: the engine reads settings.ini's [partner]). Tests: `testPartnerAddress`, `testWatchmanPartner`, ui-clicks
+  network — outside it, or an earlier node of it). The run takes the address from pairs.json (engine 2.72
+  `partner_addr`), so no Apply is needed; Mr. Backupsy's Apply list doesn't count it as a change. Tests: `testPartnerAddress`, `testWatchmanPartner`, ui-clicks
   «pair address».
 * **The card while it is busy:** the job's mark (`usonetJob()`: what, start, step, the job's pid — a dead job is seen and
   ends as `job_gone`) gives the page the wave, the step and the time; after `USONET_SLOW_AFTER` the logs' last lines

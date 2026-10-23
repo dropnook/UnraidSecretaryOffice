@@ -6404,7 +6404,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.71'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.72'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -8391,9 +8391,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.71 everywhere it is named', ['2.71', '2.71', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.71"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.71** –')]);
+    same('data trust: the engine\'s version 2.72 everywhere it is named', ['2.72', '2.72', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.72"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.72** –')]);
     // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
     same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
         array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
@@ -9423,7 +9423,28 @@ SH);
     file_put_contents("$fake/notagreed", "share:docs\n");
     $run();
     same('partner phase 2.46: … the same day again - warned again (every run)', 1, substr_count($log(), "WARNING: Partner vault: this run's copy did not arrive - not agreed"));
-    unlink("$tmp/data/partner/pairs.json");
+    // 2.72: a partner's address and port from the Team Lead's pairs.json when it names the pair («Change the address…»
+    // reaches the run without an Apply); a pairs.json not in its shape, or none: settings.ini's [partner] as before
+    $pairsAt = fn (string $addr, int $port) => file_put_contents("$tmp/data/partner/pairs.json", json_encode(['v' => 1, 'pairs' => [
+        ['id' => $id, 'name' => 'vault', 'address' => $addr, 'port' => $port, 'host_keys' => ['SHA256:x'], 'my_key' => 'SHA256:y', 'their_key' => null,
+         'send' => ['rate_mbit' => 0], 'receive' => null, 'trust' => 'mine']]]));
+    $called = function () use ($night, $run, $fake): string {
+        $night();
+        $run();
+        return explode("\n", (string) @file_get_contents("$fake/ssh.args"))[0];
+    };
+    $pairsAt('100.64.0.7', 2200);
+    $first = $called();
+    same('partner phase 2.72: the address and port of pairs.json, not settings.ini\'s - the ssh call and the log line, and it went', [true, true, true],
+        [str_ends_with($first, '-p 2200 root@100.64.0.7 ping'), str_contains($log(), "Partner vault ($id, 100.64.0.7:2200) ..."), ($status()['partner_ok'] ?? 0) > 0], $first);
+    foreach (['another v' => json_encode(['v' => 2, 'pairs' => [['id' => $id, 'address' => '100.64.0.7', 'port' => 2200]]]), 'not JSON' => '{"v": 1, "pairs": [',
+              'gone' => null] as $what => $text) {
+        $text === null ? @unlink("$tmp/data/partner/pairs.json") : file_put_contents("$tmp/data/partner/pairs.json", $text);
+        $first = $called();
+        same("partner phase 2.72: pairs.json $what - settings.ini's address and port as before", [true, true],
+            [str_ends_with($first, '-p 2222 root@10.0.0.9 ping'), str_contains($log(), "Partner vault ($id, 10.0.0.9:2222) ...")], $first);
+    }
+    @unlink("$tmp/data/partner/pairs.json");
     // 2.45: an app whose folder is a dataset of its own is a unit of its own (app:<name>); its dataset no «children» of
     // its share (appdata still goes); an older door that knows no app units: skipped (old_partner), a warning every run
     $mounts0 = (string) file_get_contents("$fake/mounts");
@@ -9499,7 +9520,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.71', [1, '2.71'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.72', [1, '2.72'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -10107,7 +10128,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.71', [1, '2.71'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.72', [1, '2.72'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -35961,14 +35982,6 @@ function testPartnerAddress(): void
     same('USO change: the pair keeps its shape (keys, rules, trust as they were)', [partnerFingerprint($pubB), ['pool' => 'tank', 'quota_gb' => 0, 'retention' => '7 4 6', 'wake' => true], 'mine'],
         [$pairA()['their_key'] ?? null, $pairA()['receive'] ?? null, $pairA()['trust'] ?? null]);
     check('USO change: the log says it', str_contains((string) @file_get_contents("$A[data]/agent.log"), "changed: 192.168.77.2:22 → 100.64.0.3:22"));
-    // Mr. Backupsy's run still has the old address until his Apply (settings.ini): the card says so — and not once it matches
-    $ini = fn (string $addr) => file_put_contents("$A[data]/unraid-backup/settings.ini", "[general]\ndumps_share = UnraidSecretaryOffice\n[partner \"$id\"]\nname = x\naddress = $addr\nport = 22\n[share \"appdata\"]\nmode = snapshot\npartner = $id\n");
-    $ini('192.168.77.2');
-    $sendAt = partnerTestAs($A, 'return partnerSendAt(partnerPairs()[0]);');
-    $ini('100.64.0.3');
-    same('USO change: the run still sends to the old address until Mr. Backupsy\'s Apply — said; after it, not', ['192.168.77.2:22', null],
-        [$sendAt, partnerTestAs($A, 'return partnerSendAt(partnerPairs()[0]);')]);
-    @unlink("$A[data]/unraid-backup/settings.ini");
     same('USO change: the card asks at the new address — reached, the match gone', [true, null],
         (function () use ($Anet) { $c = partnerTestAs($Anet, 'return partnerPublic();')['pairs'][0] ?? []; return [$c['reachable'] ?? null, $c['usonet_match'] ?? null]; })());
     // its door doesn't know this server by the address it calls from: found (the pinned host key answered) — saved, said

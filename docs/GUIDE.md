@@ -259,7 +259,7 @@ their USO address by themselves (another only on purpose, under *Another address
 address is said, with the partner's USO address offered instead. A pair that stored the wrong address — or a partner
 that joined anew with a new one — is fixed without pairing anew: *Change the address…* in the pair's ⋯ menu (the card
 offers it when the partner is online in the network elsewhere) looks for the partner there first, then stores it; the
-partner does the same on its side, and Mr. Backupsy's run follows after his *Apply*. The card
+partner does the same on its side, and Mr. Backupsy's next run sends there. The card
 shows the node, the other offices in the network (online, direct or relayed) and the lines for the tailnet's policy;
 the Team Lead says when the node isn't tagged, when other devices can reach it, or when it has no contact. *Leave the
 USO network…* (and the plugin's removal) takes everything of it away again.

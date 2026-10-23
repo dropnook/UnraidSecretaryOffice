@@ -371,7 +371,6 @@
   "partner.usonet_switch": "{name} est dans le réseau USO ({address}) ; l'adresse enregistrée ici est en dehors — atteinte seulement dans le même réseau local.",
   "partner.usonet_switch_moved": "{name} est maintenant dans le réseau USO à {address} ; {old}, enregistrée ici, est une ancienne adresse de là-bas.",
   "partner.usonet_switch_btn": "Changer l'adresse…",
-  "partner.send_at": "Monsieur Backupsi envoie encore à {name} à {address} : ouvre sa configuration et applique-la — ensuite les copies vont à l'adresse ci-dessus.",
   "partner.trust_note": "Celui qui fait tourner le serveur partenaire peut lire les copies qui s'y trouvent (le chemin jusque-là est chiffré, SSH). Très bien pour ton propre second serveur ou celui de la famille ; pour un serveur qui n'est ni à toi ni à ta famille, Kopia (chiffré) est la meilleure voie — le conseiller l'explique.",
   "partner.address_placeholder": "p. ex. 100.101.102.103 ou tower.tail1234.ts.net",
   "partner.address_hint": "Par WireGuard ? Choisis l'adresse du tunnel (wg0) — elle apparaît tant que le tunnel est actif (⟦Settings⟧ → ⟦VPN Manager⟧) ; le Consultant explique le chemin.",

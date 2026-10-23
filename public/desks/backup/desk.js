@@ -2383,6 +2383,9 @@ function setupSaved() {
   Object.entries(ENGINE_DEFAULTS).forEach(([k, v]) => { if (!(k in O) && (k in P || k in saved)) saved[k] = v; });
   // a share's method missing is auto (the engine writes only live): a new share's «auto» is nothing Apply writes
   Object.keys(P).forEach((k) => { if (/^share\|.+\|method$/.test(k) && !(k in O) && !(k in saved)) saved[k] = 'auto'; });
+  // a partner's address and port: the run takes them from the Team Lead's pairs (engine 2.72) — the plan's — so a
+  // changed address there («Change the address…») is nothing Apply would change (settings.ini's copy follows any Apply)
+  Object.keys(P).forEach((k) => { if (/^partner\|[0-9a-f]{8}\|(address|port)$/.test(k) && k in O && P[k] !== undefined) saved[k] = P[k]; });
   return saved;
 }
 
