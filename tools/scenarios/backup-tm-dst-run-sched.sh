@@ -26,7 +26,11 @@ st=$UB/state/status.json
 # the first 02:59 (CEST): crond's own start, or — when crond, one minute after the clock was set, lets that minute pass
 # (seen 2026-10-19: dcron skips the minute after a jump of days) — the job as crond starts it (BK-RUN-SCHED: job.sh)
 wait_for 180 "02:59:20 CEST" bash -c '[[ $(date +%H%M%S%Z) > 025919CEST && $(date +%Z) == CEST ]]'
-if [[ $(jq -r '.run // ""' "$st") == 20261025-0259 ]] || lock_held "$UB/state/lock"; then say "crond started the first 02:59 itself"
+# crond's start shows first in job.sh's own minute stamp: its run comes through atd, which is slow right after the clock
+# jump — 20 s on the stamp was there and no run yet; taking that for «crond let it pass» started a second job a
+# minute later, across the DST step (03:00 CEST = 02:00 CET: a run 20261025-0200, 2026-10-23 — the cell red on it)
+if [[ $(jq -r '.run // ""' "$st") == 20261025-0259 ]] || lock_held "$UB/state/lock" \
+    || [[ $(cat "$RUN/job-backup.minute" 2>/dev/null) == 202610250259 ]]; then say "crond started the first 02:59 itself"
 else say "crond let the first 02:59 pass — the job started as crond would"; flow BK-RUN-SCHED; fi
 wait_backup 1200
 r1=$(jq -c '{run, result, started}' "$st"); say "the first 02:59: $r1"
