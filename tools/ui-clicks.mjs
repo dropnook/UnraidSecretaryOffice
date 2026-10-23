@@ -783,11 +783,127 @@ async function routeWalk(browser, harness, desk) {
   res.ms = Date.now() - t0;
   return res;
 }
+// ------------------------------------------------------------------ a pair's address and the USO network (2026-10-23)
+// The first real pairing: both blocks carried the LAN, the pair reached neither way. Accept, in the network, a block with
+// a LAN address: this server's USO address by itself (one line), the warning that names the block's address, the
+// partner's USO address ticked — the request carries it (their_address), the line shown lets the partner in from there.
+// Joining: the wave and the button off, until the network's look gives the address. «Change the address…» from the
+// card's hint: the peer of the partner's name picked, the look (try → look) and its outcome said.
+async function pairAddress(browser) {
+  const res = { route: 'pair address', theme: 'dark', width: 1440, tested: 0, skipped: 0, capped: 0, hidden: 0, sections: 0, fails: [], ms: 0 };
+  const t0 = Date.now();
+  const fail = (what) => res.fails.push(what);
+  const h = await startHarness({});
+  const read = (f) => JSON.parse(fs.readFileSync(path.join(REPO, 'tests', 'ui', 'states', f), 'utf8'));
+  const base = read('caretaker.json');
+  const acceptLook = read('post/caretaker.partner_accept.json');
+  const lan = { ...acceptLook, partner: { ...acceptLook.partner, address: '192.168.3.20' },
+    line: acceptLook.line.replace('from="100.64.0.3"', 'from="192.168.3.20"'), line_match: acceptLook.line,
+    usonet: { ...acceptLook.usonet, peer: false, range: false, wait: false, state: 'in', match: { name: 'uso-partnernas', address: '100.64.0.3', online: true, direct: true } } };
+  let accepted = null;
+  h.setPost('caretaker.partner_accept', (d) => (d.step === 'look' ? lan : (accepted = d, acceptLook)));
+  const errors = [];
+  try {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'en-US' });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(`page error: ${String(e.message).slice(0, 160)}`));
+    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text().slice(0, 200)); });
+    const dlg = () => page.evaluate(() => { const d = document.querySelector('#sso-dialog-backdrop:not([hidden]) #sso-dialog'); return d ? d.textContent : ''; });
+    const lastBtn = '#sso-dialog-foot button:last-child';
+    const acceptOpen = async () => {
+      await page.goto(`${h.url}#/caretaker/partner`, { waitUntil: 'load' });
+      await page.waitForFunction(() => [...document.querySelectorAll('#sso button')].some((b) => /Accept a partner/.test(b.textContent) && !b.disabled), null, { timeout: 15000 });
+      await page.evaluate(() => [...document.querySelectorAll('#sso button')].find((b) => /Accept a partner/.test(b.textContent)).click());
+      await page.waitForSelector('#sso-dialog textarea', { timeout: 5000 });
+      await page.fill('#sso-dialog textarea', 'eyJ2IjoxfQ==');
+      await page.click(lastBtn);
+      await page.waitForSelector('#sso-dialog .ct-myaddr', { timeout: 5000 });
+    };
+    // 1. in the network, a block with the LAN: the USO line, the warning with the block's address, the partner's USO address ticked
+    await acceptOpen();
+    const look = await page.evaluate(() => ({ line: (document.querySelector('#sso-dialog .ct-myaddr .callout strong') || {}).textContent || '',
+      warn: [...document.querySelectorAll('#sso-dialog .callout.warn')].map((n) => n.textContent).join(' | '),
+      take: !!(document.querySelector('#sso-dialog .ct-outside-take input') || {}).checked,
+      fold: !!(document.querySelector('#sso-dialog .ct-myaddr details') || {}).open, picker: !!document.querySelector('#sso-dialog > * > .field select') }));
+    res.tested++;
+    if (look.line !== 'Over the USO network: 100.64.0.4' || look.fold) fail(`accept, LAN block: not this server's USO address by itself (${JSON.stringify(look)})`);
+    if (!/sent 192\.168\.3\.20 — an address outside the USO network/.test(look.warn)) fail(`accept, LAN block: no warning naming the block's address (${look.warn})`);
+    if (!look.take) fail('accept, LAN block: the partner\'s USO address is not offered (ticked)');
+    await page.click(lastBtn);
+    await page.waitForFunction(() => /Write the line and pair/.test((document.querySelector('#sso-dialog-foot') || {}).textContent || ''), null, { timeout: 5000 });
+    const line = await page.evaluate(() => (document.querySelector('#sso-dialog pre.code') || {}).textContent || '');
+    res.tested++;
+    if (!line.includes('from="100.64.0.3"')) fail(`accept, LAN block: the line doesn't let the partner in from its USO address (${line.slice(0, 80)})`);
+    await page.check('#sso-dialog label.check input');
+    await page.click(lastBtn);
+    await page.waitForFunction(() => /Paste this block/i.test((document.querySelector('#sso-dialog') || {}).textContent || '') || document.querySelector('#sso-dialog .ct-pcode'), null, { timeout: 5000 }).catch(() => {});
+    res.tested++;
+    if (!accepted || accepted.address !== '100.64.0.4' || accepted.port !== 22 || accepted.their_address !== '100.64.0.3' || 'other' in accepted) {
+      fail(`accept, LAN block: the request is not the USO address with the partner's USO address (${JSON.stringify(accepted && { address: accepted.address, their: accepted.their_address, other: accepted.other })})`);
+    }
+    await page.keyboard.press('Escape');
+
+    // 2. joining: the wave, the button off — then the network's look gives the address: the line flips, the button on
+    h.setPost('caretaker.partner_accept', (d) => (d.step === 'look' ? { ...lan, usonet: { ...lan.usonet, in: false, address: null, wait: true, state: 'joining', match: null } } : acceptLook));
+    await acceptOpen();
+    const waiting = await page.evaluate(() => ({ wave: !!document.querySelector('#sso-dialog .ct-net-wait .spin'), off: document.querySelector('#sso-dialog-foot button:last-child').disabled,
+      text: (document.querySelector('#sso-dialog .ct-myaddr .callout') || {}).textContent || '' }));
+    res.tested++;
+    if (!waiting.wave || !waiting.off || !/joining it — a moment/.test(waiting.text)) fail(`accept, joining: no wave, or the button on (${JSON.stringify(waiting)})`);
+    const flipped = await page.waitForFunction(() => /Over the USO network: 100\.64\.0\.4/.test((document.querySelector('#sso-dialog .ct-myaddr .callout') || {}).textContent || '')
+      && !document.querySelector('#sso-dialog-foot button:last-child').disabled, null, { timeout: 8000 }).then(() => true, () => false);
+    res.tested++;
+    if (!flipped) fail('accept, joining: the address never came (the dialog didn\'t look at the network)');
+    // the fold opened on purpose: the button on, the request says «other»
+    await page.keyboard.press('Escape');
+
+    // 3. «Change the address…» from the card's hint: the peer of the partner's name picked, try → look → saved (its door says no yet)
+    const pair = { ...base.partners.pairs[0], reachable: false, why: 'unreachable', usonet_match: { name: 'uso-partnernas', address: '100.64.0.3', online: true, direct: true } };
+    h.setState('caretaker', { ...base, partners: { ...base.partners, pairs: [pair] } });
+    const now = Math.floor(Date.now() / 1000);
+    let looks = 0;
+    let tried = null;
+    h.setPost('caretaker.partner_address', (d) => {
+      if (d.step === 'try') { tried = d; return { look: { address: d.address, port: d.port, time: now, state: 'looking' } }; }
+      looks++;
+      return { look: { address: '100.64.0.3', port: 22, time: now, state: looks < 2 ? 'looking' : 'saved', why: 'denied' } };
+    });
+    await page.goto(`${h.url}#/caretaker/partner?fresh=1`, { waitUntil: 'load' });
+    await page.waitForSelector('.ct-switch button', { timeout: 15000 }).catch(() => fail('change: no hint on the card'));
+    const hint = await page.evaluate(() => (document.querySelector('.ct-switch') || {}).textContent || '');
+    res.tested++;
+    if (!/Not reached — PartnerNAS is in the USO network: switch the address to 100\.64\.0\.3/.test(hint)) fail(`change: the card's hint (${hint})`);
+    await page.click('.ct-switch button');
+    await page.waitForSelector('#sso-dialog .ct-peers input[type=radio]', { timeout: 5000 });
+    const picked = await page.evaluate(() => (document.querySelector('#sso-dialog .ct-peers input[type=radio]:checked') || {}).value);
+    res.tested++;
+    if (picked !== '100.64.0.3') fail(`change: the partner's peer is not picked (${picked})`);
+    await page.click(lastBtn);
+    const wave = await page.waitForSelector('#sso-dialog .ct-addr-out .spin', { state: 'attached', timeout: 3000 }).then(() => true, () => false);
+    const offWhile = await page.evaluate(() => document.querySelector('#sso-dialog-foot button:last-child').disabled);
+    res.tested++;
+    if (!wave || !offWhile) fail(`change: no wave while it looks, or the button on (${wave}, ${offWhile})`);
+    if (!tried || tried.address !== '100.64.0.3' || tried.port !== 22 || tried.id !== pair.id) fail(`change: the try (${JSON.stringify(tried)})`);
+    const said = await page.waitForFunction(() => /doesn't let this server in yet/.test((document.querySelector('#sso-dialog .ct-addr-out') || {}).textContent || ''), null, { timeout: 10000 }).then(() => true, () => false);
+    const close = await page.evaluate(() => document.querySelector('#sso-dialog-foot button:last-child').textContent);
+    res.tested++;
+    if (!said || close !== 'Close') fail(`change: the outcome is not said («door says no yet», Close) (${await dlg()})`);
+    await page.click(lastBtn);
+    for (const e of [...new Set(errors)]) fail(e);
+    await ctx.close();
+  } catch (e) {
+    fail(String(e.message || e).split('\n')[0].slice(0, 200));
+  }
+  await h.close();
+  res.ms = Date.now() - t0;
+  return res;
+}
 const walks = opt.states ? [] : WALK.filter((d) => !opt.only || routes.includes(d));
 results.push(...await Promise.all(walks.map((d) => routeWalk(browser, harness, d))));
 if (!opt.states && (!opt.only || routes.includes('jack/setup'))) results.push(await dialogStack(browser, harness));
 if (!opt.states && (!opt.only || routes.includes('caretaker'))) results.push(await firstHome(browser));
 if (!opt.states && (!opt.only || routes.includes('caretaker'))) results.push(await netBusy(browser));
+if (!opt.states && (!opt.only || routes.includes('caretaker'))) results.push(await pairAddress(browser));
 await browser.close();
 await harness.close();
 

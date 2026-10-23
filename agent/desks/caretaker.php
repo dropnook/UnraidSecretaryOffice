@@ -67,6 +67,8 @@ desk('caretaker', [
         'partner_end'    => fn (array $r) => caretakerPartnerDone(partner_end($r)),
         'partner_state'  => fn (array $r) => partner_state($r),
         'partner_ping'   => fn (array $r) => caretakerPartnerDone(partner_ping($r)),
+        // «Change the address…» (2026-10-23): try (a job looks), save; the page's looks at the try only read RAM — no rescan
+        'partner_address' => fn (array $r) => ($r['step'] ?? null) === 'look' ? partner_address($r) : caretakerPartnerDone(partner_address($r)),
         'partner_line_remove' => fn (array $r) => caretakerPartnerLineRemove($r),
         // restore tickets (stage 3): a gone server's copies handed to a new server
         'partner_ticket_start'  => fn (array $r) => partner_ticket_start($r),
@@ -80,6 +82,7 @@ desk('caretaker', [
     ],
     'jobs'    => ['partner-ping' => fn (array $args) => caretakerPartnerWatch(),
                   'partner-look' => fn (array $args) => partnerLookJob((string) ($args[0] ?? '')),      // «Ask now» (one pair)
+                  'partner-address' => fn (array $args) => partnerAddressJob((string) ($args[0] ?? '')),   // «Change the address…»: the look, then stored
                   'usonet-join'  => fn (array $args) => usonetJoinJob(),
                   'usonet-leave' => fn (array $args) => usonetLeaveJob(),
                   'usonet-fetch' => fn (array $args) => usonetFetchJob()],

@@ -127,7 +127,7 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
  * Start the harness. opts: port (0 = any free one), statesDir or states (default tests/ui/states), host (the server's
  * name, default Tower), demo (true: tests/ui/demo, its
  * times moved to now), later (ms: the shown desk's look comes stale and the new one that many ms later - off by default).
- * alias: {name: file} (see above). agent: the messenger away (see agent()). Returns { url, posts, close(), setState(desk, state),
+ * alias: {name: file} (see above). agent: the messenger away (see agent()). Returns { url, posts, close(), setPost(action, fn), setState(desk, state),
  * setAgent(agent) }.
  */
 export async function startHarness(opts = {}) {
@@ -227,6 +227,7 @@ ${js.map((f) => `<script src="${esc(BASE + f)}?v=${stamp}"></script>`).join('\n'
     return r;
   }
 
+  const handlers = new Map();
   const server = http.createServer((req, res) => {
     const u = new URL(req.url, 'http://x');
     const p = decodeURIComponent(u.pathname);
@@ -241,7 +242,9 @@ ${js.map((f) => `<script src="${esc(BASE + f)}?v=${stamp}"></script>`).join('\n'
           try { j = JSON.parse(body); } catch (e) { /* noted as it is */ }
           const action = String(j.a || '');
           posts.push({ action, data: j, at: Date.now() });
-          let canned = /^[a-z][a-z0-9_-]*\.[a-z][a-z0-9_]*$/.test(action) ? readJson(path.join(statesDir, 'post', `${alias[action] || action}.json`)) : null;
+          // setPost(action, fn): that action answered by fn(request) — one test's steps (look, do) each their own answer
+          let canned = handlers.has(action) ? handlers.get(action)(j)
+            : /^[a-z][a-z0-9_-]*\.[a-z][a-z0-9_]*$/.test(action) ? readJson(path.join(statesDir, 'post', `${alias[action] || action}.json`)) : null;
           if (opts.demo && canned && typeof canned.time === 'number') canned = moveTimes(canned, stamp - 5 - canned.time);
           canned = renamed(canned, opts.names);
           answer(res, 200, { ok: true, ...(canned || {}), agent: agent() });
@@ -289,6 +292,7 @@ ${js.map((f) => `<script src="${esc(BASE + f)}?v=${stamp}"></script>`).join('\n'
     url, posts, desks: list,
     setState(name, s) { if (s === undefined) overrides.delete(name); else overrides.set(name, s); },
     setAgent(a) { agentAs = a || null; },
+    setPost(action, fn) { if (fn) handlers.set(action, fn); else handlers.delete(action); },
     close: () => new Promise((ok) => server.close(ok)),
   };
 }

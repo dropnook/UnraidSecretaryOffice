@@ -116,7 +116,8 @@ function section(state) {
   // his kept state's picture of the network may be older than the last look the page made itself (usonet_look, every
   // 4 s while it is busy): the newer of the two is drawn — never a «joining» from before the node was in (2026-10-23)
   const kept = state && state.usonet;
-  s.appendChild(netBox(netLive && (!kept || !kept.time || netLive.time >= kept.time) ? netLive : kept));
+  netShown = netLive && (!kept || !kept.time || netLive.time >= kept.time) ? netLive : kept;
+  s.appendChild(netBox(netShown));
   return s;
 }
 
@@ -142,6 +143,7 @@ function keepFold(det, key, open) {
 }
 let netTimer = null;
 let netSince = 0;       // since when the page looks at a busy network (0: it doesn't)
+let netShown = null;    // the network as the section drew it last («Change the address…» lists its online peers)
 let netLive = null;     // the last answer of the page's own look (usonet_look) or of a join/leave — drawn when newer than his kept state's
 const NET_WATCH_MAX = 20 * 60 * 1000;      // a join may take long (the helper's download, the login); the look stops after that
 
@@ -408,6 +410,8 @@ function card(x) {
   if (x.last_heard) meta.appendChild(el('span', '', T('partner.last_heard', { when: fmt.relative(x.last_heard) })));
   if (x.version) meta.appendChild(el('span', '', T('partner.version', { version: x.version })));
   main.appendChild(meta);
+  const swap = switchHint(x);
+  if (swap) main.appendChild(swap);
 
   // what I send (the levels in Mr. Backupsy's setup), and what they keep of it
   const send = el('div', 'row-detail');
@@ -494,6 +498,7 @@ function card(x) {
   more.onclick = (e) => Office.menu(e, [
     ...(x.sends ? [{ text: T('partner.levels', { host: Office.config.host }), act: () => Office.go('#/backup/setup') }] : []),
     ...(x.receive ? [{ text: T('partner.t_make', { name: x.name }), act: () => ticketMakeDialog(x) }] : []),
+    { text: T('partner.address_change'), act: () => addressDialog(x) },
     { text: T('partner.renew'), act: () => renewDialog(x) },
     { separator: true },
     { text: T('partner.end'), kind: 'danger', act: () => endDialog(x) },
@@ -501,6 +506,165 @@ function card(x) {
   acts.appendChild(more);
   r.appendChild(acts);
   return r;
+}
+
+// ------------------------------------------------------------------ «Change the address…» (2026-10-23)
+/* The first real pairing ended with both sides storing each other's LAN — two LANs apart, the pair reached neither way.
+   Each side changes its own address of the other here, without pairing anew: the online USO peers to pick (the one of
+   the partner's name first) or an address typed in; the agent looks for the partner's pinned host key there (a job),
+   then stores it (pairs.json, known_hosts, the door's from=) — partner_address() in agent/lib/partner.php. */
+
+/** The node name the partner's office has in the USO network (usonetNodeName(): StedyUnraid → uso-stedyunraid) */
+const nodeName = (name) => ('uso-' + (String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'unraid')).slice(0, 63);
+const ip4 = (ips) => (ips || []).find((a) => /^\d+\.\d+\.\d+\.\d+$/.test(a)) || '';
+
+/** The card's line when its address is outside the USO network while the partner is online in it (`usonet_match`) */
+function switchHint(x) {
+  const m = x.usonet_match;
+  if (!m || x.reachable === true) return null;
+  const d = el('div', 'row-detail callout warn ct-switch');
+  d.append(x.reachable === false ? T('partner.usonet_switch_unreached', { name: x.name, address: m.address })
+    : T('partner.usonet_switch', { name: x.name, address: m.address }), ' ');
+  const b = el('button', 'btn small', T('partner.usonet_switch_btn'));
+  b.type = 'button';
+  b.disabled = busyOff();
+  b.onclick = () => addressDialog(x);
+  d.appendChild(b);
+  return d;
+}
+
+function addressDialog(x) {
+  const n = netShown || {};
+  const peers = n.state === 'in' ? (n.peers || []).filter((p) => p.online && p.tagged !== false && ip4(p.ips)) : [];
+  const want = (x.usonet_match && x.usonet_match.name) || nodeName(x.name);
+  const box = el('div');
+  box.appendChild(el('p', '', T('partner.address_text', { name: x.name })));
+  box.appendChild(el('p', 'role', T('partner.address_now', { address: `${x.address}:${x.port}` })));
+  const radios = [];
+  const radio = (value, label, small, checked) => {
+    const l = el('label', 'check');
+    const r = el('input');
+    r.type = 'radio';
+    r.name = 'ct-addr';
+    r.value = value;
+    r.checked = checked;
+    const t = el('span', '', label);
+    if (small) t.appendChild(small);
+    l.append(r, t);
+    radios.push(r);
+    return l;
+  };
+  const opts = el('div', 'field ct-opts ct-peers');
+  if (peers.length) {
+    opts.appendChild(el('div', 'field-title', T('partner.address_peers')));
+    const pre = peers.find((p) => p.name === want) || peers.find((p) => ip4(p.ips) === x.address);
+    peers.forEach((p) => {
+      const m = el('small');
+      m.append(el('span', 'mono', ip4(p.ips)), ' · ', p.direct ? T('usonet.peer_direct') : T('usonet.peer_relay_short'));
+      opts.appendChild(radio(ip4(p.ips), '🏢 ' + p.name, m, p === pre));
+    });
+  }
+  const typed = input('text', peers.length ? '' : x.address, 'mono');
+  typed.placeholder = T('partner.address_placeholder');
+  const own = radio('', T('partner.address_typed'), null, !radios.some((r) => r.checked));
+  own.querySelector('span').appendChild(typed);
+  opts.appendChild(own);
+  typed.addEventListener('input', () => { radios[radios.length - 1].checked = true; });     // typing picks it (the dialog focuses the field first)
+  box.appendChild(opts);
+  const port = input('number', x.port || 22);
+  port.min = 1; port.max = 65535;
+  box.appendChild(field(T('partner.port'), port));
+  const out = el('div', 'ct-addr-out');
+  box.appendChild(out);
+  const chosen = () => {
+    const r = radios.find((x2) => x2.checked);
+    return { address: (r && r.value) || typed.value.trim(), port: Number(port.value) };
+  };
+  // the steps: pick → looking (the job) → saved | unreachable (save all the same) | wrong_key (pick again)
+  let mode = 'pick';
+  let tried = null;
+  let d = null;
+  const paint = () => {
+    const b = d && d.buttons[1];
+    if (!b) return;
+    b.textContent = mode === 'saved' ? Office.t('common.close') : mode === 'unreachable' || mode === 'no_key'
+      ? T(mode === 'no_key' ? 'partner.address_save' : 'partner.address_save_anyway') : T('partner.address_try');
+    b.disabled = busyOff() || mode === 'looking';
+    opts.querySelectorAll('input').forEach((i) => { i.disabled = mode === 'looking' || mode === 'saved'; });
+    port.disabled = mode === 'looking' || mode === 'saved';
+  };
+  const say = (cls, text, more) => {
+    out.replaceChildren();
+    const p = el('p', cls);
+    if (cls.includes('running')) p.append(el('span', 'spin'), ' ');
+    p.append(text);
+    out.appendChild(p);
+    if (more) out.appendChild(el('p', 'role', more));
+    if (d) d.fit();
+  };
+  const outcome = (look) => {
+    const at = `${look.address}:${look.port}`;
+    if (look.state === 'saved') {
+      mode = 'saved';
+      const mine = n.state === 'in' ? ip4(n.ips) : '';
+      if (look.why === 'denied') say('callout warn', T('partner.address_saved_denied', { name: x.name, address: at }), mine ? T('partner.address_mine', { address: mine }) : '');
+      else say('callout', T('partner.address_saved', { name: x.name, address: at }));
+      Office.toast(T('partner.address_done', { name: x.name, address: at }));
+    } else if (look.state === 'wrong_key') {
+      mode = 'pick';
+      say('callout warn', T('partner.address_wrong_key', { address: at }));
+    } else {
+      mode = 'unreachable';
+      say('callout warn', T('partner.address_unreachable', { address: at, why: whyText(look.why || 'unreachable') }));
+    }
+    paint();
+  };
+  const follow = (since) => {
+    setTimeout(async () => {
+      if (!box.isConnected) return;
+      const j = await Office.api.post(`${ID}.partner_address`, { id: x.id, step: 'look' });
+      const look = j.ok ? j.look : null;
+      if (look && look.state !== 'looking' && look.time >= since) {
+        if (j.partners && ctx) ctx.took(j.partners);
+        outcome(look);
+      } else if (Date.now() - since * 1000 < 150000) follow(since);
+      else outcome({ ...tried, state: 'unreachable', why: 'timeout' });
+    }, 2000);
+  };
+  d = Office.dialog({
+    title: T('partner.address_title', { name: x.name }),
+    body: box,
+    wide: true,
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('partner.address_try'), kind: '', act: async () => {
+      if (mode === 'saved') return true;
+      const a = chosen();
+      if (mode === 'unreachable' || mode === 'no_key') {
+        const j = await Office.api.post(`${ID}.partner_address`, { id: x.id, step: 'save', confirm: true, address: a.address, port: a.port });
+        if (!took(j)) return false;
+        Office.toast(T('partner.address_done', { name: x.name, address: `${a.address}:${a.port}` }));
+        return true;
+      }
+      const j = await Office.api.post(`${ID}.partner_address`, { id: x.id, step: 'try', address: a.address, port: a.port });
+      if (!took(j)) return false;
+      const look = j.look || {};
+      tried = { address: a.address, port: a.port };
+      if (look.state === 'no_key') {
+        mode = 'no_key';
+        say('callout', T('partner.address_no_key', { host: Office.config.host, name: x.name }));
+      } else {
+        mode = 'looking';
+        say('callout running', T('partner.address_looking', { name: x.name, address: `${a.address}:${a.port}` }));
+        follow(look.time || Math.floor(Date.now() / 1000));
+      }
+      setTimeout(paint, 0);          // after the dialog put its buttons back as they were
+      return false;
+    } }],
+  });
+  // a new choice after an answer starts over: look first
+  opts.addEventListener('change', () => { if (mode === 'unreachable' || mode === 'no_key') { mode = 'pick'; out.replaceChildren(); paint(); } });
+  typed.addEventListener('input', () => { if (mode === 'unreachable' || mode === 'no_key') { mode = 'pick'; out.replaceChildren(); paint(); } });
+  port.addEventListener('input', () => { if (mode === 'unreachable' || mode === 'no_key') { mode = 'pick'; out.replaceChildren(); paint(); } });
+  paint();
 }
 
 function pendingRow(o) {
@@ -603,24 +767,88 @@ function addressPicker(addresses, port, usonet) {
  * USO address and the office's door there, nothing to choose — said in one line; the old way (LAN, WireGuard, a public
  * address, another port) folded under «Another address…» and taken only while that fold is open. `key`: the fold's name
  * (kept while the page lives). Not in the network: the picker as always.
+ * Joined or joining but its address not known yet (the first real pairing, 2026-10-23: a block with the LAN went out):
+ * never the LAN instead — the line says to wait (the wave) and looks every few seconds; `gate(button)` keeps the
+ * dialog's button off until the address is there or the fold is open. `other()`: the fold open — said to the agent,
+ * which refuses any other address without it (partnerAddressChosen()).
  */
 function myAddress(j, key) {
-  const u = j.usonet || {};
-  if (!(u.in && u.address)) {
+  const u = { ...(j.usonet || {}) };
+  if (!(u.in && u.address) && !u.wait) {
     const addr = addressPicker(j.addresses, j.port, u);
-    return { node: addr.node, value: addr.value, usonet: false };
+    return { node: addr.node, value: addr.value, usonet: () => false, other: () => false, gate: () => {} };
   }
   const box = el('div', 'ct-myaddr');
   const line = el('p', 'callout');
-  line.append(el('strong', '', T('partner.via_usonet', { address: u.address })), ' ', T('partner.via_usonet_mine'));
   box.appendChild(line);
   const det = keepFold(el('details', 'ct-net-policy'), key, false);
   det.appendChild(el('summary', '', T('partner.address_other')));
   det.appendChild(el('p', 'role', T('partner.address_other_text')));
-  const addr = addressPicker(j.addresses, j.port, u);
+  const addr = addressPicker(j.addresses, j.port, { in: true });
   det.appendChild(addr.node);
   box.appendChild(det);
-  return { node: box, usonet: () => !det.open, value: () => (det.open ? addr.value() : { address: u.address, port: Number(u.port) || 22 }) };
+  let btn = null;
+  const gateNow = () => { if (btn) btn.disabled = busyOff() || !(det.open || u.address); };
+  const draw = () => {
+    line.replaceChildren();
+    if (u.address) {
+      line.className = 'callout';
+      line.append(el('strong', '', T('partner.via_usonet', { address: u.address })), ' ', T('partner.via_usonet_mine'));
+    } else if (['joining', 'starting', 'in'].includes(u.state)) {
+      line.className = 'callout running ct-net-wait';
+      line.append(el('span', 'spin'), ' ', T('partner.usonet_wait'));
+    } else {
+      line.className = 'callout warn';
+      line.append(T('partner.usonet_not_ready', { state: T('usonet.state.' + (u.state || 'down')) }));
+    }
+    gateNow();
+  };
+  det.addEventListener('toggle', gateNow);
+  draw();
+  if (!u.address) {
+    // the network's own look (usonet_look) every few seconds while the dialog is open: its IPv4 once the node is in
+    const look = async () => {
+      if (!box.isConnected) return;          // the dialog closed
+      const n = await Office.api.post(`${ID}.usonet_look`, {});
+      if (n.ok && n.usonet) {
+        const ip = n.usonet.state === 'in' ? (n.usonet.ips || []).find((a) => /^\d+\.\d+\.\d+\.\d+$/.test(a)) : null;
+        u.state = n.usonet.state;
+        if (ip) u.address = ip;
+        draw();
+        netTook(n.usonet);
+      }
+      if (!u.address) setTimeout(look, 3000);
+    };
+    setTimeout(look, 1500);
+  }
+  return {
+    node: box,
+    usonet: () => !det.open && !!u.address,
+    other: () => det.open,
+    gate: (b) => { btn = b; gateNow(); },
+    value: () => (det.open ? addr.value() : { address: u.address, port: Number(u.port) || 22 }),
+  };
+}
+
+/**
+ * The partner's block brought an address outside the USO network while this server is in it (2026-10-23: so nostromo
+ * stored its partner's LAN): said plainly — reached only in the same LAN — and, when that partner is online in the
+ * network (the peer of its name, `usonet.match`), its USO address offered instead (ticked). Null when there is nothing
+ * to say. `value()`: the address to take instead, or ''.
+ */
+function outsideNote(p, u) {
+  if (!(u && u.in) || u.peer) return null;
+  const box = el('div');
+  box.appendChild(el('p', 'callout warn', T('partner.block_outside', { name: p.name, address: p.address })));
+  if (!u.match) {
+    box.appendChild(el('p', 'role', T('partner.block_outside_none', { name: p.name })));
+    return { node: box, value: () => '' };
+  }
+  const take = tick(T('partner.block_outside_match', { name: p.name, address: u.match.address }), true,
+    T('partner.block_outside_match_help', { peer: u.match.name }));
+  take.node.classList.add('ct-outside-take');
+  box.appendChild(take.node);
+  return { node: box, value: () => (take.cb.checked ? u.match.address : '') };
 }
 
 /**
@@ -784,14 +1012,15 @@ async function addDialog() {
   box.appendChild(el('p', 'role', T('partner.add_levels')));
   { const need = needLine('send'); if (need) { need.className = 'callout'; box.appendChild(need); } }
   if (!(j.units || []).some((u) => u.ok)) box.appendChild(el('p', 'callout', T('partner.units_none')));
-  Office.dialog({
+  const d = Office.dialog({
     title: T('partner.add_title'),
     body: box,
     wide: true,
     buttons: [{ text: Office.t('common.cancel') }, { text: T('partner.make_block'), kind: '', act: async () => {
       const a = addr.value();
-      const peer = pick && addr.usonet && addr.usonet() ? pick.value() : '';
+      const peer = pick && addr.usonet() ? pick.value() : '';
       const req = { step: 'do', address: a.address, port: a.port };
+      if (addr.other()) req.other = true;
       if (peer) req.peer = peer;
       const r = await Office.api.post(`${ID}.partner_add`, req);
       if (!took(r)) return false;
@@ -800,6 +1029,7 @@ async function addDialog() {
       return true;
     } }],
   });
+  addr.gate(d.buttons[1]);
 }
 
 // ------------------------------------------------------------------ accept a partner (side B)
@@ -828,11 +1058,14 @@ function acceptSettings(block, j) {
   box.appendChild(el('p', '', T('partner.accept_look', { name: p.name })));
   box.appendChild(partnerFacts(p));
   if (p.public) box.appendChild(el('p', 'callout warn', T('partner.public_tip')));
-  // the partner's address is of a tailnet (the USO network): in it, this server answers with its own USO address and the
-  // office's door there, nothing to choose; not in it — said, with the way (2026-10-23)
+  // in the USO network (or joining it) this server always answers with its own USO address and the office's door there,
+  // nothing to choose (2026-10-23: until 1.71.1 only when the block's address was of a tailnet — else the LAN, and the
+  // pair reached neither way); a block from outside the network is said, its sender's USO address offered instead.
+  // Not in it while the block's address is of a tailnet — said, with the way
   const u = j.usonet || {};
-  const viaNet = !!(u.in && u.address && (u.peer || u.range));
-  if (!u.in && u.range) box.appendChild(el('p', 'callout warn', T('partner.usonet_not_in', { name: p.name })));
+  if (!u.in && !u.wait && u.range) box.appendChild(el('p', 'callout warn', T('partner.usonet_not_in', { name: p.name })));
+  const outside = outsideNote(p, u);
+  if (outside) box.appendChild(outside.node);
   const keepIt = tick(T('partner.keep_theirs', { name: p.name }), true);
   box.appendChild(keepIt.node);
   const recv = receivePicker(p.name, j.pools, j.defaults);
@@ -846,11 +1079,11 @@ function acceptSettings(block, j) {
   box.appendChild(levels);
   const needSend = needLine('send');
   if (needSend) { needSend.className = 'callout'; needSend.hidden = true; box.appendChild(needSend); }
-  const addr = viaNet ? myAddress(j, 'partner-accept-other') : addressPicker(j.addresses, j.port, u);
+  const addr = myAddress(j, 'partner-accept-other');
   box.appendChild(addr.node);
   box.appendChild(trustNote());
   too.cb.onchange = () => { levels.hidden = !too.cb.checked; if (needSend) needSend.hidden = !too.cb.checked; };
-  Office.dialog({
+  const d = Office.dialog({
     title: T('partner.accept_title'),
     body: box,
     wide: true,
@@ -858,11 +1091,15 @@ function acceptSettings(block, j) {
       const a = addr.value();
       const req = { step: 'do', block, confirm: true, address: a.address, port: a.port,
         receive: keepIt.cb.checked ? recv.value() : null, send_too: too.cb.checked };
+      if (addr.other()) req.other = true;
+      const theirs = outside ? outside.value() : '';
+      if (theirs) req.their_address = theirs;
       if (!req.receive && !req.send_too) { Office.toast(T('errors.partner_nothing'), true); return false; }
       acceptConfirm(req, j);
       return true;
     } }],
   });
+  addr.gate(d.buttons[1]);
 }
 
 function acceptConfirm(req, j) {
@@ -870,8 +1107,9 @@ function acceptConfirm(req, j) {
   const box = el('div');
   let line = null;
   if (req.receive) {
-    if (!j.line) { Office.toast(Office.errorText({ key: 'partner_unresolved', params: { address: p.address } }, ID), true); return; }
-    line = linePart(j.line, p.name);
+    const text = req.their_address ? j.line_match : j.line;       // the line lets them in from the address taken
+    if (!text) { Office.toast(Office.errorText({ key: 'partner_unresolved', params: { address: p.address } }, ID), true); return; }
+    line = linePart(text, p.name);
     box.appendChild(line.node);
   } else {
     box.appendChild(el('p', '', T('partner.no_line', { name: p.name })));
@@ -942,6 +1180,9 @@ function finishCompare(block, j) {
     [T('partner.f_sends'), p.key ? (p.units && p.units.length ? T('partner.f_sends_units', { list: unitsText(p.units) }) : T('partner.f_sends_levels')) : T('partner.nothing')],
   ]));
   if (p.public) box.appendChild(el('p', 'callout warn', T('partner.public_tip')));
+  // its answer brought an address outside the USO network while this server is in it: said, its USO address offered (2026-10-23)
+  const outside = outsideNote(p, j.usonet);
+  if (outside) box.appendChild(outside.node);
   let recv = null;
   let keepIt = null;
   let line = null;
@@ -950,11 +1191,16 @@ function finishCompare(block, j) {
     box.appendChild(keepIt.node);
     recv = receivePicker(p.name, j.pools, j.defaults);
     box.appendChild(recv.node);
-    if (j.line) {
-      line = linePart(j.line, p.name);
-      box.appendChild(line.node);
-    }
-    keepIt.cb.onchange = () => { recv.node.hidden = !keepIt.cb.checked; if (line) line.node.hidden = !keepIt.cb.checked; };
+    // the line lets them in from the address taken: theirs from the block, or their USO address ticked above
+    const lines = { block: j.line ? linePart(j.line, p.name) : null, net: j.line_match ? linePart(j.line_match, p.name) : null };
+    const pickLine = () => {
+      line = outside && outside.value() && lines.net ? lines.net : lines.block;
+      Object.values(lines).forEach((l) => { if (l) l.node.hidden = l !== line || !keepIt.cb.checked; });
+    };
+    Object.values(lines).forEach((l) => { if (l) box.appendChild(l.node); });
+    if (outside) box.addEventListener('change', (e) => { if (e.target.closest('.ct-outside-take')) pickLine(); });
+    keepIt.cb.onchange = () => { recv.node.hidden = !keepIt.cb.checked; pickLine(); };
+    pickLine();
   }
   Office.dialog({
     title: T('partner.finish_title'),
@@ -965,7 +1211,10 @@ function finishCompare(block, j) {
       { text: T('partner.match'), kind: '', act: async () => {
         const keep = recv && keepIt.cb.checked;
         if (keep && (!line || !line.ok())) { Office.toast(line ? T('partner.line_read_first') : Office.errorText({ key: 'partner_unresolved', params: { address: p.address } }, ID), true); return false; }
-        const r = await Office.api.post(`${ID}.partner_finish`, { step: 'do', block, confirm: true, code: j.code, receive: keep ? recv.value() : null });
+        const req = { step: 'do', block, confirm: true, code: j.code, receive: keep ? recv.value() : null };
+        const theirs = outside ? outside.value() : '';
+        if (theirs) req.their_address = theirs;
+        const r = await Office.api.post(`${ID}.partner_finish`, req);
         if (!took(r)) return false;
         const a = r.ask;
         Office.toast(!a ? T('partner.paired', { name: p.name })
