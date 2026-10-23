@@ -198,7 +198,7 @@ any more.
 Nothing leaves the server unless you set it up: the offsite copy (Kopia) to the storage you chose, partner offices to
 the partner. The office itself only asks GitHub once a day whether a new version is out, checks logo addresses for
 containers without a picture, and sends a report only when you send one yourself (below) — and, when you open the list
-of your reports, asks where they stand. No account, no telemetry. The desks never wake a sleeping disk unless you ask;
+of your reports, asks where they stand. No telemetry. The desks never wake a sleeping disk unless you ask;
 the scheduled backup does, unless you tell it to leave sleeping pools out.
 
 <a name="cleanup-where"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/cleanup-where-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/cleanup-where-light.png" alt="Ms. Dustdevil&#x27;s «Where is what»: the places that matter and how they are protected"></picture></a>
