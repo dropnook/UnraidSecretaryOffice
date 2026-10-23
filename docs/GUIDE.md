@@ -254,7 +254,12 @@ a tailnet of the offices' own: *Join the USO network…* under the partner offic
 tailnet made (one-off, tagged `tag:uso`; Tailscale's free plan for home use, or your own Headscale). The office then
 runs a Tailscale node of its own — its own device in its own network namespace, its own door for partners, a helper
 fetched from the office's GitHub release and checked against the fingerprint in this version. Nothing of your router,
-your own Tailscale, Unraid's network, DNS or firewall changes. Then pair as always, picking the node's address. The card
+your own Tailscale, Unraid's network, DNS or firewall changes. Then pair as always: in the network both sides give
+their USO address by themselves (another only on purpose, under *Another address…*), and a block that brought a LAN
+address is said, with the partner's USO address offered instead. A pair that stored the wrong address — or a partner
+that joined anew with a new one — is fixed without pairing anew: *Change the address…* in the pair's ⋯ menu (the card
+offers it when the partner is online in the network elsewhere) looks for the partner there first, then stores it; the
+partner does the same on its side, and Mr. Backupsy's run follows after his *Apply*. The card
 shows the node, the other offices in the network (online, direct or relayed) and the lines for the tailnet's policy;
 the Team Lead says when the node isn't tagged, when other devices can reach it, or when it has no contact. *Leave the
 USO network…* (and the plugin's removal) takes everything of it away again.

@@ -361,7 +361,7 @@
   "partner.address_saved": "{name} trouvé à {address} — enregistré.",
   "partner.address_saved_denied": "{name} trouvé à {address} — enregistré. Sa porte ne laisse pas encore entrer ce serveur : elle connaît encore son ancienne adresse. Chez {name} : là aussi « Changer l'adresse… ».",
   "partner.address_mine": "L'adresse de ce serveur dans le réseau USO : {address}",
-  "partner.address_unreachable": "Personne ne répond à {address} ({why}). Éteint en ce moment, ou pas là ? N'enregistre quand même que si tu en es sûr.",
+  "partner.address_unreachable": "Personne ne répond à {address} : {why}. N'enregistre quand même que si tu es sûr que c'est l'adresse du partenaire.",
   "partner.address_wrong_key": "Un autre serveur répond à {address} — sa clé n'est pas celle retenue à l'appairage. Pas enregistré.",
   "partner.address_save_anyway": "Enregistrer quand même",
   "partner.address_no_key": "{host} n'envoie rien à {name}, il ne peut donc pas vérifier là-bas. L'adresse compte quand même pour la porte de ce serveur : les appels de {name} doivent venir de là.",

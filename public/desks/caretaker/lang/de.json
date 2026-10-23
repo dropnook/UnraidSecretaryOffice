@@ -361,7 +361,7 @@
   "partner.address_saved": "{name} bei {address} gefunden — gespeichert.",
   "partner.address_saved_denied": "{name} bei {address} gefunden — gespeichert. Seine Tür lässt diesen Server noch nicht herein: dort ist noch seine alte Adresse gespeichert. Bei {name}: dort ebenso «Adresse ändern…».",
   "partner.address_mine": "Die Adresse dieses Servers im USO-Netz: {address}",
-  "partner.address_unreachable": "Bei {address} antwortet niemand ({why}). Gerade ausgeschaltet, oder nicht dort? Trotzdem speichern nur, wenn du sicher bist.",
+  "partner.address_unreachable": "Bei {address} antwortet niemand: {why}. Trotzdem speichern nur, wenn du sicher bist, dass es die Adresse des Partners ist.",
   "partner.address_wrong_key": "Bei {address} antwortet ein anderer Server — sein Schlüssel ist nicht der beim Verbinden festgehaltene. Nicht gespeichert.",
   "partner.address_save_anyway": "Trotzdem speichern",
   "partner.address_no_key": "{host} schickt {name} nichts, kann dort also nicht nachsehen. Die Adresse zählt trotzdem für die Tür dieses Servers: die Anrufe von {name} müssen von dort kommen.",

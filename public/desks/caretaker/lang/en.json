@@ -361,7 +361,7 @@
   "partner.address_saved": "Found {name} at {address} — saved.",
   "partner.address_saved_denied": "Found {name} at {address} — saved. Its door doesn't let this server in yet: it still knows this server by its old address. At {name}: «Change the address…» there too.",
   "partner.address_mine": "This server's address in the USO network: {address}",
-  "partner.address_unreachable": "Nobody answers at {address} ({why}). Switched off right now, or not there? Save it all the same only when you are sure.",
+  "partner.address_unreachable": "Nobody answers at {address}: {why}. Save it all the same only when you are sure it is the partner's address.",
   "partner.address_wrong_key": "Another server answers at {address} — its key isn't the one pinned at the pairing. Not saved.",
   "partner.address_save_anyway": "Save all the same",
   "partner.address_no_key": "{host} sends nothing to {name}, so it can't look there. The address still counts for this server's door: {name}'s calls must come from it.",

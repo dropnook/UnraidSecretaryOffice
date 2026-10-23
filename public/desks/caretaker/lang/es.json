@@ -361,7 +361,7 @@
   "partner.address_saved": "{name} encontrado en {address} — guardado.",
   "partner.address_saved_denied": "{name} encontrado en {address} — guardado. Su puerta aún no deja entrar a este servidor: allí sigue su dirección antigua. En {name}: allí también «Cambiar la dirección…».",
   "partner.address_mine": "La dirección de este servidor en la red USO: {address}",
-  "partner.address_unreachable": "Nadie responde en {address} ({why}). ¿Apagado ahora mismo, o no está ahí? Guarda de todos modos solo si estás seguro.",
+  "partner.address_unreachable": "Nadie responde en {address}: {why}. Guarda de todos modos solo si estás seguro de que es la dirección del socio.",
   "partner.address_wrong_key": "En {address} responde otro servidor — su clave no es la fijada al emparejar. No guardado.",
   "partner.address_save_anyway": "Guardar de todos modos",
   "partner.address_no_key": "{host} no manda nada a {name}, así que no puede comprobar allí. La dirección cuenta igual para la puerta de este servidor: las llamadas de {name} deben venir de ahí.",

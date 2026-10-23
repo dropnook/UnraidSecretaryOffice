@@ -491,6 +491,20 @@ as tagged devices (`tag:uso`) and pair over the node's 100.x address like over a
   callout to join first). The trust question is gone — one sentence, every new pair `trust: 'mine'` (`partnerTrustFrom()`,
   an explicit value still taken); the blocks carry `trust` as before, so 1.71.0 reads them. The protocol, the door and
   pairs.json are unchanged.
+* **The address is the USO one** (2026-10-23, «pair-address»: the first real pairing stored each other's LAN — a dialog
+  opened while joining showed only the old picker, the accept dialog took the USO address only for a block from a
+  tailnet): in the network (or joining) `myAddress()` gives the USO address, waits with the wave and the button off
+  while it isn't known, the fold is the only other way and says so (`other: true`); `partnerAddressChosen()` refuses
+  anything else (`partner_address_usonet` — an old page; `partner_usonet_wait`). A block from outside the network is
+  said; the online peer of the partner's name (`usonetPeerNamed()`, `usonetNodeName()` of the block's name) is offered
+  and taken with `their_address` (pair, known_hosts, from=). *Change the address…* (`partner_address` try/look/save,
+  job `partner-address`): the new address looked at first — the pair's pinned host keys there (a door saying no counts
+  as found), then pairs.json, known_hosts and the door line's from= (only in exactly its shape); its record stays in
+  RAM (`address-<id>.json`, «saved») and the Night Watchman takes that from= change as the office's own
+  (`partnerLookMoved()`, `watchmanPartnerMovedLine()`). The card: `usonet_match` (the partner online elsewhere in the
+  network — outside it, or an earlier node of it) and `send_at` (Mr. Backupsy's run still has the old address until his
+  Apply: the engine reads settings.ini's [partner]). Tests: `testPartnerAddress`, `testWatchmanPartner`, ui-clicks
+  «pair address».
 * **The card while it is busy:** the job's mark (`usonetJob()`: what, start, step, the job's pid — a dead job is seen and
   ends as `job_gone`) gives the page the wave, the step and the time; after `USONET_SLOW_AFTER` the logs' last lines
   (`usonetLogTail()`, scrubbed; a failed join keeps them in join.json since its leave takes the logs). The page's

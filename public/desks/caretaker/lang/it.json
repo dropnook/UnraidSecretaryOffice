@@ -361,7 +361,7 @@
   "partner.address_saved": "{name} trovato su {address} — salvato.",
   "partner.address_saved_denied": "{name} trovato su {address} — salvato. La sua porta non lascia ancora entrare questo server: lì c'è ancora il suo vecchio indirizzo. Da {name}: anche lì «Cambia l'indirizzo…».",
   "partner.address_mine": "L'indirizzo di questo server nella rete USO: {address}",
-  "partner.address_unreachable": "Su {address} non risponde nessuno ({why}). Spento in questo momento, o non è lì? Salva comunque solo se ne sei sicuro.",
+  "partner.address_unreachable": "Su {address} non risponde nessuno: {why}. Salva comunque solo se sei sicuro che sia l'indirizzo del partner.",
   "partner.address_wrong_key": "Su {address} risponde un altro server — la sua chiave non è quella fissata all'abbinamento. Non salvato.",
   "partner.address_save_anyway": "Salva comunque",
   "partner.address_no_key": "{host} non manda niente a {name}, quindi lì non può controllare. L'indirizzo conta comunque per la porta di questo server: le chiamate di {name} devono arrivare da lì.",
