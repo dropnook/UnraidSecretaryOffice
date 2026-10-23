@@ -97,9 +97,10 @@ same('partners: one short line per partner, the whole text in the tip (the secti
   [byKey('partners').sub, byKey('partners').tip.startsWith('partner.tile_sent'), byKey('partners').alert],
   [[`partner.short_sent {"name":"Vault","when":"rel(${NOW - 600})"} · partner.short_skipped {"n":1}`], true, true]);
 same('flash: snapshot + offsite, its last copy', [byKey('flash').value, byKey('flash').sub], ['stat.flash_offsite', [`stat.flash_last {"when":"rel(${NOW - 7200})"}`]]);
+// the backup place (media) goes to Vault: media and its two packages count «local + partner» (2026-10-23), not «only local»
 same('protection: the rows not protected as its value, the levels in its line, alert while any',
   [byKey('prot').value, byKey('prot').sub, byKey('prot').alert],
-  ['stat.prot_off {"n":4}', ['protection_sum {"kopia":4,"snapshot":5,"off":2}'], true]);
+  ['stat.prot_off {"n":4}', ['protection_sum_partner {"kopia":4,"partner":3,"snapshot":2,"off":2}'], true]);
 same('restore: without Mr. Restori\'s certificate his name and where the backups lie', [byKey('restore').value, byKey('restore').sub, byKey('restore').alert],
   ['restore.name', ['stat.restore_where'], false]);
 
@@ -294,6 +295,12 @@ same('history: a word fits its rows only', h.filter((x) => Office.fits(W('warnin
   s.vms = s.vms.map((x) => (x.share === 'domains' ? { ...x, share_mode: 'kopia' } : x));
   B.setState(s);
   same('travel: … its share offsite too: «local + partner + offsite»', B.protChip(B.protRows().find((r) => r.name === 'inshare')).text, 'setup.level.partner_kopia');
+  // a VM only local in a share at Kopia (its folder in kopia_ignore): «only local», never «offsite»
+  const vs = { ...s, shares: s.shares.map((x) => (x.name === 'domains' ? { ...x, ignores: ['/left/'] } : x)), partners: [],
+    vms: [vm('left', { own: [], share_mode: 'kopia', disks: [{ source: '/mnt/user/domains/left/vdisk1.img' }] }), vm('in', { own: [], share_mode: 'kopia', disks: [{ source: '/mnt/user/domains/in/vdisk1.img' }] })] };
+  B.setState(vs);
+  same('travel: a VM left out of its share\'s Kopia source is only local; one inside it offsite; no partner - the line as before',
+    [B.vmLevel(vs.vms[0], true), B.vmLevel(vs.vms[1], true), B.protSum(B.protRows()).split(' ')[0]], ['local', 'offsite', 'protection_sum']);
 }
 
 console.log(JSON.stringify(out));

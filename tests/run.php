@@ -50689,7 +50689,7 @@ out.vp = ['Windows-Druckserver', 'Linux-Werkstatt', 'Bastel-VM'].map(vp);
 out.levels = ['Windows-Druckserver', 'Linux-Werkstatt', 'Bastel-VM'].map((n) => b.levelOf('vm:' + n));
 const via = (n) => ({ via: b.vmPartner(vm(n), S.plan).withShare, share: 'domains' });
 let g = seg(b.levelPick('vm:Windows-Druckserver', null, via('Windows-Druckserver')));
-out.win = [g.fields, g.via, g.buttons[1].title, g.buttons[2].title];
+out.win = [g.fields, g.via, g.buttons[1].title, g.buttons[2].title === 'partner.via_vm ' + JSON.stringify({ share: 'domains', where: 'partner.where_partner {"partners":"PartnerNAS"}' }) + ' partner.via_decides'];
 g = seg(b.levelPick('vm:Bastel-VM', null, via('Bastel-VM')));
 out.bastel = [g.fields, g.via];
 // its own dataset at the partner: the unit's own choice, as before
@@ -50720,6 +50720,24 @@ g = seg(b.levelPick('app:' + app('Grafana').id, null, { via: ap.withShare, share
 out.app = [ap.withShare.map((p) => p.name), g.fields, g.via, b.levelWord('app:' + app('Grafana').id, 'app|Grafana|partner')];
 const ne = b.appPartner(app('Node-Exporter'), S.plan);
 out.nodata = [ne.f, ne.withShare.length, b.placeGoesTo(S.plan).map((p) => p.name)];
+// offsite through its share (2026-10-23, the same picture for every level): appdata at Kopia as a whole, no [app] sections -
+// the apps in setup.viaShare, «local + offsite» lit and said «offsite via appdata»; with appdata at the partner too, both
+const kp = JSON.parse(JSON.stringify(plan));
+kp.P['kopia|enabled'] = kp.O['kopia|enabled'] = 'yes';
+kp.P['share|appdata|mode'] = kp.O['share|appdata|mode'] = 'kopia';
+kp.P['share|appdata|kopia_known'] = kp.O['share|appdata|kopia_known'] = ['/emby/', '/grafana/', '/immich/', '/mariadb-nextcloud/', '/nextcloud/', '/prometheus/'];
+load(kp);
+const gid = 'app:' + app('Grafana').id;
+const gp = () => { const x = b.appPartner(app('Grafana'), S.plan); return seg(b.levelPick(gid, null, x.withShare.length ? { via: x.withShare, share: 'appdata' } : { key: x.key, ok: x.own, why: 'not_dataset' }, 'appdata')); };
+g = gp();
+out.both = [S.viaShare.has(gid), g.fields, g.via, b.viaChip(gid, 'appdata', 'PartnerNAS', true).textContent];
+b.dset('share|appdata|partner', []);
+g = gp();
+out.kopiaVia = [g.fields, g.via, g.buttons[3].title.startsWith('partner.via_app'), g.buttons[3].title.includes('partner.via_own_source'), b.viaChip(gid, 'appdata', '', true).textContent];
+g.buttons[1].onclick();          // «local»: its folder left out of appdata's source, no longer via the share
+out.kopiaLocal = [b.levelOf(gid), S.viaShare.has(gid), (S.draft['share|appdata|kopia_ignore'] || []).includes('/grafana/'), gp().via];
+// «not» stays «not»: its files still in the snapshot - said by the label, never lit as «local»
+out.notLabel = [b.offChip('vm', ['domains']).textContent, b.offChip('app', ['appdata']).title];
 console.log(JSON.stringify(out));
 JS);
     $r = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' '
@@ -50728,8 +50746,7 @@ JS);
         [[['domains', ['PartnerNAS']], ['domains', []], ['domains', ['PartnerNAS']]], [1, 1, 0]], [$r['vp'] ?? $r, $r['levels'] ?? null]);
     $tip = 'partner.via_fixed {"share":"domains","partners":"PartnerNAS"}';
     same('travel picture: … its level lit at «local + partner», «via domains» under it, «local» greyed with the reason, the partner field\'s tip in plain words',
-        [['setup.level.0', '-setup.level.1', '*setup.level.partner'], 'partner.via_share {"share":"domains"}', $tip,
-         'partner.via_vm {"share":"domains","partners":"PartnerNAS"}'], $r['win'] ?? null);
+        [['setup.level.0', '-setup.level.1', '*setup.level.partner'], 'partner.via_share_partner {"share":"domains"}', $tip, true], $r['win'] ?? null);
     same('travel picture: … at «not» (kept running in a shared dataset): «not» lit, no «via»', [['*setup.level.0', '-setup.level.1', 'setup.level.partner'], null], $r['bastel'] ?? null);
     same('travel picture: a VM in a dataset of its own keeps its own choice', ['setup.level.0', 'setup.level.1', '*setup.level.partner'], $r['own'] ?? null);
     same('travel picture: the apply dialog says «local + partner» for it; at «not» it reaches no partner', ['setup.level.partner', 0], $r['word'] ?? null);
@@ -50740,12 +50757,22 @@ JS);
         [2, true, ['2ec7accd'], ['setup.level.0', '-setup.level.1', 'setup.level.partner', '-setup.level.2', '*setup.level.partner_kopia']], $r['kopiaClick'] ?? null);
     same('travel picture: … «not» stays the unit\'s', [0, ['*setup.level.0', '-setup.level.1', 'setup.level.partner', '-setup.level.2', 'setup.level.partner_kopia']], $r['not'] ?? null);
     same('travel picture: an app in appdata at the partner - lit, «via appdata», the apply dialog\'s word',
-        [['PartnerNAS'], ['setup.level.0', '-setup.level.1', '*setup.level.partner'], 'partner.via_share {"share":"appdata"}', 'setup.level.partner'], $r['app'] ?? null);
+        [['PartnerNAS'], ['setup.level.0', '-setup.level.1', '*setup.level.partner'], 'partner.via_share_partner {"share":"appdata"}', 'setup.level.partner'], $r['app'] ?? null);
     same('travel picture: an app without a folder (Node-Exporter) - no partner unit, its package with the backup place', [null, 0, ['PartnerNAS']], $r['nodata'] ?? null);
+    $five = fn (string $lit, bool $local, bool $p) => ['setup.level.0', ($local ? '' : '-') . 'setup.level.1', ($lit === 'p' ? '*' : '') . ($p ? '' : '-') . 'setup.level.partner',
+        ($lit === '2' ? '*' : '') . ($local ? '' : '-') . 'setup.level.2', ($lit === 'pk' ? '*' : '') . ($p ? '' : '-') . 'setup.level.partner_kopia'];
+    same('travel picture: appdata at Kopia and at the partner - an app inside it lit at «local + partner + offsite», «via appdata», the label says both',
+        [true, $five('pk', false, true), 'partner.via_share {"share":"appdata"}', 'partner.with_share_both {"share":"appdata","partners":"PartnerNAS"}'], $r['both'] ?? $r);
+    same('travel picture: appdata at Kopia only - «local + offsite» lit, «offsite via appdata», «local» still a choice, the tip says what goes and that a level here is its own',
+        [$five('2', true, false), 'partner.via_share_offsite {"share":"appdata"}', true, true, 'partner.with_share_offsite {"share":"appdata","partners":""}'], $r['kopiaVia'] ?? null);
+    same('travel picture: … «local» clicked: level 1, out of appdata\'s source (kopia_ignore), no «via» any more', [1, false, true, null], $r['kopiaLocal'] ?? null);
+    same('travel picture: «not» stays lit at «not»; the label says its files are still in the snapshot, the tip what that lacks',
+        ['setup.off_in_share {"share":"domains"}', 'setup.off_in_share_hint_app {"share":"appdata"}'], $r['notLabel'] ?? null);
     $desk = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
-    check('travel picture: the page gives an app without a folder no partner field, a VM in its share the chip «goes to … with <share>» and the warning when its configuration stays behind',
+    check('travel picture: the page gives an app without a folder no partner field, a VM in its share the label «goes … with <share>» and the warning when its configuration stays behind',
         str_contains($desk, "const apPick = !setupPartners().length || !ap.f ? null")
-        && str_contains($desk, "chip(T('partner.with_share', { partners: pNames, share: vp.share }), 'ok', T('partner.via_vm'")
+        && str_contains($desk, "meta.appendChild(viaChip('vm:' + v.name, vp.withShare.length ? vp.share : kShare, pNames, kVia));")
+        && str_contains($desk, "if (l === 0 && aShares.length) main.appendChild(el('div', 'row-meta')).appendChild(offChip('app', aShares));")
         && str_contains($desk, "unheld.hidden = !(toPartner && (l === 0 || dget(k('prepare')) === 'none'));")
         && !str_contains($desk, "T('partner.with_share_hint')"));
     hardeningRm($tmp);
