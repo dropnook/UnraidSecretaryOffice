@@ -7,6 +7,7 @@
 # the scenario (her page's save, with its consent to switch Unraid's mover off) and put back as the base has her.
 # Nightly (~70 min: the hour between the two 02:59s is waited for; the clock guard holds the set clock 90 min).
 # run-late: 4 the clock set on: her history dated ahead stays until a base reset
+# timeout: 5400 the clock goes through the repeated hour in real time (~64 min, batch E)
 . "$(dirname "$0")/lib.sh"
 scenario_begin moverelli-tm-dst-run-sched
 needs any
@@ -40,7 +41,11 @@ h0=$(hist)
 # the first 02:59 (CEST): crond's own start, or — when crond, one minute after the clock was set, lets that minute pass
 # (seen 2026-10-19 with Mr. Backupsy's line: dcron skips the minute after a jump of days) — the job as crond starts it
 wait_for 180 "02:59:20 CEST" bash -c '[[ $(date +%H%M%S%Z) > 025919CEST && $(date +%Z) == CEST ]]'
-if pgrep -f '[a]gent\.php job moverelli' >/dev/null || [[ $(stat -c %Y "$D/moverelli/night.json" 2>/dev/null || echo 0) -ge $(( $(date +%s) - 30 )) ]]; then say "crond started the first 02:59 itself"
+# crond's start shows first in job.sh's minute stamp (its run comes through atd, slow right after the clock jump): a
+# stamp of this minute is crond's start — a second job a minute later would land across the DST step (03:00 CEST =
+# 02:00 CET; Mr. Backupsy's twin, 2026-10-23)
+if pgrep -f '[a]gent\.php job moverelli' >/dev/null || [[ $(stat -c %Y "$D/moverelli/night.json" 2>/dev/null || echo 0) -ge $(( $(date +%s) - 30 )) ]] \
+    || [[ $(cat "$RUN/job-moverelli.minute" 2>/dev/null) == 202610250259 ]]; then say "crond started the first 02:59 itself"
 else say "crond let the first 02:59 pass — the job started as crond would"; flow MV-RUN-SCHED; fi
 wait_night 1200
 h1=$(hist)

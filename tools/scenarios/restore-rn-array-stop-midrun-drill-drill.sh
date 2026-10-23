@@ -42,7 +42,15 @@ elif _st_is STOPPED _st_var mdState; then
     ask restore.drill_state '{}' 300 >/dev/null
     d=$(jq -r --argjson t "$t0" '[.drills[]? | select((.started // 0) >= $t - 5)][0] // {} | "\(.id // "none") \(.result // "")/\(.reason // "")"' "$KEEP/ask/last.json")
     say "the drill: $d"
-    [[ $d == *" aborted/array_stopping" ]] && cell ended 1 "drill ${d% *}: aborted / array_stopping" || cell ended 0 "drill ended «$d» (must be aborted / array_stopping, never failed)"
+    # a drill that passed within seconds was over before the stop reached the agent (Unraid stops its services first —
+    # 2026-10-22 23:24: the drill passed in ~2 s, the agent's stop came ~20 s later): nothing was cut — no verdict
+    dt=$(jq -r --argjson t "$t0" '[.drills[]? | select((.started // 0) >= $t - 5)][0] // {} | ((.finished // 0) - (.started // 0))' "$KEEP/ask/last.json" 2>/dev/null)
+    if [[ $d == *" passed/"* ]] && ((${dt:-99} >= 0 && ${dt:-99} < 10)); then
+        printf 'the drill passed in %s s, before the stop reached it — nothing was cut: no verdict here\n' "$dt" >"$KEEP/.skip"
+        say "the drill passed in $dt s, before the stop — no verdict (skipped)"
+    else
+        [[ $d == *" aborted/array_stopping" ]] && cell ended 1 "drill ${d% *}: aborted / array_stopping" || cell ended 0 "drill ended «$d» (must be aborted / array_stopping, never failed)"
+    fi
     [[ $(ask_last '.running // null | tostring') == null ]] && cell nothing-running 1 "no drill «running»" || cell nothing-running 0 "a drill still «running»: $(ask_last '.running | tostring' | head -c 200)"
     c=$(ask_last '.certificate.result // "none"')
     [[ $c != failed ]] && cell certificate 1 "the certificate says «$c»" || cell certificate 0 "the certificate says failed after an array stop"

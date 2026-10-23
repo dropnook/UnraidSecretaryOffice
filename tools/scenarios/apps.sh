@@ -88,7 +88,15 @@ _apps_from_tpl() {
     docker start "$n" >/dev/null && _st_until 60 _apps_running "$n" || { say "$n doesn't start"; return 1; }
     say "$n up (Unraid's rebuild_container from my-$n.xml)"
 }
-_apps_skip() { _apps_exists "$1" && [[ $APPS_RECREATE == no ]] && { say "$1 is there — left as it is"; return 0; }; return 1; }
+# there: left as it is — but started when it is stopped (the base's apps run: after the VM itself was stopped, 2026-10-23,
+# every one of them was «exited» and Nextcloud's install waited 5 min in vain — the base reset failed)
+_apps_skip() {
+    _apps_exists "$1" && [[ $APPS_RECREATE == no ]] || return 1
+    if _apps_running "$1"; then say "$1 is there — left as it is"
+    elif docker start "$1" >/dev/null 2>&1 && _st_until 60 _apps_running "$1"; then say "$1 was there, stopped — started"
+    else say "$1 is there but doesn't start"; fi
+    return 0
+}
 _apps_share() { share_exists "$1" && return 0; share_make "$1" "$2" "${3:-}"; }
 _apps_net() { timeout 20 docker network inspect "$1" >/dev/null 2>&1 || docker network create "$1" >/dev/null; }
 
@@ -123,7 +131,9 @@ app_Nextcloud() {
     _st_until 120 docker exec mariadb-nextcloud healthcheck.sh --connect --innodb_initialized \
         || { say "mariadb-nextcloud doesn't answer"; return 1; }
     local nc admin; nc=$(_apps_secret MARIADB_NC_PASSWORD) && admin=$(_apps_secret NEXTCLOUD_ADMIN_PASSWORD) || return 1
-    _apps_exists Nextcloud && [[ $APPS_RECREATE == no ]] && { _apps_nc_install "$nc" "$admin"; return; }
+    _apps_exists Nextcloud && [[ $APPS_RECREATE == no ]] && {
+        _apps_running Nextcloud || { docker start Nextcloud >/dev/null 2>&1 && say "Nextcloud was there, stopped — started"; }
+        _apps_nc_install "$nc" "$admin"; return; }
     _apps_share nextcloud only cache || return 1
     mkdir -p /mnt/user/appdata/nextcloud && chown 33:33 /mnt/user/appdata/nextcloud /mnt/user/nextcloud
     _apps_tpl Nextcloud nextcloud:apache "$APPS_NET" 'http://[IP]:[PORT:8080]/' \

@@ -273,6 +273,16 @@ apps_step() {
         if [[ -f $SC/apps.sh ]]; then act "the demo apps (apps.sh$( ((full)) && echo ' --recreate') all)" bash "$SC/apps.sh" $( ((full)) && echo --recreate) all
         else log "skipped: apps - not built yet (apps.sh, H2)"; fi
     fi
+    # every container of the base runs: one stopped (the VM itself stopped and started — nothing of Tower's base comes
+    # back by itself, it has no autostart list: 2026-10-23) is started, databases first; scratch ones (uso-wip-*,
+    # uso-drill-*) left
+    if [[ $DOCKER == yes ]] && timeout 10 docker info >/dev/null 2>&1; then
+        local stopped
+        stopped=$(docker ps -a --filter status=exited --filter status=created --format '{{.Names}}' | grep -vE '^uso-(wip|drill)-' \
+            | awk '/mariadb|postgres|redis|valkey|db/ {print; next} {r = r $0 "\n"} END {printf "%s", r}')
+        for c in $stopped; do act "start the base's container $c (stopped)" docker start "$c"; done
+        [[ -n $stopped ]] || log "every container of the base runs"
+    fi
     # Docker's autostart list: the base has none (the array-stop cells add one with CT-AUTOSTART, their undo puts it
     # back) - one left by a cell whose undo didn't run is set aside: with it every later array stop brings the apps
     # back by itself (Tower 2026-10-21: the list of the dirty B12 run of 2026-10-20 07:56)
@@ -455,8 +465,9 @@ if [[ -f $DB/data.tar ]] || ((dry && make)); then
     done
     # a carried file keeps what a clock cell wrote under its clock (2026-10-20: held.json's `tried` 2026-11-08 after
     # R22 - Mr. Restori's own look waited until then, restore-partner.php's age < 0): a moment more than 10 min ahead
-    # of now under `tried`, `looked` or `last_heard` (the partner files' times; null is their shape's «not yet») is
-    # dropped. The clock cells' undo can't do it: a guard that put the clock back, a cell killed half-way or another
+    # of now under `tried`, `looked` (null: their shape's «not yet» — the look is due) or `last_heard` (now: the answer was
+    # real, only its clock was ahead — null would read «never heard», and B39's 6 h of silence had no «since», 2026-10-23)
+    # is put right. The clock cells' undo can't do it: a guard that put the clock back, a cell killed half-way or another
     # branch's cell leaves them all the same
     for c in $CARRY; do
         dir=$D/${c%%/*}
@@ -466,8 +477,8 @@ if [[ -f $DB/data.tar ]] || ((dry && make)); then
                 '[.. | objects | to_entries[] | select((.key | IN("tried", "looked", "last_heard")) and (.value | type) == "number" and .value > $lim)] | length > 0' \
                 "$f" >/dev/null 2>&1 || continue
             act "drop the future times in ${f#"$D"/} ($(jq -c --argjson lim "$(( $(date +%s) + 600 ))" '[.. | objects | to_entries[] | select((.key | IN("tried", "looked", "last_heard")) and (.value | type) == "number" and .value > $lim) | "\(.key) \(.value | todate)"] | unique' "$f"))" \
-                bash -c 'jq -c --argjson lim "$2" '\''walk(if type == "object" then with_entries(if (.key | IN("tried", "looked", "last_heard")) and (.value | type) == "number" and .value > $lim then .value = null else . end) else . end)'\'' "$1" >"$1.base-new" && chmod --reference="$1" "$1.base-new" && mv -- "$1.base-new" "$1"' \
-                _ "$f" "$(( $(date +%s) + 600 ))"
+                bash -c 'jq -c --argjson lim "$2" --argjson now "$3" '\''walk(if type == "object" then with_entries(if (.key | IN("tried", "looked", "last_heard")) and (.value | type) == "number" and .value > $lim then .value = (if .key == "last_heard" then $now else null end) else . end) else . end)'\'' "$1" >"$1.base-new" && chmod --reference="$1" "$1.base-new" && mv -- "$1.base-new" "$1"' \
+                _ "$f" "$(( $(date +%s) + 600 ))" "$(date +%s)"
         done < <(find "$dir" -maxdepth 2 -name '*.json' -type f -print0 2>/dev/null)
     done
     if [[ -f $DB/cron ]] && ! cmp -s "$DB/cron" "$CRON"; then
