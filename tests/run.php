@@ -35953,6 +35953,18 @@ function testPartnerAddress(): void
     $raw['pairs'][0]['my_key'] = null;
     file_put_contents($pairsFile, json_encode($raw));
     same('USO change: a pair that only receives — no look possible, said', 'no_key', $tryA('100.64.0.3')['look']['state'] ?? null);
+    // accepted with the partner's USO address instead of its block's LAN: the pair, its known_hosts and the door's line there
+    $offer2 = partnerTestAs($Anet, 'return partner_add(["step" => "do", "address" => "192.168.77.1", "port" => 22, "other" => true]);');
+    $id2 = (string) ($offer2['id'] ?? '');
+    $pub2 = implode(' ', array_slice(explode(' ', trim((string) @file_get_contents("$A[flash]/$id2.key.pub"))), 0, 2));
+    $took = partnerTestAs($Bnet, 'return partner_accept(' . var_export(['block' => (string) ($offer2['block'] ?? ''), 'their_address' => '100.64.0.4'] + $doB, true) . ');');
+    $pair2 = array_column(partnerTestAs($Bnet, 'return partnerPairs();'), null, 'id')[$id2] ?? [];
+    $hostA = implode(' ', array_slice(explode(' ', trim((string) file_get_contents($A['host']))), 0, 2));
+    same('USO accept: the partner\'s USO address taken instead — the pair, known_hosts and the door\'s line at 100.64.0.4',
+        [true, '100.64.0.4', "100.64.0.4 $hostA\n", true],
+        [($took['block'] ?? '') !== '', $pair2['address'] ?? null, @file_get_contents("$B[flash]/$id2.known"),
+         str_contains((string) file_get_contents($B['keys']), partnerDoorLine($id2, '100.64.0.4', $pub2))]);
+    check('USO accept: the log says the block\'s address was not taken', str_contains((string) @file_get_contents("$B[data]/agent.log"), 'their block said 192.168.77.1: their USO address taken instead'));
     hardeningRm($tmp);
 
     // the page: in the network (or joining) both dialogs give the USO address — the accept dialog no longer only when the

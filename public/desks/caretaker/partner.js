@@ -539,7 +539,8 @@ function addressDialog(x) {
   const want = (x.usonet_match && x.usonet_match.name) || nodeName(x.name);
   const box = el('div');
   box.appendChild(el('p', '', T('partner.address_text', { name: x.name })));
-  box.appendChild(el('p', 'role', T('partner.address_now', { address: `${x.address}:${x.port}` })));
+  const now = el('p', 'role', T('partner.address_now', { address: `${x.address}:${x.port}` }));
+  box.appendChild(now);
   const radios = [];
   const radio = (value, label, small, checked) => {
     const l = el('label', 'check');
@@ -566,9 +567,8 @@ function addressDialog(x) {
   }
   const typed = input('text', peers.length ? '' : x.address, 'mono');
   typed.placeholder = T('partner.address_placeholder');
-  const own = radio('', T('partner.address_typed'), null, !radios.some((r) => r.checked));
-  own.querySelector('span').appendChild(typed);
-  opts.appendChild(own);
+  opts.appendChild(radio('', T('partner.address_typed'), null, !radios.some((r) => r.checked)));
+  opts.appendChild(typed);          // on a line of its own below its choice (inside the label it shrank to nothing)
   typed.addEventListener('input', () => { radios[radios.length - 1].checked = true; });     // typing picks it (the dialog focuses the field first)
   box.appendChild(opts);
   const port = input('number', x.port || 22);
@@ -606,6 +606,7 @@ function addressDialog(x) {
     const at = `${look.address}:${look.port}`;
     if (look.state === 'saved') {
       mode = 'saved';
+      now.textContent = T('partner.address_now', { address: at });
       const mine = n.state === 'in' ? ip4(n.ips) : '';
       if (look.why === 'denied') say('callout warn', T('partner.address_saved_denied', { name: x.name, address: at }), mine ? T('partner.address_mine', { address: mine }) : '');
       else say('callout', T('partner.address_saved', { name: x.name, address: at }));
