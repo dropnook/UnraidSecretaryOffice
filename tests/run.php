@@ -51644,6 +51644,17 @@ function testUsoNetStatus(): void
         unset($GLOBALS['ctNetSig']);
         caretakerUsonetFollow($now + 18);
         same('USO network card: the partner cards written anew with the picture', [], readJson($kept)['partners']['pairs'] ?? null);
+        // … and with pairs.json or Mr. Backupsy's settings.ini written (an address changed, his Apply) — the network the same
+        $same = readJson($kept);
+        $same['partners'] = ['pairs' => ['stale']];
+        file_put_contents($kept, json_encode($same));
+        caretakerUsonetFollow($now + 24);
+        same('USO network card: nothing written anew while neither the network nor the files changed', ['stale'], readJson($kept)['partners']['pairs'] ?? null);
+        $GLOBALS['ctPartSig'] = 'before';           // as if settings.ini had been written since the last look
+        caretakerUsonetFollow($now + 30);
+        same('USO network card: the files written — the partner cards anew, the picture as it was', [[], 'in'],
+            [readJson($kept)['partners']['pairs'] ?? null, readJson($kept)['usonet']['state'] ?? null]);
+        unset($GLOBALS['ctPartSig']);
         if ($was === null) {
             @unlink($kept);
         } else {

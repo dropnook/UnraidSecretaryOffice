@@ -576,9 +576,13 @@ function addressDialog(x) {
   }
   const typed = input('text', peers.length ? '' : x.address, 'mono');
   typed.placeholder = T('partner.address_placeholder');
-  opts.appendChild(radio('', T('partner.address_typed'), null, !radios.some((r) => r.checked)));
+  if (peers.length) {
+    opts.appendChild(radio('', T('partner.address_typed'), null, !radios.some((r) => r.checked)));
+    typed.addEventListener('input', () => { radios[radios.length - 1].checked = true; });   // typing picks it (the dialog focuses the field first)
+  } else {
+    opts.appendChild(el('div', 'field-title', T('partner.address_typed')));         // nothing else to pick: the field alone
+  }
   opts.appendChild(typed);          // on a line of its own below its choice (inside the label it shrank to nothing)
-  typed.addEventListener('input', () => { radios[radios.length - 1].checked = true; });     // typing picks it (the dialog focuses the field first)
   box.appendChild(opts);
   const port = input('number', x.port || 22);
   port.min = 1; port.max = 65535;
