@@ -1139,6 +1139,23 @@
  "items": [],
  "vms": [
   {
+   "name": "Windows-Druckserver",
+   "running": true,
+   "configured": true,
+   "mode": "snapshot",
+   "prepare": "freeze",
+   "retention": null,
+   "share": "domains",
+   "share_mode": "snapshot",
+   "snap": "yes",
+   "own": [],
+   "disks": [{"source": "/mnt/user/domains/Windows-Druckserver/vdisk1.img", "dataset": "cache/domains"}],
+   "agent": "yes",
+   "hostdev": 0,
+   "tpm": true,
+   "last": null
+  },
+  {
    "name": "uso-lab-chr",
    "running": false,
    "configured": false,

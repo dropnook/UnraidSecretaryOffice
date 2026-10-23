@@ -1097,6 +1097,27 @@ const placeFirstNeeded = () => !!(state && state.found && (state.settings_found 
   || (!!state.settings && 'dumps_share' in state.settings && !state.settings.dumps_share)));
 
 // ---- «Is everything protected?»: the rows as data (pure: tests/backuptiles.js), the filter on them, then the table
+/**
+ * The partners a row of the table reaches (settings.ini as the state's partners list their units): a share its own unit
+ * (the backup place's share also as `place`); a VM its own unit or, its disks in no dataset of its own, inside its share's
+ * (engine 2.44: its configuration in its folder); an app's package its own unit, the backup place it lies in, or the
+ * share its folder lies in (2026-10-23, the owner: «nur lokal» for a VM that goes to Nostromo with domains) → names
+ */
+function protPartners(kind, x) {
+  const place = (state.settings || {}).dumps_share || '';
+  const has = (p, u) => (p.units || []).includes(u);
+  return (state.partners || []).filter((p) => !p.ended && (kind === 'share' ? has(p, 'share:' + x.name) || (!!place && x.name === place && has(p, 'place'))
+    : kind === 'vm' ? has(p, 'vm:' + x.name) || (!(x.own || []).length && !!x.share && has(p, 'share:' + x.share))
+      : has(p, 'app:' + x.name) || has(p, 'place') || (x.dirs || []).some((d) => has(p, 'share:' + String(d).split('/')[0])))).map((p) => p.name);
+}
+/** The words the filter bar meets for a row's partners: the chip's word and the partners' names */
+const partnerHay = (level, partners) => (partners.length && level !== 'none' ? [T(level === 'offsite' ? 'setup.level.partner_kopia' : 'setup.level.partner'), ...partners] : []);
+/** A row's protection as its chip: the office's word (Office.backupChip()), «local + partner (+ offsite)» when it goes to one */
+function protChip(r) {
+  if (!r.partners || !r.partners.length || r.level === 'none') return Office.backupChip(r.level);
+  return chip(T(r.level === 'offsite' ? 'setup.level.partner_kopia' : 'setup.level.partner'), 'ok',
+    [T('prot.partner_hint', { partners: r.partners.join(', ') }), Office.t('protect.' + r.level + '_text')].join(' '));
+}
 /** Every row of the table: {kind share|vm|app, id, name, hay (the words the bar meets), off (unprotected), tiles (the
  *  PROT_TILES that count it)} in the table's order: shares (offsite, local, off; the flash among them), VMs, apps */
 function protRows() {
@@ -1109,9 +1130,10 @@ function protRows() {
     const tiles = [];
     if (s.mode === 'kopia' && kopiaOn) tiles.push('kopia');
     if (s.flash) tiles.push('flash');
-    rows.push({ kind: 'share', id: s.flash ? '\u0000flash' : s.name, name: s.flash ? T('flash') : s.name, x: s, level, off: level === 'none', tiles,
+    const partners = s.flash ? [] : protPartners('share', s);
+    rows.push({ kind: 'share', id: s.flash ? '\u0000flash' : s.name, name: s.flash ? T('flash') : s.name, x: s, level, off: level === 'none', tiles, partners,
       hay: [s.flash ? T('flash') : s.name, word(level), s.mode === 'kopia' && !kopiaOn ? T('mode_kopia_off') : '', s.method === 'live' ? T('live') : '',
-        ...(s.locations || [])] });
+        ...(s.locations || []), ...partnerHay(level, partners)] });
   });
   // the flash kept as an archive in its package (or not at all) is no share of the engine's — still a row of its own here,
   // so «Flash» always has its line: the archive as protected as the backup place, none at all = not backed up
@@ -1126,8 +1148,9 @@ function protRows() {
   (state.vms || []).forEach((v) => {
     const level = vmLevel(v, kopiaOn);
     const pools = [...new Set((v.own || []).map((d) => String(d).split('/')[0]))];
-    rows.push({ kind: 'vm', id: 'vm:' + v.name, name: v.name, x: v, level, off: !v.configured || level === 'none', tiles: ['vms', ...(level === 'offsite' ? ['kopia'] : [])],
-      hay: [v.name, word(level), v.configured && v.mode !== 'off' ? T('vm.prep.' + v.prepare) : '', !v.configured ? T('vm.not_set_up') : '', v.share, ...pools] });
+    const partners = protPartners('vm', v);
+    rows.push({ kind: 'vm', id: 'vm:' + v.name, name: v.name, x: v, level, off: !v.configured || level === 'none', tiles: ['vms', ...(level === 'offsite' ? ['kopia'] : [])], partners,
+      hay: [v.name, word(level), v.configured && v.mode !== 'off' ? T('vm.prep.' + v.prepare) : '', !v.configured ? T('vm.not_set_up') : '', v.share, ...pools, ...partnerHay(level, partners)] });
   });
   const pk = packages();
   if (pk) {
@@ -1138,8 +1161,9 @@ function protRows() {
       const tiles = ['apps'];
       if (a.files.some((f) => f.what === 'dump')) tiles.push('dumps');
       if (level === 'offsite') tiles.push('kopia');
-      rows.push({ kind: 'app', id: 'app:' + a.folder, name: a.name, x: a, level, off: a.result === 'errors', tiles,
-        hay: [a.name, a.folder !== a.name ? a.folder : '', word(level), T('pk.type.' + (a.type || 'container')), pkWord(a)] });
+      const partners = protPartners('app', a);
+      rows.push({ kind: 'app', id: 'app:' + a.folder, name: a.name, x: a, level, off: a.result === 'errors', tiles, partners,
+        hay: [a.name, a.folder !== a.name ? a.folder : '', word(level), T('pk.type.' + (a.type || 'container')), pkWord(a), ...partnerHay(level, partners)] });
     });
   }
   return rows;
@@ -1276,8 +1300,8 @@ function protection() {
       const name = el('th', '', r.name);
       tr.appendChild(name);
       const modeCell = el('td');
-      // the same labels as everywhere in the office: offsite / only local / not backed up
-      modeCell.appendChild(Office.backupChip(r.level));
+      // the same labels as everywhere in the office: offsite / only local / not backed up - «+ partner» when it goes to one
+      modeCell.appendChild(protChip(r));
       if (s.mode === 'kopia' && !kopiaOn) modeCell.append(' ', chip(T('mode_kopia_off'), 'warn'));
       if (s.method === 'live') modeCell.append(' ', chip(T('live'), 'warn', T('live_hint')));
       const pol = s.mode === 'kopia' && kopiaOn ? policyOf(s) : null;
@@ -1319,7 +1343,7 @@ function protection() {
       const name = el('th', '', vm.name);
       tr.appendChild(name);
       const modeCell = el('td');
-      modeCell.appendChild(Office.backupChip(r.level));
+      modeCell.appendChild(protChip(r));
       if (vm.configured && vm.mode !== 'off') modeCell.append(' ', chip(T('vm.prep.' + vm.prepare), vm.prepare === 'none' ? 'warn' : '', T('vm.prep_text.' + vm.prepare)));
       if (!vm.configured) modeCell.append(' ', chip(T('vm.not_set_up'), 'warn', T('vm.not_set_up_hint')));
       const vp = vmPackage(vm.name);
@@ -1341,7 +1365,8 @@ function protection() {
   // the apps: what their package in the backup place holds (the data itself is in their shares above)
   const pk = packages();
   if (v.groups.app && pk) {
-    head('bk-apps', T('pk.group') + ' ', Office.backupChip(placeLevel(kopiaOn)), T('pk.group_hint', { path: pk.base + '/apps' }));
+    const placeRow = { level: placeLevel(kopiaOn), partners: protPartners('share', { name: (state.settings || {}).dumps_share || '' }) };
+    head('bk-apps', T('pk.group') + ' ', protChip(placeRow), T('pk.group_hint', { path: pk.base + '/apps' }));
     if (!v.groups.app.length) none();
     v.groups.app.forEach((r) => {
       const a = r.x;
@@ -1350,6 +1375,9 @@ function protection() {
       tr.appendChild(name);
       const st = el('td');
       st.appendChild(pkChip(a));
+      // a partner the group's head (the backup place) doesn't name already: its own unit, or its folder in a share that goes
+      const more = r.partners.filter((n) => !placeRow.partners.includes(n));
+      if (more.length) st.append(' ', chip(T('prot.at_partner', { partners: more.join(', ') }), 'ok', T('prot.partner_hint', { partners: more.join(', ') })));
       const ga = goneOf('app', a.folder);
       if (ga && ga.moved_to) st.append(' ', chip(T('pk.moved'), 'warn', T('pk.moved_hint', { other: ga.moved_to })));
       else if (ga) st.append(' ', chip(T('pk.gone'), 'warn', T('pk.gone_hint.app', { name: a.name })));
@@ -4966,8 +4994,50 @@ function setupDeriveItems() {
 function appPartner(a, plan) {
   const f = (a.ownFolders || a.folders || [])[0] || null;
   const own = !!(f && ownDataset(plan, f.share, f.dir));
-  const withShare = f && !own ? setupPartners().filter((p) => (dget(`share|${f.share}|partner`, []) || []).includes(p.id)) : [];
+  const withShare = f && !own ? shareGoesTo(f.share, plan) : [];
   return { f, own, withShare, key: `app|${a.name}|partner` };
+}
+
+/** The partners a share's dataset goes to as the draft says: backed up, able to go (partner_ok), in its partner list */
+function shareGoesTo(share, plan) {
+  const sh = ((plan && plan.shares) || []).find((x) => x.name === share);
+  if (!sh || !sh.partner_ok || dget(`share|${share}|mode`, 'off') === 'off') return [];
+  const ids = dget(`share|${share}|partner`, []) || [];
+  return setupPartners().filter((p) => ids.includes(p.id));
+}
+
+/** The partners the backup place goes to (its packages: templates, dumps, VM configurations) as the draft says */
+function placeGoesTo(plan) {
+  const ds = dget('general|dumps_share', '');
+  const row = ((plan && plan.shares) || []).find((x) => x.name === ds);
+  if (!row || !row.partner_ok || dget(`share|${ds}|mode`, 'off') === 'off') return [];
+  const ids = partnerListOf('general|partner_place');
+  return setupPartners().filter((p) => ids.includes(p.id));
+}
+
+/**
+ * A VM and the partners, as appPartner() for an app (2026-10-23, the owner: a VM in domains at «local + partner» read as
+ * «only local»): disks in a dataset of its own → a unit of its own (`vm|<name>|partner`); disks in its share's dataset
+ * (one share, not split) travel with the share when the share goes to a partner (`withShare`) - its package inside its
+ * folder (engine 2.44: XML, NVRAM, TPM state) along with them, so the partner's Mr. Restori can start it from there
+ */
+function vmPartner(x, plan) {
+  const v = x.v || {};
+  const share = x.shares.length === 1 ? x.shares[0] : '';
+  const withShare = !v.partner_ok && v.partner_why !== 'split' && share ? shareGoesTo(share, plan) : [];
+  return { share, withShare, key: `vm|${x.name}|partner` };
+}
+
+/** The partners a VM or app (its unit key) reaches inside its share, as the levels say it: [] for one at «not» */
+function unitVia(key) {
+  const m = setup.model;
+  if (!m || levelOf(key) === 0) return [];
+  if (key.startsWith('vm:')) {
+    const x = m.vms.find((y) => 'vm:' + y.name === key);
+    return x ? vmPartner(x, setup.plan).withShare : [];
+  }
+  const a = m.apps.find((y) => 'app:' + y.id === key);
+  return a ? appPartner(a, setup.plan).withShare : [];
 }
 
 /**
@@ -5190,11 +5260,12 @@ const LEVEL_FIELDS = [{ id: 0, lv: 0, partner: false, key: '0' }, { id: 1, lv: 1
 /**
  * A unit's level in the words of its level picker (LEVEL_FIELDS), the partner part included: «local + partner +
  * offsite» when its partner list (`pKey`) names a partner of the plan — never «local + offsite» for what also goes to
- * a partner (a user, 2026-10-16: «Apply the settings?» said «App Jellyfin: local + offsite» for local + partner + offsite)
+ * a partner (a user, 2026-10-16: «Apply the settings?» said «App Jellyfin: local + offsite» for local + partner + offsite) -
+ * or when it travels inside its share to one (unitVia())
  */
 function levelWord(key, pKey) {
   const l = levelOf(key);
-  if (l > 0 && pKey && partnerListOf(pKey).length) return T(l === 1 ? 'setup.level.partner' : 'setup.level.partner_kopia');
+  if (l > 0 && ((pKey && partnerListOf(pKey).length) || unitVia(key).length)) return T(l === 1 ? 'setup.level.partner' : 'setup.level.partner_kopia');
   return T('setup.level.' + l);
 }
 /** The partner list key of a unit key (app:<id> → app|<name>|partner, vm:<name> → vm|<name>|partner) */
@@ -5213,34 +5284,49 @@ function partnerListSet(key, on) {
   if (!on) { dset(key, []); return; }
   if (!partnerListOf(key).length) dset(key, setupPartners().map((p) => p.id));
 }
+/**
+ * A unit's level as a segment. `partner` {key, ok, why} for a unit that can go to a partner on its own; {via, share} for one
+ * that travels inside its share's dataset (2026-10-23, the owner: a VM in domains at «local + partner» showed «local»
+ * lit and the partner field grey): its partner fields are the truth then and lit - no choice of its own, nothing to set
+ * (the share's level decides) - the fields without the partner greyed with the reason; «not» and the offsite part stay
+ * the unit's (a click on them keeps the 2026-10-22 rule: a level picked here makes «local + Kopia» a source of its own)
+ */
 function levelPick(key, onPick, partner) {
   const max = dget('kopia|enabled') === 'yes' ? 2 : 1;
   const now = levelOf(key);
+  const via = partner && partner.via && partner.via.length ? partner : null;
   const withPartner = !!(partner && setupPartners().length);
-  const pOn = withPartner && partnerListOf(partner.key).length > 0;
+  const pOn = withPartner && (via ? true : partnerListOf(partner.key).length > 0);
   const fields = LEVEL_FIELDS.filter((f) => f.lv <= max && (withPartner || !f.partner));
   const nowId = (fields.find((f) => f.lv === now && f.partner === (now > 0 && pOn)) || fields[0]).id;
   const g = el('div', 'bk-seg' + (fields.length > 3 ? ' bk-seg-five' : ''));
   g.setAttribute('role', 'radiogroup');
+  const names = (via ? via.via : setupPartners()).map((p) => p.name).join(', ');
   fields.forEach((f) => {
     const b = el('button', f.id === nowId ? 'on' : '', T('setup.level.' + f.key));
     b.type = 'button';
     b.setAttribute('role', 'radio');
     b.setAttribute('aria-checked', String(f.id === nowId));
-    b.title = T('setup.level_hint.' + (f.key === 'partner' && key.startsWith('vm:') ? 'partner_vm' : f.key), { partners: setupPartners().map((p) => p.name).join(', ') });
-    if (f.partner && !partner.ok) { b.disabled = true; b.title = T('partner.why.' + (partner.why || 'no_dataset')); }
+    b.title = T('setup.level_hint.' + (f.key === 'partner' && key.startsWith('vm:') ? 'partner_vm' : f.key), { partners: names });
+    if (via && f.lv > 0 && !f.partner) { b.disabled = true; b.title = T('partner.via_fixed', { share: via.share, partners: names }); }
+    else if (via && f.partner) b.title = [T('partner.via_' + (key.startsWith('vm:') ? 'vm' : 'app'), { share: via.share, partners: names }), f.lv === 2 ? T('setup.level_hint.2') : ''].filter(Boolean).join(' ');
+    else if (f.partner && !partner.ok) { b.disabled = true; b.title = T('partner.why.' + (partner.why || 'no_dataset')); }
     b.onclick = () => {
       if (f.id === nowId) return;
       setup.levels[key] = f.lv;
       setup.viaShare.delete(key);            // a level picked here: «local + Kopia» is then a source of its own (engine 2.19)
-      if (withPartner) partnerListSet(partner.key, f.partner);
+      if (withPartner && !via) partnerListSet(partner.key, f.partner);
       if (onPick) onPick(f.lv);
       setupDerive();
       Office.keepInPlace(g, () => renderSetup());
     };
     g.appendChild(b);
   });
-  return g;
+  if (!via || now === 0) return g;
+  // where the partner part comes from, right under it
+  const wrap = el('div', 'bk-via-seg');
+  wrap.append(g, el('small', 'bk-via', T('partner.via_share', { share: via.share })));
+  return wrap;
 }
 
 /** Two and more partners: a chip per partner under the switch while a partner level is on (unticking the last one = «local») */
@@ -5307,9 +5393,20 @@ function setupVms(plan) {
     if (v.hostdev) meta.appendChild(chip(T('setup.vm_gpu', { n: v.hostdev }), '', T('setup.vm_gpu_hint')));
     const vac = asleepChip(v.asleep_bases);
     if (vac) meta.appendChild(vac);
+    // 2026-10-23 (the owner): in its share's dataset at a partner it travels with the whole share - said like an app's
+    const vp = setupPartners().length ? vmPartner(x, plan) : { withShare: [] };
+    const pNames = vp.withShare.map((p) => p.name).join(', ');
     if (v.snap !== 'yes') meta.appendChild(chip(T('setup.vm_cannot.' + v.snap), 'danger', T('setup.vm_cannot_hint')));
     else if (x.own) meta.appendChild(el('span', 'mono', v.own.join(', ')));
+    else if (vp.withShare.length && l > 0) meta.appendChild(chip(T('partner.with_share', { partners: pNames, share: vp.share }), 'ok', T('partner.via_vm', { share: vp.share, partners: pNames })));
     else meta.appendChild(chip(T('setup.vm_shared'), '', T('setup.vm_shared_hint')));
+    // its configuration (engine 2.44: the package inside its folder) is written only while it is shut down or held: one
+    // that keeps running unheld (or isn't backed up, its disks still in the share's copy) reaches the partner without it
+    const toPartner = v.snap === 'yes' && (vp.withShare.length > 0 || (!!v.partner_ok && partnerListOf(k('partner')).length > 0 && l > 0));
+    const unheld = chip(T('partner.vm_unheld'), 'warn', T('partner.vm_unheld_hint', { partners: pNames || partnerListOf(k('partner')).map((id) => (setupPartners().find((p) => p.id === id) || {}).name || id).join(', ') }));
+    const unheldSync = () => { unheld.hidden = !(toPartner && (l === 0 || dget(k('prepare')) === 'none')); };
+    unheldSync();
+    meta.appendChild(unheld);
     // a VM's first upload to Kopia reads its disk files whole - a sparse vdisk's holes as zeros (engine 2.26: the
     // plan's `apparent` beside `bytes`, what the files take); the chip says what, its tip why
     if (v.apparent > 0) {
@@ -5332,7 +5429,8 @@ function setupVms(plan) {
 
     const right = el('div', 'bk-right');
     // from "off" up: freeze or pause proposed again (a VM of its own could keep running at "off")
-    right.appendChild(levelPick('vm:' + v.name, (nl) => { if (l === 0 && nl > 0) dset(k('prepare'), undefined); }, { key: k('partner'), ok: !!v.partner_ok, why: v.partner_why }));
+    right.appendChild(levelPick('vm:' + v.name, (nl) => { if (l === 0 && nl > 0) dset(k('prepare'), undefined); },
+      vp.withShare.length ? { via: vp.withShare, share: vp.share } : { key: k('partner'), ok: !!v.partner_ok, why: v.partner_why }));
     if (l > 0) {
       // keep running (none): only in a dataset of its own - sharing one, it would be "not" (engine 2.21: a new VM's proposal)
       const prep = selectInput(k('prepare'), x.own ? ['freeze', 'pause', 'shutdown', 'none'] : ['freeze', 'pause', 'shutdown'], (o) => T('setup.vm_prep.' + o));
@@ -5340,6 +5438,7 @@ function setupVms(plan) {
       const warn = chip(T('setup.vm_noagent'), 'warn', T('setup.vm_noagent_hint'));
       const sync = () => { warn.hidden = !(prep.value === 'freeze' && (v.agent === 'no' || v.agent === 'none')); };
       prep.addEventListener('change', sync);
+      prep.addEventListener('change', unheldSync);
       sync();
       right.append(warn, prep);
       if (x.own) {
@@ -5406,9 +5505,12 @@ function setupApps(plan) {
     const ap = appPartner(a, plan);
     if (setupPartners().length) {
       if (ap.withShare.length) {
-        const pm = el('div', 'row-meta');
-        pm.appendChild(chip(T('partner.with_share', { partners: ap.withShare.map((p) => p.name).join(', '), share: ap.f.share }), 'ok', T('partner.with_share_hint')));
-        main.appendChild(pm);
+        if (l > 0) {
+          const pm = el('div', 'row-meta');
+          const names = ap.withShare.map((p) => p.name).join(', ');
+          pm.appendChild(chip(T('partner.with_share', { partners: names, share: ap.f.share }), 'ok', T('partner.via_app', { share: ap.f.share, partners: names })));
+          main.appendChild(pm);
+        }
       } else if (ap.own && ap.f && (dget(`share|${ap.f.share}|partner`, []) || []).length) {
         main.appendChild(el('div', 'row-meta role', T('partner.own_too', { share: ap.f.share })));
       } else if (!ap.own) {
@@ -5416,14 +5518,24 @@ function setupApps(plan) {
           .forEach((f) => main.appendChild(whyFold(`app:${a.id}:${f.share}/${f.dir}`, T('dsw.app', { share: f.share, dir: f.dir }),
             { kind: 'app', name: a.name, share: f.share, dir: f.dir, stack: a.stack ? a.name : '', members: a.members })));
       }
+      // no folder of its own (2026-10-23): its template travels only in its package in the backup place
+      if (!ap.f && l > 0) {
+        const pl = placeGoesTo(plan);
+        const names = pl.map((p) => p.name).join(', ');
+        if (pl.length) main.appendChild(el('div', 'row-meta')).appendChild(chip(T('partner.with_place', { partners: names }), 'ok', T('partner.with_place_hint', { partners: names })));
+        else main.appendChild(el('div', 'row-meta role', T('partner.no_folder')));
+      }
       // another app's folder it only uses: a note, never its actions
       (a.otherFolders || []).slice(0, 3).forEach((f) => main.appendChild(el('div', 'row-meta role',
         f.owner ? T('partner.uses_other', { folder: `${f.share}/${f.dir}`, owner: f.owner }) : T('partner.uses_folder', { folder: `${f.share}/${f.dir}` }))));
     }
     row.appendChild(main);
     const right = el('div', 'bk-right');
-    // engine 2.45: «local + partner» for an app whose folder is a dataset of its own; none while it goes with its share
-    right.appendChild(levelPick('app:' + a.id, null, setupPartners().length && !ap.withShare.length ? { key: ap.key, ok: ap.own, why: ap.own ? null : 'not_dataset' } : null));
+    // engine 2.45: «local + partner» for an app whose folder is a dataset of its own; lit, no choice, while it goes with
+    // its share (2026-10-23); none for an app without a folder (its package lies in the backup place: placeLevelPick())
+    const apPick = !setupPartners().length || !ap.f ? null : ap.withShare.length ? { via: ap.withShare, share: ap.f.share }
+      : { key: ap.key, ok: ap.own, why: ap.own ? null : 'not_dataset' };
+    right.appendChild(levelPick('app:' + a.id, null, apPick));
     if (l > 0) {
       const hold = el('select', 'picker');
       hold.append(new Option(T('setup.app_hold.stop'), 'stop'), new Option(T('setup.app_hold.run'), 'run'));
@@ -6607,13 +6719,13 @@ if (globalThis.OFFICE_DESK_TESTS) {
     setupFilter,
     setupFits, setupFirstNew, setupFocus, setupTileData, setupTileList, setupNewCounts, setupSwitcher, SETUP_TILES, STEP_TILE,
     driftText, driftParams, messageText, orderText, scheduleSection,
-    overviewTiles, tileNode, tileList, protRows, protView, protTileCounts, historyRows, PROT_TILES, PROT_ID, TILES,
+    overviewTiles, tileNode, tileList, protRows, protView, protTileCounts, protPartners, protChip, historyRows, PROT_TILES, PROT_ID, TILES,
     setState: (s) => { state = s; },
     setupDraftFromPlan, setupNewLines, setupNewRows, setupChanges, setupSaved, waitingFolders, waitChoice, waitSet, levelOf, waitingText, appSharesText,
     placeLines, placeVerdict, placeOffsite, placeNotes, placeFitting, placeOfferLines, setupPlaceMade, setupDraftKeep, setupDerive, dset, setupEdits,
     PRESETS, presetChoose, presetForget, presetKeep, presetChanged, presetKopiaState, firstUpload, presetKeptList, presetStartText,
     presetCardsOf, presetCardOf, presetApply, presetPartners, levelPick, modeSelect, placeLevelPick, partnerListOf, partnerListSet, setupMigrated, LEVEL_FIELDS,
-    partnerNowText, partnerRateOf, runModeOf, progress, partnerUnits, partnerSectionRows, partnerApplyLines, setupChangeItems, listChangeText, knownText, diffMark, whyFold, folderOf, ownDataset, setupMakeDataset, appPartner, partnerShareLines, appDepGaps, depCovered, depTicked, depClick, setupInitLevels, setupDeclinedApply, declinedList, ownFoldersOf, setupModel, partnerApplyText, setupDecline, setupApplyChanges, minuteTaken, bubbleText, deskActions,
+    partnerNowText, partnerRateOf, runModeOf, progress, partnerUnits, partnerSectionRows, partnerApplyLines, setupChangeItems, listChangeText, knownText, diffMark, whyFold, folderOf, ownDataset, setupMakeDataset, appPartner, vmPartner, shareGoesTo, placeGoesTo, unitVia, levelWord, partnerShareLines, appDepGaps, depCovered, depTicked, depClick, setupInitLevels, setupDeclinedApply, declinedList, ownFoldersOf, setupModel, partnerApplyText, setupDecline, setupApplyChanges, minuteTaken, bubbleText, deskActions,
     presetKopiaMode, presetKopiaVm, draftMode, draftVm, setupNewItems, presetApplyNew, presetNow, presetChosen, presetNewMode, presetNewVm,
     letGoPart, letGoLines, letGoDoneLines, letGoResult, setLetGoClock: (c) => { letGoClock = c; }, setupUnfold, UNFOLD_OWN, setupDecisions, setupApplyChanges, changeLabel, valueText, valueChange, setupSplit, setupDecline,
     warnLines, bubbleText, setupBarSpec, setupNoPlace, setupPlaceStart, bubblePlace, placeFirst, placeFirstNeeded, setupSearchItems, brakeLine, brakeGaps, snapSeconds,

@@ -26,6 +26,7 @@ globalThis.Office = {
   el: (tag, cls, text) => ({ tag, cls, text, dataset: {}, appendChild() {}, append() {} }),
   place: (anchor, node) => { node.place = anchor; return node; },
   stat: (o) => ({ o, dataset: {} }),
+  backupChip: (level) => (level ? { tag: 'span', cls: 'chip', text: 'protect.' + level, dataset: {} } : null),
   fmt: { date: (t) => `date(${t})`, relative: (t) => `rel(${t})`, size: (b) => `${b} B`, number: (n) => String(n), bitrate: (m) => `${m} Mbit/s`, cron: (c) => `cron(${c})`,
     duration: (s) => `${Math.round(s / 60)} min`, time: (t) => `time(${t})` },
 };
@@ -265,6 +266,34 @@ same('history: a word fits its rows only', h.filter((x) => Office.fits(W('warnin
     rough: { sizes: { appdata: 1, media: 1 }, complete: true }, status: { ...run().status, kopia: { ...run().status.kopia, current_since: now - 100 } } }));
   p = B.progress();
   same('first estimate: a later run goes by earlier runs, never rough', [p.rough, Math.round(p.eta - now), p.overdue], [false, 505, false]);
+}
+
+// ---------------------------------------------------------------- 2026-10-23: a unit at a partner says so (the owner: a VM that goes to
+// Nostromo with domains read «only local» on the overview) - its share's partner, its own, the backup place for the packages
+{
+  const s = base();
+  s.shares.push(share('domains', 'snapshot'), share('docs', 'off'));
+  s.vms = [vm('inshare', { own: [] }), vm('ownds'), vm('ownsent', { name: 'ownsent' }), vm('elsewhere', { own: [], share: 'isos' })];
+  s.partners = [{ id: 'p1', name: 'Vault', units: ['place', 'share:domains', 'share:docs', 'vm:ownsent'], current: null, last: null },
+    { id: 'p2', name: 'Gone', units: ['share:appdata'], ended: true, current: null, last: null }];
+  s.packages = { found: true, base: '/mnt/maple/media/backup', apps: [app('web', ['template']), app('db', ['template'], { dirs: ['appdata/db'] })], vms: [] };
+  B.setState(s);
+  const rows = B.protRows();
+  const by = (kind, name) => rows.find((r) => r.kind === kind && r.name === name);
+  same('travel: a share at a partner, the backup place\'s share by its place unit, an ended pair never, a share at «off» not protected (no partner word)',
+    [by('share', 'domains').partners, by('share', 'media').partners, by('share', 'appdata').partners, B.protChip(by('share', 'docs')) && by('share', 'docs').level],
+    [['Vault'], ['Vault'], [], 'none']);
+  same('travel: a VM in its share\'s dataset goes with the share; one in a dataset of its own only as its own unit; another share\'s VM not',
+    ['inshare', 'ownds', 'ownsent', 'elsewhere'].map((n) => by('vm', n).partners), [['Vault'], [], ['Vault'], []]);
+  same('travel: the packages lie in the backup place - every app at its partner', [by('app', 'web').partners, by('app', 'db').partners], [['Vault'], ['Vault']]);
+  const c = B.protChip(by('vm', 'inshare'));
+  same('travel: the chip says «local + partner» (offsite: «… + offsite»), green, the partner named in its tip; the bar finds the word and the name',
+    [c.text, c.cls, B.protChip(by('share', 'appdata')).text, by('vm', 'inshare').hay.includes('setup.level.partner') && by('vm', 'inshare').hay.includes('Vault')],
+    ['setup.level.partner', 'chip ok', 'protect.offsite', true]);
+  s.shares = s.shares.map((x) => (x.name === 'domains' ? { ...x, mode: 'kopia' } : x));
+  s.vms = s.vms.map((x) => (x.share === 'domains' ? { ...x, share_mode: 'kopia' } : x));
+  B.setState(s);
+  same('travel: … its share offsite too: «local + partner + offsite»', B.protChip(B.protRows().find((r) => r.name === 'inshare')).text, 'setup.level.partner_kopia');
 }
 
 console.log(JSON.stringify(out));
