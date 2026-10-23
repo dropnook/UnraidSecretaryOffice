@@ -679,6 +679,9 @@
   "port": 41642,
   "helper": "1",
   "why": "",
-  "joining": null
+  "joining": null,
+  "job": null,
+  "slow": false,
+  "log": []
  }
 }

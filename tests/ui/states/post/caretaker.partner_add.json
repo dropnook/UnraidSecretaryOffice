@@ -1,0 +1,21 @@
+{
+  "name": "Tower",
+  "host_key": true,
+  "port": 22,
+  "addresses": [
+    {"address": "192.168.1.20", "iface": "br0", "private": true},
+    {"address": "100.64.0.4", "iface": "uso-net", "private": true, "usonet": true}
+  ],
+  "units": [{"id": "place", "ok": true, "why": null}, {"id": "share:appdata", "ok": true, "why": null}],
+  "usonet": {
+    "in": true, "address": "100.64.0.4", "port": 22,
+    "peers": [
+      {"name": "uso-partnernas", "address": "100.64.0.3", "online": true, "direct": true, "last_seen": null},
+      {"name": "uso-backupbox", "address": "100.64.0.6", "online": false, "direct": false, "last_seen": 1791554674}
+    ],
+    "peer": false, "range": false
+  },
+  "id": "7f3a9c21",
+  "block": "eyJ2IjoxLCJibG9jayI6IkEiLCJpZCI6IjdmM2E5YzIxIiwibmFtZSI6IlRvd2VyIiwiYWRkcmVzcyI6IjEwMC42NC4wLjQiLCJwb3J0IjoyMn0=",
+  "public": false
+}

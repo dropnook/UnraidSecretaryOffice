@@ -39,6 +39,10 @@ const USONET_DOWN_AFTER = 300;              // the helper away for so long: the 
 const USONET_NO_CONTACT = 3600;             // no contact with the coordination server for so long: his recommendation
 const USONET_JOIN_WAIT  = 90;               // the join job waits so long for the node to be in
 const USONET_FETCH_MAX  = 64 << 20;         // the download is never larger
+const USONET_SLOW_AFTER = 180;              // a join or leave under way for so long: the card says so, with the log's last lines
+const USONET_JOB_QUEUED = 180;              // a job atd hasn't started within so long is given up
+const USONET_JOB_MAX    = 900;              // no job lives longer (the fetch alone may take 300 s)
+const USONET_PROBE_EVERY = 180;             // one small probe per relayed peer at most so often (the path goes direct with traffic)
 
 function usonetFlashDir(): string
 {
@@ -156,14 +160,119 @@ function usonetWrap(array $command, string $address): array
     return array_merge([$nsenter, '--net=/run/netns/' . USONET_NETNS], $command);
 }
 
-/** The node's addresses for the pairing's picker (partnerMyAddresses()): only while it is in and its device is up */
+/** The node's IPv4 while it is in and its device is up (the address this server gives its partners) — else null */
+function usonetMyIp4(?array $s = null): ?string
+{
+    $s ??= usonetStatus();
+    if ($s === null || $s['backend'] !== 'Running' || !$s['netns']) {
+        return null;
+    }
+    foreach ($s['ips'] as $a) {
+        if (filter_var($a, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            return $a;
+        }
+    }
+    return null;
+}
+
+/** The node's address for the pairing's picker (partnerMyAddresses()): its IPv4, only while it is in and its device is up */
 function usonetMyAddresses(): array
 {
-    $s = usonetStatus();
-    if ($s === null || $s['backend'] !== 'Running' || !$s['netns']) {
+    $ip = usonetMyIp4();
+    return $ip === null ? [] : [['address' => $ip, 'iface' => USONET_NETNS, 'private' => true, 'usonet' => true]];
+}
+
+/** Of a tailnet's ranges (100.64.0.0/10, fd7a:115c:a1e0::/48) — the USO network's or the user's own; nothing else */
+function usonetAddressRange(string $a): bool
+{
+    $bin = usonetIp($a) === null ? false : @inet_pton($a);
+    if ($bin === false) {
+        return false;
+    }
+    if (strlen($bin) === 4) {
+        return (ord($bin[0]) === 100) && (ord($bin[1]) & 0xc0) === 0x40;
+    }
+    return substr($bin, 0, 6) === "\xfd\x7a\x11\x5c\xa1\xe0";
+}
+
+/**
+ * The USO peers a pairing can pick from: the tagged ones with an IPv4, the online ones first — name, address, whether
+ * the path is direct right now. Not in the network: none.
+ */
+function usonetPeersToPick(?array $s = null): array
+{
+    $s ??= usonetStatus();
+    if ($s === null || usonetMyIp4($s) === null) {
         return [];
     }
-    return array_map(fn (string $a) => ['address' => $a, 'iface' => USONET_NETNS, 'private' => true, 'usonet' => true], $s['ips']);
+    $out = [];
+    foreach ($s['peers'] as $p) {
+        if (!in_array(USONET_TAG, $p['tags'], true)) {
+            continue;
+        }
+        $ip = null;
+        foreach ($p['ips'] as $a) {
+            if (filter_var($a, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+                $ip = $a;
+                break;
+            }
+        }
+        if ($ip === null) {
+            continue;
+        }
+        // one row per name: a server that joined anew leaves its old node behind (offline) — the online one stands
+        $row = ['name' => $p['name'], 'address' => $ip, 'online' => $p['online'], 'direct' => $p['direct'], 'last_seen' => $p['last_seen'] ?: null];
+        $had = $out[$p['name']] ?? null;
+        if ($had === null || [$row['online'], $row['last_seen'] ?? PHP_INT_MAX] > [$had['online'], $had['last_seen'] ?? PHP_INT_MAX]) {
+            $out[$p['name']] = $row;
+        }
+    }
+    $out = array_values($out);
+    usort($out, fn ($a, $b) => [$b['online'], $a['name']] <=> [$a['online'], $b['name']]);
+    return $out;
+}
+
+/**
+ * A small probe to every online peer still reached over a relay (at most once per USONET_PROBE_EVERY per peer, in the
+ * background): Tailscale starts every path over its relay and goes direct once traffic flows — so the card's «relayed»
+ * is true only for a moment, and a copy that follows starts on the direct path. Three pings inside the namespace,
+ * nothing else; nothing when the node isn't in.
+ */
+function usonetProbe(array $public, ?int $now = null): void
+{
+    if (($public['state'] ?? '') !== 'in') {
+        return;
+    }
+    $now ??= time();
+    $dir = usonetRunDir() . '/probe';
+    foreach ($public['peers'] ?? [] as $p) {
+        if (!$p['online'] || $p['direct'] || !$p['tagged']) {
+            continue;
+        }
+        $ip = null;
+        foreach ($p['ips'] as $a) {
+            if (filter_var($a, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+                $ip = $a;
+                break;
+            }
+        }
+        if ($ip === null) {
+            continue;
+        }
+        $stamp = "$dir/$ip";
+        clearstatcache(true, $stamp);
+        if ($now - (int) @filemtime($stamp) < USONET_PROBE_EVERY) {
+            continue;
+        }
+        if (!is_dir($dir) && !@mkdir($dir, 0700, true)) {
+            return;
+        }
+        @touch($stamp, $now);
+        $probe = getenv('USONET_PROBE');
+        $cmd = $probe ? [$probe, $ip]
+            : ['setsid', '-f', getenv('USONET_NSENTER') ?: '/usr/bin/nsenter', '--net=/run/netns/' . USONET_NETNS, 'ping', '-c', '3', '-W', '2', '-q', $ip];
+        run($cmd, 5);          // setsid -f: the agent goes on at once, the pings finish on their own
+    }
 }
 
 /** The node's name in the tailnet: uso-<server name> (letters, digits, dashes, ≤ 63) */
@@ -182,11 +291,15 @@ function usonetPolicyLines(): array
     ];
 }
 
-/** The outcome of the last join (join.json, RAM): {time, ok, why} or null */
+/** The outcome of the last join (join.json, RAM): {time, ok, why, log} or null — `log`: the logs' last lines of a failed join (the leave that follows takes the logs themselves) */
 function usonetJoinOutcome(): ?array
 {
     $j = readJson(usonetRunDir() . '/join.json');
-    return is_array($j) && is_int($j['time'] ?? null) && is_bool($j['ok'] ?? null) && is_string($j['why'] ?? null) ? $j : null;
+    if (!is_array($j) || !is_int($j['time'] ?? null) || !is_bool($j['ok'] ?? null) || !is_string($j['why'] ?? null)) {
+        return null;
+    }
+    $j['log'] = is_array($j['log'] ?? null) ? array_values(array_filter($j['log'], 'is_string')) : [];
+    return $j;
 }
 
 /** Since when the node had no contact with its coordination server (RAM, kept by usonetPublic()) — null: it has */
@@ -208,23 +321,58 @@ function usonetNoContactSince(?array $s, int $now): ?int
 }
 
 /**
+ * The last lines of the network's logs (usonet.sh's and the helper's, RAM) for the card when a join drags on or
+ * failed — scrubbed: never a key, each line short.
+ */
+function usonetLogTail(int $lines = 8): array
+{
+    $out = [];
+    foreach (['usonet.log' => 3, 'helper.log' => $lines - 3] as $file => $n) {
+        $path = usonetRunDir() . "/$file";
+        clearstatcache(true, $path);
+        if (!is_file($path) || is_link($path)) {
+            continue;
+        }
+        $size = (int) filesize($path);
+        $text = (string) @file_get_contents($path, false, null, max(0, $size - 16384), 16384);
+        $got = array_values(array_filter(array_map('trim', explode("\n", $text)), fn ($l) => $l !== ''));
+        foreach (array_slice($got, -$n) as $l) {
+            $l = (string) preg_replace(['/\b(tskey|hskey)-[A-Za-z0-9_-]+/', '/\b[0-9a-f]{32,}\b/'], ['$1-…', '…'], $l);
+            $out[] = mb_substr($l, 0, 160);
+        }
+    }
+    return $out;
+}
+
+/**
  * His state's `usonet` (the partner section's card): never a key. state: off · joining · leaving · starting · in ·
  * needs_key · no_contact · down · refused (the helper isn't the pinned one) · failed (the last join, its why).
+ * `job`: the join or leave under way — its step and start (the card shows the wave, the step and the time); `slow`
+ * and `log` once it drags on (USONET_SLOW_AFTER), `log` with a failed join too.
  */
 function usonetPublic(?int $now = null): array
 {
     $now ??= time();
     $joined = usonetJoined();
     $s = usonetStatus();
-    $job = usonetJoining();
+    $mark = usonetJob($now);
+    $job = $mark['what'] ?? null;
     $out = ['joined' => $joined, 'state' => 'off', 'name' => '', 'ips' => [], 'tagged' => null, 'peers' => [], 'foreign' => 0,
         'since' => null, 'control' => (string) (usonetConfig()['CONTROL'] ?? ''), 'policy' => usonetPolicyLines(),
-        'node' => usonetNodeName(), 'port' => USONET_UDP_PORT, 'helper' => USONET_HELPER['version'], 'why' => '', 'joining' => $job];
+        'node' => usonetNodeName(), 'port' => USONET_UDP_PORT, 'helper' => USONET_HELPER['version'], 'why' => '', 'joining' => $job, 'time' => $now,
+        'job' => $mark === null ? null : ['what' => $mark['what'], 'step' => $mark['step'], 'since' => $mark['time']],
+        'slow' => $mark !== null && $now - $mark['time'] >= USONET_SLOW_AFTER, 'log' => []];
     $last = usonetJoinOutcome();
     if (!$joined) {
         $out['state'] = $job === 'leave' ? 'leaving' : ($job ? 'joining' : ($last && !$last['ok'] && $now - $last['time'] < 86400 ? 'failed' : 'off'));
         $out['why'] = $out['state'] === 'failed' ? $last['why'] : '';
+        if ($out['slow'] || $out['state'] === 'failed') {
+            $out['log'] = usonetLogTail() ?: ($last['log'] ?? []);      // a failed join's leave took the logs: the lines kept with its outcome
+        }
         return $out;
+    }
+    if ($out['slow']) {
+        $out['log'] = usonetLogTail();
     }
     $refused = trim((string) @file_get_contents(usonetRunDir() . '/helper.refused', false, null, 0, 32));     // «update»: the old one runs on
     $fresh = $s !== null && $now - $s['time'] <= USONET_STALE;
@@ -236,6 +384,9 @@ function usonetPublic(?int $now = null): array
         // tagged one) — the online one, else the one seen last, stands for it
         $byName = [];
         foreach ($s['peers'] as $p) {
+            if ($p['name'] === $s['name']) {
+                continue;       // this server's own earlier node (joined anew; Headscale keeps the old one): not a partner office
+            }
             $tagged = in_array(USONET_TAG, $p['tags'], true);
             $out['foreign'] += $tagged ? 0 : 1;
             $row = ['name' => $p['name'], 'ips' => $p['ips'], 'online' => $p['online'], 'direct' => $p['direct'],
@@ -269,15 +420,38 @@ function usonetPublic(?int $now = null): array
     return $out;
 }
 
-/** The join or leave job under way (its mark in RAM, at most USONET_JOIN_WAIT + 120 s old): 'join' | 'leave' | null */
-function usonetJoining(): ?string
+/**
+ * The join or leave job under way — its mark in RAM {what, time (its start), step, pid (the job's, once it runs)} —
+ * or null. A mark whose job is gone (its process dead; never started within USONET_JOB_QUEUED; older than
+ * USONET_JOB_MAX) is a job that died: the mark goes, and a join that never wrote its outcome gets «job_gone».
+ */
+function usonetJob(?int $now = null): ?array
 {
-    $m = readJson(usonetRunDir() . '/job.json');
-    if (!is_array($m) || !in_array($m['what'] ?? null, ['join', 'leave'], true) || !is_int($m['time'] ?? null)
-        || time() - $m['time'] > USONET_JOIN_WAIT + 120) {
+    $now ??= time();
+    $file = usonetRunDir() . '/job.json';
+    $m = readJson($file);
+    if (!is_array($m) || !in_array($m['what'] ?? null, ['join', 'leave'], true) || !is_int($m['time'] ?? null)) {
         return null;
     }
-    return $m['what'];
+    $pid = is_int($m['pid'] ?? null) && $m['pid'] > 1 ? $m['pid'] : null;
+    $step = is_string($m['step'] ?? null) && preg_match('/^[a-z_]{1,20}$/D', $m['step']) ? $m['step'] : 'queued';
+    $alive = $pid !== null ? (@posix_kill($pid, 0) || posix_get_last_error() === 1) : $now - $m['time'] <= USONET_JOB_QUEUED;     // EPERM: it lives
+    if (!$alive || $now - $m['time'] > USONET_JOB_MAX) {
+        @unlink($file);
+        $last = usonetJoinOutcome();
+        if ($m['what'] === 'join' && ($last === null || $last['time'] < $m['time'])) {
+            writeAtomic(usonetRunDir() . '/join.json', jsonEncode(['time' => $now, 'ok' => false, 'why' => 'job_gone']), 0600, 0, 0);
+            logLine('USO network: the join stopped half-way (its job is gone) — join again');
+        }
+        return null;
+    }
+    return ['what' => $m['what'], 'time' => $m['time'], 'step' => $step, 'pid' => $pid];
+}
+
+/** The join or leave job under way: 'join' | 'leave' | null */
+function usonetJoining(): ?string
+{
+    return usonetJob()['what'] ?? null;
 }
 
 /**
@@ -349,10 +523,23 @@ function usonetConfigWrite(array $cfg): void
     writeAtomic(usonetFlashDir() . '/usonet.cfg', $text, 0600, 0, 0);
 }
 
+/** The job's mark at its start (the agent, before atd has it): queued, no pid yet */
 function usonetJobMark(string $what): void
 {
     @mkdir(usonetRunDir(), 0700, true);
-    writeAtomic(usonetRunDir() . '/job.json', jsonEncode(['what' => $what, 'time' => time()]), 0600, 0, 0);
+    writeAtomic(usonetRunDir() . '/job.json', jsonEncode(['what' => $what, 'time' => time(), 'step' => 'queued', 'pid' => null]), 0600, 0, 0);
+}
+
+/** The job's step as it goes (the card shows it): the start kept, the job's own pid written — so a dead job is seen */
+function usonetJobStep(string $step): void
+{
+    $m = readJson(usonetRunDir() . '/job.json');
+    if (!is_array($m) || !in_array($m['what'] ?? null, ['join', 'leave'], true)) {
+        return;
+    }
+    @mkdir(usonetRunDir(), 0700, true);
+    writeAtomic(usonetRunDir() . '/job.json', jsonEncode(['what' => $m['what'], 'time' => is_int($m['time'] ?? null) ? $m['time'] : time(),
+        'step' => $step, 'pid' => getmypid()]), 0600, 0, 0);
 }
 
 /**
@@ -487,10 +674,10 @@ function usonetJoinJob(?int $wait = null): array
 {
     $wait ??= USONET_JOIN_WAIT;
     $dir = usonetFlashDir();
-    $result = function (bool $ok, string $why) use ($dir): array {
+    $result = function (bool $ok, string $why, array $log = []) use ($dir): array {
         @unlink("$dir/authkey");
         @unlink(usonetRunDir() . '/job.json');
-        $out = ['time' => time(), 'ok' => $ok, 'why' => $why];
+        $out = ['time' => time(), 'ok' => $ok, 'why' => $why, 'log' => $log];
         @mkdir(usonetRunDir(), 0700, true);
         writeAtomic(usonetRunDir() . '/join.json', jsonEncode($out), 0600, 0, 0);
         logLine('USO network: ' . ($ok ? 'this server is in (' . implode(', ', usonetStatus()['ips'] ?? []) . ')' : "joining failed ($why)"));
@@ -500,20 +687,25 @@ function usonetJoinJob(?int $wait = null): array
     if (!is_file("$dir/authkey")) {
         return $result(false, 'key_missing');
     }
+    usonetJobStep('fetch');
     try {
         if (!usonetFetch()) {
+            $log = usonetLogTail();         // the leave takes the logs: their last lines stay with the outcome (the card shows them)
             run(['bash', usonetScript(), 'leave'], 60);
-            return $result(false, 'fetch');
+            return $result(false, 'fetch', $log);
         }
     } catch (Problem $e) {
+        $log = usonetLogTail();
         run(['bash', usonetScript(), 'leave'], 60);
-        return $result(false, 'checksum');
+        return $result(false, 'checksum', $log);
     }
+    usonetJobStep('start');
     usonetConfigWrite(['JOINED' => 'yes', 'NAME' => (string) ($cfg['NAME'] ?? usonetNodeName()), 'CONTROL' => (string) ($cfg['CONTROL'] ?? '')]);
     $end = time() + $wait;
     $why = 'no_contact';
     do {
         run(['bash', usonetScript(), 'check'], 30);
+        usonetJobStep('login');
         $s = usonetStatus();
         if ($s !== null && $s['backend'] === 'Running' && $s['netns'] && $s['ips']) {
             run(['bash', usonetScript(), 'check'], 30);         // the sshd on the node's addresses, right away
@@ -525,13 +717,15 @@ function usonetJoinJob(?int $wait = null): array
         }
         usleep(2000000);
     } while (time() < $end);
+    $log = usonetLogTail();
     run(['bash', usonetScript(), 'leave'], 60);       // nothing half-joined stays
-    return $result(false, $why);
+    return $result(false, $why, $log);
 }
 
 /** The leave's job (atd): usonet.sh leave says in one line whether the node could log out (its RAM folder goes with it) */
 function usonetLeaveJob(): array
 {
+    usonetJobStep('leave');
     [$exit, $out] = run(['bash', usonetScript(), 'leave'], 90);
     @unlink(usonetRunDir() . '/job.json');
     logLine('USO network: this server left it — ' . (trim((string) $out) ?: "usonet.sh leave: $exit"));

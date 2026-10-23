@@ -113,7 +113,10 @@ function section(state) {
   held.forEach((t) => box.appendChild(ticketCard(t)));
   asked.forEach((q) => box.appendChild(ticketRequestRow(q)));
   s.appendChild(box);
-  s.appendChild(netBox(state && state.usonet));
+  // his kept state's picture of the network may be older than the last look the page made itself (usonet_look, every
+  // 4 s while it is busy): the newer of the two is drawn — never a «joining» from before the node was in (2026-10-23)
+  const kept = state && state.usonet;
+  s.appendChild(netBox(netLive && (!kept || !kept.time || netLive.time >= kept.time) ? netLive : kept));
   return s;
 }
 
@@ -122,6 +125,9 @@ function section(state) {
    see each other in a tailnet of their own; then they pair as always, over the node's address (the picker lists it).
    His state's `usonet` (usonetPublic(): never a key); while it joins, leaves or starts the page looks every few seconds. */
 const NET_BUSY = ['joining', 'leaving', 'starting'];
+// states that change on their own within a minute (the helper is started again every minute, contact comes back): the
+// page keeps looking at them too — without the wave (2026-10-23, the lab: «not running» stood until a reload)
+const NET_WATCH = [...NET_BUSY, 'down', 'no_contact'];
 // a fold the user opened or closed stays so while the page lives (every render builds the section anew)
 const folds = new Map();
 function keepFold(det, key, open) {
@@ -134,29 +140,42 @@ function keepFold(det, key, open) {
   });
   return det;
 }
-let netLooks = 0;
 let netTimer = null;
+let netSince = 0;       // since when the page looks at a busy network (0: it doesn't)
+let netLive = null;     // the last answer of the page's own look (usonet_look) or of a join/leave — drawn when newer than his kept state's
+const NET_WATCH_MAX = 20 * 60 * 1000;      // a join may take long (the helper's download, the login); the look stops after that
 
-/** The network's answer into his state (desk.js tookNet), and while it is busy another look in a few seconds */
+/**
+ * The network's answer into his state (desk.js tookNet), and while it is busy another look every few seconds — one
+ * timer, however often the page is drawn, until the state settles (then the card flips to «in the network» on its own;
+ * 2026-10-23: before, every render counted a look and the looks ran out after ~80 s while the join took longer — the
+ * card stayed on «joining» until a reload).
+ */
 function netTook(n) {
   if (!n) return;
+  if (!netLive || !n.time || !netLive.time || n.time >= netLive.time) netLive = n;
   if (ctx && ctx.tookNet) ctx.tookNet(n);
-  clearTimeout(netTimer);
-  if (NET_BUSY.includes(n.state) && netLooks < 40) {
-    netLooks += 1;
-    netTimer = setTimeout(async () => {
-      const j = await Office.api.post(`${ID}.usonet_look`, {});
-      if (j.ok) netTook(j.usonet);
-    }, 4000);
-  } else {
-    netLooks = 0;
-  }
+  netWatch(n);
+}
+
+/** Arms the poll: looks again in 4 s while the network is busy (joining, leaving, starting) — started by a render or an action */
+function netWatch(n) {
+  const busy = NET_WATCH.includes(n.state);
+  if (!busy) { clearTimeout(netTimer); netTimer = null; netSince = 0; return; }
+  if (!netSince) netSince = Date.now();
+  if (netTimer || Date.now() - netSince > NET_WATCH_MAX) return;
+  netTimer = setTimeout(async () => {
+    netTimer = null;
+    const j = await Office.api.post(`${ID}.usonet_look`, {});
+    if (j.ok && j.usonet) netTook(j.usonet);
+    else netWatch(n);          // the agent away for a moment: look again
+  }, 4000);
 }
 
 function netChip(n) {
   const cls = { in: 'ok', joining: 'quiet', leaving: 'quiet', starting: 'quiet', off: 'quiet' }[n.state] || 'danger';
   const c = chip(cls, T('usonet.state.' + n.state), T('usonet.tip.' + n.state));
-  if (NET_BUSY.includes(n.state)) c.prepend(el('span', 'spin'), ' ');
+  if (NET_BUSY.includes(n.state)) { c.classList.add('running'); c.prepend(el('span', 'spin'), ' '); }     // .running shows the wave (office.css)
   return c;
 }
 
@@ -182,18 +201,38 @@ function netBox(n) {
     head.appendChild(leave);
   }
   box.appendChild(head);
-  const say = (cls, text) => { const r = el('div', 'row nocheck'); r.appendChild(el('p', cls, text)); box.appendChild(r); };
-  if (n.state === 'joining' || n.state === 'leaving') say('role', T('usonet.' + n.state + '_text'));
-  else if (n.state === 'failed') say('callout warn', T('usonet.why.' + (n.why || 'no_contact')));
-  else if (n.state === 'refused') say('callout warn', T('usonet.why.' + (n.why || 'checksum')));
+  const say = (cls, text) => { const r = el('div', 'row nocheck'); r.appendChild(el('p', cls, text)); box.appendChild(r); return r; };
+  // the last lines of the network's log (scrubbed by the agent): with a join that drags on or failed
+  const logLines = () => {
+    if (!(n.log || []).length) return;
+    const r = el('div', 'row nocheck');
+    r.appendChild(codeBox(n.log.join('\n')));
+    box.appendChild(r);
+  };
+  if (NET_BUSY.includes(n.state)) {
+    // one line: the wave, the step and the time since the start (the job's mark; starting has none: the helper's state);
+    // after a few minutes: it drags on, and why it might — the log's last lines
+    const job = n.job || {};
+    const r = el('div', 'row nocheck ct-net-busy');
+    const p = el('p', 'role running');          // .running shows the wave (office.css)
+    p.append(el('span', 'spin'), ' ', n.state === 'starting' ? T('usonet.tip.starting') : T('usonet.step.' + (job.step || 'queued')));
+    if (job.since) p.append(' · ', T('usonet.for', { time: fmt.duration(Math.max(1, Math.round(Date.now() / 1000) - job.since)) }));
+    r.appendChild(p);
+    box.appendChild(r);
+    if (n.slow) {
+      say('callout warn', T('usonet.slow', { time: fmt.duration(Math.max(1, Math.round(Date.now() / 1000) - (job.since || 0))) }));
+      logLines();
+    }
+  } else if (n.state === 'failed') {
+    say('callout warn', T('usonet.why.' + (n.why || 'no_contact')));
+    if ((n.log || []).length) { say('role', T('usonet.log_lines')); logLines(); }
+  } else if (n.state === 'refused') say('callout warn', T('usonet.why.' + (n.why || 'checksum')));
   else if (n.state === 'off') say('role', T('usonet.terms'));
   else if (['no_contact', 'down', 'needs_key'].includes(n.state)) {
     say('callout warn', T('usonet.' + n.state + '_text', { since: n.since ? T('usonet.since', { when: fmt.relative(n.since) }) : '' }));
   }
-  if (!n.joined || !n.ips || !n.ips.length) {
-    if (n.joined) NET_BUSY.includes(n.state) && netTook(n);
-    return box;
-  }
+  netWatch(n);          // busy (joined or not yet): the page looks again in a few seconds
+  if (!n.joined || !n.ips || !n.ips.length) return box;
   // this server in it: its name and address (the one to pick at «Add a partner…»), whether it carries the tag
   const me = Office.place('usonet:node', el('div', 'row nocheck ct-partner'));
   const main = el('div', 'row-main');
@@ -215,8 +254,10 @@ function netBox(n) {
     const pm = el('div', 'row-meta');
     pm.appendChild(p.online ? chip('ok', T('usonet.peer_online'), T('usonet.peer_online_tip'))
       : chip('warn', T('usonet.peer_offline'), p.last_seen ? T('usonet.peer_offline_tip', { when: fmt.date(p.last_seen) }) : T('usonet.peer_offline_never')));
+    // relayed is how every path starts (Tailscale goes direct once traffic flows; the agent sends a few pings): a plain
+    // chip, never a warning (2026-10-23)
     if (p.online) pm.appendChild(p.direct ? chip('quiet', T('usonet.peer_direct'), T('usonet.peer_direct_tip'))
-      : chip('warn', T('usonet.peer_relay', { relay: p.relay || '?' }), T('usonet.peer_relay_tip')));
+      : chip('quiet', T('usonet.peer_relay', { relay: p.relay || '?' }), T('usonet.peer_relay_tip')));
     if (!p.tagged) pm.appendChild(chip('danger', T('usonet.peer_untagged'), T('usonet.peer_untagged_tip')));
     (p.ips || []).slice(0, 1).forEach((a) => pm.appendChild(el('span', 'mono', a)));
     m.appendChild(pm);
@@ -233,7 +274,6 @@ function netBox(n) {
   const pr = el('div', 'row nocheck');
   pr.appendChild(det);
   box.appendChild(pr);
-  if (NET_BUSY.includes(n.state)) netTook(n);
   return box;
 }
 
@@ -269,7 +309,7 @@ function joinDialog(n) {
       key.value = '';
       if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return false; }
       Office.toast(T('usonet.join_started'));
-      netLooks = 0;
+      netSince = 0;
       netTook(j.usonet);
       return true;
     } }],
@@ -285,7 +325,7 @@ function leaveDialog() {
       const j = await Office.api.post(`${ID}.usonet_leave`, {});
       if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return false; }
       Office.toast(T('usonet.leave_started'));
-      netLooks = 0;
+      netSince = 0;
       netTook(j.usonet);
       return true;
     } }],
@@ -360,7 +400,8 @@ function card(x) {
   meta.appendChild(stateChip(x));
   if (x.asking) { const a = el('span', 'ct-asking'); a.append(el('span', 'spin'), ' ', T('partner.asking', { name: x.name })); meta.appendChild(a); }
   if (x.array === 'stopped') meta.appendChild(chip('warn', x.night ? T('partner.night') : T('partner.array_stopped'), T('partner.array_stopped_tip')));
-  meta.appendChild(chip('quiet', T('partner.trust.' + x.trust), T('partner.trust_tip.' + x.trust)));
+  // the trust a pair was made with (up to 1.71.0 a question; since then every new pair is «mine»): shown only when it says something
+  if (x.trust && x.trust !== 'mine' && TRUST.includes(x.trust)) meta.appendChild(chip('quiet', T('partner.trust.' + x.trust), T('partner.trust_tip.' + x.trust)));
   if (x.public) meta.appendChild(chip('warn', T('partner.public'), T('partner.public_tip')));
   if (x.key_missing && (x.door === 'closed' || x.door === 'changed')) meta.appendChild(chip('danger', T('partner.door_' + x.door), T('partner.door_' + x.door + '_tip')));
   meta.appendChild(el('span', '', `${x.address}:${x.port}`));
@@ -524,8 +565,12 @@ function tick(text, checked, help, disabled) {
   return { node: l, cb };
 }
 
-/** This office's address for the partner: its own addresses to choose, or another typed in */
-function addressPicker(addresses, port) {
+/**
+ * This office's address for the partner: its own addresses to choose, or another typed in. `usonet`: the look's `usonet`
+ * (partnerUsonet()) — in the network the WireGuard hint stays away (the way is the network; this picker then lives
+ * folded under «Another address…»)
+ */
+function addressPicker(addresses, port, usonet) {
   const box = el('div');
   const sel = el('select', 'input');
   (addresses || []).forEach((a) => {
@@ -547,24 +592,64 @@ function addressPicker(addresses, port) {
   // over WireGuard the tunnel's address (wg0, wg1 …) is the one to pick - it is listed only while the tunnel is up
   // (partnerMyAddresses: ip addr, the iface per address), so say when none is up right now (2026-10-08)
   const wg = (addresses || []).some((a) => /^wg\d*$/.test(String(a.iface || '')));
-  f.appendChild(el('small', '', T('partner.address_hint') + (wg ? '' : ' ' + T('partner.address_nowg'))));
+  if (!(usonet && usonet.in)) f.appendChild(el('small', '', T('partner.address_hint') + (wg ? '' : ' ' + T('partner.address_nowg'))));
   box.appendChild(f);
   box.appendChild(field(T('partner.port'), p, T('partner.port_help')));
   return { node: box, value: () => ({ address: sel.value || typed.value.trim(), port: Number(p.value) }) };
 }
 
-function trustPicker(chosen) {
-  const box = el('div', 'field ct-opts');
-  box.appendChild(el('div', 'field-title', T('partner.trust_title')));
-  const radios = TRUST.map((t) => {
+/**
+ * This server's own address for the partner when it is in the USO network (2026-10-23, «pairing must be simple»): its
+ * USO address and the office's door there, nothing to choose — said in one line; the old way (LAN, WireGuard, a public
+ * address, another port) folded under «Another address…» and taken only while that fold is open. `key`: the fold's name
+ * (kept while the page lives). Not in the network: the picker as always.
+ */
+function myAddress(j, key) {
+  const u = j.usonet || {};
+  if (!(u.in && u.address)) {
+    const addr = addressPicker(j.addresses, j.port, u);
+    return { node: addr.node, value: addr.value, usonet: false };
+  }
+  const box = el('div', 'ct-myaddr');
+  const line = el('p', 'callout');
+  line.append(el('strong', '', T('partner.via_usonet', { address: u.address })), ' ', T('partner.via_usonet_mine'));
+  box.appendChild(line);
+  const det = keepFold(el('details', 'ct-net-policy'), key, false);
+  det.appendChild(el('summary', '', T('partner.address_other')));
+  det.appendChild(el('p', 'role', T('partner.address_other_text')));
+  const addr = addressPicker(j.addresses, j.port, u);
+  det.appendChild(addr.node);
+  box.appendChild(det);
+  return { node: box, usonet: () => !det.open, value: () => (det.open ? addr.value() : { address: u.address, port: Number(u.port) || 22 }) };
+}
+
+/**
+ * «Pair with»: the offices online in the USO network, one to pick (the partner this block is for — the block itself
+ * carries only this server's address; the pick names the partner in what the page says and in the office's log).
+ * Nobody online: said, with what to look at. Null when this server isn't in the network.
+ */
+function peerPicker(usonet) {
+  const u = usonet || {};
+  if (!(u.in && u.address)) return null;
+  const box = el('div', 'field ct-opts ct-peers');
+  box.appendChild(el('div', 'field-title', T('partner.pick_title')));
+  const peers = (u.peers || []).filter((p) => p.online);
+  if (!peers.length) {
+    box.appendChild(el('p', 'callout', T('partner.pick_none')));
+    return { node: box, value: () => '' };
+  }
+  box.appendChild(el('p', 'role', T('partner.pick_text')));
+  const radios = peers.map((p, i) => {
     const l = el('label', 'check');
     const r = el('input');
     r.type = 'radio';
-    r.name = 'ct-trust';
-    r.value = t;
-    r.checked = t === (chosen || 'mine');
-    const s = el('span', '', T('partner.trust.' + t));
-    s.appendChild(el('small', '', T('partner.trust_tip.' + t)));
+    r.name = 'ct-peer';
+    r.value = p.name;
+    r.checked = i === 0;
+    const s = el('span', '', '🏢 ' + p.name);
+    const m = el('small');
+    m.append(el('span', 'mono', p.address), ' · ', p.direct ? T('usonet.peer_direct') : T('usonet.peer_relay_short'));
+    s.appendChild(m);
     l.append(r, s);
     box.appendChild(l);
     return r;
@@ -572,12 +657,17 @@ function trustPicker(chosen) {
   return { node: box, value: () => (radios.find((r) => r.checked) || radios[0]).value };
 }
 
+/** The one sentence instead of «Who is the partner?» (2026-10-23): whoever runs the partner server can read the copies */
+function trustNote() {
+  return el('p', 'role', T('partner.trust_note'));
+}
+
 /**
  * What I keep of theirs — the consent is the pairing: any unit the partner sends, up to the quota, at any time. The rules:
- * the pool, the quota, the retention (the door always wakes its pool, 1.60.2). `name`: the partner (the text «I keep what {name} sends»); `trust`: a
- * function giving the trust chosen (a quota of 0 with family or friend is said).
+ * the pool, the quota, the retention (the door always wakes its pool, 1.60.2). `name`: the partner (the text «I keep what {name} sends»).
+ * A quota of 0 is said (no limit: the partner may fill the pool).
  */
-function receivePicker(name, pools, defaults, trust) {
+function receivePicker(name, pools, defaults) {
   const box = el('div');
   box.appendChild(el('p', '', T('partner.consent', { name })));
   const pool = el('select', 'input');
@@ -593,9 +683,8 @@ function receivePicker(name, pools, defaults, trust) {
   const open = el('p', 'callout warn', T('partner.quota_open', { name }));
   open.hidden = true;
   box.appendChild(open);
-  const openLook = () => { open.hidden = !(Number(quota.value) === 0 && trust && trust() !== 'mine'); };
+  const openLook = () => { open.hidden = Number(quota.value) !== 0; };
   quota.addEventListener('input', openLook);
-  box.addEventListener('ct-trust', openLook);
   const [d, w, m] = String(defaults.retention || DEFAULT_RETENTION).split(' ');
   const ret = el('div', 'ct-pret');
   const rd = input('number', d), rw = input('number', w), rm = input('number', m);
@@ -685,24 +774,29 @@ async function addDialog() {
   const box = el('div');
   box.appendChild(el('p', '', T('partner.add_text')));
   if (!j.host_key) box.appendChild(el('p', 'callout warn', T('errors.partner_host_key')));
-  const addr = addressPicker(j.addresses, j.port);
+  // in the USO network: the partner picked from the offices online there, this server's USO address given without a
+  // choice (the old way folded); else the address picker as always (2026-10-23)
+  const pick = peerPicker(j.usonet);
+  if (pick) box.appendChild(pick.node);
+  const addr = myAddress(j, 'partner-add-other');
   box.appendChild(addr.node);
-  const trust = trustPicker('mine');
-  box.appendChild(trust.node);
+  box.appendChild(trustNote());
   box.appendChild(el('p', 'role', T('partner.add_levels')));
   { const need = needLine('send'); if (need) { need.className = 'callout'; box.appendChild(need); } }
   if (!(j.units || []).some((u) => u.ok)) box.appendChild(el('p', 'callout', T('partner.units_none')));
-  box.appendChild(el('p', 'callout', T('partner.clear_copies')));
   Office.dialog({
     title: T('partner.add_title'),
     body: box,
     wide: true,
     buttons: [{ text: Office.t('common.cancel') }, { text: T('partner.make_block'), kind: '', act: async () => {
       const a = addr.value();
-      const r = await Office.api.post(`${ID}.partner_add`, { step: 'do', address: a.address, port: a.port, trust: trust.value() });
+      const peer = pick && addr.usonet && addr.usonet() ? pick.value() : '';
+      const req = { step: 'do', address: a.address, port: a.port };
+      if (peer) req.peer = peer;
+      const r = await Office.api.post(`${ID}.partner_add`, req);
       if (!took(r)) return false;
       if (ctx) ctx.reload();
-      blockDialog(T('partner.block_a_title'), r.block, T('partner.block_a_text'), r.public);
+      blockDialog(T('partner.block_a_title'), r.block, peer ? T('partner.block_a_text_peer', { name: peer }) : T('partner.block_a_text'), r.public);
       return true;
     } }],
   });
@@ -722,7 +816,6 @@ function partnerFacts(p) {
   return props([
     [T('partner.f_name'), p.name],
     [T('partner.f_address'), `${p.address}:${p.port}`],
-    [T('partner.f_trust'), p.trust ? T('partner.trust.' + p.trust) : null],
     [T('partner.f_host_keys'), (p.host_keys || []).join('\n')],
     [T('partner.f_sends'), p.units && p.units.length ? T('partner.f_sends_units', { list: unitsText(p.units) }) : T('partner.f_sends_levels')],
   ]);
@@ -735,10 +828,14 @@ function acceptSettings(block, j) {
   box.appendChild(el('p', '', T('partner.accept_look', { name: p.name })));
   box.appendChild(partnerFacts(p));
   if (p.public) box.appendChild(el('p', 'callout warn', T('partner.public_tip')));
-  const trust = trustPicker(p.trust || 'mine');
+  // the partner's address is of a tailnet (the USO network): in it, this server answers with its own USO address and the
+  // office's door there, nothing to choose; not in it — said, with the way (2026-10-23)
+  const u = j.usonet || {};
+  const viaNet = !!(u.in && u.address && (u.peer || u.range));
+  if (!u.in && u.range) box.appendChild(el('p', 'callout warn', T('partner.usonet_not_in', { name: p.name })));
   const keepIt = tick(T('partner.keep_theirs', { name: p.name }), true);
   box.appendChild(keepIt.node);
-  const recv = receivePicker(p.name, j.pools, j.defaults, () => trust.value());
+  const recv = receivePicker(p.name, j.pools, j.defaults);
   box.appendChild(recv.node);
   keepIt.cb.onchange = () => { recv.node.hidden = !keepIt.cb.checked; };
   if (!j.pools.length) box.appendChild(el('p', 'callout warn', T('partner.no_pools')));
@@ -749,11 +846,9 @@ function acceptSettings(block, j) {
   box.appendChild(levels);
   const needSend = needLine('send');
   if (needSend) { needSend.className = 'callout'; needSend.hidden = true; box.appendChild(needSend); }
-  const addr = addressPicker(j.addresses, j.port);
-  addr.node.hidden = false;
+  const addr = viaNet ? myAddress(j, 'partner-accept-other') : addressPicker(j.addresses, j.port, u);
   box.appendChild(addr.node);
-  box.appendChild(trust.node);
-  trust.node.addEventListener('change', () => recv.look());
+  box.appendChild(trustNote());
   too.cb.onchange = () => { levels.hidden = !too.cb.checked; if (needSend) needSend.hidden = !too.cb.checked; };
   Office.dialog({
     title: T('partner.accept_title'),
@@ -761,7 +856,7 @@ function acceptSettings(block, j) {
     wide: true,
     buttons: [{ text: Office.t('common.cancel') }, { text: T('partner.next'), kind: '', act: () => {
       const a = addr.value();
-      const req = { step: 'do', block, confirm: true, address: a.address, port: a.port, trust: trust.value(),
+      const req = { step: 'do', block, confirm: true, address: a.address, port: a.port,
         receive: keepIt.cb.checked ? recv.value() : null, send_too: too.cb.checked };
       if (!req.receive && !req.send_too) { Office.toast(T('errors.partner_nothing'), true); return false; }
       acceptConfirm(req, j);
@@ -801,7 +896,7 @@ function acceptSelf(block, j) {
   const p = j.partner;
   const box = el('div');
   box.appendChild(el('p', 'callout', T('partner.self_text', { address: `${p.address}:${p.port}` })));
-  const recv = receivePicker(p.name, j.pools, j.defaults, null);
+  const recv = receivePicker(p.name, j.pools, j.defaults);
   box.appendChild(recv.node);
   if (!j.pools.length) box.appendChild(el('p', 'callout warn', T('partner.no_pools')));
   const line = j.line ? linePart(j.line, p.name) : null;
@@ -853,7 +948,7 @@ function finishCompare(block, j) {
   if (p.key) {
     keepIt = tick(T('partner.keep_theirs', { name: p.name }), true);
     box.appendChild(keepIt.node);
-    recv = receivePicker(p.name, j.pools, j.defaults, null);
+    recv = receivePicker(p.name, j.pools, j.defaults);
     box.appendChild(recv.node);
     if (j.line) {
       line = linePart(j.line, p.name);

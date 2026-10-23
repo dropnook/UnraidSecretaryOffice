@@ -482,7 +482,23 @@ as tagged devices (`tag:uso`) and pair over the node's 100.x address like over a
 * **The one rule the partner code asks:** a pair whose address is a peer of this node (the node's own peer list in
   `RUN_DIR/usonet/status.json` — never the 100.64/10 range, which the user's own tailnet uses too) is called from inside
   the namespace: `partnerSshArgs()` → `usonetWrap()`, the engine's `partner_ssh_cmd` → `usonet_peer` (2.71). Not joined:
-  as before. `partnerMyAddresses()` lists the node's addresses («USO network» in the picker).
+  as before. `partnerMyAddresses()` lists the node's IPv4 («USO network» in the picker; never a tailnet's fd7a).
+* **Pairing over it is a pick** (2026-10-23, «partner-simple»): both dialogs get `usonet` from `partnerUsonet()` — in the
+  network, «Add a partner…» lists the online USO peers (`usonetPeersToPick()`, one radio, the pick only names the partner
+  in the log and the texts) and gives this server's own USO IPv4 and door port without a choice (the old picker folded
+  under «Another address…», the WireGuard hint only outside the network); «Accept a partner…» takes them by itself when
+  the block's address is a peer of the node or of a tailnet's range (`usonetAddressRange()`; not in the network: a
+  callout to join first). The trust question is gone — one sentence, every new pair `trust: 'mine'` (`partnerTrustFrom()`,
+  an explicit value still taken); the blocks carry `trust` as before, so 1.71.0 reads them. The protocol, the door and
+  pairs.json are unchanged.
+* **The card while it is busy:** the job's mark (`usonetJob()`: what, start, step, the job's pid — a dead job is seen and
+  ends as `job_gone`) gives the page the wave, the step and the time; after `USONET_SLOW_AFTER` the logs' last lines
+  (`usonetLogTail()`, scrubbed; a failed join keeps them in join.json since its leave takes the logs). The page's
+  `netWatch()` only arms one look (every 4 s while joining/leaving/starting/down/no_contact) and never renders — 1.71.0
+  rendered itself into a stack overflow; `netTook()` renders. His kept state follows the network between tours
+  (`caretakerUsonetFollow()`, every 5 s, only the `usonet` key); the page draws the newer of its own last look and the kept
+  state. A relayed peer gets three pings in the background (`usonetProbe()`, once per 3 min) so the path goes direct — the
+  relay chip is plain, never a warning. Live check: `tools/ui-clicks.mjs` «USO network card».
 * **Files:** `/boot/config/plugins/unraid-secretary-office/usonet/` (usonet.cfg, the helper, `state/` — the node's key,
   written at its login), `…/usonet.cron`; RAM `RUN_DIR/usonet/` (status.json every 10–30 s, logs, sshd_config) and
   `/usr/local/lib/unraid-secretary-office/` (the helper's and sshd's runnable copies). `usonet.sh leave` (the page's

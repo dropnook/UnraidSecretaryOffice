@@ -1,0 +1,22 @@
+{
+  "partner": {
+    "id": "9b2d4e10", "name": "PartnerNAS", "address": "100.64.0.3", "port": 22, "public": false,
+    "host_keys": ["SHA256:dGhpcyBpcyBub3QgYSByZWFsIGZpbmdlcnByaW50IGF0IGFsbA"], "key": "SHA256:bm90IGEgcmVhbCBwYWlyIGtleSBmaW5nZXJwcmludCBlaXRoZXI",
+    "units": ["place", "share:appdata"], "trust": "mine", "receive": null
+  },
+  "pools": [{"name": "tank", "free": 812000000000, "asleep": false}],
+  "defaults": {"quota_gb": 200, "retention": "7 4 6"},
+  "line": "restrict,from=\"100.64.0.3\",command=\"/usr/local/emhttp/plugins/unraid-secretary-office/scripts/partner-door.sh 9b2d4e10\" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPartPartPartPartPartPartPartPartPartPart uso-partner:9b2d4e10",
+  "name": "Tower",
+  "addresses": [
+    {"address": "192.168.1.20", "iface": "br0", "private": true},
+    {"address": "100.64.0.4", "iface": "uso-net", "private": true, "usonet": true}
+  ],
+  "port": 22,
+  "units": [{"id": "place", "ok": true, "why": null}],
+  "host_key": true,
+  "usonet": {"in": true, "address": "100.64.0.4", "port": 22, "peers": [{"name": "uso-partnernas", "address": "100.64.0.3", "online": true, "direct": true, "last_seen": null}], "peer": true, "range": true},
+  "block": "eyJ2IjoxLCJibG9jayI6IkIiLCJpZCI6IjliMmQ0ZTEwIiwibmFtZSI6IlRvd2VyIiwiYWRkcmVzcyI6IjEwMC42NC4wLjQiLCJwb3J0IjoyMn0=",
+  "code": "482913",
+  "public": false
+}

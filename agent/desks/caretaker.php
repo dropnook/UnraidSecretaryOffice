@@ -162,6 +162,7 @@ function caretakerTick(): void
             logLine('Partner offices: the cards anew after a pairing failed: ' . $e->getMessage());
         }
     }
+    caretakerUsonetFollow($now);        // the USO network's card in his kept state follows the network (every 5 s, RAM only)
     if ($now < ($GLOBALS['ctNextLook'] ?? 0)) {
         return;
     }
@@ -925,11 +926,47 @@ function caretakerPartners(): array
     }
 }
 
+/**
+ * His kept state (data/caretaker.json, what every look of the page shows first) follows the USO network between his
+ * tours: a join or leave under way, its step, the node in, a peer online or direct — when the card's picture changed,
+ * only the state's `usonet` is written anew (the tour's other parts stay as they are, with the tour's time). Before
+ * (1.71.0) the picture written mid-join — «joining, fetching the helper» — was served as fresh for up to five minutes
+ * after the node was in, and the page fell back to it after every look (2026-10-23, the lab). Every 5 s at most; RAM
+ * and the flash only (usonetPublic()).
+ */
+function caretakerUsonetFollow(int $now): void
+{
+    if ($now < ($GLOBALS['ctNetNext'] ?? 0)) {
+        return;
+    }
+    $GLOBALS['ctNetNext'] = $now + 5;
+    $p = caretakerUsonet();
+    $sig = md5(jsonEncode([$p['state'] ?? '', $p['job'] ?? null, $p['slow'] ?? false, $p['ips'] ?? [], $p['tagged'] ?? null, $p['foreign'] ?? 0, $p['why'] ?? '',
+        array_map(fn (array $x) => [$x['name'], $x['online'], $x['direct'], $x['relay'], $x['tagged']], $p['peers'] ?? [])]));
+    if ($sig === ($GLOBALS['ctNetSig'] ?? null)) {
+        return;
+    }
+    $GLOBALS['ctNetSig'] = $sig;
+    $file = deskFile('caretaker');
+    $state = readJson($file);
+    if (!is_array($state) || !array_key_exists('usonet', $state) || jsonEncode((array) $state['usonet']) === jsonEncode($p)) {
+        return;         // no tour yet (the first one writes it), or the same picture already
+    }
+    $state['usonet'] = $p;
+    try {
+        writeAtomic($file, jsonEncode($state));
+    } catch (Throwable $e) {
+        logLine('USO network: the card in the kept state could not be written: ' . $e->getMessage());
+    }
+}
+
 /** His state's `usonet`: the USO network's card (agent/lib/usonet.php usonetPublic(): never a key) */
 function caretakerUsonet(): array
 {
     try {
-        return usonetPublic();
+        $p = usonetPublic();
+        usonetProbe($p);        // a relayed peer gets a few pings so its path goes direct (the card's «relayed» is only the start)
+        return $p;
     } catch (Throwable $e) {
         logLine('USO network: the card failed: ' . $e->getMessage());
         return ['joined' => false, 'state' => 'off'];

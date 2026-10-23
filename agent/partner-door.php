@@ -658,6 +658,7 @@ function doorRecv(array $pair, string $unit, string $snap, ?string $from): int
     $kept = doorRetention($pair, $ds);
     doorReceived($pair, $unit, $snap, $bytes, $seconds, $kept);
     doorLog($id, "recv $unit $snap done: $bytes bytes in {$seconds} s");
+    partnerRescanAsk();         // the Team Lead's card shows the unit at once, not at his next tour (2026-10-23, the lab)
     doorSay(['ok' => true, 'bytes' => $bytes, 'seconds' => $seconds] + ($aside !== null ? ['aside' => $aside] : []), true);
     flock($lock, LOCK_UN);
     return 0;
