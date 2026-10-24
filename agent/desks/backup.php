@@ -457,7 +457,8 @@ function backupPartnerCurrent(array $status, string $id): array
     if (count($streams) < 2) {
         return backupPartnerRate($one, $id, $moved, $key);
     }
-    return backupPartnerRate($one + ['units' => array_column($streams, 'unit'), 'bytes' => $bytes, 'estimate' => $estimate], $id, $moved, $key);
+    return backupPartnerRate(['unit' => $one['unit'], 'since' => $one['since'], 'bytes' => $bytes, 'estimate' => $estimate, 'units' => array_column($streams, 'unit')],
+        $id, $moved, $key);
 }
 
 const BACKUP_PARTNER_RATE_FILE   = 'backup-partner-rate.json';   // in RUN_DIR: the samples of the transfer going on (RAM, gone with the agent)
