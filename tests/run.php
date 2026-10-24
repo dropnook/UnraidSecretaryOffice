@@ -51831,16 +51831,19 @@ function testUsoNetStatus(): void
             ['name' => 'uso-partner', 'ips' => ['100.64.0.3', 'fd7a:115c:a1e0::3'], 'tags' => ['tag:uso'], 'online' => true, 'direct' => false, 'relay' => 'fra', 'last_seen' => 0],
             ['name' => 'uso-vault', 'ips' => ['100.64.0.7'], 'tags' => ['tag:uso'], 'online' => true, 'direct' => true, 'relay' => '', 'last_seen' => 0],
             ['name' => 'uso-attic', 'ips' => ['100.64.0.5'], 'tags' => ['tag:uso'], 'online' => false, 'direct' => false, 'relay' => '', 'last_seen' => 0],
+            ['name' => 'uso-attic', 'ips' => ['100.64.0.15'], 'tags' => ['tag:uso'], 'online' => true, 'direct' => true, 'relay' => '', 'last_seen' => 0],
+            ['name' => 'uso-attic', 'ips' => ['100.64.0.16'], 'tags' => ['tag:uso'], 'online' => true, 'direct' => false, 'relay' => 'fra', 'last_seen' => 0],
             ['name' => 'laptop', 'ips' => ['100.64.0.9'], 'tags' => [], 'online' => true, 'direct' => false, 'relay' => 'fra', 'last_seen' => 0]]])));
         file_put_contents("$run/probe.sh", "#!/bin/bash\necho \"\$1\" >> \"$run/probed\"\n");
         chmod("$run/probe.sh", 0755);
         putenv("USONET_PROBE=$run/probe.sh");
         usonetProbe(usonetPublic($now), $now);
         usonetProbe(usonetPublic($now), $now + 60);
-        same('USO network probe: the relayed USO peer once (not the direct one, not the offline one, never a foreign device), not again within three minutes',
-            "100.64.0.3\n", @file_get_contents("$run/probed"));
+        same('USO network probe: the relayed USO peer once (not the direct one, not the offline one, never a foreign device), not again within three minutes;'
+            . ' a name with two nodes online (one left behind, 2026-10-24): both, the direct one too',
+            "100.64.0.3\n100.64.0.15\n100.64.0.16\n", @file_get_contents("$run/probed"));
         usonetProbe(usonetPublic($now), $now + USONET_PROBE_EVERY + 1);
-        same('USO network probe: after three minutes once more', "100.64.0.3\n100.64.0.3\n", @file_get_contents("$run/probed"));
+        same('USO network probe: after three minutes once more', "100.64.0.3\n100.64.0.15\n100.64.0.16\n100.64.0.3\n100.64.0.15\n100.64.0.16\n", @file_get_contents("$run/probed"));
         putenv('USONET_PROBE');
         // his kept state follows the network between tours: the picture written mid-join is not served as fresh once the node is in
         $kept = deskFile('caretaker');

@@ -214,11 +214,12 @@ function usonetAnswered(array $ips, ?int $now = null): bool
  * How live a node is among those of its name — the larger, the more (2026-10-24, nostromo ↔ StedyUnraid: every leave and
  * join anew leaves the old node listed — Tailscale's logout only expires it, the machine stays until it is removed in
  * the tailnet's console; one of them still said «online» and answered nothing, while the live one was direct): online,
- * then direct, then answered the office's probe lately, then seen last (an online node has no «last seen»: now).
+ * then answered the office's probe lately (usonetProbe() pings every online node of a name listed twice), then direct,
+ * then seen last (an online node has no «last seen»: now).
  */
 function usonetNodeRank(array $p, ?int $now = null): array
 {
-    return [$p['online'], $p['direct'], usonetAnswered($p['ips'], $now), $p['online'] ? PHP_INT_MAX : (int) $p['last_seen']];
+    return [$p['online'], usonetAnswered($p['ips'], $now), $p['direct'], $p['online'] ? PHP_INT_MAX : (int) $p['last_seen']];
 }
 
 /**
@@ -305,11 +306,12 @@ function usonetPeerNamed(string $name, ?array $s = null): ?array
 }
 
 /**
- * A small probe to every online peer still reached over a relay (at most once per USONET_PROBE_EVERY per peer, in the
+ * A small probe to every online peer still reached over a relay (at most once per USONET_PROBE_EVERY per address, in the
  * background): Tailscale starts every path over its relay and goes direct once traffic flows — so the card's «relayed»
  * is true only for a moment, and a copy that follows starts on the direct path. Three pings inside the namespace,
- * nothing else; nothing when the node isn't in. An answer is marked (usonet.sh probe): an earlier node still listed
- * «online» never answers, the live one does — usonetNodeRank() tells them apart.
+ * nothing else; nothing when the node isn't in. An answer is marked (usonet.sh probe): where a name has more than one
+ * node listed online (one left behind, 2026-10-24), each of them is probed, direct or not — the earlier one never
+ * answers, the live one does, and usonetNodeRank() tells them apart.
  */
 function usonetProbe(array $public, ?int $now = null): void
 {
@@ -318,20 +320,21 @@ function usonetProbe(array $public, ?int $now = null): void
     }
     $now ??= time();
     $dir = usonetRunDir() . '/probe';
+    $ips = [];
     foreach ($public['peers'] ?? [] as $p) {
-        if (!$p['online'] || $p['direct'] || !$p['tagged']) {
+        if (!$p['tagged']) {
             continue;
         }
-        $ip = null;
-        foreach ($p['ips'] as $a) {
-            if (filter_var($a, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-                $ip = $a;
-                break;
-            }
+        $others = array_values(array_filter($p['older'] ?? [], fn ($o) => $o['online'] && filter_var($o['ip'], FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)));
+        $ip = usonetPeerIp4($p);
+        if ($ip !== null && $p['online'] && (!$p['direct'] || $others)) {
+            $ips[] = $ip;
         }
-        if ($ip === null) {
-            continue;
+        foreach ($others as $o) {
+            $ips[] = $o['ip'];
         }
+    }
+    foreach ($ips as $ip) {
         $stamp = "$dir/$ip";
         clearstatcache(true, $stamp);
         if ($now - (int) @filemtime($stamp) < USONET_PROBE_EVERY) {
