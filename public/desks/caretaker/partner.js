@@ -294,7 +294,7 @@ function olderFold(list, key, n, word) {
   list.forEach((o) => {
     const p = el('p', 'role');
     p.append(el('span', 'mono', o.ip || '?'), ' · ', o.online ? T('usonet.older_online')
-      : o.last_seen ? T('usonet.peer_offline_tip', { when: fmt.date(o.last_seen) }) : T('usonet.peer_offline_never'));
+      : o.last_seen ? T('usonet.peer_offline_tip', { when: fmt.date(o.last_seen) }) : T('usonet.peer_offline'));     // an old node was seen once: never «never seen»
     det.appendChild(p);
   });
   det.appendChild(el('p', 'role', T(n.control ? 'usonet.older_how_headscale' : 'usonet.older_how')));
