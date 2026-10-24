@@ -110,6 +110,18 @@ async function askProgress() {
     throw e;
   }
 }
+/**
+ * While no run shows: once a minute (his poll) the cheap part «progress» — a run or the joint run started meanwhile loads
+ * his state anew at once, so its panel shows and «Start…» goes off within a minute, not after his state's five (M18)
+ */
+function peekRun() {
+  if (!view || page !== 'main' || !state || liveRun() || !Office.agent.running) return;
+  if (typeof document !== 'undefined' && document.hidden) return;
+  Office.loadState(ID, { part: 'progress' }, (j) => {
+    const p = j && j.ok ? j.part : null;
+    if (p && (p.running || p.night) && typeof p.time === 'number' && p.time > (state.time || 0) && !liveRun()) load(true);
+  }).catch(() => {});
+}
 function tookProgress(j) {
   const p = j && j.ok ? j.part : null;
   if (!p || typeof p.time !== 'number' || p.time < progressAt) { scheduleProgress(); return; }
@@ -3022,7 +3034,7 @@ Office.desk({
   },
   unmount() { if (page === 'setup' && formChanged()) Office.toast(T('setup.left_unsaved')); view = null; saveGate = null; clearTimeout(outTimer); clearTimeout(progTimer); progTimer = null; progBox = null; startKicks = 0; letGoNote = null; },
   letGo: letGoPart,
-  poll() { if (page === 'main') load(false); },
+  poll() { if (page === 'main') { load(false); peekRun(); } },
   greetOk,
   agentChanged() { if (view) (page === 'setup' ? renderSetup() : render()); },
   menu() {

@@ -55,6 +55,8 @@
   "common.unknown": "sconosciuto",
   "common.docker_off": "Docker non è in funzione",
   "common.docker_silent": "Docker è acceso ma non risponde",
+  "common.bubble_array_stopped": "L'array non è avviato — ciò che conservo sta lì sopra. La mia scrivania torna appena gira.",
+  "common.bubble_away": "Il fattorino non è al lavoro — non mi arriva nulla di nuovo. Appena torna, mostro di nuovo la mia scrivania.",
   "common.scanned_ago": "letto {when}",
   "common.page_help": "Come leggere questa pagina",
   "protect.offsite": "fuori sede",

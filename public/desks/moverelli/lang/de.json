@@ -418,6 +418,7 @@
   "rc.end_tomorrow": "fertig etwa morgen um {time}",
   "rc.end_day": "fertig etwa am {day}",
   "rc.end_her": "Mein Teil: {end} — danach geht der Lauf weiter.",
+  "rc.quiet": "Keine Nachricht seit {time} — diese Zahlen sind von damals (das Array angehalten oder der Hausbote weg).",
   "rc.share": "{share}: {done} von {files} · {done_size} von {size}",
   "rc.on_way": "Gerade unterwegs: {file} — {from} → {to}",
   "rc.fill": "Pool {pool} {used} % → Ziel unter {until} %",

@@ -418,6 +418,7 @@
   "rc.end_tomorrow": "terminé demain vers {time}",
   "rc.end_day": "terminé vers {day}",
   "rc.end_her": "Ma part : {end} — l'exécution continue ensuite.",
+  "rc.quiet": "Aucune nouvelle depuis {time} — ces chiffres datent de là (l'array arrêté ou le coursier absent).",
   "rc.share": "{share} : {done} sur {files} · {done_size} sur {size}",
   "rc.on_way": "En route : {file} — {from} → {to}",
   "rc.fill": "Pool {pool} {used} % → objectif sous {until} %",

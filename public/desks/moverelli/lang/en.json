@@ -418,6 +418,7 @@
   "rc.end_tomorrow": "done tomorrow at about {time}",
   "rc.end_day": "done at about {day}",
   "rc.end_her": "My part: {end} — the run goes on after it.",
+  "rc.quiet": "No word since {time} — these numbers are from then (the array stopped or the messenger away).",
   "rc.share": "{share}: {done} of {files} · {done_size} of {size}",
   "rc.on_way": "On its way: {file} — {from} → {to}",
   "rc.fill": "Pool {pool} {used} % → target below {until} %",

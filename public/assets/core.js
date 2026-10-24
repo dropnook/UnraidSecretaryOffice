@@ -3040,6 +3040,18 @@ Office.pageFrom = function pageFrom(list, sub, store) {
 };
 
 /** The desk head every secretary uses: avatar, name, role, speech bubble, actions — and a desk's two pages as tabs */
+/**
+ * A desk's «One moment, …» bubble (its `bubble.loading`) while the messenger isn't at work: no state is coming — the array
+ * not started (the night shift) or the messenger away. Said instead of waiting forever (truth review B13); any other
+ * bubble as it is.
+ */
+function stillLoading(id, bubble) {
+  const words = typeof bubble === 'string' ? bubble : Array.isArray(bubble) && bubble.length === 1 && typeof bubble[0] === 'string' ? bubble[0] : null;
+  if (Office.agent.running || words === null || !Office.has(`${id}.bubble.loading`) || words !== t(`${id}.bubble.loading`)) return bubble;
+  const no = Office.agent.no_data;
+  return t(Office.agent.night || (no && no.array !== 'Started') ? 'common.bubble_array_stopped' : 'common.bubble_away');
+}
+
 Office.deskHead = function deskHead(desk, { bubble, actions, page, pageSub, pages }) {
   const head = el('div', 'deskhead');
   const text = el('div', 'deskhead-text');
@@ -3059,7 +3071,7 @@ Office.deskHead = function deskHead(desk, { bubble, actions, page, pageSub, page
     // and the name, like a letter's close (2026-10-11, Benj; a phone shows the avatar alone, the active desk tab says
     // the name). The desk writes into `bubble` (the words) only, so the signature stays through every redraw. No role
     // line: the role («Kümmert sich um …») is said where the Team Lead introduces the team.
-    if (bubble) b.append(bubble);
+    if (bubble) b.append(stillLoading(desk.id, bubble));
     const sign = el('div', 'deskhead-sign');
     sign.append(Office.avatar(desk.id), el('h1', '', t(`${desk.id}.name`)));
     box.append(b, sign);

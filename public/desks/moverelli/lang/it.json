@@ -418,6 +418,7 @@
   "rc.end_tomorrow": "pronta domani verso le {time}",
   "rc.end_day": "pronta verso {day}",
   "rc.end_her": "La mia parte: {end} — poi l'esecuzione continua.",
+  "rc.quiet": "Nessuna notizia dalle {time} — questi numeri sono di allora (l'array fermato o il fattorino assente).",
   "rc.share": "{share}: {done} di {files} · {done_size} di {size}",
   "rc.on_way": "In viaggio: {file} — {from} → {to}",
   "rc.fill": "Pool {pool} {used} % → obiettivo sotto {until} %",

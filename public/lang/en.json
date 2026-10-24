@@ -55,6 +55,8 @@
   "common.unknown": "unknown",
   "common.docker_off": "Docker isn't running",
   "common.docker_silent": "Docker is switched on but doesn't answer",
+  "common.bubble_array_stopped": "The array isn't started — what I keep lies on it. My desk is back as soon as it runs.",
+  "common.bubble_away": "The messenger isn't at work — no news reaches me. I show my desk again once he is back.",
   "common.scanned_ago": "scanned {when}",
   "common.page_help": "How to read this page",
   "protect.offsite": "offsite",

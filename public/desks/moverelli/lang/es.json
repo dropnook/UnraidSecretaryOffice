@@ -418,6 +418,7 @@
   "rc.end_tomorrow": "lista mañana hacia las {time}",
   "rc.end_day": "lista hacia {day}",
   "rc.end_her": "Mi parte: {end} — después la ejecución sigue.",
+  "rc.quiet": "Sin noticias desde las {time} — estas cifras son de entonces (el array detenido o el mensajero ausente).",
   "rc.share": "{share}: {done} de {files} · {done_size} de {size}",
   "rc.on_way": "En camino: {file} — {from} → {to}",
   "rc.fill": "Pool {pool} {used} % → objetivo por debajo de {until} %",

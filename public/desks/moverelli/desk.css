@@ -135,4 +135,5 @@
   padding:10px 0 0; margin:12px 0 0}
 .mo-pic-file:empty{display:none}                 /* while the run goes: the run's part says the file in flight */
 .mo-one > .mo-jack .jo-prog-head, .mo-one > .mo-pic .mo-pic-head{font-size:12px; font-weight:650; color:var(--muted); text-transform:uppercase; letter-spacing:.04em}
+.mo-run-quiet{color:var(--warn)}                /* the run card's numbers are old: no word came back (T40) */
 }

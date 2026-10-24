@@ -220,6 +220,10 @@ function backupScan(): array
         // the script folder sits on a sleeping disk: keep what we knew
         $old = $GLOBALS['backup'] ?? [];
         $state = ['time' => time(), 'asleep' => true] + $old + $state;
+        // the schedule lies on the flash: its next time anew, never «next backup 3 hours ago» from the kept state (B14)
+        if (is_array($old['schedule'] ?? null)) {
+            $state['schedule'] = array_diff_key(officeJobSchedule('backup'), ['script' => 1]) + $old['schedule'];
+        }
         $GLOBALS['backup'] = $state;
         writeAtomic(deskFile('backup'), jsonEncode($state));
         return $state;

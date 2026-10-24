@@ -46,6 +46,7 @@ let nightNow = null;          // the night run's short state while it goes (the 
 let jackLive = null;          // his step at work in the night (free, fill): his live panel's {real, progress} (the part «progress»)
 let stopping = null;          // the stop file's why while she stops (user | now | mover)
 let progressAt = 0;
+let progressQuiet = false;    // no new word of the run (the array stopped, the messenger away): the card says its numbers are old (T40)
 let progTimer = null;
 const PROGRESS_POLL = 5000;
 /** While a real run goes: the part «progress» every 5 s; nothing otherwise */
@@ -60,9 +61,27 @@ async function askProgress() {
   if (typeof document !== 'undefined' && document.hidden) { scheduleProgress(); return; }
   try { await Office.loadState(ID, { part: 'progress', fresh: true }, tookProgress); } catch (e) { scheduleProgress(); }
 }
+/**
+ * While no run shows: once a minute (her poll) the cheap part «progress» — a run started meanwhile (her schedule, the joint
+ * run) loads her state anew at once, so its card shows and «Start…» goes off within a minute, not after her state's five
+ * (truth review M18)
+ */
+function peekRun() {
+  if (!view || page !== 'main' || !state || running() || nightGoing() || !Office.agent.running) return;
+  if (typeof document !== 'undefined' && document.hidden) return;
+  Office.loadState(ID, { part: 'progress' }, (j) => {
+    const p = j && j.ok ? j.part : null;
+    if (p && p.running && typeof p.time === 'number' && p.time > (state.time || 0) && !running() && !nightGoing()) load(true);
+  }).catch(() => {});
+}
 function tookProgress(j) {
   const p = j && j.ok ? j.part : null;
+  // nothing comes back (the array stopped: no data folder; the messenger away): the last numbers stay, said as old —
+  // never «running · 41 %» as if it were now (truth review T40)
+  const quiet = !p || !!(j && j.agent && j.agent.running === false);
+  if (quiet !== progressQuiet && progress) { progressQuiet = quiet; redrawCard(); }
   if (!p || typeof p.time !== 'number' || p.time < progressAt) { scheduleProgress(); return; }
+  progressQuiet = quiet;
   progressAt = p.time;
   if (!p.real) { progress = null; stopping = null; nightNow = null; jackLive = null; load(true); return; }     // the run ended: her state anew — the card goes
   progress = p.progress || null;
@@ -77,6 +96,7 @@ function redrawCard() {
   const old = view && view.querySelector ? view.querySelector('.mo-run') : null;
   if (!old || !old.replaceWith) return;
   const card = runCard(progress, Date.now() / 1000);
+  if (progressQuiet && progressAt) card.appendChild(el('div', 'card-line mo-run-quiet', T('rc.quiet', { time: fmt.time(progressAt) })));
   old.replaceWith(card);
   // her bubble follows the share in flight (runningText()): its way and which files
   const words = view.querySelector('.deskhead .bubble-text');
@@ -2840,7 +2860,7 @@ Office.desk({
     if (view === root && page === 'main') lookAgain();
   },
   unmount() { leftSetup(); view = null; saveDraw = null; clearTimeout(outTimer); clearTimeout(progTimer); progTimer = null; },
-  poll() { if (page === 'main') load(false); },
+  poll() { if (page === 'main') { load(false); peekRun(); } },
   greetOk,
   agentChanged() { if (view) (page === 'setup' ? renderSetup() : render()); },
   menu() {

@@ -55,6 +55,8 @@
   "common.unknown": "desconocido",
   "common.docker_off": "Docker no está en marcha",
   "common.docker_silent": "Docker está encendido pero no responde",
+  "common.bubble_array_stopped": "El array no está iniciado — lo que guardo está en él. Mi puesto vuelve en cuanto funcione.",
+  "common.bubble_away": "El mensajero no está — no me llega nada nuevo. En cuanto vuelva, muestro de nuevo mi puesto.",
   "common.scanned_ago": "analizado {when}",
   "common.page_help": "Cómo leer esta página",
   "protect.offsite": "fuera de casa",
