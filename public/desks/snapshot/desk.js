@@ -124,10 +124,14 @@ function fromBackup(s) {
   return list.some((p) => p && name.startsWith(p) && /^\d{8}-\d{4}$/.test(name.slice(p.length)));
 }
 
-/** The schedule a snapshot belongs to: uso-plan-<plan>-YYYYMMDD-HHMM (up to 1.27: auto-<plan>-…) */
+/**
+ * The schedule a snapshot belongs to: uso-plan-<plan>-YYYYMMDD-HHMM (up to 1.27: auto-<plan>-…) — never one older than
+ * the plan (`born`, the agent's snapPlanOwns(): a deleted plan's of the same name stay ordinary snapshots)
+ */
 function planOf(s) {
-  const m = /^(?:uso-plan|auto)-([a-z0-9][a-z0-9-]*)-\d{8}-\d{4}$/.exec(s.name || '');
-  return m ? (state?.plans?.plans || []).find((p) => p.id === m[1]) || null : null;
+  const m = /^(?:uso-plan|auto)-([a-z0-9][a-z0-9-]*)-(\d{8}-\d{4})$/.exec(s.name || '');
+  const p = m ? (state?.plans?.plans || []).find((x) => x.id === m[1]) || null : null;
+  return p && typeof p.born_stamp === 'string' && m[2] < p.born_stamp ? null : p;      // the server's clock, as in the name
 }
 
 /** Mounts that must go before deleting (zfs handles .zfs/snapshot automounts itself) */

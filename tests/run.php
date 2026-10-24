@@ -438,6 +438,77 @@ function testPlanGone(): void
 }
 
 /**
+ * T03 (truth review 2026-10): «Delete schedule» says its snapshots stay — a new plan of the same name never takes them.
+ * Its id never comes back (the file's `retired`), never one whose name still matches snapshots (a plan an older office
+ * deleted), and a plan's retention, count and page label never reach back before it (`born`). An older office's file
+ * (no `retired`, no `born`) reads as before, and its tolerant writer keeps both.
+ */
+function testSnapPlanIdNeverReused(): void
+{
+    $tmp = hardeningTmp('planids');
+    $before = [$GLOBALS['snapPlanFile'] ?? null, $GLOBALS['snapPlanStateFile'] ?? null];
+    $GLOBALS['snapPlanFile'] = "$tmp/plans.json";
+    $GLOBALS['snapPlanStateFile'] = "$tmp/state.json";
+    $base = ['recursive' => false, 'cron' => '0 * * * *', 'keep' => 24, 'max_days' => 0, 'skip_asleep' => false, 'enabled' => true, 'since' => 1];
+
+    same('plan ids: a fresh label is its slug', 'stuendlich-appdata', snapPlanNewId('Stündlich appdata', [], [], []));
+    same('plan ids: held by a plan — the next number', 'hourly-2', snapPlanNewId('Hourly', ['hourly'], [], []));
+    same('plan ids: a deleted plan\'s id never comes back', 'hourly-2', snapPlanNewId('Hourly', [], ['hourly'], []));
+    same('plan ids: snapshots of that name still there (deleted by an older office) — never adopted', 'hourly-3',
+        snapPlanNewId('Hourly', [], ['hourly-2'], ['uso-plan-hourly-20261001-1200', 'manual-1']));
+    same('plan ids: … the older auto- names count too', 'hourly-2', snapPlanNewId('Hourly', [], [], ['auto-hourly-20240101-0300']));
+    same('plan ids: another plan\'s snapshots don\'t hold a name that only begins alike', 'hourly',
+        snapPlanNewId('Hourly', [], [], ['uso-plan-hourly-2-20261001-1200', 'uso-plan-hourlyx-20261001-1200']));
+
+    // the delete retires the id beside the list; the file's other keys and entries stay (tolerant writer)
+    file_put_contents("$tmp/plans.json", json_encode(['plans' => [['id' => 'hourly', 'label' => 'Hourly', 'targets' => ['zfs:hazel/appdata']] + $base,
+        ['label' => 'odd']], 'v' => 3]));
+    snapPlanSaveAll([], 'hourly');
+    snapPlanSaveAll(snapPlans(), 'hourly');
+    $file = json_decode((string) file_get_contents("$tmp/plans.json"), true);
+    same('plan ids: delete retires the id once, the odd entry and keys beside the list kept', [['hourly'], [['label' => 'odd']], 3],
+        [$file['retired'] ?? null, $file['plans'] ?? null, $file['v'] ?? null]);
+    same('plan ids: retired read back', ['hourly'], snapPlanRetired());
+    file_put_contents("$tmp/plans.json", json_encode(['plans' => [], 'retired' => ['ok-id', 'Bad Id!', 5, null]]));
+    same('plan ids: junk in retired is ignored', ['ok-id'], snapPlanRetired());
+    file_put_contents("$tmp/plans.json", json_encode(['plans' => []]));
+    same('plan ids: an older office\'s file without retired — none', [], snapPlanRetired());
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/lib/snapshotplans.php');
+    check('plan ids: snapPlanDelete() retires the id, snapPlanSave() chooses through snapPlanNewId()',
+        str_contains($src, 'snapPlanSaveAll($left, $id);') && str_contains($src, 'snapPlanNewId($label, array_column($plans, \'id\'), snapPlanRetired(), array_column(snapshotAll($state), \'name\'))'));
+
+    // the backstop: a plan born now never thins (counts, labels) snapshots of its name from before it — a pool asleep
+    // when its id was chosen; one without `born` (an older office's plan) keeps its whole series as before
+    $now = strtotime('2026-10-24 15:00:00');
+    $snap = fn (string $id, int $at) => ['name' => snapPlanName($id, $at), 'fs' => 'zfs', 'vol' => 'zfs:hazel/appdata', 'ds' => 'hazel/appdata',
+        'id' => 'zfs:hazel/appdata@' . snapPlanName($id, $at), 'docker' => false];
+    $all = [];
+    for ($i = 1; $i <= 30; $i++) {
+        $all[] = $snap('hourly', $now - 86400 * 10 - $i * 3600);          // 30 of the old plan, ten days ago
+    }
+    for ($i = 0; $i < 3; $i++) {
+        $all[] = $snap('hourly', $now + $i * 3600);                         // 3 of the new one
+    }
+    $young = ['id' => 'hourly', 'label' => 'Hourly', 'targets' => ['zfs:hazel/appdata'], 'keep' => 2, 'born' => $now - 30] + $base;
+    $doomed = snapPlanDoomed($young, ['zfs:hazel/appdata'], $all, $now + 7200, []);
+    same('plan ids: a plan born now — its retention takes only its own (the oldest of its 3), never the 30 from before', [$snap('hourly', $now)['id']], $doomed);
+    $old = $young;
+    unset($old['born']);
+    same('plan ids: a plan without born (an older office\'s) — its whole series as before', 31, count(snapPlanDoomed($old, ['zfs:hazel/appdata'], $all, $now + 7200, [])));
+    same('plan ids: owns — its name and not older than it', [true, false, false],
+        [snapPlanOwns($young, snapPlanName('hourly', $now)), snapPlanOwns($young, snapPlanName('hourly', $now - 3600)), snapPlanOwns($young, snapPlanName('daily', $now))]);
+    check('plan ids: … a run in the minute it was born is its own', snapPlanOwns(['born' => $now + 59] + $young, snapPlanName('hourly', $now)));
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/snapshot/desk.js');
+    check('plan ids: the page\'s planOf() never labels an older snapshot as the plan\'s (born_stamp, the names\' clock)', str_contains($js, 'm[2] < p.born_stamp'));
+
+    [$GLOBALS['snapPlanFile'], $GLOBALS['snapPlanStateFile']] = $before;
+    if ($before[0] === null) {
+        unset($GLOBALS['snapPlanFile'], $GLOBALS['snapPlanStateFile']);
+    }
+    hardeningRm($tmp);
+}
+
+/**
  * Ms. Snapshotini's plans through one normalising reader (snapPlans(), upgrade audit proposal 10): a plan an older office
  * wrote without some keys gets every default (the same `enabled` for the run as for a save; never more than the plan
  * said: no age limit, keep the most, no cron line = never due), a plan a newer office wrote keeps its unknown keys —
@@ -52073,7 +52144,7 @@ function testUsoNetJoin(): void
 }
 
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
