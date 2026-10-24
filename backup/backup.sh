@@ -1,6 +1,10 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.72 - 2026-10-23
+# unraid-backup - backup.sh                       Version 2.73 - 2026-10-24
+#   2.73 Several datasets to one partner at once, only while that clearly moves more (partner_adapt): one first, one more
+#        while the total rate rises by more than UB_PARTNER_GAIN %, up to UB_PARTNER_STREAMS and what the partner's door
+#        takes (its ping's streams; a door before 1.72: one). Each dataset stays one ordered, resumable stream; the rate
+#        limit is the total; status.json partner.streams (current = the one going on longest), interrupted_all
 #   2.72 A partner's address and port from the Team Lead's pairs.json when it names the pair (lib/common.sh partner_addr):
 #        «Change the address…» there reaches the run without Mr. Backupsy's Apply; else settings.ini as before
 #   2.71 The office's USO network (its own Tailscale node): a partner whose address is a peer of that node is called from
@@ -554,8 +558,7 @@ DOWNTIME=0                  # the apps' downtime (downtime_s): from stopping the
 SNAP_NAME=""
 KOPIA_PID=""                # running Kopia snapshot (background, see kopia_one)
 KOPIA_CP=""
-PARTNER_PID=""              # the transfer to a partner going on: a subshell running zfs send | mbuffer | pv | ssh (2.27)
-PARTNER_TMP=""              # its files (the door's answers, pv's count), in RAM
+PARTNER_TMP=""              # the transfers' files (the door's answers, pv's count; a folder per slot, SL_PID), in RAM
 ARRAY_STOP="no"             # the array is being stopped: the run ends at once, starts nothing (2.24, array_stop_check)
 CLEANUP_ARMED="no"          # the cleanup trap is set (from then on an array stop ends the run through it)
 UB_ARRAY_LOOK="${UB_ARRAY_LOOK:-5}"   # seconds between looks at var.ini while Kopia uploads
@@ -3031,7 +3034,7 @@ array_stop_release() {
 }
 
 array_stop_report() { # the notification's long text: a headline, then a section per part (like run_report)
-    local l n items=() ns
+    local l n p items=() ns
     echo "The run of $(date -d "@$STARTED_AT" '+%Y-%m-%d %H:%M' 2>/dev/null) ended at once when the array stop began (phase ${ARRAY_STOP_PHASE:-?}), after $(dur_n $(( $(date +%s) - STARTED_AT )))."
     ns=$(( ${#ST_KOPIA_SKIPPED[@]} - ${#ST_KOPIA_SKIPPED_WHY[@]} ))
     if (( ${#ST_KOPIA_PLAN[@]} )); then
@@ -3041,7 +3044,7 @@ array_stop_report() { # the notification's long text: a headline, then a section
     fi
     if (( ${#ST_PARTNER_PLAN[@]} )); then
         echo; echo "PARTNERS   ${#ST_PARTNER_DONE[@]} of ${#ST_PARTNER_PLAN[@]} sent"
-        [[ -n "$ST_PARTNER_INTERRUPTED" ]] && echo "  ${ST_PARTNER_INTERRUPTED#*|} interrupted (the partner keeps what came; the next run continues it)"
+        for p in "${ST_PARTNER_INTERRUPTED_ALL[@]}"; do echo "  ${p#*|} interrupted (the partner keeps what came; the next run continues it)"; done
     fi
     for l in "${!VM_HELD[@]}"; do items+=( "VM $l" ); done
     for n in "${STOPPED[@]}"; do items+=( "$n" ); done
@@ -3104,26 +3107,34 @@ kopia_stop() {
     KOPIA_PID=""
 }
 
-# Ending a transfer to a partner (2.27): SIGTERM to the whole pipe - zfs send, mbuffer, pv and the ssh client; the
-# partner's door sees the stream end, and its zfs recv -s keeps what came as a resume token (the next run continues
-# with zfs send -t). The subshell and every process below it, children first found, all signalled at once.
+# Ending the transfers to a partner (2.27; 2.73 every one going on): SIGTERM to each whole pipe - zfs send, mbuffer,
+# pv and the ssh client; the partner's door sees the stream end, and its zfs recv -s keeps what came as a resume token
+# (the next run continues with zfs send -t). Every subshell and every process below them, children first found, all
+# signalled at once.
 partner_tree() { local c; for c in $(pgrep -P "$1" 2>/dev/null); do partner_tree "$c"; done; printf '%s\n' "$1"; }
 partner_stop() {
-    [[ -n "$PARTNER_PID" ]] || return 0
-    local pids t
-    log "Ending the transfer to the partner ..."
-    pids="$(partner_tree "$PARTNER_PID" | paste -sd' ')"
+    (( ${#SL_PID[@]} )) || return 0
+    local pids k t left
+    log "Ending the transfer$( (( ${#SL_PID[@]} > 1 )) && echo "s") to the partner ..."
+    pids="$(for k in "${!SL_PID[@]}"; do partner_tree "${SL_PID[$k]}"; done | paste -sd' ')"
     # shellcheck disable=SC2086  # a list of pids
     kill -TERM $pids 2>/dev/null
-    for t in $(seq 1 10); do kill -0 "$PARTNER_PID" 2>/dev/null || break; sleep 1; done
-    if kill -0 "$PARTNER_PID" 2>/dev/null; then
-        pids="$(partner_tree "$PARTNER_PID" | paste -sd' ')"
-        # shellcheck disable=SC2086
-        kill -KILL $pids 2>/dev/null
-    fi
-    wait "$PARTNER_PID" 2>/dev/null
-    PARTNER_PID=""
-    ST_PARTNER_CUR=""; ST_PARTNER_CUR_BYTES=0; ST_PARTNER_CUR_EST=0
+    for t in $(seq 1 10); do
+        left=0; for k in "${!SL_PID[@]}"; do kill -0 "${SL_PID[$k]}" 2>/dev/null && left=1; done
+        (( left )) || break; sleep 1
+    done
+    pids="$(for k in "${!SL_PID[@]}"; do kill -0 "${SL_PID[$k]}" 2>/dev/null && partner_tree "${SL_PID[$k]}"; done | paste -sd' ')"
+    # shellcheck disable=SC2086
+    [[ -n "$pids" ]] && kill -KILL $pids 2>/dev/null
+    for k in "${!SL_PID[@]}"; do wait "${SL_PID[$k]}" 2>/dev/null; slot_clear "$k"; done
+    ST_PARTNER_CUR=""; ST_PARTNER_CUR_BYTES=0; ST_PARTNER_CUR_EST=0; ST_PARTNER_STREAMS=()
+}
+# partner_interrupted_all: the transfers going on when the run ends early (the array stop, a stop by hand), oldest first
+partner_interrupted_all() {
+    local k
+    for k in $(for k in "${!SL_PID[@]}"; do printf '%s %s\n' "${SL_T0[$k]}" "$k"; done | sort -n -k1,1 -k2,2 | cut -d' ' -f2); do
+        partner_interrupted "${SL_ID[$k]}|${SL_U[$k]}"
+    done
 }
 # The planned transfers not done when the run ends early: skipped (the array stop, a stop by hand), never failed
 partner_rest_skipped() { # partner_rest_skipped <why>
@@ -3142,11 +3153,11 @@ cleanup() {
     fi
     if [[ "$ARRAY_STOP" == "yes" ]]; then
         [[ -n "$KOPIA_PID" ]] && ST_KOPIA_INTERRUPTED="$ST_KOPIA_CUR"
-        [[ -n "$PARTNER_PID" ]] && ST_PARTNER_INTERRUPTED="$ST_PARTNER_CUR"
+        partner_interrupted_all
         status_phase "aborting"
     elif [[ "$ST_ABORTED" == "yes" ]]; then
         warn "Run aborted (signal)"
-        [[ -n "$PARTNER_PID" ]] && ST_PARTNER_INTERRUPTED="$ST_PARTNER_CUR"
+        partner_interrupted_all
         status_phase "aborting"
     fi
     kopia_stop
@@ -3464,6 +3475,7 @@ partner_plan() {
 partner_done_has() { # partner_done_has <id|unit>  -> 0 when that unit has a result in this run
     local l
     for l in "${ST_PARTNER_DONE[@]}" "${ST_PARTNER_SKIPPED[@]}" "${ST_PARTNER_FAILED[@]}"; do [[ "$l" == "$1|"* ]] && return 0; done
+    for l in "${ST_PARTNER_INTERRUPTED_ALL[@]}"; do [[ "$l" == "$1" ]] && return 0; done
     [[ "$ST_PARTNER_INTERRUPTED" == "$1" ]]
 }
 partner_skip() { # partner_skip <id> <unit> <why>
@@ -3487,82 +3499,151 @@ partner_bookmark() {
             '{id: $id, unit: $unit, snap: $snap, ds: $ds, time: $time}')"
 }
 
-# partner_send <id> <unit> <dataset> <snap> <from> <base> [<resume token>]  - one transfer through the door
+# The transfers going on (2.73): one slot each - up to UB_PARTNER_STREAMS datasets of one partner at once, each its own
+# ordered stream (zfs send | mbuffer | pv | ssh into the door's zfs recv -s), its own resume token, its own chain; never
+# one dataset twice. The pipes run in the background, everything else - the asks, the results, the bookmarks, the
+# warnings, status.json - in the run itself, one after another.
+declare -A SL_PID=() SL_ID=() SL_U=() SL_DS=() SL_SNAP=() SL_FROM=() SL_TOKEN=() SL_T0=() SL_EST=() SL_BYTES=() SL_STAGE=() SL_ADM=()
+
+# slot_free: the lowest slot number not in use
+slot_free() { local k=0; while [[ -n "${SL_PID[$k]:-}${SL_U[$k]:-}" ]]; do k=$(( k + 1 )); done; printf '%s' "$k"; }
+slots_n() { printf '%s' "${#SL_PID[@]}"; }
+
+# partner_cur_set: status.json's current (the transfer going on longest - what an office before 1.72 shows) and streams
+partner_cur_set() {
+    local k first=""
+    ST_PARTNER_STREAMS=()
+    for k in $(for k in "${!SL_PID[@]}"; do printf '%s %s\n' "${SL_T0[$k]}" "$k"; done | sort -n -k1,1 -k2,2 | cut -d' ' -f2); do
+        [[ -n "$first" ]] || first="$k"
+        ST_PARTNER_STREAMS+=( "${SL_ID[$k]}|${SL_U[$k]}|${SL_T0[$k]}|${SL_BYTES[$k]:-0}|${SL_EST[$k]:-0}" )
+    done
+    if [[ -n "$first" ]]; then
+        ST_PARTNER_CUR="${SL_ID[$first]}|${SL_U[$first]}"; ST_PARTNER_CUR_T="${SL_T0[$first]}"
+        ST_PARTNER_CUR_BYTES="${SL_BYTES[$first]:-0}"; ST_PARTNER_CUR_EST="${SL_EST[$first]:-0}"
+    else
+        ST_PARTNER_CUR=""; ST_PARTNER_CUR_BYTES=0; ST_PARTNER_CUR_EST=0
+    fi
+}
+
+# pv_count <file>: what pv counted so far - its last line's last field (a pv told something with -R may add the time)
+pv_count() { tail -n 1 "$1" 2>/dev/null | awk '{ print $NF }' | tr -dc '0-9'; }
+
+# partner_rate_share <id>: the user's rate (rate_mbit) is the total of every transfer to that partner - each running
+# pv gets its share again (pv -R) whenever their number changed; prints what a new transfer gets (bytes/s, 0 = none)
+partner_rate_each() { # partner_rate_each <id> <transfers>
+    local rate
+    rate="$(cfg "partner|$1|rate_mbit" 0)"; is_uint "$rate" || rate=0
+    (( rate > 0 )) || { printf 0; return 0; }
+    printf '%s' $(( rate * 125000 / ( $2 > 0 ? $2 : 1 ) ))
+}
+PT_SHARE_N=0                # how many transfers the running pvs' shares are for
+partner_rate_share() { # partner_rate_share <id>
+    local k p each n
+    n="$(slots_n)"
+    (( n > 0 && n != PT_SHARE_N )) || return 0
+    PT_SHARE_N="$n"
+    each="$(partner_rate_each "$1" "$n")"
+    (( each > 0 )) && command -v pv >/dev/null 2>&1 || return 0
+    for k in "${!SL_PID[@]}"; do
+        p="$(head -c 16 "$PARTNER_TMP/s$k/pvpid" 2>/dev/null | tr -dc '0-9')"
+        [[ -n "$p" ]] && kill -0 "$p" 2>/dev/null && pv -R "$p" -n -b -i "$UB_PARTNER_PV_EVERY" -L "$each" </dev/null >/dev/null 2>&1
+    done
+    return 0
+}
+
+# ps_start <slot> <id> <unit> <dataset> <snap> <from> <base> [<resume token>]  - a transfer through the door, started
 #   <from>: the base snapshot's name for the door ("" = full), <base>: what zfs send -i gets (<ds>@<from> or the bookmark)
-# returns 0 sent (PS_BYTES, PS_SECS), 1 failed (said), 2 need_full, 3 refused (skipped, PS_WHY), 4 unreachable
-PS_BYTES=0; PS_SECS=0; PS_WHY=""; PS_UNIT=""
-partner_send() {
-    local id="$1" u="$2" ds="$3" snap="$4" from="$5" base="$6" token="${7:-}" name words rate t0 w got rc
-    local errf pvf psf d1 d2 ok1 ok2 why detail send_rc ssh_rc last_write=0 b
-    local -a send=() rcs=() door=()
+ps_start() {
+    local k="$1" id="$2" u="$3" ds="$4" snap="$5" from="$6" base="$7" token="${8:-}" name words each t0 b d
+    local -a send=()
     name="$(partner_name "$id")"
-    PS_BYTES=0; PS_SECS=0; PS_WHY=""; PS_UNIT="$u"
-    errf="$PARTNER_TMP/door"; pvf="$PARTNER_TMP/pv"; psf="$PARTNER_TMP/rc"
-    : >"$errf"; : >"$pvf"; rm -f "$psf"
+    d="$PARTNER_TMP/s$k"; mkdir -p "$d"
+    : >"$d/door"; : >"$d/pv"; rm -f "$d/rc" "$d/pvpid"
     if [[ -n "$token" ]]; then
         send=( zfs send -t "$token" ); words="recv $u $snap -t"
     else
         send=( zfs send -L -c ); [[ -n "$base" ]] && send+=( -i "$base" ); send+=( "$ds@$snap" )
         words="recv $u $snap${from:+ $from}"
     fi
-    rate="$(cfg "partner|$id|rate_mbit" 0)"; is_uint "$rate" || rate=0
-    if (( rate > 0 )) && ! command -v pv >/dev/null 2>&1; then log "    (pv is missing - the rate of $rate Mbit/s can't be kept)"; fi
+    each="$(partner_rate_each "$id" $(( $(slots_n) + 1 )))"
+    (( $(slots_n) == 0 )) && PT_SHARE_N=1            # alone: its share is the whole rate (the others: partner_rate_share)
+    if (( each > 0 )) && ! command -v pv >/dev/null 2>&1; then log "    (pv is missing - the rate of $(cfg "partner|$id|rate_mbit" 0) Mbit/s can't be kept)"; fi
     if [[ -n "$token" ]]; then log "  $u -> $name: continuing the interrupted transfer of $snap"
     elif [[ "$base" == *"#"* ]]; then log "  $u -> $name: $snap, incremental from $from (by the bookmark ${base#*#} - $from is gone here)"
     elif [[ -n "$from" ]]; then log "  $u -> $name: $snap, incremental from $from"
     else log "  $u -> $name: $snap, whole (the partner has no snapshot in common with it)"; fi
     # 2.42: what the stream will be (zfs send -nP's size line), for the office's «1.2 of ~4.3 GB» - not for a resumed one
-    ST_PARTNER_CUR_EST=0
+    SL_EST[$k]=0
     if [[ -z "$token" ]]; then
         b="$(zfs send -nP -L -c ${base:+-i "$base"} "$ds@$snap" 2>/dev/null | awk '$1 == "size" { print $2; exit }')"
-        if is_uint "$b" && (( b > 0 )); then ST_PARTNER_CUR_EST="$b"; log "    about $(human "$b") to send"; fi
+        if is_uint "$b" && (( b > 0 )); then SL_EST[$k]="$b"; log "    about $(human "$b") to send"; fi
     fi
     t0="$(date +%s)"
-    ST_PARTNER_CUR="$id|$u"; ST_PARTNER_CUR_T="$t0"; ST_PARTNER_CUR_BYTES=0; status_write
-    # four stages, always: zfs send | mbuffer (or cat) | pv (or cat) | ssh - their exit codes into $psf; the subshell in
-    # the background (wait below looks at the array between) - partner_stop ends its whole tree
+    SL_ID[$k]="$id"; SL_U[$k]="$u"; SL_DS[$k]="$ds"; SL_SNAP[$k]="$snap"; SL_FROM[$k]="$from"; SL_TOKEN[$k]="$token"
+    SL_T0[$k]="$t0"; SL_BYTES[$k]=0; SL_ADM[$k]=""
+    # four stages, always: zfs send | mbuffer (or cat) | pv (or cat) | ssh - their exit codes into rc; the subshell in
+    # the background (the run looks at the array and the other transfers meanwhile) - partner_stop ends its whole tree
     (
         "${send[@]}" 2>>"$LOG_FILE" \
           | { if command -v mbuffer >/dev/null 2>&1; then exec mbuffer -q -s 128k -m 256M 2>>"$LOG_FILE"; else exec cat; fi; } \
           | { if command -v pv >/dev/null 2>&1; then
-                if (( rate > 0 )); then exec pv -n -b -i 10 -L "$(( rate * 125000 ))" 2>"$pvf"; else exec pv -n -b -i 10 2>"$pvf"; fi
+                printf '%s\n' "$BASHPID" >"$d/pvpid"
+                if (( each > 0 )); then exec pv -n -b -i "$UB_PARTNER_PV_EVERY" -L "$each" 2>"$d/pv"; else exec pv -n -b -i "$UB_PARTNER_PV_EVERY" 2>"$d/pv"; fi
               else exec cat; fi; } \
-          | { partner_ssh_cmd "$id"; exec "${PSSH[@]}" "$words" >/dev/null 2>"$errf"; }
-        printf '%s\n' "${PIPESTATUS[@]}" >"$psf"
+          | { partner_ssh_cmd "$id"; exec "${PSSH[@]}" "$words" >/dev/null 2>"$d/door"; }
+        printf '%s\n' "${PIPESTATUS[@]}" >"$d/rc"
     ) 9>&- </dev/null &
-    PARTNER_PID=$!
-    while :; do
-        array_stop_check "sending $u to $name"
-        sleep "$UB_ARRAY_LOOK" 9>&- &
-        w=$!; got=""
-        wait -n -p got "$PARTNER_PID" "$w"
-        [[ "$got" == "$PARTNER_PID" ]] && break
-        if [[ "$got" != "$w" ]]; then                    # neither (a bash without wait -p): the sleep's time
-            wait "$w" 2>/dev/null
-            kill -0 "$PARTNER_PID" 2>/dev/null || { wait "$PARTNER_PID"; break; }
+    SL_PID[$k]=$!
+    partner_cur_set; status_write
+}
+
+# ps_poll: every transfer's count so far (pv's), status.json every 10 s (2.42: the office's rate). A door that refused
+# (its first line, before it reads a byte: busy, a quota, need_full ...) - that pipe ends at once (2.73), never left
+# to run until zfs send notices
+PS_LAST_WRITE=0
+ps_poll() {
+    local k b ok
+    for k in "${!SL_PID[@]}"; do
+        b="$(pv_count "$PARTNER_TMP/s$k/pv")"
+        is_uint "$b" && SL_BYTES[$k]="$b"
+        [[ -z "${SL_ADM[$k]:-}" && -s "$PARTNER_TMP/s$k/door" ]] || continue
+        ok="$(jq -R -r 'fromjson? | select(type == "object" and has("ok")) | .ok' "$PARTNER_TMP/s$k/door" 2>/dev/null | head -n 1)"
+        if [[ "$ok" == "true" ]]; then SL_ADM[$k]=1
+        elif [[ "$ok" == "false" ]]; then
+            SL_ADM[$k]=0
+            # shellcheck disable=SC2046  # a list of pids
+            kill -0 "${SL_PID[$k]}" 2>/dev/null && kill -TERM $(partner_tree "${SL_PID[$k]}") 2>/dev/null
         fi
-        # what left so far (pv counts every 10 s) - status.json every 10 s (2.42; up to 2.41 every 30 s), for the office's rate
-        b="$(tail -n 1 "$pvf" 2>/dev/null | tr -dc '0-9')"
-        if is_uint "$b" && (( $(date +%s) - last_write >= 10 )); then ST_PARTNER_CUR_BYTES="$b"; last_write="$(date +%s)"; status_write; fi
     done
-    kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
-    PARTNER_PID=""
-    PS_SECS=$(( $(date +%s) - t0 ))
-    mapfile -t rcs <"$psf" 2>/dev/null
+    if (( $(date +%s) - PS_LAST_WRITE >= 10 )); then PS_LAST_WRITE="$(date +%s)"; partner_cur_set; status_write; fi
+}
+
+# ps_end <slot>: the transfer in it ended (its pipe reaped) - what came of it
+# returns 0 sent (PS_BYTES, PS_SECS), 1 failed (said), 2 need_full, 3 refused (skipped, PS_WHY), 4 unreachable,
+# 5 busy (2.73: the door takes no more at once - the caller sends it again later)
+PS_BYTES=0; PS_SECS=0; PS_WHY=""; PS_UNIT=""
+ps_end() {
+    local k="$1" id u name d d1 d2 ok1 ok2 why detail send_rc ssh_rc b
+    local -a rcs=() door=()
+    id="${SL_ID[$k]}"; u="${SL_U[$k]}"; d="$PARTNER_TMP/s$k"
+    name="$(partner_name "$id")"
+    PS_BYTES=0; PS_WHY=""; PS_UNIT="$u"
+    PS_SECS=$(( $(date +%s) - SL_T0[$k] ))
+    mapfile -t rcs <"$d/rc" 2>/dev/null
     send_rc="${rcs[0]:-1}"; ssh_rc="${rcs[3]:-255}"
     # the door's two lines (stderr; ssh's own words may stand between them)
-    mapfile -t door < <(jq -R -c 'fromjson? | select(type == "object" and has("ok"))' "$errf" 2>/dev/null)
+    mapfile -t door < <(jq -R -c 'fromjson? | select(type == "object" and has("ok"))' "$d/door" 2>/dev/null)
     d1="${door[0]:-}"; d2="${door[1]:-}"
     ok1="$(jq -r '.ok' <<<"$d1" 2>/dev/null)"; ok2="$(jq -r '.ok' <<<"$d2" 2>/dev/null)"
-    b="$(tail -n 1 "$pvf" 2>/dev/null | tr -dc '0-9')"
+    b="$(pv_count "$d/pv")"
     if is_uint "$b"; then PS_BYTES="$b"
     else b="$(jq -r '.bytes // empty' <<<"$d2" 2>/dev/null)"; is_uint "$b" && PS_BYTES="$b"; fi
-    ST_PARTNER_CUR=""; ST_PARTNER_CUR_BYTES=0; ST_PARTNER_CUR_EST=0
+    SL_BYTES[$k]="$PS_BYTES"
     # it ended badly just as the array stop began: interrupted by the stop, not failed
-    if [[ "$ok2" != "true" ]] && array_stopping; then ST_PARTNER_INTERRUPTED="$id|$u"; array_stop_check "the transfer of $u ended"; fi
+    if [[ "$ok2" != "true" ]] && array_stopping; then partner_interrupted "$id|$u"; array_stop_check "the transfer of $u ended"; fi
     if [[ -z "$d1" ]]; then
         if (( ssh_rc == 255 )); then
-            [[ -s "$errf" ]] && log "    ($name: $(head -c 300 "$errf" | tr '\n' ' ' | tr -d '\r'))"
+            [[ -s "$d/door" ]] && log "    ($name: $(head -c 300 "$d/door" | tr '\n' ' ' | tr -d '\r'))"
             return 4
         fi
         PS_WHY="no_answer"; partner_fail "$id" "$u" no_answer "the door gave no answer (ssh exit code $ssh_rc)"; return 1
@@ -3577,11 +3658,14 @@ partner_send() {
             unit_not_agreed) PS_WHY="not_agreed"; log "    $name runs an older office and hasn't agreed to keep $u - its Team Lead decides (update it: then every unit goes)"; return 3 ;;
             # 2.45: an office before 1.60.1 knows no app units - skipped, said once a run (partner_refused)
             bad_unit) if [[ "$u" == app:* ]]; then PS_WHY="old_partner"; log "    $name runs an older office that takes no app on its own ($u) - update it there"; return 3; fi ;;
+            # 2.73: the door takes no more at once while another transfer of this run goes on - this one again after it
+            busy) if (( $(slots_n) > 1 )); then log "    $name takes no more at once (busy) - $u goes when another transfer is through"; return 5; fi ;;
         esac
         partner_fail "$id" "$u" "$why" "$name refused it ($why)"; return 1
     fi
     if [[ "$ok2" == "true" && "$send_rc" == 0 ]]; then
-        log "    sent: $(human "$PS_BYTES") in $(dur_h "$PS_SECS") - $(partner_mbit "$PS_BYTES" "$PS_SECS") Mbit/s"
+        if (( PT_MANY )); then log "    $u sent: $(human "$PS_BYTES") in $(dur_h "$PS_SECS") - $(partner_mbit "$PS_BYTES" "$PS_SECS") Mbit/s"
+        else log "    sent: $(human "$PS_BYTES") in $(dur_h "$PS_SECS") - $(partner_mbit "$PS_BYTES" "$PS_SECS") Mbit/s"; fi
         return 0
     fi
     if [[ "$ok2" == "false" ]]; then
@@ -3595,11 +3679,17 @@ partner_send() {
     return 1
 }
 
-# partner_unit <id> <unit> <dataset>: resume what was interrupted, find the base, send this run's snapshot
-partner_unit() {
-    local id="$1" u="$2" ds="$3" name token toname snap common="" from="" base="" r recorded theirs mine s
-    local -a ours=()
-    local -A have=()
+# slot_clear <slot>: the slot free again
+slot_clear() {
+    local k="$1"
+    unset "SL_PID[$k]" "SL_ID[$k]" "SL_U[$k]" "SL_DS[$k]" "SL_SNAP[$k]" "SL_FROM[$k]" "SL_TOKEN[$k]" "SL_T0[$k]" "SL_EST[$k]" "SL_BYTES[$k]" "SL_STAGE[$k]" "SL_ADM[$k]"
+    partner_cur_set
+}
+
+# pu_begin <slot> <id> <unit> <dataset>: resume what was interrupted, else find the base and send this run's snapshot -
+# started in the slot (SL_PID set), or settled at once (done, skipped, the partner unreachable: the slot stays free)
+pu_begin() {
+    local k="$1" id="$2" u="$3" ds="$4" name token toname snap r
     name="$(partner_name "$id")"
     PS_UNIT="$u"
     # 1. an interrupted transfer first: its receiver kept a token (zfs recv -s)
@@ -3612,20 +3702,24 @@ partner_unit() {
             toname="$(zfs send -nv -t "$token" 2>&1 | sed -n 's/^[[:space:]]*toname = //p' | head -n 1)"
             snap="${toname#*@}"
             if [[ "${toname%%@*}" == "$ds" && "$snap" =~ $UB_PARTNER_SNAP_RE ]]; then
-                partner_send "$id" "$u" "$ds" "$snap" "" "" "$token"; r=$?
-                case "$r" in
-                    0) ST_PARTNER_DONE+=( "$id|$u|$snap||$PS_BYTES|$PS_SECS|1" ); partner_bookmark "$id" "$ds" "$snap"; status_write ;;
-                    3) partner_skip "$id" "$u" "$PS_WHY"; partner_refused "$id" "$PS_WHY"; return 0 ;;
-                    4) PARTNER_DOWN[$id]="unreachable"; return 0 ;;
-                    *) return 0 ;;
-                esac
-                [[ "$snap" == "$SNAP_NAME" ]] && return 0
-            else
-                log "    $name holds an interrupted transfer of ${toname:-a snapshot gone here} - it can't be continued; sending anew"
+                SL_STAGE[$k]="resume"
+                ps_start "$k" "$id" "$u" "$ds" "$snap" "" "" "$token"
+                return 0
             fi
+            log "    $name holds an interrupted transfer of ${toname:-a snapshot gone here} - it can't be continued; sending anew"
         fi
     fi
-    # 2. what the partner holds of it - the base of an incremental send
+    pu_send "$k" "$id" "$u" "$ds"
+}
+
+# pu_send <slot> <id> <unit> <dataset>: what the partner holds of it - the base of an incremental send - and this run's
+# snapshot on its way (whole, should the partner have no base for it)
+pu_send() {
+    local k="$1" id="$2" u="$3" ds="$4" name common="" from="" base="" r recorded s
+    local -a ours=()
+    local -A have=()
+    name="$(partner_name "$id")"
+    PS_UNIT="$u"
     partner_ask "$id" list "$u"; r=$?
     (( r == 255 )) && { PARTNER_DOWN[$id]="unreachable"; return 0; }
     # a list it won't give (a unit it never received, whatever its door says then): nothing in common - the recv below
@@ -3652,16 +3746,169 @@ partner_unit() {
             from="$recorded"; base="$ds#$UB_PARTNER_BOOKMARK$id"
         fi
     fi
-    # 3. this run's snapshot - whole, should the partner have no base for it
-    partner_send "$id" "$u" "$ds" "$SNAP_NAME" "$from" "$base"; r=$?
-    if (( r == 2 )) && [[ -n "$from" ]]; then from=""; base=""; partner_send "$id" "$u" "$ds" "$SNAP_NAME" "" ""; r=$?; fi
+    SL_STAGE[$k]="send"
+    ps_start "$k" "$id" "$u" "$ds" "$SNAP_NAME" "$from" "$base"
+}
+
+# pu_after <slot> <rc>: a transfer in the slot ended with <rc> (ps_end) - the unit's next step: the resumed one done, now
+# this run's snapshot; need_full -> the same whole; else its result. Returns 5 when the unit goes back into the queue
+pu_after() {
+    local k="$1" r="$2" id u ds snap from stage name
+    id="${SL_ID[$k]}"; u="${SL_U[$k]}"; ds="${SL_DS[$k]}"; snap="${SL_SNAP[$k]}"; from="${SL_FROM[$k]}"; stage="${SL_STAGE[$k]}"
+    name="$(partner_name "$id")"
+    unset "SL_PID[$k]"
+    PS_UNIT="$u"
+    if [[ "$stage" == "resume" ]]; then
+        case "$r" in
+            0) ST_PARTNER_DONE+=( "$id|$u|$snap||$PS_BYTES|$PS_SECS|1" ); partner_bookmark "$id" "$ds" "$snap"; status_write ;;
+            3) partner_skip "$id" "$u" "$PS_WHY"; partner_refused "$id" "$PS_WHY"; slot_clear "$k"; return 0 ;;
+            4) PARTNER_DOWN[$id]="unreachable"; slot_clear "$k"; return 0 ;;
+            5) slot_clear "$k"; return 5 ;;
+            *) slot_clear "$k"; return 0 ;;
+        esac
+        if [[ "$snap" == "$SNAP_NAME" ]]; then slot_clear "$k"; return 0; fi
+        pu_send "$k" "$id" "$u" "$ds"
+        [[ -n "${SL_PID[$k]:-}" ]] || slot_clear "$k"
+        return 0
+    fi
+    if (( r == 2 )) && [[ "$stage" == "send" && -n "$from" ]]; then
+        SL_STAGE[$k]="whole"
+        ps_start "$k" "$id" "$u" "$ds" "$SNAP_NAME" "" ""
+        return 0
+    fi
     case "$r" in
         0) ST_PARTNER_DONE+=( "$id|$u|$SNAP_NAME|$from|$PS_BYTES|$PS_SECS|0" ); partner_bookmark "$id" "$ds" "$SNAP_NAME"; status_write ;;
         2) partner_fail "$id" "$u" need_full "$name asks for a full transfer, and a full one was refused too" ;;
         3) partner_skip "$id" "$u" "$PS_WHY"; partner_refused "$id" "$PS_WHY" ;;
         4) PARTNER_DOWN[$id]="unreachable" ;;
+        5) slot_clear "$k"; return 5 ;;
     esac
+    slot_clear "$k"
     return 0
+}
+
+# partner_interrupted <id|unit>: a transfer an array stop (or a stop by hand) ended - the next run continues it
+partner_interrupted() {
+    local x
+    for x in "${ST_PARTNER_INTERRUPTED_ALL[@]}"; do [[ "$x" == "$1" ]] && return 0; done
+    ST_PARTNER_INTERRUPTED_ALL+=( "$1" )
+    [[ -n "$ST_PARTNER_INTERRUPTED" ]] || ST_PARTNER_INTERRUPTED="$1"
+}
+
+# --- How many at once (2.73) ----------------------------------------------------
+# One stream over a long or lossy way (a tunnel across the internet: one TCP connection, ssh's own window) moves far
+# less than the link can; datasets sent side by side fill it. But a slow link is full with one: a second only shares
+# it. So the run starts with one, measures the total rate (every byte of every transfer to that partner - a unit that
+# ends and the next that starts change nothing - over UB_PARTNER_WINDOW s, after UB_PARTNER_WARM s of settling once
+# their number changed, as many going as it aims at the whole time) and adds one more only while that total clearly
+# rises (more than UB_PARTNER_GAIN %) - up to UB_PARTNER_STREAMS and what the partner's door takes at once (its ping's
+# `streams`; a door before 1.72 says nothing: one). A rise that doesn't come: back to one fewer, and no more tries
+# this run for that partner. So a link that one stream fills stays at one - as before 2.73.
+PT_TARGET=1; PT_MAX=1; PT_SETTLED=0; PT_PROBE=0; PT_BEST=0; PT_SENT=0; PT_W_AT=0; PT_W_T0=0; PT_W_B=-1; PT_MANY=0
+declare -A PARTNER_STREAMS=()   # id -> transfers its door takes at once (its ping)
+partner_window_reset() { PT_W_AT=$(( $(date +%s) + UB_PARTNER_WARM )); PT_W_B=-1; }
+# partner_total: every byte of this partner's transfers so far - the finished ones and those going on
+partner_total() { local k t="$PT_SENT"; for k in "${!SL_PID[@]}"; do t=$(( t + ${SL_BYTES[$k]:-0} )); done; printf '%s' "$t"; }
+# partner_adapt <id> <units waiting>: right after the transfers were filled up - 0 when the aim stayed, 1 when it rose
+partner_adapt() {
+    local id="$1" waiting="$2" now n rate name
+    (( PT_SETTLED )) && return 0
+    n="$(slots_n)"
+    # fewer going than aimed at (the last units, or one settled at once): nothing to compare - anew once they are
+    if (( n < PT_TARGET )); then partner_window_reset; return 0; fi
+    now="$(date +%s)"
+    (( now >= PT_W_AT )) || return 0
+    if (( PT_W_B < 0 )); then PT_W_B="$(partner_total)"; PT_W_T0="$now"; return 0; fi
+    (( now - PT_W_T0 >= UB_PARTNER_WINDOW )) || return 0
+    rate=$(( ( $(partner_total) - PT_W_B ) / ( now - PT_W_T0 ) ))
+    name="$(partner_name "$id")"
+    if (( PT_PROBE )); then
+        PT_PROBE=0
+        if (( rate * 100 > PT_BEST * (100 + UB_PARTNER_GAIN) )); then
+            log "  $name: $n transfers at once move $(partner_mbit "$rate" 1) Mbit/s - $(( (rate - PT_BEST) * 100 / (PT_BEST > 0 ? PT_BEST : 1) )) % more than $(( n - 1 )) - kept"
+            PT_BEST="$rate"
+        else
+            PT_TARGET=$(( n - 1 )); PT_SETTLED=1
+            log "  $name: $n transfers at once move $(partner_mbit "$rate" 1) Mbit/s, not clearly more than $(( n - 1 )) ($(partner_mbit "$PT_BEST" 1) Mbit/s) - $PT_TARGET at a time from now on"
+            return 0
+        fi
+    else
+        PT_BEST="$rate"
+    fi
+    if (( waiting > 0 && PT_TARGET < PT_MAX )); then
+        PT_TARGET=$(( PT_TARGET + 1 )); PT_PROBE=1; PT_MANY=1
+        log "  $name: $(partner_mbit "$rate" 1) Mbit/s with $n at a time - trying $PT_TARGET at once"
+        partner_window_reset
+        return 1
+    fi
+    (( PT_TARGET >= PT_MAX )) && PT_SETTLED=1
+    partner_window_reset
+    return 0
+}
+
+# partner_units_run <id>: this partner's transfers in the phase's order - one at a time, or several datasets at once
+# while that moves clearly more (above)
+partner_units_run() {
+    local id="$1" name row b u ds k r w got q
+    local -a queue=()
+    name="$(partner_name "$id")"
+    for row in "${PARTNER_ORDER[@]}"; do
+        IFS='|' read -r b u ds _ <<<"$row"
+        [[ "$b" == "$id" ]] && queue+=( "$u|$ds" )
+    done
+    PT_MAX="${PARTNER_STREAMS[$id]:-1}"
+    is_uint "$PT_MAX" && (( PT_MAX >= 1 )) || PT_MAX=1
+    (( PT_MAX > UB_PARTNER_STREAMS )) && PT_MAX="$UB_PARTNER_STREAMS"
+    PT_TARGET=1; PT_PROBE=0; PT_BEST=0; PT_SENT=0; PT_MANY=0
+    PT_SETTLED=$(( PT_MAX > 1 ? 0 : 1 ))
+    (( PT_MAX > 1 )) && log "  $name takes up to $PT_MAX transfers at once - one first, more while that moves clearly more"
+    partner_window_reset
+    while :; do
+        # transfers started up to the target, in the phase's order
+        while (( ${#queue[@]} )) && (( $(slots_n) < PT_TARGET )) && [[ -z "${PARTNER_DOWN[$id]:-}" ]]; do
+            IFS='|' read -r u ds <<<"${queue[0]}"; queue=( "${queue[@]:1}" )
+            array_stop_check "before sending $u to $name"
+            k="$(slot_free)"
+            pu_begin "$k" "$id" "$u" "$ds"
+            partner_rate_share "$id"
+            if [[ -z "${SL_PID[$k]:-}" ]]; then
+                slot_clear "$k"
+                [[ "${PARTNER_DOWN[$id]:-}" == "unreachable" ]] && ! partner_done_has "$id|$u" && partner_skip "$id" "$u" unreachable
+            fi
+        done
+        if [[ -n "${PARTNER_DOWN[$id]:-}" ]]; then
+            for q in "${queue[@]}"; do partner_skip "$id" "${q%%|*}" "${PARTNER_DOWN[$id]}"; done
+            queue=()
+        fi
+        (( $(slots_n) )) || break
+        # one more at once? (the start above at once, then)
+        partner_adapt "$id" "${#queue[@]}" || continue
+        # until one ends, or the time to look at the array again
+        array_stop_check "sending to $name"
+        sleep "$UB_ARRAY_LOOK" 9>&- &
+        w=$!; got=""
+        wait -n -p got "${SL_PID[@]}" "$w" 2>/dev/null
+        if [[ -z "$got" ]]; then wait "$w" 2>/dev/null                 # neither (a bash without wait -p): the sleep's time
+        elif [[ "$got" != "$w" ]]; then kill "$w" 2>/dev/null; wait "$w" 2>/dev/null; fi
+        ps_poll
+        for k in "${!SL_PID[@]}"; do
+            kill -0 "${SL_PID[$k]}" 2>/dev/null && continue
+            wait "${SL_PID[$k]}" 2>/dev/null
+            ps_end "$k"; r=$?
+            (( r == 0 )) && PT_SENT=$(( PT_SENT + PS_BYTES ))
+            u="${SL_U[$k]}"; ds="${SL_DS[$k]}"
+            pu_after "$k" "$r"; r=$?
+            if (( r == 5 )); then
+                # the door takes no more at once: this unit first again, no more at a time than go now
+                queue=( "$u|$ds" "${queue[@]}" ); PT_TARGET="$(slots_n)"; (( PT_TARGET >= 1 )) || PT_TARGET=1; PT_SETTLED=1; PT_PROBE=0
+            elif [[ "${PARTNER_DOWN[$id]:-}" == "unreachable" ]] && ! partner_done_has "$id|$u" && [[ -z "${SL_PID[$k]:-}" ]]; then
+                partner_skip "$id" "$u" unreachable
+            fi
+            partner_rate_share "$id"
+        done
+        partner_cur_set
+    done
+    partner_cur_set
 }
 
 # partner_why_text <why>: a skip's or failure's reason in words, for the mail (the office's partner.why_short, English)
@@ -3764,6 +4011,8 @@ partner_phase() {
             if (( $? == 255 )); then why="unreachable"
             elif [[ "$(jq -r '.array // ""' <<<"$PA_JSON" 2>/dev/null)" == "stopped" ]]; then why="array_stopped"; log "  its array is stopped - nothing can be received now"
             fi
+            # 2.73: how many transfers its door takes at once (a door before 1.72 says nothing: one)
+            PARTNER_STREAMS[$id]="$(jq -r '.streams // 1 | if type == "number" and . >= 1 and . <= 16 then floor else 1 end' <<<"$PA_JSON" 2>/dev/null)"
         fi
         [[ -n "$why" ]] && PARTNER_DOWN[$id]="$why"
         # 2.45: a skip that means the setup or the pairing is broken warns every run (once per partner), with what to do -
@@ -3782,14 +4031,7 @@ partner_phase() {
             else log "  $u: not covered ($why)"; fi
             partner_skip "$id" "$u" "$why"
         done
-        for row in "${PARTNER_ORDER[@]}"; do
-            IFS='|' read -r b u ds _ <<<"$row"
-            [[ "$b" == "$id" ]] || continue
-            array_stop_check "before sending $u to $name"
-            if [[ -n "${PARTNER_DOWN[$id]:-}" ]]; then partner_skip "$id" "$u" "${PARTNER_DOWN[$id]}"; continue; fi
-            partner_unit "$id" "$u" "$ds"
-            [[ "${PARTNER_DOWN[$id]:-}" == "unreachable" ]] && ! partner_done_has "$id|$u" && partner_skip "$id" "$u" unreachable
-        done
+        partner_units_run "$id"
         # 2.46: whatever did not arrive is said in this run - unreachable, array stopped, refused, failed (no nights of grace)
         partner_missed "$id"
     done

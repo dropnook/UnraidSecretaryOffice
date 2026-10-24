@@ -179,6 +179,12 @@ function officeDashBackupPartner(array $strings, array $backup): ?string
     $unit = (string) ($cur['unit'] ?? '');
     $unit = $unit === 'place' ? officeDashT($strings, 'backup.partner.unit_place') : (string) preg_replace('/^(share|vm|app):/', '', $unit);
     $bytes = max(0, (int) ($cur['bytes'] ?? 0));
+    // engine 2.73: several datasets at once - «appdata and 2 more», their bytes together
+    $many = array_values(array_filter((array) ($status['partner']['streams'] ?? []), fn ($x) => is_array($x) && ($x['id'] ?? null) === $id));
+    if (count($many) > 1) {
+        $unit = officeDashT($strings, 'backup.partner.units_more', ['unit' => $unit, 'n' => count($many) - 1]);
+        $bytes = array_sum(array_map(fn ($x) => max(0, (int) ($x['bytes'] ?? 0)), $many));
+    }
     $units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
     $i = $bytes > 0 ? min((int) floor(log($bytes, 1024)), count($units) - 1) : 0;
     $v = $bytes / (1024 ** $i);

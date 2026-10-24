@@ -6425,7 +6425,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.72'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.73'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -8412,9 +8412,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.72 everywhere it is named', ['2.72', '2.72', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.72"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.72** –')]);
+    same('data trust: the engine\'s version 2.73 everywhere it is named', ['2.73', '2.73', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.73"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.73** –')]);
     // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
     same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
         array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
@@ -9102,13 +9102,38 @@ case "$1" in
       echo 'fsState="Stopping"' >"$FAKE/var.ini"; ev "array stopping"
       while :; do head -c 4096 /dev/zero; sleep 0.2; done
     fi
+    # 2.73, a paced link ($FAKE/send.pace "<each|shared> <bytes a tenth of a second> <bytes in all>"): each stream at
+    # its own pace (more at once move more) or one pace shared by all going on (more at once move the same); the
+    # most at once in $FAKE/active.max; told so ($FAKE/stop.at2), the array stop begins once two go at once
+    if [[ -s "$FAKE/send.pace" ]]; then
+      read -r mode chunk size <"$FAKE/send.pace"
+      mkdir -p "$FAKE/active"; touch "$FAKE/active/$$"; trap 'rm -f "$FAKE/active/$$"' EXIT; trap 'exit 143' TERM
+      sent=0
+      while (( sent < size )); do
+        a=$(ls "$FAKE/active" | wc -l)
+        (( a > $(cat "$FAKE/active.max" 2>/dev/null || echo 0) )) && echo "$a" >"$FAKE/active.max"
+        if (( a >= 2 )) && [[ -e "$FAKE/stop.at2" ]]; then echo 'fsState="Stopping"' >"$FAKE/var.ini"; fi
+        [[ "$mode" == shared ]] || a=1
+        c=$(( chunk / a )); head -c "$c" /dev/zero; sent=$(( sent + c )); sleep 0.1
+      done
+      exit 0
+    fi
     head -c 100000 /dev/zero ;;
 esac
 exit 0
 SH);
     file_put_contents("$tmp/bin/mbuffer", "#!/bin/bash\necho \"\$(date +%s) mbuffer \$*\" >>\"\$FAKE/events\"\nexec cat\n");
-    // pv: what passes, counted - its last line on stderr is the count, like pv -n -b
-    file_put_contents("$tmp/bin/pv", "#!/bin/bash\necho \"\$(date +%s) pv \$*\" >>\"\$FAKE/events\"\nt=\"\$FAKE/pv.\$\$\"; tee \"\$t\"; stat -c %s \"\$t\" >&2; rm -f \"\$t\"\n");
+    // pv: what passes, counted - a line on stderr every half second while it goes, the last one the count, like pv -n -b
+    file_put_contents("$tmp/bin/pv", <<<'SH'
+#!/bin/bash
+echo "$(date +%s) pv $*" >>"$FAKE/events"
+[[ "$1" == -R ]] && exit 0
+t="$FAKE/pv.$$"; : >"$t"
+( while :; do sleep 0.5; stat -c %s "$t" >&2 2>/dev/null; done ) & l=$!
+tee "$t"
+kill "$l" 2>/dev/null; wait "$l" 2>/dev/null
+stat -c %s "$t" >&2; rm -f "$t"
+SH);
     // ssh = the partner's door (plan 3.4): control files door.down (no connection), door.hang (no answer), door.array,
     // refuse (the first line refuses with that why), needfull (no base for an incremental send), recvfail
     file_put_contents("$tmp/bin/ssh", <<<'SH'
@@ -9122,7 +9147,8 @@ ev "ssh $cmd"
 if [[ -e "$FAKE/door.down" ]]; then echo "ssh: connect to host 10.0.0.9 port 2222: Connection refused" >&2; exit 255; fi
 if [[ -e "$FAKE/door.hang" ]]; then sleep 20; exit 0; fi
 case "$verb" in
-  ping) echo "{\"ok\":true,\"v\":\"1.35.0\",\"pair\":\"a1b2c3d4\",\"array\":\"$(cat "$FAKE/door.array" 2>/dev/null || echo started)\",\"night\":true,\"time\":$(date +%s)}" ;;
+  ping) echo "{\"ok\":true,\"v\":\"1.35.0\",\"pair\":\"a1b2c3d4\",\"array\":\"$(cat "$FAKE/door.array" 2>/dev/null || echo started)\",\"night\":true,\"time\":$(date +%s)$(
+        [[ -s "$FAKE/door.streams" ]] && echo ",\"streams\":$(cat "$FAKE/door.streams")")}" ;;
   resume) if [[ -s "$FAKE/token.$u" ]]; then echo "{\"ok\":true,\"token\":\"$(cat "$FAKE/token.$u")\"}"; else echo '{"ok":true,"token":null}'; fi ;;
   list) if [[ -e "$FAKE/listrefuse" ]]; then echo '{"ok":false,"why":"unknown_unit"}'; exit 1
         elif [[ -s "$FAKE/recv/$u" ]]; then jq -c -Rn '{ok: true, snaps: [inputs | select(length > 0) | {name: ., used: 1, referenced: 2, creation: 3}]}' <"$FAKE/recv/$u"
@@ -9134,9 +9160,17 @@ case "$verb" in
     if [[ -n "$from" && "$from" != -t ]] && { [[ -e "$FAKE/needfull" ]] || ! grep -qxF -- "$from" "$FAKE/recv/$u" 2>/dev/null; }; then
       echo '{"ok":false,"why":"need_full"}' >&2; exit 1
     fi
+    # 2.73: a door that takes one at a time although it said more ($FAKE/door.one): busy while another goes
+    mkdir -p "$FAKE/recvact"
+    if [[ -e "$FAKE/door.one" && -n "$(ls "$FAKE/recvact")" ]]; then echo '{"ok":false,"why":"busy"}' >&2; ev "door busy $unit"; exit 1; fi
+    if [[ -s "$FAKE/recvfail.unit" ]] && grep -qxF -- "$unit" "$FAKE/recvfail.unit"; then
+      echo '{"ok":true}' >&2; cat >/dev/null; echo '{"ok":false,"why":"recv_failed","detail":"cannot receive"}' >&2; exit 1
+    fi
+    touch "$FAKE/recvact/$$"
     echo '{"ok":true}' >&2
-    trap 'echo "1-0123abcd-token" >"$FAKE/token.$u"; ev "door interrupted $unit"; exit 143' TERM
+    trap 'rm -f "$FAKE/recvact/$$"; echo "1-0123abcd-token" >"$FAKE/token.$u"; ev "door interrupted $unit"; exit 143' TERM
     cat <&0 >"$FAKE/in.$u" & wait $!
+    rm -f "$FAKE/recvact/$$"
     n=$(stat -c %s "$FAKE/in.$u")
     if [[ -e "$FAKE/recvfail" ]]; then echo '{"ok":false,"why":"recv_failed","detail":"cannot receive incremental stream"}' >&2; exit 1; fi
     [[ "$from" == -t ]] && rm -f "$FAKE/token.$u"
@@ -9159,7 +9193,7 @@ SH);
     testsClock("$tmp/bin", $clock);
     $env = "export PATH=$tmp/bin:\$PATH UB_DATA=$data UB_MNT=$mnt UB_BOOT=$tmp/boot UB_SHARES_CFG=$tmp/boot/config/shares UB_STAGE=$tmp/stage"
          . " UB_DISKS_INI=$fake/disks.ini UB_MOUNTS_FILE=$fake/mounts UB_NOTIFY_BIN=$tmp/bin/notify UB_VAR_INI=$fake/var.ini FAKE=$fake MNT=$mnt"
-         . " UB_PARTNER_DIR=$pdir UB_ARRAY_LOOK=1 UB_PARTNER_ASK=3";
+         . " UB_PARTNER_DIR=$pdir UB_ARRAY_LOOK=1 UB_PARTNER_ASK=3 UB_PARTNER_WARM=1 UB_PARTNER_WINDOW=2";
     $settings = function (int $rate = 0) use ($mnt, $data, $id): void {
         file_put_contents("$data/settings.ini", "[general]\nserver = Test\nmount_root = $mnt/addons/UnraidSecretaryOffice/snapshots\nview_root = $mnt/addons/UnraidSecretaryOffice/btrfs-snap\n"
             . "snap_prefix = uso-backup-\ndumps_share = UnraidSecretaryOffice\nmin_free_gb = 0\npartner_place = $id\n[docker]\nstop = all\nknown = c1\n[flash]\nmode = off\n"
@@ -9172,9 +9206,10 @@ SH);
     $night = function (array $recv = [], array $snaps = [], array $bookmarks = []) use ($fake, $data): void {
         exec('rm -rf ' . escapeshellarg("$fake/recv") . ' ' . escapeshellarg("$data/logs"));
         @mkdir("$fake/recv", 0700, true);
-        foreach (glob("$fake/{events,ssh.args,notify.log,refuse,needfull,recvfail,listrefuse,notagreed,send.slow,door.*,token.*,in.*}", GLOB_BRACE) ?: [] as $f) {
+        foreach (glob("$fake/{events,ssh.args,notify.log,refuse,needfull,recvfail,recvfail.unit,listrefuse,notagreed,send.slow,send.pace,stop.at2,active.max,door.*,token.*,in.*}", GLOB_BRACE) ?: [] as $f) {
             @unlink($f);
         }
+        exec('rm -rf ' . escapeshellarg("$fake/active") . ' ' . escapeshellarg("$fake/recvact"));
         foreach ($recv as $unit => $list) {
             file_put_contents("$fake/recv/" . str_replace(':', '-', $unit), implode("\n", $list) . "\n");
         }
@@ -9220,7 +9255,7 @@ SH);
     check('partner phase 2.42: the estimate asked before each send (zfs send -nP), said in the log', in_array("zfs send -nP -L -c maple/UnraidSecretaryOffice@$snap", $names(), true)
         && substr_count($l, 'about 4.2MB to send') === 4, $l);
     same('partner phase 2.42: status.json says it is no --no-kopia run', false, $s['skip_kopia'] ?? null);
-    check('partner phase: mbuffer and pv in the pipe (pv without -L: no rate)', in_array('mbuffer -q -s 128k -m 256M', $names(), true) && in_array('pv -n -b -i 10', $names(), true), json_encode($names()));
+    check('partner phase: mbuffer and pv in the pipe (pv without -L: no rate)', in_array('mbuffer -q -s 128k -m 256M', $names(), true) && in_array('pv -n -b -i 2', $names(), true), json_encode($names()));
     check('partner phase: the bookmark of the last snapshot sent, per dataset (the old one destroyed first)',
         in_array("zfs bookmark maple/appdata@$snap maple/appdata#uso-partner-$id", $names(), true) && in_array("zfs destroy maple/appdata#uso-partner-$id", $names(), true)
         && in_array("maple/docs#uso-partner-$id", file("$fake/bookmarks.txt", FILE_IGNORE_NEW_LINES) ?: [], true), json_encode($names()));
@@ -9262,7 +9297,7 @@ SH);
         && in_array("ssh recv share:appdata $snap $old1", $n, true), json_encode($n) . $out);
     check('partner phase: gone here, bookmarked - zfs send -i <bookmark>, the door gets the snapshot\'s name', in_array("zfs send -L -c -i maple/docs#uso-partner-$id maple/docs@$snap", $n, true)
         && in_array("ssh recv share:docs $snap $old2", $n, true), json_encode($n));
-    check('partner phase: a rate - pv -L in bytes/s (8 Mbit/s = 1000000)', in_array('pv -n -b -i 10 -L 1000000', $n, true), json_encode($n));
+    check('partner phase: a rate - pv -L in bytes/s (8 Mbit/s = 1000000)', in_array('pv -n -b -i 2 -L 1000000', $n, true), json_encode($n));
     $d = $byUnit($status()['partner']['done'] ?? []);
     same('partner phase: done - from the snapshot both had, from the bookmark\'s snapshot, whole', [$old1, $old2, null], [$d['share:appdata']['from'] ?? null, $d['share:docs']['from'] ?? null, $v($d['place'] ?? null, 'from')]);
 
@@ -9539,9 +9574,79 @@ SH);
     $run();
     same('partner phase: no unit for a partner - "partner": null, nothing asked', [null, [], 0], [$v($status(), 'partner'), $ssh(), $status()['partner_ok'] ?? null]);
 
+    // --- 2.73: several datasets at once, only while that clearly moves more. A door that says nothing of streams (one before
+    // 1.72): one after another, whatever the link does
+    $settings();
+    $at = function (string $pace, array $more = []) use ($night, $run, $fake, $status, $log, $names): array {
+        $night();
+        file_put_contents("$fake/send.pace", "$pace\n");
+        foreach ($more as $f => $text) {
+            file_put_contents("$fake/$f", $text);
+        }
+        [$rc, $out] = $run();
+        return [$rc, $status(), $log(), (int) @file_get_contents("$fake/active.max"), $names(), $out];
+    };
+    $units = fn (array $s, string $k) => array_column($s['partner'][$k] ?? [], 'unit');
+    [$rc, $s, $l, $max] = $at('each 50000 1500000');
+    same('partner streams 2.73: a door before 1.72 (no streams in its ping) - one after another, all sent, nothing tried', [1, 4, false],
+        [$max, $s['partner_ok'] ?? null, str_contains($l, 'at once')], $l);
+    // a link where more at once move more: a second, a third ... while the total rises
+    [$rc, $s, $l, $max, $n] = $at('each 50000 3000000', ['door.streams' => '4']);
+    check('partner streams 2.73: more at once move more - tried, kept, at least two went side by side, every unit sent once',
+        str_contains($l, 'vault takes up to 4 transfers at once') && str_contains($l, 'trying 2 at once') && (bool) preg_match('/2 transfers at once move [\d.]+ Mbit\/s - \d+ % more than 1 - kept/', $l)
+        && $max >= 2 && ($s['partner_ok'] ?? 0) === 4 && ($s['partner_failed'] ?? 1) === 0 && count(preg_grep('/^ssh recv /', $n)) === 4, $l . json_encode($n));
+    check('partner streams 2.73: … the log names the unit of each «sent» line while several go', (bool) preg_match('/    (place|share:docs|vm:vm1|share:appdata) sent: /', $l), $l);
+    same('partner streams 2.73: … each unit in its order, every one from its own stream (zfs send -L -c of its dataset, once)', [1, 1, 1, 1],
+        array_map(fn ($ds) => count(preg_grep('/^zfs send -L -c ' . preg_quote($ds, '/') . '@/', $n)), ['maple/UnraidSecretaryOffice', 'maple/docs', 'maple/domains/vm1', 'maple/appdata']));
+    same('partner streams 2.73: … nothing going on at the end (streams [], current null), done in status.json and history', [[], null, 4],
+        [$s['partner']['streams'] ?? 'missing', $v($s['partner'] ?? [], 'current'), count(json_decode((string) (array_slice(file("$data/state/history.jsonl", FILE_IGNORE_NEW_LINES) ?: [''], -1)[0]), true)['partner']['done'] ?? [])]);
+    check('partner streams 2.73: … history.jsonl keeps no streams', !array_key_exists('streams', json_decode((string) (array_slice(file("$data/state/history.jsonl", FILE_IGNORE_NEW_LINES) ?: [''], -1)[0]), true)['partner'] ?? ['streams' => 1]));
+    // a link that one stream fills (the total stays): one more tried once, back to one - never more than two at once
+    [$rc, $s, $l, $max] = $at('shared 50000 3000000', ['door.streams' => '4']);
+    check('partner streams 2.73: a link one stream fills - tried once, not clearly more, back to one; never more than two at once; all sent',
+        str_contains($l, 'trying 2 at once') && (bool) preg_match('/2 transfers at once move [\d.]+ Mbit\/s, not clearly more than 1 \([\d.]+ Mbit\/s\) - 1 at a time from now on/', $l)
+        && !str_contains($l, 'trying 3 at once') && $max === 2 && ($s['partner_ok'] ?? 0) === 4 && ($s['partner_failed'] ?? 1) === 0, $l);
+    // the rate is the total: each pv gets its share, again whenever their number changes (pv -R)
+    $settings(8);
+    [$rc, $s, $l, $max, $n] = $at('each 50000 3000000', ['door.streams' => '2']);
+    check('partner streams 2.73: a rate is the total - alone the whole (1000000 B/s), two at once half each (the new one -L 500000, the one going on told with pv -R)',
+        in_array('pv -n -b -i 2 -L 1000000', $n, true) && in_array('pv -n -b -i 2 -L 500000', $n, true) && (bool) preg_grep('/^pv -R \d+ -n -b -i 2 -L 500000$/', $n)
+        && $max === 2 && !str_contains($l, 'trying 3'), json_encode(array_values(preg_grep('/^pv /', $n))) . $l);
+    $settings();
+    // one of two at once fails: that one failed (said), the other sent
+    [$rc, $s, $l, $max] = $at('each 50000 3000000', ['door.streams' => '4', 'recvfail.unit' => "share:docs\n"]);
+    same('partner streams 2.73: one of several fails - that one failed with its reason, the others sent, a warning for it', [['share:docs'], ['recv_failed'], 3, 'warnings'],
+        [$units($s, 'failed'), array_column($s['partner']['failed'] ?? [], 'why'), $s['partner_ok'] ?? null, $s['result'] ?? null], $l);
+    // a door that takes one at a time although it said more: busy - that unit again after the other, never failed
+    [$rc, $s, $l, $max, $n] = $at('each 50000 3000000', ['door.streams' => '4', 'door.one' => '1']);
+    check('partner streams 2.73: the door busy for a second one - put back, sent after the other, nothing failed, one at a time from then on',
+        str_contains($l, 'vault takes no more at once (busy)') && in_array('door busy share:docs', $n, true) && ($s['partner_ok'] ?? 0) === 4 && ($s['partner_failed'] ?? 1) === 0
+        && !str_contains($l, 'trying 3'), $l . json_encode($n));
+    // the array stop with two going on: both interrupted (the door keeps a token each), the rest skipped, none failed
+    [$rc, $s, $l, $max, $n] = $at('each 50000 3000000', ['door.streams' => '4', 'stop.at2' => '1']);
+    $ia = array_map(fn ($x) => $x['unit'], $s['partner']['interrupted_all'] ?? []);
+    same('partner streams 2.73: the array stop with two at once - aborted (array_stopping), both interrupted (interrupted the first), the rest skipped, none failed',
+        ['aborted', 'array_stopping', 3, ['place', 'share:docs'], 'place', [], true],
+        [$s['result'] ?? null, $s['message'] ?? null, $rc, $ia, $s['partner']['interrupted']['unit'] ?? null, $s['partner']['failed'] ?? null,
+         !array_diff(['vm:vm1', 'share:appdata'], array_column(array_filter($s['partner']['skipped'] ?? [], fn ($x) => $x['why'] === 'array_stopping'), 'unit'))], $l);
+    check('partner streams 2.73: … each door saw its stream end and kept its token, nothing of the pipes left running', in_array('door interrupted place', $n, true)
+        && in_array('door interrupted share:docs', $n, true) && is_file("$fake/token.place") && is_file("$fake/token.share-docs")
+        && !array_filter(glob('/proc/[0-9]*/cmdline') ?: [], fn ($f) => str_contains(str_replace("\0", ' ', (string) @file_get_contents($f)), "$tmp/bin/")), json_encode($n));
+    check('partner streams 2.73: … the mail\'s report names both', substr_count((string) @file_get_contents("$fake/notify.log"), 'interrupted (the partner keeps what came') === 2, (string) @file_get_contents("$fake/notify.log"));
+    // the next run: each interrupted transfer continues first (recv … -t), each of its own token
+    $stopSnap = $s['snapshot'] ?? '';
+    $night([], ["maple/UnraidSecretaryOffice@$stopSnap", "maple/docs@$stopSnap"]);
+    file_put_contents("$fake/token.place", '1-0123abcd-token');
+    file_put_contents("$fake/token.share-docs", '1-0123abcd-token');
+    file_put_contents("$fake/token.toname", "maple/UnraidSecretaryOffice@$stopSnap");
+    $run();
+    $r = array_values(preg_grep('/^ssh recv place/', $names()));
+    check('partner streams 2.73: after the stop - the next run continues the interrupted one (recv … -t), then this run\'s', ($r[0] ?? '') === "ssh recv place $stopSnap -t"
+        && ($status()['partner_failed'] ?? 1) === 0, json_encode($r) . $log());
+
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.72', [1, '2.72'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.73', [1, '2.73'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -9763,10 +9868,32 @@ function testBackupPartnerOffice(): void
     writeAtomic(RUN_DIR . '/' . BACKUP_PARTNER_RATE_FILE, jsonEncode($kept), 0600, 0, 0);
     same('partner office: another transfer (its since) starts the samples anew', null, $cur(5000)['rate']);
     @unlink(RUN_DIR . '/' . BACKUP_PARTNER_RATE_FILE);
+    // engine 2.73, several datasets at once (status.json partner.streams): their units, their sums, the rate of what the run
+    // moved to that partner (the finished ones and those going on), the time left of those going on at that rate
+    $st = fn (array $streams, array $done = []) => ['started' => 5000, 'partner' => ['current' => $streams[0], 'streams' => $streams, 'done' => $done]];
+    $two = [['id' => 'a1b2c3d4', 'unit' => 'share:appdata', 'since' => 5010, 'bytes' => 1000, 'estimate' => 4000], ['id' => 'a1b2c3d4', 'unit' => 'vm:Debian', 'since' => 5020, 'bytes' => 500, 'estimate' => 2000],
+            ['id' => 'ffff0000', 'unit' => 'share:x', 'since' => 5000, 'bytes' => 9, 'estimate' => 9]];
+    $c = backupPartnerCurrent($st($two, [['id' => 'a1b2c3d4', 'unit' => 'place', 'bytes' => 300], ['id' => 'ffff0000', 'unit' => 'place', 'bytes' => 7]]), 'a1b2c3d4');
+    same('partner office 2.73: two at once - both units (the longest first), their bytes and estimates together, no rate before a second sample',
+        ['unit' => 'share:appdata', 'since' => 5010, 'bytes' => 1500, 'estimate' => 6000, 'units' => ['share:appdata', 'vm:Debian'], 'rate' => null, 'eta' => null], $c);
+    same('partner office 2.73: … the samples count what the run moved to that partner (300 sent + 1500 going), its key the run', ['a1b2c3d4|run|5000', 1800],
+        [readJson(RUN_DIR . '/' . BACKUP_PARTNER_RATE_FILE)['key'] ?? null, readJson(RUN_DIR . '/' . BACKUP_PARTNER_RATE_FILE)['samples'][0][1] ?? null]);
+    $kept = readJson(RUN_DIR . '/' . BACKUP_PARTNER_RATE_FILE);
+    $kept['samples'] = [[$now - 20, 1800 - 4000]];
+    writeAtomic(RUN_DIR . '/' . BACKUP_PARTNER_RATE_FILE, jsonEncode($kept), 0600, 0, 0);
+    $c = backupPartnerCurrent($st($two, [['id' => 'a1b2c3d4', 'unit' => 'place', 'bytes' => 300]]), 'a1b2c3d4');
+    same('partner office 2.73: … 20 s later 4000 B more - 200 B/s for both, 4500 B left of the two: eta 23 s', [200.0, 23], [$c['rate'], $c['eta']]);
+    $c = backupPartnerCurrent($st([$two[1]], [['id' => 'a1b2c3d4', 'unit' => 'place', 'bytes' => 300], ['id' => 'a1b2c3d4', 'unit' => 'share:appdata', 'bytes' => 4000]]), 'a1b2c3d4');
+    same('partner office 2.73: one again - its own bytes and estimate, the rate goes on (the same count, the same key)',
+        ['unit' => 'vm:Debian', 'since' => 5020, 'bytes' => 500, 'estimate' => 2000, 'key' => 'a1b2c3d4|run|5000', 'units' => false],
+        ['unit' => $c['unit'], 'since' => $c['since'], 'bytes' => $c['bytes'], 'estimate' => $c['estimate'], 'key' => readJson(RUN_DIR . '/' . BACKUP_PARTNER_RATE_FILE)['key'] ?? null,
+         'units' => array_key_exists('units', $c)]);
+    check('partner office 2.73: … with a rate', is_float($c['rate']) && $c['rate'] > 0, json_encode($c));
+    @unlink(RUN_DIR . '/' . BACKUP_PARTNER_RATE_FILE);
     // the Dashboard's line during the phase - the web side's code, in a process of its own (bootstrap.php)
     $dash = function (array $backup) use ($tmp): mixed {
         $code = 'require ' . var_export(OFFICE_DIR . '/src/bootstrap.php', true) . '; require_once ' . var_export(OFFICE_DIR . '/src/dashboard.php', true) . ';'
-            . ' $s = ["backup.partner.dash" => "to {name}: {unit} {size}", "backup.partner.unit_place" => "backup place"];'
+            . ' $s = ["backup.partner.dash" => "to {name}: {unit} {size}", "backup.partner.unit_place" => "backup place", "backup.partner.units_more" => ["one" => "{unit} and {n} more", "other" => "{unit} and {n} more"]];'
             . ' echo json_encode(["line" => officeDashBackupPartner($s, json_decode(' . var_export(json_encode($backup), true) . ', true))]);';
         $p = proc_open(['php', '-r', $code], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
             ['OFFICE_DATA_DIR' => "$tmp/data", 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
@@ -9781,6 +9908,11 @@ function testBackupPartnerOffice(): void
     $running['status']['partner']['current']['unit'] = 'place';
     $running['status']['partner']['current']['bytes'] = 0;
     same('partner office: the Dashboard - the backup place, nothing counted yet', 'to vault: backup place 0 B', $dash($running));
+    $running['status']['partner']['streams'] = [['id' => 'a1b2c3d4', 'unit' => 'place', 'since' => 1, 'bytes' => 1024 ** 3], ['id' => 'a1b2c3d4', 'unit' => 'share:docs', 'since' => 2, 'bytes' => 2 * 1024 ** 3],
+        ['id' => 'ffff0000', 'unit' => 'share:x', 'since' => 2, 'bytes' => 5 * 1024 ** 3]];
+    same('partner office 2.73: the Dashboard - two at once: «backup place and 1 more», their bytes together', 'to vault: backup place and 1 more 3.0 GB',
+        $dash($running));
+    unset($running['status']['partner']['streams']);
     $running['status']['phase'] = 'kopia';
     same('partner office: the Dashboard - no line in another phase', null, $dash($running));
     // every text the desk names for a partner's reason exists in English (the engine's codes)
@@ -10149,7 +10281,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.72', [1, '2.72'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.73', [1, '2.73'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -29152,7 +29284,7 @@ function testPartnerDoor(): void
 
     // ---- ping: RAM and the flash only — it answers with the data folder away and the array stopped, and makes nothing there
     $r = partnerTestDoor($B, 'ping');
-    same('door: ping answers', [0, ['ok' => true, 'v' => AGENT_VERSION, 'pair' => $id, 'array' => 'started', 'night' => false]],
+    same('door: ping answers (1.72: and how many transfers of a pair it takes at once)', [0, ['ok' => true, 'v' => AGENT_VERSION, 'pair' => $id, 'array' => 'started', 'night' => false, 'streams' => 4]],
         [$r['exit'], array_diff_key($r['out'][0] ?? [], ['time' => 1])]);
     check('door: ping — the knock noted in RAM (heard-<id>)', is_file("$B[run]/partner/heard-$id"));
     same('door: ping — no zfs, nothing logged', [[], ''], [partnerTestCalls($B['bin']), $log()]);
@@ -29345,6 +29477,63 @@ function testPartnerDoor(): void
     same('door: … reading goes on meanwhile', 0, partnerTestDoor($B, 'list share:appdata')['exit']);
     flock($hold, LOCK_UN);
     fclose($hold);
+    // 1.72: several units of a pair at once - each its own lock, a slot each (DOOR_RECV_STREAMS); never one unit twice; a
+    // send-back (and a door before 1.72) takes the pair's lock alone
+    $locked = function (array $names, int $how) use ($B, $id): array {
+        $hs = [];
+        foreach ($names as $n) {
+            $h = fopen("$B[run]/partner/$id.$n", 'c');
+            flock($h, $how);
+            $hs[] = $h;
+        }
+        return $hs;
+    };
+    $free = function (array $hs): void {
+        foreach ($hs as $h) {
+            flock($h, LOCK_UN);
+            fclose($h);
+        }
+    };
+    $other = array_merge($locked(['lock'], LOCK_SH), $locked(['unit-share-appdata.lock', 'slot0.lock'], LOCK_EX));
+    same('door 1.72: while share:appdata is received - share:appdata again busy, another unit of the pair goes', ['busy', 0],
+        [partnerTestDoor($B, 'recv share:appdata uso-backup-20261006-0200 uso-backup-20261005-0200', 'x')['err'][0]['why'] ?? null,
+         partnerTestDoor($B, 'recv share:anything uso-backup-20261007-0200 uso-backup-20261006-0200', 'seven', $id)['exit']]);
+    same('door 1.72: … a send-back of the pair meanwhile - busy (it takes the pair alone)', 'busy',
+        partnerTestDoor($B, 'send-back share:appdata uso-backup-20261005-0200', '')['err'][0]['why'] ?? null);
+    $slots = $locked(['slot1.lock', 'slot2.lock', 'slot3.lock'], LOCK_EX);
+    same('door 1.72: every slot taken (4 at once) - a fifth busy', 'busy',
+        partnerTestDoor($B, 'recv share:anything uso-backup-20261008-0200 uso-backup-20261007-0200', 'x', $id)['err'][0]['why'] ?? null);
+    $free($slots);
+    $free($other);
+    same('door 1.72: … all free again - it goes', 0, partnerTestDoor($B, 'recv share:anything uso-backup-20261008-0200 uso-backup-20261007-0200', 'eight', $id)['exit']);
+    // the count of units sees the new ones on their way (another receive's record): never past PARTNER_UNITS_MAX at once
+    $st = $zfs();
+    $have = count(array_filter(array_keys($st['ds']), fn ($n) => preg_match('#^tank/' . PARTNER_PARENT . "/$id/[^/]+$#", $n)));
+    foreach (range(1, PARTNER_UNITS_MAX - 1 - $have) as $i) {
+        $st['ds']['tank/' . PARTNER_PARENT . "/$id/share-g$i"] = ['used' => 0];
+    }
+    file_put_contents("$B[bin]/zfs.json", json_encode($st));
+    $rec = "$B[run]/partner/door-" . getmypid() . '.json';
+    file_put_contents($rec, json_encode(['pid' => getmypid(), 'pair' => $id, 'unit' => 'share:onway', 'snap' => 'uso-backup-20261008-0200',
+        'dataset' => 'tank/' . PARTNER_PARENT . "/$id/share-onway", 'since' => time(), 'children' => []]));
+    chmod($rec, 0600);
+    same('door 1.72: 63 units here and a 64th on its way - a 65th refused_units', 'refused_units',
+        partnerTestDoor($B, 'recv share:one-more uso-backup-20261008-0200', 'x', $id)['err'][0]['why'] ?? null);
+    unlink($rec);
+    same('door 1.72: … the one on its way gone - the 64th goes', 0, partnerTestDoor($B, 'recv share:one-more uso-backup-20261008-0200', 'nine', $id)['exit']);
+    $st = $zfs();
+    foreach (array_keys($st['ds']) as $n) {
+        if (preg_match('#/share-(g\d+|one-more)$#', $n)) {
+            unset($st['ds'][$n]);
+        }
+    }
+    foreach (array_keys($st['snaps'] ?? []) as $n) {
+        if (preg_match('#/share-one-more@#', $n)) {
+            unset($st['snaps'][$n]);
+        }
+    }
+    file_put_contents("$B[bin]/zfs.json", json_encode($st));
+    same('door 1.72: no record of a transfer left behind', [], glob("$B[run]/partner/door-*.json"));
     same('door: a pair that receives nothing here', 'not_receiving', partnerTestDoor($B, 'list share:appdata', '', 'b2c3d4e5')['out'][0]['why'] ?? null);
     same('door: … its ping and status work', [0, 0], [partnerTestDoor($B, 'ping', '', 'b2c3d4e5')['exit'], partnerTestDoor($B, 'status', '', 'b2c3d4e5')['exit']]);
 

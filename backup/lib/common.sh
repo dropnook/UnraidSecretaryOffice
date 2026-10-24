@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.72"
+UB_VERSION="2.73"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -3305,14 +3305,14 @@ status_finish() { # status_finish <result> [message]
     [[ "$ST_ACTIVE" == "yes" ]] || return 0
     [[ "$ST_RESULT" == "running" ]] || return 0      # already finished
     ST_RESULT="$1"; ST_MESSAGE="${2:-$ST_MESSAGE}"; ST_FINISHED="$(date +%s)"
-    ST_PHASE="done"; ST_KOPIA_CUR=""; ST_PARTNER_CUR=""
+    ST_PHASE="done"; ST_KOPIA_CUR=""; ST_PARTNER_CUR=""; ST_PARTNER_STREAMS=()
     status_write
     [[ "$ST_MODE" == "backup" ]] || return 0
     cp -f "$UB_STATE/status.json" "$UB_STATE/.last-run.json.$$" 2>/dev/null \
         && mv -f "$UB_STATE/.last-run.json.$$" "$UB_STATE/last-run.json" 2>/dev/null
     # a short line per run: the packages only as counts
     history_append "$(jq -c 'if (.packages | type) == "object" then .packages |= del(.list) else . end
-        | if (.partner | type) == "object" then .partner |= del(.planned, .current) else . end' "$UB_STATE/status.json" 2>/dev/null \
+        | if (.partner | type) == "object" then .partner |= del(.planned, .current, .streams) else . end' "$UB_STATE/status.json" 2>/dev/null \
         || tr -d '\n' <"$UB_STATE/status.json")"
     return 0
 }
@@ -4436,6 +4436,12 @@ UB_PARTNER_PAIRS="${UB_PARTNER_PAIRS:-$(dirname "$UB_DATA")/partner/pairs.json}"
 UB_PARTNER_ASK="${UB_PARTNER_ASK:-60}"           # seconds for a short question to the door (ping, list, resume)
 UB_PARTNER_SNAP_RE='^uso-backup-[0-9]{8}-[0-9]{4}$'   # the only snapshot names the door accepts
 UB_PARTNER_BOOKMARK="uso-partner-"               # <dataset>#uso-partner-<id>: the last snapshot sent to that partner
+# 2.73: several datasets to one partner at once, only while that clearly moves more (backup.sh partner_adapt)
+UB_PARTNER_STREAMS="${UB_PARTNER_STREAMS:-4}"    # at most so many at once (and what the partner's door takes; 1 = one after another)
+UB_PARTNER_WARM="${UB_PARTNER_WARM:-10}"         # seconds after their number changed before the rate counts
+UB_PARTNER_WINDOW="${UB_PARTNER_WINDOW:-30}"     # seconds the total rate is measured over
+UB_PARTNER_GAIN="${UB_PARTNER_GAIN:-15}"         # percent more the total must move for one more at once to stay
+UB_PARTNER_PV_EVERY="${UB_PARTNER_PV_EVERY:-2}"  # seconds between pv's counts (up to 2.72: 10)
 # the office's USO network (2.71): its node's status in RAM (the helper's), its namespace, how the call gets there
 UB_USONET_STATUS="${UB_USONET_STATUS-$(ub_is_plugin && echo /var/run/unraid-secretary-office/usonet/status.json)}"
 UB_USONET_NETNS="uso-net"
@@ -4691,10 +4697,12 @@ ST_PARTNER_DONE=()        # "id|unit|snap|from|bytes|seconds|resumed(1/0)"
 ST_PARTNER_SKIPPED=()     # "id|unit|why"
 ST_PARTNER_FAILED=()      # "id|unit|why"
 ST_PARTNER_INTERRUPTED="" # "id|unit": the transfer an array stop (or a stop by hand) ended - resumed by the next run
+ST_PARTNER_STREAMS=()     # 2.73: "id|unit|since|bytes|estimate" - every transfer going on (backup.sh partner_cur_set)
+ST_PARTNER_INTERRUPTED_ALL=()  # 2.73: every one it ended (several datasets at once), the first = ST_PARTNER_INTERRUPTED
 
 partner_status_json() {
     (( ${#ST_PARTNER_IDS[@]} )) || { echo null; return 0; }
-    local ids plan done_ sk fl
+    local ids plan done_ sk fl st ia
     ids="$(printf '%s\n' "${ST_PARTNER_IDS[@]}" | jq -R 'select(length > 0) | split("|") | {id: .[0], name: .[1]}' | jq -sc .)" || ids='[]'
     plan="$(printf '%s\n' "${ST_PARTNER_PLAN[@]}" | jq -R 'select(length > 0) | split("|") | {id: .[0], unit: .[1]}' | jq -sc .)" || plan='[]'
     done_="$(printf '%s\n' "${ST_PARTNER_DONE[@]}" | jq -R 'select(length > 0) | split("|")
@@ -4703,13 +4711,21 @@ partner_status_json() {
         | .mbit = (if .seconds > 0 then ((.bytes * 8 / .seconds / 1000000 * 10 | round) / 10) else null end)' | jq -sc .)" || done_='[]'
     sk="$(printf '%s\n' "${ST_PARTNER_SKIPPED[@]}" | jq -R 'select(length > 0) | split("|") | {id: .[0], unit: .[1], why: .[2]}' | jq -sc .)" || sk='[]'
     fl="$(printf '%s\n' "${ST_PARTNER_FAILED[@]}" | jq -R 'select(length > 0) | split("|") | {id: .[0], unit: .[1], why: .[2]}' | jq -sc .)" || fl='[]'
+    # 2.73: every transfer going on (several datasets at once) - current is the one going on longest; interrupted_all
+    # every one an array stop or a stop by hand ended (interrupted: the first of them)
+    st="$(printf '%s\n' "${ST_PARTNER_STREAMS[@]}" | jq -R 'select(length > 0) | split("|")
+        | {id: .[0], unit: .[1], since: (.[2] | tonumber), bytes: (.[3] | tonumber), estimate: (.[4] | tonumber | if . > 0 then . else null end)}' | jq -sc .)" || st='[]'
+    ia="$(printf '%s\n' "${ST_PARTNER_INTERRUPTED_ALL[@]}" | jq -R 'select(length > 0) | split("|") | {id: .[0], unit: .[1]}' | jq -sc .)" || ia='[]'
     jq -nc --argjson partners "${ids:-[]}" --argjson planned "${plan:-[]}" --argjson done "${done_:-[]}" \
         --argjson skipped "${sk:-[]}" --argjson failed "${fl:-[]}" --arg cur "$ST_PARTNER_CUR" --argjson since "${ST_PARTNER_CUR_T:-0}" \
         --argjson bytes "${ST_PARTNER_CUR_BYTES:-0}" --argjson est "${ST_PARTNER_CUR_EST:-0}" --arg intr "$ST_PARTNER_INTERRUPTED" \
+        --argjson streams "${st:-[]}" --argjson intr_all "${ia:-[]}" \
         '{partners: $partners, planned: $planned,
           current: (if $cur == "" then null else ($cur | split("|") | {id: .[0], unit: .[1], since: $since, bytes: $bytes, estimate: (if $est > 0 then $est else null end)}) end),
+          streams: $streams,
           done: $done, skipped: $skipped, failed: $failed,
-          interrupted: (if $intr == "" then null else ($intr | split("|") | {id: .[0], unit: .[1]}) end)}'
+          interrupted: (if $intr == "" then null else ($intr | split("|") | {id: .[0], unit: .[1]}) end),
+          interrupted_all: $intr_all}'
 }
 
 # --- What the phase keeps between runs (state/, root only) ---------------------

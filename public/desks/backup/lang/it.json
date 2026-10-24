@@ -1668,6 +1668,7 @@
   "partner.left": "ancora circa {left}",
   "partner.left_soon": "quasi finito",
   "partner.dash": "a {name}: {unit} {size}",
+  "partner.units_more": {"one": "{unit} e {n} altra", "other": "{unit} e altre {n}"},
   "partner.why_short.unreachable": "non raggiungibile",
   "partner.why_short.refused_quota": "la sua quota è piena",
   "partner.why_short.refused_window": "fuori dalla sua finestra",

@@ -1683,6 +1683,7 @@
   "partner.left": "quedan unos {left}",
   "partner.left_soon": "casi listo",
   "partner.dash": "a {name}: {unit} {size}",
+  "partner.units_more": {"one": "{unit} y {n} más", "other": "{unit} y {n} más"},
   "partner.why_short.unreachable": "no alcanzable",
   "partner.why_short.refused_quota": "su cuota está llena",
   "partner.why_short.refused_window": "fuera de su ventana",
