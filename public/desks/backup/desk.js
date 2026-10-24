@@ -4302,8 +4302,7 @@ function partnerUnits(draft, id) {
   const placeRow = plan.shares.find((x) => x.name === place);
   if ((draft['general|partner_place'] || []).includes(id) && placeRow && placeRow.partner_ok) out.push('place');
   plan.shares.forEach((x) => {
-    if (x.name !== place && x.partner_ok && (draft[`share|${x.name}|partner`] || []).includes(id) && (draft[`share|${x.name}|mode`] || 'off') !== 'off'
-      && !shareChildApps(draft, x.name, plan).length) out.push('share:' + x.name);
+    if (x.name !== place && x.partner_ok && (draft[`share|${x.name}|partner`] || []).includes(id) && (draft[`share|${x.name}|mode`] || 'off') !== 'off') out.push('share:' + x.name);
   });
   (plan.vms || []).forEach((v) => {
     const on = mine ? levelOf('vm:' + v.name) > 0 : (draft[`vm|${v.name}|mode`] || 'snapshot') !== 'off';
@@ -4663,6 +4662,12 @@ function setupShares(plan) {
       if (setupPartners().length && !sh.partner_ok && ['not_dataset', 'split'].includes(sh.partner_why)) {
         modeCell.appendChild(whyFold('share:' + sh.name, T('dsw.share_' + sh.partner_why), null));
       }
+    }
+    // engine 2.74: going to a partner without a child dataset of no app or VM (the plan's partner_left) — said on the row
+    const left = shareLeftOut(sh);
+    const leftIds = isPlace ? dget('general|partner_place', []) : pKey ? dget(pKey, []) : [];
+    if (sh.exists && sh.partner_ok && left.length && (leftIds || []).length && dget(`share|${sh.name}|mode`, 'off') !== 'off') {
+      modeCell.append(' ', chip(T('setup.partner_left', { list: left.map((c) => c.folder || c.dataset).join(', ') }), 'warn', T('setup.partner_left_hint')));
     }
     // engine 2.55: said on the row — at «local snapshot» nothing backs it up, at «offsite» Kopia reads it live
     if (sh.exists && shareNoSnap(sh)) {
@@ -5126,8 +5131,8 @@ function setupDeriveItems() {
     names.add(a.name);
     const mine = a.folders.filter((f) => (owner.get(`${f.share}|${f.dir}`) || {}).id === a.id).map((f) => `${f.share}/${f.dir}`);
     // a partner level: its own folders (ownFoldersOf()), the first being the unit's dataset. Its folder a dataset of its
-    // own in a share going to a partner: kept at any level — without it the engine counts the dataset as a child the
-    // share's stream leaves out and sends the share nowhere (`children`, the truth review T04)
+    // own in a share going to a partner: kept at any level, so the engine knows the dataset as the app's from its section
+    // too (engine 2.74 also knows it from Docker's binds; the share goes either way — the truth review T04)
     const ap = appPartner(a, setup.plan);
     const own = (a.ownFolders || []).map((f) => `${f.share}/${f.dir}`);
     const ownDs = ap.own ? (own.length ? own : [`${ap.f.share}/${ap.f.dir}`]) : [];
@@ -5157,25 +5162,17 @@ function appPartner(a, plan) {
 /** The partners a share's dataset goes to as the draft says: backed up, able to go (partner_ok), in its partner list */
 function shareGoesTo(share, plan) {
   const sh = ((plan && plan.shares) || []).find((x) => x.name === share);
-  if (!sh || !sh.partner_ok || dget(`share|${share}|mode`, 'off') === 'off' || shareChildApps(setup.draft, share, plan).length) return [];
+  if (!sh || !sh.partner_ok || dget(`share|${share}|mode`, 'off') === 'off') return [];
   const ids = dget(`share|${share}|partner`, []) || [];
   return setupPartners().filter((p) => ids.includes(p.id));
 }
 
 /**
- * The apps whose folder is a dataset of its own in a share, without their folder in the draft's sections: the engine counts
- * such a dataset as a child the share's stream (zfs send without -R) leaves out, and sends the share nowhere (`children`,
- * the truth review T04) — while one is listed, the share goes to no partner whatever the plan's partner_ok says
+ * A share's child datasets that stay here while the share goes to a partner (engine 2.74, the plan's `partner_left`:
+ * no VM's, no app's — by its folder or Docker's binds —, not excluded): zfs send without -R leaves them out. Up to
+ * engine 2.73 one such child kept the whole share at home (`children`); since 2.74 the share goes without it.
  */
-function shareChildApps(draft, share, plan) {
-  if (!setup.model || !draft) return [];
-  return setup.model.apps.filter((a) => {
-    const f = (a.ownFolders || a.folders || [])[0];          // appPartner()'s unit folder (never through it: it asks shareGoesTo())
-    // a partner list of its own brings its folder along (setupDeriveItems())
-    return !!f && f.share === share && ownDataset(plan || setup.plan, f.share, f.dir) && !(draft[`app|${a.name}|folder`] || []).length
-      && !(draft[`app|${a.name}|partner`] || []).length;
-  });
-}
+const shareLeftOut = (sh) => (sh && Array.isArray(sh.partner_left) ? sh.partner_left : []).filter((c) => c && (c.folder || c.dataset));
 
 /** The partners the backup place goes to (its packages: templates, dumps, VM configurations) as the draft says */
 function placeGoesTo(plan) {
@@ -6970,7 +6967,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     setupFits, setupFirstNew, setupFocus, setupTileData, setupTileList, setupNewCounts, setupSwitcher, SETUP_TILES, STEP_TILE,
     driftText, driftParams, messageText, orderText, scheduleSection,
     overviewTiles, tileNode, tileList, protRows, protView, protTileCounts, protPartners, protChip, protSum, vmLevel, viaText, historyRows, PROT_TILES, PROT_ID, TILES,
-    truth, levelTruth, kopiaTruth, protPartnerTruth, unitTry, shareChildApps, setupDeriveItems, appNoSnap,
+    truth, levelTruth, kopiaTruth, protPartnerTruth, unitTry, shareLeftOut, setupDeriveItems, appNoSnap,
     setState: (s) => { state = s; },
     setupDraftFromPlan, setupNewLines, setupNewRows, setupChanges, setupSaved, waitingFolders, waitChoice, waitSet, levelOf, waitingText, appSharesText,
     placeLines, placeVerdict, placeOffsite, placeNotes, placeFitting, placeOfferLines, setupPlaceMade, setupDraftKeep, setupDerive, dset, setupEdits,

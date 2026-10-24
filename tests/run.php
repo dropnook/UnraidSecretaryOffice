@@ -51808,6 +51808,7 @@ const ID = '2ec7accd';
 const mk = (withApp) => {
   const p = JSON.parse(JSON.stringify(stub));
   p.shares.find((x) => x.name === 'appdata').children = ['cache/appdata/grafana'];
+  delete p.shares.find((x) => x.name === 'appdata').partner_left;      // the stub's left-out child: only where a case names one
   if (withApp) ['O', 'P'].forEach((k) => { p[k]['app|Grafana|partner'] = [ID]; p[k]['app|Grafana|folder'] = ['appdata/grafana']; });
   return p;
 };
@@ -51821,9 +51822,18 @@ b.partnerListSet('app|Grafana|partner', false);
 b.setupDerive();
 out.local = [S.draft['app|Grafana|folder'] || null, b.partnerUnits(S.draft, ID).filter((u) => /appdata|Grafana/.test(u)), b.shareGoesTo('appdata', S.plan).map((p) => p.name),
   b.partnerApplyLines().map((l) => l[1]).join(' ')];
-// INV: a draft without the app's folder never lists appdata (nor lights it in step 3)
+// engine 2.74: a draft without the app's folder still sends appdata (the engine knows Grafana's dataset from Docker's
+// binds, and an unknown child no longer keeps a share at home) - in the dialog, lit in step 3; nothing said left out
 delete S.draft['app|Grafana|folder'];
-out.inv = [b.shareChildApps(S.draft, 'appdata', S.plan).map((a) => a.name), b.partnerUnits(S.draft, ID).includes('share:appdata'), b.shareGoesTo('appdata', S.plan).length];
+out.inv = [b.partnerUnits(S.draft, ID).includes('share:appdata'), b.shareGoesTo('appdata', S.plan).length,
+  b.shareLeftOut(S.plan.shares.find((x) => x.name === 'appdata'))];
+// … a child the plan names in partner_left (no app's, no VM's): said left out, the share still goes
+const lp = mk(true);
+lp.shares.find((x) => x.name === 'appdata').partner_left = [{ dataset: 'cache/appdata/drop', folder: 'drop' }, { bad: 1 }];
+S.plan = lp;
+b.setupDraftFromPlan();
+out.left = [b.shareLeftOut(S.plan.shares.find((x) => x.name === 'appdata')), b.partnerUnits(S.draft, ID).includes('share:appdata'), b.shareGoesTo('appdata', S.plan).length,
+  b.shareLeftOut({ partner_left: 'x' }), b.shareLeftOut(null)];
 // the second path: «Make it a dataset of its own…» left settings.ini without its section — the draft adds the folder, Apply writes it
 S.plan = mk(false);
 b.setupDraftFromPlan();
@@ -51842,7 +51852,12 @@ JS);
     same('own dataset apply T04: Grafana a dataset of its own at «local + partner» — its own unit and appdata go', [true, ['share:appdata', 'app:Grafana']], $r['start'] ?? $r);
     same('own dataset apply T04: … set to «local» — its folder kept, appdata still goes (lit in step 3, in the dialog), Grafana no longer',
         [['appdata/grafana'], ['share:appdata'], ['PartnerNAS'], true], isset($r['local']) ? [$r['local'][0], $r['local'][1], $r['local'][2], str_contains($r['local'][3], 'appdata')] : $r);
-    same('own dataset apply T04: INV — a draft without the app\'s folder: appdata never in the dialog, never lit', [['Grafana'], false, 0], $r['inv'] ?? $r);
+    same('own dataset apply T04 (engine 2.74): a draft without the app\'s folder — appdata still goes (in the dialog, lit), nothing said left out', [true, 1, []], $r['inv'] ?? $r);
+    same('own dataset apply T04 (engine 2.74): a child the plan names in partner_left — said left out (only in its shape), appdata still goes',
+        [[['dataset' => 'cache/appdata/drop', 'folder' => 'drop']], true, 1, [], []], $r['left'] ?? $r);
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('own dataset apply T04 (engine 2.74): the setup row says the left-out children (setup.partner_left), no share kept home for an app\'s dataset',
+        str_contains($js, "T('setup.partner_left', { list:") && !str_contains($js, 'shareChildApps'));
     same('own dataset apply T04: settings.ini without its section (after «Make it a dataset of its own…») — the draft adds its folder, Apply writes it',
         [['appdata/grafana'], true], isset($r['second']) ? [$r['second'][0], count($r['second'][1]) > 0] : $r);
     same('own dataset apply T04: its share at no partner — nothing kept for it', null, array_key_exists('nopartner', $r) ? $r['nopartner'] : $r);

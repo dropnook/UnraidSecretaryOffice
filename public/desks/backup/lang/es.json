@@ -189,6 +189,8 @@
   "live_hint": "Aquí no es posible una instantánea (p. ej. XFS) — Kopia lee el recurso compartido mientras está en uso.",
   "setup.no_snap": "sin copia — no es posible una instantánea",
   "setup.no_snap_hint": "Este recurso compartido está en un sistema de archivos sin instantáneas (p. ej. XFS, o repartido entre XFS y ZFS): «instantánea local» aquí no guarda nada. Elige «Instantánea + fuera de casa» — Kopia lo lee en vivo — o «sin copia».",
+  "setup.partner_left": "sin {list}",
+  "setup.partner_left_hint": "Estos datasets del recurso compartido no pertenecen a ninguna app ni VM: se quedan aquí — el resto del recurso compartido va al socio sin ellos.",
   "setup.no_snap_hint_nokopia": "Este recurso compartido está en un sistema de archivos sin instantáneas (p. ej. XFS, o repartido entre XFS y ZFS): «instantánea local» aquí no guarda nada. Activa fuera de casa (Kopia) para copiarlo en vivo, o elige «sin copia».",
   "setup.no_snap_opt": "En el sistema de archivos de este recurso compartido no es posible una instantánea (p. ej. XFS)",
   "good_before": "última buena {when}",

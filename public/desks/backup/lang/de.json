@@ -186,6 +186,8 @@
   "live_hint": "Hier ist kein Snapshot möglich (z. B. XFS) — Kopia liest den Share während er benutzt wird.",
   "setup.no_snap": "nicht gesichert — kein Snapshot möglich",
   "setup.no_snap_hint": "Dieser Share liegt auf einem Dateisystem ohne Snapshots (z. B. XFS, oder verteilt auf XFS und ZFS): «lokaler Snapshot» sichert hier nichts. Wähl «Snapshot + ausser Haus» — Kopia liest ihn live — oder «nicht gesichert».",
+  "setup.partner_left": "ohne {list}",
+  "setup.partner_left_hint": "Diese Datasets im Share gehören keiner App und keiner VM: Sie bleiben hier — der Rest des Shares geht ohne sie zum Partner.",
   "setup.no_snap_hint_nokopia": "Dieser Share liegt auf einem Dateisystem ohne Snapshots (z. B. XFS, oder verteilt auf XFS und ZFS): «lokaler Snapshot» sichert hier nichts. Schalte ausser Haus (Kopia) ein, um ihn live zu sichern, oder wähl «nicht gesichert».",
   "setup.no_snap_opt": "Auf dem Dateisystem dieses Shares ist kein Snapshot möglich (z. B. XFS)",
   "good_before": "zuletzt gut {when}",

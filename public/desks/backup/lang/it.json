@@ -189,6 +189,8 @@
   "live_hint": "Qui non è possibile uno snapshot (ad es. XFS) — Kopia legge la condivisione mentre è in uso.",
   "setup.no_snap": "senza backup — snapshot non possibile",
   "setup.no_snap_hint": "Questa condivisione sta su un file system senza snapshot (ad es. XFS, o distribuita su XFS e ZFS): «snapshot locale» qui non salva niente. Scegli «Snapshot + fuori sede» — Kopia la legge dal vivo — o «senza backup».",
+  "setup.partner_left": "senza {list}",
+  "setup.partner_left_hint": "Questi dataset nella condivisione non appartengono a nessuna app né VM: restano qui — il resto della condivisione va al partner senza di loro.",
   "setup.no_snap_hint_nokopia": "Questa condivisione sta su un file system senza snapshot (ad es. XFS, o distribuita su XFS e ZFS): «snapshot locale» qui non salva niente. Attiva fuori sede (Kopia) per salvarla dal vivo, o scegli «senza backup».",
   "setup.no_snap_opt": "Sul file system di questa condivisione non è possibile uno snapshot (ad es. XFS)",
   "good_before": "ultima volta riuscito {when}",

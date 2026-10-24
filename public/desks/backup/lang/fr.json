@@ -189,6 +189,8 @@
   "live_hint": "Pas de snapshot possible ici (p. ex. XFS) — Kopia lit le partage pendant qu'il est utilisé.",
   "setup.no_snap": "pas sauvegardé — pas de snapshot possible",
   "setup.no_snap_hint": "Ce partage est sur un système de fichiers sans snapshots (p. ex. XFS, ou réparti sur XFS et ZFS) : « snapshot local » n'y sauvegarde rien. Choisis « Snapshot + hors site » — Kopia le lit en direct — ou « pas sauvegardé ».",
+  "setup.partner_left": "sans {list}",
+  "setup.partner_left_hint": "Ces datasets dans le partage n'appartiennent à aucune app ni VM : ils restent ici — le reste du partage va chez le partenaire sans eux.",
   "setup.no_snap_hint_nokopia": "Ce partage est sur un système de fichiers sans snapshots (p. ex. XFS, ou réparti sur XFS et ZFS) : « snapshot local » n'y sauvegarde rien. Active le hors site (Kopia) pour le sauvegarder en direct, ou choisis « pas sauvegardé ».",
   "setup.no_snap_opt": "Pas de snapshot possible sur le système de fichiers de ce partage (p. ex. XFS)",
   "good_before": "dernière bonne {when}",
