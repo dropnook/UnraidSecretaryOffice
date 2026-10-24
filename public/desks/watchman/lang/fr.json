@@ -711,6 +711,8 @@
   "watch.snaps_office": "Supprimés par le secrétariat à la dernière ronde",
   "watch.snaps_office_n": {"one": "{n} — pas de signalement", "other": "{n} — pas de signalement"},
   "watch.snaps_none": "Pas de pool ZFS ni de disque btrfs ici — pas de snapshots à suivre.",
+  "watch.snaps_failed": "ZFS n'a pas répondu à la dernière ronde — ses snapshots n'ont pas été comparés. Il réessaie à la prochaine ronde.",
+  "watch.snaps_failed_sum": "pas comparés — ZFS n'a pas répondu",
   "help.snaps": "Snapshots",
   "help.snaps_text": "Un attaquant supprime d'abord les snapshots, puis chiffre. À chaque ronde, il compare les snapshots ZFS des pools éveillés et les dossiers de snapshots btrfs des disques éveillés avec la ronde d'avant (sans les couches d'images de Docker ; un pool endormi est comparé une fois réveillé — aucun disque n'est réveillé). Pas de signalement : ce que le secrétariat a supprimé lui-même — Madame Snapshotini à la main et ses plannings (ses lignes dans le journal du secrétariat), la rétention du moteur de sauvegarde pendant une sauvegarde (seulement ses propres noms, et un plus récent reste), les snapshots renommés, le débarras de Madame Plumeau. Tout le reste va dans la main courante avec combien, quels datasets, la zpool history du pool (qui a lancé zfs destroy, et quand) et le syslog de ce moment — et aux notifications d'Unraid. De même un hold que Madame Snapshotini n'a pas libéré. « Je sais, merci » lui apprend une rétention à toi : les snapshots nommés ainsi peuvent partir, tant qu'un plus récent du même genre reste.",
   "noted.schedule": "Noté de lui-même le {when} : le propre planning du secrétariat, changé sur la page d'un bureau — rien à signaler.",

@@ -69,6 +69,7 @@
     "other": "{n} lotti"
   },
   "tile.trash_empty": "vuoto",
+  "tile.trash_asleep": "non guardato — dischi addormentati",
   "cat.templates.leftover": "Residui",
   "cat.templates.leftover_text": "Niente più contenitore né immagine — i più sicuri da mettere via",
   "cat.templates.unused": "Inutilizzati",
@@ -339,6 +340,7 @@
   "empty.stacks": "Nessuno stack nel Compose Manager.",
   "empty.appdata": "La condivisione appdata non ha cartelle (o non la vedo).",
   "empty.trash": "Il mio ripostiglio è vuoto. Splendente!",
+  "empty.trash_asleep": "Nei ripostigli che ho potuto guardare non c'è niente. Quelli sui dischi addormentati non li ho guardati — vedi sopra.",
   "empty.no_compose": "Nessuna cartella dei progetti del Compose Manager ({path}).",
   "bubble.loading": "Un momento, do un'occhiata in giro…",
   "bubble.no_data": "Non sono ancora riuscita a guardarmi intorno — il fattorino c'è?",

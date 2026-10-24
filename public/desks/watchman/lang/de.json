@@ -711,6 +711,8 @@
   "watch.snaps_office": "Vom Sekretariat entfernt beim letzten Rundgang",
   "watch.snaps_office_n": {"one": "einer — keine Meldung", "other": "{n} — keine Meldung"},
   "watch.snaps_none": "Kein ZFS-Pool und keine btrfs-Disk hier — keine Snapshots zu verfolgen.",
+  "watch.snaps_failed": "ZFS hat beim letzten Rundgang nicht geantwortet — seine Snapshots wurden nicht verglichen. Er versucht es beim nächsten Rundgang wieder.",
+  "watch.snaps_failed_sum": "nicht verglichen — ZFS hat nicht geantwortet",
   "help.snaps": "Snapshots",
   "help.snaps_text": "Ein Angreifer löscht zuerst die Snapshots, dann verschlüsselt er. Bei jedem Rundgang vergleicht er die ZFS-Snapshots der wachen Pools und die btrfs-Snapshot-Ordner der wachen Disks mit dem Rundgang davor (ohne Dockers Image-Schichten; ein schlafender Pool wird verglichen, sobald er wach ist — keine Disk wird geweckt). Keine Meldung: was das Sekretariat selbst entfernt hat — Frau Snapshotini von Hand und ihre Zeitpläne (ihre Zeilen im Protokoll des Hausboten), die Aufbewahrung der Backup-Engine während eines Backups (nur ihre eigenen Namen, und ein neuerer bleibt), umbenannte Snapshots, Frau Putzteufels Abstellkammer. Alles andere kommt ins Wachbuch mit wie vielen, welchen Datasets, der zpool history des Pools (wer zfs destroy ausgeführt hat, und wann) und dem Syslog damals — und an Unraids Benachrichtigungen. Ebenso ein Schutz (Hold), den Frau Snapshotini nicht aufgehoben hat. «Weiss ich, danke» bringt ihm eine Aufbewahrung von dir bei: Snapshots mit solchen Namen dürfen gehen, solange ein neuerer derselben Art bleibt.",
   "noted.schedule": "Von selbst zur Kenntnis genommen am {when}: der eigene Zeitplan des Sekretariats, auf der Seite eines Schreibtischs geändert — nichts zu melden.",

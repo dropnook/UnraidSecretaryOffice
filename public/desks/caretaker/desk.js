@@ -94,14 +94,19 @@ const text = (f, suffix) => {
 /** A recommendation or a note that isn't in place can be put aside — a must can't */
 const ackable = (f) => (f.level === 'recommended' || f.level === 'hint') && f.ok !== true && !!f.sig;
 
-/** What is open (counts everywhere), what the user noted (counts nowhere), what is in place */
+/**
+ * What is open (counts everywhere), what the user noted (counts nowhere), what is in place — and what couldn't be checked
+ * (ok null: a disk asleep, Docker silent, a first run still to come): neither a must nor in place, a group of its own that
+ * counts nowhere (truth review T13; the agent's caretakerRed() and the Dashboard take only false as well)
+ */
 function groups() {
   const all = findings();
-  const open = (f) => f.ok !== true && !(f.acked && ackable(f));
+  const open = (f) => f.ok === false && !(f.acked && ackable(f));
   return {
-    todo: all.filter((f) => f.level === 'required' && f.ok !== true),
+    todo: all.filter((f) => f.level === 'required' && f.ok === false),
     advice: all.filter((f) => f.level === 'recommended' && open(f)),
-    hints: all.filter((f) => f.level === 'hint' && open(f)),
+    unchecked: all.filter((f) => f.level !== 'hint' && f.ok !== true && f.ok !== false && !(f.acked && ackable(f))),
+    hints: all.filter((f) => f.level === 'hint' && f.ok !== true && !(f.acked && ackable(f))),
     noted: all.filter((f) => f.acked && ackable(f)),
     done: all.filter((f) => f.ok === true),
   };
@@ -129,11 +134,12 @@ function bubbleText() {
   if (!state) return T('bubble.loading');
   if (alone()) return T('bubble.alone');
   const g = groups();
-  if (!g.todo.length && !g.advice.length) return g.noted.length ? T('bubble.all_good_noted', { n: g.noted.length }) : T('bubble.all_good');
+  const unchecked = g.unchecked.length ? ' ' + T('bubble.unchecked', { n: g.unchecked.length }) : '';
+  if (!g.todo.length && !g.advice.length) return (g.noted.length ? T('bubble.all_good_noted', { n: g.noted.length }) : T(unchecked ? 'bubble.all_good_checked' : 'bubble.all_good')) + unchecked;
   const parts = [];
   if (g.todo.length) parts.push(T('bubble.todo', { n: g.todo.length }));
   if (g.advice.length) parts.push(T(g.todo.length ? 'bubble.advice' : 'bubble.advice_only', { n: g.advice.length }));
-  return parts.join(' ');
+  return parts.join(' ') + unchecked;
 }
 
 // ------------------------------------------------------------------ rendering
@@ -234,7 +240,7 @@ function officeTile(a) {
 function todoTile(a) {
   const g = groups();
   const n = g.todo.length + g.advice.length + g.hints.length;
-  const parts = [[g.todo, 'count.must'], [g.advice, 'count.advice'], [g.hints, 'count.hint']]
+  const parts = [[g.todo, 'count.must'], [g.advice, 'count.advice'], [g.hints, 'count.hint'], [g.unchecked, 'count.unchecked']]
     .filter(([l]) => l.length).map(([l, k]) => T(k, { n: l.length }));
   return Office.stat({ label: T('tile.todo'), value: fmt.number(n), alert: g.todo.length + g.advice.length > 0,
     sub: parts.length ? parts.join(' · ') : T('tile.todo_none'), ...a });
@@ -288,6 +294,7 @@ function pointsSection() {
     ok.appendChild(p);
     s.appendChild(ok);
   }
+  if (g.unchecked.length) s.appendChild(list('unchecked', T('unchecked_count', { n: g.unchecked.length }), T('unchecked_text'), fit.unchecked));
   if (g.hints.length) s.appendChild(list('hints', T('hints_count', { n: g.hints.length }), T('hints_text'), fit.hints));
   return s;
 }
@@ -341,12 +348,16 @@ function row(f) {
   const meta = el('div', 'row-meta');
   if (noted) meta.appendChild(el('span', 'chip quiet', T('level.' + f.level)));      // where it goes back to
   else if (f.level !== 'hint') {
-    if (f.ok === null) meta.appendChild(el('span', 'chip warn', T('unknown')));
-    else meta.appendChild(el('span', 'chip ' + (f.level === 'required' ? 'danger' : 'warn'), T(f.level === 'required' ? 'missing' : 'not_yet')));
+    if (f.ok !== false) {                // couldn't check: neutral, never red (T13)
+      const c = el('span', 'chip quiet', T('unknown'));
+      c.title = T('unknown_tip');
+      meta.appendChild(c);
+    } else meta.appendChild(el('span', 'chip ' + (f.level === 'required' ? 'danger' : 'warn'), T(f.level === 'required' ? 'missing' : 'not_yet')));
   }
   meta.appendChild(deskChip(f.desk));
   main.appendChild(meta);
-  const how = text(f, '_how');
+  // the how-text says what to fix — for a check that couldn't look, why it is open instead («Missing on …: .» was wrong)
+  const how = f.level !== 'hint' && f.ok !== true && f.ok !== false ? T('unchecked_how') : text(f, '_how');
   if (how) main.appendChild(el('div', 'row-detail', how));
   r.appendChild(main);
   const acts = el('div', 'ct-acts');
@@ -1203,7 +1214,7 @@ Office.placesFrom(ID, (s) => {
     if (!Office.desks.has(desk) || !Office.desks.get(desk).hired || !Array.isArray(list)) continue;
     list.forEach((f) => {
       if (!f || !LISTS[f.level] || f.ok === true || !f.sig || (f.acked && ackable(f))) return;
-      out.push({ text: text({ ...f, desk }), sub: `${T(LISTS[f.level])} · ${Office.t(desk + '.name')}`, route: '#/caretaker/todo', anchor: `finding:${f.sig}` });
+      out.push({ text: text({ ...f, desk }), sub: `${T(f.level !== 'hint' && f.ok !== false ? 'unknown' : LISTS[f.level])} · ${Office.t(desk + '.name')}`, route: '#/caretaker/todo', anchor: `finding:${f.sig}` });
     });
   }
   for (const [id, x] of Object.entries(s.staff || {})) {

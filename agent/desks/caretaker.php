@@ -606,7 +606,8 @@ function caretakerChecks(): array
 
     // the office itself: a newer release?
     $office = officeUpdateInfo();
-    $out[] = finding('office_update', 'recommended', $office['newer'] ? false : true,
+    // GitHub not reached (offline, not public, an error): «couldn't check», never «up to date» (truth review O9)
+    $out[] = finding('office_update', 'recommended', $office['newer'] ? false : (($office['latest'] ?? null) === null ? null : true),
         ['version' => AGENT_VERSION, 'latest' => (string) ($office['latest'] ?? '')], '#/caretaker/office');
 
     // the data folder and the one above it: root's alone (review 2026-10-15) - the command shown, never run

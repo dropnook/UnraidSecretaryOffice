@@ -4,6 +4,11 @@
   "visit": "Zum Teamchef",
   "bubble.loading": "Einen Moment, ich mache meinen Rundgang…",
   "bubble.all_good": "Alles an seinem Platz — für dich gibt es nichts zu tun.",
+  "bubble.all_good_checked": "Bei dem, was ich prüfen konnte, gibt es für dich nichts zu tun.",
+  "bubble.unchecked": {
+    "one": "1 Punkt konnte ich gerade nicht prüfen.",
+    "other": "{n} Punkte konnte ich gerade nicht prüfen."
+  },
   "bubble.todo": {
     "one": "Eine Sache musst du noch selbst erledigen.",
     "other": "{n} Dinge musst du noch selbst erledigen."
@@ -33,6 +38,8 @@
   "missing": "fehlt",
   "not_yet": "noch nicht",
   "unknown": "konnte ich nicht prüfen",
+  "unknown_tip": "Weder nötig noch erledigt: Dieser Punkt ließ sich gerade nicht anschauen.",
+  "unchecked_how": "Ließ sich gerade nicht prüfen — eine Disk schläft, Docker antwortet nicht, oder ein erster Lauf steht noch aus. Ich schaue beim nächsten Rundgang wieder nach; bis dahin gibt es für dich nichts zu tun.",
   "all_good_title": "Nichts mehr zu tun",
   "all_good_text": "Jeder Schreibtisch hat, was er braucht.",
   "level.required": "nötig",
@@ -106,6 +113,10 @@
   "count.must": {"one": "{n} nötig", "other": "{n} nötig"},
   "count.advice": {"one": "{n} empfohlen", "other": "{n} empfohlen"},
   "count.hint": {"one": "{n} gut zu wissen", "other": "{n} gut zu wissen"},
+  "count.unchecked": {
+    "one": "{n} nicht geprüft",
+    "other": "{n} nicht geprüft"
+  },
   "tile.notify": "Mitteilungszentrale",
   "tile.notify_last": "zuletzt {when}",
   "tile.notify_failed": "{when} — nicht angekommen",
@@ -223,6 +234,8 @@
   "todo_count": "Noch zu tun ({n})",
   "advice_count": "Empfohlen ({n})",
   "hints_count": "Gut zu wissen ({n})",
+  "unchecked_count": "Gerade nicht geprüft ({n})",
+  "unchecked_text": "Weder nötig noch erledigt — ich schaue beim nächsten Rundgang wieder nach.",
   "ack": "Weiss ich, danke",
   "ack_title": "Beiseitelegen: kommt zu «Zur Kenntnis genommen» und zählt nicht mehr mit — bis sich die Lage ändert.",
   "unack": "Zurückholen",

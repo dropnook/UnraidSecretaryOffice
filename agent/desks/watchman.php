@@ -7546,6 +7546,7 @@ function watchmanSnaps(array $paths, ?array $known, array $series, int $now): ar
         'btrfs'    => is_array($look['btrfs']) ? $count($look['btrfs']['snaps']) : null,
         'asleep'   => array_values(array_merge((array) ($look['zfs']['asleep'] ?? []), (array) ($look['btrfs']['asleep'] ?? []))),
         'capped'   => (array) ($look['zfs']['capped'] ?? []),
+        'failed'   => !empty($look['zfs']['failed']),     // zfs didn't answer: nothing compared — said, never «0 snapshots» (W5)
         'expected' => $diff['expected'],
     ]];
 }
@@ -8322,7 +8323,7 @@ function watchmanSnapSummary(?array $s, ?array $bs): ?array
         return null;
     }
     return ['time' => (int) ($s['time'] ?? 0), 'zfs' => $s['zfs'] ?? null, 'btrfs' => $s['btrfs'] ?? null, 'asleep' => (array) ($s['asleep'] ?? []),
-            'capped' => (array) ($s['capped'] ?? []), 'expected' => (array) ($s['expected'] ?? []),
+            'capped' => (array) ($s['capped'] ?? []), 'expected' => (array) ($s['expected'] ?? []), 'failed' => ($s['failed'] ?? false) === true,
             'series' => array_slice(array_map('strval', array_keys((array) ($bs['series'] ?? []))), 0, 50)];
 }
 

@@ -711,6 +711,8 @@
   "watch.snaps_office": "Rimossi dalla segreteria all'ultimo giro",
   "watch.snaps_office_n": {"one": "uno — nessuna segnalazione", "other": "{n} — nessuna segnalazione"},
   "watch.snaps_none": "Nessun pool ZFS e nessun disco btrfs qui — nessuno snapshot da seguire.",
+  "watch.snaps_failed": "ZFS non ha risposto all'ultimo giro — i suoi snapshot non sono stati confrontati. Riprova al prossimo giro.",
+  "watch.snaps_failed_sum": "non confrontati — ZFS non ha risposto",
   "help.snaps": "Snapshot",
   "help.snaps_text": "Un attaccante cancella prima gli snapshot, poi cifra. A ogni giro confronta gli snapshot ZFS dei pool svegli e le cartelle di snapshot btrfs dei dischi svegli con il giro prima (senza gli strati delle immagini di Docker; un pool che dorme viene confrontato quando è sveglio — nessun disco viene svegliato). Nessuna segnalazione: ciò che la segreteria ha rimosso da sé — la signora Snapshotini a mano e i suoi piani (le sue righe nel log della segreteria), la conservazione del motore di backup durante un backup (solo i suoi nomi, e ne resta uno più recente), snapshot rinominati, il ripostiglio della signora Spolverina. Tutto il resto va nel registro di guardia con quanti, quali dataset, la zpool history del pool (chi ha eseguito zfs destroy, e quando) e il syslog di allora — e alle notifiche di Unraid. Anche un hold che la signora Snapshotini non ha rilasciato. «Lo so, grazie» gli insegna una tua conservazione: gli snapshot con nomi così possono andarsene, finché ne resta uno più recente dello stesso tipo.",
   "noted.schedule": "Preso atto da sé il {when}: la pianificazione della segreteria stessa, cambiata sulla pagina di una scrivania — niente da segnalare.",

@@ -2031,7 +2031,10 @@ function snapGroup(s) {
   const office = Object.values(s.expected || {}).reduce((a, b) => a + (Number(b) || 0), 0);
   if (office) rows.push(item(T('watch.snaps_office'), [T('watch.snaps_office_n', { n: office })], null, true));
   if (s.zfs === null && s.btrfs === null) rows.push(note(T('watch.snaps_none')));
-  return group('snaps', T('watch.snaps'), T('watch.snaps_sum', { n: total, places: Object.keys(s.zfs || {}).length + Object.keys(s.btrfs || {}).length }), rows);
+  // zfs didn't answer on the last round: nothing was compared — never «0 snapshots · pools and disks: 0» (truth review W5)
+  if (s.failed) rows.unshift(note(T('watch.snaps_failed')));
+  const sum = T('watch.snaps_sum', { n: total, places: Object.keys(s.zfs || {}).length + Object.keys(s.btrfs || {}).length });
+  return group('snaps', T('watch.snaps'), s.failed && !total ? T('watch.snaps_failed_sum') : sum, rows);
 }
 
 // ------------------------------------------------------------------ data flow

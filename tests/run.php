@@ -21259,6 +21259,54 @@ function testHouseDockerSilent(): void
 }
 
 /**
+ * Truth review P4: a check that couldn't look (ok null) is neither a must nor «in place». The Team Lead's page keeps such
+ * points in a group of their own that counts nowhere (T13 — «Needed (2)», the red avatar, the Dashboard's «1 thing to do»
+ * took null for false), the Dashboard counts only false; Ms. Dustdevil's storerooms on sleeping disks (T14) and an empty
+ * share on a sleeping pool (O10) are «couldn't check», never ✓; the office's update check without GitHub (O9) too; the
+ * Night Watchman says when zfs didn't answer instead of «0 snapshots» (W5).
+ */
+function testUncheckedIsNeither(): void
+{
+    require_once OFFICE_DIR . '/src/dashboard.php';
+    $checks = ['backup' => [['id' => 'kopia_repo', 'level' => 'required', 'ok' => null], ['id' => 'kopia', 'level' => 'required', 'ok' => false],
+                            ['id' => 'x', 'level' => 'recommended', 'ok' => null], ['id' => 'y', 'level' => 'recommended', 'ok' => false],
+                            ['id' => 'z', 'level' => 'recommended', 'ok' => true], ['id' => 'h', 'level' => 'hint', 'ok' => null]]];
+    same('unchecked: the Dashboard counts only false — a must and a recommendation, never the null ones', [1, 1],
+        officeDashCareCounts(['checks' => $checks], ['backup' => 1]));
+    same('unchecked: the agent\'s red list (what is notified) takes only false as well', ['backup:kopia:'], array_keys(caretakerRed($checks)));
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/caretaker/desk.js');
+    check('unchecked: the Team Lead\'s musts and recommendations are ok === false; null is a group of its own, neutral, with its own how-text',
+        str_contains($js, "todo: all.filter((f) => f.level === 'required' && f.ok === false),")
+        && str_contains($js, "unchecked: all.filter((f) => f.level !== 'hint' && f.ok !== true && f.ok !== false")
+        && str_contains($js, "el('span', 'chip quiet', T('unknown'))") && str_contains($js, "T('unchecked_how')")
+        && !str_contains($js, "f.ok !== true),"));
+
+    // Ms. Dustdevil: nothing old seen, but storerooms on sleeping disks — couldn't check; none asleep — in place
+    $before = $GLOBALS['clState'] ?? null;
+    $trash = fn (array $s) => array_column(array_values(array_filter(clChecks(), fn ($f) => $f['id'] === 'trash_old')), 'ok')[0] ?? null;
+    $GLOBALS['clState'] = ['docker' => ['enabled' => false], 'trash' => ['runs' => [], 'asleep' => ['disk2']]];
+    $asleep = $trash($GLOBALS['clState']);
+    $GLOBALS['clState'] = ['docker' => ['enabled' => false], 'trash' => ['runs' => [], 'asleep' => []]];
+    $awake = $trash($GLOBALS['clState']);
+    $GLOBALS['clState'] = ['docker' => ['enabled' => false], 'trash' => ['runs' => []]];
+    $old = $trash($GLOBALS['clState']);
+    same('unchecked: storeroom asleep — couldn\'t check; all looked at — in place; an older state without asleep — in place', [null, true, true], [$asleep, $awake, $old]);
+    $GLOBALS['clState'] = $before;
+    if ($before === null) {
+        unset($GLOBALS['clState']);
+    }
+    $cl = (string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/desk.js');
+    check('unchecked: her page never says «empty» / «Spotless!» for storerooms she didn\'t look at',
+        str_contains($cl, "asleep ? T('tile.trash_asleep') : T('tile.trash_empty')") && str_contains($cl, "'empty.trash_asleep' : 'empty.trash'"));
+    check('unchecked: the update check without GitHub is null, never «up to date»',
+        str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/caretaker.php'), "\$office['newer'] ? false : ((\$office['latest'] ?? null) === null ? null : true)"));
+    same('unchecked: the Night Watchman\'s summary carries «zfs didn\'t answer»; an older summary without it — false', [true, false],
+        [watchmanSnapSummary(['time' => 1, 'zfs' => [], 'failed' => true], null)['failed'], watchmanSnapSummary(['time' => 1, 'zfs' => []], null)['failed']]);
+    check('unchecked: his page says it instead of «0 snapshots · pools and disks: 0»',
+        str_contains((string) file_get_contents(OFFICE_DIR . '/public/desks/watchman/desk.js'), "s.failed && !total ? T('watch.snaps_failed_sum') : sum"));
+}
+
+/**
  * Truth review P3: «Docker isn't running» is never read as «none». houseContainersKnown() is null when `docker ps` didn't
  * answer (houseContainers() stays the empty list for older callers); every desk that would say «gone», «missing», «no media
  * server», «0 containers» or «not here» asks it and says `common.docker_off` instead (T11 T12 T36 W7 O8), and Mr. Restori's
@@ -49241,8 +49289,10 @@ function testCleanupSnapOnly(): void
     same('snap only: the Team Lead\'s hint — recommended, how much and where, the link to Ms. Snapshotini\'s datasets',
         [['snap_only', 'recommended', false, '#/snapshot/datasets'], ['n' => 3, 'shares' => 'Familienfilme (cache, 12.0 GB), Zu (cache, 900.0 MB), Fotos (cache, 300.0 MB)', 'size' => '13.2 GB']],
         [[$c[0]['id'], $c[0]['level'], $c[0]['ok'], $c[0]['link']], $c[0]['params']]);
-    same('snap only: none — in place (also with a pool asleep); her tour before this look — nothing',
-        [[true], []], [array_column(clSnapOnlyChecks(['list' => [], 'asleep' => ['hdd']]), 'ok'), clSnapOnlyChecks(null)]);
+    // truth review O10: a pool asleep was never asked — nothing found there is «couldn't check» (null), never ✓ in place
+    same('snap only: none on awake pools — in place; with a pool asleep — couldn\'t check (null); her tour before this look — nothing',
+        [[true], [null], []], [array_column(clSnapOnlyChecks(['list' => [], 'asleep' => []]), 'ok'),
+                               array_column(clSnapOnlyChecks(['list' => [], 'asleep' => ['hdd']]), 'ok'), clSnapOnlyChecks(null)]);
     check('snap only: she only looked — every folder and file still there', is_file("$tmp/cache/Dokumente/brief.txt") && is_dir("$tmp/cache/Familienfilme/2019/Sommer"));
     $ct = (string) file_get_contents(OFFICE_WEB . '/desks/caretaker/desk.js');
     check('snap only: the Team Lead\'s button says the desk\'s own words (check.<id>_link) where it has them',
@@ -52225,7 +52275,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
-          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerOffSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],
+          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerOffSaid', 'testUncheckedIsNeither', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.

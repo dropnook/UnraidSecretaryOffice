@@ -69,6 +69,7 @@
     "other": "{n} Posten"
   },
   "tile.trash_empty": "leer",
+  "tile.trash_asleep": "nicht angeschaut — Disks schlafen",
   "cat.templates.leftover": "Altlasten",
   "cat.templates.leftover_text": "Kein Container und kein Image mehr — am sichersten wegzuräumen",
   "cat.templates.unused": "Ungenutzt",
@@ -339,6 +340,7 @@
   "empty.stacks": "Keine Stacks im Compose Manager.",
   "empty.appdata": "Der appdata-Share hat keine Ordner (oder ich sehe sie nicht).",
   "empty.trash": "Meine Abstellkammer ist leer. Blitzblank!",
+  "empty.trash_asleep": "In den Abstellkammern, die ich anschauen konnte, liegt nichts. Die auf schlafenden Disks habe ich nicht angeschaut — siehe oben.",
   "empty.no_compose": "Kein Projektordner des Compose Managers ({path}).",
   "bubble.loading": "Einen Moment, ich schaue mich um…",
   "bubble.no_data": "Ich konnte mich noch nicht umschauen — ist der Hausbote da?",

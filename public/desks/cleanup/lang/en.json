@@ -69,6 +69,7 @@
     "other": "{n} lots"
   },
   "tile.trash_empty": "empty",
+  "tile.trash_asleep": "not looked at — disks asleep",
   "cat.templates.leftover": "Leftovers",
   "cat.templates.leftover_text": "No container and no image any more — the safest to clear away",
   "cat.templates.unused": "Unused",
@@ -339,6 +340,7 @@
   "empty.stacks": "No stacks in the Compose Manager.",
   "empty.appdata": "The appdata share has no folders (or I can't see it).",
   "empty.trash": "My storeroom is empty. Spotless!",
+  "empty.trash_asleep": "Nothing in the storerooms I could look at. The ones on sleeping disks I haven't looked at — see above.",
   "empty.no_compose": "No Compose Manager projects folder ({path}).",
   "bubble.loading": "One moment, I'm having a look around…",
   "bubble.no_data": "I haven't been able to look around yet — is the messenger in?",

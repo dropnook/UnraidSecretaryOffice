@@ -4,6 +4,11 @@
   "visit": "Visit the team lead",
   "bubble.loading": "One moment, I'm on my tour…",
   "bubble.all_good": "Everything's in place — nothing for you to do.",
+  "bubble.all_good_checked": "Nothing for you to do in what I could check.",
+  "bubble.unchecked": {
+    "one": "1 point I couldn't check just now.",
+    "other": "{n} points I couldn't check just now."
+  },
   "bubble.todo": {
     "one": "There's one thing you still need to do yourself.",
     "other": "There are {n} things you still need to do yourself."
@@ -33,6 +38,8 @@
   "missing": "missing",
   "not_yet": "not yet",
   "unknown": "couldn't check",
+  "unknown_tip": "Not a must and not in place: this point couldn't be looked at just now.",
+  "unchecked_how": "Couldn't be checked just now — a disk asleep, Docker not answering, or a first run still to come. I look again on my next round; nothing to do for you until then.",
   "all_good_title": "Nothing left to do",
   "all_good_text": "Every desk has what it needs.",
   "level.required": "needed",
@@ -106,6 +113,10 @@
   "count.must": {"one": "{n} needed", "other": "{n} needed"},
   "count.advice": {"one": "{n} recommended", "other": "{n} recommended"},
   "count.hint": {"one": "{n} good to know", "other": "{n} good to know"},
+  "count.unchecked": {
+    "one": "{n} not checked",
+    "other": "{n} not checked"
+  },
   "tile.notify": "Notification centre",
   "tile.notify_last": "last one {when}",
   "tile.notify_failed": "{when} — didn't arrive",
@@ -223,6 +234,8 @@
   "todo_count": "Still to do ({n})",
   "advice_count": "Recommended ({n})",
   "hints_count": "Good to know ({n})",
+  "unchecked_count": "Not checked just now ({n})",
+  "unchecked_text": "Neither a must nor in place — I look again on my next round.",
   "ack": "I know, thanks",
   "ack_title": "Put it aside: it moves to «Noted» and no longer counts — until its situation changes.",
   "unack": "Bring back",

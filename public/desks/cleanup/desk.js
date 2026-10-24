@@ -480,7 +480,9 @@ function renderNotice() {
 function tileLine(sec) {
   if (sec === 'trash') {
     const runs = state.trash.runs;
-    return [runs.length ? T('tile.trash', { n: runs.length }) : T('tile.trash_empty'), !runs.length ? '' : state.trash.bytes === null ? '…' : fmt.size(state.trash.bytes)];
+    // storerooms on sleeping disks weren't looked at: never «empty» then (T14)
+    const asleep = (state.trash.asleep || []).length;
+    return [runs.length ? T('tile.trash', { n: runs.length }) : asleep ? T('tile.trash_asleep') : T('tile.trash_empty'), !runs.length ? '' : state.trash.bytes === null ? '…' : fmt.size(state.trash.bytes)];
   }
   const all = entries(sec);
   const c = candidates(sec);
@@ -1923,7 +1925,7 @@ function trashInfo() {
 
 function renderTrash(body) {
   const runs = state.trash.runs;
-  if (!runs.length) { body.appendChild(emptyNote(T('empty.trash'))); return; }
+  if (!runs.length) { body.appendChild(emptyNote(T((state.trash.asleep || []).length ? 'empty.trash_asleep' : 'empty.trash'))); return; }
   const shownRuns = runs.filter((r) => !words().length || r.items.some(matches));
   if (!shownRuns.length) { body.appendChild(emptyNote(T('no_match', { query: words().join(' ') }))); return; }
   const box = el('div', 'box');

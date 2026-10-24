@@ -69,6 +69,7 @@
     "other": "{n} lotes"
   },
   "tile.trash_empty": "vacío",
+  "tile.trash_asleep": "sin mirar — discos dormidos",
   "cat.templates.leftover": "Restos",
   "cat.templates.leftover_text": "Ya sin contenedor ni imagen — lo más seguro para recoger",
   "cat.templates.unused": "Sin usar",
@@ -339,6 +340,7 @@
   "empty.stacks": "No hay stacks en el Compose Manager.",
   "empty.appdata": "El recurso compartido appdata no tiene carpetas (o no lo veo).",
   "empty.trash": "Mi trastero está vacío. ¡Como los chorros del oro!",
+  "empty.trash_asleep": "No hay nada en los trasteros que pude mirar. Los de discos dormidos no los he mirado — mira arriba.",
   "empty.no_compose": "No hay carpeta de proyectos del Compose Manager ({path}).",
   "bubble.loading": "Un momento, estoy echando un vistazo…",
   "bubble.no_data": "Todavía no he podido echar un vistazo — ¿está aquí el mensajero?",

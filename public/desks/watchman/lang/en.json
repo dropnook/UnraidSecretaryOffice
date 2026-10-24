@@ -711,6 +711,8 @@
   "watch.snaps_office": "Removed by the office on the last round",
   "watch.snaps_office_n": {"one": "one — no news", "other": "{n} — no news"},
   "watch.snaps_none": "No ZFS pool and no btrfs disk here — no snapshots to follow.",
+  "watch.snaps_failed": "ZFS didn't answer on the last round — its snapshots weren't compared. He tries again on the next round.",
+  "watch.snaps_failed_sum": "not compared — ZFS didn't answer",
   "help.snaps": "Snapshots",
   "help.snaps_text": "An attacker deletes the snapshots first, then encrypts. Every round he compares the ZFS snapshots of the awake pools and the btrfs snapshot folders of the awake disks with the round before (Docker's image layers left out; a pool asleep is compared once it is awake — no disk is woken). No news: what the office removed itself — Ms. Snapshotini by hand and her schedules (her lines in the office's log), the backup engine's retention during its run (only its own names, and a newer one stays), renamed snapshots, Ms. Dustdevil's storeroom. Everything else goes into the watch book with how many, which datasets, the pool's zpool history (who ran zfs destroy, and when) and the syslog then — and to Unraid's notifications. Also a hold released that Ms. Snapshotini didn't release. «I know, thanks» teaches him a retention of yours: snapshots named like those may go, as long as a newer one of the same kind stays.",
   "noted.schedule": "Noted by himself on {when}: the office's own schedule, changed on a desk's page — nothing to tell.",

@@ -711,6 +711,8 @@
   "watch.snaps_office": "Quitadas por la secretaría en la última ronda",
   "watch.snaps_office_n": {"one": "una — sin aviso", "other": "{n} — sin aviso"},
   "watch.snaps_none": "Ningún pool ZFS ni disco btrfs aquí — ninguna instantánea que seguir.",
+  "watch.snaps_failed": "ZFS no respondió en la última ronda — sus instantáneas no se compararon. Lo vuelve a intentar en la próxima ronda.",
+  "watch.snaps_failed_sum": "sin comparar — ZFS no respondió",
   "help.snaps": "Instantáneas",
   "help.snaps_text": "Un atacante borra primero las instantáneas y luego cifra. En cada ronda compara las instantáneas ZFS de los pools despiertos y las carpetas de instantáneas btrfs de los discos despiertos con la ronda anterior (sin las capas de imagen de Docker; un pool dormido se compara cuando despierta — no se despierta ningún disco). Sin aviso: lo que la secretaría quitó ella misma — la señora Snapshotini a mano y sus planes (sus líneas en el registro de la secretaría), la retención del motor de copias durante una copia de seguridad (solo sus propios nombres, y queda una más reciente), instantáneas renombradas, el trastero de la señora Plumero. Todo lo demás va al libro de guardia con cuántas, qué datasets, la zpool history del pool (quién ejecutó zfs destroy, y cuándo) y el syslog de entonces — y a las notificaciones de Unraid. También un hold que la señora Snapshotini no liberó. «Ya lo sé, gracias» le enseña una retención tuya: las instantáneas con nombres así pueden irse, mientras quede una más reciente del mismo tipo.",
   "noted.schedule": "Anotado por sí mismo el {when}: el propio horario de la secretaría, cambiado en la página de un escritorio — nada que contar.",
