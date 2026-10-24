@@ -218,7 +218,7 @@ Full text: docs/DEVELOPMENT.md «UI conventions in full» and «Tiles and lists�
 * **CSS names** carry the desk's prefix; never reuse an office.css name; never a level/state from data as a bare class.
 * **Search:** ONE `Office.places()` and ONE `Office.placesFrom()` per desk; never a log line, a secret or an unshown path.
 * **Rows:** the whole row clicks (`.row.unfolds`), every chip its own `title`. **Folding never makes the page jump**
-  (`Office.keepInPlace()`); `<details>` via `keepFold()`. Backup protection via `Office.backupChip(level)`.
+  (`Office.keepInPlace()`); `<details>` via `keepFold()`. Backup protection via `Office.backupChip(level, note)`.
 
 ## Server facts that bite
 
