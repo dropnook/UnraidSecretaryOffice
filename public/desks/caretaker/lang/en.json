@@ -488,7 +488,7 @@
   "partner.self_silent": "Paired with itself, but the door doesn't answer: {why}",
   "partner.t_start": "Start from a partner's copy…",
   "partner.t_start_title": "A new server: pull a gone server's copies from its partner office",
-  "partner.t_start_text": "This server is new and the old one is gone? Its partner office still keeps its copies. Choose the address the partner reaches this server at — I make a key for it and a block to paste at the partner (on the card of the gone server: «Hand … copies to a new server…»).",
+  "partner.t_start_text": "This server is new and the old one is gone? Its partner office still keeps its copies. Below is the address the partner lets this server in from — I make a key for it and a block to paste at the partner (on the card of the gone server: «Hand … copies to a new server…»).",
   "partner.t_start_after": "No secret travels in the block — only this server's public key. The partner answers with a ticket (valid for 7 days) and a safety code.",
   "partner.t_block_n_title": "Your request for a ticket",
   "partner.t_block_n_text": "Copy this block to the partner office: the card of the gone server → ⋯ → «Hand … copies to a new server…». Then paste its answer here with «Paste the ticket».",

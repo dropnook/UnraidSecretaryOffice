@@ -488,7 +488,7 @@
   "partner.self_silent": "Abbinata con se stessa, ma la porta non risponde: {why}",
   "partner.t_start": "Parti dalla copia di un partner…",
   "partner.t_start_title": "Un nuovo server: recupera le copie di un server perduto dalla sua segreteria partner",
-  "partner.t_start_text": "Questo server è nuovo e il vecchio non c'è più? La sua segreteria partner ne conserva ancora le copie. Scegli l'indirizzo con cui il partner raggiunge questo server — creo una chiave e un blocco da incollare presso il partner (sulla scheda del server perduto: «Consegna le copie di … a un nuovo server…»).",
+  "partner.t_start_text": "Questo server è nuovo e il vecchio non c'è più? La sua segreteria partner ne conserva ancora le copie. Qui sotto c'è l'indirizzo da cui il partner fa entrare questo server — creo una chiave e un blocco da incollare presso il partner (sulla scheda del server perduto: «Consegna le copie di … a un nuovo server…»).",
   "partner.t_start_after": "Nel blocco non viaggia nessun segreto — solo la chiave pubblica di questo server. Il partner risponde con un ticket (valido 7 giorni) e un codice di sicurezza.",
   "partner.t_block_n_title": "La tua richiesta di un ticket",
   "partner.t_block_n_text": "Copia questo blocco nella segreteria partner: scheda del server perduto → ⋯ → «Consegna le copie di … a un nuovo server…». Poi incolla qui la risposta con «Incolla il ticket».",

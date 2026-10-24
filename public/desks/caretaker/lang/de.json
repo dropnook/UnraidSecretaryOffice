@@ -488,7 +488,7 @@
   "partner.self_silent": "Mit sich selbst verbunden, aber die Tür antwortet nicht: {why}",
   "partner.t_start": "Von der Kopie eines Partners starten…",
   "partner.t_start_title": "Ein neuer Server: die Kopien eines verlorenen Servers von seinem Partner-Sekretariat holen",
-  "partner.t_start_text": "Dieser Server ist neu und der alte ist weg? Sein Partner-Sekretariat bewahrt seine Kopien noch auf. Wähle die Adresse, unter der der Partner diesen Server erreicht — ich mache einen Schlüssel dafür und einen Block, den du beim Partner einfügst (auf der Karte des verlorenen Servers: «Kopien … an einen neuen Server übergeben…»).",
+  "partner.t_start_text": "Dieser Server ist neu und der alte ist weg? Sein Partner-Sekretariat bewahrt seine Kopien noch auf. Unten steht die Adresse, von der der Partner diesen Server hereinlässt — ich mache einen Schlüssel dafür und einen Block, den du beim Partner einfügst (auf der Karte des verlorenen Servers: «Kopien … an einen neuen Server übergeben…»).",
   "partner.t_start_after": "Im Block reist kein Geheimnis — nur der öffentliche Schlüssel dieses Servers. Der Partner antwortet mit einem Ticket (7 Tage gültig) und einem Sicherheitscode.",
   "partner.t_block_n_title": "Deine Anfrage für ein Ticket",
   "partner.t_block_n_text": "Kopiere diesen Block zum Partner-Sekretariat: Karte des verlorenen Servers → ⋯ → «Kopien … an einen neuen Server übergeben…». Füge seine Antwort dann hier mit «Ticket einfügen» ein.",

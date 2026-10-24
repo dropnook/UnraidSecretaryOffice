@@ -488,7 +488,7 @@
   "partner.self_silent": "Emparejada consigo misma, pero la puerta no responde: {why}",
   "partner.t_start": "Empezar desde la copia de un socio…",
   "partner.t_start_title": "Un servidor nuevo: traer las copias de un servidor perdido desde su secretaría asociada",
-  "partner.t_start_text": "¿Este servidor es nuevo y el viejo ya no está? Su secretaría asociada aún guarda sus copias. Elige la dirección con la que el socio llega a este servidor — creo una clave y un bloque para pegar en el socio (en la tarjeta del servidor perdido: «Entregar las copias de … a un servidor nuevo…»).",
+  "partner.t_start_text": "¿Este servidor es nuevo y el viejo ya no está? Su secretaría asociada aún guarda sus copias. Abajo está la dirección desde la que el socio deja entrar a este servidor — creo una clave y un bloque para pegar en el socio (en la tarjeta del servidor perdido: «Entregar las copias de … a un servidor nuevo…»).",
   "partner.t_start_after": "En el bloque no viaja ningún secreto — solo la clave pública de este servidor. El socio responde con un ticket (válido 7 días) y un código de seguridad.",
   "partner.t_block_n_title": "Tu solicitud de ticket",
   "partner.t_block_n_text": "Copia este bloque en la secretaría asociada: tarjeta del servidor perdido → ⋯ → «Entregar las copias de … a un servidor nuevo…». Después pega aquí su respuesta con «Pegar el ticket».",

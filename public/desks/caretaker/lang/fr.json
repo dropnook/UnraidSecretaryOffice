@@ -488,7 +488,7 @@
   "partner.self_silent": "Appairé avec lui-même, mais la porte ne répond pas : {why}",
   "partner.t_start": "Partir de la copie d'un partenaire…",
   "partner.t_start_title": "Un nouveau serveur : rapatrier les copies d'un serveur perdu depuis son secrétariat partenaire",
-  "partner.t_start_text": "Ce serveur est nouveau et l'ancien a disparu ? Son secrétariat partenaire garde encore ses copies. Choisissez l'adresse à laquelle le partenaire joint ce serveur — je crée une clé et un bloc à coller chez le partenaire (sur la carte du serveur perdu : « Remettre les copies de … à un nouveau serveur… »).",
+  "partner.t_start_text": "Ce serveur est nouveau et l'ancien a disparu ? Son secrétariat partenaire garde encore ses copies. Ci-dessous, l'adresse depuis laquelle le partenaire laisse entrer ce serveur — je crée une clé et un bloc à coller chez le partenaire (sur la carte du serveur perdu : « Remettre les copies de … à un nouveau serveur… »).",
   "partner.t_start_after": "Aucun secret ne voyage dans le bloc — seulement la clé publique de ce serveur. Le partenaire répond avec un ticket (valable 7 jours) et un code de sécurité.",
   "partner.t_block_n_title": "Votre demande de ticket",
   "partner.t_block_n_text": "Copiez ce bloc au secrétariat partenaire : carte du serveur perdu → ⋯ → « Remettre les copies de … à un nouveau serveur… ». Puis collez sa réponse ici avec « Coller le ticket ».",
