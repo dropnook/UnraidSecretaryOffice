@@ -1,6 +1,9 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.73 - 2026-10-24
+# unraid-backup - setup.sh                        Version 2.74 - 2026-10-24
+#   2.74 A share with a child dataset that is no unit of its own (no VM's, no app's - also by Docker's binds) is
+#        partner_ok: the plan's shares[] and place carry partner_left [{dataset, folder}], a hint per child and partner
+#        (partner_child_left_share / partner_child_left_place); partner_why children is no longer given
 #   2.73 Nothing new in the setup (backup.sh: several datasets to a partner at once while that moves clearly more)
 #   2.72 Nothing new in the setup (lib/common.sh: partner_addr - the run takes a partner's address from pairs.json)
 #   2.71 Nothing new in the setup (lib/common.sh: partner_ssh_cmd and the office's USO network)
@@ -2079,6 +2082,7 @@ TXT
 # snapshots (not off). Since 2.42 nothing is asked of the pairs beyond their sections: the partner's door takes any
 # unit up to its quota (2.29-2.41 a unit no partner had agreed to was not_agreed here and skipped by the run).
 declare -A PARTNER_OKU=() PARTNER_WHYU=()     # unit -> yes/no, why not (the plan's partner_ok / partner_why)
+declare -A PARTNER_LEFTU=()                   # 2.74: unit -> its child datasets that stay here ("<dataset>|<folder>" lines; partner_left)
 PARTNER_SOURCE="none"                         # pairs | settings | none
 pu_app_folder() { if [[ -n "${OLD[app|$1|folder]+x}" ]]; then printf '%s\n' "${OLD[app|$1|folder]}"; else plist "app|$1|folder"; fi; }
 declare -A ANEW=() ANEW_N=()                  # 2.45: gone partner id -> the pair made anew, how many of its units went there
@@ -2087,7 +2091,8 @@ step_partners() {
     local id k u n s line nm addr port rate keep units
     local -A pair=()
     ANEW=(); ANEW_N=()
-    PARTNER_OKU=(); PARTNER_WHYU=()
+    PARTNER_OKU=(); PARTNER_WHYU=(); PARTNER_LEFTU=()
+    local -A left_told=()
     for k in "${!P[@]}"; do [[ "$k" == partner\|* ]] && unset "P[$k]"; done
     if partner_pairs_load; then
         PARTNER_SOURCE="pairs"
@@ -2117,9 +2122,26 @@ step_partners() {
     fi
     _apply_P
     # unit_ok <unit>: PARTNER_OKU / PARTNER_WHYU - one dataset of its own (partner_unit_dataset); since 2.42 nothing else
+    # 2.74: a child dataset that is no unit of its own no longer keeps a share here - it goes without it (PARTNER_LEFTU)
     unit_ok() {
         if ! partner_unit_dataset "$1"; then PARTNER_OKU[$1]="no"; PARTNER_WHYU[$1]="$PU_WHY"; return 0; fi
-        PARTNER_OKU[$1]="yes"
+        PARTNER_OKU[$1]="yes"; PARTNER_LEFTU[$1]="$PU_LEFT"
+        return 0
+    }
+    # left_hint <unit> <partner id>: each child dataset that stays here, said once per dataset and partner
+    left_hint() {
+        local c f nm kind="${1%%:*}" pn
+        [[ "$kind" == place ]] && nm="$(pget "general|dumps_share")" || nm="${1#*:}"
+        pn="$(pget "partner|$2|name" "$2")"
+        while IFS='|' read -r c f; do
+            [[ -n "$c" && -z "${left_told[$c|$2]:-}" ]] || continue
+            left_told[$c|$2]=1
+            if [[ "$kind" == place ]]; then
+                hint_as partner_child_left_place "The backup place ($nm): its dataset $c ($f) is no unit of its own - it stays here, the rest goes to partner $pn" name "$nm" folder "$f" dataset "$c" partner "$pn"
+            else
+                hint_as partner_child_left_share "Share '$nm': its dataset $c ($f) belongs to no app or VM - it stays here, the rest of the share goes to partner $pn" name "$nm" folder "$f" dataset "$c" partner "$pn"
+            fi
+        done <<<"${PARTNER_LEFTU[$1]:-}"
         return 0
     }
     # keep_ids <key> <unit> <off 1/0>: the key's partners that exist - none for a unit that can't travel or is off
@@ -2136,6 +2158,7 @@ step_partners() {
             elif [[ "$off" == 1 ]]; then hint_as "partner_off_${unit%%:*}" "${unit}: not backed up (off) - nothing of it goes to partner $(pget "partner|$v|name" "$v")" \
                 name "${unit#*:}" partner "$(pget "partner|$v|name" "$v")"; continue; fi
             [[ "$was" != "$v" ]] && ANEW_N[$was]=$(( ${ANEW_N[$was]:-0} + 1 ))
+            left_hint "$unit" "$v"
             grep -Fxq -- "$v" <<<"$out" || out+="$v"$'\n'
         done < <(if [[ -n "${OLD[$key]+x}" ]]; then printf '%s\n' "${OLD[$key]}"; else printf '%s\n' "${P[$key]}"; fi)
         if [[ -n "$out" ]]; then P[$key]="${out%$'\n'}"; else unset "P[$key]"; fi
@@ -2157,7 +2180,7 @@ step_partners() {
     done < <(for k in "${!OLD[@]}" "${!P[@]}"; do [[ "$k" =~ ^app\|(.+)\|partner$ ]] && printf '%s\n' "${BASH_REMATCH[1]}"; done | LC_ALL=C sort -u)
     unit_ok place
     keep_ids "general|partner_place" place 0
-    unset -f keep_ids unit_ok
+    unset -f keep_ids unit_ok left_hint
     _apply_P
     for id in "${!ANEW[@]}"; do
         n="${ANEW[$id]}"
@@ -3172,14 +3195,17 @@ plan_write() {
         done | us_json id name address port rate_mbit key \
         | jq --arg src "$PARTNER_SOURCE" 'map(select(.id != "") | .port = (.port | tonumber? // 22) | .rate_mbit = (.rate_mbit | tonumber? // 0)
                 | .key = (.key == "1") | .reachable = null | .source = $src)')" || partners='[]'
-    pu="$(for k in "${!PARTNER_OKU[@]}"; do printf '%s\x1f%s\x1f%s\n' "$k" "${PARTNER_OKU[$k]}" "${PARTNER_WHYU[$k]:-}"; done | us_json unit ok why \
-        | jq 'map(select(.unit != "") | {key: .unit, value: {ok: (.ok == "yes"), why: (if .why == "" then null else .why end)}}) | from_entries')" || pu='{}'
+    pu="$(for k in "${!PARTNER_OKU[@]}"; do printf '%s\x1f%s\x1f%s\x1f%s\n' "$k" "${PARTNER_OKU[$k]}" "${PARTNER_WHYU[$k]:-}" "$(sed '/^$/d' <<<"${PARTNER_LEFTU[$k]:-}" | tr '\n' $'\x1e')"; done \
+        | us_json unit ok why left \
+        | jq 'map(select(.unit != "") | {key: .unit, value: {ok: (.ok == "yes"), why: (if .why == "" then null else .why end),
+              left: (.left | split("\u001e") | map(select(length > 0) | split("|") | {dataset: .[0], folder: (.[1] // "")}))}}) | from_entries')" || pu='{}'
     local plist_json
     plist_json() { plist "$1" | jq -R . | jq -sc .; }
     shares="$(jq -c --argjson pu "$pu" --arg place "$(pget "general|dumps_share")" \
         --argjson ids "$(for s in "${SH[@]}"; do printf '%s\x1f%s\n' "$s" "$(plist "share|$s|partner" | paste -sd' ')"; done | us_json name ids | jq -c 'map({key: .name, value: (.ids | split(" ") | map(select(length > 0)))}) | from_entries')" \
         'map(.name as $n | .partner = ($ids[$n] // []) | .partner_ok = ($pu["share:" + $n].ok // false)
              | .partner_why = (if ($pu["share:" + $n].ok // false) then null else ($pu["share:" + $n].why // "no_dataset") end)
+             | .partner_left = ($pu["share:" + $n].left // [])
              | .place = ($n == $place))' <<<"$shares")" || shares="[]"
     vms="$(jq -c --argjson pu "$pu" \
         --argjson ids "$(for n in "${VM_NAMES[@]}"; do printf '%s\x1f%s\n' "$n" "$(plist "vm|$n|partner" | paste -sd' ')"; done | us_json name ids | jq -c 'map(select(.name != "") | {key: .name, value: (.ids | split(" ") | map(select(length > 0)))}) | from_entries')" \
@@ -3196,7 +3222,8 @@ plan_write() {
         'map(.name as $n | .asleep_bases = ($a[$n] // []) | .pool_asleep = ((.asleep_bases | length) > 0))' <<<"${vms:-[]}")" || vms="[]"
     local place_partner
     place_partner="$(jq -nc --arg share "$(pget "general|dumps_share")" --argjson ids "$(plist_json "general|partner_place")" --argjson pu "$pu" \
-        '{share: $share, partner: $ids, partner_ok: ($pu.place.ok // false), partner_why: (if ($pu.place.ok // false) then null else ($pu.place.why // "no_dataset") end)}')" \
+        '{share: $share, partner: $ids, partner_ok: ($pu.place.ok // false), partner_why: (if ($pu.place.ok // false) then null else ($pu.place.why // "no_dataset") end),
+          partner_left: ($pu.place.left // [])}')" \
         || place_partner="null"
     unset -f plist_json
     dbs="$(printf '%s\n' "${DB_ROWS[@]}" | us_json container stack type detected where \

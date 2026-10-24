@@ -1,6 +1,13 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.73 - 2026-10-24
+# unraid-backup - backup.sh                       Version 2.74 - 2026-10-24
+#   2.74 One child dataset that is no unit of its own (no VM's, no app's, not excluded) no longer keeps a whole share at
+#        home: the share goes to the partner without it (zfs send without -R), each such child said in the plan and the
+#        log and listed in status.json partner.left_out ({id, unit, dataset, folder}); an app's own dataset is also known
+#        from Docker's binds (only its containers bind into it), not only from its [app] folder - such a child is the
+#        app's (its own level), and an app ticked for a partner without an [app] folder finds its dataset that way.
+#        Notifications: an alert is never folded into «the same» (lib/notifygate.sh: its key also covers its
+#        description; only the very same alert within a minute is counted) - a second «Backup failed» within a day goes
 #   2.73 Several datasets to one partner at once, only while that clearly moves more (partner_adapt): one first, one more
 #        while the total rate rises by more than UB_PARTNER_GAIN %, up to UB_PARTNER_STREAMS and what the partner's door
 #        takes (its ping's streams; a door before 1.72: one). Each dataset stays one ordered, resumable stream; the rate
@@ -3428,13 +3435,15 @@ pool_room_check() {
 # partner.interrupted, the rest skipped - never failed. (zfs send never gets -s: that is --skip-missing, only with -R.)
 PARTNER_ORDER=()            # "id|unit|dataset|bytes" - the phase's transfers in their order (partner_plan)
 PARTNER_CANT=()             # "id|unit|why" - ticked, but it can't travel (skipped at once, said in the plan)
+# 2.74: a child dataset of a unit that goes but is no unit of its own stays here - ST_PARTNER_LEFT "id|unit|dataset|folder"
+# (status.json partner.left_out), said in the plan and the log per child; the unit itself goes (up to 2.73: children)
 declare -A PARTNER_DOWN=()  # id -> why every unit of that partner is skipped (unreachable, no_key, ...)
 
 partner_plan() {
-    local id u ds b
+    local id u ds b lc lf
     local -a units=() rows=()
     local -A seen=()
-    PARTNER_ORDER=(); PARTNER_CANT=(); ST_PARTNER_IDS=(); ST_PARTNER_PLAN=()
+    PARTNER_ORDER=(); PARTNER_CANT=(); ST_PARTNER_IDS=(); ST_PARTNER_PLAN=(); ST_PARTNER_LEFT=()
     while IFS= read -r id; do
         [[ -n "$id" ]] || continue
         mapfile -t units < <(partner_units "$id")
@@ -3450,6 +3459,7 @@ partner_plan() {
             # its pool left out this run (2.28, asleep_pools = skip): no snapshot to send - skipped, why asleep
             if [[ -n "${ASLEEP_DS[$ds]:-}" ]]; then PARTNER_CANT+=( "$id|$u|asleep" ); continue; fi
             if ! in_list "$ds" "${PLAN_ZFS[@]}"; then PARTNER_CANT+=( "$id|$u|not_snapshotted" ); continue; fi
+            while IFS='|' read -r lc lf; do if [[ -n "$lc" ]]; then ST_PARTNER_LEFT+=( "$id|$u|$lc|$lf" ); fi; done <<<"$PU_LEFT"
             b="${ZDS_REF[$ds]:-}"
             if [[ "$u" == place ]]; then rows+=( "0|$u|$ds|${b:-0}" )
             elif is_uint "$b"; then rows+=( "1|$u|$ds|$b" )
@@ -4031,6 +4041,11 @@ partner_phase() {
             else log "  $u: not covered ($why)"; fi
             partner_skip "$id" "$u" "$why"
         done
+        for u in "${ST_PARTNER_LEFT[@]}"; do
+            [[ "$u" == "$id|"* ]] || continue
+            IFS='|' read -r _ u ds b <<<"$u"
+            log "  $u: its dataset $ds ($b) is no unit of its own (no VM's, no app's) - it stays here, $u goes without it"
+        done
         partner_units_run "$id"
         # 2.46: whatever did not arrive is said in this run - unreachable, array stopped, refused, failed (no nights of grace)
         partner_missed "$id"
@@ -4372,6 +4387,10 @@ for pl in "${ST_PARTNER_IDS[@]}"; do
         [[ "$po_id" == "$pl_id" ]] && pl_line+="${pl_line:+, }$po_u ($(case "$po_why" in asleep) echo "asleep, left out" ;; not_agreed) echo "not agreed yet" ;; *) echo "not covered: $po_why" ;; esac))"
     done
     log "  Partner:          $(partner_name "$pl_id") <- ${pl_line:-nothing}${SNAP_NAME:+ ($SNAP_NAME)}"
+    for po in "${ST_PARTNER_LEFT[@]}"; do
+        IFS='|' read -r po_id po_u po_ds po_f <<<"$po"
+        if [[ "$po_id" == "$pl_id" ]]; then log "                    $po_u goes without its dataset $po_ds ($po_f): no VM's or app's own - it stays here"; fi
+    done
 done
 status_write
 

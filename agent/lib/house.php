@@ -584,7 +584,7 @@ function officeNotify(string $subject, string $description, string $level = 'nor
     };
     // the centre's gate (lib/notifycenter.php), under the same flock as the engine's and agent.sh's: decision and call in one turn
     $event = preg_match('/^[a-z0-9_]{0,40}$/D', $event) ? $event : '';
-    $g = $gate && function_exists('officeNotifyGate') ? officeNotifyGate($desk, $event, $level, $flat($subject)) : null;
+    $g = $gate && function_exists('officeNotifyGate') ? officeNotifyGate($desk, $event, $level, $flat($subject), $flat($description)) : null;
     $fate = $g['fate'] ?? 'sent';
     $ok = true;
     if ($fate === 'sent') {

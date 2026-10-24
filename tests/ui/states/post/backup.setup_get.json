@@ -838,6 +838,12 @@
     "notes": [],
     "exists": true,
     "children": [],
+    "partner_left": [
+     {
+      "dataset": "cache/appdata/scratch",
+      "folder": "scratch"
+     }
+    ],
     "folders": [
      {
       "dir": "emby",

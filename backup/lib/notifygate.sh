@@ -7,20 +7,23 @@
 #   * the settings: the key=value file the office's agent writes (<home>/notify.cfg; none = everything goes, as before
 #     the centre): the desk's threshold (all|warning|alert), its successes (backup ok), «Still bis …», quiet hours,
 #     the desk on the daily summary. An alert always goes.
-#   * the flood guard (always, also for alerts): the same notification (desk + event + subject) once, then only counted
-#     until resolved (a success of that desk, a line after it in the guard) or a day passed; caps per desk and for the whole office per hour - past
-#     one, ONE notice and the rest collected for a summary; past NOTIFY_ALERT_CAP distinct alerts an hour the rest go as
-#     one alert every NOTIFY_ALERT_BUNDLE. Its lines in <home>/notify-guard, read and written only under the flock of
+#   * the flood guard: the same notification (desk + event + subject) once, then only counted until resolved (a success
+#     of that desk, a line after it in the guard) or a day passed; caps per desk and for the whole office per hour - past
+#     one, ONE notice and the rest collected for a summary. An alert is never folded into «the same» (2.74, the truth
+#     review T01: a second «Backup failed» within a day was swallowed): only the very same alert - its key also covers
+#     its description - again within NOTIFY_ALERT_SAME is counted; past NOTIFY_ALERT_CAP alerts an hour the rest go
+#     as one alert every NOTIFY_ALERT_BUNDLE. Its lines in <home>/notify-guard, read and written only under the flock of
 #     <home>/notify.second the sender holds around its call (so the decision and the call are one turn).
 #   * each decision one small JSON in <home>/notify-in/ (the agent folds them into the Team Lead's queue and history).
 # Hold only while someone will send the summary: the agent's heartbeat (<home>/agent.json) at most 70 s old.
 #
 # The numbers - the same names and values as in agent/lib/notifycenter.php (tests/run.php compares them):
 NOTIFY_SAME_FORGET=86400    # an unresolved repeat may go out again after a day (a daily failure still reminds daily)
+NOTIFY_ALERT_SAME=60        # an alert: only the very same one again within a minute is counted (never a day)
 NOTIFY_CAP_WINDOW=3600      # the caps count the last hour
 NOTIFY_DESK_CAP=5           # more than this from one character in an hour is a flood
 NOTIFY_OFFICE_CAP=20        # more than this from the whole office in an hour is a flood
-NOTIFY_ALERT_CAP=10         # distinct alerts in an hour before the rest are bundled
+NOTIFY_ALERT_CAP=10         # alerts in an hour before the rest are bundled
 NOTIFY_ALERT_BUNDLE=900     # a bundle of the rest at most every 15 minutes
 NOTIFY_HEART_FRESH=70       # the agent's heartbeat at most this old: it will send the summary
 NOTIFY_DROPS_MAX=500        # decisions waiting for the agent at most - past it nothing is held (it goes now)
@@ -102,11 +105,12 @@ ung_decide() {
 
 # ung_guard <file> <desk> <level> <key> <now> <hold> - the flood guard for what would go now
 ung_guard() {
-    local g="$1" desk="$2" level="$3" key="$4" now="$5" hold="$6" out same dk off al fd fo room=0
+    local g="$1" desk="$2" level="$3" key="$4" now="$5" hold="$6" out same dk off al fd fo room=0 fw="$NOTIFY_SAME_FORGET"
     [[ -n "$g" && ! -L "$g" && -d "${g%/*}" ]] || return 0
     [[ -f "$g" ]] || return 0
     if ung_drops_room "${g%/*}"; then room=1; fi
-    out="$(awk -v d="$desk" -v k="$key" -v now="$now" -v fw="$NOTIFY_SAME_FORGET" -v w="$NOTIFY_CAP_WINDOW" '
+    if [[ "$level" == alert ]]; then fw="$NOTIFY_ALERT_SAME"; fi      # an alert: only the very same one within a minute
+    out="$(awk -v d="$desk" -v k="$key" -v now="$now" -v fw="$fw" -v w="$NOTIFY_CAP_WINDOW" '
         $1 !~ /^[0-9]+$/ { next }
         $2 == "sent" && $5 == k && now - $1 < fw { same = $1 }
         $2 == "resolved" && $3 == d { same = 0 }
@@ -146,8 +150,12 @@ ung_line() {
     return 0
 }
 
-# ung_key <desk> <event> <subject> - «the same notification»: 16 hex of md5 over desk|event|subject (as in PHP)
-ung_key() { printf '%s|%s|%s' "$1" "$2" "$3" | md5sum | cut -c1-16; }
+# ung_key <desk> <event> <subject> [<level> <description>] - «the same notification»: 16 hex of md5 over
+# desk|event|subject (as in PHP); an alert's over desk|event|subject|description (2.74: only the very same alert is «the same»)
+ung_key() {
+    if [[ "${4:-}" == alert ]]; then printf '%s|%s|%s|%s' "$1" "$2" "$3" "${5:-}" | md5sum | cut -c1-16
+    else printf '%s|%s|%s' "$1" "$2" "$3" | md5sum | cut -c1-16; fi
+}
 
 # ung_drop <home> <fate> <why> <due> <desk> <event> <level> <key> <subject> <description> <message> <link> - the
 # decision for the Team Lead's queue and history (a JSON of its own; written beside, then moved in)

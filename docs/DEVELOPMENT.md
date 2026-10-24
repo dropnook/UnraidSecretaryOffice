@@ -399,8 +399,9 @@ code, `TELL_EVENT`). Files: the settings `data/office/notify.json` (tolerant; th
 (and on the flash for a night shift after a reboot; none = everything goes, as before); the flood guard's lines
 `RUN_DIR/notify-guard` read and written only under the flock of `notify.second`; each decision a JSON in
 `RUN_DIR/notify-in/`, folded once a minute by the agent into `data/office/notify-held.json` (its RAM copy for the night
-shift) and `data/office/notify-log.json` (30 days). Alerts are never held; held only while the agent's heartbeat is fresh
-(else it goes now). The summary goes from the agent's minute or the night shift's loop (RAM only; its summary is a
+shift) and `data/office/notify-log.json` (30 days). Alerts are never held and never folded into «the same» (the truth
+review T01): an alert's key also covers its description, and only the very same alert within `NOTIFY_ALERT_SAME` (60 s)
+is counted; held only while the agent's heartbeat is fresh (else it goes now). The summary goes from the agent's minute or the night shift's loop (RAM only; its summary is a
 decision that covers what it sent). A new sender passes its desk and event; a new success or resolving event goes into
 `OFFICE_NOTIFY_SUCCESS` / `OFFICE_NOTIFY_RESOLVES` and `ung_is_success` / `ung_resolves` alike. The Team Lead's and the
 Night Watchman's old switches and the engine's `notify_success` no longer decide (kept for an older version; migration

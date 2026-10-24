@@ -224,7 +224,7 @@
     "other": "{n} new things — I'll wait and see whether they stay"
   },
   "notify_missing": "Unraid's notification script isn't there — I can't report anything.",
-  "help.notify": "The office's one place for what goes to Unraid's notifications (bell, mail, push). Alerts always go at once — nothing here stops them. Per colleague: how much (everything · warnings and alerts · alerts only), successes too or not, right away or in a summary. Quiet hours and «Silent until …» hold everything but alerts; a flood guard sends the same notification only once until it is resolved and collects the rest when someone reports a lot. Only the office's own notifications — Unraid's (array, SMART, updates, parity) and other plugins' stay exactly as they are; Unraid's notification settings are only read.",
+  "help.notify": "The office's one place for what goes to Unraid's notifications (bell, mail, push). Alerts always go at once — nothing here stops them. Per colleague: how much (everything · warnings and alerts · alerts only), successes too or not, right away or in a summary. Quiet hours and «Silent until …» hold everything but alerts; a flood guard sends the same notification (never an alert) only once until it is resolved and collects the rest when someone reports a lot. Only the office's own notifications — Unraid's (array, SMART, updates, parity) and other plugins' stay exactly as they are; Unraid's notification settings are only read.",
   "notify.subject": {
     "one": "Something new to do",
     "other": "{n} new things to do"
@@ -691,8 +691,8 @@
   "nc.tip.at": "At this time everything collected goes out as one notification. Colleagues with a time of their own get their own; an empty summary is never sent.",
   "nc.tip.quiet": "During these hours only alerts go out. The rest is collected and comes as one summary when the quiet hours end.",
   "nc.tip.silent": "For maintenance or a holiday: until the time you pick only alerts go out. What came meanwhile arrives as one summary afterwards.",
-  "nc.tip.flood": "The same notification goes out once, then it is only counted until it is resolved (or {hours} hours later). More than {desk} from one colleague or {office} from the whole office within {minutes} minutes are collected into one summary, with one notice that this is happening.",
-  "nc.tip.alerts": "Alerts always go right away. Past {alerts} different alerts within {minutes} minutes the rest come together as one alert every {bundle} minutes — none is lost.",
+  "nc.tip.flood": "Alerts aside: the same notification goes out once, then it is only counted until it is resolved (or {hours} hours later). More than {desk} from one colleague or {office} from the whole office within {minutes} minutes are collected into one summary, with one notice that this is happening.",
+  "nc.tip.alerts": "Alerts always go right away, each one — also the same alert again before it is resolved. Only the very same alert (the same words) twice within a minute goes once. Past {alerts} alerts within {minutes} minutes the rest come together as one alert every {bundle} minutes — none is lost.",
   "nc.chip.flood": "Flood guard",
   "nc.chip.alerts": "Alerts always go",
   "tile.notify_wait": "Waiting for the summary",

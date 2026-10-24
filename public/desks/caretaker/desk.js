@@ -837,8 +837,9 @@ async function ncSave(btn) {
 /** Why something waits or was not sent — a chip with its tip (the guard's numbers in it) */
 function ncWhyChip(e) {
   const chip = el('span', `chip ${e.fate === 'sent' ? 'ok' : e.fate === 'failed' ? 'danger' : e.fate === 'dropped' ? '' : 'warn'}`, T('nc.fate.' + e.fate));
+  // an alert counted as «the same» was the very same alert within a minute (the alerts' tip says so), never the flood rule
+  if (e.why === 'alert_cap' || (e.why === 'same' && e.level === 'alert')) return ncTip(chip, 'nc.tip.alerts');
   if (e.why === 'flood' || e.why === 'same') return ncTip(chip, 'nc.tip.flood');
-  if (e.why === 'alert_cap') return ncTip(chip, 'nc.tip.alerts');
   chip.title = e.why && Office.has(`${ID}.nc.why.${e.why}`) ? T('nc.why.' + e.why) : T('nc.fate_tip.' + e.fate);
   return chip;
 }
