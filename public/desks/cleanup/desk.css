@@ -66,12 +66,14 @@
 .clw-place-row .row-name{display:flex; align-items:center; gap:8px}
 .clw-place-icon{font-size:17px; line-height:1}
 .clw-place-path{overflow-wrap:anywhere}
-.clw-place-bk{text-align:right}
+.clw-place-bk{text-align:right; max-width:min(45vw, 420px)}   /* a label with its reason wraps, the place's name keeps its room */
+.clw-place-bk .protect-pair{justify-content:flex-end}
 .clw-place{padding:4px 0}
 .clw-place-intro{margin:10px 14px 6px; font-size:13px; color:var(--ink2)}
 .clw-path{display:grid; grid-template-columns:minmax(0,1fr) 92px 118px 86px; align-items:center; gap:12px; padding:8px 14px; border-top:1px solid var(--line)}
 .clw-col-fig{text-align:right; font-size:12.5px; color:var(--muted); font-variant-numeric:tabular-nums; white-space:nowrap}
 .clw-col-bk{text-align:center}
+.clw-col-bk .protect-pair{justify-content:center}
 .clw-path .clw-copy{justify-self:end}
 .clw-paths .clw-path:first-child{border-top:0}
 .clw-paths{border:1px solid var(--line); border-radius:var(--radius); background:var(--surface); margin:4px 0 10px}

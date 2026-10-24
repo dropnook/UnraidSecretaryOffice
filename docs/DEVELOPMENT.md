@@ -577,7 +577,12 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   no), by Unraid's own «Add Share» (`backupPlaceMake()` → lib/firsthome.php `homeMake()`); refused when the share is there
   or Unraid knew it, the pool unknown or asleep (never woken). Place facts warn, never block. Apply sends only what was chosen and lists exactly what
   changes; a plan older than settings.ini is refused; a failed plan shows its errors. **Warns about Kopia autostart, never
-  starts Kopia.**
+  starts Kopia.** **«Is everything protected?» goes by results, never settings alone** (2026-10, the truth review): a row
+  is offsite only with a good Kopia copy and the repository not held (`kopia_held`; storage taking nothing or unreachable:
+  said beside it), local only where a run took a snapshot (drift `share_snapshot_no_fs` / the plan's method live: not
+  backed up), «+ partner» only for units the partner received (`unit_last`; skipped, failed, never: said); a new share is a
+  row «not backed up» until the setup takes it. An app whose folder is a dataset of its own keeps `[app] folder` while its
+  share goes to a partner (else the engine sends the share nowhere, `children`).
 * **`jack` — Jack Streamer (the intern).** MediaCache (Emby, Jellyfin, Plex — several servers at once; 1.65.0, before EmbyCache:
   step `mediacache` moved data/embycache, the job id stays `embycache`) + «Consolidate folders». Settings via MediaCache's own `save_config()`;
   **the API key never leaves the server. Rsync both ways, always** (`JACK_TOOLS_RSYNC`). **He works only under Ms. Moverelli**
@@ -831,7 +836,10 @@ The same thing has the same word on every desk and text; grammar follows the wor
   `el('details', …)` (`testDetailsKept`).
 * Subheadings in a list = a tinted bar (`var(--surface2)`), rows indented — never just bold text. Long lists fold one kind and
   day into a counted row, «Show n more»; a deep link clears a filter that hides its entry.
-* **Backup protection** always via `Office.backupChip(level)` from `backupProtection()`.
+* **Backup protection** always via `Office.backupChip(level, note)` from `backupProtection()` — what is really there, never
+  settings.ini alone (the truth review 2026-10): local only where a run took a snapshot, offsite only with a Kopia copy
+  and its repository not held, a partner only for the unit it received. The state carries `backupProtectionNote()` beside
+  the level (set, why, partners, missed): the label then says «local + partner» and, beside it, why it is less than set.
 
 ### The backup engine: what holds
 

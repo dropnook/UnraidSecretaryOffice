@@ -51067,6 +51067,198 @@ JS);
 }
 
 /**
+ * The truth review 2026-10, P1: backupProtection() says what is really there — settings.ini's level lowered to what the
+ * engine's results show (backupProtectionInfo(), backupTruth()): no «local» where no snapshot is possible (T08) or before
+ * the first run, «offsite» only once Kopia made a copy and its repository isn't held (T02, T09), a partner only for the
+ * unit it really received (T05) — and a folder in a dataset of its own only in its app's unit, never in its share's (T06).
+ * The reasons (`why`, `missed`) are what the pages put beside the level; a state file carries them as a note.
+ */
+function testBackupTruthProtection(): void
+{
+    $tmp = hardeningTmp('truth-protection');
+    file_put_contents("$tmp/s.ini", "[general]\ndumps_share = UnraidSecretaryOffice\n[kopia]\nenabled = yes\n[partner \"a1b2c3d4\"]\nname = Vault\naddress = 10.0.0.9\n"
+        . "[share \"appdata\"]\nmode = kopia\npartner = a1b2c3d4\n[share \"xfs\"]\nmode = snapshot\n[share \"media\"]\nmode = kopia\n[share \"UnraidSecretaryOffice\"]\nmode = kopia\n"
+        . "[share \"live\"]\nmode = snapshot\nmethod = live\n[app \"Grafana\"]\nfolder = appdata/grafana\npartner = a1b2c3d4\n[app \"Emby\"]\nkopia = yes\nfolder = appdata/emby\n");
+    $s = backupReadSettings("$tmp/s.ini");
+    $truth = fn (array $more = []) => array_replace_recursive(['runs' => 2,
+        'kopia' => ['good' => ['appdata' => 1000, 'UnraidSecretaryOffice' => 1000, 'app:Emby' => 1000], 'last' => ['appdata' => true, 'media' => false], 'held' => false, 'gone' => false, 'stuck' => null, 'away' => null],
+        'no_snaps' => ['xfs' => true], 'new' => [], 'partner' => ['a1b2c3d4' => ['share:appdata' => ['ok' => true, 'why' => '', 'code' => '', 'time' => 1000]]],
+        'children' => ['appdata/grafana']], $more);
+    $info = fn (string $p, ?array $t) => (fn ($i) => [$i['level'], $i['set'], $i['why'], $i['partners'], $i['missed']])(backupProtectionInfo($p, $s, [], $t));
+    same('truth: a share at Kopia with a good copy, received by its partner — offsite, «local + partner» named, nothing to say',
+        ['offsite', 'offsite', [], ['Vault'], []], $info('/mnt/user/appdata/web/x', $truth()));
+    same('truth T08: a share at «snapshot» whose file system takes none (drift share_snapshot_no_fs) — not backed up, said why; [share] method = live alike',
+        [['none', 'local', ['no_snaps'], [], []], ['none', 'local', ['no_snaps'], [], []]], [$info('/mnt/user/xfs/a', $truth()), $info('/mnt/disk1/live/a', $truth())]);
+    same('truth T09: set offsite, Kopia never made a copy — only local, «no copy yet»',
+        ['local', 'offsite', ['kopia_never'], [], []], $info('/mnt/user/media/film', $truth()));
+    same('truth T02: the repository suddenly empty (kopia_held) — only local, «held»',
+        ['local', 'offsite', ['kopia_held'], ['Vault'], []], $info('/mnt/user/appdata/web', $truth(['kopia' => ['held' => true]])));
+    same('truth T10: the storage takes nothing since — the copies there stay offsite, never said alone',
+        [['offsite', ['kopia_stuck'], 5000], ['offsite', ['kopia_away'], 6000], ['offsite', ['kopia_gone'], null]],
+        array_map(fn ($t) => (fn ($i) => [$i['level'], $i['why'], $i['since']])(backupProtectionInfo('/mnt/user/appdata/web', $s, [], $t)),
+            [$truth(['kopia' => ['stuck' => 5000]]), $truth(['kopia' => ['away' => 6000]]), $truth(['kopia' => ['gone' => true]])]));
+    same('truth T05: the partner skipped its unit (or never received it) — no partner, the partner named as missed with why',
+        [[['Vault'], []], [[], [['name' => 'Vault', 'why' => 'skipped', 'code' => 'asleep']]], [[], [['name' => 'Vault', 'why' => 'never', 'code' => '']]]],
+        array_map(fn ($t) => (fn ($i) => [$i['partners'], $i['missed']])(backupProtectionInfo('/mnt/user/appdata/web', $s, [], $t)),
+            [$truth(), $truth(['partner' => ['a1b2c3d4' => ['share:appdata' => ['ok' => false, 'why' => 'skipped', 'code' => 'asleep']]]]), array_replace($truth(), ['partner' => []])]));
+    same('truth T06: a folder in a dataset of its own is no part of its share\'s stream — only its app\'s own unit counts (never received: missed)',
+        [[[], [['name' => 'Vault', 'why' => 'never', 'code' => '']]], [['Vault'], []]],
+        array_map(fn ($t) => (fn ($i) => [$i['partners'], $i['missed']])(backupProtectionInfo('/mnt/user/appdata/grafana/db', $s, [], $t)),
+            [$truth(), $truth(['partner' => ['a1b2c3d4' => ['app:Grafana' => ['ok' => true, 'why' => '', 'code' => '', 'time' => 1]]]])]));
+    same('truth: an app\'s own Kopia source decides for its folder (app:Emby has a copy)', ['offsite', []],
+        (fn ($i) => [$i['level'], $i['why']])(backupProtectionInfo('/mnt/user/appdata/emby/x', $s, [], $truth())));
+    same('truth: no backup run yet — nothing is protected, whatever is set', [['none', ['no_run']], ['none', ['no_run']]],
+        [(fn ($i) => [$i['level'], $i['why']])(backupProtectionInfo('/mnt/user/appdata/web', $s, [], $truth(['runs' => 0]))),
+         (fn ($i) => [$i['level'], $i['why']])(backupProtectionInfo('/mnt/user/xfs/a', $s, [], $truth(['runs' => 0])))]);
+    same('truth: without results (tests passing settings alone) the settings decide, as before — backupProtection() unchanged for its callers',
+        [['offsite', 'offsite', [], ['Vault'], []], 'local', 'offsite'], [$info('/mnt/user/appdata/web', null), backupProtection('/mnt/user/xfs/a', 0, $s, []), backupProtection('/mnt/user/media/x', 0, $s, [])]);
+    same('truth: the note a state file carries — null when the level says it all, else set, why, since, partners, missed',
+        [null, ['set' => 'offsite', 'why' => ['kopia_never'], 'since' => null, 'partners' => [], 'missed' => []]],
+        [backupProtectionNote(backupProtectionInfo('/mnt/user/UnraidSecretaryOffice/x', $s, [], $truth())), backupProtectionNote(backupProtectionInfo('/mnt/user/media/x', $s, [], $truth()))]);
+    same('truth: the backup place\'s packages (the flash as an archive) — the place\'s share\'s copy decides',
+        ['offsite', []], (fn ($i) => [$i['level'], $i['why']])(backupProtectionInfo('/mnt/user/UnraidSecretaryOffice/backup/apps/x', $s, [], $truth())));
+    same('truth: a ZFS child at a path: the deepest one inside the share, none outside it',
+        ['grafana', null, 'grafana/sub', null], [backupChildDataset('appdata', 'grafana/x', ['appdata/grafana']), backupChildDataset('appdata', 'grafanax', ['appdata/grafana']),
+         backupChildDataset('appdata', 'grafana/sub/y', ['appdata/grafana', 'appdata/grafana/sub']), backupChildDataset('media', 'grafana', ['appdata/grafana'])]);
+
+    // backupTruth(): the engine's interface only — history.jsonl (oldest first), drift.json, setup-plan.json, kopia-held/-watch/-reach.json
+    @mkdir("$tmp/data/state", 0700, true);
+    $line = fn (string $run, int $t, array $kopia, ?array $partner = null, string $result = 'ok') => json_encode(['run' => $run, 'started' => $t - 10, 'finished' => $t, 'result' => $result,
+        'kopia' => ['done' => $kopia], 'partner' => $partner]);
+    $pblock = fn (array $done, array $skipped) => ['partners' => [['id' => 'a1b2c3d4', 'name' => 'Vault']], 'done' => array_map(fn ($u) => ['id' => 'a1b2c3d4', 'unit' => $u, 'bytes' => 1, 'seconds' => 1], $done),
+        'skipped' => array_map(fn ($u) => ['id' => 'a1b2c3d4', 'unit' => $u, 'why' => 'asleep'], $skipped), 'failed' => []];
+    file_put_contents("$tmp/data/state/history.jsonl", implode("\n", [
+        $line('20261020-0200', 1000, [['name' => 'appdata', 'ok' => true, 'finished' => 990], ['name' => 'media', 'ok' => true]], $pblock(['share:appdata', 'place'], [])),
+        $line('20261021-0200', 2000, [['name' => 'appdata', 'ok' => false]], $pblock(['place'], ['share:appdata'])),
+        json_encode(['run' => '20261021-0300', 'result' => 'skipped', 'started' => 2100, 'finished' => 2100]),
+        'not json']) . "\n");
+    file_put_contents("$tmp/data/state/drift.json", json_encode(['time' => 3000, 'items' => [
+        ['level' => 'warn', 'code' => 'share_snapshot_no_fs', 'params' => ['name' => 'xfs']], ['level' => 'warn', 'code' => 'share_new', 'params' => ['name' => 'photos']],
+        ['level' => 'warn', 'code' => 'share_live', 'params' => ['name' => 'mixed']], ['level' => 'warn', 'code' => 'kopia_container_gone', 'params' => ['name' => 'kopia']], 'odd']]));
+    $t = backupTruth("$tmp/data");
+    same('truth: from the history — runs (a skipped one not), each source\'s newest good copy and whether its newest upload went, each unit\'s newest try at a partner',
+        [2, ['appdata' => 990, 'media' => 1000], ['appdata' => false, 'media' => true],
+         ['share:appdata' => ['ok' => false, 'why' => 'skipped', 'code' => 'asleep', 'time' => 2000], 'place' => ['ok' => true, 'why' => '', 'code' => '', 'time' => 2000]]],
+        [$t['runs'], $t['kopia']['good'], $t['kopia']['last'], $t['partner']['a1b2c3d4'] ?? null]);
+    same('truth: from the drift — no snapshots possible, new shares, Kopia\'s container gone; nothing held, stuck or unreachable without their files',
+        [['xfs' => true, 'mixed' => true], ['photos' => true], true, false, null, null], [$t['no_snaps'], $t['new'], $t['kopia']['gone'], $t['kopia']['held'], $t['kopia']['stuck'], $t['kopia']['away']]);
+    file_put_contents("$tmp/data/state/setup-plan.json", json_encode(['shares' => [['name' => 'xfs', 'method' => 'snap'], ['name' => 'other', 'method' => 'live']]]));
+    touch("$tmp/data/state/setup-plan.json", 4000);
+    file_put_contents("$tmp/data/state/kopia-held.json", json_encode(['v' => 1, 'repo' => 'abc', 'identity' => 'root@t', 'before' => 4, 'now' => 0, 'when' => 1, 'time' => 1]));
+    file_put_contents("$tmp/data/state/kopia-watch.json", json_encode(['v' => 1, 'state' => 'stuck', 'since' => 4500, 'time' => 5000]));
+    file_put_contents("$tmp/data/state/kopia-reach.json", json_encode(['v' => 1, 'since' => 4600, 'run' => '20261021-0200', 'last' => 4700, 'last_run' => '20261021-0200']));
+    $t = backupTruth("$tmp/data");
+    same('truth: a plan newer than the drift decides for the shares it lists; held, stuck since, unreachable since from their files',
+        [['mixed' => true, 'other' => true], true, 4500, 4600], [$t['no_snaps'], $t['kopia']['held'], $t['kopia']['stuck'], $t['kopia']['away']]);
+    same('truth: Mr. Backupsy\'s summary — no snapshots (also [share] method = live), new shares not in settings.ini, the runs',
+        ['runs' => 2, 'no_snaps' => ['live', 'mixed', 'other'], 'new' => ['photos']], backupTruthSummary($t, $s));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * The truth review T06/T09 on Mr. Restori's rows: «at <partner>» only for a unit that really holds the folder (a folder in
+ * a dataset of its own: its app's or VM's own unit, never its share's), and an app's package «offsite» only once its own
+ * Kopia source (or the backup place's) has a copy.
+ */
+function testRestoreTruthChips(): void
+{
+    $partners = [['id' => 'a1b2c3d4', 'name' => 'Vault', 'units' => [
+        ['unit' => 'share:appdata', 'snaps' => [['creation' => 5]], 'newest' => 5], ['unit' => 'app:Grafana', 'snaps' => [['creation' => 7]], 'newest' => 7],
+        ['unit' => 'vm:Win', 'snaps' => [], 'newest' => null]]]];
+    same('restore truth T06: an app\'s own unit counts; its share\'s only for a folder in the share\'s dataset (the caller leaves the others\' out)',
+        [['share:appdata', 'app:Grafana'], ['app:Grafana'], []],
+        [array_column(rspChips($partners, ['appdata'], null, 'Grafana'), 'unit'), array_column(rspChips($partners, [''], null, 'Grafana'), 'unit'),
+         array_column(rspChips($partners, [''], 'Win'), 'unit')]);
+    $own = ['whole' => false, 'places' => [['exists' => true, 'own_dataset' => true]]];
+    same('restore truth T06: a folder whose every place is a dataset of its own; a whole share or one place inside the share\'s dataset is not',
+        [true, false, false, false], [rsOwnDataset($own), rsOwnDataset(['whole' => true] + $own),
+         rsOwnDataset(['whole' => false, 'places' => [['exists' => true, 'own_dataset' => true], ['exists' => true, 'own_dataset' => false]]]), rsOwnDataset(['whole' => false, 'places' => []])]);
+    $tmp = hardeningTmp('truth-restore');
+    file_put_contents("$tmp/s.ini", "[general]\ndumps_share = UnraidSecretaryOffice\n[kopia]\nenabled = yes\n[share \"UnraidSecretaryOffice\"]\nmode = kopia\n[app \"Emby\"]\nkopia = yes\nfolder = appdata/emby\n");
+    $s = backupReadSettings("$tmp/s.ini");
+    $truth = ['runs' => 1, 'kopia' => ['good' => [], 'last' => [], 'held' => false, 'gone' => false, 'stuck' => null, 'away' => null], 'no_snaps' => [], 'new' => [], 'partner' => [], 'children' => []];
+    $pk = '/mnt/user/UnraidSecretaryOffice/backup/apps/Emby';
+    $lv = fn (array $i) => [$i['level'], $i['set'], $i['why']];
+    same('restore truth T09: an app\'s package at its own source — offsite only once Kopia copied app:<name>; the place\'s package likewise',
+        [['local', 'offsite', ['kopia_never']], ['offsite', 'offsite', []], ['local', 'offsite', ['kopia_never']]],
+        [$lv(rsPackageProtectionInfo($pk, 'app:Emby', $s, $truth)), $lv(rsPackageProtectionInfo($pk, 'app:Emby', $s, array_replace_recursive($truth, ['kopia' => ['good' => ['app:Emby' => 1]]]))),
+         $lv(rsPackageProtectionInfo($pk, null, $s, $truth))]);
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * The truth review T04: an app whose folder is a dataset of its own, set back from «local + partner» to «local», keeps its
+ * folder in its section while its share goes to a partner — else the engine counts the dataset as a child the share's
+ * stream leaves out and sends the share nowhere (`children`), while the Apply dialog still listed it. The dialog lists
+ * exactly what goes: a share with such an app missing its folder in the draft never.
+ */
+function testSetupOwnDatasetApply(): void
+{
+    $node = testsNode();
+    if ($node === '') {
+        check('own dataset apply: node is there', false, 'no node');
+        return;
+    }
+    $tmp = hardeningTmp('own-dataset-apply');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const el = (tag, cls, t) => ({ tag, className: cls || '', textContent: t == null ? '' : String(t), children: [], dataset: {}, style: {}, title: '', disabled: false,
+  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, setAttribute() {}, addEventListener() {} });
+globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => `${b} B` }, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {},
+  has: () => false, store: () => null, storeJson: () => null, agent: { running: true }, place: (k, n) => n, keepInPlace: () => {} };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const S = b.setup;
+const stub = JSON.parse(fs.readFileSync(process.argv[3], 'utf8')).plan;
+const ID = '2ec7accd';
+// Grafana's folder appdata/grafana a dataset of its own; set up at «local + partner» (its section with its folder)
+const mk = (withApp) => {
+  const p = JSON.parse(JSON.stringify(stub));
+  p.shares.find((x) => x.name === 'appdata').children = ['cache/appdata/grafana'];
+  if (withApp) ['O', 'P'].forEach((k) => { p[k]['app|Grafana|partner'] = [ID]; p[k]['app|Grafana|folder'] = ['appdata/grafana']; });
+  return p;
+};
+const out = {};
+S.plan = mk(true);
+b.setupDraftFromPlan();
+const g = S.model.apps.find((a) => a.name === 'Grafana');
+out.start = [b.appPartner(g, S.plan).own, b.partnerUnits(S.draft, ID).filter((u) => /appdata|Grafana/.test(u))];
+// «local»: its partner list empty — the folder stays, appdata still goes; the dialog says Grafana no longer goes, appdata does
+b.partnerListSet('app|Grafana|partner', false);
+b.setupDerive();
+out.local = [S.draft['app|Grafana|folder'] || null, b.partnerUnits(S.draft, ID).filter((u) => /appdata|Grafana/.test(u)), b.shareGoesTo('appdata', S.plan).map((p) => p.name),
+  b.partnerApplyLines().map((l) => l[1]).join(' ')];
+// INV: a draft without the app's folder never lists appdata (nor lights it in step 3)
+delete S.draft['app|Grafana|folder'];
+out.inv = [b.shareChildApps(S.draft, 'appdata', S.plan).map((a) => a.name), b.partnerUnits(S.draft, ID).includes('share:appdata'), b.shareGoesTo('appdata', S.plan).length];
+// the second path: «Make it a dataset of its own…» left settings.ini without its section — the draft adds the folder, Apply writes it
+S.plan = mk(false);
+b.setupDraftFromPlan();
+out.second = [S.draft['app|Grafana|folder'] || null, b.setupChangeItems().items.map((x) => x.id).filter((id) => /Grafana/.test(id))];
+// no partner for its share: nothing kept, nothing changes
+const np = mk(false);
+['O', 'P'].forEach((k) => { delete np[k]['share|appdata|partner']; });
+S.plan = np;
+b.setupDraftFromPlan();
+out.nopartner = S.draft['app|Grafana|folder'] || null;
+console.log(JSON.stringify(out));
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' '
+        . escapeshellarg(OFFICE_DIR . '/tests/ui/states/post/backup.setup_get.json') . ' 2>&1');
+    $r = json_decode($raw, true) ?: ['raw' => $raw];
+    same('own dataset apply T04: Grafana a dataset of its own at «local + partner» — its own unit and appdata go', [true, ['share:appdata', 'app:Grafana']], $r['start'] ?? $r);
+    same('own dataset apply T04: … set to «local» — its folder kept, appdata still goes (lit in step 3, in the dialog), Grafana no longer',
+        [['appdata/grafana'], ['share:appdata'], ['PartnerNAS'], true], isset($r['local']) ? [$r['local'][0], $r['local'][1], $r['local'][2], str_contains($r['local'][3], 'appdata')] : $r);
+    same('own dataset apply T04: INV — a draft without the app\'s folder: appdata never in the dialog, never lit', [['Grafana'], false, 0], $r['inv'] ?? $r);
+    same('own dataset apply T04: settings.ini without its section (after «Make it a dataset of its own…») — the draft adds its folder, Apply writes it',
+        [['appdata/grafana'], true], isset($r['second']) ? [$r['second'][0], count($r['second'][1]) > 0] : $r);
+    same('own dataset apply T04: its share at no partner — nothing kept for it', null, array_key_exists('nopartner', $r) ? $r['nopartner'] : $r);
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * Nextcloud's data folder readable by others (engine 2.62's warning nc_datadir_readable, 2026-10-19): listed while still
  * open (one stat, never a sleeping disk), only a folder the engine named in exactly its shape; «Close the folder»
  * changes its root only - Nextcloud's user, group users, 0770 - after checking it is that Nextcloud's data folder now,
@@ -52076,7 +52268,7 @@ function testUsoNetJoin(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],

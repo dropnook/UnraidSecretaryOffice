@@ -1335,13 +1335,40 @@ Office.sectionHead = function sectionHead(title, sub, ...right) {
   return head;
 };
 
-/** How the backup protects something — the same label on every desk: offsite / local / none */
-Office.backupChip = function backupChip(level) {
+/**
+ * How the backup protects something — the same label on every desk: offsite / local / none, what is really there
+ * (backupProtection()). `note` (the agent's backupProtectionNote(), none from an older agent) adds what the level alone
+ * doesn't say: the partner offices that really received it («local + partner»), and why it is less than set — a second
+ * label beside it («set: offsite — no copy yet», «not at Vault: skipped»); with a reason the level is never green.
+ * opts.partners false: the page shows the partners itself (Mr. Restori: what the partner keeps).
+ */
+Office.backupChip = function backupChip(level, note, opts) {
   if (!level) return null;
-  const c = el('span', 'chip ' + ({ offsite: 'ok', local: 'warn', none: 'danger' }[level] || ''), t('protect.' + level));
-  c.title = t('protect.' + level + '_text');
-  return c;
+  const n = note && typeof note === 'object' ? note : {};
+  const partners = level !== 'none' && (!opts || opts.partners !== false) && Array.isArray(n.partners) ? n.partners : [];
+  const reasons = backupReasons(n, opts);
+  const word = partners.length ? t(level === 'offsite' ? 'protect.partner_offsite' : 'protect.partner') : t('protect.' + level);
+  let cls = partners.length ? 'ok' : ({ offsite: 'ok', local: 'warn', none: 'danger' }[level] || '');
+  if (reasons.length && cls === 'ok') cls = 'warn';
+  const c = el('span', 'chip ' + cls, word);
+  c.title = [partners.length ? t('protect.partner_text', { names: partners.join(', ') }) : '', t('protect.' + level + '_text')].filter(Boolean).join(' ');
+  if (!reasons.length) return c;
+  const why = el('span', 'chip ' + (level === 'none' ? 'danger' : 'warn'), reasons[0]);
+  why.title = [...reasons, ...(Array.isArray(n.why) ? n.why : []).filter((w) => Office.has('protect.why_text.' + w)).map((w) => t('protect.why_text.' + w))].join(' · ');
+  const pair = el('span', 'protect-pair');
+  pair.append(c, why);
+  return pair;
 };
+/** The reasons of a backupChip's note in words: the level's (set vs. what the backups made), then the partners missed */
+function backupReasons(n, opts) {
+  const set = n.set ? t('protect.' + n.set) : '';
+  const since = n.since ? Office.fmt.date(n.since) : '';
+  const out = (Array.isArray(n.why) ? n.why : []).map((w) => t('protect.why.' + w, { set, since }));
+  if (!opts || opts.partners !== false) {
+    (Array.isArray(n.missed) ? n.missed : []).forEach((m) => out.push(t('protect.why.partner_' + (['skipped', 'failed'].includes(m.why) ? m.why : 'never'), { name: m.name })));
+  }
+  return out;
+}
 
 /**
  * Explanations on chips (and anything with data-tip). A chip's title becomes

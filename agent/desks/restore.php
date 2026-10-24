@@ -1269,10 +1269,12 @@ function rsFolder(string $path, array $containers, array &$ctx): array
 {
     $places = rsLocate($path, $ctx);
     $snaps = array_merge(...array_map(fn ($p) => $p['snaps'], $places) ?: [[]]);
+    $prot = backupProtectionInfo($path);
     return [
         'path'       => $path,
         'containers' => $containers,
-        'protection' => backupProtection($path),
+        'protection' => $prot['level'],       // what is really there (backupProtection()), its reasons beside it
+        'protection_note' => backupProtectionNote($prot),
         'exists'     => (bool) array_filter($places, fn ($p) => $p['exists']),
         'asleep'     => (bool) array_filter($places, fn ($p) => $p['asleep']),
         'places'     => array_map(fn ($p) => array_diff_key($p, ['snaps' => 0]) + ['count' => count($p['snaps']), 'latest' => $p['snaps'][0] ?? null], $places),
@@ -1378,8 +1380,12 @@ function rsScan(): array
         $a['shares'] = $whole;
         $a['needs'] = rsNeeds($folders, $whole, $ctx);
         $a['kopia'] = $sources;
-        $a['package_protection'] = rsPackageProtection($a['path'], $own('app', $a['name']));
-        $a['at_partner'] = rspChips($state['partners'], array_merge(array_map(fn ($f) => explode('/', (string) $f['path'])[3] ?? '', $folders), array_column($whole, 'share')));
+        $pp = rsPackageProtectionInfo($a['path'], $own('app', $a['name']) ? "app:{$a['name']}" : null);
+        $a['package_protection'] = $pp['level'];
+        $a['package_protection_note'] = backupProtectionNote($pp);
+        // a folder in a dataset of its own travels only as the app's own unit, never in its share's (the truth review T06)
+        $a['at_partner'] = rspChips($state['partners'], array_merge(array_map(fn ($f) => rsOwnDataset($f) ? '' : (explode('/', (string) $f['path'])[3] ?? ''), $folders),
+            array_column($whole, 'share')), null, $a['name']);
         $a['files'] = array_values(array_filter($a['files'], fn ($f) => $f['what'] !== 'error'));
         $state['apps'][] = $a;
     }
@@ -1396,7 +1402,7 @@ function rsScan(): array
         $v['needs'] = rsNeeds($v['folders'], [], $ctx);
         $v['state'] = $vmStates === null ? null : ($vmStates[$v['name']] ?? 'missing');
         $v['kopia'] = $sourcesOf('vm', $v['name'], $v['id'], $v['folders'], []);
-        $v['at_partner'] = rspChips($state['partners'], array_column($v['folders'], 'share'), $v['name']);
+        $v['at_partner'] = rspChips($state['partners'], array_map(fn ($f) => rsOwnDataset($f) ? '' : $f['share'], $v['folders']), $v['name']);
         unset($v['files']);
         $state['vms'][] = $v;
     }
@@ -1425,6 +1431,42 @@ function rsScan(): array
 function rsPackageProtection(string $path, bool $ownKopia, ?array $settings = null): ?string
 {
     return $ownKopia ? 'offsite' : backupProtection($path, 0, $settings);
+}
+
+/**
+ * The same with its reasons (backupProtectionInfo()): the backup place's share as it really is — or the app's own Kopia
+ * source ($own, app:<name>), offsite only once Kopia made a copy of it (the truth review T09). $truth for the tests.
+ */
+function rsPackageProtectionInfo(string $path, ?string $own, ?array $settings = null, ?array $truth = null): array
+{
+    $info = backupProtectionInfo($path, $settings, null, $truth);
+    if ($own === null || $info['set'] === null) {
+        return $info;
+    }
+    $truth ??= $settings === null ? backupTruth() : null;
+    $info['set'] = 'offsite';
+    $info['why'] = array_values(array_filter($info['why'], fn ($w) => !str_starts_with($w, 'kopia_')));
+    $info['since'] = null;
+    if ($truth === null || !$truth['runs']) {
+        $info['level'] = $truth === null ? 'offsite' : $info['level'];
+        return $info;
+    }
+    $k = backupKopiaTruth($truth, $own);
+    if ($k['why'] !== null) {
+        $info['why'][] = $k['why'];
+    }
+    $info['since'] = $k['since'];
+    if ($k['offsite']) {
+        $info['level'] = 'offsite';
+    }
+    return $info;
+}
+
+/** Does a folder of an app or VM lie in a ZFS dataset of its own on every place it has (rsLocate())? */
+function rsOwnDataset(array $f): bool
+{
+    $places = array_filter($f['places'] ?? [], fn ($p) => !empty($p['exists']));
+    return !($f['whole'] ?? false) && $places && !array_filter($places, fn ($p) => empty($p['own_dataset']));
 }
 
 function rsWrite(array $state): array

@@ -298,6 +298,7 @@ function backupScan(): array
         'kopia_held' => backupKopiaHeld(),       // engine 2.56: the Kopia step held - the repository suddenly empty
         'offsite'    => backupOffsiteReach($settings),    // engine 2.66: «offsite unreachable since …» (B16)
         'kopia_writes' => backupKopiaWrites($settings),   // engine 2.68: does the offsite storage still take writes?
+        'truth'      => backupTruthSummary(backupTruth(), $settings),   // what the results say beside settings.ini (the truth review P2)
     ];
     $state['found'] = true;
     $GLOBALS['backup'] = $state;
@@ -306,14 +307,35 @@ function backupScan(): array
 }
 
 /**
+ * What the engine's results say beside settings.ini, for the rows of «Is everything protected?» (backupTruth()): runs
+ * (backup runs in the history), no_snaps (shares whose file system takes no snapshot — the engine's drift, a newer plan,
+ * or [share] method = live), new (shares new or renamed, not backed up until the setup takes them).
+ */
+function backupTruthSummary(array $t, array $settings): array
+{
+    $noSnaps = array_keys($t['no_snaps']);
+    foreach ($settings as $section => $_) {
+        if (str_starts_with((string) $section, 'share|') && backupSetting($settings, (string) $section, 'method') === 'live') {
+            $noSnaps[] = substr((string) $section, 6);
+        }
+    }
+    $noSnaps = array_values(array_unique(array_map('strval', $noSnaps)));
+    sort($noSnaps, SORT_NATURAL | SORT_FLAG_CASE);
+    $new = array_values(array_filter(array_map('strval', array_keys($t['new'])), fn ($n) => !isset($settings["share|$n"])));
+    sort($new, SORT_NATURAL | SORT_FLAG_CASE);
+    return ['runs' => $t['runs'], 'no_snaps' => $noSnaps, 'new' => $new];
+}
+
+/**
  * Engine 2.27: the partner offices settings.ini sends to, each with its units and the last run that had it (from the
  * history, newest first: what went, how much, how fast, what was skipped or failed and why) - and, while a run sends
  * to it, what it sends now (status.json partner.current: the unit, since, bytes so far). 1.60.1: `ended`, `anew`, `apply`
  * (and `from`) - what waits for «Apply» (partnerApplyPending(); $wait for the tests), a pair with nothing yet as a row too
  */
-function backupPartners(array $settings, array $history, ?array $status = null, ?array $wait = null): array
+function backupPartners(array $settings, array $history, ?array $status = null, ?array $wait = null, ?array $unitLast = null): array
 {
     $out = [];
+    $unitLast ??= backupTruth()['partner'];
     $cur = is_array($status['partner']['current'] ?? null) ? $status['partner']['current'] : null;
     foreach (backupPartnersFromSettings($settings) as $p) {
         $last = null;
@@ -326,6 +348,8 @@ function backupPartners(array $settings, array $history, ?array $status = null, 
             }
         }
         $p['last'] = $last;
+        // per unit its newest try over the whole history (the last run may not have tried a unit): {ok, why, code, time}
+        $p['unit_last'] = (object) ($unitLast[$p['id']] ?? []);
         $p['current'] = $cur && ($cur['id'] ?? '') === $p['id'] ? backupPartnerRate(['unit' => (string) ($cur['unit'] ?? ''), 'since' => (int) ($cur['since'] ?? 0),
             'bytes' => (int) ($cur['bytes'] ?? 0), 'estimate' => is_int($cur['estimate'] ?? null) && $cur['estimate'] > 0 ? $cur['estimate'] : null], $p['id']) : null;
         $p['ended'] = false;
@@ -351,7 +375,7 @@ function backupPartners(array $settings, array $history, ?array $status = null, 
             $out[$i]['apply'] = true;
             $out[$i]['from'] = $e['from'];
         } else {
-            $out[] = ['id' => $e['id'], 'name' => $e['name'], 'address' => '', 'port' => 22, 'rate_mbit' => 0, 'units' => [], 'last' => null,
+            $out[] = ['id' => $e['id'], 'name' => $e['name'], 'address' => '', 'port' => 22, 'rate_mbit' => 0, 'units' => [], 'last' => null, 'unit_last' => (object) [],
                       'current' => null, 'ended' => false, 'anew' => null, 'apply' => true, 'from' => $e['from']];
         }
     }

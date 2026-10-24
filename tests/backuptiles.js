@@ -26,7 +26,9 @@ globalThis.Office = {
   el: (tag, cls, text) => ({ tag, cls, text, dataset: {}, appendChild() {}, append() {} }),
   place: (anchor, node) => { node.place = anchor; return node; },
   stat: (o) => ({ o, dataset: {} }),
-  backupChip: (level) => (level ? { tag: 'span', cls: 'chip', text: 'protect.' + level, dataset: {} } : null),
+  // core.js's label: the level's word, «local + partner (+ offsite)» for partners that received it; the note kept to look at
+  backupChip: (level, note) => (level ? { tag: 'span', cls: 'chip', dataset: {}, note: note || null,
+    text: note && (note.partners || []).length && level !== 'none' ? (level === 'offsite' ? 'protect.partner_offsite' : 'protect.partner') : 'protect.' + level } : null),
   fmt: { date: (t) => `date(${t})`, relative: (t) => `rel(${t})`, size: (b) => `${b} B`, number: (n) => String(n), bitrate: (m) => `${m} Mbit/s`, cron: (c) => `cron(${c})`,
     duration: (s) => `${Math.round(s / 60)} min`, time: (t) => `time(${t})` },
 };
@@ -45,7 +47,9 @@ const same = (name, got, want) => {
 
 // ---------------------------------------------------------------- a server: Kopia on, the flash in a snapshot
 const NOW = 1791600000;
-const share = (name, mode, more) => ({ name, mode, method: 'auto', retention: null, ignores: [], excluded: [], locations: ['maple'], fs: ['zfs'], last: null, ...more });
+// a share at «kopia» has its good copy offsite (the rows go by results: the truth review P2)
+const share = (name, mode, more) => ({ name, mode, method: 'auto', retention: null, ignores: [], excluded: [], locations: ['maple'], fs: ['zfs'],
+  last: mode === 'kopia' ? { ok: true, good: NOW - 3600, time: NOW - 3600, seconds: 5 } : null, ...more });
 const vm = (name, more) => ({ name, running: true, configured: true, mode: 'snapshot', prepare: 'freeze', retention: null, share: 'domains', share_mode: 'snapshot',
   snap: 'yes', own: [`maple/domains/${name}`], disks: [], last: null, ...more });
 const app = (name, files, more) => ({ name, folder: name, type: 'template', result: 'ok', stale: false, run: 'r1', time: NOW - 3600, bytes: 100,
@@ -57,14 +61,14 @@ const base = () => ({
   settings: { kopia_enabled: true, dumps: [{ container: 'immich_postgres', type: 'postgres' }], nextcloud: [], flash: 'snapshot', dumps_share: 'media',
     zfs_retention: '7 4 6', kopia_keep: {} },
   shares: [share('appdata', 'kopia'), share('Écoles', 'snapshot', { locations: ['hazel'] }), share('media', 'snapshot'), share('system', 'off'),
-    share('flash', 'kopia', { method: 'flash', locations: ['boot'], flash: true, last: { ok: true, time: NOW - 7200 } })],
+    share('flash', 'kopia', { method: 'flash', locations: ['boot'], flash: true, last: { ok: true, good: NOW - 7200, time: NOW - 7200 } })],
   vms: [vm('win'), vm('lab', { configured: false }), vm('old', { mode: 'off' })],
-  items: [{ kind: 'vm', name: 'win' }, { kind: 'app', name: 'emby' }],
+  items: [{ kind: 'vm', name: 'win', last: { ok: true, good: NOW - 3600 } }, { kind: 'app', name: 'emby', last: { ok: true, good: NOW - 3600 } }],
   packages: { found: true, time: NOW - 3600, base: '/mnt/user/media/unraid-backup', apps: [app('immich', ['dump', 'template']), app('nextcloud', ['template'], { result: 'errors' }),
     app('emby', ['sqlite', 'template'])], vms: [], old_runs: 0 },
   containers: { up: true, total: 10, running: 8, kept: 6, stopped: 2, kopia: { name: 'kopia', exists: true, running: true } },
   partners: [{ id: 'p1', name: 'Vault', units: ['place'], current: null,
-    last: { sent: 2, bytes: 2048, mbit: 80, time: NOW - 600, skipped: [{ unit: 'share:x', why: 'not_agreed' }], failed: [] } }],
+    last: { sent: 2, bytes: 2048, mbit: 80, time: NOW - 600, units: [{ unit: 'place' }], skipped: [{ unit: 'share:x', why: 'not_agreed' }], failed: [] } }],
   schedule: { script: true, frequency: 'custom', custom: '30 4 * * *', enabled: true, next: NOW + 18000 },
   status: { mode: 'backup', finished: NOW - 3000, result: 'ok' },
   history: [run(NOW - 3600, { result: 'warnings', warnings: 1 }), run(NOW - 90000)],
@@ -72,6 +76,7 @@ const base = () => ({
   dumps: [], drift: null,
 });
 
+const byKeyOf = (list, k) => list.find((t) => t.key === k) || null;
 // ---------------------------------------------------------------- overviewTiles(): a tile is a section (tiles v2)
 B.setState(base());
 let tiles = B.overviewTiles();
@@ -275,7 +280,8 @@ same('history: a word fits its rows only', h.filter((x) => Office.fits(W('warnin
   const s = base();
   s.shares.push(share('domains', 'snapshot'), share('docs', 'off'));
   s.vms = [vm('inshare', { own: [] }), vm('ownds'), vm('ownsent', { name: 'ownsent' }), vm('elsewhere', { own: [], share: 'isos' })];
-  s.partners = [{ id: 'p1', name: 'Vault', units: ['place', 'share:domains', 'share:docs', 'vm:ownsent'], current: null, last: null },
+  s.partners = [{ id: 'p1', name: 'Vault', units: ['place', 'share:domains', 'share:docs', 'vm:ownsent'], current: null,
+    unit_last: { place: { ok: true }, 'share:domains': { ok: true }, 'share:docs': { ok: true }, 'vm:ownsent': { ok: true } }, last: null },
     { id: 'p2', name: 'Gone', units: ['share:appdata'], ended: true, current: null, last: null }];
   s.packages = { found: true, base: '/mnt/maple/media/backup', apps: [app('web', ['template']), app('db', ['template'], { dirs: ['appdata/db'] })], vms: [] };
   B.setState(s);
@@ -289,18 +295,111 @@ same('history: a word fits its rows only', h.filter((x) => Office.fits(W('warnin
   same('travel: the packages lie in the backup place - every app at its partner', [by('app', 'web').partners, by('app', 'db').partners], [['Vault'], ['Vault']]);
   const c = B.protChip(by('vm', 'inshare'));
   same('travel: the chip says «local + partner» (offsite: «… + offsite»), green, the partner named in its tip; the bar finds the word and the name',
-    [c.text, c.cls, B.protChip(by('share', 'appdata')).text, by('vm', 'inshare').hay.includes('setup.level.partner') && by('vm', 'inshare').hay.includes('Vault')],
-    ['setup.level.partner', 'chip ok', 'protect.offsite', true]);
-  s.shares = s.shares.map((x) => (x.name === 'domains' ? { ...x, mode: 'kopia' } : x));
+    [c.text, c.note.partners, B.protChip(by('share', 'appdata')).text, by('vm', 'inshare').hay.includes('setup.level.partner') && by('vm', 'inshare').hay.includes('Vault')],
+    ['protect.partner', ['Vault'], 'protect.offsite', true]);
+  s.shares = s.shares.map((x) => (x.name === 'domains' ? { ...x, mode: 'kopia', last: { ok: true, good: NOW - 3600 } } : x));
   s.vms = s.vms.map((x) => (x.share === 'domains' ? { ...x, share_mode: 'kopia' } : x));
   B.setState(s);
-  same('travel: … its share offsite too: «local + partner + offsite»', B.protChip(B.protRows().find((r) => r.name === 'inshare')).text, 'setup.level.partner_kopia');
+  same('travel: … its share offsite too: «local + partner + offsite»', B.protChip(B.protRows().find((r) => r.name === 'inshare')).text, 'protect.partner_offsite');
   // a VM only local in a share at Kopia (its folder in kopia_ignore): «only local», never «offsite»
   const vs = { ...s, shares: s.shares.map((x) => (x.name === 'domains' ? { ...x, ignores: ['/left/'] } : x)), partners: [],
     vms: [vm('left', { own: [], share_mode: 'kopia', disks: [{ source: '/mnt/user/domains/left/vdisk1.img' }] }), vm('in', { own: [], share_mode: 'kopia', disks: [{ source: '/mnt/user/domains/in/vdisk1.img' }] })] };
   B.setState(vs);
   same('travel: a VM left out of its share\'s Kopia source is only local; one inside it offsite; no partner - the line as before',
     [B.vmLevel(vs.vms[0], true), B.vmLevel(vs.vms[1], true), B.protSum(B.protRows()).split(' ')[0]], ['local', 'offsite', 'protection_sum']);
+}
+
+// ---------------------------------------------------------------- INV-TRUTH (the truth review 2026-10, P2): a row says what the
+// results show, never more than settings.ini — state files → the label
+{
+  const rowOf = (rows, kind, name) => rows.find((r) => r.kind === kind && r.name === name);
+  // T02: the repository suddenly empty (kopia_held) — no row offsite, the Kopia and flash tiles alert, the bubble never «saved offsite»
+  let s = base();
+  s.kopia_held = { repo: 'r1', identity: 'root@tower', before: 48, now: 0, when: NOW - 600, time: NOW - 600, gone: false };
+  s.status = null;
+  s.history = [run(NOW - 3600), run(NOW - 90000)];
+  B.setState(s);
+  let rows = B.protRows();
+  tiles = B.overviewTiles();
+  same('truth T02: held — no row offsite; appdata only local with «held» beside it; the Kopia tile alerts and says so first; the flash tile alerts',
+    [rows.filter((r) => r.level === 'offsite').length, rowOf(rows, 'share', 'appdata').level, rowOf(rows, 'share', 'appdata').why,
+      byKeyOf(tiles, 'kopia').alert, byKeyOf(tiles, 'kopia').sub[0].startsWith('stat.kopia_held'), byKeyOf(tiles, 'flash').alert, byKeyOf(tiles, 'flash').sub],
+    [0, 'local', ['kopia_held'], true, true, true, ['stat.kopia_held']]);
+  same('truth T02: held — the bubble says the last backup went, never «… saved offsite», and says the copy is empty',
+    [B.bubbleText().some((x) => x.startsWith('bubble.last_ok_kopia')), B.bubbleText().some((x) => x.startsWith('bubble.last_ok ')), B.bubbleText().includes('bubble.kopia_held')],
+    [false, true, true]);
+  // T10: the storage takes nothing — the copies there stay (offsite), each with the reason; the tile alerts
+  s = base();
+  s.kopia_writes = { state: 'stuck', since: NOW - 7200, by: 'server', storage: 's3', time: NOW };
+  s.status = null;
+  s.history = [run(NOW - 3600), run(NOW - 90000)];
+  B.setState(s);
+  rows = B.protRows();
+  tiles = B.overviewTiles();
+  same('truth T10: stuck — appdata offsite with «takes nothing since» beside it (never green alone); the Kopia tile alerts',
+    [rowOf(rows, 'share', 'appdata').level, rowOf(rows, 'share', 'appdata').why, rowOf(rows, 'share', 'appdata').since, byKeyOf(tiles, 'kopia').alert,
+      byKeyOf(tiles, 'kopia').sub[0].startsWith('stat.kopia_stuck'), B.bubbleText().some((x) => x.startsWith('bubble.last_ok_kopia'))],
+    ['offsite', ['kopia_stuck'], NOW - 7200, true, true, false]);
+  // T09: set offsite, Kopia never made a copy — only local, «no copy yet»
+  s = base();
+  s.shares = s.shares.map((x) => (x.name === 'appdata' ? { ...x, last: null } : x));
+  B.setState(s);
+  rows = B.protRows();
+  same('truth T09: no copy yet — appdata only local, «set: offsite — no copy yet»; still in the Kopia tile\'s filter',
+    [rowOf(rows, 'share', 'appdata').level, rowOf(rows, 'share', 'appdata').set, rowOf(rows, 'share', 'appdata').why, rowOf(rows, 'share', 'appdata').tiles.includes('kopia')],
+    ['local', 'offsite', ['kopia_never'], true]);
+  same('truth T09: … the protection tile is not «all protected» while a row is less than set',
+    [B.overviewTiles().find((t) => t.key === 'prot').value.startsWith('stat.prot_ok')], [false]);
+  // T05: the partner skipped (or never received) a unit — no «local + partner», the partner named as missed, counted only local
+  s = base();
+  s.partners = [{ id: 'p1', name: 'Vault', units: ['place', 'share:Écoles'], current: null,
+    last: { sent: 1, time: NOW - 600, units: [], skipped: [{ unit: 'place', why: 'asleep' }], failed: [] } }];
+  B.setState(s);
+  rows = B.protRows();
+  same('truth T05: skipped at the partner — media (the backup place) only local, Vault missed «skipped»; Écoles never sent — missed «never»; the sum counts no partner',
+    [rowOf(rows, 'share', 'media').partners, rowOf(rows, 'share', 'media').missed, rowOf(rows, 'share', 'Écoles').missed, B.protSum(rows).startsWith('protection_sum ')],
+    [[], [{ name: 'Vault', why: 'skipped', code: 'asleep' }], [{ name: 'Vault', why: 'never', code: '' }], true]);
+  s.partners[0].unit_last = { place: { ok: false, why: 'failed', code: 'partner_refused' }, 'share:Écoles': { ok: true } };
+  B.setState(s);
+  rows = B.protRows();
+  same('truth T05: the agent\'s unit_last (the whole history) decides over the last run: Écoles received earlier, the place failed',
+    [rowOf(rows, 'share', 'Écoles').partners, rowOf(rows, 'share', 'media').missed.map((m) => m.why)], [['Vault'], ['failed']]);
+  // T07: a new share (drift share_new) is a row, not backed up; the protection tile never «all protected»
+  s = base();
+  s.shares = s.shares.filter((x) => x.name !== 'system');
+  s.drift = { time: NOW - 60, items: [{ level: 'warn', code: 'share_new', params: { name: 'photos', locations: 'maple', bytes: '1' } }], policies: null };
+  B.setState(s);
+  rows = B.protRows();
+  tiles = B.overviewTiles();
+  same('truth T07: a new share is a row at «not backed up» with its reason, counted unprotected',
+    [rowOf(rows, 'share', 'photos') && rowOf(rows, 'share', 'photos').level, rowOf(rows, 'share', 'photos') && rowOf(rows, 'share', 'photos').why,
+      rowOf(rows, 'share', 'photos') && rowOf(rows, 'share', 'photos').off, byKeyOf(tiles, 'prot').value.startsWith('stat.prot_ok')],
+    ['none', ['new_share'], true, false]);
+  s.truth = { runs: 2, no_snaps: [], new: [] };
+  B.setState(s);
+  same('truth T07: the agent\'s truth decides (a share it no longer calls new: no row)', B.protRows().some((r) => r.name === 'photos'), false);
+  // T08: a share whose file system takes no snapshot — «local» holds nothing: not backed up, its reason beside it
+  s = base();
+  s.truth = { runs: 2, no_snaps: ['Écoles'], new: [] };
+  B.setState(s);
+  rows = B.protRows();
+  same('truth T08: no snapshot possible — Écoles at «snapshot» is not backed up («no snapshot possible»), counted unprotected',
+    [rowOf(rows, 'share', 'Écoles').level, rowOf(rows, 'share', 'Écoles').set, rowOf(rows, 'share', 'Écoles').why, rowOf(rows, 'share', 'Écoles').off],
+    ['none', 'local', ['no_snaps'], true]);
+  s.truth = undefined;
+  s.drift = { time: NOW - 60, items: [{ level: 'warn', code: 'share_snapshot_no_fs', params: { name: 'Écoles' } }], policies: null };
+  B.setState(s);
+  same('truth T08: an older agent — the engine\'s drift share_snapshot_no_fs says it', rowOf(B.protRows(), 'share', 'Écoles').level, 'none');
+  // no backup run yet: nothing is protected, whatever is set
+  s = base();
+  s.history = [];
+  s.truth = { runs: 0, no_snaps: [], new: [] };
+  B.setState(s);
+  same('truth: before the first backup no row is protected (each says «no backup yet»)',
+    [B.protRows().filter((r) => r.level !== 'none').length, rowOf(B.protRows(), 'share', 'appdata').why], [0, ['no_run']]);
+  // T21: the section's line is the tile's line (both protSum(protRows()))
+  B.setState(base());
+  same('truth T21: the protection tile\'s line is protSum of the rows', B.overviewTiles().find((t) => t.key === 'prot').sub, [B.protSum(B.protRows())]);
 }
 
 console.log(JSON.stringify(out));
