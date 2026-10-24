@@ -53,6 +53,10 @@ pre.code.ct-pblock{user-select:all; max-height:30vh; word-break:break-all}
 .ct-net .row-meta .mono{font-size:12.5px; overflow-wrap:anywhere}
 .ct-net-policy{width:100%; min-width:0}
 .ct-net-policy summary{cursor:pointer; color:var(--ink2); font-weight:600}
+/* the earlier nodes of a name (left and joined anew): folded, faded under the live one */
+.ct-net-older{margin-top:4px; min-width:0; color:var(--ink2)}
+.ct-net-older summary{cursor:pointer; font-size:12.5px}
+.ct-net-older p{opacity:.8; margin:4px 0 0; overflow-wrap:anywhere}
 .ct-net-steps{margin:6px 0 12px; padding-left:1.3em; display:grid; gap:8px; min-width:0}
 /* the notification centre («Reports»): a row per colleague — who and what they send, then the choices; the summary
    as it would read; the history */

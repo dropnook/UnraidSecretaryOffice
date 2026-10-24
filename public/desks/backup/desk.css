@@ -72,6 +72,9 @@
 .row.bk-dep{padding-left:34px; background:color-mix(in srgb, var(--surface2) 45%, transparent)}
 /* what a click on a «… mitsichern» box did: said on its row at once (already as far as the app / stays where it is) */
 .check small.bk-dep-note{color:var(--ink); margin-top:3px}
+/* a «… mitsichern» row a tick can't raise (depCannot()): said, no box */
+.bk-dep-cannot{min-width:0}
+.bk-dep-cannot p{margin:0; overflow-wrap:anywhere}
 /* an option that holds only for the next Apply: said on its row */
 .check small.bk-once{color:var(--ink2); margin-top:3px}
 .bk-ret-field{display:inline-flex; align-items:center; gap:6px; font-size:12.5px}

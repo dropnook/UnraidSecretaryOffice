@@ -1826,21 +1826,42 @@ function partnerPublic(): array
             // one stored — one outside the network, or an earlier node of it (joined anew: a new address, the old node
             // stays offline in the list): the card offers «Change the address…» to that one ({name, address, online,
             // direct, was_peer}; null otherwise)
-            'usonet_match' => $netIn ? partnerUsonetMatch($p, $net) : null,
+            'usonet_match' => $netIn ? partnerUsonetMatch($p, $net, $e) : null,
         ];
     }
     return ['pairs' => $cards, 'pending' => array_map(fn ($o) => ['id' => $o['id'], 'created' => $o['created'], 'address' => $o['address'],
         'units' => $o['units'], 'trust' => $o['trust']], $pending), 'silent_after' => PARTNER_SILENT_AFTER, 'ready' => $ready] + $tickets['lists'];
 }
 
-/** The online USO peer named like the pair's partner, when it is at another address than the stored one (partnerPublic()) */
-function partnerUsonetMatch(array $pair, ?array $net): ?array
+/**
+ * The online USO peer named like the pair's partner, when the pair should go there instead of its stored address
+ * (partnerPublic()): the stored one is outside the network or an earlier node of it. Never while the pair answers where
+ * it is (2026-10-24, nostromo: «100.103.75.17 is an earlier address» said of the node it reached in 10 ms — the tailnet
+ * listed three nodes of that name, an old one still «online»): the stored address a live node of that name and not
+ * refused; outside the network, or at an offline node, a «reached» after that node was last seen. A live stored node is
+ * left for another only when that one ranks above it (usonetNodeRank(): direct, answering) and the pair isn't reached.
+ * $e: the pair's state (reachable, last_try).
+ */
+function partnerUsonetMatch(array $pair, ?array $net, array $e = []): ?array
 {
-    $m = usonetPeerNamed($pair['name'], $net);
-    if ($m === null || usonetIp($m['address']) === usonetIp($pair['address'])) {
+    $nodes = usonetNodesOf(usonetNodeName($pair['name']), $net);
+    $ip = usonetIp($pair['address']);
+    $at = null;
+    foreach ($nodes as $n) {
+        $at ??= usonetIp($n['address']) === $ip ? $n : null;
+    }
+    $reach = $e['reachable'] ?? null;
+    if ($at !== null && $at['online'] ? $reach !== false
+        : $reach === true && ($at === null || (int) ($e['last_try'] ?? 0) > (int) ($at['last_seen'] ?? 0))) {
         return null;
     }
-    return $m + ['was_peer' => usonetPeerAddress($pair['address'], $net)];
+    foreach ($nodes as $n) {
+        if ($n['online'] && $n !== $at && ($at === null || !$at['online'] || $n['rank'] > $at['rank'])) {
+            unset($n['rank']);
+            return $n + ['was_peer' => $at !== null];
+        }
+    }
+    return null;
 }
 
 /**
@@ -3134,7 +3155,8 @@ function partner_ticket_start(array $r): array
 {
     $step = optText($r, 'step', 'look');
     if ($step === 'look') {
-        return ['ok' => true, 'name' => partnerMyName(), 'addresses' => partnerMyAddresses()];
+        // in the USO network the holder lets this server in from its USO address (2026-10-24: like the pairing's dialogs)
+        return ['ok' => true, 'name' => partnerMyName(), 'addresses' => partnerMyAddresses(), 'usonet' => partnerUsonet()];
     }
     if ($step === 'show') {
         foreach (partnerTicketPending(true) as $q) {
@@ -3151,6 +3173,7 @@ function partner_ticket_start(array $r): array
     if (!partnerAddressValid($address)) {
         throw new Problem('partner_address');
     }
+    partnerAddressChosen($r, $address);
     $pending = partnerTicketPending(true);
     $id = partnerNewId();
     $pub = partnerKeyMake($id);
@@ -3198,28 +3221,36 @@ function partner_ticket_make(array $r): array
     if (in_array($n['pub_key'], partnerHostKeys(), true)) {
         throw new Problem('partner_block', ['field' => 'pub_key']);
     }
-    $from = partnerFromList($n['address']);
     $now = time();
     $expires = $now + PARTNER_TICKET_DAYS * 86400;
     $step = optText($r, 'step', 'look');
     if ($step === 'look') {
+        $from = partnerFromList($n['address']);
+        // in the USO network: this server's USO address for the new server; a BLOCK-N from outside it is said, the new
+        // server's USO address (the online peer of its name) offered with its own line (2026-10-24, as at «Accept a partner…»)
+        $net = partnerUsonet($n['address'], $n['name']);
+        $fromMatch = $net['match'] !== null ? partnerFromList($net['match']['address']) : null;
         return ['ok' => true, 'new' => ['id' => $n['id'], 'name' => $n['name'], 'address' => $n['address'], 'public' => !partnerAddressPrivate($n['address']),
                 'key' => partnerFingerprint($n['pub_key'])], 'of' => $pair['name'], 'units' => $held, 'expires' => $expires,
                 'line' => $from !== null ? partnerTicketLine($n['id'], $from, $n['pub_key'], $expires) : null, 'name' => partnerMyName(),
-                'addresses' => partnerMyAddresses(), 'port' => partnerMyPort(), 'host_key' => partnerHostKeys() !== []];
+                'addresses' => partnerMyAddresses(), 'port' => partnerMyPort(), 'host_key' => partnerHostKeys() !== [], 'usonet' => $net,
+                'line_match' => $fromMatch !== null ? partnerTicketLine($n['id'], $fromMatch, $n['pub_key'], $expires) : null];
     }
     if ($step !== 'do' || ($r['confirm'] ?? null) !== true) {
         throw new Problem('bad_request');
     }
+    [$newAddress] = partnerTheirAddress($r, $n + ['port' => 22]);      // BLOCK-N has no port: the holder never calls the new server
+    $from = partnerFromList($newAddress);
     if ($from === null) {
-        throw new Problem('partner_unresolved', ['address' => $n['address']]);
+        throw new Problem('partner_unresolved', ['address' => $newAddress]);
     }
     $host = partnerHostKeys();
     if (!$host) {
         throw new Problem('partner_host_key');
     }
     [$address, $port] = partnerAddressFrom($r);
-    $ticket = ['id' => $n['id'], 'of' => $pair['id'], 'name' => $n['name'], 'address' => $n['address'], 'from' => $from,
+    partnerAddressChosen($r, $address);
+    $ticket = ['id' => $n['id'], 'of' => $pair['id'], 'name' => $n['name'], 'address' => $newAddress, 'from' => $from,
                'key' => (string) partnerFingerprint($n['pub_key']), 'created' => $now, 'expires' => $expires, 'units' => $held];
     $tickets = partnerTickets();
     // the record first, then the line: the night watchman takes a line written right after its ticket for the office's own
@@ -3234,7 +3265,7 @@ function partner_ticket_make(array $r): array
     if (($r['close_door'] ?? null) === true && partnerAuthKeysEdit($pair['id'], null)) {
         $closed = true;
     }
-    partnerLog("ticket {$n['id']} for {$n['name']} ({$n['address']}): the copies of {$pair['name']} ({$pair['id']}) until " . date('Y-m-d H:i', $expires)
+    partnerLog("ticket {$n['id']} for {$n['name']} ($newAddress): the copies of {$pair['name']} ({$pair['id']}) until " . date('Y-m-d H:i', $expires)
         . ($closed ? " - {$pair['name']}'s own line removed" : ''));
     $block = partnerBlockEncode(['v' => 1, 'block' => 'T', 'id' => $n['id'], 'name' => partnerMyName(), 'of' => $pair['name'], 'address' => $address,
         'port' => $port, 'host_keys' => $host, 'units' => $held, 'expires' => $expires]);
@@ -3263,7 +3294,7 @@ function partner_ticket_finish(array $r): array
     $facts = ['id' => $t['id'], 'name' => $t['name'], 'of' => $t['of'], 'address' => $t['address'], 'port' => $t['port'], 'public' => !partnerAddressPrivate($t['address']),
               'host_keys' => array_map('partnerFingerprint', $t['host_keys']), 'units' => $t['units'], 'expires' => $t['expires']];
     if (($r['step'] ?? 'look') === 'look') {
-        return ['ok' => true, 'ticket' => $facts, 'code' => $code];
+        return ['ok' => true, 'ticket' => $facts, 'code' => $code, 'usonet' => partnerUsonet($t['address'], $t['name'])];
     }
     if (($r['step'] ?? '') !== 'do' || ($r['confirm'] ?? null) !== true || ($r['code'] ?? null) !== $code) {
         throw new Problem('bad_request');

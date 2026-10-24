@@ -4621,6 +4621,25 @@ load(p);
 out.lower = [view('TimeMachine', 'tm_anna')];
 b.depClick(app('TimeMachine'), 'tm_anna', true, {}, S.plan, null);
 out.lower.push(view('TimeMachine', 'tm_anna'));
+// 2026-10-24 (StedyUnraid): dropnook goes to its partner through appdata, its share drop is local already and lies on
+// two pools (no partner) — a tick raises nothing: no box (depGain false), the row says why; drop able to go: a tick
+// sends it to appdata's partner too (before, only the app's own partners were taken: nothing happened)
+const q = JSON.parse(JSON.stringify(cases['appdata to the partner']));
+q.P['share|drop|mode'] = 'kopia';          // as far as dropnook's Kopia already: only the partner is missing
+delete q.P['share|drop|partner'];
+delete q.P['app|dropnook|partner'];
+const dropRow = q.shares.find((x) => x.name === 'drop');
+Object.assign(dropRow, { partner_ok: false, partner_why: 'split' });
+load(q);
+const drop = () => S.plan.shares.find((x) => x.name === 'drop');
+out.cannot = [b.levelOf('app:' + app('dropnook').id), b.depPartners(app('dropnook'), S.plan), b.depTicked(app('dropnook'), 'drop', S.plan), b.depGain(app('dropnook'), 'drop', drop(), S.plan)];
+drop().partner_ok = true;
+out.cannot.push(b.depGain(app('dropnook'), 'drop', drop(), S.plan));
+b.depClick(app('dropnook'), 'drop', true, drop(), S.plan, null);
+out.cannot.push(S.draft['share|drop|partner'] || [], b.depTicked(app('dropnook'), 'drop', S.plan));
+S.draft['share|drop|mode'] = 'off';
+drop().partner_ok = false;
+out.cannot.push(b.depGain(app('dropnook'), 'drop', drop(), S.plan));
 console.log(JSON.stringify(out));
 JS);
     $cmd = escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' ' . escapeshellarg("$tmp/cases.json") . ' 2>&1';
@@ -4637,6 +4656,8 @@ JS);
     same('app share boxes: photos as far as dropnook - ticked on load; untick «stays», tick again «already», nothing changes, nothing tied; a new plan keeps the untick',
         [[true, null, 'kopia'], [false, 'kept', 'kopia'], [true, 'same', 'kopia'], false, true, [false, 'kept', 'kopia']], $r['same'] ?? null);
     same('app share boxes: a tick never lowers a share that goes further than its app on its own', [[false, null, 'kopia'], [true, null, 'kopia']], $r['lower'] ?? null);
+    same('app share boxes: an app at the partner through appdata, its share local and unable to go — no box (a tick raises nothing); able: a tick sends it to that partner; off: a tick raises it',
+        [2, ['0a1b2c3d'], false, false, true, ['0a1b2c3d'], true, true], $r['cannot'] ?? null);
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         $j = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$l.json"), true) ?: [];
         check("app share boxes: the rows' words ($l)", str_contains($j['setup.app_dep_same'] ?? '', '{share}') && str_contains($j['setup.app_dep_kept'] ?? '', '{mode}'));
@@ -35911,6 +35932,16 @@ function testPartnerAddress(): void
         partnerTestAs($Ajoining, 'return partner_add(["step" => "do", "address" => "192.168.77.1", "port" => 22]);')['problem'] ?? null);
     $lookWait = partnerTestAs($Ajoining, 'return partner_add(["step" => "look"]);')['usonet'] ?? [];
     same('USO address: the look says to wait (no address, never the LAN)', [false, true, null], [$lookWait['in'] ?? null, $lookWait['wait'] ?? null, $lookWait['address'] ?? null]);
+    // the restore ticket's «Start from a partner's copy…» the same way (2026-10-24: it kept the LAN-first picker, no guard)
+    same('USO ticket: the look gives the USO address; the LAN without «other» refused; the USO address or the LAN on purpose taken',
+        ['100.64.0.4', 'partner_address_usonet', true, true],
+        [partnerTestAs($Anet, 'return partner_ticket_start(["step" => "look"]);')['usonet']['address'] ?? null,
+         partnerTestAs($Anet, 'return partner_ticket_start(["step" => "do", "address" => "192.168.77.1"]);')['problem'] ?? null,
+         (partnerTestAs($Anet, 'return partner_ticket_start(["step" => "do", "address" => "100.64.0.4"]);')['block'] ?? '') !== '',
+         (partnerTestAs($Anet, 'return partner_ticket_start(["step" => "do", "address" => "192.168.77.1", "other" => true]);')['block'] ?? '') !== '']);
+    same('USO ticket: joined, the node not up yet — refused until its address is there', 'partner_usonet_wait',
+        partnerTestAs($Ajoining, 'return partner_ticket_start(["step" => "do", "address" => "192.168.77.1"]);')['problem'] ?? null);
+    partnerTestAs($A, '@unlink(partnerDir() . "/ticket-pending.json"); return [];');
     // the LAN on purpose (the fold open): taken — the pairing over the LAN for the rest of this test
     $made = partnerTestAs($Anet, 'return partner_add(["step" => "do", "address" => "192.168.77.1", "port" => 22, "other" => true]);');
     $blockA = (string) ($made['block'] ?? '');
@@ -35942,8 +35973,9 @@ function testPartnerAddress(): void
 
     // ---- the card: its address outside the network while the partner is online in it
     $card = partnerTestAs($Anet, 'return partnerPublic();')['pairs'][0] ?? [];
-    same('USO card: the partner online in the network, its address outside — the match for «Change the address…»', ['name' => $node, 'address' => '100.64.0.3'],
-        array_intersect_key($card['usonet_match'] ?? [], ['name' => 1, 'address' => 1]));
+    same('USO card: reached at its LAN address — no match (it answers where it is, 2026-10-24)', [true, null], [$card['reachable'] ?? null, $card['usonet_match'] ?? null]);
+    same('USO card: the partner online in the network, its address outside, not reached — the match for «Change the address…»', ['name' => $node, 'address' => '100.64.0.3'],
+        array_intersect_key(partnerTestAs($Anet, 'return partnerUsonetMatch(partnerPairs()[0], usonetStatus(), ["reachable" => false]);') ?? [], ['name' => 1, 'address' => 1]));
     $cardOut = partnerTestAs($A, 'return partnerPublic();')['pairs'][0] ?? [];
     same('USO card: not in the network — no match', [true, null], [array_key_exists('usonet_match', $cardOut), $cardOut['usonet_match'] ?? null]);
     // the partner joined anew: a new node and address, its old one offline in the list — the stored address is a peer
@@ -35956,6 +35988,27 @@ function testPartnerAddress(): void
     same('USO card: outside the network — said as outside', ['100.64.0.3', false],
         array_values(array_intersect_key(partnerUsonetMatch(['name' => 'Stedy', 'address' => '192.168.3.20'], $moved) ?? [], ['address' => 1, 'was_peer' => 1])));
     same('USO card: at the online node\'s address already — no match', null, partnerUsonetMatch(['name' => 'Stedy', 'address' => '100.64.0.3'], $moved));
+    same('USO card: joined anew, a «reached» from before the old node went offline — matched still; one after — it answers there, no match',
+        ['100.64.0.3', null], [partnerUsonetMatch(['name' => 'Stedy', 'address' => '100.64.0.2'], $moved, ['reachable' => true, 'last_try' => 1700000000 - 60])['address'] ?? null,
+         partnerUsonetMatch(['name' => 'Stedy', 'address' => '100.64.0.2'], $moved, ['reachable' => true, 'last_try' => 1700000000 + 60])]);
+    // 2026-10-24, nostromo ↔ StedyUnraid: three nodes of that name after leaving and joining anew — the live one direct, an
+    // old one still listed online (answering nothing), one offline; the old online one listed first. The card said «the
+    // stored 100.64.0.17 is an earlier address» of the node it reached in 10 ms.
+    $three = usonetTestStatus(['peers' => [
+        ['name' => 'uso-stedy', 'ips' => ['100.64.0.36'], 'tags' => ['tag:uso'], 'online' => true, 'direct' => false, 'relay' => 'fra', 'last_seen' => 0],
+        ['name' => 'uso-stedy', 'ips' => ['100.64.0.38'], 'tags' => ['tag:uso'], 'online' => false, 'direct' => false, 'relay' => '', 'last_seen' => 1700000000],
+        ['name' => 'uso-stedy', 'ips' => ['100.64.0.17'], 'tags' => ['tag:uso'], 'online' => true, 'direct' => true, 'relay' => '', 'last_seen' => 0]]]);
+    $at = fn (string $a, array $e = []) => partnerUsonetMatch(['name' => 'Stedy', 'address' => $a], $three, $e);
+    same('USO card (three nodes of a name): at the live node — no hint, reached, not asked yet or not reached (the old one ranks below)',
+        [null, null, null], [$at('100.64.0.17', ['reachable' => true]), $at('100.64.0.17'), $at('100.64.0.17', ['reachable' => false])]);
+    same('USO card (three nodes of a name): at the old online one and not reached — the live one offered; reached there — nothing',
+        [['100.64.0.17', true], null], [array_values(array_intersect_key($at('100.64.0.36', ['reachable' => false]) ?? [], ['address' => 1, 'was_peer' => 1])),
+         $at('100.64.0.36', ['reachable' => true])]);
+    same('USO card (three nodes of a name): at the offline one — the live one, never the old online one',
+        '100.64.0.17', $at('100.64.0.38')['address'] ?? null);
+    same('USO picker / accept / «Change the address…» (three nodes of a name): the live node, once', [['uso-stedy', '100.64.0.17', true, true]],
+        array_map(fn ($p) => [$p['name'], $p['address'], $p['online'], $p['direct']], usonetPeersToPick($three)));
+    same('USO accept: the online peer of the partner\'s name is the live node', '100.64.0.17', usonetPeerNamed('Stedy', $three)['address'] ?? null);
 
     // ---- «Change the address…»: the look is a job; found → stored, the door's from= follows
     $launch = '$GLOBALS["partnerAddressLaunch"] = function (string $i) { file_put_contents(RUN_DIR . "/launched.log", "$i\n", FILE_APPEND); };';
@@ -36028,7 +36081,12 @@ function testPartnerAddress(): void
         && str_contains($my, 'btn.disabled = busyOff() || !(det.open || u.address)') && str_contains($my, '!(u.in && u.address) && !u.wait'));
     check('USO page: the accept dialog always myAddress; a block from outside said, its USO address offered; «other» and their_address sent',
         str_contains($js, "const addr = myAddress(j, 'partner-accept-other');") && !str_contains($js, 'viaNet') && str_contains($js, 'const outside = outsideNote(p, u);')
-        && substr_count($js, 'if (addr.other()) req.other = true;') === 2 && substr_count($js, 'req.their_address = theirs;') === 2 && substr_count($js, 'addr.gate(d.buttons[1]);') === 2);
+        && substr_count($js, 'if (addr.other()) req.other = true;') === 4 && substr_count($js, 'req.their_address = theirs;') === 3 && substr_count($js, 'addr.gate(d.buttons[1]);') === 4);
+    // 2026-10-24: the restore tickets the same way — this server's USO address, the old picker folded, a BLOCK-N from outside said
+    check('USO page: the ticket dialogs give the USO address (myAddress), a BLOCK-N from outside said, the finish says to join',
+        str_contains($js, "const addr = myAddress({ ...j, port: 22 }, 'partner-tstart-other', true);") && str_contains($js, "const addr = myAddress(j, 'partner-tmake-other');")
+        && str_contains($js, "const outside = outsideNote(n, j.usonet || {}, 'partner.t_outside_none');") && str_contains($js, "T('partner.t_usonet_not_in', { name: t.name })")
+        && !preg_match('/addressPicker\(j\.addresses, (22|j\.port)\);/', $js));
     check('USO page: «Change the address…» in the card\'s menu, the hint on the card, the look polled (a job, never the request)',
         str_contains($js, "{ text: T('partner.address_change'), act: () => addressDialog(x) }") && str_contains($js, 'const swap = switchHint(x);')
         && str_contains($js, "step: 'look'") && str_contains($js, "step: 'try'"));
@@ -51633,6 +51691,19 @@ function testUsoNetRule(): void
         same('USO network picker: tagged peers with an IPv4, online first, one per name', [['uso-partner', '100.64.0.3', true, true], ['uso-vault', '100.64.0.7', true, false], ['uso-attic', '100.64.0.5', false, false]],
             array_map(fn ($p) => [$p['name'], $p['address'], $p['online'], $p['direct']], usonetPeersToPick($pick)));
         same('USO network picker: not in — nobody to pick', [], usonetPeersToPick(usonetTestStatus(['backend' => 'NeedsLogin'])));
+        // 2026-10-24: two nodes of one name both «online» over the relay (joined anew, the old one still listed) — the one
+        // that answered the office's probe is the live one, whatever the list's order; this server's own earlier node never
+        $twice = usonetTestStatus(['peers' => [
+            ['name' => 'uso-stedy', 'ips' => ['100.64.0.36'], 'tags' => ['tag:uso'], 'online' => true, 'direct' => false, 'relay' => 'fra', 'last_seen' => 0],
+            ['name' => 'uso-stedy', 'ips' => ['100.64.0.17'], 'tags' => ['tag:uso'], 'online' => true, 'direct' => false, 'relay' => 'fra', 'last_seen' => 0],
+            ['name' => 'uso-tower', 'ips' => ['100.64.0.40'], 'tags' => ['tag:uso'], 'online' => true, 'direct' => false, 'relay' => 'fra', 'last_seen' => 0]]]);
+        same('USO network picker: two online nodes, no answer yet — one row, never this server\'s own earlier node', ['uso-stedy'], array_column(usonetPeersToPick($twice), 'name'));
+        @mkdir("$run/probe", 0700, true);
+        touch("$run/probe/100.64.0.17.ok");
+        same('USO network picker: the node that answered the probe stands for its name', '100.64.0.17', usonetPeersToPick($twice)[0]['address'] ?? null);
+        touch("$run/probe/100.64.0.17.ok", time() - USONET_ANSWER_FOR - 5);
+        same('USO network picker: an answer long ago counts no more', false, usonetAnswered(['100.64.0.17']));
+        @unlink("$run/probe/100.64.0.17.ok");
         file_put_contents("$run/status.json", json_encode(usonetTestStatus(['backend' => 'NeedsLogin'])));
         same('USO network: not in yet — no address in the picker', [], usonetMyAddresses());
 
@@ -51689,6 +51760,10 @@ function testUsoNetStatus(): void
         file_put_contents("$run/status.json", json_encode($again));
         same('USO network card: a server that joined anew — one row, the online node; this server\'s own earlier node never a peer', [['uso-partner', ['100.64.0.3', 'fd7a:115c:a1e0::3']]],
             array_map(fn ($p) => [$p['name'], $p['ips']], usonetPublic($now)['peers']));
+        same('USO network card: the earlier nodes of a name folded under the live one, seen last first; this server\'s own apart (2026-10-24)',
+            [[['ip' => '100.64.0.2', 'online' => false, 'last_seen' => $now - 900], ['ip' => '100.64.0.1', 'online' => false, 'last_seen' => $now - 9000]],
+             [['ip' => '100.64.0.9', 'online' => false, 'last_seen' => $now - 500]]],
+            [usonetPublic($now)['peers'][0]['older'] ?? null, usonetPublic($now)['own_older'] ?? null]);
         [, $c] = $state(usonetTestStatus(['tags' => []]));
         same('USO network check: the node not tagged (a must)', false, $c['usonet_tagged']);
         same('USO network card: the key was refused or is used up', 'needs_key', $state(usonetTestStatus(['backend' => 'NeedsLogin', 'ips' => []]))[0]);
@@ -51756,16 +51831,19 @@ function testUsoNetStatus(): void
             ['name' => 'uso-partner', 'ips' => ['100.64.0.3', 'fd7a:115c:a1e0::3'], 'tags' => ['tag:uso'], 'online' => true, 'direct' => false, 'relay' => 'fra', 'last_seen' => 0],
             ['name' => 'uso-vault', 'ips' => ['100.64.0.7'], 'tags' => ['tag:uso'], 'online' => true, 'direct' => true, 'relay' => '', 'last_seen' => 0],
             ['name' => 'uso-attic', 'ips' => ['100.64.0.5'], 'tags' => ['tag:uso'], 'online' => false, 'direct' => false, 'relay' => '', 'last_seen' => 0],
+            ['name' => 'uso-attic', 'ips' => ['100.64.0.15'], 'tags' => ['tag:uso'], 'online' => true, 'direct' => true, 'relay' => '', 'last_seen' => 0],
+            ['name' => 'uso-attic', 'ips' => ['100.64.0.16'], 'tags' => ['tag:uso'], 'online' => true, 'direct' => false, 'relay' => 'fra', 'last_seen' => 0],
             ['name' => 'laptop', 'ips' => ['100.64.0.9'], 'tags' => [], 'online' => true, 'direct' => false, 'relay' => 'fra', 'last_seen' => 0]]])));
         file_put_contents("$run/probe.sh", "#!/bin/bash\necho \"\$1\" >> \"$run/probed\"\n");
         chmod("$run/probe.sh", 0755);
         putenv("USONET_PROBE=$run/probe.sh");
         usonetProbe(usonetPublic($now), $now);
         usonetProbe(usonetPublic($now), $now + 60);
-        same('USO network probe: the relayed USO peer once (not the direct one, not the offline one, never a foreign device), not again within three minutes',
-            "100.64.0.3\n", @file_get_contents("$run/probed"));
+        same('USO network probe: the relayed USO peer once (not the direct one, not the offline one, never a foreign device), not again within three minutes;'
+            . ' a name with two nodes online (one left behind, 2026-10-24): both, the direct one too',
+            "100.64.0.3\n100.64.0.15\n100.64.0.16\n", @file_get_contents("$run/probed"));
         usonetProbe(usonetPublic($now), $now + USONET_PROBE_EVERY + 1);
-        same('USO network probe: after three minutes once more', "100.64.0.3\n100.64.0.3\n", @file_get_contents("$run/probed"));
+        same('USO network probe: after three minutes once more', "100.64.0.3\n100.64.0.15\n100.64.0.16\n100.64.0.3\n100.64.0.15\n100.64.0.16\n", @file_get_contents("$run/probed"));
         putenv('USONET_PROBE');
         // his kept state follows the network between tours: the picture written mid-join is not served as fresh once the node is in
         $kept = deskFile('caretaker');
@@ -51810,7 +51888,8 @@ function testUsoNetStatus(): void
         check('USO network card: the Team Lead\'s tick lets the kept state follow', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/caretaker.php'), 'caretakerUsonetFollow($now);'));
         check('USO network probe: the Team Lead\'s card sends it; inside the namespace, a few pings, detached',
             str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/caretaker.php'), 'usonetProbe($p);')
-            && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/lib/usonet.php'), "['setsid', '-f', getenv('USONET_NSENTER') ?: '/usr/bin/nsenter', '--net=/run/netns/' . USONET_NETNS, 'ping', '-c', '3', '-W', '2', '-q', \$ip]"));
+            && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/lib/usonet.php'), "['setsid', '-f', 'bash', usonetScript(), 'probe', \$ip]")
+            && preg_match('/^probe\(\) \{\n.*?nsenter --net="\/run\/netns\/\$NETNS" ping -c 3 -W 2 -q "\$1".*?touch "\$RUN\/probe\/\$1\.ok".*?\n\}/ms', (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/usonet.sh')) === 1);
     });
     hardeningRm($tmp);
     $ct = (string) file_get_contents(OFFICE_DIR . '/agent/desks/caretaker.php');

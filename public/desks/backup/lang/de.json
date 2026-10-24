@@ -1083,6 +1083,7 @@
   "setup.app_dep_hint": "gesichert wird der ganze Share, wie die App",
   "setup.app_dep_step3": "in Schritt 3: {mode}",
   "setup.app_dep_same": "{share} ist schon so gesichert wie die App — nichts zu ändern.",
+  "setup.app_dep_cannot": "{share} kann nicht zum Partner: {why}. Gesichert ist er schon — «{mode}»; Anhaken änderte hier nichts.",
   "setup.app_dep_kept": "{share} bleibt in Schritt 3 auf «{mode}» — dort änderst du es.",
   "setup.app_dep_step3_hint": "Diesen Share hast du in Schritt 3 schon gewählt. Anhaken bindet ihn an die App: Er folgt dann ihrer Wahl.",
   "setup.level.0": "aus",
