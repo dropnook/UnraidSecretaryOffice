@@ -21259,6 +21259,71 @@ function testHouseDockerSilent(): void
 }
 
 /**
+ * Truth review P5: «done» or «quiet» only after a job that really ended so. The joint run: a step that failed or ended with
+ * errors makes the night `errors`, never «done» (T34); a night still going or one that never finished is said as such
+ * (T33), her card's end in the joint run is her part's (T33); a failed run of hers never reads «Nothing to move» (M11);
+ * the Night Watchman's «A round now» toasts «done» only for a round that ended after the click (T29); the Team Lead's
+ * «Tour» toasts «done» only when the look came (O12).
+ */
+function testDoneOnlyWhenDone(): void
+{
+    same('done: the bad steps of a night — failed, errors; never ok, stopped, refused, skipped', [['her', 'failed'], ['jack', 'errors']],
+        array_map(fn ($x) => [$x['who'], $x['result']], nightStepsBad([['who' => 'jack', 'result' => 'ok'], ['who' => 'her', 'result' => 'failed'],
+            ['who' => 'jack', 'result' => 'errors'], ['who' => 'jack', 'result' => 'refused'], ['who' => 'her', 'result' => 'stopped'], 'junk'])));
+    $nr = (string) file_get_contents(OFFICE_DIR . '/agent/lib/nightrun.php');
+    check('done: a night with a bad step ends as errors (an older page reads it as before)', str_contains($nr, "if (\$n['result'] === 'ok' && nightStepsBad(\$n['steps'])) {"));
+    $wm = (string) file_get_contents(OFFICE_DIR . '/agent/desks/watchman.php');
+    check('done: the watchman\'s round stopped or crashed is noted (round.broken), never silently gone',
+        str_contains($wm, "\$GLOBALS['wmRoundBroken'] = ['at' => time(), 'why' => !empty(\$job['stopped']) ? 'stopped' : 'failed'];")
+        && str_contains($wm, "'broken'      => (\$GLOBALS['wmRoundBroken']['at'] ?? 0) > (\$last ?? 0)"));
+    $wjs = (string) file_get_contents(OFFICE_DIR . '/public/desks/watchman/desk.js');
+    check('done: his page toasts «Round done» only for a round that ended after the click', str_contains($wjs, 'const ended = r.last && r.last !== beforeLast;')
+        && str_contains($wjs, "if (r.failed || r.broken || !ended) Office.toast("));
+    check('done: the Team Lead\'s «Tour» toasts «done» only when the look came', str_contains((string) file_get_contents(OFFICE_DIR . '/public/desks/caretaker/desk.js'),
+        "if (j && j.ok && !j.refreshing) Office.toast(T('checked'));"));
+
+    $node = testsNode();
+    if ($node === '') {
+        check('done page: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('doneonly');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {},
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {}, addEventListener() {} });
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', time: (t) => 'T' + t, duration: (s) => s + 's', relative: () => 'REL' },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, runRate: () => null,
+  runSteps: () => mk('div', 'steps'), runBar: () => mk('div', 'bar'), nightStoppedName: (n) => `${n.stopped_who}/${n.stopped_in}`, errorText: (e) => e.key };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+const night = { started: 1, finished: 9, jack: true, result: 'ok', steps: [{ who: 'her', phase: 'free', result: 'ok' }, { who: 'jack', phase: 'fill', result: 'errors' }] };
+console.log(JSON.stringify([
+  m.lastNightText(night),
+  m.lastNightText({ ...night, steps: [{ who: 'her', phase: 'free', result: 'ok' }] }),
+  m.lastNightText({ started: 1, jack: true, running: true, steps: [] }),
+  m.lastNightText({ started: 1, jack: true, running: false, steps: [] }),
+  m.runSummary({ mode: 'run', result: 'failed', status: { mode: 'run', result: 'failed', files: 0, moved: 0, left: 0 } }),
+  m.runSummary({ mode: 'run', result: 'failed', status: { mode: 'run', result: 'failed', files: 0, moved: 0, left: 0 } }, true),
+  m.runSummary({ mode: 'run', result: 'ok', status: { mode: 'run', result: 'ok', files: 0, moved: 0, left: 0 } }),
+]));
+JS);
+    [, $out] = run([$node, "$tmp/t.js", OFFICE_WEB . '/desks/moverelli/desk.js'], 30);
+    $j = json_decode(trim((string) $out), true);
+    same('done page: a night whose step of Jack Streamer\'s ended with errors — never «done», the step named', 'night.last {"when":"REL","how":"night.last_errors {\"steps\":\"jack/fill\"}"}', $j[0] ?? null, (string) $out);
+    same('done page: every step ok — done', 'night.last {"when":"REL","how":"night.last_ok"}', $j[1] ?? null);
+    same('done page: still going — said, never «done»; never finished and nothing more known — «ended without finishing»',
+        ['night.last {"when":"REL","how":"night.last_running"}', 'night.last {"when":"REL","how":"night.last_broken"}'], [$j[2] ?? null, $j[3] ?? null]);
+    same('done page: a failed run says so, never «Nothing to move»; beside its result label only what more is known; an ok one with nothing — «Nothing to move»',
+        ['result.failed', '', 'run_nothing'], [$j[4] ?? null, $j[5] ?? null, $j[6] ?? null]);
+    check('done page: in the joint run her card\'s end is her part\'s', str_contains((string) file_get_contents(OFFICE_WEB . '/desks/moverelli/desk.js'), "nn ? T('rc.end_her', { end: endText(d.end, now) })"));
+    hardeningRm($tmp);
+}
+
+/**
  * Truth review P4: a check that couldn't look (ok null) is neither a must nor «in place». The Team Lead's page keeps such
  * points in a group of their own that counts nowhere (T13 — «Needed (2)», the red avatar, the Dashboard's «1 thing to do»
  * took null for false), the Dashboard counts only false; Ms. Dustdevil's storerooms on sleeping disks (T14) and an empty
@@ -52275,7 +52340,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
-          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerOffSaid', 'testUncheckedIsNeither', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],
+          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerOffSaid', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.

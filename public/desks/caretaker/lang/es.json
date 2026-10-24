@@ -23,6 +23,7 @@
   },
   "check_again": "Ronda",
   "checked": "Ronda terminada",
+  "check_not_done": "La ronda aún no ha vuelto — la página muestra la última. Vuelve a intentarlo en un momento.",
   "checked_at": "Revisado {when}",
   "todo": "Pendiente",
   "todo_text": "Sin esto, un escritorio no puede hacer (parte de) su trabajo. Solo tú puedes hacerlo — en el propio Unraid.",

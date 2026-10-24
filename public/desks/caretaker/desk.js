@@ -151,8 +151,10 @@ function render() {
   again.disabled = !Office.agent.running;
   again.onclick = async () => {
     again.disabled = true;
-    await load(true);
-    Office.toast(T('checked'));
+    const j = await load(true).catch(() => null);
+    // «done» only for a look that came: the agent away or the look still under way is said (truth review O12)
+    if (j && j.ok && !j.refreshing) Office.toast(T('checked'));
+    else Office.toast(j && j.error ? Office.errorText(j.error, ID) : T('check_not_done'), true);
   };
   const { head } = Office.deskHead(Office.desks.get(ID), { bubble: bubbleText(), actions: [again] });
   root.appendChild(head);
@@ -164,7 +166,7 @@ function render() {
     [T('noted_term'), T('help.noted')],
     [el('span', 'chip danger', T('missing')), T('help.missing')],
     [el('span', 'chip warn', T('not_yet')), T('help.not_yet')],
-    [el('span', 'chip warn', T('unknown')), T('help.unknown')],
+    [el('span', 'chip quiet', T('unknown')), T('help.unknown')],
     [T('team'), T('help.team')],
     [T('supporter_term'), T('help.supporter')],
     [deskChip(Office.desks.has('backup') ? 'backup' : ID), T('help.desk_text')],      // a real one, e.g. «💾 Herr Backupsi»

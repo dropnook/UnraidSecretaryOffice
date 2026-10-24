@@ -611,6 +611,10 @@ function watchmanTick(): void
             $err = trim((string) @file_get_contents(RUN_DIR . '/watchman-round.err', false, null, 0, 4096));
             logLine('Night watchman: round failed (exit ' . $status['exitcode'] . ')' . ($err !== '' ? ': ' . strtok($err, "\n") : ''));
         }
+        // stopped (too long) or ended without writing its round: the page says so — never «Round done. Nothing new.» (T29)
+        if (!empty($job['stopped']) || $status['exitcode'] !== 0 || $status['signaled']) {
+            $GLOBALS['wmRoundBroken'] = ['at' => time(), 'why' => !empty($job['stopped']) ? 'stopped' : 'failed'];
+        }
         return;
     }
     $now = time();
@@ -9399,6 +9403,8 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
             'skipped'     => (int) ($st['round']['skipped'] ?? 0),
             'docker'      => $st['round']['docker'] ?? null,
             'shares'      => $st['round']['shares'] ?? null,
+            // the last round broke off (stopped after WATCH_MAX_RUN, or crashed) after the last one that ended: {at, why}
+            'broken'      => ($GLOBALS['wmRoundBroken']['at'] ?? 0) > ($last ?? 0) ? $GLOBALS['wmRoundBroken'] : null,
         ],
         'on_watch' => $onWatch ? (int) $b['time'] : null,
         'open'     => watchmanOpenCounts($d['book']),

@@ -385,7 +385,8 @@ function runCard(p, now) {
         + (d.fileRate >= 1 ? ' · ' + T('rc.rate', { rate: fmt.size(d.fileRate) }) : '')));
       if (d.waking) card.appendChild(el('div', 'card-line', T('rc.waking')));
     }
-    if (d.end) card.appendChild(el('div', 'card-line', endText(d.end, now)));
+    // in the joint run her share's end is not the run's (measure again, Jack Streamer's fetch follow): said as her part (T33)
+    if (d.end) card.appendChild(el('div', 'card-line', nn ? T('rc.end_her', { end: endText(d.end, now) }) : endText(d.end, now)));
   }
   // Jack Streamer's file in flight while his step runs: the same one line, from his live view (his part below shows none)
   const cur = jackAtWork(nn) && jackLive.progress && jackLive.progress.current;
@@ -1040,8 +1041,8 @@ function refusedParams(r) {
   return p;
 }
 
-/** One line about how a run went (her list of runs, the last run) */
-function runSummary(r) {
+/** One line about how a run went (her list of runs, the last run); $chipped: its result has a label beside it already */
+function runSummary(r, chipped = false) {
   if (r.result === 'refused') {
     return T('refused', { why: Office.errorText({ key: r.why, params: refusedParams(r) }, ID) })
       + (Number(r.times) > 1 ? ' · ' + T('refused_times', { n: Number(r.times) }) : '');
@@ -1065,10 +1066,17 @@ function runSummary(r) {
       : r.why === 'now' ? T('stopped_now', { file }) : r.why === 'array' ? T('stopped_array', { file })
         : T('stopped_user', { file, share: s.stop_share || '?' }));
   }
-  // D-F7: a run that found no file says so, never «0 of 0 moved (0 B)» (a stopped one may not have looked yet)
-  if (s.result !== 'stopped' && !Number(s.files) && !Number(s.moved) && !Number(s.left)) notes.push(T('run_nothing'));
-  else if (mode === 'dry') notes.push(T('dry_summary', { files: nOf('files', s.files), size: fmt.size(s.bytes || 0) }));
-  else notes.push(T('run_summary', { moved: s.moved || 0, files: s.files || 0, size: fmt.size(s.bytes || 0), left: runLeft(s) }));
+  // a run that failed said first (its message when it has one) — and never «Nothing to move» after it (truth review M11)
+  const failed = [r.result, s.result].some((x) => x === 'failed' || x === 'errors');
+  if (failed && !chipped) notes.push(T(r.result === 'errors' || s.result === 'errors' ? 'result.errors' : 'result.failed') + (s.message ? ': ' + s.message : ''));
+  // D-F7: a run that found no file says so, never «0 of 0 moved (0 B)» (a stopped one may not have looked yet); a failed
+  // one with nothing counted says no more than that it failed
+  const nothing = !Number(s.files) && !Number(s.moved) && !Number(s.left);
+  if (!(nothing && failed)) {
+    if (nothing && s.result !== 'stopped') notes.push(T('run_nothing'));
+    else if (mode === 'dry') notes.push(T('dry_summary', { files: nOf('files', s.files), size: fmt.size(s.bytes || 0) }));
+    else notes.push(T('run_summary', { moved: s.moved || 0, files: s.files || 0, size: fmt.size(s.bytes || 0), left: runLeft(s) }));
+  }
   if (s.errors) notes.push(nOf('errors', s.errors));
   if (r.waited) notes.push(T('waited', { min: Math.round(r.waited / 60) }));
   if (r.jack_out) notes.push(jackOutText(r.jack_out));
@@ -1430,9 +1438,18 @@ const jackFailedText = (l) => (jackFailed(l) ? T('night.jack_failed', { n: jackF
 function lastNightText(l) {
   if (!l || !l.started) return '';
   const when = fmt.relative(l.finished || l.started);
+  // still going: never «done» from the night before or from this one's first steps (truth review T33)
+  const which = l.jack === false || l.jack_out ? 'night.last_mine' : 'night.last';
+  if (l.running) return T(which, { when, how: T('night.last_running') });
+  // never finished and no result (the process ended under it: a power cut, a kill) — never «done» either
+  if (!l.finished && !l.result) return T(which, { when, how: T('night.last_broken') });
+  // a step that went wrong (agent/lib/nightrun.php nightStepsBad(); an older night.json: read from its steps) — never «done» (T34)
+  const bad = (Array.isArray(l.steps) ? l.steps : []).filter((x) => x && !['ok', 'stopped', 'refused', 'skipped'].includes(String(x.result || 'ok')));
   const how = (l.result === 'missed' ? T(l.why === 'jack' ? 'night.last_missed_jack' : 'night.last_missed', { pct: l.end_pct ?? '?' })
     : l.result === 'stopped' ? T('night.last_stopped', { phase: Office.nightStoppedName(l, T) })
-    : l.result === 'refused' ? T('night.last_refused') : T('night.last_ok'))
+    : l.result === 'refused' ? T('night.last_refused')
+    : bad.length && !jackFailed(l) ? T('night.last_errors', { steps: bad.map((x) => Office.nightStoppedName({ ...l, stopped_in: x.phase, stopped_who: x.who }, T)).join(', ') })
+    : T('night.last_ok'))
     + (jackFailed(l) ? ' — ' + jackFailedText(l) : '');
   return T(l.jack === false || l.jack_out ? 'night.last_mine' : 'night.last', { when, how }) + (Number(l.round) > 1 ? ' · ' + T('night.rounds', { n: Number(l.round) }) : '')
     + (l.mode === 'dry' ? ' · ' + T('mode.dry') : '') + (l.jack_out ? ' · ' + jackOutText(l.jack_out) : '')
@@ -1724,7 +1741,7 @@ function fillRuns(box) {
     meta.append(chip(T('result.' + (r.result || 'failed')), cls, r.exit != null ? T('exit_code', { n: r.exit }) : ''),
       el('span', '', fmt.date(r.started)), el('span', '', runBy(r)));
     if (r.finished && r.finished - r.started >= 60) meta.appendChild(el('span', '', fmt.duration(r.finished - r.started)));
-    main.append(meta, el('div', 'row-meta', runSummary(r)));
+    main.append(meta, el('div', 'row-meta', runSummary(r, true)));
     row.appendChild(main);
     box.appendChild(row);
   });

@@ -23,6 +23,7 @@
   },
   "check_again": "Tour",
   "checked": "Tour done",
+  "check_not_done": "The tour didn't come back yet — the page shows the last one. Try again in a moment.",
   "checked_at": "Checked {when}",
   "todo": "Still to do",
   "todo_text": "Without these, a desk can't do (part of) its job. Only you can do them — in Unraid itself.",

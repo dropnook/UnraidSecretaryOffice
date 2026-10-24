@@ -23,6 +23,7 @@
   },
   "check_again": "Giro",
   "checked": "Giro finito",
+  "check_not_done": "Il giro non è ancora tornato — la pagina mostra l'ultimo. Riprova tra un attimo.",
   "checked_at": "Controllato {when}",
   "todo": "Ancora da fare",
   "todo_text": "Senza queste cose una scrivania non può fare il suo lavoro (o una parte). Puoi farle solo tu — in Unraid stesso.",

@@ -725,6 +725,10 @@ function nightSteps(string $mode, string $by, int $waited, array $h, ?array $ord
             $n['result'] = 'errors';
         }
     }
+    // a step that failed or ended with errors (a media server down, her Smart Mover failing): never «done» (truth review T34)
+    if ($n['result'] === 'ok' && nightStepsBad($n['steps'])) {
+        $n['result'] = 'errors';
+    }
     $with = $jack && !isset($n['jack_out']);
     // over X (Jack Emby fills up to X exactly — at X is no miss)
     if ($go && $with && $end !== null && $end['x'] > 0 && $end['need'] > 0) {
@@ -742,6 +746,12 @@ function nightSteps(string $mode, string $by, int $waited, array $h, ?array $ord
     nightWrite($dir, $n);
     logLine("Night run ($mode): {$n['result']}" . ($jackFailed > 0 ? " (Jack Streamer: $jackFailed files not copied or brought back)" : '') . (isset($n['jack_out']) ? " (without Jack Streamer: {$n['jack_out']})" : '') . (isset($n['stopped_in']) ? " (in {$n['stopped_in']})" : '') . ($n['round'] > 1 ? ", {$n['round']} rounds" : ''));
     return match ($n['result']) { 'stopped' => 3, 'refused' => 1, default => 0 };
+}
+
+/** The steps of a night that went wrong: any result but ok, and but stopped, refused or skipped (said apart) */
+function nightStepsBad(array $steps): array
+{
+    return array_values(array_filter($steps, fn ($x) => is_array($x) && !in_array((string) ($x['result'] ?? 'ok'), ['ok', 'stopped', 'refused', 'skipped'], true)));
 }
 
 /**

@@ -23,6 +23,7 @@
   },
   "check_again": "Rundgang",
   "checked": "Rundgang fertig",
+  "check_not_done": "Der Rundgang ist noch nicht zurück — die Seite zeigt den letzten. Versuch es gleich noch einmal.",
   "checked_at": "Geprüft {when}",
   "todo": "Noch zu tun",
   "todo_text": "Ohne das kann ein Schreibtisch seine Arbeit (teilweise) nicht machen. Das kannst nur du erledigen — in Unraid selbst.",

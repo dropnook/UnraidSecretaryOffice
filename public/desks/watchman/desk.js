@@ -37,6 +37,7 @@ let state = null;
 let view = null;
 let timer = null;
 let before = null;              // entry ids before a round this page asked for: say how many came
+let beforeLast = null;          // … and when the last round ended then: «done» only for a round that ended after it
 let shown = PAGE;
 // the book's filter bar (core.js Office.filterBar, built once): its words are never kept (a new visit starts with the
 // whole book; «only open» is the tile «Not noted yet»), its area select is a choice, kept in this browser
@@ -89,8 +90,11 @@ function follow() {
   }
   if (before) {
     const n = (state.book || []).filter((e) => !before.has(e.id)).length;
+    const r = state.round || {};
+    // «done» only when a round really ended after the click: one stopped or crashed wrote none (truth review T29)
+    const ended = r.last && r.last !== beforeLast;
     before = null;
-    if (state.round && state.round.failed) Office.toast(T('round_failed'), true);
+    if (r.failed || r.broken || !ended) Office.toast(T(r.broken && r.broken.why === 'stopped' ? 'round_stopped' : 'round_failed'), true);
     else Office.toast(n ? T('round_done_new', { n }) : T('round_done'));
   }
 }
@@ -98,9 +102,11 @@ function follow() {
 async function roundNow() {
   if (running() || !Office.agent.running || !hired()) return;
   const ids = new Set(((state && state.book) || []).map((e) => e.id));
+  const last = (state && state.round && state.round.last) || null;
   const j = await Office.api.post(`${ID}.round`, {});
   if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return; }
   before = ids;
+  beforeLast = last;
   if (j.state) state = j.state;
   if (view) Office.keepInPlace(null, render);
   follow();
@@ -273,7 +279,7 @@ function bubbleText() {
   const n = openCount();
   const tips = postureOpen() ? ' ' + T('bubble.posture', { n: postureOpen() }) : '';
   if (n) return T('bubble.open', { n }) + tips;
-  if (state.round && state.round.failed) return T('bubble.failed') + tips;
+  if (state.round && (state.round.failed || state.round.broken)) return T('bubble.failed') + tips;
   return T('bubble.quiet', { when: fmt.relative(state.round && state.round.last) }) + tips;
 }
 
@@ -514,6 +520,7 @@ function roundHead() {
   const notes = el('div', 'wm-notes');
   if (!state.on_watch) notes.appendChild(el('p', 'callout', T('round.first')));
   if (r.failed) notes.appendChild(el('p', 'callout warn', T('round.failed')));
+  else if (r.broken) notes.appendChild(el('p', 'callout warn', T(r.broken.why === 'stopped' ? 'round.stopped' : 'round.failed')));
   if (r.skipped) notes.appendChild(el('p', 'role', T('round.skipped', { size: fmt.size(r.skipped) })));
   if (state.on_watch && r.docker === false) notes.appendChild(el('p', 'role', T('round.no_docker')));
   if (state.on_watch && r.shares === false) notes.appendChild(el('p', 'role', T('round.no_shares')));
