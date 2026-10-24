@@ -503,8 +503,20 @@ as tagged devices (`tag:uso`) and pair over the node's 100.x address like over a
   RAM (`address-<id>.json`, «saved») and the Night Watchman takes that from= change as the office's own
   (`partnerLookMoved()`, `watchmanPartnerMovedLine()`). The card: `usonet_match` (the partner online elsewhere in the
   network — outside it, or an earlier node of it). The run takes the address from pairs.json (engine 2.72
-  `partner_addr`), so no Apply is needed; Mr. Backupsy's Apply list doesn't count it as a change. Tests: `testPartnerAddress`, `testWatchmanPartner`, ui-clicks
+  `partner_addr`), so no Apply is needed; Mr. Backupsy's Apply list doesn't count it as a change. The restore tickets the same way (2026-10-24): *Start from a
+  partner's copy…* and *Hand … to a new server…* give `myAddress()` and the agent's `partnerAddressChosen()` guard; a
+  BLOCK-N from outside the network is said, the new server's USO address offered (`their_address`, `line_match`); *Paste
+  the ticket* says to join when the holder gave a USO address. Tests: `testPartnerAddress`, `testWatchmanPartner`, ui-clicks
   «pair address».
+* **Several nodes of one name** (2026-10-24, nostromo ↔ StedyUnraid: each leave and join anew left a node behind —
+  the leave logs the node out, but Tailscale keeps the machine listed, expired, until it is removed in its console, and
+  Headscale never expires a tagged one; one old node even stayed «online»): one rule everywhere a peer is matched by
+  name — the add picker, the accept offer (`usonetPeerNamed()`), *Change the address…* and the card — the live node
+  (`usonetNodeRank()`: online, then answered the office's probe lately, then direct, then seen last; `usonetProbe()`
+  pings every online node of a name listed twice, `usonet.sh probe` marks an answer in `RUN_DIR/usonet/probe/<ip>.ok`).
+  The pair's hint (`partnerUsonetMatch()`) never shows while the pair answers at its stored address. The card lists each
+  name once, its earlier nodes (and this server's own) folded and faded with how to remove them in the console; the
+  office never removes one itself (that would need a key to the tailnet's API).
 * **The card while it is busy:** the job's mark (`usonetJob()`: what, start, step, the job's pid — a dead job is seen and
   ends as `job_gone`) gives the page the wave, the step and the time; after `USONET_SLOW_AFTER` the logs' last lines
   (`usonetLogTail()`, scrubbed; a failed join keeps them in join.json since its leave takes the logs). The page's
