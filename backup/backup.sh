@@ -3798,8 +3798,9 @@ partner_interrupted() {
 # --- How many at once (2.73) ----------------------------------------------------
 # One stream over a long or lossy way (a tunnel across the internet: one TCP connection, ssh's own window) moves far
 # less than the link can; datasets sent side by side fill it. But a slow link is full with one: a second only shares
-# it. So the run starts with one, measures the total rate (every transfer's bytes, UB_PARTNER_WINDOW s after
-# UB_PARTNER_WARM s of settling, all of them running the whole time) and adds one more only while that total clearly
+# it. So the run starts with one, measures the total rate (every byte of every transfer to that partner - a unit that
+# ends and the next that starts change nothing - over UB_PARTNER_WINDOW s, after UB_PARTNER_WARM s of settling once
+# their number changed, as many going as it aims at the whole time) and adds one more only while that total clearly
 # rises (more than UB_PARTNER_GAIN %) - up to UB_PARTNER_STREAMS and what the partner's door takes at once (its ping's
 # `streams`; a door before 1.72 says nothing: one). A rise that doesn't come: back to one fewer, and no more tries
 # this run for that partner. So a link that one stream fills stays at one - as before 2.73.
@@ -3808,11 +3809,13 @@ declare -A PARTNER_STREAMS=()   # id -> transfers its door takes at once (its pi
 partner_window_reset() { PT_W_AT=$(( $(date +%s) + UB_PARTNER_WARM )); PT_W_B=-1; }
 # partner_total: every byte of this partner's transfers so far - the finished ones and those going on
 partner_total() { local k t="$PT_SENT"; for k in "${!SL_PID[@]}"; do t=$(( t + ${SL_BYTES[$k]:-0} )); done; printf '%s' "$t"; }
-partner_adapt() { # partner_adapt <id> <units waiting>
+# partner_adapt <id> <units waiting>: right after the transfers were filled up - 0 when the aim stayed, 1 when it rose
+partner_adapt() {
     local id="$1" waiting="$2" now n rate name
     (( PT_SETTLED )) && return 0
     n="$(slots_n)"
-    (( n == PT_TARGET )) || return 0                # not all running (a unit was short): nothing to compare
+    # fewer going than aimed at (the last units, or one settled at once): nothing to compare - anew once they are
+    if (( n < PT_TARGET )); then partner_window_reset; return 0; fi
     now="$(date +%s)"
     (( now >= PT_W_AT )) || return 0
     if (( PT_W_B < 0 )); then PT_W_B="$(partner_total)"; PT_W_T0="$now"; return 0; fi
@@ -3835,10 +3838,12 @@ partner_adapt() { # partner_adapt <id> <units waiting>
     if (( waiting > 0 && PT_TARGET < PT_MAX )); then
         PT_TARGET=$(( PT_TARGET + 1 )); PT_PROBE=1; PT_MANY=1
         log "  $name: $(partner_mbit "$rate" 1) Mbit/s with $n at a time - trying $PT_TARGET at once"
-    elif (( PT_TARGET >= PT_MAX )); then
-        PT_SETTLED=1
+        partner_window_reset
+        return 1
     fi
+    (( PT_TARGET >= PT_MAX )) && PT_SETTLED=1
     partner_window_reset
+    return 0
 }
 
 # partner_units_run <id>: this partner's transfers in the phase's order - one at a time, or several datasets at once
@@ -3870,13 +3875,14 @@ partner_units_run() {
                 slot_clear "$k"
                 [[ "${PARTNER_DOWN[$id]:-}" == "unreachable" ]] && ! partner_done_has "$id|$u" && partner_skip "$id" "$u" unreachable
             fi
-            partner_window_reset
         done
         if [[ -n "${PARTNER_DOWN[$id]:-}" ]]; then
             for q in "${queue[@]}"; do partner_skip "$id" "${q%%|*}" "${PARTNER_DOWN[$id]}"; done
             queue=()
         fi
         (( $(slots_n) )) || break
+        # one more at once? (the start above at once, then)
+        partner_adapt "$id" "${#queue[@]}" || continue
         # until one ends, or the time to look at the array again
         array_stop_check "sending to $name"
         sleep "$UB_ARRAY_LOOK" 9>&- &
@@ -3898,11 +3904,9 @@ partner_units_run() {
             elif [[ "${PARTNER_DOWN[$id]:-}" == "unreachable" ]] && ! partner_done_has "$id|$u" && [[ -z "${SL_PID[$k]:-}" ]]; then
                 partner_skip "$id" "$u" unreachable
             fi
-            partner_window_reset
             partner_rate_share "$id"
         done
         partner_cur_set
-        partner_adapt "$id" "${#queue[@]}"
     done
     partner_cur_set
 }

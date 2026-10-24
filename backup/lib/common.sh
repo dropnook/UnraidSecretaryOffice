@@ -4438,8 +4438,8 @@ UB_PARTNER_SNAP_RE='^uso-backup-[0-9]{8}-[0-9]{4}$'   # the only snapshot names 
 UB_PARTNER_BOOKMARK="uso-partner-"               # <dataset>#uso-partner-<id>: the last snapshot sent to that partner
 # 2.73: several datasets to one partner at once, only while that clearly moves more (backup.sh partner_adapt)
 UB_PARTNER_STREAMS="${UB_PARTNER_STREAMS:-4}"    # at most so many at once (and what the partner's door takes; 1 = one after another)
-UB_PARTNER_WARM="${UB_PARTNER_WARM:-15}"         # seconds after a transfer started or ended before the rate counts
-UB_PARTNER_WINDOW="${UB_PARTNER_WINDOW:-60}"     # seconds the total rate is measured over
+UB_PARTNER_WARM="${UB_PARTNER_WARM:-10}"         # seconds after their number changed before the rate counts
+UB_PARTNER_WINDOW="${UB_PARTNER_WINDOW:-30}"     # seconds the total rate is measured over
 UB_PARTNER_GAIN="${UB_PARTNER_GAIN:-15}"         # percent more the total must move for one more at once to stay
 UB_PARTNER_PV_EVERY="${UB_PARTNER_PV_EVERY:-2}"  # seconds between pv's counts (up to 2.72: 10)
 # the office's USO network (2.71): its node's status in RAM (the helper's), its namespace, how the call gets there
