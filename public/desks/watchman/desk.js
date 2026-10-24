@@ -453,12 +453,16 @@ function incidentRow(x) {
   return r;
 }
 
+/** The last round got no answer from Docker: what he shows of containers is the last round that reached it (W7) */
+const dockerOff = () => !!(state && state.on_watch && state.round && state.round.docker === false);
+
 /** «Keeping an eye on»: the containers, plugins and shares he watches */
 function watchTile(a) {
   const w = state && state.watch;
   const c = w && w.containers;
   const sh = w && w.shares;
-  return Office.stat({ label: T('tile.watch'), value: c ? T('count.containers', { n: Number(c.count) || 0 }) : '–',
+  // Docker not answering: never «8 containers» as if counted now — said instead (truth review W7)
+  return Office.stat({ label: T('tile.watch'), value: dockerOff() ? Office.t('common.docker_off') : c ? T('count.containers', { n: Number(c.count) || 0 }) : '–',
     sub: w ? [T('count.plugins', { n: (w.plugins || []).length }), sh ? T('count.shares', { n: Number(sh.count) || 0 }) : ''].filter(Boolean).join(' · ') : '',
     ...a });
 }
@@ -616,6 +620,7 @@ function postureRow(x) {
   main.appendChild(el('div', 'row-detail', T(`posture.${x.id}.why`, params)));
   // privileged containers that are stopped and start by nothing: not part of the tip, a quiet line in it (inbox #10)
   if (x.id === 'privileged' && params.quiet) main.appendChild(el('div', 'row-detail role', T('posture.privileged.quiet', { quiet: params.quiet, n: Number(params.quiet_n) || 1 })));
+  if (x.id === 'privileged' && dockerOff()) main.appendChild(el('div', 'row-detail role', T('posture.as_last_seen', { docker: Office.t('common.docker_off') })));
   r.appendChild(main);
   const acts = el('div', 'wm-tip-acts');
   const href = x.link && Office.safeHref(x.link.path);
@@ -1831,8 +1836,9 @@ function watchSection() {
         T('watch.last_seen', { when: fmt.relative(x.last) })]))));
   }
   const c = w.containers;
+  const cSum = c ? T('watch.containers_sum', { special: c.special.length, count: c.count, n: Number(c.count) || 0 }) : '';
   gs.push(group('containers', T('watch.containers'),
-    c ? T('watch.containers_sum', { special: c.special.length, count: c.count, n: Number(c.count) || 0 }) : T('watch.containers_wait'),
+    !c ? T('watch.containers_wait') : dockerOff() ? T('watch.containers_last', { docker: Office.t('common.docker_off'), sum: cSum }) : cSum,
     c ? c.special.map((x) => item(x.name, [], flags(x.tokens))) : [], ['Docker']));
   gs.push(group('plugins', T('watch.plugins'), T('watch.plugins_sum', { n: w.plugins.length }),
     w.plugins.map((x) => item(x.name, [x.source || T('watch.no_source'), x.version || '']))));

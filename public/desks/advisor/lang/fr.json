@@ -18,6 +18,10 @@
     "one": "{names} n'est pas encore là. Ci-dessous : à quoi ça sert et comment le faire venir. Docker ne tourne pas, je ne peux donc pas faire venir un conteneur pour toi pour l'instant.",
     "other": "{names} ne sont pas encore là. Ci-dessous : à quoi ils servent et comment les faire venir. Docker ne tourne pas, je ne peux donc pas faire venir un conteneur pour toi pour l'instant."
   },
+  "bubble.unknown_docker_off": {
+    "one": "Docker ne tourne pas, je ne peux donc pas dire si {names} est sur place.",
+    "other": "Docker ne tourne pas, je ne peux donc pas dire si {names} sont sur place."
+  },
   "look_again": "Tournée",
   "looked": "Tournée terminée.",
   "looked_at": "Regardé {when}.",
@@ -72,11 +76,13 @@
   "copy.kopia.target": "⟦Container Path⟧",
   "help.there": "Installé (un conteneur : qui tourne aussi).",
   "help.missing": "Pas installé sur ce serveur.",
+  "help.unknown": "Docker ne tourne pas : on ne verra si ce conteneur est sur le serveur que lorsque Docker tournera de nouveau. D'ici là, je ne propose rien.",
   "help.stopped": "Le conteneur existe mais ne tourne pas — démarre-le sur la page Docker.",
   "help.howto": "Pas à pas, avec ce qu'il faut copier. S'ouvre tout seul tant que quelque chose manque.",
   "help.again": "Regarde à nouveau si les externes sont là (quelques secondes, ne change rien).",
   "fact.there": "{name} : sur place",
   "fact.missing": "{name} : absent",
+  "fact.unknown": "{name} : inconnu — Docker ne tourne pas",
   "fact.stopped": "{name} : ne tourne pas",
   "absent": "absent",
   "help.absent": "Pas installé — et c'est très bien : le secrétariat s'en passe.",
@@ -351,6 +357,7 @@
   "errors.ad_unknown": "Rien que le consultant installe : {id}.",
   "errors.ad_no_template": "Le modèle préparé pour {id} manque dans cette installation.",
   "errors.ad_there": "{name} est déjà sur ce serveur — rien à installer.",
+  "errors.ad_docker_off": "Docker ne tourne pas — je ne vois pas quels conteneurs sont là, et le formulaire d'Unraid ne peut pas en créer. Démarre d'abord Docker sous ⟦Settings⟧ → ⟦Docker⟧.",
   "errors.ad_name_taken": "Un conteneur nommé {name} existe déjà. Unraid le remplacerait avec ⟦Apply⟧ — renomme-le ou supprime-le d'abord.",
   "errors.ad_template_taken": "Il y a déjà un ancien modèle {file}, et le formulaire d'Unraid l'écraserait. Sur ma carte : reprends l'ancien, ou prépare à neuf — alors je le range d'abord.",
   "errors.ad_old_changed": "L'ancien modèle {file} a changé depuis ton coup d'œil — « Tournée » regarde à nouveau.",

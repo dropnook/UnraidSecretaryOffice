@@ -2555,7 +2555,9 @@ function backupChecks(): array
     $level = $kopiaOn ? 'required' : 'recommended';
     // B15: Docker silent - Kopia's container can't be looked at: «couldn't check», never «missing» or «stopped»
     $silent = backupDockerSilent();
-    $containers = $silent ? [] : houseContainers();
+    $known = $silent ? null : houseContainersKnown();
+    $silent = $known === null;          // Docker stopped too (P3): its container can't be looked at — never «missing»
+    $containers = $known ?? [];
     $name = $silent ? (($summary['kopia_container'] ?? '') ?: null) : $summary['kopia_container'];
     if (!$silent && (!$name || !isset($containers[$name]))) {
         $name = null;

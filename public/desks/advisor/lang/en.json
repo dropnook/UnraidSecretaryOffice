@@ -18,6 +18,10 @@
     "one": "{names} isn't here yet. Below: what it's good for and how to get it in. Docker isn't running, so I can't bring in a container for you right now.",
     "other": "{names} aren't here yet. Below: what they're good for and how to get them in. Docker isn't running, so I can't bring in a container for you right now."
   },
+  "bubble.unknown_docker_off": {
+    "one": "Docker isn't running, so I can't tell whether {names} is on site.",
+    "other": "Docker isn't running, so I can't tell whether {names} are on site."
+  },
   "look_again": "Tour",
   "looked": "Tour done.",
   "looked_at": "Looked {when}.",
@@ -72,11 +76,13 @@
   "copy.kopia.target": "⟦Container Path⟧",
   "help.there": "Installed (a container: also running).",
   "help.missing": "Not installed on this server.",
+  "help.unknown": "Docker isn't running: whether this container is on this server can't be seen until it runs again. Nothing is offered meanwhile.",
   "help.stopped": "The container exists but isn't running — start it on the Docker page.",
   "help.howto": "Step by step, with what to copy. Open by itself while something is missing.",
   "help.again": "Looks again whether the externals are there (seconds, changes nothing).",
   "fact.there": "{name}: on site",
   "fact.missing": "{name}: not here",
+  "fact.unknown": "{name}: unknown — Docker isn't running",
   "fact.stopped": "{name}: not running",
   "absent": "not here",
   "help.absent": "Not installed — and that's fine: the office works without it.",
@@ -351,6 +357,7 @@
   "errors.ad_unknown": "Nothing the consultant installs: {id}.",
   "errors.ad_no_template": "The prepared template for {id} is missing from this installation.",
   "errors.ad_there": "{name} is on this server already — nothing to install.",
+  "errors.ad_docker_off": "Docker isn't running — I can't see which containers are there, and Unraid's form can't make one. Start Docker under ⟦Settings⟧ → ⟦Docker⟧ first.",
   "errors.ad_name_taken": "A container named {name} exists already. Unraid would replace it on ⟦Apply⟧ — rename or remove it first.",
   "errors.ad_template_taken": "There is an old template {file} already, and Unraid's form would write over it. On my card: use the old one, or prepare anew — then I put it away first.",
   "errors.ad_old_changed": "The old template {file} has changed since your look — «Tour» looks again.",

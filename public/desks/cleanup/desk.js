@@ -2685,10 +2685,18 @@ function pick(id, search) {
   Office.reveal(headOf(id));
 }
 
+/** «I know every corner: …» — Docker not answering: its containers can't be counted, said instead of «0 containers» (O8) */
+function whereSummary() {
+  const dk = state.system && state.system.docker;
+  const containers = dk && dk.up === false ? Office.t('common.docker_off') : dk && dk.silent ? Office.t('common.docker_silent')
+    : nOf('containers', state.containers.length);
+  return T('where.bubble.summary', { shares: nOf('shares', state.shares.length), containers, scripts: nOf('user_scripts', state.scripts.length) });
+}
+
 /** Her part of the bubble: every corner she knows (summary), what she noticed (links) and her advice (more) — null before her first look */
 function bubble() {
   if (!state) return null;
-  const summary = T('where.bubble.summary', { shares: nOf('shares', state.shares.length), containers: nOf('containers', state.containers.length), scripts: nOf('user_scripts', state.scripts.length) });
+  const summary = whereSummary();
   const f = findings();
   const hidden = adviceHidden();
   const tips = advice().filter((x) => hidden[x.id] !== x.sig).length;
@@ -2719,11 +2727,11 @@ function reception() {
   const facts = [
     sys.docker.up === false ? Office.t('common.docker_off') : sys.docker.silent ? Office.t('common.docker_silent')
       : T('where.fact.docker', { running: sys.docker.running, total: sys.docker.total }),
-    sys.vms.total ? T('where.fact.vms', { running: sys.vms.running, total: sys.vms.total }) : T('where.fact.vms_none'),
+    sys.vms.total ? T('where.fact.vms', { running: sys.vms.running, total: sys.vms.total }) : sys.vms.up === false ? T('tile.vm_off') : T('where.fact.vms_none'),
     T('where.fact.smb', { n: state.smb.sessions.length }),
   ];
   if (sys.scripts.length) facts.push(T('where.fact.scripts_running', { n: sys.scripts.length, names: sys.scripts.join(', ') }));
-  const summary = T('where.bubble.summary', { shares: nOf('shares', state.shares.length), containers: nOf('containers', state.containers.length), scripts: nOf('user_scripts', state.scripts.length) });
+  const summary = whereSummary();
   return { summary, findings: findings().length, facts };
 }
 
@@ -2839,7 +2847,7 @@ function tileFace(id) {
       return face(`${sys.docker.running} / ${sys.docker.total}`, T('where.tile.docker_sub', { stacks: nOf('stacks', s.compose.length) }), { alert: stopped > 0 });
     }
     case 'vms':
-      return face(sys.vms.total ? `${sys.vms.running} / ${sys.vms.total}` : '–', sys.vms.total ? T('where.stat.running') : T('where.fact.vms_none'));
+      return face(sys.vms.total ? `${sys.vms.running} / ${sys.vms.total}` : '–', sys.vms.total ? T('where.stat.running') : sys.vms.up === false ? T('tile.vm_off') : T('where.fact.vms_none'));
     case 'disks': {
       const array = sys.array;
       const more = array.resync ? T('where.stat.resync', { action: array.resync.action, percent: array.resync.percent }) : sys.mover ? T('where.stat.mover') : T('where.stat.no_parity');
@@ -3104,7 +3112,8 @@ function sectionSummary(id) {
       const stopped = s.containers.filter((c) => c.autostart && c.state !== 'running').length;
       return { sub: T('where.sum.docker', { run: n(run), total: n(s.containers.length), stacks: nOf('stacks', s.compose.length) }), alert: stopped > 0 };
     }
-    case 'vms': return { sub: s.vms.length ? T('where.sum.vms', { run: n(s.vms.filter((v) => v.running).length), total: n(s.vms.length) }) : T('where.fact.vms_none') };
+    case 'vms': return { sub: s.vms.length ? T('where.sum.vms', { run: n(s.vms.filter((v) => v.running).length), total: n(s.vms.length) })
+      : s.system.vms.up === false ? T('tile.vm_off') : T('where.fact.vms_none') };
     case 'disks': {
       const h = s.health;
       if (!h) return { sub: '' };

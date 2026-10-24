@@ -18,6 +18,10 @@
     "one": "{names} ist noch nicht im Haus. Unten steht, wofür das gut ist und wie du es holst. Docker läuft nicht — einen Container kann ich dir gerade nicht holen.",
     "other": "{names} sind noch nicht im Haus. Unten steht, wofür sie gut sind und wie du sie holst. Docker läuft nicht — einen Container kann ich dir gerade nicht holen."
   },
+  "bubble.unknown_docker_off": {
+    "one": "Docker läuft nicht, darum kann ich nicht sagen, ob {names} im Haus ist.",
+    "other": "Docker läuft nicht, darum kann ich nicht sagen, ob {names} im Haus sind."
+  },
   "look_again": "Rundgang",
   "looked": "Rundgang fertig.",
   "looked_at": "Geschaut {when}.",
@@ -72,11 +76,13 @@
   "copy.kopia.target": "⟦Container Path⟧",
   "help.there": "Installiert (ein Container: läuft auch).",
   "help.missing": "Auf diesem Server nicht installiert.",
+  "help.unknown": "Docker läuft nicht: Ob dieser Container auf dem Server ist, sieht man erst wieder, wenn Docker läuft. Bis dahin biete ich nichts an.",
   "help.stopped": "Der Container ist da, läuft aber nicht — starte ihn auf der Docker-Seite.",
   "help.howto": "Schritt für Schritt, mit allem, was du kopieren musst. Klappt von selbst auf, solange etwas fehlt.",
   "help.again": "Schaut nochmals, ob die Externen da sind (Sekunden, ändert nichts).",
   "fact.there": "{name}: im Haus",
   "fact.missing": "{name}: fehlt",
+  "fact.unknown": "{name}: unbekannt — Docker läuft nicht",
   "fact.stopped": "{name}: läuft nicht",
   "absent": "nicht im Haus",
   "help.absent": "Nicht installiert — und das ist in Ordnung: Das Sekretariat kommt auch ohne aus.",
@@ -351,6 +357,7 @@
   "errors.ad_unknown": "Nichts, was der Berater installiert: {id}.",
   "errors.ad_no_template": "Das vorbereitete Template für {id} fehlt in dieser Installation.",
   "errors.ad_there": "{name} ist schon auf diesem Server — nichts zu installieren.",
+  "errors.ad_docker_off": "Docker läuft nicht — ich sehe nicht, welche Container da sind, und Unraids Formular kann keinen anlegen. Starte Docker zuerst unter ⟦Settings⟧ → ⟦Docker⟧.",
   "errors.ad_name_taken": "Es gibt schon einen Container namens {name}. Unraid würde ihn bei «⟦Apply⟧» ersetzen — benenn ihn zuerst um oder entfern ihn.",
   "errors.ad_template_taken": "Es gibt schon ein altes Template {file}, und Unraids Formular würde es überschreiben. Auf meiner Karte: das alte nehmen, oder neu vorbereiten — dann räume ich es zuerst weg.",
   "errors.ad_old_changed": "Das alte Template {file} hat sich seit deinem Blick geändert — «Rundgang» schaut noch einmal nach.",

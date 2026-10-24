@@ -19929,7 +19929,7 @@ function testAdvisor(): void
     // his scan reads the plugin and container lists fresh (2026-10-11: his fresh look right after a plugin job answered
     // «missing» from a list another caller had cached seconds before the plugin manager registered the plugin)
     $src = (string) file_get_contents(__DIR__ . '/../agent/desks/advisor.php');
-    check('advisor: the scan never takes the cached plugin or container list', str_contains($src, '$plugins = housePlugins(true);') && str_contains($src, '$containers = houseContainers(true);'));
+    check('advisor: the scan never takes the cached plugin or container list', str_contains($src, '$plugins = housePlugins(true);') && str_contains($src, '$known = houseContainersKnown(true);'));
     $house = (string) file_get_contents(__DIR__ . '/../agent/lib/house.php');
     check('house: housePlugins() and houseContainers() take $fresh', str_contains($house, 'function housePlugins(bool $fresh = false)') && str_contains($house, 'function houseContainers(bool $fresh = false)') && substr_count($house, 'if (!$fresh && $cache !== null && time() >= $at && time() - $at < HOUSE_CACHE)') === 2);
     foreach (['quay.io/prometheus/node-exporter:latest-distroless' => 'node-exporter', 'prom/prometheus' => 'prometheus',
@@ -20168,6 +20168,20 @@ function testAdvisorInstall(): void
         same('advisor prepare: refused over a template', 'ad_template_taken', $p->key);
     }
     same('advisor prepare: nothing prepared then', false, is_dir("$tmp/prepared"));
+    // Docker isn't running (T11): every container offer refuses first — «Prepare anew» never puts the user's template away
+    $off = ['docker_up' => false] + $env;
+    same('advisor refuses: Docker isn\'t running — before anything else', ['ad_docker_off', 'ad_docker_off'],
+        [advisorInstallRefusal('kopia', 'kopia', $off)['key'] ?? null, advisorInstallRefusal('grafana', 'Grafana', ['ip' => null] + $off, false, true)['key'] ?? null]);
+    foreach ([['prepare anew', fn () => advisorInstallPrepare('kopia', ['away' => 'my-Kopia.xml'], $off)], ['use the old one', fn () => advisorInstallOld('kopia', $off)]] as [$what, $call]) {
+        try {
+            $call();
+            check("advisor $what with Docker off: refused", false);
+        } catch (Problem $p) {
+            same("advisor $what with Docker off: refused, the old template where it was, nothing prepared", ['ad_docker_off', true, false],
+                [$p->key, is_file("$tmp/tu/my-Kopia.xml"), is_dir("$tmp/prepared")]);
+        }
+    }
+    same('advisor env: an older caller\'s env without docker_up — as before', 'ad_template_taken', advisorInstallRefusal('kopia', 'kopia', $env)['key'] ?? null);
 
     // Prometheus: its yml only where none is, the form's address
     $r = advisorInstallPrepare('prometheus', [], $env);
@@ -21241,6 +21255,67 @@ function testHouseDockerSilent(): void
     putenv("PATH=$path");
     unset($GLOBALS['houseDockerSilent']);
     houseContainers(true);          // the cache as the other tests find it: whatever this server's docker says
+    hardeningRm($tmp);
+}
+
+/**
+ * Truth review P3: «Docker isn't running» is never read as «none». houseContainersKnown() is null when `docker ps` didn't
+ * answer (houseContainers() stays the empty list for older callers); every desk that would say «gone», «missing», «no media
+ * server», «0 containers» or «not here» asks it and says `common.docker_off` instead (T11 T12 T36 W7 O8), and Mr. Restori's
+ * database plans block with «Docker isn't running» instead of «restore its template first». A docker stand-in on PATH.
+ */
+function testDockerOffSaid(): void
+{
+    $tmp = hardeningTmp('dockeroff');
+    $path = getenv('PATH');
+    file_put_contents("$tmp/docker", "#!/bin/sh\nif [ -f " . escapeshellarg("$tmp/off") . " ]; then echo 'Cannot connect to the Docker daemon' >&2; exit 1; fi\n"
+        . "[ -f " . escapeshellarg("$tmp/none") . " ] && exit 0\n"
+        . "case \"\$1 \$4\" in *Image*) printf 'EmbyServer\\temby/embyserver\\trunning\\nkopia\\tkopia/kopia\\texited\\n' ;;\n"
+        . "  ps*) printf 'EmbyServer\\trunning\\nkopia\\texited\\n' ;; *) echo 27.0 ;; esac\n");
+    chmod("$tmp/docker", 0755);
+    putenv("PATH=$tmp:$path");
+    unset($GLOBALS['houseDockerSilent']);
+    $two = houseContainersKnown(true);
+    same('docker off: Docker answers — the containers, state up', [['EmbyServer', 'kopia'], true, false, 'up'],
+        [array_keys($two ?? []), $two['EmbyServer']['running'] ?? null, $two['kopia']['running'] ?? null, houseDockerState()]);
+    same('docker off: … Mr. Restori\'s look the same', ['EmbyServer' => true, 'kopia' => false], rsContainersNow());
+    touch("$tmp/none");
+    same('docker off: no containers at all — an empty list, not «unknown»', [[], [], 'up'], [houseContainersKnown(true), houseContainers(true), houseDockerState()]);
+    unlink("$tmp/none");
+    touch("$tmp/off");
+    same('docker off: Docker stopped — unknown (null), the old reader still an empty list, state off, cached as unknown',
+        [null, [], 'off', null], [houseContainersKnown(true), houseContainers(true), houseDockerState(), houseContainersKnown()]);
+    same('docker off: Mr. Restori\'s look — null, never «every container missing»', null, rsContainersNow());
+    same('docker off: houseDockerSilent() untouched (a stopped Docker answers at once: off, not silent)', false, houseDockerSilent());
+    unlink("$tmp/off");
+    putenv("PATH=$path");
+    unset($GLOBALS['houseDockerSilent']);
+    houseContainers(true);          // the cache as the other tests find it
+
+    // every desk that would say «none» asks for «unknown» and says so (the agent and the page, read from the source)
+    $src = fn (string $f) => (string) file_get_contents(OFFICE_DIR . "/$f");
+    $restore = $src('agent/desks/restore.php');
+    check('docker off: Restori — a container «unknown», an app neither present nor gone (null), the state says Docker\'s',
+        str_contains($restore, "\$c['now'] = \$known === null ? 'unknown'") && str_contains($restore, "\$a['present'] = \$known === null ? null")
+        && str_contains($restore, "\$state['docker'] = houseDockerState();"));
+    same('docker off: Restori — the database, SQLite and put-back plans block with restore_docker_off', 3, substr_count($restore, "'key' => 'restore_docker_off'"));
+    check('docker off: Restori\'s drill — «Docker isn\'t running», never «its image isn\'t on this server»', str_contains($src('agent/desks/restore-drill.php'), "'code' => 'docker_off'"));
+    $rjs = $src('public/desks/restore/desk.js');
+    check('docker off: Restori\'s page — «gone» only for present === false, the bubble says Docker\'s state',
+        !preg_match('/!\s*a\.present|!r\.g\.app\.present/', $rjs) && str_contains($rjs, "T('bubble.docker_unknown'"));
+    check('docker off: Jack Streamer — his state says Docker\'s, his page never «no media server» when set up or with Docker off',
+        str_contains($src('agent/desks/jack.php'), "'docker'     => houseDockerState(),")
+        && str_contains($src('public/desks/jack/desk.js'), "if (!state.emby.length && !state.configured) return")
+        && str_contains($src('public/desks/jack/desk.js'), "if (dockerDown()) return"));
+    check('docker off: the Consultant — a container «unknown», never «missing» or «not here»; his offers refuse (ad_docker_off)',
+        str_contains($src('agent/desks/advisor.php'), "+ (\$known === null ? ['unknown' => true] : [])")
+        && str_contains($src('public/desks/advisor/desk.js'), "const missing = () => externals().filter(([, x]) => !x.there && !x.optional && !unknown(x));"));
+    check('docker off: the Night Watchman — never «8 containers» as if counted now', str_contains($src('public/desks/watchman/desk.js'), "value: dockerOff() ? Office.t('common.docker_off')"));
+    check('docker off: «Where is what» — never «0 containers», never «No VMs» with the VM service off',
+        str_contains($src('public/desks/cleanup/desk.js'), "dk && dk.up === false ? Office.t('common.docker_off')")
+        && substr_count($src('public/desks/cleanup/desk.js'), "vms.up === false ? T('tile.vm_off')") === 3);
+    check('docker off: Mr. Backupsy\'s Kopia check — Docker stopped is «couldn\'t check», never «missing»',
+        str_contains($src('agent/desks/backup.php'), '$silent = $known === null;'));
     hardeningRm($tmp);
 }
 
@@ -52150,7 +52225,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
-          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],
+          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerOffSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.
