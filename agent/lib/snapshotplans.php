@@ -126,12 +126,52 @@ function snapPlanTargetLabel(string $target): string
  * Writes the plans — the file's entries that are no plan of the office's (snapPlanNormal()) kept as they were, after
  * them, and keys beside the list too: a tolerant writer never drops what it doesn't understand (CLAUDE.md «Updates»)
  */
-function snapPlanSaveAll(array $plans): void
+function snapPlanSaveAll(array $plans, ?string $retire = null): void
 {
     $file = readJson(snapPlanFile()) ?? [];
     $odd = array_values(array_filter(snapPlansRaw(), fn ($raw) => snapPlanNormal($raw) === null));
     $file['plans'] = array_merge(array_values($plans), $odd);
+    if ($retire !== null) {
+        $file['retired'] = array_values(array_unique(array_merge(is_array($file['retired'] ?? null) ? $file['retired'] : [], [$retire]), SORT_REGULAR));
+    }
     writeAtomic(snapPlanFile(), jsonEncode($file));
+}
+
+/** The ids of deleted plans (never given again): only strings of a plan id's shape */
+function snapPlanRetired(): array
+{
+    $list = (readJson(snapPlanFile()) ?? [])['retired'] ?? [];
+    return is_array($list) ? array_values(array_filter($list, fn ($id) => is_string($id) && preg_match(SNAPPLAN_ID, $id))) : [];
+}
+
+/**
+ * A new plan's id: the slug of its label, «-2», «-3» … while a plan holds it, a deleted plan held it, or snapshots
+ * of that name still exist (a plan deleted by an older office, on a pool that was awake for the scan) — a new
+ * plan never adopts, shows as its own or thins an old plan's snapshots (T03)
+ *
+ * @param list<string> $names  the snapshots' names as the last scan saw them
+ */
+function snapPlanNewId(string $label, array $taken, array $retired, array $names): string
+{
+    $base = trim(preg_replace('/[^a-z0-9]+/', '-', strtolower(strtr($label, ['ä' => 'ae', 'ö' => 'oe', 'ü' => 'ue', 'Ä' => 'ae', 'Ö' => 'oe', 'Ü' => 'ue', 'ß' => 'ss']))), '-');
+    $base = substr($base !== '' ? $base : 'plan', 0, 20);
+    $used = function (string $id) use ($taken, $retired, $names): bool {
+        if (in_array($id, $taken, true) || in_array($id, $retired, true)) {
+            return true;
+        }
+        $pattern = snapPlanPattern($id);
+        foreach ($names as $name) {
+            if (is_string($name) && preg_match($pattern, $name)) {
+                return true;
+            }
+        }
+        return false;
+    };
+    $id = $base;
+    for ($n = 2; $used($id); $n++) {
+        $id = "$base-$n";
+    }
+    return $id;
 }
 
 /** The name a plan gives its snapshots, and the pattern that finds exactly those again (also the older auto-<plan>-…) */
@@ -143,6 +183,23 @@ function snapPlanName(string $id, int $time): string
 function snapPlanPattern(string $id): string
 {
     return '/^(?:uso-plan|auto)-' . preg_quote($id, '/') . '-\d{8}-\d{4}$/D';
+}
+
+/**
+ * A snapshot is the plan's: its name, and not older than the plan (`born`, set on new plans since T03) — one of the same
+ * name from before it (a plan deleted by an older office, on a pool asleep when the id was chosen) is never counted,
+ * shown or thinned as its own (T03)
+ */
+function snapPlanOwns(array $plan, string $name): bool
+{
+    if (!preg_match(snapPlanPattern((string) $plan['id']), $name)) {
+        return false;
+    }
+    if (!is_int($plan['born'] ?? null)) {
+        return true;
+    }
+    $when = DateTime::createFromFormat('!Ymd-Hi', substr($name, -13));
+    return $when === false || $when->getTimestamp() >= intdiv($plan['born'], 60) * 60;
 }
 
 // ===================================================================== cron
@@ -227,11 +284,10 @@ function snapPlansPublic(?array $scan): array
     $runner = officeJobSchedule('snapshots');
     $out = [];
     foreach (snapPlans() as $p) {
-        $pattern = snapPlanPattern($p['id']);
         $count = 0;
         $bytes = 0;
         foreach ($all as $s) {
-            if (empty($s['docker']) && preg_match($pattern, (string) $s['name'])) {
+            if (empty($s['docker']) && snapPlanOwns($p, (string) $s['name'])) {
                 $count++;
                 $bytes += (int) ($s['used'] ?? 0);
             }
@@ -248,7 +304,7 @@ function snapPlansPublic(?array $scan): array
             'gone'     => snapPlanGoneOf($st),
             'count'    => $count,
             'bytes'    => $bytes,
-        ];
+        ] + (is_int($p['born'] ?? null) ? ['born_stamp' => date('Ymd-Hi', $p['born'])] : []);    // the page's planOf(): the names' clock
     }
     return ['plans' => $out, 'runner' => $runner];
 }
@@ -267,17 +323,12 @@ function snapPlanSave(mixed $in): array
     }
     $id = optText($in, 'id');                      // '' or none: a new plan; anything but a string refused, never «new»
     $isNew = $id === '';
+    $state = snapshotScan(false);
     if ($isNew) {
-        $base = trim(preg_replace('/[^a-z0-9]+/', '-', strtolower(strtr($label, ['ä' => 'ae', 'ö' => 'oe', 'ü' => 'ue', 'Ä' => 'ae', 'Ö' => 'oe', 'Ü' => 'ue', 'ß' => 'ss']))), '-');
-        $base = substr($base !== '' ? $base : 'plan', 0, 20);
-        $taken = array_column($plans, 'id');
-        $id = $base;
-        for ($n = 2; in_array($id, $taken, true); $n++) {
-            $id = "$base-$n";
-        }
         if (count($plans) >= SNAPPLAN_MAX) {
             throw new Problem('plan_too_many', ['max' => SNAPPLAN_MAX]);
         }
+        $id = snapPlanNewId($label, array_column($plans, 'id'), snapPlanRetired(), array_column(snapshotAll($state), 'name'));
     } elseif (!in_array($id, array_column($plans, 'id'), true)) {
         throw new Problem('plan_unknown', ['id' => $id]);
     }
@@ -289,7 +340,6 @@ function snapPlanSave(mixed $in): array
     if (!cronValid($cron)) {
         throw new Problem('bad_cron', ['cron' => $cron]);
     }
-    $state = snapshotScan(false);
     $known = [];
     foreach ($state['zfs']['volumes'] as $v) {
         if (snapshotPartnerLocked($v) && in_array($v['id'], (array) ($in['targets'] ?? []), true)) {
@@ -332,6 +382,9 @@ function snapPlanSave(mixed $in): array
         'enabled'     => array_key_exists('enabled', $in) ? $in['enabled'] : ($old['enabled'] ?? true),
         'since'       => ($old['since'] ?? 0) ?: time(),
     ];
+    if ($isNew) {
+        $plan['born'] = time();           // its retention never reaches back before it (snapPlanDoomed())
+    }
     $plan += $old;                        // keys a newer office wrote into the plan: kept (snapPlans())
     $plans = array_values(array_filter($plans, fn ($p) => $p['id'] !== $id));
     $plans[] = $plan;
@@ -409,7 +462,11 @@ function snapPlanToggle(string $id, bool $on): array
     return ['ok' => true, 'state' => snapshotScan(false)];
 }
 
-/** Removes the plan; its snapshots stay (they are ordinary snapshots now) */
+/**
+ * Removes the plan; its snapshots stay (they are ordinary snapshots now). Its id is retired for good (the file's
+ * `retired`, beside the list): a new plan of the same name gets another id, so its retention never takes these
+ * (truth review T03 — «its snapshots stay» was true only until a plan of the same name ran).
+ */
 function snapPlanDelete(string $id): array
 {
     $plans = snapPlans();
@@ -417,7 +474,7 @@ function snapPlanDelete(string $id): array
     if (count($left) === count($plans)) {
         throw new Problem('plan_unknown', ['id' => $id]);
     }
-    snapPlanSaveAll($left);
+    snapPlanSaveAll($left, $id);
     $states = snapPlanStates();
     unset($states[$id]);
     writeAtomic(snapPlanStateFile(), jsonEncode($states));
@@ -647,7 +704,6 @@ function snapPlanNotifyFailures(string $label, array $failures, string $lang): b
  */
 function snapPlanDoomed(array $plan, array $take, array $all, int $now, ?array $enginePrefixes = null): array
 {
-    $pattern = snapPlanPattern($plan['id']);
     // what is (or was) the backup engine's is never a plan's, whatever it looks like
     $engine = array_values(array_unique(array_merge($enginePrefixes ?? backupEngineSnapPrefixes(), backupSnapPrefixes(null))));
     $volumes = [];
@@ -662,7 +718,7 @@ function snapPlanDoomed(array $plan, array $take, array $all, int $now, ?array $
     }
     $groups = [];
     foreach ($all as $s) {
-        if (!empty($s['docker']) || ($s['fs'] ?? '') === 'vm' || !preg_match($pattern, (string) $s['name'])
+        if (!empty($s['docker']) || ($s['fs'] ?? '') === 'vm' || !snapPlanOwns($plan, (string) $s['name'])
             || backupIsEngineSnap((string) $s['name'], $engine, (string) ($s['fs'] ?? 'zfs')) || !empty($s['partner'])) {
             continue;                       // the engine's, a partner's copies (the door's retention keeps those): never a plan's
         }

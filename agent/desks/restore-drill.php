@@ -1445,6 +1445,10 @@ function drillDumpCheck(array $s, array &$env, int $isize, int $bytes, array $ou
         return ['state' => 'not_checked', 'code' => 'image_unknown'] + $out;
     }
     [$exit] = run(drillCmd(['docker', 'image', 'inspect', '--format', '{{.Id}}', $c['image_id']]), 30);
+    if ($exit !== 0 && run(drillCmd(['docker', 'version', '--format', '{{.Server.Version}}']), 15)[0] !== 0) {
+        // Docker isn't running: the image may well be there — said as such, never «not on this server» (T12)
+        return ['state' => 'not_checked', 'code' => 'docker_off', 'params' => ['container' => $s['container']]] + $out;
+    }
     if ($exit !== 0) {
         return ['state' => 'not_checked', 'code' => 'image_missing', 'params' => ['container' => $s['container'], 'image' => $c['image']]] + $out;
     }

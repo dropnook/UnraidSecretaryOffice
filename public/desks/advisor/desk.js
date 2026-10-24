@@ -120,19 +120,27 @@ function took(j) {
 }
 
 const externals = () => Object.entries((state && state.externals) || {}).filter(([id]) => EXTERNALS[id]);
-const missing = () => externals().filter(([, x]) => !x.there && !x.optional);
+/** A container he couldn't look for (Docker didn't answer, T11): neither there nor missing — «Docker isn't running» */
+const unknown = (x) => !x.there && x.unknown === true;
+const missing = () => externals().filter(([, x]) => !x.there && !x.optional && !unknown(x));
+const unknowns = () => externals().filter(([, x]) => unknown(x) && !x.later);
 const names = (list) => list.map(([id]) => T(`ext.${id}.name`)).join(', ');
 const group = (g) => externals().filter(([, x]) => (x.group || null) === g);
 const begun = (g) => group(g).some(([, x]) => x.there && !x.later);
 /** Monitoring begun but not complete: what is still missing (Loki, for later, doesn't count) */
-const gaps = () => (begun('monitoring') ? group('monitoring').filter(([, x]) => !x.there && !x.later) : []);
+const gaps = () => (begun('monitoring') ? group('monitoring').filter(([, x]) => !x.there && !x.later && !unknown(x)) : []);
 const hired = () => !!(Office.desks.has(ID) && Office.desks.get(ID).hired);
 
 function bubbleText() {
   if (!state) return T('bubble.loading');
   const m = missing();
-  // Docker off: he can't bring in a container, so no «I do it for you» (an older state without the flag: as before)
-  if (m.length) return T(state.docker === false ? 'bubble.missing_docker_off' : 'bubble.missing', { names: names(m), n: m.length });
+  const u = unknowns();
+  // Docker off: he can't bring in a container, so no «I do it for you» (an older state without the flag: as before);
+  // the containers he couldn't look for are said as such, never «all on site» or «not here» (T11)
+  const off = u.length ? T('bubble.unknown_docker_off', { names: names(u), n: u.length }) : '';
+  // what is missing then are plugins, which he can bring in with Docker off too: the plain words, the Docker sentence once
+  if (m.length) return [T(state.docker === false && !u.length ? 'bubble.missing_docker_off' : 'bubble.missing', { names: names(m), n: m.length }), off].filter(Boolean).join(' ');
+  if (off) return off;
   const g = gaps();
   return g.length ? T('bubble.monitoring', { names: names(g), n: g.length }) : T('bubble.all_there');
 }
@@ -237,7 +245,11 @@ function external(id, x) {
   main.appendChild(el('div', 'row-name text', T(`ext.${id}.name`)));
   const meta = el('div', 'row-meta');
   if (!x.there && x.later) meta.appendChild(el('span', 'chip quiet', T('later')));
-  else if (!x.there && x.optional) meta.appendChild(el('span', 'chip quiet', T('absent')));
+  else if (unknown(x)) {
+    const chip = el('span', 'chip quiet', Office.t('common.docker_off'));
+    chip.title = T('help.unknown');
+    meta.appendChild(chip);
+  } else if (!x.there && x.optional) meta.appendChild(el('span', 'chip quiet', T('absent')));
   else if (!x.there) meta.appendChild(el('span', 'chip danger', T('missing')));
   else if (x.kind === 'container' && !x.running) meta.appendChild(el('span', 'chip warn', T('stopped')));
   else meta.appendChild(el('span', 'chip ok', T('there')));
@@ -392,7 +404,7 @@ const told = new Set();       // the router guides whose opening was told (netwo
  * not set up for the office yet — never what is for later
  */
 function startsOpen(x) {
-  if (x.later) return false;
+  if (x.later || unknown(x)) return false;
   if (!x.there && !x.optional) return true;
   const stopped = x.there && x.kind === 'container' && !x.running;
   return !!x.group && begun(x.group) && (!x.there || stopped || x.textfile === false);
@@ -1391,7 +1403,7 @@ Office.desk({
     if (!state) await load(false);
     if (!state) return null;
     const facts = externals().filter(([, x]) => x.there || !x.optional)
-      .map(([id, x]) => T(x.there ? (x.kind === 'container' && !x.running ? 'fact.stopped' : 'fact.there') : 'fact.missing',
+      .map(([id, x]) => T(x.there ? (x.kind === 'container' && !x.running ? 'fact.stopped' : 'fact.there') : unknown(x) ? 'fact.unknown' : 'fact.missing',
         { name: T(`ext.${id}.name`) }));
     return { bubble: bubbleText(), facts };
   },
@@ -1422,7 +1434,7 @@ Office.places(ID, [
 // what his state holds for the search (core.js «items»): each external as he finds it now — there, missing, stopped …
 // (its box is the guide's place: the search shows one of the two, whichever the words meet better)
 const statusOf = (x) => (x.group === 'network' ? (x.kind === 'setting' ? T(x.there ? 'net.syslog.on' : 'net.syslog.off') : T('net.chip.guide'))
-  : !x.there && x.later ? T('later') : !x.there && x.optional ? T('absent') : !x.there ? T('missing')
+  : !x.there && x.later ? T('later') : unknown(x) ? Office.t('common.docker_off') : !x.there && x.optional ? T('absent') : !x.there ? T('missing')
   : x.kind === 'container' && !x.running ? T('stopped') : T('there'));
 Office.placesFrom(ID, (s) => Object.entries(s.externals || {}).filter(([id, x]) => EXTERNALS[id] && x && typeof x === 'object')
   .map(([id, x]) => ({ text: T(`ext.${id}.name`), sub: `${T(['monitoring', 'network'].includes(x.group) ? x.group : 'externals')} · ${statusOf(x)}`,

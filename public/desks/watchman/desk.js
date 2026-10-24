@@ -37,6 +37,7 @@ let state = null;
 let view = null;
 let timer = null;
 let before = null;              // entry ids before a round this page asked for: say how many came
+let beforeLast = null;          // … and when the last round ended then: «done» only for a round that ended after it
 let shown = PAGE;
 // the book's filter bar (core.js Office.filterBar, built once): its words are never kept (a new visit starts with the
 // whole book; «only open» is the tile «Not noted yet»), its area select is a choice, kept in this browser
@@ -89,8 +90,11 @@ function follow() {
   }
   if (before) {
     const n = (state.book || []).filter((e) => !before.has(e.id)).length;
+    const r = state.round || {};
+    // «done» only when a round really ended after the click: one stopped or crashed wrote none (truth review T29)
+    const ended = r.last && r.last !== beforeLast;
     before = null;
-    if (state.round && state.round.failed) Office.toast(T('round_failed'), true);
+    if (r.failed || r.broken || !ended) Office.toast(T(r.broken && r.broken.why === 'stopped' ? 'round_stopped' : 'round_failed'), true);
     else Office.toast(n ? T('round_done_new', { n }) : T('round_done'));
   }
 }
@@ -98,9 +102,11 @@ function follow() {
 async function roundNow() {
   if (running() || !Office.agent.running || !hired()) return;
   const ids = new Set(((state && state.book) || []).map((e) => e.id));
+  const last = (state && state.round && state.round.last) || null;
   const j = await Office.api.post(`${ID}.round`, {});
   if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return; }
   before = ids;
+  beforeLast = last;
   if (j.state) state = j.state;
   if (view) Office.keepInPlace(null, render);
   follow();
@@ -273,7 +279,7 @@ function bubbleText() {
   const n = openCount();
   const tips = postureOpen() ? ' ' + T('bubble.posture', { n: postureOpen() }) : '';
   if (n) return T('bubble.open', { n }) + tips;
-  if (state.round && state.round.failed) return T('bubble.failed') + tips;
+  if (state.round && (state.round.failed || state.round.broken)) return T('bubble.failed') + tips;
   return T('bubble.quiet', { when: fmt.relative(state.round && state.round.last) }) + tips;
 }
 
@@ -453,12 +459,16 @@ function incidentRow(x) {
   return r;
 }
 
+/** The last round got no answer from Docker: what he shows of containers is the last round that reached it (W7) */
+const dockerOff = () => !!(state && state.on_watch && state.round && state.round.docker === false);
+
 /** «Keeping an eye on»: the containers, plugins and shares he watches */
 function watchTile(a) {
   const w = state && state.watch;
   const c = w && w.containers;
   const sh = w && w.shares;
-  return Office.stat({ label: T('tile.watch'), value: c ? T('count.containers', { n: Number(c.count) || 0 }) : '–',
+  // Docker not answering: never «8 containers» as if counted now — said instead (truth review W7)
+  return Office.stat({ label: T('tile.watch'), value: dockerOff() ? Office.t('common.docker_off') : c ? T('count.containers', { n: Number(c.count) || 0 }) : '–',
     sub: w ? [T('count.plugins', { n: (w.plugins || []).length }), sh ? T('count.shares', { n: Number(sh.count) || 0 }) : ''].filter(Boolean).join(' · ') : '',
     ...a });
 }
@@ -510,6 +520,7 @@ function roundHead() {
   const notes = el('div', 'wm-notes');
   if (!state.on_watch) notes.appendChild(el('p', 'callout', T('round.first')));
   if (r.failed) notes.appendChild(el('p', 'callout warn', T('round.failed')));
+  else if (r.broken) notes.appendChild(el('p', 'callout warn', T(r.broken.why === 'stopped' ? 'round.stopped' : 'round.failed')));
   if (r.skipped) notes.appendChild(el('p', 'role', T('round.skipped', { size: fmt.size(r.skipped) })));
   if (state.on_watch && r.docker === false) notes.appendChild(el('p', 'role', T('round.no_docker')));
   if (state.on_watch && r.shares === false) notes.appendChild(el('p', 'role', T('round.no_shares')));
@@ -616,6 +627,7 @@ function postureRow(x) {
   main.appendChild(el('div', 'row-detail', T(`posture.${x.id}.why`, params)));
   // privileged containers that are stopped and start by nothing: not part of the tip, a quiet line in it (inbox #10)
   if (x.id === 'privileged' && params.quiet) main.appendChild(el('div', 'row-detail role', T('posture.privileged.quiet', { quiet: params.quiet, n: Number(params.quiet_n) || 1 })));
+  if (x.id === 'privileged' && dockerOff()) main.appendChild(el('div', 'row-detail role', T('posture.as_last_seen', { docker: Office.t('common.docker_off') })));
   r.appendChild(main);
   const acts = el('div', 'wm-tip-acts');
   const href = x.link && Office.safeHref(x.link.path);
@@ -1831,8 +1843,9 @@ function watchSection() {
         T('watch.last_seen', { when: fmt.relative(x.last) })]))));
   }
   const c = w.containers;
+  const cSum = c ? T('watch.containers_sum', { special: c.special.length, count: c.count, n: Number(c.count) || 0 }) : '';
   gs.push(group('containers', T('watch.containers'),
-    c ? T('watch.containers_sum', { special: c.special.length, count: c.count, n: Number(c.count) || 0 }) : T('watch.containers_wait'),
+    !c ? T('watch.containers_wait') : dockerOff() ? T('watch.containers_last', { docker: Office.t('common.docker_off'), sum: cSum }) : cSum,
     c ? c.special.map((x) => item(x.name, [], flags(x.tokens))) : [], ['Docker']));
   gs.push(group('plugins', T('watch.plugins'), T('watch.plugins_sum', { n: w.plugins.length }),
     w.plugins.map((x) => item(x.name, [x.source || T('watch.no_source'), x.version || '']))));
@@ -2025,7 +2038,10 @@ function snapGroup(s) {
   const office = Object.values(s.expected || {}).reduce((a, b) => a + (Number(b) || 0), 0);
   if (office) rows.push(item(T('watch.snaps_office'), [T('watch.snaps_office_n', { n: office })], null, true));
   if (s.zfs === null && s.btrfs === null) rows.push(note(T('watch.snaps_none')));
-  return group('snaps', T('watch.snaps'), T('watch.snaps_sum', { n: total, places: Object.keys(s.zfs || {}).length + Object.keys(s.btrfs || {}).length }), rows);
+  // zfs didn't answer on the last round: nothing was compared — never «0 snapshots · pools and disks: 0» (truth review W5)
+  if (s.failed) rows.unshift(note(T('watch.snaps_failed')));
+  const sum = T('watch.snaps_sum', { n: total, places: Object.keys(s.zfs || {}).length + Object.keys(s.btrfs || {}).length });
+  return group('snaps', T('watch.snaps'), s.failed && !total ? T('watch.snaps_failed_sum') : sum, rows);
 }
 
 // ------------------------------------------------------------------ data flow

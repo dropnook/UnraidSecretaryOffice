@@ -110,6 +110,18 @@ async function askProgress() {
     throw e;
   }
 }
+/**
+ * While no run shows: once a minute (his poll) the cheap part «progress» — a run or the joint run started meanwhile loads
+ * his state anew at once, so its panel shows and «Start…» goes off within a minute, not after his state's five (M18)
+ */
+function peekRun() {
+  if (!view || page !== 'main' || !state || liveRun() || !Office.agent.running) return;
+  if (typeof document !== 'undefined' && document.hidden) return;
+  Office.loadState(ID, { part: 'progress' }, (j) => {
+    const p = j && j.ok ? j.part : null;
+    if (p && (p.running || p.night) && typeof p.time === 'number' && p.time > (state.time || 0) && !liveRun()) load(true);
+  }).catch(() => {});
+}
 function tookProgress(j) {
   const p = j && j.ok ? j.part : null;
   if (!p || typeof p.time !== 'number' || p.time < progressAt) { scheduleProgress(); return; }
@@ -386,10 +398,15 @@ function gatherSummary(s) {
 // (2026-10-18: a bubble is true right now — not on a server without a media server, e.g. with Docker off)
 const greetOk = (key) => key !== 'greet.5' || !!(state && state.configured && state.emby && state.emby.length);
 
+/** Docker didn't answer (his look: houseDockerState()): his media servers can't be seen — never «no media server» (T36) */
+const dockerDown = () => !!state && (state.docker === 'off' || state.docker === 'silent');
+
 function bubbleText() {
   if (!state) return T('bubble.loading');
   const intro = T('bubble.intro');
-  if (!state.emby.length) return `${intro} ${T('bubble.no_emby')}`;
+  if (dockerDown()) return `${intro} ${T('bubble.docker_down', { docker: Office.t(`common.docker_${state.docker}`) })}`;
+  // set up, his servers are in his settings (one may live on another machine): «no media server» only before that
+  if (!state.emby.length && !state.configured) return `${intro} ${T('bubble.no_emby')}`;
   if (!state.python) return `${intro} ${T('bubble.no_python')}`;
   if (!state.configured) return `${intro} ${T('bubble.setup')}`;
   if (state.jobs.gather.running) return T('bubble.gathering');
@@ -471,7 +488,8 @@ function render() {
 
   // hints, no sections: they stay at every click — under the row (the house rule: tiles right under the head)
   const hints = [];
-  if (!state.emby.length) hints.push(el('p', 'callout warn', T('notice.no_emby')));
+  if (dockerDown()) hints.push(el('p', 'callout warn', T('notice.docker_down', { docker: Office.t(`common.docker_${state.docker}`) })));
+  else if (!state.emby.length && !state.configured) hints.push(el('p', 'callout warn', T('notice.no_emby')));
   if (!state.python) hints.push(el('p', 'callout warn', T('notice.no_python')));
   const foreign = state.foreign.filter((f) => f.enabled);
   if (foreign.length) hints.push(el('p', 'callout warn', T('notice.foreign', { where: foreign.map((f) => f.where).join(', ') })));
@@ -3016,7 +3034,7 @@ Office.desk({
   },
   unmount() { if (page === 'setup' && formChanged()) Office.toast(T('setup.left_unsaved')); view = null; saveGate = null; clearTimeout(outTimer); clearTimeout(progTimer); progTimer = null; progBox = null; startKicks = 0; letGoNote = null; },
   letGo: letGoPart,
-  poll() { if (page === 'main') load(false); },
+  poll() { if (page === 'main') { load(false); peekRun(); } },
   greetOk,
   agentChanged() { if (view) (page === 'setup' ? renderSetup() : render()); },
   menu() {

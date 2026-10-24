@@ -4,6 +4,11 @@
   "visit": "Dal capoufficio",
   "bubble.loading": "Un momento, sto facendo il mio giro…",
   "bubble.all_good": "Tutto al suo posto — per te non c'è niente da fare.",
+  "bubble.all_good_checked": "In ciò che ho potuto controllare non c'è niente da fare per te.",
+  "bubble.unchecked": {
+    "one": "1 punto non ho potuto controllarlo adesso.",
+    "other": "{n} punti non ho potuto controllarli adesso."
+  },
   "bubble.todo": {
     "one": "C'è una cosa che devi ancora fare tu.",
     "other": "Ci sono {n} cose che devi ancora fare tu."
@@ -18,6 +23,7 @@
   },
   "check_again": "Giro",
   "checked": "Giro finito",
+  "check_not_done": "Il giro non è ancora tornato — la pagina mostra l'ultimo. Riprova tra un attimo.",
   "checked_at": "Controllato {when}",
   "todo": "Ancora da fare",
   "todo_text": "Senza queste cose una scrivania non può fare il suo lavoro (o una parte). Puoi farle solo tu — in Unraid stesso.",
@@ -33,6 +39,8 @@
   "missing": "manca",
   "not_yet": "non ancora",
   "unknown": "non ho potuto controllare",
+  "unknown_tip": "Né necessario né a posto: questo punto ora non si è potuto guardare.",
+  "unchecked_how": "Non si è potuto controllare adesso — un disco dorme, Docker non risponde o una prima esecuzione deve ancora arrivare. Ricontrollo al prossimo giro; fino ad allora niente da fare per te.",
   "all_good_title": "Non c'è più niente da fare",
   "all_good_text": "Ogni scrivania ha ciò che le serve.",
   "level.required": "necessario",
@@ -106,6 +114,10 @@
   "count.must": {"one": "{n} necessario", "other": "{n} necessari"},
   "count.advice": {"one": "{n} consigliato", "other": "{n} consigliati"},
   "count.hint": {"one": "{n} buono a sapersi", "other": "{n} buoni a sapersi"},
+  "count.unchecked": {
+    "one": "{n} non controllato",
+    "other": "{n} non controllati"
+  },
   "tile.notify": "Centro notifiche",
   "tile.notify_last": "l'ultima {when}",
   "tile.notify_failed": "{when} — non arrivata",
@@ -223,6 +235,8 @@
   "todo_count": "Ancora da fare ({n})",
   "advice_count": "Consigliato ({n})",
   "hints_count": "Buono a sapersi ({n})",
+  "unchecked_count": "Non controllato adesso ({n})",
+  "unchecked_text": "Né necessario né a posto — ricontrollo al prossimo giro.",
   "ack": "Lo so, grazie",
   "ack_title": "Mettilo da parte: passa a «Preso atto» e non conta più — finché la situazione non cambia.",
   "unack": "Rimetti in lista",

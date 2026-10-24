@@ -611,6 +611,10 @@ function watchmanTick(): void
             $err = trim((string) @file_get_contents(RUN_DIR . '/watchman-round.err', false, null, 0, 4096));
             logLine('Night watchman: round failed (exit ' . $status['exitcode'] . ')' . ($err !== '' ? ': ' . strtok($err, "\n") : ''));
         }
+        // stopped (too long) or ended without writing its round: the page says so — never «Round done. Nothing new.» (T29)
+        if (!empty($job['stopped']) || $status['exitcode'] !== 0 || $status['signaled']) {
+            $GLOBALS['wmRoundBroken'] = ['at' => time(), 'why' => !empty($job['stopped']) ? 'stopped' : 'failed'];
+        }
         return;
     }
     $now = time();
@@ -7546,6 +7550,7 @@ function watchmanSnaps(array $paths, ?array $known, array $series, int $now): ar
         'btrfs'    => is_array($look['btrfs']) ? $count($look['btrfs']['snaps']) : null,
         'asleep'   => array_values(array_merge((array) ($look['zfs']['asleep'] ?? []), (array) ($look['btrfs']['asleep'] ?? []))),
         'capped'   => (array) ($look['zfs']['capped'] ?? []),
+        'failed'   => !empty($look['zfs']['failed']),     // zfs didn't answer: nothing compared — said, never «0 snapshots» (W5)
         'expected' => $diff['expected'],
     ]];
 }
@@ -8322,7 +8327,7 @@ function watchmanSnapSummary(?array $s, ?array $bs): ?array
         return null;
     }
     return ['time' => (int) ($s['time'] ?? 0), 'zfs' => $s['zfs'] ?? null, 'btrfs' => $s['btrfs'] ?? null, 'asleep' => (array) ($s['asleep'] ?? []),
-            'capped' => (array) ($s['capped'] ?? []), 'expected' => (array) ($s['expected'] ?? []),
+            'capped' => (array) ($s['capped'] ?? []), 'expected' => (array) ($s['expected'] ?? []), 'failed' => ($s['failed'] ?? false) === true,
             'series' => array_slice(array_map('strval', array_keys((array) ($bs['series'] ?? []))), 0, 50)];
 }
 
@@ -9398,6 +9403,8 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
             'skipped'     => (int) ($st['round']['skipped'] ?? 0),
             'docker'      => $st['round']['docker'] ?? null,
             'shares'      => $st['round']['shares'] ?? null,
+            // the last round broke off (stopped after WATCH_MAX_RUN, or crashed) after the last one that ended: {at, why}
+            'broken'      => ($GLOBALS['wmRoundBroken']['at'] ?? 0) > ($last ?? 0) ? $GLOBALS['wmRoundBroken'] : null,
         ],
         'on_watch' => $onWatch ? (int) $b['time'] : null,
         'open'     => watchmanOpenCounts($d['book']),

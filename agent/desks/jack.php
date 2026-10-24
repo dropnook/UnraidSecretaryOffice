@@ -311,6 +311,7 @@ function jackScan(): array
         'time'       => time(),
         'python'     => jackPython(),
         'emby'       => jackContainers(),
+        'docker'     => houseDockerState(),     // 'off' / 'silent': his media servers can't be seen — the page says so (T36)
         'versions'   => jackVersions(),
         'configured' => jackConfigured($settings),
         'settings'   => $settings !== null ? jackSettingsPublic($settings) : null,

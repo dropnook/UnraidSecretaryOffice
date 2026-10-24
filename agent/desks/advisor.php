@@ -248,9 +248,10 @@ function advisorScan(): array
     // fresh lists, never the 20 s cache: his look follows an install he just made (a plugin job, Unraid's form) and
     // must see it — a glob and one docker ps per look, a few ms
     $plugins = housePlugins(true);
-    $containers = houseContainers(true);
+    $known = houseContainersKnown(true);            // null: Docker didn't answer — a container is «unknown», never «missing» (T11)
+    $containers = $known ?? [];
     $media = advisorMedia();
-    $env = advisorEnv($containers);
+    $env = advisorEnv($containers, $known !== null);
     $externals = [];
     foreach (ADVISOR_EXTERNALS as $id => $how) {
         if (!empty($how['media']) && $media === null) {
@@ -274,7 +275,8 @@ function advisorScan(): array
         $found = advisorFindContainer($how, $containers);
         $x = ['kind' => 'container', 'there' => $found !== null, 'name' => $found['name'] ?? null,
             'image' => $found['image'] ?? null, 'running' => $found['running'] ?? false,
-            'icon' => $found !== null ? advisorContainerIcon($found['name']) : null] + $common;
+            'icon' => $found !== null ? advisorContainerIcon($found['name']) : null] + $common
+            + ($known === null ? ['unknown' => true] : []);
         if ($found !== null) {
             $inspect = houseInspect($found['name']);
             $x['webui'] = $inspect ? advisorWebUi($inspect, $env['ip']) : null;
@@ -870,8 +872,12 @@ function advisorServerIp(): ?string
  * appdata (Settings → Docker), the server's address, his templates, Unraid's
  * user templates, the RAM folder for prepared templates, the containers.
  */
-function advisorEnv(?array $containers = null): array
+function advisorEnv(?array $containers = null, ?bool $dockerUp = null): array
 {
+    if ($containers === null) {
+        $known = houseContainersKnown(true);      // an action: a fresh look, never the 20 s cache
+        [$containers, $dockerUp] = [$known ?? [], $known !== null];
+    }
     $cfg = readCfg('/boot/config/docker.cfg');
     $appdata = rtrim((string) ($cfg['DOCKER_APP_CONFIG_PATH'] ?? ''), '/') ?: '/mnt/user/appdata';
     return [
@@ -880,7 +886,8 @@ function advisorEnv(?array $containers = null): array
         'templates'      => ADVISOR_TEMPLATE_DIR,
         'user_templates' => ADVISOR_USER_TEMPLATES,
         'prepared'       => ADVISOR_PREPARED_DIR,
-        'containers'     => $containers ?? houseContainers(),
+        'containers'     => $containers,
+        'docker_up'      => $dockerUp ?? true,     // false: Docker didn't answer — his container offers refuse (ad_docker_off)
         'dashboard'      => ADVISOR_DASHBOARD_FILE,
         'snapshots'      => ADVISOR_SNAPSHOTS,
         'restore'        => ADVISOR_RESTORE,
@@ -936,6 +943,11 @@ function advisorTemplate(string $id, array $env, array $opts = []): array
  */
 function advisorInstallRefusal(string $id, string $name, array $env, bool $look = true, bool $ignoreTemplate = false): ?array
 {
+    if (($env['docker_up'] ?? true) === false) {
+        // Docker isn't running: «not there» can't be told, a template can't be judged, Unraid's form can't make a container —
+        // and «Prepare anew» would put the user's own template into the storeroom for nothing (truth review T11)
+        return ['key' => 'ad_docker_off', 'params' => []];
+    }
     $found = advisorFindContainer(ADVISOR_EXTERNALS[$id], $env['containers']);
     if ($found !== null) {
         return ['key' => 'ad_there', 'params' => ['name' => $found['name']]];
@@ -1138,7 +1150,7 @@ function advisorInstallOld(string $id, array $env): array
         throw new Problem('ad_unknown', ['id' => $id]);
     }
     $refuse = advisorInstallRefusal($id, $name, $env, false, true);
-    if ($refuse !== null && in_array($refuse['key'], ['ad_there', 'ad_name_taken'], true)) {
+    if ($refuse !== null && in_array($refuse['key'], ['ad_docker_off', 'ad_there', 'ad_name_taken'], true)) {
         throw new Problem($refuse['key'], $refuse['params']);
     }
     $old = advisorOldTemplate($id, $name, $env) ?? throw new Problem('ad_old_gone', ['name' => $name]);

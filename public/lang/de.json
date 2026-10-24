@@ -55,6 +55,8 @@
   "common.unknown": "unbekannt",
   "common.docker_off": "Docker läuft nicht",
   "common.docker_silent": "Docker ist eingeschaltet, antwortet aber nicht",
+  "common.bubble_array_stopped": "Das Array ist nicht gestartet — was ich aufbewahre, liegt darauf. Mein Platz ist wieder da, sobald es läuft.",
+  "common.bubble_away": "Der Hausbote ist nicht da — mich erreicht nichts Neues. Sobald er zurück ist, zeige ich meinen Platz wieder.",
   "common.scanned_ago": "gelesen {when}",
   "common.page_help": "So liest du diese Seite",
   "protect.offsite": "ausser Haus",

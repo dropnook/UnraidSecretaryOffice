@@ -18,6 +18,10 @@
     "one": "{names} todavía no está aquí. Abajo: para qué sirve y cómo traerlo. Docker no está en marcha, así que ahora mismo no puedo traerte un contenedor.",
     "other": "{names} todavía no están aquí. Abajo: para qué sirven y cómo traerlos. Docker no está en marcha, así que ahora mismo no puedo traerte un contenedor."
   },
+  "bubble.unknown_docker_off": {
+    "one": "Docker no está en marcha, así que no puedo decir si {names} está en casa.",
+    "other": "Docker no está en marcha, así que no puedo decir si {names} están en casa."
+  },
   "look_again": "Ronda",
   "looked": "Ronda terminada.",
   "looked_at": "Revisado {when}.",
@@ -72,11 +76,13 @@
   "copy.kopia.target": "⟦Container Path⟧",
   "help.there": "Instalado (si es un contenedor: también en marcha).",
   "help.missing": "No está instalado en este servidor.",
+  "help.unknown": "Docker no está en marcha: si este contenedor está en el servidor solo se verá cuando Docker vuelva a funcionar. Mientras tanto no ofrezco nada.",
   "help.stopped": "El contenedor existe pero no se ejecuta — inícialo en la página de Docker.",
   "help.howto": "Paso a paso, con lo que hay que copiar. Se abre solo mientras falte algo.",
   "help.again": "Vuelve a mirar si los externos están (unos segundos, no cambia nada).",
   "fact.there": "{name}: en casa",
   "fact.missing": "{name}: no está",
+  "fact.unknown": "{name}: desconocido — Docker no está en marcha",
   "fact.stopped": "{name}: no se ejecuta",
   "absent": "no está",
   "help.absent": "No está instalado — y está bien así: la secretaría se las arregla sin él.",
@@ -351,6 +357,7 @@
   "errors.ad_unknown": "Nada que el consultor instale: {id}.",
   "errors.ad_no_template": "Falta en esta instalación la plantilla preparada para {id}.",
   "errors.ad_there": "{name} ya está en este servidor — nada que instalar.",
+  "errors.ad_docker_off": "Docker no está en marcha — no veo qué contenedores hay y el formulario de Unraid no puede crear ninguno. Arranca Docker primero en ⟦Settings⟧ → ⟦Docker⟧.",
   "errors.ad_name_taken": "Ya existe un contenedor llamado {name}. Unraid lo reemplazaría con ⟦Apply⟧ — primero renómbralo o quítalo.",
   "errors.ad_template_taken": "Ya hay una plantilla antigua {file}, y el formulario de Unraid la sobrescribiría. En mi tarjeta: usa la antigua, o prepara de nuevo — entonces la guardo primero.",
   "errors.ad_old_changed": "La plantilla antigua {file} ha cambiado desde que miraste — «Ronda» vuelve a mirar.",

@@ -252,7 +252,7 @@ function problems() {
 /** A link to exactly where it is fixed */
 function whereToFix(it) {
   const link = (text, hash) => Object.assign(el('a', '', text), { href: hash });
-  if (['image_missing'].includes(it.code)) return link(T('drill.fix.docker'), '/Docker');
+  if (['image_missing', 'docker_off'].includes(it.code)) return link(T('drill.fix.docker'), '/Docker');
   if (it.kind === 'kopia' || it.code.startsWith('dump_') || it.code.startsWith('package_') || it.code === 'manifest_unreadable') return link(T('drill.fix.backup'), '#/backup');
   return null;
 }

@@ -18,6 +18,10 @@
     "one": "{names} non è ancora in sede. Qui sotto: a cosa serve e come portarlo in casa. Docker non è in funzione, quindi per ora non posso portarti un container.",
     "other": "{names} non sono ancora in sede. Qui sotto: a cosa servono e come portarli in casa. Docker non è in funzione, quindi per ora non posso portarti un container."
   },
+  "bubble.unknown_docker_off": {
+    "one": "Docker non è in funzione, quindi non posso dire se {names} è in sede.",
+    "other": "Docker non è in funzione, quindi non posso dire se {names} sono in sede."
+  },
   "look_again": "Giro",
   "looked": "Giro finito.",
   "looked_at": "Controllato {when}.",
@@ -72,11 +76,13 @@
   "copy.kopia.target": "⟦Container Path⟧",
   "help.there": "Installato (un contenitore: anche in esecuzione).",
   "help.missing": "Non installato su questo server.",
+  "help.unknown": "Docker non è in funzione: se questo container è sul server si vedrà solo quando Docker girerà di nuovo. Fino ad allora non propongo nulla.",
   "help.stopped": "Il contenitore c'è ma non è in esecuzione — avvialo dalla pagina Docker.",
   "help.howto": "Passo per passo, con tutto quello che devi copiare. Si apre da solo finché manca qualcosa.",
   "help.again": "Ricontrolla se gli esterni ci sono (pochi secondi, non cambia nulla).",
   "fact.there": "{name}: in sede",
   "fact.missing": "{name}: assente",
+  "fact.unknown": "{name}: sconosciuto — Docker non è in funzione",
   "fact.stopped": "{name}: non in esecuzione",
   "absent": "non in sede",
   "help.absent": "Non installato — e va bene così: la segreteria se la cava anche senza.",
@@ -351,6 +357,7 @@
   "errors.ad_unknown": "Niente che il consulente installa: {id}.",
   "errors.ad_no_template": "Il template preparato per {id} manca in questa installazione.",
   "errors.ad_there": "{name} c'è già su questo server — niente da installare.",
+  "errors.ad_docker_off": "Docker non è in funzione — non vedo quali container ci sono e il modulo di Unraid non può crearne uno. Avvia prima Docker in ⟦Settings⟧ → ⟦Docker⟧.",
   "errors.ad_name_taken": "Esiste già un container di nome {name}. Unraid lo sostituirebbe con ⟦Apply⟧ — prima rinominalo o rimuovilo.",
   "errors.ad_template_taken": "C'è già un vecchio template {file} e il modulo di Unraid lo sovrascriverebbe. Sulla mia scheda: usa quello vecchio, oppure prepara da capo — allora prima lo metto via.",
   "errors.ad_old_changed": "Il vecchio template {file} è cambiato da quando l'hai guardato — «Giro» guarda di nuovo.",

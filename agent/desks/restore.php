@@ -887,8 +887,13 @@ function rsKopia(array $engine, array $settings): array
     if (!$engine['kopia']) {
         return $out;
     }
-    $all = houseContainers();
+    $known = houseContainersKnown();
+    $out['docker'] = houseDockerState();     // 'off' / 'silent': its container can't be looked for — never «no Kopia container» (P3)
+    $all = $known ?? [];
     $name = $engine['kopia_container'];
+    if ($known === null) {
+        return $out;
+    }
     if ($name === '' || !isset($all[$name])) {
         $name = '';
         foreach ($all as $c) {
@@ -1329,7 +1334,9 @@ function rsScan(): array
     $pk = $place['found'] ? rsPackages($place['base']) : null;
     $ctx['old_shares'] = $pk['server']['shares'] ?? null;
     $kopiaLast = rsKopiaLast();
-    $containers = houseContainers();
+    $known = houseContainersKnown();          // null: Docker didn't answer — an app is «unknown», never «gone» (T12)
+    $containers = $known ?? [];
+    $state['docker'] = houseDockerState();
     $vmStates = rsVmStates();
     $kopiaShare = fn (string $share) => $engine['kopia'] && backupSetting($settings, "share|$share", 'mode', 'off') === 'kopia';
     $own = fn (string $kind, string $name) => $engine['kopia'] && backupSetting($settings, "$kind|$name", 'kopia', 'no') === 'yes';
@@ -1361,7 +1368,7 @@ function rsScan(): array
             $a['nextcloud'][$k]['config'] = rsNcConfigDir($nc['occ'], $binds, $ctx);
         }
         foreach ($a['containers'] as &$c) {
-            $c['now'] = isset($containers[$c['name']]) ? ($containers[$c['name']]['running'] ? 'running' : 'stopped') : 'missing';
+            $c['now'] = $known === null ? 'unknown' : (isset($containers[$c['name']]) ? ($containers[$c['name']]['running'] ? 'running' : 'stopped') : 'missing');
             unset($c['binds']);
         }
         unset($c);
@@ -1375,7 +1382,7 @@ function rsScan(): array
         }
         $a['immich'] = (bool) array_filter($a['containers'], fn ($c) => stripos($c['image'], 'immich') !== false);
         $a['db_only'] = $a['containers'] && !array_filter($a['containers'], fn ($c) => !in_array($c['db'], ['mariadb', 'postgres', 'mongodb', 'cache'], true));
-        $a['present'] = (bool) array_filter($a['containers'], fn ($c) => $c['now'] !== 'missing');
+        $a['present'] = $known === null ? null : (bool) array_filter($a['containers'], fn ($c) => $c['now'] !== 'missing');
         $a['folders'] = $folders;
         $a['shares'] = $whole;
         $a['needs'] = rsNeeds($folders, $whole, $ctx);
@@ -1951,18 +1958,19 @@ function rsPlanVersion(array $r, array $place, string $kind, array $current): ar
  * The containers on the server right now: name => running (not cached: a plan needs the truth). Through houseDocker():
  * a plan is made in the agent's round — a silent Docker refuses it at once, never a plan as if there were none (B15)
  */
-function rsContainersNow(): array
+function rsContainersNow(): ?array
 {
     [$exit, $out] = houseDocker(['ps', '-a', '--format', '{{.Names}}\t{{.State}}']);
     if ($exit === 124) {
         throw new Problem('docker_silent');
     }
+    if ($exit !== 0) {
+        return null;                // Docker isn't running: no container is «missing» — the plan says so (T12)
+    }
     $all = [];
-    if ($exit === 0) {
-        foreach (rows($out) as $f) {
-            if (count($f) >= 2) {
-                $all[$f[0]] = $f[1] === 'running';
-            }
+    foreach (rows($out) as $f) {
+        if (count($f) >= 2) {
+            $all[$f[0]] = $f[1] === 'running';
         }
     }
     return $all;
@@ -2119,6 +2127,10 @@ function rsPlanDbFor(array &$ctx, array $place, array $app, array $pkg, ?array $
         return $plan;
     }
     $now = rsContainersNow();
+    if ($now === null) {
+        $plan['blockers'][] = ['key' => 'restore_docker_off', 'params' => ['container' => $c]];
+        return $plan;
+    }
     if (!isset($now[$c])) {
         $plan['blockers'][] = ['key' => 'restore_container_missing', 'params' => ['container' => $c]];
         return $plan;
@@ -2220,6 +2232,10 @@ function rsPlanSqliteFor(array &$ctx, array $app, array $pkg, ?array $version, s
     }
     $plan = rsPlanBase('sqlite', $app['name'], ['app' => $app['id'], 'container' => $c, 'version' => $version['snap'] ?? null]);
     $now = rsContainersNow();
+    if ($now === null) {
+        $plan['blockers'][] = ['key' => 'restore_docker_off', 'params' => ['container' => $c]];
+        return $plan;
+    }
     if (!isset($now[$c])) {
         $plan['blockers'][] = ['key' => 'restore_container_missing', 'params' => ['container' => $c]];
         return $plan;
@@ -3096,7 +3112,7 @@ function rsPlanConfigFor(array $app, array $pkg, ?array $version, array $items, 
     if (!$steps && !$plan['blockers']) {
         $plan['blockers'][] = ['key' => 'restore_config_same', 'params' => []];
     }
-    $now = rsContainersNow();
+    $now = rsContainersNow() ?? [];       // Docker off: a template still goes back; the hint as for a container not there yet
     foreach ($pkg['containers'] as $c) {
         if ($c['template'] !== '' && array_filter($items, fn ($it) => $it['what'] === 'template' && basename($it['to']) === $c['template'] && $it['now'] !== 'same')) {
             $plan['after'][] = isset($now[$c['name']]) ? ['key' => 'after.tpl_apply', 'params' => ['container' => $c['name']]]
@@ -3302,11 +3318,14 @@ function rsPlanPutback(array $r, string $stamp): array
     // a database's put back plays the safety dump into it: only into a running one, and he never starts it (scenario batch
     // B, R11, for the put back): stopped since the restore — not by him — blocks, as the restore's own plan does
     $db = ($j['kind'] ?? '') === 'db' && $undo ? (string) ($orig['target']['container'] ?? '') : '';
-    if ($db !== '' && !isset($now[$db])) {
+    if ($db !== '' && $now === null) {
+        $plan['blockers'][] = ['key' => 'restore_docker_off', 'params' => ['container' => $db]];
+    } elseif ($db !== '' && !isset($now[$db])) {
         $plan['blockers'][] = ['key' => 'restore_container_missing', 'params' => ['container' => $db]];
     } elseif ($db !== '' && !$now[$db] && !in_array($db, $also, true)) {
         $plan['blockers'][] = ['key' => 'restore_db_stopped', 'params' => ['container' => $db]];
     }
+    $now ??= [];                // Docker off: nothing runs, nothing to stop
     $plan['stops'] = array_values(array_unique(array_merge(...array_map(fn ($s) => $s['do'] === 'stop' ? array_values(array_filter($s['containers'], fn ($n) => $now[$n] ?? false)) : [],
         $plan['steps'] ?: [['do' => '']]))));
     $plan['downtime'] = $plan['stops'] ? (int) ($orig['downtime'] ?? 30) : 0;

@@ -111,24 +111,51 @@ function housePlugin(string $name): bool
     return isset(housePlugins()[$name]);
 }
 
-/** @return array<string, array{name:string, image:string, running:bool}> all containers ($fresh: never the cache) */
+/**
+ * All containers ($fresh: never the cache) — empty both when there are none and when Docker didn't answer (stopped,
+ * silent): a caller that would say «none», «gone» or «missing» asks houseContainersKnown() instead
+ *
+ * @return array<string, array{name:string, image:string, running:bool}>
+ */
 function houseContainers(bool $fresh = false): array
 {
-    static $cache = null, $at = 0;
+    return houseContainersKnown($fresh) ?? [];
+}
+
+/**
+ * The containers as houseContainers() gives them — or null when `docker ps` didn't answer (Docker stopped, silent): «we
+ * don't know» is never «none» (truth review P3: an app «gone», «no media server», «not in the house» with Docker off).
+ * The page says `common.docker_off` / `common.docker_silent` (houseDockerSilent()).
+ *
+ * @return array<string, array{name:string, image:string, running:bool}>|null
+ */
+function houseContainersKnown(bool $fresh = false): ?array
+{
+    static $cache = null, $ok = false, $at = 0;
     if (!$fresh && $cache !== null && time() >= $at && time() - $at < HOUSE_CACHE) {      // a clock stepped back: looked at anew
-        return $cache;
+        return $ok ? $cache : null;
     }
     $cache = [];
     $at = time();
     [$exit, $out] = houseDocker(['ps', '-a', '--format', '{{.Names}}\t{{.Image}}\t{{.State}}']);
-    if ($exit === 0) {
+    $ok = $exit === 0;
+    if ($ok) {
         foreach (rows($out) as $f) {
             if (count($f) >= 3) {
                 $cache[$f[0]] = ['name' => $f[0], 'image' => $f[1], 'running' => $f[2] === 'running'];
             }
         }
     }
-    return $cache;
+    return $ok ? $cache : null;
+}
+
+/** Docker's state for a page: 'up', 'off' (stopped: no answer) or 'silent' (switched on, no answer in time — B15) */
+function houseDockerState(): string
+{
+    if (houseContainersKnown() !== null) {
+        return 'up';
+    }
+    return houseDockerSilent() ? 'silent' : 'off';
 }
 
 /** docker inspect of one container, or null (also while Docker is silent: houseDockerSilent()) */

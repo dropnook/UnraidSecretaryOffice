@@ -4,6 +4,11 @@
   "visit": "Aller voir le chef d'équipe",
   "bubble.loading": "Un instant, je fais ma tournée…",
   "bubble.all_good": "Tout est à sa place — rien à faire pour toi.",
+  "bubble.all_good_checked": "Dans ce que j'ai pu vérifier, rien à faire pour toi.",
+  "bubble.unchecked": {
+    "one": "{n} point que je n'ai pas pu vérifier pour l'instant.",
+    "other": "{n} points que je n'ai pas pu vérifier pour l'instant."
+  },
   "bubble.todo": {
     "one": "Il te reste {n} chose à faire toi-même.",
     "other": "Il te reste {n} choses à faire toi-même."
@@ -18,6 +23,7 @@
   },
   "check_again": "Tournée",
   "checked": "Tournée terminée",
+  "check_not_done": "La tournée n'est pas encore revenue — la page montre la dernière. Réessaie dans un instant.",
   "checked_at": "Vérifié {when}",
   "todo": "Encore à faire",
   "todo_text": "Sans cela, un bureau ne peut pas faire (une partie de) son travail. Toi seul peux le faire — dans Unraid lui-même.",
@@ -33,6 +39,8 @@
   "missing": "manquant",
   "not_yet": "pas encore",
   "unknown": "pas pu vérifier",
+  "unknown_tip": "Ni nécessaire ni en place : ce point n'a pas pu être regardé pour l'instant.",
+  "unchecked_how": "N'a pas pu être vérifié pour l'instant — un disque dort, Docker ne répond pas, ou une première exécution reste à venir. Je regarde de nouveau à ma prochaine tournée ; d'ici là, rien à faire pour toi.",
   "all_good_title": "Plus rien à faire",
   "all_good_text": "Chaque bureau a ce qu'il lui faut.",
   "level.required": "nécessaire",
@@ -106,6 +114,10 @@
   "count.must": {"one": "{n} nécessaire", "other": "{n} nécessaires"},
   "count.advice": {"one": "{n} recommandé", "other": "{n} recommandés"},
   "count.hint": {"one": "{n} bon à savoir", "other": "{n} bons à savoir"},
+  "count.unchecked": {
+    "one": "{n} non vérifié",
+    "other": "{n} non vérifiés"
+  },
   "tile.notify": "Centre de notifications",
   "tile.notify_last": "le dernier {when}",
   "tile.notify_failed": "{when} — pas arrivé",
@@ -223,6 +235,8 @@
   "todo_count": "Encore à faire ({n})",
   "advice_count": "Recommandé ({n})",
   "hints_count": "Bon à savoir ({n})",
+  "unchecked_count": "Pas vérifié pour l'instant ({n})",
+  "unchecked_text": "Ni nécessaire ni en place — je regarde de nouveau à ma prochaine tournée.",
   "ack": "Je sais, merci",
   "ack_title": "Le mettre de côté : il passe dans « Noté » et ne compte plus — jusqu'à ce que la situation change.",
   "unack": "Remettre en liste",

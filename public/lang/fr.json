@@ -55,6 +55,8 @@
   "common.unknown": "inconnu",
   "common.docker_off": "Docker ne tourne pas",
   "common.docker_silent": "Docker est activé mais ne répond pas",
+  "common.bubble_array_stopped": "L'array n'est pas démarré — ce que je garde s'y trouve. Mon poste revient dès qu'il tourne.",
+  "common.bubble_away": "Le coursier n'est pas là — rien de nouveau ne m'arrive. Dès qu'il revient, je montre de nouveau mon poste.",
   "common.scanned_ago": "analysé {when}",
   "common.page_help": "Comment lire cette page",
   "protect.offsite": "hors site",

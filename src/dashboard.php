@@ -103,8 +103,8 @@ function officeDashCareCounts(array $care, array $hired): array
             continue;
         }
         foreach ((array) $list as $f) {
-            if (!is_array($f) || ($f['ok'] ?? null) === true) {
-                continue;
+            if (!is_array($f) || ($f['ok'] ?? null) !== false) {
+                continue;               // in place, or couldn't be checked (null): never a thing to do (truth review T13)
             }
             $level = $f['level'] ?? '';
             if ($level === 'required') {

@@ -4,6 +4,11 @@
   "visit": "Ir a ver al jefe de equipo",
   "bubble.loading": "Un momento, estoy haciendo mi ronda…",
   "bubble.all_good": "Todo está en su sitio — no tienes nada que hacer.",
+  "bubble.all_good_checked": "En lo que pude comprobar no tienes nada que hacer.",
+  "bubble.unchecked": {
+    "one": "1 punto que no pude comprobar ahora.",
+    "other": "{n} puntos que no pude comprobar ahora."
+  },
   "bubble.todo": {
     "one": "Hay una cosa que todavía tienes que hacer tú.",
     "other": "Hay {n} cosas que todavía tienes que hacer tú."
@@ -18,6 +23,7 @@
   },
   "check_again": "Ronda",
   "checked": "Ronda terminada",
+  "check_not_done": "La ronda aún no ha vuelto — la página muestra la última. Vuelve a intentarlo en un momento.",
   "checked_at": "Revisado {when}",
   "todo": "Pendiente",
   "todo_text": "Sin esto, un escritorio no puede hacer (parte de) su trabajo. Solo tú puedes hacerlo — en el propio Unraid.",
@@ -33,6 +39,8 @@
   "missing": "falta",
   "not_yet": "todavía no",
   "unknown": "no se pudo comprobar",
+  "unknown_tip": "Ni necesario ni en orden: este punto no se pudo mirar ahora.",
+  "unchecked_how": "No se pudo comprobar ahora — un disco duerme, Docker no responde o falta una primera ejecución. Vuelvo a mirar en mi próxima ronda; hasta entonces no tienes nada que hacer.",
   "all_good_title": "No queda nada por hacer",
   "all_good_text": "Cada escritorio tiene lo que necesita.",
   "level.required": "necesario",
@@ -106,6 +114,10 @@
   "count.must": {"one": "{n} necesario", "other": "{n} necesarios"},
   "count.advice": {"one": "{n} recomendado", "other": "{n} recomendados"},
   "count.hint": {"one": "{n} conviene saber", "other": "{n} conviene saber"},
+  "count.unchecked": {
+    "one": "{n} sin comprobar",
+    "other": "{n} sin comprobar"
+  },
   "tile.notify": "Centro de notificaciones",
   "tile.notify_last": "el último {when}",
   "tile.notify_failed": "{when} — no llegó",
@@ -223,6 +235,8 @@
   "todo_count": "Pendiente ({n})",
   "advice_count": "Recomendado ({n})",
   "hints_count": "Conviene saber ({n})",
+  "unchecked_count": "Sin comprobar ahora ({n})",
+  "unchecked_text": "Ni necesario ni en orden — vuelvo a mirar en mi próxima ronda.",
   "ack": "Ya lo sé, gracias",
   "ack_title": "Apartarlo: pasa a «Anotado» y deja de contar — hasta que cambie la situación.",
   "unack": "Devolver a la lista",

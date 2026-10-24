@@ -291,8 +291,10 @@ function bubbleText() {
   if (!apps().length && !vms().length) return held ? T('bubble.kept_only', { n: held }) : T('bubble.no_packages');
   const out = [T('bubble.ready', { apps: T('count.apps', { n: apps().length }), vms: T('count.vms', { n: vms().length }), when: date(state.run_time) })];
   if (otherHolder()) out.push(T('bubble.busy_' + otherHolder()));
-  const gone = apps().filter((a) => !a.present).length + vms().filter((v) => v.state === 'missing').length;
+  const gone = apps().filter((a) => a.present === false).length + vms().filter((v) => v.state === 'missing').length;
   if (gone) out.push(T('bubble.gone', { n: gone }));
+  // Docker didn't answer: whether the apps are still here can't be seen — said, never «gone» (T12; an older state: no key)
+  if (state.docker === 'off' || state.docker === 'silent') out.push(T('bubble.docker_unknown', { docker: Office.t(`common.docker_${state.docker}`) }));
   return out.join(' ');
 }
 
@@ -375,7 +377,7 @@ function notices() {
 
 function tileLine(sec) {
   if (sec === 'apps') {
-    const gone = apps().filter((a) => !a.present).length;
+    const gone = apps().filter((a) => a.present === false).length;
     return [T('tile.apps_line', { n: apps().length }), gone ? T('tile.gone', { n: gone }) : state.run_time ? fmt.relative(state.run_time) : ''];
   }
   if (sec === 'vms') {
@@ -402,7 +404,9 @@ function tileLine(sec) {
   if (sec === 'kopia') {
     if (!kopia().enabled) return [T('tile.kopia_off'), ''];
     const t = Math.max(0, ...(state.shares || []).map((s) => s.last || 0), ...apps().map((a) => kopiaNewest(a.kopia)), ...vms().map((v) => kopiaNewest(v.kopia)));
-    return [kopia().container ? T('tile.kopia_on', { name: kopia().container }) : T('tile.kopia_missing'), t ? fmt.relative(t) : ''];
+    const dk = kopia().docker;          // Docker not answering: its container can't be looked for (an older state: no key)
+    return [kopia().container ? T('tile.kopia_on', { name: kopia().container })
+      : dk === 'off' || dk === 'silent' ? Office.t(`common.docker_${dk}`) : T('tile.kopia_missing'), t ? fmt.relative(t) : ''];
   }
   if (sec === 'drill') return Office.restoreDrill ? Office.restoreDrill.tileLine() : [T('drill.tile_none'), ''];
   if (sec.startsWith('kept:')) {
@@ -570,7 +574,7 @@ function appsSection() {
   const s = sectionBox(T('apps'), T('apps_sub'), list.length > 1 ? unfoldAll() : null, { place: 'apps' });
   if (!list.length) { s.appendChild(el('p', 'empty', state.place.found ? T('apps_none') : T('apps_no_packages'))); return s; }
   const metas = new Map(list.map((a) => [a, appMeta(a)]));
-  const fits = barRows(s, 'apps', list, (a) => [a.name, a.id, metas.get(a).textContent], (a) => !a.present);
+  const fits = barRows(s, 'apps', list, (a) => [a.name, a.id, metas.get(a).textContent], (a) => a.present === false);
   const box = el('div', 'box');
   fits.forEach((a) => box.appendChild(appRow(a, metas.get(a))));
   if (!fits.length) box.appendChild(noFit());
@@ -610,7 +614,7 @@ function atPartnerChip(c) {
 function appMeta(a) {
   const meta = el('div', 'row-meta');
   meta.appendChild(el('span', '', T('type.' + (a.type || 'container'))));
-  if (!a.present) meta.appendChild(chip(T('chip.gone'), 'danger', T('chip.gone_hint')));
+  if (a.present === false) meta.appendChild(chip(T('chip.gone'), 'danger', T('chip.gone_hint')));
   rowChips(meta, a, a.dumps.length ? [chip(T('chip.dumps', { n: a.dumps.length }), '', T('chip.dumps_hint'))] : [], []);
   const drilled = Office.restoreDrill && Office.restoreDrill.appChip('app', a.id);
   if (drilled) meta.appendChild(drilled);
@@ -624,7 +628,7 @@ function appRow(a, meta) {
 function containerChips(list) {
   const span = el('span', 'rs-chips');
   list.forEach((c) => {
-    const cls = c.now === 'running' ? 'ok' : c.now === 'stopped' ? 'warn' : 'danger';
+    const cls = c.now === 'running' ? 'ok' : c.now === 'stopped' ? 'warn' : c.now === 'unknown' ? 'quiet' : 'danger';
     span.appendChild(chip(c.name, cls, T('ct.' + c.now, { image: c.image, digest: c.digest || '–' })));
   });
   return span;
@@ -1208,7 +1212,7 @@ function dbsSection() {
   if (!groups.length) { s.appendChild(el('p', 'empty', apps().length || state.place.found ? T('dbs_none') : T('apps_no_packages'))); return s; }
   // the bar over every entry; a group keeps its head over the entries that fit (its app's name counts for each)
   const all = groups.flatMap((g) => g.items.map((x) => ({ g, x, meta: dbMeta(g.app, x) })));
-  const fits = new Set(barRows(s, 'dbs', all, (r) => [r.g.app.name, dbName(r.x), r.x.container, r.x.file, r.meta.textContent], (r) => !r.g.app.present));
+  const fits = new Set(barRows(s, 'dbs', all, (r) => [r.g.app.name, dbName(r.x), r.x.container, r.x.file, r.meta.textContent], (r) => r.g.app.present === false));
   const box = el('div', 'box');
   groups.forEach((g) => {
     const rows = all.filter((r) => r.g === g && fits.has(r));
@@ -1225,7 +1229,7 @@ function dbsSection() {
 function dbHead(a) {
   const h = el('div', 'rs-subhead rs-dbhead');
   h.appendChild(el('span', '', a.name));
-  if (!a.present) h.appendChild(chip(T('chip.gone'), 'danger', T('chip.gone_hint')));
+  if (a.present === false) h.appendChild(chip(T('chip.gone'), 'danger', T('chip.gone_hint')));
   if (a.stale) h.appendChild(chip(T('result.stale'), 'warn', T('chip.stale_hint', { when: date(a.time) })));
   const go = el('a', 'rs-dbhead-link', T('dbs.to_app'));
   go.href = '#/restore';
@@ -1342,7 +1346,8 @@ function kopiaSection() {
     return s;
   }
   const box = el('div', 'box rs-guide');
-  if (!k.container) box.appendChild(el('p', 'callout warn', T('kg.no_container')));
+  if (!k.container && (k.docker === 'off' || k.docker === 'silent')) box.appendChild(el('p', 'callout warn', T('kg.docker_down', { docker: Office.t(`common.docker_${k.docker}`) })));
+  else if (!k.container) box.appendChild(el('p', 'callout warn', T('kg.no_container')));
   else box.appendChild(el('p', 'role', T(k.running ? 'kg.container' : 'kg.container_stopped', { name: k.container, root: kopiaRoot() })));
   box.append(
     rstep(T('kg.s1'), T('kg.s1_text', { name: k.container || 'kopia' })),

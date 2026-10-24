@@ -6070,7 +6070,8 @@ function clChecks(): array
         $out[] = finding('trash_old', 'recommended', false,
             ['n' => count($old), 'days' => intdiv(time() - $oldest, 86400), 'size' => clHuman($bytes)], '#/cleanup/tidy');      // her storeroom is in «Tidying up»
     } else {
-        $out[] = finding('trash_old', 'recommended', true, ['n' => 0, 'days' => 0, 'size' => ''], '#/cleanup/tidy');
+        // storerooms on sleeping disks aren't looked at: nothing seen there is «couldn't check», never ✓ (truth review T14)
+        $out[] = finding('trash_old', 'recommended', ($s['trash']['asleep'] ?? []) ? null : true, ['n' => 0, 'days' => 0, 'size' => ''], '#/cleanup/tidy');
     }
     return [...$out, ...clPoolGoneChecks($s['flash'] ?? null), ...clSnapOnlyChecks($s['snaponly'] ?? null), ...clSnapKeptChecks($s['snaponly'] ?? null)];
 }
@@ -6201,7 +6202,8 @@ function clSnapOnlyChecks(?array $snap): array
         return [];
     }
     $list = $snap['list'];
-    $ok = !$list;                       // a sleeping pool is not judged: never «unknown» for a hint that only says where space goes
+    // found on an awake pool: not yet; nothing found but a pool asleep (never asked): «couldn't check», never ✓ (truth review O10)
+    $ok = $list ? false : (($snap['asleep'] ?? []) ? null : true);
     $total = array_sum(array_map(fn ($x) => (int) $x['snaps'], $list));
     $names = implode(', ', array_map(fn ($x) => "{$x['share']} ({$x['pool']}, " . clHuman((int) $x['snaps']) . ')', array_slice($list, 0, 8)));
     return [finding('snap_only', 'recommended', $ok, ['n' => count($list), 'shares' => $names, 'size' => clHuman($total)], '#/snapshot/datasets')];

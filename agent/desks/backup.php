@@ -220,6 +220,10 @@ function backupScan(): array
         // the script folder sits on a sleeping disk: keep what we knew
         $old = $GLOBALS['backup'] ?? [];
         $state = ['time' => time(), 'asleep' => true] + $old + $state;
+        // the schedule lies on the flash: its next time anew, never «next backup 3 hours ago» from the kept state (B14)
+        if (is_array($old['schedule'] ?? null)) {
+            $state['schedule'] = array_diff_key(officeJobSchedule('backup'), ['script' => 1]) + $old['schedule'];
+        }
         $GLOBALS['backup'] = $state;
         writeAtomic(deskFile('backup'), jsonEncode($state));
         return $state;
@@ -2616,7 +2620,9 @@ function backupChecks(): array
     $level = $kopiaOn ? 'required' : 'recommended';
     // B15: Docker silent - Kopia's container can't be looked at: «couldn't check», never «missing» or «stopped»
     $silent = backupDockerSilent();
-    $containers = $silent ? [] : houseContainers();
+    $known = $silent ? null : houseContainersKnown();
+    $silent = $known === null;          // Docker stopped too (P3): its container can't be looked at — never «missing»
+    $containers = $known ?? [];
     $name = $silent ? (($summary['kopia_container'] ?? '') ?: null) : $summary['kopia_container'];
     if (!$silent && (!$name || !isset($containers[$name]))) {
         $name = null;
