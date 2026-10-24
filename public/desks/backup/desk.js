@@ -134,13 +134,26 @@ function partnerRateOf(s) {
   if (!pc) return null;
   const mine = ((state && state.partners) || []).find((x) => x.id === pc.id);
   const c = mine && mine.current && mine.current.unit === pc.unit ? mine.current : null;
-  return { bytes: pc.bytes || 0, estimate: (c && c.estimate) || pc.estimate || null, rate: c && typeof c.rate === 'number' ? c.rate : null,
+  // engine 2.73: several datasets at once — their sums (the agent's rate is what the run moved to that partner)
+  const many = partnerStreamsOf(s);
+  const bytes = many ? many.reduce((a, x) => a + (x.bytes || 0), 0) : pc.bytes || 0;
+  const own = many && many.every((x) => x.estimate) ? many.reduce((a, x) => a + x.estimate, 0) : null;
+  return { bytes, estimate: (c && c.estimate) || (many ? own : pc.estimate) || null, rate: c && typeof c.rate === 'number' ? c.rate : null,
     eta: c && typeof c.eta === 'number' ? c.eta : null };
 }
+/** Engine 2.73: the transfers going on to the current partner when there are several at once (status.json partner.streams), else null */
+function partnerStreamsOf(s) {
+  const pc = s && s.partner && s.partner.current;
+  const many = pc && Array.isArray(s.partner.streams) ? s.partner.streams.filter((x) => x && x.id === pc.id) : [];
+  return many.length > 1 ? many : null;
+}
+/** «appdata» — or, several at once, «appdata and 2 more» */
+const partnerUnitsLabel = (units) => (units.length > 1 ? T('partner.units_more', { unit: unitLabel(units[0]), n: units.length - 1 }) : unitLabel(units[0]));
+const partnerNowUnits = (s) => partnerUnitsLabel((partnerStreamsOf(s) || [s.partner.current]).map((x) => x.unit));
 function partnerNowText(s) {
   const pc = s.partner.current;
   const r = partnerRateOf(s) || { bytes: pc.bytes || 0, estimate: null, rate: null, eta: null };
-  const base = { name: partnerName(pc.id, s.partner), unit: unitLabel(pc.unit), n: partnerDoneCount(s.partner), total: (s.partner.planned || []).length };
+  const base = { name: partnerName(pc.id, s.partner), unit: partnerNowUnits(s), n: partnerDoneCount(s.partner), total: (s.partner.planned || []).length };
   const parts = [r.estimate ? T('partner.now_of', { ...base, done: fmt.size(r.bytes), size: fmt.size(r.estimate) }) : T('partner.now', { ...base, size: fmt.size(r.bytes) })];
   if (r.rate) parts.push(T('partner.rate', { rate: fmt.size(r.rate) }));
   if (r.eta !== null && r.rate) parts.push(r.eta < 60 ? T('partner.left_soon') : T('partner.left', { left: fmt.duration(Math.ceil(r.eta / 60) * 60) }));
@@ -363,7 +376,7 @@ function progress() {
         return last.reduce((a, k) => a + (typeof pest[k] === 'number' ? pest[k] : 0), sum);
       }, 0);
     }
-    const over = new Set([...(sp.done || []), ...(sp.skipped || []), ...(sp.failed || []), ...(sp.current ? [sp.current] : [])].map(unitKey));
+    const over = new Set([...(sp.done || []), ...(sp.skipped || []), ...(sp.failed || []), ...(sp.current ? [sp.current] : []), ...(sp.streams || [])].map(unitKey));
     return sp.planned.reduce((sum, x) => {
       if (over.has(unitKey(x))) return sum;
       const e = pest[unitKey(x)];
@@ -379,7 +392,9 @@ function progress() {
     const pr = partnerRateOf(s);
     if (pr && pr.eta !== null && pr.rate) remaining += pr.eta;
     else if (sp && sp.current && typeof pest[unitKey(sp.current)] === 'number') {
-      const left = pest[unitKey(sp.current)] - (now - (sp.current.since || now));
+      // several at once (engine 2.73): they go side by side — the one with the most left
+      const left = Math.max(...(partnerStreamsOf(s) || [sp.current]).map((x) => (typeof pest[unitKey(x)] === 'number' ? pest[unitKey(x)] : pest[unitKey(sp.current)])
+        - (now - (x.since || now))));
       if (left < 0) overdue = true;
       remaining += Math.max(0, left);
     } else if (sp && sp.current) partnerUnknown = true;
@@ -429,7 +444,7 @@ function bubbleText(pg) {
     } else if (s && s.phase === 'vm_shutdown') out.push(T('bubble.running_vm_shutdown'));
     else if (s && s.phase === 'partner' && s.partner && s.partner.current) {
       const pc = s.partner.current;
-      out.push(T('partner.bubble', { unit: unitLabel(pc.unit), name: partnerName(pc.id, s.partner), n: partnerDoneCount(s.partner) + 1, total: (s.partner.planned || []).length }));
+      out.push(T('partner.bubble', { unit: partnerNowUnits(s), name: partnerName(pc.id, s.partner), n: partnerDoneCount(s.partner) + 1, total: (s.partner.planned || []).length }));
     }
     else if (s) out.push(T('bubble.running_phase', { step: T('step.' + STEPS[p ? p.step : 0][0]) }));
     else out.push(T('bubble.running_old', { step: state.step || '…' }));
@@ -924,7 +939,7 @@ function partnerParts(p) {
   const l = p.last;
   const parts = [];
   if (p.apply && !p.current) parts.push(partnerApplyText(p));
-  if (p.current) parts.push(T('partner.tile_now', { name: p.name, unit: unitLabel(p.current.unit), size: fmt.size(p.current.bytes || 0) }));
+  if (p.current) parts.push(T('partner.tile_now', { name: p.name, unit: partnerUnitsLabel(p.current.units || [p.current.unit]), size: fmt.size(p.current.bytes || 0) }));
   else if (!l) { if (!p.apply) parts.push(T('partner.tile_never', { name: p.name, n: p.units.length })); } else {
     parts.push(l.sent ? T('partner.tile_sent', { name: p.name, n: l.sent, size: fmt.size(l.bytes), rate: fmt.bitrate(l.mbit || 0), when: fmt.relative(l.time) })
       : T('partner.tile_none', { name: p.name, when: fmt.relative(l.time) }));

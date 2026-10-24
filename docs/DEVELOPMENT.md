@@ -448,7 +448,12 @@ saw before is chipped «new» on its card; one nothing came of for 30 days «no 
 it away). Every 15 minutes each office asks its partners how they are; a partner office up to 1.59 keeps only what its
 Team Lead agreed to, so the mutual watch offers it the units through its door until it is updated.
 
-The nightly sending is the engine's phase `partner` (backup/README.md, «Partner offices»). **Bringing it back:** Mr.
+The nightly sending is the engine's phase `partner` (backup/README.md, «Partner offices»). Since 1.72 (engine 2.73) a
+run may send several datasets of one partner side by side, but only while that clearly moves more: one first, one more
+while the total rate rises by more than 15 %, up to 4 and what the partner's door says it takes (`ping` → `streams`; an
+older door says nothing: one). The door receives up to `DOOR_RECV_STREAMS` units of a pair at once — the pair's lock
+shared (a send-back takes it alone), each unit's lock alone (never one unit twice), a slot each; the parents, the count
+of units (the ones on their way included) and `received/<id>.json` under the pair's write lock. **Bringing it back:** Mr.
 Restori's tile *At <partner>* lists per unit the partner's snapshots; *Bring back…* pulls one through the door into a
 new dataset beside the original, mounted read-only for his restores; an interrupted pull continues; *Remove what was
 pulled…* destroys exactly that dataset. **When a server is gone**, a new one starts at the Team Lead with *Start from
@@ -699,7 +704,8 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   its door always wakes the pool (`wake` written true, never asked); other desks read partner files read-only.
   **authorized_keys:** only lines commented `uso-partner:<id>` / `uso-ticket:<id>` are written or removed, every other byte
   stays, never through a link; missing/changed → «door closed/changed», never rewritten unasked. The door (`env -i`, verbs word
-  by word) receives with `zfs recv -s -u`, never `-F`, never mounted; an existing unit is put aside, never destroyed. `ping`
+  by word) receives with `zfs recv -s -u`, never `-F`, never mounted; an existing unit is put aside, never destroyed; several
+  units of a pair at once (1.72, each its own ordered stream), never one unit twice. `ping`
   reads RAM and flash only. Tickets never send or receive and are never in pairs.json. The .plg remove takes the lines and
   `partners/` out; copies stay.
 * **Pictures:** each desk has `avatar.svg` (64×64, flat); **never an emoji where a drawing exists**.

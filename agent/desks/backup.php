@@ -326,8 +326,7 @@ function backupPartners(array $settings, array $history, ?array $status = null, 
             }
         }
         $p['last'] = $last;
-        $p['current'] = $cur && ($cur['id'] ?? '') === $p['id'] ? backupPartnerRate(['unit' => (string) ($cur['unit'] ?? ''), 'since' => (int) ($cur['since'] ?? 0),
-            'bytes' => (int) ($cur['bytes'] ?? 0), 'estimate' => is_int($cur['estimate'] ?? null) && $cur['estimate'] > 0 ? $cur['estimate'] : null], $p['id']) : null;
+        $p['current'] = $cur && ($cur['id'] ?? '') === $p['id'] ? backupPartnerCurrent($status, $p['id']) : null;
         $p['ended'] = false;
         $p['anew'] = null;
         $p['apply'] = false;
@@ -425,6 +424,42 @@ function backupDeclineUndo(string $key): array
     return ['ok' => true, 'declined' => (object) backupDeclined()];
 }
 
+/**
+ * What goes to partner $id now, as backupPartnerRate() reckons it. Engine 2.73 sends several datasets at once while that
+ * moves clearly more (status.json partner.streams, current = the one going on longest): then `units` (their names, the
+ * longest first), `bytes`/`estimate` their sums (the estimate only when every one has its own). With 2.73 the rate is
+ * what the run moved to that partner so far (the finished ones and those going on - one count that only grows, across
+ * units and however many go at once), the time left that of those going on at that rate. An engine before 2.73: the
+ * unit's own count, as before.
+ */
+function backupPartnerCurrent(array $status, string $id): array
+{
+    $cur = (array) $status['partner']['current'];
+    $one = ['unit' => (string) ($cur['unit'] ?? ''), 'since' => (int) ($cur['since'] ?? 0), 'bytes' => (int) ($cur['bytes'] ?? 0),
+            'estimate' => is_int($cur['estimate'] ?? null) && $cur['estimate'] > 0 ? $cur['estimate'] : null];
+    if (!is_array($status['partner']['streams'] ?? null)) {
+        return backupPartnerRate($one, $id);                // an engine before 2.73: this unit's own count
+    }
+    $streams = array_values(array_filter($status['partner']['streams'], fn ($x) => is_array($x) && ($x['id'] ?? null) === $id && is_string($x['unit'] ?? null)));
+    $bytes = 0;
+    $estimate = 0;
+    foreach ($streams as $x) {
+        $bytes += max(0, (int) ($x['bytes'] ?? 0));
+        $estimate = $estimate !== null && is_int($x['estimate'] ?? null) && $x['estimate'] > 0 ? $estimate + $x['estimate'] : null;
+    }
+    $moved = $bytes;
+    foreach ((array) ($status['partner']['done'] ?? []) as $d) {
+        if (is_array($d) && ($d['id'] ?? null) === $id) {
+            $moved += max(0, (int) ($d['bytes'] ?? 0));
+        }
+    }
+    $key = "$id|run|" . (int) ($status['started'] ?? 0);
+    if (count($streams) < 2) {
+        return backupPartnerRate($one, $id, $moved, $key);
+    }
+    return backupPartnerRate($one + ['units' => array_column($streams, 'unit'), 'bytes' => $bytes, 'estimate' => $estimate], $id, $moved, $key);
+}
+
 const BACKUP_PARTNER_RATE_FILE   = 'backup-partner-rate.json';   // in RUN_DIR: the samples of the transfer going on (RAM, gone with the agent)
 const BACKUP_PARTNER_RATE_WINDOW = 600;                           // the median rate of the last 10 minutes (like Jack Emby's live panel)
 const BACKUP_PARTNER_RATE_EVERY  = 10;                            // the engine writes current.bytes every 10 s (2.42)
@@ -436,17 +471,18 @@ const BACKUP_PARTNER_RATE_EVERY  = 10;                            // the engine 
  * jackProgressSpeed()), the time left what is left of the estimate at that speed. Gives the current back with `rate`
  * (bytes/s, null before the second sample), `eta` (seconds, null without an estimate or a rate).
  */
-function backupPartnerRate(array $cur, string $id): array
+function backupPartnerRate(array $cur, string $id, ?int $moved = null, ?string $key = null): array
 {
     $file = RUN_DIR . '/' . BACKUP_PARTNER_RATE_FILE;
-    $key = "$id|{$cur['unit']}|{$cur['since']}";
+    $key ??= "$id|{$cur['unit']}|{$cur['since']}";
+    $count = $moved ?? $cur['bytes'];        // 2.73, several at once: what the run moved to that partner so far
     $now = time();
     $kept = readJson($file);
     $samples = is_array($kept) && ($kept['key'] ?? null) === $key && is_array($kept['samples'] ?? null) ? $kept['samples'] : [];
     $last = $samples ? $samples[count($samples) - 1] : null;
     // a new count only (the engine writes every 10 s; the page asks every few seconds — the same bytes twice tell nothing)
-    if ($last === null || ($cur['bytes'] !== $last[1] && $now - $last[0] >= BACKUP_PARTNER_RATE_EVERY - 1)) {
-        $samples[] = [$now, $cur['bytes']];
+    if ($last === null || ($count !== $last[1] && $now - $last[0] >= BACKUP_PARTNER_RATE_EVERY - 1)) {
+        $samples[] = [$now, $count];
         $samples = array_values(array_filter($samples, fn ($x) => is_array($x) && $x[0] >= $now - BACKUP_PARTNER_RATE_WINDOW - BACKUP_PARTNER_RATE_EVERY));
         try {
             writeAtomic($file, jsonEncode(['key' => $key, 'samples' => array_slice($samples, -80)]), 0600, 0, 0);

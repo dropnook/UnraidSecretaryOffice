@@ -1682,6 +1682,7 @@
   "partner.left": "encore environ {left}",
   "partner.left_soon": "presque fini",
   "partner.dash": "vers {name} : {unit} {size}",
+  "partner.units_more": {"one": "{unit} et {n} autre", "other": "{unit} et {n} autres"},
   "partner.why_short.unreachable": "injoignable",
   "partner.why_short.refused_quota": "son quota est plein",
   "partner.why_short.refused_window": "hors de sa fenêtre",

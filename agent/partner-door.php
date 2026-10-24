@@ -9,7 +9,7 @@ declare(strict_types=1);
  * Whatever the partner's ssh asks for, this runs (as root, cwd /, umask 077, an empty environment but PATH and the two
  * SSH_ variables — scripts/partner-door.sh). The request arrives as SSH_ORIGINAL_COMMAND and is taken word by word:
  *
- *   ping                              {"ok":true,"v","pair","array","night","time"} — from RAM and the flash only (the
+ *   ping                              {"ok":true,"v","pair","array","night","time","streams"} — from RAM and the flash only (the
  *                                     array may be stopped: nothing under /mnt is touched); with the array started and
  *                                     the data folder there, a pair it doesn't know (partnerKnownIds()) is refused
  *                                     no_pair — a line left from before the server was set up anew with its flash kept
@@ -22,7 +22,9 @@ declare(strict_types=1);
  *   recv <unit> <snap> [<from>|-t]    stdin → mbuffer → zfs recv -s -u into <pool>/UnraidSecretaryOffice-partners/<id>/<unit>;
  *                                     a full stream onto an existing unit puts the old dataset aside (<ds>.old-<time>),
  *                                     a stale partial receive is aborted (zfs recv -A) unless the call is a -t resume;
- *                                     JSON on stderr before reading and after; the receiver's retention afterwards
+ *                                     JSON on stderr before reading and after; the receiver's retention afterwards;
+ *                                     since 1.72 up to DOOR_RECV_STREAMS units of a pair at once (ping says `streams`;
+ *                                     a sender that doesn't see it sends one after another), never one unit twice
  *   offer <unit> [<unit>…]            what an older partner (up to 1.59) would like to send (≤ 64 units, each a unit word,
  *                                     no twice): kept as what it named (data/partner/wishes/<id>.json, {pair, units, time},
  *                                     overwritten) and answered {"ok":true,"agreed":[…all of them…],"pending":[]} — the
@@ -67,6 +69,7 @@ const FILE_UID = 0;
 const FILE_GID = 0;
 const LOG_MAX = 512 * 1024;
 const DOOR_REFUSED_KEEP = 3600;
+const DOOR_RECV_STREAMS = 4;            // 1.72: receives of one pair at once (different units, each its own ordered stream)
 
 require dirname(__DIR__) . '/src/place.php';
 define('RUN_DIR', officeRunDir());
@@ -290,7 +293,8 @@ function doorMain(array $argv): int
             return doorRefuse($id, 'no_pair');
         }
         doorHeard($id);
-        doorSay(['ok' => true, 'v' => doorVersion(), 'pair' => $id, 'array' => doorArrayRunning() ? 'started' : 'stopped', 'night' => doorNight(), 'time' => doorNow()]);
+        doorSay(['ok' => true, 'v' => doorVersion(), 'pair' => $id, 'array' => doorArrayRunning() ? 'started' : 'stopped', 'night' => doorNight(), 'time' => doorNow(),
+                 'streams' => DOOR_RECV_STREAMS]);
         return 0;
     }
     // offer: every word a unit, none twice
@@ -476,23 +480,72 @@ function doorAgreed(array $pair): array
     return array_slice(array_keys($units), 0, PARTNER_UNITS_MAX);
 }
 
-/** How many unit datasets the pair has here (zfs list -r of its dataset, one level below it) */
-function doorUnitCount(string $pairDs): int
+/**
+ * How many unit datasets the pair has here (zfs list -r of its dataset, one level below it) — 1.72: and the new ones on
+ * their way (another receive of the pair into a dataset not there yet, its record in RAM): asked under the pair's write
+ * lock, so several receives at once never take a pair past PARTNER_UNITS_MAX
+ */
+function doorUnitCount(string $pairDs, string $id = ''): int
 {
     [$exit, $out] = run([partnerBin('zfs') ?? 'zfs', 'list', '-H', '-o', 'name', '-t', 'filesystem', '-r', $pairDs], 60);
-    $n = 0;
+    $have = [];
     foreach ($exit === 0 ? explode("\n", trim($out)) : [] as $name) {
         if (str_starts_with($name, "$pairDs/") && !str_contains(substr($name, strlen($pairDs) + 1), '/')) {
-            $n++;
+            $have[$name] = true;
         }
     }
-    return $n;
+    if ($id !== '') {
+        foreach (glob(partnerRunDir() . '/door-*.json') ?: [] as $f) {
+            $pid = preg_match('/door-(\d{1,10})\.json$/D', $f, $m) ? (int) $m[1] : 0;
+            $d = $pid > 1 && $pid !== getmypid() && is_dir("/proc/$pid") && !is_link($f) ? json_decode((string) @file_get_contents($f, false, null, 0, 8192), true) : null;
+            if (is_array($d) && ($d['pair'] ?? null) === $id && empty($d['send_back']) && is_string($d['dataset'] ?? null) && str_starts_with($d['dataset'], "$pairDs/")) {
+                $have[$d['dataset']] = true;
+            }
+        }
+    }
+    return count($have);
 }
 
 /**
- * The receiving end of a transfer. Checks (the quota, the count of units, the chain) before a byte is read; one
- * transfer per pair (its lock in RAM); the process registered for the array stop (agent.sh partner_release); JSON on
- * stderr before and after.
+ * 1.72: the locks of a receive — the pair's lock shared (a send-back, and a door before 1.72, hold it alone: then
+ * `busy`), the unit's alone (never one unit twice at once: its stream is one ordered chain), one of DOOR_RECV_STREAMS
+ * slots. Null: busy. The handles are kept until the process ends.
+ */
+function doorRecvLocks(string $id, string $unit): ?array
+{
+    $dir = partnerRunDir();
+    $pair = @fopen("$dir/$id.lock", 'c');
+    if (!$pair || !flock($pair, LOCK_SH | LOCK_NB)) {
+        return null;
+    }
+    $one = @fopen("$dir/$id.unit-" . str_replace(':', '-', $unit) . '.lock', 'c');
+    if (!$one || !flock($one, LOCK_EX | LOCK_NB)) {
+        return null;
+    }
+    for ($i = 0; $i < DOOR_RECV_STREAMS; $i++) {
+        $slot = @fopen("$dir/$id.slot$i.lock", 'c');
+        if ($slot && flock($slot, LOCK_EX | LOCK_NB)) {
+            return [$pair, $one, $slot];
+        }
+    }
+    return null;
+}
+
+/** 1.72: the pair's write lock — its parents, the count of its units, received/<id>.json: one receive at a time */
+function doorWriteLock(string $id)
+{
+    $h = @fopen(partnerRunDir() . "/$id.write.lock", 'c');
+    if ($h) {
+        flock($h, LOCK_EX);
+    }
+    return $h;
+}
+
+/**
+ * The receiving end of a transfer. Checks (the quota, the count of units, the chain) before a byte is read; since 1.72
+ * up to DOOR_RECV_STREAMS units of a pair at once, never one unit twice (doorRecvLocks(); before: one transfer per pair),
+ * what they share — the parents, the count of units, received/<id>.json — under the pair's write lock; the process
+ * registered for the array stop (agent.sh partner_release); JSON on stderr before and after.
  */
 function doorRecv(array $pair, string $unit, string $snap, ?string $from): int
 {
@@ -501,12 +554,15 @@ function doorRecv(array $pair, string $unit, string $snap, ?string $from): int
     if (!partnerDirReady(partnerRunDir())) {
         return doorRefuse($id, 'busy', true);
     }
-    $lock = @fopen(partnerRunDir() . "/$id.lock", 'c');
-    if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) {
+    $locks = doorRecvLocks($id, $unit);
+    if ($locks === null) {
         return doorRefuse($id, 'busy', true);
     }
     $pairDs = "{$r['pool']}/" . PARTNER_PARENT . "/$id";
     $ds = partnerUnitDataset($r['pool'], $id, $unit);
+    $record = partnerRunDir() . '/door-' . getmypid() . '.json';
+    register_shutdown_function(fn () => @unlink($record));
+    $w = doorWriteLock($id);
     if (!doorParents($r['pool'], $id, $r['quota_gb'])) {
         return doorRefuse($id, 'recv_failed', true, ['detail' => 'parents']);
     }
@@ -518,8 +574,16 @@ function doorRecv(array $pair, string $unit, string $snap, ?string $from): int
     }
     $zfs = partnerBin('zfs') ?? 'zfs';
     $info = doorZfsGet($ds, 'type,receive_resume_token');
-    if ($info === null && doorUnitCount($pairDs) >= PARTNER_UNITS_MAX) {
+    if ($info === null && doorUnitCount($pairDs, $id) >= PARTNER_UNITS_MAX) {
         return doorRefuse($id, 'refused_units', true, ['max' => PARTNER_UNITS_MAX]);        // a new unit beyond what a pair may keep here
+    }
+    // 1.72: this receive is on its way from here (the count above sees it) - the record again below with its children
+    try {
+        writeAtomic($record, jsonEncode(['pid' => getmypid(), 'pair' => $id, 'unit' => $unit, 'snap' => $snap, 'dataset' => $ds, 'since' => time(), 'children' => []]), 0600, 0, 0);
+    } catch (Throwable $e) {
+    }
+    if ($w) {
+        flock($w, LOCK_UN);
     }
     $resume = $from === '-t';
     $token = $info !== null ? ($info['receive_resume_token'] ?? '-') : '-';
@@ -601,7 +665,6 @@ function doorRecv(array $pair, string $unit, string $snap, ?string $from): int
         return 1;
     }
     $children = array_values(array_filter([proc_get_status($zr)['pid'] ?? null, $mb !== null ? (proc_get_status($mb)['pid'] ?? null) : null]));
-    $record = partnerRunDir() . '/door-' . getmypid() . '.json';
     try {
         writeAtomic($record, jsonEncode(['pid' => getmypid(), 'pair' => $id, 'unit' => $unit, 'snap' => $snap, 'dataset' => $ds, 'since' => time(), 'children' => $children]), 0600, 0, 0);
     } catch (Throwable $e) {
@@ -656,11 +719,14 @@ function doorRecv(array $pair, string $unit, string $snap, ?string $from): int
     }
     $bytes = num(doorZfsGet("$ds@$snap", 'written')['written'] ?? '');
     $kept = doorRetention($pair, $ds);
+    $w = doorWriteLock($id);
     doorReceived($pair, $unit, $snap, $bytes, $seconds, $kept);
+    if ($w) {
+        flock($w, LOCK_UN);
+    }
     doorLog($id, "recv $unit $snap done: $bytes bytes in {$seconds} s");
     partnerRescanAsk();         // the Team Lead's card shows the unit at once, not at his next tour (2026-10-23, the lab)
     doorSay(['ok' => true, 'bytes' => $bytes, 'seconds' => $seconds] + ($aside !== null ? ['aside' => $aside] : []), true);
-    flock($lock, LOCK_UN);
     return 0;
 }
 

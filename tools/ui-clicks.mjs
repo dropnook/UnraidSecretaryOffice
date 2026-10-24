@@ -900,12 +900,62 @@ async function pairAddress(browser) {
   res.ms = Date.now() - t0;
   return res;
 }
+// ------------------------------------------------------------------ several transfers to a partner at once (engine 2.73)
+// A run in its partner step sending two datasets side by side (status.json partner.streams): the run card and the bubble
+// say «appdata and 1 more», the bytes of both of the estimate of both, the agent's rate (what the run moved to that
+// partner) and the time left - at 1440 and 375 px, nothing scrolls sideways, no page error.
+async function partnerStreams(browser) {
+  const res = { route: 'partner streams', theme: 'dark', width: 1440, tested: 0, skipped: 0, capped: 0, hidden: 0, sections: 0, fails: [], ms: 0 };
+  const t0 = Date.now();
+  const fail = (what) => res.fails.push(what);
+  const h = await startHarness({});
+  const base = JSON.parse(fs.readFileSync(path.join(REPO, 'tests', 'ui', 'states', 'backup.json'), 'utf8'));
+  const now = Math.floor(Date.now() / 1000);
+  const p0 = base.partners[0];
+  const id = p0.id;
+  const streams = [{ id, unit: 'share:appdata', since: now - 120, bytes: 3 * 1024 ** 3, estimate: 8 * 1024 ** 3 }, { id, unit: 'share:domains', since: now - 60, bytes: 1024 ** 3, estimate: 2 * 1024 ** 3 }];
+  h.setState('backup', { ...base, running: true, holder: { holder: 'backup', mode: 'backup' },
+    status: { ...base.status, phase: 'partner', result: 'running', started: now - 300, finished: 0,
+      partner: { partners: [{ id, name: p0.name }], planned: ['place', 'share:appdata', 'share:domains'].map((unit) => ({ id, unit })), current: streams[0], streams,
+        done: [{ id, unit: 'place', snap: 'uso-backup-20261024-0200', from: null, bytes: 1024 ** 2, seconds: 3, mbit: 2.8, resumed: false }], skipped: [], failed: [], interrupted: null, interrupted_all: [] } },
+    partners: [{ ...p0, current: { unit: 'share:appdata', since: now - 120, bytes: 4 * 1024 ** 3, estimate: 10 * 1024 ** 3, units: ['share:appdata', 'share:domains'], rate: 120 * 1024 ** 2, eta: 600 } }, ...base.partners.slice(1)] });
+  try {
+    for (const width of [1440, 375]) {
+      const ctx = await browser.newContext({ viewport: { width, height: 900 }, locale: 'en-US' });
+      const page = await ctx.newPage();
+      const errors = [];
+      page.on('pageerror', (e) => errors.push(`page error: ${String(e.message).slice(0, 160)}`));
+      page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text().slice(0, 200)); });
+      await page.goto(`${h.url}#/backup`, { waitUntil: 'load' });
+      const ok = await page.waitForFunction(() => /appdata and 1 more/.test((document.querySelector('#sso') || {}).innerText || ''), null, { timeout: 15000 }).then(() => true, () => false);
+      res.tested++;
+      const words = await page.evaluate(() => (document.querySelector('#sso') || {}).innerText || '');
+      if (!ok) fail(`${width} px: «appdata and 1 more» nowhere on the page`);
+      const line = words.split('\n').find((l) => /^To .+: appdata and 1 more/.test(l)) || '';
+      res.tested++;
+      if (!/4(\.0)? GB of ~10(\.0)? GB/.test(line) || !/120 MB\/s/.test(line) || !/about 10 min left/.test(line)) fail(`${width} px: the run card's line is not both transfers with the rate and the time left (${JSON.stringify(line)})`);
+      res.tested++;
+      if (!/sending appdata and 1 more to /.test(words)) fail(`${width} px: the bubble doesn't say both transfers`);
+      const wide = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+      res.tested++;
+      if (wide) fail(`${width} px: the page scrolls sideways`);
+      for (const e of errors) fail(`${width} px: ${e}`);
+      await ctx.close();
+    }
+  } catch (e) {
+    fail(String(e.message || e).split('\n')[0].slice(0, 200));
+  }
+  await h.close();
+  res.ms = Date.now() - t0;
+  return res;
+}
 const walks = opt.states ? [] : WALK.filter((d) => !opt.only || routes.includes(d));
 results.push(...await Promise.all(walks.map((d) => routeWalk(browser, harness, d))));
 if (!opt.states && (!opt.only || routes.includes('jack/setup'))) results.push(await dialogStack(browser, harness));
 if (!opt.states && (!opt.only || routes.includes('caretaker'))) results.push(await firstHome(browser));
 if (!opt.states && (!opt.only || routes.includes('caretaker'))) results.push(await netBusy(browser));
 if (!opt.states && (!opt.only || routes.includes('caretaker'))) results.push(await pairAddress(browser));
+if (!opt.states && (!opt.only || routes.includes('backup'))) results.push(await partnerStreams(browser));
 await browser.close();
 await harness.close();
 
