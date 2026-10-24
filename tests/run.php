@@ -49883,7 +49883,7 @@ function testRestoreTiles(): void
         str_contains($js, 'key: `restore.list.${list}`') && str_contains($js, "only: { text: T('list.only_missing')") && str_contains($js, 'listBars.forEach((b) => b.reset());')
         && !preg_match("/Office\\.store\\('restore\\.list/", $js));
     check('restore tiles: … over Apps, VMs and Databases (gone apps, missing VMs; a database group keeps its head over what fits)',
-        preg_match_all("/[=(] ?barRows\\(s, '(apps|vms|dbs)', /", $js) === 3 && str_contains($js, '(a) => !a.present') && str_contains($js, "(v) => v.state === 'missing'")
+        preg_match_all("/[=(] ?barRows\\(s, '(apps|vms|dbs)', /", $js) === 3 && str_contains($js, '(a) => a.present === false') && str_contains($js, "(v) => v.state === 'missing'")
         && str_contains($js, 'box.appendChild(dbHead(g.app));'));
     // tiles v2 (CLAUDE.md «Tiles»): his row on core's switcher — «Apps» to start, his old key, a partner's tile before the
     // state names it, nothing chosen = every section; a link opens a section without closing it
