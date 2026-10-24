@@ -169,8 +169,9 @@ function keyText(key, lang) {
     files.push(...(d === 'office' ? [path.join(root, 'public', 'lang', `${lang}.json`), path.join(root, 'public', 'lang', 'en.json')]
       : [path.join(root, 'public', 'desks', d, 'lang', `${lang}.json`), path.join(root, 'public', 'desks', d, 'lang', 'en.json')]));
   }
-  const k = d === 'office' ? key : rest.join('.');
-  for (const f of files) { const j = readJson(f); if (j && j[k] !== undefined) return j[k]; }
+  // the office's own: a key named «office.…» as it is, else without the prefix (`office.protect.local` → protect.local)
+  const ks = d === 'office' ? [key, rest.join('.')] : [rest.join('.')];
+  for (const f of files) { const j = readJson(f); for (const k of ks) if (j && j[k] !== undefined) return j[k]; }
   return undefined;
 }
 function keyPatterns(key, lang) {

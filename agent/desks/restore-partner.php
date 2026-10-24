@@ -380,15 +380,19 @@ function rspState(): array
 
 /**
  * The chip «at <partner>» of an app or VM row: the partners holding a unit its data lies in (its shares, its own VM
- * dataset) — the newest moment each.
+ * dataset, the app's own unit) — the newest moment each. A folder in a dataset of its own is no part of its share's
+ * stream: the caller leaves its share out ('' in $shares), only the app's or VM's own unit counts (the truth review T06).
  *
  * @return list<array{id:string, name:string, unit:string, newest:?int, n:int}>
  */
-function rspChips(array $partners, array $shares, ?string $vm = null): array
+function rspChips(array $partners, array $shares, ?string $vm = null, ?string $app = null): array
 {
-    $want = array_map(fn ($s) => "share:$s", array_values(array_unique(array_filter($shares, 'is_string'))));
+    $want = array_map(fn ($s) => "share:$s", array_values(array_unique(array_filter($shares, fn ($s) => is_string($s) && $s !== ''))));
     if ($vm !== null) {
         $want[] = "vm:$vm";
+    }
+    if ($app !== null) {
+        $want[] = "app:$app";
     }
     $out = [];
     foreach ($partners as $p) {

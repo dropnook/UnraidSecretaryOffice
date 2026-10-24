@@ -178,6 +178,13 @@ function whereScan(bool $awake = false): array
     return $state;
 }
 
+/** A path's backup protection as a place carries it: `backup` (what is really there) and `backup_note` (why, the partners) */
+function waBackup(string $path): array
+{
+    $info = backupProtectionInfo($path);
+    return ['backup' => $info['level'], 'backup_note' => backupProtectionNote($info)];
+}
+
 /**
  * Wakes every sleeping disk — only when asked ("wake the disks" with the
  * tour). All at once: one block is read straight from each, in parallel, so
@@ -394,7 +401,7 @@ function waShares(array $roots, array $asleep, array $datasets, array $consumers
             ],
             'has_cfg'  => is_file($dir . "/$name.cfg"),
             'used_by'  => $usedBy,
-            'backup'   => $stale ? null : backupProtection("/mnt/user/$name"),
+            ...($stale ? ['backup' => null] : waBackup("/mnt/user/$name")),
         ] + ($stale ? ['stale_cfg' => true] : []);
     }
     return $shares;
@@ -722,7 +729,7 @@ function waVm(string $name, string $state, int $snapshots, array $roots, array $
             $readable = waPathExists($src, $roots, $asleep) === true;      // never wake a sleeping disk for this
             $disks[] = ['device' => $attr($d, 'device') ?? 'disk', 'source' => $src, 'target' => $attr($d->target, 'dev'),
                         'bus' => $attr($d->target, 'bus'), 'format' => $attr($d->driver, 'type'),
-                        'backup' => backupProtection($src),
+                        ...waBackup($src),
                         'chain' => $readable && $attr($d->driver, 'type') === 'qcow2' ? waBackingChain($src) : []]
                        + ($readable ? waFileSizes($src) : ['bytes' => null, 'allocated' => null, 'sparse' => false]);
         }
@@ -764,6 +771,7 @@ function waVm(string $name, string $state, int $snapshots, array $roots, array $
         'graphics'    => $vnc,
         'snapshots'   => $snapshots,
         'config_backup' => backupProtection(WA_LIBVIRT),
+        'config_backup_note' => backupProtectionNote(backupProtectionInfo(WA_LIBVIRT)),
         'agent'       => $state === 'running' ? waVmAgent($name) : null,
     ];
 }
@@ -907,7 +915,7 @@ function waBackingChain(string $file): array
             break;
         }
         $next = $name[0] === '/' ? $name : dirname($file) . '/' . $name;
-        $chain[] = ['path' => $next, 'exists' => file_exists($next), 'backup' => backupProtection($next)]
+        $chain[] = ['path' => $next, 'exists' => file_exists($next), ...waBackup($next)]
                  + (is_file($next) ? waFileSizes($next) : ['bytes' => null, 'allocated' => null, 'sparse' => false]);
         $file = $next;
         if (!is_file($file)) {
@@ -1042,7 +1050,7 @@ function waLocations(array $vms, array $cron): array
         unset($extra['glob']);
         return ['id' => $id, 'path' => $path, 'exists' => $exists, 'dir' => $exists && is_dir($path),
                 'bytes' => $exists && is_file($path) ? (int) @filesize($path) : null, 'count' => $extra['count'] ?? $count,
-                'backup' => backupProtection($path)] + $extra;
+                ...waBackup($path)] + $extra;
     };
     $docker = readCfg('/boot/config/docker.cfg');
     $domain = readCfg('/boot/config/domain.cfg');
@@ -1081,11 +1089,11 @@ function waLocations(array $vms, array $cron): array
         foreach (['compose.yaml', 'compose.yml', 'docker-compose.yml', 'docker-compose.yaml', 'compose.override.yaml',
                   'compose.override.yml', 'docker-compose.override.yml', 'docker-compose.override.yaml', '.env'] as $f) {
             if (is_file("$where/$f")) {
-                $files[] = ['path' => "$where/$f", 'backup' => backupProtection("$where/$f")];
+                $files[] = ['path' => "$where/$f", ...waBackup("$where/$f")];
             }
         }
         $stacks[] = ['name' => trim((string) @file_get_contents("$dir/name")) ?: basename($dir), 'dir' => $dir,
-                     'indirect' => $indirect !== '' ? $indirect : null, 'files' => $files, 'backup' => backupProtection($dir)];
+                     'indirect' => $indirect !== '' ? $indirect : null, 'files' => $files, ...waBackup($dir)];
     }
     $groups[] = ['id' => 'compose', 'items' => [$item('compose_projects', WA_COMPOSE, ['glob' => '*'])], 'stacks' => $stacks];
 

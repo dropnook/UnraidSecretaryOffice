@@ -263,13 +263,16 @@ function restoreButton(text, req, title) {
   return b;
 }
 
-/** The weakest protection among the folders of an app or VM, as on every desk */
-function protectionOf(folders) {
+/** The folder whose protection is the weakest among the folders of an app or VM, as on every desk (its note says why) */
+function weakestFolder(folders) {
   const order = ['none', 'local', 'offsite'];
-  const levels = folders.map((f) => f.protection).filter(Boolean);
-  if (!levels.length) return null;
-  return levels.sort((a, b) => order.indexOf(a) - order.indexOf(b))[0];
+  // among equals one whose note says why it is less than set
+  const why = (n) => (n && ((n.why || []).length || (n.missed || []).length) ? 0 : 1);
+  return folders.filter((f) => f.protection).sort((a, b) => order.indexOf(a.protection) - order.indexOf(b.protection)
+    || why(a.protection_note) - why(b.protection_note))[0] || null;
 }
+/** A folder's protection label: the level and why it is less than set — the partners are the row's own «at» labels */
+const protChip = (f) => (f ? Office.backupChip(f.protection, f.protection_note, { partners: false }) : null);
 
 // ------------------------------------------------------------------ bubble
 // greet.2 «Which state do you want? I'll bring it back as it was.» only with packages to bring back (2026-10-18: a bubble
@@ -592,7 +595,7 @@ function rowChips(meta, x, extraPackage, extraData) {
     own ? null : kopiaChip(x.kopia, ['package']),
   ]);
   const data = chipGroup(T('chip.label_data'), [...extraData, snapsChip(x.folders), kopiaChip(x.kopia, ['data', 'all']), ...(x.at_partner || []).map(atPartnerChip),
-    Office.backupChip(protectionOf(x.folders))]);
+    protChip(weakestFolder(x.folders))]);
   [pkg, data].forEach((g) => { if (g) meta.appendChild(g); });
 }
 
@@ -924,7 +927,7 @@ function unitPart(f, owner) {
   const title = el('div', 'rs-part-title rs-folder');
   title.append(copyCode(f.path));
   if (f.whole) title.append(' ', chip(T('snaps.whole_chip'), 'quiet', T('snaps.whole_hint')));
-  const pc = Office.backupChip(f.protection);
+  const pc = protChip(f);
   if (pc) title.append(' ', pc);
   if (!f.whole && !f.exists && !f.asleep) title.append(' ', chip(T('snaps.missing'), 'danger', T('snaps.missing_hint')));
   // from a moment of its snapshots, or from what Kopia brought back into its restore folder
@@ -1248,7 +1251,7 @@ function dbMeta(a, x) {
   meta.append(el('span', '', fmt.size(x.bytes)), el('span', '', date(x.time)));
   if (x.kept) meta.appendChild(x.kind === 'db' ? chip(T('db.kept'), 'warn', T('db.kept_hint')) : chip(T('sq.kept'), 'warn', T('sq.kept_hint')));
   if (x.kind === 'sqlite') meta.appendChild(x.checked ? chip(T('sq.checked'), 'ok', T('sq.checked_hint')) : chip(T('sq.unchecked'), '', T('sq.unchecked_hint')));
-  const kept = Office.backupChip(a.package_protection);
+  const kept = Office.backupChip(a.package_protection, a.package_protection_note, { partners: false });
   if (kept) meta.appendChild(kept);
   return meta;
 }

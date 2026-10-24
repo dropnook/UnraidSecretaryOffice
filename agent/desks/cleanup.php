@@ -2986,7 +2986,9 @@ function clFolderEntries(array $list, array $tops, array $named, string $kind, b
                     $m['top'][] = [$t, count($f['parts']) > 1 ? $p['root'] . ": $rel" : $rel];
                 }
             }
-            $parts[] = $p + ['bytes' => $ok ? $size['bytes'] : null, 'snaps' => $ok && $ds ? $ds['snaps'] : null, 'backup' => backupProtection($p['path'])];
+            $prot = backupProtectionInfo($p['path']);      // what is really there, and why it is less than set (backup_note)
+            $parts[] = $p + ['bytes' => $ok ? $size['bytes'] : null, 'snaps' => $ok && $ds ? $ds['snaps'] : null, 'backup' => $prot['level'],
+                             'backup_note' => backupProtectionNote($prot)];
         }
         usort($m['top'], fn ($a, $b) => $b[0] <=> $a[0]);
         $m['top'] = array_slice($m['top'], 0, 5);

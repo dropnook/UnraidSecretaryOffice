@@ -395,40 +395,143 @@ function backupAppShares(string $boot = '/boot'): array
 }
 
 /**
- * How is a path protected by the backup? For any desk that shows paths.
+ * How is a path protected by the backup? For any desk that shows paths: what is really there (the truth review, P1) —
+ * the level settings.ini sets (backupProtectionSet()) lowered to what the engine's results show (backupProtectionInfo()).
  *   offsite  local snapshot + Kopia      local  local snapshot (or dump) only
  *   none     not backed up               null   no backup set up (or can't tell)
- * Follows the same rules as the engine: share mode, Kopia ignore rules, a new top-level
- * folder of an app/VM share (not in kopia_known, engine 2.21; since 2.37 only there - in a data share
- * it goes with the share) only local, flash mode for /boot, and /etc/libvirt lives in libvirt.img.
- * A new folder of an app or VM going offsite counts as local here (its owner needs Docker's view); one of an app or
- * VM set up before and only local (engine 2.38: it stays local with it, silently) is local here as it is in the run.
- * $appShares for the tests (backupAppShares()).
+ * Tests pass their own settings (and $truth; without it the settings alone count, as before).
  */
-function backupProtection(string $path, int $depth = 0, ?array $settings = null, ?array $appShares = null): ?string
+function backupProtection(string $path, int $depth = 0, ?array $settings = null, ?array $appShares = null, ?array $truth = null): ?string
+{
+    return backupProtectionInfo($path, $settings, $appShares, $truth, $depth)['level'];
+}
+
+/**
+ * A path's protection with its reasons, for a page that says why (Office.backupChip(level, note)):
+ *   level     what is really there: offsite only once Kopia made a copy of it (its repository not held), local only where
+ *             a run took a snapshot (its share's file system takes one), else lower
+ *   set       what settings.ini sets
+ *   why       codes, in this order: no_run (no backup run yet), no_snaps (its share's file system takes no snapshot),
+ *             kopia_held (the repository suddenly empty: the engine holds Kopia), kopia_never (Kopia made no copy of it
+ *             yet), kopia_gone (Kopia's container is gone), kopia_stuck / kopia_away (the storage takes nothing /
+ *             can't be reached since `since`), kopia_failed (its last upload failed: an older copy is there)
+ *   partners  the partner offices whose newest try received the unit it lies in (names)
+ *   missed    the partner offices that should have it and don't: {name, why: never|skipped|failed, code: the engine's why}
+ * backupProtectionNote() is the short form a state file carries.
+ *
+ * @return array{level: ?string, set: ?string, why: list<string>, since: ?int, partners: list<string>, missed: list<array{name: string, why: string, code: string}>}
+ */
+function backupProtectionInfo(string $path, ?array $settings = null, ?array $appShares = null, ?array $truth = null, int $depth = 0): array
 {
     static $cache = [];
-    if ($settings === null) {           // the engine's settings.ini (tests pass their own)
+    if ($settings === null) {           // the engine's settings.ini and its results (tests pass their own)
         $file = BACKUP_DATA_DIR . '/settings.ini';
         $stamp = (int) @filemtime($file);
         if (($cache['stamp'] ?? null) !== $stamp) {
             $cache = ['stamp' => $stamp, 'settings' => $stamp ? backupReadSettings($file) : []];
         }
         $settings = $cache['settings'];
+        $truth ??= $settings ? backupTruth() : null;
     }
-    $s = $settings;
+    $at = [];
+    $set = backupProtectionSet($path, $depth, $settings, $appShares, $at);
+    $out = ['level' => $set, 'set' => $set, 'why' => [], 'since' => null, 'partners' => [], 'missed' => []];
+    if ($set === null || $set === 'none') {
+        return $out;
+    }
+    foreach (backupProtectionPartners($settings, $at, $truth) as $p) {
+        if ($p['ok']) {
+            $out['partners'][] = $p['name'];
+        } else {
+            $out['missed'][] = ['name' => $p['name'], 'why' => $p['why'], 'code' => $p['code']];
+        }
+    }
+    if ($truth === null) {
+        return $out;
+    }
+    $share = $at['share'] ?? null;
+    $local = true;
+    if (!$truth['runs']) {
+        $out['why'][] = 'no_run';
+        $local = false;
+    } elseif ($share !== null && (isset($truth['no_snaps'][$share]) || backupSetting($settings, "share|$share", 'method') === 'live')) {
+        $out['why'][] = 'no_snaps';
+        $local = false;
+    }
+    $out['level'] = $local ? 'local' : 'none';
+    if ($set === 'offsite' && $truth['runs']) {
+        $k = backupKopiaTruth($truth, $at['source'] ?? null);
+        if ($k['why'] !== null) {
+            $out['why'][] = $k['why'];
+        }
+        $out['since'] = $k['since'];
+        if ($k['offsite']) {
+            $out['level'] = 'offsite';
+        }
+    }
+    if ($out['level'] === 'none') {
+        $out['partners'] = [];
+    }
+    return $out;
+}
+
+/**
+ * Is there an offsite copy of a Kopia source (the share, app:<name>, vm:<name>, flash)? → offsite (a good copy is there,
+ * the repository not held) and the one reason worth saying (backupProtectionInfo()'s kopia_* codes, `since` with it).
+ *
+ * @return array{offsite: bool, why: ?string, since: ?int}
+ */
+function backupKopiaTruth(array $truth, ?string $src): array
+{
+    $k = $truth['kopia'];
+    if ($k['held']) {
+        return ['offsite' => false, 'why' => 'kopia_held', 'since' => null];
+    }
+    if ($src === null || !isset($k['good'][$src])) {
+        return ['offsite' => false, 'why' => 'kopia_never', 'since' => null];
+    }
+    $why = $k['gone'] ? 'kopia_gone' : ($k['stuck'] ? 'kopia_stuck' : ($k['away'] ? 'kopia_away' : (($k['last'][$src] ?? true) === false ? 'kopia_failed' : null)));
+    return ['offsite' => true, 'why' => $why, 'since' => $why === 'kopia_stuck' ? $k['stuck'] : ($why === 'kopia_away' ? $k['away'] : null)];
+}
+
+/**
+ * What a state file carries beside a level (backupProtection()): null when the level says it all — set as it is, no
+ * reason, no partner — else {set, why, since, partners, missed} (backupProtectionInfo()). A page of an older agent has
+ * none: its chip is the level alone.
+ */
+function backupProtectionNote(array $info): ?array
+{
+    if ($info['level'] === $info['set'] && !$info['why'] && !$info['partners'] && !$info['missed']) {
+        return null;
+    }
+    return array_diff_key($info, ['level' => 0]);
+}
+
+/**
+ * The level settings.ini sets for a path - the same rules as the engine: share mode, Kopia ignore rules, a new top-level
+ * folder of an app/VM share (not in kopia_known, engine 2.21; since 2.37 only there - in a data share it goes with the
+ * share) only local, flash mode for /boot, and /etc/libvirt lives in libvirt.img. A new folder of an app or VM going
+ * offsite counts as local here (its owner needs Docker's view); one of an app or VM set up before and only local (engine
+ * 2.38: it stays local with it, silently) is local here as it is in the run. $at gets where the path was judged: share,
+ * rel (its path inside the share), source (the Kopia source that takes it: the share, app:<name>, vm:<name>, flash).
+ * $appShares for the tests (backupAppShares()).
+ */
+function backupProtectionSet(string $path, int $depth, array $s, ?array $appShares, array &$at): ?string
+{
     if (!$s || $depth > 3) {
         return null;
     }
+    $at = ['share' => null, 'rel' => '', 'source' => null];
     $kopia = in_array(strtolower((string) backupSetting($s, 'kopia', 'enabled', 'no')), ['yes', 'ja', '1', 'true'], true);
     $path = rtrim($path, '/');
 
     // archives and packages lie in the backup place: protected like its share
     $place = backupDumpsPath((string) backupSetting($s, 'general', 'dumps_share', ''));
     if ($path === '/boot' || str_starts_with($path, '/boot/')) {
+        $at['source'] = 'flash';
         return match (backupSetting($s, 'flash', 'mode', 'off')) {
             'snapshot' => $kopia ? 'offsite' : 'local',
-            'tar'      => $place ? backupProtection($place, $depth + 1, $s) : 'none',
+            'tar'      => $place ? backupProtectionSet($place, $depth + 1, $s, $appShares, $at) : 'none',
             default    => 'none',
         };
     }
@@ -436,10 +539,10 @@ function backupProtection(string $path, int $depth = 0, ?array $settings = null,
         // the engine puts every VM's configuration into its package and all of libvirt.img into server/
         // (libvirt mode tar, the default); else only the image's share counts
         if ($place && backupSetting($s, 'libvirt', 'mode', 'tar') === 'tar') {
-            return backupProtection($place, $depth + 1, $s);
+            return backupProtectionSet($place, $depth + 1, $s, $appShares, $at);
         }
         $img = readCfg('/boot/config/domain.cfg')['IMAGE_FILE'] ?? null;
-        return $img ? backupProtection($img, $depth + 1, $s) : null;
+        return $img ? backupProtectionSet($img, $depth + 1, $s, $appShares, $at) : null;
     }
     // /mnt/user/<share>/…, /mnt/<pool or disk>/<share>/…, or a resolved exclusive share
     if (!preg_match('#^/mnt/([^/]+)/([^/]+)(?:/(.*))?$#', $path, $m) || in_array($m[1], ['disks', 'remotes', 'addons'], true)) {
@@ -447,13 +550,15 @@ function backupProtection(string $path, int $depth = 0, ?array $settings = null,
     }
     $share = $m[2];
     $rel = $m[3] ?? '';
+    $at = ['share' => $share, 'rel' => $rel, 'source' => $share];
     // a folder of an app or VM with a Kopia source of its own (engine 2.19) goes offsite there,
     // whatever its share does - as long as the share takes a snapshot to read it from
     if ($kopia && $rel !== '' && backupSetting($s, "share|$share", 'mode', 'off') !== 'off') {
         foreach ($s as $section => $keys) {
-            if (preg_match('/^(app|vm)\|/', $section) && ($keys['kopia'] ?? []) && end($keys['kopia']) === 'yes') {
+            if (preg_match('/^(app|vm)\|(.+)$/D', (string) $section, $own) && ($keys['kopia'] ?? []) && end($keys['kopia']) === 'yes') {
                 foreach ($keys['folder'] ?? [] as $f) {
                     if ($f === "$share/$rel" || str_starts_with("$share/$rel", rtrim($f, '/') . '/')) {
+                        $at['source'] = "$own[1]:$own[2]";
                         return 'offsite';
                     }
                 }
@@ -482,6 +587,182 @@ function backupProtection(string $path, int $depth = 0, ?array $settings = null,
         return 'local';
     }
     return 'offsite';
+}
+
+/**
+ * The partner offices that should keep a path (settings.ini's units, backupPartnersFromSettings()) and whether their
+ * newest try received it ($truth: the history; null: as set). The unit a path travels in: its share (`share:<s>`, the
+ * backup place's share also as `place`) — but a folder in a dataset of its own (a ZFS child of the share's dataset) is
+ * no part of the share's stream (engine: `zfs send` without -R) and goes only as its app's (`app:<a>`, [app] folder) or
+ * its VM's own unit (`vm:<v>`, its folder in a VM share). $at as backupProtectionSet() leaves it.
+ *
+ * @return list<array{name: string, ok: bool, why: string, code: string}>
+ */
+function backupProtectionPartners(array $s, array $at, ?array $truth): array
+{
+    $share = $at['share'] ?? null;
+    if ($share === null) {
+        return [];
+    }
+    $child = backupChildDataset($share, (string) ($at['rel'] ?? ''), $truth['children'] ?? null);
+    $units = [];
+    if ($child === null) {
+        $units[] = "share:$share";
+        if ($share === backupSetting($s, 'general', 'dumps_share')) {
+            $units[] = 'place';
+        }
+    } else {
+        foreach ($s as $section => $keys) {
+            if (preg_match('/^app\|(.+)$/D', (string) $section, $a) && in_array("$share/$child", array_map(fn ($f) => rtrim((string) $f, '/'), $keys['folder'] ?? []), true)) {
+                $units[] = "app:$a[1]";
+            } elseif (preg_match('/^vm\|(.+)$/D', (string) $section, $v) && explode('/', $child, 2)[0] === $v[1]) {
+                $units[] = "vm:$v[1]";
+            }
+        }
+    }
+    $out = [];
+    foreach (backupPartnersFromSettings($s) as $p) {
+        $mine = array_values(array_intersect($units, $p['units']));
+        if (!$mine) {
+            continue;
+        }
+        $best = null;
+        foreach ($mine as $u) {
+            $o = $truth === null ? ['ok' => true, 'why' => '', 'code' => ''] : ($truth['partner'][$p['id']][$u] ?? ['ok' => false, 'why' => 'never', 'code' => '']);
+            if ($best === null || ($o['ok'] && !$best['ok'])) {
+                $best = $o;
+            }
+        }
+        $out[] = ['name' => $p['name'], 'ok' => $best['ok'], 'why' => $best['ok'] ? '' : $best['why'], 'code' => $best['ok'] ? '' : (string) $best['code']];
+    }
+    return $out;
+}
+
+/**
+ * Does a path inside a share lie in a ZFS dataset of its own (a child of the share's dataset, mounted at
+ * /mnt/<pool>/<share>/<sub>)? → <sub> (the deepest), else null. $children ("<share>/<sub>") for the tests, else the
+ * mount table (backupZfsChildren()).
+ */
+function backupChildDataset(string $share, string $rel, ?array $children = null): ?string
+{
+    $best = null;
+    foreach ($children ?? backupZfsChildren() as $c) {
+        if (!str_starts_with($c, "$share/")) {
+            continue;
+        }
+        $sub = substr($c, strlen($share) + 1);
+        if (($rel === $sub || str_starts_with($rel, "$sub/")) && ($best === null || strlen($sub) > strlen($best))) {
+            $best = $sub;
+        }
+    }
+    return $best;
+}
+
+/** The ZFS datasets mounted inside a share's folder on a pool or disk ("<share>/<sub>"), from the mount table, kept 10 s */
+function backupZfsChildren(): array
+{
+    static $cache = ['t' => 0, 'list' => []];
+    if (time() - $cache['t'] < 10) {
+        return $cache['list'];
+    }
+    $list = [];
+    foreach (mountTable() as $m) {
+        if ($m['fs'] === 'zfs' && preg_match('#^/mnt/([^/]+)/([^/]+)/(.+)$#D', $m['mount'], $x)
+            && !in_array($x[1], ['user', 'user0', 'disks', 'remotes', 'addons', 'rootshare'], true)) {
+            $list[] = "$x[2]/$x[3]";
+        }
+    }
+    $cache = ['t' => time(), 'list' => array_values(array_unique($list))];
+    return $cache['list'];
+}
+
+/**
+ * What the engine's results say (its interface only — state/history.jsonl, drift.json, setup-plan.json, kopia-held.json,
+ * kopia-watch.json, kopia-reach.json), read again only when one of them changed:
+ *   runs      how many backup runs the history holds (skipped ones not)
+ *   kopia     good: source => when its newest good copy was made · last: source => whether its newest upload went ·
+ *             held (the repository suddenly empty) · gone (drift: Kopia's container gone) · stuck / away (since when the
+ *             storage takes nothing / can't be reached, else null)
+ *   no_snaps  share => true: its file system takes no snapshot (drift share_live / share_snapshot_no_fs; a newer plan's
+ *             method decides for the shares it lists)
+ *   new       share => true: new or renamed, not in settings.ini (drift share_new / share_renamed)
+ *   partner   id => unit => {ok, why: skipped|failed, code: the engine's why, time} — its newest try
+ */
+function backupTruth(?string $data = null): array
+{
+    static $cache = [];
+    $data ??= BACKUP_DATA_DIR;
+    $f = ['history' => "$data/state/history.jsonl", 'drift' => "$data/state/drift.json", 'plan' => "$data/state/setup-plan.json",
+          'held' => "$data/state/kopia-held.json", 'watch' => "$data/state/kopia-watch.json", 'reach' => "$data/state/kopia-reach.json"];
+    clearstatcache();
+    $stamp = $data . '|' . implode('|', array_map(fn ($x) => @filemtime($x) . ':' . @filesize($x), $f));
+    if (($cache['stamp'] ?? null) === $stamp) {
+        return $cache['truth'];
+    }
+    $t = ['runs' => 0, 'kopia' => ['good' => [], 'last' => [], 'held' => false, 'gone' => false, 'stuck' => null, 'away' => null],
+          'no_snaps' => [], 'new' => [], 'partner' => []];
+    foreach (@file($f['history'], FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {      // oldest first
+        $j = json_decode($line, true);
+        if (!is_array($j) || !is_string($j['run'] ?? null) || ($j['result'] ?? '') === 'skipped') {
+            continue;
+        }
+        $t['runs']++;
+        $when = is_int($j['finished'] ?? null) && $j['finished'] > 0 ? $j['finished'] : (int) ($j['started'] ?? 0);
+        foreach (is_array($j['kopia']['done'] ?? null) ? $j['kopia']['done'] : [] as $k) {
+            if (is_array($k) && is_string($k['name'] ?? null)) {
+                $t['kopia']['last'][$k['name']] = !empty($k['ok']);
+                if (!empty($k['ok'])) {
+                    $t['kopia']['good'][$k['name']] = is_int($k['finished'] ?? null) && $k['finished'] > 0 ? $k['finished'] : $when;
+                }
+            }
+        }
+        foreach (backupPartnerRun($j['partner'] ?? null) ?? [] as $p) {
+            foreach ($p['units'] as $u) {
+                $t['partner'][$p['id']][$u['unit']] = ['ok' => true, 'why' => '', 'code' => '', 'time' => $when];
+            }
+            foreach (['skipped', 'failed'] as $kind) {
+                foreach ($p[$kind] as $u) {
+                    $t['partner'][$p['id']][$u['unit']] = ['ok' => false, 'why' => $kind, 'code' => $u['why'], 'time' => $when];
+                }
+            }
+        }
+    }
+    $drift = readJson($f['drift']) ?? [];
+    foreach (is_array($drift['items'] ?? null) ? $drift['items'] : [] as $d) {
+        $code = is_array($d) && is_string($d['code'] ?? null) ? $d['code'] : '';
+        $name = is_array($d) && is_string($d['params']['name'] ?? null) ? $d['params']['name'] : null;
+        if ($name !== null && in_array($code, ['share_live', 'share_snapshot_no_fs'], true)) {
+            $t['no_snaps'][$name] = true;
+        } elseif ($name !== null && in_array($code, ['share_new', 'share_renamed'], true)) {
+            $t['new'][$name] = true;
+        } elseif (in_array($code, ['kopia_no_container', 'kopia_container_gone'], true)) {
+            $t['kopia']['gone'] = true;
+        }
+    }
+    $plan = readJson($f['plan']);
+    if ($plan && (int) @filemtime($f['plan']) > (int) ($drift['time'] ?? 0)) {
+        foreach (is_array($plan['shares'] ?? null) ? $plan['shares'] : [] as $sh) {
+            if (is_array($sh) && is_string($sh['name'] ?? null) && in_array($sh['method'] ?? null, ['snap', 'live'], true)) {
+                if ($sh['method'] === 'live') {
+                    $t['no_snaps'][$sh['name']] = true;
+                } else {
+                    unset($t['no_snaps'][$sh['name']]);
+                }
+            }
+        }
+    }
+    $held = readJson($f['held']);
+    $t['kopia']['held'] = is_array($held) && ($held['v'] ?? null) === 1 && is_string($held['repo'] ?? null);
+    $watch = readJson($f['watch']);
+    if (is_array($watch) && ($watch['v'] ?? null) === 1 && ($watch['state'] ?? '') === 'stuck' && is_int($watch['since'] ?? null) && $watch['since'] > 0) {
+        $t['kopia']['stuck'] = $watch['since'];
+    }
+    $reach = readJson($f['reach']);
+    if (is_array($reach) && ($reach['v'] ?? null) === 1 && is_int($reach['since'] ?? null) && $reach['since'] > 0) {
+        $t['kopia']['away'] = $reach['since'];
+    }
+    $cache = ['stamp' => $stamp, 'truth' => $t];
+    return $t;
 }
 
 /**

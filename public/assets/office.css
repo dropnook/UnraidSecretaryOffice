@@ -471,6 +471,8 @@
 .chip.solid{background:var(--accent); border-color:var(--accent); color:var(--on-fill)}
 .chip.outline{background:transparent; border-color:var(--accent); color:var(--accent-ink)}
 .chip.quiet{background:transparent}
+.protect-pair{display:inline-flex; flex-wrap:wrap; align-items:center; gap:3px; max-width:100%}   /* a protection label and its reason (Office.backupChip) */
+.protect-pair .chip{white-space:normal; overflow-wrap:anywhere; max-width:100%}   /* a long reason wraps in a narrow column, never over its neighbour */
 .figures{display:grid; grid-template-columns:auto auto; gap:0 7px; align-items:baseline; font-size:12.5px; font-variant-numeric:tabular-nums; text-align:right; white-space:nowrap}
 .figures b{font-weight:600; color:var(--ink)}
 .figures span{font-size:11px; color:var(--muted); text-align:left}

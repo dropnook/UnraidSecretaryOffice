@@ -1048,7 +1048,7 @@ function folderMeta(f, meta, figures) {
   if (f.parts.some((p) => p.dataset)) meta.appendChild(chip(T('zfs'), 'quiet', T('zfs_text', { name: f.parts.map((p) => p.dataset).filter(Boolean).join(', ') })));
   const sc = snapsChip(f);
   if (sc) meta.appendChild(sc);
-  const bc = Office.backupChip(f.parts[0] && f.parts[0].backup);
+  const bc = f.parts[0] ? Office.backupChip(f.parts[0].backup, f.parts[0].backup_note) : null;
   if (bc) meta.appendChild(bc);
   if (f.newest) meta.appendChild(el('span', '', T('changed', { when: fmt.relative(f.newest) })));
   if (f.bytes !== null) {
@@ -2907,7 +2907,7 @@ function pathLine(label, path, opts = {}) {
   if (opts.note) text.appendChild(el('div', 'clw-path-note', opts.note));
   const fig = el('div', 'clw-col-fig', opts.figure || '');
   const bk = el('div', 'clw-col-bk');
-  const c = backupChip(opts.backup);
+  const c = backupChip(opts.backup, opts.backupNote);
   if (c) bk.appendChild(c);
   li.append(text, fig, bk, copyButton(path));
   return li;
@@ -2928,12 +2928,18 @@ function helpItems() {
   ];
 }
 
+/** How much a protection note adds among labels of one level: a reason (less than set) 0, nothing 1, a partner keeping it 2 */
+const noteRank = (n) => (!n ? 1 : (n.why || []).length || (n.missed || []).length ? 0 : (n.partners || []).length ? 2 : 1);
+
 function placeSummary(g) {
   const items = g.items || [];
   const main = items[0];
   // what lives in RAM (system log, generated crontabs) and Docker's image data (rebuilt by pulling) don't count for the tile
-  const levels = items.filter((i) => !i.ram && i.id !== 'docker_image').map((i) => i.backup).filter(Boolean);
-  const worst = levels.includes('none') ? 'none' : levels.includes('local') ? 'local' : levels.length ? 'offsite' : null;
+  const counted = items.filter((i) => !i.ram && i.id !== 'docker_image' && i.backup);
+  const rank = { none: 0, local: 1, offsite: 2 };
+  // the weakest item; among equals one whose note says why it is less than set, then one no partner keeps (Office.backupChip())
+  const weakest = counted.sort((a, b) => (rank[a.backup] - rank[b.backup]) || noteRank(a.backup_note) - noteRank(b.backup_note))[0] || null;
+  const worst = weakest ? weakest.backup : null;
   let sub = '';
   if (g.id === 'docker') sub = T('where.place.docker_sub', { n: (items.find((i) => i.id === 'docker_templates') || {}).count || 0 });
   else if (g.id === 'compose') sub = T('where.place.compose_sub', { n: (g.stacks || []).length });
@@ -2942,7 +2948,7 @@ function placeSummary(g) {
   else if (g.id === 'cron') sub = T('where.place.cron_sub', { n: g.jobs || 0, files: (items[0] || {}).count || 0 });
   else if (g.id === 'unraid') sub = bootShort(g.boot);
   else if (g.id === 'office') sub = T('where.place.office_sub');
-  return { main, worst, sub };
+  return { main, worst, worstNote: weakest ? weakest.backup_note : null, sub };
 }
 
 /** What /boot is on this server: USB stick, internal disk or a boot pool */
@@ -2985,7 +2991,7 @@ function wherePlaces() {
 
 /** One place: a click anywhere on the row (but its own controls and the details) unfolds its paths */
 function placeRow(g) {
-  const { main, worst, sub } = placeSummary(g);
+  const { main, worst, worstNote, sub } = placeSummary(g);
   const r = Office.place(`place:${g.id}`, el('div', 'row nocheck unfolds clw-place-row'));
   const m = el('div', 'row-main');
   const name = el('div', 'row-name link text');
@@ -2996,7 +3002,7 @@ function placeRow(g) {
   if (sub) meta.appendChild(el('span', '', sub));
   m.append(name, meta);
   const bk = el('div', 'clw-place-bk');
-  const c = backupChip(worst);
+  const c = backupChip(worst, worstNote);
   if (c) bk.appendChild(c);
   r.append(m, bk);
   let box = null;
@@ -3046,7 +3052,7 @@ function placeDetail(g) {
     else if (it.bytes) figure = fmt.size(it.bytes);
     const note = [Office.has(`${ID}.where.loc.${it.id}_note`) ? T('where.loc.' + it.id + '_note', { mounted: it.mounted || '' }) : '',
       it.note ? T('where.loc.docker_' + it.note) : '', it.ram ? T('where.loc.ram') : '', !it.exists ? T('where.loc.missing') : ''].filter(Boolean).join(' ');
-    box.appendChild(pathLine(T('where.loc.' + it.id), it.path, { figure, backup: it.backup, note, missing: !it.exists }));
+    box.appendChild(pathLine(T('where.loc.' + it.id), it.path, { figure, backup: it.backup, backupNote: it.backup_note, note, missing: !it.exists }));
     if (it.files && it.files.length) {
       const det = keepFold(el('details', 'clw-files'), `${g.id}:${it.id}`);
       det.appendChild(el('summary', '', T('where.loc.show_files', { n: it.files.length })));
@@ -3063,7 +3069,7 @@ function placeDetail(g) {
       box.appendChild(head);
       if (!st.files.length) box.appendChild(el('p', 'role clw-indent', T('where.loc.no_compose_files')));
       st.files.forEach((f) => {
-        const line = pathLine(f.path.split('/').pop(), f.path, { backup: f.backup });
+        const line = pathLine(f.path.split('/').pop(), f.path, { backup: f.backup, backupNote: f.backup_note });
         line.classList.add('clw-in-stack');          // under its stack's title bar
         box.appendChild(line);
       });
@@ -3440,18 +3446,18 @@ function vmDetail(v) {
   ]));
   box.appendChild(el('div', 'clw-sub', T('where.vm.files')));
   const files = el('div', 'clw-paths');
-  if (v.xml) files.appendChild(pathLine(T('where.vm.xml'), v.xml, { backup: v.config_backup }));
-  if (v.nvram) files.appendChild(pathLine(T('where.vm.nvram'), v.nvram, { backup: v.config_backup, note: v.nvram_copies ? T('where.vm.nvram_copies', { n: v.nvram_copies }) : '' }));
-  if (v.tpm) files.appendChild(pathLine(T('where.vm.tpm_state'), v.tpm.state || T('where.vm.tpm_none'), { backup: v.tpm.state ? v.config_backup : null, missing: !v.tpm.state }));
+  if (v.xml) files.appendChild(pathLine(T('where.vm.xml'), v.xml, { backup: v.config_backup, backupNote: v.config_backup_note }));
+  if (v.nvram) files.appendChild(pathLine(T('where.vm.nvram'), v.nvram, { backup: v.config_backup, backupNote: v.config_backup_note, note: v.nvram_copies ? T('where.vm.nvram_copies', { n: v.nvram_copies }) : '' }));
+  if (v.tpm) files.appendChild(pathLine(T('where.vm.tpm_state'), v.tpm.state || T('where.vm.tpm_none'), { backup: v.tpm.state ? v.config_backup : null, backupNote: v.config_backup_note, missing: !v.tpm.state }));
   // a sparse disk file far bigger than what it holds says so (waFileSizes(): bytes = what it is, allocated = what it takes)
   const sparseNote = (f) => (f.sparse ? T('where.vm.sparse', { used: fmt.size(f.allocated || 0), virtual: fmt.size(f.bytes) }) : '');
   (v.disks || []).forEach((d) => {
     const chain = d.chain || [];
     files.appendChild(pathLine(d.device === 'cdrom' ? T('where.vm.iso', { target: d.target || '' }) : T('where.vm.disk', { target: d.target || '', bus: d.bus || '', format: d.format || '' }),
-      d.source, { backup: d.backup, figure: d.bytes ? fmt.size(d.bytes) : '',
+      d.source, { backup: d.backup, backupNote: d.backup_note, figure: d.bytes ? fmt.size(d.bytes) : '',
         note: [chain.length ? T('where.vm.overlay', { n: chain.length }) : '', sparseNote(d)].filter(Boolean).join(' ') }));
     chain.forEach((c, i) => files.appendChild(pathLine(T('where.vm.base', { n: i + 1 }), c.path,
-      { backup: c.backup, figure: c.bytes ? fmt.size(c.bytes) : '', missing: !c.exists, note: sparseNote(c) })));
+      { backup: c.backup, backupNote: c.backup_note, figure: c.bytes ? fmt.size(c.bytes) : '', missing: !c.exists, note: sparseNote(c) })));
   });
   box.appendChild(files);
   const advice = [T('where.vm.move_hint')];
