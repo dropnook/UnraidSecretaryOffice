@@ -401,7 +401,9 @@ function tileLine(sec) {
   if (sec === 'kopia') {
     if (!kopia().enabled) return [T('tile.kopia_off'), ''];
     const t = Math.max(0, ...(state.shares || []).map((s) => s.last || 0), ...apps().map((a) => kopiaNewest(a.kopia)), ...vms().map((v) => kopiaNewest(v.kopia)));
-    return [kopia().container ? T('tile.kopia_on', { name: kopia().container }) : T('tile.kopia_missing'), t ? fmt.relative(t) : ''];
+    const dk = kopia().docker;          // Docker not answering: its container can't be looked for (an older state: no key)
+    return [kopia().container ? T('tile.kopia_on', { name: kopia().container })
+      : dk === 'off' || dk === 'silent' ? Office.t(`common.docker_${dk}`) : T('tile.kopia_missing'), t ? fmt.relative(t) : ''];
   }
   if (sec === 'drill') return Office.restoreDrill ? Office.restoreDrill.tileLine() : [T('drill.tile_none'), ''];
   if (sec.startsWith('kept:')) {
@@ -1341,7 +1343,8 @@ function kopiaSection() {
     return s;
   }
   const box = el('div', 'box rs-guide');
-  if (!k.container) box.appendChild(el('p', 'callout warn', T('kg.no_container')));
+  if (!k.container && (k.docker === 'off' || k.docker === 'silent')) box.appendChild(el('p', 'callout warn', T('kg.docker_down', { docker: Office.t(`common.docker_${k.docker}`) })));
+  else if (!k.container) box.appendChild(el('p', 'callout warn', T('kg.no_container')));
   else box.appendChild(el('p', 'role', T(k.running ? 'kg.container' : 'kg.container_stopped', { name: k.container, root: kopiaRoot() })));
   box.append(
     rstep(T('kg.s1'), T('kg.s1_text', { name: k.container || 'kopia' })),

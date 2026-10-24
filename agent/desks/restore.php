@@ -887,8 +887,13 @@ function rsKopia(array $engine, array $settings): array
     if (!$engine['kopia']) {
         return $out;
     }
-    $all = houseContainers();
+    $known = houseContainersKnown();
+    $out['docker'] = houseDockerState();     // 'off' / 'silent': its container can't be looked for — never «no Kopia container» (P3)
+    $all = $known ?? [];
     $name = $engine['kopia_container'];
+    if ($known === null) {
+        return $out;
+    }
     if ($name === '' || !isset($all[$name])) {
         $name = '';
         foreach ($all as $c) {

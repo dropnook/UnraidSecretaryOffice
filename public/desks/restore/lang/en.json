@@ -263,6 +263,7 @@
   "kopia_sub": "The offsite copies, encrypted with Kopia in your storage (S3, Backblaze B2, SFTP, WebDAV, a NAS …): how to get something out, and which sources there are.",
   "kg.off": "«Back up offsite» is switched off in Mr. Backupsy's setup — there is no offsite copy. What comes back comes from the packages and the local snapshots.",
   "kg.no_container": "I can't find a Kopia container — install it first (with the same ⟦Container Path⟧ as before) and connect it to the repository.",
+  "kg.docker_down": "{docker} — whether Kopia's container is there can't be seen. Start Docker under ⟦Settings⟧ → ⟦Docker⟧ first; bringing back from offsite needs it running.",
   "kg.container": "Kopia runs in the container {name}; it sees the snapshots under {root}.",
   "kg.container_stopped": "The container {name} is stopped — start it on Unraid's Docker page. It sees the snapshots under {root}.",
   "kg.root_example": "{root} is only an example: I couldn't read which ⟦Container Path⟧ your Kopia container gives the snapshots ({path}) — take the one from its template (⟦Docker⟧ → kopia → ⟦Edit⟧).",

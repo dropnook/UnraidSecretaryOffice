@@ -263,6 +263,7 @@
   "kopia_sub": "Le copie fuori sede, cifrate con Kopia nel tuo storage (S3, Backblaze B2, SFTP, WebDAV, un NAS …): come riprendere qualcosa, e quali sorgenti ci sono.",
   "kg.off": "«Backup fuori sede» è spento nella configurazione del signor Backupsi — non c'è nessuna copia fuori sede. Ciò che torna, torna dai pacchetti e dagli snapshot locali.",
   "kg.no_container": "Non trovo nessun contenitore Kopia — prima installalo (con lo stesso ⟦Container Path⟧ di prima) e collegalo al repository.",
+  "kg.docker_down": "{docker} — se il container di Kopia c'è ora non si vede. Avvia prima Docker in ⟦Settings⟧ → ⟦Docker⟧; per recuperare da fuori sede deve essere in funzione.",
   "kg.container": "Kopia gira nel contenitore {name}; vede gli snapshot sotto {root}.",
   "kg.container_stopped": "Il contenitore {name} è fermo — avvialo nella pagina Docker di Unraid. Vede gli snapshot sotto {root}.",
   "kg.root_example": "{root} è solo un esempio: non sono riuscito a leggere quale ⟦Container Path⟧ il tuo contenitore Kopia dà agli snapshot ({path}) — prendi quello del suo template (⟦Docker⟧ → kopia → ⟦Edit⟧).",

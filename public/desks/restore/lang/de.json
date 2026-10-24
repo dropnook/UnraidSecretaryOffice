@@ -263,6 +263,7 @@
   "kopia_sub": "Die Kopien ausser Haus, verschlüsselt mit Kopia in deinem Speicher (S3, Backblaze B2, SFTP, WebDAV, ein NAS …): wie man etwas herausholt, und welche Quellen es gibt.",
   "kg.off": "«Ausser Haus sichern» ist in Herrn Backupsis Einrichtung ausgeschaltet — es gibt keine Kopie ausser Haus. Was zurückkommt, kommt aus den Paketen und den lokalen Snapshots.",
   "kg.no_container": "Ich finde keinen Kopia-Container — zuerst installieren (mit demselben ⟦Container Path⟧ wie vorher) und mit dem Repository verbinden.",
+  "kg.docker_down": "{docker} — ob Kopias Container da ist, sieht man gerade nicht. Starte zuerst Docker unter ⟦Settings⟧ → ⟦Docker⟧; zum Zurückholen von ausser Haus muss er laufen.",
   "kg.container": "Kopia läuft im Container {name}; er sieht die Snapshots unter {root}.",
   "kg.container_stopped": "Der Container {name} ist gestoppt — auf Unraids Docker-Seite starten. Er sieht die Snapshots unter {root}.",
   "kg.root_example": "{root} ist nur ein Beispiel: Welchen ⟦Container Path⟧ dein Kopia-Container den Snapshots ({path}) gibt, konnte ich nicht lesen — nimm den aus seinem Template (⟦Docker⟧ → kopia → ⟦Edit⟧).",

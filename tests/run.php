@@ -21439,6 +21439,8 @@ function testDockerOffSaid(): void
     check('docker off: Restori — a container «unknown», an app neither present nor gone (null), the state says Docker\'s',
         str_contains($restore, "\$c['now'] = \$known === null ? 'unknown'") && str_contains($restore, "\$a['present'] = \$known === null ? null")
         && str_contains($restore, "\$state['docker'] = houseDockerState();"));
+    check('docker off: Restori — Kopia\'s container unknown, never «no Kopia container» (tile and guide)',
+        str_contains($restore, "\$out['docker'] = houseDockerState();") && str_contains($src('public/desks/restore/desk.js'), "T('kg.docker_down'"));
     same('docker off: Restori — the database, SQLite and put-back plans block with restore_docker_off', 3, substr_count($restore, "'key' => 'restore_docker_off'"));
     check('docker off: Restori\'s drill — «Docker isn\'t running», never «its image isn\'t on this server»', str_contains($src('agent/desks/restore-drill.php'), "'code' => 'docker_off'"));
     $rjs = $src('public/desks/restore/desk.js');

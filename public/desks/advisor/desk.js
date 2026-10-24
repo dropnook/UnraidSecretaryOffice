@@ -138,7 +138,8 @@ function bubbleText() {
   // Docker off: he can't bring in a container, so no «I do it for you» (an older state without the flag: as before);
   // the containers he couldn't look for are said as such, never «all on site» or «not here» (T11)
   const off = u.length ? T('bubble.unknown_docker_off', { names: names(u), n: u.length }) : '';
-  if (m.length) return [T(state.docker === false || u.length ? 'bubble.missing_docker_off' : 'bubble.missing', { names: names(m), n: m.length }), off].filter(Boolean).join(' ');
+  // what is missing then are plugins, which he can bring in with Docker off too: the plain words, the Docker sentence once
+  if (m.length) return [T(state.docker === false && !u.length ? 'bubble.missing_docker_off' : 'bubble.missing', { names: names(m), n: m.length }), off].filter(Boolean).join(' ');
   if (off) return off;
   const g = gaps();
   return g.length ? T('bubble.monitoring', { names: names(g), n: g.length }) : T('bubble.all_there');

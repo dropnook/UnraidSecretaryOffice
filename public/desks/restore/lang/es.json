@@ -263,6 +263,7 @@
   "kopia_sub": "Las copias fuera de casa, cifradas con Kopia en tu almacenamiento (S3, Backblaze B2, SFTP, WebDAV, un NAS …): cómo sacar algo, y qué fuentes hay.",
   "kg.off": "«Copiar fuera de casa» está desactivado en la configuración del señor Backupsi — no hay ninguna copia fuera de casa. Lo que vuelve, vuelve de los paquetes y de las instantáneas locales.",
   "kg.no_container": "No encuentro ningún contenedor de Kopia — instálalo primero (con la misma ⟦Container Path⟧ que antes) y conéctalo al repositorio.",
+  "kg.docker_down": "{docker} — ahora no se ve si el contenedor de Kopia está. Arranca primero Docker en ⟦Settings⟧ → ⟦Docker⟧; para traer desde fuera de casa debe estar en marcha.",
   "kg.container": "Kopia funciona en el contenedor {name}; ve las instantáneas en {root}.",
   "kg.container_stopped": "El contenedor {name} está detenido — inícialo en la página Docker de Unraid. Ve las instantáneas en {root}.",
   "kg.root_example": "{root} es solo un ejemplo: no pude leer qué ⟦Container Path⟧ da tu contenedor de Kopia a las instantáneas ({path}) — toma la de su plantilla (⟦Docker⟧ → kopia → ⟦Edit⟧).",

@@ -263,6 +263,7 @@
   "kopia_sub": "Les copies hors site, chiffrées avec Kopia dans ton stockage (S3, Backblaze B2, SFTP, WebDAV, un NAS …) : comment en sortir quelque chose, et quelles sources il y a.",
   "kg.off": "« Sauvegarder hors site » est désactivé dans la configuration de Monsieur Backupsi — il n'y a aucune copie hors site. Ce qui revient vient des paquets et des snapshots locaux.",
   "kg.no_container": "Je ne trouve aucun conteneur Kopia — installe-le d'abord (avec le même ⟦Container Path⟧ qu'avant) et connecte-le au dépôt.",
+  "kg.docker_down": "{docker} — on ne voit pas si le conteneur de Kopia est là. Démarre d'abord Docker sous ⟦Settings⟧ → ⟦Docker⟧ ; pour restaurer depuis hors site, il doit tourner.",
   "kg.container": "Kopia tourne dans le conteneur {name} ; il voit les snapshots sous {root}.",
   "kg.container_stopped": "Le conteneur {name} est arrêté — démarre-le sur la page Docker d'Unraid. Il voit les snapshots sous {root}.",
   "kg.root_example": "{root} n'est qu'un exemple : je n'ai pas pu lire quel ⟦Container Path⟧ ton conteneur Kopia donne aux snapshots ({path}) — prends celui de son modèle (⟦Docker⟧ → kopia → ⟦Edit⟧).",
