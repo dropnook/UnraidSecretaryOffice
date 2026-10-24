@@ -224,7 +224,7 @@
     "other": "{n} cosas nuevas — espero a ver si se quedan"
   },
   "notify_missing": "El script de notificaciones de Unraid no está — no puedo avisar de nada.",
-  "help.notify": "El único lugar de la secretaría para lo que va a las notificaciones de Unraid (campana, correo, push). Las alertas salen siempre al momento — nada aquí las detiene. Para cada colega: cuánto (todo · advertencias y alertas · solo alertas), también los éxitos o no, al momento o en un resumen. Las horas de calma y «Silencio hasta …» retienen todo salvo las alertas; una protección contra avalanchas envía la misma notificación solo una vez hasta que se resuelva y reúne el resto cuando alguien avisa mucho. Solo las notificaciones de la secretaría — las de Unraid (array, SMART, actualizaciones, paridad) y las de otros plugins quedan exactamente como están; los ajustes de notificaciones de Unraid solo se leen.",
+  "help.notify": "El único lugar de la secretaría para lo que va a las notificaciones de Unraid (campana, correo, push). Las alertas salen siempre al momento — nada aquí las detiene. Para cada colega: cuánto (todo · advertencias y alertas · solo alertas), también los éxitos o no, al momento o en un resumen. Las horas de calma y «Silencio hasta …» retienen todo salvo las alertas; una protección contra avalanchas envía la misma notificación (nunca una alerta) solo una vez hasta que se resuelva y reúne el resto cuando alguien avisa mucho. Solo las notificaciones de la secretaría — las de Unraid (array, SMART, actualizaciones, paridad) y las de otros plugins quedan exactamente como están; los ajustes de notificaciones de Unraid solo se leen.",
   "notify.subject": {
     "one": "Algo nuevo que hacer",
     "other": "{n} cosas nuevas que hacer"
@@ -691,8 +691,8 @@
   "nc.tip.at": "A esta hora todo lo reunido sale como una sola notificación. Quien tiene su propia hora recibe su propio resumen; un resumen vacío nunca se envía.",
   "nc.tip.quiet": "Durante estas horas solo salen las alertas. El resto se reúne y llega como un resumen cuando terminan las horas de calma.",
   "nc.tip.silent": "Para mantenimiento o vacaciones: hasta el momento elegido solo salen las alertas. Lo que llegó mientras tanto llega después como un resumen.",
-  "nc.tip.flood": "La misma notificación sale una vez; después solo se cuenta hasta que se resuelve (o {hours} horas después). Más de {desk} de un colega o {office} de toda la secretaría en {minutes} minutos los reúno en un resumen, con una notificación que lo dice.",
-  "nc.tip.alerts": "Las alertas salen siempre al momento. A partir de {alerts} alertas distintas en {minutes} minutos, el resto llega junto como una sola alerta cada {bundle} minutos — ninguna se pierde.",
+  "nc.tip.flood": "Salvo las alertas: la misma notificación sale una vez; después solo se cuenta hasta que se resuelve (o {hours} horas después). Más de {desk} de un colega o {office} de toda la secretaría en {minutes} minutos los reúno en un resumen, con una notificación que lo dice.",
+  "nc.tip.alerts": "Las alertas salen siempre al momento, cada una — también la misma alerta otra vez antes de que se resuelva. Solo exactamente la misma alerta (las mismas palabras) dos veces en un minuto sale una sola vez. Pasadas {alerts} alertas en {minutes} minutos, el resto llega junto como una sola alerta cada {bundle} minutos — ninguna se pierde.",
   "nc.chip.flood": "Protección contra avalanchas",
   "nc.chip.alerts": "Las alertas salen siempre",
   "tile.notify_wait": "Esperando el resumen",

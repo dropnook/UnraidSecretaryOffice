@@ -6496,7 +6496,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.73'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.74'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -8483,9 +8483,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.73 everywhere it is named', ['2.73', '2.73', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.73"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.73** –')]);
+    same('data trust: the engine\'s version 2.74 everywhere it is named', ['2.74', '2.74', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.74"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.74** –')]);
     // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
     same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
         array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
@@ -9593,6 +9593,44 @@ SH);
     same('partner phase 2.45: an older door refusing the app unit - skipped (old_partner), a coded warning, the rest went', ['old_partner', true, true],
         [$sk['app:c1'] ?? null, in_array('partner_old', array_column($status()['warning_items'] ?? [], 'code'), true), in_array('share:appdata', array_column($status()['partner']['done'] ?? [], 'unit'), true)], $log());
     @unlink("$fake/badunit");
+    // 2.74: one child dataset that is no unit of its own (no VM's, no app's, not excluded) no longer keeps appdata here: the
+    // share goes without it and the child is reported per child (status.json partner.left_out, the plan, the log). c1's own
+    // dataset without an [app] section is known from Docker's binds (only c1 binds into it): the app's, no left-out child
+    @mkdir("$pool/appdata/drop", 0700, true);
+    file_put_contents("$fake/mounts", $mounts0 . "maple/appdata/c1 $pool/appdata/c1 zfs rw 0 0\nmaple/appdata/drop $pool/appdata/drop zfs rw 0 0\n");
+    file_put_contents("$fake/zfs.txt", $zfs0 . $z('maple/appdata/c1', "$pool/appdata/c1", 40) . $z('maple/appdata/drop', "$pool/appdata/drop", 30));
+    file_put_contents("$data/settings.ini", $ini0);
+    $night();
+    $run();
+    $p = $status()['partner'] ?? [];
+    same('partner phase 2.74: appdata holding a child dataset of no app or VM - still sent (zfs send of its own dataset), not skipped',
+        [true, null, true], [in_array('share:appdata', array_column($p['done'] ?? [], 'unit'), true), array_column($p['skipped'] ?? [], 'why', 'unit')['share:appdata'] ?? null,
+         in_array("zfs send -L -c maple/appdata@$snap", $names(), true)], json_encode($p) . $log());
+    same('partner phase 2.74: … the child reported per child (status.json partner.left_out); c1\'s own dataset (Docker\'s binds, no [app] section) not among them',
+        [['id' => $id, 'unit' => 'share:appdata', 'dataset' => 'maple/appdata/drop', 'folder' => 'drop']], $p['left_out'] ?? null, json_encode($p));
+    check('partner phase 2.74: … said in the run\'s plan and in the partner phase', str_contains($log(), 'share:appdata goes without its dataset maple/appdata/drop (drop)')
+        && str_contains($log(), 'share:appdata: its dataset maple/appdata/drop (drop) is no unit of its own'), $log());
+    check('partner phase 2.74: … the run ends without «children» anywhere', !str_contains($log(), 'children') && !in_array('children', array_column($p['skipped'] ?? [], 'why'), true), $log());
+    // an app ticked for the partner whose [app] section has no folder (right after «Make it a dataset of its own…»): its
+    // dataset from Docker's binds - it goes as app:c1
+    file_put_contents("$data/settings.ini", $ini0 . "[app \"c1\"]\npartner = $id\n");
+    $night();
+    $run();
+    $p = $status()['partner'] ?? [];
+    same('partner phase 2.74: an app for the partner without its [app] folder - its own dataset found by Docker\'s binds, sent as app:c1; appdata too',
+        [true, true, ['maple/appdata/drop']], [in_array('app:c1', array_column($p['done'] ?? [], 'unit'), true), in_array('share:appdata', array_column($p['done'] ?? [], 'unit'), true),
+         array_column($p['left_out'] ?? [], 'dataset')], json_encode($p) . $log());
+    // the app binding the other child too: that dataset is the app's own as well - nothing left out
+    $insp0 = (string) file_get_contents("$fake/inspect.json");
+    $two = json_decode($insp0);                 // objects: its empty Labels stay an object for jq
+    $two[0]->Mounts[] = (object) ['Type' => 'bind', 'Source' => "$mnt/user/appdata/drop", 'Destination' => '/drop', 'RW' => true];
+    file_put_contents("$fake/inspect.json", json_encode($two));
+    file_put_contents("$data/settings.ini", $ini0);
+    $night();
+    $run();
+    same('partner phase 2.74: … c1 also binds the other child - that one is c1\'s now, nothing left out, appdata sent', [[], true],
+        [$status()['partner']['left_out'] ?? null, in_array('share:appdata', array_column($status()['partner']['done'] ?? [], 'unit'), true)], json_encode($status()['partner'] ?? null));
+    file_put_contents("$fake/inspect.json", $insp0);
     file_put_contents("$fake/mounts", $mounts0);
     file_put_contents("$fake/zfs.txt", $zfs0);
     file_put_contents("$data/settings.ini", $ini0);
@@ -9717,7 +9755,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.73', [1, '2.73'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.74', [1, '2.74'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -9756,7 +9794,7 @@ SH);
     same('setup plan 2.33/2.42: the backup place\'s share row - place true, partner_ok true', [true, true, null],
         [$sh['UnraidSecretaryOffice']['place'] ?? null, $sh['UnraidSecretaryOffice']['partner_ok'] ?? null, $sh['UnraidSecretaryOffice']['partner_why'] ?? null]);
     $vm = array_column($plan['vms'] ?? [], null, 'name');
-    same('setup plan: the VM in a dataset of its own can go; the place too', [[$id], true, null, ['share' => 'UnraidSecretaryOffice', 'partner' => [$id], 'partner_ok' => true, 'partner_why' => null]],
+    same('setup plan: the VM in a dataset of its own can go; the place too', [[$id], true, null, ['share' => 'UnraidSecretaryOffice', 'partner' => [$id], 'partner_ok' => true, 'partner_why' => null, 'partner_left' => []]],
         [$vm['vm1']['partner'] ?? null, $vm['vm1']['partner_ok'] ?? null, $v($vm['vm1'] ?? null, 'partner_why'), $plan['place_partner'] ?? null]);
     same('setup plan: P has the partner\'s section from the pairs (its rate) and the units as lists; the one not covered dropped',
         ['vault', '10.0.0.9', '2222', '50', [$id], [$id], null], [$plan['P']["partner|$id|name"] ?? null, $plan['P']["partner|$id|address"] ?? null, $plan['P']["partner|$id|port"] ?? null,
@@ -9793,6 +9831,24 @@ SH);
     same('setup plan 2.45: … its folder no dataset of its own any more - the partner dropped from P, said (partner_cannot_app)', [null, true],
         [$plan2['P']['app|c1|partner'] ?? null, in_array('partner_cannot_app', array_column($plan2['messages'] ?? [], 'code'), true)], $out);
     $setup("--apply=$tmp/dec.json");
+    // 2.74: a child dataset of no app or VM in appdata - appdata partner_ok all the same, its partner kept; the child in
+    // partner_left and said once per partner (partner_child_left_share); c1's own dataset (Docker's binds) not among them
+    @mkdir("$pool/appdata/drop", 0700, true);
+    file_put_contents("$fake/mounts", $mounts1 . "maple/appdata/c1 $pool/appdata/c1 zfs rw 0 0\nmaple/appdata/drop $pool/appdata/drop zfs rw 0 0\n");
+    file_put_contents("$fake/zfs.txt", $zfs1 . $z('maple/appdata/c1', "$pool/appdata/c1", 40) . $z('maple/appdata/drop', "$pool/appdata/drop", 30));
+    $out = $setup('--plan');
+    $plan2 = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
+    $sh2 = array_column($plan2['shares'] ?? [], null, 'name');
+    $left = array_values(array_filter($plan2['messages'] ?? [], fn ($m) => ($m['code'] ?? '') === 'partner_child_left_share'));
+    same('setup plan 2.74: appdata with a child of no app or VM - partner_ok, no partner_why, its partner kept, the child in partner_left',
+        [true, null, [$id], [['dataset' => 'maple/appdata/drop', 'folder' => 'drop']]],
+        [$sh2['appdata']['partner_ok'] ?? null, $v($sh2['appdata'] ?? null, 'partner_why'), $plan2['P']['share|appdata|partner'] ?? null, $sh2['appdata']['partner_left'] ?? null], $out);
+    same('setup plan 2.74: … said once, per child and partner, with its params (the office\'s words: setup.msg.partner_child_left_share)',
+        [[['name' => 'appdata', 'folder' => 'drop', 'dataset' => 'maple/appdata/drop', 'partner' => 'vault']], true],
+        [array_column($left, 'params'), isset($en['setup.msg.partner_child_left_share'], $en['setup.msg.partner_child_left_place'])], $out);
+    same('setup plan 2.74: a share without such a child - partner_left empty', [], $sh2['docs']['partner_left'] ?? null);
+    file_put_contents("$fake/mounts", $mounts1);
+    file_put_contents("$fake/zfs.txt", $zfs1);
     // 2.42: a pair of 1.60 (send only its rate) and a pair of up to 1.59 without the place in its list: the place goes either way
     file_put_contents("$tmp/data/partner/pairs.json", json_encode(['v' => 1, 'pairs' => [
         ['id' => $id, 'name' => 'vault', 'address' => '10.0.0.9', 'port' => 2222, 'host_keys' => ['SHA256:x'], 'my_key' => 'SHA256:y', 'their_key' => null,
@@ -10352,7 +10408,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.73', [1, '2.73'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.74', [1, '2.74'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -19226,11 +19282,14 @@ function testNotifyCenter(): void
     };
 
     // ---- the numbers: the same in PHP and bash
-    foreach (['NOTIFY_SAME_FORGET', 'NOTIFY_CAP_WINDOW', 'NOTIFY_DESK_CAP', 'NOTIFY_OFFICE_CAP', 'NOTIFY_ALERT_CAP', 'NOTIFY_ALERT_BUNDLE', 'NOTIFY_HEART_FRESH',
+    foreach (['NOTIFY_SAME_FORGET', 'NOTIFY_ALERT_SAME', 'NOTIFY_CAP_WINDOW', 'NOTIFY_DESK_CAP', 'NOTIFY_OFFICE_CAP', 'NOTIFY_ALERT_CAP', 'NOTIFY_ALERT_BUNDLE', 'NOTIFY_HEART_FRESH',
               'NOTIFY_DROPS_MAX', 'NOTIFY_GUARD_MAX'] as $c) {
         same("centre: $c the same in notifygate.sh", (string) constant($c), trim((string) shell_exec('bash -c ' . escapeshellarg('source ' . escapeshellarg($gate) . "; printf %s \"\$$c\""))));
     }
-    same('centre: the owner\'s numbers', [86400, 3600, 5, 20, 10, 900], [NOTIFY_SAME_FORGET, NOTIFY_CAP_WINDOW, NOTIFY_DESK_CAP, NOTIFY_OFFICE_CAP, NOTIFY_ALERT_CAP, NOTIFY_ALERT_BUNDLE]);
+    same('centre: the owner\'s numbers', [86400, 60, 3600, 5, 20, 10, 900], [NOTIFY_SAME_FORGET, NOTIFY_ALERT_SAME, NOTIFY_CAP_WINDOW, NOTIFY_DESK_CAP, NOTIFY_OFFICE_CAP, NOTIFY_ALERT_CAP, NOTIFY_ALERT_BUNDLE]);
+    // the chip's tip says «the very same alert twice within a minute goes once» - true only while it is a minute
+    check('centre: the tip «within a minute» is NOTIFY_ALERT_SAME', NOTIFY_ALERT_SAME === 60
+        && str_contains((string) json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/caretaker/lang/en.json'), true)['nc.tip.alerts'], 'within a minute'));
 
     // ---- the settings: none = today's behaviour; tolerant; the senders' file
     $s = officeNotifySettings([]);
@@ -19304,10 +19363,16 @@ function testNotifyCenter(): void
         ['silent', ['silent_until' => $now + 3600], true, [], 'caretaker', 'todo', 'warning', 'held', 'silent'],
         ['silent: an alert goes', ['silent_until' => $now + 3600], true, [], 'office', 'agent_away', 'alert', 'sent', ''],
         ['silent ended', ['silent_until' => $now - 5], true, [], 'caretaker', 'todo', 'warning', 'sent', ''],
-        ['the same, unresolved: counted', null, true, [[$now - 600, 'sent', 'backup', 'alert', $k]], 'backup', 'failed', 'alert', 'counted', 'same'],
-        ['the same, resolved since: goes', null, true, [[$now - 600, 'sent', 'backup', 'alert', $k], [$now - 60, 'resolved', 'backup', '-', '-']], 'backup', 'failed', 'alert', 'sent', ''],
-        ['the same, a day ago: goes', null, true, [[$now - 86401, 'sent', 'backup', 'alert', $k]], 'backup', 'failed', 'alert', 'sent', ''],
-        ['another desk\'s resolve: still counted', null, true, [[$now - 600, 'sent', 'backup', 'alert', $k], [$now - 60, 'resolved', 'jack', '-', '-']], 'backup', 'failed', 'alert', 'counted', 'same'],
+        ['the same, unresolved: counted', null, true, [[$now - 600, 'sent', 'backup', 'warning', $k]], 'backup', 'warnings', 'warning', 'counted', 'same'],
+        ['the same, resolved since: goes', null, true, [[$now - 600, 'sent', 'backup', 'warning', $k], [$now - 60, 'resolved', 'backup', '-', '-']], 'backup', 'warnings', 'warning', 'sent', ''],
+        ['the same, a day ago: goes', null, true, [[$now - 86401, 'sent', 'backup', 'warning', $k]], 'backup', 'warnings', 'warning', 'sent', ''],
+        ['another desk\'s resolve: still counted', null, true, [[$now - 600, 'sent', 'backup', 'warning', $k], [$now - 60, 'resolved', 'jack', '-', '-']], 'backup', 'warnings', 'warning', 'counted', 'same'],
+        // T01: an alert is never folded into «the same» - only the very same one again within a minute is counted
+        ['T01: the same alert 23 h 55 min later, unresolved: goes', null, true, [[$now - 86100, 'sent', 'backup', 'alert', $k]], 'backup', 'failed', 'alert', 'sent', ''],
+        ['T01: the same alert ten minutes later, unresolved: goes', null, true, [[$now - 600, 'sent', 'backup', 'alert', $k]], 'backup', 'failed', 'alert', 'sent', ''],
+        ['T01: the very same alert within a minute: counted', null, true, [[$now - 30, 'sent', 'backup', 'alert', $k]], 'backup', 'failed', 'alert', 'counted', 'same'],
+        ['T01: the very same alert a minute later: goes', null, true, [[$now - 60, 'sent', 'backup', 'alert', $k]], 'backup', 'failed', 'alert', 'sent', ''],
+        ['T01: another alert (its own key) within a minute: goes', null, true, [[$now - 30, 'sent', 'backup', 'alert', 'ffffffffffffffff']], 'backup', 'failed', 'alert', 'sent', ''],
     ];
     $five = array_map(fn ($i) => [$now - 100 * $i, 'sent', 'watchman', 'warning', "b$i" . str_repeat('0', 14)], range(1, 5));
     $twenty = array_map(fn ($i) => [$now - 100 * $i, 'sent', ['backup', 'jack', 'snapshot', 'moverelli'][$i % 4], 'warning', 'c' . str_pad((string) $i, 15, '0')], range(1, 20));
@@ -19342,6 +19407,35 @@ function testNotifyCenter(): void
     same('centre: … later ones the time the notice gave', [$now - 1200 + 3600, ''], array_values(array_intersect_key($phpDecide($h, 'watchman', 'chain', 'warning', $k, $now), ['due' => 1, 'notice' => 1])));
     $lines($h, $twenty);
     same('centre: the office cap\'s notice is the whole office\'s', '*', $phpDecide($h, 'restore', 'drill_failed', 'warning', $k, $now)['notice']);
+
+    // ---- T01 (truth review): two «Backup failed» alerts with another reason, 23 h 55 min apart, no success between -
+    // both sent, in both gates, with the keys as each sender makes them; the very same alert twice within a minute: once
+    $bashKey = fn (string ...$a) => trim((string) shell_exec('bash -c ' . escapeshellarg('source ' . escapeshellarg($gate) . '; ung_key "$@"') . ' _ '
+        . implode(' ', array_map('escapeshellarg', $a))));
+    same('centre T01: the keys - bash makes them as PHP does (a warning, an alert)',
+        [officeNotifyKey('backup', 'warnings', 'Backup with warnings', 'warning', '2 warnings'), officeNotifyKey('backup', 'failed', 'Backup failed', 'alert', 'Pool maple is full')],
+        [$bashKey('backup', 'warnings', 'Backup with warnings', 'warning', '2 warnings'), $bashKey('backup', 'failed', 'Backup failed', 'alert', 'Pool maple is full')]);
+    same('centre T01: a warning\'s key is its subject\'s (another description: the same), an alert\'s also its description\'s',
+        [true, true, true, false],
+        [officeNotifyKey('backup', 'warnings', 'W', 'warning', 'a') === officeNotifyKey('backup', 'warnings', 'W', 'warning', 'b'),
+         $bashKey('backup', 'warnings', 'W', 'warning', 'a') === $bashKey('backup', 'warnings', 'W'), officeNotifyKey('backup', 'warnings', 'W') === officeNotifyKey('backup', 'warnings', 'W', 'normal', 'x'),
+         officeNotifyKey('backup', 'failed', 'Backup failed', 'alert', 'a') === officeNotifyKey('backup', 'failed', 'Backup failed', 'alert', 'b')]);
+    $k1 = officeNotifyKey('backup', 'failed', 'Backup failed', 'alert', 'The backup place is missing');
+    $k2 = officeNotifyKey('backup', 'failed', 'Backup failed', 'alert', 'Pool maple is full');
+    $t0 = $now - (23 * 3600 + 55 * 60);
+    foreach (['PHP' => $phpDecide, 'bash' => $bashDecide] as $who => $decide) {
+        $h = $fresh('t01');
+        $beat($h, true);
+        $first = $decide($h, 'backup', 'failed', 'alert', $k1, $t0);
+        $lines($h, [[$t0, 'sent', 'backup', 'alert', $k1]]);
+        $second = $decide($h, 'backup', 'failed', 'alert', $k2, $now);
+        same("centre T01 ($who gate): two «Backup failed», another reason, 23 h 55 min apart, no success between - both sent", ['sent', 'sent'], [$first['fate'], $second['fate']]);
+        same("centre T01 ($who gate): … also with the same reason - an alert is never «the same» for a day", 'sent', $decide($h, 'backup', 'failed', 'alert', $k1, $now)['fate']);
+        $lines($h, [[$t0, 'sent', 'backup', 'alert', $k1], [$now - 20, 'sent', 'backup', 'alert', $k2]]);
+        same("centre T01 ($who gate): the very same alert again within a minute - counted, one left", ['counted', 'same'],
+            array_values(array_intersect_key($decide($h, 'backup', 'failed', 'alert', $k2, $now), ['fate' => 1, 'why' => 1])));
+        same("centre T01 ($who gate): … another one within that minute still goes", 'sent', $decide($h, 'backup', 'failed', 'alert', $k1, $now)['fate']);
+    }
 
     // ---- officeNotify() through the gate: held, collected with its notice, the drops for the history
     $h = $fresh('send');
@@ -19435,6 +19529,18 @@ function testNotifyCenter(): void
     officeNotifyTick(time(), $h, $nightHeld, "$tmp/night-log.json", null);
     same('centre night: the agent back folds it — nothing of it waits again, nothing sent twice', [0, 1], [count(officeNotifyQueueRead($nightHeld)['items']), count($calls())]);
 
+    // ---- T01 through officeNotify(): the same alert twice at once - once; with another reason - it goes
+    $h = $fresh('t01send');
+    putenv("OFFICE_NOTIFY_HOME=$h");
+    $beat($h, true);
+    @unlink($log);
+    foreach (['The backup place is missing', 'The backup place is missing', 'Pool maple is full'] as $why) {
+        officeNotify('Mr. Backupsy: Backup failed', $why, 'alert', '', null, 'backup', 'failed');
+    }
+    same('centre T01 send: the very same alert twice at once goes once, another reason goes - sent, counted, sent', [2, ['sent', 'counted', 'sent']],
+        [count($calls()), array_column(array_values(officeNotifyDropsRead($h)), 'fate')]);
+    putenv('OFFICE_NOTIFY_HOME');
+
     // ---- the engine obeys (ub_notify through notifygate.sh), agent.sh too
     $h = $fresh('engine');
     $beat($h, true);
@@ -19452,26 +19558,31 @@ function testNotifyCenter(): void
     same('centre engine: with the centre\'s file it decides about successes, not notify_success', ['0', '1'],
         [trim((string) $ub('ub_centre_decides && echo 0 || echo 1')), trim((string) shell_exec('bash -c ' . escapeshellarg("UB_DATA=$tmp/ub UB_NOTIFY_HOME=$tmp/none; source $lib >/dev/null 2>&1; ub_centre_decides && echo 0 || echo 1")))]);
     $ub('ub_tell failed alert "" "Backup failed" "why"');
-    same('centre engine: the same alert again, unresolved — counted', 2, count($calls()));
+    same('centre engine: the very same alert again within the minute, unresolved — counted', 2, count($calls()));
+    $ub('ub_tell failed alert "" "Backup failed" "x" "why=Pool maple is full"');
+    same('centre engine T01: «Backup failed» with another reason, unresolved — it goes (an alert is never folded into «the same»)', 3, count($calls()));
     $ub('ub_tell ok normal "" "Backup successful" "fine"; ub_tell failed alert "" "Backup failed" "why"');
-    same('centre engine: after a success it goes again', 3, count($calls()));
+    same('centre engine: after a success it goes again', 4, count($calls()));
     $cfg($h, ['desks/backup/when' => 'summary']);
     $ub('ub_tell warnings warning "" "Backup with warnings again" "1 warning"');
-    same('centre engine: in the summary — held (the agent is at work)', [3, 'held'], [count($calls()), array_values(officeNotifyDropsRead($h))[count(officeNotifyDropsRead($h)) - 1]['fate'] ?? null]);
+    same('centre engine: in the summary — held (the agent is at work)', [4, 'held'], [count($calls()), array_values(officeNotifyDropsRead($h))[count(officeNotifyDropsRead($h)) - 1]['fate'] ?? null]);
     $beat($h, false);
     $ub('ub_tell warnings warning "" "Backup with warnings once more" "1 warning"');
-    same('centre engine: … the agent away — it goes now', 4, count($calls()));
+    same('centre engine: … the agent away — it goes now', 5, count($calls()));
     $h = $fresh('agentsh');
     $agentSh = escapeshellarg(OFFICE_DIR . '/plugin/scripts/agent.sh');
-    $tell = fn (string $cmd) => shell_exec('bash -c ' . escapeshellarg("source $agentSh; RUN=$h; NOTIFY=$tmp/notify; FLASH=$tmp/flash; $cmd") . ' 2>&1');
+    // DIR: this tree's gate (backup/lib/notifygate.sh), never an installed plugin's on the test host
+    $tell = fn (string $cmd) => shell_exec('bash -c ' . escapeshellarg("source $agentSh; DIR=" . OFFICE_DIR . "; RUN=$h; NOTIFY=$tmp/notify; FLASH=$tmp/flash; $cmd") . ' 2>&1');
     @unlink($log);
     $tell('TELL_EVENT=agent_away tell "Agent not running" "x" alert; TELL_EVENT=agent_away tell "Agent not running" "x" alert');
     same('centre agent.sh: the same alert twice — once', 1, count($calls()));
+    $tell('TELL_EVENT=agent_away tell "Agent not running" "z" alert');
+    same('centre agent.sh T01: the alert with other words — it goes', 2, count($calls()));
     $tell('TELL_EVENT=agent_back tell "Agent running again" "y" normal; TELL_EVENT=agent_away tell "Agent not running" "x" alert');
-    same('centre agent.sh: back resolves it — the next outage is told', [3, 'normal'], [count($calls()), $calls()[1]['-i'] ?? null]);
+    same('centre agent.sh: back resolves it — the next outage is told', [4, 'normal'], [count($calls()), $calls()[2]['-i'] ?? null]);
     $cfg($h, ['desks/office/level' => 'alert']);
     $tell('TELL_EVENT=agent_back tell "Agent running again" "y" normal');
-    same('centre agent.sh: «back» at «alerts only» — not sent, decided for the history', [3, 'dropped'],
+    same('centre agent.sh: «back» at «alerts only» — not sent, decided for the history', [4, 'dropped'],
         [count($calls()), array_values(officeNotifyDropsRead($h))[count(officeNotifyDropsRead($h)) - 1]['fate'] ?? null]);
     putenv('OFFICE_NOTIFY_HOME');
 

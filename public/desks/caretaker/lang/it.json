@@ -224,7 +224,7 @@
     "other": "{n} cose nuove — aspetto di vedere se restano"
   },
   "notify_missing": "Lo script delle notifiche di Unraid non c'è — non posso segnalare niente.",
-  "help.notify": "L'unico posto della segreteria per ciò che va alle notifiche di Unraid (campanella, e-mail, push). Gli allarmi partono sempre subito — niente qui li ferma. Per ogni collega: quanto (tutto · avvertimenti e allarmi · solo allarmi), anche i successi o no, subito o in un riepilogo. Le ore di quiete e «Silenzio fino a …» trattengono tutto tranne gli allarmi; una protezione contro le raffiche invia la stessa notifica una sola volta finché non è risolta e raccoglie il resto quando qualcuno segnala molto. Solo le notifiche della segreteria — quelle di Unraid (array, SMART, aggiornamenti, parità) e di altri plugin restano esattamente come sono; le impostazioni delle notifiche di Unraid vengono solo lette.",
+  "help.notify": "L'unico posto della segreteria per ciò che va alle notifiche di Unraid (campanella, e-mail, push). Gli allarmi partono sempre subito — niente qui li ferma. Per ogni collega: quanto (tutto · avvertimenti e allarmi · solo allarmi), anche i successi o no, subito o in un riepilogo. Le ore di quiete e «Silenzio fino a …» trattengono tutto tranne gli allarmi; una protezione contro le raffiche invia la stessa notifica (mai un allarme) una sola volta finché non è risolta e raccoglie il resto quando qualcuno segnala molto. Solo le notifiche della segreteria — quelle di Unraid (array, SMART, aggiornamenti, parità) e di altri plugin restano esattamente come sono; le impostazioni delle notifiche di Unraid vengono solo lette.",
   "notify.subject": {
     "one": "Qualcosa di nuovo da fare",
     "other": "{n} cose nuove da fare"
@@ -691,8 +691,8 @@
   "nc.tip.at": "A quest'ora tutto ciò che è raccolto parte come una sola notifica. Chi ha un'ora sua riceve un riepilogo suo; un riepilogo vuoto non viene mai inviato.",
   "nc.tip.quiet": "In queste ore partono solo gli allarmi. Il resto viene raccolto e arriva come un riepilogo quando finiscono le ore di quiete.",
   "nc.tip.silent": "Per manutenzione o vacanze: fino al momento scelto partono solo gli allarmi. Ciò che è arrivato nel frattempo arriva poi come un riepilogo.",
-  "nc.tip.flood": "La stessa notifica parte una volta, poi viene solo contata finché non è risolta (o {hours} ore dopo). Più di {desk} da un collega o {office} da tutta la segreteria entro {minutes} minuti li raccolgo in un riepilogo, con una notifica che sto raccogliendo.",
-  "nc.tip.alerts": "Gli allarmi partono sempre subito. Oltre {alerts} allarmi diversi entro {minutes} minuti, il resto arriva insieme come un solo allarme ogni {bundle} minuti — nessuno va perso.",
+  "nc.tip.flood": "Allarmi a parte: la stessa notifica parte una volta, poi viene solo contata finché non è risolta (o {hours} ore dopo). Più di {desk} da un collega o {office} da tutta la segreteria entro {minutes} minuti li raccolgo in un riepilogo, con una notifica che sto raccogliendo.",
+  "nc.tip.alerts": "Gli allarmi partono sempre subito, ognuno — anche lo stesso allarme di nuovo prima che sia risolto. Solo esattamente lo stesso allarme (le stesse parole) due volte entro un minuto parte una volta sola. Oltre {alerts} allarmi entro {minutes} minuti, il resto arriva insieme come un solo allarme ogni {bundle} minuti — nessuno va perso.",
   "nc.chip.flood": "Protezione contro le raffiche",
   "nc.chip.alerts": "Gli allarmi partono sempre",
   "tile.notify_wait": "In attesa del riepilogo",

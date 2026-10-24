@@ -752,6 +752,8 @@
   "setup.msg.partner_off_share": "Share {name}: wird nicht gesichert — nichts davon geht zu Partner {partner}.",
   "setup.msg.partner_off_vm": "VM {name}: wird nicht gesichert — nichts davon geht zu Partner {partner}.",
   "setup.msg.partner_off_place": "Die Backup-Ablage wird nicht gesichert — nichts davon geht zu Partner {partner}.",
+  "setup.msg.partner_child_left_share": "Share {name}: Das Dataset {folder} darin gehört keiner App und keiner VM — es bleibt hier; der Rest des Shares geht zu Partner {partner}.",
+  "setup.msg.partner_child_left_place": "Die Backup-Ablage: Das Dataset {folder} darin bleibt hier; der Rest geht zu Partner {partner}.",
   "setup.msg.partner_no_key": "Partner {partner}: Sein Schlüssel fehlt — verbinde beim Teamchef neu.",
   "setup.msg.partner_how": "Was zu einem Partner geht, ist die Stufe «lokal + Partner» pro Share und VM in der Einrichtung; nur eigene ZFS-Datasets reisen, die Tür des Partners nimmt jedes davon an, bis zu seiner Obergrenze.",
   "setup.msg.place_partner_cannot": "Die Backup-Ablage ist kein eigenes Dataset ({pwhy}) — sie kann nicht zu einem Partner.",

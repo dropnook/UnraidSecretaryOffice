@@ -752,6 +752,8 @@
   "setup.msg.partner_off_share": "Share {name}: not backed up — nothing of it goes to partner {partner}.",
   "setup.msg.partner_off_vm": "VM {name}: not backed up — nothing of it goes to partner {partner}.",
   "setup.msg.partner_off_place": "The backup place isn't backed up — nothing of it goes to partner {partner}.",
+  "setup.msg.partner_child_left_share": "Share {name}: the dataset {folder} inside it belongs to no app or VM — it stays here; the rest of the share goes to partner {partner}.",
+  "setup.msg.partner_child_left_place": "The backup place: the dataset {folder} inside it stays here; the rest goes to partner {partner}.",
   "setup.msg.partner_no_key": "Partner {partner}: its key is missing — pair anew at the Team Lead.",
   "setup.msg.partner_how": "What goes to a partner is the level «local + partner» per share and VM in the setup; only ZFS datasets of their own travel, the partner's door takes any of them up to its quota.",
   "setup.msg.place_partner_cannot": "The backup place isn't a dataset of its own ({pwhy}) — it can't go to a partner.",

@@ -224,7 +224,7 @@
     "other": "{n} neue Sachen — ich schaue, ob sie bleiben"
   },
   "notify_missing": "Unraids Benachrichtigungs-Skript fehlt — ich kann nichts melden.",
-  "help.notify": "Die eine Stelle des Sekretariats für alles, was an Unraids Benachrichtigungen geht (Glocke, Mail, Push). Alarme gehen immer sofort raus — nichts hier hält sie auf. Pro Kollegin und Kollege: wie viel (alles · Warnungen und Alarme · nur Alarme), Erfolge auch oder nicht, sofort oder in einer Zusammenfassung. Ruhezeit und «Still bis …» halten alles außer Alarmen zurück; ein Schutz vor Meldungsfluten schickt dieselbe Meldung nur einmal, bis sie sich erledigt hat, und sammelt den Rest, wenn jemand sehr viel meldet. Nur die Meldungen des Sekretariats — Unraids eigene (Array, SMART, Updates, Parität) und die anderer Plugins bleiben genau, wie sie sind; Unraids Benachrichtigungs-Einstellungen werden nur gelesen.",
+  "help.notify": "Die eine Stelle des Sekretariats für alles, was an Unraids Benachrichtigungen geht (Glocke, Mail, Push). Alarme gehen immer sofort raus — nichts hier hält sie auf. Pro Kollegin und Kollege: wie viel (alles · Warnungen und Alarme · nur Alarme), Erfolge auch oder nicht, sofort oder in einer Zusammenfassung. Ruhezeit und «Still bis …» halten alles außer Alarmen zurück; ein Schutz vor Meldungsfluten schickt dieselbe Meldung (nie einen Alarm) nur einmal, bis sie sich erledigt hat, und sammelt den Rest, wenn jemand sehr viel meldet. Nur die Meldungen des Sekretariats — Unraids eigene (Array, SMART, Updates, Parität) und die anderer Plugins bleiben genau, wie sie sind; Unraids Benachrichtigungs-Einstellungen werden nur gelesen.",
   "notify.subject": {
     "one": "Etwas Neues zu erledigen",
     "other": "{n} neue Dinge zu erledigen"
@@ -691,8 +691,8 @@
   "nc.tip.at": "Zu dieser Uhrzeit geht alles Gesammelte als eine Meldung raus. Wer eine eigene Uhrzeit hat, bekommt eine eigene; eine leere Zusammenfassung wird nie geschickt.",
   "nc.tip.quiet": "In diesen Stunden gehen nur Alarme raus. Der Rest wird gesammelt und kommt als eine Zusammenfassung, wenn die Ruhezeit endet.",
   "nc.tip.silent": "Für Wartung oder Urlaub: bis zur gewählten Zeit gehen nur Alarme raus. Was in der Zeit kam, kommt danach als eine Zusammenfassung.",
-  "nc.tip.flood": "Dieselbe Meldung geht einmal raus, danach wird sie nur gezählt, bis sie sich erledigt hat (oder {hours} Stunden später). Mehr als {desk} von einer Kollegin oder einem Kollegen oder {office} vom ganzen Sekretariat innerhalb von {minutes} Minuten sammle ich in einer Zusammenfassung — mit einer Meldung, dass ich sammle.",
-  "nc.tip.alerts": "Alarme gehen immer sofort raus. Ab {alerts} verschiedenen Alarmen innerhalb von {minutes} Minuten kommt der Rest gebündelt als ein Alarm alle {bundle} Minuten — keiner geht verloren.",
+  "nc.tip.flood": "Alarme ausgenommen: Dieselbe Meldung geht einmal raus, danach wird sie nur gezählt, bis sie sich erledigt hat (oder {hours} Stunden später). Mehr als {desk} von einer Kollegin oder einem Kollegen oder {office} vom ganzen Sekretariat innerhalb von {minutes} Minuten sammle ich in einer Zusammenfassung — mit einer Meldung, dass ich sammle.",
+  "nc.tip.alerts": "Alarme gehen immer sofort raus, jeder einzelne — auch derselbe Alarm noch einmal, bevor er sich erledigt hat. Nur genau derselbe Alarm (dieselben Worte) zweimal innerhalb einer Minute geht einmal raus. Nach {alerts} Alarmen innerhalb von {minutes} Minuten kommt der Rest gebündelt als ein Alarm alle {bundle} Minuten — keiner geht verloren.",
   "nc.chip.flood": "Schutz vor Meldungsfluten",
   "nc.chip.alerts": "Alarme gehen immer",
   "tile.notify_wait": "Wartet auf Zusammenfassung",

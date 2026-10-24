@@ -16,16 +16,19 @@ declare(strict_types=1);
  *   data/office/notify-held.json    what waits for a summary (its copy in RAM: RUN_DIR/notify-held.json, the night shift's)
  *   data/office/notify-log.json     the history the page shows (30 days)
  *
- * Alerts always go right away (never held, never off); the flood guard holds for them too, but only the same alert
- * until it is resolved, and past NOTIFY_ALERT_CAP an hour the rest as one alert every NOTIFY_ALERT_BUNDLE.
+ * Alerts always go right away (never held, never off), each one: an alert is never folded into «the same» (the truth
+ * review T01 — a second «Backup failed» within a day was swallowed); only the very same alert (its key also covers its
+ * description) again within NOTIFY_ALERT_SAME is counted, and past NOTIFY_ALERT_CAP an hour the rest go as one alert
+ * every NOTIFY_ALERT_BUNDLE.
  * The numbers are the same as in backup/lib/notifygate.sh (tests/run.php compares them).
  */
 
 const NOTIFY_SAME_FORGET  = 86400;    // an unresolved repeat may go out again after a day (a daily failure still reminds daily)
+const NOTIFY_ALERT_SAME   = 60;       // an alert: only the very same one again within a minute is counted (never a day)
 const NOTIFY_CAP_WINDOW   = 3600;     // the caps count the last hour
 const NOTIFY_DESK_CAP     = 5;        // more than this from one character in an hour is a flood
 const NOTIFY_OFFICE_CAP   = 20;       // more than this from the whole office in an hour is a flood
-const NOTIFY_ALERT_CAP    = 10;       // distinct alerts in an hour before the rest are bundled
+const NOTIFY_ALERT_CAP    = 10;       // alerts in an hour before the rest are bundled
 const NOTIFY_ALERT_BUNDLE = 900;      // a bundle of the rest at most every 15 minutes
 const NOTIFY_HEART_FRESH  = 70;       // the agent's heartbeat at most this old: it will send the summary
 const NOTIFY_DROPS_MAX    = 500;      // decisions waiting for the agent at most — past it nothing is held (it goes now)
@@ -189,10 +192,10 @@ function officeNotifyResolves(string $desk, string $event): bool
     return in_array($event, OFFICE_NOTIFY_RESOLVES[$desk] ?? [], true);
 }
 
-/** «The same notification»: 16 hex over desk|event|subject (ung_key) */
-function officeNotifyKey(string $desk, string $event, string $subject): string
+/** «The same notification»: 16 hex over desk|event|subject; an alert's over desk|event|subject|description (ung_key) */
+function officeNotifyKey(string $desk, string $event, string $subject, string $level = '', string $description = ''): string
 {
-    return substr(md5("$desk|$event|$subject"), 0, 16);
+    return substr(md5($level === 'alert' ? "$desk|$event|$subject|$description" : "$desk|$event|$subject"), 0, 16);
 }
 
 /** Inside the quiet hours (quiet=HHMM-HHMM from the senders' file; across midnight when from > to) */
@@ -250,8 +253,9 @@ function officeNotifyGuardDecide(array $lines, string $desk, string $level, stri
         return $d;
     }
     $same = $dk = $off = $al = $fd = $fo = 0;
+    $forget = $level === 'alert' ? NOTIFY_ALERT_SAME : NOTIFY_SAME_FORGET;      // an alert: only the very same one within a minute
     foreach ($lines as [$t, $fate, $who, $lvl, $k]) {      // in the order they were written: a resolve after it resolves it
-        if ($fate === 'sent' && $k === $key && $now - $t < NOTIFY_SAME_FORGET) {
+        if ($fate === 'sent' && $k === $key && $now - $t < $forget) {
             $same = $t;
         }
         if ($fate === 'resolved' && $who === $desk) {
@@ -360,14 +364,14 @@ function officeNotifyDrop(string $home, array $item): void
  * officeNotify()'s gate, called while it holds the shared stamp's flock: the decision, the flood guard's line before
  * the call is known (the caller writes «sent» after it went) — null: no centre here (everything as before).
  */
-function officeNotifyGate(string $desk, string $event, string $level, string $subject): ?array
+function officeNotifyGate(string $desk, string $event, string $level, string $subject, string $description = ''): ?array
 {
     $home = officeNotifyHome();
     if ($home === null) {
         return null;
     }
     $now = time();
-    $key = officeNotifyKey($desk, $event, $subject);
+    $key = officeNotifyKey($desk, $event, $subject, $level, $description);
     if (officeNotifyResolves($desk, $event)) {
         officeNotifyGuardLine($home, 'resolved', $desk, '-', '-', $now);
     }
@@ -750,7 +754,7 @@ function officeNotifyPublic(?int $now = null): array
         'collecting' => $collecting,
         'log'        => array_reverse(officeNotifyLogRead()),
         'limits'     => ['desk' => NOTIFY_DESK_CAP, 'office' => NOTIFY_OFFICE_CAP, 'window' => NOTIFY_CAP_WINDOW, 'alerts' => NOTIFY_ALERT_CAP,
-                         'bundle' => NOTIFY_ALERT_BUNDLE, 'forget' => NOTIFY_SAME_FORGET],
+                         'bundle' => NOTIFY_ALERT_BUNDLE, 'forget' => NOTIFY_SAME_FORGET, 'alert_same' => NOTIFY_ALERT_SAME],
         'time'       => $now,
     ];
 }

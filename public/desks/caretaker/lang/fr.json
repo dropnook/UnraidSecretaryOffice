@@ -224,7 +224,7 @@
     "other": "{n} nouvelles choses — j'attends de voir si elles restent"
   },
   "notify_missing": "Le script de notification d'Unraid n'est pas là — je ne peux rien signaler.",
-  "help.notify": "L'unique endroit du secrétariat pour ce qui va aux notifications d'Unraid (cloche, mail, push). Les alertes partent toujours tout de suite — rien ici ne les arrête. Pour chaque collègue : combien (tout · avertissements et alertes · alertes seulement), les réussites aussi ou non, tout de suite ou dans un résumé. Les heures calmes et « Silence jusqu'à … » retiennent tout sauf les alertes ; une protection contre les rafales n'envoie la même notification qu'une fois tant qu'elle n'est pas réglée et rassemble le reste quand quelqu'un signale beaucoup. Seulement les notifications du secrétariat — celles d'Unraid (array, SMART, mises à jour, parité) et des autres plugins restent exactement comme elles sont ; les réglages de notification d'Unraid sont seulement lus.",
+  "help.notify": "L'unique endroit du secrétariat pour ce qui va aux notifications d'Unraid (cloche, mail, push). Les alertes partent toujours tout de suite — rien ici ne les arrête. Pour chaque collègue : combien (tout · avertissements et alertes · alertes seulement), les réussites aussi ou non, tout de suite ou dans un résumé. Les heures calmes et « Silence jusqu'à … » retiennent tout sauf les alertes ; une protection contre les rafales n'envoie la même notification (jamais une alerte) qu'une fois tant qu'elle n'est pas réglée et rassemble le reste quand quelqu'un signale beaucoup. Seulement les notifications du secrétariat — celles d'Unraid (array, SMART, mises à jour, parité) et des autres plugins restent exactement comme elles sont ; les réglages de notification d'Unraid sont seulement lus.",
   "notify.subject": {
     "one": "{n} nouvelle chose à faire",
     "other": "{n} nouvelles choses à faire"
@@ -691,8 +691,8 @@
   "nc.tip.at": "À cette heure, tout ce qui est rassemblé part en une seule notification. Qui a sa propre heure reçoit son propre résumé ; un résumé vide n'est jamais envoyé.",
   "nc.tip.quiet": "Pendant ces heures, seules les alertes partent. Le reste est rassemblé et arrive en un résumé à la fin des heures calmes.",
   "nc.tip.silent": "Pour une maintenance ou des vacances : jusqu'au moment choisi, seules les alertes partent. Ce qui est arrivé entre-temps vient ensuite en un résumé.",
-  "nc.tip.flood": "La même notification part une fois, ensuite elle est seulement comptée tant qu'elle n'est pas réglée (ou {hours} heures plus tard). Plus de {desk} d'un collègue ou {office} de tout le secrétariat en {minutes} minutes, je les rassemble dans un résumé — avec une notification qui le dit.",
-  "nc.tip.alerts": "Les alertes partent toujours tout de suite. Au-delà de {alerts} alertes différentes en {minutes} minutes, le reste arrive ensemble en une seule alerte toutes les {bundle} minutes — aucune n'est perdue.",
+  "nc.tip.flood": "Hors alertes : la même notification part une fois, ensuite elle est seulement comptée tant qu'elle n'est pas réglée (ou {hours} heures plus tard). Plus de {desk} d'un collègue ou {office} de tout le secrétariat en {minutes} minutes, je les rassemble dans un résumé — avec une notification qui le dit.",
+  "nc.tip.alerts": "Les alertes partent toujours tout de suite, chacune — aussi la même alerte à nouveau avant qu'elle soit réglée. Seule exactement la même alerte (les mêmes mots) deux fois en une minute ne part qu'une fois. Au-delà de {alerts} alertes en {minutes} minutes, le reste arrive ensemble en une seule alerte toutes les {bundle} minutes — aucune n'est perdue.",
   "nc.chip.flood": "Protection contre les rafales",
   "nc.chip.alerts": "Les alertes partent toujours",
   "tile.notify_wait": "En attente du résumé",

@@ -276,7 +276,7 @@ tell() {
         if flock -w 10 "$fd" 2>/dev/null; then
             UNG_FATE=sent; UNG_WHY=""; UNG_DUE=0; UNG_NOTICE=""
             if declare -F ung_decide >/dev/null; then
-                key=$(ung_key office "$ev" "$1")
+                key=$(ung_key office "$ev" "$1" "$3" "$2")
                 ung_resolves office "$ev" && ung_line "$RUN" resolved office - -
                 ung_decide "$RUN" office "$ev" "$3" "$key" "$(date +%s)"
             fi

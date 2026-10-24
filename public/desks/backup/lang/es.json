@@ -758,6 +758,8 @@
   "setup.msg.partner_off_share": "Recurso compartido {name}: no se copia — nada de él va al socio {partner}.",
   "setup.msg.partner_off_vm": "VM {name}: no se copia — nada de ella va al socio {partner}.",
   "setup.msg.partner_off_place": "El lugar de las copias no se copia — nada de él va al socio {partner}.",
+  "setup.msg.partner_child_left_share": "Recurso compartido {name}: el dataset {folder} que contiene no pertenece a ninguna app ni VM — se queda aquí; el resto del recurso compartido va al socio {partner}.",
+  "setup.msg.partner_child_left_place": "El lugar de las copias: el dataset {folder} que contiene se queda aquí; el resto va al socio {partner}.",
   "setup.msg.partner_no_key": "Socio {partner}: falta su clave — empareja de nuevo con el jefe de equipo.",
   "setup.msg.partner_how": "Lo que va a un socio es el nivel «local + socio» por recurso compartido y VM en la configuración; solo viajan datasets ZFS propios, la puerta del socio los acepta todos hasta su límite.",
   "setup.msg.place_partner_cannot": "El lugar de las copias no es un dataset propio ({pwhy}) — no puede ir a un socio.",
