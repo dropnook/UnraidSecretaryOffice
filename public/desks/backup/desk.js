@@ -5068,9 +5068,26 @@ function depCovered(a, share, plan) {
   const has = dget(`share|${share}|partner`, []) || [];
   if (mode === 'off' && !has.length) return false;
   if (l === 2 && mode !== 'kopia') return false;
+  return depPartners(a, plan).every((p) => has.includes(p));
+}
+/** The partners an app goes to: its own and, for a folder that is no dataset of its own, its share's */
+function depPartners(a, plan) {
   const partners = [...(dget(`app|${a.name}|partner`, []) || [])];
   (a.folders || []).forEach((f) => { if (!ownDataset(plan, f.share, f.dir)) partners.push(...(dget(`share|${f.share}|partner`, []) || [])); });
-  return partners.every((p) => has.includes(p));
+  return [...new Set(partners)];
+}
+/**
+ * Would a tick raise the share at all (2026-10-24, StedyUnraid: «drop mitsichern» under dropnook going to its partner
+ * through appdata — drop lies on two pools, so it can't go to a partner, and it had a local snapshot already: the tick
+ * changed nothing, no bar, no word, «the page is broken»)? Its local part (off → the app's level, offsite → Kopia), or a
+ * partner of the app's it can take (`sh.partner_ok`). No: the row says why instead of offering a box (depCannot()).
+ */
+function depGain(a, share, sh, plan) {
+  const l = levelOf('app:' + a.id);
+  const mode = dget(`share|${share}|mode`, 'off');
+  if ((l >= 1 && mode === 'off') || (l === 2 && mode !== 'kopia')) return true;
+  const has = dget(`share|${share}|partner`, []) || [];
+  return !!(sh && sh.partner_ok) && depPartners(a, plan).some((p) => !has.includes(p));
 }
 /** The box as shown: ticked by the user, or the share already as far as the app and not unticked here */
 const depTicked = (a, share, plan) => {
@@ -5091,8 +5108,10 @@ function depClick(a, share, v, sh, plan, row) {
     if (depCovered(a, share, plan)) setup.depNote.set(key, 'same');
     else {
       setup.deps.add(key);
-      // 1.60.1 (a user, dropnook): ticked under an app that goes to partners, the share goes there too (when it can)
-      const ap = dget(`app|${a.name}|partner`, []) || [];
+      // 1.60.1 (a user, dropnook): ticked under an app that goes to partners, the share goes there too (when it can) —
+      // its own partners and those it reaches through its share (2026-10-24: only its own were taken, so a tick under an
+      // app «local + partner through appdata» sent nothing)
+      const ap = depPartners(a, plan);
       if (ap.length && sh && sh.partner_ok) dset(`share|${share}|partner`, [...new Set([...(dget(`share|${share}|partner`, []) || []), ...ap])]);
     }
   } else {
@@ -5102,6 +5121,15 @@ function depClick(a, share, v, sh, plan, row) {
   }
   setupDerive();
   Office.keepInPlace(row, () => renderSetup());
+}
+
+/** The «… mitsichern» row that can't raise its share (depGain()): what holds it back, what it has already, the why folded */
+function depCannot(share, sh, modeText, key) {
+  const why = (sh && sh.partner_why) || 'no_dataset';
+  const box = el('div', 'bk-dep-cannot');
+  box.appendChild(el('p', 'role', T('setup.app_dep_cannot', { share, why: T('partner.why_short.' + why), mode: modeText })));
+  if (['not_dataset', 'split'].includes(why)) box.appendChild(whyFold('dep:' + key, T('dsw.share_' + why), null));
+  return box;
 }
 
 /**
@@ -5628,6 +5656,13 @@ function setupApps(plan) {
         const note = [setup.depNote.get(key)].find((n) => n && (n === 'same') === ticked);
         const step3 = !ticked && !note && mode !== 'off' ? T('setup.app_dep_step3', { mode: modeText }) : '';
         sub.title = step3 ? T('setup.app_dep_step3_hint') : '';
+        // a tick that could raise nothing is no switch: the row says why, and that it is backed up already (2026-10-24)
+        if (!ticked && !note && mode !== 'off' && !depGain(a, d.share, sh, plan)) {
+          sub.title = '';
+          sub.appendChild(depCannot(d.share, sh, modeText, `${a.id}:${d.share}`));
+          list.appendChild(sub);
+          return;
+        }
         const box = checkbox(T('setup.app_dep', { share: d.share }), ticked, (v) => depClick(a, d.share, v, sh, plan, sub),
           [step3, size, where, T('setup.app_dep_hint')].filter(Boolean).join(' · '));
         // what the click did, said on the row at once (2026-10-17, the owner: three ticks, «nothing happened»)
@@ -6771,7 +6806,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     placeLines, placeVerdict, placeOffsite, placeNotes, placeFitting, placeOfferLines, setupPlaceMade, setupDraftKeep, setupDerive, dset, setupEdits,
     PRESETS, presetChoose, presetForget, presetKeep, presetChanged, presetKopiaState, firstUpload, presetKeptList, presetStartText,
     presetCardsOf, presetCardOf, presetApply, presetPartners, levelPick, modeSelect, placeLevelPick, partnerListOf, partnerListSet, setupMigrated, LEVEL_FIELDS,
-    partnerNowText, partnerRateOf, runModeOf, progress, partnerUnits, partnerSectionRows, partnerApplyLines, setupChangeItems, listChangeText, knownText, diffMark, whyFold, folderOf, ownDataset, setupMakeDataset, appPartner, vmPartner, shareGoesTo, placeGoesTo, unitVia, levelWord, viaChip, offChip, partnerShareLines, appDepGaps, depCovered, depTicked, depClick, setupInitLevels, setupDeclinedApply, declinedList, ownFoldersOf, setupModel, partnerApplyText, setupDecline, setupApplyChanges, minuteTaken, bubbleText, deskActions,
+    partnerNowText, partnerRateOf, runModeOf, progress, partnerUnits, partnerSectionRows, partnerApplyLines, setupChangeItems, listChangeText, knownText, diffMark, whyFold, folderOf, ownDataset, setupMakeDataset, appPartner, vmPartner, shareGoesTo, placeGoesTo, unitVia, levelWord, viaChip, offChip, partnerShareLines, appDepGaps, depCovered, depTicked, depClick, depGain, depPartners, setupInitLevels, setupDeclinedApply, declinedList, ownFoldersOf, setupModel, partnerApplyText, setupDecline, setupApplyChanges, minuteTaken, bubbleText, deskActions,
     presetKopiaMode, presetKopiaVm, draftMode, draftVm, setupNewItems, presetApplyNew, presetNow, presetChosen, presetNewMode, presetNewVm,
     letGoPart, letGoLines, letGoDoneLines, letGoResult, setLetGoClock: (c) => { letGoClock = c; }, setupUnfold, UNFOLD_OWN, setupDecisions, setupApplyChanges, changeLabel, valueText, valueChange, setupSplit, setupDecline,
     warnLines, bubbleText, setupBarSpec, setupNoPlace, setupPlaceStart, bubblePlace, placeFirst, placeFirstNeeded, setupSearchItems, brakeLine, brakeGaps, snapSeconds,

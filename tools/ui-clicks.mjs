@@ -891,6 +891,45 @@ async function pairAddress(browser) {
     res.tested++;
     if (!said || close !== 'Close') fail(`change: the outcome is not said («door says no yet», Close) (${await dlg()})`);
     await page.click(lastBtn);
+
+    // 4. (2026-10-24, nostromo ↔ StedyUnraid) the network card: each name once, its earlier nodes folded and faded under it
+    // (one still listed online); the pair reached at its live node: no hint on the card
+    h.setState('caretaker', { ...base, partners: { ...base.partners, pairs: [{ ...pair, address: '100.64.0.3', reachable: true, why: null, usonet_match: null }] } });
+    await page.goto('about:blank');          // a page loaded anew: its own earlier look of the network (step 2) would be drawn instead
+    await page.goto(`${h.url}#/caretaker/partner`, { waitUntil: 'load' });
+    await page.waitForSelector('.ct-net .ct-net-older', { state: 'attached', timeout: 15000 }).catch(() => fail('network card: the earlier nodes are not folded under the name'));
+    const net = await page.evaluate(() => {
+      const rows = [...document.querySelectorAll('.ct-net .row-name')].map((n) => n.textContent);
+      const folds = [...document.querySelectorAll('.ct-net details.ct-net-older')];
+      return { names: rows.filter((t) => /uso-partnernas/.test(t)).length, folds: folds.map((d) => d.querySelector('summary').textContent), open: folds.some((d) => d.open),
+        hint: !!document.querySelector('.ct-switch') };
+    });
+    res.tested++;
+    if (net.names !== 1) fail(`network card: uso-partnernas listed ${net.names} times`);
+    if (net.open || !net.folds.includes('2 earlier nodes of this name') || !net.folds.includes('1 earlier node of this server')) fail(`network card: the folds (${JSON.stringify(net.folds)}, open ${net.open})`);
+    if (net.hint) fail('card: a «switch the address» hint while the pair answers at its live node');
+    await page.click('[data-place="usonet:uso-partnernas"] details.ct-net-older summary');
+    const inside = await page.evaluate(() => (document.querySelector('[data-place="usonet:uso-partnernas"] details.ct-net-older[open]') || {}).textContent || '');
+    res.tested++;
+    if (!/100\.64\.0\.36 · listed as online too/.test(inside) || !/«Machines»/.test(inside)) fail(`network card: the fold's lines (${inside.slice(0, 160)})`);
+
+    // 5. «Start from a partner's copy…» in the network: this server's USO address by itself, the old picker folded; the request carries it
+    let started = null;
+    h.setPost('caretaker.partner_ticket_start', (d) => (d.step === 'look'
+      ? { name: 'Tower', addresses: [{ address: '192.168.1.10', iface: 'br0', private: true }, { address: '100.64.0.4', iface: 'uso-net', private: true, usonet: true }],
+        usonet: { in: true, address: '100.64.0.4', port: 22, peers: [], peer: false, range: false, wait: false, state: 'in', match: null } }
+      : (started = d, { id: 'a1b2c3d4', block: 'eyJ2IjoxfQ==', partners: base.partners })));
+    await page.evaluate(() => [...document.querySelectorAll('#sso button')].find((b) => /Start from a partner/.test(b.textContent)).click());
+    await page.waitForSelector('#sso-dialog .ct-myaddr', { timeout: 5000 }).catch(() => fail('ticket start: not this server\'s USO address (no one-line address)'));
+    const tline = await page.evaluate(() => ({ line: (document.querySelector('#sso-dialog .ct-myaddr .callout strong') || {}).textContent || '',
+      fold: !!(document.querySelector('#sso-dialog .ct-myaddr details') || {}).open, port: [...document.querySelectorAll('#sso-dialog input[type=number]')].some((i) => i.offsetParent) }));
+    res.tested++;
+    if (tline.line !== 'Over the USO network: 100.64.0.4' || tline.fold || tline.port) fail(`ticket start: ${JSON.stringify(tline)}`);
+    await page.click(lastBtn);
+    await page.waitForFunction(() => !document.querySelector('#sso-dialog .ct-myaddr'), null, { timeout: 5000 }).catch(() => {});
+    res.tested++;
+    if (!started || started.address !== '100.64.0.4' || 'other' in started) fail(`ticket start: the request (${JSON.stringify(started)})`);
+    await page.keyboard.press('Escape');
     for (const e of [...new Set(errors)]) fail(e);
     await ctx.close();
   } catch (e) {

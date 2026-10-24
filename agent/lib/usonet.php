@@ -43,6 +43,7 @@ const USONET_SLOW_AFTER = 180;              // a join or leave under way for so 
 const USONET_JOB_QUEUED = 180;              // a job atd hasn't started within so long is given up
 const USONET_JOB_MAX    = 900;              // no job lives longer (the fetch alone may take 300 s)
 const USONET_PROBE_EVERY = 180;             // one small probe per relayed peer at most so often (the path goes direct with traffic)
+const USONET_ANSWER_FOR = 900;              // a probe's answer counts so long (usonetAnswered(): which node of a name is the live one)
 
 function usonetFlashDir(): string
 {
@@ -195,52 +196,108 @@ function usonetAddressRange(string $a): bool
     return substr($bin, 0, 6) === "\xfd\x7a\x11\x5c\xa1\xe0";
 }
 
+/** Did the node at one of $ips answer the office's probe lately (usonetProbe(): its mark RUN_DIR/usonet/probe/<ip>.ok)? */
+function usonetAnswered(array $ips, ?int $now = null): bool
+{
+    $now ??= time();
+    foreach ($ips as $a) {
+        $mark = usonetRunDir() . "/probe/$a.ok";
+        clearstatcache(true, $mark);
+        if (filter_var($a, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) && is_file($mark) && $now - (int) @filemtime($mark) < USONET_ANSWER_FOR) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /**
- * The USO peers a pairing can pick from: the tagged ones with an IPv4, the online ones first — name, address, whether
- * the path is direct right now. Not in the network: none.
+ * How live a node is among those of its name — the larger, the more (2026-10-24, nostromo ↔ StedyUnraid: every leave and
+ * join anew leaves the old node listed — Tailscale's logout only expires it, the machine stays until it is removed in
+ * the tailnet's console; one of them still said «online» and answered nothing, while the live one was direct): online,
+ * then direct, then answered the office's probe lately, then seen last (an online node has no «last seen»: now).
  */
-function usonetPeersToPick(?array $s = null): array
+function usonetNodeRank(array $p, ?int $now = null): array
+{
+    return [$p['online'], $p['direct'], usonetAnswered($p['ips'], $now), $p['online'] ? PHP_INT_MAX : (int) $p['last_seen']];
+}
+
+/**
+ * The peers grouped by name, the live node of each first (usonetNodeRank()): [name => [peer, …]]. One name, one office —
+ * the others are its earlier nodes (left and joined anew), never a second partner.
+ */
+function usonetByName(array $peers, ?int $now = null): array
+{
+    $out = [];
+    foreach ($peers as $p) {
+        $out[$p['name']][] = $p + ['rank' => usonetNodeRank($p, $now)];
+    }
+    foreach ($out as &$nodes) {
+        usort($nodes, fn ($a, $b) => [$b['rank'], $a['ips']] <=> [$a['rank'], $b['ips']]);
+    }
+    unset($nodes);
+    return $out;
+}
+
+/** A peer's IPv4 (the address a pairing takes) — null when it has none */
+function usonetPeerIp4(array $p): ?string
+{
+    foreach ($p['ips'] as $a) {
+        if (filter_var($a, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            return $a;
+        }
+    }
+    return null;
+}
+
+/** Every node named $node (the tagged ones with an IPv4), the live one first — as a pick's row each (name, address, online, direct, last_seen) */
+function usonetNodesOf(string $node, ?array $s = null, ?int $now = null): array
 {
     $s ??= usonetStatus();
     if ($s === null || usonetMyIp4($s) === null) {
         return [];
     }
+    $mine = array_filter($s['peers'], fn ($p) => strtolower($p['name']) === $node && in_array(USONET_TAG, $p['tags'], true) && usonetPeerIp4($p) !== null);
     $out = [];
-    foreach ($s['peers'] as $p) {
-        if (!in_array(USONET_TAG, $p['tags'], true)) {
-            continue;
-        }
-        $ip = null;
-        foreach ($p['ips'] as $a) {
-            if (filter_var($a, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-                $ip = $a;
-                break;
-            }
-        }
-        if ($ip === null) {
-            continue;
-        }
-        // one row per name: a server that joined anew leaves its old node behind (offline) — the online one stands
-        $row = ['name' => $p['name'], 'address' => $ip, 'online' => $p['online'], 'direct' => $p['direct'], 'last_seen' => $p['last_seen'] ?: null];
-        $had = $out[$p['name']] ?? null;
-        if ($had === null || [$row['online'], $row['last_seen'] ?? PHP_INT_MAX] > [$had['online'], $had['last_seen'] ?? PHP_INT_MAX]) {
-            $out[$p['name']] = $row;
+    foreach (usonetByName($mine, $now) as $nodes) {
+        foreach ($nodes as $p) {
+            $out[] = ['name' => $p['name'], 'address' => usonetPeerIp4($p), 'online' => $p['online'], 'direct' => $p['direct'],
+                'last_seen' => $p['last_seen'] ?: null, 'rank' => $p['rank']];
         }
     }
-    $out = array_values($out);
+    usort($out, fn ($a, $b) => $b['rank'] <=> $a['rank']);
+    return $out;
+}
+
+/**
+ * The USO peers a pairing can pick from: the tagged ones with an IPv4, the online ones first — name, address, whether
+ * the path is direct right now; one per name, its live node (usonetNodeRank()), never this server's own earlier node.
+ * Not in the network: none.
+ */
+function usonetPeersToPick(?array $s = null, ?int $now = null): array
+{
+    $s ??= usonetStatus();
+    if ($s === null || usonetMyIp4($s) === null) {
+        return [];
+    }
+    $ok = array_filter($s['peers'], fn ($p) => $p['name'] !== $s['name'] && in_array(USONET_TAG, $p['tags'], true) && usonetPeerIp4($p) !== null);
+    $out = [];
+    foreach (usonetByName($ok, $now) as $nodes) {
+        $p = $nodes[0];
+        $out[] = ['name' => $p['name'], 'address' => usonetPeerIp4($p), 'online' => $p['online'], 'direct' => $p['direct'], 'last_seen' => $p['last_seen'] ?: null];
+    }
     usort($out, fn ($a, $b) => [$b['online'], $a['name']] <=> [$a['online'], $b['name']]);
     return $out;
 }
 
 /**
  * The online USO peer that is the partner named $name (a block's or a pair's name — the partner's host name, partnerMyName()):
- * its node is called as usonetNodeName() makes it of that host name (StedyUnraid → uso-stedyunraid). Null: none online.
+ * its node is called as usonetNodeName() makes it of that host name (StedyUnraid → uso-stedyunraid); of several nodes of
+ * that name the live one (usonetNodeRank()). Null: none online.
  */
 function usonetPeerNamed(string $name, ?array $s = null): ?array
 {
-    $node = usonetNodeName($name);
     foreach (usonetPeersToPick($s) as $p) {
-        if ($p['online'] && strtolower($p['name']) === $node) {
+        if ($p['online'] && strtolower($p['name']) === usonetNodeName($name)) {
             return $p;
         }
     }
@@ -251,7 +308,8 @@ function usonetPeerNamed(string $name, ?array $s = null): ?array
  * A small probe to every online peer still reached over a relay (at most once per USONET_PROBE_EVERY per peer, in the
  * background): Tailscale starts every path over its relay and goes direct once traffic flows — so the card's «relayed»
  * is true only for a moment, and a copy that follows starts on the direct path. Three pings inside the namespace,
- * nothing else; nothing when the node isn't in.
+ * nothing else; nothing when the node isn't in. An answer is marked (usonet.sh probe): an earlier node still listed
+ * «online» never answers, the live one does — usonetNodeRank() tells them apart.
  */
 function usonetProbe(array $public, ?int $now = null): void
 {
@@ -284,8 +342,8 @@ function usonetProbe(array $public, ?int $now = null): void
         }
         @touch($stamp, $now);
         $probe = getenv('USONET_PROBE');
-        $cmd = $probe ? [$probe, $ip]
-            : ['setsid', '-f', getenv('USONET_NSENTER') ?: '/usr/bin/nsenter', '--net=/run/netns/' . USONET_NETNS, 'ping', '-c', '3', '-W', '2', '-q', $ip];
+        // usonet.sh probe: three pings inside the namespace, an answer leaves its mark (usonetAnswered())
+        $cmd = $probe ? [$probe, $ip] : ['setsid', '-f', 'bash', usonetScript(), 'probe', $ip];
         run($cmd, 5);          // setsid -f: the agent goes on at once, the pings finish on their own
     }
 }
@@ -372,7 +430,7 @@ function usonetPublic(?int $now = null): array
     $s = usonetStatus();
     $mark = usonetJob($now);
     $job = $mark['what'] ?? null;
-    $out = ['joined' => $joined, 'state' => 'off', 'name' => '', 'ips' => [], 'tagged' => null, 'peers' => [], 'foreign' => 0,
+    $out = ['joined' => $joined, 'state' => 'off', 'name' => '', 'ips' => [], 'tagged' => null, 'peers' => [], 'own_older' => [], 'foreign' => 0,
         'since' => null, 'control' => (string) (usonetConfig()['CONTROL'] ?? ''), 'policy' => usonetPolicyLines(),
         'node' => usonetNodeName(), 'port' => USONET_UDP_PORT, 'helper' => USONET_HELPER['version'], 'why' => '', 'joining' => $job, 'time' => $now,
         'job' => $mark === null ? null : ['what' => $mark['what'], 'step' => $mark['step'], 'since' => $mark['time']],
@@ -395,23 +453,23 @@ function usonetPublic(?int $now = null): array
         $out['name'] = $s['name'];
         $out['ips'] = $s['ips'];
         $out['tagged'] = in_array(USONET_TAG, $s['tags'], true);
-        // one row per name: a server that joined anew leaves its old node behind (offline; Headscale never expires a
-        // tagged one) — the online one, else the one seen last, stands for it
-        $byName = [];
-        foreach ($s['peers'] as $p) {
-            if ($p['name'] === $s['name']) {
-                continue;       // this server's own earlier node (joined anew; Headscale keeps the old one): not a partner office
+        // one row per name, its live node (usonetNodeRank()); the earlier nodes of that name folded under it (`older`):
+        // a server that left and joined anew leaves its old node listed — Tailscale's logout only expires it, Headscale
+        // never expires a tagged one — until it is removed in the tailnet's console (2026-10-24)
+        $old = fn (array $p) => ['ip' => usonetPeerIp4($p) ?? $p['ips'][0] ?? '', 'online' => $p['online'], 'last_seen' => $p['last_seen'] ?: null];
+        foreach (usonetByName($s['peers'], $now) as $nodes) {
+            if ($nodes[0]['name'] === $s['name']) {
+                $out['own_older'] = array_map($old, $nodes);    // this server's own earlier nodes: never a partner office
+                continue;
             }
-            $tagged = in_array(USONET_TAG, $p['tags'], true);
-            $out['foreign'] += $tagged ? 0 : 1;
-            $row = ['name' => $p['name'], 'ips' => $p['ips'], 'online' => $p['online'], 'direct' => $p['direct'],
-                'relay' => $p['relay'], 'tagged' => $tagged, 'last_seen' => $p['last_seen'] ?: null];
-            $had = $byName[$p['name']] ?? null;
-            if ($had === null || [$row['online'], $row['last_seen'] ?? PHP_INT_MAX] > [$had['online'], $had['last_seen'] ?? PHP_INT_MAX]) {
-                $byName[$p['name']] = $row;
+            foreach ($nodes as $p) {
+                $out['foreign'] += in_array(USONET_TAG, $p['tags'], true) ? 0 : 1;
             }
+            $p = $nodes[0];
+            $out['peers'][] = ['name' => $p['name'], 'ips' => $p['ips'], 'online' => $p['online'], 'direct' => $p['direct'],
+                'relay' => $p['relay'], 'tagged' => in_array(USONET_TAG, $p['tags'], true), 'last_seen' => $p['last_seen'] ?: null,
+                'older' => array_map($old, array_slice($nodes, 1))];
         }
-        $out['peers'] = array_values($byName);
     }
     $since = usonetNoContactSince($fresh ? $s : null, $now);
     if ($refused === 'checksum' || $refused === 'missing') {

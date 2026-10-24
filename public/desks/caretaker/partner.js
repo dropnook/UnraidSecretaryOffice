@@ -245,6 +245,7 @@ function netBox(n) {
   main.appendChild(meta);
   main.appendChild(el('div', 'row-detail', T('usonet.address', { address: n.ips[0] })));
   if (n.foreign) main.appendChild(el('p', 'callout warn', T('usonet.foreign', { n: n.foreign })));
+  if ((n.own_older || []).length) main.appendChild(olderFold(n.own_older, 'usonet-older:', n, 'usonet.own_older'));
   me.appendChild(main);
   box.appendChild(me);
   // the other offices in the network
@@ -263,6 +264,7 @@ function netBox(n) {
     if (!p.tagged) pm.appendChild(chip('danger', T('usonet.peer_untagged'), T('usonet.peer_untagged_tip')));
     (p.ips || []).slice(0, 1).forEach((a) => pm.appendChild(el('span', 'mono', a)));
     m.appendChild(pm);
+    if ((p.older || []).length) m.appendChild(olderFold(p.older, `usonet-older:${p.name}`, n, 'usonet.older'));
     r.appendChild(m);
     box.appendChild(r);
   });
@@ -277,6 +279,26 @@ function netBox(n) {
   pr.appendChild(det);
   box.appendChild(pr);
   return box;
+}
+
+/**
+ * The earlier nodes of one name, folded and faded under its live one (2026-10-24, nostromo listed three of StedyUnraid):
+ * a server that left and joined anew leaves its old node in the tailnet — the leave logs it out, but Tailscale keeps
+ * the machine listed until it is removed in its console (Headscale: `headscale nodes delete`). Nothing goes there; the
+ * office never removes it itself (that would need a key to the tailnet's API).
+ */
+function olderFold(list, key, n, word) {
+  const det = keepFold(el('details', 'ct-net-older'), key, false);
+  det.addEventListener('click', (e) => e.stopPropagation());
+  det.appendChild(el('summary', '', T(word, { n: list.length })));
+  list.forEach((o) => {
+    const p = el('p', 'role');
+    p.append(el('span', 'mono', o.ip || '?'), ' · ', o.online ? T('usonet.older_online')
+      : o.last_seen ? T('usonet.peer_offline_tip', { when: fmt.date(o.last_seen) }) : T('usonet.peer_offline_never'));
+    det.appendChild(p);
+  });
+  det.appendChild(el('p', 'role', T(n.control ? 'usonet.older_how_headscale' : 'usonet.older_how')));
+  return det;
 }
 
 /** «Join the USO network…»: what the network's owner does once, the key, the optional Headscale — then the agent's job */
@@ -784,10 +806,15 @@ function addressPicker(addresses, port, usonet) {
  * dialog's button off until the address is there or the fold is open. `other()`: the fold open — said to the agent,
  * which refuses any other address without it (partnerAddressChosen()).
  */
-function myAddress(j, key) {
+function myAddress(j, key, noPort) {
   const u = { ...(j.usonet || {}) };
+  const picker = (net) => {
+    const a = addressPicker(j.addresses, j.port, net);
+    if (noPort) a.node.querySelectorAll('.field')[1].hidden = true;        // the other side never connects here: no port
+    return a;
+  };
   if (!(u.in && u.address) && !u.wait) {
-    const addr = addressPicker(j.addresses, j.port, u);
+    const addr = picker(u);
     return { node: addr.node, value: addr.value, usonet: () => false, other: () => false, gate: () => {} };
   }
   const box = el('div', 'ct-myaddr');
@@ -796,7 +823,7 @@ function myAddress(j, key) {
   const det = keepFold(el('details', 'ct-net-policy'), key, false);
   det.appendChild(el('summary', '', T('partner.address_other')));
   det.appendChild(el('p', 'role', T('partner.address_other_text')));
-  const addr = addressPicker(j.addresses, j.port, { in: true });
+  const addr = picker({ in: true });
   det.appendChild(addr.node);
   box.appendChild(det);
   let btn = null;
@@ -805,7 +832,7 @@ function myAddress(j, key) {
     line.replaceChildren();
     if (u.address) {
       line.className = 'callout';
-      line.append(el('strong', '', T('partner.via_usonet', { address: u.address })), ' ', T('partner.via_usonet_mine'));
+      line.append(el('strong', '', T('partner.via_usonet', { address: u.address })), ' ', T(noPort ? 'partner.via_usonet_ticket' : 'partner.via_usonet_mine'));
     } else if (['joining', 'starting', 'in'].includes(u.state)) {
       line.className = 'callout running ct-net-wait';
       line.append(el('span', 'spin'), ' ', T('partner.usonet_wait'));
@@ -846,21 +873,21 @@ function myAddress(j, key) {
  * The partner's block brought an address outside the USO network while this server is in it (2026-10-23: so nostromo
  * stored its partner's LAN): said plainly — reached only in the same LAN — and, when that partner is online in the
  * network (the peer of its name, `usonet.match`), its USO address offered instead (ticked). Null when there is nothing
- * to say. `value()`: the address to take instead, or ''.
+ * to say. `value()`: the address to take instead, or ''. `none`: the text when it isn't online there (a ticket's own).
  */
-function outsideNote(p, u) {
+function outsideNote(p, u, none) {
   if (!(u && u.in) || u.peer) return null;
   const box = el('div');
   box.appendChild(el('p', 'callout warn', T('partner.block_outside', { name: p.name, address: p.address })));
   if (!u.match) {
-    box.appendChild(el('p', 'role', T('partner.block_outside_none', { name: p.name })));
+    box.appendChild(el('p', 'role', T(none || 'partner.block_outside_none', { name: p.name })));
     return { node: box, value: () => '' };
   }
   const take = tick(T('partner.block_outside_match', { name: p.name, address: u.match.address }), true,
     T('partner.block_outside_match_help', { peer: u.match.name }));
   take.node.classList.add('ct-outside-take');
   box.appendChild(take.node);
-  return { node: box, value: () => (take.cb.checked ? u.match.address : '') };
+  return { node: box, value: () => (take.cb.checked ? u.match.address : ''), cb: take.cb };
 }
 
 /**
@@ -1358,22 +1385,25 @@ async function ticketStartDialog() {
   if (!took(j)) return;
   const box = el('div');
   box.appendChild(el('p', '', T('partner.t_start_text')));
-  const addr = addressPicker(j.addresses, 22);
-  addr.node.querySelectorAll('.field')[1].hidden = true;        // the holder never connects here: no port
+  // in the USO network: this server's USO address, nothing to choose; the old picker folded (2026-10-24, as when pairing)
+  const addr = myAddress({ ...j, port: 22 }, 'partner-tstart-other', true);
   box.appendChild(addr.node);
   box.appendChild(el('p', 'callout', T('partner.t_start_after')));
-  Office.dialog({
+  const d = Office.dialog({
     title: T('partner.t_start'),
     body: box,
     wide: true,
     buttons: [{ text: Office.t('common.cancel') }, { text: T('partner.make_block'), kind: '', act: async () => {
-      const r = await Office.api.post(`${ID}.partner_ticket_start`, { step: 'do', address: addr.value().address });
+      const req = { step: 'do', address: addr.value().address };
+      if (addr.other()) req.other = true;
+      const r = await Office.api.post(`${ID}.partner_ticket_start`, req);
       if (!took(r)) return false;
       if (ctx) ctx.reload();
       blockDialog(T('partner.t_block_n_title'), r.block, T('partner.t_block_n_text'), false);
       return true;
     } }],
   });
+  addr.gate(d.buttons[1]);
 }
 
 /** «Hand <name>'s copies to a new server…» (the holder, on the gone server's card): paste BLOCK-N, then the line */
@@ -1398,29 +1428,41 @@ function ticketMakeConfirm(x, block, j) {
     [T('partner.t_f_until'), fmt.date(j.expires)],
   ]));
   if (n.public) box.appendChild(el('p', 'callout warn', T('partner.public_tip')));
-  if (!j.line) { Office.toast(Office.errorText({ key: 'partner_unresolved', params: { address: n.address } }, ID), true); return; }
+  // its BLOCK-N from outside the USO network while this server is in it: said, its USO address offered (2026-10-24)
+  const outside = outsideNote(n, j.usonet || {}, 'partner.t_outside_none');
+  if (outside) box.appendChild(outside.node);
+  const lineNow = () => (outside && outside.value() ? j.line_match : j.line);
+  if (!lineNow()) { Office.toast(Office.errorText({ key: 'partner_unresolved', params: { address: n.address } }, ID), true); return; }
   box.appendChild(el('p', '', T('partner.t_line_text', { name: n.name, of: j.of })));
-  box.appendChild(codeBox(j.line));
+  const code = codeBox(lineNow());
+  box.appendChild(code);
+  if (outside && outside.cb) outside.cb.addEventListener('change', () => { code.textContent = lineNow() || j.line; });      // the line lets it in from the address taken
   box.appendChild(el('p', 'callout', T('partner.t_least_privilege', { name: n.name, of: j.of })));
   const read = tick(T('partner.line_read'), false);
   box.appendChild(read.node);
-  const addr = addressPicker(j.addresses, j.port);
+  // in the USO network: this server's USO address and door, nothing to choose; the old picker folded (2026-10-24)
+  const addr = myAddress(j, 'partner-tmake-other');
   box.appendChild(addr.node);
   const close = tick(T('partner.t_close_door', { of: j.of }), false, T('partner.t_close_door_help', { of: j.of }));
   box.appendChild(close.node);
-  Office.dialog({
+  const d = Office.dialog({
     title: T('partner.t_make', { name: x.name }),
     body: box,
     wide: true,
     buttons: [{ text: Office.t('common.cancel') }, { text: T('partner.t_write'), kind: '', act: async () => {
       if (!read.cb.checked) { Office.toast(T('partner.line_read_first'), true); return false; }
       const a = addr.value();
-      const r = await Office.api.post(`${ID}.partner_ticket_make`, { step: 'do', pair: x.id, block, confirm: true, address: a.address, port: a.port, close_door: close.cb.checked });
+      const req = { step: 'do', pair: x.id, block, confirm: true, address: a.address, port: a.port, close_door: close.cb.checked };
+      if (addr.other()) req.other = true;
+      const theirs = outside ? outside.value() : '';
+      if (theirs) req.their_address = theirs;
+      const r = await Office.api.post(`${ID}.partner_ticket_make`, req);
       if (!took(r)) return false;
       blockDialog(T('partner.t_block_t_title'), r.block, T('partner.t_block_t_text', { name: n.name, until: fmt.date(r.expires) }), r.public, r.code);
       return true;
     } }],
   });
+  addr.gate(d.buttons[1]);
 }
 
 /** «Paste the ticket» (the new server): BLOCK-T, the code compared, then Mr. Restori pulls */
@@ -1441,6 +1483,9 @@ function ticketFinishDialog() {
       [T('partner.t_f_until'), fmt.date(t.expires)],
     ]));
     if (t.public) box.appendChild(el('p', 'callout warn', T('partner.public_tip')));
+    // the holder gave its USO address while this server isn't in the network: it can't reach it yet (2026-10-24)
+    const u = j.usonet || {};
+    if (!u.in && !u.wait && u.range) box.appendChild(el('p', 'callout warn', T('partner.t_usonet_not_in', { name: t.name })));
     Office.dialog({
       title: T('partner.t_finish'),
       body: box,

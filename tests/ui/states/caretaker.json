@@ -876,7 +876,19 @@
     "direct": true,
     "relay": "fra",
     "tagged": true,
-    "last_seen": null
+    "last_seen": null,
+    "older": [
+     {
+      "ip": "100.64.0.36",
+      "online": true,
+      "last_seen": null
+     },
+     {
+      "ip": "100.64.0.38",
+      "online": false,
+      "last_seen": 1791554000
+     }
+    ]
    },
    {
     "name": "uso-backupbox",
@@ -887,7 +899,8 @@
     "direct": false,
     "relay": "",
     "tagged": true,
-    "last_seen": 1791554674
+    "last_seen": 1791554674,
+    "older": []
    },
    {
     "name": "laptop",
@@ -898,7 +911,8 @@
     "direct": true,
     "relay": "",
     "tagged": false,
-    "last_seen": null
+    "last_seen": null,
+    "older": []
    }
   ],
   "foreign": 1,
@@ -915,6 +929,13 @@
   "joining": null,
   "job": null,
   "slow": false,
-  "log": []
+  "log": [],
+  "own_older": [
+   {
+    "ip": "100.64.0.40",
+    "online": false,
+    "last_seen": 1791553000
+   }
+  ]
  }
 }

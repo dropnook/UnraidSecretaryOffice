@@ -10,6 +10,9 @@
 #   usonet.sh stop     the helper, the sshd and the namespace gone (the node stays joined; check brings it back)
 #   usonet.sh leave    stop, the node leaves its tailnet (helper logout), its state, the helper and the cron line
 #                      gone from the flash - nothing of the USO network is left (the office's «Leave», the .plg remove)
+#   usonet.sh probe IP three pings to a peer inside the namespace (the agent's usonetProbe(): a relayed path goes
+#                      direct with traffic); an answer leaves RUN/probe/IP.ok - of several nodes of one name the live one
+#                      answers, an earlier one still listed «online» doesn't (usonetNodeRank())
 #   usonet.sh status   one line
 #
 # The pieces: the namespace uso-net holds nothing but the helper's device uso0 (the node's addresses, routes to the
@@ -203,6 +206,16 @@ stop() {
     log "stopped"
 }
 
+probe() {
+    [[ "$1" =~ ^100\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ && -e "/run/netns/$NETNS" ]] || return 2
+    cd / || return 1
+    if nsenter --net="/run/netns/$NETNS" ping -c 3 -W 2 -q "$1" >/dev/null 2>&1; then
+        mkdir -p "$RUN/probe" && touch "$RUN/probe/$1.ok"
+    else
+        rm -f "$RUN/probe/$1.ok"
+    fi
+}
+
 leave() {
     local control said="nothing to log out (it never logged in)"
     stop
@@ -211,7 +224,7 @@ leave() {
         [[ "$control" =~ $CONTROL_RE ]] || control=""
         if (cd / && TS_NO_LOGS_NO_SUPPORT=true timeout 40 "$BIN_DIR/uso-net" logout -state "$FLASH/state" -hostname "$(conf NAME)" \
                 ${control:+-control "$control"}) >>"$LOG" 2>&1; then
-            said="the node logged out of its tailnet"
+            said="the node logged out of its tailnet (its coordination server keeps it listed, logged out, until it is removed there)"
         else
             said="the node could not log out (offline?) - it stays listed in the tailnet until removed there"
         fi
@@ -233,8 +246,9 @@ case "$1" in
     check)  check ;;
     stop)   stop ;;
     leave)  leave ;;
+    probe)  probe "$2" ;;
     status) if [[ -n "$(pid_of "$RUN/helper.pid" "uso-net up")" ]]; then echo "The USO network's helper runs."
             elif joined; then echo "Joined, but the helper isn't running."; exit 3
             else echo "Not joined."; exit 3; fi ;;
-    *)      echo "Usage: bash $0 check|stop|leave|status"; exit 2 ;;
+    *)      echo "Usage: bash $0 check|stop|leave|probe IP|status"; exit 2 ;;
 esac
