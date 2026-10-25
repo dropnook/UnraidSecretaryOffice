@@ -840,3 +840,17 @@ stays as it was).
 
 `backup-mx-mixed-truth-run` (`# base-profile: mixed`): one backup run on the mixed profile, then the standard set with
 INV-TRUTH — the cell for the profile itself.
+
+**First runs (Tower, office 1.71.3, engine 2.74, 2026-10-25)** — `scenarios/2026-10-25/tower-inv-truth-0917` and
+`…/tower-inv-truth`. On the mixed profile (`--profile mixed`): backup-mx-mixed-truth-run, office-smoke-refresh,
+backup-vm-ct-paused-shutoff-run, backup-ct-app-is-dataset-run, backup-kp-container-stopped-replan-apply-run,
+restore-ct-stopped-db-db, restore-sv-docker-off-scan-drill, office-sv-docker-off-bubbles, backup-sv-docker-off-first-setup-run.
+INV-TRUTH: green on every one once two tool bugs were fixed (Mr. Restori's «offsite …» chip is judged against the source
+its tip names — the package's goes with the backup place's share; Docker switched off counts as silent). The S1/S2 lies
+of the review are gone on 1.71.3: the same mixed look drawn with v1.71.2's page (`truth.mjs --tree v1.71.2`) is red on
+exactly T08 (media and uso-arr «only local», no snapshot holds them) and T13 (a check that couldn't run counted as a
+must). Notes, never red: Mr. Restori names no partner for apps and VMs whose data USOTest4 holds (his look of a new
+partner not yet made). Red, not INV-TRUTH: backup-sv-docker-off-first-setup-run on the mixed profile — with shares
+offsite, a run with Docker switched off ends «errors» (Kopia's container unreachable; the engine's log says it «does not
+exist»), the cell expects ok/warnings from the default base, where nothing goes offsite. Profile switch in one call
+(mixed → default): the objects taken away, the default base's checks and plan list green.
