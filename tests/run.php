@@ -14190,6 +14190,7 @@ function testRestoreReviewPaths(): void
     $settings = ['general' => ['dumps_share' => ['UnraidSecretaryOffice']], 'share|zzdocs' => ['mode' => ['kopia']]];
     $put("$mnt/hazel/zzdocs/deep/sub/x.txt", 'live x');
     $put("$mnt/hazel/zzdocs/keep.txt", 'k');
+    $put("$mnt/hazel/zzdocs/.zfs/snapshot/manual-1/deep/sub/x.txt", 'old x');
     $put("$tmp/elsewhere/sub/x.txt", 'elsewhere x');
     $put("$mnt/hazel/appdata/nc/config.php", 'cfg');
     $put("$mnt/hazel/appdata/UnraidSecretaryOffice/data/x", 'office');
@@ -14208,7 +14209,8 @@ function testRestoreReviewPaths(): void
     $only = ['shareUseCache' => 'only', 'shareCachePool' => 'hazel'];
     $ctx = [
         'fs' => ['hazel' => 'zfs'], 'zfs' => ["$mnt/hazel/zzdocs" => 'hazel/zzdocs', "$mnt/hazel/appdata" => 'hazel/appdata', "$mnt/hazel/system" => 'hazel/system'],
-        'snaps' => ['hazel/appdata' => [['name' => 'manual-1', 'time' => $T1]], 'hazel/system' => [['name' => 'manual-1', 'time' => $T1]]], 'zfs_kept' => [], 'pools_asleep' => [],
+        'snaps' => ['hazel/appdata' => [['name' => 'manual-1', 'time' => $T1]], 'hazel/system' => [['name' => 'manual-1', 'time' => $T1]], 'hazel/zzdocs' => [['name' => 'manual-1', 'time' => $T1]]],
+        'zfs_kept' => [], 'pools_asleep' => [],
         'asleep' => [], 'prefixes' => ['uso-backup-'], 'btrfs_dir' => '.btrfs-snap', 'settings' => $settings,
         'cfg' => ['zzdocs' => $only, 'appdata' => $only, 'system' => $only, 'UnraidSecretaryOffice' => $only],
         'mnt' => $mnt, 'user' => "$mnt/user", 'disks' => ['hazel' => ['name' => 'hazel', 'fsFree' => '1000000']],
@@ -14275,8 +14277,15 @@ function testRestoreReviewPaths(): void
     same('review H2: a Kopia path whose folder on the way is a link — refused when planned, the link named as the share shows it',
         [true, '/mnt/user/zzdocs/deep'], [in_array('restore_path_link', array_column($p['blockers'], 'key'), true),
          array_values(array_filter($p['blockers'], fn ($b) => $b['key'] === 'restore_path_link'))[0]['params']['link'] ?? null]);
+    $c = $ctx;
+    $p = rsPlanPickFor('/mnt/user/zzdocs', rsShareOwner($state, '/mnt/user/zzdocs'), 'name:manual-1', ['deep/sub/x.txt'], 'copy', false, '20261025-150000', $c);
+    same('review H2: … a pick from a local snapshot into the same place — refused as well', ['restore_path_link'], array_column($p['blockers'], 'key'));
     unlink("$mnt/hazel/zzdocs/deep");
     rename("$tmp/deep-real", "$mnt/hazel/zzdocs/deep");
+    $c = $ctx;
+    $p = rsPlanPickFor('/mnt/user/zzdocs', rsShareOwner($state, '/mnt/user/zzdocs'), 'name:manual-1', ['deep/sub/x.txt'], 'swap', false, '20261025-150050', $c);
+    same('review H2: a pick swapped in — every step that writes knows the share\'s top', [[], ['copy', 'not_open', 'aside', 'move'], 3],
+        [array_column($p['blockers'], 'key'), array_column($p['steps'], 'do'), count(array_filter(array_column($p['steps'], 'within')))]);
     $stamp = '20261025-150100';
     $p = rsPlanKopiaPath(['mode' => 'swap'], $stamp, $kstate, 'zzdocs', $snapId, 'deep/sub/x.txt');
     same('review H2: … a real folder: planned, every step that writes knows the share\'s top', [[], ['kopia', 'copy', 'not_open', 'aside', 'move'], ["$mnt/user/zzdocs", "$mnt/user/zzdocs", "$mnt/user/zzdocs"]],
@@ -14374,6 +14383,10 @@ function testRestoreReviewPaths(): void
     $c = $ctx;
     $p = rsPlanFilesFor('/mnt/user/appdata/UnraidSecretaryOffice', 'name:manual-1', 'swap', false, rsShareOwner($state, '/mnt/user/appdata/UnraidSecretaryOffice'), '20261025-150700', $c);
     same('review H4: … that folder alone — refused, in words', ['restore_office_data'], array_column($p['blockers'], 'key'));
+    $c = $ctx;
+    $p = rsPlanPickFor('/mnt/user/appdata', rsShareOwner($state, '/mnt/user/appdata'), 'name:manual-1', ['UnraidSecretaryOffice/data/x', 'nc/config.php'], 'swap', false, '20261025-150700', $c);
+    same('review H4: … a pick inside it — refused, the other pick named nowhere', [['restore_office_data'], '/mnt/user/appdata/UnraidSecretaryOffice/data/x'],
+        [array_column($p['blockers'], 'key'), $p['blockers'][0]['params']['path'] ?? null]);
     $GLOBALS['rs']['data'] = "$tmp/data/restore";
 
     // ---- M3: an image attached as a loop device, Docker's folder while it runs

@@ -4525,7 +4525,7 @@ function rsDoAside(array &$j, array $s): array
             return rsFail('rename_failed', ['path' => $from], trim($err));
         }
     } else {
-        if (!(isset($s['within']) ? rsMkdirsNear(dirname($to), (string) $s['within']) : rsMkdirs(dirname($to)))) {
+        if (!(isset($s['within']) ? rsMkdirsLike(dirname($to), '', 0) : rsMkdirs(dirname($to)))) {        // like the share's own (M5)
             return rsFail('mkdir_failed', ['path' => dirname($to)]);
         }
         if (!@rename($from, $to)) {
@@ -4622,8 +4622,8 @@ function rsDoCopy(array &$j, int $i): array
     if (!$sources) {
         return rsFail('gone', ['path' => (string) ($s['from'] ?? '')]);
     }
-    // into a share (`within`, review 1.72.0): never through a link on the way, never from a folder that became a link since
-    // the plan (H2) — the folders above it that aren't there made like the nearest one that is, never root-only (M5)
+    // into a share (`within`, review 1.72.0, H2): never through a link on the way, never from a folder that became a link
+    // since the plan (a pick's source may be one: copied as the link)
     if (isset($s['within'])) {
         $link = rsStepLink($s, [$to]);
         foreach ($link === null ? $sources : [] as $from) {
@@ -4632,15 +4632,14 @@ function rsDoCopy(array &$j, int $i): array
         if ($link !== null) {
             return rsFail('path_link', ['path' => $to, 'link' => $link]);
         }
-        if (!rsMkdirsNear(dirname($to), (string) $s['within'])) {
-            return rsFail('mkdir_failed', ['path' => dirname($to)]);
-        }
     }
     if (!rsFreePlace($to, $ds !== null || !empty($s['into_empty']))) {
         return rsFail('exists', ['path' => $to]);
     }
     // the folders above it that aren't there (a pick deep in a moment, the restore folder): made like the moment's (`like`)
-    $parents = fn (): bool => is_string($s['like'] ?? null) ? rsMkdirsLike(dirname($to), $s['like'], (int) ($s['like_depth'] ?? 0)) : rsMkdirs(dirname($to));
+    // into a share without a moment to copy them from (a Kopia path, review 1.72.0, M5): like the nearest folder that is there
+    $parents = fn (): bool => is_string($s['like'] ?? null) ? rsMkdirsLike(dirname($to), $s['like'], (int) ($s['like_depth'] ?? 0))
+        : (isset($s['within']) ? rsMkdirsLike(dirname($to), '', 0) : rsMkdirs(dirname($to)));
     if ($file) {
         if (!$parents()) {
             return rsFail('mkdir_failed', ['path' => dirname($to)]);

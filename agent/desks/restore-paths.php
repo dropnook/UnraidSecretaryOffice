@@ -607,7 +607,7 @@ function rsKopiaPackages(string $kind, string $id, string $placeBase): array
  * A link on the way to $path below the share's top $within (/mnt/user/<share> as he reaches it): the first folder of the
  * way that is a link, or null. The top itself may be one only as an exclusive share's own link to its pool
  * (officeUnraidPath()); $path itself isn't looked at — what goes aside moves as it is (a link as the link), and where he
- * writes must be free (rsFreePlace()). A folder of the way not there yet ends the look: he makes those (rsMkdirsNear()).
+ * writes must be free (rsFreePlace()). A folder of the way not there yet ends the look: he makes those (rsMkdirsLike()).
  * Review 1.72.0, H2: a folder of the share made a link to /boot/config, and a Kopia path restored as root wrote there.
  */
 function rsLinkOnWay(string $path, string $within): ?string
@@ -659,39 +659,6 @@ function rsStepLink(array $s, array $paths): ?string
 function rsWithinUndo(array $undo, array $s): array
 {
     return isset($s['within']) ? array_map(fn ($u) => is_array($u) ? $u + ['within' => $s['within']] : $u, $undo) : $undo;
-}
-
-/**
- * The folders of $dir that aren't there, made top down with the owner, group and mode of the nearest folder that is —
- * on a share apps and the network reach them, never root-only (review 1.72.0, M5). Never through a link (the way was
- * looked at: rsLinkOnWay()), never past $within.
- */
-function rsMkdirsNear(string $dir, string $within): bool
-{
-    $dir = rtrim($dir, '/');
-    $missing = [];
-    for ($d = $dir; ; $d = dirname($d)) {
-        clearstatcache(true, $d);
-        if (is_dir($d)) {
-            break;
-        }
-        if (is_link($d) || file_exists($d) || !under($d, $within) || $d === rtrim($within, '/')) {
-            return false;
-        }
-        $missing[] = $d;
-    }
-    $near = @stat($d);
-    foreach (array_reverse($missing) as $m) {
-        if (!@mkdir($m, 0700) && !is_dir($m)) {
-            return false;
-        }
-        if ($near) {
-            @chown($m, (int) $near['uid']);
-            @chgrp($m, (int) $near['gid']);
-            @chmod($m, (int) $near['mode'] & 07777);
-        }
-    }
-    return true;
 }
 
 /** A path compared with the office's own folders: /mnt/<pool, disk or user>/<share>/… as the share's, anything else as it is */
