@@ -598,14 +598,14 @@ Office.setAgent = function setAgent(info) {
   } else if (homeFresh(Office.agent.no_data)) {
     homeWelcome(notice, Office.agent.no_data);
   } else if (Office.agent.no_data) {
-    // the data folder lies in appdata and comes with the array
+    // the data folder (wherever it lies: no_data.dir, the truth review O13) comes with the array
     const stopped = Office.agent.no_data.array !== 'Started';
     notice.innerHTML = '';
     notice.className = 'notice';
     notice.dataset.kind = 'agent';
     const appdata = !stopped && Office.agent.no_data.appdata;     // appdata itself is gone: he never makes a share
     notice.append(el('strong', '', t(stopped ? 'agent.array_stopped_title' : appdata ? 'agent.no_appdata_title' : 'agent.no_data_title')), ' ',
-      stopped ? t('agent.array_stopped_text')
+      stopped ? t('agent.array_stopped_text', { dir: Office.agent.no_data.dir })
         : appdata ? t('agent.no_appdata_text', { dir: Office.agent.no_data.dir, appdata })
           : t('agent.no_data_text', { dir: Office.agent.no_data.dir }));
     notice.hidden = false;

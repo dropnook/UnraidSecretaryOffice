@@ -142,6 +142,10 @@ const label = (e) => (e.kind === 'template' || e.kind === 'stray' || e.kind === 
   : e.kind === 'partner' && e.unit ? T('pa.dropped_name', { unit: e.unit, name: e.pair_name || e.name })
   : e.kind === 'drill' && e.what !== 'container' ? T('dl.name_' + (e.what === 'kopia_tmp' ? 'kopia_tmp' : 'kopia_dump'), { name: e.name.split('/').pop(), container: e.container || 'Kopia' }) : e.name);
 const sum = (list) => list.reduce((a, e) => a + (e.bytes || 0), 0);
+/** Measured, every one of them? (a size not measured yet is null — never summed as 0 B, the truth review O7) */
+const measured = (list) => list.every((e) => e.bytes !== null && e.bytes !== undefined);
+/** A list's size in words: the sum when all are measured, «at least» when some are, «not measured yet» when none is */
+const sizeText = (list) => (measured(list) ? fmt.size(sum(list)) : list.some((e) => typeof e.bytes === 'number') ? T('size.at_least', { size: fmt.size(sum(list)) }) : T('d.not_measured'));
 /** The bar's words (folded) */
 const words = () => (tidyBar ? tidyBar.read().words : []);
 /** Does an entry match the filter's words? Its name and what it is connected to (image, containers, stack, paths) */
@@ -280,7 +284,7 @@ Office.desk({
     if (!Where.has()) await Where.load(false);
     if (!state) return { bubble: T('bubble.no_data'), facts: [] };
     const facts = [];
-    for (const [key, c] of roomCounts()) facts.push(T('fact.' + key, { n: c.length, size: fmt.size(sum(c)) }));
+    for (const [key, c] of roomCounts()) facts.push(T('fact.' + key, { n: c.length, size: sizeText(c) }));
     if (state.trash.runs.length) facts.push(T('fact.trash', { size: state.trash.bytes === null ? '…' : fmt.size(state.trash.bytes) }));
     const w = Where.reception();
     const bubble = [w.summary, bubbleText(), w.findings ? T('where.bubble.findings', { n: w.findings }) : ''].filter(Boolean).join(' ');
@@ -459,7 +463,7 @@ const greetOk = (key) => !GREET_FACTS[key] || (!!state && GREET_FACTS[key]());
 function bubbleText() {
   if (!state) return Office.agent.running ? T('bubble.loading') : T('bubble.no_data');
   const found = [];
-  for (const [key, c] of roomCounts()) found.push(T('bubble.' + key, { n: c.length, size: fmt.size(sum(c)) }));
+  for (const [key, c] of roomCounts()) found.push(T('bubble.' + key, { n: c.length, size: sizeText(c) }));
   let text = found.length ? T('bubble.found', { list: found.join(', ') }) : T('bubble.spotless');
   if (state.docker.enabled && !state.docker.ok) text = T('bubble.docker_down') + ' ' + text;
   if (state.trash.runs.length && state.trash.bytes !== null) text += ' ' + T('bubble.trash', { size: fmt.size(state.trash.bytes) });
@@ -489,7 +493,7 @@ function tileLine(sec) {
   if (sec === 'vms' && !state.vms.ok) return [T('tile.vm_off'), ''];
   if (!all.length) return [T('tile.none'), ''];
   if (sec === 'icons') return [c.length ? T('tile.look', { n: c.length }) : T('tile.pictured'), T('tile.total', { n: all.length })];
-  return [c.length ? T('tile.look', { n: c.length }) : T('tile.tidy'), sec === 'templates' || !c.length ? T('tile.total', { n: all.length }) : fmt.size(sum(c))];
+  return [c.length ? T('tile.look', { n: c.length }) : T('tile.tidy'), sec === 'templates' || !c.length ? T('tile.total', { n: all.length }) : sizeText(c)];
 }
 
 /*
@@ -717,7 +721,7 @@ function group(sec, cat, items) {
   const title = el('div', 'group-title');
   title.append(el('span', '', T(`cat.${sec}.${cat}`)), chip(fmt.number(items.length), 'quiet'));
   const meta = [T(`cat.${sec}.${cat}_text`)];
-  if (sec !== 'templates' && items.every((e) => e.bytes !== null && e.bytes !== undefined)) meta.push(fmt.size(sum(items)));     // only when all are measured
+  if (sec !== 'templates' && measured(items)) meta.push(fmt.size(sum(items)));     // only when all are measured
   mid.append(title, el('div', 'group-meta', meta.join(' · ')));
   head.append(cb, el('span', 'group-arrow', '▼'), mid);
 
@@ -1601,7 +1605,7 @@ function restoreGroup(items) {
   title.append(el('span', '', restoreName(r)), chip(fmt.number(items.length), 'quiet'));
   if (r.undone) title.appendChild(chip(T('lo.undone'), 'quiet', T('lo.undone_text')));
   const meta = [r.time ? `${fmt.date(r.time)} · ${fmt.relative(r.time)}` : r.id];
-  if (items.every((e) => e.bytes !== null && e.bytes !== undefined)) meta.push(fmt.size(sum(items)));
+  if (measured(items)) meta.push(fmt.size(sum(items)));
   mid.append(title, el('div', 'group-meta', meta.join(' · ')));
   head.append(cb, el('span', 'group-arrow', '▼'), mid);
   const rows = el('div', 'group-rows');
@@ -1694,7 +1698,7 @@ function updateSelbar() {
   if (!list.length) { Office.selbar(null); return; }
   const bytes = sum(list);
   const forced = list.filter((e) => e.force).length;
-  const sub = [selRoom !== 'templates' && bytes ? fmt.size(bytes) : '', forced ? T('selected_in_use', { n: forced }) : ''].filter(Boolean).join(' · ');
+  const sub = [selRoom !== 'templates' && bytes ? sizeText(list) : '', forced ? T('selected_in_use', { n: forced }) : ''].filter(Boolean).join(' · ');
   const go = selRoom === 'docker'
     ? { text: T('remove.button'), kind: 'danger', act: removeDialog, disabled: !Office.agent.running || busy }
     : selRoom === 'icons'
@@ -1876,7 +1880,7 @@ async function removeDialog() {
   const gone = list.length - kept.length;
   const box = el('div');
   const kind = !gone ? '_kept' : kept.length ? '_mixed' : '';      // into the storeroom, partly, or all for good
-  box.appendChild(el('p', '', T('remove.text' + kind, { n: list.length, size: fmt.size(sum(list)) })));
+  box.appendChild(el('p', '', T('remove.text' + kind, { n: list.length, size: sizeText(list) })));
   box.appendChild(shortlist(list));
   if (kept.length) box.appendChild(el('p', 'callout', T('remove.volumes_kept', { n: kept.length })));
   const lost = list.filter((e) => e.kind === 'volume' && !e.keep);
@@ -2419,6 +2423,8 @@ const listNames = (names, max) => names.length > (max || 5) ? `${names.slice(0, 
 const shareLink = (name) => `/Shares/Share?name=${encodeURIComponent(name)}`;
 /** Security is the night watchman's: does he work here? (the office's staff list, not his code) */
 const watchmanHired = () => !!(Office.desks.get('watchman') || {}).hired;
+/** Ms. Moverelli moves the pool's files in her joint run and needs Unraid's mover schedule off (the truth review T17) */
+const moverelliHired = () => !!(Office.desks.get('moverelli') || {}).hired;
 
 /**
  * Her tips: what she would do differently — each with why, where in Unraid
@@ -2438,7 +2444,7 @@ function advice() {
   if (onArray.length) add('system_array', 'advice', { names: listNames(onArray.map((s) => s.name)) }, { path: shareLink(onArray[0].name), text: T('where.adv.to_share', { name: onArray[0].name }) }, onArray.map((s) => s.name).join(','));
 
   const moved = shares.filter((s) => ['yes', 'prefer'].includes(s.storage.use_cache));
-  if (moved.length && !a.mover_schedule) add('mover', 'advice', { names: listNames(moved.map((s) => s.name)), n: moved.length }, { path: '/Settings/Scheduler', text: T('where.adv.to_scheduler') }, moved.map((s) => s.name).join(','));
+  if (moved.length && !a.mover_schedule && !moverelliHired()) add('mover', 'advice', { names: listNames(moved.map((s) => s.name)), n: moved.length }, { path: '/Settings/Scheduler', text: T('where.adv.to_scheduler') }, moved.map((s) => s.name).join(','));
 
   // exclusive shares: /mnt/user/<share> a link straight to its pool, past Unraid's FUSE layer (waExclusive())
   const ex = a.exclusive;

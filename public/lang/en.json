@@ -293,7 +293,7 @@
   "office.supporter_remove_do": "Remove",
   "office.supporter_removed": "The supporter key has been removed.",
   "agent.array_stopped_title": "The array is stopped.",
-  "agent.array_stopped_text": "The office keeps its data in appdata — it gets back to work as soon as the array runs.",
+  "agent.array_stopped_text": "The office keeps its data in {dir} — it gets back to work as soon as the array runs.",
   "agent.no_appdata_title": "The share appdata is missing.",
   "agent.no_appdata_text": "The office keeps its data in {dir}, and {appdata} doesn't exist on this server. The messenger never creates a share on his own. Create it again under ⟦Shares⟧ (or bring the folder back); within seconds he then creates his folder himself.",
   "agent.label_home": "First start",
