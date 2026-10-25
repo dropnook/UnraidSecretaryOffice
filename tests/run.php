@@ -21429,7 +21429,7 @@ function testHostAtRequeue(): void
     $log = "$tmp/log";
     file_put_contents("$tmp/at", "#!/bin/sh\necho \"at \$*\" >>" . escapeshellarg($log) . "\ncat \"\$3\" >" . escapeshellarg("$tmp/queued") . "\n"
         . 'echo "${TZ-unset}" >' . escapeshellarg("$tmp/tz") . "\necho 'warning: commands will be executed using /bin/sh' >&2\n"
-        . "echo 'job 37 at Sun Oct 25 02:40:00 2026' >&2\n");
+        . "echo 'job 37 at Sun Oct 25 02:40:00 2026' >&2\n" . 'cp "$3" ' . escapeshellarg("$spool/" . sprintf('a%05x%08x', 37, intdiv(1792000000, 60))) . "\n");     // as atd's queue has it: due now
     file_put_contents("$tmp/at-off", "#!/bin/sh\necho \"at \$*\" >>" . escapeshellarg($log) . "\nexit 1\n");
     file_put_contents("$tmp/atrm", "#!/bin/sh\necho \"atrm \$*\" >>" . escapeshellarg($log) . "\n");
     foreach (['at', 'at-off', 'atrm'] as $b) {
@@ -21471,6 +21471,7 @@ function testHostAtRequeue(): void
     @unlink($log);
     @unlink("$spool/" . $name('a', 0x12, $min + 600));
     @unlink("$spool/" . $name('a', 0x16, $min + 1));
+    @unlink("$spool/" . $name('a', 37, $min));
     file_put_contents("$spool/" . $name('a', 37, $min + 60), $job($head . HOST_AT_ZONE_LINE . "\n" . substr($ours, strlen($head))));
     $logAt = (int) @filesize(AGENT_LOG);
     $again = fn () => substr_count((string) @file_get_contents(AGENT_LOG, false, null, $logAt), 'Office: job 37 in atd\'s queue, queued anew for now already, is due');

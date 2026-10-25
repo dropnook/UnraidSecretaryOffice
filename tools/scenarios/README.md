@@ -731,6 +731,15 @@ jobs; the DST cell was killed by GNU timeout's wall clock (run-local's limit is 
 branch: page checks right after each scenario (a reboot empties /tmp/uso-keep), stale stashes set aside by base.sh,
 h_share_drop, CT-AUTOSTART, BK-APPLY errors=kopia (engine 2.67), INV-SETUP-MSGS on this scenario's plan only.
 
+## The autumn's repeated hour and atd (2026-10-25)
+
+`office-tm-dst-hour-at` (USOTest3VM, 4 min; `needs any`): TM-DST autumn 20 minutes before the switch — 02:40 CEST on
+2026-10-25, Europe/Berlin linked where the zone file is missing — an office job handed to atd by hostLaunch() (the
+plugin's own code, library mode): it runs within 2 min in the host's zone, at most 2 requeue lines in agent.log over
+90 s, no office job left ahead, the clock and the zone put back (cells on-time, host-zone, no-flood, none-ahead,
+clock-back). Red on 1.71.2 (the job queued for 02:40 CET, 314 requeue lines in 4 min — the loop the owner's server had
+that night), green with `at` in UTC (task/at-dst). `$1` = an older release.
+
 ## USO network (the office's own Tailscale node)
 
 `usonet-lab.sh up` makes the lab tailnet on USOTest3VM (a Headscale container, data in RAM, policy tag:uso → tag:uso);
