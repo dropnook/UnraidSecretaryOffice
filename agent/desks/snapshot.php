@@ -218,15 +218,82 @@ function snapshotScan(bool $readBtrfs, bool $wake = false, array $btrfsOnly = []
 function snapshotScanRequest(bool $wake): array
 {
     $before = snapshotVisibleIds($GLOBALS['snapshot']);
+    $sleptBefore = $wake ? sleepingDisks() : [];      // disks.ini only: what slept before «wake» read it
     $state = snapshotScan(true, $wake);
+    $slept = [];
+    if ($wake) {
+        [$state, $slept] = snapshotWakeOutcome($state, $sleptBefore, sleepingDisks());
+        if ($slept) {
+            $GLOBALS['snapshot'] = $state;
+            writeAtomic(deskFile('snapshot'), jsonEncode($state));
+        }
+    }
     $after = snapshotVisibleIds($state);
     $new = array_values(array_diff($after, $before));
     $gone = array_values(array_diff($before, $after));
     $asleep = snapshotPoolsAsleep($state);
-    logLine(sprintf('Snapshot scan%s: %d snapshots, %d new, %d gone, %d ms%s',
-        $wake ? ' (waking disks)' : '', count($after), count($new), count($gone), $state['duration_ms'],
+    $read = array_map(fn ($x) => $x['name'] . ($x['asleep'] ? ' (still asleep)' : ' (woke up)'), $slept);
+    logLine(sprintf('Snapshot scan%s: %d snapshots, %d new, %d gone, %d ms%s%s',
+        $wake ? ' (reading sleeping disks too)' : '', count($after), count($new), count($gone), $state['duration_ms'],
+        $read ? ' — read while asleep: ' . implode(', ', $read) : '',
         $asleep ? ' — asleep, kept as last seen: ' . implode(', ', $asleep) : ''));
-    return ['ok' => true, 'state' => $state, 'new' => $new, 'gone' => $gone];
+    return ['ok' => true, 'state' => $state, 'new' => $new, 'gone' => $gone, 'slept' => $slept];
+}
+
+/**
+ * After a tour with «wake»: each ZFS pool and btrfs disk that slept before the read, and whether it still sleeps
+ * now — disks.ini again (the same helpers, no disk asked). ZFS often answers a sleeping pool from what it keeps in
+ * memory, and its disks sleep on; a btrfs read spins its disk up. One still asleep stays marked so in the state
+ * (`looked` / `scanned` = now: read fresh, its disks asleep) — as the next tour without «wake» would show it anyway,
+ * so the page doesn't call it awake for a moment. A btrfs disk whose read failed isn't counted (its error says it).
+ *
+ * @param array<string, bool> $before  sleepingDisks() before the read
+ * @param array<string, bool> $after   sleepingDisks() after it
+ * @return array{0: array, 1: list<array{name: string, fs: string, disks: int, asleep: bool}>}
+ */
+function snapshotWakeOutcome(array $state, array $before, array $after): array
+{
+    $out = [];
+    $still = [];
+    foreach ((array) ($state['zfs']['pools'] ?? []) as $i => $p) {
+        $name = is_array($p) ? (string) ($p['name'] ?? '') : '';
+        if ($name === '' || !baseAsleep($name, $before)) {
+            continue;
+        }
+        $disks = 0;
+        foreach ($before as $disk => $sleeping) {
+            $disk = (string) $disk;
+            if ($sleeping && (preg_match('/^disk\d+$/', $name) ? $disk === $name : preg_match('/^' . preg_quote($name, '/') . '\d*$/', $disk))) {
+                $disks++;
+            }
+        }
+        $asleep = baseAsleep($name, $after);
+        $out[] = ['name' => $name, 'fs' => 'zfs', 'disks' => max(1, $disks), 'asleep' => $asleep];
+        if ($asleep) {
+            $still[$name] = true;
+            $state['zfs']['pools'][$i]['asleep'] = true;
+        }
+    }
+    if ($still) {
+        foreach (['volumes', 'snapshots'] as $list) {
+            foreach ((array) ($state['zfs'][$list] ?? []) as $i => $x) {
+                if (is_array($x) && isset($still[(string) ($x['pool'] ?? '')])) {
+                    $state['zfs'][$list][$i]['asleep'] = true;
+                }
+            }
+        }
+        $state['zfs']['asleep'] = array_values(array_unique(array_merge((array) ($state['zfs']['asleep'] ?? []), array_keys($still))));
+    }
+    foreach ((array) ($state['btrfs']['devices'] ?? []) as $i => $d) {
+        $name = is_array($d) ? (string) ($d['name'] ?? '') : '';
+        if ($name === '' || !($before[$name] ?? false) || !empty($d['error'])) {
+            continue;
+        }
+        $asleep = $after[$name] ?? false;
+        $out[] = ['name' => $name, 'fs' => 'btrfs', 'disks' => 1, 'asleep' => $asleep];
+        $state['btrfs']['devices'][$i]['asleep'] = $asleep;
+    }
+    return [$state, $out];
 }
 
 /** The ZFS pools a state shows as they were last seen — asleep, not asked (names) */

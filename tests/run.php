@@ -652,6 +652,26 @@ function testSleepingPools(): void
         [$asked(), $poolsOf($z2), $z2['asleep']]);
     same('Snapshotini: the names of the pools asleep, for the log', ['hazel'], snapshotPoolsAsleep(['zfs' => $z]));
 
+    // after «wake»: per pool / btrfs disk that slept before the read, does it still sleep (disks.ini again, no disk asked)
+    $btrfsDev = fn (string $n, bool $asleep, $error = null) => ['mount' => "/mnt/$n", 'name' => $n, 'asleep' => $asleep, 'scanned' => 1700000000, 'error' => $error];
+    $woke = ['zfs' => $z2, 'btrfs' => ['devices' => [$btrfsDev('disk3', false), $btrfsDev('disk4', false), $btrfsDev('disk5', false, ['key' => 'command_failed']), $btrfsDev('disk6', false)], 'snapshots' => []]];
+    $before = ['maple' => false, 'hazel' => false, 'hazel2' => true, 'hazel3' => true, 'disk3' => true, 'disk4' => true, 'disk5' => true, 'disk6' => false];
+    [$s1, $slept] = snapshotWakeOutcome($woke, $before, ['hazel2' => true, 'hazel3' => false, 'disk3' => false, 'disk4' => true, 'disk5' => false]);
+    same('Snapshotini: «wake» outcome — hazel (2 sleeping disks) read and still asleep (ZFS answered from memory), disk3 woke up, disk4 still asleep; a failed read and an awake disk aren\'t named',
+        [['name' => 'hazel', 'fs' => 'zfs', 'disks' => 2, 'asleep' => true], ['name' => 'disk3', 'fs' => 'btrfs', 'disks' => 1, 'asleep' => false], ['name' => 'disk4', 'fs' => 'btrfs', 'disks' => 1, 'asleep' => true]],
+        $slept);
+    same('Snapshotini: one still asleep stays marked so — read now (`looked` fresh), its snapshots and datasets asleep, the btrfs disk too',
+        [[['maple', false, 2], ['hazel', true, 2], ['flash', false, 1]], ['hazel'], true, ['zfs:maple/appdata@a', 'zfs:maple/appdata@b', 'zfs:hazel/media@h1 (asleep)', 'zfs:hazel/media@h2 (asleep)', 'zfs:flash/cfg@f'],
+         [false, true, false, false]],
+        [$poolsOf($s1['zfs']), $s1['zfs']['asleep'], $s1['zfs']['pools'][1]['looked'] === $z2['pools'][1]['looked'], $names($s1['zfs']['snapshots']), array_column($s1['btrfs']['devices'], 'asleep')]);
+    [$s2, $slept] = snapshotWakeOutcome($woke, $before, []);
+    same('Snapshotini: «wake» outcome — all awake after the read: each named as woken, nothing marked asleep',
+        [[['hazel', false], ['disk3', false], ['disk4', false]], [], [false, false, false, false]],
+        [array_map(fn ($x) => [$x['name'], $x['asleep']], $slept), $s2['zfs']['asleep'], array_column($s2['btrfs']['devices'], 'asleep')]);
+    same('Snapshotini: «wake» outcome — nothing slept before: nothing to tell', [], snapshotWakeOutcome($woke, [], [])[1]);
+    $src = (string) file_get_contents(__DIR__ . '/../agent/desks/snapshot.php');
+    check('Snapshotini: the tour answers with the outcome (`slept`) and logs it', str_contains($src, "'slept' => \$slept") && str_contains($src, 'read while asleep'));
+
     // her actions: the estimate leaves a sleeping pool's snapshot out (counted), delete/rename/hold refuse it without «wake»
     $GLOBALS['snapshot'] = ['zfs' => $z, 'btrfs' => ['devices' => [], 'snapshots' => []], 'vm' => ['snapshots' => []]];
     $e = snapshotEstimate(['zfs:maple/appdata@a', 'zfs:hazel/media@h1', 'zfs:nobody@x']);
@@ -669,6 +689,14 @@ function testSleepingPools(): void
     $GLOBALS['snapshot'] = null;
     $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/snapshot/lang/en.json'), true) ?: [];
     check('Snapshotini: the page can say it', isset($en['errors.pool_asleep'], $en['pool_asleep_chip'], $en['delete.wake'], $en['rename.wake'], $en['wake_for.confirm']));
+    // the switch reads the sleeping ones too — it never promises they wake (ZFS may answer from memory); the toast says what happened
+    $de = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/snapshot/lang/de.json'), true) ?: [];
+    check('Snapshotini: the «wake» switch says it reads them and may wake them — not that it wakes them',
+        !str_starts_with((string) ($en['wake_n'] ?? 'Wake'), 'Wake') && str_contains((string) ($en['wake_n'] ?? ''), 'can wake')
+        && str_contains((string) ($de['wake_n'] ?? ''), 'mitlesen') && !str_starts_with((string) ($de['waking'] ?? 'Wecke'), 'Wecke'));
+    check('Snapshotini: the toast after «wake» — still asleep (ZFS) / still asleep / woke up, as plurals',
+        is_array($en['scan_read_asleep_zfs'] ?? null) && is_array($en['scan_read_asleep'] ?? null) && is_array($en['scan_read_woke'] ?? null));
+    check('Snapshotini: the page reads the outcome', str_contains((string) file_get_contents(OFFICE_WEB . '/desks/snapshot/desk.js'), 'j.slept'));
 
     // her plans: a target on a sleeping pool that was never listed is asleep (skipped when the plan says so, else taken with a wake), not gone
     $state = ['zfs' => ['pools' => [['name' => 'hazel', 'asleep' => true]], 'volumes' => []], 'btrfs' => ['devices' => []]];

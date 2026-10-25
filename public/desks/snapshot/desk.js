@@ -1269,7 +1269,8 @@ async function scan(wake) {
   if (busy) return;
   setBusy(true, view && view.scanBtn);
   if (view) drawTiles();
-  if (wake) Office.toast(T('waking'));
+  const sleeping = sleepingParts();
+  if (wake && sleeping.length) Office.toast(T('waking', { names: sleeping.join(', ') }));
   const j = await Office.api.post(`${ID}.scan`, { wake: !!wake });
   setBusy(false, view && view.scanBtn);
   if (view) { view.wake.checked = false; view.wakeSync(); }
@@ -1282,6 +1283,13 @@ async function scan(wake) {
   if (n) parts.push(T('scan_new', { n }));
   if (gone) parts.push(T('scan_gone', { n: gone }));
   if (!n && !gone) parts.push(T('scan_same'));
+  // read with «wake»: what slept before — still asleep (ZFS often answers from memory) or woken up for it (the agent's
+  // `slept`, from disks.ini after the read; an older agent sends none). n: the sleeping disks, for «the disk(s)»
+  const slept = Array.isArray(j.slept) ? j.slept.filter((x) => x && typeof x.name === 'string') : [];
+  for (const [key, pick] of [['scan_read_woke', (x) => !x.asleep], ['scan_read_asleep_zfs', (x) => x.asleep && x.fs === 'zfs'], ['scan_read_asleep', (x) => x.asleep && x.fs !== 'zfs']]) {
+    const l = slept.filter(pick);
+    if (l.length) parts.push(T(key, { names: l.map((x) => x.name).join(', '), n: l.reduce((t, x) => t + (x.disks > 0 ? x.disks : 1), 0) }));
+  }
   const asleep = (state.btrfs?.devices || []).filter((d) => d.asleep).length;
   if (asleep && !wake) parts.push(T('scan_skipped', { n: asleep }));
   const pools = poolsAsleep().length;
