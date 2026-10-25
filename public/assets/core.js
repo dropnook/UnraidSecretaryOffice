@@ -322,6 +322,35 @@ Office.api = {
   async post(action, data) {
     return postBusy(action, data);
   },
+  /**
+   * download('restore.flash_download') — a file the web side hands out (src/api.php), asked like every request (a POST
+   * with X-Office and the csrf token: never a plain link) and saved under the name its answer gives. {ok} or {ok:false,
+   * error} as post() answers.
+   */
+  async download(action, data) {
+    try {
+      const headers = { 'Content-Type': 'application/json', 'X-Office': '1' };
+      if (CONFIG.csrf) headers['X-CSRF-Token'] = CONFIG.csrf;
+      const r = await fetch(API, { method: 'POST', headers, body: JSON.stringify({ a: action, ...data }) });
+      if (loggedOut(r)) return { ok: false, error: { key: 'logged_out' } };
+      if (!r.ok || !/^application\/(gzip|octet-stream)/.test(r.headers.get('Content-Type') || '')) {
+        const j = await r.json().catch(() => null);
+        return j && j.error ? j : { ok: false, error: { key: r.ok ? 'stale_page' : 'bad_answer', params: { status: r.status } } };
+      }
+      const name = (/filename="([^"\/]+)"/.exec(r.headers.get('Content-Disposition') || '') || [])[1] || 'download';
+      const url = URL.createObjectURL(await r.blob());
+      const a = el('a');
+      a.href = url;
+      a.download = name;
+      ROOT.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      return { ok: true, name };
+    } catch (e) {
+      return { ok: false, error: { key: 'offline' } };
+    }
+  },
 };
 
 /** The connection lost (on) or back: said once when it goes, quiet while it stays away */
@@ -598,14 +627,14 @@ Office.setAgent = function setAgent(info) {
   } else if (homeFresh(Office.agent.no_data)) {
     homeWelcome(notice, Office.agent.no_data);
   } else if (Office.agent.no_data) {
-    // the data folder lies in appdata and comes with the array
+    // the data folder (wherever it lies: no_data.dir, the truth review O13) comes with the array
     const stopped = Office.agent.no_data.array !== 'Started';
     notice.innerHTML = '';
     notice.className = 'notice';
     notice.dataset.kind = 'agent';
     const appdata = !stopped && Office.agent.no_data.appdata;     // appdata itself is gone: he never makes a share
     notice.append(el('strong', '', t(stopped ? 'agent.array_stopped_title' : appdata ? 'agent.no_appdata_title' : 'agent.no_data_title')), ' ',
-      stopped ? t('agent.array_stopped_text')
+      stopped ? t('agent.array_stopped_text', { dir: Office.agent.no_data.dir })
         : appdata ? t('agent.no_appdata_text', { dir: Office.agent.no_data.dir, appdata })
           : t('agent.no_data_text', { dir: Office.agent.no_data.dir }));
     notice.hidden = false;

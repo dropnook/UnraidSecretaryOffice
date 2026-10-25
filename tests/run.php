@@ -5206,7 +5206,7 @@ echo \"\$*\" >> \"\$FAKE/docker.log\"\n[[ -s \"\$FAKE/hang\" ]] && sleep \"\$(ca
     check('docker silent (office): the checks say «couldn\'t check» for Kopia\'s container, the waiting apps aren\'t asked',
         str_contains($src, "\$out[] = finding('kopia', \$level, \$silent ? null : \$name !== null,")
         && str_contains($src, "\$out[] = finding('kopia_running', \$level, \$c === null ? null : \$c['running'],")
-        && str_contains($src, "backupWaiting(\$settings, \$vms, backupDockerSilent() ? [] : null)"));
+        && str_contains($src, "backupWaiting(\$settings, \$vms, (\$dk = backupDockerLook()) === 'up' ? null : [], docker: \$dk)"));
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
     check('docker silent (page): the last backup\'s and Kopia\'s tiles say it', substr_count($js, "T('stat.docker_silent')") === 2);
     foreach (['en', 'de', 'it', 'fr', 'es'] as $lang) {
@@ -11059,6 +11059,7 @@ globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => b + ' B', da
 (0, eval)(fs.readFileSync(bkFile, 'utf8'));
 const b = OFFICE_DESK_TESTS.backup;
 b.setup.draft = { 'flash|mode': 'tar' };
+b.setup.retire = false;          // «Set them to manual» unticked: not the office's «stays as it is» (ticked: tests/backuptiles.js T27)
 const o = (x) => ({ state: 'orphan', source: 'root@kopia:/uso/x', ...x });
 const out = {};
 out.rows = [
@@ -16187,6 +16188,97 @@ function testLogsTour(): void
 }
 
 /**
+ * Truth review, Ms. Protokolli and the Night Watchman: her tour reads every container's log, a stopped or restarting one's
+ * too, and says when Docker didn't answer (T28); a log read from its newest part says when lines of its span stayed unread
+ * (W10). His round notes a full /var/log (the syslog stops growing) and never says «all quiet» then (T30); his posture tile
+ * is red only for advice (W6); the network's head never shows the last counts while the files aren't read (W9).
+ */
+function testTruthLogsWatch(): void
+{
+    // T28: every container read, the stopped ones marked; Docker silent → none read, said
+    $tmp = hardeningTmp('truthlogs');
+    $path = getenv('PATH');
+    file_put_contents("$tmp/docker", "#!/bin/sh\n[ \"\$1\" = logs ] || exit 1\neval last=\\\${\$#}\n"
+        . "case \"\$last\" in crashy) echo '2026-10-25T10:00:00.000000000Z ERROR: database is gone, giving up' ;; web) echo '2026-10-25T10:00:00.000000000Z GET / 200' ;; esac\n");
+    chmod("$tmp/docker", 0755);
+    putenv("PATH=$tmp:$path");
+    $src = fn (string $n) => ['group' => 'containers', 'label' => 'container', 'kind' => 'docker', 'target' => $n, 'param' => $n];
+    $sources = ['container:web' => $src('web'), 'container:crashy' => $src('crashy'), 'container:old' => $src('old'), 'syslog' => ['kind' => 'file', 'target' => '/nowhere'] + $src('x')];
+    $known = ['web' => ['name' => 'web', 'image' => 'nginx', 'running' => true], 'crashy' => ['name' => 'crashy', 'image' => 'db', 'running' => false],
+              'old' => ['name' => 'old', 'image' => 'x', 'running' => false]];
+    [$read, $entries] = logsTourContainers($sources, time() - 3600, $known);
+    $by = array_column($entries, null, 'id');
+    ksort($by);
+    same('truth logs: every container read, a stopped or restarting one too (T28)', [true, ['container:crashy', 'container:old', 'container:web']], [$read, array_keys($by)]);
+    same('truth logs: … the crash-looping one\'s error counted, the stopped ones marked', [1, true, true, false],
+        [$by['container:crashy']['errors'] ?? null, $by['container:crashy']['stopped'] ?? false, $by['container:old']['stopped'] ?? false, $by['container:web']['stopped'] ?? false]);
+    same('truth logs: Docker didn\'t answer — none read, and the tour says so', [false, []], logsTourContainers($sources, time() - 3600, null));
+    putenv("PATH=$path");
+    $logs = (string) file_get_contents(OFFICE_DIR . '/agent/desks/logs.php');
+    check('truth logs: the tour asks houseContainersKnown() and keeps `containers_read`',
+        str_contains($logs, 'logsTourContainers($sources, $since, houseContainersKnown())') && str_contains($logs, "'containers_read' => \$read,"));
+    $ljs = (string) file_get_contents(OFFICE_DIR . '/public/desks/logs/desk.js');
+    check('truth logs: her page says a stopped container and «not read — Docker didn\'t answer»',
+        str_contains($ljs, "if (s.stopped) head.appendChild(chip(T('stopped')") && str_contains($ljs, "if (tour.containers_read === false)"));
+
+    // W10: a log read from its newest part — lines of its span cut off, or in the older copy, are said
+    $log = "$tmp/syslog";
+    $after = time() - 86400;
+    $recent = date('M j H:i:s', time() - 600);
+    same('truth logs: cut, but the first line read is older than the span — nothing of it lost', false,
+        logsTourSpanCut($log, [date('M j H:i:s', time() - 2 * 86400) . ' Tower x'], true, $after));
+    same('truth logs: cut inside the span — lines of it unread', true, logsTourSpanCut($log, ["$recent Tower x"], true, $after));
+    same('truth logs: not cut, no older copy — all of it read', false, logsTourSpanCut($log, ["$recent Tower x"], false, $after));
+    file_put_contents("$log.1", "old\n");
+    touch("$log.1", time() - 3600);
+    same('truth logs: an older copy written within the span — never read on a tour, said', true, logsTourSpanCut($log, ["$recent Tower x"], false, $after));
+    touch("$log.1", time() - 2 * 86400);
+    same('truth logs: an older copy from before the span — nothing of it lost', false, logsTourSpanCut($log, ["$recent Tower x"], false, $after));
+    unlink("$log.1");
+    file_put_contents($log, str_repeat("$recent Tower x: nothing to see\n", 160000));
+    $mem = [];
+    $file = ['group' => 'unraid', 'label' => 'syslog', 'kind' => 'file', 'target' => $log, 'param' => ''];
+    $e = logsTourFileSource('syslog', $file, null, $after, $after, ['syslog' => $file], $mem);
+    same('truth logs: the first tour on a big log — «only the newest part», the span cut', [true, true], [$e['partial'], $e['span_cut']]);
+    check('truth logs: her page\'s chip says why, and the first tour\'s line names the 4 MB', str_contains($ljs, "s.span_cut ? T('partial_span')"));
+
+    // T30: /var/log full — the round notes it, the page says it and never «all quiet»
+    same('truth watch: room left — not full', null, watchmanSyslogFull(['syslog' => $log, 'syslog_space' => [40 << 20, 128 << 20]]));
+    same('truth watch: less than 1 MB free — full, with its numbers', ['free' => 4096, 'total' => 128 << 20],
+        watchmanSyslogFull(['syslog' => $log, 'syslog_space' => [4096, 128 << 20]]));
+    same('truth watch: statvfs of a real folder answers (not full here)', null, watchmanSyslogFull(['syslog' => $log]));
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    foreach (['plugins', 'extra', 'ssh/root'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini",
+              'share_cfg' => "$src/share.cfg", 'etc_passwd' => "$src/passwd", 'syslog_space' => [4096, 128 << 20]];
+    file_put_contents($paths['syslog'], '');
+    file_put_contents($paths['passwd'], "root:x:0:0::/root:/bin/bash\n");
+    foreach (['go', 'shadow', 'sec', 'sec_nfs', 'share_cfg'] as $k) {
+        file_put_contents($paths[$k], '');
+    }
+    $now = time();
+    watchmanRound($paths, $data, 1000, $now, fn () => [], false);
+    watchmanRound($paths, $data, 1000, $now + 300, fn () => [], false);
+    same('truth watch: the round keeps /var/log full in his state (T30)', ['free' => 4096, 'total' => 128 << 20], watchmanLoad($data)['state']['round']['syslog_full'] ?? null);
+    $paths['syslog_space'] = [40 << 20, 128 << 20];
+    watchmanRound($paths, $data, 1000, $now + 600, fn () => [], false);
+    $round = (array) (watchmanLoad($data)['state']['round'] ?? []);
+    same('truth watch: … and forgets it once there is room again', null, array_key_exists('syslog_full', $round) ? $round['syslog_full'] : 'missing');
+    $wm = (string) file_get_contents(OFFICE_DIR . '/agent/desks/watchman.php');
+    check('truth watch: the page state carries it', str_contains($wm, "'syslog_full' => is_array(\$st['round']['syslog_full'] ?? null)"));
+    $wjs = (string) file_get_contents(OFFICE_DIR . '/public/desks/watchman/desk.js');
+    check('truth watch: the bubble never «all quiet» with /var/log full, the round says it', str_contains($wjs, "if (state.round && state.round.syslog_full) return T('bubble.syslog_full'")
+        && str_contains($wjs, "T('round.syslog_full', {"));
+    check('truth watch: the posture tile red only for advice (W6)', str_contains($wjs, "alert: !!advice || !!louder"));
+    check('truth watch: the network\'s head says its state while the files aren\'t read (W9)', str_contains($wjs, "senders.length && !stateText[n.state] ? T('watch.net_sum'"));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * Ms. Protocolli's syslog rules (from Enhanced Log, agent/desks/logs-rules/): read as Enhanced Log reads them, the
  * first rule that fits decides (case-insensitive), what a category does to a line's level (skip: none, error: an
  * error, minor/warning: at least a warning, never lower than her words), the tour's counts per category and the
@@ -19984,6 +20076,29 @@ function testNotifyCenter(): void
 }
 
 /**
+ * «I know, thanks» holds while the point is the same (the truth review O11): a percent or a size beside a name moving on
+ * its own is no new situation; a note given while the point couldn't be checked (ok null) never hides it found not in
+ * place later. Sigs of findings with neither stay as they were (notes kept over the update).
+ */
+function testCaretakerAckDrift(): void
+{
+    $t = ['x', 'y'];
+    $mv = fn (int $nm, int $x = 80) => finding('pool_never_moves', 'recommended', false, ['pool' => 'cache', 'nm' => $nm, 'size' => '1 TB', 'x' => $x]);
+    same('ack O11: her never-moves percent moving by itself keeps the note', caretakerAckSig('moverelli', $mv(81), $t), caretakerAckSig('moverelli', $mv(83), $t));
+    check('ack O11: … her limit changed is a new point', caretakerAckSig('moverelli', $mv(81), $t) !== caretakerAckSig('moverelli', $mv(81, 90), $t));
+    $so = fn (string $shares, ?bool $ok = false) => finding('snap_only', 'recommended', $ok, ['n' => 1, 'shares' => $shares, 'size' => '3 GB']);
+    same('ack O11: an empty share\'s snapshot size moving keeps the note', caretakerAckSig('cleanup', $so('media (cache, 3 GB)'), $t), caretakerAckSig('cleanup', $so('media (cache, 5 GB)'), $t));
+    check('ack O11: … another share is a new point', caretakerAckSig('cleanup', $so('media (cache, 3 GB)'), $t) !== caretakerAckSig('cleanup', $so('photos (cache, 3 GB)'), $t));
+    check('ack O11: «couldn\'t check» has a sig of its own', caretakerAckSig('cleanup', $so('', null), $t) !== caretakerAckSig('cleanup', $so('', false), $t));
+    $plain = finding('other_backup_container', 'recommended', false, ['name' => 'borg']);
+    same('ack O11: a finding not in place keeps the sig it had (no «ok» in it)', caretakerAckSig('caretaker', array_diff_key($plain, ['ok' => 0]), $t), caretakerAckSig('caretaker', $plain, $t));
+    $t0 = 1_800_000_000;
+    $note = ['desk' => 'cleanup', 'id' => 'snap_only', 'time' => $t0, 'seen' => $t0, 'v' => 2];
+    [$m] = caretakerAckStep(['cleanup' => [$so('media (cache, 3 GB)')]], [caretakerAckSig('cleanup', $so('media (cache, 3 GB)', null)) => $note], $t0 + 60);
+    same('ack O11: a note given while unchecked doesn\'t hide the point found not in place', false, $m['cleanup'][0]['acked'] ?? false);
+}
+
+/**
  * «I know, thanks» and what a finding says (upgrade audit proposal 9): the team lead's note is keyed by the finding's
  * level, params and English texts — a note given for params A stays for A and doesn't count for B; an update that
  * changes what the finding says or recommends brings it back (once: noted again, it stays away); the same texts keep it
@@ -21900,7 +22015,7 @@ function testStaleSaid(): void
             "poll() { if (page === 'main') { load(false); peekRun(); } },"));
     }
     check('stale: Mr. Backupsy asleep — the kept state\'s schedule gets its next time anew from the flash',
-        str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php'), "\$state['schedule'] = array_diff_key(officeJobSchedule('backup'), ['script' => 1]) + \$old['schedule'];"));
+        str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php'), "\$state['schedule'] = backupSchedulePrev(array_diff_key(officeJobSchedule('backup'), ['script' => 1]) + \$old['schedule']);"));
     foreach (['en', 'de', 'it', 'fr', 'es'] as $lang) {
         $l = json_decode((string) file_get_contents(OFFICE_WEB . "/lang/$lang.json"), true);
         check("stale ($lang): the two bubbles are there and never say «bureau» / «Büro»", isset($l['common.bubble_array_stopped'], $l['common.bubble_away'])
@@ -22081,6 +22196,58 @@ function testDockerOffSaid(): void
         && substr_count($src('public/desks/cleanup/desk.js'), "vms.up === false ? T('tile.vm_off')") === 3);
     check('docker off: Mr. Backupsy\'s Kopia check — Docker stopped is «couldn\'t check», never «missing»',
         str_contains($src('agent/desks/backup.php'), '$silent = $known === null;'));
+    hardeningRm($tmp);
+}
+
+/**
+ * The truth review's rest for Mr. Backupsy (2026-10-25): with Docker stopped he never says «without Kopia» on hiring and
+ * the new things say new apps weren't looked for (never «none new»); the schedule's last due time (`prev`) only once the
+ * cron file was there then - the page says a scheduled backup that didn't run (T25). The page's own rules: tests/backuptiles.js.
+ */
+function testBackupTruthRest(): void
+{
+    $tmp = hardeningTmp('backuprest');
+    $path = getenv('PATH');
+    file_put_contents("$tmp/docker", "#!/bin/sh\nif [ -f " . escapeshellarg("$tmp/off") . " ]; then echo 'Cannot connect to the Docker daemon' >&2; exit 1; fi\n"
+        . "case \"\$1\" in ps) printf 'kopia\\tkopia/kopia\\trunning\\n' ;; *) echo 27.0 ;; esac\n");
+    chmod("$tmp/docker", 0755);
+    putenv("PATH=$tmp:$path");
+    unset($GLOBALS['houseDockerSilent']);
+    touch("$tmp/off");
+    houseContainersKnown(true);
+    $fit = (desks()['backup']['fit'])();
+    if ($fit['why'] === 'no_cow') {
+        check('backup rest: hiring with Docker stopped — (no ZFS/btrfs here: the source says it)',
+            str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php'), "return fit(true, 'docker_off');"));
+    } else {
+        same('backup rest: hiring with Docker stopped — «can\'t tell», never «without Kopia»', 'docker_off', $fit['why']);
+    }
+    same('backup rest: Docker stopped is «off» for the look at new apps', 'off', backupDockerLook());
+    $s = ['general' => ['dumps_share' => ['x']], 'docker' => ['known' => ['emby']]];
+    $w = backupWaiting($s, [], [], "$tmp/none.json", [], fn () => true, 'off');
+    same('backup rest: new things with Docker stopped — no apps, and said so', [[], 'off'], [$w['apps'], $w['docker'] ?? null]);
+    same('backup rest: … Docker up — nothing said', false, isset(backupWaiting($s, [], [], "$tmp/none.json", [], fn () => true, 'up')['docker']));
+    same('backup rest: … before any app was known — nothing said', false, isset(backupWaiting(['general' => []], [], [], "$tmp/none.json", [], fn () => true, 'off')['docker']));
+    unlink("$tmp/off");
+    houseContainersKnown(true);
+    same('backup rest: Docker answering — «up»', 'up', backupDockerLook());
+    putenv("PATH=$path");
+    unset($GLOBALS['houseDockerSilent']);
+    houseContainers(true);
+
+    // T25: the schedule's last due time - only when the cron file is older than it
+    $cron = "$tmp/office.cron";
+    file_put_contents($cron, "30 4 * * * job backup\n");
+    $now = mktime(10, 0, 0, 10, 20, 2026);
+    touch($cron, $now - 30 * 86400);
+    $sc = backupSchedulePrev(['enabled' => true, 'custom' => '30 4 * * *'], $cron, $now);
+    same('backup rest T25: prev = the cron line\'s last time (04:30 today)', mktime(4, 30, 0, 10, 20, 2026), $sc['prev']);
+    touch($cron, $now - 3600);
+    same('backup rest T25: a schedule saved after that time — no prev (it never had the chance)', null,
+        backupSchedulePrev(['enabled' => true, 'custom' => '30 4 * * *'], $cron, $now)['prev']);
+    same('backup rest T25: no schedule — no prev', null, backupSchedulePrev(['enabled' => false, 'custom' => null], $cron, $now)['prev']);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
+    check('backup rest: the scan and the sleeping folder\'s state both carry prev', substr_count($src, 'backupSchedulePrev(') === 3);
     hardeningRm($tmp);
 }
 
@@ -25701,6 +25868,68 @@ function testWhereDesk(): void
 }
 
 /**
+ * «Where is what» never paints a place red for a copy that really is there (the truth review T16): libvirt.img's contents
+ * go into the backup place's archive (libvirt mode tar) — protected as /etc/libvirt, never by the image file's share; the
+ * office's code lives in RAM and comes back from the plugin on the flash — protected as that file.
+ */
+function testWhereProtectionTruth(): void
+{
+    $tmp = hardeningTmp('where-protection');
+    file_put_contents("$tmp/s.ini", "[general]\ndumps_share = UnraidSecretaryOffice\n[kopia]\nenabled = yes\n[share \"UnraidSecretaryOffice\"]\nmode = kopia\n"
+        . "[share \"system\"]\nmode = off\n[flash]\nmode = tar\n");
+    $s = backupReadSettings("$tmp/s.ini");
+    same('where T16: /etc/libvirt (what libvirt.img holds) as the backup place, its image file in «system» not backed up; the plugin file as the flash',
+        ['offsite', 'none', 'offsite'], [backupProtection('/etc/libvirt', 0, $s, []), backupProtection('/mnt/user/system/libvirt/libvirt.img', 0, $s, []),
+            backupProtection('/boot/config/plugins/unraid-secretary-office.plg', 0, $s, [])]);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/lib/where.php');
+    check('where T16: libvirt.img\'s label is /etc/libvirt\'s, the office\'s code the plugin file\'s',
+        str_contains($src, "\$item('libvirt_img', \$domain['IMAGE_FILE'], ['mounted' => WA_LIBVIRT]), ...waBackup(WA_LIBVIRT)]")
+        && str_contains($src, "[...\$item('office_dir', OFFICE_DIR), ...waBackup(WA_PLUGINS . '/unraid-secretary-office.plg')]"));
+    $office = array_values(array_filter(waLocations([], []), fn ($g) => $g['id'] === 'office'))[0]['items'][0] ?? [];
+    same('where T16: the office\'s code carries the plugin file\'s protection', [OFFICE_DIR, backupProtection(WA_PLUGINS . '/unraid-secretary-office.plg')],
+        [$office['path'] ?? null, array_key_exists('backup', $office) ? $office['backup'] : 'x']);
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        check("where T16: the code's note says where it comes back from ($l)", (langFile(OFFICE_WEB . "/desks/cleanup/lang/$l.json")['where.loc.office_dir_note'] ?? '') !== '');
+    }
+}
+
+/** A size not measured yet is never summed as «0 B» on Ms. Dustdevil's bubble, facts, tiles and dialogs (the truth review O7) */
+function testCleanupSizesUnknown(): void
+{
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/desk.js');
+    check('cleanup O7: one rule for a list\'s size — the sum only when all are measured, else «at least» or «not measured yet»',
+        str_contains($js, "const sizeText = (list) => (measured(list) ? fmt.size(sum(list)) : list.some((e) => typeof e.bytes === 'number') ? T('size.at_least', { size: fmt.size(sum(list)) }) : T('d.not_measured'));"));
+    preg_match_all('/fmt\.size\(sum\(([a-z]+)\)\)/', $js, $m);
+    same('cleanup O7: no other sum of sizes shown unless measured (sizeText() itself, the measured lists)', ['list', 'list', 'items', 'items'], $m[1]);
+    check('cleanup O7: bubble, facts, tiles and the remove dialog say it', substr_count($js, 'size: sizeText(c)') === 2 && str_contains($js, ": sizeText(c)];")
+        && str_contains($js, "size: sizeText(list) })"));
+}
+
+/** The array-stopped notice names the office's real data folder, never «appdata» whatever it is (the truth review O13) */
+function testArrayStoppedDataDir(): void
+{
+    $core = (string) file_get_contents(OFFICE_DIR . '/public/assets/core.js');
+    check('O13: the notice gets the data folder', str_contains($core, "t('agent.array_stopped_text', { dir: Office.agent.no_data.dir })"));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $txt = langFile(OFFICE_WEB . "/lang/$l.json")['agent.array_stopped_text'] ?? '';
+        check("O13: … and says it, never «appdata» ($l)", str_contains($txt, '{dir}') && !str_contains($txt, 'appdata'));
+    }
+}
+
+/** Ms. Dustdevil never advises Unraid's mover schedule while Ms. Moverelli works here: she needs it off (the truth review T17) */
+function testWhereMoverAdvice(): void
+{
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/desk.js');
+    check('where T17: the mover-schedule tip only without Ms. Moverelli hired',
+        str_contains($js, "const moverelliHired = () => !!(Office.desks.get('moverelli') || {}).hired;")
+        && str_contains($js, "if (moved.length && !a.mover_schedule && !moverelliHired()) add('mover',"));
+    $mv = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php');
+    check('where T17: … because her check wants Unraid\'s schedule off', str_contains($mv, "'unraid_schedule'"));
+    check('where T16: a place\'s label counts only what is there (nothing there is never «not backed up»)',
+        str_contains($js, "const counted = items.filter((i) => !i.ram && i.id !== 'docker_image' && i.backup && i.exists !== false);"));
+}
+
+/**
  * A parity disk being built is not «DISK_INVALID» (2026-10-08; a large server's first parity build): waBuilding() from a
  * crafted var.ini + disks.ini — building parity → the parity disk is `building` (what, percent, the time to go), the data
  * disks and pools not; invalid without a resync → nothing (the page counts it as bad); a data disk's rebuild; a check
@@ -27618,6 +27847,77 @@ function officeDeskPartsOf(string $desk): array
     require_once OFFICE_DIR . '/src/desks.php';
     $meta = json_decode((string) @file_get_contents(OFFICE_WEB . "/desks/$desk/desk.json"), true);
     return officeDeskParts(is_array($meta) ? ($meta['parts'] ?? null) : null);
+}
+
+/**
+ * «Download…» on Mr. Restori's flash tile (2026-10-25): the one file of the host's data the web side reads — only the
+ * archive his state names, exactly <the backup place>/flash/flash.tar.gz of the engine's settings, a regular file, no
+ * link on the way, resolved inside the place; a POST like every request, streamed as it is (no gzip, its own name).
+ */
+function testFlashDownload(): void
+{
+    require_once OFFICE_DIR . '/src/api.php';
+    $tmp = hardeningTmp('flashdl');
+    $root = "$tmp/user";
+    $place = "$root/UnraidSecretaryOffice/backup";
+    mkdir("$place/flash", 0700, true);
+    file_put_contents("$place/flash/flash.tar.gz", gzencode('flash'));
+    mkdir("$tmp/elsewhere/flash", 0700, true);
+    file_put_contents("$tmp/elsewhere/flash/flash.tar.gz", 'secret');
+    $st = fn (string $path) => ['flash' => ['path' => $path, 'time' => 1, 'bytes' => 5]];
+    same('flash download: the archive the state names, in the backup place of the settings', realpath("$place/flash/flash.tar.gz"),
+        apiFlashFile($st("$place/flash/flash.tar.gz"), 'UnraidSecretaryOffice', $root));
+    $refused = [
+        'a path outside the place'           => [$st("$tmp/elsewhere/flash/flash.tar.gz"), 'UnraidSecretaryOffice'],
+        'another share than the settings\''  => [$st("$place/flash/flash.tar.gz"), 'media'],
+        'a path with ..'                     => [$st("$place/flash/../flash/flash.tar.gz"), 'UnraidSecretaryOffice'],
+        'no share in the settings'           => [$st("$place/flash/flash.tar.gz"), ''],
+        'a share name with a slash'          => [$st("$place/flash/flash.tar.gz"), 'Unraid/../x'],
+        'no flash in the state'              => [[], 'UnraidSecretaryOffice'],
+        'a path that isn\'t a string'        => [['flash' => ['path' => ['x']]], 'UnraidSecretaryOffice'],
+    ];
+    foreach ($refused as $what => [$state, $share]) {
+        same("flash download: refused — $what", null, apiFlashFile($state, $share, $root));
+    }
+    // another file name, a link as the archive, a linked folder, a folder by that name
+    file_put_contents("$place/flash/flash.tar", 'x');
+    same('flash download: refused — another name', null, apiFlashFile($st("$place/flash/flash.tar"), 'UnraidSecretaryOffice', $root));
+    rename("$place/flash/flash.tar.gz", "$place/flash/real.tar.gz");
+    symlink("$tmp/elsewhere/flash/flash.tar.gz", "$place/flash/flash.tar.gz");
+    same('flash download: refused — the archive a link (out of the place)', null, apiFlashFile($st("$place/flash/flash.tar.gz"), 'UnraidSecretaryOffice', $root));
+    unlink("$place/flash/flash.tar.gz");
+    symlink("$place/flash/real.tar.gz", "$place/flash/flash.tar.gz");
+    same('flash download: refused — the archive a link, even inside the place', null, apiFlashFile($st("$place/flash/flash.tar.gz"), 'UnraidSecretaryOffice', $root));
+    unlink("$place/flash/flash.tar.gz");
+    rename("$place/flash", "$place/flash-real");
+    symlink("$tmp/elsewhere/flash", "$place/flash");
+    same('flash download: refused — its folder a link out of the place', null, apiFlashFile($st("$place/flash/flash.tar.gz"), 'UnraidSecretaryOffice', $root));
+    unlink("$place/flash");
+    mkdir("$place/flash/flash.tar.gz", 0700, true);
+    same('flash download: refused — a folder by that name', null, apiFlashFile($st("$place/flash/flash.tar.gz"), 'UnraidSecretaryOffice', $root));
+    mkdir("$root/media/unraid-backup/flash", 0700, true);
+    file_put_contents("$root/media/unraid-backup/flash/flash.tar.gz", 'x');
+    same('flash download: another share as the place — its unraid-backup folder', realpath("$root/media/unraid-backup/flash/flash.tar.gz"),
+        apiFlashFile($st("$root/media/unraid-backup/flash/flash.tar.gz"), 'media', $root));
+    file_put_contents("$tmp/settings.ini", "# x\n[general]\nserver = Tower\ndumps_share = media\n[share \"dumps_share\"]\ndumps_share = nope\n[general]\ndumps_share = UnraidSecretaryOffice\n");
+    same('flash download: the place\'s share from the engine\'s settings ([general], the last value)', ['UnraidSecretaryOffice', ''],
+        [apiFlashPlaceShare("$tmp/settings.ini"), apiFlashPlaceShare("$tmp/none.ini")]);
+    $api = (string) file_get_contents(OFFICE_DIR . '/src/api.php');
+    preg_match('/function apiFlashDownload\(\): never\n\{(.*?)\n\}\n/s', $api, $m);
+    $fn = $m[1] ?? '';
+    check('flash download: a POST past checkOrigin() and the hired check, before anything goes to the mailbox',
+        strpos($api, "if (\$action === 'restore.flash_download')") > strpos($api, 'checkOrigin();')
+        && strpos($api, "if (\$action === 'restore.flash_download')") > strpos($api, "answer(['ok' => false, 'error' => ['key' => 'not_hired'")
+        && strpos($api, "if (\$action === 'restore.flash_download')") < strpos($api, 'askAgent($action'));
+    check('flash download: streamed as it is — its own type and name, no gzip, no copy, the handle checked a regular file',
+        str_contains($fn, "header('Content-Type: application/gzip');") && str_contains($fn, 'Content-Disposition: attachment; filename="')
+        && !str_contains($fn, 'gzencode') && !str_contains($fn, 'Content-Encoding') && !str_contains($fn, 'copy(') && str_contains($fn, "(\$st['mode'] & 0170000) !== 0100000")
+        && str_contains($fn, 'fread($fh, 1 << 20)'));
+    $core = (string) file_get_contents(OFFICE_DIR . '/public/assets/core.js');
+    check('flash download: the page asks with X-Office and the csrf token, never a plain link', str_contains($core, 'async download(action, data) {')
+        && (bool) preg_match("/async download\(action, data\) \{.*?'X-Office': '1'.*?X-CSRF-Token/s", $core));
+    $hard = (string) file_get_contents(OFFICE_DIR . '/HARDENING.md') . (string) file_get_contents(OFFICE_DIR . '/docs/DEVELOPMENT.md');
+    check('flash download: the exception written down (HARDENING.md, DEVELOPMENT.md)', substr_count($hard, 'restore.flash_download') >= 2);
 }
 
 /**
@@ -31711,6 +32011,36 @@ function testPartnerStart(): void
     check('partner start: nothing of a key in it', !str_contains(json_encode($kept), 'ssh-ed25519') && !str_contains(json_encode($kept), 'SHA256:'));
     same('partner start: the state carries it', ['vault'], array_column($as('return rsScan()["kept"];'), 'pool'));
 
+    // ---- 2026-10-25 (a user: «where are the apps and the VM to restore?»): what the kept moments carry, read by the look
+    // job once per moment (cached by name and creation), never by a tick; the page names them per unit and per moment
+    $peekStub = '$GLOBALS["rs"]["peek"] = function ($s) { file_put_contents(sys_get_temp_dir() . "/uso-peek-calls", "$s\n", FILE_APPEND);'
+        . ' return str_contains($s, "share-appdata") ? ["nextcloud" => ["kind" => "app", "name" => "nextcloud", "dirs" => [], "needs" => []]]'
+        . ' : (str_contains($s, "vm-Debian_VM") ? ["" => ["kind" => "vm", "name" => "Debian_VM", "dirs" => [], "needs" => []]] : []); };';
+    $peeked = $as($peekStub . ' @unlink(sys_get_temp_dir() . "/uso-peek-calls"); $n = rspKeptPeek(); $again = rspKeptPeek();'
+        . ' $calls = (string) @file_get_contents(sys_get_temp_dir() . "/uso-peek-calls"); @unlink(sys_get_temp_dir() . "/uso-peek-calls"); return [$n, $again, rspKept()[0]["units"], $calls];');
+    same('kept inside: the look job reads every moment of the shares and VMs once (the place is read as a pulled place), a second look reads none',
+        [3, 0, 3], [$peeked[0] ?? null, $peeked[1] ?? null, substr_count((string) ($peeked[3] ?? ''), "\n")]);
+    same('kept inside: per unit what its newest moment carries — the place none, appdata\'s app by its folder, the VM\'s own unit',
+        [null, [['folder' => 'nextcloud', 'kind' => 'app', 'name' => 'nextcloud']], [['folder' => '', 'kind' => 'vm', 'name' => 'Debian_VM']]],
+        array_column((array) ($peeked[2] ?? []), 'inside'));
+    same('kept inside: … and each moment, none unread', [[true, true], [true]],
+        array_map(fn ($u) => array_map(fn ($sn) => is_array($sn['inside']) && !$sn['unread'], $u['snaps']), array_slice((array) ($peeked[2] ?? []), 1)));
+    same('kept inside: a moment made anew under the same name (another creation) is not taken for the old one', [null, [], null],
+        $as('return [rspInside(["d@s" => ["creation" => 5, "found" => [], "failed" => null]], "d", "s", 6), rspInside(["d@s" => ["creation" => 5, "found" => [], "failed" => null]], "d", "s", 5),'
+            . ' rspInside(["d@s" => ["creation" => 5, "found" => [], "failed" => 7]], "d", "s", 5)];'));
+    same('kept inside: the cache read only in its shape (an odd kind, a name not a string, no creation: left out)', [['d@s'], [['folder' => 'a', 'kind' => 'app', 'name' => 'A']]],
+        $as('partnerWritePrivate(rspPeekFile(), ["v" => 1, "snaps" => ["d@s" => ["creation" => 1, "found" => [["folder" => "a", "kind" => "app", "name" => "A"], ["folder" => "b", "kind" => "evil", "name" => "B"], ["folder" => "c", "kind" => "vm", "name" => 3]]],'
+            . ' "x@y" => ["found" => []], "7" => "no"]]); $c = rspPeekCache(); rspKeptPeek(); return [array_keys($c), $c["d@s"]["found"]];'));
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore-partner.php');
+    preg_match('/function rspTick\(\): void\n\{(.*?)\n\}\n/s', $src, $tick);
+    check('kept inside: never read in a tick (only the look job mounts), never on a pool asleep',
+        !str_contains($tick[1] ?? 'rspPeek(', 'rspPeek(') && !str_contains($tick[1] ?? 'rspKeptPeek(', 'rspKeptPeek(') && str_contains($src, "(\$GLOBALS['rspKeptPeek'] ?? 'rspKeptPeek')();")
+        && str_contains($src, "\$snaps = \$asleep ? [] : rspSnapsOf(\$ds);"));
+    $rjs = (string) file_get_contents(OFFICE_DIR . '/public/desks/restore/desk.js');
+    check('kept inside: the page — the tile counts apps and VMs, the rows and moments name them, each app of a share a row with «Start here…» for it alone, the dialog says when to do it here',
+        str_contains($rjs, "T('tile.kept_line_inside', { n: held.length, inside })") && str_contains($rjs, "insideText(p, s.inside, s.unread)")
+        && str_contains($rjs, "only: [x.folder] }") && str_contains($rjs, "T('rd.start_when', { name: (plan.target && plan.target.partner) || '' })"));
+
     // ---- the preflight of a VM: the copy on the same pool, mounted; the files into domains/<vm>; the definition from .uso-backup
     $stamp = $at(7200);
     $plan = fn (array $r) => $as('return rsPlan(' . var_export($r + ['kind' => 'partner_start', 'pair' => $id, 'stamp' => $stamp], true) . ');');
@@ -33114,6 +33444,22 @@ function testRestoreDrill(): void
     same('Mr. Backupsy\'s line: from the certificate only — how it went, proven of all, what failed', ['failed', 1, 5, ['immich']],
         [$line['result'] ?? null, $line['proven'] ?? null, $line['total'] ?? null, $line['failed'] ?? null]);
     same('Mr. Backupsy\'s line: none without a certificate', null, backupDrillLine(['interface' => 1]));
+    // truth review T18: a drill that ran to its end with every item «not checked» or asleep proved nothing — «passed» in
+    // its journal (counts beside it), but never the last passed drill, never «passed» on the Dashboard or Mr. Backupsy's line
+    $ju = ['id' => '20261103-030000-dede', 'started' => $now + 100, 'finished' => $now + 200] + $jc;
+    $ju['steps'] = [$step('dump', 'app', 'immich', 'not_checked', 0, 'snapshot', null, [], 'docker_off'), $step('vmdisk', 'vm', 'Win', 'asleep', 0, 'snapshot', null, [], 'asleep')];
+    $cu = drillCertWrite($ju, null);
+    same('drill nothing proven: «passed» with no item proven — the last drill, but last_passed stays the earlier one', ['passed', 0, $now],
+        [$cu['last']['result'], $cu['last']['proven'], $cu['last_passed']]);
+    same('drill nothing proven: drillProved() — proven or warnings count; counts not there count as before', [false, true, true, true],
+        [drillProved(['proven' => 0, 'warnings' => 0]), drillProved(['proven' => 0, 'warnings' => 1]), drillProved(['proven' => 2]), drillProved([])]);
+    same('drill nothing proven: the Team Lead\'s check goes by last_passed — overdue stays overdue', [['drill', false]],
+        $ok(array_slice(drillChecks(['last_passed' => $now - 70 * 86400] + $cu, $now - 400 * 86400, $now + 300), 0, 1)));
+    same('drill nothing proven: the Dashboard — «nothing proven», never ✓', ['restore.dash_drill_unproven', 'plain', $now + 200], officeDashDrill($cu, $now + 300));
+    same('drill nothing proven: Mr. Backupsy\'s line — unproven, never passed', 'unproven', backupDrillLine($cu)['result'] ?? null);
+    same('drill nothing proven: an older certificate without counts reads as before', ['restore.dash_drill_passed', 'passed'],
+        [officeDashDrill($passed, $now)[0] ?? null, backupDrillLine(['interface' => 1, 'last' => ['result' => 'passed', 'ended' => $now]])['result'] ?? null]);
+    file_put_contents($certFile, $keep);
     $fam = array_column(drillMetrics(), null, 'name');
     same('drill metrics: the four families, from the certificate', ['uso_restore_drill_last_timestamp_seconds', 'uso_restore_drill_last_passed_timestamp_seconds',
         'uso_restore_drill_items', 'uso_restore_drill_downloaded_bytes'], array_keys($fam));
@@ -33287,6 +33633,14 @@ function testRestoreDrill(): void
     ], 'UnraidSecretaryOffice'), null, 'id');
     same('drill certificate: kopia_played — the state a database came back with from Kopia alone; local and the play time stay the local copy\'s',
         [400, 500, 450, 30, 2], [$kl['immich']['kopia_played'] ?? null, $kl['immich']['local'] ?? null, $kl['immich']['kopia'] ?? null, $kl['immich']['played'] ?? null, $kl['immich']['best'] ?? null]);
+    // truth review T19: offsite only through the backup place's share is its package, never its data — said so
+    $kl = array_column(drillCertLose([
+        ['kind' => 'package', 'of' => 'vm', 'id' => 'Win', 'name' => 'Win', 'result' => 'ok', 'level' => 1, 'copy' => 'package', 'state_time' => 500, 'params' => [], 'seconds' => 1],
+        ['kind' => 'kopia', 'of' => 'share', 'id' => 'UnraidSecretaryOffice', 'name' => 'UnraidSecretaryOffice', 'result' => 'ok', 'level' => 1, 'copy' => 'kopia', 'state_time' => 450, 'params' => [], 'seconds' => 5],
+        ['kind' => 'kopia', 'of' => 'app', 'id' => 'immich', 'name' => 'immich', 'result' => 'ok', 'level' => 1, 'copy' => 'kopia', 'state_time' => 440, 'params' => [], 'seconds' => 5],
+    ], 'UnraidSecretaryOffice'), null, 'id');
+    same('drill certificate: a VM offsite only by the backup place\'s share — kopia_package; an app with its own source — none',
+        [450, true, 440, false], [$kl['Win']['kopia'] ?? null, $kl['Win']['kopia_package'] ?? false, $kl['immich']['kopia'] ?? null, $kl['immich']['kopia_package'] ?? false]);
 
     // ---- packages (L1), on a fake backup place
     $base = "$tmp/place";
@@ -35540,6 +35894,14 @@ function testWatchmanNet(): void
     $cfgFile(['server_folder' => $logs]);
     $a = watchnetAdvisor($o);
     same('net advisor: the senders with a file there, never the loop\'s', ['192.0.2.1', '192.0.2.105'], array_column((array) $a['senders'], 'sender'));
+    // truth review W11: a share emhttp doesn't list is missing, never «asleep»; nothing looked into
+    $cfgFile(['server_folder' => '/mnt/user/nosuchshare']);
+    $a = watchnetAdvisor($o);
+    same('net advisor: a missing share is said as missing — never asleep, no senders looked for', ['nosuchshare', false, null], [$a['missing'], $a['asleep'], $a['senders']]);
+    $cfgFile(['server_folder' => $logs]);
+    same('net advisor: … a share that is there is never missing', null, watchnetAdvisor($o)['missing']);
+    $ajs = (string) file_get_contents(OFFICE_WEB . '/desks/advisor/desk.js');
+    check('net advisor: his card says «missing» before «asleep»', str_contains($ajs, "if (sys.on && sys.missing) main.appendChild(el('div', 'row-detail ad-careful', T('net.syslog.missing', { share: sys.missing })));\n    else if (sys.on && sys.asleep)"));
     $guide = "$tmp/advisor/network.json";
     advisorNetworkSeen($guide, $now);
     same('net advisor: the router guide opened — noted (root only) for the Team Lead', [$now, 0600], [watchnetGuideSeen($guide), fileperms($guide) & 0777]);
@@ -43279,9 +43641,18 @@ function testPoolLevel(): void
     $o = ['x' => 80, 'shares_dir' => "$tmp/shares", 'names' => ['Filme', 'Serien', 'appdata', 'Other'], 'zfs' => "$tmp/bin/zfs",
           'mnt' => "$tmp/mnt", 'jack_list' => "$tmp/list.txt", 'asleep' => []];
     $c = poolLevel('master', $o);
-    same('level look: movable Filme (yes) and Serien (prefer), never appdata — M 10000 (refer), snapshots 2000, the pool 100000/60000; his list on master 5000 (a gone file 0, another pool\'s not)',
-        [['Filme', 'Serien'], 10000, 2000, 100000, 60000, 50000, 5000], [$c['shares'] ?? null, $c['movable'] ?? null, $c['snapshots'] ?? null, $c['size'] ?? null, $c['used'] ?? null, $c['nm'] ?? null, $c['jack'] ?? null]);
-    same('level look: X 80 % = 80000 — nothing must go; the others 5000', [80000, 0, 5000], [$c['xb'] ?? null, $c['need'] ?? null, $c['others'] ?? null]);
+    // truth review T32: a prefer share (Serien) moves onto the pool, never off it — her fill takes only «yes» shares
+    same('level look: movable Filme (yes) only — never Serien (prefer) or appdata — M 7000 (refer), snapshots 2000, the pool 100000/60000; his list on master 5000 (a gone file 0, another pool\'s not)',
+        [['Filme'], 7000, 2000, 100000, 60000, 53000, 5000], [$c['shares'] ?? null, $c['movable'] ?? null, $c['snapshots'] ?? null, $c['size'] ?? null, $c['used'] ?? null, $c['nm'] ?? null, $c['jack'] ?? null]);
+    same('level look: X 80 % = 80000 — nothing must go; the others 2000', [80000, 0, 2000], [$c['xb'] ?? null, $c['need'] ?? null, $c['others'] ?? null]);
+    // her ini keeps a share out of the fill: skip = yes, or a trigger of its own of 0 (the first value counts, as get_ini_val)
+    file_put_contents("$tmp/fill.ini", "[GLOBAL]\nmove_when_used_above=80\n[Filme]\nskip=yes\n[Other]\nmove_when_used_above=0\nmove_when_used_above=90\n[X]\nskip=no\nmove_when_used_above=85\n");
+    same('level look (T32): the shares her ini keeps out of the fill — skipped, or a trigger of 0; no ini: none',
+        [['Filme', 'Other'], [], []], [poolLevelNoFill("$tmp/fill.ini"), poolLevelNoFill("$tmp/none"), poolLevelNoFill(null)]);
+    $sk = poolLevel('master', ['ini' => "$tmp/fill.ini"] + $o);
+    same('level look (T32): Filme skipped in her ini — nothing on master her fill can move: M 0, his 5000 outside it, 55000 never move (below X 80 %: not «never»)',
+        [[], 0, 55000, false], [$sk['shares'] ?? null, $sk['movable'] ?? null, $sk['nm'] ?? null, $sk['never'] ?? null]);
+    same('level look (T32): … with X 50 % what never moves reaches X — her «never» says so', true, poolLevel('master', ['x' => 50, 'ini' => "$tmp/fill.ini"] + $o)['never'] ?? null);
     same('level look: the pool asleep — not looked at; a run about to wake it looks; no ZFS — none', [null, true, null],
         [poolLevel('master', ['asleep' => ['master' => true]] + $o), poolLevel('master', ['asleep' => ['master' => true], 'wake' => true] + $o) !== null, poolLevel('fast', $o)]);
 
@@ -43812,9 +44183,15 @@ function testMoverelliStop(): void
     file_put_contents("$tmp/mnt/cache/Docs/big.bin", str_repeat('b', 300000));
     @mkdir("$tmp/mnt/disk2/Docs", 0700, true);
     file_put_contents("$tmp/mnt/disk2/Docs/big.bin.partial", str_repeat('p', 50000));
-    $hf = ['asleep' => ['disk2' => true]] + moverelliHost();
+    // every array disk asleep (M14: only then is the waking sure)
+    $hf = ['asleep' => array_fill_keys(array_map('basename', glob("$tmp/mnt/disk[0-9]*", GLOB_ONLYDIR) ?: []), true)] + moverelliHost();
     $p0 = ['phase' => 'share', 'share' => 'Docs', 'file' => "$tmp/mnt/cache/Docs/big.bin"];
     same('in flight: the partial only on a sleeping disk — not looked at; the source\'s own size known; the move waits for the disk', ['file_bytes' => 0, 'file_size' => 300000, 'waking' => true], moverelliInFlight($p0, $hf));
+    // truth review M14: another array disk awake — the move may as well write there: only «maybe waking», never «the target disk wakes»
+    @mkdir("$tmp/mnt/disk9", 0700, true);
+    same('in flight (M14): a sleeping disk and an awake one, no .partial yet — waking only maybe', ['file_bytes' => 0, 'file_size' => 300000, 'waking' => false, 'waking_maybe' => true],
+        moverelliInFlight($p0, $hf));
+    @rmdir("$tmp/mnt/disk9");
     $hf['asleep'] = [];
     $alloc = (int) (stat("$tmp/mnt/disk2/Docs/big.bin.partial")['blocks'] * 512);
     same('in flight: … awake — its allocated bytes (never above the source), the source\'s size', ['file_bytes' => min($alloc, 300000), 'file_size' => 300000], moverelliInFlight($p0, $hf));
@@ -45486,6 +45863,158 @@ JS);
     same('greet truth: … spotless there — «who left all this lying around?» not, «A place for everything» yes; the bubble «Spotless!»', [['greet.2' => false, 'greet.5' => true], true],
         [$o['spotless']['cleanup'] ?? null, str_contains($o['spotless']['clBubble'] ?? '', 'bubble.spotless')]);
     same('greet truth: the Night Watchman\'s «Evening.» at 10:00 not, at 17, 23 and 5 yes, at 6 not; «Lantern\'s lit» at any hour', [false, true, true, true, false, true], $o['watchman'] ?? null);
+    hardeningRm($tmp);
+}
+
+/**
+ * The truth review's rest for Ms. Moverelli and Jack Streamer (2026-10-25): her fill's card never shows another share's
+ * counts (T31), a prefer share isn't movable (T32: testPoolLevel), «real runs go» / «All in order» never while they are
+ * refused (T35), X 0 is no «not set up» / «not measured» (T37, M12), Start says the joint run (T38), her fill in the joint
+ * run says its room (M13), «waking» only when sure (M14: testMoverelliRun), her last file's own ends (M15), her share
+ * named, not «downloads» (M16), a scheduled run that waits says so (M17), a give-back step counts no fetch (T39).
+ */
+function testMoverJackTruthRest(): void
+{
+    $tmp = hardeningTmp('mover-truth-rest');
+    // M17: the joint run waiting for the backup's local part shows like its wait for Unraid's mover (RAM, while its lock is held)
+    $w = "$tmp/wait";
+    $lock = nightWaitMark($w, 1234);
+    $while = jackRunWaiting('moverelli', $w);
+    $second = nightWaitMark($w, 99);
+    jackWaitEnd($lock, $w, 'moverelli');
+    same('M17: a scheduled run waiting for the backup — {since, why backup} while it waits; a second start writes nothing; gone after',
+        [['since' => 1234, 'why' => 'backup'], null, null, false], [$while, $second, jackRunWaiting('moverelli', $w), is_file("$w/jack-moverelli-wait.json")]);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/lib/nightrun.php');
+    check('M17: nightRun() marks its wait for the backup around nightOrderWait() and ends it', (bool) preg_match('/nightWaitMark\(.*\n.*nightOrderWait\(\$oh, \$oh\[.backup_holds.\]\);\n\s*jackWaitEnd\(\$mark/', $src));
+    check('M17: both desks\' states carry the wait', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php'), "'waiting'    => jackRunWaiting('moverelli', \$h['waitdir'])")
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php'), "'night' => jackRunWaiting('moverelli')"));
+    // T31 (agent): Jack Streamer's card — her fill is no share with counts
+    $dir = "$tmp/mo";
+    mkdir($dir, 0700, true);
+    file_put_contents("$dir/night.json", json_encode(['v' => 1, 'mode' => 'run', 'by' => 'schedule', 'started' => time() - 60, 'phase' => 'free', 'round' => 1, 'who' => 'her',
+        'jack' => true, 'pool' => 'cache', 'plan' => ['measured' => true], 'steps' => [], 'result' => null]));
+    $nl = fopen("$dir/night.lock", 'c');
+    flock($nl, LOCK_EX);
+    file_put_contents("$dir/status.json", json_encode(['result' => 'running', 'phase' => 'share', 'share' => 'Serien', 'share_files' => 3, 'share_done_files' => 3,
+        'shares' => [['share' => 'Downloads'], ['share' => 'Serien']]]));
+    $fill = jackNightNow($dir, true)['her'] ?? '-';
+    file_put_contents("$dir/status.json", json_encode(['result' => 'running', 'phase' => 'share', 'share' => 'Serien', 'share_files' => 3, 'share_done_files' => 1,
+        'shares' => [['share' => 'Downloads']]]));
+    $own = jackNightNow($dir, true)['her'] ?? '-';
+    flock($nl, LOCK_UN);
+    fclose($nl);
+    same('T31 (agent): her fill (its share among the done ones) — no counts of a share; her own step — its counts',
+        [['share' => 'Serien', 'fill' => true], ['share' => 'Serien', 'done' => 1, 'files' => 3]], [$fill, $own]);
+    // T39: a give-back step (MEDIACACHE_NO_FILL) plans no fill into its progress
+    $py = (string) file_get_contents(OFFICE_DIR . '/mediacache/mediacache_run.py');
+    check('T39: MediaCache plans the fill into its progress only when it fetches', (bool) preg_match('/if not NO_FILL:\n(\s*#.*\n)*\s*self\.progress\.plan_fill\(planner, files\)/', $py));
+
+    $node = testsNode();
+    if ($node === '') {
+        check('mover truth (page): node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, className: cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, checked: false, dataset: {}, style: {},
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {}, scrollIntoView() {} });
+const dialogs = [];
+globalThis.document = { createTextNode: (t) => t, hidden: false };
+globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }),
+  scope: () => T, t: T, el: mk, fmt: { cron: (c) => 'C' + c, relative: (t) => 'R' + t, size: (b) => Math.round(b / 1073741824) + ' GiB', number: (n) => String(n), time: (t) => 'T' + t, duration: (s) => s + 's', date: (t) => 'D' + t },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, sectionHead: () => mk('h'), stat: (o) => o,
+  runSteps: (steps, at) => ({ ...mk('div', 'steps'), steps, at }), runBar: () => mk('div', 'bar'), runRate: () => null, dialogOpen: () => false, menuOpen: () => false,
+  dialog: (o) => { dialogs.push(o); return { close() {} }; }, freshState: async () => true, toast: () => {}, errorText: (e) => 'err:' + e.key,
+  api: { post: async () => ({ ok: true }) } };
+for (const f of process.argv.slice(2)) (0, eval)(fs.readFileSync(f, 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+const e = OFFICE_DESK_TESTS.jack;
+const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
+const G = 1073741824;
+const out = {};
+const base = { configured: true, unraid: { ok: true, version: '7.3.2', needed: '7.3.2' }, job: {}, schedule: { enabled: true, frequency: 'custom', custom: '15 1 * * *' }, history: [],
+  shares: [{ share: 'Downloads', use: 'yes', from: 'cache', to: 'array', state: 'moves', min_age: 30, threshold: 80 }, { share: 'Serien', use: 'yes', from: 'cache', to: 'array', state: 'moves', min_age: 30, threshold: 80 }],
+  mover: { off: true }, foreign: { tuning: { installed: false, active: false, lines: [] }, movers: [] }, settings: { global: { min_age: 30, move_when_used_above: 80 } }, last: null,
+  jack: { busy: false, uncovered: [], pending: null }, night: { jack: false, plan: null, last: null } };
+m.setState(base);
+// T31: her fill — a step of its own after the shares, no percent or «X of Y» from the last share's counts
+const fillP = { result: 'running', started: 100, plan: ['Downloads', 'Serien'], phase: 'share', share: 'Serien', file: '/mnt/cache/Serien/a.mkv',
+  share_files: 3, share_bytes: 9 * G, share_done_files: 3, share_done_bytes: 11 * G, shares: [{ share: 'Downloads' }, { share: 'Serien' }],
+  fill: true, pool: 'cache', pool_used: '85', pool_now: '85', until: '80' };
+const fd = m.runCardData(fillP, 200);
+out.fill = [fd.filling, fd.percent, fd.steps.map((s) => [s.name, s.state]), fd.fill];
+const fc = texts(m.runCard(fillP, 200));
+out.fillCard = [fc.some((t) => t.startsWith('rc.share ')), fc.some((t) => /^rc\.(end|left)/.test(t))];
+const ownP = { ...fillP, shares: [{ share: 'Downloads' }], share_done_files: 1, share_done_bytes: 3 * G };
+const od = m.runCardData(ownP, 200);
+out.own = [od.filling, od.percent !== null, od.steps.map((s) => s.state)];
+m.setState({ ...base, job: { running: true, mode: 'run' } });
+m.setProgress(fillP, null);
+out.bubbleFill = m.runningText();
+m.setState(base);
+// M13: in the joint run on his pool her fill goes to his room, said in bytes
+const nn = { jack: true, pool: 'cache', picture: { phases: { check: { planned: { until: 700 * G } }, free: { planned: { until: 740 * G } } } } };
+out.room = [m.fillLine(fillP, nn), m.fillLine(fillP, null), m.fillLine(fillP, { ...nn, pool: 'fast' }), m.fillRoom({ ...nn, picture: { phases: { ...nn.picture.phases, recheck: { planned: { until: 720 * G } } } } }, 'cache')];
+// M14: only maybe waking
+out.waking = texts(m.runCard({ ...ownP, file_bytes: 0, waking_maybe: true }, 200)).filter((t) => /^rc\.waking/.test(t));
+m.setProgress(null, null);
+// T35: Jack Streamer's list not kept out / not written yet — never «real runs go», never «All in order»
+const said = (st) => { m.setState(st); return [m.bubbleText(), texts(m.moverNotice()).filter((t) => /^mover\.ok/.test(t))[0] || null]; };
+out.wait = [said({ ...base, jack: { ...base.jack, uncovered: ['Filme'] } }), said({ ...base, jack: { ...base.jack, pending: 'list.txt' } }), said(base)];
+// T38 + T35: «Start…» — the joint run named; real runs off while his list is pending
+(async () => {
+  const hints = async (st) => { m.setState(st); dialogs.length = 0; await m.chooseRun(); const t = texts(dialogs[0].body); return t.filter((x) => /^mode_hint/.test(x)); };
+  out.start = [await hints({ ...base, night: { jack: true, plan: null, last: null } }), await hints(base), await hints({ ...base, jack: { ...base.jack, pending: 'l' } })];
+  // M12: X 0 — no limit, never «not measured»
+  m.setState({ ...base, settings: { global: { min_age: 30, move_when_used_above: 0 } } });
+  out.noLimit = [m.noLimit(), m.tonightText({ measured: false }), m.tonightText({ measured: false }, false)];
+  m.setState(base);
+  out.limit = [m.noLimit(), m.tonightText({ measured: false })];
+  // M15: her last file named by its own ends — into the array, though the run's other place is pool ripley
+  const pic = { pool: 'cache', x: 80, dest: { to: 'ripley', size: null, used: null }, phases: { check: { before: null } },
+    files: [{ name: 'Downloads/old.iso', bytes: 4 * G, from: 'cache', to: 'array', who: 'her' }] };
+  out.last = texts(m.nightPicture({ running: false, started: 5, picture: pic })).filter((t) => /^pic\.last_file/.test(t));
+  // Jack Streamer: X 0 is set up (T37); his night line names her share or her fill (M16, T31); the joint run waits (M17); Start (T38)
+  e.setState({ configured: true, settings: {}, pool: { min_free: 20 }, moverelli: { x: 0, y: 0, k: 0, min_age: 30 }, night: { jack: true, plan: null } });
+  out.jRule = [e.ruleTexts(10), texts(e.sharePart())];
+  e.setState({ configured: true, settings: {}, pool: null, moverelli: { x: 0, y: 0, k: 0, min_age: 30 }, night: { jack: true, plan: null } });
+  out.jRulePlain = e.ruleTexts(10);
+  out.jTonight = e.tonightText({ measured: false });
+  e.setState({ configured: true, settings: {}, pool: null, moverelli: null, night: { jack: true, plan: null } });
+  out.jNotSet = [e.ruleTexts(10), e.tonightText({ measured: false })];
+  out.jWait = [texts(e.nightWaitLine({ why: 'backup', since: 5 })), texts(e.nightWaitLine({ why: 'mover', since: 5, next: 6, until: 7 }))];
+  console.log(JSON.stringify(out));
+})();
+JS);
+    [, $out, $err] = run([$node, "$tmp/t.js", testsNightHelpersJs($tmp), OFFICE_WEB . '/desks/moverelli/desk.js', OFFICE_WEB . '/desks/jack/desk.js'], 30);
+    $j = json_decode(trim((string) $out), true) ?? [];
+    check('mover truth (page): it runs', $j !== [], $out . $err);
+    same('T31: her fill — a step of its own (the shares done), no percent; the fill line stays',
+        [true, null, [['rc.look', 'done'], ['Downloads', 'done'], ['Serien', 'done'], ['rc.fill_step', 'running'], ['rc.tidy', 'pending']], 'rc.fill {"pool":"cache","used":"85","until":"80"}'],
+        $j['fill'] ?? null);
+    same('T31: … no «Serien: 3 of 3 · 11 GB of 9 GB», no end or time left from them', [false, false], $j['fillCard'] ?? null);
+    same('T31: her own step of a share — its counts and percent as before', [false, true, ['done', 'done', 'running', 'pending']], $j['own'] ?? null);
+    check('T31: her bubble in the fill — the oldest first, not the share\'s age rule', str_contains((string) ($j['bubbleFill'] ?? ''), 'bubble.what_oldest'), (string) ($j['bubbleFill'] ?? ''));
+    same('M13: her fill in the joint run on his pool — «until it uses at most 740 GiB» (the latest phase\'s room); alone or another pool — below X',
+        ['rc.fill_room {"pool":"cache","used":"85","room":"740 GiB"}', 'rc.fill {"pool":"cache","used":"85","until":"80"}', 'rc.fill {"pool":"cache","used":"85","until":"80"}', 720 * 1073741824],
+        $j['room'] ?? null);
+    same('M14: some destinations awake — only «maybe waking»', ['rc.waking_maybe'], $j['waking'] ?? null);
+    same('T35: his list not kept out / not written yet — her bubble says why, Unraid\'s mover «off» without «real runs go»; all clear — as before',
+        [['bubble.wait_jack_list', 'mover.ok_wait'], ['bubble.wait_pending', 'mover.ok_wait'], ['bubble.ready', 'mover.ok']], $j['wait'] ?? null);
+    same('T38/T35: «Start…» with Jack Streamer — the joint run for both; alone — her own; his list pending — real runs off, why',
+        [['mode_hint.dry_joint', 'mode_hint.run_joint'], ['mode_hint.dry', 'mode_hint.run'], ['mode_hint.dry', 'mode_hint.run_pending']], $j['start'] ?? null);
+    same('M12: X 0 — no limit, the next run by age only (with and without Jack Streamer); with X — «not measured» as before',
+        [[true, 'night.no_limit', 'night.no_limit_mine'], [false, 'night.unmeasured']], [$j['noLimit'] ?? null, $j['limit'] ?? null]);
+    same('M15: her last file into the array — «→ Array», never the run\'s other place', ['pic.last_file {"file":"old.iso","size":"4 GiB","from":"pic.pool_name {\"pool\":\"cache\"}","to":"pic.array"}'],
+        $j['last'] ?? null);
+    same('T37: Jack Streamer with her X 0 — what he keeps free (or his budget), never «Ms. Moverelli isn\'t set up yet»; not set up — said',
+        [[['setup.rule {"budget":"10 GiB"}', 'room.own {"min":20}'], ['room.own_plain']], 'night.no_limit', [['setup.rule {"budget":"10 GiB"}', 'room.none'], 'night.unmeasured']],
+        [[array_slice($j['jRule'][0] ?? [], 0, 2), array_slice($j['jRulePlain'] ?? [], 1)], $j['jTonight'] ?? null, $j['jNotSet'] ?? null]);
+    check('T37: … his setup\'s share part says the same', in_array('room.own {"min":20}', $j['jRule'][1] ?? [], true) && !in_array('room.none', $j['jRule'][1] ?? [], true), json_encode($j['jRule'] ?? null));
+    same('M17: his page — the joint run waiting for Mr. Backupsy / Unraid\'s mover', [['night.wait_backup {"since":"T5"}'], ['night.wait_mover {"since":"T5","next":"T6","until":"T7"}']], $j['jWait'] ?? null);
     hardeningRm($tmp);
 }
 
@@ -47771,7 +48300,7 @@ const P = { jack_back: null, others_back: 60 * G, jack_fetch: 60 * G, until: 740
 const pic = { pool: 'cache', x: 80, dest: { to: 'array', size: 8000 * G, used: 2000 * G },
   phases: { check: { before: B(300, 150, 400, 150), forecast: B(300, 90, 410, 200), planned: P },
             free: { before: B(300, 150, 350, 200), forecast: B(300, 80, 410, 210), planned: P } },
-  files: [{ name: 'Docs/old.iso', bytes: 4 * G, from: 'cache', to: '/mnt/disk1', who: 'her' }, { name: 'Film/a.mkv', bytes: 7 * G, from: 'array', to: 'cache', who: 'jack' }] };
+  files: [{ name: 'Docs/old.iso', bytes: 4 * G, from: 'cache', to: 'array', who: 'her' }, { name: 'Film/a.mkv', bytes: 7 * G, from: 'array', to: 'cache', who: 'jack' }] };
 const sum = (b) => b.segs.reduce((a, s) => a + s.w, 0);
 const out = {};
 const w = m.segWidths([1000, 1, 0, 50], 10 / 800);
@@ -48283,10 +48812,12 @@ function testPoolNonZfs(): void
     file_put_contents($store, json_encode($d));
     $future = poolLevel('cache', $o);
     poolLevelDuJob('cache', $o);
+    file_put_contents("$tmp/shares/Serien.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\n");     // made movable since (a prefer share isn't: T32)
     @mkdir("$tmp/mnt/cache/Serien");
     same('pool non-zfs: a stored du from the future, or a new movable folder not in it — not measured', [null, null, true],
         [$future, poolLevel('cache', $o), poolLevelWaiting('cache', $o)]);
     rmdir("$tmp/mnt/cache/Serien");
+    file_put_contents("$tmp/shares/Serien.cfg", "shareUseCache=\"prefer\"\nshareCachePool=\"cache\"\n");
     $duAsked();
 
     // XFS the same; anything else (ZFS seen through statfs, tmpfs, not mounted) — not measured, never waiting
@@ -49698,6 +50229,120 @@ JS);
         check("pool tile budget: lang $l — the tile and the room without «{h}»", !str_contains(($lang['pool_tile.held'] ?? '') . ($lang['room.text'] ?? ''), '{h}')
             && str_contains($lang['pool_tile.held'] ?? '', '{budget}') && isset($lang['pool_tile.held_plain']));
     }
+    hardeningRm($tmp);
+}
+
+/**
+ * Truth review, the rest (Mr. Restori, Ms. Snapshotini, the Consultant), on the pages under node: a drill that proved
+ * nothing is «nothing proven», never «passed» (T18 — tile, history, toast; an app whose items were all not checked never
+ * «proven», one partly checked «partly proven»); the drill tile names the age of a drill older than 35 days (R7); a split
+ * share's «local snapshots» never green while a part has none (R10); Ms. Snapshotini's «Tutto a posto» and «next run»
+ * only when true (T20); the Consultant's ⟦Apps⟧ link for a container off while Docker is stopped.
+ */
+function testTruthRestPages(): void
+{
+    $node = testsNode();
+    if ($node === '') {
+        check('truth pages: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('truthrest');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {}, title: '',
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {}, addEventListener() {} });
+const fmt = { size: (b) => b + ' B', number: (n) => String(n), date: (t) => 'D' + t, relative: (t) => 'R' + t, time: (t) => 'T' + t, duration: (s) => s + 's', cron: (c) => c };
+globalThis.document = { createTextNode: (t) => t };
+const office = () => ({ scope: () => T, t: T, el: mk, fmt, store: () => null, storeJson: () => null, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {},
+  has: () => true, errorText: (e) => 'error ' + e.key, api: { get: async () => ({ ok: true, part: null }) }, agent: { running: true }, lang: 'en', fits: () => true,
+  place: (k, n) => n, tile: (o) => o, sections: () => ({ el: {}, active: () => '', places: () => [], mount: () => false, render() {}, clear() {}, pick() {}, note: () => ({ tile: '' }) }) });
+const out = {};
+const chipOf = (c) => (c ? [c.text, c.cls, c.title] : null);
+
+// ---- the drill (drill.js alone, desk.js's helpers as stand-ins)
+globalThis.Office = office();
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const now = Math.round(Date.now() / 1000);
+const chip = (text, cls, title) => ({ text, cls, title });
+Office.restoreDrill.init({ T, fmt, date: fmt.date, chip, tiles: () => {}, redraw: () => {}, shown: () => true });
+const d = OFFICE_DESK_TESTS.drill;
+out.shown = [d.shownResult('passed', false), d.shownResult('passed', true), d.shownResult('passed', null), d.shownResult('failed', false),
+  d.lastProved({ proven: 0, warnings: 0 }), d.lastProved({ proven: 0, warnings: 1 }), d.lastProved({}), d.countsProved({ ok: 0, warning: 0 }), d.stepsProved([{ state: 'not_checked' }, { state: 'asleep' }])];
+d.setCert({ interface: 1, last: { result: 'passed', proven: 0, warnings: 0, failed: 0, not_checked: 2, asleep: 1, ended: now - 3600 },
+  items: [{ of: 'app', id: 'immich', kind: 'dump', result: 'not_checked' }, { of: 'app', id: 'immich', kind: 'package', result: 'asleep' },
+    { of: 'app', id: 'zz', kind: 'package', result: 'ok' }, { of: 'app', id: 'zz', kind: 'dump', result: 'not_checked' },
+    { of: 'app', id: 'ok', kind: 'package', result: 'ok' }, { of: 'app', id: 'bad', kind: 'dump', result: 'failed' }] });
+out.tileUnproven = d.tileLine()[0];
+out.chips = ['immich', 'zz', 'ok', 'bad'].map((id) => chipOf(d.appChip('app', id)));
+out.when = [d.tileWhen(now - 3600, 'monthly'), d.tileWhen(now - 150 * 86400, 'monthly'), d.tileWhen(now - 3600, null)];
+out.now = now;
+
+// ---- Mr. Restori's snapshots of a split share
+globalThis.Office = office();
+(0, eval)(fs.readFileSync(process.argv[3], 'utf8'));
+const r = OFFICE_DESK_TESTS.restore;
+const place = (base, count, o = {}) => ({ base, count, exists: true, asleep: false, ...o });
+out.snaps = [
+  chipOf(r.snapsChip([{ places: [place('cache', 7), place('disk1', 0)], newest: 50 }])),
+  chipOf(r.snapsChip([{ places: [place('cache', 7), place('disk1', 0, { exists: false })], newest: 50 }])),
+  chipOf(r.snapsChip([{ places: [place('cache', 7), place('disk1', 0, { asleep: true })], newest: 50 }])),
+  chipOf(r.snapsChip([{ places: [place('cache', 0)], newest: 0 }])),
+];
+
+// ---- Ms. Snapshotini's bubble, tile and row
+globalThis.Office = office();
+(0, eval)(fs.readFileSync(process.argv[4], 'utf8'));
+const s = OFFICE_DESK_TESTS.snapshot;
+const plan = (o) => ({ id: 'p', label: 'Hourly appdata', enabled: true, cron: '0 * * * *', keep: 24, targets: ['zfs:cache/appdata'], next: now + 1800, result: 'ok', last_run: now - 1800, ...o });
+const st = (plans, runner) => ({ time: now, zfs: { snapshots: [], pools: [{ snapused: 10 }] }, btrfs: {}, vm: {}, plans: { plans, runner } });
+const on = { script: true, enabled: true };
+const rowText = (p) => JSON.stringify(s.planRow(p)).includes('plan.next');
+s.setState(st([plan({})], on));
+out.snap = { ok: s.bubbleText(), okTile: s.plansCard({}).lines[0], okNext: rowText(plan({})) };
+s.setState(st([plan({ result: 'failed' }), plan({ id: 'q', label: 'Daily media', result: 'partly' })], on));
+out.snap.failed = s.bubbleText();
+s.setState(st([plan({})], { script: false, enabled: true }));
+out.snap.off = s.bubbleText();
+out.snap.offTile = s.plansCard({}).lines[0];
+out.snap.offNext = rowText(plan({}));
+console.log(JSON.stringify(out));
+JS);
+    [, $raw] = run([$node, "$tmp/t.js", OFFICE_WEB . '/desks/restore/drill.js', OFFICE_WEB . '/desks/restore/desk.js', OFFICE_WEB . '/desks/snapshot/desk.js'], 30);
+    $o = json_decode(trim((string) $raw), true);
+    if (!is_array($o)) {
+        check('truth pages: ran under node', false, (string) $raw);
+        hardeningRm($tmp);
+        return;
+    }
+    same('T18: «passed» that proved nothing is «unproven»; proved something or counts unknown — as before; failed stays failed',
+        ['unproven', 'passed', 'passed', 'failed', false, true, null, false, false], $o['shown']);
+    same('T18: the drill tile says «nothing proven» with the items not checked or asleep', 'drill.tile_unproven {"n":3,"failed":0}', $o['tileUnproven']);
+    same('T18: an app whose items were all not checked — never «proven»; partly — «partly proven», naming what wasn\'t; all ok — proven; one failed — failed', [
+        ['drill.chip_unproven', 'quiet', 'drill.chip_hint_open {"what":"drill.kind.dump, drill.kind.package"}'],
+        ['drill.chip_partly {"when":"R' . ($o['now'] - 3600) . '"}', 'warn', 'drill.chip_hint_open {"what":"drill.kind.dump"}'],
+        ['drill.chip_proven {"when":"R' . ($o['now'] - 3600) . '"}', 'ok', 'drill.chip_hint'], ['drill.chip_failed', 'danger', 'drill.chip_hint']],
+        array_map(fn ($c) => is_array($c) ? [$c[0], $c[1], $c[2]] : $c, $o['chips']), (string) $raw);
+    same('R7: the tile\'s right side — the schedule while the drill is recent; older than 35 days its age first', ['monthly', 'R' . ($o['now'] - 150 * 86400) . ' · monthly', 'R' . ($o['now'] - 3600)],
+        $o['when']);
+    same('R10: a split share with a part that has none — warn, that part named; a part not there or asleep isn\'t «bare»; none at all — no snapshot', [
+        ['chip.snaps_part {"n":7,"when":"R50","bases":"disk1"}', 'chip warn'], ['chip.snaps {"n":7,"when":"R50"}', 'chip ok'], ['chip.snaps {"n":7,"when":"R50"}', 'chip ok'], ['chip.no_snaps', 'chip warn']],
+        array_map(fn ($c) => [$c[0], $c[1]], $o['snaps']));
+    $snap = $o['snap'];
+    same('T20: all well — «Tutto a posto» after the count, the next run on the tile and the row', [true, true, true],
+        [str_ends_with((string) end($snap['ok']), 'bubble.all_well'), str_starts_with((string) $snap['okTile'], 'plans_tile.active'), $snap['okNext']]);
+    same('T20: a schedule failed or partly — said with their names, no «Tutto a posto»', [true, false],
+        [in_array('bubble.plans_trouble {"n":2,"names":"Hourly appdata, Daily media"}', $snap['failed'], true), str_contains(json_encode($snap['failed']), 'all_well')]);
+    same('T20: the runner (cron line) gone — said, no «Tutto a posto», no «next run» on the tile or the row', [true, false, 'plans_tile.on {"n":1}', false],
+        [in_array('bubble.runner_off', $snap['off'], true), str_contains(json_encode($snap['off']), 'all_well'), $snap['offTile'], $snap['offNext']]);
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $sl = readJson(OFFICE_WEB . "/desks/snapshot/lang/$l.json") ?? [];
+        check("T20: her count no longer ends «Tutto a posto» by itself ($l)", !str_contains(json_encode($sl['bubble.count'] ?? ''), 'Tutto a posto') && ($sl['bubble.all_well'] ?? '') === 'Tutto a posto.');
+    }
+    $ajs = (string) file_get_contents(OFFICE_WEB . '/desks/advisor/desk.js');
+    check('Consultant: ⟦Apps⟧ for a container he couldn\'t look for (Docker stopped) is off, saying why — never a link that installs nothing',
+        str_contains($ajs, ": e.install && unknown(x) ? dockerOffButton(T('install'))") && str_contains($ajs, "b.title = Office.t('common.docker_off');"));
     hardeningRm($tmp);
 }
 
@@ -53250,13 +53895,13 @@ function testUsoNetJoin(): void
 }
 
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestorePaths', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
-          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerOffSaid', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestorePaths', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
+          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.

@@ -6,8 +6,14 @@
   "bubble.no_scan": "Mamma mia, je n'ai même pas encore fait le tour ! Une tournée ne prend que quelques secondes.",
   "bubble.no_data": "Je n'arrive pas à joindre le serveur et je n'ai encore rien à montrer.",
   "bubble.count": {
-    "one": "Je garde un œil sur {n} snapshot, il occupe {size}. Tutto a posto.",
-    "other": "Je garde un œil sur {n} snapshots, ils occupent {size}. Tutto a posto."
+    "one": "Je garde un œil sur {n} snapshot, il occupe {size}.",
+    "other": "Je garde un œil sur {n} snapshots, ils occupent {size}."
+  },
+  "bubble.all_well": "Tutto a posto.",
+  "bubble.runner_off": "Mes planifications ne tournent pas : le fichier cron du secrétariat n'a pas de ligne pour elles.",
+  "bubble.plans_trouble": {
+    "one": "La dernière exécution de ma planification {names} n'a pas abouti — sa ligne dit pourquoi.",
+    "other": "Les dernières exécutions de {n} de mes planifications n'ont pas abouti ({names}) — leurs lignes disent pourquoi."
   },
   "bubble.backup": "Le moteur de sauvegarde tourne depuis {since} ({step}).",
   "bubble.mounted": {

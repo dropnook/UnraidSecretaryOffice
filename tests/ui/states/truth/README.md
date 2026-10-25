@@ -25,5 +25,9 @@ none and the label is the level alone.
     node tools/scenarios/page.mjs --states tests/ui/states/truth cleanup/where --open --want office.protect.partner
     bash tools/ui-clicks.sh --states tests/ui/states/truth --only backup,restore,cleanup
 
+`inv-truth.json` is an invented server truth beside these state files for the scenarios' INV-TRUTH tool: `node
+tools/scenarios/truth.mjs --self-test` must find exactly the lies listed in its `expect` (tools/scenarios/README.md
+«INV-TRUTH»).
+
 tests/backuptiles.js (INV-TRUTH) and testBackupTruthProtection, testRestoreTruthChips, testSetupOwnDatasetApply hold
 the same rules without a browser.

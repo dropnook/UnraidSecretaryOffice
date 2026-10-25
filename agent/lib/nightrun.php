@@ -328,6 +328,27 @@ function nightHost(?array $h = null): array
 }
 
 /**
+ * A scheduled run waiting for the backup's local part, for the pages: jack-moverelli-wait.json beside its lock in RAM (the
+ * shape jackRunGate() writes, why «backup»; jackRunWaiting() believes it only while the lock is held). The lock, or null
+ * when another start holds it (no file written then).
+ *
+ * @return resource|null
+ */
+function nightWaitMark(string $waitDir, int $since)
+{
+    @mkdir($waitDir, 0700, true);
+    $lock = @fopen("$waitDir/jack-moverelli-wait.lock", 'c');
+    if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) {
+        if ($lock) {
+            fclose($lock);
+        }
+        return null;
+    }
+    writeAtomic("$waitDir/jack-moverelli-wait.json", jsonEncode(['pid' => getmypid(), 'since' => $since, 'why' => 'backup']), 0600, 0, 0);
+    return $lock;
+}
+
+/**
  * The pool measured for her rule (null: no limit, no pool measured): Jack Emby's pool while he takes part (woken when $wake);
  * without him — or without a pool of his — the pool of her movable shares (nightHerPool(): never woken)
  */
@@ -342,7 +363,8 @@ function nightLevel(array $g, array $h, bool $wake): ?array
         return nightHerPool($g, $h, $jack);
     }
     return poolLevel($pool, ['x' => (int) $g['move_when_used_above'], 'shares_dir' => $h['shares_dir'], 'names' => moverelliShareNames($h['shares_dir'], $h),
-        'zfs' => $h['zfs'], 'mnt' => $h['mnt'], 'jack_list' => $h['jack_list_file'], 'asleep' => $h['asleep'], 'wake' => $wake, 'measure' => 'night']);
+        'zfs' => $h['zfs'], 'mnt' => $h['mnt'], 'jack_list' => $h['jack_list_file'], 'asleep' => $h['asleep'], 'wake' => $wake, 'measure' => 'night',
+        'ini' => "$h[dir]/smart_mover.ini"]);
 }
 
 /**
@@ -458,7 +480,10 @@ function nightRun(array $args, ?array $h = null): int
                 return $refused('moverelli_backup_running');
             }
             logLine('Night run: a backup runs — waiting until its local part is done');
+            // the wait shows on both pages (jackRunWaiting('moverelli'), why «backup» — truth review M17), in RAM
+            $mark = nightWaitMark((string) $h['waitdir'], (int) ($oh['now'])());
             $w = nightOrderWait($oh, $oh['backup_holds']);
+            jackWaitEnd($mark, (string) $h['waitdir'], 'moverelli');
             if ($w === null) {
                 logLine('Night run: the scheduled run stops waiting for the backup (the array stopped)');
                 return 0;

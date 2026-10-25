@@ -280,6 +280,8 @@ function bubbleText() {
   const tips = postureOpen() ? ' ' + T('bubble.posture', { n: postureOpen() }) : '';
   if (n) return T('bubble.open', { n }) + tips;
   if (state.round && (state.round.failed || state.round.broken)) return T('bubble.failed') + tips;
+  // the syslog stopped growing: no logins seen is no «all quiet» (T30)
+  if (state.round && state.round.syslog_full) return T('bubble.syslog_full', { when: fmt.relative(state.round.last) }) + tips;
   return T('bubble.quiet', { when: fmt.relative(state.round && state.round.last) }) + tips;
 }
 
@@ -394,8 +396,10 @@ function postureTile(a) {
   const tips = (p && p.tips) || [];
   const known = tips.filter((x) => x.known).length;
   const open = tips.length - known;
+  // red only for his advice not known yet — a «good to know» tip is no alarm (W6; an older state: every open tip)
+  const advice = tips.some((x) => x.level) ? tips.filter((x) => x.level === 'advice' && !x.known).length : open;
   const louder = louderCount();      // serious incidents lately: part of how it stands
-  return Office.stat({ label: T('tile.posture'), alert: !!open || !!louder,
+  return Office.stat({ label: T('tile.posture'), alert: !!advice || !!louder,
     value: !p ? '–' : open ? T('tile.posture_tips', { n: open }) : known ? T('tile.posture_all_known') : T('tile.posture_none'),
     sub: [known ? T('tile.posture_known', { n: known }) : '', louder ? T('tile.posture_incidents', { n: louder }) : ''].filter(Boolean).join(' · '), ...a });
 }
@@ -521,6 +525,13 @@ function roundHead() {
   if (!state.on_watch) notes.appendChild(el('p', 'callout', T('round.first')));
   if (r.failed) notes.appendChild(el('p', 'callout warn', T('round.failed')));
   else if (r.broken) notes.appendChild(el('p', 'callout warn', T(r.broken.why === 'stopped' ? 'round.stopped' : 'round.failed')));
+  if (r.syslog_full) {
+    const full = el('p', 'callout warn', T('round.syslog_full', { free: fmt.size(r.syslog_full.free || 0), total: fmt.size(r.syslog_full.total || 0) }) + ' ');
+    const a = el('a', '', T('round.syslog_full_link'));
+    a.href = '#/logs';
+    full.appendChild(a);
+    notes.appendChild(full);
+  }
   if (r.skipped) notes.appendChild(el('p', 'role', T('round.skipped', { size: fmt.size(r.skipped) })));
   if (state.on_watch && r.docker === false) notes.appendChild(el('p', 'role', T('round.no_docker')));
   if (state.on_watch && r.shares === false) notes.appendChild(el('p', 'role', T('round.no_shares')));
@@ -1991,7 +2002,8 @@ function netGroup(n) {
   (n.lan || []).forEach((x) => rows.push(item(x.name || x.mac, [T('watch.net_lan_row', { c: T('count.connections', { n: Number(x.connects) || 0 }), d: T('count.detections', { n: Number(x.detections) || 0 }) })])));
   if (state.net_lan && !(n.lan || []).length) rows.push(note(T('watch.net_lan_none')));
   const det = n.detections || {};
-  const sum = senders.length ? T('watch.net_sum', { senders: senders.length, devices: n.devices, det: (det.in || 0) + (det.out || 0) })
+  // the head says the state while the files aren't read (asleep …), never the last counts as now (W9)
+  const sum = senders.length && !stateText[n.state] ? T('watch.net_sum', { senders: senders.length, devices: n.devices, det: (det.in || 0) + (det.out || 0) })
     : T(stateText[n.state] || 'watch.net_listening', { folder: (n.cfg && n.cfg.folder) || '' });
   return group('net', T('watch.net'), sum, rows);
 }

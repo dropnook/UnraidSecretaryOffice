@@ -1,0 +1,60 @@
+{
+ "time": 1791671988,
+ "running": true,
+ "real": true,
+ "stopping": null,
+ "night": null,
+ "jack": null,
+ "progress": {
+  "mode": "run",
+  "result": "running",
+  "errors": 0,
+  "warnings": 0,
+  "started": 1791671088,
+  "time": 1791671988,
+  "plan": [
+   "downloads",
+   "media"
+  ],
+  "phase": "share",
+  "share": "media",
+  "file": "/mnt/cache/media/Familienserien/Staffel 2/Folge 03.mkv",
+  "share_files": 3,
+  "share_bytes": 9663676416,
+  "share_done_files": 3,
+  "share_done_bytes": 11811160064,
+  "done_files": 5,
+  "done_bytes": 15032385536,
+  "files": 9,
+  "bytes": 21474836480,
+  "pool": "cache",
+  "until": "70",
+  "pool_used": "78",
+  "pool_now": "74",
+  "fill": true,
+  "reached": false,
+  "shares": [
+   {
+    "share": "downloads",
+    "mode": "yes",
+    "state": "moved",
+    "files": 2,
+    "bytes": 3221225472,
+    "moved": 2,
+    "left": 0
+   },
+   {
+    "share": "media",
+    "mode": "yes",
+    "state": "moved",
+    "files": 3,
+    "bytes": 9663676416,
+    "moved": 3,
+    "left": 0
+   }
+  ],
+  "recent": [],
+  "file_bytes": 800000000,
+  "file_size": 2100000000
+ }
+}

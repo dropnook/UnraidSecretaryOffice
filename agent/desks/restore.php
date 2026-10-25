@@ -987,6 +987,17 @@ function rsPackages(string $base): array
     return $out;
 }
 
+/**
+ * How the flash is kept (the engine's [flash] mode): tar — an archive in the backup place (state `flash`: its path, time,
+ * size), protected as the place is; snapshot — the boot pool's own snapshots (Kopia source «flash»); off. The protection
+ * as every desk says it: what is really there, with its note (backupProtectionInfo(): the place's partners, Kopia's copy).
+ */
+function rsFlashBackup(array $engine): array
+{
+    $info = backupProtectionInfo('/boot/config');
+    return ['mode' => $engine['flash'], 'protection' => $info['level'], 'protection_note' => backupProtectionNote($info)];
+}
+
 function rsRunTime(string $run): ?int
 {
     return preg_match('/^\d{8}-\d{4}$/', $run) ? ((DateTime::createFromFormat('Ymd-Hi', $run)?->getTimestamp()) ?: null) : null;
@@ -1327,6 +1338,7 @@ function rsScan(): array
         'partners' => rspState(),              // what partner offices keep of mine (held.json, asked by his look job)
         'kept'     => rspKept(),               // what this office keeps of partners (received/<id>.json, the datasets here) — «Start here…»
         'compose_here' => rspComposeHere(),    // 1.60.1: «Create the stack now» on a restore whose stack waited for the Compose Manager
+        'flash_backup' => rsFlashBackup($engine),  // how the flash is kept (2026-10-25: its tile, a user couldn't find the archive)
     ];
     if ($place['asleep']) {
         // the backup place's disk sleeps: what was read before

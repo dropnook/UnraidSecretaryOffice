@@ -201,7 +201,8 @@ function officeDashRestoring(?array $job, ?int $now = null): bool
 
 /**
  * Mr. Restori's drill on the tile (its certificate, data/restore-drill.json, only — no row before the first drill):
- * passed (green), failed (orange), overdue — no passed drill for 60 days (plain)
+ * passed (green), failed (orange), nothing proven (plain: every item not checked or asleep), overdue — no passed drill
+ * for 60 days (plain)
  *
  * @return array{0:string, 1:string, 2:int}|null  key of its text, tone, the time to show
  */
@@ -214,6 +215,10 @@ function officeDashDrill(?array $cert, ?int $now = null): ?array
     $passed = (int) ($cert['last_passed'] ?? 0);
     if ($last['result'] === 'failed') {
         return ['restore.dash_drill_failed', 'orange', (int) ($last['ended'] ?? 0)];
+    }
+    // nothing failed, but nothing proven either (every item «not checked» or asleep): no «drill ✓» (truth review T18)
+    if (isset($last['proven']) && (int) $last['proven'] + (int) ($last['warnings'] ?? 0) === 0) {
+        return ['restore.dash_drill_unproven', 'plain', (int) ($last['ended'] ?? 0)];
     }
     return ($now ?? time()) - $passed > 60 * 86400 ? ['restore.dash_drill_overdue', 'plain', $passed] : ['restore.dash_drill_passed', 'green', $passed];
 }

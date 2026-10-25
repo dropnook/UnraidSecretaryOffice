@@ -148,7 +148,7 @@
   "cats.read_title": "Ogni riga letta, secondo le regole che mi hanno dato — decide la prima regola che corrisponde. «Irrilevante» non conta né come errore né come avviso; «Nessuna regola»: non ne corrisponde nessuna.",
   "syslog.title": "Syslog",
   "syslog.sub": "Ogni riga del syslog di Unraid dal mio giro precedente ({when}), ordinata secondo le regole che mi hanno dato; per tipo le più recenti prima — quelle simili come una voce.",
-  "syslog.sub_first": "Ogni riga del syslog di Unraid nelle ultime 24 ore (il mio primo giro), ordinata secondo le regole che mi hanno dato; le più recenti prima — quelle simili come una voce.",
+  "syslog.sub_first": "Le righe del syslog di Unraid nelle ultime 24 ore (il mio primo giro: al massimo i suoi 4 MB più recenti, non la sua copia più vecchia), ordinate secondo le regole che mi hanno dato; le più recenti prima — quelle simili come una voce.",
   "syslog.none": "Nel syslog niente che le mie regole mettano sotto un tipo. Se sia un bene, non lo so.",
   "syslog.filter_label": "Filtra le righe del syslog",
   "tile.syslog_none": "il prossimo giro lo ordina",
@@ -158,7 +158,7 @@
   "credit": "Le regole con cui ordino le righe del syslog vengono dal loro Enhanced Log. Sotto la GPL (versione 2 o successiva).",
   "found.none_fit": "Nessuna riga corrisponde al filtro.",
   "found.sub": "Righe che suonano come errore o avviso dal mio giro precedente ({when}); quelle simili come una voce, le più frequenti prima.",
-  "found.sub_first": "Righe che suonano come errore o avviso nelle ultime 24 ore (il mio primo giro); quelle simili come una voce, le più frequenti prima.",
+  "found.sub_first": "Righe che suonano come errore o avviso nelle ultime 24 ore (il mio primo giro: di ogni log al massimo i 4 MB più recenti); quelle simili come una voce, le più frequenti prima.",
   "found.none": "Niente che suonasse come errore o avviso. Tranquillo — se sia un bene, non lo so.",
   "found.quiet": {
     "one": "In 1 altro log niente del genere.",
@@ -172,6 +172,9 @@
   "partial": "solo la parte più recente",
   "partial_file": "Dal mio ultimo giro è arrivato più di quanto leggo in un giro — {size} saltati, ho contato la parte più recente.",
   "partial_docker": "Al massimo {n} righe per container a ogni giro — ho contato le più recenti.",
+  "stopped_title": "Non è attivo — ho letto ciò che ha scritto dal mio ultimo giro, anche le ultime righe prima che si fermasse.",
+  "found.no_containers": "I log dei container non li ho letti — Docker non ha risposto.",
+  "partial_span": "Un log che non conoscevo ancora lo leggo solo dalla parte più recente (al massimo 4 MB) — righe più vecchie di quel periodo, tagliate o già nella sua copia più vecchia, non le ho contate.",
   "rotated": "ricominciato",
   "rotated_title": "Questo log è ricominciato dal mio ultimo giro — il resto del vecchio l'ho letto dove l'ho trovato.",
   "more_kinds": {

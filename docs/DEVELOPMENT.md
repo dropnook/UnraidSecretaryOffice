@@ -713,7 +713,14 @@ the restore folder first (`kopia show <root>/<path>` to browse, one directory pe
 list`, `show`, `snapshot restore` — never `maintenance` or a policy), then beside or swapped like step 4; what lies in the
 office's share is only staged; a package Kopia brought back is an earlier version (`kopia:<journal>`). **The drill:** throwaway containers only via `drillContainerArgs()` + `drillArgsSafe()`
   (`--network none`, no ports/binds/caps; too big = «not checked», never failed); refused during a parity check; a failed drill
-  = one warning. Partner look from his tick, never a page request. Its share step (`sharefile`) brings one small file from the
+  = one warning. Partner look from his tick, never a page request. **The flash archive's «Download…»** (`restore.flash_download`,
+  2026-10-25) is the one exception to «the web side never touches the host»: read-only, one file — `src/api.php`
+  `apiFlashFile()` hands out only the path his state names when it is exactly `<backup place>/flash/flash.tar.gz` of the
+  engine's settings, a regular file, no link on the way, resolved inside the place; a POST like every request, streamed as
+  it is (no gzip, no copy), never through the mailbox; the dialog says first that it holds the licence key and the password
+  hashes. Single files of the flash are never restored — download and copy by hand (`testFlashDownload`). «Kept for
+  <partner>» names the apps and VMs inside each copy: read by his look job once per moment (`rspKeptPeek()`), never in a
+  tick, never on a pool asleep. Its share step (`sharefile`) brings one small file from the
   newest backup snapshot into a fresh `<share>/.uso-drill-<id>` on an awake pool or disk, compares it, and puts that folder into
   Ms. Dustdevil's storeroom of the share through her helpers (`drillScratchAway()`; she finds it by `drillTrashRoots()`), with
   the verified copy's name, size and sha256 (journal `made[].files`, manifest `drill`) — so it empties itself after 7 days.

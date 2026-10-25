@@ -135,12 +135,16 @@ function jackPanel(nn) {
  * (runEstimate(): files × time per file + bytes ÷ bandwidth; a range while unsure) and the end once the share in flight
  * is the run's last and the time left sure
  */
-function runCardData(p, now) {
+function runCardData(p, now, nn = null) {
   const plan = Array.isArray(p.plan) ? p.plan : [];
   const done = new Set((p.shares || []).map((x) => x.share));
-  const phase = p.phase || 'look';
+  // her fill (oldest first across the pool) comes after every share's own step: the share in flight is one whose step is
+  // done already — Smart Mover's share_* counts are the last share's then, never this one's (truth review T31)
+  const filling = isFilling(p);
+  const phase = filling ? 'fill' : p.phase || 'look';
   const steps = [{ name: T('rc.look'), state: phase === 'look' ? 'running' : 'done' }];
-  plan.forEach((sh) => steps.push({ name: sh, state: phase === 'share' && p.share === sh ? 'running' : done.has(sh) || phase === 'tidy' ? 'done' : 'pending' }));
+  plan.forEach((sh) => steps.push({ name: sh, state: phase === 'share' && p.share === sh ? 'running' : done.has(sh) || phase === 'tidy' || filling ? 'done' : 'pending' }));
+  if (filling) steps.push({ name: T('rc.fill_step'), state: 'running' });
   steps.push({ name: T('rc.tidy'), state: phase === 'tidy' ? 'running' : 'pending' });
   const at = steps.findIndex((st) => st.state === 'running');
   const files = Number(p.share_files) || 0;
@@ -164,10 +168,12 @@ function runCardData(p, now) {
   const end = left !== null && !range && plan[plan.length - 1] === p.share ? now + left : null;
   // the file's own live rate (its .partial growing): said beside it
   const fileRate = fileBytes > 0 && p.file ? Office.runRate(`moverelli|${p.started}|${p.file}`, fileBytes, now) : null;
-  return { steps, at, percent, byTime: byTime !== null, filesPct, bytesPct, left, range, end, rate: est ? est.rate : null, estimating: !!est && est.left === null, fileRate, waking: !!p.waking && !fileBytes, fileBytes,
+  return { steps, at, percent, byTime: byTime !== null, filesPct, bytesPct, left, range, end, rate: est ? est.rate : null, estimating: !!est && est.left === null, fileRate, waking: !!p.waking && !fileBytes, wakingMaybe: !p.waking && !!p.waking_maybe && !fileBytes, fileBytes,
     fileSize: p.file_size == null ? null : Number(p.file_size), share: p.share || '', file: p.file || '', files, bytes, dFiles, dBytes, started: p.started || null,
-    fill: phase === 'share' ? fillLine(p) : null };
+    fill: phase === 'share' || filling ? fillLine(p, nn) : null, filling };
 }
+/** Her fill at work (truth review T31), pure: a real run's share in flight whose own step is among the done ones */
+const isFilling = (p) => !!(p && p.phase === 'share' && p.share && (p.shares || []).some((x) => x && x.share === p.share));
 
 // ---- the share's time left (the owner, 2026-10-18: «noch etwa 1 T 3 Std» after 27 min of 53 GB, then «6 days» for a run of
 // under 2 h — 8 667 of 72 880 small Nextcloud files done in 535 s, but only 319 MB of 359 GB). Unraid's move costs a fixed
@@ -322,12 +328,23 @@ function endText(end, now) {
  * The fill of a share in words, pure: «Pool master 82 % → target below 70 %» (now: «… · now 75 %»), reached: «Target
  * reached at 69 % — the rest stays»; null while the share has no fill or it didn't start (the pool below its trigger)
  */
-function fillLine(x) {
+function fillLine(x, nn = null) {
   if (!x || !x.fill || x.pool_used === '' || x.pool_used == null || !x.until) return null;
   if (x.reached) return T('rc.fill_reached', { pct: x.pool_now });
-  let t = T('rc.fill', { pool: x.pool, used: x.pool_used, until: x.until });
+  // in the joint run on Jack Streamer's pool her fill goes until the pool leaves room for his fetch (the night's plan:
+  // at most X − his fetch in bytes), not to «below X» (truth review M13)
+  const room = fillRoom(nn, x.pool);
+  let t = room !== null ? T('rc.fill_room', { pool: x.pool, used: x.pool_used, room: fmt.size(room) }) : T('rc.fill', { pool: x.pool, used: x.pool_used, until: x.until });
   if (x.pool_now !== '' && x.pool_now != null && String(x.pool_now) !== String(x.pool_used)) t += ' · ' + T('rc.fill_now', { pct: x.pool_now });
   return t;
+}
+
+/** The joint run's room for Jack Streamer on pool $pool, pure: the bytes her fill brings the pool down to (its plan's
+ *  `until`, the latest phase's), null when there is none (her run alone, another pool, no limit) */
+function fillRoom(nn, pool) {
+  const ph = nn && nn.jack && nn.pool === pool && nn.picture && nn.picture.phases ? nn.picture.phases : null;
+  const planned = ph ? ((ph.recheck || ph.free || {}).planned || {}) : {};
+  return Number(planned.until) > 0 ? Number(planned.until) : null;
 }
 
 /** The night run's phases as the card's steps, pure — core.js Office.nightSteps() (Jack Emby's page shows the same) */
@@ -386,7 +403,7 @@ function runCard(p, now) {
     const measuring = !!(nn && !nn.who && ['check', 'recheck'].includes(nn.phase));
     if (!nn || nn.who !== 'jack') card.appendChild(el('p', 'role', measuring ? T('rc.measuring', { pool: nightPool(nn) }) : T('rc.waiting')));
   } else {
-    const d = runCardData(p, now);
+    const d = runCardData(p, now, nn);
     if (d.started && !nn) top.appendChild(el('span', 'status quiet', T('rc.since', { time: fmt.time(d.started), duration: fmt.duration(now - d.started) })));
     card.appendChild(Office.runSteps(d.steps, d.at, `moverelli|${p.started}`));
     if (d.percent !== null) {
@@ -403,7 +420,7 @@ function runCard(p, now) {
       const sh = ((state && state.shares) || []).find((x) => x.share === d.share) || {};
       card.appendChild(el('div', 'card-line mo-run-file', onWayText({ name: d.file, done: d.fileBytes, size: d.fileSize, from: sh.from || nightPool(nn), to: sh.to || 'array' })
         + (d.fileRate >= 1 ? ' · ' + T('rc.rate', { rate: fmt.size(d.fileRate) }) : '')));
-      if (d.waking) card.appendChild(el('div', 'card-line', T('rc.waking')));
+      if (d.waking || d.wakingMaybe) card.appendChild(el('div', 'card-line', T(d.waking ? 'rc.waking' : 'rc.waking_maybe')));
     }
     // in the joint run her share's end is not the run's (measure again, Jack Streamer's fetch follow): said as her part (T33)
     if (d.end) card.appendChild(el('div', 'card-line', nn ? T('rc.end_her', { end: endText(d.end, now) }) : endText(d.end, now)));
@@ -672,7 +689,8 @@ function nightPicture(n) {
     side.innerHTML = '';
     legend.innerHTML = '';
     if (!data.measured) {
-      rowsBox.appendChild(el('p', 'mo-pic-none', T('pic.pool_unmeasured')));
+      // no limit X: the run never measures the pool (only the age rule moves) — never «not measured» as if it failed (M12)
+      rowsBox.appendChild(el('p', 'mo-pic-none', T(noLimit() && !(Number(pic && pic.x) > 0) ? 'pic.no_limit' : 'pic.pool_unmeasured')));
     } else {
       // a btrfs/xfs pool: its numbers estimated (statfs, the folders' du) — said beside «Before»
       rowsBox.appendChild(barRow(T('pic.before'), data.before, pic && pic.estimated === true ? T('pic.estimated') : ''));
@@ -766,9 +784,11 @@ function nightPicture(n) {
   /** A file of hers to or from one of the run's other places (their bars are drawn): it flies between its own ends */
   const toExtra = (f) => f.who !== 'jack' && extras.some((x) => x.place === f.from || x.place === f.to);
   const flies = (f) => !elsewhere(f) || toExtra(f);
-  /** Where a file was and went in words: Jack Emby's between the pool and the array, hers between the pool and her target */
+  /** Where a file was and went in words: Jack Emby's between the pool and the array, hers as her status names them */
   function ends(f) {
-    if (elsewhere(f)) return [place(f.from), place(f.to)];
+    // hers: the ends her status names (a share into the array beside another one into a second pool — never the run's one
+    // place for all, truth review M15)
+    if (elsewhere(f) || (f.who !== 'jack' && typeof f.from === 'string' && typeof f.to === 'string' && f.from !== '' && f.to !== '')) return [place(f.from), place(f.to)];
     const pool = T('pic.pool_name', { pool: pic.pool || '' });
     const to = f.who === 'jack' || !data || !data.dest || data.dest.to === 'array' ? T('pic.array') : T('pic.pool_name', { pool: data.dest.to });
     return fileOnto(f, pic.pool) ? [to, pool] : [pool, to];
@@ -1037,6 +1057,19 @@ const foreign = () => (state && state.foreign) || { tuning: { installed: false, 
 /** Another mover on a schedule of its own besides Unraid's: Mover Tuning's, or any other (moverelliMovers()) */
 const otherMovers = () => foreign().tuning.active || (foreign().movers || []).length > 0;
 const othersOff = () => mover().off && !otherMovers();
+/** She is set up without a limit X (move_when_used_above 0): only her age rule moves, no pool is measured for a run */
+const noLimit = () => !!(state && state.configured) && !(Number(((state.settings || {}).global || {}).move_when_used_above) > 0);
+/**
+ * What still holds her real runs back besides another mover (othersOff()), pure: Jack Streamer's list not yet written
+ * (`pending`) or not among the files she leaves alone (`jack_list`) — moverelliRunCheck() refuses then; null: nothing
+ * (truth review T35: never «real runs go» / «All in order» while it refuses)
+ */
+function realWait() {
+  const j = jack();
+  if ((j.uncovered || []).length) return 'jack_list';
+  if (j.pending) return 'pending';
+  return null;
+}
 /** The night run (agent/lib/nightrun.php): with Jack Emby, tonight's plan, the last night or the one going */
 const night = () => (state && state.night) || { jack: false, plan: null, last: null };
 /** A real night run going (her tool or Jack Emby's at work in it) */
@@ -1110,6 +1143,7 @@ function bubbleText() {
   if (!state.configured) return `${intro} ${T('bubble.setup')}`;
   if (running() || nightGoing()) return runningText();
   if (!othersOff()) return T('bubble.dry');
+  if (realWait()) return T('bubble.wait_' + realWait());
   if (!state.schedule.enabled) return T('bubble.no_schedule');
   return T('bubble.ready');
 }
@@ -1125,7 +1159,8 @@ function runningText() {
   const sh = realRun() && progress && progress.share ? ((state && state.shares) || []).find((x) => x.share === progress.share) : null;
   if (!sh || !sh.to) return T('bubble.running');
   const age = Number(sh.min_age) || 0;
-  const what = age > 0 ? T('bubble.what_old', { n: age }) : Number(sh.threshold) > 0 ? T('bubble.what_oldest')
+  // her fill (after every share's own step): the oldest files across the pool, whatever the share's age rule (T31)
+  const what = isFilling(progress) ? T('bubble.what_oldest') : age > 0 ? T('bubble.what_old', { n: age }) : Number(sh.threshold) > 0 ? T('bubble.what_oldest')
     : T(Number(sh.excludes) > 0 ? 'bubble.what_all_but' : 'bubble.what_all');
   const way = sh.to === 'array' ? 'to_array' : sh.use === 'prefer' ? (sh.from === 'array' ? 'back_from_array' : 'back_from_pool') : 'to_pool';
   return T('bubble.run_' + way, { what, share: sh.share, from: sh.from || '', to: sh.to });
@@ -1171,7 +1206,8 @@ function moverNotice() {
     bar.append(b, a);
     box.appendChild(bar);
   } else {
-    box.appendChild(el('p', 'role', T('mover.ok')));
+    // off — but «real runs go» only when nothing else holds them (T35: Jack Streamer's list; other movers have their notices)
+    box.appendChild(el('p', 'role', T(otherMovers() || realWait() ? 'mover.ok_wait' : 'mover.ok')));
   }
   if (m.running) box.appendChild(el('p', 'role', T('mover.running')));
   return box;
@@ -1323,6 +1359,13 @@ function hints() {
     out.push(moverNotice());
     out.push(...foreignNotices());
   }
+  // a scheduled run of hers (the joint run too) waiting — for the backup's local part or Unraid's mover (M17; an older
+  // agent: no such key)
+  const w = state.waiting;
+  if (w && !running() && !nightGoing()) {
+    out.push(el('p', 'callout', w.why === 'backup' ? T('wait.backup', { since: fmt.time(w.since) })
+      : T('wait.mover', { since: fmt.time(w.since), next: fmt.time(w.next), until: fmt.time(w.until) })));
+  }
   const j = jack();
   if (j.busy && !running() && !nightGoing()) out.push(el('p', 'callout', T('notice.jack_busy')));
   // EmbyCache's list in her rules before EmbyCache's first run: her real runs wait for it (said here, never notified)
@@ -1387,6 +1430,8 @@ function scheduleTile(a) {
  * him (not taking part: jack false) her part only
  */
 function tonightText(p, jack = true) {
+  // no limit X: the run measures no pool — only her age rule moves (never «the pool isn't measured», truth review M12)
+  if ((!p || !p.measured) && noLimit()) return T(jack ? 'night.no_limit' : 'night.no_limit_mine');
   if (!p || !p.measured) return T(jack ? 'night.unmeasured' : 'night.unmeasured_mine');
   if (!jack) return T('night.tonight', { what: Number(p.goes) > 0 ? T('night.goes', { size: fmt.size(p.goes) }) : T('night.goes_none') });
   // what Jack Emby gives back is what was watched — known only once he looked (a dry run's number when there is one)
@@ -1815,9 +1860,13 @@ async function chooseRun() {
   const off = mover().off;
   const tuning = otherMovers();
   const covered = !(jack().uncovered || []).length;
+  const pending = !!jack().pending;
+  // with Jack Streamer in it, either run is the joint run — said as such, never only her part (truth review T38)
+  const joint = !!night().jack;
   const box = radioList('mo-mode', [
-    ['dry', T('mode.dry'), T('mode_hint.dry')],
-    ['run', T('mode.run'), !off ? T('mode_hint.run_mover') : tuning ? T('mode_hint.run_tuning') : !covered ? T('mode_hint.run_jack') : T('mode_hint.run'), !off || tuning || !covered],
+    ['dry', T('mode.dry'), T(joint ? 'mode_hint.dry_joint' : 'mode_hint.dry')],
+    ['run', T('mode.run'), !off ? T('mode_hint.run_mover') : tuning ? T('mode_hint.run_tuning') : !covered ? T('mode_hint.run_jack') : pending ? T('mode_hint.run_pending')
+      : T(joint ? 'mode_hint.run_joint' : 'mode_hint.run'), !off || tuning || !covered || pending],
   ], mode, (m) => { mode = m; });
   const err = errorLine();
   box.appendChild(err);
@@ -2918,7 +2967,7 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, leftText, onWayText, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
-    importPreview, importDone, importFileText, leftCount, runLeft, futureCount, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, percentText, runningText, greeting, greetOk, idleText, runEstimate, estModel, endText, shareGroups, shareRuleLines, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, saveFootEl, setupProblems, ownRulesText, idleRules, fillSetupShares, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, picFlight, fileOnto, movedByPlace, movedAt, extraPlaces, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, jackFailedText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, setJackLive: (x) => { jackLive = x; }, jackPanel, jackAtWork, redrawCard, schedText, scheduleSection, historySection, footer, hints,
+    importPreview, importDone, importFileText, leftCount, runLeft, futureCount, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, isFilling, fillRoom, realWait, noLimit, chooseRun, percentText, runningText, greeting, greetOk, idleText, runEstimate, estModel, endText, shareGroups, shareRuleLines, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, saveFootEl, setupProblems, ownRulesText, idleRules, fillSetupShares, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, picFlight, fileOnto, movedByPlace, movedAt, extraPlaces, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, jackFailedText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, setJackLive: (x) => { jackLive = x; }, jackPanel, jackAtWork, redrawCard, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
     setForm: (f) => { form = f; }, initForm, levelMath, levelSection, levelLines, levelNight, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }

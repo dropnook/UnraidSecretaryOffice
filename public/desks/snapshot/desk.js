@@ -204,6 +204,12 @@ function bubbleText() {
   for (const p of state.zfs?.pools || []) space += p.snapused || 0;
   for (const s of state.btrfs?.snapshots || []) space += s.used || 0;
   parts.push(T('bubble.count', { n: real.length, size: fmt.size(space) }));
+  // «Tutto a posto» only when it is: a schedule whose last run failed or went only partly, or schedules without their
+  // cron line, are said instead
+  const trouble = (state.plans?.plans || []).filter((p) => p.enabled && (p.result === 'failed' || p.result === 'partly'));
+  if (runnerOff()) parts.push(T('bubble.runner_off'));
+  if (trouble.length) parts.push(T('bubble.plans_trouble', { n: trouble.length, names: trouble.map((p) => p.label).join(', ') }));
+  if (!runnerOff() && !trouble.length) parts[parts.length - 1] += ' ' + T('bubble.all_well');
   const mounted = real.filter((s) => fixedMounts(s).length).length;
   if (backupRunning()) {
     parts.push(T('bubble.backup', { since: fmt.time(state.backup.since), step: state.backup.step || '…' }));
@@ -707,15 +713,20 @@ function vmCard(part, a) {
   return card;
 }
 
+/** Enabled schedules without their runner (the cron line): nothing of them runs, so no «next run» */
+function runnerOff() {
+  const r = state?.plans?.runner || {};
+  return (state?.plans?.plans || []).some((p) => p.enabled) && !(r.script && r.enabled);
+}
+
 /** «Schedules»: how many run, the next one — or none, with her suggestion in the section; its section: «Schedules» */
 function plansCard(a) {
   const plans = state?.plans?.plans || [];
   const on = plans.filter((p) => p.enabled);
-  const nexts = on.map((p) => p.next).filter((n) => typeof n === 'number' && n > 0);
+  const off = runnerOff();
+  const nexts = off ? [] : on.map((p) => p.next).filter((n) => typeof n === 'number' && n > 0);
   const value = !plans.length ? T('plans_tile.none') : !on.length ? T('plans_tile.paused', { n: plans.length })
     : nexts.length ? T('plans_tile.active', { n: on.length, when: nextText(Math.min(...nexts)) }) : T('plans_tile.on', { n: on.length });
-  const r = state?.plans?.runner || {};
-  const off = on.length > 0 && !(r.script && r.enabled);
   return Office.tile({ name: T('plans'), icon: '⏱', lines: [value], chip: off ? el('span', 'chip warn', T('plans_tile.runner_off')) : null,
     cls: plans.length ? '' : 'empty-card', ...a });
 }
@@ -1545,8 +1556,7 @@ function renderPlans() {
   const list = el('div', 'box');
   plans.forEach((p) => list.appendChild(planRow(p)));
   box.appendChild(list);
-  const r = info.runner || {};
-  if (plans.some((p) => p.enabled) && !(r.script && r.enabled)) box.appendChild(el('p', 'callout warn', T('plan.runner_off')));
+  if (runnerOff()) box.appendChild(el('p', 'callout warn', T('plan.runner_off')));
 }
 
 function planRow(p) {
@@ -1566,7 +1576,7 @@ function planRow(p) {
   }
   main.appendChild(meta);
   const when = el('div', 'row-meta');
-  if (p.enabled && p.next) when.appendChild(el('span', '', T('plan.next', { when: fmt.relative(p.next) })));
+  if (p.enabled && p.next && !runnerOff()) when.appendChild(el('span', '', T('plan.next', { when: fmt.relative(p.next) })));
   if (p.result) {
     const chip = el('span', 'chip ' + ({ ok: 'ok', skipped: 'quiet', gone: 'quiet', partly: 'warn', failed: 'danger' }[p.result] || ''), T('plan.result.' + p.result));
     const lines = [T('plan.last', { when: fmt.date(p.last_run) }), T('plan.made', { created: p.created, deleted: p.deleted })];
@@ -2136,7 +2146,7 @@ Office.placesFrom(ID, (s) => {
 });
 
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.snapshot = { setState, poolSplit, splitLines, source, sw, build, render, hiddenCounts, filtered, listed, snapsCard, plansCard,
+  globalThis.OFFICE_DESK_TESTS.snapshot = { setState, poolSplit, splitLines, source, sw, build, render, hiddenCounts, filtered, listed, snapsCard, plansCard, bubbleText, planRow,
     setView: (v) => { view = v; }, view: () => view, pickPending, poolFilter, diskCards };
 }
 })();

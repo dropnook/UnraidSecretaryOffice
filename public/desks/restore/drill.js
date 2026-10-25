@@ -75,8 +75,8 @@ async function poll() {
     x.redraw();
     timer = setTimeout(poll, Office.pollDelay(POLL, pollFails));
   } else if (was) {
-    Office.toast(T('drill.done.' + (job.result === 'passed' ? 'passed' : job.result === 'failed' ? 'failed' : 'other'), { result: T('drill.result.' + job.result) }),
-      job.result !== 'passed');
+    const r = shownResult(job.result, stepsProved(job.steps));
+    Office.toast(T('drill.done.' + (['passed', 'failed', 'unproven'].includes(r) ? r : 'other'), { result: T('drill.result.' + r) }), r !== 'passed');
     opened.delete(job.id);
     await refresh();
   }
@@ -102,7 +102,18 @@ function codeText(code, params) {
 }
 
 const resultCls = (r) => ({ ok: 'ok', warning: 'warn', failed: 'danger', not_checked: 'quiet', asleep: 'quiet', skipped: 'quiet', running: 'accent', pending: 'quiet',
-  passed: 'ok', aborted: 'warn', refused: 'warn', interrupted: 'danger', queued: 'quiet' }[r] || '');
+  passed: 'ok', unproven: 'warn', aborted: 'warn', refused: 'warn', interrupted: 'danger', queued: 'quiet' }[r] || '');
+
+/**
+ * A drill that ran to its end with nothing failed «passed» only when it proved something (truth review T18): every item
+ * «not checked» or asleep (Docker stopped, the disks asleep) is «nothing proven», never «passed». The agent writes
+ * «passed» either way (the certificate's shape stays); its counts say which — an older certificate without counts as before.
+ */
+const shownResult = (r, proved) => (r === 'passed' && proved === false ? 'unproven' : r);
+/** cert.last / a history row's counts: proved something? null when the counts aren't there */
+const lastProved = (l) => (l && typeof l.proven === 'number' ? l.proven + (l.warnings || 0) > 0 : null);
+const countsProved = (c) => (c && typeof c.ok === 'number' ? c.ok + (c.warning || 0) > 0 : null);
+const stepsProved = (steps) => (Array.isArray(steps) && steps.length ? steps.some((s) => ['ok', 'warning'].includes(s.state)) : null);
 
 function levelChip(it) {
   const copy = COPIES[it.copy] || 'package';
@@ -120,7 +131,16 @@ function tileLine() {
   const freq = freqText();
   if (!cert || !cert.last) return [T('drill.tile_none'), freq || ''];
   const l = cert.last;
-  return [T(l.result === 'passed' ? 'drill.tile_passed' : 'drill.tile_failed', { n: l.proven || 0, failed: l.failed || 0 }), freq || x.fmt.relative(l.ended)];
+  const r = shownResult(l.result, lastProved(l));
+  return [T(r === 'passed' ? 'drill.tile_passed' : r === 'unproven' ? 'drill.tile_unproven' : 'drill.tile_failed',
+    { n: r === 'unproven' ? (l.not_checked || 0) + (l.asleep || 0) : l.proven || 0, failed: l.failed || 0 }), tileWhen(l.ended, freq)];
+}
+
+/** The tile's right side: how often he practises — and, once the last drill is older than 35 days, its age first (R7) */
+const OLD_DRILL = 35 * 86400;
+function tileWhen(ended, freq) {
+  const old = ended && Date.now() / 1000 - ended > OLD_DRILL;
+  return old || !freq ? [x.fmt.relative(ended), freq].filter(Boolean).join(' · ') : freq;
 }
 
 /**
@@ -220,13 +240,15 @@ function headline() {
   if (l.failed) parts.push(T('drill.counts_failed', { n: l.failed }));
   if (l.not_checked) parts.push(T('drill.counts_unchecked', { n: l.not_checked }));
   if (l.asleep) parts.push(T('drill.counts_asleep', { n: l.asleep }));
-  const p = el('p', 'callout' + (l.result === 'failed' ? ' warn' : ''));
-  p.append(x.chip(T('drill.result.' + l.result), resultCls(l.result)), ' ',
+  const r = shownResult(l.result, lastProved(l));
+  const p = el('p', 'callout' + (['failed', 'unproven'].includes(r) ? ' warn' : ''));
+  p.append(x.chip(T('drill.result.' + r), resultCls(r)), ' ',
     T('drill.last', { when: x.date(l.ended), took: x.fmt.duration(Math.max(60, (l.ended || 0) - (l.started || 0))) }), ' ', parts.join(' · '));
+  if (r === 'unproven') p.append(' ', T('drill.unproven_note'));
   box.appendChild(p);
   const facts = [];
   if (l.egress) facts.push(T('drill.egress', { size: x.fmt.size(l.egress) }));
-  if (cert.last_passed && l.result !== 'passed') facts.push(T('drill.last_passed', { when: x.date(cert.last_passed) }));
+  if (cert.last_passed && r !== 'passed') facts.push(T('drill.last_passed', { when: x.date(cert.last_passed) }));
   facts.push(schedText(sched));
   box.appendChild(el('p', 'role', facts.join(' ')));
   return box;
@@ -283,7 +305,8 @@ function rows() {
     [...best.values()].forEach((it) => meta.appendChild(levelChip(it)));
     const l = lose.get(key);
     if (l && (l.local || l.kopia)) {
-      meta.appendChild(el('span', '', T(l.kopia ? 'drill.lose_both' : 'drill.lose_local', { local: l.local ? x.date(l.local) : '–', kopia: l.kopia ? x.date(l.kopia) : '' })));
+      // offsite only through the backup place's share: its package, never its data (T19)
+      meta.appendChild(el('span', '', T(!l.kopia ? 'drill.lose_local' : l.kopia_package ? 'drill.lose_package' : 'drill.lose_both', { local: l.local ? x.date(l.local) : '–', kopia: l.kopia ? x.date(l.kopia) : '' })));
     }
     if (l && l.played) meta.appendChild(el('span', 'role', T('drill.played', { time: x.fmt.duration(Math.max(60, l.played)) })));
     if (l && l.kopia_played) meta.appendChild(el('span', 'role', T('drill.kopia_played', { when: x.date(l.kopia_played) })));
@@ -335,7 +358,7 @@ function history() {
   const box = el('div', 'box');
   list.forEach((d) => {
     const meta = el('div', 'row-meta');
-    const r = job && job.id === d.id ? job.result : d.result;
+    const r = job && job.id === d.id ? shownResult(job.result, stepsProved(job.steps)) : shownResult(d.result, countsProved(d.counts));
     meta.appendChild(x.chip(T('drill.result.' + r), resultCls(r), d.reason ? reasonText(d.reason) : null));
     meta.appendChild(el('span', '', x.date(d.started || d.created)));
     meta.appendChild(el('span', '', T('drill.scope.' + (['monthly', 'weekly', 'now'].includes(d.scope) ? d.scope : 'now'))));
@@ -588,18 +611,26 @@ Office.restoreDrill = {
   },
   section,
   refresh,
-  /** an app's row on his page: «proven …» or «not proven» */
+  /**
+   * an app's row on his page: «proven …» only when its items were (T18) — «not checked in the drill» when none was,
+   * «partly proven …» naming what wasn't when some were, «drill failed» when one failed
+   */
   appChip(kind, id) {
     if (!cert || !cert.items) return null;
     const items = cert.items.filter((it) => it.of === kind && it.id === id);
     if (!items.length) return null;
-    const bad = items.some((it) => it.result === 'failed');
-    return x.chip(bad ? T('drill.chip_failed') : T('drill.chip_proven', { when: x.fmt.relative(cert.last.ended) }), bad ? 'danger' : 'ok', T('drill.chip_hint'));
+    if (items.some((it) => it.result === 'failed')) return x.chip(T('drill.chip_failed'), 'danger', T('drill.chip_hint'));
+    const when = x.fmt.relative(cert.last.ended);
+    const open = items.filter((it) => !['ok', 'warning'].includes(it.result));
+    const what = [...new Set(open.map((it) => T('drill.kind.' + it.kind)))].join(', ');
+    if (open.length === items.length) return x.chip(T('drill.chip_unproven'), 'quiet', T('drill.chip_hint_open', { what }));
+    if (open.length) return x.chip(T('drill.chip_partly', { when }), 'warn', T('drill.chip_hint_open', { what }));
+    return x.chip(T('drill.chip_proven', { when }), 'ok', T('drill.chip_hint'));
   },
   stop() { clearTimeout(timer); timer = null; asked = false; },
 };
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.drill = { nice, codeText, reasonText, setCert: (c) => { cert = c; }, setJob: (j) => { job = j; }, tileLine, poll, job: () => job,
+  globalThis.OFFICE_DESK_TESTS.drill = { tileWhen, shownResult, lastProved, countsProved, stepsProved, appChip: (k, i) => Office.restoreDrill.appChip(k, i), setX: (h) => { x = h; }, nice, codeText, reasonText, setCert: (c) => { cert = c; }, setJob: (j) => { job = j; }, tileLine, poll, job: () => job,
     kopiaGb, parseGb, detailView, schedText, setState: (d) => { dstate = d; }, freqText };
 }
 })();

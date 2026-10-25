@@ -844,7 +844,9 @@ function foundView() {
     const head = el('div', 'lg-subhead');
     head.append(el('span', 'lg-subhead-name', sourceLabel(s)), counts(s.errors, s.warnings));
     if (s.lines) head.appendChild(el('span', 'lg-subhead-meta', T('lines_read', { n: s.lines })));
-    if (s.partial) head.appendChild(chip(T('partial'), 'warn', s.kind === 'docker' ? T('partial_docker', { n: s.lines }) : T('partial_file', { size: fmt.size(s.skipped || 0) })));
+    if (s.stopped) head.appendChild(chip(T('stopped'), 'quiet', T('stopped_title')));
+    if (s.partial) head.appendChild(chip(T('partial'), 'warn', s.kind === 'docker' ? T('partial_docker', { n: s.lines })
+      : s.span_cut ? T('partial_span') : T('partial_file', { size: fmt.size(s.skipped || 0) })));
     if (s.rotated) head.appendChild(chip(T('rotated'), '', T('rotated_title')));
     const grew = grewChip(s.grew);              // how much the log grew since the last tour (files; a router's too)
     if (grew) head.appendChild(grew);
@@ -863,12 +865,15 @@ function foundView() {
     if (quiet.length) {
       const p = el('p', 'role lg-note');
       const names = el('span', 'lg-quiet', T('found.quiet', { n: quiet.length }));
-      names.dataset.tip = quiet.map((s) => (s.grew > 0 && !tour.first ? `${sourceLabel(s)} (${T('grew.more', { size: fmt.size(s.grew) })})` : sourceLabel(s))).join(', ');
+      names.dataset.tip = quiet.map((s) => (s.grew > 0 && !tour.first ? `${sourceLabel(s)} (${T('grew.more', { size: fmt.size(s.grew) })})`
+        : s.stopped ? `${sourceLabel(s)} (${T('stopped')})` : sourceLabel(s))).join(', ');
       p.appendChild(names);
       box.appendChild(p);
     }
     const unreadable = (tour.sources || []).filter((s) => s.unreadable);
     if (unreadable.length) box.appendChild(el('p', 'role lg-note', T('found.unreadable', { list: unreadable.map(sourceLabel).join(', ') })));
+    // Docker didn't answer: no container's log was read — said, never counted as «nothing like that» (T28)
+    if (tour.containers_read === false) box.appendChild(el('p', 'role lg-note', T('found.no_containers')));
   }
   label();
   unfold.hidden = shownKinds.length < 2;

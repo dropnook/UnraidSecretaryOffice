@@ -293,7 +293,7 @@
   "office.supporter_remove_do": "Rimuovi",
   "office.supporter_removed": "La chiave sostenitore è stata rimossa.",
   "agent.array_stopped_title": "L'array è fermato.",
-  "agent.array_stopped_text": "La segreteria tiene i suoi dati in appdata — torna al lavoro appena l'array è avviato.",
+  "agent.array_stopped_text": "La segreteria tiene i suoi dati in {dir} — torna al lavoro appena l'array è avviato.",
   "agent.no_appdata_title": "Manca la condivisione appdata.",
   "agent.no_appdata_text": "La segreteria tiene i suoi dati in {dir}, e {appdata} non esiste su questo server. Il fattorino non crea mai una condivisione di sua iniziativa. Ricreala in ⟦Shares⟧ (o ripristina la cartella); in pochi secondi lui crea da sé la sua cartella.",
   "agent.label_home": "Primo avvio",

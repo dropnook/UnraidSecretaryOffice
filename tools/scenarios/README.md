@@ -131,7 +131,8 @@ Apply's body is desk.js's own `setupDecisions()` under node (`decisions_from_pla
 Checks added to the standard set (n/a where they don't apply): INV-SETUP-MSGS, INV-STOPPED-KEEPS, INV-NC-MAINT-OFF,
 INV-MOUNTS-GONE, INV-NO-MNT-OPEN, INV-COMPARE, INV-MIGRATE-IDEMPOTENT; INV-REPLAN (the Apply list = the base's
 `base/<host>/plan-changes.known` + `expect_changes`, a trailing `*` matching the rest; Ms. Moverelli's settings saved
-unchanged after one of her flows), INV-COUNTS' restore and moverelli parts, INV-PAGE, INV-BUBBLE; the final set
+unchanged after one of her flows), INV-COUNTS' restore and moverelli parts, INV-PAGE, INV-BUBBLE, INV-TRUTH (truth.sh,
+below: «INV-TRUTH»); the final set
 INV-BACKUP-AFTER (`expect_warnings` lists the codes a state may cause), INV-DRILL-GREEN.
 
 **The page (INV-PAGE, INV-BUBBLE):** `bubble_look <label> [desk…]` — the desks' fresh looks, the server's facts at that
@@ -773,3 +774,92 @@ containers (after the VM itself was stopped nothing came back, Nextcloud's insta
 B15's stale «Docker doesn't answer» (docker-calm, 1.71.0), batch H #7 (future file times not said), the at jobs queued
 under a clock set ahead (minor); coverage gap: R5 drill (no verdict on Tower, parkplatz); not run: the four power cuts
 (`--powercut`), year roll (needs a licence past 2027).
+
+## INV-TRUTH — the page against the server's truth (2026-10-25)
+
+The truth review of 2026-10 (briefs `truth-review-2026-10.md`) found 73 page lies; the tests had checked that things
+work, not that pages say what is there. INV-TRUTH is in the standard set: at the scenario's last look (the desks' fresh
+looks, their state files in `$KEEP/looks/<n>-final/states`) `truth.sh` reads the server's truth beside them with
+`truth-facts.php` → `truth.json`, and the Mac draws the pages from those state files and compares (`queue_mac INV-TRUTH
+page_truth <look> en` → run.sh's mac_check → `truth.mjs`). Pending (mac) on the VM alone, red there turns the scenario
+red (`<name>.truth-<n>.txt` beside the report has every line). Not in base.sh's own checks (like INV-PAGE, INV-BUBBLE).
+
+**The truth is never the office's code.** `truth-facts.php` loads nothing of agent/ or src/; it reads the server and
+the engine's own files: the engine's snapshots (`<snap_prefix>YYYYMMDD-HHMM`) on the very dataset that holds a share's
+place, a VM's disk or an app's folder (`zfs list`, `findmnt -T`; btrfs `<disk>/.btrfs-snap`; XFS and the array hold
+none; a sleeping disk is never looked at); Kopia's own list (`kopia snapshot list --all`, and `kopia ls` of a share's
+newest snapshot for a VM's or app's folder inside it), the engine's `kopia-held.json` / `kopia-watch.json`; each partner
+office's door (`list <unit>` with the pair's own key — the receiver's zfs, not the sender's history; **never USOPartner
+or nostromo**: «not asked», the rule unjudged); Docker (`docker info`), libvirt, the engine's runs (`history.jsonl`).
+The page's claim is read off the DOM: rows by `data-place` (`row:share:<name>`, `vm:<name>`, `app:<name>`), chips by
+their text in the drawn language (`office.protect.*`, `protect.why.*`, Restori's `chip.*`), tiles by `data-tile`.
+
+| Rule | The page must not … | Review |
+|---|---|---|
+| TR-LOCAL | show a level above «not backed up», or «n local snapshots», for a unit no engine snapshot holds (part of it: a note) | T08 |
+| TR-SNAPS | count more snapshots than its folders' datasets hold (snapshots of any name: the chip's own words) | R10 |
+| TR-OFFSITE | say «offsite» without a complete Kopia snapshot of it; green alone while the repository is held or stuck | T02 T09 T10 |
+| TR-PARTNER | say «local + partner» / «at X» when X's door lists nothing of the unit (a VM or app in a dataset of its own: only its own unit counts); green alone when the partner's newest is not the last run's snapshot | T05 T06 |
+| TR-ROW | leave a share of the server without a row on Mr. Backupsy's overview once a backup ran | T07 |
+| TR-KOPIA-TILE | keep the offsite tile calm, or the bubble at «saved offsite», while the repository is held or stuck | T02 T10 |
+| TR-DOCKER | call apps «gone» while Docker is enabled and silent, or never say «Docker isn't running» (Mr. Restori) | T12 |
+| TR-CHECKS | count in «In place» anything but ok true, or as a must anything but required and ok false (ok null: neither) | T13 |
+| TR-UNDER | (a note, never red) say «not backed up» for a unit whose datasets hold the engine's snapshots | — |
+
+Pages drawn: Mr. Backupsy's overview, Mr. Restori's apps and VMs, the Team Lead. Not yet: «Where is what» and Ms.
+Dustdevil's rooms (P1's chip), the flash row and the apps' package rows, the Dashboard tile, the Consultant and Jack
+Streamer with Docker off (R7's other pages), the S2 rules R8–R11 (done/quiet, freshness, numbers, dialogs).
+
+By hand: `bash tools/scenarios/truth-now.sh [--host tower] [--refresh] [--verbose]` (a VM's state files and truth now,
+the pages compared; `--keep <dir>` keeps the look); `node tools/scenarios/truth.mjs --look <dir> [--lang en,de]
+[--verbose] [--only TR-…]`; `node tools/scenarios/truth.mjs --self-test` — `tests/ui/states/truth/` with an invented
+truth (`inv-truth.json`): exactly its six listed lies red, in English and German, nothing else.
+
+## Base profiles — Tower's «mixed» (2026-10-25)
+
+A base profile is the default base plus objects of its own: `base/<host>/profile-<name>.env` over base.env, its kept
+data folder `<data>.base-<name>/`, its objects made by `base-<name>.sh`. `base.sh --profile mixed` resets to it
+(`USO_BASE_PROFILE=mixed` the same); **the default reset takes the profile's objects away first** (noted on the flash,
+`scenarios-mixed.objects`), so the default base and every scenario on it stay exactly as they were. The profile the
+server is on: `$OFFICE_FLASH/scenarios-profile` (none = default). A scenario picks its profile with a line
+`# base-profile: mixed` in its head; `run.sh … --profile mixed` (and `run-local.sh --profile`) puts every scenario of the
+call on it. The runner resets the base whenever the next scenario's profile is not the server's.
+
+**Tower's mixed profile** (`base/tower/profile-mixed.env`) makes Tower look like a real, messy server:
+- VMs: uso-vm-agent and uso-vm-plain in datasets of their own (the base's); **uso-vm-shared** a plain folder in
+  domains' own dataset; **uso-vm-xfs** on the share uso-vmxfs on disk1 (XFS — no snapshot can hold it); uso-vm-plain
+  **running and never held** (prepare none).
+- Apps: in appdata (Emby, Plex, Nextcloud + MariaDB …), Jellyfin in a dataset of its own, Node-Exporter without data,
+  immich a compose stack (all the base's).
+- Shares: media on disk1 (XFS) and disk2 (ZFS) at «local» — half of it can't be snapshotted; uso-arr (XFS) at «local» —
+  none of it can; nextcloud and uso-only offsite (Kopia on); appdata, domains, nextcloud and uso-vm-agent sent to
+  **USOTest4** over the LAN (a pair made the Team Lead's way: Tower offers, USOTest4 accepts as a receiver only, quota
+  40 GB, retention 7 4 6). The backup place UnraidSecretaryOffice goes offsite too (the page's own draft with Kopia on).
+- Not in it: a share on two pools (Tower has one pool, two NVMe; a second needs vdisks from the coordinator); a USO-network
+  pair (usonet-lab.sh lives on USOTest3VM).
+
+Made once from the Mac: `bash tools/scenarios/mixed-make.sh [--pair]` — the reset (onto the mixed base when there is
+one, keeping its pair; else the default), `base-mixed.sh objects`, the pairing when USOTest4 doesn't answer the pair,
+Mr. Backupsy's Apply with the profile's keys and then the page's own draft until the plan lists nothing new, `base.sh
+--profile mixed --save`, one real reset onto it. A reset to it takes ~30 s (its checks green, the plan's change list
+`plan-changes.mixed.known`). **USOTest4's own base reset sets its data folder aside and with it its half of the pair**:
+the mixed reset then says «the partner doesn't answer the pair», the partner rules go unjudged (the door refuses), and
+`mixed-make.sh` pairs anew. The pair is a receiver-only one on USOTest4 (no [partner] in its own plan: its INV-REPLAN
+stays as it was).
+
+`backup-mx-mixed-truth-run` (`# base-profile: mixed`): one backup run on the mixed profile, then the standard set with
+INV-TRUTH — the cell for the profile itself.
+
+**First runs (Tower, office 1.71.3, engine 2.74, 2026-10-25)** — `scenarios/2026-10-25/tower-inv-truth-0917` and
+`…/tower-inv-truth`. On the mixed profile (`--profile mixed`): backup-mx-mixed-truth-run, office-smoke-refresh,
+backup-vm-ct-paused-shutoff-run, backup-ct-app-is-dataset-run, backup-kp-container-stopped-replan-apply-run,
+restore-ct-stopped-db-db, restore-sv-docker-off-scan-drill, office-sv-docker-off-bubbles, backup-sv-docker-off-first-setup-run.
+INV-TRUTH: green on every one once two tool bugs were fixed (Mr. Restori's «offsite …» chip is judged against the source
+its tip names — the package's goes with the backup place's share; Docker switched off counts as silent). The S1/S2 lies
+of the review are gone on 1.71.3: the same mixed look drawn with v1.71.2's page (`truth.mjs --tree v1.71.2`) is red on
+exactly T08 (media and uso-arr «only local», no snapshot holds them) and T13 (a check that couldn't run counted as a
+must). Notes, never red: Mr. Restori names no partner for apps and VMs whose data USOTest4 holds (his look of a new
+partner not yet made). Red, not INV-TRUTH: backup-sv-docker-off-first-setup-run on the mixed profile — with shares
+offsite, a run with Docker switched off ends «errors» (Kopia's container unreachable; the engine's log says it «does not
+exist»), the cell expects ok/warnings from the default base, where nothing goes offsite. Profile switch in one call
+(mixed → default): the objects taken away, the default base's checks and plan list green.

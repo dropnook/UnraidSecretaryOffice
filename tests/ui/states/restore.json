@@ -1966,5 +1966,18 @@
     }
    ]
   }
- ]
+ ],
+ "flash_backup": {
+  "mode": "tar",
+  "protection": "local",
+  "protection_note": {
+   "set": "local",
+   "why": [],
+   "since": null,
+   "partners": [
+    "PartnerNAS"
+   ],
+   "missed": []
+  }
+ }
 }

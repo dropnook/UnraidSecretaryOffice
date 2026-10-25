@@ -3196,12 +3196,14 @@ function drillCertLose(array $items, string $placeShare): array
             $out[$key]['best'] = max($out[$key]['best'], $it['level']);
         }
     }
-    // the package goes to Kopia with the backup place's share
+    // the package goes to Kopia with the backup place's share — only the package (XML, templates, dumps), never the
+    // app's or VM's own data: kopia_package says so (T19), the page then never says its data comes back from offsite
     $share = array_values(array_filter($items, fn ($it) => $it['kind'] === 'kopia' && $it['of'] === 'share' && $it['id'] === $placeShare
         && in_array($it['result'], ['ok', 'warning'], true)))[0] ?? null;
     foreach ($out as $k => $v) {
         if ($v['kopia'] === null && $share) {
             $out[$k]['kopia'] = $share['state_time'];
+            $out[$k]['kopia_package'] = true;
         }
     }
     return array_values($out);
@@ -3222,6 +3224,12 @@ function drillCertHistory(array $j, ?array $cert = null): array
     } catch (Throwable) {
     }
     return $cert;
+}
+
+/** A drill's counts (drillCounts(), the certificate's last): proved something — an item ok or with a warning. Counts not there: true (as before) */
+function drillProved(array $counts): bool
+{
+    return !isset($counts['proven']) || (int) $counts['proven'] + (int) ($counts['warnings'] ?? 0) > 0;
 }
 
 function drillCounts(array $steps): array
@@ -3252,7 +3260,10 @@ function drillCertWrite(array $j, ?array $env): array
         $items = drillCertItems($j);
         $cert['last'] = ['id' => $j['id'], 'started' => $j['started'], 'ended' => $j['finished'], 'result' => $j['result'], 'scope' => (string) $j['scope'],
                          'egress' => (int) ($j['egress'] ?? 0), 'items' => count($items)] + drillCounts((array) $j['steps']);
-        if ($j['result'] === 'passed') {
+        // «passed» proves something only with an item proven (T18): one whose every item was «not checked» or asleep
+        // (Docker stopped, the disks asleep) stays «passed» in the journal (its counts say it), but never counts as
+        // the last passed drill — the Team Lead's check, the Dashboard and Mr. Backupsy's line go by that
+        if ($j['result'] === 'passed' && drillProved($cert['last'])) {
             $cert['last_passed'] = $j['finished'];
         }
         $cert['items'] = $items;

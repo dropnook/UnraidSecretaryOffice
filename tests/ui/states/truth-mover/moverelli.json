@@ -1,0 +1,578 @@
+{
+ "time": 1791671988,
+ "unraid": {
+  "version": "7.3.3",
+  "ok": true,
+  "needed": "7.3.2"
+ },
+ "engine": "V7",
+ "configured": true,
+ "settings": {
+  "global": {
+   "min_age": 30,
+   "age_stat": "ctime",
+   "move_when_used_above": 70,
+   "move_prefer_shares": true,
+   "mover_debug": 0,
+   "max_list": 50,
+   "files": [
+    "/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt"
+   ],
+   "patterns": [
+    "*.nfo"
+   ]
+  },
+  "shares": {
+   "media": {
+    "skip": false,
+    "min_age": 14,
+    "age_stat": null,
+    "move_when_used_above": null,
+    "files": [],
+    "patterns": [
+     "Trailers"
+    ]
+   }
+  }
+ },
+ "shares": [
+  {
+   "share": "appdata",
+   "use": "only",
+   "primary": "cache",
+   "secondary": "",
+   "own": false,
+   "mode": "none",
+   "from": null,
+   "to": null,
+   "state": "none",
+   "min_age": 30,
+   "age_stat": "ctime",
+   "threshold": null,
+   "excludes": 2
+  },
+  {
+   "share": "backup",
+   "use": "no",
+   "primary": "",
+   "secondary": "",
+   "own": false,
+   "mode": "none",
+   "from": null,
+   "to": null,
+   "state": "none",
+   "min_age": 30,
+   "age_stat": "ctime",
+   "threshold": null,
+   "excludes": 2
+  },
+  {
+   "share": "downloads",
+   "use": "yes",
+   "primary": "cache",
+   "secondary": "",
+   "own": false,
+   "mode": "yes",
+   "from": "cache",
+   "to": "array",
+   "state": "moves",
+   "min_age": 30,
+   "age_stat": "ctime",
+   "threshold": 70,
+   "until": 60,
+   "excludes": 2
+  },
+  {
+   "share": "isos",
+   "use": "prefer",
+   "primary": "cache",
+   "secondary": "",
+   "own": false,
+   "mode": "prefer",
+   "from": "array",
+   "to": "cache",
+   "state": "moves",
+   "min_age": 0,
+   "age_stat": "ctime",
+   "threshold": null,
+   "excludes": 2
+  },
+  {
+   "share": "media",
+   "use": "yes",
+   "primary": "cache",
+   "secondary": "",
+   "own": true,
+   "mode": "yes",
+   "from": "cache",
+   "to": "array",
+   "state": "moves",
+   "min_age": 14,
+   "age_stat": "ctime",
+   "threshold": 70,
+   "until": 60,
+   "excludes": 3
+  }
+ ],
+ "mover": {
+  "off": true,
+  "schedule": null,
+  "running": false
+ },
+ "foreign": {
+  "tuning": {
+   "installed": false,
+   "lines": [],
+   "active": false
+  },
+  "scripts": []
+ },
+ "job": {
+  "mode": "run",
+  "by": "schedule",
+  "started": 1791585888,
+  "pid": 4242,
+  "finished": 1791586488,
+  "exit": 0,
+  "running": false,
+  "size": 4200
+ },
+ "stopping": null,
+ "last": {
+  "mode": "run",
+  "result": "ok",
+  "exit": 0,
+  "started": 1791585888,
+  "finished": 1791586488,
+  "files": 14,
+  "bytes": 24100000000,
+  "moved": 13,
+  "left": 1,
+  "errors": 0,
+  "stop_share": "",
+  "message": "",
+  "shares": [
+   {
+    "share": "media",
+    "state": "moved",
+    "files": 5,
+    "bytes": 21000000000,
+    "moved": 4,
+    "left": 1,
+    "direction": "cache -> array",
+    "min_age": "30",
+    "age_stat": "ctime",
+    "threshold": "70",
+    "excludes": ""
+   },
+   {
+    "share": "downloads",
+    "state": "moved",
+    "files": 9,
+    "bytes": 3100000000,
+    "moved": 9,
+    "left": 0,
+    "direction": "cache -> array",
+    "min_age": "30",
+    "age_stat": "ctime",
+    "threshold": "70",
+    "excludes": ""
+   }
+  ]
+ },
+ "history": [
+  {
+   "mode": "run",
+   "by": "night",
+   "from": "schedule",
+   "started": 1791585888,
+   "finished": 1791586488,
+   "exit": 0,
+   "result": "ok",
+   "status": {
+    "mode": "run",
+    "result": "ok",
+    "files": 14,
+    "bytes": 24100000000,
+    "moved": 13,
+    "left": 1,
+    "errors": 0,
+    "stop_share": "",
+    "message": "",
+    "shares": [
+     {
+      "share": "media",
+      "state": "moved",
+      "files": 5,
+      "bytes": 21000000000,
+      "moved": 4,
+      "left": 1
+     },
+     {
+      "share": "downloads",
+      "state": "moved",
+      "files": 9,
+      "bytes": 3100000000,
+      "moved": 9,
+      "left": 0
+     }
+    ]
+   }
+  },
+  {
+   "mode": "run",
+   "by": "schedule",
+   "started": 1791499488,
+   "finished": 1791499488,
+   "result": "refused",
+   "why": "moverelli_schedule",
+   "schedule": "40 3 * * *",
+   "times": 3,
+   "first": 1791326388
+  },
+  {
+   "mode": "dry",
+   "by": "office",
+   "started": 1791239988,
+   "finished": 1791240028,
+   "exit": 0,
+   "result": "ok",
+   "status": {
+    "mode": "dry",
+    "result": "ok",
+    "files": 12,
+    "bytes": 48000000000,
+    "moved": 0,
+    "left": 0,
+    "errors": 0,
+    "shares": []
+   }
+  },
+  {
+   "mode": "list",
+   "by": "office",
+   "started": 1791239888,
+   "finished": 1791239889,
+   "exit": 0,
+   "result": "ok",
+   "status": {
+    "mode": "list",
+    "result": "ok",
+    "files": 0,
+    "bytes": 0,
+    "moved": 0,
+    "left": 0,
+    "errors": 0,
+    "shares": [
+     {
+      "share": "a",
+      "state": "list"
+     },
+     {
+      "share": "b",
+      "state": "list"
+     }
+    ]
+   }
+  }
+ ],
+ "schedule": {
+  "script": true,
+  "frequency": "custom",
+  "custom": "15 5 * * *",
+  "enabled": true
+ },
+ "jack": {
+  "busy": false,
+  "list": null,
+  "uncovered": [],
+  "hired": true,
+  "lists": [],
+  "shares": [],
+  "pending": "/mnt/user/appdata/UnraidSecretaryOffice/data/mediacache/mediacache_exclude.txt"
+ },
+ "levels": {
+  "cache": {
+   "pool": "cache",
+   "shares": [
+    "downloads",
+    "isos",
+    "media"
+   ],
+   "snapshots": 42949672960,
+   "snap_pct": 1.0,
+   "size": 4294967296000,
+   "used": 2040109465600,
+   "movable": 751619276800,
+   "nm": 1288490188800,
+   "x": 70,
+   "y": 60,
+   "k": 50,
+   "room": 1288490188800,
+   "half": 644245094400,
+   "jack": 41200000000,
+   "downloads": 710419276800,
+   "back": 0,
+   "goes": 0,
+   "used_pct": 47.5,
+   "nm_pct": 30.0,
+   "never": false,
+   "mine": true,
+   "need": 0,
+   "half_d": 644245094400
+  }
+ },
+ "night": {
+  "jack": true,
+  "plan": {
+   "measured": true,
+   "back": 0,
+   "goes": 0,
+   "age": 0,
+   "fill": 12884901888,
+   "wait": 0,
+   "first": "jack"
+  },
+  "last": {
+   "mode": "run",
+   "by": "schedule",
+   "started": 1791599988,
+   "finished": 1791603588,
+   "phase": "done",
+   "round": 1,
+   "jack": true,
+   "pool": "cache",
+   "plan": {
+    "measured": true,
+    "back": 0,
+    "goes": 0,
+    "age": 0,
+    "fill": 12884901888,
+    "wait": 0,
+    "first": "jack",
+    "used_pct": 47.5,
+    "x": 70,
+    "y": 60
+   },
+   "steps": [
+    {
+     "who": "jack",
+     "phase": "free",
+     "round": 1,
+     "exit": 0,
+     "result": "ok"
+    },
+    {
+     "who": "her",
+     "phase": "free",
+     "round": 1,
+     "exit": 0,
+     "result": "ok"
+    },
+    {
+     "who": "jack",
+     "phase": "fill",
+     "round": 1,
+     "exit": 0,
+     "result": "ok"
+    }
+   ],
+   "result": "ok",
+   "end_pct": 47.5,
+   "running": false,
+   "picture": {
+    "pool": "cache",
+    "x": 80,
+    "dest": {
+     "to": "array",
+     "size": 25769803776000,
+     "used": 16320875724800
+    },
+    "phases": {
+     "check": {
+      "before": {
+       "size": 2147483648000,
+       "fixed": 450971566080,
+       "others": 654982512640,
+       "jack": 816043786240,
+       "free": 225485783040,
+       "jack_watched": 150323855360
+      },
+      "forecast": {
+       "size": 2147483648000,
+       "fixed": 450971566080,
+       "others": 504658657280,
+       "jack": 762356695040,
+       "free": 429496729600,
+       "jack_watched": 0
+      },
+      "planned": {
+       "jack_back": 150323855360,
+       "others_back": 150323855360,
+       "jack_fetch": 96636764160,
+       "until": 1621350154240
+      }
+     },
+     "free": {
+      "before": {
+       "size": 2147483648000,
+       "fixed": 450971566080,
+       "others": 654982512640,
+       "jack": 665719930880,
+       "free": 375809638400,
+       "jack_watched": 0
+      },
+      "forecast": {
+       "size": 2147483648000,
+       "fixed": 450971566080,
+       "others": 504658657280,
+       "jack": 762356695040,
+       "free": 429496729600,
+       "jack_watched": 0
+      },
+      "planned": {
+       "jack_back": 150323855360,
+       "others_back": 150323855360,
+       "jack_fetch": 96636764160,
+       "until": 1621350154240
+      }
+     },
+     "fill": {
+      "before": {
+       "size": 2147483648000,
+       "fixed": 450971566080,
+       "others": 511101108224,
+       "jack": 665719930880,
+       "free": 519691042816,
+       "jack_watched": 0
+      },
+      "forecast": {
+       "size": 2147483648000,
+       "fixed": 450971566080,
+       "others": 511101108224,
+       "jack": 762356695040,
+       "free": 423054278656,
+       "jack_watched": 0
+      },
+      "planned": {
+       "jack_back": 150323855360,
+       "others_back": 150323855360,
+       "jack_fetch": 96636764160,
+       "until": 1621350154240
+      }
+     },
+     "done": {
+      "before": {
+       "size": 2147483648000,
+       "fixed": 450971566080,
+       "others": 516469817344,
+       "jack": 760209211392,
+       "free": 419833053184,
+       "jack_watched": 0
+      },
+      "forecast": {
+       "size": 2147483648000,
+       "fixed": 450971566080,
+       "others": 516469817344,
+       "jack": 760209211392,
+       "free": 419833053184,
+       "jack_watched": 0
+      },
+      "planned": {
+       "jack_back": 150323855360,
+       "others_back": 150323855360,
+       "jack_fetch": 96636764160,
+       "until": 1621350154240
+      }
+     }
+    },
+    "files": [
+     {
+      "name": "Familienserien/Die Ritterburg/Staffel 1/Folge 01.mkv",
+      "bytes": 1825361100,
+      "from": "cache",
+      "to": "array",
+      "who": "jack"
+     },
+     {
+      "name": "Familienserien/Die Ritterburg/Staffel 1/Folge 02.mkv",
+      "bytes": 2147483648,
+      "from": "cache",
+      "to": "array",
+      "who": "jack"
+     },
+     {
+      "name": "Familienserien/Die Ritterburg/Staffel 1/Folge 03.mkv",
+      "bytes": 2469606195,
+      "from": "cache",
+      "to": "array",
+      "who": "jack"
+     },
+     {
+      "name": "Familienserien/Die Ritterburg/Staffel 1/Folge 04.mkv",
+      "bytes": 2791728742,
+      "from": "cache",
+      "to": "array",
+      "who": "jack"
+     },
+     {
+      "name": "Fotos-Import/2023/Herbstferien/IMG_4101.mov",
+      "bytes": 858993459,
+      "from": "cache",
+      "to": "/mnt/disk2",
+      "who": "her"
+     },
+     {
+      "name": "Fotos-Import/2023/Herbstferien/IMG_4102.mov",
+      "bytes": 1073741824,
+      "from": "cache",
+      "to": "/mnt/disk2",
+      "who": "her"
+     },
+     {
+      "name": "Fotos-Import/2023/Herbstferien/IMG_4103.mov",
+      "bytes": 1288490188,
+      "from": "cache",
+      "to": "/mnt/disk2",
+      "who": "her"
+     },
+     {
+      "name": "Fotos-Import/2023/Herbstferien/IMG_4104.mov",
+      "bytes": 1503238553,
+      "from": "cache",
+      "to": "/mnt/disk2",
+      "who": "her"
+     },
+     {
+      "name": "Fotos-Import/2023/Herbstferien/IMG_4105.mov",
+      "bytes": 1717986918,
+      "from": "cache",
+      "to": "/mnt/disk2",
+      "who": "her"
+     },
+     {
+      "name": "Downloads/Schule/Lernvideos-Mathe.zip",
+      "bytes": 8804682956,
+      "from": "cache",
+      "to": "/mnt/disk1",
+      "who": "her"
+     },
+     {
+      "name": "Familienfilme/Skilager Lenk 2022/Skilager Lenk 2022.mkv",
+      "bytes": 7301444403,
+      "from": "array",
+      "to": "cache",
+      "who": "jack"
+     },
+     {
+      "name": "Familienserien/Die Ritterburg/Staffel 2/Folge 01.mkv",
+      "bytes": 2254857830,
+      "from": "array",
+      "to": "cache",
+      "who": "jack"
+     }
+    ]
+   }
+  }
+ }
+}

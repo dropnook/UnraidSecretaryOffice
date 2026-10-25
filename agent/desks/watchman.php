@@ -138,6 +138,7 @@ const WATCH_BOOK_DAYS    = 90;               // noted entries stay this long
 const WATCH_FORGET       = 30 * 86400;       // what is gone (a plugin, a container, a share) stays known this long
 const WATCH_READ_MAX     = 32 * 1024 * 1024; // syslog read in one round at most (then the newest part)
 const WATCH_LEARN_MAX    = 16 * 1024 * 1024; // per file when he takes over the watch
+const WATCH_VARLOG_FULL  = 1024 * 1024;      // /var/log (the syslog's file system) with less free than this: full, the syslog stops growing
 const WATCH_IPS_MAX      = 500;              // login addresses he knows
 const WATCH_TRACK_MAX    = 2000;             // addresses with recent failures followed
 const WATCH_LIST_MAX     = 8;                // names and services kept per entry
@@ -1421,6 +1422,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         $from = ['ino' => -1, 'size' => 0];
     }
     [$events, $pos, $read] = watchmanReadLogins($paths['syslog'], $from, $fresh, $known, $now);
+    $read['full'] = watchmanSyslogFull($paths);
     if (is_array($pos) && $boot !== '') {
         $pos['boot'] = $boot;
     }
@@ -1600,7 +1602,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         $st['syslog'] = $pos;
         $st['open'] = watchmanOpenCounts($book);
         $st['round'] = ['time' => $now, 'duration_ms' => (int) round((microtime(true) - $t0) * 1000), 'failed' => false,
-                        'read' => $read['read'], 'skipped' => $read['skipped'], 'rotated' => $read['rotated'],
+                        'read' => $read['read'], 'skipped' => $read['skipped'], 'rotated' => $read['rotated'], 'syslog_full' => $read['full'],
                         'docker' => $seen['containers'] !== null, 'shares' => $seen['shares'] !== null, 'flow' => $look !== null,
                         'snaps' => $snapRes !== null, 'added' => count($added)];
         if (is_array($st['night'] ?? null) && !isset($st['night']['until'])) {
@@ -1825,6 +1827,26 @@ function watchmanKnownUsers(string $file): array
         }
     }
     return $names;
+}
+
+/**
+ * The syslog's file system (/var/log, Unraid's 128 MB RAM disk) full: {free, total} — or null (room left, or not known).
+ * Full, rsyslog writes nothing more: the syslog stops growing and a round reads no logins, no restarts — never «all quiet»
+ * then (truth review T30). statvfs only; $paths['syslog_space'] = [free, total] stands in for it in the tests.
+ */
+function watchmanSyslogFull(array $paths): ?array
+{
+    if (is_array($paths['syslog_space'] ?? null)) {
+        [$free, $total] = $paths['syslog_space'];
+    } else {
+        $dir = dirname((string) $paths['syslog']);
+        $free = @disk_free_space($dir);
+        $total = @disk_total_space($dir);
+    }
+    if (!is_numeric($free) || !is_numeric($total) || $total <= 0) {
+        return null;
+    }
+    return $free < WATCH_VARLOG_FULL ? ['free' => (int) $free, 'total' => (int) $total] : null;
 }
 
 /**
@@ -9403,6 +9425,8 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
             'skipped'     => (int) ($st['round']['skipped'] ?? 0),
             'docker'      => $st['round']['docker'] ?? null,
             'shares'      => $st['round']['shares'] ?? null,
+            // the syslog's file system full ({free, total}): the syslog stops growing, logins and restarts go unseen (T30)
+            'syslog_full' => is_array($st['round']['syslog_full'] ?? null) ? $st['round']['syslog_full'] : null,
             // the last round broke off (stopped after WATCH_MAX_RUN, or crashed) after the last one that ended: {at, why}
             'broken'      => ($GLOBALS['wmRoundBroken']['at'] ?? 0) > ($last ?? 0) ? $GLOBALS['wmRoundBroken'] : null,
         ],

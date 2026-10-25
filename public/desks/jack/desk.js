@@ -192,6 +192,9 @@ const night = () => (state && state.night) || null;
 const jackSched = () => (night() ? night().schedule : (state.schedules || {}).embycache) || {};
 /** Tonight's plan in his words, pure: what he gives back, what of the downloads goes, what he fetches, what waits */
 function tonightText(p) {
+  // her limit X 0: the joint run measures no pool — she moves only by age (never «the pool isn't measured», M12)
+  const mo = herRules();
+  if ((!p || !p.measured) && mo && !(mo.x > 0)) return T('night.no_limit');
   if (!p || !p.measured) return T('night.unmeasured');
   const parts = [Number(p.back) > 0 ? T('night.back', { size: fmt.size(p.back) }) : T('night.back_none'),
     Number(p.goes) > 0 ? T('night.goes', { size: fmt.size(p.goes) }) : T('night.goes_none'),
@@ -377,6 +380,11 @@ async function moverOffDialog() {
   });
 }
 
+/** The scheduled joint run waiting (state.waiting.night): for Mr. Backupsy's local part, or for Unraid's mover */
+function nightWaitLine(w) {
+  return el('div', 'callout', w.why === 'backup' ? T('night.wait_backup', { since: fmt.time(w.since) })
+    : T('night.wait_mover', { since: fmt.time(w.since), next: fmt.time(w.next), until: fmt.time(w.until) }));
+}
 /** A scheduled run that waits for Unraid's mover to finish (state.waiting / the gather's wait with why «mover») */
 function moverWaitLine(w) {
   return el('div', 'callout', T('waiting_mover', { next: fmt.time(w.next), until: fmt.time(w.until) }));
@@ -499,6 +507,9 @@ function render() {
   if (mv) hints.push(mv);
   const wait = (state.waiting || {}).embycache;
   if (wait) hints.push(moverWaitLine(wait));
+  // the joint run with Ms. Moverelli waiting on its schedule (an older agent: no such key) — truth review M17
+  const nw = night() ? (state.waiting || {}).night : null;
+  if (nw) hints.push(nightWaitLine(nw));
   if (state.old_clone) hints.push(el('p', 'callout', T('notice.old_clone')));
   if (running()) {
     const look = state.jobs.gather.running ? null : lookRun();
@@ -842,7 +853,8 @@ function livePanel() {
 /**
  * The night run with Ms. Moverelli on his page (2026-10-13): her run card's head and phases (core.js Office.nightCard —
  * «Joint run», since when, the phase going), under it what is at work — EmbyCache giving back or fetching: his bars per
- * person; she moving: «Ms. Moverelli is moving downloads — <share>, 5 of 12 files» (her status, no look of its own);
+ * person; she moving: «Ms. Moverelli is moving <share> right now — 5 of 12 files», her fill «… the pool's oldest files
+ * (now from <share>)» (her status, no look of its own);
  * between their steps: she measures the pool. «Stop after this file» stops the whole night (jack.stop → nightStopAsk()).
  */
 function nightPanel(now) {
@@ -856,7 +868,9 @@ function nightPanel(now) {
     card.appendChild(rows);
   } else {
     const her = n.who === 'her' ? n.her : null;
-    const line = el('div', 'card-line jo-night-her', (her ? T('night.her_moving', { share: her.share, done: Number(her.done) || 0, files: nOf('files', her.files) })
+    // her fill: the pool's oldest files, no counts of a share (T31); her own step: that share — never «downloads» (M16)
+    const line = el('div', 'card-line jo-night-her', (her ? her.fill ? T('night.her_oldest', { share: her.share })
+      : T('night.her_moving', { share: her.share, done: Number(her.done) || 0, files: nOf('files', her.files) })
       : T(n.who === 'her' ? 'night.her_busy' : n.who === 'jack' ? 'night.jack_soon' : 'night.her_check')) + ' ');
     line.appendChild(link(T('night.her_open'), () => Office.go('#/moverelli')));
     card.appendChild(line);
@@ -1244,7 +1258,8 @@ async function chooseRun() {
   const free = moverOk();
   const box = radioList('jo-mode', [
     ['dry', T('mode.dry'), T('mode_hint.dry')],
-    ['run', T('mode.run'), !free ? T('mode_hint.run_mover') : T('mode_hint.run'), !free],
+    // with Ms. Moverelli his real run is the joint run — said as such (truth review T38)
+    ['run', T('mode.run'), !free ? T('mode_hint.run_mover') : T(night() ? 'mode_hint.run_joint' : 'mode_hint.run'), !free],
   ], mode, (m) => { mode = m; });
   // with Ms. Moverelli: the real run is the night run for both; the dry run for both lives on her schedule's row
   let dlg = null;
@@ -2362,8 +2377,14 @@ function ruleTexts(total) {
   // her limit X in plain words (2026-10-14, the owner): he fills only up to X, the day's downloads land above it and she
   // clears them at night (so X needs room up to 100 %); his budget comes first — she moves the others' oldest for it
   if (mo && mo.x > 0) out.push(T('setup.rule_x', { x: mo.x }), T('setup.rule_first', { x: mo.x }));
+  else if (mo) out.push(noLimitText());           // she is set up, without a limit X: his real runs go (truth review T37)
   else out.push(T('room.none'));
   return out;
+}
+/** Ms. Moverelli set up without a limit X (pure on state): what he keeps free on the pool then, as his pool says it */
+function noLimitText() {
+  const min = state && state.pool && state.pool.min_free != null ? state.pool.min_free : null;
+  return min !== null ? T('room.own', { min }) : T('room.own_plain');
 }
 
 /**
@@ -2391,7 +2412,8 @@ function sharePart() {
     }));
     f.appendChild(her);
   } else {
-    f.appendChild(el('p', 'callout jo-slice', T('room.none')));
+    // set up without a limit X: said as it is, never «not set up yet» (T37)
+    f.appendChild(el('p', mo ? 'role jo-slice' : 'callout jo-slice', mo ? noLimitText() : T('room.none')));
   }
   box.appendChild(f);
   return box;
@@ -3113,7 +3135,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     herRules, sharePart, ruleTexts, needsConnect, connectInst, resetDialog, budgetGb, budgetSplit, budgetState, budgetLine, setupBlocked, MIN_PERSON_GB, shareCase,
     setupServers, mediaPick, newInstance, removeServerDialog, removeServer, noServer, persons, libraryList, setView: (v, p) => { view = v; page = p; }, setupLibraries, setupUsers, setupScope, setupMore, saveSetup, saveBar, formKey, formChanged, formChangeCount, changedParts, setupBar, derivedPool, poolsOfChoice, cacheable,
     letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog, gatherSettingsDialog, gatherRunDialog, gatherCacheWords,
-    progressPanel, setProgress: (p, why) => { progress = p; stopping = why || null; }, etaText, tookText, nightPanel, livePanel, chooseRun, headActions,
+    nightWaitLine, noLimitText, progressPanel, setProgress: (p, why) => { progress = p; stopping = why || null; }, etaText, tookText, nightPanel, livePanel, chooseRun, headActions,
     setNight: (n) => { nightNow = n; }, nightGoing };
 }
 })();
