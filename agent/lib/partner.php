@@ -1311,8 +1311,11 @@ function partnerAsk(array $pair, ?string $known = null): ?array
         return ['time' => $now, 'reachable' => true, 'answer' => null, 'status' => null, 'why' => 'no_pair'];
     }
     if (!$ok) {
+        // review 1.72.0 H6: another exit with nothing the door said (ssh couldn't start - 127 -, the USO namespace gone -
+        // nsenter 1 -, no banner) never reached the partner: unreachable; bad_answer only for a door that answered wrong
         $why = $exit === 255 ? (preg_match('/Host key verification failed|REMOTE HOST IDENTIFICATION/i', $err) ? 'host_key'
-            : (preg_match('/Permission denied/i', $err) ? 'denied' : 'unreachable')) : ($exit === 124 ? 'timeout' : 'bad_answer');
+            : (preg_match('/Permission denied/i', $err) ? 'denied' : 'unreachable'))
+            : ($exit === 124 ? 'timeout' : ($exit === 127 || ($exit !== 0 && !is_array($j)) ? 'unreachable' : 'bad_answer'));
         return ['time' => $now, 'reachable' => false, 'answer' => null, 'status' => null, 'why' => $why];
     }
     $answer = ['array' => $j['array'], 'night' => $j['night'], 'v' => $j['v'], 'time' => is_int($j['time'] ?? null) ? $j['time'] : null];
@@ -1570,8 +1573,9 @@ function partnerOffer(array $pair, array $units): array
     $j = partnerJsonLine($out);
     if ($exit === 255 || $exit === 124 || !is_array($j)) {
         $why = $exit === 255 ? (preg_match('/Host key verification failed|REMOTE HOST IDENTIFICATION/i', $err) ? 'host_key'
-            : (preg_match('/Permission denied/i', $err) ? 'denied' : 'unreachable')) : ($exit === 124 ? 'timeout' : 'bad_answer');
-        return ['why' => $why, 'reachable' => $exit !== 255 && $exit !== 124] + $res;
+            : (preg_match('/Permission denied/i', $err) ? 'denied' : 'unreachable'))
+            : ($exit === 124 ? 'timeout' : ($exit !== 0 ? 'unreachable' : 'bad_answer'));      // review H6: as partnerAsk()
+        return ['why' => $why, 'reachable' => $why === 'bad_answer'] + $res;
     }
     if (($j['ok'] ?? null) !== true) {
         $why = is_string($j['why'] ?? null) && preg_match('/^[a-z_]{1,40}$/D', $j['why']) ? $j['why'] : 'bad_answer';
@@ -2374,9 +2378,10 @@ function partner_address(array $r): array
         if (($r['confirm'] ?? null) !== true) {
             throw new Problem('bad_request');
         }
-        partnerAddressSave($pair, $address, $port);
+        $from = partnerAddressSave($pair, $address, $port);
         // the record of it stays in RAM (state «saved»): the night watchman takes the door line's new from= as the office's own
-        writeAtomic(partnerAddressMark($id), jsonEncode(['address' => $address, 'port' => $port, 'time' => time(), 'state' => 'saved']), 0600, 0, 0);
+        // (with from - what a host name resolved to, review 1.72.0 L5)
+        writeAtomic(partnerAddressMark($id), jsonEncode(['address' => $address, 'port' => $port, 'time' => time(), 'state' => 'saved', 'from' => $from]), 0600, 0, 0);
         return ['ok' => true, 'saved' => true, 'partners' => partnerPublic()];
     }
     if ($step !== 'try') {
@@ -2454,6 +2459,7 @@ function partnerAddressJob(string $id): int
         return 1;
     }
     $out = $mark;
+    $superseded = false;
     $known = partnerRunDir() . "/address-$id.known";
     try {
         $keys = partnerKnownKeys($id);
@@ -2464,9 +2470,18 @@ function partnerAddressJob(string $id): int
         $ask = partnerAsk(['address' => $mark['address'], 'port' => $mark['port']] + $pair, $known);
         $why = $ask['why'] ?? 'unreachable';
         // the pinned host key answered there: its door may still refuse (it knows this server by its old address) — found
-        $found = $ask !== null && ($ask['reachable'] || in_array($why, ['denied', 'bad_answer'], true));
+        // only what the partner itself said counts: reachable (no_pair too) or denied, never a local failure (review H6)
+        $found = $ask !== null && ($ask['reachable'] || $why === 'denied');
+        // review 1.72.0 L2: «Save» (or another look) while this one ran - its record is no longer this look's: that stands,
+        // nothing stored here, the record left as it is
+        $now = partnerAddressLook($id);
+        if ($now === null || $now['state'] !== 'looking' || $now['time'] !== $mark['time'] || $now['address'] !== $mark['address'] || $now['port'] !== $mark['port']) {
+            $superseded = true;
+            partnerLog("looked for {$pair['name']} ($id) at {$mark['address']}:{$mark['port']}: an address was saved meanwhile - nothing stored by the look");
+            return 0;
+        }
         if ($found) {
-            partnerAddressSave($pair, $mark['address'], $mark['port']);
+            $out['from'] = partnerAddressSave($pair, $mark['address'], $mark['port']);     // review L5: what the door's from= says
             $out['time'] = time();          // when it was stored (the night watchman compares it with the door line's write)
             partnerAskAndKeep($id, $ask);
         }
@@ -2480,7 +2495,9 @@ function partnerAddressJob(string $id): int
     } finally {
         @unlink($known);
         try {
-            writeAtomic(partnerAddressMark($id), jsonEncode($out), 0600, 0, 0);
+            if (!$superseded) {
+                writeAtomic(partnerAddressMark($id), jsonEncode($out), 0600, 0, 0);
+            }
         } catch (Throwable $e) {
         }
         partnerRescanAsk();
@@ -2493,7 +2510,7 @@ function partnerAddressJob(string $id): int
  * at the new address (my key knocks there), and this door's line for its key with from= the new address — only a line
  * in exactly the office's shape (a line changed by hand stays as it is: the card says «door changed»).
  */
-function partnerAddressSave(array $pair, string $address, int $port): void
+function partnerAddressSave(array $pair, string $address, int $port): string
 {
     $id = $pair['id'];
     $from = partnerFromList($address);
@@ -2529,6 +2546,7 @@ function partnerAddressSave(array $pair, string $address, int $port): void
     }
     partnerLog("the address of {$pair['name']} ($id) changed: $was → $address:$port" . ($keys ? ', its host keys pinned there' : '')
         . ($pub !== null ? ", the door's line lets it in from $from" : ''));
+    return $from;
 }
 
 /**

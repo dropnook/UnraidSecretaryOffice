@@ -73,6 +73,7 @@
   "protect.why.kopia_never": "set: offsite — no copy yet",
   "protect.why.kopia_held": "set: offsite — held, the copy is suddenly empty",
   "protect.why.kopia_gone": "Kopia's container is gone — no new copies",
+  "protect.why.kopia_docker_off": "Docker is switched off — no new offsite copies",
   "protect.why.kopia_stuck": "offsite takes nothing since {since}",
   "protect.why.kopia_away": "offsite unreachable since {since}",
   "protect.why.kopia_failed": "the last offsite copy failed — an older one is there",

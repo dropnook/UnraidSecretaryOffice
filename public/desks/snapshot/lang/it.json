@@ -305,7 +305,7 @@
   "p.overlay_hint": "Ciò che la VM ha scritto dopo questo snapshot, fino al successivo.",
   "p.files": "File",
   "p.path": "Percorso",
-  "p.path_hint": "Sola lettura — sfoglialo con un file manager.",
+  "p.path_hint": "Sola lettura — file e cartelle singoli li ripristina il Signor Restori: ⋯ → «Ripristina file…».",
   "p.not_possible": "non possibile",
   "errors.invalid_name": "Nome: solo lettere, cifre e _ . : + - (al massimo 80, senza iniziare con un simbolo).",
   "errors.snapshot_gone": "{name}: non esiste più",
@@ -573,5 +573,6 @@
   "help.partner": "Snapshot di una segreteria partner, ricevuti dalla sua porta in <pool>/UnraidSecretaryOffice-partners. I nomi sono quelli del motore di backup del partner; li conserva la porta, non io — non li elimino, non li rinomino, non li proteggo, e non sono mai una destinazione delle mie pianificazioni. Terminata la partnership sono avanzi («Mettere in ordine» della signora Spolverina).",
   "why.partner": "Una copia del partner {name} — la conserva la porta",
   "errors.partner_copy": "{name} è una copia del partner {partner} — quelle le conserva la porta, non io.",
-  "errors.partner_dataset": "{target} contiene le copie del partner {partner} — mai una mia destinazione: uno snapshot mio lì fermerebbe il prossimo trasferimento."
+  "errors.partner_dataset": "{target} contiene le copie del partner {partner} — mai una mia destinazione: uno snapshot mio lì fermerebbe il prossimo trasferimento.",
+  "files_back": "Ripristina file"
 }

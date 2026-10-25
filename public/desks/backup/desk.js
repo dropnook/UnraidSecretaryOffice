@@ -1243,6 +1243,7 @@ function truth() {
     fresh: (Array.isArray(t.new) ? t.new : named(['share_new', 'share_renamed'])).filter((n) => !((state && state.shares) || []).some((x) => x.name === n)),
     held: !!(state && state.kopia_held),
     gone: drift.some((d) => ['kopia_no_container', 'kopia_container_gone'].includes(d.code)),
+    dockerOff: t.docker_off === true,      // engine 2.75 kopia.state docker_off in the newest look at Kopia (review L9)
     stuck: stuck ? stuck.since : null,
     away: state && state.offsite && state.offsite.unreachable_since ? state.offsite.unreachable_since : null,
   };
@@ -1251,7 +1252,7 @@ function truth() {
 function kopiaTruth(t, last) {
   if (t.held) return { offsite: false, why: 'kopia_held', since: null };
   if (!last || !last.good) return { offsite: false, why: 'kopia_never', since: null };
-  const why = t.gone ? 'kopia_gone' : t.stuck ? 'kopia_stuck' : t.away ? 'kopia_away' : last.ok === false ? 'kopia_failed' : null;
+  const why = t.gone ? 'kopia_gone' : t.dockerOff ? 'kopia_docker_off' : t.stuck ? 'kopia_stuck' : t.away ? 'kopia_away' : last.ok === false ? 'kopia_failed' : null;
   return { offsite: true, why, since: why === 'kopia_stuck' ? t.stuck : why === 'kopia_away' ? t.away : null };
 }
 /**

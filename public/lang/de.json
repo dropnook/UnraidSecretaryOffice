@@ -73,6 +73,7 @@
   "protect.why.kopia_never": "eingestellt: ausser Haus — noch keine Kopie",
   "protect.why.kopia_held": "eingestellt: ausser Haus — angehalten, die Kopie ist plötzlich leer",
   "protect.why.kopia_gone": "der Container von Kopia ist weg — keine neuen Kopien",
+  "protect.why.kopia_docker_off": "Docker ist ausgeschaltet — keine neuen Kopien ausser Haus",
   "protect.why.kopia_stuck": "ausser Haus nimmt seit {since} nichts an",
   "protect.why.kopia_away": "ausser Haus seit {since} nicht erreichbar",
   "protect.why.kopia_failed": "die letzte Kopie ausser Haus ist fehlgeschlagen — eine ältere ist da",

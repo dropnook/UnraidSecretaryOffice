@@ -73,6 +73,7 @@
   "protect.why.kopia_never": "impostato: fuori sede — ancora nessuna copia",
   "protect.why.kopia_held": "impostato: fuori sede — fermo, la copia è improvvisamente vuota",
   "protect.why.kopia_gone": "il container di Kopia non c'è più — nessuna nuova copia",
+  "protect.why.kopia_docker_off": "Docker è spento — nessuna nuova copia fuori sede",
   "protect.why.kopia_stuck": "fuori sede non accetta nulla dal {since}",
   "protect.why.kopia_away": "fuori sede irraggiungibile dal {since}",
   "protect.why.kopia_failed": "l'ultima copia fuori sede non è riuscita — ce n'è una più vecchia",

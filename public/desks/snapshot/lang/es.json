@@ -305,7 +305,7 @@
   "p.overlay_hint": "Lo que la VM escribió después de esta instantánea, hasta la siguiente.",
   "p.files": "Archivos",
   "p.path": "Ruta",
-  "p.path_hint": "Solo lectura — explórala con un gestor de archivos.",
+  "p.path_hint": "Solo lectura — el Señor Restori restaura sus archivos y carpetas sueltos: ⋯ → «Restaurar archivos…».",
   "p.not_possible": "no es posible",
   "errors.invalid_name": "Nombre: solo letras, cifras y _ . : + - (como mucho 80, sin empezar por un símbolo).",
   "errors.snapshot_gone": "{name}: ya no existe",
@@ -573,5 +573,6 @@
   "help.partner": "Instantáneas de una secretaría asociada, recibidas por su puerta en <pool>/UnraidSecretaryOffice-partners. Sus nombres son los del motor de copias del socio; las conserva la retención de la puerta, no yo — no las borro, no las renombro ni las protejo, y nunca son destino de mis programaciones. Terminada la asociación son restos («Ordenar» de la señora Plumero).",
   "why.partner": "Una copia del socio {name} — la conserva la retención de la puerta",
   "errors.partner_copy": "{name} es una copia del socio {partner} — esas las conserva la retención de la puerta, no yo.",
-  "errors.partner_dataset": "{target} guarda las copias del socio {partner} — nunca un destino mío: una instantánea mía allí detendría la próxima transferencia."
+  "errors.partner_dataset": "{target} guarda las copias del socio {partner} — nunca un destino mío: una instantánea mía allí detendría la próxima transferencia.",
+  "files_back": "Restaurar archivos"
 }
