@@ -16,6 +16,8 @@ const ICONS = { apps: '📦', vms: '🖥️', shares: '📁', dbs: '🗄️', fl
 const SELF = (typeof document !== 'undefined' && document.currentScript && document.currentScript.src) || '';     // drill.js lies next to this file
 const HOLDERS = ['backup', 'check', 'dryrun', 'setup', 'restore', 'other'];
 const JOB_POLL = 2000;
+const FB_PAGE = 200;                          // the file browser's page (agent: RS_BROWSE_PAGE) and the names read of a folder (RS_BROWSE_READ)
+const FB_READ = 20000;
 const TPL = '/boot/config/plugins/dockerMan/templates-user';
 
 let state = null;
@@ -1024,7 +1026,7 @@ function unitPart(f, owner) {
       b.disabled = true;
       b.title = T('needs.missing_button', { share: f.share });
     }
-    title.append(' ', b);
+    title.append(' ', b, ' ', browseButton({ path: f.path }, T('fb.title', { what: f.path })));
   }
   part.appendChild(title);
   if (f.whole) part.appendChild(el('div', 'role', T('snaps.whole', { share: f.share, names: andList(f.containers || []), n: (f.containers || []).length })));
@@ -1302,7 +1304,8 @@ function shareDetail(x) {
   if (can) {
     const t = part.querySelector('.rs-part-title');
     t.append(' ', restoreButton(T('sh.whole'), { kind: 'files', path: x.path, mode: 'swap' }, T('rd.title.share', { share: x.name })),
-      ' ', restoreButton(T('sh.folders'), { kind: 'files', path: x.path, items: [] }, T('rd.title.share_part', { share: x.name })));
+      ' ', restoreButton(T('sh.folders'), { kind: 'files', path: x.path, items: [] }, T('rd.title.share_part', { share: x.name })),
+      ' ', browseButton({ path: x.path }, T('fb.title', { what: x.name })));
   }
   b.appendChild(part);
   if (can) b.appendChild(el('p', 'role', T('sh.ways')));
@@ -1732,6 +1735,7 @@ function keptMoments(p, u) {
     main.appendChild(meta);
     r.appendChild(main);
     const right = el('div', 'rs-right');
+    right.appendChild(browseButton({ kept: p.id, unit: u.unit, ksnap: s.name }, T('fb.title_kept', { what: unitLabel(u.unit), name: p.name, when: date(s.creation) })));
     right.appendChild(restoreButton(T('kept.start'), { kind: 'partner_start', pair: p.id, unit: u.unit, snap: s.name },
       T('rd.title.partner_start', { what: unitLabel(u.unit), name: p.name, when: date(s.creation) })));
     r.appendChild(right);
@@ -2044,7 +2048,7 @@ function previewView(p, sizes) {
 function momentView(m) {
   const wrap = el('div', 'rs-pv-part');
   const src = el('p', 'role rs-pv-src');
-  src.append(T('rd.from'), ' ', el('strong', '', m.partner ? T('rd.snap_partner', { name: m.partner }) : m.kopia ? T('rd.snap_kopia', { name: m.name }) : m.name), ' · ', date(m.time));
+  src.append(T('rd.from'), ' ', el('strong', '', m.kept ? T('rd.snap_kept', { name: m.kept, snap: m.name }) : m.partner ? T('rd.snap_partner', { name: m.partner }) : m.kopia ? T('rd.snap_kopia', { name: m.name }) : m.name), ' · ', date(m.time));
   if (m.aside) src.append(' · ', T('rd.m_aside', { name: m.aside.split('/').pop() }));
   wrap.appendChild(src);
   const ul = el('ul', 'rs-pv-list');
@@ -2129,6 +2133,7 @@ async function restoreDialog(req, title) {
     if (plan.options) sleepers = [...new Set([...sleepers, ...(plan.options.asleep || []), ...(plan.options.woken || [])])];
     if (plan.options && req.kind === 'files') options();
     if (plan.options && req.kind === 'kopia') kopiaOptions(opts, plan, ask, onChange, sleepers);
+    if (plan.options && req.kind === 'pick') pickOptions(opts, plan, ask, onChange, sleepers);
     if (plan.options && req.kind === 'partner') partnerOptions(opts, plan, ask, onChange);
     if (plan.options && req.kind === 'partner_start') startOptions(opts, plan, ask, onChange, d.close);
     pv.appendChild(previewView(plan, sizes));
@@ -2570,6 +2575,226 @@ function kopiaOptions(box, plan, ask, change, sleepers) {
   }
 }
 
+// ------------------------------------------------------------------ the file browser (matrix gap 4)
+/** A small button that opens the file browser on a moment of a unit, a share or a partner's kept copy */
+function browseButton(from, title) {
+  const b = button(T('fb.button'), 'small plain', () => browseDialog(from, title));
+  b.dataset.own = '1';
+  return b;
+}
+
+/**
+ * Single files and folders at any depth of a moment (the restore matrix's gap 4): which moment (local snapshots, what
+ * Kopia or a partner brought back — or one moment of a partner's copy kept here), one folder per request (the agent lists
+ * it, paged, with a search over the whole folder), a tick per file and folder across folders, then «Restore…» with the
+ * three ways. A link is shown as one (its text), never opened; a sleeping disk is said, with «wake».
+ */
+async function browseDialog(from, title) {
+  if (!(await Office.freshState(ID))) return;
+  const body = el('div', 'rs-fb');
+  const go = { text: T('fb.go'), kind: '', act: () => pick() };
+  const d = Office.dialog({ title, body, wide: true, buttons: [{ text: Office.t('common.cancel') }, go] });
+  const goBtn = d.buttons[1];
+  const kept = !!from.kept;
+  let at = { ...from };          // what is asked: the start (a zsnap becomes its unit and moment once answered), the moment
+  let rel = '';
+  let q = '';
+  let offset = 0;
+  let wake = false;
+  let seq = 0;
+  let last = null;
+  const picked = new Map();      // rel -> {kind}: what is ticked, across folders of the one moment
+  const update = () => { goBtn.disabled = !picked.size || !canRestore(); };
+  update();
+
+  async function look() {
+    const mine = ++seq;
+    const wait = el('p', 'role running');
+    wait.append(el('span', 'spin'), ' ', T(wake ? 'fb.waking' : 'fb.loading', { path: rel || '/' }));
+    const listBox = body.querySelector('.rs-fb-list-wrap');
+    if (listBox) { listBox.innerHTML = ''; listBox.appendChild(wait); } else { body.innerHTML = ''; body.appendChild(wait); }
+    const j = await Office.api.post(`${ID}.browse`, { ...at, rel, q, offset, wake });
+    if (mine !== seq || !Office.dialogOpen()) return;
+    wake = false;
+    if (!j.ok) { body.innerHTML = ''; body.appendChild(el('p', 'callout warn', problemText(j.error || { key: 'unknown' }))); return; }
+    if (at.zsnap && j.root) at = { path: j.root, snap: j.snap || '' };      // from Ms. Snapshotini's snapshot: its unit and moment
+    rel = j.rel || '';
+    last = j;
+    draw(j);
+  }
+
+  function draw(j) {
+    body.innerHTML = '';
+    if (kept) body.appendChild(el('p', 'callout', T('fb.kept_note', { name: j.partner || '' })));
+    // which moment (local): newest first, the one shown chosen
+    if (!kept && (j.moments || []).length) {
+      const f = el('div', 'field');
+      const label = el('label', '', T('rd.snap'));
+      const sel = el('select', 'input');
+      sel.id = 'rs-fb-snap';
+      label.htmlFor = sel.id;
+      j.moments.forEach((m) => {
+        const op = el('option', '', momentLabel(m, {}));
+        op.value = m.id;
+        op.selected = m.id === j.snap;
+        sel.appendChild(op);
+      });
+      sel.onchange = () => { at = { ...at, snap: sel.value }; picked.clear(); offset = 0; update(); look(); };
+      f.append(label, sel);
+      body.appendChild(f);
+    } else if (kept && j.time) body.appendChild(el('p', 'role', T('fb.kept_from', { name: j.partner || '', unit: unitLabel(j.unit), when: date(j.time) })));
+    if ((j.asleep || []).length) {
+      const p = el('p', 'callout warn', T('fb.asleep', { base: j.asleep.join(', ') }) + ' ');
+      p.appendChild(button(T('fb.wake'), 'small', () => { wake = true; look(); }));
+      body.appendChild(p);
+    }
+    if ((j.failed || []).length) body.appendChild(el('p', 'callout warn', T('errors.restore_wake_failed', { base: j.failed.join(', ') })));
+    // my copy at a partner: comes over whole first, then it is a moment here
+    (j.at_partner || []).forEach((c) => {
+      const p = el('p', 'role rs-fb-partner', T(j.pulled ? 'fb.partner_pulled' : 'fb.partner_hint', { name: c.name }) + ' ');
+      if (!j.pulled) p.appendChild(button(T('fb.partner_go', { name: c.name }), 'small plain', () => { d.close(); sw.pick('partner:' + c.id, 'route'); render(); }));
+      body.appendChild(p);
+    });
+    if (!kept && !j.snap) { body.appendChild(el('p', 'empty', T((j.asleep || []).length ? 'fb.none_awake' : 'fb.no_moment'))); return; }
+    // where: the start and each folder a way back up
+    const crumbs = el('div', 'rs-kb-crumbs rs-fb-crumbs');
+    const crumb = (text, act) => { const a = el('a', '', text); a.href = '#'; a.onclick = (e) => { e.preventDefault(); act(); }; return a; };
+    const top = kept ? unitLabel(j.unit) : (j.root || '').replace(/^\/mnt\/user\//, '');
+    const parts = rel ? rel.split('/') : [];
+    crumbs.appendChild(parts.length ? crumb(top, () => open('')) : el('strong', '', top));
+    parts.forEach((p, i) => crumbs.append(' / ', i === parts.length - 1 ? el('strong', '', p) : crumb(p, () => open(parts.slice(0, i + 1).join('/')))));
+    body.appendChild(crumbs);
+    // a search over the whole folder (the agent filters; a large folder too)
+    const s = el('input', 'input rs-fb-search');
+    s.type = 'search';
+    s.placeholder = T('fb.search');
+    s.setAttribute('aria-label', T('fb.search'));
+    s.value = q;
+    let timer = null;
+    s.oninput = () => { clearTimeout(timer); timer = setTimeout(() => { q = s.value; offset = 0; look(); }, 350); };
+    body.appendChild(s);
+    const wrap = el('div', 'rs-fb-list-wrap');
+    body.appendChild(wrap);
+    list(wrap, j, crumb);
+    const foot = el('div', 'rs-fb-foot');
+    const n = el('span', 'role', picked.size ? T('fb.picked', { n: picked.size }) : T('fb.pick_hint'));
+    foot.appendChild(n);
+    if (picked.size) foot.append(' ', button(T('fb.clear'), 'small plain', () => { picked.clear(); update(); draw(last); }));
+    body.appendChild(foot);
+  }
+
+  function list(wrap, j, crumb) {
+    if (j.link) { wrap.appendChild(el('p', 'callout warn', T('fb.link_dir'))); return; }
+    if (!j.here) { wrap.appendChild(el('p', 'empty', T('fb.not_here'))); return; }
+    if (!(j.entries || []).length) { wrap.appendChild(el('p', 'empty', q ? T('fb.empty_search', { q }) : T('fb.empty'))); return; }
+    const sub = (e) => (rel ? `${rel}/${e.name}` : e.name);
+    const box = el('div', 'box rs-fb-list');
+    const all = el('label', 'check rs-fb-all');
+    const allBox = el('input');
+    allBox.type = 'checkbox';
+    allBox.checked = j.entries.every((e) => picked.has(sub(e)));
+    allBox.onchange = () => { j.entries.forEach((e) => (allBox.checked ? picked.set(sub(e), { kind: e.type }) : picked.delete(sub(e)))); update(); draw(last); };
+    all.append(allBox, el('span', '', T('fb.all_page')));
+    box.appendChild(all);
+    j.entries.forEach((e) => {
+      const path = sub(e);
+      const r = el('div', 'row rs-fb-row');
+      const c = el('input');
+      c.type = 'checkbox';
+      c.checked = picked.has(path) || [...picked.keys()].some((x) => path.startsWith(x + '/'));
+      c.disabled = !picked.has(path) && c.checked;          // a folder picked takes it along
+      c.setAttribute('aria-label', e.name);
+      c.onchange = () => { if (c.checked) picked.set(path, { kind: e.type }); else picked.delete(path); update(); draw(last); };
+      const main = el('div', 'row-main');
+      const name = el('div', 'row-name text');
+      if (e.type === 'd') name.appendChild(crumb(`${e.name}/`, () => open(path)));
+      else name.textContent = e.name;
+      main.appendChild(name);
+      const meta = el('div', 'row-meta');
+      if (e.type === 'l') meta.appendChild(chip(T('fb.link_chip'), 'quiet', T('fb.link_hint', { target: e.link || '' })));
+      if (e.type === 'l' && e.link) meta.appendChild(el('span', 'mono', `→ ${e.link}`));
+      if (e.bytes !== null && e.bytes !== undefined) meta.appendChild(el('span', '', fmt.size(e.bytes)));
+      if (e.time) meta.appendChild(el('span', '', date(e.time)));
+      if ((last.moment && (last.moment.bases || []).length > 1) && (e.bases || []).length) meta.appendChild(el('span', '', e.bases.join(' + ')));
+      main.appendChild(meta);
+      r.append(c, main);
+      box.appendChild(r);
+    });
+    wrap.appendChild(box);
+    // pages: where in the folder, the way on and back
+    if (j.total > j.entries.length) {
+      const pg = el('div', 'rs-fb-pages');
+      pg.appendChild(el('span', 'role', T('fb.page', { from: j.offset + 1, to: j.offset + j.entries.length, total: j.total })));
+      if (j.offset > 0) pg.append(' ', button(T('fb.prev'), 'small plain', () => { offset = Math.max(0, j.offset - FB_PAGE); look(); }));
+      if (j.more) pg.append(' ', button(T('fb.next'), 'small plain', () => { offset = j.offset + j.entries.length; look(); }));
+      wrap.appendChild(pg);
+    }
+    if (j.cut) wrap.appendChild(el('p', 'role', T('fb.cut', { n: FB_READ })));
+    if ((j.left || []).length) wrap.appendChild(el('p', 'role', T('fb.left', { n: j.left.length, names: j.left.join(', ') })));
+  }
+
+  function open(path) { rel = path; q = ''; offset = 0; look(); }
+
+  function pick() {
+    if (!picked.size || !last) return false;
+    const items = [...picked.keys()];
+    const when = date(kept ? last.time : (last.moment || {}).time);
+    const what = items.length === 1 ? items[0].split('/').pop() : T('fb.n_items', { n: items.length });
+    const req = kept ? { kind: 'pick', kept: at.kept, unit: at.unit, ksnap: at.ksnap, items, mode: 'folder' }
+      : { kind: 'pick', path: at.path, snap: last.snap, items };
+    restoreDialog(req, T('rd.title.pick', { what, when }));
+    return true;
+  }
+
+  look();
+}
+
+/**
+ * A pick's options: next to what is there, swapped in (put in place when nothing is there), or into the restore folder —
+ * from a partner's kept copy only the folder; the items picked, each said whether something is there now; wake
+ */
+function pickOptions(box, plan, ask, change, sleepers) {
+  box.innerHTML = '';
+  const o = plan.options || {};
+  const ways = o.way || [];
+  const file = (o.items || []).length && o.items.every((i) => i.kind === 'file');
+  if (ways.length > 1) {
+    const way = el('div', 'field');
+    way.appendChild(el('div', 'field-title', T('rd.way')));
+    ways.forEach((m) => {
+      const l = el('label', 'check');
+      const r = el('input');
+      r.type = 'radio';
+      r.name = 'rs-pway';
+      r.checked = (ask.mode || plan.target.mode) === m;
+      r.onchange = () => change({ mode: m });
+      // one file: the file's words; several (or a folder): each of them
+      const many = !file || o.items.length > 1;
+      const key = m === 'folder' ? 'rd.way_folder' : m === 'swap' && o.nothing_live ? 'rd.way_place' : 'rd.way_' + m;
+      const text = el('span', '', T(m === 'copy' && many ? 'rd.way_copy_pick' : key));
+      text.appendChild(el('small', '', T(m === 'folder' ? 'rd.way_folder_hint' : many ? key + '_pick_hint' : key + '_file_hint')));
+      l.append(r, text);
+      way.appendChild(l);
+    });
+    box.appendChild(way);
+  } else box.appendChild(el('p', 'role', T('rd.way_folder_only')));
+  if ((o.items || []).length) {
+    box.appendChild(listBlock(T('rd.picked'), o.items.map((i) => `${i.rel}${i.kind === 'dir' ? '/' : ''} — ${T(!i.found ? 'rd.item_not_in' : i.there ? 'rd.item_there' : 'rd.item_not_there')}`)));
+  }
+  if ((o.asleep || []).length || ask.wake) {
+    const l = el('label', 'check');
+    const c = el('input');
+    c.type = 'checkbox';
+    c.checked = !!ask.wake;
+    c.onchange = () => change({ wake: c.checked });
+    const names = (o.asleep || []).length ? o.asleep : (o.woken || []).length ? o.woken : (sleepers || []);
+    const text = el('span', '', T('rd.wake', { base: names.join(', ') || '–' }));
+    text.appendChild(el('small', '', T(ask.wake && !(o.asleep || []).length ? 'rd.woke' : 'rd.wake_hint', { base: names.join(', ') || '–' })));
+    l.append(c, text);
+    box.appendChild(l);
+  }
+}
+
 // ------------------------------------------------------------------ the journal
 /** A VM defined from another server's copy, fitted to this host (1.60.1): what was changed, one line each (sa.<code>) */
 function adaptedList(st, jid = null) {
@@ -2697,6 +2922,7 @@ const waving = (x) => { const w = el('span', 'running'); w.append(el('span', 'sp
 const resultClass = (r) => ({ ok: 'ok', warnings: 'warn', failed: 'danger', refused: 'warn', interrupted: 'danger', running: 'accent', queued: 'quiet' }[r] || '');
 
 function journalTitle(r) {
+  if (r.kind === 'files' && r.target && r.target.pick) return T('jk.pick', { what: r.what });        // files and folders picked in a moment
   return r.kind === 'putback' ? T('jk.putback', { what: r.what }) : T('jk.' + r.kind, { what: r.what });
 }
 
@@ -2837,12 +3063,16 @@ Office.desk({
   async mount(root, sub) {
     view = root;
     listBars.forEach((b) => b.reset());     // a new visit (or the search's way to a row): the whole lists
+    // #/restore/browse?zsnap=<dataset>@<name>: Ms. Snapshotini's «Restore files…» — the page, then the browser on it
+    const browse = /^browse\?/.test(sub || '') ? new URLSearchParams(sub.slice(7)).get('zsnap') : null;
+    if (browse !== null) { sub = ''; Office.subroute(''); }
     sw.mount(sub);
     render();
     if (sw.active() === 'drill' && Office.restoreDrill) Office.restoreDrill.refresh();
     else if (Office.restoreDrill) Office.restoreDrill.settings();       // the drill tile's frequency
     await load(false);
     pollJob();             // a restore started elsewhere shows at once
+    if (browse && view === root) browseDialog({ zsnap: browse }, T('fb.title', { what: browse }));
   },
   unmount() { view = null; clearTimeout(jobTimer); jobTimer = null; if (Office.restoreDrill) Office.restoreDrill.stop(); },
   poll() { load(false); },

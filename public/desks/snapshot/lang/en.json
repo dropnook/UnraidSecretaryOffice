@@ -305,7 +305,7 @@
   "p.overlay_hint": "What the VM wrote after this snapshot, until the next one.",
   "p.files": "Files",
   "p.path": "Path",
-  "p.path_hint": "Read only — browse it with a file manager.",
+  "p.path_hint": "Read only — single files and folders from it come back with Mr. Restori: ⋯ → «Restore files…».",
   "p.not_possible": "not possible",
   "errors.invalid_name": "Name: only letters, digits and _ . : + - (at most 80, not starting with a symbol).",
   "errors.snapshot_gone": "{name}: doesn't exist any more",
@@ -573,5 +573,6 @@
   "help.partner": "Snapshots of a partner office, received through its door into <pool>/UnraidSecretaryOffice-partners. Their names are the partner's backup engine's; the door's retention keeps them, not me — I don't delete, rename or hold them, and they are never a target of my schedules. Once the partnership has ended they are leftovers (Ms. Dustdevil's «Tidying up»).",
   "why.partner": "A copy of partner {name} — the door's retention keeps it",
   "errors.partner_copy": "{name} is a copy of partner {partner} — the door's retention keeps those, not me.",
-  "errors.partner_dataset": "{target} holds the copies of partner {partner} — never a target of mine: a snapshot of mine there would stop the next transfer."
+  "errors.partner_dataset": "{target} holds the copies of partner {partner} — never a target of mine: a snapshot of mine there would stop the next transfer.",
+  "files_back": "Restore files"
 }

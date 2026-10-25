@@ -1,0 +1,137 @@
+{
+ "from": "local",
+ "root": "/mnt/user/Familienfilme",
+ "share": "Familienfilme",
+ "owner": {
+  "kind": "share",
+  "name": "Familienfilme"
+ },
+ "rel": "2024 Sommerferien",
+ "q": "",
+ "moments": [
+  {
+   "id": "run:20261009-0430",
+   "name": "uso-backup-20261009-0430",
+   "time": 1791513012,
+   "ours": true,
+   "kopia": false,
+   "aside": null,
+   "partner": null,
+   "bases": [
+    "big"
+   ]
+  },
+  {
+   "id": "run:20261008-0430",
+   "name": "uso-backup-20261008-0430",
+   "time": 1791426612,
+   "ours": true,
+   "kopia": false,
+   "aside": null,
+   "partner": null,
+   "bases": [
+    "big"
+   ]
+  },
+  {
+   "id": "name:vor-dem-umzug",
+   "name": "vor-dem-umzug",
+   "time": 1791257412,
+   "ours": false,
+   "kopia": false,
+   "aside": null,
+   "partner": null,
+   "bases": [
+    "big"
+   ]
+  }
+ ],
+ "snap": "run:20261009-0430",
+ "moment": {
+  "id": "run:20261009-0430",
+  "name": "uso-backup-20261009-0430",
+  "time": 1791513012,
+  "ours": true,
+  "kopia": false,
+  "aside": null,
+  "partner": null,
+  "bases": [
+   "big"
+  ]
+ },
+ "asleep": [],
+ "woken": [],
+ "failed": [],
+ "at_partner": [],
+ "pulled": 0,
+ "live": "/mnt/user/Familienfilme/2024 Sommerferien",
+ "here": true,
+ "link": false,
+ "entries": [
+  {
+   "name": "Ausflug Bergsee",
+   "type": "d",
+   "bytes": null,
+   "time": 1788057012,
+   "link": null,
+   "bases": [
+    "big"
+   ]
+  },
+  {
+   "name": "Rohschnitt",
+   "type": "d",
+   "bytes": null,
+   "time": 1788057012,
+   "link": null,
+   "bases": [
+    "big"
+   ]
+  },
+  {
+   "name": "Sandburg.mp4",
+   "type": "f",
+   "bytes": 734003200,
+   "time": 1785465012,
+   "link": null,
+   "bases": [
+    "big"
+   ]
+  },
+  {
+   "name": "Strand am Abend.mp4",
+   "type": "f",
+   "bytes": 1288490188,
+   "time": 1785378612,
+   "link": null,
+   "bases": [
+    "big"
+   ]
+  },
+  {
+   "name": "Titelmusik.m4a",
+   "type": "f",
+   "bytes": 8388608,
+   "time": 1786329012,
+   "link": null,
+   "bases": [
+    "big"
+   ]
+  },
+  {
+   "name": "neuester Schnitt",
+   "type": "l",
+   "bytes": null,
+   "time": 1788921012,
+   "link": "Rohschnitt/Fassung 3.mp4",
+   "bases": [
+    "big"
+   ]
+  }
+ ],
+ "total": 6,
+ "offset": 0,
+ "more": 0,
+ "cut": false,
+ "left": []
+}

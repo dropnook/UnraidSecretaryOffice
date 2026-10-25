@@ -75,6 +75,7 @@ require_once __DIR__ . '/restore-drill.php';
 require_once __DIR__ . '/restore-partner.php';
 require_once __DIR__ . '/restore-dataset.php';      // «Make it a dataset of its own…» (1.60.1, asked from Mr. Backupsy's setup)
 require_once __DIR__ . '/restore-paths.php';        // 1.72: every share, one path out of Kopia, Kopia's packages as earlier versions
+require_once __DIR__ . '/restore-browse.php';       // files and folders at any depth of a moment, local or kept for a partner (matrix gap 4)
 
 function rsSizesFile(): string
 {
@@ -139,6 +140,7 @@ desk('restore', [
         'journal'    => fn (array $r) => rsJournalGet(textField($r, 'id')),
         'kopia_list' => fn (array $r) => rsKopiaList(textField($r, 'source')),
         'kopia_ls'   => fn (array $r) => rsKopiaLs($r),
+        'browse'     => fn (array $r) => rsBrowse($r),
         'versions_kopia' => fn (array $r) => rsVersionsKopia(textField($r, 'kind'), textField($r, 'id')),
         'drill_state' => fn (array $r) => drillState($r),
         'drill_plan'  => fn (array $r) => drillPlan($r),
@@ -1911,6 +1913,7 @@ function rsPlan(array $r): array
         'config'  => rsPlanConfig($r, $stamp),
         'vm'      => rsPlanVm($r, $stamp),
         'kopia'   => rsPlanKopia($r, $stamp),
+        'pick'    => rsPlanPick($r, $stamp),
         'putback' => rsPlanPutback($r, $stamp),
         'partner' => rsPlanPartner($r, $stamp),
         'partner_start' => rsPlanPartnerStart($r, $stamp),
@@ -3644,6 +3647,7 @@ function rsJob(array $args): int
             mdRollback($j);
         }
     } finally {
+        rsPeekRelease($j);                // a partner's kept moment mounted for the copies: never left mounted
         $stopped = $GLOBALS['rsStop'];
         $j['result'] = $failed || $stopped ? 'failed' : ($warn ? 'warnings' : 'ok');
         if ($stopped) {
@@ -3702,6 +3706,8 @@ function rsStep(array &$j, int $i): array
         'pull'      => rsDoPull($j, $i),
         'mount'     => rsDoMount($j, $s),
         'drop'      => rsDoDrop($j, $s),
+        'peek_mount' => rsDoPeekMount($j, $s),
+        'peek_umount' => rsDoPeekUmount($j, $s),
         'pull_local' => rsDoPullLocal($j, $i),
         'start_from' => rsDoStartFrom($j, $i),
         'md_stopped' => mdDoStopped($j, $s),
@@ -4436,7 +4442,7 @@ function rsDoMove(array &$j, array $s): array
     $tds = $s['to_dataset'] ?? null;
     $isDs = $fds !== null && $tds !== null && rsDatasetExists($fds);
     clearstatcache();
-    if (!$isDs && !file_exists($from)) {
+    if (!$isDs && !file_exists($from) && !is_link($from)) {          // a link picked from a moment moves as the link
         return rsFail('gone', ['path' => $from]);
     }
     if (!rsFreePlace($to, $isDs) || ($isDs && rsDatasetExists($tds))) {

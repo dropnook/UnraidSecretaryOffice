@@ -14622,6 +14622,267 @@ function testRestorePaths(): void
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
+function testRestoreBrowse(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-rsbrowse-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $mnt = "$tmp/mnt";
+    @mkdir("$tmp/data/unraid-backup/state", 0700, true);
+    @mkdir("$tmp/run", 0700, true);
+    $saved = $GLOBALS['rs'];
+    $GLOBALS['rs']['data'] = "$tmp/data/restore";
+    $GLOBALS['rs']['job_file'] = "$tmp/data/restore-job.json";
+    $GLOBALS['rs']['ub_data'] = "$tmp/data/unraid-backup";
+    $GLOBALS['rs']['sizes_file'] = "$tmp/data/restore-sizes.json";
+    $GLOBALS['rs']['users'] = fn (array $paths, array $roots): array => [[], []];
+    $GLOBALS['rs']['open'] = fn (array $paths): array => [];
+    $GLOBALS['rs']['vm_disks'] = fn (): array => [];
+    $GLOBALS['rs']['peek_root'] = "$tmp/run";
+    $key = function (callable $f): string {
+        try {
+            $f();
+            return 'answered';
+        } catch (Problem $p) {
+            return $p->key;
+        }
+    };
+    $put = function (string $file, ?string $text = null): void {
+        @mkdir($text === null ? $file : dirname($file), 0755, true);
+        if ($text !== null) {
+            file_put_contents($file, $text);
+        }
+    };
+    $run = function (array $p, string $id): array {
+        rsPrivateDir(rsData());
+        rsPrivateDir(rsDir($id));
+        $j = rsJournalNew($id, $p);
+        $states = [];
+        foreach (array_keys($j['steps']) as $i) {
+            $j['steps'][$i] = array_merge($j['steps'][$i], rsStep($j, $i));
+            $states[] = $j['steps'][$i]['state'];
+        }
+        rsPeekRelease($j);
+        $j['result'] = 'ok';
+        writeAtomic(rsDir($id) . '/plan.json', jsonEncode($p), 0600, 0, 0);
+        rsJournalWrite($j);
+        clearstatcache();
+        return [$states, $j];
+    };
+
+    // ---- names picked: relative, clean, each once, none inside another one; never more than the most at once
+    same('restore browse: the picks as the page sends them — clean, sorted, a folder takes what lies in it along', ['Fotos', 'Verträge/2024/a.pdf'],
+        rsPickItems(['Verträge/2024/a.pdf', 'Fotos/a.jpg', 'Fotos', 'Fotos']));
+    same('restore browse: never .., the top itself, nothing, a map, another type or too many', ['unknown_target', 'unknown_target', 'restore_nothing_chosen', 'restore_nothing_chosen', 'bad_request', 'restore_pick_too_many'],
+        [$key(fn () => rsPickItems(['a/../../etc'])), $key(fn () => rsPickItems(['/'])), $key(fn () => rsPickItems([])), $key(fn () => rsPickItems(['x' => 'a'])),
+         $key(fn () => rsPickItems([['a']])), $key(fn () => rsPickItems(array_map(fn ($i) => "f$i", range(0, RS_PICK_MAX))))]);
+
+    // ---- the server: pool hazel (ZFS) — zzdocs (no app uses it, snapshot manual-1), appdata with nc a dataset of its own
+    // (its own manual-1), the office's share; disk1 (asleep) holds zzarr
+    $S = "$mnt/hazel/zzdocs/.zfs/snapshot/manual-1";
+    $put("$mnt/hazel/zzdocs/Verträge/2024/a.pdf", 'live a');
+    $put("$S/Verträge/2024/a.pdf", 'old a');
+    $put("$S/Verträge/2024/deep.pdf", 'deep');          // deleted since
+    $put("$S/Verträge/2024/Belege/b.txt", 'b');
+    $put("$S/Fotos/a.jpg", 'jpg');
+    symlink('a.jpg', "$S/Fotos/link.jpg");
+    $put("$tmp/outside/secret.txt", 'never');
+    symlink("$tmp/outside", "$S/evil");                 // a folder link out of the moment
+    $put("$S/Fotos/bad\nname.jpg", 'x');
+    for ($i = 0; $i < 450; $i++) {
+        $put(sprintf("$S/big/f%03d.txt", $i), (string) $i);
+    }
+    $put("$mnt/hazel/appdata/nc/config.php", 'live cfg');
+    $put("$mnt/hazel/appdata/.zfs/snapshot/manual-1/nc");                       // the parent's snapshot: nc's stub, empty
+    $put("$mnt/hazel/appdata/nc/.zfs/snapshot/manual-1/config.php", 'old cfg');
+    $put("$mnt/hazel/UnraidSecretaryOffice/backup");
+    $put("$mnt/disk1/zzarr");
+    $put("$mnt/user");
+    foreach (['zzdocs', 'appdata', 'UnraidSecretaryOffice'] as $s) {
+        symlink("$mnt/hazel/$s", "$mnt/user/$s");
+    }
+    $put("$mnt/user/zzarr");
+    $T1 = (int) strtotime('2026-10-20 01:00');
+    $only = ['shareUseCache' => 'only', 'shareCachePool' => 'hazel'];
+    $settings = ['general' => ['dumps_share' => ['UnraidSecretaryOffice']]];
+    $ctx = [
+        'fs' => ['hazel' => 'zfs', 'disk1' => 'xfs'],
+        'zfs' => ["$mnt/hazel/zzdocs" => 'hazel/zzdocs', "$mnt/hazel/appdata" => 'hazel/appdata', "$mnt/hazel/appdata/nc" => 'hazel/appdata/nc',
+                  "$mnt/hazel/UnraidSecretaryOffice" => 'hazel/UnraidSecretaryOffice'],
+        'snaps' => ['hazel/zzdocs' => [['name' => 'manual-1', 'time' => $T1]], 'hazel/appdata' => [['name' => 'manual-1', 'time' => $T1]],
+                    'hazel/appdata/nc' => [['name' => 'manual-1', 'time' => $T1]]],
+        'zfs_kept' => [], 'pools_asleep' => [], 'asleep' => ['disk1' => true], 'prefixes' => ['uso-backup-'], 'btrfs_dir' => '.btrfs-snap', 'settings' => $settings,
+        'cfg' => ['zzdocs' => $only, 'appdata' => $only, 'UnraidSecretaryOffice' => $only, 'zzarr' => ['shareUseCache' => 'no', 'shareInclude' => 'disk1']],
+        'mnt' => $mnt, 'user' => "$mnt/user", 'disks' => ['hazel' => ['name' => 'hazel', 'fsFree' => '1000000'], 'disk1' => ['name' => 'disk1', 'fsFree' => '1000000']],
+        'shares_ini' => ['zzdocs' => ['exclusive' => 'yes'], 'appdata' => ['exclusive' => 'yes'], 'UnraidSecretaryOffice' => ['exclusive' => 'yes'], 'zzarr' => []],
+        'old_shares' => null, 'now' => [],
+    ];
+    $state = ['apps' => [['id' => 'nc', 'name' => 'nc', 'folders' => [['path' => '/mnt/user/appdata/nc', 'share' => 'appdata', 'whole' => false]], 'shares' => []]],
+              'vms' => [], 'partners' => [['id' => 'a1b2c3d4', 'name' => 'PartnerNAS', 'units' => [['unit' => 'share:zzdocs', 'snaps' => [['name' => 'uso-backup-20261019-0100']], 'newest' => $T1]]]],
+              'shares_back' => [['name' => 'zzdocs'], ['name' => 'appdata'], ['name' => 'zzarr']]];
+    $GLOBALS['rs']['ctx'] = $ctx;
+    $GLOBALS['rs']['state'] = $state;
+    $GLOBALS['rs']['settings'] = $settings;
+
+    // ---- one folder per request: the union of the moment's parts, folders first; links shown, never followed
+    $b = rsBrowse(['path' => '/mnt/user/zzdocs', 'rel' => '']);
+    same('restore browse: the share\'s moments and the newest holding it, its top — folders first, the link a link, the name with a line break named apart',
+        ['name:manual-1', ['big', 'Fotos', 'Verträge', 'evil'], ['d', 'd', 'd', 'l'], "$tmp/outside", [], ['PartnerNAS']],
+        [$b['snap'], array_column($b['entries'], 'name'), array_column($b['entries'], 'type'), $b['entries'][3]['link'] ?? null, $b['left'], array_column($b['at_partner'], 'name')]);
+    $b = rsBrowse(['path' => '/mnt/user/zzdocs', 'snap' => 'name:manual-1', 'rel' => 'Fotos']);
+    same('restore browse: a folder below — files with size and time, a file link shown with its text, a control character never offered',
+        [['a.jpg', 'link.jpg'], [3, null], 'a.jpg', ['bad\nname.jpg']],
+        [array_column($b['entries'], 'name'), array_column($b['entries'], 'bytes'), $b['entries'][1]['link'] ?? null, $b['left']]);
+    $b = rsBrowse(['path' => '/mnt/user/zzdocs', 'snap' => 'name:manual-1', 'rel' => 'Verträge/2024']);
+    same('restore browse: deep down — what was deleted since is there', ['Belege', 'a.pdf', 'deep.pdf'], array_column($b['entries'], 'name'));
+    $b = rsBrowse(['path' => '/mnt/user/zzdocs', 'snap' => 'name:manual-1', 'rel' => 'evil']);
+    same('restore browse: a folder that is a link is never followed out of the moment', [true, false, []], [$b['link'], $b['here'], $b['entries']]);
+    same('restore browse: never .. in the path, never a share no row has, a moment that isn\'t there',
+        ['unknown_target', 'unknown_target', 'unknown_target'],
+        [$key(fn () => rsBrowse(['path' => '/mnt/user/zzdocs', 'rel' => '../appdata'])), $key(fn () => rsBrowse(['path' => '/mnt/user/UnraidSecretaryOffice', 'rel' => ''])),
+         $key(fn () => rsBrowse(['path' => '/mnt/user/zzdocs', 'snap' => 'name:nope', 'rel' => '']))]);
+    $p1 = rsBrowse(['path' => '/mnt/user/zzdocs', 'snap' => 'name:manual-1', 'rel' => 'big']);
+    $p3 = rsBrowse(['path' => '/mnt/user/zzdocs', 'snap' => 'name:manual-1', 'rel' => 'big', 'offset' => 400]);
+    $q = rsBrowse(['path' => '/mnt/user/zzdocs', 'snap' => 'name:manual-1', 'rel' => 'big', 'q' => 'F44']);
+    same('restore browse: a large folder paged — the first page, the last, a search over all of it (case ignored)',
+        [450, RS_BROWSE_PAGE, 250, 'f000.txt', 50, 0, 'f400.txt', ['f440.txt', 'f441.txt', 'f442.txt', 'f443.txt', 'f444.txt', 'f445.txt', 'f446.txt', 'f447.txt', 'f448.txt', 'f449.txt']],
+        [$p1['total'], count($p1['entries']), $p1['more'], $p1['entries'][0]['name'], count($p3['entries']), $p3['more'], $p3['entries'][0]['name'], array_column($q['entries'], 'name')]);
+    $b = rsBrowse(['path' => '/mnt/user/appdata', 'snap' => 'name:manual-1', 'rel' => 'nc']);
+    same('restore browse: a dataset inside is read from its own snapshot (the parent\'s holds only its empty stub)', ['config.php'], array_column($b['entries'], 'name'));
+    $b = rsBrowse(['zsnap' => 'hazel/appdata/nc@manual-1']);
+    same('restore browse: from Ms. Snapshotini\'s snapshot — its dataset\'s folder (the app\'s unit), its moment', ['/mnt/user/appdata/nc', 'app', 'name:manual-1', ['config.php']],
+        [$b['root'], $b['owner']['kind'], $b['snap'], array_column($b['entries'], 'name')]);
+    same('restore browse: a pool\'s own top or a dataset no share has is not browsed here', ['restore_browse_not_share', 'restore_browse_not_share'],
+        [$key(fn () => rsBrowse(['zsnap' => 'hazel@x'])), $key(fn () => rsBrowse(['zsnap' => 'hazel/nothere@manual-1']))]);
+    $b = rsBrowse(['path' => '/mnt/user/zzarr', 'rel' => '']);
+    same('restore browse: a sleeping disk is named, never read — nothing listed, no moment', [['disk1'], null, []], [$b['asleep'], $b['snap'], $b['entries']]);
+
+    // ---- picks: next to it, swapped in, into the restore folder
+    $own = rsShareOwner($state, '/mnt/user/zzdocs');
+    $stamp = '20261025-110000';
+    $c = $ctx;
+    $p = rsPlanPickFor('/mnt/user/zzdocs', $own, 'name:manual-1', ['Verträge/2024/a.pdf', 'Verträge/2024/deep.pdf', 'Fotos/link.jpg'], 'copy', false, $stamp, $c);
+    same('restore browse: a pick next to what is there — each as <name>.restored-<time>, a link copied as the link, a files restore marked pick',
+        [[], 'files', true, ["$mnt/user/zzdocs/Verträge/2024/a.pdf.restored-$stamp", "$mnt/user/zzdocs/Verträge/2024/deep.pdf.restored-$stamp", "$mnt/user/zzdocs/Fotos/link.jpg.restored-$stamp"]],
+        [array_column($p['blockers'], 'key'), $p['kind'], $p['target']['pick'], array_column($p['steps'], 'to')]);
+    [$states] = $run($p, "$stamp-aa01");
+    same('restore browse: copied — beside the live file, the deleted one beside where it was, the link still a link', [['ok', 'ok', 'ok'], 'old a', 'live a', 'deep', 'a.jpg'],
+        [$states, @file_get_contents("$mnt/hazel/zzdocs/Verträge/2024/a.pdf.restored-$stamp"), @file_get_contents("$mnt/hazel/zzdocs/Verträge/2024/a.pdf"),
+         @file_get_contents("$mnt/hazel/zzdocs/Verträge/2024/deep.pdf.restored-$stamp"), @readlink("$mnt/hazel/zzdocs/Fotos/link.jpg.restored-$stamp")]);
+    $stamp = '20261025-111000';
+    $c = $ctx;
+    $p = rsPlanPickFor('/mnt/user/zzdocs', $own, 'name:manual-1', ['Verträge/2024/a.pdf', 'Verträge/2024/Belege'], 'swap', false, $stamp, $c);
+    same('restore browse: swapped in — what is there aside first (the file), what isn\'t simply put in place',
+        [[], ["$mnt/user/zzdocs/Verträge/2024/a.pdf" => "$mnt/user/zzdocs/Verträge/2024/a.pdf.aside-$stamp"], ['copy', 'copy', 'not_open', 'aside', 'move', 'move']],
+        [array_column($p['blockers'], 'key'), array_column($p['aside'], 'to', 'from'), array_column($p['steps'], 'do')]);
+    [$states] = $run($p, "$stamp-aa02");
+    same('restore browse: the moment\'s file in its place, the live one aside, the folder back', [array_fill(0, 6, 'ok'), 'old a', 'live a', 'b'],
+        [$states, @file_get_contents("$mnt/hazel/zzdocs/Verträge/2024/a.pdf"), @file_get_contents("$mnt/hazel/zzdocs/Verträge/2024/a.pdf.aside-$stamp"),
+         @file_get_contents("$mnt/hazel/zzdocs/Verträge/2024/Belege/b.txt")]);
+    $back = rsPlanSeal(rsPlanPutback(['id' => "$stamp-aa02"], '20261025-112000'), '20261025-112000');
+    $pb = rsJournalNew('20261025-112000-bb02', $back);
+    rsPrivateDir(rsDir($pb['id']));
+    foreach (array_keys($pb['steps']) as $i) {
+        $pb['steps'][$i] = array_merge($pb['steps'][$i], rsStep($pb, $i));
+    }
+    clearstatcache();
+    same('restore browse: put back — the live file again, the moment\'s put aside, the folder that came back aside too', ['live a', 'old a', 'b'],
+        [@file_get_contents("$mnt/hazel/zzdocs/Verträge/2024/a.pdf"), @file_get_contents("$mnt/hazel/zzdocs/Verträge/2024/a.pdf.putback-20261025-112000"),
+         @file_get_contents("$mnt/hazel/zzdocs/Verträge/2024/Belege.putback-20261025-112000/b.txt")]);
+    $stamp = '20261025-113000';
+    $c = $ctx;
+    $p = rsPlanPickFor('/mnt/user/zzdocs', $own, 'name:manual-1', ['Verträge/2024/deep.pdf', 'Fotos'], 'folder', false, $stamp, $c);
+    $F = "$mnt/user/UnraidSecretaryOffice/restore/files/zzdocs-$stamp";
+    same('restore browse: into the restore folder — the paths below the start kept, nothing replaced', [[], ["$F/Verträge/2024/deep.pdf", "$F/Fotos"], []],
+        [array_column($p['blockers'], 'key'), array_column($p['steps'], 'to'), $p['aside']]);
+    [$states] = $run($p, "$stamp-aa03");
+    same('restore browse: there it lies', [['ok', 'ok'], 'deep', 'jpg'], [$states, @file_get_contents("$F/Verträge/2024/deep.pdf"), @file_get_contents("$F/Fotos/a.jpg")]);
+    $c = $ctx;
+    $p = rsPlanPickFor('/mnt/user/zzdocs', $own, 'name:manual-1', ['evil/secret.txt', 'nothere.txt'], 'copy', false, '20261025-114000', $c);
+    same('restore browse: never through a folder link out of the moment, never what the moment doesn\'t hold', ['restore_browse_link', 'restore_not_in_snapshot'],
+        array_column($p['blockers'], 'key'));
+    $c = $ctx;
+    $c['shares_ini'] = array_diff_key($ctx['shares_ini'], ['UnraidSecretaryOffice' => 1]);
+    $p = rsPlanPickFor('/mnt/user/zzdocs', $own, 'name:manual-1', ['Fotos'], 'folder', false, '20261025-115000', $c);
+    same('restore browse: the restore folder needs the office\'s share — never made here', ['restore_pick_no_folder'], array_column($p['blockers'], 'key'));
+    $c = $ctx;
+    $p = rsPlanPickFor('/mnt/user/zzarr', rsShareOwner($state, '/mnt/user/zzarr'), '', ['x.txt'], 'copy', false, '20261025-116000', $c);
+    same('restore browse: a sleeping disk — the pick waits for «wake», nothing read', [['restore_asleep'], ['disk1']], [array_column($p['blockers'], 'key'), $p['options']['asleep']]);
+    $GLOBALS['rs']['wake_run'] = function (array $cmds) use (&$woke): array {
+        $woke = array_keys($cmds);
+        return array_map(fn () => [0, '', ''], $cmds);
+    };
+    $c = $ctx;
+    $c['disks']['disk1']['device'] = 'null';
+    $woke = [];
+    rsPlanPickFor('/mnt/user/zzarr', rsShareOwner($state, '/mnt/user/zzarr'), '', ['x.txt'], 'copy', true, '20261025-116100', $c);
+    same('restore browse: «wake» ticked — the sleeping disk is woken first', ['disk1'], $woke);
+    unset($GLOBALS['rs']['wake_run']);
+
+    // ---- a partner's copy kept here: mounted read-only in RAM for a look, only into the restore folder, unmounted after
+    $K = "$tmp/kept-fixture";
+    $put("$K/Schule/Zeugnis.pdf", 'zeugnis');
+    symlink('/etc', "$K/etc");
+    $mounts = [];
+    $GLOBALS['rs']['peek_mount'] = function (string $snap, string $dir) use ($K, &$mounts): bool {
+        @mkdir($dir, 0700, true);
+        exec('cp -a ' . escapeshellarg("$K/.") . ' ' . escapeshellarg($dir));
+        $mounts[$dir] = $snap;
+        return true;
+    };
+    $GLOBALS['rs']['peek_umount'] = function (string $dir) use (&$mounts): bool {
+        exec('rm -rf ' . escapeshellarg($dir));
+        unset($mounts[$dir]);
+        return true;
+    };
+    $ds = 'hazel/' . PARTNER_PARENT . '/p1/share-theirs';
+    $kept = ['id' => 'p1', 'name' => 'Helmi', 'pool' => 'hazel', 'asleep' => false,
+             'units' => [['unit' => 'share:theirs', 'dataset' => $ds, 'snaps' => [['name' => 'uso-backup-20261019-0100', 'creation' => $T1]]]]];
+    $GLOBALS['rs']['kept_one'] = function (string $id) use (&$kept): ?array {
+        return $id === 'p1' ? $kept : null;
+    };
+    $b = rsBrowse(['kept' => 'p1', 'unit' => 'share:theirs', 'ksnap' => 'uso-backup-20261019-0100', 'rel' => 'Schule']);
+    same('restore browse: a partner\'s kept moment — its folder listed, nothing left mounted', ['kept', ['Zeugnis.pdf'], []], [$b['from'], array_column($b['entries'], 'name'), $mounts]);
+    $b = rsBrowse(['kept' => 'p1', 'unit' => 'share:theirs', 'ksnap' => 'uso-backup-20261019-0100', 'rel' => 'etc']);
+    same('restore browse: a link in a kept moment is never followed', [true, []], [$b['link'], $b['entries']]);
+    same('restore browse: a kept moment only in exactly his list', ['unknown_target', 'unknown_target'],
+        [$key(fn () => rsBrowse(['kept' => 'p1', 'unit' => 'share:theirs', 'ksnap' => 'uso-backup-20991019-0100'])), $key(fn () => rsBrowse(['kept' => 'zz', 'unit' => 'share:theirs', 'ksnap' => 'x']))]);
+    $stamp = '20261025-120000';
+    $GLOBALS['rs']['ctx'] = $ctx;
+    $p = rsPlanPick(['kind' => 'pick', 'kept' => 'p1', 'unit' => 'share:theirs', 'ksnap' => 'uso-backup-20261019-0100', 'items' => ['Schule/Zeugnis.pdf'], 'mode' => 'swap', 'stamp' => $stamp], $stamp);
+    $F = "$mnt/user/UnraidSecretaryOffice/restore/files/Helmi-theirs-$stamp";
+    same('restore browse: from a kept moment only into the restore folder (swap asked: never), mounted for the copy and unmounted after',
+        [[], 'folder', ['peek_mount', 'copy', 'peek_umount'], "$F/Schule/Zeugnis.pdf", 7, []],
+        [array_column($p['blockers'], 'key'), $p['target']['mode'], array_column($p['steps'], 'do'), $p['steps'][1]['to'] ?? null, $p['sizes']['need'], $mounts]);
+    [$states, $j] = $run($p, "$stamp-aa04");
+    same('restore browse: the partner\'s file in the restore folder, his copy untouched, nothing left mounted', [['ok', 'ok', 'ok'], 'zeugnis', 'zeugnis', [], null],
+        [$states, @file_get_contents("$F/Schule/Zeugnis.pdf"), @file_get_contents("$K/Schule/Zeugnis.pdf"), $mounts, $j['peek'] ?? null]);
+    // a copy that fails: the job's end unmounts it all the same
+    $p['steps'][1]['sources'] = ["$tmp/run/restore-peek-j$stamp/gone.pdf"];
+    $p['steps'][1]['to'] = "$F/again.pdf";
+    rsPrivateDir(rsDir("$stamp-aa05"));
+    $j = rsJournalNew("$stamp-aa05", $p);
+    $j['steps'][0] = array_merge($j['steps'][0], rsStep($j, 0));
+    $j['steps'][1] = array_merge($j['steps'][1], rsStep($j, 1));
+    $held = $mounts;
+    rsPeekRelease($j);
+    same('restore browse: a failed copy — the kept moment is unmounted at the job\'s end all the same', ['failed', 1, []], [$j['steps'][1]['state'], count($held), $mounts]);
+    $kept['asleep'] = true;
+    $b = rsBrowse(['kept' => 'p1', 'unit' => 'share:theirs', 'ksnap' => 'uso-backup-20261019-0100']);
+    same('restore browse: a kept moment on a sleeping pool — said, nothing mounted', [['hazel'], []], [$b['asleep'], $mounts]);
+
+    // ---- the page
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/restore/desk.js');
+    check('restore browse (page): the browser asks one folder per request, ticks, a search, «Restore…» with the three ways; reached from shares, app folders and kept moments',
+        str_contains($js, "Office.api.post(`\${ID}.browse`,") && str_contains($js, "kind: 'pick'") && str_contains($js, "if (plan.options && req.kind === 'pick') pickOptions(")
+        && str_contains($js, 'browseButton({ path: x.path }') && str_contains($js, 'browseButton({ path: f.path }') && str_contains($js, 'browseButton({ kept: p.id')
+        && str_contains($js, "new URLSearchParams(sub.slice(7)).get('zsnap')"));
+    $snap = (string) file_get_contents(OFFICE_WEB . '/desks/snapshot/desk.js');
+    check('restore browse (page): Ms. Snapshotini\'s moment menu leads to his browser', str_contains($snap, "Office.go('#/restore/browse?zsnap=' + encodeURIComponent("));
+
+    $GLOBALS['rs'] = $saved;
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 /**
  * Mr. Restori and a Nextcloud restored from the engine's snapshot (the end-to-end test of 2026-10-11 on a large server:
  * the restored Nextcloud answered «maintenance» to every request): where its config.php lies on the host (the official
@@ -53973,7 +54234,7 @@ function testUsoNetJoin(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestorePaths', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],
