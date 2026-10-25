@@ -17,25 +17,26 @@ big=$(stat -c %s /mnt/cache/media/uso-wip-f-m15/a-big.bin 2>/dev/null)
 track_share media
 track_share photos
 snap_before
-# her progress twice a second while it runs: the file in flight and its bytes done; what reached the array (the big
-# file's bytes, the small ones whole), and whether the stop is asked (her stop file, or the night's — her «Run now» is a
-# joint run). The order the files go in is the pool's (ZFS lists a folder in hash order, not by name): the cells read
-# what was in flight when the stop came from these looks, never from the names.
+# two lookers, neither waiting for the other (lib.sh mv_look_*; until 2026-10-25 one loop with a new php per look and
+# du, which a big file filling the page cache held up for seconds): her progress through one resident asker — the file
+# in flight and its bytes done — and the array ten times a second — what reached the array (the big file's bytes, the
+# small ones whole), and whether the stop is asked (her stop file, or the night's — her «Run now» is a joint run). The
+# order the files go in is the pool's (ZFS lists a folder in hash order, not by name): the cells read what was in flight
+# when the stop came from these looks, never from the names.
 md=/mnt/cache/appdata/UnraidSecretaryOffice/data/moverelli
-(while :; do t=$(date +%s.%N)
-    php "$SC_DIR/ask.php" --wait 5 --raw moverelli.progress '{}' 2>/dev/null | jq -c --arg t "$t" '{t: ($t|tonumber), file: (.state.progress.file // ""), fb: (.state.progress.file_bytes // null)}'
-    printf '{"t":%s,"arrived":%s,"small":%s,"stop":%s}\n' "$(date +%s.%N)" "$(du -B1 -c /mnt/disk*/media/uso-wip-f-m15/a-big.bin* 2>/dev/null | tail -1 | cut -f1)" \
-        "$(find /mnt/disk*/photos/uso-wip-f-m15 -name 'z-small-*.bin' 2>/dev/null | wc -l)" "$([[ -e $md/office-stop.json || -e $md/night-stop.json ]] && echo 1 || echo 0)"
-    sleep 0.4; done) >"$KEEP/progress.jsonl" 2>/dev/null & ppid=$!
+mv_look_progress "$KEEP/progress.jsonl" 0.2 & ppid=$!
+mv_look_array "$KEEP/array.jsonl" '/mnt/disk*/media/uso-wip-f-m15/a-big.bin*' '/mnt/disk*/photos/uso-wip-f-m15' 'z-small-*.bin' \
+    "$md/office-stop.json" "$md/night-stop.json" & apid=$!
 flow MV-STOP-AFTER-FILE share=media
-kill "$ppid" 2>/dev/null; wait "$ppid" 2>/dev/null
+mv_look_stop "$ppid" "$apid"
+evidence "$KEEP/array.jsonl" >/dev/null
 evidence "$KEEP/progress.jsonl" >/dev/null
 where=$(find /mnt/disk*/media/uso-wip-f-m15 -name a-big.bin -printf '%s %p\n' 2>/dev/null | head -1)
 small=$(find /mnt/disk*/photos/uso-wip-f-m15 -name 'z-small*' 2>/dev/null | wc -l)
 part=$(find /mnt/cache/media /mnt/disk*/media /mnt/disk*/photos -name '*.partial' 2>/dev/null | head -1)
 [[ ${where%% *} == "$big" && -z $part ]] && cell big-whole 1 "the big file arrived whole ($big bytes), no .partial" || cell big-whole 0 "the big file: ${where:-not on the array} (want $big bytes), .partial: ${part:-none}"
 # at the first look that saw the stop: was the big file on its way (some bytes, not all), how many small ones were over
-at=$(jq -sc '[.[] | select(.stop == 1)] | .[0] // {}' "$KEEP/progress.jsonl" 2>/dev/null)
+at=$(jq -sc '[.[] | select(.stop == 1 and .arrived != null and .small != null)] | .[0] // {}' "$KEEP/array.jsonl" 2>/dev/null)
 s0=$(jq -r '.small // empty' <<<"$at"); a0=$(jq -r '.arrived // 0' <<<"$at")
 say "at the stop: big file $a0 of $big bytes on the array, ${s0:-?} small one(s) over; at the end $small"
 if [[ -z $s0 ]] || ! (( a0 > 0 && a0 < big )); then
@@ -45,7 +46,7 @@ else cell no-further 0 "$((small - s0)) small file(s) begun after the stop, whil
 # rates: her file_bytes of a-big over time (the looks while it was on its way: the one after it reads 0), the array's
 # bytes of it over the same span
 her=$(jq -s '[.[] | select((.file // "") | test("a-big")) | select(.fb != null and .fb > 0 and .fb < '"$big"')] | if length > 1 then ((.[-1].fb - .[0].fb) / (.[-1].t - .[0].t)) else 0 end' "$KEEP/progress.jsonl" 2>/dev/null)
-real=$(jq -s '[.[] | select(.arrived != null and .arrived > 0 and .arrived < '"$big"')] | if length > 1 then ((.[-1].arrived - .[0].arrived) / (.[-1].t - .[0].t)) else 0 end' "$KEEP/progress.jsonl" 2>/dev/null)
+real=$(jq -s '[.[] | select(.arrived != null and .arrived > 0 and .arrived < '"$big"')] | if length > 1 then ((.[-1].arrived - .[0].arrived) / (.[-1].t - .[0].t)) else 0 end' "$KEEP/array.jsonl" 2>/dev/null)
 n=$(jq -s '[.[] | select((.file // "") | test("a-big"))] | length' "$KEEP/progress.jsonl" 2>/dev/null)
 say "while the big file moved: $n looks naming it; her bytes done ${her%.*} B/s, the array ${real%.*} B/s"
 awk -v r="${her:-0}" -v q="${real:-0}" 'BEGIN { exit !(r > 0 && q > 0 && r < 2 * q && q < 2 * r) }' \

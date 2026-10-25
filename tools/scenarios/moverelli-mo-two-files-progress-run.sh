@@ -19,20 +19,26 @@ undo_push bash -c 'rm -rf /mnt/*/media/uso-wip-f-bf3s /mnt/*/media/uso-wip-f-bf3
 big=$(stat -c %s /mnt/cache/media/uso-wip-f-bf3s/z-big.bin 2>/dev/null)
 track_share media
 snap_before
-# her progress about three times a second while it runs: the file in flight and its bytes done; what of the big file
-# reached the array, how many small ones are over
-(while :; do t=$(date +%s.%N)
-    php "$SC_DIR/ask.php" --wait 5 --raw moverelli.progress '{}' 2>/dev/null | jq -c --arg t "$t" '{t: ($t|tonumber), file: (.state.progress.file // ""), fb: (.state.progress.file_bytes // null)}'
-    printf '{"t":%s,"arrived":%s,"small":%s}\n' "$(date +%s.%N)" "$(du -B1 -c /mnt/disk*/media/uso-wip-f-bf3s/z-big.bin* 2>/dev/null | tail -1 | cut -f1)" \
-        "$(find /mnt/disk*/media/uso-wip-f-bf3s -name 'a-small-*.bin' 2>/dev/null | wc -l)"
-    sleep 0.3; done) >"$KEEP/progress.jsonl" 2>/dev/null & ppid=$!
+# two lookers, neither waiting for the other (lib.sh mv_look_*): her progress about eight times a second through one
+# resident asker — the file in flight and its bytes done — and the array ten times a second — what of the big file
+# arrived (one stat, at most 1 s), how many small ones are over. Until 2026-10-25 one loop started a new php for each
+# look and then ran du: while the 4 GiB file (~6 s on Tower) filled the page cache that php waited up to 6 s to start,
+# and the run got no look while the file moved
+mv_look_progress "$KEEP/progress.jsonl" & ppid=$!
+mv_look_array "$KEEP/array.jsonl" '/mnt/disk*/media/uso-wip-f-bf3s/z-big.bin*' '/mnt/disk*/media/uso-wip-f-bf3s' 'a-small-*.bin' & apid=$!
 flow MV-RUN
-kill "$ppid" 2>/dev/null; wait "$ppid" 2>/dev/null
+mv_look_stop "$ppid" "$apid"
 evidence "$KEEP/progress.jsonl" >/dev/null
-# the looks while the big file was on its way: a progress look is judged by the array look right after it
-jq -sc '[range(0; length - 1) as $i | select(.[$i].file != null and .[$i + 1].arrived != null)
-         | {t: .[$i].t, file: .[$i].file, fb: .[$i].fb, arrived: .[$i + 1].arrived, small: .[$i + 1].small}]
-        | map(select(.arrived > 0 and .arrived < '"${big:-0}"'))' "$KEEP/progress.jsonl" >"$KEEP/inflight.json" 2>/dev/null
+evidence "$KEEP/array.jsonl" >/dev/null
+# the looks at her while the big file was on its way: the array look that ended before she was asked had some of it,
+# the one begun after she answered not all of it — her answer came while it moved, whatever the two lookers' pace
+jq -n --slurpfile p "$KEEP/progress.jsonl" --slurpfile a "$KEEP/array.jsonl" '
+    ($a | map(select(.arrived != null))) as $a
+    | [$p[] | select(.file != null) | . as $x
+       | ([$a[] | select(.t <= $x.t0)] | last) as $b | ([$a[] | select(.t0 >= $x.t)] | first) as $n
+       | select($b != null and $n != null)
+       | {t: .t, file: .file, fb: .fb, before: $b.arrived, arrived: $n.arrived, at: $n.t, small: $n.small}]
+    | map(select(.before > 0 and .arrived < '"${big:-0}"'))' >"$KEEP/inflight.json" 2>/dev/null
 evidence "$KEEP/inflight.json" >/dev/null
 n=$(jq 'length' "$KEEP/inflight.json" 2>/dev/null); n=${n:-0}
 first=$(jq -r '.[0].small // empty' "$KEEP/inflight.json" 2>/dev/null)
@@ -46,7 +52,8 @@ elif [[ -z $first || $first == 0 ]]; then
 elif [[ $wrong == '[]' ]]; then cell named 1 "all $n looks while the big file moved name it ($first small file(s) went before it)"
 else cell named 0 "looks while the big file moved name ${wrong} instead"; fi
 her=$(jq '[.[] | select(.file | test("z-big")) | select(.fb != null and .fb > 0 and .fb < '"${big:-0}"')] | if length > 1 then ((.[-1].fb - .[0].fb) / (.[-1].t - .[0].t)) else 0 end' "$KEEP/inflight.json" 2>/dev/null)
-real=$(jq '[.[]] | if length > 1 then ((.[-1].arrived - .[0].arrived) / (.[-1].t - .[0].t)) else 0 end' "$KEEP/inflight.json" 2>/dev/null)
+# the array's own rate over the same span: the array looks right after her first and last of those looks
+real=$(jq '[.[] | select(.file | test("z-big")) | select(.fb != null and .fb > 0 and .fb < '"${big:-0}"')] | if length > 1 and .[-1].at > .[0].at then ((.[-1].arrived - .[0].arrived) / (.[-1].at - .[0].at)) else 0 end' "$KEEP/inflight.json" 2>/dev/null)
 awk -v r="${her:-0}" -v q="${real:-0}" 'BEGIN { exit !(r > 0 && q > 0 && r < 2 * q && q < 2 * r) }' \
     && cell rate 1 "her file_bytes grew at $(numfmt --to=iec "${her%.*}")/s, the array got $(numfmt --to=iec "${real%.*}")/s" \
     || cell rate 0 "her file_bytes grew at ${her%.*} B/s, the array got ${real%.*} B/s"

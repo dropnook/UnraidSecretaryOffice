@@ -5,23 +5,29 @@
 // office.hire / office.fire go where the page's go: officeStaffAction() on the web side. Never a desk function directly.
 // Secrets never travel this way (the page stashes them in RAM: not for scenarios).
 //
-//   php ask.php [--wait <s>] [--raw] [--save-post <file>] <desk.action> [json]
+//   php ask.php [--wait <s>] [--raw] [--every <s>] [--save-post <file>] <desk.action> [json]
 //
 // Prints the answer as one JSON line — without `state` (unless --raw) — and the errors api.php would answer as
 // {ok:false, error:{key}} (agent_away, agent_busy, agent_restarted, not_hired, unknown_action, internal).
 // --save-post <file>: the answer (without state and agent) also as a canned dialog answer for the page tool
 // (tests/ui/states/post/<desk>.<action>.json). Exit 0 ok:true · 1 ok:false · 2 usage or no plugin.
+// --every <s>: asks again and again, <s> after each answer, until killed — one line per answer with t0 (asked) and t
+// (answered), microtime; one resident process (2026-10-25: while a 4 GiB file moved, a new `php` per look waited up to
+// 3.5 s to start — its pages read back from the flash — while one already running answered within 0.8 s).
 $P = getenv('USO_PLUGIN') ?: '/usr/local/emhttp/plugins/unraid-secretary-office';
 $args = array_slice($argv, 1);
 $wait = 60.0;
 $raw = false;
 $save = null;
+$every = null;
 while ($args && str_starts_with($args[0], '--')) {
     $o = array_shift($args);
     if ($o === '--raw') {
         $raw = true;
     } elseif ($o === '--wait' && $args && is_numeric($args[0])) {
         $wait = max(1.0, (float) array_shift($args));
+    } elseif ($o === '--every' && $args && is_numeric($args[0])) {
+        $every = max(0.0, (float) array_shift($args));
     } elseif ($o === '--save-post' && $args) {
         $save = array_shift($args);
     } else {
@@ -57,6 +63,30 @@ function scenarioAnswer(array $r, bool $raw, ?string $save): never
     exit(($r['ok'] ?? false) === true ? 0 : 1);
 }
 
+/** --every: the same request again and again in this one process, each answer a line with t0 and t; never returns */
+function scenarioRepeat(string $action, array $data, float $wait, float $every, bool $raw): never
+{
+    while (true) {
+        $t0 = microtime(true);
+        try {
+            $r = askAgent($action, $data, $wait);
+        } catch (AgentAway $e) {
+            $r = ['ok' => false, 'error' => ['key' => 'agent_away', 'detail' => $e->getMessage()]];
+        } catch (AgentBusy) {
+            $r = ['ok' => false, 'error' => ['key' => 'agent_busy']];
+        } catch (AgentRestarted) {
+            $r = ['ok' => false, 'error' => ['key' => 'agent_restarted']];
+        } catch (Throwable $e) {
+            $r = ['ok' => false, 'error' => ['key' => 'internal', 'params' => ['detail' => $e->getMessage()]]];
+        }
+        if (!$raw) {
+            unset($r['state']);
+        }
+        echo json_encode(['t0' => $t0, 't' => microtime(true)] + $r, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE), PHP_EOL;
+        usleep((int) ($every * 1e6));
+    }
+}
+
 if (array_key_exists('secret', $data)) {
     scenarioAnswer(['ok' => false, 'error' => ['key' => 'scenario_no_secret']], $raw, null);
 }
@@ -71,6 +101,9 @@ try {
     $desk = explode('.', $action)[0];
     if (!$office && !officeIsHired($desk) && explode('.', $action)[1] !== 'refresh') {
         scenarioAnswer(['ok' => false, 'error' => ['key' => 'not_hired', 'params' => ['desk' => $desk]]], $raw, $save);
+    }
+    if ($every !== null) {
+        scenarioRepeat($action, $data, $wait, $every, $raw);
     }
     $r = askAgent($action, $data, $wait);
     $r['agent'] = agentInfo();
