@@ -94,7 +94,9 @@ function rsPlanLibvirtFor(array $server, string $img, string $stamp, array $ctx)
     }
     $on = rsLvServiceOn($img);
     if ($on !== null) {
-        $plan['blockers'][] = ['key' => 'restore_libvirt_service_on', 'params' => ['path' => $img]];
+        // the VM service on; or off, and the image still attached as a loop device — something else holds it (a container
+        // that mounts the host's / , Tower 2026-10-25: Node-Exporter): Unraid's VM Manager couldn't mount it again either
+        $plan['blockers'][] = ['key' => $on === 'attached' ? 'restore_libvirt_attached' : 'restore_libvirt_service_on', 'params' => ['path' => $img]];
     }
     // the image's share asleep: never woken for this
     $asleep = array_values(array_map(fn ($p) => (string) $p['base'], array_filter(rsLocate(dirname($img), $ctx), fn ($p) => $p['asleep'])));
@@ -151,7 +153,7 @@ function rsPlanLibvirtFor(array $server, string $img, string $stamp, array $ctx)
 function rsDoLvOff(array $s): array
 {
     $on = rsLvServiceOn((string) $s['image']);
-    return $on === null ? ['state' => 'ok'] : rsFail('lv_service_on', ['path' => (string) $s['image']]);
+    return $on === null ? ['state' => 'ok'] : rsFail($on === 'attached' ? 'lv_attached' : 'lv_service_on', ['path' => (string) $s['image']]);
 }
 
 /** mount -o loop / umount of his copy (tests: their stand-ins) */

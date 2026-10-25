@@ -1424,5 +1424,8 @@
   "errors.restore_libvirt_no_image": "There is no image at {path}. Let Unraid make one: ⟦Settings⟧ → ⟦VM Manager⟧ → ⟦Enable VMs⟧: ⟦Yes⟧ once, then ⟦No⟧ — then look again.",
   "errors.restore_libvirt_service_on": "The VM service is on: {path} is in use. Stop it first under ⟦Settings⟧ → ⟦VM Manager⟧ (⟦Enable VMs⟧: ⟦No⟧), then look again.",
   "errors.restore_libvirt_asleep": "The disk of libvirt.img ({base}) is asleep — I don't wake it for this.",
-  "errors.restore_libvirt_archive_bad": "The archive {path} holds something outside its folder libvirt/ — I don't unpack it."
+  "errors.restore_libvirt_archive_bad": "The archive {path} holds something outside its folder libvirt/ — I don't unpack it.",
+  "errors.restore_libvirt_attached": "The VM service is off, but {path} is still attached as a loop device — something else holds it (often a container that mounts the host's /, like an exporter). Stop that one, then look again; Unraid couldn't start the VM service with it either.",
+  "sn.lv_attached": "{path} is attached as a loop device again — I stopped before replacing anything.",
+  "pa.swapped": "swapped in as the share on {when}"
 }

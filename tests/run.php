@@ -53957,6 +53957,8 @@ function testRestoreGapsPage(): void
         $has('pulled', 'pa.pulled {"when":"D30"}') && $has('pulled', 'files.button') && $has('pulled', 'pa.package_pulled {"name":"PartnerNAS"}') && !$has('pulled', 'pa.fetch {"name":"PartnerNAS"}'),
         json_encode($e['pulled'] ?? null));
     same('gap 8: what came back, for this app only — its folder, never the whole share row', [['/mnt/user/appdata/nextcloud', 'partner:J1:share:appdata']], $e['owner'] ?? null);
+    check('gap 8/6: a pull swapped in as its share — said so, nothing to fetch or place',
+        in_array('pa.swapped {"when":"D30"}', (array) ($e['swapped'] ?? []), true) && !in_array('pa.fetch {"name":"PartnerNAS"}', (array) ($e['swapped'] ?? []), true), json_encode($e['swapped'] ?? null));
     check('gap 8: a pull removed again («Put back») — fetch anew', in_array('pa.fetch {"name":"PartnerNAS"}', (array) ($e['dropped'] ?? []), true), json_encode($e['dropped'] ?? null));
     $w = $o['t6'] ?? [];
     check('gap 6: a pull of a whole share beside its dataset — «Swap it in…» in its entry, saying what happens (aside, never deleted, put back)',
@@ -54196,7 +54198,7 @@ function testRestoreGapsLibvirt(): void
     $back = rsPlanPutback(['id' => '20261025-130000-aa11'], '20261025-140000');
     same('gap 7: put back — the VM service off once more, the restored image aside, the old one back', [[], ['lv_off', 'aside', 'move', 'aside']],
         [$back['blockers'], array_column($back['steps'], 'do')]);
-    $GLOBALS['rs']['lv_on'] = fn (string $i) => 'attached';
+    $GLOBALS['rs']['lv_on'] = fn (string $i) => 'mounted';
     same('gap 7: … put back refused while the VM service is on', 'restore_libvirt_service_on', rsPlanPutback(['id' => '20261025-130000-aa11'], '20261025-140000')['blockers'][0]['key'] ?? null);
     $GLOBALS['rs']['lv_on'] = fn (string $i) => null;
     $jb = restoreGapsRun($back, '20261025-140000-bb22');
@@ -54204,6 +54206,9 @@ function testRestoreGapsLibvirt(): void
         [$jb['result'], md5_file($img), is_file("$img.putback-20261025-140000")]);
     $GLOBALS['rs']['lv_on'] = fn (string $i) => 'mounted';
     same('gap 7: the VM service on — refused', 'restore_libvirt_service_on', rsPlanLibvirtFor($server, $img, '20261025-150000', $ctx)['blockers'][0]['key'] ?? null);
+    $GLOBALS['rs']['lv_on'] = fn (string $i) => 'attached';
+    same('gap 7: off, but the image still attached as a loop device (a container holding the host\'s /) — refused, said so', 'restore_libvirt_attached',
+        rsPlanLibvirtFor($server, $img, '20261025-150000', $ctx)['blockers'][0]['key'] ?? null);
     $GLOBALS['rs']['lv_on'] = fn (string $i) => null;
     $bad = $tmp . '/bad.tar.gz';
     @mkdir("$tmp/evil/etc", 0755, true);

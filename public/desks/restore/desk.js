@@ -1303,7 +1303,12 @@ function partnerPart(x, kind) {
     const line = el('div', 'rs-place');
     line.appendChild(el('span', '', T('pa.line', { name: c.name, unit: unitLabel(c.unit), n: c.n, when: date(c.newest) })));
     const pulled = pulledOf(c.id, c.unit);
-    if (pulled) {
+    // swapped in as its share (gap 6): that copy is the share now — nothing to fetch or place
+    const swapped = !pulled && (state.restores || []).find((r) => r.kind === 'partner' && r.swapped_by && !r.putback && r.target
+      && r.target.pair === c.id && r.target.unit === c.unit);
+    const swap = swapped && (state.restores || []).find((r) => r.id === swapped.swapped_by);
+    if (swapped) line.append(' ', chip(T('pa.swapped', { when: date((swap && (swap.finished || swap.started)) || swapped.finished) }), 'ok', T('j.swapped', { share: String(c.unit).slice(6) })));
+    else if (pulled) {
       line.append(' ', chip(T('pa.pulled', { when: date(pulled.finished) }), 'ok', T('pa.pulled_hint', { name: c.name })),
         ' ', actButton(T('files.button'), () => placesFor(pulled, kind, x.id)));
     } else if (partnerNewest(c.id, c.unit)) line.append(' ', actButton(T('pa.fetch', { name: c.name }), () => partnerFetch(x, kind, c)));

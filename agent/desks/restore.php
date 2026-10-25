@@ -3452,8 +3452,9 @@ function rsPlanPutback(array $r, string $stamp): array
         }
     }
     // libvirt.img put back (gap 7): only with the VM service off — looked at now, and again right before (lv_off)
-    if (($j['kind'] ?? '') === 'libvirt' && $plan['steps'] && rsLvServiceOn((string) ($orig['target']['image'] ?? '')) !== null) {
-        $plan['blockers'][] = ['key' => 'restore_libvirt_service_on', 'params' => ['path' => (string) ($orig['target']['image'] ?? '')]];
+    $lvOn = ($j['kind'] ?? '') === 'libvirt' && $plan['steps'] ? rsLvServiceOn((string) ($orig['target']['image'] ?? '')) : null;
+    if ($lvOn !== null) {
+        $plan['blockers'][] = ['key' => $lvOn === 'attached' ? 'restore_libvirt_attached' : 'restore_libvirt_service_on', 'params' => ['path' => (string) ($orig['target']['image'] ?? '')]];
     }
     // a swap put back (gap 6): the share's dataset changes names again — never under an open file, a running VM or an image
     if (($j['kind'] ?? '') === 'partner_swap' && $plan['steps']) {

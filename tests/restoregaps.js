@@ -86,6 +86,8 @@ out.t8.pulled = texts(r.partnerPart(nc, 'app'));
 out.t8.owner = r.ownerPlaces(pulled, 'app', 'Nextcloud').map((u) => [u.path, u.snap]);
 r.setState({ ...st8, restores: [{ ...pulled, putback: { id: 'x', result: 'ok' } }] });
 out.t8.dropped = texts(r.partnerPart(nc, 'app')).filter((t) => t.startsWith('pa.'));
+r.setState({ ...st8, restores: [{ ...pulled, swapped_by: 'J9' }] });
+out.t8.swapped = texts(r.partnerPart(nc, 'app')).filter((t) => t.startsWith('pa.'));
 
 // ---- #6: a pull of a whole share — «Swap it in…» from its entry; swapped: the way to the swap's entry
 r.setState(st8);

@@ -1424,5 +1424,8 @@
   "errors.restore_libvirt_no_image": "Il n'y a pas d'image à {path}. Laisse Unraid en créer une : ⟦Settings⟧ → ⟦VM Manager⟧ → ⟦Enable VMs⟧ une fois sur ⟦Yes⟧, puis ⟦No⟧ — puis regarde à nouveau.",
   "errors.restore_libvirt_service_on": "Le service VM tourne : {path} est utilisé. Arrête-le d'abord sous ⟦Settings⟧ → ⟦VM Manager⟧ (⟦Enable VMs⟧ : ⟦No⟧), puis regarde à nouveau.",
   "errors.restore_libvirt_asleep": "Le disque de libvirt.img ({base}) dort — je ne le réveille pas pour ça.",
-  "errors.restore_libvirt_archive_bad": "L'archive {path} contient quelque chose hors de son dossier libvirt/ — je ne la décompresse pas."
+  "errors.restore_libvirt_archive_bad": "L'archive {path} contient quelque chose hors de son dossier libvirt/ — je ne la décompresse pas.",
+  "errors.restore_libvirt_attached": "Le service VM est arrêté, mais {path} est encore attaché comme périphérique loop — autre chose le tient (souvent un conteneur qui monte le / de l'hôte, comme un exporter). Arrête-le, puis regarde à nouveau ; Unraid ne pourrait pas non plus démarrer le service VM ainsi.",
+  "sn.lv_attached": "{path} est de nouveau attaché comme périphérique loop — je me suis arrêté avant de remplacer quoi que ce soit.",
+  "pa.swapped": "échangée comme partage le {when}"
 }
