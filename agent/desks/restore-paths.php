@@ -421,7 +421,9 @@ function rsPlanKopiaPath(array $r, string $stamp, array $state, string $source, 
     $plan['notes'][] = ['key' => 'note.kopia_twice', 'params' => ['path' => $dirHost]];
     if ($mode === 'copy') {
         $plan['steps'] = $steps;
-        $plan['notes'][] = ['key' => 'note.files_copy', 'params' => []];
+        if (!$file) {
+            $plan['notes'][] = ['key' => 'note.files_copy', 'params' => []];     // a file: the way's own hint says it
+        }
         $plan['after'][] = ['key' => 'after.files_copy', 'params' => ['path' => $to]];
         $plan['after'][] = ['key' => 'after.kopia_left', 'params' => ['path' => $dirHost]];
         return $plan;
