@@ -1,6 +1,6 @@
 {
   "v": 1,
-  "about": "INV-TRUTH's self-test (node tools/scenarios/truth.mjs --self-test): an invented server truth beside this folder's state files — each lie it must find is in `expect`, nothing else may be red",
+  "about": "INV-TRUTH's self-test (node tools/scenarios/truth.mjs --self-test): an invented server truth beside this folder's state files — each lie it must find is in `expect`, nothing else may be red; each of `notes` must be a note; each of `cases` (the truth patched, options of its own) a run of its own judged the same way",
   "expect": [
     "TR-OFFSITE backup share:nextcloud",
     "TR-PARTNER backup share:domains",
@@ -8,6 +8,16 @@
     "TR-PARTNER backup vm:Windows-Druckserver",
     "TR-ROW backup share:Familienfotos",
     "TR-SNAPS restore/apps app:Grafana"
+  ],
+  "notes": [
+    "TR-ROW backup share:Scans"
+  ],
+  "cases": [
+    { "name": "a tag's page (IN-DOWNGRADE): every lie a note, never red — HEAD stands in for the older tag (always there, no fetch)",
+      "args": ["--tree", "HEAD"], "langs": ["en"],
+      "expect": [],
+      "notes": ["TR-TREE pages", "TR-OFFSITE backup share:nextcloud", "TR-PARTNER backup share:domains", "TR-LOCAL backup share:media",
+        "TR-PARTNER backup vm:Windows-Druckserver", "TR-ROW backup share:Familienfotos", "TR-SNAPS restore/apps app:Grafana", "TR-ROW backup share:Scans"] }
   ],
   "time": 1791550000,
   "host": "Tower",
@@ -27,7 +37,10 @@
     "media": { "set": "snapshot", "local": "no", "kopia": null, "places": [ { "base": "disk1", "fs": "xfs", "ds": null, "snaps": 0, "all": 0, "asleep": false } ] },
     "UnraidSecretaryOffice": { "set": "snapshot", "local": "yes", "kopia": { "n": 5 }, "places": [ { "base": "cache", "fs": "zfs", "ds": "cache/UnraidSecretaryOffice", "snaps": 7, "all": 7, "asleep": false } ] },
     "isos": { "set": "snapshot", "local": "no", "kopia": null, "places": [ { "base": "disk1", "fs": "xfs", "ds": null, "snaps": 0, "all": 0, "asleep": false } ] },
-    "Familienfotos": { "set": null, "local": "no", "kopia": null, "places": [ { "base": "disk1", "fs": "xfs", "ds": null, "snaps": 0, "all": 0, "asleep": false } ] }
+    "Familienfotos": { "set": null, "local": "no", "kopia": null, "places": [ { "base": "disk1", "fs": "xfs", "ds": null, "snaps": 0, "all": 0, "asleep": false } ],
+      "born": 1791400000, "born_by": "/boot/config/shares/Familienfotos.cfg mtime" },
+    "Scans": { "set": null, "local": "no", "kopia": null, "places": [ { "base": "disk1", "fs": "xfs", "ds": null, "snaps": 0, "all": 0, "asleep": false } ],
+      "born": 1791549000, "born_by": "/mnt/disk1/Scans birth" }
   },
   "vms": {
     "Windows-Druckserver": { "state": "running", "local": "yes", "offsite": false, "set": "snapshot",

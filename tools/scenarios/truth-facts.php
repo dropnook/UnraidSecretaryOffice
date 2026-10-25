@@ -18,6 +18,8 @@
 //   * partner: the partner's door asked what it holds of each unit (`list <unit>`, the pair's own key, as the engine's
 //     ssh does) — the receiver's zfs, not the sender's history. Never the release canary (USOPartner, 192.168.7.190) or
 //     nostromo (192.168.7.20): «not asked».
+//   * born: since when a share is there at the latest (its own dataset's creation, its folders, its cfg — the oldest):
+//     TR-ROW forgives a share newer than the office's last look at the shares.
 // Also: Docker answers or not (docker info, 20 s), the containers; libvirt and the VMs (virsh); the engine's runs
 // (status.json, history.jsonl: how many, the last backup run and its snapshot).
 // Nothing here writes anything or wakes a disk.
@@ -333,14 +335,52 @@ function pkgFolder(string $n): string
 }
 
 // ------------------------------------------------------------------------------------------------------------- shares
+/**
+ * Since when a share is on the server at the latest: the oldest of its own datasets' `creation` (<base>/<share>), its
+ * awake places' folders (birth time where the file system keeps one, else the older of mtime and ctime) and its cfg on
+ * the flash — the oldest trace wins (an older one keeps TR-ROW red). → [time|null, what said it]
+ */
+function shareBorn(string $s, array $places): array
+{
+    $t = [];
+    foreach ($places as $p) {
+        if (!empty($p['asleep'])) {
+            continue;
+        }
+        if ($p['fs'] === 'zfs' && $p['ds'] === "{$p['base']}/$s") {
+            [$rc, $out] = sh(['zfs', 'get', '-H', '-p', '-o', 'value', 'creation', $p['ds']], 10);
+            if ($rc === 0 && ctype_digit(trim($out[0] ?? ''))) {
+                $t["zfs creation {$p['ds']}"] = (int) trim($out[0]);
+                continue;
+            }
+        }
+        [$rc, $out] = sh(['stat', '-c', '%W %Y %Z', "/mnt/{$p['base']}/$s"], 10);
+        $f = array_map('intval', preg_split('/\s+/', trim($out[0] ?? '')));
+        if ($rc === 0 && count($f) === 3) {
+            $t["/mnt/{$p['base']}/$s " . ($f[0] > 0 ? 'birth' : 'mtime/ctime')] = $f[0] > 0 ? $f[0] : min($f[1], $f[2]);
+        }
+    }
+    $cfg = "/boot/config/shares/$s.cfg";
+    if (is_file($cfg)) {
+        $t["$cfg mtime"] = (int) filemtime($cfg);
+    }
+    $t = array_filter($t, fn ($x) => $x > 0);
+    if (!$t) {
+        return [null, null];
+    }
+    asort($t);
+    return [reset($t), key($t)];
+}
+
 $shini = unraidIni('/var/local/emhttp/shares.ini');
 $shares = [];
 foreach (array_keys($shini) as $s) {
     $places = folderPlaces("/mnt/user/$s");
     $src = $kopia['sources']["/uso/$s"] ?? null;
+    [$born, $bornBy] = shareBorn($s, $places);
     $shares[$s] = ['set' => one($ini, 'share', $s, 'mode'), 'places' => $places, 'local' => localOf($places),
         'kopia' => $src ? ['n' => $src['n'], 'last' => $src['last']] : null,
-        'partner_set' => $ini['share'][$s]['partner'] ?? []];
+        'partner_set' => $ini['share'][$s]['partner'] ?? [], 'born' => $born, 'born_by' => $bornBy];
 }
 
 // --------------------------------------------------------------------------------------------------------------- VMs

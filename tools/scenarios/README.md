@@ -800,11 +800,22 @@ their text in the drawn language (`office.protect.*`, `protect.why.*`, Restori's
 | TR-SNAPS | count more snapshots than its folders' datasets hold (snapshots of any name: the chip's own words) | R10 |
 | TR-OFFSITE | say «offsite» without a complete Kopia snapshot of it; green alone while the repository is held or stuck | T02 T09 T10 |
 | TR-PARTNER | say «local + partner» / «at X» when X's door lists nothing of the unit (a VM or app in a dataset of its own: only its own unit counts); green alone when the partner's newest is not the last run's snapshot | T05 T06 |
-| TR-ROW | leave a share of the server without a row on Mr. Backupsy's overview once a backup ran | T07 |
+| TR-ROW | leave a share of the server without a row on Mr. Backupsy's overview once a backup ran (a share newer than the office's last look at the shares: a note) | T07 |
 | TR-KOPIA-TILE | keep the offsite tile calm, or the bubble at «saved offsite», while the repository is held or stuck | T02 T10 |
 | TR-DOCKER | call apps «gone» while Docker is enabled and silent, or never say «Docker isn't running» (Mr. Restori) | T12 |
 | TR-CHECKS | count in «In place» anything but ok true, or as a must anything but required and ok false (ok null: neither) | T13 |
 | TR-UNDER | (a note, never red) say «not backed up» for a unit whose datasets hold the engine's snapshots | — |
+
+**Only the tree under test's page is judged.** A scenario that installed an older release (state IN-DOWNGRADE <tag>)
+draws that tag's page (run.sh passes `--tree <tag>`; `USO_PAGE_TREE=<tag>` for a whole run): lies fixed since are no
+finding of this tree, so every finding becomes a note, a line `note TR-TREE pages` says why, and the last line names the
+tag. `truth.mjs --tree <tag> --judge-tree` keeps them red (by hand: an older release's lies, as with v1.71.2 below).
+**A share newer than the office's last look** at the shares is a note «not on the page yet», never red: the overview's
+rows come from settings.ini and the engine's drift check (drift.json `time`, a backup run or check: share_new); a replan
+lists a new share but adds no row (the note names the plan's time beside). The share's time is `born` in truth.json —
+the oldest of its own dataset's `creation`, its folders' birth (else mtime/ctime) and its cfg's mtime; a share there
+before that look stays red (pre-release run 2026-10-25: four Moverelli scenarios' scratch shares, made minutes before
+the final look, the last drift check an hour older).
 
 Pages drawn: Mr. Backupsy's overview, Mr. Restori's apps and VMs, the Team Lead. Not yet: «Where is what» and Ms.
 Dustdevil's rooms (P1's chip), the flash row and the apps' package rows, the Dashboard tile, the Consultant and Jack
@@ -813,7 +824,9 @@ Streamer with Docker off (R7's other pages), the S2 rules R8–R11 (done/quiet, 
 By hand: `bash tools/scenarios/truth-now.sh [--host tower] [--refresh] [--verbose]` (a VM's state files and truth now,
 the pages compared; `--keep <dir>` keeps the look); `node tools/scenarios/truth.mjs --look <dir> [--lang en,de]
 [--verbose] [--only TR-…]`; `node tools/scenarios/truth.mjs --self-test` — `tests/ui/states/truth/` with an invented
-truth (`inv-truth.json`): exactly its six listed lies red, in English and German, nothing else.
+truth (`inv-truth.json`): exactly its six listed lies red, in English and German, nothing else; the share Scans (born
+after the stub's drift check) a note; then its case «a tag's page» (`--tree HEAD` standing in for an older tag): the same
+lies, every one a note, nothing red.
 
 ## Base profiles — Tower's «mixed» (2026-10-25)
 
