@@ -2579,21 +2579,6 @@ function advice() {
     }
   }
 
-  // ZFS's read cache and a VM with PCI passthrough (waZfsArc(); 2026-10-09): «Unlimited (Dynamic)» is right as a
-  // rule — the ARC gives RAM back under pressure. Only a passthrough VM pins all its RAM at once at its start: when the RAM
-  // is that tight she names the VM and suggests a cap. The signature: the VM, its RAM and the ARC's limit (the containers'
-  // memory moving a little doesn't bring the tip back)
-  const arc = a.zfs_arc;
-  if (arc && arc.tip === 'passthrough' && typeof arc.vm === 'string') {
-    const gib = 2 ** 30;
-    add('zfs_arc_passthrough', 'advice', {
-      vm: arc.vm, vm_memory: fmt.size(arc.vm_memory), others: fmt.size(arc.others), containers: fmt.size(arc.containers),
-      ram: fmt.size(arc.ram), left: fmt.size(Math.max(arc.left, 0)), arc_max: fmt.size(arc.c_max), percent: Math.round(arc.c_max / arc.ram * 100),
-      setting: arc.unlimited ? T('where.adv.zfs_arc_passthrough.unlimited') : T('where.adv.zfs_arc_passthrough.limit', { size: fmt.size(arc.c_max) }),
-      cap: Number(arc.cap), sys_free: String(Math.ceil(arc.vm_memory / gib) * gib),
-    }, toDisks, `${arc.vm}:${Math.round(arc.vm_memory / gib)}:${Math.round(arc.c_max / gib)}`);
-  }
-
   // security advice is the night watchman's — while he doesn't work here, she says where it went
   if (Office.desks.has('watchman') && !watchmanHired()) add('security', 'info', {}, { path: '#/caretaker', text: T('where.adv.to_team_lead') });
   return out;

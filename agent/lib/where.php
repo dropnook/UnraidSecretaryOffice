@@ -39,11 +39,7 @@ const WA_LIBVIRT_RUN  = '/var/run/libvirt/qemu'; // libvirt's status of each run
 const WA_FOLDER_LIMIT = 500;     // first-level entries per share
 const WA_SCRIPT_BYTES = 8192;    // how much of each user script to show
 const WA_DU_PARALLEL  = 2;
-const WA_ZFS_CONF     = '/boot/config/modprobe.d/zfs.conf';     // Unraid's ARC limit («Tunable (zfs_arc_max)»), put into /etc/modprobe.d at boot
-const WA_ARCSTATS     = '/proc/spl/kstat/zfs/arcstats';
-const WA_DOCKER_MEM   = '/sys/fs/cgroup/docker/memory.stat';     // the containers' memory together (cgroup v2)
 const WA_TURBO        = 'ca.turbo';                              // Squid's «CA Auto Turbo Write Mode» (plugin and settings folder)
-const WA_GIB          = 1073741824;
 
 const WHERE_FILE       = 'cleanup-where.json';         // in DATA_DIR: the part «where» of Ms. Dustdevil's page
 const WHERE_SIZES_FILE = 'cleanup-where-sizes.json';   // the part «where-sizes»
@@ -1514,9 +1510,6 @@ function waAdvice(array $shares, array $roots, array $asleep, array $vms = [], a
         'vm_migratable'  => waVmMigratable($vms),
         'write_method'   => waWriteMethod($disk, readCfg(disksIniFile(), true), $shares,
             is_file(WA_PLUGINS . '/' . WA_TURBO . '.plg') ? readCfg(WA_PLUGINS . '/' . WA_TURBO . '/settings.ini') : null),
-        'zfs_arc'        => waZfsArc(in_array('zfs', array_column($roots, 'fs'), true), (string) @file_get_contents(WA_ZFS_CONF),
-            (string) @file_get_contents(WA_ARCSTATS), (string) @file_get_contents('/proc/meminfo'),
-            (string) @file_get_contents(WA_DOCKER_MEM), $vms),
     ];
 }
 
@@ -1572,75 +1565,6 @@ function waWriteMethod(array $disk, array $disksIni, array $shares, ?array $turb
     $tip = $parity > 0 && $data >= 2 && $method !== 'reconstruct' && $plugin !== 'auto' ? ($direct ? 'turbo' : 'keep') : null;
     return ['method' => $method, 'parity' => $parity, 'data' => $data, 'direct' => $direct, 'pooled' => $pooled,
             'sleep' => $sleep, 'plugin' => $plugin, 'tip' => $tip];
-}
-
-/**
- * ZFS's read cache (ARC) and the VMs (2026-10-09). Unraid 7.3.3: «Tunable (zfs_arc_max)» lives as
- * `options zfs zfs_arc_max=<bytes>` in /boot/config/modprobe.d/zfs.conf; rc.modules.local writes 20 % of the installed
- * RAM there at boot when the line is missing (the default), «Unlimited (Dynamic)» writes 0 (the page also calls a
- * value of the whole RAM so). OpenZFS 2.4.4 then takes its own default (arc_os.c arc_default_max()): the larger of
- * 5/8 of RAM and RAM − 1 GiB; a value of the whole RAM or more it ignores (arc.c: `zfs_arc_max < allmem`).
- *
- * Unlimited is right as a rule: the ARC gives RAM back under pressure (the kernel's shrinker). The one case worth a
- * tip: a VM with PCI passthrough (<hostdev>) pins ALL its RAM at once when it starts — when the other running VMs,
- * that VM, the containers and Unraid itself come close to the whole RAM, the start can fail before the ARC has shrunk
- * (or the OOM killer picks a container). Then `passthrough`: the tightest such VM, the numbers and a cap — what is left
- * of the RAM, rounded down. «Close»: less than 10 % of the RAM (at least 4 GiB) left, and the ARC allowed more than that.
- *
- * Cheap: a file each (zfs.conf, arcstats, meminfo, the containers' cgroup memory.stat), the VMs from waVms().
- *
- * @param bool       $zfs        a pool or disk with ZFS
- * @param list<array> $vms       waVms() (memory in bytes, running, passthrough)
- * @return array|null null without ZFS or without the ARC's numbers
- */
-function waZfsArc(bool $zfs, string $conf, string $arcstats, string $meminfo, string $dockerStat, array $vms): ?array
-{
-    $stat = function (string $text, string $key, int $unit = 1): ?int {
-        return preg_match('/^' . preg_quote($key, '/') . '\s+(?:\d+\s+)?(\d{1,20})(?:\s+kB)?\s*$/m', $text, $m) ? (int) $m[1] * $unit : null;
-    };
-    $ram = $stat(str_replace(':', ' ', $meminfo), 'MemTotal', 1024);
-    $cMax = $stat($arcstats, 'c_max');
-    if (!$zfs || !$ram || $cMax === null) {
-        return null;
-    }
-    $setting = preg_match('/^[ \t]*options[ \t]+zfs(?:[ \t]+[^\r\n#]*)?\bzfs_arc_max\s*=\s*([0-9]{1,20})/mi', $conf, $m) ? (int) $m[1] : null;
-    $containers = $stat($dockerStat, 'anon') ?? 0;
-    $running = 0;
-    foreach ($vms as $vm) {
-        $running += !empty($vm['running']) ? (int) ($vm['memory'] ?? 0) : 0;
-    }
-    $out = [
-        'setting'    => $setting,                     // null: no line (Unraid writes its 20 % at the next boot)
-        'unlimited'  => $setting !== null && ($setting === 0 || $setting >= $ram),
-        'ram'        => $ram,
-        'c_max'      => $cMax,
-        'size'       => $stat($arcstats, 'size'),
-        'sys_free'   => $stat($arcstats, 'arc_sys_free'),
-        'default'    => $ram >= WA_GIB ? max(intdiv($ram * 5, 8), $ram - WA_GIB) : intdiv($ram * 5, 8),
-        'vm_running' => $running,
-        'containers' => $containers,
-        'tip'        => null,
-    ];
-    $tight = null;
-    foreach ($vms as $vm) {
-        $mem = (int) ($vm['memory'] ?? 0);
-        if (empty($vm['passthrough']) || $mem <= 0) {
-            continue;
-        }
-        $others = $running - (!empty($vm['running']) ? $mem : 0);
-        $need = $others + $mem + $containers + 4 * WA_GIB;        // 4 GiB: Unraid itself (its root file system lives in RAM)
-        if ($tight === null || $need > $tight['need']) {
-            $tight = ['vm' => (string) $vm['name'], 'vm_memory' => $mem, 'others' => $others, 'need' => $need];
-        }
-    }
-    if ($tight !== null) {
-        $left = $ram - $tight['need'];
-        if ($left < max(4 * WA_GIB, intdiv($ram, 10)) && $cMax > $left) {
-            $out['tip'] = 'passthrough';
-            $out += $tight + ['left' => $left, 'cap' => max(1, intdiv(max($left, 0), WA_GIB))];
-        }
-    }
-    return $out;
 }
 
 /**
