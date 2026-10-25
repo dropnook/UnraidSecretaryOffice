@@ -212,7 +212,16 @@ function judgeRow(page, r, lang) {
   const whys = r.chips.map((c) => whyOf(c.text, lang)).filter(Boolean);
   const snapChip = r.chips.map((c) => matchKey(c.text, 'restore.chip.snaps', lang)).find(Boolean);
   const partnerChips = r.chips.map((c) => matchKey(c.text, 'restore.chip.at_partner', lang)).filter(Boolean).map((g) => g.name);
-  const kopiaChip = r.chips.some((c) => matchKey(c.text, 'restore.chip.kopia', lang));
+  // Mr. Restori's «offsite <when>»: its tip names the Kopia source it means — the package's (the backup place's share:
+  // says nothing about the data), the data's share, or a source of its own; judged against that source in Kopia's list
+  const kopiaChips = r.chips.filter((c) => matchKey(c.text, 'restore.chip.kopia', lang)).map((c) => {
+    for (const k of ['package', 'data', 'all']) {
+      const g = matchKey(c.title, `restore.chip.kopia_hint_${k}`, lang);
+      if (g) return { kind: k, source: g.source };
+    }
+    return { kind: 'data', source: null };
+  });
+  const kopiaChip = kopiaChips.some((k) => k.kind !== 'package');
   let local, offsite, places, units, detail;
   if (kind === 'share') {
     const s = truth.shares[name];
@@ -248,12 +257,21 @@ function judgeRow(page, r, lang) {
   }
   // less than there is: never red (the dangerous direction is the other), a note to read
   if (rule('TR-LOCAL') && level === 'none' && local === 'yes') note('TR-UNDER', unit, shown, `its datasets hold engine snapshots (${snapsTxt(places)})${truth.runs.last ? `; the last backup run ${truth.runs.last.run} ended ${truth.runs.last.result}` : ''}`);
-  const claimsOffsite = level === 'offsite' || level === 'partner_offsite' || kopiaChip;
+  if (rule('TR-OFFSITE') && truth.kopia.asked) {
+    for (const k of kopiaChips.filter((x) => x.source)) {
+      if (!(truth.kopia.sources[k.source] && truth.kopia.sources[k.source].n > 0)) fail('TR-OFFSITE', unit, shown, `Kopia holds no snapshot of ${k.source} (the source the chip's tip names for its ${k.kind === 'package' ? 'package' : 'data'})`);
+    }
+  }
+  const claimsOffsite = level === 'offsite' || level === 'partner_offsite' || kopiaChips.some((k) => k.kind !== 'package' && !k.source);
   if (rule('TR-OFFSITE') && claimsOffsite) {
     if (offsite === false) fail('TR-OFFSITE', unit, shown, truth.kopia.asked ? `Kopia holds no complete snapshot of it${detail ? ` (${detail})` : ''}` : 'Kopia off');
     else if (!whys.length && (truth.kopia.held || truth.kopia.stuck)) fail('TR-OFFSITE', unit, shown, `the repository is ${truth.kopia.held ? 'held (suddenly empty)' : 'taking nothing (stuck)'} — green alone`);
   }
   const claimsPartner = level === 'partner' || level === 'partner_offsite' || partnerChips.length;
+  if (rule('TR-PARTNER') && !claimsPartner && level) {
+    const pt = partnerTruth(units);
+    if (pt.held === true) note('TR-UNDER', unit, shown, `${pt.by.join(', ')} holds ${units.join(' / ')} — the page names no partner`);
+  }
   if (rule('TR-PARTNER') && claimsPartner) {
     const pt = partnerTruth(units);
     if (pt.held === false) fail('TR-PARTNER', unit, shown, `no partner holds ${units.join(' / ') || 'a unit of it'}${detail ? ` (${detail})` : ''}`);
