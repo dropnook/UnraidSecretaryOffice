@@ -166,7 +166,7 @@ says so (`shown: () => …`, `part: '<anchor>'`). What its state holds worth fin
 ## Tiles and lists
 
 Every desk's tiles and lists behave the same way, and they are built with core.js's helpers — never with filter code
-or tile markup of the desk's own. **A tile is a section** (tiles v2, 2026-10-11): the row of tiles is the page's table of
+or tile markup of the desk's own. **A tile is a section**: the row of tiles is the page's table of
 contents, each tile stands for one section under it and carries its summary (a number, a state). A click shows that
 section alone under the row; a second click shows the whole page again, every section in the row's order. A tile can
 also *filter* its section (a number tile that counts what it shows: «VMs» shows the protection list with only the VMs).
@@ -298,8 +298,8 @@ them in English. Details in «Words» below.
 
 ## Development
 
-No build step, no dependencies: plain PHP 8.4 (Unraid's own), vanilla JS, one CSS file — one exception (owner, D3 of the
-USO network concept, 2026-10-22): the USO network's helper `helper/` is a small Go module, built reproducibly
+No build step, no dependencies: plain PHP 8.4 (Unraid's own), vanilla JS, one CSS file — one exception (owner's decision D3 of the
+USO network concept): the USO network's helper `helper/` is a small Go module, built reproducibly
 (`bash helper/build.sh --check`: Go and `tailscale.com` pinned in `go.mod`, `-trimpath -buildvcs=false`, no build id,
 `ts_omit_logtail`), checked in CI against the SHA-256 the office pins (`helper/uso-net.sha256` = `USONET_HELPER` in
 `agent/lib/usonet.php` = `HELPER_SHA256` in `scripts/usonet.sh`, `testUsoNetPin`) and published by a tag
@@ -386,9 +386,10 @@ changing the dashboard too. Change Grafana's default admin/admin before it can b
 ## Notifications in detail
 
 Everything goes through `officeNotify()` (agent/lib/house.php) as the event *Unraid Secretary Office*; `warning` for
-something to fix, `alert` only when something is at risk now.
+something to fix, `alert` only when something is at risk now. Line breaks in `notify -m` are a literal `\n`; never a real
+newline in `-d`.
 
-**The notification centre** (the Team Lead's tiles «Notification centre», «Waiting for the summary», «Notification history», 1.68) is ONE gate in front of every sender of the office's own (never Unraid's or another plugin's: nothing reads
+**The notification centre** (the Team Lead's tiles «Notification centre», «Waiting for the summary», «Notification history») is ONE gate in front of every sender of the office's own (never Unraid's or another plugin's: nothing reads
 or filters a notification the office didn't send; Unraid's notification settings are only read): `officeNotify()`
 (the agent, its jobs, the night shift), the engine's `ub_notify()` and `agent.sh tell` ask the same decision — send now ·
 hold for the summary · count only. PHP side `agent/lib/notifycenter.php`, bash side `backup/lib/notifygate.sh` (sourced
@@ -442,7 +443,7 @@ partner's address, a forced command — `agent/partner-door.php`): it may receiv
 back its own copies and say how the office is; it can't browse the server, run a command or delete the history kept of
 its copies. The way is always SSH; the copies at the partner are plain (for a friend, Kopia is the encrypted way).
 Units are datasets only: a share that is a dataset of its own, a VM with one, the backup place. **The Team Lead only
-pairs** (since 1.60): the receiver's consent is the pairing — its rules (pool, quota, retention, wake) at *Accept a
+pairs**: the receiver's consent is the pairing — its rules (pool, quota, retention, wake) at *Accept a
 partner…*, its door takes any unit of the pair up to the quota, at any time; what a server sends is the level
 *local + partner* per share and VM in Mr. Backupsy's setup (settings.ini `partner = <id>`). A unit the receiver never
 saw before is chipped «new» on its card; one nothing came of for 30 days «no longer comes» (Ms. Dustdevil offers to put
@@ -466,7 +467,7 @@ Dustdevil puts away what an ended partnership left, Ms. Protocolli reads the doo
 
 ## The USO network (the office's own Tailscale node)
 
-Underneath the partner offices only (concept `uso-partner-tunnel`, owner's decisions D1–D10, 2026-10-22). The pairing
+Underneath the partner offices only (concept `uso-partner-tunnel`, owner's decisions D1–D10). The pairing
 doesn't change — blocks, safety code, the door line with its `from=`, keys, the door: two or more offices join one tailnet
 as tagged devices (`tag:uso`) and pair over the node's 100.x address like over any other network.
 
@@ -489,7 +490,7 @@ as tagged devices (`tag:uso`) and pair over the node's 100.x address like over a
   `RUN_DIR/usonet/status.json` — never the 100.64/10 range, which the user's own tailnet uses too) is called from inside
   the namespace: `partnerSshArgs()` → `usonetWrap()`, the engine's `partner_ssh_cmd` → `usonet_peer` (2.71). Not joined:
   as before. `partnerMyAddresses()` lists the node's IPv4 («USO network» in the picker; never a tailnet's fd7a).
-* **Pairing over it is a pick** (2026-10-23, «partner-simple»): both dialogs get `usonet` from `partnerUsonet()` — in the
+* **Pairing over it is a pick**: both dialogs get `usonet` from `partnerUsonet()` — in the
   network, «Add a partner…» lists the online USO peers (`usonetPeersToPick()`, one radio, the pick only names the partner
   in the log and the texts) and gives this server's own USO IPv4 and door port without a choice (the old picker folded
   under «Another address…», the WireGuard hint only outside the network); «Accept a partner…» takes them by itself when
@@ -497,9 +498,7 @@ as tagged devices (`tag:uso`) and pair over the node's 100.x address like over a
   callout to join first). The trust question is gone — one sentence, every new pair `trust: 'mine'` (`partnerTrustFrom()`,
   an explicit value still taken); the blocks carry `trust` as before, so 1.71.0 reads them. The protocol, the door and
   pairs.json are unchanged.
-* **The address is the USO one** (2026-10-23, «pair-address»: the first real pairing stored each other's LAN — a dialog
-  opened while joining showed only the old picker, the accept dialog took the USO address only for a block from a
-  tailnet): in the network (or joining) `myAddress()` gives the USO address, waits with the wave and the button off
+* **The address is the USO one:** in the network (or joining) `myAddress()` gives the USO address, waits with the wave and the button off
   while it isn't known, the fold is the only other way and says so (`other: true`); `partnerAddressChosen()` refuses
   anything else (`partner_address_usonet` — an old page; `partner_usonet_wait`). A block from outside the network is
   said; the online peer of the partner's name (`usonetPeerNamed()`, `usonetNodeName()` of the block's name) is offered
@@ -509,14 +508,14 @@ as tagged devices (`tag:uso`) and pair over the node's 100.x address like over a
   RAM (`address-<id>.json`, «saved») and the Night Watchman takes that from= change as the office's own
   (`partnerLookMoved()`, `watchmanPartnerMovedLine()`). The card: `usonet_match` (the partner online elsewhere in the
   network — outside it, or an earlier node of it). The run takes the address from pairs.json (engine 2.72
-  `partner_addr`), so no Apply is needed; Mr. Backupsy's Apply list doesn't count it as a change. The restore tickets the same way (2026-10-24): *Start from a
+  `partner_addr`), so no Apply is needed; Mr. Backupsy's Apply list doesn't count it as a change. The restore tickets the same way: *Start from a
   partner's copy…* and *Hand … to a new server…* give `myAddress()` and the agent's `partnerAddressChosen()` guard; a
   BLOCK-N from outside the network is said, the new server's USO address offered (`their_address`, `line_match`); *Paste
   the ticket* says to join when the holder gave a USO address. Tests: `testPartnerAddress`, `testWatchmanPartner`, ui-clicks
   «pair address».
-* **Several nodes of one name** (2026-10-24, nostromo ↔ StedyUnraid: each leave and join anew left a node behind —
-  the leave logs the node out, but Tailscale keeps the machine listed, expired, until it is removed in its console, and
-  Headscale never expires a tagged one; one old node even stayed «online»): one rule everywhere a peer is matched by
+* **Several nodes of one name** (each leave and join anew leaves a node behind — the leave logs the node out, but
+  Tailscale keeps the machine listed, expired, until it is removed in its console, Headscale never expires a tagged one,
+  and an old node may even stay «online»): one rule everywhere a peer is matched by
   name — the add picker, the accept offer (`usonetPeerNamed()`), *Change the address…* and the card — the live node
   (`usonetNodeRank()`: online, then answered the office's probe lately, then direct, then seen last; `usonetProbe()`
   pings every online node of a name listed twice, `usonet.sh probe` marks an answer in `RUN_DIR/usonet/probe/<ip>.ok`).
@@ -526,8 +525,8 @@ as tagged devices (`tag:uso`) and pair over the node's 100.x address like over a
 * **The card while it is busy:** the job's mark (`usonetJob()`: what, start, step, the job's pid — a dead job is seen and
   ends as `job_gone`) gives the page the wave, the step and the time; after `USONET_SLOW_AFTER` the logs' last lines
   (`usonetLogTail()`, scrubbed; a failed join keeps them in join.json since its leave takes the logs). The page's
-  `netWatch()` only arms one look (every 4 s while joining/leaving/starting/down/no_contact) and never renders — 1.71.0
-  rendered itself into a stack overflow; `netTook()` renders. His kept state follows the network between tours
+  `netWatch()` only arms one look (every 4 s while joining/leaving/starting/down/no_contact) and never renders (that would
+  recurse); `netTook()` renders. His kept state follows the network between tours
   (`caretakerUsonetFollow()`, every 5 s, only the `usonet` key); the page draws the newer of its own last look and the kept
   state. A relayed peer gets three pings in the background (`usonetProbe()`, once per 3 min) so the path goes direct — the
   relay chip is plain, never a warning. Live check: `tools/ui-clicks.mjs` «USO network card».
@@ -575,7 +574,7 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   queued for the next; a tour, dry run or setup never waits. **Setup:** a level per share/VM/app (off · local · local + partner
   · local + offsite · local + partner + offsite; partner levels only with a pair and a dataset of its own); an app's further
   shares never ticked unasked; a re-plan keeps hand changes. **No backup place (none chosen, or gone) → the setup is ONE
-  step** (2026-10-21): the five points, «Create UnraidSecretaryOffice…», the way in Unraid, the fitting shares to choose; no
+  step**: the five points, «Create UnraidSecretaryOffice…», the way in Unraid, the fitting shares to choose; no
   start cards, tiles, other steps, bar or Apply until it stands (the overview's tiles say «the backup place first»). **The
   office never makes a share — but this one, only on that click:** the office's own share UnraidSecretaryOffice, never another
   name, where the agent proposes (`backupPlaceOffer()`: a ZFS pool appdata doesn't lie on first, only on it, no secondary
@@ -583,7 +582,7 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   no), by Unraid's own «Add Share» (`backupPlaceMake()` → lib/firsthome.php `homeMake()`); refused when the share is there
   or Unraid knew it, the pool unknown or asleep (never woken). Place facts warn, never block. Apply sends only what was chosen and lists exactly what
   changes; a plan older than settings.ini is refused; a failed plan shows its errors. **Warns about Kopia autostart, never
-  starts Kopia.** **«Is everything protected?» goes by results, never settings alone** (2026-10, the truth review): a row
+  starts Kopia.** **«Is everything protected?» goes by results, never settings alone**: a row
   is offsite only with a good Kopia copy and the repository not held (`kopia_held`; storage taking nothing or unreachable:
   said beside it), local only where a run took a snapshot (drift `share_snapshot_no_fs` / the plan's method live: not
   backed up), «+ partner» only for units the partner received (`unit_last`; skipped, failed, never: said); a new share is a
@@ -591,7 +590,7 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   share goes to a partner (else the engine sends the share nowhere, `children`).
 * **`jack` — Jack Streamer (the intern).** MediaCache (Emby, Jellyfin, Plex — several servers at once; 1.65.0, before EmbyCache:
   step `mediacache` moved data/embycache, the job id stays `embycache`) + «Consolidate folders». Settings via MediaCache's own `save_config()`;
-  **the API key never leaves the server. Rsync both ways, always** (`JACK_TOOLS_RSYNC`). **He works only under Ms. Moverelli**
+  **the API key never leaves the server. Rsync both ways, always** (`JACK_RSYNC_ARGS`). **He works only under Ms. Moverelli**
   (desk.json `"needs"`: hired only with/after her, she leaves only after him; real runs only her way, `jackMoverRule()`).
   Unraid's mover schedule is switched off only through Unraid's form via `emcmd` (tests: `OFFICE_EMCMD_BIN`); **he never writes
   into Mover Tuning.** A mover at work stops his run after the current file; never side by side with her. **Never a real gather
@@ -601,7 +600,7 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   counts are defaults inside it; the rule in plain sentences); without a budget «not set up yet» (`jackConfigured()`, no
   migration) and not in the night run. **Every server can be removed** (the last one too, after a confirm): with none
   saved he is not set up, runs refuse `jack_no_server`, his list keeps what lies on the pool — nothing moves by the
-  click; MediaCache itself refuses to run without a server. **A lost list is never «keep nothing»** (H1, 2026-10-21): once
+  click; MediaCache itself refuses to run without a server. **A lost list is never «keep nothing»**: once
   it held films (a real run, an import, his look saw entries — `office-list.json`), a list gone or emptied outside his runs
   is written anew from what of his shares lies on his pool (his look; his run and release before MediaCache reads it — an
   incomplete plan keeps «the list as it was»); can't be read → nothing written, his runs refuse `jack_list_lost`, Smart
@@ -618,7 +617,7 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   «Stop after this file» stops the night; both pages show `Office.nightCard()` — its highlight follows the work (night.json
   `phase` + `who`: measure · his give-back · measure again · her part · his fetch, `Office.nightSteps()`), his panel real by the
   night's word (`jackNightProgress()`); night.json `picture` = the live graphic's numbers; his refusal never stops her part (reason shown).
-  **The order with the backup** (agent/lib/nightorder.php, 2026-10-21): never the same minute (saving either schedule on
+  **The order with the backup** (agent/lib/nightorder.php): never the same minute (saving either schedule on
   the other's minute is refused; a collision from before is a quiet hint); whoever starts first runs to its end — the
   scheduled backup waits for her whole run (`job backup-order`, `UB_ORDER` → status.json `order`), her scheduled run waits
   while a real backup's `phase` is not past its local part (`partner`, `mounting`, `kopia`, `unmounting`, `cleanup`,
@@ -643,7 +642,7 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   lines at once (`sort`, RAM only, the tour's shape). Her second page «Set up» (`#/logs/setup`, data/logs-mine.json): her own
   rules (regex + category, checked by `logsMineRuleWhy()`, applied **before** the shipped ones, as Enhanced Log applies its
   custom rules) and hide words (in the message, case-sensitive: noise, before every rule — the line stays in the syslog).
-  **No take-over from another plugin's settings** (owner, 2026-10-19: no migration path, no responsibility for a wrong
+  **No take-over from another plugin's settings** (owner's decision: no migration path, no responsibility for a wrong
   take-over): the user types her rules; what an earlier version took over stays hers (its `from`/`el` keys kept, never
   read); her texts name Enhanced Log only in the thanks and the rules' credit.
   Every list of hers has its bar with a time filter where its rows have a time (presets, «From … to …» with day and 24-hour
@@ -651,7 +650,7 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   in the note line, a chip with its ×, core.js `bar.done({parts})`). **Saved filters** (data/logs-filters.json,
   agent/desks/logs-filters.php): what a bar has set under a name, per list — a preset stays relative; a click applies one,
   **never by itself** (desk.js `APPLY_ON_OPEN = false`; the entry's `open` is kept, never set); tolerant reader and writer.
-  «Who fills /var/log?» (agent/desks/logs-flood.php, RAM `RUN_DIR/logs-flood.json`, 2026-10-21): in her tick every
+  «Who fills /var/log?» (agent/desks/logs-flood.php, RAM `RUN_DIR/logs-flood.json`): in her tick every
   `LOGS_FLOOD_EVERY` s statvfs and the sizes under /var/log (lstat only); from 80 % the case — the file growing fastest, its
   newest `LOGS_FLOOD_TAIL` bytes by kind (`logsNormalize()`), nginx's lines of a client on this server itself with the paths
   asked for (never a query) and a known poller by them (`LOGS_FLOOD_POLLERS`; «what helps» only where sure: Netdata) —; the
@@ -661,7 +660,7 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   «Syslog», «Errors & warnings» and the reader sort newest / oldest first or by service (a syslog line's program,
   desk.js `SERVICE`) — a choice kept per browser (`logs.<list>.sort`), named in the note line only when not the list's own
   (core.js `bar.done({order})`); a click on a line's service filters to exactly it, and a saved filter keeps it (`svc`).
-  «Who woke my disks?» (agent/desks/logs-diskwakes.php, data/logs-wakes.json, 2026-10-20): in her tick, only while hired and
+  «Who woke my disks?» (agent/desks/logs-diskwakes.php, data/logs-wakes.json): in her tick, only while hired and
   the array runs — disks.ini every `LOGS_WAKE_INI` s (a rotating disk asleep → awake is a wake), `/proc/diskstats` every
   `LOGS_WAKE_LOOK` s only while an HDD sleeps (moved counters = asked for → a capture of /proc's state-D tasks, capped by
   time and count; never a stat or walk under /mnt, no getfattr); names (docker ps, smbstatus), cron lines due and
@@ -690,7 +689,7 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   awake pools only, never the office's share, the partners' copies or a backup place), linked to Ms. Snapshotini's datasets.
   One Ms. Moverelli's run left standing because snapshots hold it (Smart Mover's status `kept`, `moverelliKept()`; she is hired):
   hint `snap_kept` (never a must — an empty dataset may be wanted), still there and empty by the same look; her next run
-  removes it once the snapshots are gone. **The one thing emptied on its own:** Mr. Restori's drill copies (owner, 2026-10-21) —
+  removes it once the snapshots are gone. **The one thing emptied on its own:** Mr. Restori's drill copies (owner's decision) —
   an entry with his `drill` record (names, sizes, sha256 of the verified copies) whose folder holds exactly those, CL_DRILL_DAYS
   (7) after it went in, by her tick (sha256 read anew; never while a backup runs, on a sleeping disk, with neither desk hired);
   changed/added/unverifiable stays as plain content; an older drill's without sums is marked «empty it yourself».
@@ -707,14 +706,20 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   power cut) is noted, and «Put back» then removes it into Ms. Dustdevil's storeroom through her helpers (never deleted); a
   program holding a file open blocks a replace (he never ends one). Lists only awake ZFS pools. A missing share blocks; never a
   folder holding a running VM's disks; never starts containers; credentials only as variable names; partner pulls into a NEW
-  dataset beside, never a `zfs clone`. **Shares and Kopia paths (1.72, restore-paths.php):** every share is a row (never the
-office's share or the backup place), step 4 with the share as owner; one path out of Kopia goes into a folder of its own in
-the restore folder first (`kopia show <root>/<path>` to browse, one directory per request, never in the tick; only `snapshot
-list`, `show`, `snapshot restore` — never `maintenance` or a policy), then beside or swapped like step 4; what lies in the
-office's share is only staged; a package Kopia brought back is an earlier version (`kopia:<journal>`). **The file browser (restore-browse.php, matrix gap 4):** one folder of a moment per request (never in the tick), paged, searched; a link shown, never followed (no folder of the path may be one); a sleeping disk said, with «wake»; picks next to it, swapped in or into `UnraidSecretaryOffice/restore/files/<…>-<time>` (the share never made here); a partner's kept moment mounted read-only in RAM (`restore-peek-*`, unmounted at the job's end in any case) and only into that folder; my copy at a partner comes over whole first (the door sends units, never a path). **The drill:** throwaway containers only via `drillContainerArgs()` + `drillArgsSafe()`
+  dataset beside, never a `zfs clone`. **Shares and Kopia paths** (agent/desks/restore-paths.php): every share is a row (never
+  the office's share or the backup place), step 4 with the share as owner; one path out of Kopia goes into a folder of its own
+  in the restore folder first (`kopia show <root>/<path>` to browse, one directory per request, never in the tick; only
+  `snapshot list`, `show`, `snapshot restore` — never `maintenance` or a policy), then beside or swapped like step 4; what lies
+  in the office's share is only staged; a package Kopia brought back is an earlier version (`kopia:<journal>`). **The file
+  browser** (agent/desks/restore-browse.php, the restore matrix's gap 4): one folder of a moment per request (never in the tick),
+  paged, searched; a link shown, never followed (no folder of the path may be one); a sleeping disk said, with «wake»; picks
+  next to it, swapped in or into `UnraidSecretaryOffice/restore/files/<…>-<time>` (the share never made here); a partner's kept
+  moment mounted read-only in RAM (`restore-peek-*`, unmounted at the job's end in any case) and only into that folder; my
+  copy at a partner comes over whole first (the door sends units, never a path). **The drill:**
+  throwaway containers only via `drillContainerArgs()` + `drillArgsSafe()`
   (`--network none`, no ports/binds/caps; too big = «not checked», never failed); refused during a parity check; a failed drill
-  = one warning. Partner look from his tick, never a page request. **The flash archive's «Download…»** (`restore.flash_download`,
-  2026-10-25) is the one exception to «the web side never touches the host»: read-only, one file — `src/api.php`
+  = one warning. Partner look from his tick, never a page request. **The flash archive's «Download…»** (`restore.flash_download`)
+  is the one exception to «the web side never touches the host»: read-only, one file — `src/api.php`
   `apiFlashFile()` hands out only the path his state names when it is exactly `<backup place>/flash/flash.tar.gz` of the
   engine's settings, a regular file, no link on the way, resolved inside the place; a POST like every request, streamed as
   it is (no gzip, no copy), never through the mailbox; the dialog says first that it holds the licence key and the password
@@ -734,7 +739,7 @@ office's share is only staged; a package Kopia brought back is an earlier versio
   **authorized_keys:** only lines commented `uso-partner:<id>` / `uso-ticket:<id>` are written or removed, every other byte
   stays, never through a link; missing/changed → «door closed/changed», never rewritten unasked. The door (`env -i`, verbs word
   by word) receives with `zfs recv -s -u`, never `-F`, never mounted; an existing unit is put aside, never destroyed; several
-  units of a pair at once (1.72, each its own ordered stream), never one unit twice. `ping`
+  units of a pair at once (each its own ordered stream, at most `DOOR_RECV_STREAMS`), never one unit twice. `ping`
   reads RAM and flash only. Tickets never send or receive and are never in pairs.json. The .plg remove takes the lines and
   `partners/` out; copies stay.
 * **Pictures:** each desk has `avatar.svg` (64×64, flat); **never an emoji where a drawing exists**.
@@ -779,7 +784,7 @@ The same thing has the same word on every desk and text; grammar follows the wor
 | a restore · drill · button · what a drill writes · what it practises on | restore, bring back · drill · Practise now… · certificate · throwaway (container) | die Rückholung, zurückholen (dump: zurückspielen) · die Übung · Jetzt üben… · das Zeugnis · der Wegwerf-Container | il ripristino · l'esercitazione · Esercitati ora… · il certificato · il contenitore usa e getta | la restauration · l'exercice · S'exercer maintenant… · l'attestation · le conteneur jetable | la restauración · el simulacro · Practicar ahora… · el certificado · el contenedor desechable |
 | Jack Streamer's run · Ms. Snapshotini's plan · its run | run · real run · dry run · schedule · run | der Lauf · echter Lauf · Probelauf · der Zeitplan · der Lauf | l'esecuzione · esecuzione vera · prova a secco · la pianificazione · l'esecuzione | l'exécution · exécution réelle · essai à blanc · la planification · l'exécution | la ejecución · ejecución real · simulación · la programación · la ejecución |
 | a ZFS hold | Hold · held · Release hold | Schützen · geschützt · Schutz aufheben | Proteggi · protetto · Togli la protezione | Protéger · protégé · Lever la protection | Proteger · protegida · Quitar la protección |
-| a small coloured mark on a row or card (the UI's «chip»; never the word chip in a text, 2026-10-19) | label | das Schildchen | l'etichetta | l'étiquette | la etiqueta |
+| a small coloured mark on a row or card (the UI's «chip»; never the word chip in a text) | label | das Schildchen | l'etichetta | l'étiquette | la etiqueta |
 | thank-you levels | a coffee for the team · a round for everyone · cake for the whole office · a pay rise and the donations | ein Kaffee fürs Team · eine Runde für alle · Kuchen fürs ganze Büro (deliberately) · Lohnerhöhung und Spenden | un caffè per il team · un giro per tutti · una torta per tutta la segreteria · un aumento e le donazioni | un café pour l'équipe · une tournée pour tout le monde · du gâteau pour tout le secrétariat · une augmentation et les dons | un café para el equipo · una ronda para todos · pastel para toda la secretaría · un aumento de sueldo y las donaciones |
 | share · disk · /boot · Docker template · a log · dataset · Emby's key | share · disk · the flash (a physical stick stays a stick) · template · log · dataset · API key | der Share · die Disk (not Platte) · der Flash · das Template (not Vorlage) · das Protokoll (not Log) · das Dataset · der API-Schlüssel | la condivisione · il disco · l'unità flash · il template · il log (registro = watch book) · il dataset · la chiave API | le partage · le disque · la flash · le modèle · le journal · le dataset · la clé API | el recurso compartido · el disco · el flash · la plantilla · el registro · el dataset · la clave API |
 | Unraid's bell · user → makers · menu item | notifications · report · Report a problem or a wish… | die Benachrichtigungen (one sent: eine Meldung) · die Rückmeldung · Problem oder Wunsch mitteilen… | le notifiche · la segnalazione · Segnala un problema o un desiderio… | les notifications · le signalement · Signaler un problème ou un souhait… | las notificaciones · el comentario · Contar un problema o un deseo… |
@@ -793,7 +798,7 @@ The same thing has the same word on every desk and text; grammar follows the wor
   «to the partner». Internal keys (`mode = kopia`) stay.
 * **Nights:** a backup can run any time, so «a night» never stands for one run or its snapshot/package. «Night» stays only
   in a name: the Night Watchman and his night shift; code names (`{nights}`, `night.json`, `--night`) and engine lines keep
-  theirs. No other run happens «at night» (owner, 2026-10-16): a run is **on schedule** (with its time when the text knows
+  theirs. No other run happens «at night» (owner's decision): a run is **on schedule** (with its time when the text knows
   it) or **started here**; Ms. Moverelli's and Jack Streamer's run is **the joint run** (de «der gemeinsame Lauf»), «tonight»
   is «the next run», «Every day at» (not «Every night at»); the drill says its window (00:00–07:00) and its day
   (`testNoNightWords`). The role says «the backup», the drill never «nightly». German «Lauf» only for Jack Streamer's and plan
@@ -835,7 +840,7 @@ The same thing has the same word on every desk and text; grammar follows the wor
   `role="button"`, no `scrollIntoView(` without `/* reveal */`, no own folding, filter tiles are places, no filter keys stored),
   `tools/ui-clicks.sh`, `bash tools/ui-tiles.sh --only <route>` (before/after pictures — how a desk proves its tiles).
 * **Remembered per browser** (`Office.store`, prefix `office.`): choices only (`<desk>.tile`, a pool, `<key>.pick`, favourites)
-  — **never** filter words, «only …» switches or filter tiles. **Saved filters** (Ms. Protocolli's, 2026-10-19) are explicit,
+  — **never** filter words, «only …» switches or filter tiles. **Saved filters** (Ms. Protocolli's) are explicit,
   kept on the server in the desk's data, and never applied by themselves — only by a click on their button.
 * **CSS names:** desk classes carry the desk's prefix (`bk-`, `lg-` …); never reuse an office.css name (`.empty`, `.card`,
   `.row`, `.hint` …); **never a level/state from data as a bare class**; a grid overriding `.kv` or row columns brings its own
@@ -855,7 +860,7 @@ The same thing has the same word on every desk and text; grammar follows the wor
 * Subheadings in a list = a tinted bar (`var(--surface2)`), rows indented — never just bold text. Long lists fold one kind and
   day into a counted row, «Show n more»; a deep link clears a filter that hides its entry.
 * **Backup protection** always via `Office.backupChip(level, note)` from `backupProtection()` — what is really there, never
-  settings.ini alone (the truth review 2026-10): local only where a run took a snapshot, offsite only with a Kopia copy
+  settings.ini alone: local only where a run took a snapshot, offsite only with a Kopia copy
   and its repository not held, a partner only for the unit it received. The state carries `backupProtectionNote()` beside
   the level (set, why, partners, missed): the label then says «local + partner» and, beside it, why it is less than set.
 
@@ -871,8 +876,12 @@ The same thing has the same word on every desk and text; grammar follows the wor
   shutdown|freeze|pause|none`, never forced off, a late VM paused (warning). **Array stop ends a run at once** (`aborted`, exit
   3, shown as stopped, never failed); `--recover` at the next start. **Sleeping pools** `wake|skip` (skip = left out and said,
   never failed; backup place and data folder pools always woken). **The retention never thins a partner's copies or the
-  storeroom** (`ub_prune_own`). **Partner phase:** one dataset per unit, `partner_ssh_cmd()` the one place for ssh options, never `zfs send -s`; what a partner didn't get is a warning in that run (`testPartnerAtOnce`).
-  Fixtures run on the tests' clock (checklist 3).
+  storeroom** (`ub_prune_own`). **Partner phase:** one dataset per unit, `partner_ssh_cmd()` the one place for ssh options,
+  never `zfs send -s`; several units of a partner at once only while that moves more (`UB_PARTNER_STREAMS`); what a partner
+  didn't get is a warning in that run (`testPartnerAtOnce`). Fixtures run on the tests' clock (checklist 3).
+* **Bash under pipefail:** a reader that stops early (`grep -q`, `break`) never reads a line-writing helper through a pipe or
+  `< <( )` (SIGPIPE) — use `$( )` (`testBackupEpipe`); a `while … | jq … || fallback` loop never ends on `[[ … ]] && cmd`
+  (use `if`).
 
 
 ### Server facts in full
@@ -907,6 +916,8 @@ The same thing has the same word on every desk and text; grammar follows the wor
   vanish at reboot; no shebang — run via `bash`). dcron also reads `/var/spool/cron/crontabs/root`; plugins writing it with
   `crontab -l | … | crontab -` can duplicate the system crontab (jobs twice — `job.sh` skips a second start in the same minute).
   atd queue `/var/spool/atjobs`; notification agents in `/boot/config/plugins/dynamix/notifications/agents/`.
+* **atd and the clock change:** in the autumn's repeated hour `at now` lands an hour ahead — the office runs `at` with `TZ=UTC`
+  (`HOST_AT_ENV`, agent/lib/house.php; agent.sh alike), and each job's script puts the host's zone back (`unset TZ`).
 * **VMs:** XML, NVRAM, TPM live in `libvirt.img` (`/etc/libvirt`); live state in `/var/run/libvirt/qemu/<vm>.xml`. Array stop:
   paused resumed, `virsh shutdown`, wait `TIMEOUT` (60 s), then `virsh destroy`.
 * **Saving share settings resets a share's root to `0777 nobody:users`** unless its group is `users` (Nextcloud refuses `occ`;
@@ -958,7 +969,7 @@ One chat is the **coordinator**, the others **workers** — one per task (not pe
   the bottom also at ~1280×720, cancel/back, dialogs on dialogs) before telling the owner it is done.
 * **Shared files** (`core.js`, `office.css`, `src/`, `agent/lib/`, `backup/`, CLAUDE.md): one chat at a time, as the
   coordinator says; a desk's own folder belongs to the task working on it.
-* **Test servers** Tower, USOPartner, USOTest3VM are throw-away (anything allowed); only nostromo is real. USOPartner stays on
+* **Test servers** Tower, USOPartner, USOTest3VM, USOTest4 are throw-away (anything allowed); only nostromo is real. USOPartner stays on
   the last release (the canary) — only `tools/release.sh` updates it, never dev-sync.
 * Tests that write (`setup.sh --apply`, runs) touch the real Kopia repository and containers even with another `UB_DATA`: only
   with Kopia off in the test decisions, and only by the coordinator.
