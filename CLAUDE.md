@@ -21,9 +21,9 @@ earlier versions: `git show v1.62.0:CLAUDE.md` (build notes: `v1.60.0`).
 ```
 agent/agent.php        loop, mailbox + doorbell, heartbeat, desks, self-restart; partner-door.php the partners' forced command
 agent/lib/*.php        shared: util (run, writeAtomic, Problem, request readers), mounts (diskAsleep), house (finding,
-                       officeNotify, officeJobSchedule), backupscript (backupProtection), migrate, metrics, partner(look),
-                       where, report, import, watchnet, paritywhy, nightrun.php (the joint night run), poollevel.php (limit X)
-agent/desks/<id>.php   one desk each: desk('<id>', [...]) (+ moverelli-unraid/-import, restore-drill/-partner)
+                       officeNotify, officeJobSchedule, hostLaunch), backupscript (backupProtection), migrate, metrics,
+                       partner(look), usonet, notifycenter, where, report, nightrun (the joint run), nightorder, poollevel …
+agent/desks/<id>.php   one desk each: desk('<id>', [...]) (+ parts as <id>-<part>.php: restore-paths, moverelli-unraid …)
 src/*.php              web side: bootstrap (versions), place (paths, URLs, OFFICE_UNRAID_TESTED), api, staff, page, words
 public/assets/core.js  Office: t(), routing, api, loadState, deskHead, sectionHead, sections, filterBar, places, keepInPlace
 public/lang/ desks/    office strings ×5 (lang/unraid/: Unraid's words); desks/<id>/: desk.json, desk.js, places.json, lang/
@@ -47,6 +47,8 @@ tests/ tools/          run.php, node tests, ui/ (harness, stubs, demo/); release
 * **Say what is really there:** detect it (boot stick or pool, licence on stick or TPM, a VM disk on an overlay) instead of
   describing the common case. Restore texts complete and honest. Docker stopped = «Docker isn't running» (`common.docker_off`),
   never «0 of 0 running»; no VMs = «No VMs»; a missing share = «The share X is missing».
+* **Results, not settings:** protection shows what a run made (offsite only after a Kopia copy, «+ partner» only for what
+  arrived); what couldn't be checked is «not checked right now», never fine or a must; a failed or stopped job is never done.
 
 ### Build and code
 * **No build step, no dependencies.** PHP 8.4 (Unraid's — nothing newer), vanilla JS, office.css + optional `desk.css`; look
@@ -56,7 +58,8 @@ tests/ tools/          run.php, node tests, ui/ (harness, stubs, demo/); release
   (`Office.api.post('<desk>.<action>')` → `agent/desks/<desk>.php`). Exceptions: night-shift RAM state; secrets typed for the
   agent go through `apiSecretStash()` (0600 file in the RAM inbox, never the mailbox on the pool; only `OFFICE_SECRET_ACTIONS`
   carry a `secret`); reading the heartbeat (`agentRecord()`); ringing the **doorbell** FIFO `RUN_DIR/doorbell` (`agentRing()`) —
-  never a signal or a process.
+  never a signal or a process; Mr. Restori's flash «Download…» (`apiFlashFile()`: read-only, exactly
+  `<place>/flash/flash.tar.gz`, no link — HARDENING.md).
 * **Agent safety:** commands via `run()`/`runAll()` (array form, no shell). Every action re-reads current state and validates
   ids against it. Errors: `throw new Problem('key', [...])` → UI `errors.<key>`. **Request fields are read, never cast:**
   `textField()`, `optText()`, `idList()`, `boolField()`, `cronField()` (web: `apiText()`) — never `(string) ($r['x'] ?? '')`; a
@@ -77,10 +80,8 @@ tests/ tools/          run.php, node tests, ui/ (harness, stubs, demo/); release
   those helpers. A path through /mnt/user may touch every disk of the share — check all its parts first.
 * **Nothing directly in /mnt** (Fix Common Problems): mounts under `/mnt/addons/UnraidSecretaryOffice/…` (RAM), desk data in the
   share `UnraidSecretaryOffice/<desk>/`. **The office never creates (or deletes) a share** — the user does (⟦Shares⟧); the
-  office says which and why. One exception: Unraid's standard shares appdata/system when never there, and the office's own
-  share UnraidSecretaryOffice as the backup place (Mr. Backupsy's first step) — only on the user's click (the welcome, the
-  Team Lead's card, «Create UnraidSecretaryOffice…»), by Unraid's own «Add Share» (agent/lib/firsthome.php); never on its
-  own, never another name.
+  office says which and why. Exceptions, only on the user's click, by Unraid's own «Add Share» (agent/lib/firsthome.php):
+  appdata/system when never there, and the backup place UnraidSecretaryOffice (Mr. Backupsy's first step) — never another name.
 * **Never block the array stop:** nothing kept open in the pool (doorbell, heartbeat in `RUN_DIR`); the night shift never opens
   anything under `/mnt` (cwd `/`).
 * **Never delete right away** what the user may want back (storeroom, set-aside). Backups keep copies on purpose (the office's
@@ -95,20 +96,18 @@ tests/ tools/          run.php, node tests, ui/ (harness, stubs, demo/); release
   the user does. Every 30 min without a browser: cheap, state files, never waking a disk (sleeping → `ok = null`). Change a
   check's text only when its meaning changed (acks hash it, `testAckContent`).
 * **Metrics** (`agent/lib/metrics.php`): `'metrics' => fn (): array => [...]`, families `uso_<desk>_…`, gauge|counter, few label
-  values, state files only, once a minute for hired desks; files in `/mnt/addons/UnraidSecretaryOffice/metrics`, all ≤
-  `METRICS_MAX_BYTES` (16 KB). Names unique over desks, times `…_timestamp_seconds`, no `_count/_sum/_bucket` on a gauge;
-  renaming one changes `monitoring/grafana-dashboard.json` too.
+  values, state files only, once a minute for hired desks, all ≤ `METRICS_MAX_BYTES`. Names unique over desks, times
+  `…_timestamp_seconds`, no `_count/_sum/_bucket` on a gauge; renaming one changes `monitoring/grafana-dashboard.json` too.
 * **Notifications** only via `officeNotify()` (naming its desk and event) — every sender behind the Team Lead's ONE gate
-  (`notifycenter.php` = `notifygate.sh`, the same decision; alerts never held; settings only in his notification centre): subject prefix `Unraid Secretary Office`; `warning` = something to fix, `alert`
-  only when something is at risk now; texts `notify.*` via `officeNotifyText()` in the office's last language
-  (`officeNotifyLang()`); tests use `OFFICE_NOTIFY_BIN`. All senders (agent, night shift, agent.sh `tell`, engine `ub_notify`)
-  share the stamp `RUN_DIR/notify.second` (Unraid drops a second one of the same event in the same second). `-m` line breaks are
-  a literal `\n`; never a real newline in `-d`.
+  (`notifycenter.php` = `notifygate.sh`, the same decision; alerts never held; settings only in his notification centre);
+  `warning` = something to fix, `alert` only when something is at risk now; texts `notify.*` via `officeNotifyText()` in the
+  office's last language (`officeNotifyLang()`); tests use `OFFICE_NOTIFY_BIN`. All senders share the stamp
+  `RUN_DIR/notify.second` (Unraid drops a second one of the same event in the same second).
 * **Heartbeat in RAM** (`RUN_DIR/agent.json`, every 20 s); `agentUp()` is the one rule for «at work»; a request waiting while
   the agent is away is answered `agent_away` after 4 s; action buttons disabled while `Office.agent.running` is false.
   `agent-watch.cron` alerts after 10 min of a stale heartbeat with the array started.
 * **Jobs that must outlive the agent** (backup runs, restores, drills, let-gos, Jack Streamer's and Ms. Moverelli's runs) go
-  through `atd` (`hostLaunch()`, `backupLaunch()`), never as the agent's child.
+  through `atd` (`hostLaunch()`, `backupLaunch()`; `at` runs with `TZ=UTC`), never as the agent's child.
 * **Schedules** only via `officeJobSchedule()`/`officeJobSetSchedule()`: a line in the plugin's cron file calling
   `scripts/job.sh <job>` (runs only with the array started). **Never User Scripts** for the office's jobs (they are the user's).
   Never «fix» root's crontab from the office.
@@ -119,13 +118,12 @@ tests/ tools/          run.php, node tests, ui/ (harness, stubs, demo/); release
   extend the interface:** reasons as codes (`die_code`, `why` → `backup.message.<code>`), setup hints/warnings
   (`hint_as`/`wrn_as` → `setup.msg.<code>` ×5, `testSetupMessages`), drift notes (`drift_add` → `drift_code.<code>` ×5,
   `testDriftCodes`). Engine notifications and drift.txt stay English.
-* Server name from ident.cfg (`ub_host_name()`), never settings.ini. Version `UB_VERSION` in backup.sh, setup.sh, lib/common.sh
-  and backup/README.md + a CHANGELOG line.
+* Server name from ident.cfg (`ub_host_name()`), never settings.ini. Version: `UB_VERSION` (lib/common.sh), the headers of
+  backup.sh and setup.sh, backup/README.md (top and a line under «Versions»).
 * backup.sh and setup.sh are one `{ … }` block (code goes inside). **Replace files with a new file + `mv`, never write into
   them;** after a `mv` on the host compare md5 on both sides before committing (SMB may show old content).
-* A reader that stops early (`grep -q`, `break`) never reads a line-writing helper through a pipe or `< <( )` (SIGPIPE under
-  pipefail) — use `$( )`; `testBackupEpipe`. Under pipefail a `while … | jq … || fallback` loop never ends on `[[ … ]] && cmd`
-  (use `if`).
+* Under pipefail: a reader that stops early never reads a helper through a pipe or `< <( )` — use `$( )` (`testBackupEpipe`);
+  a `while … | jq … || fallback` loop never ends on `[[ … ]] && cmd` (docs/DEVELOPMENT.md).
 * **What holds** (in full: docs/DEVELOPMENT.md «The backup engine: what holds», backup/README.md): one run at a time behind
   `state/lock` (the office only looks via `flockHeld()`); one real backup a minute (`uso-backup-YYYYMMDD-HHMM`); backups never in
   appdata; packages never deleted; new things stay local until the user decides; VMs never forced off; array stop ends a run at
@@ -133,11 +131,11 @@ tests/ tools/          run.php, node tests, ui/ (harness, stubs, demo/); release
   for ssh options. Fixtures run on the tests' clock (checklist 3).
 
 ### Jack Streamer's tools
-`mediacache/` (MediaCache by helmi1987: Emby, Jellyfin, Plex; job id still `embycache`) and `gather/` ship with the office; our changes kept small and listed at the top of their
-README.md; their data apart (`MEDIACACHE_DIR`, `CONSOLIDATE_CONFIG`); they report through status files, never parsed log lines.
-**MediaCache MOVES files** — test with report and dry runs. Runs via `php agent.php job embycache|gather <mode>`; a real run
-holds the other tool's lock. The cleaner is left out on purpose. Smart Mover (`smartmover/`, helmi1987) likewise: office hooks
-`CUSTOMMOVER_*` listed in smartmover/README.md, changes marked `USO`.
+`mediacache/` (MediaCache by helmi1987: Emby, Jellyfin, Plex; job id still `embycache`) and `gather/` ship with the office; our
+changes kept small and listed at the top of their README.md; their data apart (`MEDIACACHE_DIR`, `CONSOLIDATE_CONFIG`); they
+report through status files, never parsed log lines. **MediaCache MOVES files** — test with report and dry runs. Runs via
+`php agent.php job embycache|gather <mode>`; a real run holds the other tool's lock; the cleaner is left out on purpose. Smart
+Mover (`smartmover/`, helmi1987) likewise: hooks `CUSTOMMOVER_*` in its README.md, changes marked `USO`.
 
 ### Versions and releases
 `OFFICE_VERSION` (src/bootstrap.php) and `AGENT_VERSION` (agent/agent.php) move together; tag `v<version>`. The plugin's version
@@ -163,8 +161,8 @@ the office's authorized_keys lines. A new agent version → «Reload» offered, 
 ## The desks
 
 **Each desk's full rules: docs/DEVELOPMENT.md «The desks» — read your desk's entry before touching it.** Desks know each other
-only through shared libraries (`backupProtection()`, `finding()`, `partnerlook.php`, `nightrun.php`, `poollevel.php`) and links
-(`#/<desk>`) — each must work on its own. The hardest rules:
+only through shared libraries (`backupProtection()`, `finding()`, `partnerlook.php`, `nightrun.php`, `nightorder.php`,
+`poollevel.php`) and links (`#/<desk>`) — each must work on its own. The hardest rules:
 
 * **`snapshot` Ms. Snapshotini:** retention touches only her plans' `uso-plan-…`, never the engine's; an action on a sleeping
   pool refuses without `wake`; a partner's copies are never a target.
@@ -174,16 +172,18 @@ only through shared libraries (`backupProtection()`, `finding()`, `partnerlook.p
 * **`jack` Jack Streamer:** works only under Ms. Moverelli (`"needs"`); the API key never leaves the server; rsync both ways;
   never a real gather while someone watches Emby; never writes into Mover Tuning; Unraid's mover only via its form (`emcmd`).
 * **`moverelli` Ms. Moverelli:** Unraid's mover off only with the page's consent `mover_off: true`, her let-go puts it back;
-  never a hand-written cron line; the night run (nightrun.php) and the pool's **one limit X** (poollevel.php).
+  never a hand-written cron line; the night run (nightrun.php) and the pool's **one limit X** (poollevel.php); never the backup's
+  minute, whoever starts first goes first (nightorder.php).
 * **`logs`, `watchman`, `cleanup`'s «Where is what»: read only.** Only the watchman gives security advice; API keys never shown.
 * **`cleanup` Ms. Dustdevil:** never deletes right away (hidden storeroom, `manifest.json`, put back); only she writes there.
 * **`advisor` the Consultant:** the user clicks Apply in Unraid's form; never logs into a web UI or HTTP API; Kopia secrets only
   after explicit confirmation, through RAM.
-* **`restore` Mr. Restori:** never over something still there without asking; what is replaced is put aside first; throwaway
-  drill containers only via `drillContainerArgs()` + `drillArgsSafe()`.
+* **`restore` Mr. Restori:** never over something still there without asking; what is replaced is put aside first; a Kopia path
+  or package is staged in the restore folder first; the flash is download only; throwaway drill containers only via
+  `drillContainerArgs()` + `drillArgsSafe()`.
 * **`caretaker` the Team Lead:** hires/fires, collects checks; «I know, thanks» never for musts; he only pairs partners.
 * **Partner offices:** only `uso-partner:`/`uso-ticket:` lines in authorized_keys are touched; the door receives with
-  `zfs recv -s -u`, never `-F`; nothing destroyed.
+  `zfs recv -s -u`, never `-F`; several units of a pair at once, never one unit twice; nothing destroyed.
 * **USO network** (the office's own Tailscale node, agent/lib/usonet.php, scripts/usonet.sh): only the network underneath —
   the pairing unchanged, the partner code asks only `usonetWrap()`/`usonet_peer`; nothing of the host's network, the user's
   Tailscale or Unraid's sshd touched; the helper pinned by SHA-256; the auth key a secret; leave/remove leaves nothing.
@@ -245,7 +245,7 @@ More (cron, VMs, Docker, Kopia, containers, data flow, logins, Add Container for
 
 One **coordinator** owns `main`, the server and releases; **workers** (one per task) work in a worktree on `task/<name>`,
 commit and push, never merge, dev-sync, release or apply settings on nostromo. Shared files (`core.js`, `office.css`, `src/`,
-`agent/lib/`, `backup/`, CLAUDE.md) one chat at a time. **Test servers** Tower, USOPartner, USOTest3VM are throw-away; only
+`agent/lib/`, `backup/`, CLAUDE.md) one chat at a time. **Test servers** Tower, USOPartner, USOTest3VM, USOTest4 are throw-away; only
 nostromo is real; USOPartner stays on the last release (only `tools/release.sh` updates it). Full text: docs/DEVELOPMENT.md
 «Several chats at once».
 

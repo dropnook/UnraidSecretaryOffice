@@ -1,7 +1,7 @@
 > **In the Unraid Secretary Office** this is the MediaCache Jack Streamer looks after (Emby, Jellyfin and Plex, several
 > servers at once): taken from [helmi1987/mediacache-for-unraid](https://github.com/helmi1987/mediacache-for-unraid)
 > (main `2a91ef1`, 7.4.0, 2026-10-15), with the office's changes merged in from its earlier EmbyCache copy (embycache 7.3.0
-> of the office, itself from helmi1987's embycache 7.2.1). Jack sets it up, runs and schedules it; its data lives in
+> of the office, itself from helmi1987's embycache 7.2.1). Jack Streamer sets it up, runs and schedules it; its data lives in
 > `data/mediacache` (`MEDIACACHE_DIR`). Every change is marked `USO` in the code. Shipped: `mediacache_lib.py`,
 > `mediacache_run.py` (+ his `tests/`, not in the package). Not shipped: `mediacache_setup.py` (Jack is the setup) and
 > `mediacache_cleaner.py` (on a share whose primary is the pool it would take every new film for an orphan).
