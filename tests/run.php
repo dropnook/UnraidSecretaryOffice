@@ -13600,7 +13600,7 @@ JS);
         && str_contains($rjs2, '} else if (live) placeRunCard();'));
     $bjs2 = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
     check('backup run card 1.60.1: above the tiles too, the tiles stay', str_contains($bjs2, 'if (live()) root.appendChild(runningCard());') && !str_contains($bjs2, 's.grid.hidden = live();'));
-    check('restore 1.60.1: a receiver with partners\' copies but no packages of its own says so (bubble.kept_only)', str_contains($rjs2, "held ? T('bubble.kept_only', { n: held }) : T('bubble.no_packages')"));
+    check('restore 1.60.1: a receiver with partners\' copies but no packages of its own says so (bubble.kept_only)', str_contains($rjs2, "held ? T('bubble.kept_only', { n: held }) : tp ? T('bubble.no_packages_ticket', { name: tp.name }) : T('bubble.no_packages')"));
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         $lj = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/restore/lang/$l.json"), true) ?: [];
         same("restore run card: $l - the card's words and a short name for every step kind", [], array_values(array_filter(['rc.since', 'rc.left', 'rc.end', 'rc.errors',
