@@ -87,4 +87,17 @@ out.t8.owner = r.ownerPlaces(pulled, 'app', 'Nextcloud').map((u) => [u.path, u.s
 r.setState({ ...st8, restores: [{ ...pulled, putback: { id: 'x', result: 'ok' } }] });
 out.t8.dropped = texts(r.partnerPart(nc, 'app')).filter((t) => t.startsWith('pa.'));
 
+// ---- #6: a pull of a whole share — «Swap it in…» from its entry; swapped: the way to the swap's entry
+r.setState(st8);
+const sw = (t, o = {}) => r.swapPart(jr('partner', { pair: 'p1', unit: 'share:appdata', path: '/mnt/user/appdata', partner: 'PartnerNAS', ...t }, o));
+out.t6 = {
+  beside: texts(sw({ dataset: 'cache/appdata.restored-20261025-120000' })),
+  ticket: texts(sw({ dataset: 'tank/appdata.restored-20261025-120000', how: 'share_exists' })),
+  parent: sw({ dataset: 'tank/UnraidSecretaryOffice-restored/share-appdata' }),
+  vm: r.swapPart(jr('partner', { pair: 'p1', unit: 'vm:Win', dataset: 'cache/domains/Win.restored-20261025-120000' })),
+  swapped: texts(sw({ dataset: 'cache/appdata.restored-20261025-120000' }, { swapped_by: 'J9' })),
+  places: r.placesBack(jr('partner', { pair: 'p1', unit: 'share:appdata', path: '/mnt/user/appdata' }, { swapped_by: 'J9' })),
+  putBack: sw({ dataset: 'cache/appdata.restored-20261025-120000' }, { putback: { id: 'x', result: 'ok' } }),
+};
+
 console.log(JSON.stringify(out));

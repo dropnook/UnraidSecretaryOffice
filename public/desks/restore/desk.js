@@ -970,7 +970,7 @@ const kopiaFetched = (c) => (state.restores || []).some((r) => r.kind === 'kopia
  */
 function placesBack(r) {
   const t = (r && r.target) || {};
-  if (!r || !['ok', 'warnings'].includes(r.result) || r.putback || t.swapped) return [];
+  if (!r || !['ok', 'warnings'].includes(r.result) || r.putback || r.swapped_by) return [];
   const units = [];
   const own = (x) => (x.kopia || []).filter((k) => k.own).map((k) => k.source);
   apps().forEach((a) => [...(a.folders || []), ...(a.shares || [])].forEach((f) => units.push({ path: f.path, label: a.name, whole: !!f.whole, own: own(a) })));
@@ -993,6 +993,29 @@ function placesBack(r) {
   if (!fits) return [];
   const seen = new Set();
   return units.filter((u) => fits(u) && !seen.has(u.path) && seen.add(u.path)).map((u) => ({ path: u.path, label: u.label, whole: u.whole, snap }));
+}
+
+/** A pull that can become its share (gap 6): a whole share's, landed beside its dataset at a pool's top, still here */
+const swappable = (r) => !!r && r.kind === 'partner' && ['ok', 'warnings'].includes(r.result) && !r.putback && !r.swapped_by && r.target
+  && String(r.target.unit || '').startsWith('share:') && /^[^/]+\/[^/]+\.restored-\d{8}-\d{6}$/.test(String(r.target.dataset || ''));
+
+/** «Swap it in…» under a pull of a whole share, or — swapped — the way to the swap's entry (gap 6) */
+function swapPart(r) {
+  const share = String((r.target || {}).unit || '').slice(6);
+  if (r.swapped_by) {
+    const p = el('p', 'role');
+    const go = el('a', '', T('j.swapped', { share }));
+    go.href = '#/restore';
+    go.dataset.own = '1';
+    go.onclick = (e) => { e.preventDefault(); openJournal(r.swapped_by); };
+    p.appendChild(go);
+    return p;
+  }
+  if (!swappable(r)) return null;
+  const p = el('div', 'rs-act');
+  p.append(restoreButton(T('j.swap'), { kind: 'partner_swap', id: r.id }, T('rd.title.swap', { share, name: r.target.partner || '' })), ' ',
+    el('span', 'role', T('j.swap_hint', { share })));
+  return p;
 }
 
 /** «Now to their place…»: each folder or share a restore brought back, with step 4's dialog on that moment */
@@ -1247,7 +1270,7 @@ function kopiaBlock(sources) {
 /** A pull of this unit from this partner that is still here (done, not put back, not swapped in): its journal row */
 function pulledOf(pair, unit) {
   return (state.restores || []).find((r) => r.kind === 'partner' && ['ok', 'warnings'].includes(r.result) && !r.putback
-    && r.target && r.target.pair === pair && r.target.unit === unit && !r.target.swapped) || null;
+    && r.target && r.target.pair === pair && r.target.unit === unit && !r.swapped_by) || null;
 }
 
 /** The newest moment a partner keeps of a unit (its row in «At <partner>») */
@@ -1567,6 +1590,14 @@ function sharePartnerBlock(x) {
     all.onclick = (e) => { e.preventDefault(); openSection('partner:' + c.id); };
     line.append(' ', all);
     b.appendChild(line);
+    // pulled beside it already: it can become the share (gap 6) — the old dataset aside, put back possible
+    const pulled = (state.restores || []).find((r) => swappable(r) && r.target.pair === c.id && r.target.unit === c.unit);
+    if (pulled) {
+      const sw = el('div', 'rs-place');
+      sw.append(el('span', '', T('sh.partner_pulled', { name: c.name, when: date(pulled.finished) })), ' ',
+        restoreButton(T('j.swap'), { kind: 'partner_swap', id: pulled.id }, T('rd.title.swap', { share: x.name, name: c.name })));
+      b.appendChild(sw);
+    }
   });
   return b;
 }
@@ -2332,7 +2363,7 @@ async function restoreDialog(req, title, how = {}) {
     onClose: () => clearTimeout(timer),
     buttons: [
       { text: Office.t('common.cancel') },
-      { text: T(req.kind === 'putback' ? 'rd.go_putback' : req.kind === 'partner_start' ? 'rd.go_start' : 'rd.go'), kind: 'danger', act: start },
+      { text: T(req.kind === 'putback' ? 'rd.go_putback' : req.kind === 'partner_start' ? 'rd.go_start' : req.kind === 'partner_swap' ? 'rd.go_swap' : 'rd.go'), kind: 'danger', act: start },
     ],
   });
   const go = d.buttons[1];
@@ -3234,13 +3265,18 @@ function journalDetail(r) {
     const places = !live && !pb ? placesPart(r) : null;
     if (places) box.appendChild(places);
     if (log && log.length) box.appendChild(fold(`log:${r.id}`, T('j.log'), el('pre', 'code rs-j-log', log.join('\n'))));
-    if (r.can_putback) {
+    // a pull of a whole share (gap 6): swapped in from here — or it is the share now (its own entry puts it back)
+    const sw6 = !live && !pb ? swapPart(r) : null;
+    if (sw6) box.appendChild(sw6);
+    if (r.swapped_by) {
+      // nothing to remove while it is the share: the swap's entry puts it back first
+    } else if (r.can_putback) {
       const p = el('div', 'rs-act');
       if (left.length) {
         p.append(restoreButton(T('j.remove_unfinished'), { kind: 'putback', id: r.id }, T('rd.title.unfinished', { what: journalTitle(r) })), ' ', el('span', 'role', T('j.remove_unfinished_hint')));
       } else {
         p.append(restoreButton(T(r.kind === 'partner' ? 'j.drop' : 'j.putback'), { kind: 'putback', id: r.id }, T('rd.title.putback', { what: journalTitle(r) })), ' ',
-          el('span', 'role', T(r.kind === 'partner' ? 'j.drop_hint' : r.kind === 'partner_start' ? 'j.start_putback_hint' : 'j.putback_hint')));
+          el('span', 'role', T(r.kind === 'partner' ? 'j.drop_hint' : r.kind === 'partner_start' ? 'j.start_putback_hint' : r.kind === 'partner_swap' ? 'j.swap_putback_hint' : 'j.putback_hint')));
       }
       box.appendChild(p);
     } else if (!live && ['ok', 'warnings'].includes(r.result) && !r.putback && r.kind !== 'putback') box.appendChild(el('p', 'role', T(r.kind === 'kopia' ? 'j.no_putback_kopia' : 'j.no_putback')));
@@ -3397,6 +3433,6 @@ Office.placesFrom(ID, (s, part) => {
 // tests/run.php runs the databases tile's logic and the preview's sizes under node
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.restore = { setState: (s) => { state = s; }, greetOk, shareFromKopia, kopiaFetched, dbGroups, dbName, dbRequest, earlierOf, tileLine, sizesDone,
-    noPackagesText, noPackages, bootSnapsPart, placesBack, placesPart, kopiaBlock, partnerPart, fetchLead, atPartnerChip, ownerPlaces, setJob: (j) => { job = j; }, runCardData, runCard, shortStep, liveJob, runCardShort, bubbleText, snapsChip };
+    noPackagesText, noPackages, bootSnapsPart, placesBack, placesPart, swapPart, swappable, kopiaBlock, partnerPart, fetchLead, atPartnerChip, ownerPlaces, setJob: (j) => { job = j; }, runCardData, runCard, shortStep, liveJob, runCardShort, bubbleText, snapsChip };
 }
 })();

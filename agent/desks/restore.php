@@ -1726,6 +1726,13 @@ function rsJournals(): array
         }
         $out[] = rsJournalRow($j);
     }
+    // a pull swapped in as its share (gap 6): said on its row — no copy beside it any more, its removal waits for the swap's put back
+    foreach ($out as &$row) {
+        if ($row['kind'] === 'partner') {
+            $row['swapped_by'] = rspSwappedBy($row['id'], $out);
+        }
+    }
+    unset($row);
     return $out;
 }
 
@@ -1974,6 +1981,7 @@ function rsPlan(array $r): array
         'putback' => rsPlanPutback($r, $stamp),
         'partner' => rsPlanPartner($r, $stamp),
         'partner_start' => rsPlanPartnerStart($r, $stamp),
+        'partner_swap' => rsPlanPartnerSwap($r, $stamp),
         default   => throw new Problem('unknown_target', ['target' => $kind]),
     };
     return rsPlanSeal($plan, $stamp);
@@ -3348,6 +3356,11 @@ function rsPlanPutback(array $r, string $stamp): array
         $plan['blockers'][] = ['key' => is_array($j['putback'] ?? null) ? 'restore_putback_done' : 'restore_putback_not', 'params' => []];
         return $plan;
     }
+    // a pull swapped in as its share (gap 6) is the share now: its removal waits until the swap is put back
+    if (($j['kind'] ?? '') === 'partner' && rspSwappedBy($id) !== null) {
+        $plan['blockers'][] = ['key' => 'restore_putback_swapped', 'params' => ['share' => substr((string) ($j['target']['unit'] ?? ''), 6)]];
+        return $plan;
+    }
     $fill = function (mixed $v) use (&$fill, $stamp): mixed {
         return is_array($v) ? array_map($fill, $v) : (is_string($v) ? str_replace('{T}', $stamp, $v) : $v);
     };
@@ -3434,6 +3447,30 @@ function rsPlanPutback(array $r, string $stamp): array
             if ($off) {
                 $plan['notes'][] = ['key' => 'note.files_vms_off', 'params' => ['names' => implode(', ', $off)]];
             }
+        }
+    }
+    // a swap put back (gap 6): the share's dataset changes names again — never under an open file, a running VM or an image
+    if (($j['kind'] ?? '') === 'partner_swap' && $plan['steps']) {
+        $live = (string) ($orig['target']['path'] ?? '');
+        $paths = $live !== '' ? ['/mnt/user/' . (string) ($orig['target']['share'] ?? ''), $live] : [];
+        foreach ($paths ? rsVmsUsing($paths) : [] as $v) {
+            if ($v['state'] !== 'shut off') {
+                $plan['blockers'][] = ['key' => 'restore_vm_uses', 'params' => ['name' => $v['name'], 'state' => $v['state'], 'path' => $v['path']]];
+            }
+        }
+        $holders = $live !== '' ? rsOpenHolders([$live]) : [];
+        if ($holders) {
+            $plan['blockers'][] = ['key' => 'restore_in_use', 'params' => ['names' => implode(', ', $holders), 'path' => $live]];
+        }
+        foreach ($live !== '' ? rsLoopHolders([$live]) : [] as $h) {
+            $plan['blockers'][] = rsLoopBlocker($h);
+        }
+        if ($live !== '') {
+            $at = 0;
+            foreach ($plan['steps'] as $k => $s) {
+                $at = $s['do'] === 'stop' ? $k + 1 : $at;
+            }
+            array_splice($plan['steps'], $at, 0, [['do' => 'not_open', 'paths' => [$live]]]);
         }
     }
     $now = rsContainersNow();
@@ -3829,6 +3866,11 @@ function rsStep(array &$j, int $i): array
         'peek_umount' => rsDoPeekUmount($j, $s),
         'pull_local' => rsDoPullLocal($j, $i),
         'start_from' => rsDoStartFrom($j, $i),
+        'pull_umount' => rsDoPullUmount($j, $s),
+        'swap_out'   => rsDoSwapOut($j, $s),
+        'swap_in'    => rsDoSwapIn($j, $s),
+        'swap_unsettle' => rsDoSwapUnsettle($j, $s),
+        'swap_back'  => rsDoSwapBack($j, $s),
         'md_stopped' => mdDoStopped($j, $s),
         'md_aside'   => mdDoAside($j, $s),
         'md_create'  => mdDoCreate($j, $s),

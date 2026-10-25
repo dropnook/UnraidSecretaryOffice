@@ -53958,6 +53958,14 @@ function testRestoreGapsPage(): void
         json_encode($e['pulled'] ?? null));
     same('gap 8: what came back, for this app only — its folder, never the whole share row', [['/mnt/user/appdata/nextcloud', 'partner:J1:share:appdata']], $e['owner'] ?? null);
     check('gap 8: a pull removed again («Put back») — fetch anew', in_array('pa.fetch {"name":"PartnerNAS"}', (array) ($e['dropped'] ?? []), true), json_encode($e['dropped'] ?? null));
+    $w = $o['t6'] ?? [];
+    check('gap 6: a pull of a whole share beside its dataset — «Swap it in…» in its entry, saying what happens (aside, never deleted, put back)',
+        in_array('j.swap', (array) ($w['beside'] ?? []), true) && in_array('j.swap_hint {"share":"appdata"}', (array) ($w['beside'] ?? []), true)
+        && in_array('j.swap', (array) ($w['ticket'] ?? []), true), json_encode($w));
+    same('gap 6: no swap for a pull under UnraidSecretaryOffice-restored, a VM\'s unit, one put back', [null, null, null],
+        array_map(fn ($k) => array_key_exists($k, $w) ? $w[$k] : 'x', ['parent', 'vm', 'putBack']));
+    same('gap 6: swapped — the way to the swap\'s entry; nothing «to its place» any more (it is the share)', [['j.swapped {"share":"appdata"}'], []],
+        [$w['swapped'] ?? null, $w['places'] ?? null]);
     same('gap 10: … and his bubble says the same, never «with Mr. Backupsy\'s first backup run» under the ticket\'s callout', 'bubble.no_packages_ticket {"name":"OldNAS"}', $t['bubble'] ?? null);
 }
 
@@ -53983,6 +53991,151 @@ function testRestoreGapsAgent(): void
     same('gap 12: a flash on a stick (no ZFS at /boot) — nothing to name', null, rsBootSnaps([]));
     $GLOBALS['rs']['boot_ds'] = 'flash/boot; rm -rf /';
     same('gap 12: a dataset name not in the shape of one — nothing', null, rsBootSnaps([]));
+    $GLOBALS['rs'] = $keep;
+    hardeningRm($tmp);
+}
+
+/** A stand-in bin folder for zfs/mount/umount (tests/fakezfs.php by its names), its state in zfs.json; the old $GLOBALS['rs'] */
+function restoreGapsBin(string $tmp, array $zfs, array $mounts = []): array
+{
+    @mkdir("$tmp/bin", 0700, true);
+    $code = (string) file_get_contents(OFFICE_DIR . '/tests/fakezfs.php');
+    foreach (['zfs', 'mount', 'umount'] as $n) {
+        file_put_contents("$tmp/bin/$n", '#!' . PHP_BINARY . "\n" . $code);
+        chmod("$tmp/bin/$n", 0755);
+    }
+    file_put_contents("$tmp/bin/zfs.json", json_encode($zfs));
+    file_put_contents("$tmp/bin/mounts", implode("\n", $mounts) . "\n");
+    @unlink("$tmp/bin/busy.json");
+    @unlink("$tmp/bin/calls.log");
+    putenv("OFFICE_PARTNER_BIN=$tmp/bin");
+    return $GLOBALS['rs'] ?? [];
+}
+
+/** The steps of a plan run one by one as his job does (stop/start of containers left out: no Docker here) — the journal */
+function restoreGapsRun(array $plan, string $id, ?array &$j = null): array
+{
+    $j = rsJournalNew($id, $plan);
+    rsPrivateDir(rsData());
+    rsPrivateDir(rsDir($id));
+    writeAtomic(rsDir($id) . '/plan.json', jsonEncode($plan), 0600, 0, 0);
+    $failed = false;
+    foreach (array_keys($j['steps']) as $i) {
+        if ($failed) {
+            $j['steps'][$i]['state'] = 'skipped';
+            continue;
+        }
+        $res = in_array($j['steps'][$i]['do'], ['stop', 'start'], true) ? ['state' => 'ok', 'stopped' => [], 'started' => []] : rsStep($j, $i);
+        $j['steps'][$i] = array_merge($j['steps'][$i], $res);
+        $failed = $res['state'] === 'failed';
+    }
+    $j['result'] = $failed ? 'failed' : 'ok';
+    $j['started'] = $j['finished'] = time();
+    rsJournalWrite($j, false);
+    return $j;
+}
+
+/** Gap 6: a partner's pull of a whole share swapped in as the share — and back */
+function testRestoreGapsSwap(): void
+{
+    $tmp = hardeningTmp('rsswap');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $keep = $GLOBALS['rs'] ?? [];
+    $pullId = '20261025-100000-ab12';
+    $dn = 'tank/appdata.restored-20261025-100000';
+    $mnt = "$tmp/restored/PartnerNAS-share-appdata-20261025-100000";
+    @mkdir($mnt, 0755, true);
+    $zfs = ['tank' => ['guid' => '1', 'mounted' => true], 'tank/appdata' => ['guid' => '11', 'mounted' => true, 'snaps' => ['uso-backup-20261024-0300', 'uso-backup-20261025-0300']],
+            $dn => ['guid' => '22', 'mountpoint' => 'legacy', 'canmount' => 'noauto', 'mounted' => false, 'snaps' => ['uso-backup-20261024-0300']]];
+    $fresh = function (array $over = [], array $zfsOver = []) use ($tmp, $zfs, $dn, $mnt, $pullId, $keep): void {
+        $GLOBALS['rs'] = $keep;
+        restoreGapsBin($tmp, array_replace($zfs, $zfsOver), ["$dn $mnt zfs ro 0 0"]);
+        exec('rm -rf ' . escapeshellarg("$tmp/data"));
+        $GLOBALS['rs'] = array_merge($GLOBALS['rs'], ['data' => "$tmp/data", 'restored_root' => "$tmp/restored", 'mounts_file' => "$tmp/bin/mounts",
+            'users' => fn (array $p, array $r) => [['nextcloud'], []], 'open' => fn (array $p) => [], 'vm_disks' => fn () => [], 'fs' => ['tank' => 'zfs'],
+            'sys_block' => "$tmp/sysblock", 'docker_running' => false, 'state' => ['kopia' => ['restore' => null]]], $over);
+        $pull = ['id' => $pullId, 'kind' => 'partner', 'what' => 'appdata ← PartnerNAS', 'result' => 'ok', 'created' => 1, 'started' => 1, 'finished' => 2, 'putback' => null,
+                 'target' => ['pair' => 'p1', 'unit' => 'share:appdata', 'partner' => 'PartnerNAS', 'path' => '/mnt/user/appdata', 'dataset' => $dn],
+                 'steps' => [['do' => 'pull', 'state' => 'ok', 'dataset' => $dn, 'undo' => [['do' => 'drop', 'dataset' => $dn, 'path' => $mnt, 'guid' => '22']]],
+                             ['do' => 'mount', 'state' => 'ok', 'dataset' => $dn, 'path' => $mnt]],
+                 'pulled' => [['dataset' => $dn, 'guid' => '22', 'pair' => 'p1', 'partner' => 'PartnerNAS', 'unit' => 'share:appdata', 'snap' => 'uso-backup-20261024-0300',
+                               'time' => 1792800000, 'path' => '/mnt/user/appdata', 'mount' => $mnt, 'bytes' => 1000]], 'aside' => [], 'stopped' => []];
+        rsPrivateDir(rsData());
+        rsPrivateDir(rsDir($pullId));
+        writeAtomic(rsDir($pullId) . '/plan.json', jsonEncode(['kind' => 'partner', 'target' => $pull['target']]), 0600, 0, 0);
+        rsJournalWrite($pull, false);
+    };
+    $z = fn () => json_decode((string) file_get_contents("$tmp/bin/zfs.json"), true);
+    $mounted = fn () => trim((string) file_get_contents("$tmp/bin/mounts"));
+    $aside = 'tank/.UnraidSecretaryOffice-restore-20261025-110000-appdata';
+
+    $fresh();
+    $plan = rsPlanPartnerSwap(['kind' => 'partner_swap', 'id' => $pullId], '20261025-110000');
+    same('gap 6: the swap — nothing blocks; what uses the share stops; the pull unmounted, the share\'s dataset aside whole, the pull in its place, then started again',
+        [[], ['not_open', 'stop', 'pull_umount', 'swap_out', 'swap_in', 'start'], $aside, ['nextcloud']],
+        [$plan['blockers'], array_column($plan['steps'], 'do'), $plan['steps'][3]['to'] ?? null, $plan['stops']]);
+    same('gap 6: … said: its 2 snapshots go aside with it; the aside is a hidden name at the pool\'s top (never a share), kept',
+        [2, '/mnt/tank/.UnraidSecretaryOffice-restore-20261025-110000-appdata', 'after.swap_done'],
+        [array_column($plan['notes'], 'params', 'key')['note.swap_snaps']['n'] ?? null, $plan['aside'][0]['to'] ?? null, $plan['after'][0]['key'] ?? null]);
+    $j = restoreGapsRun($plan, '20261025-110000-cd34');
+    $s = $z();
+
+    same('gap 6: swapped — the share\'s dataset is the pull (its guid), mounted where the share was; the old one aside with its snapshots, mounted; no copy left beside',
+        ['ok', '22', null, 'on', true, '11', true, ['uso-backup-20261024-0300', 'uso-backup-20261025-0300'], false, ''],
+        [$j['result'], $s['tank/appdata']['guid'] ?? null, array_key_exists('mountpoint', $s['tank/appdata'] ?? []) ? $s['tank/appdata']['mountpoint'] : 'x', $s['tank/appdata']['canmount'] ?? null, $s['tank/appdata']['mounted'] ?? null,
+         $s[$aside]['guid'] ?? null, $s[$aside]['mounted'] ?? null, $s[$aside]['snaps'] ?? null, isset($s[$dn]), $mounted()]);
+    $rows = rsJournals();
+    $byId = array_column($rows, null, 'id');
+    same('gap 6: the pull\'s row says it is swapped in (by the swap\'s entry); «Put back» of the swap is offered',
+        ['20261025-110000-cd34', true], [$byId[$pullId]['swapped_by'] ?? null, $byId['20261025-110000-cd34']['can_putback'] ?? null]);
+    same('gap 6: … removing the pull is refused while it is the share; swapping again too',
+        ['restore_putback_swapped', 'restore_swap_done'],
+        [rsPlanPutback(['id' => $pullId], '20261025-120000')['blockers'][0]['key'] ?? null, rsPlanPartnerSwap(['id' => $pullId], '20261025-120000')['blockers'][0]['key'] ?? null]);
+    $back = rsPlanPutback(['id' => '20261025-110000-cd34'], '20261025-120000');
+    same('gap 6: put back — stop, nothing open, the pull back to its name (read-only), the old dataset back, the pull mounted again, start',
+        [[], ['stop', 'not_open', 'swap_unsettle', 'swap_back', 'mount', 'start']], [$back['blockers'], array_column($back['steps'], 'do')]);
+    $jb = restoreGapsRun($back, '20261025-120000-ef56');
+    $s = $z();
+    same('gap 6: put back — the share\'s own dataset again (mounted), the pull beside it as before (legacy, read-only mount), nothing destroyed',
+        ['ok', '11', true, '22', 'legacy', 'noauto', false, "$dn $mnt zfs ro 0 0"],
+        [$jb['result'], $s['tank/appdata']['guid'] ?? null, $s['tank/appdata']['mounted'] ?? null, $s[$dn]['guid'] ?? null, $s[$dn]['mountpoint'] ?? null, $s[$dn]['canmount'] ?? null,
+         isset($s[$aside]), $mounted()]);
+
+    // refused: a program holds a file open; the share no dataset at a pool's top; its mountpoint its own; datasets inside
+    $fresh(['open' => fn (array $p) => ['smbd']]);
+    same('gap 6: a program holds a file of the share open — refused (he never ends one)', 'restore_in_use',
+        rsPlanPartnerSwap(['id' => $pullId], '20261025-110000')['blockers'][0]['key'] ?? null);
+    $fresh([], ['tank/appdata' => ['guid' => '11', 'mounted' => true, 'mountpoint' => '/mnt/elsewhere']]);
+    same('gap 6: the share\'s dataset with a mountpoint of its own — refused', 'restore_swap_mountpoint', rsPlanPartnerSwap(['id' => $pullId], '20261025-110000')['blockers'][0]['key'] ?? null);
+    $fresh([], ['tank/appdata/inner' => ['guid' => '12', 'mounted' => true]]);
+    same('gap 6: a dataset inside the share — refused', 'restore_swap_inner', rsPlanPartnerSwap(['id' => $pullId], '20261025-110000')['blockers'][0]['key'] ?? null);
+    $fresh(['vm_disks' => fn () => ['Win' => ['state' => 'running', 'disks' => ['/mnt/user/appdata/vdisk1.img']]]]);
+    $vmPlan = rsPlanPartnerSwap(['id' => $pullId], '20261025-110000');
+    check('gap 6: a VM with a disk in it running — refused', in_array('restore_vm_uses', array_column($vmPlan['blockers'], 'key'), true), json_encode($vmPlan['blockers']));
+    $fresh([], [$dn => null]);
+    $s = $z();
+    unset($s[$dn]);
+    file_put_contents("$tmp/bin/zfs.json", json_encode($s));
+    same('gap 6: the pull gone meanwhile — refused, said which', 'restore_aside_gone', rsPlanPartnerSwap(['id' => $pullId], '20261025-110000')['blockers'][0]['key'] ?? null);
+    // the share's dataset busy at the rename: the step fails, nothing swapped; «Put back» mounts the pull again
+    $fresh();
+    file_put_contents("$tmp/bin/busy.json", json_encode(['tank/appdata']));
+    $jf = restoreGapsRun(rsPlanPartnerSwap(['id' => $pullId], '20261025-110000'), '20261025-110000-cd34');
+    $s = $z();
+    same('gap 6: the share busy at the rename — failed there, the share and the pull as they were (the pull unmounted)',
+        ['failed', 'swap_out', '11', '22', ''], [$jf['result'], array_values(array_filter($jf['steps'], fn ($x) => $x['state'] === 'failed'))[0]['do'] ?? null,
+         $s['tank/appdata']['guid'] ?? null, $s[$dn]['guid'] ?? null, $mounted()]);
+    @unlink("$tmp/bin/busy.json");
+    $jb = restoreGapsRun(rsPlanPutback(['id' => '20261025-110000-cd34'], '20261025-120000'), '20261025-120000-ef56');
+    same('gap 6: … its put back mounts the pull again (read-only), nothing else', ['ok', "$dn $mnt zfs ro 0 0"], [$jb['result'], $mounted()]);
+    // a pull that is no share's dataset at a pool's top (a new server's, under UnraidSecretaryOffice-restored)
+    $fresh();
+    $pj = rsJournal($pullId);
+    $pj['pulled'][0]['dataset'] = 'tank/UnraidSecretaryOffice-restored/share-appdata';
+    rsJournalWrite($pj, false);
+    same('gap 6: a pull under UnraidSecretaryOffice-restored — no share\'s dataset to swap with: refused, «Restore…» copies', 'restore_swap_no_dataset',
+        rsPlanPartnerSwap(['id' => $pullId], '20261025-110000')['blockers'][0]['key'] ?? null);
+    putenv('OFFICE_PARTNER_BIN');
     $GLOBALS['rs'] = $keep;
     hardeningRm($tmp);
 }
@@ -55138,7 +55291,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
-                      'testRestoreReviewPaths', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
+                      'testRestoreReviewPaths', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
