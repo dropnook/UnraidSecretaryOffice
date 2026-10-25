@@ -68,3 +68,15 @@ Mr. Restori, «Kept for <partner>» (2026-10-25, a user: «where are the apps an
     bash tools/ui-clicks.sh --states tests/ui/states/truth-rest/kept --only restore
 
 testPartnerStart («kept inside») holds the agent's side: read by the look job once per moment, never in a tick.
+
+Mr. Restori, «The flash» (2026-10-25, a user couldn't find the archive): the base stub `restore.json` one folder up has
+the archive (tar, «local + partner»: «Download…», where it lives); `flash/snapshot/` — a boot pool kept with snapshots (no
+archive, its own Kopia source); `flash/off/` — the flash not backed up.
+
+    node tools/scenarios/page.mjs --states tests/ui/states restore/flash --lang en,de --clean --want restore.flash.download \
+      --want restore.flash.where_partner --want restore.flash.single_files
+    node tools/scenarios/page.mjs --states tests/ui/states/truth-rest/flash/snapshot restore/flash --want restore.flash.snapshot_text
+    node tools/scenarios/page.mjs --states tests/ui/states/truth-rest/flash/off restore/flash --want restore.flash.off_text --not restore.flash.download
+    bash tools/ui-clicks.sh --states tests/ui/states/truth-rest/flash/snapshot --only restore
+
+testFlashDownload holds the download's checks (src/api.php apiFlashFile()).

@@ -122,5 +122,7 @@
 
 /* «Kept for <partner>»: the apps and VMs inside a share's copy, each a row under its share */
 .rs-kept-pkg{padding-left:28px}
+/* the flash: where its archive lives (here, offsite, at a partner), one line each under its row */
+.rs-flash-where{margin-top:4px; font-size:.92em; color:var(--muted); overflow-wrap:anywhere}
 .rs-kept-pkg .row-name::before{content:'↳ '; color:var(--muted)}
 }

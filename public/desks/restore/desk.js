@@ -11,8 +11,8 @@
 const ID = 'restore';
 const T = Office.scope(ID);
 const { el, fmt } = Office;
-const SECTIONS = ['apps', 'vms', 'dbs', 'kopia', 'journal', 'move', 'drill'];
-const ICONS = { apps: '📦', vms: '🖥️', dbs: '🗄️', kopia: '☁️', journal: '📓', move: '🚚', drill: '🧪', partner: '🏢', kept: '🗂️' };
+const SECTIONS = ['apps', 'vms', 'dbs', 'flash', 'kopia', 'journal', 'move', 'drill'];
+const ICONS = { apps: '📦', vms: '🖥️', dbs: '🗄️', flash: '💾', kopia: '☁️', journal: '📓', move: '🚚', drill: '🧪', partner: '🏢', kept: '🗂️' };
 const SELF = (typeof document !== 'undefined' && document.currentScript && document.currentScript.src) || '';     // drill.js lies next to this file
 const HOLDERS = ['backup', 'check', 'dryrun', 'setup', 'restore', 'other'];
 const JOB_POLL = 2000;
@@ -416,6 +416,12 @@ function tileLine(sec) {
       : dk === 'off' || dk === 'silent' ? Office.t(`common.docker_${dk}`) : T('tile.kopia_missing'), t ? fmt.relative(t) : ''];
   }
   if (sec === 'drill') return Office.restoreDrill ? Office.restoreDrill.tileLine() : [T('drill.tile_none'), ''];
+  if (sec === 'flash') {
+    const mode = flashMode();
+    if (mode === 'snapshot') return [T('tile.flash_snapshot'), ''];
+    if (mode === 'off') return [T('tile.flash_off'), ''];
+    return state.flash ? [T('tile.flash_line', { size: fmt.size(state.flash.bytes) }), fmt.relative(state.flash.time)] : [T('tile.flash_none'), ''];
+  }
   if (sec.startsWith('kept:')) {
     const p = keptOf(sec.slice(5));
     if (!p) return ['', ''];
@@ -484,6 +490,7 @@ function sectionOf(sec) {
   if (sec === 'vms') return vmsSection();
   if (sec === 'dbs') return dbsSection();
   if (sec === 'kopia') return kopiaSection();
+  if (sec === 'flash') return flashSection();
   if (sec === 'journal') return journalSection();
   if (sec === 'move') return moveSection();
   if (sec === 'drill') return Office.restoreDrill ? Office.restoreDrill.section() : drillWaiting();
@@ -1549,6 +1556,80 @@ function keptMoments(p, u) {
   return box;
 }
 
+// ------------------------------------------------------------------ the flash (2026-10-25: a user couldn't find its archive)
+/** How Mr. Backupsy keeps the flash: tar (an archive in the backup place), snapshot (a boot pool's snapshots), off */
+const flashMode = () => ((state.flash_backup || {}).mode || (state.engine || {}).flash || 'off');
+
+/**
+ * «The flash»: the newest archive — when, how big, where it lives (here, offsite with the place's share, at a partner in the
+ * place's unit) — and «Download…»; with a boot pool's snapshots or switched off, that instead. Never single files back.
+ */
+function flashSection() {
+  const s = sectionBox(T('flash.title'), T('flash.sub'), { place: 'flash.title' });
+  const fb = state.flash_backup || {};
+  const mode = flashMode();
+  const box = el('div', 'box');
+  if (mode === 'snapshot' || mode === 'off' || !state.flash) {
+    box.appendChild(el('p', 'empty', T(mode === 'snapshot' ? 'flash.snapshot_text' : mode === 'off' ? 'flash.off_text' : 'flash.none_text')));
+    if (mode === 'snapshot') {
+      const c = Office.backupChip(fb.protection, fb.protection_note);
+      if (c) box.appendChild(el('div', 'row-meta', c, ' ', el('span', '', T('flash.where_offsite_own'))));
+    }
+    s.appendChild(box);
+    return s;
+  }
+  const f = state.flash;
+  const r = el('div', 'row nocheck');
+  const main = el('div', 'row-main');
+  main.appendChild(el('div', 'row-name text', 'flash.tar.gz'));
+  const meta = el('div', 'row-meta');
+  const c = Office.backupChip(fb.protection, fb.protection_note);
+  if (c) meta.appendChild(c);
+  meta.appendChild(el('span', '', date(f.time)));
+  meta.appendChild(el('span', '', fmt.size(f.bytes)));
+  main.appendChild(meta);
+  // where it lives: here, offsite (with the backup place's share), at the partners that received the place
+  const where = el('div', 'rs-flash-where');
+  where.appendChild(el('div', 'mono', T('flash.where_here', { path: f.path })));
+  if (fb.protection === 'offsite') where.appendChild(el('div', '', T('flash.where_offsite', { share: (state.place || {}).share || '' })));
+  const partnersOf = ((fb.protection_note || {}).partners || []);
+  if (partnersOf.length) where.appendChild(el('div', '', T('flash.where_partner', { names: andList(partnersOf), unit: T('pt.unit_place') })));
+  main.appendChild(where);
+  r.appendChild(main);
+  const right = el('div', 'rs-right');
+  const b = button(T('flash.download'), 'small', () => flashDownload(f));
+  b.dataset.own = '1';
+  right.appendChild(b);
+  r.appendChild(right);
+  box.appendChild(r);
+  s.appendChild(box);
+  s.appendChild(el('p', 'role', T('flash.single_files')));
+  s.appendChild(el('p', 'role', T('flash.new_server')));
+  return s;
+}
+
+/** «Download…»: what the archive holds said first (the licence key, the password hashes), then the browser saves it */
+function flashDownload(f) {
+  const body = el('div');
+  body.appendChild(el('p', 'callout warn', T('flash.download_text')));
+  body.appendChild(el('p', '', T('flash.download_size', { when: date(f.time), size: fmt.size(f.bytes) })));
+  if ((state.place || {}).asleep) body.appendChild(el('p', 'callout', T('flash.download_wakes')));
+  body.appendChild(el('p', 'role', T('flash.single_files')));
+  Office.dialog({ title: T('flash.download_title'), body, buttons: [
+    { text: Office.t('common.cancel') },
+    { text: T('flash.download_go'), kind: '', act: async () => {
+      Office.busy(ID, true);
+      try {
+        const j = await Office.api.download(`${ID}.flash_download`);
+        if (j.ok) Office.toast(T('flash.downloaded', { name: j.name }));
+        else Office.toast(Office.errorText(j.error, ID), true);
+      } finally {
+        Office.busy(ID, false);
+      }
+    } },
+  ] });
+}
+
 /** One app or VM inside a kept share's newest moment: its name, where it lies, «Start here…» for it alone (`only`) */
 function keptPackageRow(p, u, x, snap) {
   const r = Office.place(`kept:${p.id}:${u.unit}:${x.folder}`, el('div', 'row nocheck rs-kept-pkg'));
@@ -2495,7 +2576,7 @@ Office.desk({
 // opens through its sub-route, the section under it (drill.js has the drill's)
 Office.places(ID, [
   ...sw.places(),
-  ...[['apps', 'apps'], ['vms', 'vms'], ['dbs', 'dbs'], ['kopia', 'kopia'], ['journal', 'journal'], ['move.title', 'move'], ['drill.title', 'drill']]
+  ...[['apps', 'apps'], ['vms', 'vms'], ['dbs', 'dbs'], ['kopia', 'kopia'], ['journal', 'journal'], ['move.title', 'move'], ['drill.title', 'drill'], ['flash.title', 'flash']]
     .map(([key, sec]) => ({ kind: 'section', key, route: `#/restore/${sec}` })),
   ...['tiles', 'row', 'dbs', 'package', 'snapshots', 'kopia', 'commands', 'chips', 'restoring', 'journal', 'drill']
     .map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
