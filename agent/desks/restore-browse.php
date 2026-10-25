@@ -516,6 +516,7 @@ function rsPlanPick(array $r, string $stamp): array
         return rsPlanPickKept($r, $items, $wake, $stamp, $ctx);
     }
     $state = $GLOBALS['rs']['state'] ?? rsScan();
+    $ctx['kopia_restore'] = $state['kopia']['restore']['source'] ?? null;      // never a target (rsGuardPaths())
     $from = rsBrowseFrom($r, $state, $ctx);
     if ($from['rel'] !== '') {
         // from Ms. Snapshotini's snapshot of a folder deeper down: the items are below it
@@ -592,6 +593,23 @@ function rsPlanPickFor(string $root, array $owner, string $snap, array $items, s
         if ($sleeping) {
             $plan['blockers'][] = ['key' => $wake ? 'restore_wake_failed' : 'restore_asleep', 'params' => ['base' => implode(', ', $sleeping)]];
         }
+        // never through a link on the way into the share (looked at again by every step that writes: `within`), never at, in
+        // or above the office's own folders (code review of 1.72.0, H2 and H4)
+        $guard = rsGuardPaths($ctx['kopia_restore'] ?? null);
+        foreach ($sleeping ? [] : $items as $rel) {
+            $T = $infos[$rel]['T'];
+            $link = rsLinkOnWay($T, "$user/$share");
+            if ($link !== null) {
+                $plan['blockers'][] = ['key' => 'restore_path_link', 'params' => ['path' => "$root/$rel", 'link' => '/mnt/user' . substr($link, strlen($user))]];
+            }
+            $office = null;
+            foreach (array_merge([$T], array_map(fn ($p) => (string) $p['live'], rsLocate("$root/$rel", $ctx))) as $at) {
+                $office ??= rsGuardHit($at, $guard);
+            }
+            if ($office !== null) {
+                $plan['blockers'][] = ['key' => 'restore_office_data', 'params' => ['path' => "$root/$rel", 'office' => $office]];
+            }
+        }
         $space = rsShareSpace($share, $ctx);
         $free = $space['free'];
         $plan['notes'][] = ['key' => $space['secondary'] !== null ? 'note.files_place2' : 'note.files_place',
@@ -612,7 +630,8 @@ function rsPlanPickFor(string $root, array $owner, string $snap, array $items, s
         }
         $src = $it['file'] ? [$it['src'][0]['path']] : array_column($it['src'], 'path');
         $steps[] = ['do' => 'copy', 'from' => implode(' + ', $src), 'sources' => $src, 'to' => $to, 'dataset' => null,
-                    'like' => dirname($src[0]), 'like_depth' => count(explode('/', $rel)) - 1] + ($it['file'] ? ['file' => true] : []);
+                    'like' => dirname($src[0]), 'like_depth' => count(explode('/', $rel)) - 1] + ($it['file'] ? ['file' => true] : [])
+                    + ($mode === 'folder' ? [] : ['within' => "$user/$share"]);
         array_push($paths, ...$src);
         $restored[] = $to;
         $targets[] = $it['T'];
@@ -671,6 +690,9 @@ function rsPlanPickFor(string $root, array $owner, string $snap, array $items, s
     if ($holders) {
         $plan['blockers'][] = ['key' => 'restore_in_use', 'params' => ['names' => implode(', ', $holders), 'path' => implode(', ', $targets)]];
     }
+    foreach (rsLoopHolders($paths) as $h) {
+        $plan['blockers'][] = rsLoopBlocker($h);          // docker.img, libvirt.img, an attached image (review 1.72.0, M3)
+    }
     [$users, $parents] = rsUsers(array_values(array_unique(array_merge($userPaths, $places))), []);
     if ($vms) {
         $steps[] = ['do' => 'vms_off', 'paths' => $paths, 'names' => array_column($vms, 'name')];
@@ -685,11 +707,11 @@ function rsPlanPickFor(string $root, array $owner, string $snap, array $items, s
         $it = $infos[$rel];
         if ($it['there']) {
             $asideP = rsBeside($it['T'], "aside-$stamp");
-            $steps[] = ['do' => 'aside', 'path' => $it['T'], 'to' => $asideP];
+            $steps[] = ['do' => 'aside', 'path' => $it['T'], 'to' => $asideP, 'within' => "$user/$share"];
             $plan['aside'][] = ['what' => $it['content'] ? ($it['file'] ? 'file' : 'folder') : 'empty', 'from' => $it['T'], 'to' => $asideP];
             $asides[] = $asideP;
         }
-        $steps[] = ['do' => 'move', 'from' => $restored[$i], 'to' => $it['T']];
+        $steps[] = ['do' => 'move', 'from' => $restored[$i], 'to' => $it['T'], 'within' => "$user/$share"];
     }
     if ($users) {
         $steps[] = ['do' => 'start', 'containers' => $users, 'only_stopped' => true];

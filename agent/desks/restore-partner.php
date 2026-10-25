@@ -33,6 +33,7 @@ const RSP_LOOK_EVERY   = 6 * 3600;        // what a partner holds of mine: asked
 const RSP_RETRY_EVERY  = 1800;            // … after this long when it didn't answer
 const RSP_WANT_EVERY   = 60;              // «Look again»: at most this often
 const RSP_PEEK_MAX     = 120;             // kept moments read for the apps and VMs inside, per look job (newest first)
+const RSP_PEEK_BUDGET  = 600;             // seconds one look job spends on them at most (the rest: the next look)
 const RSP_MOUNT_ROOT   = '/mnt/addons/UnraidSecretaryOffice/restored';
 const RSP_PARENT       = 'UnraidSecretaryOffice-restored';   // on a new server: <pool>/UnraidSecretaryOffice-restored/<unit>
 const RSP_NAME_RE      = '/^[A-Za-z0-9][A-Za-z0-9._-]{0,150}$/D';
@@ -1141,35 +1142,77 @@ function rspPeek(string $snapshot, ?bool &$read = null): array
     if (!@mkdir($dir, 0700)) {
         return [];
     }
-    $out = [];
-    if (run([partnerBin('mount') ?? 'mount', '-t', 'zfs', '-o', RSP_MOUNT_OPTIONS, $snapshot, $dir], 60)[0] === 0) {
-        $read = true;
-        foreach (array_merge([$dir], glob("$dir/*", GLOB_ONLYDIR) ?: []) as $f) {
-            $m = is_file("$f/" . RSP_INSIDE . '/manifest.json') && !is_link($f) ? readJson("$f/" . RSP_INSIDE . '/manifest.json') : null;
-            if (is_array($m) && in_array($m['kind'] ?? '', ['app', 'vm'], true)) {
-                $out[$f === $dir ? '' : basename($f)] = ['kind' => $m['kind'], 'name' => rsStr($m['name'] ?? '') ?: basename($f),
-                    'dirs' => array_values(array_filter((array) ($m['dirs'] ?? []), fn ($d) => is_string($d) && preg_match('#^[^/]+/[^/]+$#D', $d))),
-                    'needs' => rspNeeds("$f/" . RSP_INSIDE)];
-            }
+    $mounted = false;
+    try {
+        if (run([partnerBin('mount') ?? 'mount', '-t', 'zfs', '-o', RSP_MOUNT_OPTIONS, $snapshot, $dir], 60)[0] === 0) {
+            $mounted = $read = true;
+            return rspPeekDir($dir);
         }
-        run(['umount', $dir], 60);
+        return [];
+    } finally {
+        // never left mounted (it would hold the pool at the array stop): whatever happened while reading
+        if ($mounted && run(['umount', $dir], 60)[0] !== 0) {
+            run(['umount', '-l', $dir], 60);
+        }
+        @rmdir($dir);
     }
-    @rmdir($dir);
+}
+
+/**
+ * What a mounted copy carries (rspPeek()): its own .uso-backup and those of its folders one level down. The copy is the
+ * partner's word (review 1.72.0, H5): only regular files reached without a link are read — a link may lead anywhere on
+ * this server (/proc/kmsg, a device), a FIFO would wait for ever.
+ */
+function rspPeekDir(string $dir): array
+{
+    $out = [];
+    foreach (array_merge([''], array_map('basename', glob("$dir/*", GLOB_ONLYDIR) ?: [])) as $sub) {
+        $inside = ($sub === '' ? '' : "$sub/") . RSP_INSIDE;
+        $m = rspPlainFile($dir, "$inside/manifest.json") && (int) @filesize("$dir/$inside/manifest.json") < (1 << 22)
+            ? json_decode((string) @file_get_contents("$dir/$inside/manifest.json", false, null, 0, 1 << 22), true) : null;
+        if (is_array($m) && in_array($m['kind'] ?? '', ['app', 'vm'], true)) {
+            $out[$sub] = ['kind' => $m['kind'], 'name' => rsStr($m['name'] ?? '') ?: ($sub === '' ? basename($dir) : $sub),
+                'dirs' => array_values(array_filter((array) ($m['dirs'] ?? []), fn ($d) => is_string($d) && preg_match('#^[^/]+/[^/]+$#D', $d))),
+                'needs' => rspNeeds("$dir/$inside", $dir)];
+        }
+    }
     return $out;
+}
+
+/** $rel inside $base is a regular file, and no part of the way to it is a link (each part lstat'ed) */
+function rspPlainFile(string $base, string $rel): bool
+{
+    $cur = rtrim($base, '/');
+    $parts = explode('/', trim($rel, '/'));
+    foreach ($parts as $i => $p) {
+        if ($p === '' || $p === '.' || $p === '..') {
+            return false;
+        }
+        $cur .= "/$p";
+        clearstatcache(true, $cur);
+        $st = @lstat($cur);
+        $type = $st === false ? 0 : $st['mode'] & 0170000;
+        if ($type !== ($i === count($parts) - 1 ? 0100000 : 0040000)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 /**
  * The shares an app's package binds (1.60.1, a user: dropnook needs the share drop): its compose files (anchors, the long
  * and the short syntax - rspFitCompose) and its templates' paths, /mnt/user/<share> (a pool path's share too)
  */
-function rspNeeds(string $inside): array
+function rspNeeds(string $inside, ?string $base = null): array
 {
     $needs = [];
-    foreach (array_merge(glob("$inside/compose/*.y*ml") ?: [], glob("$inside/compose/.env") ?: []) as $f) {
+    // read only what is a regular file reached without a link from $base (the mounted copy: rspPlainFile())
+    $plain = fn (string $f): bool => $base === null || (str_starts_with($f, rtrim($base, '/') . '/') && rspPlainFile($base, substr($f, strlen(rtrim($base, '/')) + 1)));
+    foreach (array_filter(array_merge(glob("$inside/compose/*.y*ml") ?: [], glob("$inside/compose/.env") ?: []), $plain) as $f) {
         [, , $miss] = rspFitCompose((string) @file_get_contents($f, false, null, 0, 1 << 20), fn () => true, fn () => false, fn () => true);
         array_push($needs, ...rspSharesMissing($miss));
     }
-    foreach (glob("$inside/my-*.xml") ?: [] as $f) {
+    foreach (array_filter(glob("$inside/my-*.xml") ?: [], $plain) as $f) {
         preg_match_all('#>/mnt/(?:user|[A-Za-z0-9_.-]+)/([A-Za-z0-9_.@ -]+?)(?:/|<)#', (string) @file_get_contents($f, false, null, 0, 1 << 20), $m);
         array_push($needs, ...$m[1]);
     }
@@ -1230,6 +1273,10 @@ function rspKeptPeek(): int
     $cache = rspPeekCache();
     $keep = [];
     $n = 0;
+    // a time budget, and never a mount once the array is being stopped (review 1.72.0, H5): what isn't read stays unread
+    $until = hrtime(true) / 1e9 + (int) ($GLOBALS['rs']['peek_budget'] ?? RSP_PEEK_BUDGET);
+    $go = fn (): bool => hrtime(true) / 1e9 < $until && !rsArrayStopping()
+        && in_array((string) (readCfg($GLOBALS['rs']['var_ini'] ?? '/var/local/emhttp/var.ini')['fsState'] ?? 'Started'), ARRAY_RUNNING, true);
     foreach (rspKept() as $k) {
         foreach ($k['units'] as $u) {
             if ($k['asleep']) {
@@ -1249,7 +1296,7 @@ function rspKeptPeek(): int
                     $keep[$key] = $cache[$key];
                     continue;
                 }
-                if ($n >= RSP_PEEK_MAX) {
+                if ($n >= RSP_PEEK_MAX || !$go()) {
                     continue;
                 }
                 $n++;
