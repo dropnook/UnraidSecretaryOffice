@@ -14023,6 +14023,437 @@ function testRestoreJobs(): void
 }
 
 /**
+ * The code review of 1.72.0 (Mr. Restori's paths): a link on the way into a share (H2) refused when planned and again by
+ * the step that writes; the office's own folders never a target (H4); a share split guessed from folder names only copied
+ * beside (M4); folders made on the way like the share's (M5); images attached as loop devices and Docker's folder block a
+ * swap (M3); «wake» read, never cast (L8). A temporary server like testRestorePaths(): pool hazel, exclusive shares.
+ */
+function testRestoreReviewPaths(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-rsreview-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $mnt = "$tmp/mnt";
+    $K = "$tmp/kopia";
+    @mkdir("$tmp/data/unraid-backup/state", 0700, true);
+    @mkdir("$K/data", 0700, true);
+    @mkdir("$tmp/restore", 0755, true);
+    @mkdir("$tmp/sys", 0755, true);
+    $saved = $GLOBALS['rs'];
+    $GLOBALS['rs']['data'] = "$tmp/data/restore";
+    $GLOBALS['rs']['job_file'] = "$tmp/data/restore-job.json";
+    $GLOBALS['rs']['ub_data'] = "$tmp/data/unraid-backup";
+    $GLOBALS['rs']['sizes_file'] = "$tmp/data/restore-sizes.json";
+    $GLOBALS['rs']['users'] = fn (array $paths, array $roots): array => [[], []];
+    $GLOBALS['rs']['open'] = fn (array $paths): array => [];
+    $GLOBALS['rs']['vm_disks'] = fn (): array => [];
+    $GLOBALS['rs']['sys_block'] = "$tmp/sys";
+    $GLOBALS['rs']['docker_cfg'] = "$tmp/docker.cfg";
+    $GLOBALS['rs']['domain_cfg'] = "$tmp/domain.cfg";
+    $GLOBALS['rs']['docker_running'] = false;
+    $key = function (callable $f): string {
+        try {
+            $f();
+            return 'answered';
+        } catch (Problem $p) {
+            return $p->key;
+        }
+    };
+    $put = function (string $file, ?string $text = null): void {
+        @mkdir($text === null ? $file : dirname($file), 0755, true);
+        if ($text !== null) {
+            file_put_contents($file, $text);
+        }
+    };
+    $run = function (array &$j): array {
+        $states = [];
+        foreach (array_keys($j['steps']) as $i) {
+            $j['steps'][$i] = array_merge($j['steps'][$i], rsStep($j, $i));
+            $states[] = $j['steps'][$i]['state'];
+            if ($j['steps'][$i]['state'] === 'failed') {
+                break;
+            }
+        }
+        return $states;
+    };
+    $settings = ['general' => ['dumps_share' => ['UnraidSecretaryOffice']], 'share|zzdocs' => ['mode' => ['kopia']]];
+    $put("$mnt/hazel/zzdocs/deep/sub/x.txt", 'live x');
+    $put("$mnt/hazel/zzdocs/keep.txt", 'k');
+    $put("$tmp/elsewhere/sub/x.txt", 'elsewhere x');
+    $put("$mnt/hazel/appdata/nc/config.php", 'cfg');
+    $put("$mnt/hazel/appdata/UnraidSecretaryOffice/data/x", 'office');
+    $put("$mnt/hazel/appdata/.zfs/snapshot/manual-1/nc/config.php", 'old cfg');
+    $put("$mnt/hazel/appdata/.zfs/snapshot/manual-1/UnraidSecretaryOffice/data/x", 'old office');
+    $put("$mnt/hazel/system/docker/docker.img", 'img');
+    $put("$mnt/hazel/system/libvirt/libvirt.img", 'lv');
+    $put("$mnt/hazel/system/.zfs/snapshot/manual-1/docker/docker.img", 'old img');
+    $put("$mnt/hazel/system/.zfs/snapshot/manual-1/libvirt/libvirt.img", 'old lv');
+    $put("$mnt/user");
+    foreach (['zzdocs', 'appdata', 'system'] as $s) {
+        symlink("$mnt/hazel/$s", "$mnt/user/$s");
+    }
+    chmod("$mnt/hazel/zzdocs", 0775);
+    $T1 = (int) strtotime('2026-10-20 01:00');
+    $only = ['shareUseCache' => 'only', 'shareCachePool' => 'hazel'];
+    $ctx = [
+        'fs' => ['hazel' => 'zfs'], 'zfs' => ["$mnt/hazel/zzdocs" => 'hazel/zzdocs', "$mnt/hazel/appdata" => 'hazel/appdata', "$mnt/hazel/system" => 'hazel/system'],
+        'snaps' => ['hazel/appdata' => [['name' => 'manual-1', 'time' => $T1]], 'hazel/system' => [['name' => 'manual-1', 'time' => $T1]]], 'zfs_kept' => [], 'pools_asleep' => [],
+        'asleep' => [], 'prefixes' => ['uso-backup-'], 'btrfs_dir' => '.btrfs-snap', 'settings' => $settings,
+        'cfg' => ['zzdocs' => $only, 'appdata' => $only, 'system' => $only, 'UnraidSecretaryOffice' => $only],
+        'mnt' => $mnt, 'user' => "$mnt/user", 'disks' => ['hazel' => ['name' => 'hazel', 'fsFree' => '1000000']],
+        'shares_ini' => ['zzdocs' => ['exclusive' => 'yes'], 'appdata' => ['exclusive' => 'yes'], 'system' => ['exclusive' => 'yes'], 'UnraidSecretaryOffice' => ['exclusive' => 'yes']],
+        'old_shares' => null, 'now' => [],
+    ];
+    $state = ['apps' => [], 'vms' => [], 'partners' => [], 'shares_back' => [['name' => 'appdata'], ['name' => 'system'], ['name' => 'zzdocs']]];
+
+    // ---- Kopia, a stand-in (as in testRestorePaths): the snapshot list, directory objects by <root>/<path>, restores copy
+    $o = fn (string $n) => 'k' . md5($n);
+    $root = $o('root');
+    $root2 = $o('root2');
+    $snapId = str_repeat('a', 32);
+    $snap2 = str_repeat('b', 32);
+    $dock = "$tmp/docker";
+    file_put_contents($dock, "#!/bin/sh\n" . 'echo "$*" >>' . escapeshellarg("$tmp/docker.log") . "\n" . 'K=' . escapeshellarg($K) . "\n"
+        . 'for a in "$@"; do last="$a"; done' . "\n"
+        . 'case "$1" in' . "\n"
+        . '  top) echo "PID UID COMMAND"; echo "4242 0 kopia server start --address=0.0.0.0:51515" ;;' . "\n"
+        . '  exec) prev=""; show=""; list=""; rest=""; for a in "$@"; do [ "$prev" = show ] && show="$a"; [ "$prev" = list ] && list=1; [ "$prev" = restore ] && rest="$a"; prev="$a"; done' . "\n"
+        . '        if [ -n "$show" ]; then f="$K/$(printf %s "$show" | tr / _)"; [ -f "$f" ] || { echo "entry not found" >&2; exit 1; }; cat "$f"' . "\n"
+        . '        elif [ -n "$rest" ]; then s="$K/data/$(printf %s "$rest" | tr / _)"; [ -e "$s" ] || exit 1; cp -a "$s" "$last"' . "\n"
+        . '        elif [ -n "$list" ]; then cat "$K/list.json"; fi ;;' . "\n"
+        . "esac\nexit 0\n");
+    chmod($dock, 0755);
+    $GLOBALS['rs']['docker'] = $dock;
+    $dir = fn (array $entries) => json_encode(['stream' => 'kopia:directory', 'entries' => $entries]);
+    $dent = fn (string $name) => ['name' => $name, 'type' => 'd', 'obj' => $o($name), 'mtime' => '2026-10-19T23:00:00Z', 'summ' => ['size' => 6, 'files' => 1]];
+    $fent = fn (string $name) => ['name' => $name, 'type' => 'f', 'obj' => md5("f$name"), 'size' => 6, 'mtime' => '2026-10-18T10:00:00Z'];
+    file_put_contents("$K/$root", $dir([$dent('deep'), $dent('newdir'), $fent('keep.txt')]));
+    file_put_contents("$K/{$root}_deep", $dir([$dent('sub')]));
+    file_put_contents("$K/{$root}_deep_sub", $dir([$fent('x.txt')]));
+    file_put_contents("$K/{$root}_newdir", $dir([$dent('sub')]));
+    file_put_contents("$K/{$root}_newdir_sub", $dir([$fent('f.txt')]));
+    $put("$K/data/{$root}_deep_sub_x.txt", 'kopia x');
+    $put("$K/data/{$root}_newdir_sub_f.txt", 'kopia f');
+    // a second snapshot whose top folders are named like pools and disks (hazel, disk1)
+    file_put_contents("$K/$root2", $dir([$dent('hazel'), $dent('disk1')]));
+    file_put_contents("$K/{$root2}_hazel", $dir([$fent('doc.txt')]));
+    $put("$K/data/{$root2}_hazel_doc.txt", 'kopia doc');
+    file_put_contents("$K/list.json", json_encode([
+        ['id' => $snapId, 'startTime' => '2026-10-20T00:10:00Z', 'description' => 'uso-backup 20261020-0100', 'incompleteReason' => '',
+         'rootEntry' => ['obj' => $root, 'summ' => ['size' => 12, 'files' => 2, 'dirs' => 3, 'numFailed' => 0]]],
+        ['id' => $snap2, 'startTime' => '2026-10-19T00:10:00Z', 'description' => 'uso-backup 20261019-0100', 'incompleteReason' => '',
+         'rootEntry' => ['obj' => $root2, 'summ' => ['size' => 6, 'files' => 1, 'dirs' => 2, 'numFailed' => 0]]]]));
+    $kstate = $state + ['kopia' => ['enabled' => true, 'container' => 'kopia', 'running' => true, 'root' => '/uso', 'restore' => ['source' => "$tmp/restore", 'dest' => "$tmp/restore"]],
+                        'shares' => [['name' => 'zzdocs', 'mode' => 'kopia', 'last' => $T1]], 'place' => ['share' => 'UnraidSecretaryOffice']];
+    $GLOBALS['rs']['state'] = $kstate;
+    $GLOBALS['rs']['ctx'] = $ctx;
+    $GLOBALS['rs']['settings'] = $settings;
+    rsPrivateDir(rsData());
+
+    // ---- H2: a link on the way into the share
+    same('review H2: the way into a share — an exclusive share\'s own link is fine, a folder of the way that is a link is named, a share\'s top linked elsewhere too',
+        [null, "$mnt/user/zzodd"], (function () use ($mnt, $tmp) {
+            @symlink("$tmp/elsewhere", "$mnt/user/zzodd");
+            $r = function_exists('rsLinkOnWay') ? [rsLinkOnWay("$mnt/user/zzdocs/deep/sub/x.txt", "$mnt/user/zzdocs"), rsLinkOnWay("$mnt/user/zzodd/sub/x.txt", "$mnt/user/zzodd")] : ['missing'];
+            @unlink("$mnt/user/zzodd");
+            return $r;
+        })());
+    rename("$mnt/hazel/zzdocs/deep", "$tmp/deep-real");
+    symlink("$tmp/elsewhere", "$mnt/hazel/zzdocs/deep");
+    $p = rsPlanKopiaPath(['mode' => 'swap'], '20261025-150000', $kstate, 'zzdocs', $snapId, 'deep/sub/x.txt');
+    same('review H2: a Kopia path whose folder on the way is a link — refused when planned, the link named as the share shows it',
+        [true, '/mnt/user/zzdocs/deep'], [in_array('restore_path_link', array_column($p['blockers'], 'key'), true),
+         array_values(array_filter($p['blockers'], fn ($b) => $b['key'] === 'restore_path_link'))[0]['params']['link'] ?? null]);
+    unlink("$mnt/hazel/zzdocs/deep");
+    rename("$tmp/deep-real", "$mnt/hazel/zzdocs/deep");
+    $stamp = '20261025-150100';
+    $p = rsPlanKopiaPath(['mode' => 'swap'], $stamp, $kstate, 'zzdocs', $snapId, 'deep/sub/x.txt');
+    same('review H2: … a real folder: planned, every step that writes knows the share\'s top', [[], ['kopia', 'copy', 'not_open', 'aside', 'move'], ["$mnt/user/zzdocs", "$mnt/user/zzdocs", "$mnt/user/zzdocs"]],
+        [array_column($p['blockers'], 'key'), array_column($p['steps'], 'do'), array_values(array_filter(array_column($p['steps'], 'within')))]);
+    // the folder becomes a link after the preview: the copy refuses, nothing lands where the link leads
+    rename("$mnt/hazel/zzdocs/deep", "$tmp/deep-real");
+    symlink("$tmp/elsewhere", "$mnt/hazel/zzdocs/deep");
+    $id = "$stamp-ab12";
+    rsPrivateDir(rsDir($id));
+    $p['stamp'] = $stamp;
+    $j = rsJournalNew($id, $p);
+    $states = $run($j);
+    clearstatcache();
+    same('review H2: … a link since the preview — the step that writes refuses, nothing written where it leads',
+        [['ok', 'failed'], 'path_link', ['x.txt'], 'elsewhere x'],
+        [$states, $j['steps'][1]['note'] ?? null, array_values(array_diff(scandir("$tmp/elsewhere/sub") ?: [], ['.', '..'])), @file_get_contents("$tmp/elsewhere/sub/x.txt")]);
+    unlink("$mnt/hazel/zzdocs/deep");
+    rename("$tmp/deep-real", "$mnt/hazel/zzdocs/deep");
+    // aside and move look again too (a step of an older plan without `within` is left as it was)
+    symlink("$tmp/elsewhere", "$mnt/hazel/zzdocs/lnk");
+    $jj = ['id' => $id, 'aside' => [], 'stopped' => []];
+    same('review H2: … aside and move refuse a link on the way as well',
+        ['path_link', 'path_link'],
+        [rsDoAside($jj, ['path' => "$mnt/user/zzdocs/lnk/sub/x.txt", 'to' => "$mnt/user/zzdocs/lnk/sub/x.txt.aside-$stamp", 'within' => "$mnt/user/zzdocs"])['note'] ?? null,
+         rsDoMove($jj, ['from' => "$mnt/user/zzdocs/keep.txt", 'to' => "$mnt/user/zzdocs/lnk/sub/keep.txt", 'within' => "$mnt/user/zzdocs"])['note'] ?? null]);
+    @rename("$tmp/elsewhere/sub/keep.txt", "$mnt/hazel/zzdocs/keep.txt");          // the old code moved it through the link
+    unlink("$mnt/hazel/zzdocs/lnk");
+
+    // ---- M5: folders made on the way like the share's own (never root-only)
+    if (posix_geteuid() === 0) {
+        chown("$mnt/hazel/zzdocs", 99);
+        chgrp("$mnt/hazel/zzdocs", 100);
+    }
+    $stamp = '20261025-150200';
+    $p = rsPlanKopiaPath(['mode' => 'copy'], $stamp, $kstate, 'zzdocs', $snapId, 'newdir/sub/f.txt');
+    $id = "$stamp-cd34";
+    rsPrivateDir(rsDir($id));
+    $p['stamp'] = $stamp;
+    $j = rsJournalNew($id, $p);
+    $states = $run($j);
+    clearstatcache();
+    $st = @stat("$mnt/hazel/zzdocs/newdir");
+    $st2 = @stat("$mnt/hazel/zzdocs/newdir/sub");
+    same('review M5: a Kopia path whose folders are gone — made like the share\'s own folder (mode, owner), the file beside its old place',
+        [['ok', 'ok'], '775', '775', posix_geteuid() === 0 ? [99, 100] : [posix_geteuid(), $st['gid'] ?? null], 'kopia f'],
+        [$states, decoct(($st['mode'] ?? 0) & 07777), decoct(($st2['mode'] ?? 0) & 07777), [$st['uid'] ?? null, $st['gid'] ?? null],
+         @file_get_contents("$mnt/hazel/zzdocs/newdir/sub/f.txt.restored-$stamp")]);
+    $j['result'] = 'ok';
+    $j['finished'] = time();
+    writeAtomic(rsDir($id) . '/plan.json', jsonEncode($p), 0600, 0, 0);
+    rsJournalWrite($j);
+    same('review L8: a Kopia path copied next to it offers no «Put back» (nothing was replaced — the finding was already true)', false, rsCanPutback(rsJournal($id)));
+
+    // ---- L8: «wake» read, never cast
+    $c = $ctx;
+    $c['asleep'] = ['hazel' => true];
+    $GLOBALS['rs']['ctx'] = $c;
+    same('review L8: «wake» as the string "false" — refused, never a disk woken', 'bad_request',
+        $key(fn () => rsPlanKopiaPath(['mode' => 'copy', 'wake' => 'false'], '20261025-150300', $kstate, 'zzdocs', $snapId, 'keep.txt')));
+    same('review L8: … no «wake» at all — the sleeping pool named, nothing woken', ['restore_asleep'],
+        array_column(rsPlanKopiaPath(['mode' => 'copy'], '20261025-150300', $kstate, 'zzdocs', $snapId, 'keep.txt')['blockers'], 'key'));
+    $GLOBALS['rs']['ctx'] = $ctx;
+    $rp = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore-paths.php') . (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore.php');
+    check('review L8: no «wake» cast from a request in his plans', !str_contains($rp, "!empty(\$r['wake'])"));
+
+    // ---- M4: a share split over its parts is a guess from folder names — copied beside, never swapped
+    $c = $ctx;
+    $c['fs']['disk1'] = 'xfs';
+    $GLOBALS['rs']['ctx'] = $c;
+    $p = rsPlanKopiaPath(['mode' => 'swap'], '20261025-150400', $kstate, 'zzdocs', $snap2, 'hazel/doc.txt');
+    same('review M4: top folders named like pools and disks, though not the share\'s today — never swapped, copy and stage offered, copy the default',
+        [true, ['copy', 'stage'], 'copy'],
+        [in_array('restore_kopia_split_guess', array_column($p['blockers'], 'key'), true), $p['options']['way'],
+         rsPlanKopiaPath([], '20261025-150400', $kstate, 'zzdocs', $snap2, 'hazel/doc.txt')['target']['mode']]);
+    $c['cfg']['zzdocs'] = ['shareUseCache' => 'yes', 'shareCachePool' => 'hazel'];
+    $GLOBALS['rs']['ctx'] = $c;
+    $p = rsPlanKopiaPath(['mode' => 'swap'], '20261025-150400', $kstate, 'zzdocs', $snap2, 'hazel/doc.txt');
+    same('review M4: … the share on those parts today (read as split, the part dropped) — still a guess: never swapped', [true, true, '/mnt/user/zzdocs/doc.txt'],
+        [$p['options']['split'], in_array('restore_kopia_split_guess', array_column($p['blockers'], 'key'), true), $p['target']['live']]);
+    $GLOBALS['rs']['ctx'] = $ctx;
+    same('review M4: a plain snapshot — swapped as before', [], array_column(rsPlanKopiaPath(['mode' => 'swap'], '20261025-150500', $kstate, 'zzdocs', $snapId, 'keep.txt')['blockers'], 'key'));
+
+    // ---- H4: the office's own folders never a target
+    $GLOBALS['rs']['data'] = '/mnt/user/appdata/UnraidSecretaryOffice/data/restore';
+    same('review H4: a Kopia path at, in or above the office\'s data folder, or in Kopia\'s restore folder — only staged; another one lies on the share',
+        [null, null, '/mnt/user/appdata/other', null],
+        [rsKopiaLive('appdata', 'UnraidSecretaryOffice', false, $settings), rsKopiaLive('appdata', 'UnraidSecretaryOffice/data/restore/x', false, $settings),
+         rsKopiaLive('appdata', 'other', false, $settings), rsKopiaLive('zzdocs', 'krestore/a', false, $settings, ['restore' => ['source' => '/mnt/cache/zzdocs/krestore']])]);
+    $GLOBALS['rs']['data'] = "$mnt/hazel/appdata/UnraidSecretaryOffice/data/restore";
+    $c = $ctx;
+    $p = rsPlanFilesFor('/mnt/user/appdata', '', 'swap', false, rsShareOwner($state, '/mnt/user/appdata'), '20261025-150600', $c);
+    same('review H4: the whole appdata share — the folder holding the office\'s data left out and said so, the rest swapped',
+        [[], ['nc'], true, ["$mnt/user/appdata/nc"]],
+        [array_column($p['blockers'], 'key'), $p['target']['items'], in_array('note.files_office_left', array_column($p['notes'], 'key'), true), array_column($p['aside'], 'from')]);
+    $c = $ctx;
+    $p = rsPlanFilesFor('/mnt/user/appdata/UnraidSecretaryOffice', 'name:manual-1', 'swap', false, rsShareOwner($state, '/mnt/user/appdata/UnraidSecretaryOffice'), '20261025-150700', $c);
+    same('review H4: … that folder alone — refused, in words', ['restore_office_data'], array_column($p['blockers'], 'key'));
+    $GLOBALS['rs']['data'] = "$tmp/data/restore";
+
+    // ---- M3: an image attached as a loop device, Docker's folder while it runs
+    $put("$tmp/sys/loop2/loop/backing_file", "$mnt/hazel/system/docker/docker.img\n");
+    file_put_contents("$tmp/docker.cfg", "DOCKER_IMAGE_FILE=\"$mnt/hazel/system/docker/docker.img\"\n");
+    file_put_contents("$tmp/domain.cfg", "IMAGE_FILE=\"$mnt/hazel/system/libvirt/libvirt.img\"\n");
+    $c = $ctx;
+    $p = rsPlanFilesFor('/mnt/user/system', '', 'swap', false, rsShareOwner($state, '/mnt/user/system'), '20261025-150800', $c);
+    same('review M3: the whole system share while docker.img is attached — refused, Docker named', [['restore_docker_uses'], "$mnt/hazel/system/docker/docker.img"],
+        [array_column($p['blockers'], 'key'), $p['blockers'][0]['params']['path'] ?? null]);
+    $put("$tmp/sys/loop3/loop/backing_file", "$mnt/hazel/system/libvirt/libvirt.img (deleted)\n");
+    file_put_contents("$tmp/docker.cfg", "DOCKER_IMAGE_FILE=\"/mnt/elsewhere/docker.img\"\n");
+    $c = $ctx;
+    $p = rsPlanFilesFor('/mnt/user/system', '', 'swap', false, rsShareOwner($state, '/mnt/user/system'), '20261025-150800', $c);
+    same('review M3: … libvirt.img (the VM service) and an image of the user\'s attached — each refused in its words', ['restore_loop_uses', 'restore_vms_use'],
+        array_column($p['blockers'], 'key'));
+    $c = $ctx;
+    same('review M3: … copying next to it is fine', [], array_column(rsPlanFilesFor('/mnt/user/system', '', 'copy', false, rsShareOwner($state, '/mnt/user/system'), '20261025-150900', $c)['blockers'], 'key'));
+    same('review M3: … and looked at again right before anything is replaced', 'loop_uses', rsDoNotOpen(['paths' => ["$mnt/hazel/system/docker"]])['note'] ?? null);
+    exec('rm -rf ' . escapeshellarg("$tmp/sys") . '/*');
+    file_put_contents("$tmp/docker.cfg", "DOCKER_IMAGE_FILE=\"$mnt/hazel/system/docker/\"\n");
+    $GLOBALS['rs']['docker_running'] = true;
+    $c = $ctx;
+    same('review M3: Docker kept in a folder (no image attached) while it runs — a whole-share swap refused', ['restore_docker_uses'],
+        array_column(rsPlanFilesFor('/mnt/user/system', '', 'swap', false, rsShareOwner($state, '/mnt/user/system'), '20261025-151000', $c)['blockers'], 'key'));
+    $GLOBALS['rs']['docker_running'] = false;
+    same('review M3: … Docker stopped — nothing holds it', [], rsLoopHolders(["$mnt/hazel/system/docker", "$mnt/user/system"]));
+
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $lj = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/restore/lang/$l.json"), true) ?: [];
+        same("review: $l - the refusals' words", [], array_values(array_filter(['errors.restore_path_link', 'sn.path_link', 'errors.restore_office_data', 'note.files_office_left',
+            'errors.restore_kopia_split_guess', 'errors.restore_docker_uses', 'errors.restore_vms_use', 'errors.restore_loop_uses', 'sn.docker_uses', 'sn.vms_use', 'sn.loop_uses',
+            'errors.restore_file_foreign'], fn ($k) => !isset($lj[$k]))));
+    }
+    $GLOBALS['rs'] = $saved;
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * Review 1.72.0, H4: the journal of a running restore can't be written any more (its folder put aside under it) — no
+ * further step, and the containers it stopped start again at once (no «Put back» could find them).
+ */
+function testRestoreReviewJob(): void
+{
+    $tmp = hardeningTmp('rs-review-job');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    @mkdir("$tmp/bin", 0755, true);
+    @mkdir("$tmp/office/data", 0700, true);
+    file_put_contents("$tmp/bin/docker", "#!/bin/sh\necho \"\$*\" >>\"$tmp/docker.log\"\ncase \"\$1\" in\n  inspect) cat \"$tmp/running\" 2>/dev/null || echo false ;;\n"
+        . "  stop) echo false >\"$tmp/running\" ;;\n  start) echo true >\"$tmp/running\" ;;\nesac\nexit 0\n");
+    chmod("$tmp/bin/docker", 0755);
+    file_put_contents("$tmp/running", "true\n");
+    $saved = $GLOBALS['rs'];
+    $oldPath = getenv('PATH');
+    $GLOBALS['rs']['data'] = "$tmp/office/data/restore";
+    $GLOBALS['rs']['job_file'] = "$tmp/office/data/restore-job.json";
+    $GLOBALS['rs']['ub_data'] = "$tmp/ub";
+    $plan = ['kind' => 'files', 'what' => 'zz', 'target' => [], 'method' => 'swap', 'stamp' => '20261025-160000', 'blockers' => [], 'sizes' => [], 'downtime' => 20,
+             'after' => [], 'putback_of' => null, 'steps' => [
+                 ['do' => 'stop', 'containers' => ['zzc']],
+                 ['do' => 'aside', 'path' => "$tmp/office", 'to' => "$tmp/office.aside"],
+                 ['do' => 'aside', 'path' => "$tmp/nothing", 'to' => "$tmp/nothing.aside", 'optional' => true],
+                 ['do' => 'start', 'containers' => ['zzc'], 'only_stopped' => true]]];
+    putenv("PATH=$tmp/bin:$oldPath");
+    try {
+        $id = rsLaunch($plan, false);
+        try {
+            $code = rsJob([$id]);
+        } catch (Throwable $e) {
+            $code = 'threw: ' . $e->getMessage();
+        }
+        clearstatcache();
+        same('review H4: the journal gone in the middle — the job ends (failed), the container it stopped runs again, no step after it',
+            [1, 'true', true, false],
+            [$code, trim((string) @file_get_contents("$tmp/running")), str_contains((string) @file_get_contents("$tmp/docker.log"), 'start zzc'),
+             is_dir("$tmp/nothing.aside")]);
+    } finally {
+        putenv("PATH=$oldPath");
+        if (function_exists('pcntl_signal')) {
+            foreach ([SIGTERM, SIGINT, SIGHUP, SIGUSR1] as $sig) {
+                pcntl_signal($sig, SIG_DFL);
+            }
+        }
+        $GLOBALS['rsStop'] = false;
+        $GLOBALS['rs'] = $saved;
+    }
+    hardeningRm($tmp);
+}
+
+/**
+ * Review 1.72.0, H3: a VM's XML from a package Kopia brought back is checked like a partner's before `virsh define`; a
+ * compose file such a package (or a partner's) names goes back only into a share.
+ */
+function testRestoreReviewForeign(): void
+{
+    $tmp = hardeningTmp('rs-review-foreign');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    @mkdir("$tmp/bin", 0755, true);
+    @mkdir("$tmp/restore/vms_w/w", 0755, true);
+    file_put_contents("$tmp/bin/virsh", "#!/bin/sh\necho \"\$*\" >>\"$tmp/virsh.log\"\n[ \"\$1\" = define ] && cp \"\$2\" \"$tmp/defined.xml\"\nexit 0\n");
+    chmod("$tmp/bin/virsh", 0755);
+    $saved = $GLOBALS['rs'];
+    $GLOBALS['rs']['data'] = "$tmp/rs";
+    $GLOBALS['rs']['restored_root'] = "$tmp/restored";
+    $oldBin = getenv('OFFICE_PARTNER_BIN');
+    putenv("OFFICE_PARTNER_BIN=$tmp/bin");
+    try {
+        $id = '20261025-170000-abcd';
+        rsPrivateDir(rsData());
+        rsPrivateDir(rsDir($id));
+        $j = ['id' => $id, 'aside' => [], 'stopped' => []];
+        $xml = "$tmp/restore/vms_w/w/w.xml";
+        file_put_contents($xml, "<domain type='kvm'><name>W</name><devices><emulator>/tmp/evil</emulator></devices></domain>");
+        $r = rsDoDefine($j, ['do' => 'define', 'xml' => $xml, 'name' => 'W', 'foreign' => true]);
+        same('review H3: a VM\'s XML from Kopia\'s restore folder — checked before the definition: an emulator not Unraid\'s replaced, its own copy defined',
+            ['ok', true, false, false], [$r['state'], str_contains((string) @file_get_contents("$tmp/defined.xml"), '/usr/local/sbin/qemu'),
+             str_contains((string) @file_get_contents("$tmp/defined.xml"), '/tmp/evil'), str_contains((string) @file_get_contents("$tmp/virsh.log"), $xml)]);
+        @unlink("$tmp/virsh.log");
+        file_put_contents($xml, "<domain type='kvm'><name>Other</name></domain>");
+        $r = rsDoDefine($j, ['do' => 'define', 'xml' => $xml, 'name' => 'W', 'foreign' => true]);
+        same('review H3: … another VM\'s name — refused, nothing defined', ['failed', 'vm_foreign_name', false], [$r['state'], $r['note'] ?? null, is_file("$tmp/virsh.log")]);
+        $rs = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore.php');
+        check('review H3: rsPlanVm marks the define of a version Kopia brought back', str_contains($rs, "+ (!empty(\$version['kopia']) ? ['foreign' => true] : []);"));
+
+        // compose files of a package from Kopia or a partner: only into a share, by a compose file's name
+        @mkdir("$tmp/restore/apps_x/x/compose-files", 0755, true);
+        file_put_contents("$tmp/restore/apps_x/x/compose-files/authorized_keys", 'ssh-ed25519 AAAA');
+        file_put_contents("$tmp/restore/apps_x/x/compose-files/docker-compose.yml", 'services: {}');
+        $pkg = ['path' => "$tmp/restore/apps_x/x", 'compose' => null, 'containers' => []];
+        $items = [['from' => "$tmp/restore/apps_x/x/compose-files/authorized_keys", 'to' => '/root/.ssh/authorized_keys', 'what' => 'compose_file', 'now' => 'differs'],
+                  ['from' => "$tmp/restore/apps_x/x/compose-files/docker-compose.yml", 'to' => '/mnt/user/appdata/zzx/docker-compose.yml', 'what' => 'compose_file', 'now' => 'missing']];
+        $p = rsPlanConfigFor(['id' => 'x', 'name' => 'x'], $pkg, ['kopia' => true, 'snap' => "kopia:$id", 'time' => 1], $items, '20261025-170100', "$tmp/flash");
+        same('review H3: a compose file a Kopia package names outside a share — refused, in words; one in a share goes back',
+            [['restore_file_foreign'], '/root/.ssh/authorized_keys', ['/mnt/user/appdata/zzx/docker-compose.yml']],
+            [array_column($p['blockers'], 'key'), $p['blockers'][0]['params']['path'] ?? null, array_column(array_filter($p['steps'], fn ($s) => $s['do'] === 'put'), 'to')]);
+        @mkdir("$tmp/restored/p/apps/x/compose-files", 0755, true);
+        copy("$tmp/restore/apps_x/x/compose-files/authorized_keys", "$tmp/restored/p/apps/x/compose-files/authorized_keys");
+        $items[0]['from'] = "$tmp/restored/p/apps/x/compose-files/authorized_keys";
+        $p = rsPlanConfigFor(['id' => 'x', 'name' => 'x'], ['path' => "$tmp/restored/p/apps/x"] + $pkg, null, [$items[0]], '20261025-170100', "$tmp/flash");
+        same('review H3: … the same from a partner\'s pulled backup place', ['restore_file_foreign'], array_column($p['blockers'], 'key'));
+        $p = rsPlanConfigFor(['id' => 'x', 'name' => 'x'], ['path' => "$tmp/place/apps/x"] + $pkg, null, [['from' => $items[1]['from'], 'to' => '/mnt/user/appdata/zzx/.env', 'what' => 'compose_file', 'now' => 'missing']], '20261025-170100', "$tmp/flash");
+        same('review H3: … the backup place\'s own package as before', [], array_column($p['blockers'], 'key'));
+        same('review H3: where such a compose file may go', [true, true, false, false, false, false, false],
+            [rsComposeFileOk('/mnt/user/appdata/a/docker-compose.yml'), rsComposeFileOk('/mnt/cache/appdata/a/.env'), rsComposeFileOk('/boot/config/go'),
+             rsComposeFileOk('/mnt/user/appdata/a/authorized_keys'), rsComposeFileOk('/mnt/user/docker-compose.yml'), rsComposeFileOk('/mnt/addons/x/a.yml'),
+             rsComposeFileOk('/mnt/user/UnraidSecretaryOffice/x/a.yml')]);
+    } finally {
+        $oldBin === false ? putenv('OFFICE_PARTNER_BIN') : putenv("OFFICE_PARTNER_BIN=$oldBin");
+        $GLOBALS['rs'] = $saved;
+    }
+    hardeningRm($tmp);
+}
+
+/**
+ * Review 1.72.0, H5: what a partner's kept copy carries is read only from regular files reached without a link (a link may
+ * lead anywhere on this server, a FIFO would wait for ever); the look's mount always goes again.
+ */
+function testRestoreReviewPeek(): void
+{
+    $tmp = hardeningTmp('rs-review-peek');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $d = "$tmp/peek";
+    $in = RSP_INSIDE;
+    foreach (["$d/$in", "$d/app1/$in/compose", "$d/app3", "$tmp/outside/$in", "$d/app4/$in"] as $x) {
+        @mkdir($x, 0755, true);
+    }
+    file_put_contents("$d/$in/manifest.json", json_encode(['kind' => 'vm', 'name' => 'V']));
+    file_put_contents("$d/app1/$in/manifest.json", json_encode(['kind' => 'app', 'name' => 'A1']));
+    file_put_contents("$d/app1/$in/compose/docker-compose.yml", "services:\n  a:\n    volumes:\n      - /mnt/user/zzneeded:/data\n");
+    file_put_contents("$tmp/outside/secret.yml", "services:\n  a:\n    volumes:\n      - /mnt/user/zzsecret:/x\n");
+    symlink("$tmp/outside/secret.yml", "$d/app1/$in/compose/evil.yml");
+    file_put_contents("$tmp/outside/my-x.xml", '<Config><Path>/mnt/user/zzsecret2/</Path></Config>');
+    symlink("$tmp/outside/my-x.xml", "$d/app1/$in/my-x.xml");
+    file_put_contents("$tmp/outside/$in/manifest.json", json_encode(['kind' => 'app', 'name' => 'Outside']));
+    symlink("$tmp/outside", "$d/app2");
+    symlink("$tmp/outside/$in", "$d/app3/$in");
+    symlink("$tmp/outside/$in/manifest.json", "$d/app4/$in/manifest.json");
+    same('review H5: a kept copy\'s compose files and templates — only regular files without a link on the way', ['zzneeded'], rspNeeds("$d/app1/$in", $d));
+    $got = rspPeekDir($d);
+    same('review H5: what a kept copy carries — its own package and its folders\', never a folder, package or manifest that is a link',
+        ['' => 'V', 'app1' => 'A1'], array_map(fn ($x) => $x['name'], $got));
+    if (function_exists('posix_mkfifo') && posix_mkfifo("$d/app1/$in/compose/fifo.yml", 0600)) {
+        same('review H5: … a FIFO named like a compose file is never opened', ['zzneeded'], rspNeeds("$d/app1/$in", $d));
+    }
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore-partner.php');
+    $peek = substr($src, (int) strpos($src, 'function rspPeek('), 1400);
+    check('review H5: the look\'s mount goes again whatever happens (finally), lazily when it must',
+        str_contains($peek, '} finally {') && str_contains($peek, "run(['umount', '-l', \$dir], 60);"));
+    hardeningRm($tmp);
+}
+
+/**
  * Mr. Restori and a share on several pools and disks (like drop: primary hazel, secondary moss, an array disk):
  * moments across the parts (the engine's run on all, a manual snapshot on two, a plan's on one), never a moment
  * whose parts hold nothing by default, the union of the parts as the source (primary first), a ZFS dataset of its
@@ -32106,6 +32537,11 @@ function testPartnerStart(): void
     same('kept inside: the cache read only in its shape (an odd kind, a name not a string, no creation: left out)', [['d@s'], [['folder' => 'a', 'kind' => 'app', 'name' => 'A']]],
         $as('partnerWritePrivate(rspPeekFile(), ["v" => 1, "snaps" => ["d@s" => ["creation" => 1, "found" => [["folder" => "a", "kind" => "app", "name" => "A"], ["folder" => "b", "kind" => "evil", "name" => "B"], ["folder" => "c", "kind" => "vm", "name" => 3]]],'
             . ' "x@y" => ["found" => []], "7" => "no"]]); $c = rspPeekCache(); rspKeptPeek(); return [array_keys($c), $c["d@s"]["found"]];'));
+    same('review H5: the look\'s reading of kept moments — no time left, or the array being stopped: nothing mounted, nothing read', [0, 0, ''],
+        $as($peekStub . ' @unlink(sys_get_temp_dir() . "/uso-peek-calls"); @unlink(rspPeekFile()); $GLOBALS["rs"]["peek_budget"] = 0; $a = rspKeptPeek();'
+            . ' $GLOBALS["rs"]["peek_budget"] = 600; $vi = sys_get_temp_dir() . "/uso-review-var.ini"; file_put_contents($vi, "fsState=\\"Stopping\\"\\n");'
+            . ' $GLOBALS["rs"]["var_ini"] = $vi; @unlink(rspPeekFile()); $b = rspKeptPeek(); $c = (string) @file_get_contents(sys_get_temp_dir() . "/uso-peek-calls"); @unlink($vi);'
+            . ' @unlink(sys_get_temp_dir() . "/uso-peek-calls"); return [$a, $b, $c];'));
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore-partner.php');
     preg_match('/function rspTick\(\): void\n\{(.*?)\n\}\n/s', $src, $tick);
     check('kept inside: never read in a tick (only the look job mounts), never on a pool asleep',
@@ -53975,6 +54411,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestorePaths', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
+                      'testRestoreReviewPaths', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];

@@ -229,7 +229,7 @@ function rsKopiaSplit(?array $top, string $share, array &$ctx): bool
  * name first), an app's or VM's own source <share>/<path>. Null for what is only staged — the office's own share and
  * the backup place (packages: they come back as earlier versions), a path at the top of an own source, a share's part.
  */
-function rsKopiaLive(string $source, string $rel, bool $split, array $settings): ?string
+function rsKopiaLive(string $source, string $rel, bool $split, array $settings, ?array $k = null): ?string
 {
     $parts = $rel === '' ? [] : explode('/', $rel);
     if (array_intersect($parts, ['', '.', '..'])) {
@@ -252,7 +252,10 @@ function rsKopiaLive(string $source, string $rel, bool $split, array $settings):
     if (in_array($share, [BACKUP_OFFICE_SHARE, (string) backupSetting($settings, 'general', 'dumps_share', '')], true) || !preg_match(RS_SHARE_NAME, $share) || $share[0] === '.') {
         return null;
     }
-    return "/mnt/user/$share/" . implode('/', $parts);
+    $live = "/mnt/user/$share/" . implode('/', $parts);
+    // the office's own folders (its data folder, the engine's, Kopia's restore folder) — at, inside or above: only staged
+    // (review 1.72.0, H4: a swap put the data folder aside in the middle of the restore)
+    return rsGuardHit($live, rsGuardPaths($k['restore']['source'] ?? null)) === null ? $live : null;
 }
 
 /**
@@ -284,8 +287,8 @@ function rsKopiaLs(array $r): array
     }
     $more = max(0, count($entries) - RS_KOPIA_LS_MAX);
     return ['ok' => true, 'source' => $source, 'snapshot' => $snapshot, 'path' => $rel, 'time' => $snap['time'], 'split' => $split,
-            'live' => $rel === '' ? null : rsKopiaLive($source, $rel, $split, $settings),
-            'entries' => array_map(fn ($e) => $e + ['live' => rsKopiaLive($source, $rel === '' ? $e['name'] : "$rel/{$e['name']}", $split, $settings) !== null],
+            'live' => $rel === '' ? null : rsKopiaLive($source, $rel, $split, $settings, $k),
+            'entries' => array_map(fn ($e) => $e + ['live' => rsKopiaLive($source, $rel === '' ? $e['name'] : "$rel/{$e['name']}", $split, $settings, $k) !== null],
                 array_slice($entries, 0, RS_KOPIA_LS_MAX)), 'more' => $more];
 }
 
@@ -300,7 +303,7 @@ function rsPlanKopiaPath(array $r, string $stamp, array $state, string $source, 
 {
     $k = $state['kopia'];
     $mode = in_array($r['mode'] ?? '', ['copy', 'swap', 'stage'], true) ? (string) $r['mode'] : '';
-    $wake = !empty($r['wake']);
+    $wake = array_key_exists('wake', $r) && boolField($r, 'wake');        // read, never cast: "false" never wakes a disk
     $plan = rsPlanBase('kopia', ltrim($source, '.') . '/' . $rel, ['source' => $source, 'snapshot' => $snapshot, 'path' => $rel, 'mode' => $mode, 'wake' => $wake, 'live' => null]);
     if (!$k['restore']) {
         $plan['blockers'][] = ['key' => 'restore_kopia_no_mapping', 'params' => ['name' => (string) $k['container']]];
@@ -322,8 +325,12 @@ function rsPlanKopiaPath(array $r, string $stamp, array $state, string $source, 
     }
     $settings = $GLOBALS['rs']['settings'] ?? backupReadSettings(BACKUP_DATA_DIR . '/settings.ini');     // tests: their own
     $ctx = $GLOBALS['rs']['ctx'] ?? rsContext($settings);
-    $split = $source[0] !== '.' && rsKopiaSplit(rsKopiaDir($k, $uid, (string) $snap['obj'], ''), $source, $ctx);
-    $live = rsKopiaLive($source, $rel, $split, $settings);
+    $top = $source[0] !== '.' ? rsKopiaDir($k, $uid, (string) $snap['obj'], '') : null;
+    $split = $top !== null && rsKopiaSplit($top, $source, $ctx);
+    // split or not is read from the folder names at the snapshot's top, compared with today's pools and disks — a guess
+    // (review 1.72.0, M4): then never swapped in, only copied next to it
+    $guess = $split || ($top !== null && rsKopiaSplitLike($top, $ctx));
+    $live = rsKopiaLive($source, $rel, $split, $settings, $k);
     $file = $entry['type'] === 'f';
     if ($live === null) {
         $mode = 'stage';
@@ -350,8 +357,8 @@ function rsPlanKopiaPath(array $r, string $stamp, array $state, string $source, 
                'dest' => "$dirDest/$leaf", 'host' => $host, 'make' => $dirHost, 'source' => "{$k['root']}/$source", 'path' => $rel] + ($file ? ['file' => true] : [])];
     $plan['sizes'] = ['need' => $bytes ?: null, 'free' => $stageFree, 'measuring' => false, 'what' => 'kopia'];
     $plan['notes'][] = ['key' => 'note.kopia_path', 'params' => ['path' => $rel, 'when' => $snap['time']]];
-    $plan['options'] = ['way' => $live === null ? ['stage'] : ['copy', 'swap', 'stage'], 'live' => $live, 'kind' => $file ? 'file' : 'dir',
-                        'nothing_live' => false, 'asleep' => [], 'woken' => [], 'split' => $split];
+    $plan['options'] = ['way' => $live === null ? ['stage'] : ($guess ? ['copy', 'stage'] : ['copy', 'swap', 'stage']), 'live' => $live, 'kind' => $file ? 'file' : 'dir',
+                        'nothing_live' => false, 'asleep' => [], 'woken' => [], 'split' => $split, 'split_guess' => $guess];
     if ($live === null) {
         $plan['target']['mode'] = 'stage';
         $plan['method'] = 'stage';
@@ -365,7 +372,9 @@ function rsPlanKopiaPath(array $r, string $stamp, array $state, string $source, 
     // the page does (/mnt/user/…), $T is where it is reached (the same, unless tests name another root)
     $sp = rsSharePath($live, $ctx);
     [$share] = $sp;
-    $T = rtrim((string) ($ctx['user'] ?? '/mnt/user'), '/') . substr($live, strlen('/mnt/user'));
+    $user = rtrim((string) ($ctx['user'] ?? '/mnt/user'), '/');
+    $T = $user . substr($live, strlen('/mnt/user'));
+    $within = "$user/$share";
     $now = rsShareNow($share, $ctx);
     if ($now['state'] === 'missing') {
         $plan['blockers'][] = ['key' => 'restore_share_missing', 'params' => ['share' => $share]];
@@ -390,11 +399,20 @@ function rsPlanKopiaPath(array $r, string $stamp, array $state, string $source, 
     }
     $places = $sleeping ? [] : rsLocate($live, $ctx);
     clearstatcache();
+    // never through a link on the way into the share (review 1.72.0, H2: a folder made a link to /boot/config, and root
+    // wrote there) — looked at again by every step that writes (rsDoCopy, rsDoAside, rsDoMove: `within`)
+    $link = $sleeping ? null : rsLinkOnWay($T, $within);
+    if ($link !== null) {
+        $plan['blockers'][] = ['key' => 'restore_path_link', 'params' => ['path' => $live, 'link' => '/mnt/user' . substr($link, strlen($user))]];
+    }
     $there = !$sleeping && (file_exists($T) || is_link($T));
     $content = $there && (!is_dir($T) || is_link($T) || rsDirHasEntries($T));
     $plan['options']['nothing_live'] = !$content && !$sleeping;
     if ($mode === '') {
-        $mode = $sleeping ? 'copy' : ($content ? 'copy' : 'swap');
+        $mode = $sleeping || $guess ? 'copy' : ($content ? 'copy' : 'swap');
+    }
+    if ($mode === 'swap' && $guess) {
+        $plan['blockers'][] = ['key' => 'restore_kopia_split_guess', 'params' => ['path' => $rel, 'share' => $share]];
     }
     $plan['target']['mode'] = $mode;
     $plan['method'] = $mode;
@@ -408,7 +426,7 @@ function rsPlanKopiaPath(array $r, string $stamp, array $state, string $source, 
     if (file_exists($to) || is_link($to)) {
         $plan['blockers'][] = ['key' => 'restore_exists', 'params' => ['path' => $to]];
     }
-    $steps[] = ['do' => 'copy', 'from' => $host, 'sources' => [$host], 'to' => $to] + ($file ? ['file' => true] : []);
+    $steps[] = ['do' => 'copy', 'from' => $host, 'sources' => [$host], 'to' => $to, 'within' => $within] + ($file ? ['file' => true] : []);
     // the room where Unraid puts it — and it lands twice: in the restore folder, then on the share
     $space = rsShareSpace($share, $ctx);
     $plan['sizes']['free'] = $space['free'];
@@ -449,6 +467,9 @@ function rsPlanKopiaPath(array $r, string $stamp, array $state, string $source, 
     if ($holders) {
         $plan['blockers'][] = ['key' => 'restore_in_use', 'params' => ['names' => implode(', ', $holders), 'path' => $live]];
     }
+    foreach (rsLoopHolders($paths) as $h) {
+        $plan['blockers'][] = rsLoopBlocker($h);          // docker.img, libvirt.img, an attached image (review 1.72.0, M3)
+    }
     [$users, $parents] = rsUsers($paths, []);
     if ($vms) {
         $steps[] = ['do' => 'vms_off', 'paths' => $paths, 'names' => array_column($vms, 'name')];
@@ -460,10 +481,10 @@ function rsPlanKopiaPath(array $r, string $stamp, array $state, string $source, 
         $steps[] = ['do' => 'stop', 'containers' => $users];
     }
     if ($there) {
-        $steps[] = ['do' => 'aside', 'path' => $T, 'to' => $asideP];
+        $steps[] = ['do' => 'aside', 'path' => $T, 'to' => $asideP, 'within' => $within];
         $plan['aside'][] = ['what' => $content ? ($file ? 'file' : 'folder') : 'empty', 'from' => $T, 'to' => $asideP];
     }
-    $steps[] = ['do' => 'move', 'from' => $to, 'to' => $T];
+    $steps[] = ['do' => 'move', 'from' => $to, 'to' => $T, 'within' => $within];
     if ($users) {
         $steps[] = ['do' => 'start', 'containers' => $users, 'only_stopped' => true];
         $plan['putback_pre'] = [['do' => 'stop', 'containers' => $users]];
@@ -578,4 +599,231 @@ function rsKopiaPackages(string $kind, string $id, string $placeBase): array
         }
     }
     return $out;
+}
+
+// ===================================================================== safety (the code review of 1.72.0)
+
+/**
+ * A link on the way to $path below the share's top $within (/mnt/user/<share> as he reaches it): the first folder of the
+ * way that is a link, or null. The top itself may be one only as an exclusive share's own link to its pool
+ * (officeUnraidPath()); $path itself isn't looked at — what goes aside moves as it is (a link as the link), and where he
+ * writes must be free (rsFreePlace()). A folder of the way not there yet ends the look: he makes those (rsMkdirsNear()).
+ * Review 1.72.0, H2: a folder of the share made a link to /boot/config, and a Kopia path restored as root wrote there.
+ */
+function rsLinkOnWay(string $path, string $within): ?string
+{
+    $within = rtrim($within, '/');
+    if (!under($path, $within)) {
+        return $path;                       // not inside the share at all: never written to through `within`
+    }
+    clearstatcache();
+    if (is_link($within) && officeUnraidPath($within, dirname($within, 2)) === $within) {
+        return $within;
+    }
+    $parts = $path === $within ? [] : explode('/', substr($path, strlen($within) + 1));
+    array_pop($parts);
+    $cur = $within;
+    foreach ($parts as $p) {
+        $cur .= "/$p";
+        $st = @lstat($cur);
+        if ($st === false) {
+            return null;
+        }
+        if (($st['mode'] & 0170000) === 0120000) {
+            return $cur;
+        }
+    }
+    return null;
+}
+
+/**
+ * The step's paths checked once more right before it writes (`within`: the share's top the plan looked from) — the
+ * first link on the way, or null. Steps without `within` (an app's files, the flash, libvirt) are left as they were.
+ */
+function rsStepLink(array $s, array $paths): ?string
+{
+    $within = $s['within'] ?? null;
+    if (!is_string($within) || $within === '') {
+        return null;
+    }
+    foreach ($paths as $p) {
+        $l = is_string($p) && $p !== '' ? rsLinkOnWay($p, $within) : null;
+        if ($l !== null) {
+            return $l;
+        }
+    }
+    return null;
+}
+
+/** A step's undo carries its `within` along: «Put back» looks at the way again too */
+function rsWithinUndo(array $undo, array $s): array
+{
+    return isset($s['within']) ? array_map(fn ($u) => is_array($u) ? $u + ['within' => $s['within']] : $u, $undo) : $undo;
+}
+
+/**
+ * The folders of $dir that aren't there, made top down with the owner, group and mode of the nearest folder that is —
+ * on a share apps and the network reach them, never root-only (review 1.72.0, M5). Never through a link (the way was
+ * looked at: rsLinkOnWay()), never past $within.
+ */
+function rsMkdirsNear(string $dir, string $within): bool
+{
+    $dir = rtrim($dir, '/');
+    $missing = [];
+    for ($d = $dir; ; $d = dirname($d)) {
+        clearstatcache(true, $d);
+        if (is_dir($d)) {
+            break;
+        }
+        if (is_link($d) || file_exists($d) || !under($d, $within) || $d === rtrim($within, '/')) {
+            return false;
+        }
+        $missing[] = $d;
+    }
+    $near = @stat($d);
+    foreach (array_reverse($missing) as $m) {
+        if (!@mkdir($m, 0700) && !is_dir($m)) {
+            return false;
+        }
+        if ($near) {
+            @chown($m, (int) $near['uid']);
+            @chgrp($m, (int) $near['gid']);
+            @chmod($m, (int) $near['mode'] & 07777);
+        }
+    }
+    return true;
+}
+
+/** A path compared with the office's own folders: /mnt/<pool, disk or user>/<share>/… as the share's, anything else as it is */
+function rsGuardKey(string $p): string
+{
+    $p = rtrim($p, '/');
+    $k = rsShareKey($p);
+    return $k !== null ? "share:$k" : $p;
+}
+
+/**
+ * The office's own folders a restore never puts aside, replaces or writes into (review 1.72.0, H4): its data folder (the
+ * restore's own journal and log lie there, every desk's state), the engine's, Kopia's restore folder (what was staged
+ * there is the source). Key (rsGuardKey(), the path and where it really leads) => the path as named.
+ *
+ * @return array<string, string>
+ */
+function rsGuardPaths(?string $kopiaRestore = null): array
+{
+    static $memo = [];                      // a browse asks for every entry of a folder: looked up once a minute per set of folders
+    $list = [DATA_DIR, BACKUP_DATA_DIR, dirname(rsData()), rsUbData(), $kopiaRestore];
+    $memoKey = intdiv(time(), 60) . "\0" . implode("\0", array_map('strval', $list));
+    if (isset($memo[$memoKey])) {
+        return $memo[$memoKey];
+    }
+    if (count($memo) > 16) {
+        $memo = [];
+    }
+    $out = [];
+    foreach ($list as $p) {
+        if (!is_string($p) || !str_starts_with($p, '/') || rtrim($p, '/') === '') {
+            continue;
+        }
+        $p = rtrim($p, '/');
+        $out[rsGuardKey($p)] ??= $p;
+        $real = $p === $kopiaRestore ? false : @realpath($p);        // the data folders are awake; Kopia's maybe not: named only
+        if (is_string($real)) {
+            $out[rsGuardKey($real)] ??= $p;
+        }
+    }
+    return $memo[$memoKey] = $out;
+}
+
+/** The office's folder a target is at, inside or above (rsGuardPaths()), or null */
+function rsGuardHit(string $target, array $guard): ?string
+{
+    $t = rsGuardKey($target);
+    foreach ($guard as $key => $named) {
+        if (under($t, (string) $key) || under((string) $key, $t)) {
+            return $named;
+        }
+    }
+    return null;
+}
+
+/**
+ * Looks like a share split over its parts, but not over today's (review 1.72.0, M4): every entry at the snapshot's top
+ * is a folder named after one of this server's pools or disks — a share that moved, or a plain share whose folders are
+ * named like them. Either way where it lies is a guess.
+ */
+function rsKopiaSplitLike(?array $top, array $ctx): bool
+{
+    if (!$top) {
+        return false;
+    }
+    $bases = array_map('strval', array_merge(array_keys((array) ($ctx['fs'] ?? [])), array_keys((array) ($ctx['disks'] ?? []))));
+    foreach ($top as $e) {
+        if (($e['type'] ?? '') !== 'd' || !in_array((string) $e['name'], $bases, true)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
+ * What runs from a file or folder at or inside these paths, where no open file shows it (review 1.72.0, M3): an image
+ * attached as a loop device (docker.img, libvirt.img, one of the user's), Docker's folder while Docker runs. Swapped
+ * under them, what they write lands in what he put aside, and the image he restored only counts after a reboot.
+ *
+ * @return list<array{what: string, path: string, loop: string}>  what: docker | vms | loop
+ */
+function rsLoopHolders(array $paths): array
+{
+    $paths = array_values(array_filter(array_map(fn ($p) => rtrim((string) $p, '/'), $paths), fn ($p) => str_starts_with($p, '/') && strlen($p) > 1));
+    if (!$paths) {
+        return [];
+    }
+    $keys = array_map('rsGuardKey', $paths);
+    $hit = function (string $file, bool $both) use ($keys): bool {
+        $f = rsGuardKey($file);
+        foreach ($keys as $k) {
+            if (under($f, $k) || ($both && under($k, $f))) {
+                return true;
+            }
+        }
+        return false;
+    };
+    $docker = rtrim((string) (readCfg($GLOBALS['rs']['docker_cfg'] ?? '/boot/config/docker.cfg')['DOCKER_IMAGE_FILE'] ?? ''), '/');
+    $libvirt = rtrim((string) (readCfg($GLOBALS['rs']['domain_cfg'] ?? '/boot/config/domain.cfg')['IMAGE_FILE'] ?? ''), '/');
+    $out = [];
+    foreach (glob(($GLOBALS['rs']['sys_block'] ?? '/sys/block') . '/loop*/loop/backing_file') ?: [] as $bf) {
+        $file = (string) preg_replace('/ \(deleted\)$/D', '', trim((string) @file_get_contents($bf, false, null, 0, 4096)));
+        if (!str_starts_with($file, '/') || !$hit($file, true)) {
+            continue;
+        }
+        $what = $docker !== '' && rsGuardKey($file) === rsGuardKey($docker) ? 'docker' : ($libvirt !== '' && rsGuardKey($file) === rsGuardKey($libvirt) ? 'vms' : 'loop');
+        $out[$file] = ['what' => $what, 'path' => $file, 'loop' => basename(dirname($bf, 2))];
+    }
+    // Docker kept in a folder (no image): nothing attached — its daemon runs from there
+    $pid = (int) @file_get_contents($GLOBALS['rs']['docker_pid'] ?? '/var/run/dockerd.pid', false, null, 0, 32);
+    $running = $GLOBALS['rs']['docker_running'] ?? ($pid > 1 && @posix_kill($pid, 0));
+    if ($docker !== '' && !str_ends_with($docker, '.img') && $running && $hit($docker, true) && !isset($out[$docker])) {
+        $out[$docker] = ['what' => 'docker', 'path' => $docker, 'loop' => ''];
+    }
+    return array_values($out);
+}
+
+/** The plan's blocker for one of rsLoopHolders() */
+function rsLoopBlocker(array $h): array
+{
+    return ['key' => ['docker' => 'restore_docker_uses', 'vms' => 'restore_vms_use'][$h['what']] ?? 'restore_loop_uses',
+            'params' => ['path' => $h['path'], 'loop' => $h['loop']]];
+}
+
+/**
+ * Where a compose file of a package from elsewhere (Kopia's restore folder, a partner's copy) may go back: inside a share
+ * (/mnt/<pool, disk or user>/<share>/…, never the office's own share), named like a compose file or its .env — never the
+ * flash, /root, /etc … (review 1.72.0, H3). The package's own folder of the Compose Manager is checked by its name.
+ */
+function rsComposeFileOk(string $to): bool
+{
+    $k = rsShareKey($to);
+    return $k !== null && rsCleanPath($to) && str_contains($k, '/') && !str_starts_with($k, BACKUP_OFFICE_SHARE . '/')
+        && (bool) preg_match('/^(?:[^\/]+\.ya?ml|\.env)$/D', basename($to));
 }

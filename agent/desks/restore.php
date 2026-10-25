@@ -713,9 +713,9 @@ function rsMomentHolds(array &$moments, bool $whole): void
  * would break the lines of his log and journal — but named in `left` (escaped, as `ls -b` shows it), never dropped
  * unsaid (scenario batch C, R1).
  */
-function rsMomentEntries(array $moment): array
+function rsMomentEntries(array $moment, array $roots = [], array $guard = []): array
 {
-    $names = $left = [];
+    $names = $left = $office = [];
     $count = 0;
     foreach ($moment['parts'] as $base => $part) {
         foreach (@scandir($part['path'], SCANDIR_SORT_ASCENDING) ?: [] as $n) {
@@ -726,6 +726,15 @@ function rsMomentEntries(array $moment): array
                 $left[rsNameShown($n)] = true;
                 continue;
             }
+            // the office's own folders (its data folder, the engine's, Kopia's restore folder) or one holding them: never
+            // put aside or replaced as an entry of the share — named in `office` (review 1.72.0, H4)
+            foreach (isset($office[$n]) || isset($names[$n]) ? [] : $roots as $root) {
+                $office[$n] ??= rsGuardHit("$root/$n", $guard);
+            }
+            if (isset($office[$n])) {
+                continue;
+            }
+            unset($office[$n]);
             if (!isset($names[$n])) {
                 $count++;
                 if (count($names) >= RS_ENTRIES_MAX * 4) {
@@ -741,7 +750,9 @@ function rsMomentEntries(array $moment): array
     uksort($names, 'strnatcasecmp');
     $left = array_keys($left);
     sort($left, SORT_STRING);
-    return ['names' => $names, 'count' => $count, 'left' => $left];
+    $office = array_filter($office, 'is_string');
+    ksort($office, SORT_STRING);
+    return ['names' => $names, 'count' => $count, 'left' => $left, 'office' => $office];
 }
 
 /** A name with control characters as `ls -b` shows it (\n, \t, \x1b …): for the page, never a path to use */
@@ -2343,12 +2354,14 @@ function rsPlanFiles(array $r, string $stamp): array
     $settings = backupReadSettings(BACKUP_DATA_DIR . '/settings.ini');
     $ctx = rsContext($settings);
     $ctx['old_shares'] = $state['server']['shares'] ?? null;
+    $ctx['kopia_restore'] = $state['kopia']['restore']['source'] ?? null;      // never a target (rsGuardPaths())
     $items = null;
     if (is_array($r['items'] ?? null) && count($r['items']) <= RS_ENTRIES_MAX * 4) {
         $items = array_values(array_unique(array_filter($r['items'], fn ($x) => is_string($x) && $x !== '' && strlen($x) <= 255)));
     }
     $mode = in_array($r['mode'] ?? '', ['copy', 'swap'], true) ? (string) $r['mode'] : '';
-    return rsPlanFilesFor($path, is_string($r['snap'] ?? null) ? $r['snap'] : '', $mode, !empty($r['wake']), $owner, $stamp, $ctx, $items);
+    $wake = array_key_exists('wake', $r) && boolField($r, 'wake');        // read, never cast: "false" never wakes a disk
+    return rsPlanFilesFor($path, is_string($r['snap'] ?? null) ? $r['snap'] : '', $mode, $wake, $owner, $stamp, $ctx, $items);
 }
 
 /**
@@ -2444,8 +2457,13 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
     }
 
     // what comes back: the folder, or the entries at the top of the share in this moment
+    $guard = rsGuardPaths($ctx['kopia_restore'] ?? null);
     if ($whole) {
-        $e = rsMomentEntries($moment);
+        $e = rsMomentEntries($moment, array_merge(["$user/$share"], array_map(fn ($p) => (string) $p['live'], $places)), $guard);
+        if ($e['office']) {
+            $plan['notes'][] = ['key' => 'note.files_office_left', 'warn' => true,
+                                'params' => ['names' => implode(', ', array_keys($e['office'])), 'office' => implode(', ', array_unique($e['office']))]];
+        }
         if ($e['count'] > RS_ENTRIES_MAX) {
             $plan['blockers'][] = ['key' => 'restore_too_many', 'params' => ['n' => $e['count'], 'max' => RS_ENTRIES_MAX]];
             return $plan;
@@ -2521,6 +2539,15 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
             $plan['blockers'][] = $asleep ? $sleepy() : ['key' => 'restore_not_in_snapshot', 'params' => ['path' => "/mnt/user/$share/$n"]];
             continue;
         }
+        // the office's own folders: never a target, nor one above them (review 1.72.0, H4)
+        $office = null;
+        foreach (array_merge(["$user/$share/$n"], array_map(fn ($p) => (string) $p['live'], $it['places'])) as $at) {
+            $office ??= rsGuardHit($at, $guard);
+        }
+        if ($office !== null) {
+            $plan['blockers'][] = ['key' => 'restore_office_data', 'params' => ['path' => "/mnt/user/$share/$n", 'office' => $office]];
+            continue;
+        }
         $own = count($it['live']) === 1 && $it['live'][0]['own_dataset'] ? $it['live'][0] : null;
         $inherited = $own !== null && rsZfsInherited((string) $own['dataset']);
         $dsMode = $own !== null && $inherited;
@@ -2533,6 +2560,11 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
             }
         }
         $T = $dsMode ? $own['live'] : "$user/$share/$n";
+        // into the share: the way looked at, now and by each step (`within`; review 1.72.0, H2)
+        $within = $dsMode ? [] : ['within' => "$user/$share"];
+        if ($within && ($link = rsLinkOnWay($T, "$user/$share")) !== null) {
+            $plan['blockers'][] = ['key' => 'restore_path_link', 'params' => ['path' => "/mnt/user/$share/$n", 'link' => '/mnt/user' . substr($link, strlen($user))]];
+        }
         $ds = $dsMode ? (string) $own['dataset'] : null;
         $rds = $ds !== null ? "$ds.restored-$stamp" : null;
         $to = rsBeside($T, "restored-$stamp");
@@ -2547,7 +2579,7 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
             $userItems = true;
         }
         $src = array_column($it['sources'], 'path');
-        $copies[] = ['do' => 'copy', 'from' => implode(' + ', $src), 'sources' => $src, 'to' => $to, 'dataset' => $rds] + ($it['kind'] === 'file' ? ['file' => true] : []);
+        $copies[] = ['do' => 'copy', 'from' => implode(' + ', $src), 'sources' => $src, 'to' => $to, 'dataset' => $rds] + ($it['kind'] === 'file' ? ['file' => true] : []) + $within;
         $restored[] = $to;
         $targets[] = $T;
         array_push($paths, ...$src);
@@ -2567,7 +2599,7 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
                 $plan['blockers'][] = ['key' => 'restore_swap_inner', 'params' => ['list' => implode(', ', array_unique($inside))]];
             }
             if ($it['live']) {
-                $swaps[] = ['do' => 'aside', 'path' => $T, 'to' => $asideP, 'dataset' => $ds, 'to_dataset' => $ds !== null ? "$ds.aside-$stamp" : null];
+                $swaps[] = ['do' => 'aside', 'path' => $T, 'to' => $asideP, 'dataset' => $ds, 'to_dataset' => $ds !== null ? "$ds.aside-$stamp" : null] + $within;
                 $plan['aside'][] = ['what' => $it['content'] ? 'folder' : 'empty', 'from' => $T, 'to' => $asideP];
                 $asides[] = $asideP;
                 if (!$it['content']) {
@@ -2580,7 +2612,7 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
                                         'params' => ['n' => $ownSnaps, 'path' => $T, 'aside' => $asideP, 'dataset' => "$ds.aside-$stamp"]];
                 }
             }
-            $swaps[] = ['do' => 'move', 'from' => $to, 'to' => $T, 'dataset' => $rds, 'to_dataset' => $ds];
+            $swaps[] = ['do' => 'move', 'from' => $to, 'to' => $T, 'dataset' => $rds, 'to_dataset' => $ds] + $within;
             array_push($openPaths, $T, ...array_map(fn ($p) => (string) $p['live'], $it['live']));
             $userPaths[] = "/mnt/user/$share/$n";
             foreach ($it['places'] as $p) {
@@ -2671,6 +2703,9 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
         $holders = $openPaths ? rsOpenHolders($openPaths) : [];
         if ($holders) {
             $plan['blockers'][] = ['key' => 'restore_in_use', 'params' => ['names' => implode(', ', $holders), 'path' => implode(', ', $targets)]];
+        }
+        foreach (rsLoopHolders($openPaths) as $h) {
+            $plan['blockers'][] = rsLoopBlocker($h);   // docker.img, libvirt.img, an attached image: no open file shows them (review 1.72.0, M3)
         }
         // what binds an item (or, for a whole share, the share itself) stops; what binds a folder above it keeps running
         $roots = $whole ? array_merge(["/mnt/user/$share"], array_map(fn ($p) => "/mnt/{$p['base']}/$share", $places)) : [];
@@ -3120,9 +3155,16 @@ function rsPlanConfigFor(array $app, array $pkg, ?array $version, array $items, 
     }
     $steps = [];
     $same = [];
+    // a package Kopia brought back (its folder: the Kopia container's restore folder) or pulled from a partner is another
+    // place's word: a compose file it names goes back only into a share, by a compose file's name (review 1.72.0, H3)
+    $foreign = !empty($version['kopia']) || str_starts_with((string) $pkg['path'], rspMountRoot() . '/');
     foreach ($items as $it) {
         if ($it['now'] === 'same') {
             $same[] = $it['to'];
+            continue;
+        }
+        if ($foreign && $it['what'] === 'compose_file' && !rsComposeFileOk($it['to'])) {
+            $plan['blockers'][] = ['key' => 'restore_file_foreign', 'params' => ['path' => $it['to'], 'from' => $it['from']]];
             continue;
         }
         if (!is_file($it['from']) || is_link($it['to']) || is_dir($it['to'])) {
@@ -3215,7 +3257,9 @@ function rsPlanVm(array $r, string $stamp): array
         }
         $steps[] = ['do' => 'copy', 'from' => "{$pkg['path']}/tpm/{$pkg['uuid']}", 'to' => $to, 'replaces' => true, 'putback_to' => "$back/tpm/{$pkg['uuid']}"];
     }
-    $steps[] = ['do' => 'define', 'xml' => "{$pkg['path']}/{$pkg['xml']}", 'name' => $vm['name']];
+    // a package Kopia brought back lies in the Kopia container's restore folder — what can write there may have changed it:
+    // its XML is checked like a partner's (review 1.72.0, H3)
+    $steps[] = ['do' => 'define', 'xml' => "{$pkg['path']}/{$pkg['xml']}", 'name' => $vm['name']] + (!empty($version['kopia']) ? ['foreign' => true] : []);
     if ($pkg['autostart']) {
         $steps[] = ['do' => 'autostart', 'name' => $vm['name']];
     }
@@ -3618,6 +3662,20 @@ function rsJob(array $args): int
     }
     rsLog($id, "Restore $id ({$j['kind']}: {$j['what']}), " . count($j['steps']) . ' steps');
     $failed = $warn = false;
+    // the journal can't be written (its folder gone or full): no further step without it — and the containers this
+    // restore stopped start again right away, since no «Put back» can find them (review 1.72.0, H4)
+    $lost = null;
+    $write = function () use (&$j, &$lost, &$failed, $id): void {
+        try {
+            rsJournalWrite($j);
+        } catch (Throwable $e) {
+            if ($lost === null) {
+                logLine("Mr. Restori: $id - its journal can't be written (" . $e->getMessage() . '): no further step');
+            }
+            $lost ??= $e->getMessage();
+            $failed = true;
+        }
+    };
     try {
         foreach (array_keys($j['steps']) as $i) {
             if ($failed || $GLOBALS['rsStop']) {
@@ -3626,7 +3684,11 @@ function rsJob(array $args): int
             }
             $j['steps'][$i]['state'] = 'running';
             $j['steps'][$i]['started'] = time();
-            rsJournalWrite($j);
+            $write();
+            if ($lost !== null) {
+                $j['steps'][$i]['state'] = 'skipped';
+                continue;
+            }
             rsLog($id, sprintf('Step %d/%d: %s', $i + 1, count($j['steps']), rsStepLine($j['steps'][$i])));
             try {
                 $res = rsStep($j, $i);
@@ -3637,7 +3699,7 @@ function rsJob(array $args): int
             rsLog($id, "  -> {$res['state']}" . (($res['detail'] ?? '') !== '' ? ': ' . mb_substr((string) $res['detail'], 0, 600) : ''));
             $failed = $res['state'] === 'failed';
             $warn = $warn || $res['state'] === 'warning';
-            rsJournalWrite($j);
+            $write();
         }
         // «Make it a dataset of its own»: a failure (or a stop) rolls back by itself - the folder back, its dataset gone
         if (($failed || $GLOBALS['rsStop']) && ($j['kind'] ?? '') === 'make_dataset') {
@@ -3650,9 +3712,20 @@ function rsJob(array $args): int
             $j['reason'] = ($GLOBALS['rsStopWhy'] ?? null) === 'array_stopping' ? 'restore_array_stopping' : 'restore_stopped';
         }
         $j['finished'] = time();
-        rsJournalWrite($j);
+        $write();
+        if ($lost !== null && rsLeftStopped($j)) {
+            try {
+                $back = rsDoStart($j, ['containers' => rsLeftStopped($j), 'only_stopped' => true]);
+                logLine("Mr. Restori: $id - started again without a journal: " . implode(', ', $back['started'] ?? []) . (($back['state'] ?? '') !== 'ok' ? ' (not all: ' . ($back['params']['containers'] ?? '') . ')' : ''));
+            } catch (Throwable $e) {
+                logLine("Mr. Restori: $id - could not start its containers again: " . $e->getMessage());
+            }
+        }
         if ($j['putback_of']) {
-            rsMarkPutback($j['putback_of'], $id, $j['result']);
+            try {
+                rsMarkPutback($j['putback_of'], $id, $j['result']);
+            } catch (Throwable) {
+            }
         }
         rsLockRelease($lock);
         drillMarker('restore', null);
@@ -4396,6 +4469,9 @@ function rsDoAside(array &$j, array $s): array
 {
     $from = $s['path'];
     $to = $s['to'];
+    if (($link = rsStepLink($s, [$from, $to])) !== null) {
+        return rsFail('path_link', ['path' => $from, 'link' => $link]);        // never through a link (review 1.72.0, H2)
+    }
     $ds = $s['dataset'] ?? null;
     $tds = $s['to_dataset'] ?? null;
     $isDs = $ds !== null && $tds !== null && rsDatasetExists($ds);
@@ -4412,7 +4488,7 @@ function rsDoAside(array &$j, array $s): array
             return rsFail('rename_failed', ['path' => $from], trim($err));
         }
     } else {
-        if (!rsMkdirs(dirname($to))) {
+        if (!(isset($s['within']) ? rsMkdirsNear(dirname($to), (string) $s['within']) : rsMkdirs(dirname($to)))) {
             return rsFail('mkdir_failed', ['path' => dirname($to)]);
         }
         if (!@rename($from, $to)) {
@@ -4421,10 +4497,10 @@ function rsDoAside(array &$j, array $s): array
     }
     $j['aside'][] = ['from' => $from, 'to' => $to, 'dataset' => $isDs ? $ds : null, 'to_dataset' => $isDs ? $tds : null];
     $back = ($s['putback_to'] ?? '') !== '' ? $s['putback_to'] : rsBeside($from, 'putback-{T}');
-    return ['state' => 'ok', 'undo' => [
+    return ['state' => 'ok', 'undo' => rsWithinUndo([
         ['do' => 'aside', 'path' => $from, 'to' => $back, 'dataset' => $isDs ? $ds : null, 'to_dataset' => $isDs ? "$ds.putback-{T}" : null, 'optional' => true],
         ['do' => 'move', 'from' => $to, 'to' => $from, 'dataset' => $isDs ? $tds : null, 'to_dataset' => $isDs ? $ds : null],
-    ]];
+    ], $s)];
 }
 
 /** Moves something into a place that is free (a restored copy into the live folder's place, an aside back) */
@@ -4432,6 +4508,9 @@ function rsDoMove(array &$j, array $s): array
 {
     $from = $s['from'];
     $to = $s['to'];
+    if (($link = rsStepLink($s, [$from, $to])) !== null) {
+        return rsFail('path_link', ['path' => $to, 'link' => $link]);          // never through a link (review 1.72.0, H2)
+    }
     $fds = $s['dataset'] ?? null;
     $tds = $s['to_dataset'] ?? null;
     $isDs = $fds !== null && $tds !== null && rsDatasetExists($fds);
@@ -4453,7 +4532,7 @@ function rsDoMove(array &$j, array $s): array
     // something new where nothing was put aside in this restore: «Put back» puts it aside
     $undo = rsAsideOf($j, $to) ? [] : [['do' => 'aside', 'path' => $to, 'to' => rsBeside($to, 'putback-{T}'), 'dataset' => $isDs ? $tds : null,
                                          'to_dataset' => $isDs ? "$tds.putback-{T}" : null, 'optional' => true]];
-    return ['state' => 'ok', 'undo' => $undo];
+    return ['state' => 'ok', 'undo' => rsWithinUndo($undo, $s)];
 }
 
 /** An empty folder (or dataset) where one was put aside, with its owner and mode (a database starts afresh in it) */
@@ -4505,6 +4584,20 @@ function rsDoCopy(array &$j, int $i): array
     }
     if (!$sources) {
         return rsFail('gone', ['path' => (string) ($s['from'] ?? '')]);
+    }
+    // into a share (`within`, review 1.72.0): never through a link on the way, never from a folder that became a link since
+    // the plan (H2) — the folders above it that aren't there made like the nearest one that is, never root-only (M5)
+    if (isset($s['within'])) {
+        $link = rsStepLink($s, [$to]);
+        foreach ($link === null ? $sources : [] as $from) {
+            $link ??= is_link(dirname($from)) || (!$file && is_link($from)) ? $from : null;
+        }
+        if ($link !== null) {
+            return rsFail('path_link', ['path' => $to, 'link' => $link]);
+        }
+        if (!rsMkdirsNear(dirname($to), (string) $s['within'])) {
+            return rsFail('mkdir_failed', ['path' => dirname($to)]);
+        }
     }
     if (!rsFreePlace($to, $ds !== null || !empty($s['into_empty']))) {
         return rsFail('exists', ['path' => $to]);
@@ -4564,8 +4657,8 @@ function rsDoCopy(array &$j, int $i): array
     };
     $exit = rsWait($j, [$p], $i, $read)[0];
     $j['steps'][$i]['progress'] = $prog;
-    $undo = !empty($s['replaces']) && !rsAsideOf($j, $to)
-        ? [['do' => 'aside', 'path' => $to, 'to' => ($s['putback_to'] ?? '') !== '' ? $s['putback_to'] : rsBeside($to, 'putback-{T}'), 'optional' => true]] : [];
+    $undo = rsWithinUndo(!empty($s['replaces']) && !rsAsideOf($j, $to)
+        ? [['do' => 'aside', 'path' => $to, 'to' => ($s['putback_to'] ?? '') !== '' ? $s['putback_to'] : rsBeside($to, 'putback-{T}'), 'optional' => true]] : [], $s);
     if ($exit !== 0 && $exit !== 24) {
         return rsFail('copy_failed', ['path' => $to, 'exit' => $exit], 'rsync exit ' . $exit) + ['undo' => $undo];
     }
@@ -4674,7 +4767,13 @@ function rsDoUnfinished(array &$j, array $s): array
 function rsDoNotOpen(array $s): array
 {
     $holders = rsOpenHolders((array) ($s['paths'] ?? []));
-    return $holders ? rsFail('in_use', ['names' => implode(', ', $holders)]) : ['state' => 'ok'];
+    if ($holders) {
+        return rsFail('in_use', ['names' => implode(', ', $holders)]);
+    }
+    foreach (rsLoopHolders((array) ($s['paths'] ?? [])) as $h) {
+        return rsFail(['docker' => 'docker_uses', 'vms' => 'vms_use'][$h['what']] ?? 'loop_uses', ['path' => $h['path'], 'loop' => $h['loop']]);
+    }
+    return ['state' => 'ok'];
 }
 
 /** A VM's definition as libvirt keeps it, put aside before another one is defined */
@@ -4706,8 +4805,9 @@ function rsDoDefine(array &$j, array $s): array
     $name = (string) $s['name'];
     $xml = (string) $s['xml'];
     $adapted = [];
-    if (str_starts_with($xml, rspMountRoot() . '/')) {
-        // a package of a backup place pulled from a partner: its XML is the partner's word (rspXmlForeign())
+    if (str_starts_with($xml, rspMountRoot() . '/') || !empty($s['foreign'])) {
+        // a package of a backup place pulled from a partner: its XML is the partner's word (rspXmlForeign()); one Kopia
+        // brought back (`foreign`) lay where the Kopia container writes
         $text = (string) @file_get_contents($xml, false, null, 0, 1 << 22);
         $share = basename(rtrim((string) (readCfg('/boot/config/domain.cfg')['DOMAINDIR'] ?? '/mnt/user/domains'), '/')) ?: 'domains';
         // its disks in the VM's own folder of the domains share, through /mnt/user or a disk or pool (names only: no disk woken)
