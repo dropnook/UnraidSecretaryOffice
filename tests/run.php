@@ -14749,6 +14749,10 @@ function testRestoreBrowse(): void
         [$p1['total'], count($p1['entries']), $p1['more'], $p1['entries'][0]['name'], count($p3['entries']), $p3['more'], $p3['entries'][0]['name'], array_column($q['entries'], 'name')]);
     $b = rsBrowse(['path' => '/mnt/user/appdata', 'snap' => 'name:manual-1', 'rel' => 'nc']);
     same('restore browse: a dataset inside is read from its own snapshot (the parent\'s holds only its empty stub)', ['config.php'], array_column($b['entries'], 'name'));
+    $GLOBALS['rs']['state']['partners'][0]['units'][] = ['unit' => 'app:nc', 'snaps' => [['name' => 'uso-backup-20261019-0100']], 'newest' => $T1];
+    $b = rsBrowse(['path' => '/mnt/user/appdata/nc', 'rel' => '']);
+    same('restore browse: an app\'s folder — its own unit at a partner named (pulled first, then a moment here)', [['app:nc']], [array_column($b['at_partner'], 'unit')]);
+    $GLOBALS['rs']['state'] = $state;
     $b = rsBrowse(['zsnap' => 'hazel/appdata/nc@manual-1']);
     same('restore browse: from Ms. Snapshotini\'s snapshot — its dataset\'s folder (the app\'s unit), its moment', ['/mnt/user/appdata/nc', 'app', 'name:manual-1', ['config.php']],
         [$b['root'], $b['owner']['kind'], $b['snap'], array_column($b['entries'], 'name')]);

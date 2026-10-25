@@ -373,7 +373,9 @@ function rsBrowse(array $r): array
     $out = ['ok' => true, 'from' => 'local', 'root' => $from['root'], 'share' => $mo['share'], 'owner' => ['kind' => $from['owner']['kind'], 'name' => $from['owner']['name']],
             'rel' => $rel, 'q' => $q, 'moments' => array_map('rsBrowseMoment', $mo['moments']), 'snap' => $mo['moment']['id'] ?? null,
             'moment' => $mo['moment'] ? rsBrowseMoment($mo['moment']) : null, 'asleep' => $mo['asleep'], 'woken' => $mo['woken'], 'failed' => $mo['failed'],
-            'at_partner' => rspChips((array) ($state['partners'] ?? []), [$mo['share']]), 'pulled' => count(rspRestored($from['root'])),
+            // my copies at a partner holding it: the share's unit, or the app's or VM's own (pulled first, then a moment here)
+            'at_partner' => rspChips((array) ($state['partners'] ?? []), [$mo['share']], $from['owner']['kind'] === 'vm' ? $from['owner']['name'] : null,
+                $from['owner']['kind'] === 'app' ? $from['owner']['name'] : null), 'pulled' => count(rspRestored($from['root'])),
             'live' => $rel === '' ? $from['root'] : "{$from['root']}/$rel", 'here' => false, 'link' => false,
             'entries' => [], 'total' => 0, 'offset' => 0, 'more' => 0, 'cut' => false, 'left' => []];
     if (!$mo['moment']) {
