@@ -317,7 +317,7 @@ function rsPeekMount(string $snapshot, string $dir): bool
     if (is_link($dir) || file_exists($dir) && !is_dir($dir) || !is_dir($dir) && !@mkdir($dir, 0700, true)) {
         return false;
     }
-    if (in_array($dir, rspMounts()[$snapshot] ?? [], true)) {
+    if (array_intersect([$dir, realpath($dir) ?: $dir], rspMounts()[$snapshot] ?? [])) {
         return true;
     }
     return run([partnerBin('mount') ?? 'mount', '-t', 'zfs', '-o', RSP_MOUNT_OPTIONS, $snapshot, $dir], 60)[0] === 0;
@@ -332,9 +332,11 @@ function rsPeekUnmount(string $dir): bool
     if (!preg_match(RS_PEEK_RE, basename($dir))) {
         return false;
     }
+    // the kernel names it by its real path (/var/run is Unraid's link to /run)
+    $names = array_unique([$dir, realpath($dir) ?: $dir]);
     $ok = true;
     foreach (rspMounts() as $mounts) {
-        if (in_array($dir, $mounts, true)) {
+        if (array_intersect($names, $mounts)) {
             $ok = run([partnerBin('umount') ?? 'umount', $dir], 60)[0] === 0 && $ok;
         }
     }
@@ -607,7 +609,8 @@ function rsPlanPickFor(string $root, array $owner, string $snap, array $items, s
             $plan['blockers'][] = ['key' => 'restore_exists', 'params' => ['path' => $to]];
         }
         $src = $it['file'] ? [$it['src'][0]['path']] : array_column($it['src'], 'path');
-        $steps[] = ['do' => 'copy', 'from' => implode(' + ', $src), 'sources' => $src, 'to' => $to, 'dataset' => null] + ($it['file'] ? ['file' => true] : []);
+        $steps[] = ['do' => 'copy', 'from' => implode(' + ', $src), 'sources' => $src, 'to' => $to, 'dataset' => null,
+                    'like' => dirname($src[0]), 'like_depth' => count(explode('/', $rel)) - 1] + ($it['file'] ? ['file' => true] : []);
         array_push($paths, ...$src);
         $restored[] = $to;
         $targets[] = $it['T'];
@@ -771,7 +774,8 @@ function rsPlanPickKept(array $r, array $items, bool $wake, string $stamp, array
             if (file_exists($to) || is_link($to)) {
                 $plan['blockers'][] = ['key' => 'restore_exists', 'params' => ['path' => $to]];
             }
-            $steps[] = ['do' => 'copy', 'from' => "$dir/$rel", 'sources' => ["$dir/$rel"], 'to' => $to, 'dataset' => null] + ($file ? ['file' => true] : []);
+            $steps[] = ['do' => 'copy', 'from' => "$dir/$rel", 'sources' => ["$dir/$rel"], 'to' => $to, 'dataset' => null,
+                        'like' => dirname("$dir/$rel"), 'like_depth' => $depth - 1] + ($file ? ['file' => true] : []);
         }
         $need = rsPickWalk($there);
     } finally {

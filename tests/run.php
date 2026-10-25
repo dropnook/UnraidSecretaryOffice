@@ -14683,6 +14683,7 @@ function testRestoreBrowse(): void
     $put("$S/Verträge/2024/a.pdf", 'old a');
     $put("$S/Verträge/2024/deep.pdf", 'deep');          // deleted since
     $put("$S/Verträge/2024/Belege/b.txt", 'b');
+    chmod("$S/Verträge/2024", 0751);
     $put("$S/Fotos/a.jpg", 'jpg');
     symlink('a.jpg', "$S/Fotos/link.jpg");
     $put("$tmp/outside/secret.txt", 'never');
@@ -14796,6 +14797,9 @@ function testRestoreBrowse(): void
         [array_column($p['blockers'], 'key'), array_column($p['steps'], 'to'), $p['aside']]);
     [$states] = $run($p, "$stamp-aa03");
     same('restore browse: there it lies', [['ok', 'ok'], 'deep', 'jpg'], [$states, @file_get_contents("$F/Verträge/2024/deep.pdf"), @file_get_contents("$F/Fotos/a.jpg")]);
+    clearstatcache();
+    same('restore browse: the folders above it made like the moment\'s (not root-only), above those like the folder that is there',
+        ['0751', '0755'], [substr(sprintf('%o', fileperms("$F/Verträge/2024")), -4), substr(sprintf('%o', fileperms($F)), -4)]);
     $c = $ctx;
     $p = rsPlanPickFor('/mnt/user/zzdocs', $own, 'name:manual-1', ['evil/secret.txt', 'nothere.txt'], 'copy', false, '20261025-114000', $c);
     same('restore browse: never through a folder link out of the moment, never what the moment doesn\'t hold', ['restore_browse_link', 'restore_not_in_snapshot'],

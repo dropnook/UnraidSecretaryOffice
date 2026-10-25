@@ -3798,6 +3798,37 @@ function rsMkdirs(string $dir): bool
 }
 
 /**
+ * The folders of $dir that aren't there, made top down: the lowest $depth of them like their counterparts above $like
+ * (the moment's folders: mode and owner — a deleted folder comes back as it was), any above those like the nearest folder
+ * that is there (the share's own, or the restore folder's) — never root-only where the user reaches them over the network
+ */
+function rsMkdirsLike(string $dir, string $like, int $depth): bool
+{
+    $missing = [];
+    for ($d = $dir; !is_dir($d); $d = dirname($d)) {
+        if ($d === '/' || $d === '.' || is_link($d) || file_exists($d)) {
+            return false;
+        }
+        $missing[] = $d;
+    }
+    $near = @stat($d);
+    foreach (array_reverse($missing) as $m) {
+        $k = $m === $dir ? 0 : count(explode('/', trim(substr($dir, strlen($m)), '/')));
+        $src = $k < $depth ? @stat($k === 0 ? $like : dirname($like, $k)) : $near;
+        if (!@mkdir($m, 0700) && !is_dir($m)) {
+            return false;
+        }
+        if ($src) {
+            @chown($m, (int) $src['uid']);
+            @chgrp($m, (int) $src['gid']);
+            @chmod($m, (int) $src['mode'] & 07777);
+        }
+        $near = $src ?: $near;
+    }
+    return true;
+}
+
+/**
  * Is a place free for something new? Nothing there — or, for a dataset, the empty folder its old
  * mountpoint may leave behind (ZFS mounts over an empty folder).
  */
@@ -4515,8 +4546,10 @@ function rsDoCopy(array &$j, int $i): array
     if (!rsFreePlace($to, $ds !== null || !empty($s['into_empty']))) {
         return rsFail('exists', ['path' => $to]);
     }
+    // the folders above it that aren't there (a pick deep in a moment, the restore folder): made like the moment's (`like`)
+    $parents = fn (): bool => is_string($s['like'] ?? null) ? rsMkdirsLike(dirname($to), $s['like'], (int) ($s['like_depth'] ?? 0)) : rsMkdirs(dirname($to));
     if ($file) {
-        if (!rsMkdirs(dirname($to))) {
+        if (!$parents()) {
             return rsFail('mkdir_failed', ['path' => dirname($to)]);
         }
     } elseif (!empty($s['into_empty']) && is_dir($to)) {
@@ -4526,7 +4559,7 @@ function rsDoCopy(array &$j, int $i): array
         if (rsDatasetExists($ds) || !rsZfsCreate($j, $ds, rsDatasetExists($like) ? $like : null) || !is_dir($to)) {
             return rsFail('mkdir_failed', ['path' => $to]);
         }
-    } elseif (!rsMkdirs(dirname($to)) || !@mkdir($to, 0700)) {
+    } elseif (!$parents() || !@mkdir($to, 0700)) {
         return rsFail('mkdir_failed', ['path' => $to]);
     }
     // a copy he makes (not one that fills or replaces something in place): noted before it starts — cut by an array stop
