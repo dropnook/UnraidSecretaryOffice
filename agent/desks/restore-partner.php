@@ -2551,7 +2551,7 @@ function rsPlanPartnerSwap(array $r, string $stamp): array
     $plan['steps'] = $steps;
     $plan['source'] = ['path' => "$partner: $unit@" . (string) ($pull['snap'] ?? ''), 'time' => $pull['time'] ?? null, 'bytes' => $pull['bytes'] ?? null];
     $plan['aside'][] = ['what' => 'share', 'from' => $live, 'to' => $asideP];
-    $plan['notes'][] = ['key' => 'note.swap', 'params' => ['share' => $share, 'pool' => $pool, 'partner' => $partner, 'when' => $pull['time'] ?? null]];
+    array_unshift($plan['notes'], ['key' => 'note.swap', 'params' => ['share' => $share, 'pool' => $pool, 'partner' => $partner, 'when' => $pull['time'] ?? null]]);   // what happens first
     $plan['after'][] = ['key' => 'after.swap_done', 'params' => ['share' => $share, 'aside' => $asideP, 'dataset' => $da]];
     $plan['stops'] = $users;
     $plan['downtime'] = $users ? 20 : 0;
