@@ -1,6 +1,10 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.74 - 2026-10-24
+# unraid-backup - backup.sh                       Version 2.75 - 2026-10-25
+#   2.75 Docker switched off by the user while something goes offsite: no longer «Kopia container '<name>' does not
+#        exist» (an error, the run ending «errors») - Kopia can't be asked, kopia.state docker_off, a warning
+#        docker_off_offsite (warning_items); the local part and the partners as usual, the run ends with warnings. No
+#        container named in settings.ini is «gone» (ct_gone, app_source_orphan) while Docker is off - nobody knows
 #   2.74 One child dataset that is no unit of its own (no VM's, no app's, not excluded) no longer keeps a whole share at
 #        home: the share goes to the partner without it (zfs send without -R), each such child said in the plan and the
 #        log and listed in status.json partner.left_out ({id, unit, dataset, folder}); an app's own dataset is also known
@@ -4238,6 +4242,11 @@ drift_check_vms
 drift_check_items
 drift_check_new_local                # what the last run left out as new and is still undecided (section 11)
 if [[ "$SKIPK" != "1" ]]; then drift_check_kopia; else KOPIA_OK="skip"; fi
+# 2.75: Docker switched off by the user - nothing goes offsite (Kopia runs in a container); a warning, never an error:
+# the user chose it in Unraid's settings (2.54: a server of shares and VMs), the local part and the partners go as usual
+if [[ "$KOPIA_OK" == "docker_off" ]]; then
+    warn_code docker_off_offsite "Docker is switched off (Settings > Docker) - Kopia runs in a container, so nothing goes offsite in this run; local snapshots, packages and partners as usual"
+fi
 [[ "$KOPIA_OK" == "no" ]] && kopia_gone_check      # 2.53: Kopia can't open the repository - its format blob deleted with all the rest
 
 # The backup place: a share of its own, backed up - otherwise no run (nothing is paused up to here)
@@ -4661,6 +4670,8 @@ if [[ "$SKIPK" == "1" ]]; then
     log "Kopia skipped (UB_SKIP_KOPIA=1)."
 elif [[ "$KOPIA_OK" == "off" ]]; then
     log "Kopia switched off - local snapshots and dumps are done."
+elif [[ "$KOPIA_OK" == "docker_off" ]]; then
+    log "Kopia skipped - Docker is switched off (see the warning above): nothing went offsite; local snapshots, packages and partners are done."
 elif [[ "$KOPIA_OK" == "held" ]]; then
     log "Kopia held - the repository is suddenly empty (see above): nothing went offsite; local snapshots, packages and partners are done."
 elif [[ "$KOPIA_OK" == "yes" ]]; then

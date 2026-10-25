@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.74"
+UB_VERSION="2.75"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -2939,6 +2939,8 @@ drift_check_containers() {
                 ct_volumes "" name="$n" volumes="$(cut -d'|' -f1 <<<"${CT_VOLUMES[$n]}" | paste -sd, - | sed 's/,/, /g')"
         fi
     done
+    # 2.75: Docker switched off - no container is listed, none is gone (nobody knows)
+    [[ "${DOCKER_SERVICE:-yes}" == "no" ]] && return 0
     for n in $(cfg_names dump) $(cfg_names nextcloud) "${DOCKER_NO_STOP[@]}" "${DOCKER_SKIP[@]}"; do
         [[ -n "${referenced[$n]:-}" ]] && continue
         referenced[$n]=1
@@ -2997,7 +2999,8 @@ drift_check_vms() {
 #   KP_STATUS    one JSON object per Kopia target (for drift.json): kind, share, path,
 #                ok, skipped (the run leaves the share out), differences as codes
 #   KP_CHECKED   yes once the policies were compared (Kopia reachable)
-#   KOPIA_OK     yes | no | off | none | skip (--no-kopia); "" until checked (2.24: a run ended before its
+#   KOPIA_OK     yes | no | off | none | skip (--no-kopia) | docker_off (2.75: Docker switched off - Kopia can't be
+#                asked, nothing goes offsite); "" until checked (2.24: a run ended before its
 #                check - e.g. by the array stop - says nothing about Kopia in status.json, never "no")
 KOPIA_OK=""
 declare -ga KP_STATUS=()
@@ -3016,6 +3019,13 @@ drift_check_kopia() {
     [[ ${#PLAN_KOPIA[@]} -eq 0 && "$PLAN_FLASH" != "snapshot" && ${#PLAN_KITEMS[@]} -eq 0 ]] && { KOPIA_OK="none"; return 0; }
     if [[ -z "$KOPIA_CONTAINER" ]]; then
         drift_add error "No Kopia container in settings.ini" kopia_no_container; return 1
+    fi
+    # 2.75: Docker switched off by the user (Settings > Docker, ub_docker_service_off) is no container gone and no drift
+    # from settings.ini: nothing can be asked of Kopia, which runs in a container - KOPIA_OK docker_off, the run says it
+    # once as a warning (docker_off_offsite) and does its local part. Up to 2.74: «Kopia container '<name>' does not
+    # exist» (kopia_container_gone), an error, and a repository «no» the Team Lead's check took for a broken one
+    if [[ "${DOCKER_SERVICE:-yes}" == "no" ]]; then
+        KOPIA_OK="docker_off"; return 0
     fi
     if ! in_list "$KOPIA_CONTAINER" "${CT_NAMES[@]}"; then
         drift_add error "Kopia container '$KOPIA_CONTAINER' does not exist" kopia_container_gone "" name="$KOPIA_CONTAINER"; return 1
@@ -3107,6 +3117,8 @@ drift_check_items() {
             for c in "${CT_NAMES[@]}"; do
                 [[ "${CT_PROJECT[$c]:-}" == "$n" || ( -z "${CT_PROJECT[$c]:-}" && "$c" == "$n" ) ]] && { found=1; break; }
             done
+            # 2.75: with Docker switched off no container is listed - none is gone (nobody knows)
+            [[ "${DOCKER_SERVICE:-yes}" == "no" ]] && found=1
             (( found )) || drift_add info "App '$n' has a Kopia source of its own in settings.ini but no container of it exists any more - what is left of it still goes there" \
                 app_source_orphan "" name="$n"
         fi

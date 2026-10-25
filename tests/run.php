@@ -6496,7 +6496,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.74'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.75'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -8483,9 +8483,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.74 everywhere it is named', ['2.74', '2.74', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.74"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.74** –')]);
+    same('data trust: the engine\'s version 2.75 everywhere it is named', ['2.75', '2.75', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.75"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.75** –')]);
     // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
     same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
         array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
@@ -9753,9 +9753,42 @@ SH);
     check('partner streams 2.73: after the stop - the next run continues the interrupted one (recv … -t), then this run\'s', ($r[0] ?? '') === "ssh recv place $stopSnap -t"
         && ($status()['partner_failed'] ?? 1) === 0, json_encode($r) . $log());
 
+    // --- 2.75 (INV-TRUTH): Docker switched off by the user while a share goes offsite - not «Kopia container does not
+    // exist» and errors: Kopia can't be asked (kopia.state docker_off), one warning docker_off_offsite, the local part and
+    // the partners as usual - the run ends with warnings. Docker on and the container really missing stays an error
+    $settings();
+    $iniK = str_replace(["[kopia]\nenabled = no\n", "[share \"docs\"]\nmode = snapshot\n"], ["[kopia]\nenabled = yes\ncontainer = kopia\n", "[share \"docs\"]\nmode = kopia\n"],
+        (string) file_get_contents("$data/settings.ini"));
+    file_put_contents("$data/settings.ini", $iniK);
+    file_put_contents("$tmp/boot/config/docker.cfg", "DOCKER_ENABLED=\"no\"\n");
+    $night();
+    [$rc, $out] = $run();
+    $s = $status();
+    $l = $log();
+    $drift = json_decode((string) @file_get_contents("$data/state/drift.json"), true) ?: [];
+    $dcodes = array_column($drift['items'] ?? [], 'code');
+    same('docker off 2.75: a share to Kopia, Docker switched off - warnings (no error), kopia.state docker_off, one coded warning, no «container gone»',
+        [0, 'warnings', 0, 'docker_off', ['docker_off_offsite'], false, false],
+        [$rc, $s['result'] ?? null, $s['errors'] ?? null, $s['kopia']['state'] ?? null, array_values(array_unique(array_column($s['warning_items'] ?? [], 'code'))),
+         in_array('kopia_container_gone', $dcodes, true), str_contains($l, 'does not exist')], $out . $l);
+    check('docker off 2.75: … the local part done (the run\'s snapshot of docs), the partner got every unit, Kopia not asked',
+        in_array("maple/docs@$snap", file("$fake/snaps.txt", FILE_IGNORE_NEW_LINES) ?: [], true) && ($s['partner_ok'] ?? 0) === 4 && ($s['partner_failed'] ?? 1) === 0
+        && ($s['kopia']['done'] ?? null) === [] && str_contains($l, 'Kopia skipped - Docker is switched off'), $l);
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/en.json'), true) ?: [];
+    check('docker off 2.75: the office has its words (warn_code.docker_off_offsite ×5)', array_filter(['en', 'de', 'it', 'fr', 'es'],
+        fn ($lg) => !is_string((json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$lg.json"), true) ?: [])['warn_code.docker_off_offsite'] ?? null)) === []);
+    unlink("$tmp/boot/config/docker.cfg");
+    $night();
+    [$rc, $out] = $run();
+    $s = $status();
+    $dcodes = array_column((json_decode((string) @file_get_contents("$data/state/drift.json"), true) ?: [])['items'] ?? [], 'code');
+    same('docker off 2.75: Docker on, the Kopia container really missing - still kopia_container_gone and errors', ['errors', true, 'no'],
+        [$s['result'] ?? null, in_array('kopia_container_gone', $dcodes, true), $s['kopia']['state'] ?? null], $out . $log());
+    $settings();
+
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.74', [1, '2.74'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.75', [1, '2.75'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -9847,6 +9880,48 @@ SH);
         [[['name' => 'appdata', 'folder' => 'drop', 'dataset' => 'maple/appdata/drop', 'partner' => 'vault']], true],
         [array_column($left, 'params'), isset($en['setup.msg.partner_child_left_share'], $en['setup.msg.partner_child_left_place'])], $out);
     same('setup plan 2.74: a share without such a child - partner_left empty', [], $sh2['docs']['partner_left'] ?? null);
+    // 2.75 (INV-TRUTH, a phantom Apply change): c1's folder a dataset of its own, appdata going to the partner, c1 itself only
+    // local - the page keeps app|c1|folder (truth review T04, office 1.71.3); up to 2.74 the setup wrote no [app] section
+    // without kopia or a partner, so the folder never landed and the Apply list showed it after every Apply
+    $appBody = function (string $ini): ?array {
+        if (!preg_match('/^\[app "c1"\]\n((?:[^\[\n][^\n]*\n|\n)*)/m', $ini, $m)) {
+            return null;
+        }
+        return array_values(array_filter(explode("\n", $m[1]), fn ($l) => $l !== '' && $l[0] !== '#'));
+    };
+    $noComments = fn (string $t) => preg_replace('/^#.*\n/m', '', $t);
+    $appPending = fn (array $pl) => array_values(array_filter($pl['pending'] ?? [], fn ($x) => str_starts_with((string) ($x['section'] ?? ''), 'app "c1"')));
+    $decFolder = ['app|c1|folder' => ['appdata/c1']] + $dec;
+    unset($decFolder['app|c1|partner']);
+    file_put_contents("$tmp/dec-folder.json", json_encode($decFolder + ['_retire_sources' => 'no']));
+    $out = $setup("--apply=$tmp/dec-folder.json");
+    $iniF1 = (string) @file_get_contents("$data/settings.ini");
+    same('setup apply 2.75: an app\'s own dataset, the app only local, its share to a partner - its [app] section with the folder alone',
+        [['folder = appdata/c1'], true], [$appBody($iniF1), (bool) preg_match('/\[share "appdata"\][^\[]*\npartner = ' . $id . '\n/', $iniF1)], $iniF1 . $out);
+    same('setup apply 2.75: … settings.ini loads without errors', '0', trim((string) shell_exec('bash -c ' . escapeshellarg("$env; source $lib >/dev/null 2>&1; cfg_load $data/settings.ini; cfg_validate >/dev/null; echo \${#CFG_ERRORS[@]}"))));
+    $out = $setup('--plan');
+    $planF = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
+    same('setup plan 2.75: … read back - the saved folder (O) is the proposal (P), nothing pending for the app, c1\'s dataset no left-out child',
+        [['appdata/c1'], ['appdata/c1'], [], [['dataset' => 'maple/appdata/drop', 'folder' => 'drop']]],
+        [$planF['O']['app|c1|folder'] ?? null, $planF['P']['app|c1|folder'] ?? null, $appPending($planF),
+         array_column($planF['shares'] ?? [], null, 'name')['appdata']['partner_left'] ?? null], $out);
+    // the page's next Apply sends the same (its draft: the plan's P with the folder kept) - the second plan has no change
+    file_put_contents("$tmp/dec-folder2.json", json_encode(['app|c1|folder' => ['appdata/c1']] + ($planF['P'] ?? []) + ['_retire_sources' => 'no']));
+    $out = $setup("--apply=$tmp/dec-folder2.json");
+    $iniF2 = (string) @file_get_contents("$data/settings.ini");
+    $out .= $setup('--plan');
+    $planF2 = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
+    same('setup apply 2.75: applied twice - settings.ini the same, the second plan has no change for the app (O = P, nothing pending)',
+        [$noComments($iniF1), ['appdata/c1'], ['appdata/c1'], []],
+        [$noComments($iniF2), $planF2['O']['app|c1|folder'] ?? null, $planF2['P']['app|c1|folder'] ?? null, $appPending($planF2)], $iniF2 . $out);
+    // a plan or apply that doesn't name it (no decisions, or a settings.ini without [app] sections): kept, resp. not made
+    $out = $setup('--yes');
+    same('setup 2.75: … a --yes run keeps the section as it is', ['folder = appdata/c1'], $appBody((string) @file_get_contents("$data/settings.ini")), $out);
+    $out = $setup("--apply=$tmp/dec.json");
+    $iniF3 = (string) @file_get_contents("$data/settings.ini");
+    same('setup apply 2.75: decisions without the app (as before 2.75, or the app no longer at a partner\'s share) - no [app] section, the rest as before',
+        [null, true, '0'], [$appBody($iniF3), (bool) preg_match('/\[share "appdata"\][^\[]*\npartner = ' . $id . '\n/', $iniF3),
+         trim((string) shell_exec('bash -c ' . escapeshellarg("$env; source $lib >/dev/null 2>&1; cfg_load $data/settings.ini; cfg_validate >/dev/null; echo \${#CFG_ERRORS[@]}")))], $iniF3 . $out);
     file_put_contents("$fake/mounts", $mounts1);
     file_put_contents("$fake/zfs.txt", $zfs1);
     // 2.42: a pair of 1.60 (send only its rate) and a pair of up to 1.59 without the place in its list: the place goes either way
@@ -10408,7 +10483,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.74', [1, '2.74'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.75', [1, '2.75'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
