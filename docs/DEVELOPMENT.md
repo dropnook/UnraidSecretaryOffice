@@ -680,7 +680,10 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   night mirror without passwords or key values. **Privacy rule:** another client's address/MAC/name only in
   `net_new_device`/`net_spoof`. Every kind has a MITRE technique.
 * **`cleanup` — Ms. Dustdevil.** «Where is what» (operational advice, **never security**; read only) and «Tidying up» (what a
-  drill or restore left: only what his journals name). No advice on ZFS's ARC or VM RAM (owner 2026-10-25). **Never deletes right
+  drill or restore left: only what his journals name). No advice on ZFS's ARC or VM RAM (owner 2026-10-25). «Where is what» never
+  paints red what comes back at every start: /etc/cron.d, Docker's own data without volumes carry their source's protection
+  (`waCronPlace()`, `waDockerImage()`); «not backed up» only for what a restart loses (lines added to root's crontab, a
+  cron.d file no plugin writes); the cron place counts job lines in its head and RAM rows, files on the flash row. **Never deletes right
   away:** renames into the hidden `.UnraidSecretaryOffice-trash` on the same filesystem (datasets via `zfs rename`),
   `manifest.json` per run, put back or empty; Docker images/build cache can only be removed; nothing while a backup runs; things
   in use can't be chosen. Old `_…-trash`/`_…-restore` names read for good, never written (`storeroomIn()`, `officeHiddenNow()`).

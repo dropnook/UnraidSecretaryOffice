@@ -1033,7 +1033,11 @@ function waBoot(): array
  * The places that matter when something breaks or moves to another server:
  * Unraid's own configuration, Docker templates and compose stacks, the VM
  * configuration in libvirt.img, user scripts, this office. Each with its
- * backup protection (as Mr. Backup's engine would treat it).
+ * backup protection (as Mr. Backup's engine would treat it). What lives in RAM
+ * and is built anew at every start from the flash carries its source's
+ * protection, never «not backed up» for nothing to back up (the office's code,
+ * libvirt.img's contents, waCronPlace(), waDockerImage()). $cron: unused since
+ * the cron place counts its own rows (kept for the callers).
  */
 function waLocations(array $vms, array $cron): array
 {
@@ -1072,8 +1076,8 @@ function waLocations(array $vms, array $cron): array
     $groups[] = ['id' => 'docker', 'items' => array_values(array_filter([
         $templates,
         $item('docker_cfg', '/boot/config/docker.cfg'),
-        !empty($docker['DOCKER_IMAGE_FILE']) ? $item('docker_image', rtrim($docker['DOCKER_IMAGE_FILE'], '/'),
-            ['note' => ($docker['DOCKER_IMAGE_TYPE'] ?? '') === 'folder' ? 'folder' : 'image']) : null,
+        !empty($docker['DOCKER_IMAGE_FILE']) ? waDockerImage($item('docker_image', rtrim($docker['DOCKER_IMAGE_FILE'], '/'),
+            ['note' => ($docker['DOCKER_IMAGE_TYPE'] ?? '') === 'folder' ? 'folder' : 'image']), waDockerVolumes(), $templates) : null,
         !empty($docker['DOCKER_APP_CONFIG_PATH']) ? $item('appdata', rtrim($docker['DOCKER_APP_CONFIG_PATH'], '/')) : null,
     ]))];
 
@@ -1106,16 +1110,7 @@ function waLocations(array $vms, array $cron): array
         !empty($domain['MEDIADIR']) ? $item('vm_isos', rtrim($domain['MEDIADIR'], '/')) : null,
     ])), 'vms' => count($vms)];
 
-    // Unraid builds the root crontab in RAM (update_cron) from the *.cron files of
-    // dynamix and of installed plugins — anything typed into crontab -e is gone after a reboot
-    $cronFiles = array_map(fn ($f) => basename(dirname($f)) . '/' . basename($f), glob(WA_PLUGINS . '/*/*.cron') ?: []);
-    $cronDef = $item('cron_files', WA_PLUGINS, ['count' => count($cronFiles)]);
-    $cronDef['files'] = $cronFiles;
-    $groups[] = ['id' => 'cron', 'jobs' => count($cron), 'items' => [
-        $cronDef,
-        $item('cron_d', '/etc/cron.d', ['glob' => '*', 'ram' => true]),
-        $item('crontab', '/var/spool/cron/crontabs/root', ['ram' => true]),
-    ]];
+    $groups[] = waCronPlace($item);
 
     $groups[] = ['id' => 'scripts', 'items' => [
         $item('user_scripts', WA_SCRIPTS, ['glob' => '*']),
@@ -1131,6 +1126,117 @@ function waLocations(array $vms, array $cron): array
         is_dir(BACKUP_DATA_DIR . '/dumps') ? $item('backup_dumps', DATA_DIR_USER . '/unraid-backup/dumps', ['glob' => '[0-9]*']) : null,
     ]))];
     return $groups;
+}
+
+/**
+ * Docker's own data (docker.img or its folder): what lies in it comes back by pulling the images again, as the templates
+ * on the flash name them — nothing to back up there, protected as the templates are (`rebuilt`). Unless Docker volumes
+ * lie in it (`volumes`: what `docker volume ls` counts; null while Docker can't be asked): their data never comes back by
+ * pulling, so the place keeps its own share's protection.
+ */
+function waDockerImage(array $item, ?int $volumes, array $templates): array
+{
+    $item['volumes'] = $volumes;
+    if ($volumes === 0) {
+        $item = ['backup' => $templates['backup'] ?? null, 'backup_note' => $templates['backup_note'] ?? null, 'rebuilt' => true] + $item;
+    }
+    return $item;
+}
+
+/** How many Docker volumes there are (local ones live in docker.img or its folder), or null when Docker can't be asked */
+function waDockerVolumes(): ?int
+{
+    if (!bin('docker') || !file_exists('/var/run/docker.sock')) {
+        return null;
+    }
+    [$exit, $out] = houseDocker(['volume', 'ls', '-q', '--filter', 'driver=local']);
+    return $exit === 0 ? count(array_filter(array_map('trim', explode("\n", $out)))) : null;
+}
+
+/** Where the cron place looks (tests pass their own folders) */
+const WA_CRON_PATHS = ['plugins' => WA_PLUGINS, 'installed' => '/var/log/plugins', 'cron_d' => '/etc/cron.d',
+                       'crontab' => '/var/spool/cron/crontabs/root'];
+/** dcron's signal to reload (update_cron writes it, crond deletes it): no crontab */
+const WA_CRON_SIGNAL = 'cron.update';
+
+/**
+ * The place «Cron jobs» as it really is — one unit throughout: the head and the RAM rows count job lines (the head = what
+ * crond reads: /etc/cron.d + root's own crontab), the flash row counts files (`unit`).
+ *   cron_files  the *.cron files update_cron takes (dynamix's and installed plugins' — `left_out`: those of no installed
+ *               plugin), on the flash: protected as the flash is
+ *   cron_d      RAM, built anew at every start: `root` by update_cron from those files, a plugin's own file by its plugin
+ *               (`plugins`: file => plugin — a plugin of that name, or one whose .plg names the file) — nothing to back
+ *               up, protected as its source on the flash. Only a file nothing on the flash puts back (`stray`) is lost at
+ *               a restart: then and only then «not backed up»
+ *   crontab     root's own (crontab -e): Unraid's default lines (run-parts, `defaults`) come back with Unraid; lines whose
+ *               program lies in a plugin's folder (`plugin_lines`, `plugins`) are the plugin's; only the others (`own`)
+ *               are gone at a restart — then «not backed up», else no label (nothing to back up)
+ * $item: waLocations()'s maker of a row.
+ */
+function waCronPlace(callable $item, array $paths = WA_CRON_PATHS): array
+{
+    $installed = [];
+    foreach (glob($paths['installed'] . '/*.plg') ?: [] as $plg) {
+        $installed[basename($plg, '.plg')] = $plg;
+    }
+    $taken = $left = [];
+    foreach (glob($paths['plugins'] . '/*/*.cron') ?: [] as $f) {
+        $plugin = basename(dirname($f));
+        if ($plugin === 'dynamix' || isset($installed[$plugin])) {
+            $taken[] = $plugin . '/' . basename($f);
+        } else {
+            $left[] = $plugin . '/' . basename($f);
+        }
+    }
+    $files = [...$item('cron_files', $paths['plugins']), 'count' => count($taken), 'unit' => 'files', 'files' => $taken, 'left_out' => count($left)];
+    $source = ['backup' => $files['backup'] ?? null, 'backup_note' => $files['backup_note'] ?? null];
+
+    $norm = fn (string $s): string => (string) preg_replace('/[^a-z0-9]/', '', strtolower($s));
+    $jobs = 0;
+    $plugins = $stray = [];
+    foreach (glob($paths['cron_d'] . '/*') ?: [] as $f) {
+        $name = basename($f);
+        if ($name === WA_CRON_SIGNAL || !is_file($f)) {
+            continue;
+        }
+        $jobs += count(waCronParse((string) @file_get_contents($f, false, null, 0, 1 << 20)));
+        if ($name === 'root') {
+            continue;
+        }
+        $by = null;
+        foreach ($installed as $p => $plg) {
+            if ($norm($p) === $norm($name) || str_contains((string) @file_get_contents($plg, false, null, 0, 1 << 20), "cron.d/$name")) {
+                $by = $p;
+                break;
+            }
+        }
+        if ($by === null) {
+            $stray[] = $name;
+        } else {
+            $plugins[$name] = $by;
+        }
+    }
+    $cronD = [...$item('cron_d', $paths['cron_d']), 'count' => $jobs, 'unit' => 'jobs', 'rebuilt' => true, 'plugins' => $plugins, 'stray' => $stray];
+    $cronD = ($stray ? ['backup' => 'none', 'backup_note' => null] : $source) + $cronD;
+
+    $tab = $item('crontab', $paths['crontab'], ['unit' => 'jobs']);
+    $lines = waCronParse(is_file($paths['crontab']) ? (string) @file_get_contents($paths['crontab'], false, null, 0, 1 << 20) : '');
+    $defaults = $own = 0;
+    $byPlugin = [];
+    foreach ($lines as $l) {
+        $program = waCronProgram($l['command']) ?? '';
+        if (preg_match('#^(?:/usr/bin/)?run-parts\s+/etc/cron\.(?:hourly|daily|weekly|monthly)/?(?:\s|$)#', $l['command'])) {
+            $defaults++;
+        } elseif (preg_match('#^(?:/usr/local/emhttp/plugins|/boot/config/plugins)/([A-Za-z0-9._+-]{1,100})/#', $program, $m)) {
+            $byPlugin[$m[1]] = ($byPlugin[$m[1]] ?? 0) + 1;
+        } else {
+            $own++;
+        }
+    }
+    $tab = ['backup' => $own ? 'none' : null, 'backup_note' => null, 'count' => count($lines), 'defaults' => $defaults, 'own' => $own,
+            'plugin_lines' => array_sum($byPlugin), 'plugins' => array_keys($byPlugin)] + $tab;
+    $jobs += count($lines);
+    return ['id' => 'cron', 'jobs' => $jobs, 'items' => [$files, $cronD, $tab]];
 }
 
 // --------------------------------------------------------------------- users & network shares
@@ -1296,26 +1402,11 @@ function waCron(): array
 {
     $jobs = [];
     $parse = function (string $source, string $text) use (&$jobs): void {
-        $title = null;
-        foreach (explode("\n", $text) as $line) {
-            $line = trim($line);
-            if ($line === '') {
-                $title = null;
-                continue;
-            }
-            if ($line[0] === '#') {
-                if (preg_match('/^#\s*(?:Generated\s+)?(.+?)(?:\s+schedule)?:?\s*$/i', $line, $m)) {
-                    $title = $m[1];
-                }
-                continue;
-            }
-            if (preg_match('/^(@\w+)\s+(.+)$/', $line, $m) || preg_match('/^(\S+\s+\S+\s+\S+\s+\S+\s+\S+)\s+(.+)$/', $line, $m)) {
-                $program = waCronProgram($m[2]);
-                $gone = $program === null ? null : waCronGone($program);
-                $jobs[] = ['source' => $source, 'title' => $title, 'schedule' => $m[1], 'command' => $m[2],
-                           'gone' => $gone, 'program' => $gone === null ? null : $program];
-            }
-            $title = null;
+        foreach (waCronParse($text) as $l) {
+            $program = waCronProgram($l['command']);
+            $gone = $program === null ? null : waCronGone($program);
+            $jobs[] = ['source' => $source, 'title' => $l['title'], 'schedule' => $l['schedule'], 'command' => $l['command'],
+                       'gone' => $gone, 'program' => $gone === null ? null : $program];
         }
     };
     [$exit, $out] = run(['crontab', '-l'], 10);
@@ -1326,6 +1417,36 @@ function waCron(): array
         $parse($file, (string) @file_get_contents($file));
     }
     return $jobs;
+}
+
+/**
+ * A crontab's job lines: its time (five fields or an @word), its command, and the comment line right above it as its
+ * title (Unraid's «# Generated … schedule:»)
+ *
+ * @return list<array{title: ?string, schedule: string, command: string}>
+ */
+function waCronParse(string $text): array
+{
+    $out = [];
+    $title = null;
+    foreach (explode("\n", $text) as $line) {
+        $line = trim($line);
+        if ($line === '') {
+            $title = null;
+            continue;
+        }
+        if ($line[0] === '#') {
+            if (preg_match('/^#\s*(?:Generated\s+)?(.+?)(?:\s+schedule)?:?\s*$/i', $line, $m)) {
+                $title = $m[1];
+            }
+            continue;
+        }
+        if (preg_match('/^(@\w+)\s+(.+)$/', $line, $m) || preg_match('/^(\S+\s+\S+\s+\S+\s+\S+\s+\S+)\s+(.+)$/', $line, $m)) {
+            $out[] = ['title' => $title, 'schedule' => $m[1], 'command' => $m[2]];
+        }
+        $title = null;
+    }
+    return $out;
 }
 
 /**

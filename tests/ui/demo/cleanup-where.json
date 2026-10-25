@@ -2471,8 +2471,10 @@
      "dir": true,
      "bytes": null,
      "count": null,
-     "backup": "none",
-     "note": "folder"
+     "backup": "local",
+     "note": "folder",
+     "volumes": 0,
+     "rebuilt": true
     },
     {
      "id": "appdata",
@@ -2597,7 +2599,9 @@
       "dynamix/unraid-check.cron",
       "unraid-secretary-office/agent-watch.cron",
       "unraid-secretary-office/unraid-secretary-office.cron"
-     ]
+     ],
+     "unit": "files",
+     "left_out": 0
     },
     {
      "id": "cron_d",
@@ -2605,9 +2609,14 @@
      "exists": true,
      "dir": true,
      "bytes": null,
-     "count": 2,
-     "backup": "none",
-     "ram": true
+     "count": 6,
+     "backup": "local",
+     "unit": "jobs",
+     "rebuilt": true,
+     "plugins": {
+      "filesviewer": "filesviewer"
+     },
+     "stray": []
     },
     {
      "id": "crontab",
@@ -2615,9 +2624,13 @@
      "exists": true,
      "dir": false,
      "bytes": 1041,
-     "count": null,
-     "backup": "none",
-     "ram": true
+     "count": 4,
+     "backup": null,
+     "unit": "jobs",
+     "defaults": 4,
+     "own": 0,
+     "plugin_lines": 0,
+     "plugins": []
     }
    ]
   },

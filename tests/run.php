@@ -26837,6 +26837,86 @@ function testWhereProtectionTruth(): void
     }
 }
 
+/**
+ * «Where is what», the place «Cron jobs» says what is really there (owner 2026-10-25, «total unnötig oder irreführend»):
+ * /etc/cron.d and root's crontab are built anew at every start — never «not backed up» for what comes back from the
+ * flash; root's crontab with only Unraid's default lines (run-parts) has nothing to back up; only lines added by hand,
+ * or a cron.d file nothing on the flash writes, are lost at a restart. Head and rows count the same thing (job lines;
+ * the flash row says files); the syslog's RAM sentence only on the syslog. Docker's own data: rebuilt from the templates
+ * unless volumes lie in it.
+ */
+function testWhereCronTruth(): void
+{
+    $tmp = hardeningTmp('where-cron');
+    foreach (['plugins/dynamix', 'plugins/office', 'plugins/gone', 'plugins/filesviewer', 'installed', 'cron.d'] as $d) {
+        @mkdir("$tmp/$d", 0700, true);
+    }
+    file_put_contents("$tmp/plugins/dynamix/monitor.cron", "# Generated monitor schedule:\n*/1 * * * * /usr/local/emhttp/plugins/dynamix/scripts/monitor &> /dev/null\n");
+    file_put_contents("$tmp/plugins/dynamix/mover.cron", "40 3 * * * /usr/local/sbin/mover &> /dev/null\n");
+    file_put_contents("$tmp/plugins/office/office.cron", "0 3 * * * /usr/local/emhttp/plugins/office/scripts/job.sh backup\n");
+    file_put_contents("$tmp/plugins/gone/old.cron", "0 4 * * * /usr/local/emhttp/plugins/gone/run.sh\n");
+    file_put_contents("$tmp/installed/office.plg", '<PLUGIN name="office"/>');
+    file_put_contents("$tmp/installed/files.viewer.plg", '<PLUGIN name="files.viewer"/>');
+    file_put_contents("$tmp/installed/vmb.plg", "<PLUGIN><FILE Name=\"/etc/cron.d/vmbackup\"/></PLUGIN>");
+    file_put_contents("$tmp/cron.d/root", "# Generated monitor schedule:\n*/1 * * * * /usr/local/emhttp/plugins/dynamix/scripts/monitor &> /dev/null\n"
+        . "40 3 * * * /usr/local/sbin/mover &> /dev/null\n0 3 * * * /usr/local/emhttp/plugins/office/scripts/job.sh backup\n");
+    file_put_contents("$tmp/cron.d/filesviewer", "*/5 * * * * /usr/local/emhttp/plugins/files.viewer/clean.sh\n");
+    file_put_contents("$tmp/cron.d/vmbackup", "0 2 * * 1 /usr/local/emhttp/plugins/vmb/run.sh\n");
+    file_put_contents("$tmp/cron.d/cron.update", "root\n");
+    $slack = "# Run the hourly, daily, weekly, and monthly cron jobs.\n# Hourly cron jobs:\n47 * * * * /usr/bin/run-parts /etc/cron.hourly 1> /dev/null\n"
+        . "# Run daily cron jobs at 4:40 every day:\n40 4 * * * /usr/bin/run-parts /etc/cron.daily 1> /dev/null\n"
+        . "30 4 * * 0 /usr/bin/run-parts /etc/cron.weekly 1> /dev/null\n20 4 1 * * /usr/bin/run-parts /etc/cron.monthly 1> /dev/null\n";
+    file_put_contents("$tmp/crontab", $slack);
+    $paths = ['plugins' => "$tmp/plugins", 'installed' => "$tmp/installed", 'cron_d' => "$tmp/cron.d", 'crontab' => "$tmp/crontab"];
+    // the flash backed up offsite, everything else as the engine sees it: not backed up
+    $item = fn (string $id, string $path, array $extra = []): array => ['id' => $id, 'path' => $path, 'exists' => file_exists($path), 'count' => null,
+        'backup' => str_starts_with($path, "$tmp/plugins") ? 'offsite' : 'none', 'backup_note' => null] + $extra;
+    $place = function () use ($item, $paths): array {
+        $g = waCronPlace($item, $paths);
+        return [$g, array_column($g['items'], null, 'id')];
+    };
+
+    [$g, $i] = $place();
+    [$files, $cronD, $tab] = [$i['cron_files'], $i['cron_d'], $i['crontab']];
+    same('cron truth: the flash row counts the files update_cron takes (dynamix, installed plugins) — the one of no installed plugin left out',
+        ['files', 3, 1, ['dynamix/monitor.cron', 'dynamix/mover.cron', 'office/office.cron'], 'offsite'],
+        [$files['unit'], $files['count'], $files['left_out'], $files['files'], $files['backup']]);
+    same('cron truth: /etc/cron.d counts its job lines (not its files, not the reload signal), built anew at every start, protected as the flash',
+        ['jobs', 5, true, 'offsite', [], ['filesviewer' => 'files.viewer', 'vmbackup' => 'vmb']],
+        [$cronD['unit'], $cronD['count'], $cronD['rebuilt'], $cronD['backup'], $cronD['stray'], $cronD['plugins']]);
+    same('cron truth: root\'s crontab with only Unraid\'s four default lines — nothing to back up, no label', ['jobs', 4, 4, 0, 0, null],
+        [$tab['unit'], $tab['count'], $tab['defaults'], $tab['own'], $tab['plugin_lines'], $tab['backup']]);
+    same('cron truth: the head counts what crond reads — the same job lines as the rows', [9, 9], [$g['jobs'], $cronD['count'] + $tab['count']]);
+
+    file_put_contents("$tmp/crontab", $slack . "0 5 * * * /root/my-sync.sh\n15 1 * * * php /usr/local/emhttp/plugins/user.scripts/startCustom.php /x\n");
+    file_put_contents("$tmp/cron.d/mine", "0 6 * * * /root/other.sh\n");
+    [$g, $i] = $place();
+    same('cron truth: a line added by hand is lost at a restart — then «not backed up»; a plugin\'s line is the plugin\'s',
+        [6, 4, 1, 1, ['user.scripts'], 'none'], [$i['crontab']['count'], $i['crontab']['defaults'], $i['crontab']['own'], $i['crontab']['plugin_lines'],
+            $i['crontab']['plugins'], $i['crontab']['backup']]);
+    same('cron truth: a cron.d file nothing on the flash writes — that one, and only then, «not backed up»', [['mine'], 'none', 12],
+        [$i['cron_d']['stray'], $i['cron_d']['backup'], $g['jobs']]);
+
+    // Docker's own data comes back by pulling the images the templates name — unless volumes lie in it
+    $tpl = ['backup' => 'local', 'backup_note' => ['set' => 'offsite', 'why' => ['kopia_never']]];
+    $img = ['id' => 'docker_image', 'backup' => 'none', 'backup_note' => null, 'note' => 'folder'];
+    same('docker truth: no volumes — the templates\' protection; volumes or Docker not asked — its share\'s',
+        [['local', true, 0], ['none', false, 2], ['none', false, null]],
+        array_map(fn ($v) => [($r = waDockerImage($img, $v, $tpl))['backup'], !empty($r['rebuilt']), $r['volumes']], [0, 2, null]));
+
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/desk.js');
+    check('cron truth: the syslog\'s RAM sentence only on the syslog', str_contains($js, "it.ram && it.id === 'syslog' ? T('where.loc.ram')"));
+    check('cron truth: docker.img\'s note never repeats its label', !str_contains($js, "it.note ? T('where.loc.docker_' + it.note)"));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $lang = langFile(OFFICE_WEB . "/desks/cleanup/lang/$l.json");
+        $twice = array_filter(array_keys($lang), fn ($k) => str_starts_with($k, 'where.loc.') && is_string($lang[$k]) && $k !== 'where.loc.ram'
+            && is_string($lang['where.loc.ram'] ?? null) && str_contains($lang[$k], explode(' — ', $lang['where.loc.ram'])[1] ?? "\0"));
+        check("cron truth: the cron rows' words in $l (no «gone after a restart» twice, no syslog)", isset($lang['where.loc.crontab_defaults'], $lang['where.loc.cron_d_built'])
+            && !isset($lang['where.loc.crontab_note']) && !isset($lang['where.loc.cron_d_note']) && !$twice);
+    }
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 /** A size not measured yet is never summed as «0 B» on Ms. Dustdevil's bubble, facts, tiles and dialogs (the truth review O7) */
 function testCleanupSizesUnknown(): void
 {
@@ -26870,7 +26950,7 @@ function testWhereMoverAdvice(): void
     $mv = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php');
     check('where T17: … because her check wants Unraid\'s schedule off', str_contains($mv, "'unraid_schedule'"));
     check('where T16: a place\'s label counts only what is there (nothing there is never «not backed up»)',
-        str_contains($js, "const counted = items.filter((i) => !i.ram && i.id !== 'docker_image' && i.backup && i.exists !== false);"));
+        str_contains($js, "const counted = items.filter((i) => !i.ram && (i.id !== 'docker_image' || i.volumes > 0) && i.backup && i.exists !== false);"));
 }
 
 /**
@@ -54955,7 +55035,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],
