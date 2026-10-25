@@ -20,6 +20,7 @@ let fresh = new Set();             // highlighted for a moment
 let grouping = Office.store('snapshot.grouping') || 'dataset';
 let folded = Office.storeJson('snapshot.folded') || {};
 let busy = false;
+let reading = false;               // a tour reading the sleeping ones too is on its way: the disk card's button waves
 let estimateNo = 0;
 let estimateTimer = null;
 let groupRefs = [];
@@ -640,7 +641,9 @@ function diskCard(g) {
   const last = Math.max(0, ...facts.map((f) => f.read || 0));
   foot.append(el('span', '', `${T('count', { n: sp.n })} · ${last ? Office.t('common.scanned_ago', { when: fmt.relative(last) }) : T('never_read')}`));
   if (asleep.length) {
-    const w = el('button', 'btn plain small', T('wake_scan'));
+    // the wave before its label while such a tour runs (drawn anew meanwhile), as the head's «Tour» button does
+    const w = el('button', 'btn plain small' + (reading ? ' running' : ''));
+    w.append(el('span', 'spin'), T('wake_scan'));
     w.type = 'button';
     w.disabled = !Office.agent.running || busy;
     w.title = T('wake_scan_title', { disks: asleep.map((x) => x.name).join(', ') });
@@ -1268,10 +1271,12 @@ function failed(j) { Office.toast(Office.errorText(j.error, ID), true); }
 async function scan(wake) {
   if (busy) return;
   setBusy(true, view && view.scanBtn);
+  reading = !!wake;
   if (view) drawTiles();
   const sleeping = sleepingParts();
   if (wake && sleeping.length) Office.toast(T('waking', { names: sleeping.join(', ') }));
   const j = await Office.api.post(`${ID}.scan`, { wake: !!wake });
+  reading = false;
   setBusy(false, view && view.scanBtn);
   if (view) { view.wake.checked = false; view.wakeSync(); }
   if (!j.ok) { if (view) drawTiles(); failed(j); return; }
