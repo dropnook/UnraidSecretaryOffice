@@ -2,14 +2,17 @@
 # tools/scenarios/states-vm.sh — the test VMs and the B states (VM-*) of zustaende.md (H4, resilience wave 1b).
 # Sourced by lib.sh; uses states-common.sh. Tower only (the VM service; nested KVM). Tiny VMs, at most two running.
 #
-#   vm_make plain|agent|xfs|block|hostdev   uso-vm-<kind> defined (shut off) when missing, the way Unraid's VM manager
+#   vm_make plain|agent|xfs|block|hostdev|shared   uso-vm-<kind> defined (shut off) when missing, the way Unraid's VM manager
 #                       lays it out: folder domains/uso-vm-<kind>/ (a dataset of its own on ZFS), vdisk1.img qcow2, Unraid's
 #                       <vmtemplate> metadata. plain: an empty 1 GiB disk, no OS (boots into «no bootable device» and stays
 #                       running), no guest agent channel. agent: Alpine with qemu-guest-agent (vm-alpine.sh's cached disk),
 #                       the channel org.qemu.guest_agent.0, NAT network. xfs: its disk on an array share without snapshots
 #                       (uso-vmxfs on disk1, xfs on Tower). block: its disk a loop device (type=block). hostdev: a PCI
-#                       device passed through (an address no device has — defined, never started).
-#   vm_remove <kind>    undefined, its folder (dataset) and loop device gone — xfs|block|hostdev only (plain/agent are base)
+#                       device passed through (an address no device has — defined, never started). shared: like plain, its
+#                       folder a plain folder in the domains share's dataset (a VM copied in by hand, or made before the
+#                       share was on ZFS — the mixed base profile's «VM in a shared dataset»).
+#   vm_remove <kind>    undefined, its folder (dataset) and loop device gone — xfs|block|hostdev|shared only (plain/agent
+#                       are base)
 #   vm_start|vm_shutdown|vm_destroy|vm_suspend|vm_resume <vm>    libvirt's own, waited for (shutdown: through the guest
 #                       agent when it answers, else ACPI, destroy after 60 s)
 #   vm_undefine <id> <vm> / vm_define_back <id> <vm>     the XML (and autostart) kept in the stash, the folder stays
@@ -133,7 +136,7 @@ vm_make() {
     _st_vm_up || { say "needs vm: the VM service doesn't answer"; return 2; }
     if _st_vm_there "$vm"; then say "vm_make: $vm is there"; return 0; fi
     case $kind in
-        plain|agent|block|hostdev)
+        plain|agent|block|hostdev|shared)
             root=$(_st_vm_root) || { say "vm_make: no domains share"; return 1; }
             dir=$root/$vm ;;
         xfs)
@@ -142,9 +145,13 @@ vm_make() {
             [[ $(findmnt -no FSTYPE /mnt/disk1) == xfs ]] || { say "needs an xfs disk1 (Tower's): not on this server"; return 2; }
             _st_root disk1 "$ST_VM_XFS_SHARE" || return 1
             dir=/mnt/disk1/$ST_VM_XFS_SHARE/$vm ;;
-        *) say "vm_make: plain|agent|xfs|block|hostdev, not $kind"; return 1 ;;
+        *) say "vm_make: plain|agent|xfs|block|hostdev|shared, not $kind"; return 1 ;;
     esac
-    _st_vm_folder "$dir" || { say "vm_make: no folder $dir"; return 1; }
+    if [[ $kind == shared ]]; then
+        { mkdir -p "$dir" && chown nobody:users "$dir"; } || { say "vm_make: no folder $dir"; return 1; }
+    else
+        _st_vm_folder "$dir" || { say "vm_make: no folder $dir"; return 1; }
+    fi
     disk=/mnt/user/${dir#/mnt/*/}/vdisk1.img          # the path Unraid writes into the XML
     [[ $kind == xfs ]] && disk=$dir/vdisk1.img         # … except where the share must not move it: the xfs disk itself
     case $kind in
@@ -177,7 +184,7 @@ vm_make() {
 vm_remove() {
     local kind=$1 vm dir loop
     vm=$(_st_vm_name "$kind")
-    case $kind in xfs|block|hostdev) ;; *) say "vm_remove: only xfs|block|hostdev (plain/agent are the base)"; return 1 ;; esac
+    case $kind in xfs|block|hostdev|shared) ;; *) say "vm_remove: only xfs|block|hostdev|shared (plain/agent are the base)"; return 1 ;; esac
     if _st_vm_there "$vm"; then
         [[ $(_st_vm_state "$vm") == "shut off" ]] || virsh destroy "$vm" >/dev/null 2>&1
         virsh undefine "$vm" --nvram >/dev/null 2>&1 || virsh undefine "$vm" >/dev/null || return 1

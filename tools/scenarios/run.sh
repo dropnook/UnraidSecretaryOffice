@@ -3,8 +3,11 @@
 # one by one there (tools/scenarios/run-local.sh), the Mac-side checks completed, the reports collected.
 #
 #   bash tools/scenarios/run.sh <tower|test3|test4> [--all | --desk backup,… | --only name[:arg],…] [--no-sync] [--no-reset]
-#                               [--keep] [--no-nightly] [--powercut] [--dev-sync] [--timeout s]
+#                               [--keep] [--no-nightly] [--powercut] [--dev-sync] [--timeout s] [--profile <p>]
 #   (--powercut: the `# needs-powercut:` scenarios too — sysrq b; only on a VM booting from a vdisk, or the owner nearby)
+#   (--profile <p>: every scenario on that base profile — base.sh --profile, Tower's «mixed»: base/tower/profile-mixed.env;
+#   without it a scenario's `# base-profile: <p>` line picks it, else the default: the base is reset whenever the next
+#   scenario's profile is not the one the server is on)
 #
 #   1. rsync -a --delete --exclude .git ./ → <vm>:/tmp/uso-scenarios/tree[-<worktree>]/ (unless --no-sync), its git describe beside it;
 #      --dev-sync: then plugin/dev-sync.sh there - the code under test into the plugin (off by default: wave 1 tests the
@@ -17,7 +20,8 @@
 #      the VM up), then wait for ssh, the array Started and a fresh heartbeat; the tree and the reports back; post.
 #   4. The reports to ~/Claude/UnraidSecretaryOffice-briefs/scenarios/<date>/<host>[-<worktree>]/ (<name>.md, .result, .pending, .out,
 #      run.info, base-*.log); Mac-side checks of <name>.pending (plan_changes: tools/scenarios/plan-changes.mjs on the
-#      copied plan, page_text / page_clean / page_value: page.mjs on the copied state files — with the page of the release
+#      copied plan, page_text / page_clean / page_value: page.mjs on the copied state files, page_truth (INV-TRUTH):
+#      truth.mjs on the copied look and its truth.json — with the page of the release
 #      the scenario installed (IN-DOWNGRADE <tag>; USO_PAGE_TREE=<tag> for all) — done here right after each scenario
 #      (its state files are on the VM then: a later reboot cell empties /tmp/uso-keep) - a failing one turns the
 #      scenario red, and with all of them done a scenario whose other checks were green is green;
@@ -38,7 +42,7 @@ TREE=$VMDIR/tree${tag:+-$tag}
 
 host=${1:-}
 shift || true
-sel='--all' sync=1 reset=1 keep=0 nightly=1 devsync=0 tmo=3600 powercut=0
+sel='--all' sync=1 reset=1 keep=0 nightly=1 devsync=0 tmo=3600 powercut=0 profile=''
 while (($#)); do
     case $1 in
         --all) sel='--all'; shift ;;
@@ -50,7 +54,8 @@ while (($#)); do
         --powercut) powercut=1; shift ;;
         --dev-sync) devsync=1; shift ;;
         --timeout) tmo=${2:-3600}; shift 2 ;;
-        -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
+        --profile) profile=${2:-}; shift 2 ;;
+        -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
         *) echo "run: unknown argument $1" >&2; exit 2 ;;
     esac
 done
@@ -58,7 +63,7 @@ case $host in
     tower) alias=uso-test ip=192.168.7.111 ;;
     test3) alias=uso-test3 ip=192.168.7.197 ;;
     test4) alias=uso-test4 ip=192.168.7.193 ;;
-    -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
     *) echo "usage: run.sh <tower|test3|test4> [--all | --desk … | --only …] [--no-sync] [--no-reset] [--keep] [--no-nightly] [--powercut] [--dev-sync]" >&2; exit 2 ;;
 esac
 
@@ -118,9 +123,19 @@ names=$(vm "bash $TREE/tools/scenarios/run-local.sh --list $sel $( ((nightly)) |
 [[ -n $names ]] || { say "no scenario to run"; exit 2; }
 say "$(echo "$names" | wc -l | tr -d ' ') scenario(s): $(echo $names)"
 
-base() { vm "bash $TREE/tools/scenarios/run-local.sh --base $opts"; }
+# the base profile a scenario wants (--profile for all, else its `# base-profile:` line, else default) and the server's now
+sc_profile() {
+    local f=$here/$1.sh p
+    [[ -n $profile ]] && { echo "$profile"; return; }
+    [[ -f $f ]] || f=$here/$1-pre.sh
+    p=$(sed -n '1,30s/^# base-profile: *\([a-z][a-z0-9-]*\).*/\1/p' "$f" 2>/dev/null | head -1)
+    echo "${p:-default}"
+}
+server_profile() { local p; p=$(vm "cat /boot/config/plugins/unraid-secretary-office/scenarios-profile 2>/dev/null"); echo "${p:-default}"; }
+base() { vm "bash $TREE/tools/scenarios/run-local.sh --base $opts --profile ${1:-${profile:-default}}"; }
+want=$(sc_profile "$(head -1 <<<"$names" | sed 's/:.*//')")
 if ((reset)); then
-    base || { say "the base reset failed - no scenario runs on an unknown state"; pull; bash "$here/run-local.sh" --summary "$local_dir"; exit 1; }
+    base "$want" || { say "the base reset failed - no scenario runs on an unknown state"; pull; bash "$here/run-local.sh" --summary "$local_dir"; exit 1; }
 fi
 
 # a reboot half: wait for the VM to go away (at most 3 min), come back (15 min), the array Started and a fresh heartbeat
@@ -230,6 +245,15 @@ mac_check() {
                 ((code == 0)) && ok=1
                 printf '%s\n' "$got" > "$local_dir/$n.value-$i.txt"
                 detail="page $a ($c): $(grep -E '(ok  |FAIL) value|did not draw|error|no tag' <<<"$got" | tail -2 | sed 's/^page [^ ]* //' | tr '\n' ';') ($n.value-$i.txt)" ;;
+            page_truth)
+                # INV-TRUTH: the look's pages against the server's truth read at the same look (truth.mjs)
+                fetch "$a" "$work/$i/look"
+                got=$(node "$here/truth.mjs" --look "$work/$i/look" --lang "${b:-en}" ${ltree:+--tree "$ltree"} 2>&1)
+                code=$?
+                ((code == 0)) && ok=1
+                printf '%s\n' "$got" > "$local_dir/$n.truth-$i.txt"
+                if ((ok)); then detail="$(tail -1 <<<"$got") ($n.truth-$i.txt)"
+                else detail="$(grep -E '^FAIL|did not draw|truth:' <<<"$got" | head -6 | tr '\n' ';' | cut -c1-900) ($n.truth-$i.txt)"; fi ;;
             *) detail="unknown check «$kind»" ;;
         esac
         echo "- $inv $kind: $( ((ok)) && echo green || echo '**red**') - $detail" >> "$local_dir/$n.md"
@@ -257,9 +281,14 @@ late() { local f=$here/$1.sh; [[ -f $f ]] || f=$here/$1-pre.sh; sed -n '1,30p' "
 reds=0 base_failed=0 ran=0
 for spec in $names; do
     n=${spec%%:*}
+    want=$(sc_profile "$n")
+    if ((reset && ran)) && [[ $want != "$(server_profile)" ]] && ! late "$n"; then
+        say "$n wants the base profile $want: the base reset first"
+        base "$want" || { say "the base reset ($want) before $n failed - no further scenario runs on an unknown state"; base_failed=1; break; }
+    fi
     if ((reset && ran)) && late "$n"; then
         say "$n runs late: the base reset first"
-        base || { say "the base reset before $n failed - no further scenario runs on an unknown state"; base_failed=1; break; }
+        base "$want" || { say "the base reset before $n failed - no further scenario runs on an unknown state"; base_failed=1; break; }
     fi
     ran=1
     if vm "test -f $TREE/tools/scenarios/$n-pre.sh -a -f $TREE/tools/scenarios/$n-post.sh"; then
@@ -298,7 +327,7 @@ for spec in $names; do
         1) reds=$((reds + 1)) ;;
         255) say "$n: the connection broke"; reds=$((reds + 1)) ;;
         *) reds=$((reds + 1))
-           if ((!keep)) && ! base; then
+           if ((!keep)) && ! base "$want"; then
                say "the base reset after $n failed - no further scenario runs on an unknown state"
                base_failed=1
                break
