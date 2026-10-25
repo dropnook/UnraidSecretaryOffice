@@ -61,16 +61,16 @@ desk('snapshot', [
     },
     'actions' => [
         'refresh'  => fn (array $r) => ['ok' => true, 'state' => snapshotScan(false)],
-        'scan'     => fn (array $r) => snapshotScanRequest(!empty($r['wake'])),
+        'scan'     => fn (array $r) => snapshotScanRequest(boolField($r, 'wake')),
         // a snapshot's id has the shape her scans give it (snapshotCheckId()) — anything else is no id at all: bad_request
         'estimate' => fn (array $r) => ['ok' => true] + snapshotEstimate(snapshotIdList($r, 'ids')),
         'create'   => fn (array $r) => snapshotCreate($r),
         // on a sleeping pool only with `wake` (the page asks for it explicitly) — never woken on her own
-        'delete'   => fn (array $r) => snapshotDelete(snapshotIdList($r, 'ids'), !empty($r['unmount']), !empty($r['wake'])),
-        'rename'   => fn (array $r) => snapshotRename(snapshotIdField($r, 'id'), textField($r, 'name'), !empty($r['wake'])),
-        'hold'     => fn (array $r) => snapshotHold(snapshotIdField($r, 'id'), true, !empty($r['wake'])),
-        'release'  => fn (array $r) => snapshotHold(snapshotIdField($r, 'id'), false, !empty($r['wake'])),
-        'unmount'  => fn (array $r) => snapshotUnmountRequest(snapshotIdField($r, 'id'), !empty($r['wake'])),
+        'delete'   => fn (array $r) => snapshotDelete(snapshotIdList($r, 'ids'), boolField($r, 'unmount'), boolField($r, 'wake')),
+        'rename'   => fn (array $r) => snapshotRename(snapshotIdField($r, 'id'), textField($r, 'name'), boolField($r, 'wake')),
+        'hold'     => fn (array $r) => snapshotHold(snapshotIdField($r, 'id'), true, boolField($r, 'wake')),
+        'release'  => fn (array $r) => snapshotHold(snapshotIdField($r, 'id'), false, boolField($r, 'wake')),
+        'unmount'  => fn (array $r) => snapshotUnmountRequest(snapshotIdField($r, 'id'), boolField($r, 'wake')),
         // the entries a deleted VM left in Unraid's snapshot list (only those with nothing left on disk) — and back (issue #3)
         'vm_unlist' => fn (array $r) => snapshotVmUnlist(snapshotVmField($r, 'vm')),
         'vm_relist' => fn (array $r) => snapshotVmRelist(textField($r, 'id')),
@@ -1614,7 +1614,7 @@ function snapshotCreate(array $r): array
     $targets = idList($r, 'targets');
     $recursive = !empty($r['recursive']);
     $hold = !empty($r['hold']);
-    $wake = !empty($r['wake']);                   // a target on a sleeping pool: listed fresh first (the page and the plans say so)
+    $wake = boolField($r, 'wake');                // a target on a sleeping pool: listed fresh first (the page and the plans say so)
 
     $state = snapshotScan(false, $wake);
     $volumes = [];

@@ -924,7 +924,26 @@ function testSnapshotIds(): void
     same('snapshot ids: one of her shape she doesn\'t know — estimate as before (nothing, no failure)', ['ok', 0],
         [$ask('estimate', ['ids' => ['zfs:cache/appdata@gone', 'vm:Windows 11/Snap 1']]), snapshotEstimate(['zfs:cache/appdata@gone'])['bytes']]);
     $GLOBALS['snapshot'] = $was;
-    same('snapshot ids: a good id goes on to the name\'s check (rename)', 'invalid_name', $ask('rename', ['id' => 'zfs:cache/a@x', 'name' => '../y']));
+    same('snapshot ids: a good id goes on to the name\'s check (rename)', 'invalid_name', $ask('rename', ['id' => 'zfs:cache/a@x', 'name' => '../y', 'wake' => false]));
+
+    // «wake» and «unmount» are read with boolField() (review 1.72.0 L8): the string "false" never wakes a disk — refused
+    // before any scan; a scan that starts anyway fails at once on the stand-ins (nothing reaches the host's zfs)
+    $host = $GLOBALS['snapshotHost'] ?? null;
+    $GLOBALS['snapshotHost'] = ['zfs' => '/bin/false', 'zpool' => '/bin/false', 'docker' => null];
+    same('snapshot request: wake / unmount anything but true or false (or missing) — bad_request before any scan', array_fill(0, 10, 'bad_request'), [
+        $ask('scan', ['wake' => 'false']), $ask('scan', ['wake' => 1]), $ask('scan', []),
+        $ask('delete', ['ids' => ['zfs:cache/a@x'], 'unmount' => false, 'wake' => 'false']), $ask('delete', ['ids' => ['zfs:cache/a@x'], 'unmount' => 'false', 'wake' => false]),
+        $ask('rename', ['id' => 'zfs:cache/a@x', 'name' => 'new', 'wake' => 'false']), $ask('hold', ['id' => 'zfs:cache/a@x', 'wake' => 'false']),
+        $ask('release', ['id' => 'zfs:cache/a@x', 'wake' => 'no']), $ask('unmount', ['id' => 'zfs:cache/a@x', 'wake' => '0']),
+        $ask('create', ['name' => 'n1', 'targets' => ['zfs:cache/a'], 'recursive' => false, 'hold' => false, 'wake' => 'false'])]);
+    same('snapshot request: true and false go on to the scan (here: the stand-in fails)', ['command_failed', 'command_failed', 'command_failed'],
+        [$ask('scan', ['wake' => false]), $ask('scan', ['wake' => true]), $ask('hold', ['id' => 'zfs:cache/a@x', 'wake' => false])]);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/snapshot.php');
+    check('snapshot request: no !empty() for wake / unmount left', !preg_match("/!empty\\(\\\$r\\['(wake|unmount)'\\]\\)/", $src));
+    $GLOBALS['snapshotHost'] = $host;
+    if ($host === null) {
+        unset($GLOBALS['snapshotHost']);
+    }
 }
 
 function testJack(): void
@@ -34575,7 +34594,7 @@ function testSnapshotPartner(): void
         [array_column($r['failures'], 'key'), $r['deleted'], str_contains((string) @file_get_contents("$tmp/zfs-args.txt"), 'destroy')]);
     same('snapshot partner: the estimate leaves it out', 0, snapshotEstimate([$copy['id']])['bytes']);
     try {
-        snapshotCreate(['name' => 'manual-1', 'targets' => ["zfs:tank/$P/a1b2c3d4/share-appdata"]]);
+        snapshotCreate(['name' => 'manual-1', 'targets' => ["zfs:tank/$P/a1b2c3d4/share-appdata"], 'wake' => false]);
         check('snapshot partner: create on a partner\'s copy refused', false);
     } catch (Problem $p) {
         same('snapshot partner: create on a partner\'s copy refused — partner_dataset', ['partner_dataset', "tank/$P/a1b2c3d4/share-appdata"], [$p->key, $p->params['target'] ?? null]);
