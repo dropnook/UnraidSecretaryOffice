@@ -1791,9 +1791,11 @@ function flashSection() {
     box.appendChild(el('p', 'empty', T(mode === 'snapshot' ? 'flash.snapshot_text' : mode === 'off' ? 'flash.off_text' : 'flash.none_text')));
     if (mode === 'snapshot') {
       const c = Office.backupChip(fb.protection, fb.protection_note);
-      if (c) box.appendChild(el('div', 'row-meta', c, ' ', el('span', '', T('flash.where_offsite_own'))));
+      if (c) { const m = el('div', 'row-meta'); m.append(c, ' ', el('span', '', T('flash.where_offsite_own'))); box.appendChild(m); }
     }
     s.appendChild(box);
+    const boot = bootSnapsPart(fb);
+    if (boot) s.appendChild(boot);
     return s;
   }
   const f = state.flash;
@@ -1821,9 +1823,29 @@ function flashSection() {
   r.appendChild(right);
   box.appendChild(r);
   s.appendChild(box);
+  const boot = bootSnapsPart(fb);
+  if (boot) s.appendChild(boot);
   s.appendChild(el('p', 'role', T('flash.single_files')));
   s.appendChild(el('p', 'role', T('flash.new_server')));
   return s;
+}
+
+/**
+ * The boot pool's own snapshots (the restore matrix's gap 12): one more place the flash lives — how many of its dataset,
+ * the newest, its read-only folder to copy single pieces from by hand. Only named (the flash is download only): no
+ * button, the boot pool never rolled back here. Nothing when the flash isn't on ZFS or none are there.
+ */
+function bootSnapsPart(fb) {
+  const b = fb && fb.boot;
+  if (!b || (!b.asleep && !b.count)) return null;
+  const part = el('div', 'rs-flash-boot');
+  if (b.asleep) { part.appendChild(el('p', 'role', T('flash.boot_snaps_asleep', { dataset: b.dataset }))); return part; }
+  const line = el('p', '');
+  // kept with snapshots (the engine's mode): these are the ones his text above means — else one more place besides the archive
+  line.append(T(fb.mode === 'snapshot' ? 'flash.boot_snaps_these' : 'flash.boot_snaps', { n: b.count, dataset: b.dataset, when: date(b.newest && b.newest.time) }), ' ');
+  if (b.newest) line.appendChild(copyCode(`${b.path}/${b.newest.name}`));
+  part.append(line, el('p', 'role', T('flash.boot_snaps_how')));
+  return part;
 }
 
 /** «Download…»: what the archive holds said first (the licence key, the password hashes), then the browser saves it */
@@ -3186,6 +3208,6 @@ Office.placesFrom(ID, (s, part) => {
 // tests/run.php runs the databases tile's logic and the preview's sizes under node
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.restore = { setState: (s) => { state = s; }, greetOk, shareFromKopia, kopiaFetched, dbGroups, dbName, dbRequest, earlierOf, tileLine, sizesDone,
-    noPackagesText, noPackages, setJob: (j) => { job = j; }, runCardData, runCard, shortStep, liveJob, runCardShort, bubbleText, snapsChip };
+    noPackagesText, noPackages, bootSnapsPart, setJob: (j) => { job = j; }, runCardData, runCard, shortStep, liveJob, runCardShort, bubbleText, snapsChip };
 }
 })();

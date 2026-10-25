@@ -1008,7 +1008,53 @@ function rsPackages(string $base): array
 function rsFlashBackup(array $engine): array
 {
     $info = backupProtectionInfo('/boot/config');
-    return ['mode' => $engine['flash'], 'protection' => $info['level'], 'protection_note' => backupProtectionNote($info)];
+    return ['mode' => $engine['flash'], 'protection' => $info['level'], 'protection_note' => backupProtectionNote($info),
+            'boot' => rsBootSnaps()];
+}
+
+/**
+ * The boot pool's own snapshots (a flash on ZFS, Unraid 7.3's internal boot — the engine's in snapshot mode, Ms.
+ * Snapshotini's plans, the user's): the dataset mounted at /boot, how many snapshots of it alone, the newest — named on
+ * «The flash» as one more place it lives, read-only under /boot/.zfs/snapshot/<name> (the restore matrix's gap 12). Only
+ * named: single files are copied by hand, the boot pool never rolled back here. A pool asleep is never asked. Null: the
+ * flash isn't on ZFS (a stick).
+ *
+ * @return array{dataset: string, count: ?int, newest: ?array{name: string, time: int}, oldest: ?int, path: string, asleep: bool}|null
+ */
+function rsBootSnaps(?array $asleep = null): ?array
+{
+    $ds = $GLOBALS['rs']['boot_ds'] ?? null;             // tests: the dataset (false: none)
+    if ($ds === null) {
+        foreach (mountTable() as $m) {
+            $ds = $m['mount'] === '/boot' && $m['fs'] === 'zfs' ? $m['source'] : $ds;
+        }
+    }
+    if (!is_string($ds) || !preg_match('/^[A-Za-z][A-Za-z0-9_.:-]{0,63}(?:\/[A-Za-z0-9_.:-]{1,200}){0,8}$/D', $ds)) {
+        return null;
+    }
+    $out = ['dataset' => $ds, 'count' => null, 'newest' => null, 'oldest' => null, 'path' => '/boot/.zfs/snapshot', 'asleep' => false];
+    if (baseAsleep(explode('/', $ds)[0], $asleep ?? sleepingDisks())) {
+        $out['asleep'] = true;
+        return $out;
+    }
+    $zfs = $GLOBALS['rs']['zfs_bin'] ?? (bin('zfs') ? 'zfs' : null);
+    if ($zfs === null) {
+        return null;
+    }
+    [$exit, $text] = run([$zfs, 'list', '-Hp', '-t', 'snapshot', '-o', 'name,creation', '-s', 'creation', '-d', '1', $ds], 30);
+    if ($exit !== 0) {
+        return $out;                                    // not looked at: no count, never «none»
+    }
+    $snaps = [];
+    foreach (rows($text) as $f) {
+        if (count($f) >= 2 && str_starts_with($f[0], "$ds@") && ctype_digit($f[1])) {
+            $snaps[] = ['name' => substr($f[0], strlen($ds) + 1), 'time' => (int) $f[1]];
+        }
+    }
+    $out['count'] = count($snaps);
+    $out['newest'] = $snaps ? end($snaps) : null;
+    $out['oldest'] = $snaps ? $snaps[0]['time'] : null;
+    return $out;
 }
 
 function rsRunTime(string $run): ?int

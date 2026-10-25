@@ -9,3 +9,15 @@ from the stub state one folder up; all names invented.
     bash tools/ui-clicks.sh --states tests/ui/states/restore-gaps/ticket --only restore
 
 testRestoreGapsPage (tests/restoregaps.js) holds the same rules without a browser.
+
+- `flash-boot/restore.json` — the flash kept as an archive while it lies on a ZFS boot pool with snapshots of its own
+  (gap 12): «The flash» names them after the archive — how many of flash/boot, the newest, its read-only path — and says
+  single pieces are copied by hand, the boot pool never rolled back; no button.
+- `flash-boot-snapshot/restore.json` — the flash kept with the boot pool's snapshots (the engine's snapshot mode): the same
+  lines, «those are …» instead of «… too».
+
+    node tools/scenarios/page.mjs --states tests/ui/states/restore-gaps/flash-boot restore/flash --lang en,de --clean \
+      --want restore.flash.boot_snaps --want restore.flash.boot_snaps_how --want restore.flash.download
+    node tools/scenarios/page.mjs --states tests/ui/states/restore-gaps/flash-boot-snapshot restore/flash --lang en,de --clean \
+      --want restore.flash.boot_snaps_these --not restore.flash.download
+    bash tools/ui-clicks.sh --states tests/ui/states/restore-gaps/flash-boot --only restore

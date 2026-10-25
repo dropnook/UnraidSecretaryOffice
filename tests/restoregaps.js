@@ -31,4 +31,15 @@ out.t10.plain = [r.noPackagesText('apps'), r.noPackagesText('vms'), r.bubbleText
 r.setState({ ...base, place: { base: '/mnt/user/UnraidSecretaryOffice/backup', found: true }, partners: [ticket] });
 out.t10.found = [r.noPackagesText('apps'), r.noPackagesText('vms')];
 
+// ---- #12: the boot pool's own snapshots named on «The flash» — read-only, single pieces by hand, never rolled back
+const boot = { dataset: 'flash/boot', count: 3, newest: { name: 'uso-backup-20261025-0300', time: 9 }, oldest: 1, path: '/boot/.zfs/snapshot', asleep: false };
+out.t12 = {
+  on: texts(r.bootSnapsPart({ mode: 'tar', boot })),
+  asleep: texts(r.bootSnapsPart({ mode: 'snapshot', boot: { ...boot, count: null, newest: null, asleep: true } })),
+  these: texts(r.bootSnapsPart({ mode: 'snapshot', boot }))[0],
+  none: r.bootSnapsPart({ mode: 'tar', boot: { ...boot, count: 0, newest: null } }),
+  stick: r.bootSnapsPart({ mode: 'tar', boot: null }),
+  old: r.bootSnapsPart({ mode: 'tar' }),
+};
+
 console.log(JSON.stringify(out));

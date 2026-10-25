@@ -1357,5 +1357,9 @@
   "vms_from_ticket": "No VM packages here yet — they come with the backup place from {name}: pull it first in «Onto a new server».",
   "ticket_link": "To the backup place at {name} →",
   "bubble.no_packages_ticket": "No packages here yet: they come with the backup place from {name} — «Onto a new server» pulls it first.",
-  "tile.partner_line_ticket": {"one": "1 unit of {of}", "other": "{n} units of {of}"}
+  "tile.partner_line_ticket": {"one": "1 unit of {of}", "other": "{n} units of {of}"},
+  "flash.boot_snaps": {"one": "The boot pool keeps a snapshot of the flash too: 1 of {dataset}, from {when}. It is /boot as it was then, read-only:", "other": "The boot pool keeps snapshots of the flash too: {n} of {dataset}, the newest from {when}. Each is /boot as it was then, read-only — the newest:"},
+  "flash.boot_snaps_how": "Copy single pieces from there by hand (a plugin's settings, the go file). I never roll the boot pool back and never bring the whole flash back from it: a whole flash comes back only Unraid's official way.",
+  "flash.boot_snaps_asleep": "The boot pool keeps the flash in {dataset} — its snapshots not looked at now: the pool is asleep.",
+  "flash.boot_snaps_these": {"one": "That is 1 snapshot of {dataset}, from {when}. It is /boot as it was then, read-only:", "other": "Those are {n} snapshots of {dataset}, the newest from {when}. Each is /boot as it was then, read-only — the newest:"}
 }

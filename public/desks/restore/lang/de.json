@@ -1357,5 +1357,9 @@
   "vms_from_ticket": "Noch keine VM-Pakete hier — sie kommen mit der Backup-Ablage vom Partner {name}: zuerst sie in «Auf einen neuen Server» zurückholen.",
   "ticket_link": "Zur Backup-Ablage beim Partner {name} →",
   "bubble.no_packages_ticket": "Noch keine Pakete hier: Sie kommen mit der Backup-Ablage vom Partner {name} — «Auf einen neuen Server» holt sie zuerst.",
-  "tile.partner_line_ticket": {"one": "1 Einheit von {of}", "other": "{n} Einheiten von {of}"}
+  "tile.partner_line_ticket": {"one": "1 Einheit von {of}", "other": "{n} Einheiten von {of}"},
+  "flash.boot_snaps": {"one": "Der Boot-Pool hat auch einen Snapshot des Flash: 1 von {dataset}, vom {when}. Er ist /boot, wie es damals war, nur lesbar:", "other": "Der Boot-Pool hat auch Snapshots des Flash: {n} von {dataset}, der neueste vom {when}. Jeder ist /boot, wie es damals war, nur lesbar — der neueste:"},
+  "flash.boot_snaps_how": "Einzelne Stücke von dort von Hand kopieren (die Einstellungen eines Plugins, die go-Datei). Den Boot-Pool setze ich nie zurück und hole nie den ganzen Flash daraus: Ein ganzer Flash kommt nur auf Unraids offiziellem Weg zurück.",
+  "flash.boot_snaps_asleep": "Der Boot-Pool hat den Flash in {dataset} — seine Snapshots jetzt nicht angeschaut: der Pool schläft.",
+  "flash.boot_snaps_these": {"one": "Das ist 1 Snapshot von {dataset}, vom {when}. Er ist /boot, wie es damals war, nur lesbar:", "other": "Das sind {n} Snapshots von {dataset}, der neueste vom {when}. Jeder ist /boot, wie es damals war, nur lesbar — der neueste:"}
 }

@@ -1357,5 +1357,9 @@
   "vms_from_ticket": "Aún no hay paquetes de VM aquí — llegan con el lugar de las copias en {name}: tráelo primero en «A un servidor nuevo».",
   "ticket_link": "Al lugar de las copias en {name} →",
   "bubble.no_packages_ticket": "Aún no hay paquetes aquí: llegan con el lugar de las copias en {name} — «A un servidor nuevo» lo trae primero.",
-  "tile.partner_line_ticket": {"one": "1 unidad de {of}", "other": "{n} unidades de {of}"}
+  "tile.partner_line_ticket": {"one": "1 unidad de {of}", "other": "{n} unidades de {of}"},
+  "flash.boot_snaps": {"one": "El pool de arranque guarda también una instantánea del flash: 1 de {dataset}, del {when}. Es /boot como estaba entonces, solo lectura:", "other": "El pool de arranque guarda también instantáneas del flash: {n} de {dataset}, la más reciente del {when}. Cada una es /boot como estaba entonces, solo lectura — la más reciente:"},
+  "flash.boot_snaps_how": "Copia a mano piezas sueltas desde ahí (los ajustes de un plugin, el archivo go). Nunca devuelvo el pool de arranque a un estado anterior ni restauro de él el flash entero: un flash entero vuelve solo por la vía oficial de Unraid.",
+  "flash.boot_snaps_asleep": "El pool de arranque guarda el flash en {dataset} — sus instantáneas no se miran ahora: el pool duerme.",
+  "flash.boot_snaps_these": {"one": "Es 1 instantánea de {dataset}, del {when}. Es /boot como estaba entonces, solo lectura:", "other": "Son {n} instantáneas de {dataset}, la más reciente del {when}. Cada una es /boot como estaba entonces, solo lectura — la más reciente:"}
 }

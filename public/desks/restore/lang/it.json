@@ -1357,5 +1357,9 @@
   "vms_from_ticket": "Ancora nessun pacchetto VM qui — arrivano con il deposito dei backup presso {name}: recuperalo prima in «Su un nuovo server».",
   "ticket_link": "Al deposito dei backup presso {name} →",
   "bubble.no_packages_ticket": "Ancora nessun pacchetto qui: arrivano con il deposito dei backup presso {name} — «Su un nuovo server» lo recupera per primo.",
-  "tile.partner_line_ticket": {"one": "1 unità di {of}", "other": "{n} unità di {of}"}
+  "tile.partner_line_ticket": {"one": "1 unità di {of}", "other": "{n} unità di {of}"},
+  "flash.boot_snaps": {"one": "Il pool di avvio tiene anche uno snapshot dell'unità flash: 1 di {dataset}, del {when}. È /boot com'era allora, in sola lettura:", "other": "Il pool di avvio tiene anche snapshot dell'unità flash: {n} di {dataset}, il più recente del {when}. Ognuno è /boot com'era allora, in sola lettura — il più recente:"},
+  "flash.boot_snaps_how": "Copia a mano singoli pezzi da lì (le impostazioni di un plugin, il file go). Non riporto mai indietro il pool di avvio e non ne recupero mai l'intera unità flash: un'unità flash intera torna solo per la via ufficiale di Unraid.",
+  "flash.boot_snaps_asleep": "Il pool di avvio tiene l'unità flash in {dataset} — i suoi snapshot ora non controllati: il pool dorme.",
+  "flash.boot_snaps_these": {"one": "È 1 snapshot di {dataset}, del {when}. È /boot com'era allora, in sola lettura:", "other": "Sono {n} snapshot di {dataset}, il più recente del {when}. Ognuno è /boot com'era allora, in sola lettura — il più recente:"}
 }
