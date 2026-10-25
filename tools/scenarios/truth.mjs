@@ -24,7 +24,7 @@
 //                 the last backup run's snapshot — red
 //   TR-ROW        every share of the server (shares.ini) is a row on Mr. Backupsy's overview once a backup ran
 //   TR-KOPIA-TILE the repository held or stuck → the offsite tile alerts, the bubble never «saved offsite»
-//   TR-DOCKER     Docker enabled but not answering → no app «gone» on Mr. Restori's page; it says «Docker isn't running»
+//   TR-DOCKER     Docker not answering (stopped, or switched off) → no app «gone» on Mr. Restori's page; it says «Docker isn't running»
 //   TR-UNDER      (a note, never red) a row «not backed up» whose datasets hold the engine's snapshots
 //   TR-CHECKS     the Team Lead: «In place» counts exactly the checks with ok true; the musts counted exactly those
 //                 required with ok false (ok null: couldn't check — neither)
@@ -316,11 +316,11 @@ for (const lang of opt.langs) {
       report.pages.push({ route, lang, drawn: p.drawn, rows: p.rows.length, errors: p.errors });
       if (!p.drawn) { fail('TR-PAGE', route, 'did not draw', p.errors.join('; ')); continue; }
       for (const r of p.rows) if (r.place.startsWith(route.endsWith('apps') ? 'app:' : 'vm:')) judgeRow(route, r, lang);
-      if (route === 'restore/apps' && rule('TR-DOCKER') && truth.docker.enabled && !truth.docker.answers) {
+      if (route === 'restore/apps' && rule('TR-DOCKER') && !truth.docker.answers) {
         checked++;
         const gone = p.rows.filter((r) => r.place.startsWith('app:') && r.chips.some((c) => matchKey(c.text, 'restore.chip.gone', lang)));
         if (gone.length) fail('TR-DOCKER', route, `«gone» on ${gone.map((r) => r.place).join(', ')}`, 'Docker is not answering — nothing is known gone');
-        if (!matchKey(p.text, 'office.common.docker_off', lang, false)) fail('TR-DOCKER', route, 'never says «Docker isn\'t running»', 'Docker is enabled and not answering');
+        if (!matchKey(p.text, 'office.common.docker_off', lang, false)) fail('TR-DOCKER', route, 'never says «Docker isn\'t running»', `Docker is not answering (${truth.docker.enabled ? 'enabled' : 'switched off in Unraid'})`);
       }
     }
   }
