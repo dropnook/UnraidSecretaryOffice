@@ -67,4 +67,24 @@ const kb = (k) => { r.setState({ ...st9, kopia: { ...st9.kopia, ...k } }); retur
 out.t9.block = kb({});
 out.t9.blockNoMap = kb({ restore: null });
 
+// ---- #8: «From a partner» in an app's and a VM's row — the unit that holds it pulled whole (said first), then its folders
+const snapsOf = (n) => [{ name: 'uso-backup-20261024-0300', creation: 20, referenced: 244850688 }, { name: 'uso-backup-20261023-0300', creation: 10, referenced: 1 }].slice(0, n);
+const pnas = { id: 'p1', name: 'PartnerNAS', kind: 'pair', units: [{ unit: 'place', snaps: snapsOf(2) }, { unit: 'share:appdata', snaps: snapsOf(2) }, { unit: 'vm:Win', snaps: snapsOf(1) }] };
+const nc = { ...st9.apps[0], at_partner: [{ id: 'p1', name: 'PartnerNAS', unit: 'share:appdata', newest: 20, n: 2 }] };
+const win = { ...st9.vms[0], at_partner: [{ id: 'p1', name: 'PartnerNAS', unit: 'vm:Win', newest: 20, n: 1 }] };
+const st8 = { ...st9, partners: [pnas], apps: [nc], vms: [win] };
+r.setState(st8);
+out.t8 = { fresh: texts(r.partnerPart(nc, 'app')), lead: texts(r.fetchLead(nc, nc.at_partner[0])), leadOwn: texts(r.fetchLead(win, win.at_partner[0])),
+  chip: r.atPartnerChip(nc.at_partner[0], nc).title, packageOnly: texts(r.partnerPart({ ...nc, at_partner: [] }, 'app')) };
+r.setState({ ...st8, partners: [] });
+out.t8.none = r.partnerPart({ ...nc, at_partner: [] }, 'app');
+r.setState(st8);
+const pulled = jr('partner', { pair: 'p1', unit: 'share:appdata', path: '/mnt/user/appdata', dataset: 'cache/appdata.restored-20261025-120000', snap: 'uso-backup-20261024-0300' }, { finished: 30 });
+const placePulled = jr('partner', { pair: 'p1', unit: 'place', path: null, snap: 'uso-backup-20261024-0300' }, { id: 'J2', finished: 31 });
+r.setState({ ...st8, restores: [placePulled, pulled] });
+out.t8.pulled = texts(r.partnerPart(nc, 'app'));
+out.t8.owner = r.ownerPlaces(pulled, 'app', 'Nextcloud').map((u) => [u.path, u.snap]);
+r.setState({ ...st8, restores: [{ ...pulled, putback: { id: 'x', result: 'ok' } }] });
+out.t8.dropped = texts(r.partnerPart(nc, 'app')).filter((t) => t.startsWith('pa.'));
+
 console.log(JSON.stringify(out));

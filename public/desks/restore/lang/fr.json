@@ -959,7 +959,6 @@
   "tile.partner_as_of": "état du {when}",
   "tile.partner_no_pair": "ne connaît plus ce secrétariat",
   "chip.at_partner": "chez {name}",
-  "chip.at_partner_hint": {"one": "{name} garde {unit} : {n} moment, du {when}. Un clic le montre.", "other": "{name} garde {unit} : {n} moments, le plus récent du {when}. Un clic les montre."},
   "notice.place_partner": "Mes paquets viennent de l'emplacement des sauvegardes rapatrié de {name} ({when}) — en lecture seule sous {path}.",
   "notice.no_place_ticket": "Pas encore d'emplacement des sauvegardes ici — rapatriez d'abord celui du partenaire (« Sur un nouveau serveur ») : je travaille avec ses paquets.",
   "rd.snap_partner": "rapatrié de {name}",
@@ -1365,5 +1364,19 @@
   "j.place_title": "Maintenant à leur place",
   "j.place_text": {"one": "Ce que Kopia a restauré attend dans le dossier de restauration. D'ici, il va à sa place : à côté de ce qui est là, ou échangé (ce qui est là est d'abord mis de côté) :", "other": "Ce que Kopia a restauré attend dans le dossier de restauration. Ces {n} vont d'ici à leur place : à côté de ce qui est là, ou échangés (ce qui est là est d'abord mis de côté) :"},
   "j.place_text_partner": {"one": "Ce qui est revenu du partenaire est à côté, en lecture seule. D'ici, il va à sa place : à côté de ce qui est là, ou échangé (ce qui est là est d'abord mis de côté) :", "other": "Ce qui est revenu du partenaire est à côté, en lecture seule. Ces {n} vont d'ici à leur place : à côté de ce qui est là, ou échangés (ce qui est là est d'abord mis de côté) :"},
-  "j.place_go": "Maintenant à sa place…"
+  "j.place_go": "Maintenant à sa place…",
+  "from_partner": "Depuis un partenaire",
+  "pa.text": "Un secrétariat partenaire en garde des copies. Le partenaire n'envoie que des unités entières : celle où sont ses dossiers arrive à côté, en lecture seule — de là, ses dossiers vont ensuite à leur place.",
+  "pa.text_vm": "Un secrétariat partenaire garde des copies de ses disques. Le partenaire n'envoie que des unités entières : celle où ils se trouvent arrive à côté, en lecture seule — de là, le dossier des disques va ensuite à sa place. Sa configuration (XML, variables UEFI, état TPM) vient avec l'emplacement des sauvegardes : «Sauvegardes précédentes».",
+  "pa.line": {"one": "{name} garde {unit} : {n} moment, du {when}", "other": "{name} garde {unit} : {n} moments, le plus récent du {when}"},
+  "pa.fetch": "Rapatrier de {name}…",
+  "pa.pulled": "ici depuis le {when}",
+  "pa.pulled_hint": "La copie de {name} est à côté, en lecture seule, jusqu'à ce que tu la supprimes («Restaurés» → son entrée → «Supprimer ce qui a été rapatrié…»).",
+  "pa.package": "Son paquet : dans l'emplacement des sauvegardes chez {name}.",
+  "pa.place_fetch": "Rapatrier l'emplacement des sauvegardes…",
+  "pa.package_pulled": "Son paquet : l'emplacement des sauvegardes de {name} est ici — «Sauvegardes précédentes» le propose.",
+  "pa.whole": "{name} n'envoie que des unités entières : ceci rapatrie tout «{unit}» — {size} à l'état du {when}, chaque dossier dedans, pas seulement ceux de {what}. Il arrive à côté, en lecture seule, et reste jusqu'à ce que tu le supprimes ; rien n'est remplacé ici. Dès qu'il est là, j'ouvre la restauration des dossiers de {what} depuis lui.",
+  "pa.whole_own": "Ceci rapatrie «{unit}» de {name} — {size} à l'état du {when}. Il arrive à côté, en lecture seule, et reste jusqu'à ce que tu le supprimes ; rien n'est remplacé ici. Dès qu'il est là, j'ouvre la restauration de ses dossiers depuis lui.",
+  "chip.at_partner_go": {"one": "{name} garde {unit} : {n} moment, du {when}. Un clic le rapatrie de là.", "other": "{name} garde {unit} : {n} moments, le plus récent du {when}. Un clic le rapatrie de là."},
+  "pa.then_title": "{what} : maintenant à leur place"
 }

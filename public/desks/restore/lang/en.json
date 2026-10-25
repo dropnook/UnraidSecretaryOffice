@@ -959,7 +959,6 @@
   "tile.partner_as_of": "as of {when}",
   "tile.partner_no_pair": "doesn't know this office any more",
   "chip.at_partner": "at {name}",
-  "chip.at_partner_hint": {"one": "{name} keeps {unit}: 1 moment, from {when}. A click shows it.", "other": "{name} keeps {unit}: {n} moments, the newest from {when}. A click shows them."},
   "notice.place_partner": "My packages come from the backup place pulled from {name} ({when}) — read-only at {path}.",
   "notice.no_place_ticket": "No backup place here yet — pull the backup place from the partner first («Onto a new server»): its packages are what I work with.",
   "rd.snap_partner": "pulled from {name}",
@@ -1365,5 +1364,19 @@
   "j.place_title": "Now to their place",
   "j.place_text": {"one": "What Kopia brought back waits in the restore folder. It goes to its place from here: next to what is there, or swapped in (what is there goes aside first):", "other": "What Kopia brought back waits in the restore folder. These {n} go to their place from here: next to what is there, or swapped in (what is there goes aside first):"},
   "j.place_text_partner": {"one": "What came back from the partner lies beside, read-only. It goes to its place from here: next to what is there, or swapped in (what is there goes aside first):", "other": "What came back from the partner lies beside, read-only. These {n} go to their place from here: next to what is there, or swapped in (what is there goes aside first):"},
-  "j.place_go": "Now to its place…"
+  "j.place_go": "Now to its place…",
+  "from_partner": "From a partner",
+  "pa.text": "A partner office keeps copies of it. The partner sends whole units only: the one its folders lie in comes over beside this server's, read-only — then its folders go to their place from there.",
+  "pa.text_vm": "A partner office keeps copies of its disks. The partner sends whole units only: the one they lie in comes over beside this server's, read-only — then the disks' folder goes to its place from there. Its configuration (XML, UEFI variables, TPM state) comes with the backup place: «Earlier backups».",
+  "pa.line": {"one": "{name} keeps {unit}: 1 moment, from {when}", "other": "{name} keeps {unit}: {n} moments, the newest from {when}"},
+  "pa.fetch": "Bring back from {name}…",
+  "pa.pulled": "here since {when}",
+  "pa.pulled_hint": "The copy from {name} lies beside, read-only, until you remove it («Restored» → its entry → «Remove what was pulled…»).",
+  "pa.package": "Its package: in the backup place at {name}.",
+  "pa.place_fetch": "Bring back the backup place…",
+  "pa.package_pulled": "Its package: the backup place from {name} is here — «Earlier backups» offers it.",
+  "pa.whole": "{name} sends whole units only: this brings back all of «{unit}» — {size} as of {when}, every folder in it, not just {what}'s. It lands beside, read-only, and stays until you remove it; nothing here is replaced. Once it is here, I open the restore of {what}'s folders on it.",
+  "pa.whole_own": "This brings back «{unit}» from {name} — {size} as of {when}. It lands beside, read-only, and stays until you remove it; nothing here is replaced. Once it is here, I open the restore of its folders on it.",
+  "chip.at_partner_go": {"one": "{name} keeps {unit}: 1 moment, from {when}. A click brings it back from there.", "other": "{name} keeps {unit}: {n} moments, the newest from {when}. A click brings it back from there."},
+  "pa.then_title": "{what}: now to their place"
 }

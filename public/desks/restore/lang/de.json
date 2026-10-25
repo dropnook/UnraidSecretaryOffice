@@ -959,7 +959,6 @@
   "tile.partner_as_of": "Stand {when}",
   "tile.partner_no_pair": "kennt dieses Sekretariat nicht mehr",
   "chip.at_partner": "beim Partner {name}",
-  "chip.at_partner_hint": {"one": "{name} bewahrt {unit} auf: 1 Stand, vom {when}. Ein Klick zeigt ihn.", "other": "{name} bewahrt {unit} auf: {n} Stände, der neueste vom {when}. Ein Klick zeigt sie."},
   "notice.place_partner": "Meine Pakete stammen aus der Backup-Ablage, die ich vom Partner {name} zurückgeholt habe ({when}) — schreibgeschützt unter {path}.",
   "notice.no_place_ticket": "Hier gibt es noch keine Backup-Ablage — hol zuerst die Backup-Ablage vom Partner zurück («Auf einen neuen Server»): mit ihren Paketen arbeite ich.",
   "rd.snap_partner": "vom Partner {name} zurückgeholt",
@@ -1365,5 +1364,19 @@
   "j.place_title": "Jetzt an ihren Platz",
   "j.place_text": {"one": "Was Kopia zurückgeholt hat, wartet im Rückhol-Ordner. Von hier kommt es an seinen Platz: neben das, was da ist, oder ausgetauscht (was da ist, kommt zuerst zur Seite):", "other": "Was Kopia zurückgeholt hat, wartet im Rückhol-Ordner. Diese {n} gehen von hier an ihren Platz: neben das, was da ist, oder ausgetauscht (was da ist, kommt zuerst zur Seite):"},
   "j.place_text_partner": {"one": "Was vom Partner zurückkam, liegt daneben, nur lesbar. Von hier kommt es an seinen Platz: neben das, was da ist, oder ausgetauscht (was da ist, kommt zuerst zur Seite):", "other": "Was vom Partner zurückkam, liegt daneben, nur lesbar. Diese {n} gehen von hier an ihren Platz: neben das, was da ist, oder ausgetauscht (was da ist, kommt zuerst zur Seite):"},
-  "j.place_go": "Jetzt an ihren Platz…"
+  "j.place_go": "Jetzt an ihren Platz…",
+  "from_partner": "Vom Partner",
+  "pa.text": "Ein Partner-Sekretariat bewahrt Kopien davon auf. Der Partner schickt nur ganze Einheiten: Die, in der ihre Ordner liegen, kommt daneben, nur lesbar — von dort gehen ihre Ordner dann an ihren Platz.",
+  "pa.text_vm": "Ein Partner-Sekretariat bewahrt Kopien ihrer Disks auf. Der Partner schickt nur ganze Einheiten: Die, in der sie liegen, kommt daneben, nur lesbar — von dort geht der Ordner der Disks dann an seinen Platz. Ihre Konfiguration (XML, UEFI-Variablen, TPM-Zustand) kommt mit der Backup-Ablage: «Frühere Stände».",
+  "pa.line": {"one": "{name} bewahrt {unit} auf: 1 Stand, vom {when}", "other": "{name} bewahrt {unit} auf: {n} Stände, der neueste vom {when}"},
+  "pa.fetch": "Von {name} zurückholen…",
+  "pa.pulled": "hier seit {when}",
+  "pa.pulled_hint": "Die Kopie von {name} liegt daneben, nur lesbar, bis du sie entfernst («Zurückgeholt» → ihr Eintrag → «Zurückgeholtes entfernen…»).",
+  "pa.package": "Ihr Paket: in der Backup-Ablage beim Partner {name}.",
+  "pa.place_fetch": "Backup-Ablage zurückholen…",
+  "pa.package_pulled": "Ihr Paket: Die Backup-Ablage vom Partner {name} ist hier — «Frühere Stände» bietet es an.",
+  "pa.whole": "{name} schickt nur ganze Einheiten: Das holt den ganzen «{unit}» zurück — {size} Stand {when}, jeden Ordner darin, nicht nur die von {what}. Er landet daneben, nur lesbar, und bleibt, bis du ihn entfernst; hier wird nichts ersetzt. Sobald er da ist, öffne ich die Rückholung der Ordner von {what} darauf.",
+  "pa.whole_own": "Das holt «{unit}» vom Partner {name} zurück — {size} Stand {when}. Die Kopie landet daneben, nur lesbar, und bleibt, bis du sie entfernst; hier wird nichts ersetzt. Sobald sie da ist, öffne ich die Rückholung der Ordner darauf.",
+  "chip.at_partner_go": {"one": "{name} bewahrt {unit} auf: 1 Stand, vom {when}. Ein Klick holt ihn von dort zurück.", "other": "{name} bewahrt {unit} auf: {n} Stände, der neueste vom {when}. Ein Klick holt ihn von dort zurück."},
+  "pa.then_title": "{what}: jetzt an ihren Platz"
 }

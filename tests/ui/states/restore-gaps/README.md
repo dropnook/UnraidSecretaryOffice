@@ -31,3 +31,12 @@ testRestoreGapsPage (tests/restoregaps.js) holds the same rules without a browse
       --want restore.j.place_title --want restore.j.place_go
     node tools/scenarios/page.mjs --states tests/ui/states/restore-gaps/kopia restore/apps --open --want restore.kp.guide_hand --not restore.kp.guide
     bash tools/ui-clicks.sh --states tests/ui/states/restore-gaps/kopia --only restore
+
+- `partner/` (the base stub) — PartnerNAS keeps share appdata and the backup place (gap 8): each app's row has «From a
+  partner» (what is kept there, «Bring back from PartnerNAS…», the package in the backup place there), its label «at
+  PartnerNAS» brings it back on a click; the dialog says first that the whole unit comes (234 MB, every app's folders in
+  it). `post/restore.preview.json` is the pull's plan.
+
+    node tools/scenarios/page.mjs --states tests/ui/states/restore-gaps/partner restore/apps --lang en,de --open --clean \
+      --want restore.from_partner --want restore.pa.fetch --want restore.pa.package
+    bash tools/ui-clicks.sh --states tests/ui/states/restore-gaps/partner --only restore

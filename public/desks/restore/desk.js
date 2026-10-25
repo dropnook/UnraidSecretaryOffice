@@ -61,6 +61,7 @@ function refreshLive() {
 
 /** Follows a restore while it runs: its journal straight from disk every two seconds (api part "job") */
 let jobFails = 0;
+let chained = null;            // a restore that opens the next step when it is done: {job, kind, id of the app or VM}
 async function pollJob() {
   clearTimeout(jobTimer);
   jobTimer = null;
@@ -81,6 +82,13 @@ async function pollJob() {
       Office.toast(T('job.done.' + (job.result === 'ok' ? 'ok' : job.result === 'warnings' ? 'warnings' : 'failed'), { what: job.what }), job.result !== 'ok');
       versions.clear();            // a package Kopia brought back is an earlier version now
       await load(true);
+      // a pull started for an app or VM (gap 8): its folders' restore on what came back
+      const c = chained && job && chained.job === job.id ? chained : null;
+      if (c) {
+        chained = null;
+        const r = (state.restores || []).find((x) => x.id === c.job);
+        if (r && ['ok', 'warnings'].includes(r.result)) placesFor(r, c.kind, c.id);
+      }
     }
   }
 }
@@ -657,16 +665,26 @@ function rowChips(meta, x, extraPackage, extraData) {
     ...extraPackage,
     own ? null : kopiaChip(x.kopia, ['package']),
   ]);
-  const data = chipGroup(T('chip.label_data'), [...extraData, snapsChip(x.folders), kopiaChip(x.kopia, ['data', 'all']), ...(x.at_partner || []).map(atPartnerChip),
+  const data = chipGroup(T('chip.label_data'), [...extraData, snapsChip(x.folders), kopiaChip(x.kopia, ['data', 'all']), ...(x.at_partner || []).map((c) => atPartnerChip(c, x)),
     protChip(weakestFolder(x.folders))]);
   [pkg, data].forEach((g) => { if (g) meta.appendChild(g); });
 }
 
-/** «at <partner>»: a partner office keeps a unit this row's data lies in — a click opens its tile */
-function atPartnerChip(c) {
-  const x = chip(T('chip.at_partner', { name: c.name }), 'ok', T('chip.at_partner_hint', { name: c.name, unit: unitLabel(c.unit), n: c.n, when: date(c.newest) }));
+/**
+ * «at <partner>»: a partner office keeps a unit this row's data lies in — a click fetches it from there (the restore matrix's
+ * gap 8): pulled already, its folders' restore; else the pull, said first how much comes (the whole unit). While he can't
+ * restore (another restore, the engine busy): its tile.
+ */
+function atPartnerChip(c, owner) {
+  const x = chip(T('chip.at_partner', { name: c.name }), 'ok', T('chip.at_partner_go', { name: c.name, unit: unitLabel(c.unit), n: c.n, when: date(c.newest) }));
   x.dataset.own = '1';
-  x.onclick = () => openSection('partner:' + c.id);
+  x.onclick = () => {
+    const kind = vms().includes(owner) ? 'vm' : 'app';
+    const pulled = pulledOf(c.id, c.unit);
+    if (!canRestore()) openSection('partner:' + c.id);
+    else if (pulled) placesFor(pulled, kind, owner.id);
+    else partnerFetch(owner, kind, c);
+  };
   return x;
 }
 
@@ -704,6 +722,8 @@ function appDetail(a) {
   box.appendChild(packageBlock(a));
   box.appendChild(snapshotsBlock(a.folders, a.shares, a));
   if (kopia().enabled) box.appendChild(kopiaBlock(a.kopia));
+  const pa = partnerPart(a, 'app');
+  if (pa) box.appendChild(pa);
   if ((a.own_backups || []).length) box.appendChild(ownBlock(a));
   return box;
 }
@@ -1223,6 +1243,105 @@ function kopiaBlock(sources) {
   return b;
 }
 
+// ------------------------------------------------------------------ from a partner (the restore matrix's gap 8)
+/** A pull of this unit from this partner that is still here (done, not put back, not swapped in): its journal row */
+function pulledOf(pair, unit) {
+  return (state.restores || []).find((r) => r.kind === 'partner' && ['ok', 'warnings'].includes(r.result) && !r.putback
+    && r.target && r.target.pair === pair && r.target.unit === unit && !r.target.swapped) || null;
+}
+
+/** The newest moment a partner keeps of a unit (its row in «At <partner>») */
+function partnerNewest(pair, unit) {
+  const p = partnerOf(pair);
+  const u = p && (p.units || []).find((y) => y.unit === unit);
+  return (u && u.snaps && u.snaps[0]) || null;
+}
+
+/** A small action button of his (off while he can't restore) */
+function actButton(text, act) {
+  const b = button(text, 'small', act);
+  b.dataset.own = '1';
+  b.disabled = !canRestore();
+  if (b.disabled) b.title = runningJob() ? T('rd.wait_restore') : otherHolder() ? T('notice.busy_' + otherHolder()) : '';
+  return b;
+}
+
+/**
+ * «From a partner» in an app's or VM's row: per partner unit its data lies in — what is kept there; pulled already: its
+ * folders back on that moment; else «Fetch from <partner>…» (the whole unit comes — said in the dialog first). Then its
+ * package: in the backup place at the partner, pulled on its own (then «Earlier backups» offers it).
+ */
+function partnerPart(x, kind) {
+  const list = x.at_partner || [];
+  const places = partners().filter((p) => (p.units || []).some((u) => u.unit === 'place' && (u.snaps || []).length));
+  if (!list.length && !places.length) return null;
+  const b = block(T('from_partner'), T(kind === 'vm' ? 'pa.text_vm' : 'pa.text'));
+  list.forEach((c) => {
+    const line = el('div', 'rs-place');
+    line.appendChild(el('span', '', T('pa.line', { name: c.name, unit: unitLabel(c.unit), n: c.n, when: date(c.newest) })));
+    const pulled = pulledOf(c.id, c.unit);
+    if (pulled) {
+      line.append(' ', chip(T('pa.pulled', { when: date(pulled.finished) }), 'ok', T('pa.pulled_hint', { name: c.name })),
+        ' ', actButton(T('files.button'), () => placesFor(pulled, kind, x.id)));
+    } else if (partnerNewest(c.id, c.unit)) line.append(' ', actButton(T('pa.fetch', { name: c.name }), () => partnerFetch(x, kind, c)));
+    const all = el('a', '', T('sh.partner_all'));
+    all.href = `#/${ID}/partner:${c.id}`;
+    all.onclick = (e) => { e.preventDefault(); openSection('partner:' + c.id); };
+    line.append(' ', all);
+    b.appendChild(line);
+  });
+  places.forEach((p) => {
+    const line = el('div', 'rs-place');
+    if (pulledOf(p.id, 'place')) line.appendChild(el('span', '', T('pa.package_pulled', { name: p.name })));
+    else {
+      const snap = partnerNewest(p.id, 'place');
+      line.append(el('span', '', T('pa.package', { name: p.name })), ' ',
+        restoreButton(T('pa.place_fetch'), { kind: 'partner', pair: p.id, unit: 'place', snap: snap.name },
+          T('rd.title.partner', { what: unitLabel('place'), name: p.name, when: date(snap.creation) })));
+    }
+    b.appendChild(line);
+  });
+  return b;
+}
+
+/** What a pull brings, said before it starts (gap 8): the partner sends whole units — a share with every folder in it */
+function fetchLead(x, c) {
+  const snap = partnerNewest(c.id, c.unit) || {};
+  const params = { unit: unitLabel(c.unit), size: fmt.size(snap.referenced || 0), name: c.name, when: date(snap.creation) };
+  const box = el('div', 'rs-fetch-lead');
+  box.appendChild(el('p', 'callout', String(c.unit).startsWith('share:') ? T('pa.whole', { ...params, what: x.name }) : T('pa.whole_own', params)));
+  return box;
+}
+
+/** «Fetch from <partner>…»: the pull of the unit's newest moment — then, once it is here, its folders' restore opens */
+function partnerFetch(x, kind, c) {
+  const snap = partnerNewest(c.id, c.unit);
+  if (!snap) { openSection('partner:' + c.id); return; }
+  restoreDialog({ kind: 'partner', pair: c.id, unit: c.unit, snap: snap.name },
+    T('rd.title.partner', { what: unitLabel(c.unit), name: c.name, when: date(snap.creation) }), { lead: fetchLead(x, c), then: { kind, id: x.id } });
+}
+
+/** The folders of one app or VM among what a restore brought back (placesBack) */
+function ownerPlaces(r, kind, id) {
+  const o = (kind === 'vm' ? vms() : apps()).find((y) => y.id === id);
+  if (!o) return [];
+  const mine = new Set([...(o.folders || []), ...(o.shares || [])].map((f) => f.path));
+  return placesBack(r).filter((u) => mine.has(u.path));
+}
+
+/** After a pull for an app or VM: its folders' restore on that moment — one opens at once, several are offered */
+function placesFor(r, kind, id) {
+  const list = ownerPlaces(r, kind, id);
+  const o = (kind === 'vm' ? vms() : apps()).find((y) => y.id === id);
+  if (!list.length || !o) return;
+  if (list.length === 1) {
+    const u = list[0];
+    restoreDialog({ kind: 'files', path: u.path, snap: u.snap }, u.whole ? T('rd.title.share', { share: u.path.split('/')[3] }) : T('rd.title.files', { what: u.path }));
+    return;
+  }
+  Office.dialog({ title: T('pa.then_title', { what: o.name }), body: placesPart(r, list), wide: true, buttons: [{ text: Office.t('common.close') }] });
+}
+
 /** What the apps keep themselves (Emby's plugin, Jellyfin, Plex, Immich) - a second way back */
 function ownBlock(a) {
   const b = block(T('own.title'), T('own.text'));
@@ -1311,6 +1430,8 @@ function vmDetail(v) {
   if (needs) box.appendChild(needs);
   box.appendChild(snapshotsBlock(v.folders, [], v));
   if (kopia().enabled) box.appendChild(kopiaBlock(v.kopia));
+  const pa = partnerPart(v, 'vm');
+  if (pa) box.appendChild(pa);
   return box;
 }
 
@@ -2185,9 +2306,10 @@ function momentView(m) {
  * an explicit «I have read it», then the start with the preview's token — the agent builds the plan
  * again and runs it only when it is still the same.
  */
-async function restoreDialog(req, title) {
+async function restoreDialog(req, title, how = {}) {
   if (!(await Office.freshState(ID))) return;      // what comes back rests on his look: a fresh one (the preview looks again too)
   const body = el('div', 'rs-dlg');
+  if (how.lead) body.appendChild(how.lead);        // what the caller says first (a pull for an app: the whole unit comes)
   const opts = el('div', 'rs-opts');
   const pv = el('div');
   const ok = el('label', 'check rs-confirm');
@@ -2288,6 +2410,7 @@ async function restoreDialog(req, title) {
     }
     if (j.state) state = j.state;
     if (j.journal) job = j.journal;
+    if (how.then && j.id) chained = { ...how.then, job: j.id };      // once it is done: the next step opens (gap 8)
     Office.toast(T('rd.started', { what: plan.what }));
     expanded.add('j:' + j.id);
     sw.pick('journal', 'route');
@@ -3274,6 +3397,6 @@ Office.placesFrom(ID, (s, part) => {
 // tests/run.php runs the databases tile's logic and the preview's sizes under node
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.restore = { setState: (s) => { state = s; }, greetOk, shareFromKopia, kopiaFetched, dbGroups, dbName, dbRequest, earlierOf, tileLine, sizesDone,
-    noPackagesText, noPackages, bootSnapsPart, placesBack, placesPart, kopiaBlock, setJob: (j) => { job = j; }, runCardData, runCard, shortStep, liveJob, runCardShort, bubbleText, snapsChip };
+    noPackagesText, noPackages, bootSnapsPart, placesBack, placesPart, kopiaBlock, partnerPart, fetchLead, atPartnerChip, ownerPlaces, setJob: (j) => { job = j; }, runCardData, runCard, shortStep, liveJob, runCardShort, bubbleText, snapsChip };
 }
 })();

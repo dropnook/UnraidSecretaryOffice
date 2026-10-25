@@ -53938,6 +53938,26 @@ function testRestoreGapsPage(): void
         json_encode($n['block'] ?? null));
     check('gap 9: … without a restore folder mapped: no button, the guide (it says how to map one)',
         !in_array('kr.button', (array) ($n['blockNoMap'] ?? []), true) && in_array('kp.guide', (array) ($n['blockNoMap'] ?? []), true), json_encode($n['blockNoMap'] ?? null));
+    $e = $o['t8'] ?? [];
+    $has = fn (string $what, string $key) => in_array($key, (array) ($e[$what] ?? []), true);
+    check('gap 8: an app\'s row has «From a partner» — what the partner keeps of it, and «Fetch from PartnerNAS…»',
+        $has('fresh', 'from_partner') && $has('fresh', 'pa.line {"name":"PartnerNAS","unit":"pt.unit_share {\"name\":\"appdata\"}","n":2,"when":"D20"}')
+        && $has('fresh', 'pa.fetch {"name":"PartnerNAS"}'), json_encode($e['fresh'] ?? null));
+    check('gap 8: … and its package: in the backup place at the partner, fetched on its own (then «Earlier backups»)', $has('fresh', 'pa.package {"name":"PartnerNAS"}') && $has('fresh', 'pa.place_fetch'),
+        json_encode($e['fresh'] ?? null));
+    same('gap 8: before it starts, honestly how much comes: the whole unit — a share with every app\'s folders, an own unit as it is',
+        ['pa.whole {"unit":"pt.unit_share {\"name\":\"appdata\"}","size":"244850688 B","name":"PartnerNAS","when":"D20","what":"Nextcloud"}',
+         'pa.whole_own {"unit":"pt.unit_vm {\"name\":\"Win\"}","size":"244850688 B","name":"PartnerNAS","when":"D20"}'],
+        [$e['lead'][0] ?? null, $e['leadOwn'][0] ?? null]);
+    same('gap 8: the label «at PartnerNAS» says a click fetches it from there', 'chip.at_partner_go {"name":"PartnerNAS","unit":"pt.unit_share {\"name\":\"appdata\"}","n":2,"when":"D20"}', $e['chip'] ?? null);
+    same('gap 8: nothing at a partner, no place there — no part', null, array_key_exists('none', $e) ? $e['none'] : 'x');
+    check('gap 8: its data at no partner, but the backup place there — the package line alone', $has('packageOnly', 'pa.package {"name":"PartnerNAS"}')
+        && !array_filter((array) ($e['packageOnly'] ?? []), fn ($t) => str_starts_with((string) $t, 'pa.line')), json_encode($e['packageOnly'] ?? null));
+    check('gap 8: pulled already — said, and «Restore…» opens its folders on that moment; the package pulled too — «Earlier backups» offers it',
+        $has('pulled', 'pa.pulled {"when":"D30"}') && $has('pulled', 'files.button') && $has('pulled', 'pa.package_pulled {"name":"PartnerNAS"}') && !$has('pulled', 'pa.fetch {"name":"PartnerNAS"}'),
+        json_encode($e['pulled'] ?? null));
+    same('gap 8: what came back, for this app only — its folder, never the whole share row', [['/mnt/user/appdata/nextcloud', 'partner:J1:share:appdata']], $e['owner'] ?? null);
+    check('gap 8: a pull removed again («Put back») — fetch anew', in_array('pa.fetch {"name":"PartnerNAS"}', (array) ($e['dropped'] ?? []), true), json_encode($e['dropped'] ?? null));
     same('gap 10: … and his bubble says the same, never «with Mr. Backupsy\'s first backup run» under the ticket\'s callout', 'bubble.no_packages_ticket {"name":"OldNAS"}', $t['bubble'] ?? null);
 }
 

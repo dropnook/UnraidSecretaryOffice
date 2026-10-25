@@ -959,7 +959,6 @@
   "tile.partner_as_of": "a fecha de {when}",
   "tile.partner_no_pair": "ya no conoce esta secretaría",
   "chip.at_partner": "en {name}",
-  "chip.at_partner_hint": {"one": "{name} guarda {unit}: 1 momento, del {when}. Un clic lo muestra.", "other": "{name} guarda {unit}: {n} momentos, el más reciente del {when}. Un clic los muestra."},
   "notice.place_partner": "Mis paquetes vienen del lugar de las copias traído de {name} ({when}) — de solo lectura en {path}.",
   "notice.no_place_ticket": "Aquí aún no hay lugar de las copias — trae primero el del socio («A un servidor nuevo»): trabajo con sus paquetes.",
   "rd.snap_partner": "traído de {name}",
@@ -1365,5 +1364,19 @@
   "j.place_title": "Ahora a su sitio",
   "j.place_text": {"one": "Lo que Kopia restauró espera en la carpeta de restauración. Desde aquí va a su sitio: junto a lo que hay, o intercambiado (lo que hay se aparta primero):", "other": "Lo que Kopia restauró espera en la carpeta de restauración. Estos {n} van desde aquí a su sitio: junto a lo que hay, o intercambiados (lo que hay se aparta primero):"},
   "j.place_text_partner": {"one": "Lo que volvió del socio está al lado, solo lectura. Desde aquí va a su sitio: junto a lo que hay, o intercambiado (lo que hay se aparta primero):", "other": "Lo que volvió del socio está al lado, solo lectura. Estos {n} van desde aquí a su sitio: junto a lo que hay, o intercambiados (lo que hay se aparta primero):"},
-  "j.place_go": "Ahora a su sitio…"
+  "j.place_go": "Ahora a su sitio…",
+  "from_partner": "Del socio",
+  "pa.text": "Una secretaría asociada guarda copias. El socio solo envía unidades enteras: la que contiene sus carpetas llega al lado, solo lectura — desde ahí sus carpetas van luego a su sitio.",
+  "pa.text_vm": "Una secretaría asociada guarda copias de sus discos. El socio solo envía unidades enteras: la que los contiene llega al lado, solo lectura — desde ahí la carpeta de los discos va luego a su sitio. Su configuración (XML, variables UEFI, estado TPM) llega con el lugar de las copias: «Copias anteriores».",
+  "pa.line": {"one": "{name} guarda {unit}: 1 momento, del {when}", "other": "{name} guarda {unit}: {n} momentos, el más reciente del {when}"},
+  "pa.fetch": "Traer de {name}…",
+  "pa.pulled": "aquí desde el {when}",
+  "pa.pulled_hint": "La copia de {name} está al lado, solo lectura, hasta que la quites («Restaurados» → su entrada → «Quitar lo traído…»).",
+  "pa.package": "Su paquete: en el lugar de las copias en {name}.",
+  "pa.place_fetch": "Traer el lugar de las copias…",
+  "pa.package_pulled": "Su paquete: el lugar de las copias de {name} está aquí — «Copias anteriores» lo ofrece.",
+  "pa.whole": "{name} solo envía unidades enteras: esto trae todo «{unit}» — {size} según el {when}, cada carpeta dentro, no solo las de {what}. Llega al lado, solo lectura, y se queda hasta que lo quites; aquí no se reemplaza nada. En cuanto esté aquí, abro la restauración de las carpetas de {what} desde ahí.",
+  "pa.whole_own": "Esto trae «{unit}» de {name} — {size} según el {when}. Llega al lado, solo lectura, y se queda hasta que lo quites; aquí no se reemplaza nada. En cuanto esté aquí, abro la restauración de sus carpetas desde ahí.",
+  "chip.at_partner_go": {"one": "{name} guarda {unit}: 1 momento, del {when}. Un clic lo trae de ahí.", "other": "{name} guarda {unit}: {n} momentos, el más reciente del {when}. Un clic lo trae de ahí."},
+  "pa.then_title": "{what}: ahora a su sitio"
 }

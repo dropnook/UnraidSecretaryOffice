@@ -959,7 +959,6 @@
   "tile.partner_as_of": "aggiornato al {when}",
   "tile.partner_no_pair": "non conosce più questa segreteria",
   "chip.at_partner": "presso {name}",
-  "chip.at_partner_hint": {"one": "{name} conserva {unit}: 1 momento, del {when}. Un clic lo mostra.", "other": "{name} conserva {unit}: {n} momenti, il più recente del {when}. Un clic li mostra."},
   "notice.place_partner": "I miei pacchetti vengono dal deposito dei backup recuperato da {name} ({when}) — in sola lettura in {path}.",
   "notice.no_place_ticket": "Qui non c'è ancora un deposito dei backup — recupera prima il deposito dal partner («Su un nuovo server»): lavoro con i suoi pacchetti.",
   "rd.snap_partner": "recuperato da {name}",
@@ -1365,5 +1364,19 @@
   "j.place_title": "Ora al loro posto",
   "j.place_text": {"one": "Ciò che Kopia ha ripristinato aspetta nella cartella di ripristino. Da qui va al suo posto: accanto a ciò che c'è, o scambiato (ciò che c'è va prima da parte):", "other": "Ciò che Kopia ha ripristinato aspetta nella cartella di ripristino. Questi {n} vanno da qui al loro posto: accanto a ciò che c'è, o scambiati (ciò che c'è va prima da parte):"},
   "j.place_text_partner": {"one": "Ciò che è tornato dal partner sta accanto, in sola lettura. Da qui va al suo posto: accanto a ciò che c'è, o scambiato (ciò che c'è va prima da parte):", "other": "Ciò che è tornato dal partner sta accanto, in sola lettura. Questi {n} vanno da qui al loro posto: accanto a ciò che c'è, o scambiati (ciò che c'è va prima da parte):"},
-  "j.place_go": "Ora al suo posto…"
+  "j.place_go": "Ora al suo posto…",
+  "from_partner": "Dal partner",
+  "pa.text": "Una segreteria partner ne conserva delle copie. Il partner invia solo unità intere: quella in cui stanno le sue cartelle arriva accanto, in sola lettura — da lì le sue cartelle vanno poi al loro posto.",
+  "pa.text_vm": "Una segreteria partner conserva copie dei suoi dischi. Il partner invia solo unità intere: quella in cui stanno arriva accanto, in sola lettura — da lì la cartella dei dischi va poi al suo posto. La sua configurazione (XML, variabili UEFI, stato TPM) arriva con il deposito dei backup: «Backup precedenti».",
+  "pa.line": {"one": "{name} conserva {unit}: 1 momento, del {when}", "other": "{name} conserva {unit}: {n} momenti, il più recente del {when}"},
+  "pa.fetch": "Recupera da {name}…",
+  "pa.pulled": "qui dal {when}",
+  "pa.pulled_hint": "La copia da {name} sta accanto, in sola lettura, finché non la rimuovi («Ripristinati» → la sua voce → «Rimuovi ciò che è stato recuperato…»).",
+  "pa.package": "Il suo pacchetto: nel deposito dei backup presso {name}.",
+  "pa.place_fetch": "Recupera il deposito dei backup…",
+  "pa.package_pulled": "Il suo pacchetto: il deposito dei backup da {name} è qui — «Backup precedenti» lo offre.",
+  "pa.whole": "{name} invia solo unità intere: questo recupera tutto «{unit}» — {size} allo stato del {when}, ogni cartella al suo interno, non solo quelle di {what}. Arriva accanto, in sola lettura, e resta finché non lo rimuovi; qui non viene sostituito nulla. Appena è qui, apro il ripristino delle cartelle di {what} da lì.",
+  "pa.whole_own": "Questo recupera «{unit}» da {name} — {size} allo stato del {when}. Arriva accanto, in sola lettura, e resta finché non lo rimuovi; qui non viene sostituito nulla. Appena è qui, apro il ripristino delle sue cartelle da lì.",
+  "chip.at_partner_go": {"one": "{name} conserva {unit}: 1 momento, del {when}. Un clic lo recupera da lì.", "other": "{name} conserva {unit}: {n} momenti, il più recente del {when}. Un clic lo recupera da lì."},
+  "pa.then_title": "{what}: ora al loro posto"
 }
