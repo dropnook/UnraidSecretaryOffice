@@ -1,6 +1,8 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.76 - 2026-10-25
+# unraid-backup - backup.sh                       Version 2.77 - 2026-10-25
+#   2.77 How many at once (2.73) measured in milliseconds: the settling and the window's time no longer whole seconds
+#        read at any fraction of one (the total rate up to a second's worth off; a short window far more)
 #   2.76 Code review 1.72.0: a VM's or app's own dataset in a share sent to a partner whose unit doesn't go there stays
 #        here and is said (status.json partner.left_out with owner; up to 2.75 left off silently); a dataset inside an
 #        app's own dataset is left out of app:<name> (named there, no longer under the share). The flash archive never
@@ -3829,9 +3831,13 @@ partner_interrupted() {
 # rises (more than UB_PARTNER_GAIN %) - up to UB_PARTNER_STREAMS and what the partner's door takes at once (its ping's
 # `streams`; a door before 1.72 says nothing: one). A rise that doesn't come: back to one fewer, and no more tries
 # this run for that partner. So a link that one stream fills stays at one - as before 2.73.
+# 2.77: the settling and the window in milliseconds - up to 2.76 whole seconds read at any fraction of one: the rate's
+# divisor up to a second off the time really measured (a 30 s window +-3 %, a short one far more)
 PT_TARGET=1; PT_MAX=1; PT_SETTLED=0; PT_PROBE=0; PT_BEST=0; PT_SENT=0; PT_W_AT=0; PT_W_T0=0; PT_W_B=-1; PT_MANY=0
 declare -A PARTNER_STREAMS=()   # id -> transfers its door takes at once (its ping)
-partner_window_reset() { PT_W_AT=$(( $(date +%s) + UB_PARTNER_WARM )); PT_W_B=-1; }
+# partner_ms: the clock in milliseconds (a date without %N: its whole seconds)
+partner_ms() { local ns; ns="$(date +%s%N)"; if [[ "$ns" =~ ^[0-9]{13,}$ ]]; then printf '%s' "${ns:0:${#ns}-6}"; else printf '%s' "$(( $(date +%s) * 1000 ))"; fi; }
+partner_window_reset() { PT_W_AT=$(( $(partner_ms) + UB_PARTNER_WARM * 1000 )); PT_W_B=-1; }
 # partner_total: every byte of this partner's transfers so far - the finished ones and those going on
 partner_total() { local k t="$PT_SENT"; for k in "${!SL_PID[@]}"; do t=$(( t + ${SL_BYTES[$k]:-0} )); done; printf '%s' "$t"; }
 # partner_adapt <id> <units waiting>: right after the transfers were filled up - 0 when the aim stayed, 1 when it rose
@@ -3841,11 +3847,11 @@ partner_adapt() {
     n="$(slots_n)"
     # fewer going than aimed at (the last units, or one settled at once): nothing to compare - anew once they are
     if (( n < PT_TARGET )); then partner_window_reset; return 0; fi
-    now="$(date +%s)"
+    now="$(partner_ms)"
     (( now >= PT_W_AT )) || return 0
     if (( PT_W_B < 0 )); then PT_W_B="$(partner_total)"; PT_W_T0="$now"; return 0; fi
-    (( now - PT_W_T0 >= UB_PARTNER_WINDOW )) || return 0
-    rate=$(( ( $(partner_total) - PT_W_B ) / ( now - PT_W_T0 ) ))
+    (( now - PT_W_T0 >= UB_PARTNER_WINDOW * 1000 )) || return 0
+    rate=$(( ( $(partner_total) - PT_W_B ) * 1000 / ( now - PT_W_T0 ) ))
     name="$(partner_name "$id")"
     if (( PT_PROBE )); then
         PT_PROBE=0
