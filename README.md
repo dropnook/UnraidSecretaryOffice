@@ -15,8 +15,9 @@ A fresh office has only the Team Lead. He looks at your server and suggests whom
 ## Backups that come back
 
 Mr. Backupsy backs up on your schedule: snapshots, database dumps and, encrypted with Kopia, offsite. Mr. Restori
-brings back apps, folders and VMs — and rehearses it regularly on throwaway copies. A second Unraid server with the
-office becomes a partner: the two keep each other's backups.
+brings back apps, VMs, whole shares or single files from every place a copy is kept, hands you the flash archive — and
+rehearses it regularly on throwaway copies. A second Unraid server with the office becomes a partner: the two keep each
+other's backups, over your own network or the office's own Tailscale node.
 
 <a name="backup-run"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup-light.png" alt="Mr. Backupsy: a run going on — its steps, its offsite sources, how long still"></picture></a>
 
@@ -42,7 +43,7 @@ Plus Ms. Snapshotini, Ms. Dustdevil, Ms. Protocolli and the Consultant; five lan
 ## Careful by design
 
 - **Behind Unraid's login.** Only whoever is logged in to Unraid gets in; other web pages in your browser can't
-  trigger anything. No account of its own, anywhere.
+  trigger anything.
 - **Looks before it touches.** Before anything changes, it shows you what will happen and asks. What is replaced or
   tidied up is set aside — nothing is deleted at once.
 - **You're in control.** Copies leave the server only where you send them: to your partner server, or encrypted to a
@@ -51,6 +52,8 @@ Plus Ms. Snapshotini, Ms. Dustdevil, Ms. Protocolli and the Consultant; five lan
   ransomware, it can delete or overwrite nothing on the other.
 - **Only what the desks define.** The service on the server can do what root can, but it only offers the actions
   written in the desks' code.
+- **Says what is really there.** Protection is shown from what the runs made, not from the settings; what couldn't be
+  checked says so.
 - **Checked.** What was looked at, and what it found: [HARDENING.md](HARDENING.md).
 
 ## Install
