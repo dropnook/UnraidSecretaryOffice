@@ -568,8 +568,10 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
 
 * **`snapshot` — Ms. Snapshotini.** ZFS/btrfs/VM snapshots and plans (lib/snapshotplans.php, `uso-plan-<plan>-…`; retention
   touches only those, never the engine's; plans read only via `snapPlans()`; a gone target is no failure). Lists awake ZFS pools
-  only; **an action on a sleeping pool refuses unless the request carries `wake`** (the page asks). A partner's copies are never
-  a target, never deleted/renamed/held while the pair exists. Ids only in her scans' shape.
+  only; **an action on a sleeping pool refuses unless the request carries `wake`** (the page asks). The tour's «wake» switch
+  *reads* the sleeping ones too («can wake them» — ZFS often answers from memory, a btrfs read spins the disk up); the answer's
+  `slept` says per pool/disk whether it still sleeps (disks.ini after the read), one still asleep stays marked so. A partner's
+  copies are never a target, never deleted/renamed/held while the pair exists. Ids only in her scans' shape.
 * **`backup` — Mr. Backupsy.** The engine through its interface only. A real backup asked within the minute of the last is
   queued for the next; a tour, dry run or setup never waits. **Setup:** a level per share/VM/app (off · local · local + partner
   · local + offsite · local + partner + offsite; partner levels only with a pair and a dataset of its own); an app's further
