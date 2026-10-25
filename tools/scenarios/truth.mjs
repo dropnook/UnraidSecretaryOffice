@@ -4,9 +4,15 @@
 // computed from the office's code). Each rule: «when the server says X, the page must not show Y» (the truth review
 // 2026-10, its INV-TRUTH proposal R1–R7; tools/scenarios/README.md «INV-TRUTH»).
 //
-//   node tools/scenarios/truth.mjs --look <dir> [--lang en,de] [--json] [--tree <tag>] [--only <rule>,…] [--verbose]
+//   node tools/scenarios/truth.mjs --look <dir> [--lang en,de] [--json] [--tree <tag> [--judge-tree]] [--only <rule>,…] [--verbose]
 //   node tools/scenarios/truth.mjs --self-test     tests/ui/states/truth with its invented truth inv-truth.json: exactly
-//                                                  the lies listed in its `expect` red, in English and German
+//                                                  the lies listed in its `expect` red, in English and German, its
+//                                                  `notes` among the notes; then each of its `cases` (a patch of the
+//                                                  truth, options) the same way, each a run of its own
+//
+// The page judged is the tree under test's only. A tag's page (--tree <tag>, USO_PAGE_TREE=<tag>; run.sh: a scenario
+// that installed an older release, state IN-DOWNGRADE <tag>) may carry lies fixed since: every finding becomes a note,
+// one line «TR-TREE» says why. --judge-tree keeps them red (by hand: an older release's lies, e.g. --tree v1.71.2).
 //
 // <dir> holds states/ (the data folder's *.json, as bubble_look copies them) and truth.json (truth-facts.php). Prints one
 // line per finding — «FAIL <rule> <unit>: page «…»; truth: …» — and «note» lines for what only looks odd (a share partly
@@ -22,7 +28,9 @@
 //   TR-PARTNER    «local + partner» / «at <partner>» — that partner's door lists a snapshot of the unit (a VM or app in a
 //                 dataset of its own: only its own unit; else its share's); green alone while the partner's newest is not
 //                 the last backup run's snapshot — red
-//   TR-ROW        every share of the server (shares.ini) is a row on Mr. Backupsy's overview once a backup ran
+//   TR-ROW        every share of the server (shares.ini) is a row on Mr. Backupsy's overview once a backup ran; a share
+//                 newer (truth `born`) than the office's last look at the shares (the engine's drift check; a replan
+//                 adds no row) is a note: the page can't know it yet
 //   TR-KOPIA-TILE the repository held or stuck → the offsite tile alerts, the bubble never «saved offsite»
 //   TR-DOCKER     Docker not answering (stopped, or switched off) → no app «gone» on Mr. Restori's page; it says «Docker isn't running»
 //   TR-UNDER      (a note, never red) a row «not backed up» whose datasets hold the engine's snapshots
@@ -40,7 +48,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..');
 const require = createRequire(import.meta.url);
 
-const opt = { look: null, langs: ['en'], json: false, tree: process.env.USO_PAGE_TREE || null, only: null, verbose: false, selftest: false };
+const opt = { look: null, langs: ['en'], json: false, tree: process.env.USO_PAGE_TREE || null, judgeTree: false, only: null, verbose: false, selftest: false };
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
@@ -49,6 +57,7 @@ for (let i = 0; i < args.length; i++) {
   else if (a === '--lang') opt.langs = val().split(',').filter((l) => /^[a-z]{2}$/.test(l));
   else if (a === '--json') opt.json = true;
   else if (a === '--tree') opt.tree = val() || null;
+  else if (a === '--judge-tree') opt.judgeTree = true;
   else if (a === '--only') opt.only = val().split(',');
   else if (a === '--verbose' || a === '-v') opt.verbose = true;
   else if (a === '--self-test') { opt.selftest = true; opt.langs = ['en', 'de']; }
@@ -56,10 +65,10 @@ for (let i = 0; i < args.length; i++) {
   else usage();
 }
 function usage(code = 2) {
-  console.error('usage: node tools/scenarios/truth.mjs --look <dir with states/ and truth.json> [--lang en,de] [--json] [--tree <tag>] [--only TR-…,…]');
+  console.error('usage: node tools/scenarios/truth.mjs --look <dir with states/ and truth.json> [--lang en,de] [--json] [--tree <tag> [--judge-tree]] [--only TR-…,…]');
   process.exit(code);
 }
-if (opt.selftest) opt.look = path.join(REPO, 'tests', 'ui', 'states', 'truth');
+if (opt.selftest) { opt.look = path.join(REPO, 'tests', 'ui', 'states', 'truth'); opt.tree = null; }   // its own cases set a tree
 if (!opt.look || !opt.langs.length) usage();
 const readJson = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return null; } };
 const STATES = fs.existsSync(path.join(opt.look, 'states')) ? path.join(opt.look, 'states') : opt.look;
@@ -287,6 +296,20 @@ function judgeRow(page, r, lang) {
 }
 
 const tilesOf = (p) => Object.fromEntries(p.tiles.map((t) => [t.tile, t]));
+const when = (t) => new Date(t * 1000).toLocaleString('sv-SE');
+/**
+ * The office's last look at the server's shares, as Mr. Backupsy's overview draws its rows: settings.ini's shares and
+ * the engine's drift check (drift.json `time`: share_new / share_renamed, written by a backup run or check). A replan
+ * (setup.plan_time) lists new shares too but adds no row (backupTruth() takes only no_snaps from it) — named beside,
+ * never the look itself (the scenarios' checks replan seconds before the final look: every share would be «older»).
+ * Without a drift time no look: TR-ROW judges as ever. → {at, by, plan}
+ */
+function shareLook() {
+  const b = readJson(path.join(STATES, 'backup.json')) || {};
+  const drift = b.drift && Number.isInteger(b.drift.time) && b.drift.time > 0 ? b.drift.time : null;
+  const plan = b.setup && Number.isInteger(b.setup.plan_time) && b.setup.plan_time > 0 ? b.setup.plan_time : null;
+  return { at: drift, by: drift ? "the engine's drift check, which the overview's rows come from" : null, plan };
+}
 const report = { pages: [] };
 for (const lang of opt.langs) {
   // Mr. Backupsy's overview
@@ -297,9 +320,16 @@ for (const lang of opt.langs) {
     for (const r of p.rows) if (/^(share|vm):/.test(r.place)) judgeRow('backup', r, lang);
     if (rule('TR-ROW') && p.drawn && truth.runs.n > 0 && truth.settings) {
       const rows = new Set(p.rows.map((r) => r.place));
+      const look = shareLook();
       for (const s of Object.keys(truth.shares)) {
         checked++;
-        if (!rows.has(`share:${s}`)) fail('TR-ROW', `backup share:${s}`, 'no row', `the share is on the server (set: ${truth.shares[s].set || 'not in the setup'}; ${truth.shares[s].local === 'yes' ? 'snapshotted' : 'no snapshot'})`);
+        if (rows.has(`share:${s}`)) continue;
+        const sh = truth.shares[s];
+        const tr = `the share is on the server (set: ${sh.set || 'not in the setup'}; ${sh.local === 'yes' ? 'snapshotted' : 'no snapshot'})`;
+        // a share newer than the office's last look at the shares: the page can't know it yet — a note, never red
+        if (look.at && Number.isInteger(sh.born) && sh.born > look.at) {
+          note('TR-ROW', `backup share:${s}`, 'no row', `not on the page yet — newer than the office's last look at the shares at ${when(look.at)} (${look.by}); the share there since ${when(sh.born)} (${sh.born_by || '?'})${look.plan && look.plan > look.at ? `; the last plan at ${when(look.plan)} adds no row` : ''}`);
+        } else fail('TR-ROW', `backup share:${s}`, 'no row', `${tr}${Number.isInteger(sh.born) && look.at ? `, since ${when(sh.born)} — before the office's last look at the shares at ${when(look.at)} (${look.by})` : ''}`);
       }
     }
     if (rule('TR-KOPIA-TILE') && p.drawn && (truth.kopia.held || truth.kopia.stuck)) {
@@ -349,21 +379,68 @@ for (const lang of opt.langs) {
 await browser.close();
 await harness.close();
 
-const red = out.filter((x) => x.verdict === 'FAIL');
-if (opt.selftest) {
-  // exactly the expected lies, in every language drawn
+// a tag's page, not the tree under test's: what it says may be fixed since — notes, never red
+if (opt.tree && !opt.judgeTree) {
+  const n = out.filter((x) => x.verdict === 'FAIL').length;
+  for (const x of out) if (x.verdict === 'FAIL') { x.verdict = 'note'; x.page = `(${opt.tree}'s page) ${x.page}`; }
+  out.unshift({ verdict: 'note', id: 'TR-TREE', unit: 'pages', page: `drawn from ${opt.tree}'s page`,
+    truth: `not the tree under test (IN-DOWNGRADE / USO_PAGE_TREE): its lies may be fixed since — ${n} finding(s) noted, never red (--judge-tree judges it)` });
+}
+
+/** a self-test's verdict: exactly `expect` red, every one of `notes` among the notes → [ok, lines] */
+function selfVerdict(label, findings, spec, langs) {
+  const lines = [];
+  const red = findings.filter((x) => x.verdict === 'FAIL');
   const got = new Set(red.map((x) => `${x.id} ${x.unit}`));
-  const want = new Set(truth.expect || []);
+  const noted = new Set(findings.filter((x) => x.verdict === 'note').map((x) => `${x.id} ${x.unit}`));
+  const want = new Set(spec.expect || []);
+  const wantNotes = spec.notes || [];
   const missing = [...want].filter((x) => !got.has(x));
   const extra = [...got].filter((x) => !want.has(x));
-  for (const x of red) console.log(`${want.has(`${x.id} ${x.unit}`) ? 'found' : 'EXTRA'} ${x.id} ${x.unit}: page ${x.page}; truth: ${x.truth}`);
-  for (const x of missing) console.log(`MISSED ${x}`);
-  console.log(`truth self-test: ${missing.length || extra.length ? 'FAIL' : 'ok'} — ${want.size} lies expected, ${got.size - extra.length} found, ${missing.length} missed, ${extra.length} extra (${opt.langs.join(', ')})`);
-  process.exit(missing.length || extra.length ? 1 : 0);
+  const notesMissing = wantNotes.filter((x) => !noted.has(x));
+  for (const x of red) lines.push(`${want.has(`${x.id} ${x.unit}`) ? 'found' : 'EXTRA'} ${x.id} ${x.unit}: page ${x.page}; truth: ${x.truth}`);
+  for (const x of findings.filter((f) => f.verdict === 'note' && wantNotes.includes(`${f.id} ${f.unit}`))) lines.push(`noted ${x.id} ${x.unit}: page ${x.page}; truth: ${x.truth}`);
+  for (const x of missing) lines.push(`MISSED ${x}`);
+  for (const x of notesMissing) lines.push(`NOT NOTED ${x}`);
+  const ok = !missing.length && !extra.length && !notesMissing.length;
+  lines.push(`truth self-test${label ? ` «${label}»` : ''}: ${ok ? 'ok' : 'FAIL'} — ${want.size} lies expected, ${got.size - extra.length} found, ${missing.length} missed, ${extra.length} extra; ${wantNotes.length} notes expected, ${wantNotes.length - notesMissing.length} noted (${langs.join(', ')})`);
+  return [ok, lines];
 }
-if (opt.json) console.log(JSON.stringify({ checked, red: red.length, findings: out, pages: report.pages }));
+
+const red = out.filter((x) => x.verdict === 'FAIL');
+if (opt.selftest) {
+  const [ok, lines] = selfVerdict('', out, truth, opt.langs);
+  lines.forEach((l) => console.log(l));
+  // each case: the truth patched, its own options — a run of its own (as run.sh calls it), judged the same way
+  let all = ok;
+  const base = Object.fromEntries(Object.entries(truth).filter(([k]) => !['expect', 'notes', 'cases', 'about'].includes(k)));
+  const merge = (a, b) => (b && typeof b === 'object' && !Array.isArray(b) && a && typeof a === 'object' && !Array.isArray(a)
+    ? Object.fromEntries([...new Set([...Object.keys(a), ...Object.keys(b)])].map((k) => [k, k in b ? merge(a[k], b[k]) : a[k]]))
+    : b);
+  for (const c of truth.cases || []) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'uso-truth-case.'));
+    fs.symlinkSync(opt.look, path.join(dir, 'states'));
+    fs.writeFileSync(path.join(dir, 'truth.json'), JSON.stringify(merge(base, c.patch || {})));
+    const langs = c.langs || opt.langs;
+    let got = '';
+    try {
+      got = execFileSync(process.execPath, [fileURLToPath(import.meta.url), '--look', dir, '--lang', langs.join(','), '--json', ...(c.args || [])],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, USO_PAGE_TREE: '' } });
+    } catch (e) { got = String(e.stdout || ''); if (!got.trim()) console.log(`case «${c.name}»: ${String(e.stderr || e.message).slice(0, 300)}`); }
+    fs.rmSync(dir, { recursive: true, force: true });
+    const j = (() => { try { return JSON.parse(got.trim().split('\n').pop()); } catch (e) { return null; } })();
+    if (!j) { console.log(`truth self-test «${c.name}»: FAIL — no answer`); all = false; continue; }
+    const [cok, clines] = selfVerdict(c.name, j.findings, c, langs);
+    clines.forEach((l) => console.log(`  ${l}`));
+    all = all && cok;
+  }
+  console.log(`truth self-test: ${all ? 'ok' : 'FAIL'} (${1 + (truth.cases || []).length} run(s))`);
+  process.exit(all ? 0 : 1);
+}
+const notes = out.filter((x) => x.verdict === 'note').length;
+if (opt.json) console.log(JSON.stringify({ checked, red: red.length, tree: opt.tree, findings: out, pages: report.pages }));
 else {
   for (const x of out) console.log(`${x.verdict} ${x.id} ${x.unit}: page ${x.page}; truth: ${x.truth}`);
-  console.log(`truth: ${checked} checked, ${red.length} red, ${out.filter((x) => x.verdict === 'note').length} notes (${report.pages.map((p) => `${p.route} ${p.lang}${p.drawn ? '' : ' NOT DRAWN'}`).join(', ')})`);
+  console.log(`truth: ${checked} checked, ${red.length} red, ${notes} notes${opt.tree && !opt.judgeTree ? ` — the page of ${opt.tree}, not the tree under test: findings are notes` : ''} (${report.pages.map((p) => `${p.route} ${p.lang}${p.drawn ? '' : ' NOT DRAWN'}`).join(', ')})`);
 }
 process.exit(red.length ? 1 : 0);

@@ -26,7 +26,9 @@ none and the label is the level alone.
     bash tools/ui-clicks.sh --states tests/ui/states/truth --only backup,restore,cleanup
 
 `inv-truth.json` is an invented server truth beside these state files for the scenarios' INV-TRUTH tool: `node
-tools/scenarios/truth.mjs --self-test` must find exactly the lies listed in its `expect` (tools/scenarios/README.md
+tools/scenarios/truth.mjs --self-test` must find exactly the lies listed in its `expect`, note each of its `notes` (Scans:
+a share newer than the stub's drift check, not on the page yet), and pass each of its `cases` — a run of its own with the
+truth patched and options of its own («a tag's page»: `--tree HEAD`, every lie a note) (tools/scenarios/README.md
 «INV-TRUTH»).
 
 tests/backuptiles.js (INV-TRUTH) and testBackupTruthProtection, testRestoreTruthChips, testSetupOwnDatasetApply hold
