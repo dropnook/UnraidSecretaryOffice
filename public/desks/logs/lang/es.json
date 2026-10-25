@@ -148,7 +148,7 @@
   "cats.read_title": "Cada línea leída, según las reglas que me dieron — decide la primera regla que encaja. «Irrelevante» no cuenta ni como error ni como aviso; «Sin regla»: no encaja ninguna.",
   "syslog.title": "Syslog",
   "syslog.sub": "Cada línea del syslog de Unraid desde mi ronda anterior ({when}), ordenada según las reglas que me dieron; por tipo las más recientes primero — las parecidas como una sola entrada.",
-  "syslog.sub_first": "Cada línea del syslog de Unraid de las últimas 24 horas (mi primera ronda), ordenada según las reglas que me dieron; las más recientes primero — las parecidas como una sola entrada.",
+  "syslog.sub_first": "Las líneas del syslog de Unraid de las últimas 24 horas (mi primera ronda: como mucho sus 4 MB más recientes, no su copia más antigua), ordenadas según las reglas que me dieron; las más recientes primero — las parecidas como una sola entrada.",
   "syslog.none": "Nada en el syslog que mis reglas pongan bajo un tipo. Si eso es bueno, no lo sé.",
   "syslog.filter_label": "Filtrar las líneas del syslog",
   "tile.syslog_none": "la próxima ronda lo ordena",
@@ -158,7 +158,7 @@
   "credit": "Las reglas con las que ordeno las líneas del syslog vienen de su Enhanced Log. Bajo la GPL (versión 2 o posterior).",
   "found.none_fit": "Ninguna línea coincide con el filtro.",
   "found.sub": "Líneas que suenan a error o aviso desde mi ronda anterior ({when}); las parecidas como una sola entrada, las más frecuentes primero.",
-  "found.sub_first": "Líneas que suenan a error o aviso en las últimas 24 horas (mi primera ronda); las parecidas como una sola entrada, las más frecuentes primero.",
+  "found.sub_first": "Líneas que suenan a error o aviso en las últimas 24 horas (mi primera ronda: de cada registro como mucho sus 4 MB más recientes); las parecidas como una sola entrada, las más frecuentes primero.",
   "found.none": "Nada que sonara a error o aviso. Tranquilo — si eso es bueno, no lo sé.",
   "found.quiet": {
     "one": "En 1 registro más, nada parecido.",
@@ -172,6 +172,9 @@
   "partial": "solo la parte más reciente",
   "partial_file": "Desde mi última ronda llegó más de lo que leo en una ronda — {size} saltados, conté la parte más reciente.",
   "partial_docker": "Como mucho {n} líneas de un contenedor por ronda — conté las más recientes.",
+  "stopped_title": "No está en marcha — leí lo que escribió desde mi última ronda, también sus últimas líneas antes de pararse.",
+  "found.no_containers": "Los registros de los contenedores no los leí — Docker no respondió.",
+  "partial_span": "Un registro que aún no conocía lo leo solo desde su parte más reciente (como mucho 4 MB) — las líneas más antiguas de ese tiempo, cortadas o ya en su copia más antigua, no las conté.",
   "rotated": "empezado de nuevo",
   "rotated_title": "Este registro se empezó de nuevo desde mi última ronda — el resto del antiguo lo leí donde lo encontré.",
   "more_kinds": {

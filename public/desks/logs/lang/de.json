@@ -148,7 +148,7 @@
   "cats.read_title": "Jede gelesene Zeile, nach den Regeln, die man mir gegeben hat — die erste passende Regel entscheidet. «Belangloses» zählt weder als Fehler noch als Warnung; «Keine Regel»: keine passt.",
   "syslog.title": "Syslog",
   "syslog.sub": "Jede Zeile des Syslogs von Unraid seit meinem vorigen Rundgang ({when}), eingeordnet nach den Regeln, die man mir gegeben hat; pro Art die neuesten zuerst — ähnliche als ein Eintrag.",
-  "syslog.sub_first": "Jede Zeile des Syslogs von Unraid aus den letzten 24 Stunden (mein erster Rundgang), eingeordnet nach den Regeln, die man mir gegeben hat; die neuesten zuerst — ähnliche als ein Eintrag.",
+  "syslog.sub_first": "Die Zeilen des Syslogs von Unraid aus den letzten 24 Stunden (mein erster Rundgang: höchstens seine neusten 4 MB, seine ältere Kopie nicht), eingeordnet nach den Regeln, die man mir gegeben hat; die neuesten zuerst — ähnliche als ein Eintrag.",
   "syslog.none": "Nichts im Syslog, das meine Regeln einer Art zuordnen. Ob das gut ist, weiss ich nicht.",
   "syslog.filter_label": "Die Zeilen des Syslogs filtern",
   "tile.syslog_none": "der nächste Rundgang ordnet es ein",
@@ -158,7 +158,7 @@
   "credit": "Die Regeln, mit denen ich Syslog-Zeilen einordne, stammen aus ihrem Enhanced Log. Unter der GPL (Version 2 oder später).",
   "found.none_fit": "Keine Zeile passt zum Filter.",
   "found.sub": "Zeilen, die nach Fehler oder Warnung klingen, seit meinem vorigen Rundgang ({when}); ähnliche als ein Eintrag, die häufigsten zuerst.",
-  "found.sub_first": "Zeilen, die nach Fehler oder Warnung klingen, aus den letzten 24 Stunden (mein erster Rundgang); ähnliche als ein Eintrag, die häufigsten zuerst.",
+  "found.sub_first": "Zeilen, die nach Fehler oder Warnung klingen, aus den letzten 24 Stunden (mein erster Rundgang: von jedem Protokoll höchstens die neusten 4 MB); ähnliche als ein Eintrag, die häufigsten zuerst.",
   "found.none": "Nichts, was nach Fehler oder Warnung klang. Ruhig — ob das gut ist, weiss ich nicht.",
   "found.quiet": {
     "one": "In 1 weiteren Protokoll nichts dergleichen.",
@@ -172,6 +172,9 @@
   "partial": "nur der neuste Teil",
   "partial_file": "Seit meinem letzten Rundgang kam mehr dazu, als ich auf einem Rundgang lese — {size} übersprungen, gezählt habe ich den neusten Teil.",
   "partial_docker": "Von einem Container höchstens {n} Zeilen pro Rundgang — gezählt habe ich die neusten.",
+  "stopped_title": "Läuft nicht — gelesen habe ich, was er seit meinem letzten Rundgang schrieb, auch seine letzten Zeilen, bevor er stoppte.",
+  "found.no_containers": "Die Protokolle der Container habe ich nicht gelesen — Docker hat nicht geantwortet.",
+  "partial_span": "Ein Protokoll, das ich noch nicht kannte, lese ich nur von seinem neusten Teil (höchstens 4 MB) — ältere Zeilen aus dieser Zeit, abgeschnitten oder schon in seiner älteren Kopie, habe ich nicht gezählt.",
   "rotated": "neu angefangen",
   "rotated_title": "Dieses Protokoll wurde seit meinem letzten Rundgang neu angefangen — den Rest des alten habe ich gelesen, wo ich ihn fand.",
   "more_kinds": {

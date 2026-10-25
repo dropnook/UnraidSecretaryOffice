@@ -17,12 +17,14 @@ declare(strict_types=1);
  *            container's docker log (only its size, by stat — never read
  *            here) and whether Docker's log rotation is set (docker.cfg, and
  *            per container the limit it was created with)
- *   errors   over her list (files in RAM, dmesg, running containers' docker
- *            logs): lines that look like an error or a warning (logsLevel()),
+ *   errors   over her list (files in RAM, dmesg, every container's docker
+ *            logs, a stopped one's too): lines that look like an error or a warning (logsLevel()),
  *            similar ones as one kind (logsNormalize()) with a count,
  *            first/last seen and the newest line as a sample — since the last
  *            tour (by file offset, docker logs --since), on the first tour the
- *            last 24 hours. At most LOGS_TOUR_BYTES of a file, LOGS_TOUR_DOCKER
+ *            last 24 hours. At most LOGS_TOUR_BYTES of a file (a file read
+ *            from its newest part that may hold older lines of that span, cut
+ *            or in its older copy, is marked `partial`), LOGS_TOUR_DOCKER
  *            lines of a container.
  *            Unraid's syslog on top by her syslog rules (from Enhanced Log):
  *            every line read in a category, counted per category; noise
@@ -888,8 +890,6 @@ function logsTourRun(): int
     $docker = logsTourDocker($mem['containers'] ?? [], $next['containers']);
 
     $found = [];
-    $containers = [];
-    $running = array_column(houseContainers(), 'running', 'name');
     foreach ($sources as $id => $src) {
         if ($src['kind'] === 'file' && logsTourWanted($id)) {
             // a file she knows from the last tour: from where it ended; one she doesn't (first tour, new file): by its lines' times
@@ -897,11 +897,45 @@ function logsTourRun(): int
             $found[] = logsTourFileSource($id, $src, $last, $last === null ? $since : null, $since, $sources, $next['files']);
         } elseif ($src['kind'] === 'dmesg') {
             $found[] = logsTourDmesg($since);
-        } elseif ($src['kind'] === 'docker' && !empty($running[$src['target']])) {
-            $containers[] = $id;        // only running containers
         }
     }
-    foreach (array_chunk($containers, LOGS_TOUR_PARALLEL) as $chunk) {
+    [$read, $entries] = logsTourContainers($sources, $since, houseContainersKnown());
+    $found = array_merge($found, $entries);
+    usort($found, fn ($a, $b) => [$b['errors'], $b['warnings'], $a['id']] <=> [$a['errors'], $a['warnings'], $b['id']]);
+
+    $tour = [
+        'time'        => $now,
+        'duration_ms' => (int) round((microtime(true) - $t0) * 1000),
+        'since'       => $since,
+        'first'       => $first,
+        'varlog'      => $varlog,
+        'docker'      => $docker,
+        'containers_read' => $read,
+        'sources'     => $found,
+        'errors'      => array_sum(array_column($found, 'errors')),
+        'warnings'    => array_sum(array_column($found, 'warnings')),
+        'job'         => ['running' => false, 'since' => $prev['job']['since'] ?? $now, 'ended' => time(), 'failed' => false],
+        'memory'      => $next,
+    ];
+    writeAtomic(logsTourFile(), jsonEncode($tour));
+    return 0;
+}
+
+/**
+ * Every container's docker logs since $since — running or not: a stopped or restarting one's last lines (why it stopped)
+ * count too (truth review T28: «nothing like that» while a crash-looping container was never read). $known: the containers
+ * (houseContainersKnown()); null = Docker didn't answer: none read, and the tour says so.
+ * @return array{0: bool, 1: list<array>}  read at all, the entries (a stopped one marked `stopped`)
+ */
+function logsTourContainers(array $sources, int $since, ?array $known): array
+{
+    if ($known === null) {
+        return [false, []];
+    }
+    $running = array_column($known, 'running', 'name');
+    $ids = array_keys(array_filter($sources, fn ($s) => $s['kind'] === 'docker' && isset($running[$s['target']])));
+    $found = [];
+    foreach (array_chunk($ids, LOGS_TOUR_PARALLEL) as $chunk) {
         $commands = [];
         foreach ($chunk as $id) {
             $commands[$id] = ['docker', 'logs', '--since', (string) $since, '--tail', (string) LOGS_TOUR_DOCKER, '--timestamps', $sources[$id]['target']];
@@ -916,26 +950,10 @@ function logsTourRun(): int
             } else {
                 $acc['unreadable'] = true;
             }
-            $found[] = logsTourEntry($id, $sources[$id], $acc);
+            $found[] = logsTourEntry($id, $sources[$id], $acc) + ($running[$sources[$id]['target']] ? [] : ['stopped' => true]);
         }
     }
-    usort($found, fn ($a, $b) => [$b['errors'], $b['warnings'], $a['id']] <=> [$a['errors'], $a['warnings'], $b['id']]);
-
-    $tour = [
-        'time'        => $now,
-        'duration_ms' => (int) round((microtime(true) - $t0) * 1000),
-        'since'       => $since,
-        'first'       => $first,
-        'varlog'      => $varlog,
-        'docker'      => $docker,
-        'sources'     => $found,
-        'errors'      => array_sum(array_column($found, 'errors')),
-        'warnings'    => array_sum(array_column($found, 'warnings')),
-        'job'         => ['running' => false, 'since' => $prev['job']['since'] ?? $now, 'ended' => time(), 'failed' => false],
-        'memory'      => $next,
-    ];
-    writeAtomic(logsTourFile(), jsonEncode($tour));
-    return 0;
+    return [true, $found];
 }
 
 /**
@@ -954,7 +972,7 @@ function logsTally(): array
 {
     return ['errors' => 0, 'warnings' => 0, 'groups' => [], 'other' => 0, 'lines' => 0, 'partial' => false,
             'skipped' => 0, 'rotated' => false, 'unreadable' => false, 'grew' => null, 'cats' => null, 'sorted' => [], 'sorted_other' => 0,
-            'sorted_seq' => 0];
+            'sorted_seq' => 0, 'span_cut' => false];
 }
 
 /**
@@ -1076,7 +1094,7 @@ function logsTourEntry(string $id, array $src, array $acc): array
     $out = ['id' => $id, 'group' => $src['group'], 'label' => $src['label'], 'param' => $src['param'], 'kind' => $src['kind'],
             'errors' => $acc['errors'], 'warnings' => $acc['warnings'], 'lines' => $acc['lines'],
             'kinds' => count($groups), 'other' => $acc['other'], 'partial' => $acc['partial'], 'skipped' => $acc['skipped'],
-            'rotated' => $acc['rotated'], 'unreadable' => $acc['unreadable'], 'grew' => $acc['grew'] ?? null, 'groups' => $top];
+            'rotated' => $acc['rotated'], 'span_cut' => $acc['span_cut'], 'unreadable' => $acc['unreadable'], 'grew' => $acc['grew'] ?? null, 'groups' => $top];
     if ($acc['cats'] === null) {
         return $out;
     }
@@ -1146,9 +1164,35 @@ function logsTourFileSource(string $id, array $src, ?array $last, ?int $after, i
     if ($last !== null) {                // the first tour reads the newest part on purpose
         $acc['partial'] = $acc['partial'] || $partial;
         $acc['skipped'] += $skipped;
+    } elseif ($after !== null && logsTourSpanCut($path, $lines, $partial, $after)) {
+        $acc['partial'] = true;          // … but says so when lines of its span stayed unread (W10)
+        $acc['span_cut'] = true;
     }
     $memory[$id] = ['ino' => (int) $st['ino'], 'size' => $end];
     return logsTourEntry($id, $src, $acc);
+}
+
+/**
+ * A file read from its newest part (the first tour, a new file): did lines of the span after $after stay unread? Either the
+ * cut (more than LOGS_TOUR_BYTES) began inside the span — the first line read with a time is newer than $after — or the
+ * older copy (<file>.1, never read on a tour) was written after $after (truth review W10: «the last 24 hours» while only the
+ * newest 4 MB were read and syslog.1 never).
+ */
+function logsTourSpanCut(string $path, array $lines, bool $cut, int $after): bool
+{
+    if ($cut) {
+        foreach ($lines as $line) {
+            [$t] = logsLineTime($line);
+            if ($t !== null) {
+                if ($t > $after) {
+                    return true;
+                }
+                break;
+            }
+        }
+    }
+    $older = @filemtime("$path.1");
+    return $older !== false && $older > $after;
 }
 
 /**
