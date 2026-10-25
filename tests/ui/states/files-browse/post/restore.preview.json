@@ -1,0 +1,120 @@
+{
+ "preview": {
+  "kind": "files",
+  "what": "Familienfilme: 2024 Sommerferien/Sandburg.mp4, 2024 Sommerferien/Rohschnitt",
+  "target": {
+   "path": "/mnt/user/Familienfilme",
+   "snap": "run:20261009-0430",
+   "mode": "copy",
+   "wake": false,
+   "owner": "share",
+   "id": "Familienfilme",
+   "items": [
+    "2024 Sommerferien/Sandburg.mp4",
+    "2024 Sommerferien/Rohschnitt"
+   ],
+   "pick": true
+  },
+  "method": "copy",
+  "pick": true,
+  "steps": [
+   {
+    "do": "copy",
+    "from": "/mnt/big/Familienfilme/.zfs/snapshot/uso-backup-20261009-0430/2024 Sommerferien/Sandburg.mp4",
+    "sources": [
+     "/mnt/big/Familienfilme/.zfs/snapshot/uso-backup-20261009-0430/2024 Sommerferien/Sandburg.mp4"
+    ],
+    "to": "/mnt/user/Familienfilme/2024 Sommerferien/Sandburg.mp4.restored-20261025-141500",
+    "dataset": null,
+    "file": true
+   },
+   {
+    "do": "copy",
+    "from": "/mnt/big/Familienfilme/.zfs/snapshot/uso-backup-20261009-0430/2024 Sommerferien/Rohschnitt",
+    "sources": [
+     "/mnt/big/Familienfilme/.zfs/snapshot/uso-backup-20261009-0430/2024 Sommerferien/Rohschnitt"
+    ],
+    "to": "/mnt/user/Familienfilme/2024 Sommerferien/Rohschnitt.restored-20261025-141500",
+    "dataset": null
+   }
+  ],
+  "blockers": [],
+  "notes": [
+   {
+    "key": "note.files_place",
+    "params": {
+     "path": "/mnt/user/Familienfilme",
+     "primary": "big",
+     "secondary": ""
+    }
+   },
+   {
+    "key": "note.pick_copy",
+    "params": {}
+   }
+  ],
+  "after": [
+   {
+    "key": "after.files_copy",
+    "params": {
+     "path": "/mnt/user/Familienfilme/2024 Sommerferien/Sandburg.mp4.restored-20261025-141500, /mnt/user/Familienfilme/2024 Sommerferien/Rohschnitt.restored-20261025-141500"
+    }
+   }
+  ],
+  "aside": [],
+  "stops": [],
+  "downtime": 0,
+  "sizes": {
+   "need": 2147483648,
+   "free": 1649267441664,
+   "measuring": false,
+   "what": "files"
+  },
+  "moment": {
+   "id": "run:20261009-0430",
+   "name": "uso-backup-20261009-0430",
+   "time": 1791513012,
+   "ours": true,
+   "kopia": false,
+   "aside": null,
+   "partner": null,
+   "parts": []
+  },
+  "share_now": {
+   "share": "Familienfilme",
+   "state": "data",
+   "exclusive": true,
+   "asleep": [],
+   "old": null,
+   "old_known": false
+  },
+  "options": {
+   "way": [
+    "copy",
+    "swap",
+    "folder"
+   ],
+   "asleep": [],
+   "woken": [],
+   "nothing_live": false,
+   "share": "Familienfilme",
+   "items": [
+    {
+     "rel": "2024 Sommerferien/Sandburg.mp4",
+     "kind": "file",
+     "there": false,
+     "found": true
+    },
+    {
+     "rel": "2024 Sommerferien/Rohschnitt",
+     "kind": "dir",
+     "there": true,
+     "found": true
+    }
+   ],
+   "folder": null
+  },
+  "stamp": "20261025-141500",
+  "token": "0000000000000000000000000000000000000000"
+ }
+}

@@ -1182,6 +1182,10 @@ function rowMenu(s) {
     items.push({ text: T('partner.hands_off'), disabled: true });       // the door's retention keeps these
     return items;
   }
+  // single files and folders out of it: Mr. Restori's file browser on this moment (a link — the desks know each other only so)
+  if (s.fs === 'zfs' && !s.docker && s.path) {
+    items.push({ text: T('files_back') + '…', act: () => Office.go('#/restore/browse?zsnap=' + encodeURIComponent(`${s.ds}@${s.name}`)) });
+  }
   if (s.fs === 'zfs' && !s.docker) {
     if (ourHold(s)) items.push({ text: T('release'), act: () => hold(s, false), disabled: !on });
     else if (s.holds && s.holds.length) items.push({ text: T('held_by', { holds: s.holds.join(', ') }), disabled: true });

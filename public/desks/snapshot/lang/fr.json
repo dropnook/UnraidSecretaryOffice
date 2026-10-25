@@ -305,7 +305,7 @@
   "p.overlay_hint": "Ce que la VM a écrit après ce snapshot, jusqu'au suivant.",
   "p.files": "Fichiers",
   "p.path": "Chemin",
-  "p.path_hint": "Lecture seule — parcours-le avec un gestionnaire de fichiers.",
+  "p.path_hint": "Lecture seule — Monsieur Restori en restaure les fichiers et dossiers isolés : ⋯ → «Restaurer des fichiers…».",
   "p.not_possible": "pas possible",
   "errors.invalid_name": "Nom : seulement des lettres, des chiffres et _ . : + - (80 au plus, sans commencer par un symbole).",
   "errors.snapshot_gone": "{name} : n'existe plus",
@@ -573,5 +573,6 @@
   "help.partner": "Snapshots d'un secrétariat partenaire, reçus par sa porte dans <pool>/UnraidSecretaryOffice-partners. Leurs noms sont ceux du moteur de sauvegarde du partenaire ; c'est la rétention de la porte qui les garde, pas moi — je ne les supprime, ne les renomme ni ne les protège, et ils ne sont jamais la cible de mes planifications. Une fois le partenariat terminé, ce sont des restes (« Le rangement » chez Madame Plumeau).",
   "why.partner": "Une copie du partenaire {name} — la rétention de la porte la garde",
   "errors.partner_copy": "{name} est une copie du partenaire {partner} — c'est la rétention de la porte qui les garde, pas moi.",
-  "errors.partner_dataset": "{target} contient les copies du partenaire {partner} — jamais une de mes cibles : un snapshot de moi là arrêterait le prochain transfert."
+  "errors.partner_dataset": "{target} contient les copies du partenaire {partner} — jamais une de mes cibles : un snapshot de moi là arrêterait le prochain transfert.",
+  "files_back": "Restaurer des fichiers"
 }

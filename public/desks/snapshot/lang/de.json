@@ -305,7 +305,7 @@
   "p.overlay_hint": "Was die VM nach diesem Snapshot geschrieben hat, bis zum nächsten.",
   "p.files": "Dateien",
   "p.path": "Pfad",
-  "p.path_hint": "Nur lesbar — mit einem Dateibrowser durchstöbern.",
+  "p.path_hint": "Nur lesbar — einzelne Dateien und Ordner daraus holt Herr Restori zurück: ⋯ → «Dateien zurückholen…».",
   "p.not_possible": "nicht möglich",
   "errors.invalid_name": "Name: nur Buchstaben, Ziffern und _ . : + - (höchstens 80, nicht mit einem Zeichen beginnen).",
   "errors.snapshot_gone": "{name}: gibt es nicht mehr",
@@ -573,5 +573,6 @@
   "help.partner": "Snapshots eines Partner-Sekretariats, durch seine Tür nach <pool>/UnraidSecretaryOffice-partners empfangen. Ihre Namen sind die der Backup-Engine des Partners; die Aufbewahrung der Tür behält sie, nicht ich — ich lösche, benenne oder schütze sie nicht, und sie sind nie ein Ziel meiner Zeitpläne. Ist die Partnerschaft beendet, sind sie Überbleibsel («Aufräumen» bei Frau Putzteufel).",
   "why.partner": "Eine Kopie von Partner {name} — die Aufbewahrung der Tür behält sie",
   "errors.partner_copy": "{name} ist eine Kopie von Partner {partner} — die behält die Aufbewahrung der Tür, nicht ich.",
-  "errors.partner_dataset": "{target} hält die Kopien von Partner {partner} — nie ein Ziel von mir: Ein Snapshot von mir dort würde die nächste Übertragung stoppen."
+  "errors.partner_dataset": "{target} hält die Kopien von Partner {partner} — nie ein Ziel von mir: Ein Snapshot von mir dort würde die nächste Übertragung stoppen.",
+  "files_back": "Dateien zurückholen"
 }
