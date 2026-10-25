@@ -658,6 +658,26 @@ function testSleepingPools(): void
         [$asked(), $poolsOf($z2), $z2['asleep']]);
     same('Snapshotini: the names of the pools asleep, for the log', ['hazel'], snapshotPoolsAsleep(['zfs' => $z]));
 
+    // after «wake»: per pool / btrfs disk that slept before the read, does it still sleep (disks.ini again, no disk asked)
+    $btrfsDev = fn (string $n, bool $asleep, $error = null) => ['mount' => "/mnt/$n", 'name' => $n, 'asleep' => $asleep, 'scanned' => 1700000000, 'error' => $error];
+    $woke = ['zfs' => $z2, 'btrfs' => ['devices' => [$btrfsDev('disk3', false), $btrfsDev('disk4', false), $btrfsDev('disk5', false, ['key' => 'command_failed']), $btrfsDev('disk6', false)], 'snapshots' => []]];
+    $before = ['maple' => false, 'hazel' => false, 'hazel2' => true, 'hazel3' => true, 'disk3' => true, 'disk4' => true, 'disk5' => true, 'disk6' => false];
+    [$s1, $slept] = snapshotWakeOutcome($woke, $before, ['hazel2' => true, 'hazel3' => false, 'disk3' => false, 'disk4' => true, 'disk5' => false]);
+    same('Snapshotini: «wake» outcome — hazel (2 sleeping disks) read and still asleep (ZFS answered from memory), disk3 woke up, disk4 still asleep; a failed read and an awake disk aren\'t named',
+        [['name' => 'hazel', 'fs' => 'zfs', 'disks' => 2, 'asleep' => true], ['name' => 'disk3', 'fs' => 'btrfs', 'disks' => 1, 'asleep' => false], ['name' => 'disk4', 'fs' => 'btrfs', 'disks' => 1, 'asleep' => true]],
+        $slept);
+    same('Snapshotini: one still asleep stays marked so — read now (`looked` fresh), its snapshots and datasets asleep, the btrfs disk too',
+        [[['maple', false, 2], ['hazel', true, 2], ['flash', false, 1]], ['hazel'], true, ['zfs:maple/appdata@a', 'zfs:maple/appdata@b', 'zfs:hazel/media@h1 (asleep)', 'zfs:hazel/media@h2 (asleep)', 'zfs:flash/cfg@f'],
+         [false, true, false, false]],
+        [$poolsOf($s1['zfs']), $s1['zfs']['asleep'], $s1['zfs']['pools'][1]['looked'] === $z2['pools'][1]['looked'], $names($s1['zfs']['snapshots']), array_column($s1['btrfs']['devices'], 'asleep')]);
+    [$s2, $slept] = snapshotWakeOutcome($woke, $before, []);
+    same('Snapshotini: «wake» outcome — all awake after the read: each named as woken, nothing marked asleep',
+        [[['hazel', false], ['disk3', false], ['disk4', false]], [], [false, false, false, false]],
+        [array_map(fn ($x) => [$x['name'], $x['asleep']], $slept), $s2['zfs']['asleep'], array_column($s2['btrfs']['devices'], 'asleep')]);
+    same('Snapshotini: «wake» outcome — nothing slept before: nothing to tell', [], snapshotWakeOutcome($woke, [], [])[1]);
+    $src = (string) file_get_contents(__DIR__ . '/../agent/desks/snapshot.php');
+    check('Snapshotini: the tour answers with the outcome (`slept`) and logs it', str_contains($src, "'slept' => \$slept") && str_contains($src, 'read while asleep'));
+
     // her actions: the estimate leaves a sleeping pool's snapshot out (counted), delete/rename/hold refuse it without «wake»
     $GLOBALS['snapshot'] = ['zfs' => $z, 'btrfs' => ['devices' => [], 'snapshots' => []], 'vm' => ['snapshots' => []]];
     $e = snapshotEstimate(['zfs:maple/appdata@a', 'zfs:hazel/media@h1', 'zfs:nobody@x']);
@@ -675,6 +695,14 @@ function testSleepingPools(): void
     $GLOBALS['snapshot'] = null;
     $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/snapshot/lang/en.json'), true) ?: [];
     check('Snapshotini: the page can say it', isset($en['errors.pool_asleep'], $en['pool_asleep_chip'], $en['delete.wake'], $en['rename.wake'], $en['wake_for.confirm']));
+    // the switch reads the sleeping ones too — it never promises they wake (ZFS may answer from memory); the toast says what happened
+    $de = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/snapshot/lang/de.json'), true) ?: [];
+    check('Snapshotini: the «wake» switch says it reads them and may wake them — not that it wakes them',
+        !str_starts_with((string) ($en['wake_n'] ?? 'Wake'), 'Wake') && str_contains((string) ($en['wake_n'] ?? ''), 'can wake')
+        && str_contains((string) ($de['wake_n'] ?? ''), 'mitlesen') && !str_starts_with((string) ($de['waking'] ?? 'Wecke'), 'Wecke'));
+    check('Snapshotini: the toast after «wake» — still asleep (ZFS) / still asleep / woke up, as plurals',
+        is_array($en['scan_read_asleep_zfs'] ?? null) && is_array($en['scan_read_asleep'] ?? null) && is_array($en['scan_read_woke'] ?? null));
+    check('Snapshotini: the page reads the outcome', str_contains((string) file_get_contents(OFFICE_WEB . '/desks/snapshot/desk.js'), 'j.slept'));
 
     // her plans: a target on a sleeping pool that was never listed is asleep (skipped when the plan says so, else taken with a wake), not gone
     $state = ['zfs' => ['pools' => [['name' => 'hazel', 'asleep' => true]], 'volumes' => []], 'btrfs' => ['devices' => []]];
@@ -902,7 +930,26 @@ function testSnapshotIds(): void
     same('snapshot ids: one of her shape she doesn\'t know — estimate as before (nothing, no failure)', ['ok', 0],
         [$ask('estimate', ['ids' => ['zfs:cache/appdata@gone', 'vm:Windows 11/Snap 1']]), snapshotEstimate(['zfs:cache/appdata@gone'])['bytes']]);
     $GLOBALS['snapshot'] = $was;
-    same('snapshot ids: a good id goes on to the name\'s check (rename)', 'invalid_name', $ask('rename', ['id' => 'zfs:cache/a@x', 'name' => '../y']));
+    same('snapshot ids: a good id goes on to the name\'s check (rename)', 'invalid_name', $ask('rename', ['id' => 'zfs:cache/a@x', 'name' => '../y', 'wake' => false]));
+
+    // «wake» and «unmount» are read with boolField() (review 1.72.0 L8): the string "false" never wakes a disk — refused
+    // before any scan; a scan that starts anyway fails at once on the stand-ins (nothing reaches the host's zfs)
+    $host = $GLOBALS['snapshotHost'] ?? null;
+    $GLOBALS['snapshotHost'] = ['zfs' => '/bin/false', 'zpool' => '/bin/false', 'docker' => null];
+    same('snapshot request: wake / unmount anything but true or false (or missing) — bad_request before any scan', array_fill(0, 10, 'bad_request'), [
+        $ask('scan', ['wake' => 'false']), $ask('scan', ['wake' => 1]), $ask('scan', []),
+        $ask('delete', ['ids' => ['zfs:cache/a@x'], 'unmount' => false, 'wake' => 'false']), $ask('delete', ['ids' => ['zfs:cache/a@x'], 'unmount' => 'false', 'wake' => false]),
+        $ask('rename', ['id' => 'zfs:cache/a@x', 'name' => 'new', 'wake' => 'false']), $ask('hold', ['id' => 'zfs:cache/a@x', 'wake' => 'false']),
+        $ask('release', ['id' => 'zfs:cache/a@x', 'wake' => 'no']), $ask('unmount', ['id' => 'zfs:cache/a@x', 'wake' => '0']),
+        $ask('create', ['name' => 'n1', 'targets' => ['zfs:cache/a'], 'recursive' => false, 'hold' => false, 'wake' => 'false'])]);
+    same('snapshot request: true and false go on to the scan (here: the stand-in fails)', ['command_failed', 'command_failed', 'command_failed'],
+        [$ask('scan', ['wake' => false]), $ask('scan', ['wake' => true]), $ask('hold', ['id' => 'zfs:cache/a@x', 'wake' => false])]);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/snapshot.php');
+    check('snapshot request: no !empty() for wake / unmount left', !preg_match("/!empty\\(\\\$r\\['(wake|unmount)'\\]\\)/", $src));
+    $GLOBALS['snapshotHost'] = $host;
+    if ($host === null) {
+        unset($GLOBALS['snapshotHost']);
+    }
 }
 
 function testJack(): void
@@ -35153,7 +35200,7 @@ function testSnapshotPartner(): void
         [array_column($r['failures'], 'key'), $r['deleted'], str_contains((string) @file_get_contents("$tmp/zfs-args.txt"), 'destroy')]);
     same('snapshot partner: the estimate leaves it out', 0, snapshotEstimate([$copy['id']])['bytes']);
     try {
-        snapshotCreate(['name' => 'manual-1', 'targets' => ["zfs:tank/$P/a1b2c3d4/share-appdata"]]);
+        snapshotCreate(['name' => 'manual-1', 'targets' => ["zfs:tank/$P/a1b2c3d4/share-appdata"], 'wake' => false]);
         check('snapshot partner: create on a partner\'s copy refused', false);
     } catch (Problem $p) {
         same('snapshot partner: create on a partner\'s copy refused — partner_dataset', ['partner_dataset', "tank/$P/a1b2c3d4/share-appdata"], [$p->key, $p->params['target'] ?? null]);
