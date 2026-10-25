@@ -9247,13 +9247,16 @@ esac
 exit 0
 SH);
     file_put_contents("$tmp/bin/mbuffer", "#!/bin/bash\necho \"\$(date +%s) mbuffer \$*\" >>\"\$FAKE/events\"\nexec cat\n");
-    // pv: what passes, counted - a line on stderr every half second while it goes, the last one the count, like pv -n -b
+    // pv: what passes, counted - a line on stderr every half second while it goes, the last one the count, like pv -n -b;
+    // on a paced link every tenth of a second, as often as the send writes (the 2.73 checks measure a 2 s window: a
+    // count half a second old would be off by a quarter)
     file_put_contents("$tmp/bin/pv", <<<'SH'
 #!/bin/bash
 echo "$(date +%s) pv $*" >>"$FAKE/events"
 [[ "$1" == -R ]] && exit 0
 t="$FAKE/pv.$$"; : >"$t"
-( while :; do sleep 0.5; stat -c %s "$t" >&2 2>/dev/null; done ) & l=$!
+i=0.5; [[ -s "$FAKE/send.pace" ]] && i=0.1
+( while :; do sleep "$i"; stat -c %s "$t" >&2 2>/dev/null; done ) & l=$!
 tee "$t"
 kill "$l" 2>/dev/null; wait "$l" 2>/dev/null
 stat -c %s "$t" >&2; rm -f "$t"
@@ -9870,7 +9873,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.76', [1, '2.76'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.77', [1, '2.77'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
