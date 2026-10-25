@@ -13,6 +13,12 @@
 #                                   everything: BACKUP_PRESET), schedules, Ms. Moverelli's X and rules, the drill - then
 #                                   kept as <data>.base/ (data.tar, cron, manifest) and the reset done with it
 #   bash base.sh --prune [--dry]    asides older than the newest 3 removed (data folders, share asides, snapshots, flash)
+#   bash base.sh --profile mixed    the reset to another base profile (base/<host>/profile-<name>.env, kept as
+#                                   <data>.base-<name>/; USO_BASE_PROFILE=<name> the same): its objects made (Tower's mixed
+#                                   one: tools/scenarios/base-mixed.sh), the default reset takes them away again. The profile
+#                                   the server is on: $OFFICE_FLASH/scenarios-profile (none = default)
+#   bash base.sh --profile <name> --save   the data folder as it is now kept as that profile's base (tools/scenarios/
+#                                   mixed-make.sh makes the mixed one: default reset, objects, pairing, Apply, then --save)
 #
 # Steps: 0 refuse while anything of the office's runs (a backup run or setup, restore, drill, Jack Streamer's or Ms.
 # Moverelli's run - the plugin's own pattern - or the engine's or her lock held); the Tower lock (flock
@@ -33,7 +39,7 @@ set -u
 SC=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 TREE=$(cd "$SC/../.." && pwd)
 
-dry=0 full=0 make=0 prune=0 made=0
+dry=0 full=0 make=0 prune=0 made=0 save=0 profile=${USO_BASE_PROFILE:-default}
 ARGS=("$@")
 while (($#)); do
     case $1 in
@@ -41,7 +47,9 @@ while (($#)); do
         --full) full=1 ;;
         --make) make=1 ;;
         --prune) prune=1 ;;
-        -h|--help) sed -n '2,33p' "$0"; exit 0 ;;
+        --save) save=1 ;;
+        --profile) profile=${2:-}; shift ;;
+        -h|--help) sed -n '2,39p' "$0"; exit 0 ;;
         *) echo "base: unknown argument $1" >&2; exit 2 ;;
     esac
     shift
@@ -94,6 +102,21 @@ HIRE='' BACKUP_PRESET=auto BACKUP_CRON='' MOVERELLI_X='' MOVERELLI_CRON='' MOVER
 D=$(sed -n 's/^DATA_DIR="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$CFG" 2>/dev/null | head -1)
 [[ $D == /mnt/*/* && $D != *..* ]] || { echo "base: no data folder in $CFG" >&2; exit 2; }
 DB=$D.base
+# the base profile: default, or base/<host>/profile-<name>.env over base.env (its own kept base <data>.base-<name>/); the
+# profile the server is on now noted on the flash (a reboot keeps it — the profile's VMs stay too)
+PROFILE_NOTE=/boot/config/plugins/unraid-secretary-office/scenarios-profile
+[[ $profile =~ ^[a-z][a-z0-9-]*$ ]] || { echo "base: «$profile» is no profile name" >&2; exit 2; }
+was_profile=$(cat "$PROFILE_NOTE" 2>/dev/null); was_profile=${was_profile:-default}
+if [[ $profile != default ]]; then
+    [[ -f $BASE/profile-$profile.env ]] || { echo "base: no profile $profile here ($BASE/profile-$profile.env)" >&2; exit 2; }
+    # shellcheck disable=SC1090
+    . "$BASE/profile-$profile.env"
+    DB=$D.base-$profile
+    ((make)) && { echo "base: a profile's base is made from the Mac (tools/scenarios/mixed-make.sh), then kept with --save" >&2; exit 2; }
+fi
+[[ -f $SC/base-$profile.sh ]] && . "$SC/base-$profile.sh"
+# the default reset takes a profile's objects away (base-mixed.sh notes them on the flash)
+[[ -f $SC/base-mixed.sh ]] && ! declare -F mixed_objects_remove >/dev/null && . "$SC/base-mixed.sh"
 # the Tower lock for the whole reset, taken first (another worker's experiment holds it while its job runs; not for a
 # dry run: it changes nothing): base.sh runs again under `flock -o` - the lock's fd never reaches a child (the agent it
 # starts would hold the lock for its whole life). A caller holding the lock says USO_SC_LOCKED=1.
@@ -103,7 +126,7 @@ if ((!dry)) && [[ ${USO_SC_LOCKED:-} != 1 ]]; then
     ((code == 75)) && echo "base: the Tower lock ($LOCK) stayed busy for 30 min - refused" >&2 && exit 2
     exit $code
 fi
-log "$HOST ($(hostname)), data folder $D, base $DB$( ((dry)) && echo ' - dry run, nothing changes')"
+log "$HOST ($(hostname)), data folder $D, base $DB (profile $profile, the server was on $was_profile)$( ((dry)) && echo ' - dry run, nothing changes')"
 
 # the pools and disks mounted under /mnt (their share roots are where leftovers lie)
 roots() { findmnt -rn -o TARGET | grep -E '^/mnt/[^/]+$' | grep -vE '^/mnt/(user|user0|addons|rootshare|remotes|disks)$' | sort -u; }
@@ -127,8 +150,8 @@ held() {
 }
 held "$D/unraid-backup/state/lock" && refuse="${refuse}the engine's lock is held (a backup run or setup); "
 held "$D/moverelli/office-run.lock" "$D/moverelli/night.lock" && refuse="${refuse}Ms. Moverelli's run lock is held; "
-if ((!make && !prune)) && [[ ! -f $DB/data.tar ]]; then
-    refuse="${refuse}no base yet ($DB/data.tar) - make it once: base.sh --make; "
+if ((!make && !prune && !save)) && [[ ! -f $DB/data.tar ]]; then
+    refuse="${refuse}no base yet ($DB/data.tar) - make it once: $([[ $profile == default ]] && echo 'base.sh --make' || echo "tools/scenarios/mixed-make.sh on the Mac"); "
 fi
 if [[ -n $refuse ]]; then
     if ((dry)); then warn "would refuse: ${refuse%; }"; else echo "base: refused - ${refuse%; }" >&2; exit 2; fi
@@ -313,6 +336,30 @@ apps_step() {
     else log "skipped: VMs - no VM service here"; fi
 }
 
+# --------------------------------------------------------------------------------------------------------- --save
+# the data folder as it is now kept as the profile's base (mixed-make.sh: after the default reset, the profile's objects,
+# the pairing and Apply) — the agent stopped for the tar, started again
+if ((save)); then
+    [[ $profile != default ]] || { echo "base: --save keeps a profile's base (--profile <name>); the default one is made by --make" >&2; exit 2; }
+    if ((dry)); then log "would keep $D as the base of profile $profile ($DB)"; exit 0; fi
+    agent_stop
+    [[ -d $DB ]] && mv -- "$DB" "$DB.aside-$STAMP"
+    { mkdir -p "$DB" && chmod 700 "$DB" && tar -C "$D" -cpf "$DB/data.tar.new" . && mv "$DB/data.tar.new" "$DB/data.tar"; } || { warn "the base of $profile could not be kept"; agent_start; exit 1; }
+    cp -p "$CRON" "$DB/cron" 2>/dev/null || : > "$DB/cron"
+    {
+        echo "made=$(date '+%Y-%m-%d %H:%M:%S')"
+        echo "host=$HOST"
+        echo "profile=$profile"
+        echo "office=$(sed -n "s/.*const OFFICE_VERSION = '\([^']*\)'.*/\1/p" "$P/src/bootstrap.php")"
+        echo "engine=$(sed -n 's/^UB_VERSION="\([0-9.]*\)".*/\1/p' "$P/backup/lib/common.sh" | head -1)"
+        echo "unraid=$(sed -n 's/^version="\(.*\)"$/\1/p' /etc/unraid-version)"
+    } > "$DB/manifest"
+    printf '%s\n' "$profile" > "$PROFILE_NOTE"
+    agent_start || warn "no heartbeat after 90 s"
+    log "the base of profile $profile kept in $DB ($(du -sh "$DB/data.tar" | cut -f1))"
+    exit 0
+fi
+
 # ------------------------------------------------------------------------------------------------- 1a. the office down
 step() { echo; log "--- $*"; }
 step "1 the office"
@@ -322,8 +369,10 @@ mounts=$(findmnt -rn -o TARGET | grep -E '^/mnt/addons/UnraidSecretaryOffice/(sn
 for m in $mounts; do act "unmount the engine's leftover mount $m" umount "$m"; done
 [[ -z $mounts ]] && log "no engine mounts left under /mnt/addons/UnraidSecretaryOffice"
 
+# (a profile's data folder set aside under a name of its own: the default reset never carries from it)
+asidename=$D.aside-$STAMP$([[ $was_profile != default ]] && echo "-$was_profile")
 if [[ -d $D ]]; then
-    act "set the data folder aside: $D → $D.aside-$STAMP" mv -- "$D" "$D.aside-$STAMP"
+    act "set the data folder aside: $D → $asidename" mv -- "$D" "$asidename"
 else
     log "no data folder at $D (nothing to set aside)"
 fi
@@ -453,7 +502,7 @@ if [[ -f $DB/data.tar ]] || ((dry && make)); then
     # partner/ with only the door's log, and the pairing was gone)
     for c in $CARRY; do
         dir=${c%%/*}
-        from=$(ls -d "$D".aside-*/"$c" 2>/dev/null | sort -r | head -1)
+        from=$(ls -d "$D".aside-*/"$c" 2>/dev/null | grep -E "\.aside-[0-9]{8}-[0-9]{6}$([[ $profile != default ]] && echo "(-$profile)?")/" | sort -r | head -1)
         from=${from%/"${c#*/}"}
         if [[ -n $from && $c == */* ]]; then
             act "carry $dir over from ${from%/*} (it has $c)" bash -c 'rm -rf -- "$1/$2" && cp -a -- "$3" "$1/$2"' _ "$D" "$dir" "$from"
@@ -488,6 +537,11 @@ if [[ -f $DB/data.tar ]] || ((dry && make)); then
     else
         log "the plugin's cron file is the base's"
     fi
+fi
+
+# the profile the server is on from now (a reboot keeps the note: the profile's VMs stay too)
+if ((!dry)); then
+    if [[ $profile == default ]]; then rm -f "$PROFILE_NOTE"; else printf '%s\n' "$profile" > "$PROFILE_NOTE"; fi
 fi
 
 # ------------------------------------------------------------------------------------------------------- 2. shares
@@ -566,6 +620,18 @@ done
 
 # -------------------------------------------------------------------------------------------------- 4. apps, 5. VMs
 ((make)) || apps_step
+# 5b. a profile's objects (base-mixed.sh): made for it, taken away by the default reset (noted on the flash)
+if ((!make)); then
+    if [[ $profile == default && -s ${MIXED_OBJECTS:-/nonexistent} ]]; then
+        step "5b the mixed profile's objects taken away ($(cut -d' ' -f2 "$MIXED_OBJECTS" | paste -sd' ' -))"
+        if ((dry)); then log "would take away: $(paste -sd' ' "$MIXED_OBJECTS")"
+        else mixed_objects_remove || { warn "the mixed profile's objects are not all gone ($(paste -sd' ' "$MIXED_OBJECTS" 2>/dev/null))"; fails=$((fails + 1)); }; fi
+    elif [[ $profile != default ]] && declare -F "${profile}_objects_ensure" >/dev/null; then
+        step "5b the $profile profile's objects"
+        if ((dry)); then log "would make the $profile profile's objects (base-$profile.sh)"
+        else "${profile}_objects_ensure" || { warn "the $profile profile's objects are not all there"; fails=$((fails + 1)); }; fi
+    fi
+fi
 
 # ------------------------------------------------------------------------------------------------------- 6. Unraid
 step "6 Unraid"
@@ -612,6 +678,10 @@ else
     if pgrep -f "$JOBS" >/dev/null 2>&1; then warn "a job of the office still runs after 5 min: $(pgrep -af "$JOBS" | head -1 | cut -c1-120)"; fails=$((fails + 1))
     elif ((SECONDS - q > 1)); then log "the agent's first jobs done in $((SECONDS - q)) s ($(grep -c 'started via at' "$D/agent.log" 2>/dev/null) started: $(grep 'started via at' "$D/agent.log" 2>/dev/null | tail -1 | cut -c21-140))"
     else log "the office is quiet"; fi
+    # a profile's last steps with the agent at work (Tower's mixed: its running VM, the partner's answer)
+    if [[ $profile != default ]] && declare -F "${profile}_after_agent" >/dev/null; then
+        "${profile}_after_agent" || warn "the $profile profile is not whole (said above)"
+    fi
 fi
 # the base's own checks: the standard set without the page's truth (INV-PAGE, INV-BUBBLE, INV-TRUTH) — a known product
 # finding belongs in the scenarios and must never fail a reset (coordinator, 2026-10-18)
@@ -630,6 +700,7 @@ fi
 # the base's plan: made anew as the setup's tour makes it, its change list (plan-changes.mjs, the Apply dialog's) exactly
 # the base's known one (base/<host>/plan-changes.known) - anything else, or anything missing, and the base is not clean
 known=$BASE/plan-changes.known
+[[ $profile != default && -f $BASE/plan-changes.$profile.known ]] && known=$BASE/plan-changes.$profile.known
 if ((dry)); then
     log "would make Mr. Backupsy's plan anew and compare its change list with $(basename "$BASE")/plan-changes.known"
 elif ! command -v node >/dev/null 2>&1; then

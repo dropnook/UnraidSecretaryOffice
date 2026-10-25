@@ -8,7 +8,10 @@
 #                                         `# run-late:` ones last, base.sh before each), summary.md
 #   bash run-local.sh --list [--all | --desk … | --only …] [--no-nightly]   the scenarios' names, one a line
 #   bash run-local.sh --one name[:arg] [--half pre|post] --out DIR     one scenario (or one half), its result file
-#   bash run-local.sh --base --out DIR                                  base.sh, its time and log noted in DIR/run.info
+#   bash run-local.sh --base [--profile <p>] --out DIR                  base.sh, its time and log noted in DIR/run.info
+#   (--profile <p>, every mode: the base profile for every scenario — base.sh --profile; without it a scenario's
+#   `# base-profile: <p>` line in its first 30 picks it, else the default; list mode resets the base whenever the next
+#   scenario's profile is not the one the server is on: $FLASH/scenarios-profile)
 #   bash run-local.sh --summary DIR                                     DIR/summary.md from DIR/*.result (also on the Mac)
 #
 # A scenario is tools/scenarios/<desk|office>-<…>.sh (desk = a folder of public/desks); one that reboots is two halves
@@ -28,7 +31,7 @@ SC=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 TREE=$(cd "$SC/../.." && pwd)
 LOCK=/tmp/uso-scenarios.lock
 
-mode=list sel=all names='' out='' half='' reset=1 nightly=1 keep=0 tmo=3600 one='' powercut=0
+mode=list sel=all names='' out='' half='' reset=1 nightly=1 keep=0 tmo=3600 one='' powercut=0 profile=''
 while (($#)); do
     case $1 in
         --all) sel=all; shift ;;
@@ -45,7 +48,8 @@ while (($#)); do
         --powercut) powercut=1; shift ;;
         --keep) keep=1; shift ;;
         --timeout) tmo=${2:-3600}; shift 2 ;;
-        -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
+        --profile) profile=${2:-}; shift 2 ;;
+        -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
         *) echo "run-local: unknown argument $1" >&2; exit 2 ;;
     esac
 done
@@ -185,12 +189,21 @@ info() {
 }
 info
 
+# the base profile: a scenario's (--profile for all, else its `# base-profile:` line, else default) and the server's now
+sc_profile() {
+    local f=$SC/$1.sh p
+    [[ -n $profile ]] && { echo "$profile"; return; }
+    [[ -f $f ]] || f=$SC/$1-pre.sh
+    p=$(sed -n '1,30s/^# base-profile: *\([a-z][a-z0-9-]*\).*/\1/p' "$f" 2>/dev/null | head -1)
+    echo "${p:-default}"
+}
+server_profile() { local p; p=$(cat /boot/config/plugins/unraid-secretary-office/scenarios-profile 2>/dev/null); echo "${p:-default}"; }
 base() {
-    local t0=$SECONDS n code
+    local t0=$SECONDS n code p=${1:-${profile:-default}}
     n=$(ls "$out"/base-*.log 2>/dev/null | wc -l)
-    bash "$SC/base.sh" > "$out/base-$((n + 1)).log" 2>&1
+    bash "$SC/base.sh" --profile "$p" > "$out/base-$((n + 1)).log" 2>&1
     code=$?
-    echo "base=$((SECONDS - t0)) s $( ((code == 0)) && echo ok || echo "failed ($code)")" >> "$out/run.info"
+    echo "base=$((SECONDS - t0)) s $( ((code == 0)) && echo ok || echo "failed ($code)")$([[ $p != default ]] && echo " (profile $p)")" >> "$out/run.info"
     echo "base: $( ((code == 0)) && echo ok || echo "FAILED ($code)") in $((SECONDS - t0)) s (log $out/base-$((n + 1)).log)"
     return $code
 }
@@ -285,19 +298,20 @@ fi
 list=$(select_names)
 [[ -n $list ]] || { echo "run-local: no scenario to run" >&2; summary "$out" >/dev/null; exit 2; }
 if ((reset)); then
-    base || { echo "run-local: the base reset failed - no scenario runs on an unknown state" >&2; summary "$out"; exit 1; }
+    base "$(sc_profile "$(sed 's/:.*//' <<<"${list%%[[:space:]]*}")")" || { echo "run-local: the base reset failed - no scenario runs on an unknown state" >&2; summary "$out"; exit 1; }
 fi
 ran=0
 for spec in $list; do
-    if ((reset && ran)) && [[ -n $(late_rank "${spec%%:*}") ]]; then
-        base || { echo "run-local: the base reset before $spec failed - no further scenario runs on an unknown state" >&2; summary "$out"; exit 1; }
+    want=$(sc_profile "${spec%%:*}")
+    if ((reset && ran)) && { [[ -n $(late_rank "${spec%%:*}") ]] || [[ $want != "$(server_profile)" ]]; }; then
+        base "$want" || { echo "run-local: the base reset before $spec failed - no further scenario runs on an unknown state" >&2; summary "$out"; exit 1; }
     fi
     ran=1
     run_one "$spec"
     code=$?
     case $code in
         0|1|2) ;;
-        *) if ((!keep)) && ! base; then
+        *) if ((!keep)) && ! base "$want"; then
                echo "run-local: the base reset after $spec failed - no further scenario runs on an unknown state" >&2
                summary "$out"
                exit 1

@@ -400,6 +400,9 @@ _ck_known_changes() {
     host_is tower && role=tower
     host_is test3 && role=test3
     f=$SC_DIR/base/$role/plan-changes.known
+    # the base profile the server is on (base.sh --profile <name> notes it on the flash): its own list when it has one
+    local pr; pr=$(cat "$OFFICE_FLASH/scenarios-profile" 2>/dev/null)
+    [[ -n $pr && -f $SC_DIR/base/$role/plan-changes.$pr.known ]] && f=$SC_DIR/base/$role/plan-changes.$pr.known
     [[ -f $f ]] && grep -v '^[[:space:]]*#' "$f" | sed '/^[[:space:]]*$/d'
 }
 # values_unknown: diff lines of flat ini values («< key=value» / «> key=value», stdin) without what any Apply writes on this
