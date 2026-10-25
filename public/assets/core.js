@@ -251,34 +251,127 @@ function loggedOut(r) {
 }
 
 // ------------------------------------------------------------------ busy
-// An action that takes more than a moment shows a wave and keeps clicks off the
-// page until it is answered: Unraid's own (div.spinner.fixed, the animated logo
-// every Unraid page has; ours only if a page lacks it). Reads that poll or run
-// beside the page (a log being followed, an estimate) stay quiet.
+// An action that takes more than a moment keeps clicks off the page until it is answered (a clear shield, the wait
+// cursor) and shows the wave where nothing lives (2026-10-25: Unraid's logo and our large wave stood at the window's
+// middle - on Ms. Snapshotini's «Tour, reading them too» it looked like a broken button). The control that started it
+// says it alone when it waves itself (.running .spin); else a slim wave at the first free place of: the open dialog's
+// foot (a dialog open: that place only), the top bar beside the messenger or after the desks' tabs, beside the desk
+// head's actions - free = in the window, inside the office, no control, row or words under it -; none free: a small
+// pill of its own at the window's bottom right corner, above Unraid's footer, the selection bar and the toasts. Never
+// Unraid's centred logo. Reads that poll or run beside the page (a log being followed, an estimate) stay quiet.
 const QUIET = /\.(read|output|log|estimate|detail|measure|where_refresh|where_measure|staff_order|supporter_code|supporter_claim|lang)$/;
-let busyCount = 0, busyTimer = null;
+let busyCount = 0, busyTimer = null, busyPress = null, busyFrom = null, busyFrame = 0;
+const BUSY_W = 26, BUSY_H = 15, BUSY_GAP = 16;
+const BUSY_SOLID = 'button, a, input, select, textarea, summary, label, .row, .chip, .bubble, .callout, .toast, .selbar, '
+  + 'h1, h2, h3, h4, p, li, pre, td, th, img, svg, .spin, .dot';
 function busyEl() {
-  const unraid = document.querySelector('div.spinner.fixed');
-  if (unraid) return unraid;
   let el = $('#sso-busy');
   if (!el) {
     el = Object.assign(document.createElement('div'), { id: 'sso-busy', className: 'busy' });
+    el.setAttribute('aria-hidden', 'true');
     el.appendChild(document.createElement('span'));
-    $('#sso').appendChild(el);
+    ROOT.appendChild(el);
   }
   return el;
 }
+// the control a click pressed last: its action may post a moment later (after a fresh look) - its own wave says it
+if (ROOT && ROOT.addEventListener) {
+  ROOT.addEventListener('click', (e) => {
+    const c = e.target && e.target.closest ? e.target.closest('button, [role=button], a') : null;
+    busyPress = c ? { el: c, text: c.textContent.trim(), at: Date.now() } : null;
+  }, true);
+}
+const busySeen = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth; };
+/** The control that started the action waves itself (drawn anew meanwhile: the running one with its words) */
+function busyOwnWave(from) {
+  if (!from) return false;
+  const c = from.el.isConnected ? from.el : [...ROOT.querySelectorAll('.running')].find((x) => x.textContent.trim() === from.text);
+  const w = c && c.querySelector('.spin');
+  return !!w && busySeen(w);
+}
+/** Where the slim wave may stand ({x, y} of its top left corner, the window's px), best first */
+function busySpots() {
+  const out = [];
+  const beside = (e, side) => {
+    if (!e || !busySeen(e)) return;
+    const r = e.getBoundingClientRect();
+    out.push({ x: side === 'left' ? r.left - BUSY_GAP - BUSY_W : r.right + BUSY_GAP, y: r.top + (r.height - BUSY_H) / 2 });
+  };
+  if (Office.dialogOpen()) {
+    const foot = $('#sso-dialog-foot');
+    if (foot && busySeen(foot)) {
+      const r = foot.getBoundingClientRect();
+      const first = [...foot.children].find(busySeen);
+      const mid = first ? first.getBoundingClientRect() : r;
+      out.push({ x: r.left + (parseFloat(getComputedStyle(foot).paddingLeft) || 0) * (r.width / (foot.offsetWidth || r.width)), y: mid.top + (mid.height - BUSY_H) / 2 });
+    }
+    return out;
+  }
+  beside(ROOT.querySelector('.topbar-right'), 'left');
+  const tabs = [...ROOT.querySelectorAll('.desk-tabs > a')];
+  beside(tabs[tabs.length - 1], 'right');                            // after the desks' tabs (their last row)
+  const acts = [...ROOT.querySelectorAll('#sso-desk .deskhead-actions > *')].filter(busySeen);
+  beside(acts[acts.length - 1], 'right');
+  beside(acts[0], 'left');
+  return out;
+}
+/** Nothing of the page under it (a margin around), in the window and the office's own (not Unraid's bar or footer) */
+function busyFree(s, solids, bottom) {
+  if (s.x < 8 || s.y < 0 || s.x + BUSY_W > document.documentElement.clientWidth - 8 || s.y + BUSY_H > bottom) return false;
+  const hit = document.elementFromPoint(s.x + BUSY_W / 2, s.y + BUSY_H / 2);
+  if (!hit || !ROOT.contains(hit)) return false;
+  return !solids.some((r) => r.left < s.x + BUSY_W + 4 && r.right > s.x - 4 && r.top < s.y + BUSY_H + 4 && r.bottom > s.y - 4);
+}
+/** The wave to its place (when shown, and again while the page scrolls under it) */
+function busyPlace() {
+  busyFrame = 0;
+  const el = busyEl();
+  if (el.style.display !== 'block') return;
+  const wave = el.firstElementChild;
+  wave.hidden = busyOwnWave(busyFrom);
+  if (wave.hidden) return;
+  const sr = el.getBoundingClientRect();
+  const k = el.offsetWidth ? sr.width / el.offsetWidth : 1;          // the text-size switch's zoom
+  const under = (parseFloat(getComputedStyle(ROOT).getPropertyValue('--under')) || 0) * k;
+  let bottom = innerHeight - under - 8;
+  const bars = [ROOT.querySelector('.selbar'), ...ROOT.querySelectorAll('#sso-toasts > *')].filter((x) => x && busySeen(x));
+  bars.forEach((x) => { bottom = Math.min(bottom, x.getBoundingClientRect().top - 8); });
+  el.style.display = 'none';                                          // what lies under it, not itself
+  const scope = Office.dialogOpen() ? $('#sso-dialog') : ROOT;           // a dialog: the page under its backdrop doesn't count
+  const solids = [...scope.querySelectorAll(BUSY_SOLID)].map((x) => x.getBoundingClientRect()).filter((r) => r.width && r.height);
+  const spot = busySpots().find((s) => busyFree(s, solids, bottom));
+  el.style.display = 'block';
+  wave.classList.toggle('busy-corner', !spot);
+  let { x, y } = spot || {};
+  if (!spot) {
+    const r = wave.getBoundingClientRect();
+    x = document.documentElement.clientWidth - 16 - r.width;
+    y = bottom - r.height;
+  }
+  wave.style.left = `${(x - sr.left) / k}px`;
+  wave.style.top = `${(y - sr.top) / k}px`;
+}
+function busyAgain() { if (!busyFrame) busyFrame = requestAnimationFrame(busyPlace); }
 const busyHolds = new Map();   // a desk waiting for work it started in the background -> its safety timer
 function busy(on) {
   if (on === true) busyCount++;
   else if (on === false) busyCount = Math.max(0, busyCount - 1);
   const want = busyCount > 0 || busyHolds.size > 0;
   if (want && !busyTimer) {
-    busyTimer = setTimeout(() => { if (busyCount || busyHolds.size) busyEl().style.display = 'block'; }, 400);
+    busyFrom = busyPress && Date.now() - busyPress.at < 3000 ? busyPress : null;
+    busyTimer = setTimeout(() => {
+      if (!busyCount && !busyHolds.size) return;
+      busyEl().style.display = 'block';
+      busyPlace();
+      window.addEventListener('scroll', busyAgain, true);
+      window.addEventListener('resize', busyAgain);
+    }, 400);
   } else if (!want) {
     clearTimeout(busyTimer);
     busyTimer = null;
     busyEl().style.display = 'none';
+    window.removeEventListener('scroll', busyAgain, true);
+    window.removeEventListener('resize', busyAgain);
   }
 }
 /** Office.busy('backup.setup', true) while a desk waits for a job it started (an apply, a plan);
