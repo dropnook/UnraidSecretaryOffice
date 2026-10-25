@@ -26985,7 +26985,7 @@ function testWhereMoverAdvice(): void
     $mv = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php');
     check('where T17: … because her check wants Unraid\'s schedule off', str_contains($mv, "'unraid_schedule'"));
     check('where T16: a place\'s label counts only what is there (nothing there is never «not backed up»)',
-        str_contains($js, "const counted = items.filter((i) => !i.ram && i.id !== 'docker_image' && i.backup && i.exists !== false);"));
+        str_contains($js, "const counted = items.filter((i) => !i.ram && (i.id !== 'docker_image' || i.volumes > 0) && i.backup && i.exists !== false);"));
 }
 
 /**
