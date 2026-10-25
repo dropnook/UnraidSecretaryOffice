@@ -667,6 +667,50 @@ wait_night() {
     say "joint run: $(jq -c '{mode, result, phase}' "$D/moverelli/night.json")"
 }
 
+# Two lookers for a big file on its way, run in the background each (`mv_look_progress <out> & pid=$!`, ended with
+# `mv_look_stop <pid> …`) and neither waiting for the other (2026-10-25: one loop asking her with a new php each time
+# and then running du saw nothing for up to 6 s while a 4 GiB file moved — the new php waited seconds to start, its pages
+# read back from the flash while the file filled the page cache — and the scenario was red for want of looks). Each
+# line has t0 (look begun) and t (answered).
+#   mv_look_progress <out.jsonl> [pause s]      her progress (the page's ask, one resident php): {t0, t, file, fb} —
+#                                               file/fb null when she didn't answer within 5 s
+#   mv_look_array <out.jsonl> <big glob> <small dir glob> <small name> [stop file …]
+#                                               the big file's bytes on the array (one stat of its blocks: what arrived,
+#                                               never its apparent size — a .partial may be preallocated whole), the
+#                                               small ones over, a stop file there: {t0, t, arrived, small[, stop]};
+#                                               a look that took over 1 s (or a file renamed under it) is null
+mv_look_progress() {
+    local out=$1 pause=${2:-0.1}
+    # one resident asker (ask.php --every): a new php per look waits seconds to start while a big file fills the page cache
+    php "$SC_DIR/ask.php" --wait 5 --raw --every "$pause" moverelli.progress '{}' 2>/dev/null \
+        | jq -c --unbuffered '{t0, t, file: (if .ok then (.state.progress.file // "") else null end),
+                               fb: (if .ok then (.state.progress.file_bytes // null) else null end)}' >>"$out" 2>/dev/null
+}
+mv_look_stop() { local p; for p in "$@"; do pkill -P "$p" 2>/dev/null; kill "$p" 2>/dev/null; done; wait "$@" 2>/dev/null; return 0; }
+mv_look_array() {
+    local out=$1 big=$2 sdir=$3 sname=$4 t0 b s st f rc
+    shift 4
+    local -a stops=("$@") files
+    shopt -s nullglob
+    while :; do
+        t0=$(date +%s.%N)
+        # shellcheck disable=SC2206  # the glob is meant
+        files=($big)
+        if ((${#files[@]})); then b=$(timeout 1 stat -c '%b %B' -- "${files[@]}" 2>/dev/null); rc=$?; else b='0 0'; rc=0; fi
+        if ((rc == 0)); then b=$(awk '{s += $1 * $2} END {printf "%d", s}' <<<"$b"); else b=null; fi
+        # shellcheck disable=SC2206
+        files=($sdir)
+        s=0
+        if ((${#files[@]})); then
+            if s=$(timeout 1 find "${files[@]}" -name "$sname" 2>/dev/null); then s=$(grep -c . <<<"$s"); else s=null; fi
+        fi
+        st=''
+        if ((${#stops[@]})); then st=0; for f in "${stops[@]}"; do [[ -e $f ]] && st=1; done; fi
+        printf '{"t0":%s,"t":%s,"arrived":%s,"small":%s%s}\n' "$t0" "$(date +%s.%N)" "$b" "$s" "${st:+,\"stop\":$st}"
+        sleep 0.1
+    done >>"$out"
+}
+
 _orphans_done() { php "$SC_DIR/ask.php" --wait 30 backup.orphans_get '{}' 2>/dev/null | jq -e '.ok and .orphans != null and .orphans.running == false' >/dev/null; }
 wait_orphans() {
     wait_for "${1:-1800}" "the look at old offsite sources" _orphans_done || return 1
