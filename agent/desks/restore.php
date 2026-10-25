@@ -74,6 +74,7 @@ require_once __DIR__ . '/restore-drill.php';
 // across servers (partner offices, stage 3): «At <partner>», «Bring back from <partner>», a new server's pulls — likewise
 require_once __DIR__ . '/restore-partner.php';
 require_once __DIR__ . '/restore-dataset.php';      // «Make it a dataset of its own…» (1.60.1, asked from Mr. Backupsy's setup)
+require_once __DIR__ . '/restore-paths.php';        // 1.72: every share, one path out of Kopia, Kopia's packages as earlier versions
 
 function rsSizesFile(): string
 {
@@ -137,6 +138,8 @@ desk('restore', [
         'start'      => fn (array $r) => rsStart($r),
         'journal'    => fn (array $r) => rsJournalGet(textField($r, 'id')),
         'kopia_list' => fn (array $r) => rsKopiaList(textField($r, 'source')),
+        'kopia_ls'   => fn (array $r) => rsKopiaLs($r),
+        'versions_kopia' => fn (array $r) => rsVersionsKopia(textField($r, 'kind'), textField($r, 'id')),
         'drill_state' => fn (array $r) => drillState($r),
         'drill_plan'  => fn (array $r) => drillPlan($r),
         'drill_start' => fn (array $r) => drillStart($r),
@@ -1323,6 +1326,7 @@ function rsScan(): array
         'vm_service' => is_dir(RS_LIBVIRT . '/qemu'),
         'pools_asleep' => $ctx['pools_asleep'], // ZFS pools asleep (never asked) => when he last looked at them (null: not since the agent started)
         'shares'   => [],
+        'shares_back' => [],                   // every share that can come back (rsSharesBack) — his «Shares» tile
         'apps'     => [],
         'vms'      => [],
         'server'   => null,
@@ -1338,7 +1342,7 @@ function rsScan(): array
     ];
     if ($place['asleep']) {
         // the backup place's disk sleeps: what was read before
-        foreach (['apps', 'vms', 'server', 'flash', 'run', 'run_time', 'shares'] as $k) {
+        foreach (['apps', 'vms', 'server', 'flash', 'run', 'run_time', 'shares', 'shares_back'] as $k) {
             $state[$k] = $old[$k] ?? $state[$k];
         }
         return rsWrite($state);
@@ -1440,6 +1444,7 @@ function rsScan(): array
         $state['shares'][] = ['name' => '_flash', 'mode' => 'kopia', 'last' => $kopiaLast['flash'] ?? null, 'flash' => true];
     }
     usort($state['shares'], fn ($a, $b) => strnatcasecmp($a['name'], $b['name']));
+    $state['shares_back'] = rsSharesBack($state, $ctx, $settings, $engine, $kopiaLast);
     return rsWrite($state);
 }
 
@@ -1521,15 +1526,17 @@ function rsVersions(string $kind, string $id): array
     return ['ok' => true, 'kind' => $kind, 'id' => $id, 'versions' => rsVersionList($place, $kind, $id, $current['run'])];
 }
 
-/** @return list<array{snap:string, time:int, run:string, run_time:?int, path:string, dumps:list<array>, sqlite:list<array>, files:int}> */
+/** @return list<array{snap:string, time:int, run:string, run_time:?int, path:string, kopia:bool, dumps:list<array>, sqlite:list<array>, files:int}> */
 function rsVersionList(array $place, string $kind, string $id, string $currentRun): array
 {
     $out = [];
     $seen = [$currentRun => true];
-    // a backup place pulled from a partner office is a night's packages too (its mount: rspPlaceSnaps())
-    foreach (array_merge($place['places'], [['snaps' => array_map(fn ($x) => $x + ['partner_path' => true], rspPlaceSnaps())]]) as $p) {
+    // a backup place pulled from a partner office is a night's packages too (its mount: rspPlaceSnaps()); so is a package
+    // Kopia brought back (1.72, rsKopiaPackages(): its folder is the package itself — listed even when the same as another)
+    $kopia = rsKopiaPackages($kind, $id, backupDumpsPath((string) ($place['share'] ?? '')) ?? '');
+    foreach (array_merge($place['places'], [['snaps' => array_map(fn ($x) => $x + ['partner_path' => true], rspPlaceSnaps())]], [['snaps' => $kopia]]) as $p) {
         foreach ($p['snaps'] as $s) {
-            $dir = "{$s['path']}/{$kind}s/$id";
+            $dir = !empty($s['kopia']) ? $s['path'] : "{$s['path']}/{$kind}s/$id";
             $m = is_file("$dir/manifest.json") ? readJson("$dir/manifest.json") : null;
             if (!$m) {
                 continue;
@@ -1537,11 +1544,11 @@ function rsVersionList(array $place, string $kind, string $id, string $currentRu
             $pkg = $kind === 'app' ? rsAppPackage($m, $id, $dir) : rsVmPackage($m, $id, $dir);
             // the same package as a newer state (nothing new was written that night) is listed once
             $key = $pkg['run'] . ':' . implode(',', array_map(fn ($f) => $f['path'] . '@' . $f['run'], $pkg['files']));
-            if (isset($seen[$key])) {
+            if (isset($seen[$key]) && empty($s['kopia'])) {
                 continue;
             }
             $seen[$key] = true;
-            $out[] = ['snap' => $s['id'], 'time' => $s['time'], 'run' => $pkg['run'], 'run_time' => $pkg['time'], 'path' => $dir,
+            $out[] = ['snap' => $s['id'], 'time' => $s['time'], 'run' => $pkg['run'], 'run_time' => $pkg['time'], 'path' => $dir, 'kopia' => !empty($s['kopia']),
                       'dumps' => $kind === 'app' ? array_map(fn ($d) => array_intersect_key($d, array_flip(['file', 'container', 'type', 'bytes', 'time', 'kept'])), $pkg['dumps']) : [],
                       // a media server's database copies: that night's go back together (kind sqlite with this version)
                       'sqlite' => $kind === 'app' ? array_map(fn ($q) => array_intersect_key($q, array_flip(['file', 'container', 'bytes', 'time', 'kept'])), $pkg['sqlite']) : [],
@@ -1751,7 +1758,9 @@ function rsPutbackInfo(array $j): ?array
 /** Can «Put back» undo this restore? Something of it was done and can be undone, and it wasn't put back yet */
 function rsCanPutback(array $j): bool
 {
-    if (in_array($j['kind'] ?? '', ['putback', 'kopia'], true) || !in_array($j['result'] ?? '', ['ok', 'warnings', 'failed', 'interrupted'], true)) {
+    // a Kopia restore replaces nothing — except one path of it swapped in (1.72): that one goes back like step 4's
+    $kopiaAll = ($j['kind'] ?? '') === 'kopia' && (($j['target']['path'] ?? '') === '' || ($j['target']['mode'] ?? '') === 'stage');
+    if (($j['kind'] ?? '') === 'putback' || $kopiaAll || !in_array($j['result'] ?? '', ['ok', 'warnings', 'failed', 'interrupted'], true)) {
         return false;
     }
     if (is_array($j['putback'] ?? null) && !in_array($j['putback']['result'] ?? '', ['refused'], true)) {
@@ -2326,7 +2335,8 @@ function rsPlanFiles(array $r, string $stamp): array
 {
     $path = textField($r, 'path');
     $state = rsScan();
-    $owner = rsUnitOwner($state, $path);
+    // an app's or VM's folder (or a share it binds whole) — else a share of his «Shares» tile, owned by nobody (1.72)
+    $owner = rsUnitOwner($state, $path) ?? rsShareOwner($state, $path);
     if (!$owner) {
         throw new Problem('unknown_target', ['target' => $path]);
     }
@@ -2880,7 +2890,14 @@ function rsKopiaRestored(string $path, array $ctx): array
         if ($host === '' || !rsCleanPath($host)) {
             continue;
         }
-        $cand = str_starts_with($source, '.') ? "$host/$share$sub" : ($source === $share ? "$host$sub" : null);
+        $live = (string) ($r['target']['live'] ?? '');
+        if (($r['target']['path'] ?? '') !== '') {
+            // one path of a snapshot (1.72): a moment of that path and of what lies inside it
+            $want = "/mnt/user/$share$sub";
+            $cand = $live !== '' && under($want, $live) ? $host . substr($want, strlen($live)) : null;
+        } else {
+            $cand = str_starts_with($source, '.') ? "$host/$share$sub" : ($source === $share ? "$host$sub" : null);
+        }
         if ($cand !== null && is_dir($cand)) {
             $time = (int) (readJson(rsDir($r['id']) . '/plan.json')['source']['time'] ?? 0) ?: (int) $r['finished'];
             $out[] = ['id' => 'kopia:' . $r['id'], 'name' => 'Kopia ' . basename($host), 'time' => $time, 'path' => $cand, 'ours' => false, 'kopia' => true];
@@ -4728,8 +4745,17 @@ function rsDoKopia(array &$j, int $i): array
     if (file_exists($s['host']) || is_link($s['host'])) {
         return rsFail('exists', ['path' => $s['host']]);
     }
+    // one path of a snapshot (1.72): into a folder of its own, made here for Kopia's user (a file's folder must be there)
+    if (($s['make'] ?? '') !== '') {
+        if (file_exists($s['make']) || is_link($s['make']) || !rsMkdirs(dirname($s['make'])) || !@mkdir($s['make'], 0750)) {
+            return rsFail('mkdir_failed', ['path' => $s['make']]);
+        }
+        @chown($s['make'], (int) ($s['uid'] ?? 0));
+    }
     $log = rsDir($j['id']) . '/log.txt';
-    $p = proc_open(rsKopiaCmd((string) $s['container'], (int) ($s['uid'] ?? 0), ['snapshot', 'restore', (string) $s['snapshot'], (string) $s['dest']]),
+    $cmd = rsKopiaCmd((string) $s['container'], (int) ($s['uid'] ?? 0), ['snapshot', 'restore', (string) ($s['from'] ?? $s['snapshot']), (string) $s['dest']]);
+    $cmd[0] = $GLOBALS['rs']['docker'] ?? 'docker';           // tests: a stand-in
+    $p = proc_open($cmd,
         [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, '/', rsEnv());
     if (!is_resource($p)) {
         return rsFail('kopia_failed', ['snapshot' => $s['snapshot']]);
@@ -4762,13 +4788,14 @@ function rsDoKopia(array &$j, int $i): array
  */
 function rsKopiaUid(string $container): int
 {
-    [$exit, $out] = houseDocker(['top', $container, '-eo', 'pid,uid,args']);          // a plan's look, in the agent's round (B15)
+    $docker = $GLOBALS['rs']['docker'] ?? 'docker';                                    // tests: a stand-in
+    [$exit, $out] = houseDocker(['top', $container, '-eo', 'pid,uid,args'], HOUSE_DOCKER_WAIT, $docker);     // a plan's look, in the agent's round (B15)
     foreach ($exit === 0 ? explode("\n", $out) : [] as $line) {
         if (preg_match('#^\s*\d+\s+(\d+)\s+(?:\S*/)?kopia\s+server\b#', $line, $m)) {
             return (int) $m[1];
         }
     }
-    [$exit, $out] = houseDocker(['exec', $container, 'sh', '-c', 'stat -c %u "${KOPIA_CONFIG_PATH:-$HOME/.config/kopia/repository.config}"']);
+    [$exit, $out] = houseDocker(['exec', $container, 'sh', '-c', 'stat -c %u "${KOPIA_CONFIG_PATH:-$HOME/.config/kopia/repository.config}"'], HOUSE_DOCKER_WAIT, $docker);
     return $exit === 0 && ctype_digit(trim($out)) ? (int) trim($out) : 0;
 }
 
@@ -4869,9 +4896,13 @@ function rsPlanKopia(array $r, string $stamp): array
 {
     $source = textField($r, 'source');
     $snapshot = textField($r, 'snapshot');
+    $rel = rsKopiaRel($r['path'] ?? '');
     $state = rsScan();
     if (!in_array($source, rsKopiaSources($state), true) || !preg_match('/^[0-9a-f]{16,64}$/D', $snapshot)) {
         throw new Problem('unknown_target', ['target' => "$source $snapshot"]);
+    }
+    if ($rel !== '') {
+        return rsPlanKopiaPath($r, $stamp, $state, $source, $snapshot, $rel);     // one file or folder of it (1.72)
     }
     $k = $state['kopia'];
     $plan = rsPlanBase('kopia', ltrim($source, '.'), ['source' => $source, 'snapshot' => $snapshot]);

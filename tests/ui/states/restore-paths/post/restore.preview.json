@@ -1,0 +1,113 @@
+{
+ "preview": {
+  "kind": "kopia",
+  "what": "Familienfilme/2024 Weihnachten bei Oma",
+  "target": {
+   "source": "Familienfilme",
+   "snapshot": "000000000000000000000000000000a1",
+   "path": "2024 Weihnachten bei Oma",
+   "mode": "copy",
+   "wake": false,
+   "live": "/mnt/user/Familienfilme/2024 Weihnachten bei Oma"
+  },
+  "method": "copy",
+  "steps": [
+   {
+    "do": "kopia",
+    "container": "kopia",
+    "uid": 0,
+    "snapshot": "000000000000000000000000000000a1",
+    "from": "k3f0c1e2d4b5a69788796a5b4c3d2e1f0/2024 Weihnachten bei Oma",
+    "dest": "/uso-restore/Familienfilme-20261009-150000/2024 Weihnachten bei Oma",
+    "host": "/mnt/user/UnraidSecretaryOffice/restore/kopia/Familienfilme-20261009-150000/2024 Weihnachten bei Oma",
+    "make": "/mnt/user/UnraidSecretaryOffice/restore/kopia/Familienfilme-20261009-150000",
+    "source": "/uso/Familienfilme",
+    "path": "2024 Weihnachten bei Oma"
+   },
+   {
+    "do": "copy",
+    "from": "/mnt/user/UnraidSecretaryOffice/restore/kopia/Familienfilme-20261009-150000/2024 Weihnachten bei Oma",
+    "sources": [
+     "/mnt/user/UnraidSecretaryOffice/restore/kopia/Familienfilme-20261009-150000/2024 Weihnachten bei Oma"
+    ],
+    "to": "/mnt/user/Familienfilme/2024 Weihnachten bei Oma.restored-20261009-150000"
+   }
+  ],
+  "blockers": [],
+  "notes": [
+   {
+    "key": "note.kopia_path",
+    "params": {
+     "path": "2024 Weihnachten bei Oma",
+     "when": 1791540274
+    }
+   },
+   {
+    "key": "note.files_place",
+    "params": {
+     "path": "/mnt/user/Familienfilme",
+     "primary": "big",
+     "secondary": ""
+    }
+   },
+   {
+    "key": "note.kopia_twice",
+    "params": {
+     "path": "/mnt/user/UnraidSecretaryOffice/restore/kopia/Familienfilme-20261009-150000"
+    }
+   },
+   {
+    "key": "note.files_copy",
+    "params": {}
+   }
+  ],
+  "after": [
+   {
+    "key": "after.files_copy",
+    "params": {
+     "path": "/mnt/user/Familienfilme/2024 Weihnachten bei Oma.restored-20261009-150000"
+    }
+   },
+   {
+    "key": "after.kopia_left",
+    "params": {
+     "path": "/mnt/user/UnraidSecretaryOffice/restore/kopia/Familienfilme-20261009-150000"
+    }
+   }
+  ],
+  "aside": [],
+  "stops": [],
+  "downtime": null,
+  "sizes": {
+   "need": 21900000000,
+   "free": 2800000000000,
+   "measuring": false,
+   "what": "kopia",
+   "stage_free": 2800000000000
+  },
+  "options": {
+   "way": [
+    "copy",
+    "swap",
+    "stage"
+   ],
+   "live": "/mnt/user/Familienfilme/2024 Weihnachten bei Oma",
+   "kind": "dir",
+   "nothing_live": false,
+   "asleep": [],
+   "woken": [],
+   "split": false
+  },
+  "putback_pre": [],
+  "putback_post": [],
+  "putback_of": null,
+  "source": {
+   "path": "/uso/Familienfilme/2024 Weihnachten bei Oma",
+   "time": 1791540274,
+   "bytes": 21900000000,
+   "files": 188
+  },
+  "stamp": "20261009-150000",
+  "token": "0000000000000000000000000000000000000000"
+ }
+}

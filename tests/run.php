@@ -14308,6 +14308,321 @@ function testRestoreShares(): void
 }
 
 /**
+ * Mr. Restori's ways back of 1.72 (the restore matrix of 2026-10, gaps 1, 3 and 5), in a temporary folder with a
+ * stand-in Kopia (a docker script answering `top`, `snapshot list`, `show <root>/<path>` and `snapshot restore`):
+ * every share a row of his «Shares» tile (not the office's share or the backup place; its snapshots, Kopia source,
+ * units at partners, who uses it), a share no app uses restored whole (what is there aside first) or a folder of it;
+ * a path inside a Kopia source — its validator, where it lies on the server (a share split over its parts; an own
+ * source; the office's share only staged), one folder listed, one file copied beside, one folder swapped in (the
+ * live one aside), a package fetched alone and offered as an earlier version, Kopia's packages as versions to fetch.
+ */
+function testRestorePaths(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-rspaths-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $mnt = "$tmp/mnt";
+    $K = "$tmp/kopia";
+    @mkdir("$tmp/data/unraid-backup/state", 0700, true);
+    @mkdir("$K/data", 0700, true);
+    @mkdir("$tmp/restore", 0755, true);
+    $saved = $GLOBALS['rs'];
+    $GLOBALS['rs']['data'] = "$tmp/data/restore";
+    $GLOBALS['rs']['job_file'] = "$tmp/data/restore-job.json";
+    $GLOBALS['rs']['ub_data'] = "$tmp/data/unraid-backup";
+    $GLOBALS['rs']['sizes_file'] = "$tmp/data/restore-sizes.json";
+    $GLOBALS['rs']['users'] = fn (array $paths, array $roots): array => [[], []];
+    $GLOBALS['rs']['open'] = fn (array $paths): array => [];
+    $GLOBALS['rs']['vm_disks'] = fn (): array => [];
+    $key = function (callable $f): string {
+        try {
+            $f();
+            return 'answered';
+        } catch (Problem $p) {
+            return $p->key;
+        }
+    };
+    $put = function (string $file, ?string $text = null): void {
+        @mkdir($text === null ? $file : dirname($file), 0755, true);
+        if ($text !== null) {
+            file_put_contents($file, $text);
+        }
+    };
+    $settings = ['general' => ['dumps_share' => ['UnraidSecretaryOffice']], 'share|zzdocs' => ['mode' => ['kopia']], 'share|zzgone' => ['mode' => ['snapshot']]];
+
+    // ---- a path inside a Kopia source: read, never cast; where it lies on the server
+    same('restore paths: a path in a source as the page sends it — relative, every part a name', ['', 'Verträge/2024 neu.pdf', 'a'],
+        [rsKopiaRel(''), rsKopiaRel('/Verträge/2024 neu.pdf/'), rsKopiaRel('a')]);
+    same('restore paths: never .., an empty part, a control character or another type', ['unknown_target', 'unknown_target', 'unknown_target', 'unknown_target', 'bad_request'],
+        [$key(fn () => rsKopiaRel('a/../b')), $key(fn () => rsKopiaRel('a//b')), $key(fn () => rsKopiaRel("a\nb")), $key(fn () => rsKopiaRel(str_repeat('x', 256))), $key(fn () => rsKopiaRel(['a']))]);
+    same('restore paths: where a path of a source lies — a share\'s, a split share\'s (its part dropped), an own source\'s',
+        ['/mnt/user/zzdocs/Verträge/2024.pdf', '/mnt/user/zzdocs/Verträge', '/mnt/user/appdata/nc/config.php'],
+        [rsKopiaLive('zzdocs', 'Verträge/2024.pdf', false, $settings), rsKopiaLive('zzdocs', 'hazel/Verträge', true, $settings), rsKopiaLive('.apps/nc', 'appdata/nc/config.php', false, $settings)]);
+    same('restore paths: only staged — a share\'s part, the top of an own source, the office\'s share, the backup place; never a .. (read before already)', [null, null, null, null, null],
+        [rsKopiaLive('zzdocs', 'hazel', true, $settings), rsKopiaLive('.apps/nc', 'appdata', false, $settings), rsKopiaLive('.apps/nc', 'UnraidSecretaryOffice/backup/apps/nc', false, $settings),
+         rsKopiaLive('UnraidSecretaryOffice', 'backup/apps/nc', false, $settings), rsKopiaLive('.apps/nc', '../etc/x', false, $settings)]);
+    same('restore paths: a package in a source — its own (the backup place as <share>/<folder>), the backup place\'s share, no place', ['UnraidSecretaryOffice/backup/apps/nc', 'backup/vms/win', null],
+        [rsKopiaPackageRel('.apps/nc', '/mnt/user/UnraidSecretaryOffice/backup', 'app', 'nc'), rsKopiaPackageRel('UnraidSecretaryOffice', '/mnt/user/UnraidSecretaryOffice/backup', 'vm', 'win'),
+         rsKopiaPackageRel('.apps/nc', '', 'app', 'nc')]);
+
+    // ---- the server: pool hazel (ZFS) with zzdocs (no app uses it), zzwhole (an app binds it whole), appdata; zzgone missing
+    $put("$mnt/hazel/zzdocs/Verträge/2024.pdf", 'live pdf');
+    $put("$mnt/hazel/zzdocs/Fotos/a.jpg", 'live a');
+    $put("$mnt/hazel/zzdocs/.zfs/snapshot/manual-1/Verträge/2024.pdf", 'old pdf');
+    $put("$mnt/hazel/zzdocs/.zfs/snapshot/manual-1/Fotos/a.jpg", 'old a');
+    $put("$mnt/hazel/zzwhole/x", 'x');
+    $put("$mnt/hazel/appdata/nc/config.php", 'cfg');
+    $put("$mnt/hazel/UnraidSecretaryOffice/backup");
+    $put("$mnt/user");
+    foreach (['zzdocs', 'zzwhole', 'appdata', 'UnraidSecretaryOffice'] as $s) {
+        symlink("$mnt/hazel/$s", "$mnt/user/$s");
+    }
+    $T1 = (int) strtotime('2026-10-20 01:00');
+    $only = ['shareUseCache' => 'only', 'shareCachePool' => 'hazel'];
+    $ctx = [
+        'fs' => ['hazel' => 'zfs'], 'zfs' => ["$mnt/hazel/zzdocs" => 'hazel/zzdocs', "$mnt/hazel/zzwhole" => 'hazel/zzwhole', "$mnt/hazel/appdata" => 'hazel/appdata'],
+        'snaps' => ['hazel/zzdocs' => [['name' => 'manual-1', 'time' => $T1]]], 'zfs_kept' => [], 'pools_asleep' => [],
+        'asleep' => [], 'prefixes' => ['uso-backup-'], 'btrfs_dir' => '.btrfs-snap', 'settings' => $settings,
+        'cfg' => ['zzdocs' => $only, 'zzwhole' => $only, 'appdata' => $only, 'zzgone' => [], 'UnraidSecretaryOffice' => $only],
+        'mnt' => $mnt, 'user' => "$mnt/user", 'disks' => ['hazel' => ['name' => 'hazel', 'fsFree' => '1000000']],
+        'shares_ini' => ['zzdocs' => ['exclusive' => 'yes'], 'zzwhole' => ['exclusive' => 'yes'], 'appdata' => ['exclusive' => 'yes'], 'UnraidSecretaryOffice' => ['exclusive' => 'yes']],
+        'old_shares' => null, 'now' => [],
+    ];
+    $state = ['apps' => [['id' => 'nc', 'name' => 'nc', 'folders' => [['path' => '/mnt/user/appdata/nc', 'share' => 'appdata', 'whole' => false]],
+                          'shares' => [['path' => '/mnt/user/zzwhole', 'share' => 'zzwhole', 'whole' => true]],
+                          'kopia' => [['source' => '.apps/nc', 'own' => true, 'covers' => 'all', 'last' => $T1]]]],
+              'vms' => [], 'partners' => [['id' => 'a1b2c3d4', 'name' => 'PartnerNAS', 'units' => [['unit' => 'share:zzdocs', 'snaps' => [['name' => 'uso-backup-20261019-0100', 'creation' => $T1 - 86400]], 'newest' => $T1 - 86400]]]]];
+
+    // ---- his «Shares» tile: every share, not the office's own or the backup place
+    $c = $ctx;
+    $rows = array_column(rsSharesBack($state, $c, $settings, ['kopia' => true], ['zzdocs' => $T1]), null, 'name');
+    same('restore paths: every share — also one no app uses or one only the engine knows — never the office\'s own share',
+        ['appdata', 'zzdocs', 'zzgone', 'zzwhole'], array_keys($rows));
+    $d = $rows['zzdocs'] ?? [];
+    same('restore paths: a share no app uses — there, its snapshots, its Kopia source, its copy at the partner, nobody using it',
+        ['data', 1, ['source' => 'zzdocs', 'last' => $T1], ['PartnerNAS'], [], []],
+        [$d['state'] ?? null, $d['snaps'] ?? null, $d['kopia'] ?? null, array_column($d['at_partner'] ?? [], 'name'), $d['whole_of'] ?? null, $d['folders_of'] ?? null]);
+    same('restore paths: who uses a share — bound whole, a folder in it; one the engine knows but isn\'t here is missing',
+        [['nc'], ['nc'], 'missing', false, null], [$rows['zzwhole']['whole_of'] ?? null, $rows['appdata']['folders_of'] ?? null, $rows['zzgone']['state'] ?? null,
+         $rows['zzgone']['exists'] ?? null, $rows['zzgone']['kopia'] ?? null]);
+    $state['shares_back'] = array_values($rows);
+    same('restore paths: the owner of a share\'s restore — the share itself, the share or an entry at its top, only a share of the list',
+        [['kind' => 'share', 'name' => 'zzdocs', 'id' => 'zzdocs', 'vm_state' => null, 'nextcloud' => []], 'zzdocs', null, null],
+        [rsShareOwner($state, '/mnt/user/zzdocs'), rsShareOwner($state, '/mnt/user/zzdocs/Fotos')['id'] ?? null, rsShareOwner($state, '/mnt/user/zzdocs/Fotos/a.jpg'),
+         rsShareOwner($state, '/mnt/user/nothere')]);
+
+    // ---- the whole share back from its local snapshot: what is there aside first, put back restores it
+    $stamp = '20261025-100000';
+    $c = $ctx;
+    $p = rsPlanFilesFor('/mnt/user/zzdocs', '', 'swap', false, rsShareOwner($state, '/mnt/user/zzdocs'), $stamp, $c);
+    same('restore paths: the whole share — every entry swapped, each aside first, owned by the share', [[], 'share', ['Fotos', 'Verträge'],
+            ["$mnt/user/zzdocs/Fotos" => "$mnt/user/zzdocs/Fotos.aside-$stamp", "$mnt/user/zzdocs/Verträge" => "$mnt/user/zzdocs/Verträge.aside-$stamp"]],
+        [array_column($p['blockers'], 'key'), $p['target']['owner'], $p['target']['items'], array_column($p['aside'], 'to', 'from')]);
+    $id = "$stamp-aa11";
+    rsPrivateDir(rsData());
+    rsPrivateDir(rsDir($id));
+    $p['stamp'] = $stamp;
+    $j = rsJournalNew($id, $p);
+    $states = [];
+    foreach (array_keys($j['steps']) as $i) {
+        $j['steps'][$i] = array_merge($j['steps'][$i], rsStep($j, $i));
+        $states[] = $j['steps'][$i]['state'];
+    }
+    clearstatcache();
+    same('restore paths: the share as it was, what was there aside', [array_fill(0, count($states), 'ok'), 'old pdf', 'old a', 'live pdf'],
+        [$states, @file_get_contents("$mnt/hazel/zzdocs/Verträge/2024.pdf"), @file_get_contents("$mnt/hazel/zzdocs/Fotos/a.jpg"),
+         @file_get_contents("$mnt/hazel/zzdocs/Verträge.aside-$stamp/2024.pdf")]);
+    $j['result'] = 'ok';
+    writeAtomic(rsDir($id) . '/plan.json', jsonEncode($p), 0600, 0, 0);
+    rsJournalWrite($j);
+    $back = rsPlanSeal(rsPlanPutback(['id' => $id], '20261025-101000'), '20261025-101000');
+    $pb = rsJournalNew('20261025-101000-bb22', $back);
+    rsPrivateDir(rsDir($pb['id']));
+    foreach (array_keys($pb['steps']) as $i) {
+        $pb['steps'][$i] = array_merge($pb['steps'][$i], rsStep($pb, $i));
+    }
+    clearstatcache();
+    same('restore paths: put back — the share as before', ['live pdf', 'live a', 'old pdf'],
+        [@file_get_contents("$mnt/hazel/zzdocs/Verträge/2024.pdf"), @file_get_contents("$mnt/hazel/zzdocs/Fotos/a.jpg"),
+         @file_get_contents("$mnt/hazel/zzdocs/Verträge.putback-20261025-101000/2024.pdf")]);
+    $c = $ctx;
+    $q = rsPlanFilesFor('/mnt/user/zzdocs', 'name:manual-1', '', false, rsShareOwner($state, '/mnt/user/zzdocs'), '20261025-102000', $c, ['Fotos']);
+    same('restore paths: a folder of it — only that one, next to it (data is there)', [[], ['Fotos'], 'copy', ["$mnt/user/zzdocs/Fotos.restored-20261025-102000"]],
+        [array_column($q['blockers'], 'key'), $q['target']['items'], $q['target']['mode'], array_column($q['steps'], 'to')]);
+
+    // ---- Kopia, a stand-in: the snapshot list, directory objects by <root>/<path>, a restore copies the fixture's file
+    $o = fn (string $n) => 'k' . md5($n);
+    $root = $o('root');
+    $snapId = str_repeat('a', 32);
+    $dock = "$tmp/docker";
+    file_put_contents($dock, "#!/bin/sh\n" . 'echo "$*" >>' . escapeshellarg("$tmp/docker.log") . "\n" . 'K=' . escapeshellarg($K) . "\n"
+        . 'for a in "$@"; do last="$a"; done' . "\n"
+        . 'case "$1" in' . "\n"
+        . '  top) echo "PID UID COMMAND"; echo "4242 0 kopia server start --address=0.0.0.0:51515" ;;' . "\n"
+        . '  exec) prev=""; show=""; list=""; rest=""; for a in "$@"; do [ "$prev" = show ] && show="$a"; [ "$prev" = list ] && list=1; [ "$prev" = restore ] && rest="$a"; prev="$a"; done' . "\n"
+        . '        if [ -n "$show" ]; then f="$K/$(printf %s "$show" | tr / _)"; [ -f "$f" ] || { echo "entry not found" >&2; exit 1; }; cat "$f"' . "\n"
+        . '        elif [ -n "$rest" ]; then s="$K/data/$(printf %s "$rest" | tr / _)"; [ -e "$s" ] || exit 1; cp -a "$s" "$last"' . "\n"
+        . '        elif [ -n "$list" ]; then cat "$K/list.json"; fi ;;' . "\n"
+        . "esac\nexit 0\n");
+    chmod($dock, 0755);
+    $GLOBALS['rs']['docker'] = $dock;
+    $dir = fn (array $entries) => json_encode(['stream' => 'kopia:directory', 'entries' => $entries]);
+    $dent = fn (string $name, int $size, int $files) => ['name' => $name, 'type' => 'd', 'obj' => $o($name), 'mtime' => '2026-10-19T23:00:00Z', 'summ' => ['size' => $size, 'files' => $files]];
+    $fent = fn (string $name, int $size) => ['name' => $name, 'type' => 'f', 'obj' => md5("f$name"), 'size' => $size, 'mtime' => '2026-10-18T10:00:00Z'];
+    file_put_contents("$K/$root", $dir([$dent('Verträge', 9, 1), $dent('Fotos', 8, 1), ['name' => 'link', 'type' => 's', 'obj' => md5('l')], ['name' => '../x', 'type' => 'f', 'obj' => md5('x')]]));
+    file_put_contents("$K/{$root}_Verträge", $dir([$fent('2024.pdf', 9)]));
+    file_put_contents("$K/{$root}_Fotos", $dir([$fent('a.jpg', 8)]));
+    $put("$K/data/{$root}_Verträge_2024.pdf", 'kopia pdf');
+    $put("$K/data/{$root}_Fotos/a.jpg", 'kopia a');
+    file_put_contents("$K/list.json", json_encode([
+        ['id' => $snapId, 'startTime' => '2026-10-20T00:10:00Z', 'description' => 'uso-backup 20261020-0100', 'incompleteReason' => '',
+         'rootEntry' => ['obj' => $root, 'summ' => ['size' => 17, 'files' => 2, 'dirs' => 2, 'numFailed' => 0]]],
+        ['id' => str_repeat('b', 32), 'startTime' => '2026-10-19T00:10:00Z', 'description' => 'uso-backup 20261019-0100', 'incompleteReason' => '',
+         'rootEntry' => ['obj' => $root, 'summ' => ['size' => 17, 'files' => 2, 'dirs' => 2, 'numFailed' => 0]]]]));
+    $kstate = $state + ['kopia' => ['enabled' => true, 'container' => 'kopia', 'running' => true, 'root' => '/uso', 'restore' => ['source' => "$tmp/restore", 'dest' => "$tmp/restore"]],
+                        'shares' => [['name' => 'zzdocs', 'mode' => 'kopia', 'last' => $T1], ['name' => 'UnraidSecretaryOffice', 'mode' => 'kopia', 'last' => $T1]],
+                        'place' => ['share' => 'UnraidSecretaryOffice']];
+    $GLOBALS['rs']['state'] = $kstate;
+    $GLOBALS['rs']['ctx'] = $ctx;
+    $GLOBALS['rs']['settings'] = $settings;
+
+    // one folder at a time: its entries (only files and folders in Kopia's shape), sizes, where it lies here
+    $ls = rsKopiaLs(['source' => 'zzdocs', 'snapshot' => $snapId, 'path' => '']);
+    same('restore paths: Kopia\'s top of a share — its folders by name, sizes and counts from Kopia\'s summary, a link or an odd name left out, not split',
+        [[['Fotos', 'd', 8, 1, true], ['Verträge', 'd', 9, 1, true]], false, null, 0],
+        [array_map(fn ($e) => [$e['name'], $e['type'], $e['bytes'], $e['files'], $e['live']], $ls['entries']), $ls['split'], $ls['live'], $ls['more']]);
+    $ls = rsKopiaLs(['source' => 'zzdocs', 'snapshot' => $snapId, 'path' => 'Verträge']);
+    same('restore paths: one level down — a file with its size, where the folder lies on the server', [[['2024.pdf', 'f', 9]], '/mnt/user/zzdocs/Verträge'],
+        [array_map(fn ($e) => [$e['name'], $e['type'], $e['bytes']], $ls['entries']), $ls['live']]);
+    check('restore paths: Kopia walks the path itself — one `show <root>/<path>`, as Kopia\'s own user', str_contains((string) file_get_contents("$tmp/docker.log"), "exec -u 0 kopia kopia show $root/Verträge"));
+    same('restore paths: a folder Kopia hasn\'t, a snapshot that isn\'t this source\'s, a source not offered', ['restore_kopia_not_in', 'unknown_target', 'unknown_target'],
+        [$key(fn () => rsKopiaLs(['source' => 'zzdocs', 'snapshot' => $snapId, 'path' => 'nope'])), $key(fn () => rsKopiaLs(['source' => 'zzdocs', 'snapshot' => str_repeat('c', 32), 'path' => ''])),
+         $key(fn () => rsKopiaLs(['source' => 'zzwhole', 'snapshot' => $snapId, 'path' => '']))]);
+
+    // one file next to the original: Kopia restores just it into a folder of its own, then the copy beside
+    $stamp = '20261025-110000';
+    $p = rsPlanKopiaPath(['mode' => ''], $stamp, $kstate, 'zzdocs', $snapId, 'Verträge/2024.pdf');
+    same('restore paths: one file — something is there, so beside it by default; Kopia first into a folder of its own, then the copy',
+        [[], 'copy', ['kopia', 'copy'], "$root/Verträge/2024.pdf", "$tmp/restore/zzdocs-$stamp", "$mnt/user/zzdocs/Verträge/2024.pdf.restored-$stamp", true, '/mnt/user/zzdocs/Verträge/2024.pdf'],
+        [array_column($p['blockers'], 'key'), $p['target']['mode'], array_column($p['steps'], 'do'), $p['steps'][0]['from'] ?? null, $p['steps'][0]['make'] ?? null,
+         $p['steps'][1]['to'] ?? null, $p['steps'][1]['file'] ?? null, $p['target']['live']]);
+    same('restore paths: the ways offered, its size from Kopia, said that it lands twice', [['copy', 'swap', 'stage'], 9, true],
+        [$p['options']['way'], $p['sizes']['need'], in_array('note.kopia_twice', array_column($p['notes'], 'key'), true)]);
+    $id = "$stamp-cc33";
+    rsPrivateDir(rsDir($id));
+    $p['stamp'] = $stamp;
+    $j = rsJournalNew($id, $p);
+    $states = [];
+    foreach (array_keys($j['steps']) as $i) {
+        $j['steps'][$i] = array_merge($j['steps'][$i], rsStep($j, $i));
+        $states[] = $j['steps'][$i]['state'];
+    }
+    clearstatcache();
+    same('restore paths: the file from Kopia beside the original, the original untouched', [['ok', 'ok'], 'kopia pdf', 'live pdf', 'kopia pdf'],
+        [$states, @file_get_contents("$mnt/hazel/zzdocs/Verträge/2024.pdf.restored-$stamp"), @file_get_contents("$mnt/hazel/zzdocs/Verträge/2024.pdf"),
+         @file_get_contents("$tmp/restore/zzdocs-$stamp/2024.pdf")]);
+    same('restore paths: never over what Kopia restored before', ['restore_exists', 'restore_exists'],
+        array_column(rsPlanKopiaPath(['mode' => 'copy'], $stamp, $kstate, 'zzdocs', $snapId, 'Verträge/2024.pdf')['blockers'], 'key'));
+
+    // one folder swapped in: the copy first, then the live folder aside, the copy in its place — and a moment of it after
+    $stamp = '20261025-120000';
+    $p = rsPlanKopiaPath(['mode' => 'swap'], $stamp, $kstate, 'zzdocs', $snapId, 'Fotos');
+    same('restore paths: one folder swapped — copied beside, then aside and in place', [[], ['kopia', 'copy', 'not_open', 'aside', 'move'],
+            [['what' => 'folder', 'from' => "$mnt/user/zzdocs/Fotos", 'to' => "$mnt/user/zzdocs/Fotos.aside-$stamp"]]],
+        [array_column($p['blockers'], 'key'), array_column($p['steps'], 'do'), $p['aside']]);
+    $id = "$stamp-dd44";
+    rsPrivateDir(rsDir($id));
+    $p['stamp'] = $stamp;
+    $j = rsJournalNew($id, $p);
+    $states = [];
+    foreach (array_keys($j['steps']) as $i) {
+        $j['steps'][$i] = array_merge($j['steps'][$i], rsStep($j, $i));
+        $states[] = $j['steps'][$i]['state'];
+    }
+    clearstatcache();
+    same('restore paths: Kopia\'s folder in place, the live one aside', [array_fill(0, 5, 'ok'), 'kopia a', 'live a'],
+        [$states, @file_get_contents("$mnt/hazel/zzdocs/Fotos/a.jpg"), @file_get_contents("$mnt/hazel/zzdocs/Fotos.aside-$stamp/a.jpg")]);
+    $j['result'] = 'ok';
+    $j['finished'] = time();
+    writeAtomic(rsDir($id) . '/plan.json', jsonEncode($p), 0600, 0, 0);
+    rsJournalWrite($j);
+    $back = rsPlanSeal(rsPlanPutback(['id' => $id], '20261025-121000'), '20261025-121000');
+    same('restore paths: a path swapped in from Kopia can be put back — the copy aside, the old one back', [true, [], ['aside', 'move']],
+        [rsCanPutback(rsJournal($id)), $back['blockers'], array_column($back['steps'], 'do')]);
+    $m = rsKopiaRestored('/mnt/user/zzdocs/Fotos', $ctx);
+    same('restore paths: what Kopia brought back of one path is a moment of it (and of nothing else)', [["kopia:$id", "$tmp/restore/zzdocs-$stamp/Fotos"], []],
+        [array_map(fn ($x) => [$x['id'], $x['path']], $m)[0] ?? null, rsKopiaRestored('/mnt/user/zzdocs/Verträge', $ctx)]);
+
+    // a share's sleeping pool: through /mnt/user only with «wake»; a missing share: never made here
+    $c = $ctx;
+    $c['asleep'] = ['hazel' => true];
+    $GLOBALS['rs']['ctx'] = $c;
+    $p = rsPlanKopiaPath(['mode' => 'copy'], '20261025-130000', $kstate, 'zzdocs', $snapId, 'Fotos');
+    same('restore paths: the share\'s pool asleep — «wake», never read unasked', [['restore_asleep'], ['hazel']], [array_column($p['blockers'], 'key'), $p['options']['asleep']]);
+    $GLOBALS['rs']['ctx'] = $ctx;
+    rename("$mnt/hazel/zzdocs", "$tmp/zzdocs-away");
+    unset($GLOBALS['rs']['ctx']['shares_ini']['zzdocs']);
+    $p = rsPlanKopiaPath(['mode' => 'copy'], '20261025-130000', $kstate, 'zzdocs', $snapId, 'Fotos');
+    same('restore paths: a share that isn\'t here — refused, made by the user', ['restore_share_missing'], array_column($p['blockers'], 'key'));
+    rename("$tmp/zzdocs-away", "$mnt/hazel/zzdocs");
+    $GLOBALS['rs']['ctx'] = $ctx;
+
+    // ---- a package from Kopia: the app's own source, staged only; then an earlier version like a local one
+    $pkgObj = $o('pkg');
+    $own = $o('own');
+    file_put_contents("$K/$own", $dir([$dent('UnraidSecretaryOffice', 5, 2), $dent('appdata', 3, 1)]));
+    file_put_contents("$K/{$own}_UnraidSecretaryOffice_backup_apps", $dir([$dent('nc', 5, 2)]));
+    $man = json_encode(['run' => '20261019-0100', 'app' => 'nc', 'containers' => [], 'files' => [['path' => 'my-nc.xml', 'bytes' => 5, 'run' => '20261019-0100', 'what' => 'template']]]);
+    $put("$K/data/{$own}_UnraidSecretaryOffice_backup_apps_nc/manifest.json", $man);
+    $put("$K/data/{$own}_UnraidSecretaryOffice_backup_apps_nc/my-nc.xml", '<xml>');
+    file_put_contents("$K/list.json", json_encode([
+        ['id' => str_repeat('d', 32), 'startTime' => '2026-10-19T00:10:00Z', 'description' => 'uso-backup 20261019-0100', 'incompleteReason' => '', 'rootEntry' => ['obj' => $own, 'summ' => ['size' => 8]]],
+        ['id' => str_repeat('e', 32), 'startTime' => '2026-10-18T00:10:00Z', 'description' => 'uso-backup 20261018-0100', 'incompleteReason' => '', 'rootEntry' => ['obj' => $own, 'summ' => ['size' => 8]]],
+        ['id' => str_repeat('f', 32), 'startTime' => '2026-10-17T00:10:00Z', 'description' => 'x', 'incompleteReason' => 'checkpoint', 'rootEntry' => ['obj' => $pkgObj, 'summ' => ['size' => 8]]]]));
+    $v = rsVersionsKopia('app', 'nc');
+    same('restore paths: Kopia\'s packages of an app — its own source, the same root once, never an incomplete snapshot, the package\'s path in it',
+        [[['.apps/nc', str_repeat('d', 32), 'UnraidSecretaryOffice/backup/apps/nc', '20261019-0100', true]]],
+        [array_map(fn ($x) => [$x['source'], $x['snapshot'], $x['path'], $x['run'], $x['own']], $v['versions'])]);
+    $stamp = '20261025-140000';
+    $p = rsPlanKopiaPath(['mode' => 'swap'], $stamp, $kstate, '.apps/nc', str_repeat('d', 32), 'UnraidSecretaryOffice/backup/apps/nc');
+    same('restore paths: a package only into the restore folder (the backup place is never written into from Kopia)', [[], 'stage', ['stage'], ['kopia'], null, 'after.kopia_stage'],
+        [array_column($p['blockers'], 'key'), $p['target']['mode'], $p['options']['way'], array_column($p['steps'], 'do'), $p['target']['live'], $p['after'][0]['key'] ?? null]);
+    $id = "$stamp-ee55";
+    rsPrivateDir(rsDir($id));
+    $p['stamp'] = $stamp;
+    $j = rsJournalNew($id, $p);
+    $j['steps'][0] = array_merge($j['steps'][0], rsStep($j, 0));
+    $j['result'] = 'ok';
+    $j['finished'] = time();
+    writeAtomic(rsDir($id) . '/plan.json', jsonEncode($p), 0600, 0, 0);
+    rsJournalWrite($j);
+    same('restore paths: what was only staged has nothing to put back', false, rsCanPutback(rsJournal($id)));
+    $list = rsVersionList(['places' => [], 'share' => 'UnraidSecretaryOffice'], 'app', 'nc', '');
+    same('restore paths: the package Kopia brought back is an earlier version — marked, its folder the package itself',
+        [["kopia:$id", true, "$tmp/restore/apps_nc-$stamp/nc", '20261019-0100', 1]],
+        array_map(fn ($x) => [$x['snap'], $x['kopia'], $x['path'], $x['run'], $x['files']], $list));
+    same('restore paths: … and found again by its id for the restore', "$tmp/restore/apps_nc-$stamp/nc",
+        rsPlanVersion(['version' => "kopia:$id"], ['places' => [], 'share' => 'UnraidSecretaryOffice'], 'app', ['id' => 'nc', 'run' => ''])[1]['path'] ?? null);
+
+    // ---- the page: the tile and section, Kopia's browse, the versions
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/restore/desk.js');
+    check('restore paths (page): a «Shares» tile and section with its bar, places and rows; the whole share or folders of it; Kopia from the row; a partner\'s pull from the row',
+        str_contains($js, "const SECTIONS = ['apps', 'vms', 'shares',") && str_contains($js, "barRows(s, 'shares', list,") && str_contains($js, "['shares', 'shares']")
+        && str_contains($js, "{ kind: 'files', path: x.path, mode: 'swap' }") && str_contains($js, "{ kind: 'files', path: x.path, items: [] }")
+        && str_contains($js, 'kopiaDialog(x.kopia.source,') && str_contains($js, "{ kind: 'partner', pair: c.id, unit: c.unit, snap: newest.name }")
+        && str_contains($js, "anchor: 'share:' + x.name"));
+    check('restore paths (page): Kopia browsed one folder per request, each entry its own «Restore…», the ways in the preview; versions from Kopia fetched first',
+        str_contains($js, "Office.api.post(`\${ID}.kopia_ls`, { source, snapshot: s.id, path: rel })") && str_contains($js, "restoreDialog({ kind: 'kopia', source, snapshot: s.id, path: sub }")
+        && str_contains($js, "if (plan.options && req.kind === 'kopia') kopiaOptions(") && str_contains($js, "Office.api.post(`\${ID}.versions_kopia`, { kind, id: p.id })")
+        && str_contains($js, "{ kind: 'kopia', source: x.source, snapshot: x.snapshot, path: x.path, mode: 'stage' }") && str_contains($js, 'versions.clear();'));
+    $agent = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore-paths.php');
+    check('restore paths: Kopia only listed, shown and restored — never maintenance, never a policy', !preg_match("/'(maintenance|policy)'/", $agent)
+        && !preg_match("/'(maintenance|policy)'/", (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore.php')));
+
+    $GLOBALS['rs'] = $saved;
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * Mr. Restori and a Nextcloud restored from the engine's snapshot (the end-to-end test of 2026-10-11 on a large server:
  * the restored Nextcloud answered «maintenance» to every request): where its config.php lies on the host (the official
  * image, a bind of its own for config, linuxserver's), which restore brings it back (its config folder in what comes
@@ -53658,7 +53973,7 @@ function testUsoNetJoin(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestorePaths', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],

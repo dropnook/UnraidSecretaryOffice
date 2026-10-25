@@ -73,9 +73,12 @@ A partner office, from the pairing to the copies — and the receiver starting f
 
 ### Getting something back
 
-Mr. Restori lists every app and VM with what can come back from where, with dates: its package, the local snapshots of
-its folders, the offsite copy (Kopia), a partner office. Choose a database, a folder, a share, the templates or a VM's
-configuration, and he shows exactly what will happen — the steps, which containers stop and for how long, what goes
+Mr. Restori lists every app, VM and share with what can come back from where, with dates: its package, the local
+snapshots of its folders, the offsite copy (Kopia), a partner office. A share no app uses comes back whole (what is there
+goes aside first) or folder by folder; from Kopia you browse a snapshot and bring back a single file or folder instead of
+the whole source; the packages Kopia keeps (database dumps, templates, VM configurations) are earlier backups like the
+local ones. Choose a database, a folder, a share, the templates or a VM's configuration, and he shows exactly what will
+happen — the steps, which containers stop and for how long, what goes
 aside where. Only when you confirm does he start, on the server, one restore at a time and never during a backup.
 «Restored» lists every restore with its steps and what went aside where; *Put back* undoes one, also one that failed.
 He never starts or recreates a container — he says what to click. For the rest there are ready-made commands with your

@@ -707,7 +707,11 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   power cut) is noted, and «Put back» then removes it into Ms. Dustdevil's storeroom through her helpers (never deleted); a
   program holding a file open blocks a replace (he never ends one). Lists only awake ZFS pools. A missing share blocks; never a
   folder holding a running VM's disks; never starts containers; credentials only as variable names; partner pulls into a NEW
-  dataset beside, never a `zfs clone`. **The drill:** throwaway containers only via `drillContainerArgs()` + `drillArgsSafe()`
+  dataset beside, never a `zfs clone`. **Shares and Kopia paths (1.72, restore-paths.php):** every share is a row (never the
+office's share or the backup place), step 4 with the share as owner; one path out of Kopia goes into a folder of its own in
+the restore folder first (`kopia show <root>/<path>` to browse, one directory per request, never in the tick; only `snapshot
+list`, `show`, `snapshot restore` — never `maintenance` or a policy), then beside or swapped like step 4; what lies in the
+office's share is only staged; a package Kopia brought back is an earlier version (`kopia:<journal>`). **The drill:** throwaway containers only via `drillContainerArgs()` + `drillArgsSafe()`
   (`--network none`, no ports/binds/caps; too big = «not checked», never failed); refused during a parity check; a failed drill
   = one warning. Partner look from his tick, never a page request. **The flash archive's «Download…»** (`restore.flash_download`,
   2026-10-25) is the one exception to «the web side never touches the host»: read-only, one file — `src/api.php`

@@ -13,11 +13,13 @@
     "help.package",
     "help.restoring",
     "help.row",
+    "help.shares",
     "help.snapshots",
     "help.tiles",
     "journal",
     "kopia",
     "move.title",
+    "shares",
     "tile.apps",
     "tile.dbs",
     "tile.drill",
@@ -25,6 +27,7 @@
     "tile.journal",
     "tile.kopia",
     "tile.move",
+    "tile.shares",
     "tile.vms",
     "vms"
   ],
@@ -38,6 +41,7 @@
     "help.package_text",
     "help.restoring_text",
     "help.row_text",
+    "help.shares_text",
     "help.snapshots_text",
     "help.tiles_text"
   ]
