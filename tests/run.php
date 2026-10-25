@@ -26611,9 +26611,8 @@ function testBackupSparse(): void
  */
 /**
  * Ms. Dustdevil's two disk tunables (2026-10-09, Settings → Disk Settings): the array's write method — keep
- * read/modify/write when nothing writes straight to the array, turbo write for shares that do (or Squid's plugin) — and
- * ZFS's read cache only where a VM with PCI passthrough could come too late (a large server must stay quiet: 125 GB
- * RAM, 44 GB of running VMs, a 32 GB passthrough VM, ARC «Unlimited (Dynamic)» at RAM − 1 GB).
+ * read/modify/write when nothing writes straight to the array, turbo write for shares that do (or Squid's plugin). ZFS's
+ * read cache (ARC) gets no advice any more (owner, 2026-10-25: too server-specific; a VM's RAM is the user's to manage).
  */
 function testWhereTunables(): void
 {
@@ -26648,71 +26647,37 @@ function testWhereTunables(): void
          waWriteMethod($cfg('auto', '0', ['diskSpindownDelay.1' => "15\n"]), $disks(), $pooled, null)['sleep']]);
     same('write method: no shares at all — keep (nothing writes straight to the array)', ['keep', 0], [waWriteMethod($cfg(), $disks(), [], null)['tip'], waWriteMethod($cfg(), $disks(), [], null)['pooled']]);
 
-    // ZFS's read cache
-    $g = 1073741824;
-    $mem = fn (float $gib) => sprintf("MemTotal:       %d kB\nMemFree:          784728 kB\nMemAvailable:    3194332 kB\n", (int) round($gib * 1048576));
-    $arc = fn (float $cmax, float $size = 1, float $free = 0.25) => sprintf("13 1 0x01 147 39984 4711 4711\nname                            type data\nhits                            4    1234\n"
-        . "size                            4    %d\nc                               4    %d\nc_min                           4    194435584\nc_max                           4    %d\n"
-        . "compressed_size                 4    99\narc_sys_free                    4    %d\n", (int) ($size * $g), (int) ($size * $g), (int) ($cmax * $g), (int) ($free * $g));
-    $docker = fn (float $gib) => sprintf("anon %d\nfile 123456789\nkernel 3456\nanon_thp 0\n", (int) ($gib * $g));
-    $vm = fn (string $name, float $gib, bool $running, int $passthrough = 0) => ['name' => $name, 'memory' => (int) ($gib * $g), 'running' => $running, 'passthrough' => $passthrough];
-    $unlimited = "options zfs zfs_arc_max=0\n";
-
-    // a large server (OpenZFS 2.4.4): 125 GB, c_max 124.4 GB, ARC 11 GB, arc_sys_free 4.2 GB, VMs running 44 GB, the Gaming VM 32 GB with passthrough
-    $bigVms = [$vm('Windows_11_A', 16, true), $vm('Debian_VM', 12, true), $vm('Lab-Server', 16, true), $vm('Gaming', 32, false, 2)];
-    $big = waZfsArc(true, $unlimited, $arc(124.4, 11, 4.2), $mem(125), $docker(10), $bigVms);
-    same('zfs arc: a large server — unlimited, the numbers as read, NO tip (44 GB running + 32 GB passthrough of 125 GB is fine)',
-        [true, 0, 125 * $g, (int) (124.4 * $g), 11 * $g, (int) (4.2 * $g), 44 * $g, 10 * $g, 124 * $g, null],
-        [$big['unlimited'], $big['setting'], $big['ram'], $big['c_max'], $big['size'], $big['sys_free'], $big['vm_running'], $big['containers'], $big['default'], $big['tip']]);
-    same('zfs arc: a large server with 25 GB in containers — still no tip', null, waZfsArc(true, $unlimited, $arc(124.4), $mem(125), $docker(25), $bigVms)['tip']);
-
-    // tight: 64 GB, 16 GB running, a 32 GB passthrough VM, 6 GB in containers, 4 GB for Unraid — 6 GB left (< 10 %), the ARC may take 63
-    $tightVms = [$vm('Work', 16, true), $vm('Gaming', 32, false, 1)];
-    $t = waZfsArc(true, $unlimited, $arc(63), $mem(64), $docker(6), $tightVms);
-    same('zfs arc: tight — the passthrough VM named, the others, what is left, a cap of what is left (rounded down)',
-        ['passthrough', 'Gaming', 32 * $g, 16 * $g, 6 * $g, 6],
-        [$t['tip'], $t['vm'] ?? null, $t['vm_memory'] ?? null, $t['others'] ?? null, $t['left'] ?? null, $t['cap'] ?? null]);
-    $running = waZfsArc(true, $unlimited, $arc(63), $mem(64), $docker(6), [$vm('Work', 16, true), $vm('Gaming', 32, true, 1)]);
-    same('zfs arc: the passthrough VM running already — its RAM counted once', ['passthrough', 16 * $g, 6], [$running['tip'], $running['others'] ?? null, $running['cap'] ?? null]);
-    same('zfs arc: the tightest of two passthrough VMs', 'Big', waZfsArc(true, $unlimited, $arc(63), $mem(64), $docker(6),
-        [$vm('Work', 16, true), $vm('Small', 8, false, 1), $vm('Big', 32, false, 1)])['vm'] ?? null);
-    same('zfs arc: the ARC capped below what is left — no tip', null, waZfsArc(true, "options zfs zfs_arc_max=4294967296\n", $arc(4), $mem(64), $docker(6), $tightVms)['tip']);
-    same('zfs arc: the VMs alone don\'t fit — a tip, a cap of at least 1 GB, nothing left', ['passthrough', 1, -2 * $g],
-        array_map(fn ($k) => waZfsArc(true, $unlimited, $arc(31), $mem(32), $docker(6), [$vm('Work', 8, true), $vm('Gaming', 16, false, 1)])[$k] ?? null, ['tip', 'cap', 'left']));
-    same('zfs arc: no passthrough VM — no tip, however full (the ARC shrinks for ordinary VMs)', null,
-        waZfsArc(true, $unlimited, $arc(7), $mem(8), $docker(3), [$vm('Work', 6, true)])['tip']);
-    same('zfs arc: a passthrough VM with plenty of room — no tip', null, waZfsArc(true, $unlimited, $arc(255), $mem(256), $docker(10), $tightVms)['tip']);
-    same('zfs arc: no ZFS / no ARC numbers / no RAM — nothing at all', [null, null, null],
-        [waZfsArc(false, $unlimited, $arc(63), $mem(64), $docker(6), $tightVms), waZfsArc(true, $unlimited, '', $mem(64), '', $tightVms),
-         waZfsArc(true, $unlimited, $arc(63), '', '', $tightVms)]);
-
-    // the setting as Unraid's page reads it (DiskSettings.page: 0 or the whole RAM = «Unlimited (Dynamic)»), OpenZFS's default
-    $setting = fn (string $conf, float $ram = 64) => [waZfsArc(true, $conf, $arc(12.8), $mem($ram), '', [])['setting'], waZfsArc(true, $conf, $arc(12.8), $mem($ram), '', [])['unlimited']];
-    same('zfs arc: the setting — 0, Unraid\'s 20 %, the whole RAM (OpenZFS ignores it), no line (Unraid writes 20 % at boot), a comment, another option first',
-        [[0, true], [13743895347, false], [68719476736, true], [null, false], [null, false], [0, true]],
-        [$setting($unlimited), $setting("options zfs zfs_arc_max=13743895347\n"), $setting("options zfs zfs_arc_max=68719476736\n"), $setting(''),
-         $setting("# options zfs zfs_arc_max=0\n"), $setting("options zfs zfs_arc_min=1073741824 zfs_arc_max=0\n")]);
-    same('zfs arc: OpenZFS 2.4\'s default — the larger of 5/8 of the RAM and RAM − 1 GiB (a test server: 6076112 kB)',
-        [124 * $g, (int) (2 * $g * 5 / 8), 6076112 * 1024 - $g],
-        [waZfsArc(true, '', $arc(1), $mem(125), '', [])['default'], waZfsArc(true, '', $arc(1), $mem(2), '', [])['default'],
-         waZfsArc(true, '', $arc(1), "MemTotal:        6076112 kB\n", '', [])['default']]);
-    same('zfs arc: no docker cgroup — containers 0; «anon_thp» is no «anon»', [0, 0], [waZfsArc(true, '', $arc(1), $mem(8), '', [])['containers'],
-        waZfsArc(true, '', $arc(1), $mem(8), "anon_thp 4096\nfile 1\n", [])['containers']]);
-
+    // ZFS's read cache: no advice at all (owner, 2026-10-25). It used to suggest an ARC cap for a VM with PCI passthrough;
+    // on nostromo (125 GB, VMs running 84 GB, Windows11_Gaming 32 GB with passthrough shut off, containers 7.1 GB, ARC
+    // «Unlimited» c_max 124 GB) it said «0 B left, cap it at 1 GB». How much RAM a VM gets is the user's to manage, a VM
+    // that doesn't fit fails to start where they see it, and the ARC is too server-specific for a blanket rule.
+    check('zfs arc: no ARC reading of her own any more (the tip and its numbers gone)', !function_exists('waZfsArc')
+        && !str_contains((string) file_get_contents(OFFICE_DIR . '/agent/lib/where.php'), 'arcstats'));
     $advice = waAdvice([], [], []);
-    same('tunables: her advice carries both facts (none for ZFS without a ZFS pool)', [true, null], [array_key_exists('write_method', $advice), $advice['zfs_arc']]);
+    same('tunables: her advice carries the write method, nothing of ZFS\'s cache', [true, false], [array_key_exists('write_method', $advice), array_key_exists('zfs_arc', $advice)]);
 
     $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/desk.js');
     $en = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/lang/en.json'), true) ?: [];
-    foreach (['write_method_keep', 'write_method_turbo', 'zfs_arc_passthrough'] as $id) {
+    foreach (['write_method_keep', 'write_method_turbo'] as $id) {
         check("tunables: tip $id is hers, links Unraid's Disk Settings", str_contains($js, "add('$id',") && isset($en["where.adv.$id.title"], $en["where.adv.$id.why"]));
     }
     check('tunables: the rows read the agent\'s verdict, never a tunable of their own', str_contains($js, "wm.tip === 'keep'") && str_contains($js, "wm.tip === 'turbo'")
-        && str_contains($js, "arc.tip === 'passthrough'") && str_contains($js, "const toDisks = { path: '/Settings/DiskSettings'"));
-    check('tunables: her help names both', str_contains($js, "[T('where.help.tunables'), T('where.help.tunables_text')]")
-        && str_contains($en['where.help.tunables_text'] ?? '', '⟦Tunable (md_write_method)⟧') && str_contains($en['where.help.tunables_text'] ?? '', '⟦Tunable (zfs_arc_max)⟧'));
-    check('tunables: the ZFS tip says how to cap, and the cap is in GB', str_contains($en['where.adv.zfs_arc_passthrough.why'] ?? '', '«⟦Custom value (GB)⟧», e.g. {cap} GB')
-        && str_contains($en['where.adv.zfs_arc_passthrough.why'] ?? '', 'zfs_arc_sys_free={sys_free}'));
+        && str_contains($js, "const toDisks = { path: '/Settings/DiskSettings'"));
+    check('tunables: her help names the write method', str_contains($js, "[T('where.help.tunables'), T('where.help.tunables_text')]")
+        && str_contains($en['where.help.tunables_text'] ?? '', '⟦Tunable (md_write_method)⟧'));
+    // nostromo's numbers as an older agent still sends them (the first state can be the old agent's): the page shows no tip
+    // of it — desk.js never reads `zfs_arc`, and no language has a word of an ARC tip or of the ARC in her help
+    $nostromo = ['setting' => 0, 'unlimited' => true, 'ram' => 125 * 1073741824, 'c_max' => 124 * 1073741824, 'vm_running' => 84 * 1073741824,
+        'containers' => (int) (7.1 * 1073741824), 'tip' => 'passthrough', 'vm' => 'Windows11_Gaming', 'vm_memory' => 32 * 1073741824, 'left' => 0, 'cap' => 1];
+    $arcWords = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $lang = json_decode((string) file_get_contents(OFFICE_DIR . "/public/desks/cleanup/lang/$l.json"), true) ?: [];
+        $arcWords = array_merge($arcWords, array_map(fn ($k) => "$l:$k", array_keys(array_filter($lang,
+            fn ($v, $k) => str_starts_with($k, 'where.adv.zfs_arc') || (is_string($v) && str_starts_with($k, 'where.help.tunables') && str_contains($v, 'zfs_arc')),
+            ARRAY_FILTER_USE_BOTH))));
+    }
+    same('tunables: nostromo (Windows11_Gaming 32 GB shut off next to 84 GB of running VMs, ARC unlimited) — no ARC advice, no word of it',
+        ['passthrough', false, false, []], [$nostromo['tip'], str_contains($js, 'zfs_arc'), str_contains($js, 'arc.tip'), $arcWords]);
 }
 
 function testWhereTakeOver(): void

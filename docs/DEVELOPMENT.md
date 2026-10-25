@@ -680,7 +680,7 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   night mirror without passwords or key values. **Privacy rule:** another client's address/MAC/name only in
   `net_new_device`/`net_spoof`. Every kind has a MITRE technique.
 * **`cleanup` — Ms. Dustdevil.** «Where is what» (operational advice, **never security**; read only) and «Tidying up» (what a
-  drill or restore left: only what his journals name). A ZFS ARC tip only for a PCI-passthrough VM. **Never deletes right
+  drill or restore left: only what his journals name). No advice on ZFS's ARC or VM RAM (owner 2026-10-25). **Never deletes right
   away:** renames into the hidden `.UnraidSecretaryOffice-trash` on the same filesystem (datasets via `zfs rename`),
   `manifest.json` per run, put back or empty; Docker images/build cache can only be removed; nothing while a backup runs; things
   in use can't be chosen. Old `_…-trash`/`_…-restore` names read for good, never written (`storeroomIn()`, `officeHiddenNow()`).
@@ -903,7 +903,7 @@ The same thing has the same word on every desk and text; grammar follows the wor
 * **shfs:** a flock through /mnt/user lies on the backing file (inode `(st_dev << 48) | st_ino`) — `flockHeld()` looks for both.
   `rename()` through /mnt/user renames on every part (no copy); new folders land on the primary; a dataset of its own is renamed
   with `zfs rename`, never through shfs.
-* **Disk tunables** are read-only for the office (`md_write_method`, `zfs_arc_max` — 0 = unlimited is right).
+* **Disk tunables** are read-only for the office (`md_write_method`, `zfs_arc_max`).
 * **Web stack:** php-fpm as root; nginx `auth_request` guards everything incl. `/plugins/…`; `local_prepend.php` chdirs to
   `/usr/local/emhttp` and ends every POST without the right `csrf_token` (field or `X-CSRF-Token`, from var.ini) with an empty
   200; nginx doesn't gzip `.php`.
