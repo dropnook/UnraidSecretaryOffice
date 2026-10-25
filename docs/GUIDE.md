@@ -82,12 +82,18 @@ the whole source; the packages Kopia keeps (database dumps, templates, VM config
 local ones. Choose a database, a folder, a share, the templates or a VM's configuration, and he shows exactly what will
 happen — the steps, which containers stop and for how long, what goes
 aside where. Only when you confirm does he start, on the server, one restore at a time and never during a backup.
+From a partner, an app's or VM's row brings back the copy that holds it (the partner sends whole units — the dialog says
+how much comes) and then opens the restore of its folders on it; a pulled whole share can be *swapped in* as the share
+(the old one goes aside whole, with its snapshots). *Everything back into libvirt.img* puts all VM definitions back from
+the backup once you have turned the VM service off — the old image stays aside.
 «Restored» lists every restore with its steps and what went aside where; *Put back* undoes one, also one that failed.
+What Kopia or a partner brought back waits there with *Now to its place…* for each folder it holds.
 He never starts or recreates a container — he says what to click. For the rest there are ready-made commands with your
 names and paths, and a guide *onto a new server*.
 
 **The flash** has a tile of its own: when its archive was made, how big it is and where it is kept — here, offsite, at a
-partner (or the boot pool's snapshots, or «not backed up»). *Download…* hands you the archive after a dialog that says
+partner (or the boot pool's snapshots, or «not backed up»); a flash on a ZFS boot pool also names that pool's own
+snapshots, read-only under /boot/.zfs/snapshot/ for single pieces by hand. *Download…* hands you the archive after a dialog that says
 what it holds (the licence key, the password hashes); single files from it you copy back by hand. **Kept for
 <partner>** shows what this server keeps of a partner office, with the apps and VMs inside each copy — each can be
 started here.
