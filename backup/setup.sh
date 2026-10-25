@@ -1,6 +1,9 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.74 - 2026-10-24
+# unraid-backup - setup.sh                        Version 2.75 - 2026-10-25
+#   2.75 An [app "<name>"] section with folder alone (the app's own dataset in a share going to a partner, the app at
+#        another level) is written and kept - up to 2.74 only with kopia = yes or a partner, so the office's folder never
+#        landed and its Apply list showed it after every Apply (backup.sh: Docker switched off is docker_off, a warning)
 #   2.74 A share with a child dataset that is no unit of its own (no VM's, no app's - also by Docker's binds) is
 #        partner_ok: the plan's shares[] and place carry partner_left [{dataset, folder}], a hint per child and partner
 #        (partner_child_left_share / partner_child_left_place); partner_why children is no longer given
@@ -2584,14 +2587,16 @@ settings_render() {
         local first_app="yes"
         while IFS= read -r n; do
             [[ -z "$n" ]] && continue
-            [[ "$(pget "app|$n|kopia")" == "yes" || -n "$(plist "app|$n|partner")" ]] || continue     # 2.45: or a partner unit
+            # 2.45: or a partner unit; 2.75: or its folder alone (a dataset of its own in a share that goes to a partner,
+            # the app itself at another level - up to 2.74 that folder never landed and the Apply list showed it every time)
+            [[ "$(pget "app|$n|kopia")" == "yes" || -n "$(plist "app|$n|partner")" || -n "$(plist "app|$n|folder")" ]] || continue
             if [[ "$first_app" == "yes" ]]; then
                 first_app="no"
                 echo
-                echo "# --- Apps with a Kopia source of their own -----------------------------------"
+                echo "# --- Apps with a Kopia source, a partner or a dataset of their own -----------"
                 w_c "kopia            yes = its folders and its package are a Kopia source of their own: <container path>/.apps/<name>"
                 w_c "                 (the shares leave those folders out; VMs: the same keys in their [vm] section)"
-                w_c "folder           <share>/<folder> it keeps data in (several times)"
+                w_c "folder           <share>/<folder> it keeps data in (several times); alone: the app's own dataset there"
                 w_c "kopia_retention  its own 'latest hourly daily weekly monthly annual' (missing = as in [kopia])"
                 w_c "kopia_ignore     Kopia ignore rule relative to its source: /<share>/<folder>/... (several times)"
             fi
@@ -2602,7 +2607,7 @@ settings_render() {
             w_list partner "app|$n|partner"
             [[ -n "$(pget "app|$n|kopia_retention")" ]] && w_kv kopia_retention "$(pget "app|$n|kopia_retention")"
             w_list kopia_ignore "app|$n|kopia_ignore"
-        done < <(printf '%s\n' "${!P[@]}" | sed -n 's/^app|\(.*\)|\(kopia\|partner\)$/\1/p' | LC_ALL=C sort -u)
+        done < <(printf '%s\n' "${!P[@]}" | sed -n 's/^app|\(.*\)|\(kopia\|partner\|folder\)$/\1/p' | LC_ALL=C sort -u)
         echo
         echo "# --- Shares -------------------------------------------------------------------"
         w_c "mode             kopia = snapshot + Kopia, snapshot = local snapshot only, off = nothing"
