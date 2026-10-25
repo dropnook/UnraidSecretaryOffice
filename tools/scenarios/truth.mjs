@@ -5,6 +5,8 @@
 // 2026-10, its INV-TRUTH proposal R1–R7; tools/scenarios/README.md «INV-TRUTH»).
 //
 //   node tools/scenarios/truth.mjs --look <dir> [--lang en,de] [--json] [--tree <tag>] [--only <rule>,…] [--verbose]
+//   node tools/scenarios/truth.mjs --self-test     tests/ui/states/truth with its invented truth inv-truth.json: exactly
+//                                                  the lies listed in its `expect` red, in English and German
 //
 // <dir> holds states/ (the data folder's *.json, as bubble_look copies them) and truth.json (truth-facts.php). Prints one
 // line per finding — «FAIL <rule> <unit>: page «…»; truth: …» — and «note» lines for what only looks odd (a share partly
@@ -38,7 +40,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..');
 const require = createRequire(import.meta.url);
 
-const opt = { look: null, langs: ['en'], json: false, tree: process.env.USO_PAGE_TREE || null, only: null, verbose: false };
+const opt = { look: null, langs: ['en'], json: false, tree: process.env.USO_PAGE_TREE || null, only: null, verbose: false, selftest: false };
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
@@ -49,6 +51,7 @@ for (let i = 0; i < args.length; i++) {
   else if (a === '--tree') opt.tree = val() || null;
   else if (a === '--only') opt.only = val().split(',');
   else if (a === '--verbose' || a === '-v') opt.verbose = true;
+  else if (a === '--self-test') { opt.selftest = true; opt.langs = ['en', 'de']; }
   else if (a === '-h' || a === '--help') usage(0);
   else usage();
 }
@@ -56,10 +59,11 @@ function usage(code = 2) {
   console.error('usage: node tools/scenarios/truth.mjs --look <dir with states/ and truth.json> [--lang en,de] [--json] [--tree <tag>] [--only TR-…,…]');
   process.exit(code);
 }
+if (opt.selftest) opt.look = path.join(REPO, 'tests', 'ui', 'states', 'truth');
 if (!opt.look || !opt.langs.length) usage();
 const readJson = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return null; } };
 const STATES = fs.existsSync(path.join(opt.look, 'states')) ? path.join(opt.look, 'states') : opt.look;
-const truth = readJson(path.join(opt.look, 'truth.json'));
+const truth = readJson(path.join(opt.look, opt.selftest ? 'inv-truth.json' : 'truth.json'));
 if (!truth || truth.v !== 1) { console.error(`truth: no truth.json in ${opt.look}`); process.exit(2); }
 
 // the page drawn: this clone's, or a tag's (as page.mjs: git archive into a cache folder, today's harness beside it)
@@ -328,6 +332,17 @@ await browser.close();
 await harness.close();
 
 const red = out.filter((x) => x.verdict === 'FAIL');
+if (opt.selftest) {
+  // exactly the expected lies, in every language drawn
+  const got = new Set(red.map((x) => `${x.id} ${x.unit}`));
+  const want = new Set(truth.expect || []);
+  const missing = [...want].filter((x) => !got.has(x));
+  const extra = [...got].filter((x) => !want.has(x));
+  for (const x of red) console.log(`${want.has(`${x.id} ${x.unit}`) ? 'found' : 'EXTRA'} ${x.id} ${x.unit}: page ${x.page}; truth: ${x.truth}`);
+  for (const x of missing) console.log(`MISSED ${x}`);
+  console.log(`truth self-test: ${missing.length || extra.length ? 'FAIL' : 'ok'} — ${want.size} lies expected, ${got.size - extra.length} found, ${missing.length} missed, ${extra.length} extra (${opt.langs.join(', ')})`);
+  process.exit(missing.length || extra.length ? 1 : 0);
+}
 if (opt.json) console.log(JSON.stringify({ checked, red: red.length, findings: out, pages: report.pages }));
 else {
   for (const x of out) console.log(`${x.verdict} ${x.id} ${x.unit}: page ${x.page}; truth: ${x.truth}`);

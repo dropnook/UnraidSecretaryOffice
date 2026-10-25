@@ -1,0 +1,47 @@
+{
+  "v": 1,
+  "about": "INV-TRUTH's self-test (node tools/scenarios/truth.mjs --self-test): an invented server truth beside this folder's state files — each lie it must find is in `expect`, nothing else may be red",
+  "expect": [
+    "TR-OFFSITE backup share:nextcloud",
+    "TR-PARTNER backup share:domains",
+    "TR-LOCAL backup share:media",
+    "TR-PARTNER backup vm:Windows-Druckserver",
+    "TR-ROW backup share:Familienfotos",
+    "TR-SNAPS restore/apps app:Grafana"
+  ],
+  "time": 1791550000,
+  "host": "Tower",
+  "prefix": "uso-backup-",
+  "dumps_share": "UnraidSecretaryOffice",
+  "settings": true,
+  "runs": { "n": 3, "last": { "run": "20261009-0430", "mode": "backup", "result": "warnings", "snapshot": "uso-backup-20261009-0430", "started": 1791513001 }, "running": false },
+  "docker": { "answers": true, "enabled": true, "containers": 10, "running": 10 },
+  "libvirt": true,
+  "kopia": { "enabled": true, "container": "kopia", "up": true, "held": false, "stuck": false, "asked": true,
+    "sources": { "/uso/photos": { "n": 3, "last": 1791513060 }, "/uso/UnraidSecretaryOffice": { "n": 5, "last": 1791513060 } } },
+  "zfs": true,
+  "shares": {
+    "nextcloud": { "set": "kopia", "local": "yes", "kopia": null, "places": [ { "base": "cache", "fs": "zfs", "ds": "cache/nextcloud", "snaps": 7, "all": 7, "asleep": false } ] },
+    "photos": { "set": "kopia", "local": "yes", "kopia": { "n": 3 }, "places": [ { "base": "cache", "fs": "zfs", "ds": "cache/photos", "snaps": 7, "all": 7, "asleep": false } ] },
+    "domains": { "set": "snapshot", "local": "yes", "kopia": null, "places": [ { "base": "cache", "fs": "zfs", "ds": "cache/domains", "snaps": 7, "all": 7, "asleep": false } ] },
+    "media": { "set": "snapshot", "local": "no", "kopia": null, "places": [ { "base": "disk1", "fs": "xfs", "ds": null, "snaps": 0, "all": 0, "asleep": false } ] },
+    "UnraidSecretaryOffice": { "set": "snapshot", "local": "yes", "kopia": { "n": 5 }, "places": [ { "base": "cache", "fs": "zfs", "ds": "cache/UnraidSecretaryOffice", "snaps": 7, "all": 7, "asleep": false } ] },
+    "isos": { "set": "snapshot", "local": "no", "kopia": null, "places": [ { "base": "disk1", "fs": "xfs", "ds": null, "snaps": 0, "all": 0, "asleep": false } ] },
+    "Familienfotos": { "set": null, "local": "no", "kopia": null, "places": [ { "base": "disk1", "fs": "xfs", "ds": null, "snaps": 0, "all": 0, "asleep": false } ] }
+  },
+  "vms": {
+    "Windows-Druckserver": { "state": "running", "local": "yes", "offsite": false, "set": "snapshot",
+      "disks": [ { "path": "/mnt/user/domains/Windows-Druckserver/vdisk1.img", "share": "domains", "folder": "Windows-Druckserver", "own_dataset": true, "local": "yes", "offsite": false,
+        "places": [ { "base": "cache", "fs": "zfs", "ds": "cache/domains/Windows-Druckserver", "snaps": 7, "all": 7, "asleep": false } ] } ] }
+  },
+  "apps": {
+    "Grafana": { "containers": ["Grafana"], "local": "yes", "offsite": false,
+      "folders": [ { "share": "appdata", "folder": "grafana", "own_dataset": true, "local": "yes", "offsite": false,
+        "places": [ { "base": "cache", "fs": "zfs", "ds": "cache/appdata/grafana", "snaps": 2, "all": 3, "asleep": false } ] } ] }
+  },
+  "partners": [
+    { "id": "2ec7accd", "name": "PartnerNAS", "address": "192.0.2.10", "asked": true, "why": null,
+      "units": { "place": { "n": 4, "newest": "uso-backup-20261009-0430" }, "share:appdata": { "n": 5, "newest": "uso-backup-20261008-0430" },
+        "share:domains": { "n": 0, "newest": null }, "vm:Windows-Druckserver": { "n": 2, "newest": "uso-backup-20261001-0430" } } }
+  ]
+}

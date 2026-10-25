@@ -53,24 +53,35 @@ if ((sync)); then
     say "tree synced to Tower:$TREE"
 fi
 t0=$SECONDS
-say "1. the default reset"
-tower "bash $TREE/tools/scenarios/base.sh" > "${TMPDIR:-/tmp}/uso-mixed-base-1.log" 2>&1 || { say "the default reset failed (${TMPDIR:-/tmp}/uso-mixed-base-1.log)"; tail -5 "${TMPDIR:-/tmp}/uso-mixed-base-1.log"; exit 1; }
+# made anew on top of the mixed base when there is one (its pair with USOTest4 kept), else from the default base
+start=default
+tower "bash $TREE/tools/scenarios/base-mixed.sh has-base" && start=mixed
+say "1. the reset to the $start base"
+for try in 1 2 3 4 5 6; do
+    tower "bash $TREE/tools/scenarios/base.sh --profile $start" > "${TMPDIR:-/tmp}/uso-mixed-base-1.log" 2>&1
+    code=$?
+    ((code == 2)) && grep -q 'a job of the office runs' "${TMPDIR:-/tmp}/uso-mixed-base-1.log" || break
+    say "   the office is at work - again in 30 s"; sleep 30
+done
+# (its own checks may be red on a mixed base being made anew: only a refusal or a broken step stops here)
+grep -q 'refused\|no base yet' "${TMPDIR:-/tmp}/uso-mixed-base-1.log" && { say "the reset was refused (${TMPDIR:-/tmp}/uso-mixed-base-1.log)"; tail -5 "${TMPDIR:-/tmp}/uso-mixed-base-1.log"; exit 1; }
 say "2. the profile's objects"
 tower "$LOCKED bash $TREE/tools/scenarios/base-mixed.sh objects" || { say "the objects could not be made"; exit 1; }
 id=$(tower "bash $TREE/tools/scenarios/base-mixed.sh pair-id" 2>/dev/null)
 answers=0
 if [[ -n $id ]] && tower "bash -c '. $TREE/tools/scenarios/lib.sh >/dev/null 2>&1; . $TREE/tools/scenarios/base-mixed.sh; mixed_pair_ok $id'"; then answers=1; fi
 if ((pair || !answers)); then
-    say "3. paired with $MIXED_PARTNER_IP the Team Lead's way${id:+ (the pair $id doesn't answer there)}"
+    say "3. paired with $MIXED_PARTNER_IP the Team Lead's way${id:+ (the pair $id is silent there)}"
     partner "mkdir -p /tmp/uso-mixed && cat > /tmp/uso-mixed/ask.php" < "$here/ask.php" || exit 4
-    a=$(tower "$LOCKED php $TREE/tools/scenarios/ask.php --wait 60 caretaker.partner_add $(printf %q "$(jq -cn '{step: "do", address: "192.168.7.111", port: 22, trust: "mine"}')")") \
-        || { say "Tower's offer refused: $a"; exit 1; }
+    body=$(jq -cn '{step: "do", address: "192.168.7.111", port: 22, trust: "mine"}')
+    a=$(tower "$LOCKED php $TREE/tools/scenarios/ask.php --wait 60 caretaker.partner_add $(printf %q "$body")") || { say "Tower's offer refused: $a"; exit 1; }
     new=$(jq -r '.id' <<<"$a")
-    b=$(partner "php /tmp/uso-mixed/ask.php --wait 120 caretaker.partner_accept $(printf %q "$(jq -cn --arg k "$(jq -r .block <<<"$a")" --arg ip "$MIXED_PARTNER_IP" --argjson r "$MIXED_PARTNER_RECEIVE" \
-        '{block: $k, step: "do", confirm: true, receive: $r, send_too: false, address: $ip, port: 22, trust: "mine"}')")") \
+    body=$(jq -cn --arg k "$(jq -r .block <<<"$a")" --arg ip "$MIXED_PARTNER_IP" --argjson r "$MIXED_PARTNER_RECEIVE" \
+        '{block: $k, step: "do", confirm: true, receive: $r, send_too: false, address: $ip, port: 22, trust: "mine"}')
+    b=$(partner "php /tmp/uso-mixed/ask.php --wait 120 caretaker.partner_accept $(printf %q "$body")") \
         || { say "USOTest4's accept refused: $(jq -c '.error // .' <<<"$b" | head -c 300)"; exit 1; }
-    f=$(tower "$LOCKED php $TREE/tools/scenarios/ask.php --wait 120 caretaker.partner_finish $(printf %q "$(jq -cn --arg k "$(jq -r .block <<<"$b")" --arg c "$(jq -r .code <<<"$b")" \
-        '{block: $k, step: "do", confirm: true, code: $c, receive: null}')")") || { say "Tower's finish refused: $f"; exit 1; }
+    body=$(jq -cn --arg k "$(jq -r .block <<<"$b")" --arg c "$(jq -r .code <<<"$b")" '{block: $k, step: "do", confirm: true, code: $c, receive: null}')
+    f=$(tower "$LOCKED php $TREE/tools/scenarios/ask.php --wait 120 caretaker.partner_finish $(printf %q "$body")") || { say "Tower's finish refused: $f"; exit 1; }
     id=$(tower "bash $TREE/tools/scenarios/base-mixed.sh pair-id")
     [[ $id == "$new" ]] || { say "Tower's pairs.json doesn't name the new pair $new at $MIXED_PARTNER_IP (it names «$id»)"; exit 1; }
     say "   the pair $id (Tower sends, USOTest4 keeps: $MIXED_PARTNER_RECEIVE)"
@@ -82,8 +93,14 @@ tower "$LOCKED bash $TREE/tools/scenarios/base-mixed.sh apply $id" || { say "App
 say "5. kept as the profile's base"
 tower "bash $TREE/tools/scenarios/base.sh --profile mixed --save" || { say "--save failed"; exit 1; }
 say "6. a real reset onto it"
-tower "bash $TREE/tools/scenarios/base.sh --profile mixed" > "${TMPDIR:-/tmp}/uso-mixed-base-2.log" 2>&1
-code=$?
+# (the agent just started: its first jobs - a Kopia look, the partner's - make base.sh refuse for a minute)
+for try in 1 2 3 4 5 6; do
+    tower "bash $TREE/tools/scenarios/base.sh --profile mixed" > "${TMPDIR:-/tmp}/uso-mixed-base-2.log" 2>&1
+    code=$?
+    ((code == 2)) && grep -q 'a job of the office runs' "${TMPDIR:-/tmp}/uso-mixed-base-2.log" || break
+    say "   the office is at work (its first jobs) - again in 30 s"
+    sleep 30
+done
 grep -E 'mixed:|plan check|check standard|FAILED|done in' "${TMPDIR:-/tmp}/uso-mixed-base-2.log" | sed 's/^/   /'
 say "made in $(( (SECONDS - t0) / 60 )) min (reset log ${TMPDIR:-/tmp}/uso-mixed-base-2.log)"
 exit $((code ? 1 : 0))

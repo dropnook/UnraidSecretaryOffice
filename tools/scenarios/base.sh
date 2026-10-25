@@ -225,7 +225,7 @@ test_files_there() {
 shares_step() {
     step "2 shares"
     local s f k v use pool n fix=() other=() prim
-    base_shares=$(listed "$BASE/shares.list")
+    base_shares=$(listed "$BASE/shares.list"; [[ $profile != default ]] && printf '%s\n' ${PROFILE_SHARES:-})
     test_shares=$(listed "$SC/base/test-shares.list" | cut -f1)
     while IFS= read -r s; do
         [[ -n $s ]] || continue
@@ -544,6 +544,14 @@ if ((!dry)); then
     if [[ $profile == default ]]; then rm -f "$PROFILE_NOTE"; else printf '%s\n' "$profile" > "$PROFILE_NOTE"; fi
 fi
 
+# 1c. the default reset takes a profile's objects away first (base-mixed.sh noted them on the flash): its VMs, then the
+# shares they lay in — before step 2 looks at the shares
+if ((!make)) && [[ $profile == default && -s ${MIXED_OBJECTS:-/nonexistent} ]]; then
+    step "1c the mixed profile's objects taken away ($(cut -d' ' -f2 "$MIXED_OBJECTS" | paste -sd' ' -))"
+    if ((dry)); then log "would take away: $(paste -sd' ' "$MIXED_OBJECTS")"
+    else mixed_objects_remove || { warn "the mixed profile's objects are not all gone ($(paste -sd' ' "$MIXED_OBJECTS" 2>/dev/null))"; fails=$((fails + 1)); }; fi
+fi
+
 # ------------------------------------------------------------------------------------------------------- 2. shares
 ((make)) || shares_step
 
@@ -620,13 +628,9 @@ done
 
 # -------------------------------------------------------------------------------------------------- 4. apps, 5. VMs
 ((make)) || apps_step
-# 5b. a profile's objects (base-mixed.sh): made for it, taken away by the default reset (noted on the flash)
+# 5b. a profile's objects (base-$profile.sh): made for it (the default reset took them away before step 2)
 if ((!make)); then
-    if [[ $profile == default && -s ${MIXED_OBJECTS:-/nonexistent} ]]; then
-        step "5b the mixed profile's objects taken away ($(cut -d' ' -f2 "$MIXED_OBJECTS" | paste -sd' ' -))"
-        if ((dry)); then log "would take away: $(paste -sd' ' "$MIXED_OBJECTS")"
-        else mixed_objects_remove || { warn "the mixed profile's objects are not all gone ($(paste -sd' ' "$MIXED_OBJECTS" 2>/dev/null))"; fails=$((fails + 1)); }; fi
-    elif [[ $profile != default ]] && declare -F "${profile}_objects_ensure" >/dev/null; then
+    if [[ $profile != default ]] && declare -F "${profile}_objects_ensure" >/dev/null; then
         step "5b the $profile profile's objects"
         if ((dry)); then log "would make the $profile profile's objects (base-$profile.sh)"
         else "${profile}_objects_ensure" || { warn "the $profile profile's objects are not all there"; fails=$((fails + 1)); }; fi
