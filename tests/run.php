@@ -11259,7 +11259,8 @@ function testAgentBackupHooks(): void
     foreach (["$tmp/bin", "$tmp/plugin/backup", "$tmp/run", "$ub/state", "$tmp/atjobs"] as $d) {
         @mkdir($d, 0700, true);
     }
-    file_put_contents("$tmp/bin/at", "#!/bin/bash\necho \"\$*\" >>" . escapeshellarg("$tmp/at.calls") . "\ncp \"\$3\" " . escapeshellarg("$tmp/at.job") . "\n");
+    file_put_contents("$tmp/bin/at", "#!/bin/bash\necho \"\$*\" >>" . escapeshellarg("$tmp/at.calls") . "\ncp \"\$3\" " . escapeshellarg("$tmp/at.job") . "\n"
+        . 'echo "${TZ-unset}" >' . escapeshellarg("$tmp/at.tz") . "\n");
     chmod("$tmp/bin/at", 0755);
     file_put_contents("$tmp/plugin/backup/backup.sh", "echo \"\$UB_DATA \${UB_KEEP_LATEST:-} \${UB_ARRAY_STOP:-} \$*\" >>" . escapeshellarg("$tmp/backup.calls") . "\n");
     $agent = escapeshellarg(OFFICE_DIR . '/plugin/scripts/agent.sh');
@@ -11279,7 +11280,8 @@ function testAgentBackupHooks(): void
     $call('backup_recover');
     same('hooks: started, a note - handed to atd now, never mailed', "-M -f $tmp/run/backup-recover.sh now\n", $read('at.calls'));
     $job = explode("\n", $read('at.job'));
-    same('hooks: the job carries the office\'s mark (the same as hostLaunch()\'s) on its own line', ['#!/bin/sh', HOST_LAUNCH_MARK], array_slice($job, 0, 2));
+    same('hooks: the job carries the office\'s mark (the same as hostLaunch()\'s) on its own line, then the zone line', ['#!/bin/sh', HOST_LAUNCH_MARK, HOST_AT_ZONE_LINE], array_slice($job, 0, 3));
+    same('hooks: `at` runs with TZ=UTC (the autumn\'s repeated hour, as hostLaunch())', 'UTC', trim($read('at.tz')));
     exec('sh ' . escapeshellarg("$tmp/at.job"), $o, $rc);
     same('hooks: the job runs backup.sh --recover with the engine\'s data folder (quoted)', [0, "$ub   --recover\n"], [$rc, $read('backup.calls')]);
     file_put_contents("$tmp/atjobs/a0000101c2b3a4", "#!/bin/sh\n# atrun uid=0 gid=0\n# mail root 0\numask 22\ncd / || {\n\t exit 1\n}\n" . $read('at.job'));
@@ -21414,7 +21416,10 @@ function testAgentZoneChange(): void
  * queued «now» while the clock was set ahead waited in atd's queue for that moment once the clock was put back.
  * hostAtRequeue(): the office's own jobs (its mark) due more than HOST_AT_LATE ahead are queued anew for now — their own
  * script, without at's header — and the old ones taken out; another's job, a running one and one due now are left alone;
- * a failed `at` leaves the old one. A spool folder and stand-ins for at and atrm of the test's own.
+ * a failed `at` leaves the old one. The autumn's repeated hour (nostromo 2026-10-25, Europe/Zurich): `at now` put each job
+ * an hour ahead and the requeue queued them anew every 3 s for an hour — now `at` runs with TZ=UTC (the job's script puts
+ * the zone back), a job it queued anew that lies ahead again is left as it is and said once, never queued a third time.
+ * A spool folder and stand-ins for at and atrm of the test's own.
  */
 function testHostAtRequeue(): void
 {
@@ -21422,7 +21427,9 @@ function testHostAtRequeue(): void
     $spool = "$tmp/atjobs";
     @mkdir($spool, 0700, true);
     $log = "$tmp/log";
-    file_put_contents("$tmp/at", "#!/bin/sh\necho \"at \$*\" >>" . escapeshellarg($log) . "\ncat \"\$3\" >" . escapeshellarg("$tmp/queued") . "\n");
+    file_put_contents("$tmp/at", "#!/bin/sh\necho \"at \$*\" >>" . escapeshellarg($log) . "\ncat \"\$3\" >" . escapeshellarg("$tmp/queued") . "\n"
+        . 'echo "${TZ-unset}" >' . escapeshellarg("$tmp/tz") . "\necho 'warning: commands will be executed using /bin/sh' >&2\n"
+        . "echo 'job 37 at Sun Oct 25 02:40:00 2026' >&2\n");
     file_put_contents("$tmp/at-off", "#!/bin/sh\necho \"at \$*\" >>" . escapeshellarg($log) . "\nexit 1\n");
     file_put_contents("$tmp/atrm", "#!/bin/sh\necho \"atrm \$*\" >>" . escapeshellarg($log) . "\n");
     foreach (['at', 'at-off', 'atrm'] as $b) {
@@ -21447,8 +21454,11 @@ function testHostAtRequeue(): void
     same('at requeue: queued anew for now, then the old one taken out of the queue',
         ['at -M -f ' . RUN_DIR . '/at-requeue.sh now', 'atrm 18'], file($log, FILE_IGNORE_NEW_LINES) ?: []);
     $queued = (string) @file_get_contents("$tmp/queued");
-    same('at requeue: what is queued is the office\'s own script, as hostLaunch() wrote it (at\'s header left out)', true,
-        str_starts_with($queued, $ours) && !str_contains($queued, '# atrun'));
+    $head = "#!/bin/sh\n" . HOST_LAUNCH_MARK . "\n";
+    same('at requeue: what is queued is the office\'s own script, as hostLaunch() wrote it (at\'s header left out) — an older agent\'s with the zone line',
+        true, str_starts_with($queued, $head . HOST_AT_ZONE_LINE . "\n" . substr($ours, strlen($head))) && !str_contains($queued, '# atrun'));
+    same('at requeue: `at` runs in UTC (no minute twice in the autumn)', 'UTC', trim((string) @file_get_contents("$tmp/tz")));
+    same('at requeue: the job queued anew is remembered', [37 => ['told' => false]], $ok ? hostAtRequeued() : null);
     same('at requeue: its script file is gone again', false, file_exists(RUN_DIR . '/at-requeue.sh'));
     @unlink($log);
     same('at requeue: `at` fails — nothing taken out (late is better than lost)', [[], ['at -M -f ' . RUN_DIR . '/at-requeue.sh now']],
@@ -21456,6 +21466,59 @@ function testHostAtRequeue(): void
     @unlink($log);
     same('at requeue: with the clock where it was when queued, nothing is stranded', [[], false],
         [$ok ? hostAtRequeue($spool, ($min + 600) * 60, ["$tmp/at", "$tmp/atrm"]) : null, file_exists($log)]);
+
+    // the autumn's repeated hour: the job queued anew (37) lies an hour ahead again — left, said once, never queued again
+    @unlink($log);
+    @unlink("$spool/" . $name('a', 0x12, $min + 600));
+    @unlink("$spool/" . $name('a', 0x16, $min + 1));
+    file_put_contents("$spool/" . $name('a', 37, $min + 60), $job($head . HOST_AT_ZONE_LINE . "\n" . substr($ours, strlen($head))));
+    $logAt = (int) @filesize(AGENT_LOG);
+    $again = fn () => substr_count((string) @file_get_contents(AGENT_LOG, false, null, $logAt), 'Office: job 37 in atd\'s queue, queued anew for now already, is due');
+    same('at requeue: queued anew and ahead again — not queued a second time', [[], false],
+        [$ok ? hostAtRequeue($spool, $now, ["$tmp/at", "$tmp/atrm"]) : null, file_exists($log)]);
+    same('at requeue: … said in one line', 1, $again());
+    for ($i = 0; $i < 5; $i++) {
+        $ok && hostAtRequeue($spool, $now + 3 * $i, ["$tmp/at", "$tmp/atrm"]);
+    }
+    same('at requeue: … and only once, however often it looks', [1, false, [37 => ['told' => true]]], [$again(), file_exists($log), $ok ? hostAtRequeued() : null]);
+    file_put_contents(HOST_AT_REQUEUED, '{"37": {"told": "yes"}, "x": 1, "38": []}');
+    same('at requeue: its memory read only in exactly its shape', [], $ok ? hostAtRequeued() : null);
+    @unlink("$spool/" . $name('a', 37, $min + 60));
+    file_put_contents(HOST_AT_REQUEUED, '{"36": {"told": true}, "37": {"told": true}}');
+    file_put_contents("$spool/" . $name('a', 0x12, $min + 600), $job($ours));
+    $ok && hostAtRequeue($spool, $now, ["$tmp/at", "$tmp/atrm"]);
+    same('at requeue: a job gone from the queue is forgotten (job numbers come round again) — the new one remembered', [37 => ['told' => false]],
+        $ok ? hostAtRequeued() : null);
+    @unlink(HOST_AT_REQUEUED);
+
+    // hostLaunch(): `at` in UTC, the script puts the host's zone back first — a stand-in for env on PATH (run() looks its
+    // command up there; env would look up at in run()'s own PATH)
+    $GLOBALS['hostAtdLook'] = ["$tmp/atd.pid", "$tmp/proc"];
+    @mkdir("$tmp/proc/4242", 0700, true);
+    file_put_contents("$tmp/proc/4242/comm", "atd\n");
+    file_put_contents("$tmp/atd.pid", "4242\n");
+    @mkdir("$tmp/bin", 0700, true);
+    file_put_contents("$tmp/bin/env", "#!/bin/sh\necho \"\$*\" >" . escapeshellarg("$tmp/env.calls") . "\ncat \"\$5\" >" . escapeshellarg("$tmp/env.job") . "\n");
+    chmod("$tmp/bin/env", 0755);
+    $path = getenv('PATH');
+    putenv("PATH=$tmp/bin:$path");
+    try {
+        hostLaunch('uso-test-at-tz', ['/bin/true', "it's"]);
+        $said = 'handed over';
+    } catch (Problem $p) {
+        $said = $p->key;
+    } finally {
+        putenv("PATH=$path");
+        unset($GLOBALS['hostAtdLook']);
+    }
+    same('hostLaunch: `at now` runs with TZ=UTC (in the autumn\'s repeated hour at local time it lands an hour ahead)',
+        ['handed over', 'TZ=UTC at -M -f ' . RUN_DIR . '/uso-test-at-tz.sh now'], [$said, trim((string) @file_get_contents("$tmp/env.calls"))]);
+    same('hostLaunch: the job puts the host\'s zone back first (at writes its TZ=UTC into it), before the caller\'s variables',
+        ['#!/bin/sh', HOST_LAUNCH_MARK, HOST_AT_ZONE_LINE, 'PATH=/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin'],
+        array_slice(explode("\n", (string) @file_get_contents("$tmp/env.job")), 0, 4));
+    @unlink(RUN_DIR . '/uso-test-at-tz.sh');
+    $sh = trim((string) shell_exec('env -i PATH=/usr/bin:/bin TZ=Europe/Berlin sh -c ' . escapeshellarg("TZ=UTC; export TZ\n" . HOST_AT_ZONE_LINE . "\necho \"\${TZ-unset}\"")));
+    same('hostLaunch: the zone line takes at\'s TZ=UTC out of the job (the host\'s zone again)', 'unset', $sh);
     $r = new ReflectionFunction('serve');
     $serve = implode('', array_slice(file($r->getFileName()), $r->getStartLine() - 1, $r->getEndLine() - $r->getStartLine() + 1));
     check('at requeue: the agent\'s loop looks every few seconds', $ok && preg_match('/\$lastLook = \$now;.*?hostAtRequeue\(\);/s', $serve));

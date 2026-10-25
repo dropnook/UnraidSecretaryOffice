@@ -138,12 +138,14 @@ state_tm_utc_broken() {
 }
 undo_tm_utc_broken() { tz_fix TM-UTC-BROKEN; }
 
-# TM-DST [autumn|spring] [zone] — two minutes before the change of the time zone's next switch on 2026-10-25 (03:00 → 02:00,
-# the 02:xx hour twice) or 2027-03-28 (02:00 → 03:00, no 02:xx): the clock runs on, ntpd stopped. A server whose zone
-# file is missing (TM-UTC-BROKEN — USOTest3VM's base) gets <zone> (e.g. Europe/Berlin) linked as /etc/localtime for the
-# state's time — ident.cfg stays as Unraid's form wrote it; the undo links the old one back
+# TM-DST [autumn|spring] [zone] [minutes=2] — <minutes> before the change of the time zone's next switch on 2026-10-25
+# (03:00 → 02:00, the 02:xx hour twice: 20 = 02:40 CEST, inside the repeated hour's first time) or 2027-03-28 (02:00 →
+# 03:00, no 02:xx): the clock runs on, ntpd stopped. A server whose zone file is missing (TM-UTC-BROKEN — USOTest3VM's
+# base) gets <zone> (e.g. Europe/Berlin) linked as /etc/localtime for the state's time — ident.cfg stays as Unraid's
+# form wrote it; the undo links the old one back
 state_tm_dst() {
-    local which=${1:-autumn} zone=${2:-} z at dir; dir=$(_st_dir TM-DST)
+    local which=${1:-autumn} zone=${2:-} mins=${3:-2} z at sw dir; dir=$(_st_dir TM-DST)
+    [[ $mins =~ ^[1-9][0-9]?$ ]] && ((mins <= 59)) || { say "TM-DST: minutes 1-59 before the switch, not $mins"; return 1; }
     z=$(_st_zone)
     if [[ -z $z && -n $zone ]]; then
         [[ -e /usr/share/zoneinfo/$zone ]] || { say "TM-DST: no zone file $zone here"; return 2; }
@@ -154,14 +156,15 @@ state_tm_dst() {
     fi
     [[ -n $z ]] || { say "needs a time zone file (this server runs UTC: no DST)"; return 2; }
     case $which in
-        autumn) at='2026-10-25 00:58:00 UTC' ;;
-        spring) at='2027-03-28 00:58:00 UTC' ;;
+        autumn) sw=$(date -d '2026-10-25 01:00:00 UTC' +%s) ;;
+        spring) sw=$(date -d '2027-03-28 01:00:00 UTC' +%s) ;;
         *) say "TM-DST: autumn|spring, not $which"; return 1 ;;
     esac
+    at=@$((sw - mins * 60))
     # a zone without that switch (UTC, …): nothing to cross
-    [[ $(TZ=$z date -d "$at" +%Z) != $(TZ=$z date -d "$at + 10 min" +%Z) ]] || { say "needs a zone with DST ($z has no switch then)"; return 2; }
+    [[ $(TZ=$z date -d "@$((sw - 60))" +%Z) != $(TZ=$z date -d "@$sw" +%Z) ]] || { say "needs a zone with DST ($z has no switch then)"; return 2; }
     clock_set TM-DST "$at" || return 1
-    _st_keep_env TM-DST DST=$which ZONE="$z" SWITCH_AT="$(date -d "$at + 2 min" +%s)"
+    _st_keep_env TM-DST DST=$which ZONE="$z" SWITCH_AT="$sw"
 }
 undo_tm_dst() {
     local dir; dir=$(_st_dir TM-DST)
