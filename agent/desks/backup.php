@@ -332,7 +332,7 @@ function backupTruthSummary(array $t, array $settings): array
     sort($noSnaps, SORT_NATURAL | SORT_FLAG_CASE);
     $new = array_values(array_filter(array_map('strval', array_keys($t['new'])), fn ($n) => !isset($settings["share|$n"])));
     sort($new, SORT_NATURAL | SORT_FLAG_CASE);
-    return ['runs' => $t['runs'], 'no_snaps' => $noSnaps, 'new' => $new];
+    return ['runs' => $t['runs'], 'no_snaps' => $noSnaps, 'new' => $new, 'docker_off' => ($t['kopia']['docker_off'] ?? false) === true];
 }
 
 /**

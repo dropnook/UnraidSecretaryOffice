@@ -413,7 +413,8 @@ function backupProtection(string $path, int $depth = 0, ?array $settings = null,
  *   set       what settings.ini sets
  *   why       codes, in this order: no_run (no backup run yet), no_snaps (its share's file system takes no snapshot),
  *             kopia_held (the repository suddenly empty: the engine holds Kopia), kopia_never (Kopia made no copy of it
- *             yet), kopia_gone (Kopia's container is gone), kopia_stuck / kopia_away (the storage takes nothing /
+ *             yet), kopia_gone (Kopia's container is gone), kopia_docker_off (Docker switched off: no new copies),
+ *             kopia_stuck / kopia_away (the storage takes nothing /
  *             can't be reached since `since`), kopia_failed (its last upload failed: an older copy is there)
  *   partners  the partner offices whose newest try received the unit it lies in (names)
  *   missed    the partner offices that should have it and don't: {name, why: never|skipped|failed, code: the engine's why}
@@ -490,7 +491,7 @@ function backupKopiaTruth(array $truth, ?string $src): array
     if ($src === null || !isset($k['good'][$src])) {
         return ['offsite' => false, 'why' => 'kopia_never', 'since' => null];
     }
-    $why = $k['gone'] ? 'kopia_gone' : ($k['stuck'] ? 'kopia_stuck' : ($k['away'] ? 'kopia_away' : (($k['last'][$src] ?? true) === false ? 'kopia_failed' : null)));
+    $why = $k['gone'] ? 'kopia_gone' : (($k['docker_off'] ?? false) ? 'kopia_docker_off' : ($k['stuck'] ? 'kopia_stuck' : ($k['away'] ? 'kopia_away' : (($k['last'][$src] ?? true) === false ? 'kopia_failed' : null))));
     return ['offsite' => true, 'why' => $why, 'since' => $why === 'kopia_stuck' ? $k['stuck'] : ($why === 'kopia_away' ? $k['away'] : null)];
 }
 
@@ -613,7 +614,11 @@ function backupProtectionPartners(array $s, array $at, ?array $truth): array
         }
     } else {
         foreach ($s as $section => $keys) {
-            if (preg_match('/^app\|(.+)$/D', (string) $section, $a) && in_array("$share/$child", array_map(fn ($f) => rtrim((string) $f, '/'), $keys['folder'] ?? []), true)) {
+            // the engine's app:<name> sends only its FIRST folder's dataset, <share>/<first dir> (app_own_ds) — another
+            // folder of the app, a dataset of its own, isn't in that stream (review 1.72.0 H1: count what really goes)
+            $first = ((array) ($keys['folder'] ?? []))[0] ?? null;
+            if (preg_match('/^app\|(.+)$/D', (string) $section, $a) && is_string($first) && preg_match('#^([^/]+)/([^/]+)#', $first, $f)
+                && "$f[1]/$f[2]" === "$share/$child") {
                 $units[] = "app:$a[1]";
             } elseif (preg_match('/^vm\|(.+)$/D', (string) $section, $v) && explode('/', $child, 2)[0] === $v[1]) {
                 $units[] = "vm:$v[1]";
@@ -699,7 +704,7 @@ function backupTruth(?string $data = null): array
     if (($cache['stamp'] ?? null) === $stamp) {
         return $cache['truth'];
     }
-    $t = ['runs' => 0, 'kopia' => ['good' => [], 'last' => [], 'held' => false, 'gone' => false, 'stuck' => null, 'away' => null],
+    $t = ['runs' => 0, 'kopia' => ['good' => [], 'last' => [], 'held' => false, 'gone' => false, 'docker_off' => false, 'stuck' => null, 'away' => null],
           'no_snaps' => [], 'new' => [], 'partner' => []];
     foreach (@file($f['history'], FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {      // oldest first
         $j = json_decode($line, true);
@@ -707,6 +712,11 @@ function backupTruth(?string $data = null): array
             continue;
         }
         $t['runs']++;
+        // engine 2.75: Docker switched off, Kopia not asked - the newest run that looked at Kopia says (review 1.72.0 L9)
+        $ks = $j['kopia']['state'] ?? '';
+        if (is_string($ks) && $ks !== '' && $ks !== 'skip') {
+            $t['kopia']['docker_off'] = $ks === 'docker_off';
+        }
         $when = is_int($j['finished'] ?? null) && $j['finished'] > 0 ? $j['finished'] : (int) ($j['started'] ?? 0);
         foreach (is_array($j['kopia']['done'] ?? null) ? $j['kopia']['done'] : [] as $k) {
             if (is_array($k) && is_string($k['name'] ?? null)) {
@@ -724,6 +734,11 @@ function backupTruth(?string $data = null): array
                 foreach ($p[$kind] as $u) {
                     $t['partner'][$p['id']][$u['unit']] = ['ok' => false, 'why' => $kind, 'code' => $u['why'], 'time' => $when];
                 }
+            }
+            // a transfer the run's end interrupted didn't arrive in this run either (review 1.72.0 M2: every one of them)
+            $code = in_array($j['message'] ?? '', ['array_stopping', 'signal'], true) ? $j['message'] : 'array_stopping';
+            foreach ($p['interrupted_all'] as $u) {
+                $t['partner'][$p['id']][$u] = ['ok' => false, 'why' => 'skipped', 'code' => $code, 'time' => $when];
             }
         }
     }
@@ -804,11 +819,14 @@ function backupPartnerRun(mixed $p): ?array
     }
     $str = fn ($v) => is_string($v) ? substr(preg_replace('/[\x00-\x1f]/', '', $v), 0, 120) : '';
     $by = [];
+    $wall = [];
     foreach ($p['partners'] as $x) {
         $id = $str($x['id'] ?? null);
         if (preg_match('/^[0-9a-f]{8}$/D', $id)) {
+            // engine 2.76: seconds = the wall time of its transfers (several at once), the Mbit/s over it (review L6)
+            $wall[$id] = is_int($x['seconds'] ?? null) && $x['seconds'] >= 0 ? $x['seconds'] : null;
             $by[$id] = ['id' => $id, 'name' => $str($x['name'] ?? null) ?: $id, 'sent' => 0, 'bytes' => 0, 'seconds' => 0, 'mbit' => null,
-                        'units' => [], 'skipped' => [], 'failed' => [], 'interrupted' => null];
+                        'units' => [], 'skipped' => [], 'failed' => [], 'interrupted' => null, 'interrupted_all' => []];
         }
     }
     foreach ((array) ($p['done'] ?? []) as $d) {
@@ -836,7 +854,20 @@ function backupPartnerRun(mixed $p): ?array
     if (is_array($i) && isset($by[$str($i['id'] ?? null)])) {
         $by[$str($i['id'])]['interrupted'] = $str($i['unit'] ?? null);
     }
-    foreach ($by as &$x) {
+    // engine 2.73: every transfer the array stop (or a stop by hand) ended - interrupted_all; an older engine names only
+    // one, interrupted (review 1.72.0 M2)
+    $all = is_array($p['interrupted_all'] ?? null) ? $p['interrupted_all'] : (is_array($i) ? [$i] : []);
+    foreach ($all as $d) {
+        $id = is_array($d) ? $str($d['id'] ?? null) : '';
+        $u = is_array($d) ? $str($d['unit'] ?? null) : '';
+        if (isset($by[$id]) && $u !== '' && !in_array($u, $by[$id]['interrupted_all'], true)) {
+            $by[$id]['interrupted_all'][] = $u;
+        }
+    }
+    foreach ($by as $id => &$x) {
+        if ($wall[$id] !== null && $x['sent']) {
+            $x['seconds'] = $wall[$id];
+        }
         // the rate of what went, over the seconds it took (a transfer under a second counts as one)
         $x['mbit'] = $x['sent'] ? round($x['bytes'] * 8 / max(1, $x['seconds']) / 1e6, 1) : null;
     }

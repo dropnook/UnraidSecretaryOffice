@@ -185,10 +185,15 @@ function snapPlanPattern(string $id): string
     return '/^(?:uso-plan|auto)-' . preg_quote($id, '/') . '-\d{8}-\d{4}$/D';
 }
 
+/** How much older than `born` a plan's own snapshot may read (review 1.72.0 L3): the names are local time, the agent
+ *  follows a zone change at runtime, the autumn hour comes twice — 14 h covers any zone move; the older series T03 is
+ *  about lies days back */
+const SNAP_PLAN_BORN_SLACK = 14 * 3600;
+
 /**
- * A snapshot is the plan's: its name, and not older than the plan (`born`, set on new plans since T03) — one of the same
- * name from before it (a plan deleted by an older office, on a pool asleep when the id was chosen) is never counted,
- * shown or thinned as its own (T03)
+ * A snapshot is the plan's: its name, and not older than the plan (`born`, set on new plans since T03; less
+ * SNAP_PLAN_BORN_SLACK) — one of the same name from before it (a plan deleted by an older office, on a pool asleep when
+ * the id was chosen) is never counted, shown or thinned as its own (T03)
  */
 function snapPlanOwns(array $plan, string $name): bool
 {
@@ -199,7 +204,13 @@ function snapPlanOwns(array $plan, string $name): bool
         return true;
     }
     $when = DateTime::createFromFormat('!Ymd-Hi', substr($name, -13));
-    return $when === false || $when->getTimestamp() >= intdiv($plan['born'], 60) * 60;
+    return $when === false || $when->getTimestamp() >= intdiv($plan['born'], 60) * 60 - SNAP_PLAN_BORN_SLACK;
+}
+
+/** The page's planOf() mirror of snapPlanOwns(): the oldest name stamp the plan owns (the names' clock), or null */
+function snapPlanBornStamp(array $plan): ?string
+{
+    return is_int($plan['born'] ?? null) ? date('Ymd-Hi', intdiv($plan['born'], 60) * 60 - SNAP_PLAN_BORN_SLACK) : null;
 }
 
 // ===================================================================== cron
@@ -304,7 +315,7 @@ function snapPlansPublic(?array $scan): array
             'gone'     => snapPlanGoneOf($st),
             'count'    => $count,
             'bytes'    => $bytes,
-        ] + (is_int($p['born'] ?? null) ? ['born_stamp' => date('Ymd-Hi', $p['born'])] : []);    // the page's planOf(): the names' clock
+        ] + (snapPlanBornStamp($p) !== null ? ['born_stamp' => snapPlanBornStamp($p)] : []);    // the page's planOf(): the names' clock
     }
     return ['plans' => $out, 'runner' => $runner];
 }

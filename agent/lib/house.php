@@ -486,6 +486,10 @@ function hostAtRequeue(?string $spool = null, ?int $now = null, array $bins = ['
         if ($from === false || $from === 0) {
             continue;               // not the office's (at's own header comes first in every job file)
         }
+        // review 1.72.0 L1: only root's own jobs are queued anew as root - the spool file root's, at's header uid=0
+        if (@fileowner("$spool/$f") !== 0 || !preg_match('/^# atrun uid=0 gid=[0-9]+$/m', substr($text, 0, $from))) {
+            continue;
+        }
         if ($mine === null) {
             $mine = hostAtRequeued();
             $changed = (bool) array_diff_key($mine, $seen);     // gone from the queue: forgotten (job numbers come round again)
@@ -514,10 +518,17 @@ function hostAtRequeue(?string $spool = null, ?int $now = null, array $bins = ['
         if ($exit !== 0) {
             continue;               // the old one stays: late is better than lost
         }
-        run([$bins[1], (string) $job], 20);
+        [$rmExit] = run([$bins[1], (string) $job], 20);
         logLine('Office: job ' . $job . ' in atd\'s queue was due ' . date('Y-m-d H:i', $due)
             . ' (queued while the clock was ahead) - queued anew for now');
         $done[] = $job;
+        if ($rmExit !== 0) {
+            // review 1.72.0 M6: the old one stays ahead in the queue - remembered as handled, never queued anew again
+            // (it also runs at its time: each job holds its own lock; a loop every look would start it every 3 s)
+            logLine('Office: job ' . $job . ' could not be taken out of atd\'s queue - left there, never queued anew again');
+            $mine[$job] = ['told' => true];
+            $changed = true;
+        }
         if (preg_match('/^job ([0-9]{1,9}) at /m', $err, $n)) {
             $mine[(int) $n[1]] = ['told' => false];
             $seen[(int) $n[1]] = true;

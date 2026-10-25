@@ -2619,8 +2619,15 @@ function watchmanPartnerMovedLine(array $l, ?array $pair, ?array $moved, ?int $m
         return false;
     }
     $ips = partnerLookFromIps((string) ($l['from'] ?? ''));
+    sort($ips);
+    // the from= the Team Lead wrote: his record's (a host name resolved, review 1.72.0 L5), else the address itself; the
+    // pair's own address the same - an IP as the line says, a host name the record's
+    $want = isset($moved['from']) ? partnerLookFromIps((string) $moved['from']) : [partnerLookIp((string) $moved['address'])];
+    sort($want);
+    $pairIps = array_values((array) $pair['ips']);
+    $pairOk = $pairIps === [] ? isset($moved['from']) && (string) ($pair['address'] ?? '') === (string) $moved['address'] : $ips === $pairIps;
     return !empty($l['exact']) && empty($l['twice']) && ($pair['fp'] ?? null) !== null && ($l['fp'] ?? null) === $pair['fp']
-        && count($ips) === 1 && $ips === array_values((array) $pair['ips']) && $ips === [partnerLookIp((string) $moved['address'])]
+        && $ips !== [] && $ips === $want && $pairOk
         && $mtime >= (int) $moved['time'] - 5 && $mtime <= (int) $moved['time'] + WATCH_PARTNER_PAIRED;
 }
 
