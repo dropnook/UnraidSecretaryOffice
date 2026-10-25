@@ -374,9 +374,11 @@ backup_recover() {
     [[ -s "$ub/state/stopped" || -s "$ub/state/maintenance" || -s "$ub/state/vms" ]] || return 0
     mkdir -p "$RUN" && chmod 700 "$RUN" || return 0
     job="$RUN/backup-recover.sh"
-    printf '%s\n' '#!/bin/sh' "$HOST_LAUNCH_MARK" 'PATH=/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin' 'export PATH' \
+    printf '%s\n' '#!/bin/sh' "$HOST_LAUNCH_MARK" 'unset TZ' 'PATH=/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin' 'export PATH' \
         "UB_DATA=$(shq "$ub")" 'export UB_DATA' "cd '/'" "exec /bin/bash $(shq "$DIR/backup/backup.sh") --recover </dev/null >/dev/null 2>&1" >"$job" || return 0
-    if timeout 10 at -M -f "$job" now >/dev/null 2>&1; then
+    # TZ=UTC: in the autumn's repeated hour `at now` lands an hour ahead (HOST_AT_ENV in agent/lib/house.php); the job's
+    # `unset TZ` puts the host's zone back (at writes TZ=UTC into it)
+    if timeout 10 env TZ=UTC at -M -f "$job" now >/dev/null 2>&1; then
         echo "$(date '+%F %T') array started: a backup run left things stopped - backup.sh --recover handed to atd" >>"$LOG"
     else
         echo "$(date '+%F %T') array started: backup.sh --recover could not be handed to atd - the next backup run brings them back" >>"$LOG"

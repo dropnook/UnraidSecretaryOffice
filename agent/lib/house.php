@@ -366,6 +366,13 @@ function houseGuiUrl(): ?string
 }
 
 const HOST_LAUNCH_MARK = '# written by the Unraid Secretary Office agent';     // in every job it hands to atd (the night watchman knows them by it)
+// `at now` reads the wall clock in the host's zone: in the autumn's repeated hour (02:00-03:00 twice in Europe) at 3.2 takes
+// the minute as its second, standard-time instance - an hour ahead (nostromo 2026-10-25, Europe/Zurich: hostAtRequeue()
+// queued the office's jobs anew every 3 s for that hour, each landing an hour ahead again). In UTC no minute comes twice:
+// the office runs `at` with TZ=UTC. at writes its own environment into the job, TZ=UTC with it - every office script puts
+// that back first (HOST_AT_ZONE_LINE: the agent's run() never passed a TZ, the jobs ran in the host's zone, and still do).
+const HOST_AT_ENV = ['env', 'TZ=UTC'];
+const HOST_AT_ZONE_LINE = 'unset TZ';
 const HOST_ATD_PID = '/var/run/atd.pid';         // atd's pid file (Unraid's rc.atd starts /usr/sbin/atd, which writes it)
 
 /**
@@ -422,7 +429,7 @@ function hostLaunch(string $job, array $args, array $env = [], ?string $output =
         $exports .= $k . '=' . escapeshellarg((string) $v) . "\nexport $k\n";
     }
     $out = $output !== null ? escapeshellarg($output) : '/dev/null';
-    $script = "#!/bin/sh\n" . HOST_LAUNCH_MARK . "\n"
+    $script = "#!/bin/sh\n" . HOST_LAUNCH_MARK . "\n" . HOST_AT_ZONE_LINE . "\n"
             . "PATH=/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin\nexport PATH\n$exports"
             . 'cd ' . escapeshellarg($cwd) . "\n"
             . "exec $line </dev/null >$out 2>&1\n";
@@ -430,7 +437,7 @@ function hostLaunch(string $job, array $args, array $env = [], ?string $output =
     if (@file_put_contents($file, $script) === false) {
         throw new Problem('command_failed', ['detail' => "cannot write $file"]);
     }
-    [$exit, , $err] = run(['at', '-M', '-f', $file, 'now'], 20);
+    [$exit, , $err] = run([...HOST_AT_ENV, 'at', '-M', '-f', $file, 'now'], 20);
     if ($exit !== 0) {
         throw new Problem('host_launch_failed', ['detail' => trim($err)]);
     }
@@ -438,6 +445,7 @@ function hostLaunch(string $job, array $args, array $env = [], ?string $output =
 
 const HOST_AT_SPOOL = '/var/spool/atjobs';      // atd's queue: a file a job, its name <queue><job number, 5 hex><due minute, 8 hex>
 const HOST_AT_LATE  = 120;                       // seconds a job of the office's may lie ahead before it counts as stranded
+const HOST_AT_REQUEUED = RUN_DIR . '/at-requeued.json';  // the jobs hostAtRequeue() queued anew: {"<job>": {"told": bool}}
 
 /**
  * The office's own jobs stranded in atd's queue (scenario full run 2026-10-21/22, the F12/BF5 family): `at now` takes the
@@ -445,9 +453,12 @@ const HOST_AT_LATE  = 120;                       // seconds a job of the office'
  * job waits in atd's queue for that moment once the clock is put back: a partner's look, the Team Lead's ping, the Kopia
  * watch for hours or days. The office only ever queues «now» (hostLaunch(), agent.sh), so a job of its own (the mark) due
  * more than HOST_AT_LATE ahead is one of those: queued anew for now (its own script, as hostLaunch() wrote it — what at
- * put around it stays out), then the old one taken out of the queue; another's job (Unraid's, a plugin's, a user's) and a
- * running one (`=`) are never touched. Looked at by the agent every few seconds: one scandir, a file read only for a job
- * that lies ahead. The job numbers queued anew; $spool, $now and $bins ([at, atrm]) the tests' stand-ins.
+ * put around it stays out; one an older agent queued gets the zone line), then the old one taken out of the queue; another's
+ * job (Unraid's, a plugin's, a user's) and a running one (`=`) are never touched. A job it queued anew that lies ahead
+ * again (at put it there itself: the autumn's repeated hour before TZ=UTC, 2026-10-25) is left as it is — never queued
+ * anew a second time, said once (late is better than a loop). Looked at by the agent every few seconds: one scandir, a
+ * file read only for a job that lies ahead. The job numbers queued anew; $spool, $now and $bins ([at, atrm]) the tests'
+ * stand-ins.
  *
  * @return list<int>
  */
@@ -456,34 +467,90 @@ function hostAtRequeue(?string $spool = null, ?int $now = null, array $bins = ['
     $spool ??= HOST_AT_SPOOL;
     $now ??= time();
     $done = [];
+    $mine = null;           // HOST_AT_REQUEUED, read at the first job that lies ahead
+    $seen = [];             // the job numbers in the queue now
+    $ahead = [];
     foreach (@scandir($spool) ?: [] as $f) {
-        if (!preg_match('/^[a-z]([0-9a-f]{5})([0-9a-f]{8})$/D', $f, $m) || hexdec($m[2]) * 60 <= $now + HOST_AT_LATE
-            || !is_file("$spool/$f") || is_link("$spool/$f")) {
+        if (!preg_match('/^[a-z=]([0-9a-f]{5})([0-9a-f]{8})$/D', $f, $m)) {
             continue;
         }
+        $seen[(int) hexdec($m[1])] = true;
+        if ($f[0] !== '=' && hexdec($m[2]) * 60 > $now + HOST_AT_LATE && is_file("$spool/$f") && !is_link("$spool/$f")) {
+            $ahead[] = [$f, (int) hexdec($m[1]), (int) hexdec($m[2]) * 60];
+        }
+    }
+    $changed = false;
+    foreach ($ahead as [$f, $job, $due]) {
         $text = (string) @file_get_contents("$spool/$f", false, null, 0, 65536);
         $from = strpos($text, "#!/bin/sh\n" . HOST_LAUNCH_MARK . "\n");
         if ($from === false || $from === 0) {
             continue;               // not the office's (at's own header comes first in every job file)
         }
+        if ($mine === null) {
+            $mine = hostAtRequeued();
+            $changed = (bool) array_diff_key($mine, $seen);     // gone from the queue: forgotten (job numbers come round again)
+        }
+        if (isset($mine[$job])) {
+            if (!$mine[$job]['told']) {
+                logLine('Office: job ' . $job . ' in atd\'s queue, queued anew for now already, is due ' . date('Y-m-d H:i', $due)
+                    . ' again (at put it ahead itself) - left as it is: atd starts it then');
+                $mine[$job]['told'] = $changed = true;
+            }
+            continue;
+        }
+        $script = substr($text, $from);
+        $head = "#!/bin/sh\n" . HOST_LAUNCH_MARK . "\n";
+        if (!str_starts_with(substr($script, strlen($head)), HOST_AT_ZONE_LINE . "\n")) {
+            $script = $head . HOST_AT_ZONE_LINE . "\n" . substr($script, strlen($head));     // queued by an older agent
+        }
         $file = RUN_DIR . '/at-requeue.sh';
         @mkdir(RUN_DIR, 0700, true);
         // what follows the office's script (at's closing line) is never reached: the script ends in exec
-        if (@file_put_contents($file, substr($text, $from)) === false) {
+        if (@file_put_contents($file, $script) === false) {
             continue;
         }
-        [$exit] = run([$bins[0], '-M', '-f', $file, 'now'], 20);
+        [$exit, , $err] = run([...HOST_AT_ENV, $bins[0], '-M', '-f', $file, 'now'], 20);
         @unlink($file);
         if ($exit !== 0) {
             continue;               // the old one stays: late is better than lost
         }
-        $job = (int) hexdec($m[1]);
         run([$bins[1], (string) $job], 20);
-        logLine('Office: job ' . $job . ' in atd\'s queue was due ' . date('Y-m-d H:i', (int) hexdec($m[2]) * 60)
+        logLine('Office: job ' . $job . ' in atd\'s queue was due ' . date('Y-m-d H:i', $due)
             . ' (queued while the clock was ahead) - queued anew for now');
         $done[] = $job;
+        if (preg_match('/^job ([0-9]{1,9}) at /m', $err, $n)) {
+            $mine[(int) $n[1]] = ['told' => false];
+            $seen[(int) $n[1]] = true;
+            $changed = true;
+        }
+    }
+    if ($changed) {
+        hostAtRequeuedSave(array_intersect_key($mine, $seen));
     }
     return $done;
+}
+
+/** @return array<int, array{told: bool}> HOST_AT_REQUEUED: only entries in exactly its shape */
+function hostAtRequeued(): array
+{
+    $in = json_decode((string) @file_get_contents(HOST_AT_REQUEUED, false, null, 0, 65536), true);
+    $out = [];
+    foreach (is_array($in) ? $in : [] as $job => $e) {
+        if (preg_match('/^[0-9]{1,9}$/D', (string) $job) && is_array($e) && is_bool($e['told'] ?? null)) {
+            $out[(int) $job] = ['told' => $e['told']];
+        }
+    }
+    return $out;
+}
+
+/** @param array<int, array{told: bool}> $jobs */
+function hostAtRequeuedSave(array $jobs): void
+{
+    try {
+        writeAtomic(HOST_AT_REQUEUED, json_encode((object) $jobs) . "\n", 0600);
+    } catch (Throwable) {
+        // RAM full or gone: the next look queues such a job anew once more, no worse
+    }
 }
 
 /**
