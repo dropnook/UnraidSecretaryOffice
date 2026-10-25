@@ -14469,6 +14469,9 @@ function testRestorePaths(): void
     $j['finished'] = time();
     writeAtomic(rsDir($id) . '/plan.json', jsonEncode($p), 0600, 0, 0);
     rsJournalWrite($j);
+    $back = rsPlanSeal(rsPlanPutback(['id' => $id], '20261025-121000'), '20261025-121000');
+    same('restore paths: a path swapped in from Kopia can be put back — the copy aside, the old one back', [true, [], ['aside', 'move']],
+        [rsCanPutback(rsJournal($id)), $back['blockers'], array_column($back['steps'], 'do')]);
     $m = rsKopiaRestored('/mnt/user/zzdocs/Fotos', $ctx);
     same('restore paths: what Kopia brought back of one path is a moment of it (and of nothing else)', [["kopia:$id", "$tmp/restore/zzdocs-$stamp/Fotos"], []],
         [array_map(fn ($x) => [$x['id'], $x['path']], $m)[0] ?? null, rsKopiaRestored('/mnt/user/zzdocs/Verträge', $ctx)]);
@@ -14516,6 +14519,7 @@ function testRestorePaths(): void
     $j['finished'] = time();
     writeAtomic(rsDir($id) . '/plan.json', jsonEncode($p), 0600, 0, 0);
     rsJournalWrite($j);
+    same('restore paths: what was only staged has nothing to put back', false, rsCanPutback(rsJournal($id)));
     $list = rsVersionList(['places' => [], 'share' => 'UnraidSecretaryOffice'], 'app', 'nc', '');
     same('restore paths: the package Kopia brought back is an earlier version — marked, its folder the package itself',
         [["kopia:$id", true, "$tmp/restore/apps_nc-$stamp/nc", '20261019-0100', 1]],

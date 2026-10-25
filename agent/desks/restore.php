@@ -1746,7 +1746,9 @@ function rsPutbackInfo(array $j): ?array
 /** Can «Put back» undo this restore? Something of it was done and can be undone, and it wasn't put back yet */
 function rsCanPutback(array $j): bool
 {
-    if (in_array($j['kind'] ?? '', ['putback', 'kopia'], true) || !in_array($j['result'] ?? '', ['ok', 'warnings', 'failed', 'interrupted'], true)) {
+    // a Kopia restore replaces nothing — except one path of it swapped in (1.72): that one goes back like step 4's
+    $kopiaAll = ($j['kind'] ?? '') === 'kopia' && (($j['target']['path'] ?? '') === '' || ($j['target']['mode'] ?? '') === 'stage');
+    if (($j['kind'] ?? '') === 'putback' || $kopiaAll || !in_array($j['result'] ?? '', ['ok', 'warnings', 'failed', 'interrupted'], true)) {
         return false;
     }
     if (is_array($j['putback'] ?? null) && !in_array($j['putback']['result'] ?? '', ['refused'], true)) {
