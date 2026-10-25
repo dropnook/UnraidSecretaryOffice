@@ -2396,6 +2396,54 @@ function rspSwappedBy(string $pullId, ?array $rows = null): ?string
     return null;
 }
 
+/** The disks asleep as his plans see them (tests: $GLOBALS['rs']['asleep_disks']) */
+function rspAsleepDisks(): array
+{
+    return $GLOBALS['rs']['asleep_disks'] ?? sleepingDisks();
+}
+
+/**
+ * A moment of this unit newer than the one pulled that the partner keeps (review of task/restore-gaps, H1): the newest
+ * the engine sent there since (state/partner-sent.json) or the partner named at its last look (held.json). Swapping in
+ * an older moment would stop the copy there: the engine would send from the pulled moment, the partner's newest is
+ * another, and its door never receives with -F. Null: the pulled moment is the newest there.
+ */
+function rspNewerAtPartner(string $pair, string $unit, string $snap, ?int $time): ?string
+{
+    $newer = [];
+    if (isset($GLOBALS['rs']['held_newer'])) {
+        $newer = ($GLOBALS['rs']['held_newer'])($pair, $unit, $snap);            // tests: the partner's last look
+    } else {
+        foreach ((array) ((rspHeld($pair) ?? [])['units'][$unit] ?? []) as $x) {
+            $later = is_int($x['creation'] ?? null) && $time !== null ? $x['creation'] > $time : strcmp((string) $x['name'], $snap) > 0;
+            if ($x['name'] !== $snap && $later) {
+                $newer[] = (string) $x['name'];
+            }
+        }
+    }
+    $sent = (readJson(rsUbData() . '/state/partner-sent.json') ?? [])[$pair][$unit]['snap'] ?? null;
+    if (is_string($sent) && preg_match(PARTNER_SNAP_RE, $sent) && $sent !== $snap && strcmp($sent, $snap) > 0) {
+        $newer[] = $sent;
+    }
+    rsort($newer, SORT_STRING);
+    return $newer[0] ?? null;
+}
+
+/**
+ * The swap standing on this share's dataset (another pull swapped in and not put back): its entry's id, or null —
+ * a second swap over it would make the first one's put back fail (review L3)
+ */
+function rspSwapStanding(string $dataset, string $exceptPull): ?string
+{
+    foreach (rsJournals() as $row) {
+        if (($row['kind'] ?? '') === 'partner_swap' && ($row['target']['dataset'] ?? '') === $dataset && ($row['target']['id'] ?? '') !== $exceptPull
+            && rspSwappedBy((string) ($row['target']['id'] ?? '')) === $row['id']) {
+            return (string) $row['id'];
+        }
+    }
+    return null;
+}
+
 /** A dataset's property as zfs says it (value and where it comes from), null when not there */
 function rspDsProp(string $ds, string $prop): ?array
 {
@@ -2468,13 +2516,29 @@ function rsPlanPartnerSwap(array $r, string $stamp): array
         $plan['blockers'][] = ['key' => 'restore_swap_not', 'params' => []];
         return $plan;
     }
-    if (baseAsleep($pool, sleepingDisks())) {
+    if (baseAsleep($pool, rspAsleepDisks())) {
         $plan['blockers'][] = ['key' => 'restore_asleep', 'params' => ['base' => $pool]];
         return $plan;
     }
     if (!rspDsExists($do)) {
         $plan['blockers'][] = ['key' => 'restore_swap_no_dataset', 'params' => ['share' => $share]];
         return $plan;
+    }
+    $other = rspSwapStanding($do, $id);
+    if ($other !== null) {
+        $plan['blockers'][] = ['key' => 'restore_swap_other', 'params' => ['share' => $share, 'entry' => $other]];
+        return $plan;
+    }
+    // the copy at the partner must go on from what is swapped in: only its newest moment (H1)
+    $pair = ($j['target']['kind'] ?? 'pair') === 'pair' ? (string) ($j['target']['pair'] ?? '') : '';
+    $snap = (string) ($pull['snap'] ?? '');
+    $newer = $pair !== '' ? rspNewerAtPartner($pair, $unit, $snap, is_int($pull['time'] ?? null) ? $pull['time'] : null) : null;
+    if ($newer !== null) {
+        $plan['blockers'][] = ['key' => 'restore_swap_not_newest', 'params' => ['name' => $partner, 'snap' => $snap, 'newest' => $newer, 'share' => $share]];
+        return $plan;
+    }
+    if ($pair !== '') {
+        $plan['notes'][] = ['key' => 'note.swap_partner_goes_on', 'params' => ['name' => $partner, 'snap' => $snap]];
     }
     // the share's dataset: its mountpoint where Unraid has it, taken from the pool (a rename moves it along)
     $mp = rspDsProp($do, 'mountpoint');
@@ -2541,7 +2605,7 @@ function rsPlanPartnerSwap(array $r, string $stamp): array
     if ($mount !== '') {
         $steps[] = ['do' => 'pull_umount', 'dataset' => $dn, 'path' => $mount];
     }
-    $steps[] = ['do' => 'swap_out', 'dataset' => $do, 'to' => $da, 'path' => $live, 'aside' => $asideP];
+    $steps[] = ['do' => 'swap_out', 'dataset' => $do, 'to' => $da, 'path' => $live, 'aside' => $asideP, 'pulled' => $dn, 'pulled_guid' => $guid, 'mount' => $mount];
     $steps[] = ['do' => 'swap_in', 'dataset' => $dn, 'to' => $do, 'guid' => $guid, 'mountpoint' => $live, 'mount' => $mount];
     if ($users) {
         $steps[] = ['do' => 'start', 'containers' => $users, 'only_stopped' => true];
@@ -2574,9 +2638,24 @@ function rsDoPullUmount(array &$j, array $s): array
     return ['state' => 'ok', 'undo' => [['do' => 'mount', 'dataset' => $ds, 'path' => $path]]];
 }
 
-/** The share's dataset aside, whole, with its snapshots (zfs rename; its folder follows the name) */
-function rsDoSwapOut(array &$j, array $s): array
+/**
+ * A step's undo written into the journal before the command it undoes (review L1): a power cut between them leaves the way
+ * back recorded — each undo of the swap also works when its rename never happened
+ */
+function rspUndoFirst(array &$j, int $i, array $undo): void
 {
+    $j['steps'][$i]['undo'] = $undo;
+    try {
+        rsJournalWrite($j);
+    } catch (Throwable) {
+        // the job's own write after the step says it; the undo is in the step's answer too
+    }
+}
+
+/** The share's dataset aside, whole, with its snapshots (zfs rename; its folder follows the name) */
+function rsDoSwapOut(array &$j, int $i): array
+{
+    $s = $j['steps'][$i];
     $do = (string) $s['dataset'];
     $da = (string) $s['to'];
     if (!preg_match(RSP_DS_RE, $do) || !preg_match('#^[A-Za-z][A-Za-z0-9_.:-]{0,63}/' . preg_quote(OFFICE_ASIDE, '#') . '-\d{8}-\d{6}-[\w .-]{1,200}$#D', $da)) {
@@ -2588,17 +2667,23 @@ function rsDoSwapOut(array &$j, array $s): array
     if (rspDsExists($da)) {
         return rsFail('exists', ['path' => $da]);
     }
+    // the way back: the old dataset in place again — and, should that rename fail, the pull made the share again (H2)
+    $undo = [['do' => 'swap_back', 'dataset' => $da, 'to' => $do, 'path' => (string) $s['path'], 'guid' => rspDsGet($do, 'guid'),
+              'aside' => (string) ($s['aside'] ?? ''), 'pulled' => $s['pulled'] ?? null, 'pulled_guid' => $s['pulled_guid'] ?? null, 'mount' => $s['mount'] ?? '']];
+    rspUndoFirst($j, $i, $undo);
     [$exit, , $err] = rsRun($j, [rspZfs(), 'rename', $do, $da], 300);
     if ($exit !== 0) {
         return rsFail('rename_failed', ['path' => (string) $s['path']], trim($err));
     }
     $j['aside'][] = ['from' => (string) $s['path'], 'to' => (string) ($s['aside'] ?? ''), 'dataset' => $do, 'to_dataset' => $da];
-    return ['state' => 'ok', 'undo' => [['do' => 'swap_back', 'dataset' => $da, 'to' => $do, 'path' => (string) $s['path']]]];
+    @rmdir((string) $s['path']);            // the empty folder ZFS may leave at the old mountpoint (L6)
+    return ['state' => 'ok', 'undo' => $undo];
 }
 
 /** The pull takes the share's name and mountpoint (from the pool, as the old one had it) and is mounted there */
-function rsDoSwapIn(array &$j, array $s): array
+function rsDoSwapIn(array &$j, int $i): array
 {
+    $s = $j['steps'][$i];
     $dn = (string) $s['dataset'];
     $do = (string) $s['to'];
     $mp = (string) $s['mountpoint'];
@@ -2617,11 +2702,12 @@ function rsDoSwapIn(array &$j, array $s): array
     if (rspMounts()[$dn] ?? []) {
         return rsFail('drop_busy', ['path' => implode(', ', rspMounts()[$dn])]);
     }
+    $undo = [['do' => 'swap_unsettle', 'dataset' => $do, 'to' => $dn, 'guid' => $s['guid'] ?? null, 'mountpoint' => $mp]];
+    rspUndoFirst($j, $i, $undo);
     [$exit, , $err] = rsRun($j, [rspZfs(), 'rename', $dn, $do], 300);
     if ($exit !== 0) {
         return rsFail('rename_failed', ['path' => $dn], trim($err));
     }
-    $undo = [['do' => 'swap_unsettle', 'dataset' => $do, 'to' => $dn, 'guid' => $s['guid'] ?? null, 'mountpoint' => $mp]];
     foreach ([['inherit', 'mountpoint', $do], ['set', 'canmount=on', $do]] as $args) {
         [$exit, , $err] = rsRun($j, array_merge([rspZfs()], $args), 60);
         if ($exit !== 0) {
@@ -2645,10 +2731,18 @@ function rsDoSwapUnsettle(array &$j, array $s): array
     if (!rspOwnTarget($dn) || preg_replace(RSP_OWN_RE, '', $dn) !== $do) {
         return rsFail('pull_refused', ['dataset' => $dn]);
     }
+    $guid = is_string($s['guid'] ?? null) ? $s['guid'] : null;
+    // done before (an earlier put back that stopped later on, or the rename it undoes never happened): nothing to do
+    if (rspDsExists($dn) && ($guid === null || rspDsGet($dn, 'guid') === $guid)) {
+        foreach (['canmount=noauto', 'mountpoint=legacy'] as $kv) {
+            rsRun($j, [rspZfs(), 'set', $kv, $dn], 60);
+        }
+        return ['state' => 'ok', 'note' => 'already'];
+    }
     if (!rspDsExists($do)) {
         return rsFail('gone', ['path' => $do]);
     }
-    if (is_string($s['guid'] ?? null) && rspDsGet($do, 'guid') !== $s['guid']) {
+    if ($guid !== null && rspDsGet($do, 'guid') !== $guid) {
         return rsFail('drop_other', ['dataset' => $do]);         // not the dataset the swap put there: left as it is
     }
     if (rspDsExists($dn)) {
@@ -2660,10 +2754,24 @@ function rsDoSwapUnsettle(array &$j, array $s): array
     foreach ([['set', 'canmount=noauto', $do], ['set', 'mountpoint=legacy', $do], ['rename', $do, $dn]] as $args) {
         [$exit, , $err] = rsRun($j, array_merge([rspZfs()], $args), 300);
         if ($exit !== 0) {
+            // never a share left unmounted (H2): back as it was, mounted where the share is
+            rspResettle($j, $do, (string) ($s['mountpoint'] ?? ''));
             return rsFail('rename_failed', ['path' => $do], trim($err));
         }
     }
     return ['state' => 'ok'];
+}
+
+/** A dataset made the share's again: its mountpoint from the pool, canmount on, mounted — true when it is mounted */
+function rspResettle(array &$j, string $ds, string $mountpoint): bool
+{
+    foreach ([['inherit', 'mountpoint', $ds], ['set', 'canmount=on', $ds]] as $args) {
+        rsRun($j, array_merge([rspZfs()], $args), 60);
+    }
+    if (rspDsGet($ds, 'mounted') !== 'yes') {
+        rsRun($j, [rspZfs(), 'mount', $ds], 120);
+    }
+    return rspDsGet($ds, 'mounted') === 'yes' && ($mountpoint === '' || rspDsGet($ds, 'mountpoint') === $mountpoint);
 }
 
 /** «Put back» of the swap, then: the share's old dataset back in its place (its folder follows the name) */
@@ -2671,6 +2779,14 @@ function rsDoSwapBack(array &$j, array $s): array
 {
     $da = (string) $s['dataset'];
     $do = (string) $s['to'];
+    $guid = is_string($s['guid'] ?? null) ? $s['guid'] : null;
+    // done before, or the rename it undoes never happened: the share's own dataset is in its place
+    if (!rspDsExists($da) && rspDsExists($do) && ($guid === null || rspDsGet($do, 'guid') === $guid)) {
+        if (rspDsGet($do, 'mounted') !== 'yes') {
+            rsRun($j, [rspZfs(), 'mount', $do], 120);
+        }
+        return ['state' => 'ok', 'note' => 'already'];
+    }
     if (!rspDsExists($da)) {
         return rsFail('gone', ['path' => $da]);
     }
@@ -2679,8 +2795,20 @@ function rsDoSwapBack(array &$j, array $s): array
     }
     [$exit, , $err] = rsRun($j, [rspZfs(), 'rename', $da, $do], 300);
     if ($exit !== 0) {
-        return rsFail('rename_failed', ['path' => $da], trim($err));
+        // the set-aside dataset busy (a shell or an SMB client in its folder): never a share left missing (H2) — the pull,
+        // just turned back into the read-only copy, is made the share again; «Put back» is offered once more
+        $dn = is_string($s['pulled'] ?? null) ? $s['pulled'] : '';
+        $back = false;
+        if ($dn !== '' && rspOwnTarget($dn) && rspDsExists($dn) && !rspDsExists($do)
+            && (!is_string($s['pulled_guid'] ?? null) || rspDsGet($dn, 'guid') === $s['pulled_guid'])) {
+            foreach (rspMounts()[$dn] ?? [] as $mnt) {
+                rsRun($j, [partnerBin('umount') ?? 'umount', $mnt], 60);
+            }
+            $back = rsRun($j, [rspZfs(), 'rename', $dn, $do], 300)[0] === 0 && rspResettle($j, $do, (string) ($s['path'] ?? ''));
+        }
+        return rsFail($back ? 'swap_back_busy' : 'rename_failed', ['path' => $back ? (string) ($s['aside'] ?? $da) : $da], trim($err));
     }
+    @rmdir((string) ($s['aside'] ?? ''));          // the empty folder ZFS may leave at the old mountpoint (L6)
     if (rspDsGet($do, 'mounted') !== 'yes') {
         rsRun($j, [rspZfs(), 'mount', $do], 120);
     }

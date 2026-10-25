@@ -113,4 +113,7 @@ const onFold = r.vmAllFold('/b/server/libvirt.tar.gz');
 out.t7.on = texts(onFold);
 out.t7.onButtons = buttons(onFold);
 
+// ---- review M4: the «Put back» hint of a libvirt restore whose build failed (nothing swapped) vs one that swapped
+out.m4 = [r.putbackHint({ kind: 'libvirt', aside: [] }), r.putbackHint({ kind: 'libvirt', aside: [{ from: 'a', to: 'b' }] }), r.putbackHint({ kind: 'partner_swap', aside: [] })];
+
 console.log(JSON.stringify(out));

@@ -3295,7 +3295,7 @@ function journalDetail(r) {
         p.append(restoreButton(T('j.remove_unfinished'), { kind: 'putback', id: r.id }, T('rd.title.unfinished', { what: journalTitle(r) })), ' ', el('span', 'role', T('j.remove_unfinished_hint')));
       } else {
         p.append(restoreButton(T(r.kind === 'partner' ? 'j.drop' : 'j.putback'), { kind: 'putback', id: r.id }, T('rd.title.putback', { what: journalTitle(r) })), ' ',
-          el('span', 'role', T(r.kind === 'partner' ? 'j.drop_hint' : r.kind === 'partner_start' ? 'j.start_putback_hint' : r.kind === 'partner_swap' ? 'j.swap_putback_hint' : r.kind === 'libvirt' ? 'j.libvirt_putback_hint' : 'j.putback_hint')));
+          el('span', 'role', T(putbackHint(r))));
       }
       box.appendChild(p);
     } else if (!live && ['ok', 'warnings'].includes(r.result) && !r.putback && r.kind !== 'putback') box.appendChild(el('p', 'role', T(r.kind === 'kopia' ? 'j.no_putback_kopia' : 'j.no_putback')));
@@ -3320,6 +3320,15 @@ function journalDetail(r) {
     }
   }
   return box;
+}
+
+/** What «Put back» does, said beside it — a libvirt restore whose build failed swapped nothing: only its leftover copy goes aside (review M4) */
+function putbackHint(r) {
+  if (r.kind === 'partner') return 'j.drop_hint';
+  if (r.kind === 'partner_start') return 'j.start_putback_hint';
+  if (r.kind === 'partner_swap') return 'j.swap_putback_hint';
+  if (r.kind === 'libvirt') return (r.aside || []).length ? 'j.libvirt_putback_hint' : 'j.libvirt_leftover_hint';
+  return 'j.putback_hint';
 }
 
 /** A restore that was put back: when, where what it had restored went (<x>.putback-<time>), and its put back's own entry */
@@ -3452,6 +3461,6 @@ Office.placesFrom(ID, (s, part) => {
 // tests/run.php runs the databases tile's logic and the preview's sizes under node
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.restore = { setState: (s) => { state = s; }, greetOk, shareFromKopia, kopiaFetched, dbGroups, dbName, dbRequest, earlierOf, tileLine, sizesDone,
-    noPackagesText, noPackages, bootSnapsPart, placesBack, placesPart, swapPart, swappable, vmAllFold, kopiaBlock, partnerPart, fetchLead, atPartnerChip, ownerPlaces, setJob: (j) => { job = j; }, runCardData, runCard, shortStep, liveJob, runCardShort, bubbleText, snapsChip };
+    noPackagesText, noPackages, bootSnapsPart, placesBack, placesPart, swapPart, swappable, vmAllFold, putbackHint, kopiaBlock, partnerPart, fetchLead, atPartnerChip, ownerPlaces, setJob: (j) => { job = j; }, runCardData, runCard, shortStep, liveJob, runCardShort, bubbleText, snapsChip };
 }
 })();

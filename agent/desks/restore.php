@@ -75,8 +75,8 @@ require_once __DIR__ . '/restore-drill.php';
 require_once __DIR__ . '/restore-partner.php';
 require_once __DIR__ . '/restore-dataset.php';      // «Make it a dataset of its own…» (1.60.1, asked from Mr. Backupsy's setup)
 require_once __DIR__ . '/restore-paths.php';        // 1.72: every share, one path out of Kopia, Kopia's packages as earlier versions
-require_once __DIR__ . '/restore-browse.php';
-require_once __DIR__ . '/restore-libvirt.php';      // all of libvirt.img back from its archive, the VM service off (matrix gap 7)       // files and folders at any depth of a moment, local or kept for a partner (matrix gap 4)
+require_once __DIR__ . '/restore-browse.php';       // files and folders at any depth of a moment, local or kept for a partner (matrix gap 4)
+require_once __DIR__ . '/restore-libvirt.php';      // all of libvirt.img back from its archive, the VM service off (matrix gap 7)
 
 function rsSizesFile(): string
 {
@@ -1830,7 +1830,9 @@ function rsCanPutback(array $j): bool
     if (($j['kind'] ?? '') === 'putback' || $kopiaAll || !in_array($j['result'] ?? '', ['ok', 'warnings', 'failed', 'interrupted'], true)) {
         return false;
     }
-    if (is_array($j['putback'] ?? null) && !in_array($j['putback']['result'] ?? '', ['refused'], true)) {
+    // a swap's put back that failed (its set-aside dataset busy) leaves the swap standing: offered again (review H2)
+    $again = ($j['kind'] ?? '') === 'partner_swap' && in_array($j['putback']['result'] ?? '', ['failed', 'interrupted'], true);
+    if (is_array($j['putback'] ?? null) && !in_array($j['putback']['result'] ?? '', ['refused'], true) && !$again) {
         return false;
     }
     return rsUndoSteps($j) !== [] || rsLeftStopped($j) !== [];
@@ -3456,28 +3458,37 @@ function rsPlanPutback(array $r, string $stamp): array
     if ($lvOn !== null) {
         $plan['blockers'][] = ['key' => $lvOn === 'attached' ? 'restore_libvirt_attached' : 'restore_libvirt_service_on', 'params' => ['path' => (string) ($orig['target']['image'] ?? '')]];
     }
-    // a swap put back (gap 6): the share's dataset changes names again — never under an open file, a running VM or an image
+    // a swap put back (gap 6): the share's dataset changes names again — never under an open file, a running VM or an image,
+    // neither of the share nor of the set-aside dataset's folder (review H2); never on a pool asleep (L2)
     if (($j['kind'] ?? '') === 'partner_swap' && $plan['steps']) {
         $live = (string) ($orig['target']['path'] ?? '');
+        $pool = (string) ($orig['target']['pool'] ?? '');
+        if ($pool !== '' && baseAsleep($pool, rspAsleepDisks())) {
+            $plan['blockers'][] = ['key' => 'restore_putback_asleep', 'params' => ['base' => $pool]];
+        }
+        $asides = array_values(array_filter(array_map(fn ($a) => is_array($a) ? (string) ($a['to'] ?? '') : '', (array) ($j['aside'] ?? [])),
+            fn ($p) => str_starts_with($p, '/mnt/') && rsCleanPath($p)));
+        $plan['after'][] = ['key' => 'after.swap_putback', 'params' => ['dataset' => (string) ($orig['target']['pulled'] ?? ''), 'share' => (string) ($orig['target']['share'] ?? '')]];
         $paths = $live !== '' ? ['/mnt/user/' . (string) ($orig['target']['share'] ?? ''), $live] : [];
         foreach ($paths ? rsVmsUsing($paths) : [] as $v) {
             if ($v['state'] !== 'shut off') {
                 $plan['blockers'][] = ['key' => 'restore_vm_uses', 'params' => ['name' => $v['name'], 'state' => $v['state'], 'path' => $v['path']]];
             }
         }
-        $holders = $live !== '' ? rsOpenHolders([$live]) : [];
+        $look = array_values(array_unique(array_filter(array_merge([$live], $asides))));
+        $holders = $look ? rsOpenHolders($look) : [];
         if ($holders) {
-            $plan['blockers'][] = ['key' => 'restore_in_use', 'params' => ['names' => implode(', ', $holders), 'path' => $live]];
+            $plan['blockers'][] = ['key' => 'restore_in_use', 'params' => ['names' => implode(', ', $holders), 'path' => implode(', ', $look)]];
         }
-        foreach ($live !== '' ? rsLoopHolders([$live]) : [] as $h) {
+        foreach ($look ? rsLoopHolders($look) : [] as $h) {
             $plan['blockers'][] = rsLoopBlocker($h);
         }
-        if ($live !== '') {
+        if ($look) {
             $at = 0;
             foreach ($plan['steps'] as $k => $s) {
                 $at = $s['do'] === 'stop' ? $k + 1 : $at;
             }
-            array_splice($plan['steps'], $at, 0, [['do' => 'not_open', 'paths' => [$live]]]);
+            array_splice($plan['steps'], $at, 0, [['do' => 'not_open', 'paths' => $look]]);
         }
     }
     $now = rsContainersNow();
@@ -3876,8 +3887,8 @@ function rsStep(array &$j, int $i): array
         'pull_umount' => rsDoPullUmount($j, $s),
         'lv_off'     => rsDoLvOff($s),
         'lv_build'   => rsDoLvBuild($j, $i),
-        'swap_out'   => rsDoSwapOut($j, $s),
-        'swap_in'    => rsDoSwapIn($j, $s),
+        'swap_out'   => rsDoSwapOut($j, $i),
+        'swap_in'    => rsDoSwapIn($j, $i),
         'swap_unsettle' => rsDoSwapUnsettle($j, $s),
         'swap_back'  => rsDoSwapBack($j, $s),
         'md_stopped' => mdDoStopped($j, $s),

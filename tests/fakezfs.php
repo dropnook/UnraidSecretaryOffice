@@ -52,6 +52,8 @@ switch ($cmd) {
         exit(0);
     case 'rename':
         [$from, $to] = $rest;
+        // watch: a file whose content names a file to copy at each rename (what the journal held right before it)
+        if (is_file("$dir/watch")) { @copy(trim((string) file_get_contents("$dir/watch")), "$dir/at-rename-" . count(glob("$dir/at-rename-*") ?: []) . '.json'); }
         if (!isset($st[$from])) { $no($from); }
         if (isset($st[$to])) { fwrite(STDERR, "cannot rename to '$to': dataset already exists\n"); exit(1); }
         if (in_array($from, $busy, true) && !empty($st[$from]['mounted'])) { fwrite(STDERR, "cannot unmount '$from': pool or dataset is busy\n"); exit(1); }

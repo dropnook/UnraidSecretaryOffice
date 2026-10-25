@@ -45,12 +45,21 @@ function rsLvServiceOn(string $img): ?string
     return rsLoopHolders([$img]) ? 'attached' : null;
 }
 
-/** The archive's entries all inside its top folder libvirt/ (no absolute path, no ..) — else null */
+/**
+ * The archive's entries all inside its top folder libvirt/ (no absolute path, no ..), only files and folders (review L4:
+ * a link or a device would let tar write elsewhere; /etc/libvirt holds none) — their count, else null
+ */
 function rsLvArchiveOk(string $archive): ?int
 {
     [$exit, $out] = run(['tar', '-tzf', $archive], 120);
-    if ($exit !== 0) {
+    [$vexit, $long] = run(['tar', '-tvzf', $archive], 120);
+    if ($exit !== 0 || $vexit !== 0) {
         return null;
+    }
+    foreach (explode("\n", trim($long)) as $l) {
+        if ($l !== '' && !in_array($l[0], ['-', 'd'], true)) {
+            return null;
+        }
     }
     $n = 0;
     foreach (explode("\n", trim($out)) as $e) {
@@ -105,11 +114,9 @@ function rsPlanLibvirtFor(array $server, string $img, string $stamp, array $ctx)
         return $plan;
     }
     clearstatcache();
-    $link = null;
-    for ($p = $img; $p !== '/' && $p !== '/mnt' && $link === null; $p = dirname($p)) {
-        // the share's top may be an exclusive share's own link to its pool (officeUnraidPath()), nothing else
-        $link = is_link($p) && !(dirname($p) === '/mnt/user' && officeUnraidPath($p) !== $p) ? $p : null;
-    }
+    // no link on the way inside its share (the share's top may be an exclusive share's own link: rsLinkOnWay()), nor the image
+    $within = rsLvWithin($img);
+    $link = is_link($img) ? $img : rsLinkOnWay($img, $within);
     if ($link !== null) {
         $plan['blockers'][] = ['key' => 'restore_path_link', 'params' => ['path' => $img, 'link' => $link]];
         return $plan;
@@ -135,11 +142,14 @@ function rsPlanLibvirtFor(array $server, string $img, string $stamp, array $ctx)
         $plan['blockers'][] = ['key' => 'restore_no_space', 'params' => ['need' => $size, 'free' => (int) $free]];
     }
     $mnt = officeRunDir() . "/libvirt-restore-$stamp";
+    // the VM service looked at again right before the image is set aside: the copy took minutes (review M1); aside and
+    // move look at the way again too (`within`, rsStepLink())
     $plan['steps'] = [
         ['do' => 'lv_off', 'image' => $img],
         ['do' => 'lv_build', 'image' => $img, 'to' => $to, 'from' => $archive, 'mnt' => $mnt],
-        ['do' => 'aside', 'path' => $img, 'to' => $aside],
-        ['do' => 'move', 'from' => $to, 'to' => $img],
+        ['do' => 'lv_off', 'image' => $img],
+        ['do' => 'aside', 'path' => $img, 'to' => $aside, 'within' => $within],
+        ['do' => 'move', 'from' => $to, 'to' => $img, 'within' => $within],
     ];
     $plan['aside'][] = ['what' => 'libvirt', 'from' => $img, 'to' => $aside];
     $plan['notes'][] = ['key' => 'note.libvirt_replaces', 'warn' => true, 'params' => ['when' => $server['libvirt_time'] ?? null, 'aside' => $aside]];
@@ -147,6 +157,14 @@ function rsPlanLibvirtFor(array $server, string $img, string $stamp, array $ctx)
     $plan['after'][] = ['key' => 'after.libvirt_on', 'params' => ['aside' => $aside]];
     $plan['putback_pre'] = [['do' => 'lv_off', 'image' => $img]];
     return $plan;
+}
+
+/** The share folder the image lies in (/mnt/<user, pool or disk>/<share>; tests: under lv_root) — `within` for its steps */
+function rsLvWithin(string $img): string
+{
+    $root = rtrim((string) ($GLOBALS['rs']['lv_root'] ?? '/mnt/'), '/') . '/';
+    $parts = explode('/', substr($img, strlen($root)));
+    return $root . implode('/', array_slice($parts, 0, isset($GLOBALS['rs']['lv_root']) ? 1 : 2));
 }
 
 /** Right before: the VM service still off (an image swapped under a running libvirt would be lost to it) */
@@ -215,7 +233,15 @@ function rsDoLvBuild(array &$j, int $i): array
     rsRun($j, ['sync'], 120);
     [$exit, , $err] = rsLvRun($j, ['umount', $mnt]);
     if ($exit !== 0) {
-        $fail ??= rsFail('lv_failed', ['path' => $mnt], trim((string) $err));
+        // busy for a moment (a scan, the page cache): once more after a pause — else said: the loop device stays (review M5)
+        rsRun($j, ['sync'], 120);
+        usleep(isset($GLOBALS['rs']['lv_cmd']) ? 0 : 3000000);
+        [$exit, , $err] = rsLvRun($j, ['umount', $mnt]);
+    }
+    if ($exit !== 0) {
+        [, $lo] = run(['losetup', '-j', $to], 20);
+        $loop = preg_match('#^(/dev/loop\d+):#', trim((string) $lo), $m) ? $m[1] : '?';
+        $fail = rsFail('lv_umount_failed', ['path' => $mnt, 'loop' => $loop], trim((string) $err));
     } else {
         @rmdir($mnt);
     }

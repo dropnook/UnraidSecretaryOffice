@@ -53975,6 +53975,8 @@ function testRestoreGapsPage(): void
     check('gap 7: … the VM service on — the button waits (stop it first), the way by hand still there',
         in_array(['vm.all_button', true], (array) ($v['onButtons'] ?? []), true) && in_array('vm.all_2_wait {"file":"/mnt/user/system/libvirt/libvirt.img"}', (array) ($v['on'] ?? []), true)
         && in_array('vm.all_hand', (array) ($v['on'] ?? []), true), json_encode($v['on'] ?? null));
+    same('review M4: libvirt\'s «Put back» after a build that failed (nothing swapped) says it only sets the leftover copy aside',
+        ['j.libvirt_leftover_hint', 'j.libvirt_putback_hint', 'j.swap_putback_hint'], $o['m4'] ?? null);
     same('gap 10: … and his bubble says the same, never «with Mr. Backupsy\'s first backup run» under the ticket\'s callout', 'bubble.no_packages_ticket {"name":"OldNAS"}', $t['bubble'] ?? null);
 }
 
@@ -54144,6 +54146,80 @@ function testRestoreGapsSwap(): void
     rsJournalWrite($pj, false);
     same('gap 6: a pull under UnraidSecretaryOffice-restored — no share\'s dataset to swap with: refused, «Restore…» copies', 'restore_swap_no_dataset',
         rsPlanPartnerSwap(['id' => $pullId], '20261025-110000')['blockers'][0]['key'] ?? null);
+
+    // ---- the review of task/restore-gaps
+    // H1: the partner keeps a newer moment of the share than the pull (a run sent one since, or an older one was pulled):
+    // after a swap its copy there couldn't go on (the door never receives with -F) — refused, said why and what works
+    $fresh();
+    @mkdir("$tmp/ub/state", 0700, true);
+    $GLOBALS['rs']['ub_data'] = "$tmp/ub";
+    $sent = fn (string $snap) => file_put_contents("$tmp/ub/state/partner-sent.json", json_encode(['p1' => ['share:appdata' => ['snap' => $snap, 'dataset' => 'tank/appdata', 'time' => 5]]]));
+    $sent('uso-backup-20261025-0300');
+    $h1 = rsPlanPartnerSwap(['id' => $pullId], '20261025-110000');
+    same('review H1: a run sent a newer moment to the partner since the pulled one — refused (the partner\'s copy couldn\'t go on), naming both',
+        ['restore_swap_not_newest', 'uso-backup-20261024-0300', 'uso-backup-20261025-0300'],
+        [$h1['blockers'][0]['key'] ?? null, $h1['blockers'][0]['params']['snap'] ?? null, $h1['blockers'][0]['params']['newest'] ?? null]);
+    $sent('uso-backup-20261024-0300');
+    $h1 = rsPlanPartnerSwap(['id' => $pullId], '20261025-110000');
+    same('review H1: the pulled moment is the newest sent — swapped, and said: the copy at the partner goes on from it', [[], true],
+        [$h1['blockers'], in_array('note.swap_partner_goes_on', array_column($h1['notes'], 'key'), true)]);
+    $GLOBALS['rs']['held_newer'] = fn (string $pair, string $unit, string $snap) => ['uso-backup-20261026-0300'];
+    same('review H1: … the partner said it keeps a newer one (its last look) — refused too', 'restore_swap_not_newest',
+        rsPlanPartnerSwap(['id' => $pullId], '20261025-110000')['blockers'][0]['key'] ?? null);
+    unset($GLOBALS['rs']['held_newer']);
+    // L1: the undo is in the journal before the rename (a power cut between them leaves the way back recorded)
+    file_put_contents("$tmp/bin/watch", rsDir('20261025-110000-cd34') . '/journal.json');
+    $j = restoreGapsRun(rsPlanPartnerSwap(['id' => $pullId], '20261025-110000'), '20261025-110000-cd34');
+    @unlink("$tmp/bin/watch");
+    $atRename = array_map(fn ($f) => json_decode((string) file_get_contents($f), true), glob("$tmp/bin/at-rename-*.json") ?: []);
+    $undoAt = fn (int $n, string $do) => array_column(array_values(array_filter((array) ($atRename[$n]['steps'] ?? []), fn ($x) => ($x['do'] ?? '') === $do))[0]['undo'] ?? [], 'do');
+    same('review L1: at each rename the journal already holds that step\'s undo (swap_out: swap_back; swap_in: swap_unsettle)', [['swap_back'], ['swap_unsettle']],
+        [$undoAt(0, 'swap_out'), $undoAt(1, 'swap_in')]);
+    // L3: another pull of the same share over a standing swap — refused, naming the swap's entry
+    $other = 'tank/appdata.restored-20261025-130000';
+    $s = $z();
+    $s[$other] = ['guid' => '33', 'mountpoint' => 'legacy', 'canmount' => 'noauto', 'mounted' => false];
+    file_put_contents("$tmp/bin/zfs.json", json_encode($s));
+    $p2 = rsJournal($pullId);
+    $p2['id'] = '20261025-130000-ab13';
+    $p2['pulled'][0]['dataset'] = $other;
+    $p2['pulled'][0]['guid'] = '33';
+    $p2['target']['dataset'] = $other;
+    rsPrivateDir(rsDir($p2['id']));
+    rsJournalWrite($p2, false);
+    same('review L3: a second pull of the share while the first is swapped in — refused, naming that swap', ['restore_swap_other', '20261025-110000-cd34'],
+        [rsPlanPartnerSwap(['id' => $p2['id']], '20261025-140000')['blockers'][0]['key'] ?? null, rsPlanPartnerSwap(['id' => $p2['id']], '20261025-140000')['blockers'][0]['params']['entry'] ?? null]);
+    exec('rm -rf ' . escapeshellarg(rsDir($p2['id'])));
+    // H2: the put back looks at the aside too; a put back that fails at swap_back leaves the share there (the pull, swapped
+    // in again) and «Put back» is offered once more; the second one, the aside free, ends as before the swap
+    $back = rsPlanPutback(['id' => '20261025-110000-cd34'], '20261025-120000');
+    $notOpen = array_values(array_filter($back['steps'], fn ($x) => $x['do'] === 'not_open'))[0]['paths'] ?? [];
+    same('review H2: the put back checks the share and the aside\'s folder for open files', [true, true],
+        [in_array('/mnt/tank/appdata', $notOpen, true), in_array('/mnt/tank/.UnraidSecretaryOffice-restore-20261025-110000-appdata', $notOpen, true)]);
+    same('review M2: the put back says that what was written into the share since the swap stays in the copy beside', true,
+        in_array('after.swap_putback', array_column($back['after'], 'key'), true));
+    file_put_contents("$tmp/bin/busy.json", json_encode([$aside]));
+    $jb = restoreGapsRun($back, '20261025-120000-ef56');
+    $s = $z();
+    same('review H2: the aside busy at swap_back — failed there, but the share is there (the pull swapped in again, mounted), nothing lost',
+        ['failed', 'swap_back', '22', true, '11'], [$jb['result'], array_values(array_filter($jb['steps'], fn ($x) => $x['state'] === 'failed'))[0]['do'] ?? null,
+         $s['tank/appdata']['guid'] ?? null, $s['tank/appdata']['mounted'] ?? null, $s[$aside]['guid'] ?? null]);
+    $sw = rsJournal('20261025-110000-cd34');
+    $sw['putback'] = ['id' => '20261025-120000-ef56', 'result' => 'failed'];
+    rsJournalWrite($sw, false);
+    same('review H2: … «Put back» of the swap is offered again', true, array_column(rsJournals(), null, 'id')['20261025-110000-cd34']['can_putback'] ?? null);
+    @unlink("$tmp/bin/busy.json");
+    $jb = restoreGapsRun(rsPlanPutback(['id' => '20261025-110000-cd34'], '20261025-130000'), '20261025-130000-ef57');
+    $s = $z();
+    same('review H2: … the second put back — the share\'s own dataset again, the pull beside it read-only', ['ok', '11', '22', 'legacy', false],
+        [$jb['result'], $s['tank/appdata']['guid'] ?? null, $s[$dn]['guid'] ?? null, $s[$dn]['mountpoint'] ?? null, isset($s[$aside])]);
+    // L2: the put back of a swap on a pool asleep — refused (never woken unasked)
+    $fresh();
+    $j = restoreGapsRun(rsPlanPartnerSwap(['id' => $pullId], '20261025-110000'), '20261025-110000-cd34');
+    $GLOBALS['rs']['asleep_disks'] = ['tank' => true];
+    same('review L2: the put back of a swap with its pool asleep — refused', 'restore_putback_asleep',
+        rsPlanPutback(['id' => '20261025-110000-cd34'], '20261025-120000')['blockers'][0]['key'] ?? null);
+    unset($GLOBALS['rs']['asleep_disks']);
     putenv('OFFICE_PARTNER_BIN');
     $GLOBALS['rs'] = $keep;
     hardeningRm($tmp);
@@ -54177,8 +54253,11 @@ function testRestoreGapsLibvirt(): void
     $server = ['libvirt' => "$tmp/libvirt.tar.gz", 'libvirt_time' => 1792800000, 'libvirt_bytes' => (int) filesize("$tmp/libvirt.tar.gz")];
     $plan = rsPlanLibvirtFor($server, $img, '20261025-130000', $ctx);
     same('gap 7: libvirt.img — nothing blocks with the VM service off; off once more, his copy built, the image aside, the copy in its place',
-        [[], ['lv_off', 'lv_build', 'aside', 'move'], "$img.aside-20261025-130000", "$img.restored-20261025-130000"],
-        [$plan['blockers'], array_column($plan['steps'], 'do'), $plan['steps'][2]['to'] ?? null, $plan['steps'][1]['to'] ?? null]);
+        [[], ['lv_off', 'lv_build', 'lv_off', 'aside', 'move'], "$img.aside-20261025-130000", "$img.restored-20261025-130000"],
+        [$plan['blockers'], array_column($plan['steps'], 'do'), $plan['steps'][3]['to'] ?? null, $plan['steps'][1]['to'] ?? null]);
+    check('review M1: the VM service looked at again right before the image is set aside (the copy took minutes)', ($plan['steps'][2]['do'] ?? '') === 'lv_off');
+    check('review L5: aside and move look at the way to the image again right before (within its share folder)',
+        ($plan['steps'][3]['within'] ?? null) === "$tmp/system" && ($plan['steps'][4]['within'] ?? null) === "$tmp/system", json_encode($plan['steps'][3] ?? null));
     check('gap 7: … said plainly first: it replaces every VM definition (those defined since stay in the old image aside); the disks untouched; then the VM service on',
         ($plan['notes'][0]['key'] ?? '') === 'note.libvirt_replaces' && !empty($plan['notes'][0]['warn']) && ($plan['notes'][1]['key'] ?? '') === 'note.libvirt_disks'
         && ($plan['after'][0]['key'] ?? '') === 'after.libvirt_on', json_encode([$plan['notes'], $plan['after']]));
@@ -54210,6 +54289,26 @@ function testRestoreGapsLibvirt(): void
     same('gap 7: off, but the image still attached as a loop device (a container holding the host\'s /) — refused, said so', 'restore_libvirt_attached',
         rsPlanLibvirtFor($server, $img, '20261025-150000', $ctx)['blockers'][0]['key'] ?? null);
     $GLOBALS['rs']['lv_on'] = fn (string $i) => null;
+    // review M5: his copy's umount fails (busy) — tried again, then said: the loop device stays until a reboot
+    $keepCmd = $GLOBALS['rs']['lv_cmd'] ?? null;
+    $GLOBALS['rs']['lv_cmd'] = fn (array $cmd) => $cmd[0] === 'mount' ? [is_dir((string) end($cmd)) ? 0 : 1, '', ''] : [32, '', 'target is busy'];
+    $p5 = rsPlanLibvirtFor($server, $img, '20261025-160000', $ctx);
+    $j5 = restoreGapsRun($p5, '20261025-160000-cc33');
+    $f5 = array_values(array_filter($j5['steps'], fn ($x) => ($x['state'] ?? '') === 'failed'))[0] ?? [];
+    same('review M5: the copy\'s umount fails twice — the build fails saying the loop device stays attached', ['failed', 'lv_build', 'lv_umount_failed', 2],
+        [$j5['result'], $f5['do'] ?? null, $f5['note'] ?? null, 2]);
+    if ($keepCmd !== null) {
+        $GLOBALS['rs']['lv_cmd'] = $keepCmd;
+    } else {
+        unset($GLOBALS['rs']['lv_cmd']);
+    }
+    exec('rm -rf ' . escapeshellarg("$img.restored-20261025-160000") . ' ' . escapeshellarg((string) $p5['steps'][1]['mnt']));
+    // review L4: an archive with a link inside libvirt/ — refused (libvirt.img never holds one; tar could write through it)
+    @mkdir("$tmp/lnk/libvirt", 0755, true);
+    @symlink('/etc', "$tmp/lnk/libvirt/x");
+    exec('tar -C ' . escapeshellarg("$tmp/lnk") . ' -czf ' . escapeshellarg("$tmp/lnk.tar.gz") . ' libvirt');
+    same('review L4: an archive holding a link — refused', 'restore_libvirt_archive_bad',
+        rsPlanLibvirtFor(['libvirt' => "$tmp/lnk.tar.gz"] + $server, $img, '20261025-150000', $ctx)['blockers'][0]['key'] ?? null);
     $bad = $tmp . '/bad.tar.gz';
     @mkdir("$tmp/evil/etc", 0755, true);
     file_put_contents("$tmp/evil/etc/passwd", 'x');
