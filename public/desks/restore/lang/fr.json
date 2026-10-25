@@ -61,7 +61,7 @@
   "list.none_fit": "Rien dans la liste ne correspond au filtre.",
   "apps_none": "Aucun paquet d'appli dans l'emplacement des sauvegardes.",
   "apps_no_packages": "Pas encore de paquets — ils arrivent avec la première sauvegarde de Monsieur Backupsi.",
-  "apps_files": "Des fichiers isolés depuis un snapshot : copie-les depuis les chemins des snapshots dans les lignes.",
+  "apps_files": "Des fichiers et dossiers isolés à toute profondeur : «Fichiers dedans…» à côté du «Restaurer…» d'un dossier parcourt ses snapshots.",
   "type.compose": "stack compose",
   "type.template": "modèle",
   "type.container": "conteneur sans modèle",

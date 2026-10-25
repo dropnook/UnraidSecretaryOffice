@@ -61,7 +61,7 @@
   "list.none_fit": "Niente nell'elenco corrisponde al filtro.",
   "apps_none": "Nessun pacchetto di app nel deposito dei backup.",
   "apps_no_packages": "Ancora nessun pacchetto — arrivano con il primo backup del signor Backupsi.",
-  "apps_files": "Singoli file da uno snapshot: copiali dai percorsi degli snapshot nelle righe.",
+  "apps_files": "File e cartelle singoli a qualsiasi profondità: «File al suo interno…» accanto al «Ripristina…» di una cartella ne sfoglia gli snapshot.",
   "type.compose": "stack compose",
   "type.template": "template",
   "type.container": "contenitore senza template",

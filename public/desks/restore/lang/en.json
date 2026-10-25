@@ -61,7 +61,7 @@
   "list.none_fit": "Nothing in the list fits the filter.",
   "apps_none": "No app packages in the backup place.",
   "apps_no_packages": "No packages yet — they come with Mr. Backupsy's first backup run.",
-  "apps_files": "Single files from a snapshot: copy them out of the snapshot paths in the rows.",
+  "apps_files": "Single files and folders at any depth: «Files in it…» beside a folder's «Restore…» browses its snapshots.",
   "type.compose": "compose stack",
   "type.template": "template",
   "type.container": "container without template",

@@ -61,7 +61,7 @@
   "list.none_fit": "Nichts in der Liste passt zum Filter.",
   "apps_none": "Keine App-Pakete in der Backup-Ablage.",
   "apps_no_packages": "Noch keine Pakete — sie kommen mit Herrn Backupsis erstem Backup.",
-  "apps_files": "Einzelne Dateien aus einem Snapshot: aus den Snapshot-Pfaden in den Zeilen herauskopieren.",
+  "apps_files": "Einzelne Dateien und Ordner in jeder Tiefe: «Dateien darin…» neben dem «Zurückholen…» eines Ordners durchstöbert seine Snapshots.",
   "type.compose": "Compose-Stack",
   "type.template": "Template",
   "type.container": "Container ohne Template",

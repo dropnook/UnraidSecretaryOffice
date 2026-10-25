@@ -75,7 +75,9 @@ A partner office, from the pairing to the copies — and the receiver starting f
 
 Mr. Restori lists every app, VM and share with what can come back from where, with dates: its package, the local
 snapshots of its folders, the offsite copy (Kopia), a partner office. A share no app uses comes back whole (what is there
-goes aside first) or folder by folder; from Kopia you browse a snapshot and bring back a single file or folder instead of
+goes aside first) or folder by folder; *Files in it…* browses any moment — a local snapshot, what came back from Kopia
+or a partner, a copy kept for a partner — and brings back single files and folders at any depth, next to what is there,
+swapped in or into a restore folder; from Kopia you browse a snapshot and bring back a single file or folder instead of
 the whole source; the packages Kopia keeps (database dumps, templates, VM configurations) are earlier backups like the
 local ones. Choose a database, a folder, a share, the templates or a VM's configuration, and he shows exactly what will
 happen — the steps, which containers stop and for how long, what goes

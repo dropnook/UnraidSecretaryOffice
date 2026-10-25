@@ -711,7 +711,7 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
 office's share or the backup place), step 4 with the share as owner; one path out of Kopia goes into a folder of its own in
 the restore folder first (`kopia show <root>/<path>` to browse, one directory per request, never in the tick; only `snapshot
 list`, `show`, `snapshot restore` — never `maintenance` or a policy), then beside or swapped like step 4; what lies in the
-office's share is only staged; a package Kopia brought back is an earlier version (`kopia:<journal>`). **The drill:** throwaway containers only via `drillContainerArgs()` + `drillArgsSafe()`
+office's share is only staged; a package Kopia brought back is an earlier version (`kopia:<journal>`). **The file browser (restore-browse.php, matrix gap 4):** one folder of a moment per request (never in the tick), paged, searched; a link shown, never followed (no folder of the path may be one); a sleeping disk said, with «wake»; picks next to it, swapped in or into `UnraidSecretaryOffice/restore/files/<…>-<time>` (the share never made here); a partner's kept moment mounted read-only in RAM (`restore-peek-*`, unmounted at the job's end in any case) and only into that folder; my copy at a partner comes over whole first (the door sends units, never a path). **The drill:** throwaway containers only via `drillContainerArgs()` + `drillArgsSafe()`
   (`--network none`, no ports/binds/caps; too big = «not checked», never failed); refused during a parity check; a failed drill
   = one warning. Partner look from his tick, never a page request. **The flash archive's «Download…»** (`restore.flash_download`,
   2026-10-25) is the one exception to «the web side never touches the host»: read-only, one file — `src/api.php`

@@ -61,7 +61,7 @@
   "list.none_fit": "Nada en la lista coincide con el filtro.",
   "apps_none": "No hay paquetes de apps en el lugar de las copias.",
   "apps_no_packages": "Todavía no hay paquetes — llegan con la primera copia de seguridad del señor Backupsi.",
-  "apps_files": "Archivos sueltos de una instantánea: cópialos desde las rutas de las instantáneas en las filas.",
+  "apps_files": "Archivos y carpetas sueltos a cualquier profundidad: «Archivos dentro…» junto al «Restaurar…» de una carpeta explora sus instantáneas.",
   "type.compose": "stack de compose",
   "type.template": "plantilla",
   "type.container": "contenedor sin plantilla",
