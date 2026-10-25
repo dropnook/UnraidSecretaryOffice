@@ -119,4 +119,8 @@
 /* the run card (1.60.1, a user: Mr. Restori's running restore like Mr. Backupsy's run — the same look as his .bk-steps) */
 .rs-runcard:empty{display:none}
 .rs-runcard{margin-bottom:12px}
+
+/* «Kept for <partner>»: the apps and VMs inside a share's copy, each a row under its share */
+.rs-kept-pkg{padding-left:28px}
+.rs-kept-pkg .row-name::before{content:'↳ '; color:var(--muted)}
 }

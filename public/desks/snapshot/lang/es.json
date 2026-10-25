@@ -6,8 +6,14 @@
   "bubble.no_scan": "Mamma mia, ¡si todavía no he echado ni un vistazo! Una ronda solo tarda unos segundos.",
   "bubble.no_data": "No llego al servidor y todavía no tengo nada que enseñar.",
   "bubble.count": {
-    "one": "No pierdo de vista {n} instantánea, ocupa {size}. Tutto a posto.",
-    "other": "No pierdo de vista {n} instantáneas, ocupan {size}. Tutto a posto."
+    "one": "No pierdo de vista {n} instantánea, ocupa {size}.",
+    "other": "No pierdo de vista {n} instantáneas, ocupan {size}."
+  },
+  "bubble.all_well": "Tutto a posto.",
+  "bubble.runner_off": "Mis programaciones no se ejecutan: el archivo cron de la secretaría no tiene línea para ellas.",
+  "bubble.plans_trouble": {
+    "one": "La última ejecución de mi programación {names} no salió bien — su fila dice por qué.",
+    "other": "Las últimas ejecuciones de {n} de mis programaciones no salieron bien ({names}) — sus filas dicen por qué."
   },
   "bubble.backup": "El motor de copias se está ejecutando desde {since} ({step}).",
   "bubble.mounted": {

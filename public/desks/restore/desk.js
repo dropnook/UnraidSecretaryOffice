@@ -192,13 +192,17 @@ const kopiaRoot = () => kopia().root || KOPIA_ROOT_EXAMPLE;
 const kopiaRootNote = () => (kopia().root ? null : el('p', 'role', T('kg.root_example', { root: KOPIA_ROOT_EXAMPLE, path: engine().mount_root || '' })));
 const snapshotLink = (text) => Object.assign(el('a', '', text), { href: '#/snapshot' });
 
-/** All local snapshots of a set of folders: how many, the newest */
+/**
+ * All local snapshots of a set of folders: how many, the newest — and the parts (pools, disks) of a split share where
+ * the folders are but no snapshot holds them (R10: never a green «7 local snapshots» while one part has none)
+ */
 function snapSummary(folders) {
   const all = folders.flatMap((f) => f.places || []);
   const n = all.reduce((s, p) => s + (p.count || 0), 0);
   const newest = Math.max(0, ...folders.map((f) => f.newest || 0));
   const asleep = folders.some((f) => f.asleep);
-  return { n, newest, asleep };
+  const bare = [...new Set(all.filter((p) => p.exists && !p.asleep && !p.count).map((p) => p.base))];
+  return { n, newest, asleep, bare };
 }
 
 /** The newest Kopia copy among the sources of an app or VM */
@@ -210,6 +214,9 @@ function snapsChip(folders) {
   if (!folders.length) return null;
   const s = snapSummary(folders);
   if (s.asleep && !s.n) return chip(T('chip.snaps_asleep'), 'quiet', T('chip.snaps_asleep_hint'));
+  if (s.n && s.bare.length) {
+    return chip(T('chip.snaps_part', { n: s.n, when: fmt.relative(s.newest), bases: s.bare.join(', ') }), 'warn', T('chip.snaps_part_hint', { bases: s.bare.join(', ') }));
+  }
   return s.n ? chip(T('chip.snaps', { n: s.n, when: fmt.relative(s.newest) }), 'ok', T('chip.snaps_hint'))
     : chip(T('chip.no_snaps'), 'warn', T('chip.no_snaps_hint'));
 }
@@ -414,7 +421,9 @@ function tileLine(sec) {
     if (!p) return ['', ''];
     const held = p.units.filter((u) => u.n);
     const newest = Math.max(0, ...held.map((u) => u.newest || 0));
-    return [p.asleep ? T('tile.kept_asleep', { pool: p.pool }) : held.length ? T('tile.kept_line', { n: held.length }) : T('tile.kept_none'), newest ? fmt.relative(newest) : ''];
+    const inside = keptInsideCount(held);
+    return [p.asleep ? T('tile.kept_asleep', { pool: p.pool }) : !held.length ? T('tile.kept_none')
+      : inside ? T('tile.kept_line_inside', { n: held.length, inside }) : T('tile.kept_line', { n: held.length }), newest ? fmt.relative(newest) : ''];
   }
   if (sec.startsWith('partner:')) {
     const p = partnerOf(sec.slice(8));
@@ -1493,6 +1502,26 @@ function partnerSection(p) {
   return s;
 }
 
+/**
+ * What a kept moment carries (the look job read it: rspKeptPeek()): the apps and VMs inside — the folders of a share's
+ * copy, or an app's or VM's own unit — each {folder, kind, name}; null: not read
+ */
+const insideName = (x) => T(x.kind === 'vm' ? 'pt.unit_vm' : 'pt.unit_app', { name: x.name });
+/** «2 apps · 1 VM» over the units' newest moments (each name once), '' when nothing was read */
+function keptInsideCount(units) {
+  const seen = { app: new Set(), vm: new Set() };
+  let read = false;
+  units.forEach((u) => { if (Array.isArray(u.inside)) { read = true; u.inside.forEach((x) => seen[x.kind] && seen[x.kind].add(x.name)); } });
+  if (!read) return '';
+  const parts = [seen.app.size ? T('count.apps', { n: seen.app.size }) : '', seen.vm.size ? T('count.vms', { n: seen.vm.size }) : ''].filter(Boolean);
+  return parts.length ? andList(parts) : '';
+}
+/** The words for what a moment carries: its names, none, not read (asleep, not yet, couldn't) */
+function insideText(p, x, unread) {
+  if (Array.isArray(x)) return x.length ? T('kept.inside', { list: andList(x.map(insideName)) }) : T('kept.inside_none');
+  return p.asleep ? T('kept.inside_asleep', { pool: p.pool }) : unread ? T('kept.inside_failed') : T('kept.inside_unread');
+}
+
 /** The moments of one unit kept here for a partner, newest first, each with «Start here…» (kind partner_start) */
 function keptMoments(p, u) {
   const box = el('div', 'box');
@@ -1508,6 +1537,7 @@ function keptMoments(p, u) {
     if (i === 0) meta.appendChild(chip(T('pt.newest'), 'ok'));
     meta.appendChild(el('span', 'mono', s.name));
     if (s.referenced !== null && s.referenced !== undefined) meta.appendChild(el('span', '', T('pt.size', { size: fmt.size(s.referenced) })));
+    if (u.unit !== 'place') meta.appendChild(el('span', 'rs-kept-inside', insideText(p, s.inside, s.unread)));
     main.appendChild(meta);
     r.appendChild(main);
     const right = el('div', 'rs-right');
@@ -1517,6 +1547,24 @@ function keptMoments(p, u) {
     box.appendChild(r);
   });
   return box;
+}
+
+/** One app or VM inside a kept share's newest moment: its name, where it lies, «Start here…» for it alone (`only`) */
+function keptPackageRow(p, u, x, snap) {
+  const r = Office.place(`kept:${p.id}:${u.unit}:${x.folder}`, el('div', 'row nocheck rs-kept-pkg'));
+  const main = el('div', 'row-main');
+  main.appendChild(el('div', 'row-name text', insideName(x)));
+  const meta = el('div', 'row-meta');
+  const where = el('span', '', T('kept.package_meta', { unit: unitLabel(u.unit), when: date(snap.creation) }));
+  where.title = T('kept.package_hint', { unit: unitLabel(u.unit), name: p.name });
+  meta.appendChild(where);
+  main.appendChild(meta);
+  r.appendChild(main);
+  const right = el('div', 'rs-right');
+  right.appendChild(restoreButton(T('kept.start'), { kind: 'partner_start', pair: p.id, unit: u.unit, snap: snap.name, only: [x.folder] },
+    T('rd.title.partner_start', { what: insideName(x), name: p.name, when: date(snap.creation) })));
+  r.appendChild(right);
+  return r;
 }
 
 /**
@@ -1540,7 +1588,11 @@ function keptSection(p) {
     if (u.bytes) meta.appendChild(el('span', '', fmt.size(u.bytes)));
     if (u.new) meta.appendChild(chip(T('kept.new'), 'accent'));
     if (u.stale) meta.appendChild(chip(T('kept.stale'), 'warn', T('kept.stale_hint', { when: date(u.time) })));
+    if (u.unit !== 'place' && u.n) meta.appendChild(el('span', 'rs-kept-inside', insideText(p, u.inside, (u.snaps[0] || {}).unread)));
     box.appendChild(unfoldingRow(`kept:${p.id}:${u.unit}`, unitLabel(u.unit), meta, () => keptMoments(p, u)));
+    // what a share's copy carries, each app and VM a row of its own under it, «Start here…» on its newest moment
+    const newest = u.snaps[0];
+    if (newest && Array.isArray(u.inside) && String(u.unit).startsWith('share:')) u.inside.filter((x) => x.folder).forEach((x) => box.appendChild(keptPackageRow(p, u, x, newest)));
   });
   s.appendChild(box);
   return s;
@@ -1950,6 +2002,8 @@ function partnerOptions(box, plan, ask, change) {
  */
 function startOptions(box, plan, ask, change, close) {
   box.innerHTML = '';
+  // when one would do this here at all: this server takes over a partner that is gone (else: a new server pulls)
+  box.appendChild(el('p', 'callout', T('rd.start_when', { name: (plan.target && plan.target.partner) || '' })));
   const found = plan.options.found || [];
   if (found.length) box.appendChild(foundField(found, change));
   const needs = plan.options.needs || [];
@@ -2478,6 +2532,6 @@ Office.placesFrom(ID, (s, part) => {
 // tests/run.php runs the databases tile's logic and the preview's sizes under node
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.restore = { setState: (s) => { state = s; }, greetOk, dbGroups, dbName, dbRequest, earlierOf, tileLine, sizesDone,
-    setJob: (j) => { job = j; }, runCardData, runCard, shortStep, liveJob, runCardShort, bubbleText };
+    setJob: (j) => { job = j; }, runCardData, runCard, shortStep, liveJob, runCardShort, bubbleText, snapsChip };
 }
 })();

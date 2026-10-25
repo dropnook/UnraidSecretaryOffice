@@ -2422,10 +2422,12 @@ function watchnetAdvisor(array $o = []): array
     $r = $cfg['remote'] !== null ? watchnetSender($cfg['remote']) : null;
     $senders = null;
     $asleep = false;
-    if ($cfg['on']) {
+    // a share emhttp doesn't list is missing, never «asleep» (W11) — not looked into either way
+    $missing = $cfg['on'] && !$f['bases']['known'] ? (string) $f['bases']['share'] : null;
+    if ($cfg['on'] && $missing === null) {
         $disks = readCfg((string) ($o['disks_ini'] ?? '/var/local/emhttp/disks.ini'), true);
         $sleeping = watchnetSleeping($disks);
-        $asleep = (bool) array_filter($f['bases']['bases'], fn ($x) => baseAsleep($x, $sleeping)) || !$f['bases']['known'];
+        $asleep = (bool) array_filter($f['bases']['bases'], fn ($x) => baseAsleep($x, $sleeping));
         if (!$asleep) {
             $senders = [];
             foreach (watchnetFiles((string) $cfg['folder'], $server['own'])['files'] as $sender => $x) {
@@ -2439,7 +2441,7 @@ function watchnetAdvisor(array $o = []): array
             'ident' => $cfg['ident'], 'protocol' => $cfg['protocol'], 'port' => $cfg['port'], 'rotation' => $cfg['rotation'],
             'size' => $cfg['size'], 'files' => $cfg['files'], 'remote' => $cfg['remote'],
             'loop' => $r !== null && (isset($server['own'][$r]) || isset($server['ips'][$r])), 'sleepy' => $f['sleepy'],
-            'exported' => array_keys($f['exports']), 'pools' => $f['pools'], 'array_ssd' => $f['array_ssd'], 'asleep' => $asleep, 'senders' => $senders];
+            'exported' => array_keys($f['exports']), 'pools' => $f['pools'], 'array_ssd' => $f['array_ssd'], 'asleep' => $asleep, 'missing' => $missing, 'senders' => $senders];
 }
 
 /**

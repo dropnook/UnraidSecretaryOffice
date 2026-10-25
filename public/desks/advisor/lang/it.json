@@ -472,6 +472,7 @@
   "net.syslog.sender": "{sender}: ultima riga {when}",
   "net.syslog.no_senders": "Ancora nessun mittente — Unraid ascolta, non arriva niente. Il lato del router è la guida seguente.",
   "net.syslog.asleep": "I dischi della condivisione dormono — ora non ci guardo.",
+  "net.syslog.missing": "Manca la condivisione {share} — Unraid non la elenca, quindi non guardo nella cartella. Crea la condivisione o scegli un'altra cartella.",
   "net.syslog.loop": "⟦Remote syslog server⟧ è questo server stesso: Unraid manda le proprie righe a sé stesso e le scrive una seconda volta nella condivisione. Svuota quel campo — o indica un vero SIEM.",
   "net.syslog.sleepy": "La condivisione della cartella sta su dischi che si spengono ({disks}): ogni riga del router li sveglia. Scegli una condivisione su un pool che non dorme mai.",
   "net.syslog.exported": "La condivisione della cartella è esportata ({proto}): chi può scriverla può scrivere nei file del router. Imposta la sua esportazione su «No».",

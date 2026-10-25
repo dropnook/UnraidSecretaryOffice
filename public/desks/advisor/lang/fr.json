@@ -472,6 +472,7 @@
   "net.syslog.sender": "{sender} : dernière ligne {when}",
   "net.syslog.no_senders": "Pas encore d'expéditeur — Unraid écoute, rien n'arrive. Le côté du routeur est le guide suivant.",
   "net.syslog.asleep": "Les disques du partage dorment — je n'y regarde pas maintenant.",
+  "net.syslog.missing": "Le partage {share} manque — Unraid ne le liste pas, je ne regarde donc pas dans le dossier. Crée le partage ou choisis un autre dossier.",
   "net.syslog.loop": "⟦Remote syslog server⟧ est ce serveur lui-même : Unraid s'envoie ses propres lignes et les écrit une seconde fois dans le partage. Vide ce champ — ou indique un vrai SIEM.",
   "net.syslog.sleepy": "Le partage du dossier se trouve sur des disques qui s'endorment ({disks}) : chaque ligne du routeur les réveille. Choisis un partage sur un pool qui ne dort jamais.",
   "net.syslog.exported": "Le partage du dossier est exporté ({proto}) : qui peut y écrire peut écrire dans les fichiers du routeur. Règle son export sur « Non ».",
