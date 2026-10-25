@@ -25546,6 +25546,8 @@ function testWhereMoverAdvice(): void
         && str_contains($js, "if (moved.length && !a.mover_schedule && !moverelliHired()) add('mover',"));
     $mv = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php');
     check('where T17: … because her check wants Unraid\'s schedule off', str_contains($mv, "'unraid_schedule'"));
+    check('where T16: a place\'s label counts only what is there (nothing there is never «not backed up»)',
+        str_contains($js, "const counted = items.filter((i) => !i.ram && i.id !== 'docker_image' && i.backup && i.exists !== false);"));
 }
 
 /**
@@ -31636,7 +31638,7 @@ function testPartnerStart(): void
         . ' return str_contains($s, "share-appdata") ? ["nextcloud" => ["kind" => "app", "name" => "nextcloud", "dirs" => [], "needs" => []]]'
         . ' : (str_contains($s, "vm-Debian_VM") ? ["" => ["kind" => "vm", "name" => "Debian_VM", "dirs" => [], "needs" => []]] : []); };';
     $peeked = $as($peekStub . ' @unlink(sys_get_temp_dir() . "/uso-peek-calls"); $n = rspKeptPeek(); $again = rspKeptPeek();'
-        . ' return [$n, $again, rspKept()[0]["units"], (string) @file_get_contents(sys_get_temp_dir() . "/uso-peek-calls")];');
+        . ' $calls = (string) @file_get_contents(sys_get_temp_dir() . "/uso-peek-calls"); @unlink(sys_get_temp_dir() . "/uso-peek-calls"); return [$n, $again, rspKept()[0]["units"], $calls];');
     same('kept inside: the look job reads every moment of the shares and VMs once (the place is read as a pulled place), a second look reads none',
         [3, 0, 3], [$peeked[0] ?? null, $peeked[1] ?? null, substr_count((string) ($peeked[3] ?? ''), "\n")]);
     same('kept inside: per unit what its newest moment carries — the place none, appdata\'s app by its folder, the VM\'s own unit',

@@ -2950,8 +2950,9 @@ const noteRank = (n) => (!n ? 1 : (n.why || []).length || (n.missed || []).lengt
 function placeSummary(g) {
   const items = g.items || [];
   const main = items[0];
-  // what lives in RAM (system log, generated crontabs) and Docker's image data (rebuilt by pulling) don't count for the tile
-  const counted = items.filter((i) => !i.ram && i.id !== 'docker_image' && i.backup);
+  // what lives in RAM (system log, generated crontabs) and Docker's image data (rebuilt by pulling) don't count for the tile,
+  // nor what isn't there (the VM service off: no libvirt.img mounted, no domains) — never «not backed up» for nothing
+  const counted = items.filter((i) => !i.ram && i.id !== 'docker_image' && i.backup && i.exists !== false);
   const rank = { none: 0, local: 1, offsite: 2 };
   // the weakest item; among equals one whose note says why it is less than set, then one no partner keeps (Office.backupChip())
   const weakest = counted.sort((a, b) => (rank[a.backup] - rank[b.backup]) || noteRank(a.backup_note) - noteRank(b.backup_note))[0] || null;
