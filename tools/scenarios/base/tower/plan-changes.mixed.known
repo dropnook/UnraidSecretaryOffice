@@ -1,7 +1,3 @@
 # Mr. Backupsy's Apply change list on Tower's mixed base profile (base/tower/profile-mixed.env), as plan-changes.mjs prints
 # it for a plan made anew — exactly these keys. The base office applied everything else (the canary's [partner] too).
-# A known product finding, not the base's (INV-TRUTH, 2026-10-25): the page keeps `app|Jellyfin|folder` for an app whose
-# folder is a dataset of its own while its share goes to a partner (truth review T04, office 1.71.3), but engine 2.74's
-# setup writes an [app] section only with kopia = yes or a partner (setup.sh ~2587) — the key never lands, the dialog lists
-# it after every Apply, and the run still skips appdata at the partner («children»).
-app|Jellyfin|folder
+# Empty since engine 2.75: setup writes an [app] section with `folder` alone too (the INV-TRUTH finding of 2026-10-25).
