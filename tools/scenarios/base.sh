@@ -613,9 +613,9 @@ else
     elif ((SECONDS - q > 1)); then log "the agent's first jobs done in $((SECONDS - q)) s ($(grep -c 'started via at' "$D/agent.log" 2>/dev/null) started: $(grep 'started via at' "$D/agent.log" 2>/dev/null | tail -1 | cut -c21-140))"
     else log "the office is quiet"; fi
 fi
-# the base's own checks: the standard set without the page's truth (INV-PAGE, INV-BUBBLE) — a known product finding
-# belongs in the scenarios and must never fail a reset (coordinator, 2026-10-18)
-base_checks() { local i; for i in "${CHECK_STANDARD[@]}"; do [[ $i == INV-PAGE || $i == INV-BUBBLE ]] || printf '%s ' "$i"; done; }
+# the base's own checks: the standard set without the page's truth (INV-PAGE, INV-BUBBLE, INV-TRUTH) — a known product
+# finding belongs in the scenarios and must never fail a reset (coordinator, 2026-10-18)
+base_checks() { local i; for i in "${CHECK_STANDARD[@]}"; do [[ $i == INV-PAGE || $i == INV-BUBBLE || $i == INV-TRUTH ]] || printf '%s ' "$i"; done; }
 if real_fn scenario_begin && real_fn check && real_fn scenario_end; then
     if ((dry)); then log "would run check standard against the base (lib.sh)"
     else

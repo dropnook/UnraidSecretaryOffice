@@ -1307,7 +1307,7 @@ KEEP_STASH=$KEEP/stash
 mkdir -p "$KEEP/ask" "$KEEP_STASH" 2>/dev/null
 
 # ------------------------------------------------------------------------- the other parts (H2 states, H5 flows/checks)
-for _f in "$SC_DIR"/states-*.sh "$SC_DIR"/flows.sh "$SC_DIR"/checks.sh; do
+for _f in "$SC_DIR"/states-*.sh "$SC_DIR"/flows.sh "$SC_DIR"/checks.sh "$SC_DIR"/truth.sh; do
     [[ -f $_f ]] && . "$_f"
 done
 unset _f

@@ -17,7 +17,8 @@
 #      the VM up), then wait for ssh, the array Started and a fresh heartbeat; the tree and the reports back; post.
 #   4. The reports to ~/Claude/UnraidSecretaryOffice-briefs/scenarios/<date>/<host>[-<worktree>]/ (<name>.md, .result, .pending, .out,
 #      run.info, base-*.log); Mac-side checks of <name>.pending (plan_changes: tools/scenarios/plan-changes.mjs on the
-#      copied plan, page_text / page_clean / page_value: page.mjs on the copied state files — with the page of the release
+#      copied plan, page_text / page_clean / page_value: page.mjs on the copied state files, page_truth (INV-TRUTH):
+#      truth.mjs on the copied look and its truth.json — with the page of the release
 #      the scenario installed (IN-DOWNGRADE <tag>; USO_PAGE_TREE=<tag> for all) — done here right after each scenario
 #      (its state files are on the VM then: a later reboot cell empties /tmp/uso-keep) - a failing one turns the
 #      scenario red, and with all of them done a scenario whose other checks were green is green;
@@ -230,6 +231,15 @@ mac_check() {
                 ((code == 0)) && ok=1
                 printf '%s\n' "$got" > "$local_dir/$n.value-$i.txt"
                 detail="page $a ($c): $(grep -E '(ok  |FAIL) value|did not draw|error|no tag' <<<"$got" | tail -2 | sed 's/^page [^ ]* //' | tr '\n' ';') ($n.value-$i.txt)" ;;
+            page_truth)
+                # INV-TRUTH: the look's pages against the server's truth read at the same look (truth.mjs)
+                fetch "$a" "$work/$i/look"
+                got=$(node "$here/truth.mjs" --look "$work/$i/look" --lang "${b:-en}" ${ltree:+--tree "$ltree"} 2>&1)
+                code=$?
+                ((code == 0)) && ok=1
+                printf '%s\n' "$got" > "$local_dir/$n.truth-$i.txt"
+                if ((ok)); then detail="$(tail -1 <<<"$got") ($n.truth-$i.txt)"
+                else detail="$(grep -E '^FAIL|did not draw|truth:' <<<"$got" | head -6 | tr '\n' ';' | cut -c1-900) ($n.truth-$i.txt)"; fi ;;
             *) detail="unknown check «$kind»" ;;
         esac
         echo "- $inv $kind: $( ((ok)) && echo green || echo '**red**') - $detail" >> "$local_dir/$n.md"
