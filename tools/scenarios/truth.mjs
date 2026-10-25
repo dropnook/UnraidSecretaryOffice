@@ -29,8 +29,8 @@
 //                 dataset of its own: only its own unit; else its share's); green alone while the partner's newest is not
 //                 the last backup run's snapshot — red
 //   TR-ROW        every share of the server (shares.ini) is a row on Mr. Backupsy's overview once a backup ran; a share
-//                 newer (truth `born`) than the office's last look at the shares (the engine's drift check, else the
-//                 last plan) is a note: the page can't know it yet
+//                 newer (truth `born`) than the office's last look at the shares (the engine's drift check; a replan
+//                 adds no row) is a note: the page can't know it yet
 //   TR-KOPIA-TILE the repository held or stuck → the offsite tile alerts, the bubble never «saved offsite»
 //   TR-DOCKER     Docker not answering (stopped, or switched off) → no app «gone» on Mr. Restori's page; it says «Docker isn't running»
 //   TR-UNDER      (a note, never red) a row «not backed up» whose datasets hold the engine's snapshots
@@ -300,16 +300,15 @@ const when = (t) => new Date(t * 1000).toLocaleString('sv-SE');
 /**
  * The office's last look at the server's shares, as Mr. Backupsy's overview draws its rows: settings.ini's shares and
  * the engine's drift check (drift.json `time`: share_new / share_renamed, written by a backup run or check). A replan
- * (setup.plan_time) lists new shares too but adds no row (backupTruth() takes only no_snaps from it) — named beside.
- * Without a drift time the plan's time stands in. → {at, by, plan}
+ * (setup.plan_time) lists new shares too but adds no row (backupTruth() takes only no_snaps from it) — named beside,
+ * never the look itself (the scenarios' checks replan seconds before the final look: every share would be «older»).
+ * Without a drift time no look: TR-ROW judges as ever. → {at, by, plan}
  */
 function shareLook() {
   const b = readJson(path.join(STATES, 'backup.json')) || {};
   const drift = b.drift && Number.isInteger(b.drift.time) && b.drift.time > 0 ? b.drift.time : null;
   const plan = b.setup && Number.isInteger(b.setup.plan_time) && b.setup.plan_time > 0 ? b.setup.plan_time : null;
-  if (drift) return { at: drift, by: "the engine's drift check, which the overview's rows come from", plan };
-  if (plan) return { at: plan, by: 'its last plan', plan };
-  return { at: null, by: null, plan: null };
+  return { at: drift, by: drift ? "the engine's drift check, which the overview's rows come from" : null, plan };
 }
 const report = { pages: [] };
 for (const lang of opt.langs) {
