@@ -7,7 +7,8 @@ declare(strict_types=1);
  * (move_when_used_above, % of the whole pool).
  *
  *   size, used = zfs list -Hp used,avail <pool>          (the whole pool, as Smart Mover's pool_used_pct())
- *   M          = Σ refer of the movable shares' datasets (shareUseCache yes|prefer, primary = this pool)
+ *   M          = Σ refer of the movable shares' datasets (shareUseCache yes, primary = this pool, not skipped or without a
+ *                trigger in her ini — poolLevelMovable(); a prefer share moves onto the pool, never off it: truth review T32)
  *   fixed      = used − M                                (never moves: pool-only shares, snapshots, overhead)
  *   jack       = Σ allocated bytes of the entries of EmbyCache's list on this pool (after compression, like refer;
  *                2026-10-15 — the sizes as jack_logical) — ALL of them, wherever they lie (2026-10-15, a user's report:
@@ -100,14 +101,46 @@ function poolLevelRules(string $ini): ?array
     return ['x' => $x, 'y' => $x, 'k' => 0];
 }
 
-/** The movable shares of a pool (pure on the cfgs): shareUseCache yes|prefer with this pool as their primary */
-function poolLevelMovable(string $pool, string $sharesDir, array $names): array
+/**
+ * The shares her ini keeps out of the fill (smart_mover.ini, read as poolLevelRules() reads it): `skip = yes`, or a
+ * move_when_used_above of their own of 0 (Smart Mover's fill takes a share only with a trigger above 0) — [name, …]
+ */
+function poolLevelNoFill(?string $ini): array
+{
+    if ($ini === null || !is_file($ini)) {
+        return [];
+    }
+    $out = [];
+    $sec = null;
+    $seen = [];
+    foreach (preg_split('/\R/', (string) @file_get_contents($ini, false, null, 0, 1 << 20)) as $line) {
+        $line = trim($line);
+        if (preg_match('/^\[(.*)\]$/', $line, $m)) {
+            $sec = trim($m[1]) === 'GLOBAL' ? null : trim($m[1]);
+        } elseif ($sec !== null && preg_match('/^(skip|move_when_used_above)\s*=\s*(.*)$/', $line, $m) && !isset($seen["$sec|$m[1]"])) {
+            $seen["$sec|$m[1]"] = true;         // the first value of a key counts (get_ini_val)
+            $v = trim($m[2]);
+            if (($m[1] === 'skip' && $v === 'yes') || ($m[1] === 'move_when_used_above' && preg_match('/^0+$/D', $v))) {
+                $out[$sec] = true;
+            }
+        }
+    }
+    return array_map('strval', array_keys($out));
+}
+
+/**
+ * The movable shares of a pool (pure on the cfgs and her ini): shareUseCache yes with this pool as their primary — the
+ * shares her fill can take off the pool above X (truth review T32: a prefer share moves onto the pool, never off it;
+ * a share her ini skips or gives no trigger never leaves it by the fill — poolLevelNoFill())
+ */
+function poolLevelMovable(string $pool, string $sharesDir, array $names, ?string $ini = null): array
 {
     $out = [];
+    $noFill = array_flip(poolLevelNoFill($ini));
     foreach ($names as $share) {
         $cfg = readCfg("$sharesDir/$share.cfg");
         $primary = (string) ($cfg['shareCachePool'] ?? '');
-        if (in_array((string) ($cfg['shareUseCache'] ?? ''), ['yes', 'prefer'], true) && ($primary !== '' ? $primary : 'cache') === $pool) {
+        if ((string) ($cfg['shareUseCache'] ?? '') === 'yes' && ($primary !== '' ? $primary : 'cache') === $pool && !isset($noFill[(string) $share])) {
             $out[] = (string) $share;
         }
     }
@@ -319,7 +352,7 @@ function poolLevelWaiting(string $pool, array $o): bool
     }
     $root = rtrim($o['mnt'] ?? '/mnt', '/') . "/$pool/";
     return poolLevelStatfs(rtrim($root, '/'), $o['stat'] ?? 'stat') !== null
-        && poolLevelDuStored(poolLevelDuStore($o), $pool, $root, poolLevelMovable($pool, $o['shares_dir'], $o['names'])) === null;
+        && poolLevelDuStored(poolLevelDuStore($o), $pool, $root, poolLevelMovable($pool, $o['shares_dir'], $o['names'], $o['ini'] ?? null)) === null;
 }
 
 /**
@@ -335,7 +368,7 @@ function poolLevelDuJob(string $pool, array $o): int
     if (poolLevelStatfs(rtrim($root, '/'), $o['stat'] ?? 'stat') === null) {
         return 1;
     }
-    $bytes = poolLevelFolderBytes($root, poolLevelMovable($pool, $o['shares_dir'], $o['names']), poolLevelDuStore($o), POOL_DU_TIME, $o['du'] ?? 'du');
+    $bytes = poolLevelFolderBytes($root, poolLevelMovable($pool, $o['shares_dir'], $o['names'], $o['ini'] ?? null), poolLevelDuStore($o), POOL_DU_TIME, $o['du'] ?? 'du');
     return $bytes === null ? 1 : 0;
 }
 
@@ -386,7 +419,8 @@ function poolLevelFileBytes(int $size, int $blocks): int
 /**
  * One pool as it stands: poolLevelMath() with its movable shares and snapshots — or null (neither ZFS nor btrfs/xfs, not
  * measured, the pool asleep and not to be woken). $o: x, shares_dir, names (the shares that exist), zfs, mnt, jack_list
- * (EmbyCache's list, null: none), asleep (sleepingDisks()' map, null: asked now), wake (a run is about to wake it anyway),
+ * (EmbyCache's list, null: none), ini (her smart_mover.ini: the shares it keeps out of the fill), asleep (sleepingDisks()'
+ * map, null: asked now), wake (a run is about to wake it anyway),
  * measure ('night': a btrfs/xfs pool's folders measured now), stat, du, du_cache, du_launch (poolLevelPlain()).
  * `estimated` and `measured_at`: not ZFS (only there).
  */
@@ -395,7 +429,7 @@ function poolLevel(string $pool, array $o): ?array
     if (!($o['wake'] ?? false) && poolsBySleep([$pool], $o['asleep'] ?? null)['asleep']) {
         return null;
     }
-    $shares = poolLevelMovable($pool, $o['shares_dir'], $o['names']);
+    $shares = poolLevelMovable($pool, $o['shares_dir'], $o['names'], $o['ini'] ?? null);
     $look = poolLevelLook($pool, $shares, $o['zfs'] ?? 'zfs') ?? poolLevelPlain($pool, $shares, $o);
     if ($look === null) {
         return null;

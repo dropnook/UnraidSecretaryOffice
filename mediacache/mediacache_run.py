@@ -1517,7 +1517,10 @@ class Runner:
         if self.mode == "report":
             self.report(planner, self.user_filter, self.show_files)
             return 0
-        self.progress.plan_fill(planner, files)
+        if not NO_FILL:
+            # USO: ein Lauf, der nur freigibt (MEDIACACHE_NO_FILL), plant nichts zum Holen ein – sonst zählte sein Fortschritt
+            # die Dateien mit, die erst der nächste Schritt holt («2 von 16 Dateien» beim Zurückgeben)
+            self.progress.plan_fill(planner, files)
 
         # Referenz-Locations (Cache/Array sind global, Mappings spielen hier keine Rolle)
         loc = Locations(cfg, cfg["instances"][0]["_mappings"])
