@@ -3089,8 +3089,9 @@ function rsOpenHolders(array $paths): array
         if ($pid === $self || ($mine !== false && @readlink("$dir/ns/mnt") !== $mine)) {
             continue;
         }
-        foreach (@scandir("$dir/fd") ?: [] as $fd) {
-            $to = ctype_digit($fd) ? @readlink("$dir/fd/$fd") : false;
+        // its open files — and its working folder: a shell sitting inside holds a dataset busy too (review H2, Tower)
+        foreach (array_merge(['cwd'], array_map(fn ($f) => "fd/$f", array_filter(@scandir("$dir/fd") ?: [], 'ctype_digit'))) as $fd) {
+            $to = @readlink("$dir/$fd");
             if (!is_string($to) || !str_starts_with($to, '/')) {
                 continue;                                    // a pipe, a socket, anon_inode:…
             }

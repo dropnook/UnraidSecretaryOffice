@@ -46,32 +46,55 @@ function rsLvServiceOn(string $img): ?string
 }
 
 /**
- * The archive's entries all inside its top folder libvirt/ (no absolute path, no ..), only files and folders (review L4:
- * a link or a device would let tar write elsewhere; /etc/libvirt holds none) — their count, else null
+ * The archive's entries all inside its top folder libvirt/ (no absolute path, no ..), only files, folders and links that
+ * stay in libvirt's folder (review L4: autostart links are libvirt's own — `../default.xml` or /etc/libvirt/qemu/x.xml;
+ * a link out of it, a hard link or a device would let tar write elsewhere), never a member written through such a link —
+ * their count, else null
  */
 function rsLvArchiveOk(string $archive): ?int
 {
     [$exit, $out] = run(['tar', '-tzf', $archive], 120);
     [$vexit, $long] = run(['tar', '-tvzf', $archive], 120);
-    if ($exit !== 0 || $vexit !== 0) {
+    $names = array_values(array_filter(explode("\n", trim($out)), fn ($n) => $n !== ''));
+    $lines = array_values(array_filter(explode("\n", trim($long)), fn ($l) => $l !== ''));
+    if ($exit !== 0 || $vexit !== 0 || !$names || count($names) !== count($lines)) {
         return null;
     }
-    foreach (explode("\n", trim($long)) as $l) {
-        if ($l !== '' && !in_array($l[0], ['-', 'd'], true)) {
-            return null;
-        }
-    }
-    $n = 0;
-    foreach (explode("\n", trim($out)) as $e) {
-        if ($e === '') {
-            continue;
-        }
+    $links = [];
+    foreach ($names as $k => $e) {
         if (!preg_match('#^libvirt(/|$)#', $e) || preg_match('#(^|/)\.\.(/|$)#', $e)) {
             return null;
         }
-        $n++;
+        $type = $lines[$k][0];
+        if ($type === 'l') {
+            $at = strpos($lines[$k], ' ' . rtrim($e, '/') . ' -> ');
+            $to = $at === false ? '' : substr($lines[$k], $at + strlen(' ' . rtrim($e, '/') . ' -> '));
+            // where it leads, as a path inside the archive: /etc/libvirt/… → libvirt/…; relative from its folder
+            $abs = str_starts_with($to, '/') ? (str_starts_with($to, '/etc/libvirt/') ? 'libvirt/' . substr($to, 13) : null) : dirname($e) . "/$to";
+            $parts = [];
+            foreach ($abs === null ? [] : explode('/', $abs) as $p) {
+                if ($p === '..') {
+                    array_pop($parts);
+                } elseif ($p !== '' && $p !== '.') {
+                    $parts[] = $p;
+                }
+            }
+            if ($to === '' || $abs === null || ($parts[0] ?? '') !== 'libvirt' || count($parts) < 2) {
+                return null;
+            }
+            $links[] = rtrim($e, '/');
+        } elseif (!in_array($type, ['-', 'd'], true)) {
+            return null;
+        }
     }
-    return $n ?: null;
+    foreach ($names as $e) {
+        foreach ($links as $l) {
+            if (str_starts_with(rtrim($e, '/'), "$l/")) {
+                return null;                        // written through a link
+            }
+        }
+    }
+    return count($names);
 }
 
 /**

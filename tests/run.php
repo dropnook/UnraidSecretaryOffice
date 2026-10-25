@@ -54213,6 +54213,18 @@ function testRestoreGapsSwap(): void
     $s = $z();
     same('review H2: … the second put back — the share\'s own dataset again, the pull beside it read-only', ['ok', '11', '22', 'legacy', false],
         [$jb['result'], $s['tank/appdata']['guid'] ?? null, $s[$dn]['guid'] ?? null, $s[$dn]['mountpoint'] ?? null, isset($s[$aside])]);
+    // H2 (live, Tower): a shell sitting in the set-aside folder made the dataset busy, yet held no file open — its working
+    // folder counts as holding it (a rename or umount there fails)
+    $keepOpen = $GLOBALS['rs']['open'] ?? null;
+    unset($GLOBALS['rs']['open']);
+    @mkdir("$tmp/proc/4242/fd", 0700, true);
+    @symlink('/mnt/tank/.UnraidSecretaryOffice-restore-20261025-110000-appdata/sub', "$tmp/proc/4242/cwd");
+    file_put_contents("$tmp/proc/4242/comm", "bash\n");
+    $GLOBALS['rs']['proc'] = "$tmp/proc";
+    same('review H2: a program whose working folder is inside counts as holding it', ['bash (4242)'],
+        rsOpenHolders(['/mnt/tank/.UnraidSecretaryOffice-restore-20261025-110000-appdata']));
+    unset($GLOBALS['rs']['proc']);
+    $GLOBALS['rs']['open'] = $keepOpen;
     // L2: the put back of a swap on a pool asleep — refused (never woken unasked)
     $fresh();
     $j = restoreGapsRun(rsPlanPartnerSwap(['id' => $pullId], '20261025-110000'), '20261025-110000-cd34');
@@ -54303,12 +54315,18 @@ function testRestoreGapsLibvirt(): void
         unset($GLOBALS['rs']['lv_cmd']);
     }
     exec('rm -rf ' . escapeshellarg("$img.restored-20261025-160000") . ' ' . escapeshellarg((string) $p5['steps'][1]['mnt']));
-    // review L4: an archive with a link inside libvirt/ — refused (libvirt.img never holds one; tar could write through it)
-    @mkdir("$tmp/lnk/libvirt", 0755, true);
+    // review L4: an archive with a link out of libvirt's folder — refused (tar could write through it); libvirt's own
+    // autostart links (relative, or absolute into /etc/libvirt — Tower's archive has one) are fine
+    @mkdir("$tmp/lnk/libvirt/qemu/networks/autostart", 0755, true);
+    file_put_contents("$tmp/lnk/libvirt/qemu/networks/default.xml", '<network/>');
+    @symlink('../default.xml', "$tmp/lnk/libvirt/qemu/networks/autostart/default.xml");
+    @symlink('/etc/libvirt/qemu/Schule.xml', "$tmp/lnk/libvirt/qemu/networks/autostart/Schule.xml");
+    exec('tar -C ' . escapeshellarg("$tmp/lnk") . ' -czf ' . escapeshellarg("$tmp/lnk-ok.tar.gz") . ' libvirt');
     @symlink('/etc', "$tmp/lnk/libvirt/x");
     exec('tar -C ' . escapeshellarg("$tmp/lnk") . ' -czf ' . escapeshellarg("$tmp/lnk.tar.gz") . ' libvirt');
-    same('review L4: an archive holding a link — refused', 'restore_libvirt_archive_bad',
-        rsPlanLibvirtFor(['libvirt' => "$tmp/lnk.tar.gz"] + $server, $img, '20261025-150000', $ctx)['blockers'][0]['key'] ?? null);
+    same('review L4: libvirt\'s own autostart links — fine; a link out of its folder — refused', [[], 'restore_libvirt_archive_bad'],
+        [rsPlanLibvirtFor(['libvirt' => "$tmp/lnk-ok.tar.gz"] + $server, $img, '20261025-150000', $ctx)['blockers'],
+         rsPlanLibvirtFor(['libvirt' => "$tmp/lnk.tar.gz"] + $server, $img, '20261025-150000', $ctx)['blockers'][0]['key'] ?? null]);
     $bad = $tmp . '/bad.tar.gz';
     @mkdir("$tmp/evil/etc", 0755, true);
     file_put_contents("$tmp/evil/etc/passwd", 'x');
