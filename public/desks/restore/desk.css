@@ -124,5 +124,6 @@
 .rs-kept-pkg{padding-left:28px}
 /* the flash: where its archive lives (here, offsite, at a partner), one line each under its row */
 .rs-flash-where{margin-top:4px; font-size:.92em; color:var(--muted); overflow-wrap:anywhere}
+.rs-how > p.role, .rs-step .role, .rs-flash-boot p{overflow-wrap:anywhere}     /* a long path in a guide's text wraps (375 px) */
 .rs-kept-pkg .row-name::before{content:'↳ '; color:var(--muted)}
 }

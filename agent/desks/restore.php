@@ -75,7 +75,8 @@ require_once __DIR__ . '/restore-drill.php';
 require_once __DIR__ . '/restore-partner.php';
 require_once __DIR__ . '/restore-dataset.php';      // «Make it a dataset of its own…» (1.60.1, asked from Mr. Backupsy's setup)
 require_once __DIR__ . '/restore-paths.php';        // 1.72: every share, one path out of Kopia, Kopia's packages as earlier versions
-require_once __DIR__ . '/restore-browse.php';       // files and folders at any depth of a moment, local or kept for a partner (matrix gap 4)
+require_once __DIR__ . '/restore-browse.php';
+require_once __DIR__ . '/restore-libvirt.php';      // all of libvirt.img back from its archive, the VM service off (matrix gap 7)       // files and folders at any depth of a moment, local or kept for a partner (matrix gap 4)
 
 function rsSizesFile(): string
 {
@@ -1982,6 +1983,7 @@ function rsPlan(array $r): array
         'partner' => rsPlanPartner($r, $stamp),
         'partner_start' => rsPlanPartnerStart($r, $stamp),
         'partner_swap' => rsPlanPartnerSwap($r, $stamp),
+        'libvirt' => rsPlanLibvirt($r, $stamp),
         default   => throw new Problem('unknown_target', ['target' => $kind]),
     };
     return rsPlanSeal($plan, $stamp);
@@ -3449,6 +3451,10 @@ function rsPlanPutback(array $r, string $stamp): array
             }
         }
     }
+    // libvirt.img put back (gap 7): only with the VM service off — looked at now, and again right before (lv_off)
+    if (($j['kind'] ?? '') === 'libvirt' && $plan['steps'] && rsLvServiceOn((string) ($orig['target']['image'] ?? '')) !== null) {
+        $plan['blockers'][] = ['key' => 'restore_libvirt_service_on', 'params' => ['path' => (string) ($orig['target']['image'] ?? '')]];
+    }
     // a swap put back (gap 6): the share's dataset changes names again — never under an open file, a running VM or an image
     if (($j['kind'] ?? '') === 'partner_swap' && $plan['steps']) {
         $live = (string) ($orig['target']['path'] ?? '');
@@ -3867,6 +3873,8 @@ function rsStep(array &$j, int $i): array
         'pull_local' => rsDoPullLocal($j, $i),
         'start_from' => rsDoStartFrom($j, $i),
         'pull_umount' => rsDoPullUmount($j, $s),
+        'lv_off'     => rsDoLvOff($s),
+        'lv_build'   => rsDoLvBuild($j, $i),
         'swap_out'   => rsDoSwapOut($j, $s),
         'swap_in'    => rsDoSwapIn($j, $s),
         'swap_unsettle' => rsDoSwapUnsettle($j, $s),

@@ -53966,6 +53966,13 @@ function testRestoreGapsPage(): void
         array_map(fn ($k) => array_key_exists($k, $w) ? $w[$k] : 'x', ['parent', 'vm', 'putBack']));
     same('gap 6: swapped — the way to the swap\'s entry; nothing «to its place» any more (it is the share)', [['j.swapped {"share":"appdata"}'], []],
         [$w['swapped'] ?? null, $w['places'] ?? null]);
+    $v = $o['t7'] ?? [];
+    check('gap 7: «Everything back into libvirt.img» — what it replaces said first; with the VM service off his «Restore all…»',
+        in_array('vm.all_replaces {"when":"D40"}', (array) ($v['off'] ?? []), true) && in_array('vm.all_2_text {"file":"/mnt/user/system/libvirt/libvirt.img"}', (array) ($v['off'] ?? []), true)
+        && in_array(['vm.all_button', false], (array) ($v['offButtons'] ?? []), true), json_encode($v));
+    check('gap 7: … the VM service on — the button waits (stop it first), the way by hand still there',
+        in_array(['vm.all_button', true], (array) ($v['onButtons'] ?? []), true) && in_array('vm.all_2_wait {"file":"/mnt/user/system/libvirt/libvirt.img"}', (array) ($v['on'] ?? []), true)
+        && in_array('vm.all_hand', (array) ($v['on'] ?? []), true), json_encode($v['on'] ?? null));
     same('gap 10: … and his bubble says the same, never «with Mr. Backupsy\'s first backup run» under the ticket\'s callout', 'bubble.no_packages_ticket {"name":"OldNAS"}', $t['bubble'] ?? null);
 }
 
@@ -54136,6 +54143,79 @@ function testRestoreGapsSwap(): void
     same('gap 6: a pull under UnraidSecretaryOffice-restored — no share\'s dataset to swap with: refused, «Restore…» copies', 'restore_swap_no_dataset',
         rsPlanPartnerSwap(['id' => $pullId], '20261025-110000')['blockers'][0]['key'] ?? null);
     putenv('OFFICE_PARTNER_BIN');
+    $GLOBALS['rs'] = $keep;
+    hardeningRm($tmp);
+}
+
+/** Gap 7: all of libvirt.img back from the package's archive — the VM service off, the old image aside, put back */
+function testRestoreGapsLibvirt(): void
+{
+    $tmp = hardeningTmp('rslibvirt');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $keep = $GLOBALS['rs'] ?? [];
+    @mkdir("$tmp/src/libvirt/qemu/nvram", 0755, true);
+    file_put_contents("$tmp/src/libvirt/qemu/Schule.xml", '<domain><name>Schule</name></domain>');
+    file_put_contents("$tmp/src/libvirt/qemu/nvram/x_VARS-pure-efi.fd", 'vars');
+    exec('tar -C ' . escapeshellarg("$tmp/src") . ' -czf ' . escapeshellarg("$tmp/libvirt.tar.gz") . ' libvirt');
+    @mkdir("$tmp/system/libvirt", 0755, true);
+    $img = "$tmp/system/libvirt/libvirt.img";
+    $real = posix_geteuid() === 0 && is_executable('/sbin/mkfs.ext4') && is_executable('/sbin/losetup');
+    if ($real) {
+        exec('dd if=/dev/zero of=' . escapeshellarg($img) . ' bs=1M count=16 status=none && /sbin/mkfs.ext4 -q -F ' . escapeshellarg($img));
+    } else {
+        file_put_contents($img, str_repeat("\0", 65536));
+    }
+    $md5 = md5_file($img);
+    $GLOBALS['rs'] = array_merge($keep, ['data' => "$tmp/data", 'lv_root' => "$tmp/", 'fs' => [], 'lv_on' => fn (string $i) => null]);
+    if (!$real) {
+        // no loop device here: «mount» makes the folder, «umount» leaves it — the flow, not the image's inside
+        $GLOBALS['rs']['lv_cmd'] = fn (array $cmd) => [$cmd[0] === 'mount' ? (is_dir((string) end($cmd)) ? 0 : 1) : 0, '', ''];
+    }
+    $ctx = rsContext([]);
+    $server = ['libvirt' => "$tmp/libvirt.tar.gz", 'libvirt_time' => 1792800000, 'libvirt_bytes' => (int) filesize("$tmp/libvirt.tar.gz")];
+    $plan = rsPlanLibvirtFor($server, $img, '20261025-130000', $ctx);
+    same('gap 7: libvirt.img — nothing blocks with the VM service off; off once more, his copy built, the image aside, the copy in its place',
+        [[], ['lv_off', 'lv_build', 'aside', 'move'], "$img.aside-20261025-130000", "$img.restored-20261025-130000"],
+        [$plan['blockers'], array_column($plan['steps'], 'do'), $plan['steps'][2]['to'] ?? null, $plan['steps'][1]['to'] ?? null]);
+    check('gap 7: … said plainly first: it replaces every VM definition (those defined since stay in the old image aside); the disks untouched; then the VM service on',
+        ($plan['notes'][0]['key'] ?? '') === 'note.libvirt_replaces' && !empty($plan['notes'][0]['warn']) && ($plan['notes'][1]['key'] ?? '') === 'note.libvirt_disks'
+        && ($plan['after'][0]['key'] ?? '') === 'after.libvirt_on', json_encode([$plan['notes'], $plan['after']]));
+    $j = restoreGapsRun($plan, '20261025-130000-aa11');
+    same('gap 7: done — the old image aside untouched (the same bytes), the copy is libvirt.img, his mount gone',
+        ['ok', $md5, true, false, false], [$j['result'], @md5_file("$img.aside-20261025-130000"), is_file($img), is_file("$img.restored-20261025-130000"),
+         is_dir((string) $plan['steps'][1]['mnt'])]);
+    if ($real) {
+        @mkdir("$tmp/look", 0700);
+        exec('mount -o loop,ro ' . escapeshellarg($img) . ' ' . escapeshellarg("$tmp/look"));
+        $inside = [is_file("$tmp/look/qemu/Schule.xml"), is_file("$tmp/look/qemu/nvram/x_VARS-pure-efi.fd"), is_dir("$tmp/look/libvirt")];
+        exec('umount ' . escapeshellarg("$tmp/look"));
+        same('gap 7: … inside the new image: the archive\'s contents at its top (the VMs\' XML, their UEFI variables)', [true, true, false], $inside);
+    } else {
+        check('gap 7: … the image\'s inside: no loop device here (root and mkfs.ext4 needed) - not looked at', true);
+    }
+    $back = rsPlanPutback(['id' => '20261025-130000-aa11'], '20261025-140000');
+    same('gap 7: put back — the VM service off once more, the restored image aside, the old one back', [[], ['lv_off', 'aside', 'move', 'aside']],
+        [$back['blockers'], array_column($back['steps'], 'do')]);
+    $GLOBALS['rs']['lv_on'] = fn (string $i) => 'attached';
+    same('gap 7: … put back refused while the VM service is on', 'restore_libvirt_service_on', rsPlanPutback(['id' => '20261025-130000-aa11'], '20261025-140000')['blockers'][0]['key'] ?? null);
+    $GLOBALS['rs']['lv_on'] = fn (string $i) => null;
+    $jb = restoreGapsRun($back, '20261025-140000-bb22');
+    same('gap 7: put back — libvirt.img is the old one again (its bytes), the restored one kept aside', ['ok', $md5, true],
+        [$jb['result'], md5_file($img), is_file("$img.putback-20261025-140000")]);
+    $GLOBALS['rs']['lv_on'] = fn (string $i) => 'mounted';
+    same('gap 7: the VM service on — refused', 'restore_libvirt_service_on', rsPlanLibvirtFor($server, $img, '20261025-150000', $ctx)['blockers'][0]['key'] ?? null);
+    $GLOBALS['rs']['lv_on'] = fn (string $i) => null;
+    $bad = $tmp . '/bad.tar.gz';
+    @mkdir("$tmp/evil/etc", 0755, true);
+    file_put_contents("$tmp/evil/etc/passwd", 'x');
+    exec('tar -C ' . escapeshellarg("$tmp/evil") . ' -czf ' . escapeshellarg($bad) . ' etc');
+    same('gap 7: no archive; an archive with anything outside libvirt/; no image; an image that is a link — refused',
+        ['restore_libvirt_no_archive', 'restore_libvirt_archive_bad', 'restore_libvirt_no_image', 'restore_path_link'],
+        [rsPlanLibvirtFor([], $img, '20261025-150000', $ctx)['blockers'][0]['key'] ?? null,
+         rsPlanLibvirtFor(['libvirt' => $bad] + $server, $img, '20261025-150000', $ctx)['blockers'][0]['key'] ?? null,
+         rsPlanLibvirtFor($server, "$tmp/system/libvirt/none.img", '20261025-150000', $ctx)['blockers'][0]['key'] ?? null,
+         (function () use ($tmp, $img, $server, $ctx) { symlink($img, "$tmp/system/libvirt/link.img");
+             return rsPlanLibvirtFor($server, "$tmp/system/libvirt/link.img", '20261025-150000', $ctx)['blockers'][0]['key'] ?? null; })()]);
     $GLOBALS['rs'] = $keep;
     hardeningRm($tmp);
 }
@@ -55291,7 +55371,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
-                      'testRestoreReviewPaths', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
+                      'testRestoreReviewPaths', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];

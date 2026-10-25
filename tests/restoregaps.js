@@ -100,4 +100,15 @@ out.t6 = {
   putBack: sw({ dataset: 'cache/appdata.restored-20261025-120000' }, { putback: { id: 'x', result: 'ok' } }),
 };
 
+// ---- #7: all of libvirt.img from the page — what it replaces said first, only with the VM service off
+const buttons = (e) => (e == null || typeof e === 'string' ? [] : [...(e.tag === 'button' ? [[e.textContent, !!e.disabled]] : []), ...(e.children || []).flatMap(buttons)]);
+const lvState = (on) => ({ ...st9, vm_service: on, libvirt_img: '/mnt/user/system/libvirt/libvirt.img', server: { libvirt: '/b/server/libvirt.tar.gz', libvirt_time: 40, libvirt_bytes: 9 } });
+r.setState(lvState(false));
+const offFold = r.vmAllFold('/b/server/libvirt.tar.gz');
+out.t7 = { off: texts(offFold), offButtons: buttons(offFold) };
+r.setState(lvState(true));
+const onFold = r.vmAllFold('/b/server/libvirt.tar.gz');
+out.t7.on = texts(onFold);
+out.t7.onButtons = buttons(onFold);
+
 console.log(JSON.stringify(out));

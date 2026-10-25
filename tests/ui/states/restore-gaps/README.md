@@ -40,3 +40,17 @@ testRestoreGapsPage (tests/restoregaps.js) holds the same rules without a browse
     node tools/scenarios/page.mjs --states tests/ui/states/restore-gaps/partner restore/apps --lang en,de --open --clean \
       --want restore.from_partner --want restore.pa.fetch --want restore.pa.package
     bash tools/ui-clicks.sh --states tests/ui/states/restore-gaps/partner --only restore
+
+- `partner-pulled/` — the base stub with a finished pull of share appdata from PartnerNAS, still here (gaps 6 and 8): its
+  journal entry offers «Now to its place…» for every app's folder in it and the share, and «Swap it in…» (the share's
+  dataset aside whole, put back possible); each app's «From a partner» says «here since …» with «Restore…».
+  `post/restore.journal.json` is the pull's journal.
+- `libvirt-off/` — the base stub with the VM service off (gap 7): «Everything back into libvirt.img» says first that it
+  replaces every VM definition, then «Restore all…» (in the base stub, the VM service on: the button waits).
+
+    node tools/scenarios/page.mjs --states tests/ui/states/restore-gaps/partner-pulled restore/journal --lang en,de --open --clean \
+      --want restore.j.swap --want restore.j.place_go
+    node tools/scenarios/page.mjs --states tests/ui/states/restore-gaps/libvirt-off restore/vms --lang en,de --open --clean \
+      --want restore.vm.all_replaces --want restore.vm.all_button --want restore.vm.all_2_text
+    bash tools/ui-clicks.sh --states tests/ui/states/restore-gaps/partner-pulled --only restore
+    bash tools/ui-clicks.sh --states tests/ui/states/restore-gaps/libvirt-off --only restore

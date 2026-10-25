@@ -1392,14 +1392,28 @@ function vmsSection() {
   return s;
 }
 
-/** All of libvirt.img back from its archive: VM service off, unpack into the image, VM service on */
+/**
+ * All of libvirt.img back from its archive (the restore matrix's gap 7): what it replaces said first (every VM definition
+ * and network), the VM service off in Unraid (the user), then he swaps the image for a copy with the archive in it — the
+ * old one aside, «Put back» possible —, the VM service on again; the way by hand in a terminal folded below
+ */
 function vmAllFold(a) {
   const img = state.libvirt_img || '/mnt/user/system/libvirt/libvirt.img';
+  const off = !state.vm_service;
+  const go = restoreButton(T('vm.all_button'), { kind: 'libvirt' }, T('rd.title.libvirt', { when: date(state.server.libvirt_time) }));
+  if (!off) { go.disabled = true; go.title = T('vm.all_wait_off'); }
+  const s2 = rstep(T('vm.all_2_office'), T(off ? 'vm.all_2_text' : 'vm.all_2_wait', { file: img }));
+  const act = el('div', 'rs-act');
+  act.appendChild(go);
+  s2.appendChild(act);
   return fold('vm.all', T('vm.all', { when: date(state.server.libvirt_time), size: fmt.size(state.server.libvirt_bytes || 0) }),
     el('p', 'role', T('vm.all_text', { file: a })),
+    el('p', 'callout warn', T('vm.all_replaces', { when: date(state.server.libvirt_time) })),
     rstep(T('vm.all_1'), T('vm.all_1_text')),
-    rstep(T('vm.all_2'), null, `mkdir -p /tmp/libvirt-img && mount -o loop ${q(img)} /tmp/libvirt-img && tar -xzf ${q(a)} -C /tmp/libvirt-img --strip-components=1 && umount /tmp/libvirt-img`),
-    rstep(T('vm.all_3'), T('vm.all_3_text')));
+    s2,
+    rstep(T('vm.all_3'), T('vm.all_3_text')),
+    fold('vm.all_hand', T('vm.all_hand'),
+      rstep(T('vm.all_2'), null, `mkdir -p /tmp/libvirt-img && mount -o loop ${q(img)} /tmp/libvirt-img && tar -xzf ${q(a)} -C /tmp/libvirt-img --strip-components=1 && umount /tmp/libvirt-img`)));
 }
 
 function vmStateChip(v) {
@@ -3276,7 +3290,7 @@ function journalDetail(r) {
         p.append(restoreButton(T('j.remove_unfinished'), { kind: 'putback', id: r.id }, T('rd.title.unfinished', { what: journalTitle(r) })), ' ', el('span', 'role', T('j.remove_unfinished_hint')));
       } else {
         p.append(restoreButton(T(r.kind === 'partner' ? 'j.drop' : 'j.putback'), { kind: 'putback', id: r.id }, T('rd.title.putback', { what: journalTitle(r) })), ' ',
-          el('span', 'role', T(r.kind === 'partner' ? 'j.drop_hint' : r.kind === 'partner_start' ? 'j.start_putback_hint' : r.kind === 'partner_swap' ? 'j.swap_putback_hint' : 'j.putback_hint')));
+          el('span', 'role', T(r.kind === 'partner' ? 'j.drop_hint' : r.kind === 'partner_start' ? 'j.start_putback_hint' : r.kind === 'partner_swap' ? 'j.swap_putback_hint' : r.kind === 'libvirt' ? 'j.libvirt_putback_hint' : 'j.putback_hint')));
       }
       box.appendChild(p);
     } else if (!live && ['ok', 'warnings'].includes(r.result) && !r.putback && r.kind !== 'putback') box.appendChild(el('p', 'role', T(r.kind === 'kopia' ? 'j.no_putback_kopia' : 'j.no_putback')));
@@ -3433,6 +3447,6 @@ Office.placesFrom(ID, (s, part) => {
 // tests/run.php runs the databases tile's logic and the preview's sizes under node
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.restore = { setState: (s) => { state = s; }, greetOk, shareFromKopia, kopiaFetched, dbGroups, dbName, dbRequest, earlierOf, tileLine, sizesDone,
-    noPackagesText, noPackages, bootSnapsPart, placesBack, placesPart, swapPart, swappable, kopiaBlock, partnerPart, fetchLead, atPartnerChip, ownerPlaces, setJob: (j) => { job = j; }, runCardData, runCard, shortStep, liveJob, runCardShort, bubbleText, snapsChip };
+    noPackagesText, noPackages, bootSnapsPart, placesBack, placesPart, swapPart, swappable, vmAllFold, kopiaBlock, partnerPart, fetchLead, atPartnerChip, ownerPlaces, setJob: (j) => { job = j; }, runCardData, runCard, shortStep, liveJob, runCardShort, bubbleText, snapsChip };
 }
 })();
