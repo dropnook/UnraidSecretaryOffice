@@ -41773,8 +41773,8 @@ function testHiddenStoreroom(): void
     same('hidden: engine — who leaves out the old name leaves out the new one too (before the setup wrote it); once; nobody else',
         ['_UnraidSecretaryOffice-trash*/|.DS_Store|.UnraidSecretaryOffice-trash*/', '_UnraidSecretaryOffice-trash*/|.UnraidSecretaryOffice-trash*/', '.DS_Store'],
         array_map(fn ($f) => $sh("cfg_load $tmp/$f.ini; apply_settings; IFS='|'; echo \"\${KOPIA_IGNORE[*]}\""), ['old', 'both', 'none']));
-    check('hidden: engine — a share\'s storeroom datasets are left out by both names (plan and partner units)',
-        substr_count((string) file_get_contents(OFFICE_DIR . '/backup/lib/common.sh'), 'ub_storeroom "${ds##*/}"') === 2
+    check('hidden: engine — a share\'s storeroom datasets are left out by both names (plan, partner units, 2.76: inside an app\'s own dataset)',
+        substr_count((string) file_get_contents(OFFICE_DIR . '/backup/lib/common.sh'), 'ub_storeroom "${ds##*/}"') === 3
         && !str_contains((string) file_get_contents(OFFICE_DIR . '/backup/lib/common.sh'), '== _UnraidSecretaryOffice-trash*'));
     $setupSrc = (string) file_get_contents(OFFICE_DIR . '/backup/setup.sh');
     check('hidden: setup — the plan adds both of Kopia\'s rules for the storeroom', str_contains($setupSrc, 'plist_add "kopia|ignore" "$UB_STOREROOM*/"')
