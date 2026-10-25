@@ -43134,7 +43134,7 @@ SH);
  * Ms. Moverelli's fixture: a data folder, share cfgs (Back prefer, Docs yes with a threshold, Filme yes, Arr no), a /mnt
  * tree, a stand-in move binary (pool → disk1, a data disk → the pool, a folder as Unraid's: created there, removed here when
  * empty; /mnt/user0 refused as Unraid's move does; MOVE_STOP writes a stop request after its first call, MOVE_SLEEP
- * waits, MOVE_FAIL moves nothing and exits 1; MOVE_CALLS counts its calls), a zfs that knows no pool (df counts), stand-ins for Unraid's
+ * waits, MOVE_BUSY notes it at work, MOVE_HOLD waits for a file, MOVE_FAIL moves nothing and exits 1; MOVE_CALLS counts its calls), a zfs that knows no pool (df counts), stand-ins for Unraid's
  * version and schedule, the mover at work, Jack's runs and his list — in $GLOBALS['moverelliHost'] (moverelliHost()).
  * $v: the values the stand-ins read (by reference).
  */
@@ -43162,6 +43162,10 @@ function moverelliFixture(string $tmp, array &$v): void
 #!/bin/bash
 # the tests' move binary: one path per line on stdin
 [[ -n "${MOVE_SLEEP:-}" ]] && sleep "$MOVE_SLEEP"
+# MOVE_BUSY: a file it leaves while at work; MOVE_HOLD: a file it waits for (at most 60 s) before it moves — so the file
+# is in flight for as long as the test needs, whatever the load (no sleep that a busy host outruns)
+[[ -n "${MOVE_BUSY:-}" ]] && : > "$MOVE_BUSY"
+if [[ -n "${MOVE_HOLD:-}" ]]; then for _ in $(seq 600); do [[ -e "$MOVE_HOLD" ]] && break; sleep 0.1; done; fi
 [[ -n "${MOVE_CALLS:-}" ]] && echo x >> "$MOVE_CALLS"
 [[ -n "${MOVE_FAIL:-}" ]] && { while IFS= read -r _; do :; done; echo "move: refused"; exit 1; }
 # MOVE_SNAP: the live status as Smart Mover left it before this call (its first call only)
@@ -43192,7 +43196,7 @@ SH);
         'env' => ['CUSTOMMOVER_MOVER_BIN' => "$tmp/bin/move", 'CUSTOMMOVER_ZFS' => "$tmp/bin/zfs", 'MOVE_ROOT' => "$tmp/mnt"],
         'version' => function () use (&$v) { return $v['version']; },
         'unraid' => function () use (&$v) { return $v['own']; },
-        'mover_running' => function (?int $self = null) use (&$v) { return $self === null ? $v['mover'] : $v['mover_self']; },
+        'mover_running' => function (?int $self = null) use (&$v) { return $self === null ? $v['mover'] : ($v['mover_self'] instanceof Closure ? ($v['mover_self'])() : $v['mover_self']); },
         'jack_busy' => function () use (&$v) { return $v['busy']; },
         'jack_desk' => function () use (&$v) { return $v['jack_desk']; },
         'scheduled' => fn () => true, 'lock_wait' => 1, 'next_run' => fn () => null, 'jack_next' => fn () => null,
@@ -45682,11 +45686,13 @@ function testMoverelliCardLag(): void
     for ($i = 1; $i <= 40; $i++) {
         file_put_contents(sprintf("$tmp/mnt/cache/Docs/f%02d.bin", $i), str_repeat('x', 1000));
     }
-    // the stand-in notes, for each of Docs' files it is handed, how many of Docs' files it moved before and what the live
-    // status says of the share by then; fast (no sleep): the whole share in well under a second
+    // the stand-in notes, for each of Docs' files it is handed, how many of Docs' files it moved before, what the live
+    // status says of the share by then and the second it looked; fast (no sleep): the whole share in well under a second
+    // when the host is idle
     file_put_contents("$tmp/bin/move-lag", "#!/bin/bash\nn=0\nwhile IFS= read -r f; do\n  case \"\$f\" in */Docs/*)\n"
+        . "    printf -v t '%(%s)T' -1\n"
         . "    d=\$(sed -n 's/.*\"share\":\"Docs\".*\"share_done_files\":\\([0-9]*\\).*/\\1/p' " . escapeshellarg("$dir/status.json") . ")\n"
-        . "    echo \"\$n \${d:-x}\" >> " . escapeshellarg("$tmp/lag") . "; n=\$((n + 1)) ;; esac\n"
+        . "    echo \"\$n \${d:-x} \$t\" >> " . escapeshellarg("$tmp/lag") . "; n=\$((n + 1)) ;; esac\n"
         . "  printf '%s\\n' \"\$f\" | " . escapeshellarg("$tmp/bin/move") . "\ndone\nexit 0\n");
     chmod("$tmp/bin/move-lag", 0755);
     $GLOBALS['moverelliHost']['env']['CUSTOMMOVER_MOVER_BIN'] = "$tmp/bin/move-lag";
@@ -45695,8 +45701,12 @@ function testMoverelliCardLag(): void
     $lag = max(array_map(fn ($r) => (int) $r[0] - (is_numeric($r[1]) ? (int) $r[1] : 0), $rows ?: [[99, 0]]));
     same('run card: all 41 of Docs\' files handed over, the live status of Docs read before each', 41, count($rows));
     check("run card: the live status never more than 5 % of Docs' 41 files (3) behind what moved (lag $lag)", $lag <= 3, json_encode($rows));
+    // what the card may be written for: the first file, each 5 % step (≤ 20 more) and, as before, a new second — on a busy
+    // host the share takes seconds, each worth one write more (2026-10-25: 23 readings over 3 s), never a 5 % step more
     $writes = count(array_unique(array_column($rows, 1)));
-    check("run card: … with at most ~20 more writes for the share ($writes distinct readings)", $writes <= 22);
+    $secs = count(array_unique(array_column($rows, 2)));
+    check("run card: … with at most ~20 more writes for the share ($writes distinct readings over $secs s; one more for each second after the first)",
+        $secs >= 1 && $writes <= 21 + $secs);
     unset($GLOBALS['moverelliHost']);
     hardeningRm($tmp);
 }
@@ -47546,11 +47556,15 @@ function testMoverelliRun(): void
     file_put_contents("$tmp/mnt/disk1/Back/e.txt", 'e');
     @mkdir("$tmp/mnt/cache/Docs", 0700, true);         // … and Docs' emptied folder on the pool to the array
     file_put_contents("$tmp/mnt/cache/Docs/f.txt", 'f');
-    $v['mover_self'] = true;
-    $GLOBALS['moverelliHost']['env']['MOVE_SLEEP'] = '3';           // Back's move takes 3 s, the job looks after 1 s
+    // Unraid's mover is «seen» only once Back's move is at work, and Back's file stays in flight until her watch (a look
+    // each second) wrote the stop request — on the tests' terms, never a race with a fixed sleep (2026-10-25: on a busy
+    // host the look came before Smart Mover had started Back, and Back never moved)
+    @unlink("$tmp/moving");
+    $v['mover_self'] = fn (): bool => is_file("$tmp/moving");
+    $GLOBALS['moverelliHost']['env'] += ['MOVE_BUSY' => "$tmp/moving", 'MOVE_HOLD' => "$dir/office-stop.json"];
     $GLOBALS['moverelliHost']['look_every'] = 1;
     $exit = moverelliJob(['run'], moverelliHost());
-    unset($GLOBALS['moverelliHost']['env']['MOVE_SLEEP']);
+    unset($GLOBALS['moverelliHost']['env']['MOVE_BUSY'], $GLOBALS['moverelliHost']['env']['MOVE_HOLD']);
     $GLOBALS['moverelliHost']['look_every'] = 0;
     $v['mover_self'] = false;
     $n = $notified();
