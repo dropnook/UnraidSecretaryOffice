@@ -1274,7 +1274,6 @@
   "kb.restore": "Zurückholen…",
   "kb.more": {"one": "und 1 weiterer — öffne einen Ordner weiter unten oder hol diesen Ordner als Ganzes zurück", "other": "und {n} weitere — öffne einen Ordner weiter unten oder hol diesen Ordner als Ganzes zurück"},
   "kb.whole": "Diesen ganzen Snapshot…",
-  "kp.browse": "Durchsuchen…",
   "rd.way_stage": "Nur in Kopias Rückhol-Ordner",
   "rd.way_stage_hint": "Kopia schreibt es in einen eigenen Ordner; auf dem Server ändert sich nichts. Nimm dort, was du brauchst.",
   "rd.way_stage_only": "Es kommt in Kopias Rückhol-Ordner zurück — auf dem Server wird nichts ersetzt.",
@@ -1361,5 +1360,10 @@
   "flash.boot_snaps": {"one": "Der Boot-Pool hat auch einen Snapshot des Flash: 1 von {dataset}, vom {when}. Er ist /boot, wie es damals war, nur lesbar:", "other": "Der Boot-Pool hat auch Snapshots des Flash: {n} von {dataset}, der neueste vom {when}. Jeder ist /boot, wie es damals war, nur lesbar — der neueste:"},
   "flash.boot_snaps_how": "Einzelne Stücke von dort von Hand kopieren (die Einstellungen eines Plugins, die go-Datei). Den Boot-Pool setze ich nie zurück und hole nie den ganzen Flash daraus: Ein ganzer Flash kommt nur auf Unraids offiziellem Weg zurück.",
   "flash.boot_snaps_asleep": "Der Boot-Pool hat den Flash in {dataset} — seine Snapshots jetzt nicht angeschaut: der Pool schläft.",
-  "flash.boot_snaps_these": {"one": "Das ist 1 Snapshot von {dataset}, vom {when}. Er ist /boot, wie es damals war, nur lesbar:", "other": "Das sind {n} Snapshots von {dataset}, der neueste vom {when}. Jeder ist /boot, wie es damals war, nur lesbar — der neueste:"}
+  "flash.boot_snaps_these": {"one": "Das ist 1 Snapshot von {dataset}, vom {when}. Er ist /boot, wie es damals war, nur lesbar:", "other": "Das sind {n} Snapshots von {dataset}, der neueste vom {when}. Jeder ist /boot, wie es damals war, nur lesbar — der neueste:"},
+  "kp.guide_hand": "Von Hand mit KopiaUI →",
+  "j.place_title": "Jetzt an ihren Platz",
+  "j.place_text": {"one": "Was Kopia zurückgeholt hat, wartet im Rückhol-Ordner. Von hier kommt es an seinen Platz: neben das, was da ist, oder ausgetauscht (was da ist, kommt zuerst zur Seite):", "other": "Was Kopia zurückgeholt hat, wartet im Rückhol-Ordner. Diese {n} gehen von hier an ihren Platz: neben das, was da ist, oder ausgetauscht (was da ist, kommt zuerst zur Seite):"},
+  "j.place_text_partner": {"one": "Was vom Partner zurückkam, liegt daneben, nur lesbar. Von hier kommt es an seinen Platz: neben das, was da ist, oder ausgetauscht (was da ist, kommt zuerst zur Seite):", "other": "Was vom Partner zurückkam, liegt daneben, nur lesbar. Diese {n} gehen von hier an ihren Platz: neben das, was da ist, oder ausgetauscht (was da ist, kommt zuerst zur Seite):"},
+  "j.place_go": "Jetzt an ihren Platz…"
 }

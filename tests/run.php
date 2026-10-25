@@ -53921,6 +53921,23 @@ function testRestoreGapsPage(): void
     same('gap 12: kept with snapshots (the engine\'s mode) — these are the ones his text means, not «too»', 'flash.boot_snaps_these {"n":3,"dataset":"flash/boot","when":"D9"}', $b['these'] ?? null);
     check('gap 12: a boot pool asleep — named, its snapshots not looked at', in_array('flash.boot_snaps_asleep {"dataset":"flash/boot"}', (array) ($b['asleep'] ?? []), true), json_encode($b['asleep'] ?? null));
     same('gap 12: none there, a stick, an older agent\'s state — nothing said', [null, null, null], array_map(fn ($k) => array_key_exists($k, $b) ? $b[$k] : 'x', ['none', 'stick', 'old']));
+    $n = $o['t9'] ?? [];
+    $k = fn (string $id) => "kopia:$id";
+    same('gap 9: a Kopia restore of a share\'s source, staged — its place: each app\'s folder in it and the share itself, with that moment',
+        [['/mnt/user/appdata/nextcloud', 'kopia:J1'], ['/mnt/user/appdata', 'kopia:J1']], $n['share'] ?? null);
+    same('gap 9: … an app\'s own source — its folders and the shares it binds whole', [['/mnt/user/appdata/nextcloud', 'kopia:J1'], ['/mnt/user/nextcloud', 'kopia:J1']], $n['own'] ?? null);
+    same('gap 9: … a VM\'s own source — its disks\' folder', [['/mnt/user/domains/Win', 'kopia:J1']], $n['vm'] ?? null);
+    same('gap 9: … one path of a source, staged — what lies inside it; swapped or copied beside already — nothing more to place',
+        [[['/mnt/user/appdata/nextcloud', 'kopia:J1']], []], [$n['path'] ?? null, $n['pathCopy'] ?? null]);
+    same('gap 8: a partner pull of a share — its apps\' folders and the share, with the pull as the moment (partner:<journal>:<unit>)',
+        [['/mnt/user/appdata/nextcloud', 'partner:J1:share:appdata'], ['/mnt/user/appdata', 'partner:J1:share:appdata']], $n['partner'] ?? null);
+    same('gap 8/9: the backup place pulled, a pull put back, a failed restore — nothing to place', [[], [], []], [$n['partnerPlace'] ?? null, $n['putBack'] ?? null, $n['failed'] ?? null]);
+    same('gap 9: each named by its owner — the app, the share', ['Nextcloud', 'pt.unit_share {"name":"appdata"}'], $n['labels'] ?? null);
+    check('gap 9: the row\'s «From offsite» opens that source\'s own «Restore…»; the guide is named as the way by hand',
+        in_array('kr.button', (array) ($n['block'] ?? []), true) && in_array('kp.guide_hand', (array) ($n['block'] ?? []), true) && !in_array('kp.guide', (array) ($n['block'] ?? []), true),
+        json_encode($n['block'] ?? null));
+    check('gap 9: … without a restore folder mapped: no button, the guide (it says how to map one)',
+        !in_array('kr.button', (array) ($n['blockNoMap'] ?? []), true) && in_array('kp.guide', (array) ($n['blockNoMap'] ?? []), true), json_encode($n['blockNoMap'] ?? null));
     same('gap 10: … and his bubble says the same, never «with Mr. Backupsy\'s first backup run» under the ticket\'s callout', 'bubble.no_packages_ticket {"name":"OldNAS"}', $t['bubble'] ?? null);
 }
 

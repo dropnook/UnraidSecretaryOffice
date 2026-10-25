@@ -1274,7 +1274,6 @@
   "kb.restore": "Ripristina…",
   "kb.more": {"one": "e 1 altra — apri una cartella più in basso o ripristina questa cartella per intero", "other": "e altre {n} — apri una cartella più in basso o ripristina questa cartella per intero"},
   "kb.whole": "Tutto questo snapshot…",
-  "kp.browse": "Sfoglia…",
   "rd.way_stage": "Solo nella cartella di ripristino di Kopia",
   "rd.way_stage_hint": "Kopia lo scrive in una cartella propria; sul server non cambia niente. Prendi lì ciò che ti serve.",
   "rd.way_stage_only": "Torna nella cartella di ripristino di Kopia — sul server non si sostituisce niente.",
@@ -1361,5 +1360,10 @@
   "flash.boot_snaps": {"one": "Il pool di avvio tiene anche uno snapshot dell'unità flash: 1 di {dataset}, del {when}. È /boot com'era allora, in sola lettura:", "other": "Il pool di avvio tiene anche snapshot dell'unità flash: {n} di {dataset}, il più recente del {when}. Ognuno è /boot com'era allora, in sola lettura — il più recente:"},
   "flash.boot_snaps_how": "Copia a mano singoli pezzi da lì (le impostazioni di un plugin, il file go). Non riporto mai indietro il pool di avvio e non ne recupero mai l'intera unità flash: un'unità flash intera torna solo per la via ufficiale di Unraid.",
   "flash.boot_snaps_asleep": "Il pool di avvio tiene l'unità flash in {dataset} — i suoi snapshot ora non controllati: il pool dorme.",
-  "flash.boot_snaps_these": {"one": "È 1 snapshot di {dataset}, del {when}. È /boot com'era allora, in sola lettura:", "other": "Sono {n} snapshot di {dataset}, il più recente del {when}. Ognuno è /boot com'era allora, in sola lettura — il più recente:"}
+  "flash.boot_snaps_these": {"one": "È 1 snapshot di {dataset}, del {when}. È /boot com'era allora, in sola lettura:", "other": "Sono {n} snapshot di {dataset}, il più recente del {when}. Ognuno è /boot com'era allora, in sola lettura — il più recente:"},
+  "kp.guide_hand": "A mano con KopiaUI →",
+  "j.place_title": "Ora al loro posto",
+  "j.place_text": {"one": "Ciò che Kopia ha ripristinato aspetta nella cartella di ripristino. Da qui va al suo posto: accanto a ciò che c'è, o scambiato (ciò che c'è va prima da parte):", "other": "Ciò che Kopia ha ripristinato aspetta nella cartella di ripristino. Questi {n} vanno da qui al loro posto: accanto a ciò che c'è, o scambiati (ciò che c'è va prima da parte):"},
+  "j.place_text_partner": {"one": "Ciò che è tornato dal partner sta accanto, in sola lettura. Da qui va al suo posto: accanto a ciò che c'è, o scambiato (ciò che c'è va prima da parte):", "other": "Ciò che è tornato dal partner sta accanto, in sola lettura. Questi {n} vanno da qui al loro posto: accanto a ciò che c'è, o scambiati (ciò che c'è va prima da parte):"},
+  "j.place_go": "Ora al suo posto…"
 }

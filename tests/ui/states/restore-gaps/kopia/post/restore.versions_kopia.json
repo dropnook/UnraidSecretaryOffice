@@ -1,0 +1,33 @@
+{
+ "kind": "app",
+ "id": "Nextcloud",
+ "versions": [
+  {
+   "source": ".apps/nextcloud",
+   "snapshot": "000000000000000000000000000000b1",
+   "path": "UnraidSecretaryOffice/backup/apps/Nextcloud",
+   "time": 1791453874,
+   "run": "20261008-0100",
+   "run_time": 1791453574,
+   "own": true
+  },
+  {
+   "source": ".apps/nextcloud",
+   "snapshot": "000000000000000000000000000000b2",
+   "path": "UnraidSecretaryOffice/backup/apps/Nextcloud",
+   "time": 1791367474,
+   "run": "20261007-0100",
+   "run_time": 1791367174,
+   "own": true
+  },
+  {
+   "source": ".apps/nextcloud",
+   "snapshot": "000000000000000000000000000000b3",
+   "path": "UnraidSecretaryOffice/backup/apps/Nextcloud",
+   "time": 1791281074,
+   "run": "20261006-0100",
+   "run_time": 1791280774,
+   "own": true
+  }
+ ]
+}

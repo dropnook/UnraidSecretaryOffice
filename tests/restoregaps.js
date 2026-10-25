@@ -42,4 +42,29 @@ out.t12 = {
   old: r.bootSnapsPart({ mode: 'tar' }),
 };
 
+// ---- #9 (and #8's second step): what a Kopia restore or a partner pull brought back goes to its place from its journal
+const st9 = { ...base, place: { base: '/b', found: true }, partners: [], kopia: { enabled: true, running: true, restore: { dest: '/restore', source: '/mnt/user/k/restore' }, root: '/data' },
+  apps: [{ id: 'Nextcloud', name: 'Nextcloud', folders: [{ path: '/mnt/user/appdata/nextcloud', share: 'appdata' }], shares: [{ path: '/mnt/user/nextcloud', share: 'nextcloud', whole: true }], kopia: [{ source: '.apps/Nextcloud', own: true, covers: 'all' }] }],
+  vms: [{ id: 'Win', name: 'Win', folders: [{ path: '/mnt/user/domains/Win', share: 'domains' }], kopia: [{ source: '.vms/Win', own: true, covers: 'all' }] }],
+  shares_back: [{ name: 'appdata', path: '/mnt/user/appdata' }, { name: 'nextcloud', path: '/mnt/user/nextcloud' }, { name: 'domains', path: '/mnt/user/domains' }, { name: 'photos', path: '/mnt/user/photos' }] };
+r.setState(st9);
+const jr = (kind, target, o = {}) => ({ id: 'J1', kind, result: 'ok', target, putback: null, ...o });
+const pl = (x) => r.placesBack(x).map((u) => [u.path, u.snap]);
+out.t9 = {
+  share: pl(jr('kopia', { source: 'appdata', snapshot: 'ab' })),
+  own: pl(jr('kopia', { source: '.apps/Nextcloud', snapshot: 'ab' })),
+  vm: pl(jr('kopia', { source: '.vms/Win', snapshot: 'ab' })),
+  path: pl(jr('kopia', { source: 'appdata', snapshot: 'ab', path: 'nextcloud', mode: 'stage', live: '/mnt/user/appdata/nextcloud' })),
+  pathCopy: pl(jr('kopia', { source: 'appdata', snapshot: 'ab', path: 'nextcloud', mode: 'copy', live: '/mnt/user/appdata/nextcloud' })),
+  partner: pl(jr('partner', { pair: 'p1', unit: 'share:appdata', path: '/mnt/user/appdata', dataset: 'cache/appdata.restored-20261025-120000' })),
+  partnerPlace: pl(jr('partner', { pair: 'p1', unit: 'place', path: null })),
+  putBack: pl(jr('partner', { pair: 'p1', unit: 'share:appdata', path: '/mnt/user/appdata' }, { putback: { id: 'x', result: 'ok' } })),
+  failed: pl(jr('kopia', { source: 'appdata', snapshot: 'ab' }, { result: 'failed' })),
+  labels: r.placesBack(jr('kopia', { source: 'appdata', snapshot: 'ab' })).map((u) => u.label),
+};
+// the app row's «From offsite»: the source's own «Restore…», the guide named as the way by hand
+const kb = (k) => { r.setState({ ...st9, kopia: { ...st9.kopia, ...k } }); return texts(r.kopiaBlock([{ source: 'appdata', covers: 'data', last: 5 }])); };
+out.t9.block = kb({});
+out.t9.blockNoMap = kb({ restore: null });
+
 console.log(JSON.stringify(out));

@@ -1274,7 +1274,6 @@
   "kb.restore": "Restaurer…",
   "kb.more": {"one": "et encore {n} — ouvre un dossier plus bas, ou restaure ce dossier en entier", "other": "et encore {n} — ouvre un dossier plus bas, ou restaure ce dossier en entier"},
   "kb.whole": "Tout ce snapshot…",
-  "kp.browse": "Parcourir…",
   "rd.way_stage": "Seulement dans le dossier de restauration de Kopia",
   "rd.way_stage_hint": "Kopia l'écrit dans un dossier à part ; rien ne change sur le serveur. Prends-y ce dont tu as besoin.",
   "rd.way_stage_only": "Il revient dans le dossier de restauration de Kopia — rien n'est remplacé sur le serveur.",
@@ -1361,5 +1360,10 @@
   "flash.boot_snaps": {"one": "Le pool de démarrage garde aussi un snapshot de la flash : {n} de {dataset}, du {when}. C'est /boot tel qu'il était, en lecture seule :", "other": "Le pool de démarrage garde aussi des snapshots de la flash : {n} de {dataset}, le plus récent du {when}. Chacun est /boot tel qu'il était, en lecture seule — le plus récent :"},
   "flash.boot_snaps_how": "Copie à la main des pièces isolées depuis là (les réglages d'un plugin, le fichier go). Je ne ramène jamais le pool de démarrage en arrière et n'en restaure jamais toute la flash : une flash entière ne revient que par la voie officielle d'Unraid.",
   "flash.boot_snaps_asleep": "Le pool de démarrage garde la flash dans {dataset} — ses snapshots pas regardés maintenant : le pool dort.",
-  "flash.boot_snaps_these": {"one": "C'est {n} snapshot de {dataset}, du {when}. C'est /boot tel qu'il était, en lecture seule :", "other": "Ce sont {n} snapshots de {dataset}, le plus récent du {when}. Chacun est /boot tel qu'il était, en lecture seule — le plus récent :"}
+  "flash.boot_snaps_these": {"one": "C'est {n} snapshot de {dataset}, du {when}. C'est /boot tel qu'il était, en lecture seule :", "other": "Ce sont {n} snapshots de {dataset}, le plus récent du {when}. Chacun est /boot tel qu'il était, en lecture seule — le plus récent :"},
+  "kp.guide_hand": "À la main avec KopiaUI →",
+  "j.place_title": "Maintenant à leur place",
+  "j.place_text": {"one": "Ce que Kopia a restauré attend dans le dossier de restauration. D'ici, il va à sa place : à côté de ce qui est là, ou échangé (ce qui est là est d'abord mis de côté) :", "other": "Ce que Kopia a restauré attend dans le dossier de restauration. Ces {n} vont d'ici à leur place : à côté de ce qui est là, ou échangés (ce qui est là est d'abord mis de côté) :"},
+  "j.place_text_partner": {"one": "Ce qui est revenu du partenaire est à côté, en lecture seule. D'ici, il va à sa place : à côté de ce qui est là, ou échangé (ce qui est là est d'abord mis de côté) :", "other": "Ce qui est revenu du partenaire est à côté, en lecture seule. Ces {n} vont d'ici à leur place : à côté de ce qui est là, ou échangés (ce qui est là est d'abord mis de côté) :"},
+  "j.place_go": "Maintenant à sa place…"
 }

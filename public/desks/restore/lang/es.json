@@ -1274,7 +1274,6 @@
   "kb.restore": "Restaurar…",
   "kb.more": {"one": "y 1 más — abre una carpeta más abajo o restaura esta carpeta entera", "other": "y {n} más — abre una carpeta más abajo o restaura esta carpeta entera"},
   "kb.whole": "Toda esta instantánea…",
-  "kp.browse": "Recorrer…",
   "rd.way_stage": "Solo a la carpeta de restauración de Kopia",
   "rd.way_stage_hint": "Kopia lo escribe en una carpeta propia; en el servidor no cambia nada. Toma de ahí lo que necesites.",
   "rd.way_stage_only": "Vuelve a la carpeta de restauración de Kopia — en el servidor no se reemplaza nada.",
@@ -1361,5 +1360,10 @@
   "flash.boot_snaps": {"one": "El pool de arranque guarda también una instantánea del flash: 1 de {dataset}, del {when}. Es /boot como estaba entonces, solo lectura:", "other": "El pool de arranque guarda también instantáneas del flash: {n} de {dataset}, la más reciente del {when}. Cada una es /boot como estaba entonces, solo lectura — la más reciente:"},
   "flash.boot_snaps_how": "Copia a mano piezas sueltas desde ahí (los ajustes de un plugin, el archivo go). Nunca devuelvo el pool de arranque a un estado anterior ni restauro de él el flash entero: un flash entero vuelve solo por la vía oficial de Unraid.",
   "flash.boot_snaps_asleep": "El pool de arranque guarda el flash en {dataset} — sus instantáneas no se miran ahora: el pool duerme.",
-  "flash.boot_snaps_these": {"one": "Es 1 instantánea de {dataset}, del {when}. Es /boot como estaba entonces, solo lectura:", "other": "Son {n} instantáneas de {dataset}, la más reciente del {when}. Cada una es /boot como estaba entonces, solo lectura — la más reciente:"}
+  "flash.boot_snaps_these": {"one": "Es 1 instantánea de {dataset}, del {when}. Es /boot como estaba entonces, solo lectura:", "other": "Son {n} instantáneas de {dataset}, la más reciente del {when}. Cada una es /boot como estaba entonces, solo lectura — la más reciente:"},
+  "kp.guide_hand": "A mano con KopiaUI →",
+  "j.place_title": "Ahora a su sitio",
+  "j.place_text": {"one": "Lo que Kopia restauró espera en la carpeta de restauración. Desde aquí va a su sitio: junto a lo que hay, o intercambiado (lo que hay se aparta primero):", "other": "Lo que Kopia restauró espera en la carpeta de restauración. Estos {n} van desde aquí a su sitio: junto a lo que hay, o intercambiados (lo que hay se aparta primero):"},
+  "j.place_text_partner": {"one": "Lo que volvió del socio está al lado, solo lectura. Desde aquí va a su sitio: junto a lo que hay, o intercambiado (lo que hay se aparta primero):", "other": "Lo que volvió del socio está al lado, solo lectura. Estos {n} van desde aquí a su sitio: junto a lo que hay, o intercambiados (lo que hay se aparta primero):"},
+  "j.place_go": "Ahora a su sitio…"
 }

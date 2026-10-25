@@ -1,0 +1,43 @@
+{
+ "source": "Familienfilme",
+ "snapshot": "000000000000000000000000000000a1",
+ "path": "",
+ "time": 1791540274,
+ "split": false,
+ "live": null,
+ "entries": [
+  {
+   "name": "2023 Sommer am See",
+   "type": "d",
+   "bytes": 38400000000,
+   "files": 412,
+   "time": 1774271074,
+   "live": true
+  },
+  {
+   "name": "2024 Weihnachten bei Oma",
+   "type": "d",
+   "bytes": 21900000000,
+   "files": 188,
+   "time": 1766495074,
+   "live": true
+  },
+  {
+   "name": "2025 Ferien in den Bergen",
+   "type": "d",
+   "bytes": 52100000000,
+   "files": 530,
+   "time": 1786367074,
+   "live": true
+  },
+  {
+   "name": "Liste der Filme.txt",
+   "type": "f",
+   "bytes": 4812,
+   "files": null,
+   "time": 1789823074,
+   "live": true
+  }
+ ],
+ "more": 0
+}

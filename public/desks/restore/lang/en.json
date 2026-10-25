@@ -1274,7 +1274,6 @@
   "kb.restore": "Restore…",
   "kb.more": {"one": "and 1 more — open a folder deeper down, or restore this folder as a whole", "other": "and {n} more — open a folder deeper down, or restore this folder as a whole"},
   "kb.whole": "All of this snapshot…",
-  "kp.browse": "Browse…",
   "rd.way_stage": "Only into Kopia's restore folder",
   "rd.way_stage_hint": "Kopia writes it into a folder of its own; nothing on the server changes. Take what you need from there.",
   "rd.way_stage_only": "It comes back into Kopia's restore folder — nothing on the server is replaced.",
@@ -1361,5 +1360,10 @@
   "flash.boot_snaps": {"one": "The boot pool keeps a snapshot of the flash too: 1 of {dataset}, from {when}. It is /boot as it was then, read-only:", "other": "The boot pool keeps snapshots of the flash too: {n} of {dataset}, the newest from {when}. Each is /boot as it was then, read-only — the newest:"},
   "flash.boot_snaps_how": "Copy single pieces from there by hand (a plugin's settings, the go file). I never roll the boot pool back and never bring the whole flash back from it: a whole flash comes back only Unraid's official way.",
   "flash.boot_snaps_asleep": "The boot pool keeps the flash in {dataset} — its snapshots not looked at now: the pool is asleep.",
-  "flash.boot_snaps_these": {"one": "That is 1 snapshot of {dataset}, from {when}. It is /boot as it was then, read-only:", "other": "Those are {n} snapshots of {dataset}, the newest from {when}. Each is /boot as it was then, read-only — the newest:"}
+  "flash.boot_snaps_these": {"one": "That is 1 snapshot of {dataset}, from {when}. It is /boot as it was then, read-only:", "other": "Those are {n} snapshots of {dataset}, the newest from {when}. Each is /boot as it was then, read-only — the newest:"},
+  "kp.guide_hand": "By hand with KopiaUI →",
+  "j.place_title": "Now to their place",
+  "j.place_text": {"one": "What Kopia brought back waits in the restore folder. It goes to its place from here: next to what is there, or swapped in (what is there goes aside first):", "other": "What Kopia brought back waits in the restore folder. These {n} go to their place from here: next to what is there, or swapped in (what is there goes aside first):"},
+  "j.place_text_partner": {"one": "What came back from the partner lies beside, read-only. It goes to its place from here: next to what is there, or swapped in (what is there goes aside first):", "other": "What came back from the partner lies beside, read-only. These {n} go to their place from here: next to what is there, or swapped in (what is there goes aside first):"},
+  "j.place_go": "Now to its place…"
 }

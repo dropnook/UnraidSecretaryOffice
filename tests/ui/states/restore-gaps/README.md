@@ -21,3 +21,13 @@ testRestoreGapsPage (tests/restoregaps.js) holds the same rules without a browse
     node tools/scenarios/page.mjs --states tests/ui/states/restore-gaps/flash-boot-snapshot restore/flash --lang en,de --clean \
       --want restore.flash.boot_snaps_these --not restore.flash.download
     bash tools/ui-clicks.sh --states tests/ui/states/restore-gaps/flash-boot --only restore
+
+- `kopia/` (from `restore-paths/`) — Kopia on, Nextcloud with its own source, and a finished Kopia restore of that source
+  staged in the restore folder (gap 9): the app's «From offsite» opens the source's own «Restore…» (the guide named as the
+  way by hand); the journal entry offers «Now to its place…» for Nextcloud's folder and the share it binds whole, each
+  opening step 4's dialog on that Kopia moment. `post/restore.journal.json` is the entry's journal.
+
+    node tools/scenarios/page.mjs --states tests/ui/states/restore-gaps/kopia restore/journal --lang en,de --open --clean \
+      --want restore.j.place_title --want restore.j.place_go
+    node tools/scenarios/page.mjs --states tests/ui/states/restore-gaps/kopia restore/apps --open --want restore.kp.guide_hand --not restore.kp.guide
+    bash tools/ui-clicks.sh --states tests/ui/states/restore-gaps/kopia --only restore

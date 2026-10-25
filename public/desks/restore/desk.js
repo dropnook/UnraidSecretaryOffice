@@ -940,6 +940,66 @@ const kopiaHolds = (p) => kopia().enabled && kopia().running && !!kopia().restor
 const kopiaFetched = (c) => (state.restores || []).some((r) => r.kind === 'kopia' && ['ok', 'warnings'].includes(r.result) && r.target
   && r.target.snapshot === c.snapshot && r.target.source === c.source && (r.target.path === c.path || !r.target.path));
 
+/**
+ * Where what a restore brought back belongs (the restore matrix's gaps 9 and 8): the folders of the apps and VMs, and the
+ * shares, that a finished Kopia restore staged in its restore folder (a whole source, or one path of it kept there) or a
+ * partner pull holds — each with the moment it became for step 4's dialog, as the agent names it (rsKopiaRestored():
+ * `kopia:<journal>`, rspRestored(): `partner:<journal>:<unit>`). Nothing for one put back, failed, or already in place.
+ *
+ * @return list<{path, label, whole, snap}>
+ */
+function placesBack(r) {
+  const t = (r && r.target) || {};
+  if (!r || !['ok', 'warnings'].includes(r.result) || r.putback || t.swapped) return [];
+  const units = [];
+  const own = (x) => (x.kopia || []).filter((k) => k.own).map((k) => k.source);
+  apps().forEach((a) => [...(a.folders || []), ...(a.shares || [])].forEach((f) => units.push({ path: f.path, label: a.name, whole: !!f.whole, own: own(a) })));
+  vms().forEach((v) => (v.folders || []).forEach((f) => units.push({ path: f.path, label: v.name, whole: false, own: own(v) })));
+  sharesBack().forEach((x) => units.push({ path: x.path, label: T('pt.unit_share', { name: x.name }), whole: true, own: [] }));
+  const inside = (p, root) => p === root || p.startsWith(String(root).replace(/\/+$/, '') + '/');
+  const shareOf = (p) => String(p).split('/')[3] || '';
+  let fits = null;
+  let snap = '';
+  if (r.kind === 'kopia') {
+    snap = 'kopia:' + r.id;
+    const src = String(t.source || '');
+    if (t.path) fits = t.mode === 'stage' && t.live ? (u) => inside(u.path, t.live) : null;
+    else if (src.startsWith('.')) fits = (u) => u.own.includes(src);       // an app's or VM's own source: all its folders
+    else fits = (u) => shareOf(u.path) === src;
+  } else if (r.kind === 'partner' && t.unit && t.unit !== 'place' && t.path) {
+    snap = `partner:${r.id}:${t.unit}`;
+    fits = (u) => inside(u.path, t.path);
+  }
+  if (!fits) return [];
+  const seen = new Set();
+  return units.filter((u) => fits(u) && !seen.has(u.path) && seen.add(u.path)).map((u) => ({ path: u.path, label: u.label, whole: u.whole, snap }));
+}
+
+/** «Now to their place…»: each folder or share a restore brought back, with step 4's dialog on that moment */
+function placesPart(r, list = placesBack(r)) {
+  if (!list.length) return null;
+  const part = el('div', 'rs-pv-part rs-places-back');
+  part.appendChild(el('div', 'rs-part-title', T('j.place_title')));
+  part.appendChild(el('div', 'role', T(r.kind === 'partner' ? 'j.place_text_partner' : 'j.place_text', { n: list.length })));
+  const box = el('div', 'box');
+  list.forEach((u) => {
+    const row = el('div', 'row nocheck');
+    const main = el('div', 'row-main');
+    main.appendChild(el('div', 'row-name text', u.label));
+    const meta = el('div', 'row-meta');
+    meta.appendChild(copyCode(u.path));
+    main.appendChild(meta);
+    row.appendChild(main);
+    const right = el('div', 'rs-right');
+    right.appendChild(restoreButton(T('j.place_go'), { kind: 'files', path: u.path, snap: u.snap },
+      u.whole ? T('rd.title.share', { share: u.path.split('/')[3] }) : T('rd.title.files', { what: u.path })));
+    row.appendChild(right);
+    box.appendChild(row);
+  });
+  part.appendChild(box);
+  return part;
+}
+
 /** Earlier nights' packages, from the snapshots of the backup place's share - read when opened; and what Kopia keeps (1.72) */
 function earlierPart(kind, p) {
   const key = `${kind}:${p.id}`;
@@ -1140,9 +1200,10 @@ function kopiaBlock(sources) {
     line.append(copyCode(`${kopiaRoot()}/${s.source}`), ' ');
     line.appendChild(el('span', '', T('kp.covers_' + (s.covers || (s.own ? 'all' : 'data')))));
     line.appendChild(s.last ? chip(T('chip.kopia', { when: fmt.relative(s.last) }), 'ok', fmt.date(s.last)) : chip(T('chip.kopia_never'), 'warn', T('chip.kopia_never_hint')));
-    // 1.72: straight into that source's snapshots — browsed, a folder or a file of it, or all of it
+    // 1.72: straight into that source's snapshots — browsed, a folder or a file of it, or all of it; the source's own
+    // «Restore…», as on the Offsite tile (the restore matrix's gap 9: one hop, never the general guide first)
     if (kopia().restore && s.covers !== 'package') {
-      const go = button(T('kp.browse'), 'small', () => kopiaDialog(s.source, `${kopiaRoot()}/${s.source}`));
+      const go = button(T('kr.button'), 'small', () => kopiaDialog(s.source, `${kopiaRoot()}/${s.source}`));
       go.dataset.own = '1';
       go.disabled = !canRestore() || !kopia().running;
       line.append(' ', go);
@@ -1150,7 +1211,9 @@ function kopiaBlock(sources) {
     b.appendChild(line);
   });
   if (sources.length) {
-    const go = el('a', '', T('kp.guide'));
+    // with a restore folder the buttons above are the way; the guide is the way by hand (KopiaUI) — without one, it is
+    // the way, and says how to map a folder
+    const go = el('a', '', T(kopia().restore ? 'kp.guide_hand' : 'kp.guide'));
     go.href = '#/restore';
     go.onclick = (e) => { e.preventDefault(); openSection('kopia'); };
     const p = el('p', 'role');
@@ -3044,6 +3107,9 @@ function journalDetail(r) {
     const pb = r.putback && ['ok', 'warnings'].includes(r.putback.result) ? r.putback : null;
     if (pb) box.appendChild(putBackView(pb));     // undone: what «Afterwards» said is over — where the restored state went instead
     else if ((j.after || r.after || []).length && ['ok', 'warnings'].includes(j.result || r.result)) box.appendChild(listBlock(T('rd.after'), (j.after || r.after).map((a) => T(a.key, nice(a.params)))));
+    // staged in Kopia's restore folder, or pulled beside: each folder it holds to its place, from here (gaps 9 and 8)
+    const places = !live && !pb ? placesPart(r) : null;
+    if (places) box.appendChild(places);
     if (log && log.length) box.appendChild(fold(`log:${r.id}`, T('j.log'), el('pre', 'code rs-j-log', log.join('\n'))));
     if (r.can_putback) {
       const p = el('div', 'rs-act');
@@ -3208,6 +3274,6 @@ Office.placesFrom(ID, (s, part) => {
 // tests/run.php runs the databases tile's logic and the preview's sizes under node
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.restore = { setState: (s) => { state = s; }, greetOk, shareFromKopia, kopiaFetched, dbGroups, dbName, dbRequest, earlierOf, tileLine, sizesDone,
-    noPackagesText, noPackages, bootSnapsPart, setJob: (j) => { job = j; }, runCardData, runCard, shortStep, liveJob, runCardShort, bubbleText, snapsChip };
+    noPackagesText, noPackages, bootSnapsPart, placesBack, placesPart, kopiaBlock, setJob: (j) => { job = j; }, runCardData, runCard, shortStep, liveJob, runCardShort, bubbleText, snapsChip };
 }
 })();

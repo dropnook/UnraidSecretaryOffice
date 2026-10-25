@@ -1,0 +1,60 @@
+{
+ "source": "Familienfilme",
+ "snapshots": [
+  {
+   "id": "000000000000000000000000000000a1",
+   "time": 1791540274,
+   "end": 1791540674,
+   "bytes": 412000000000,
+   "files": 18412,
+   "dirs": 1290,
+   "failed": 0,
+   "description": "uso-backup 20261009-0100",
+   "incomplete": ""
+  },
+  {
+   "id": "000000000000000000000000000000a2",
+   "time": 1791453874,
+   "end": 1791454274,
+   "bytes": 411100000000,
+   "files": 18400,
+   "dirs": 1290,
+   "failed": 0,
+   "description": "uso-backup 20261008-0100",
+   "incomplete": ""
+  },
+  {
+   "id": "000000000000000000000000000000a3",
+   "time": 1791367474,
+   "end": 1791367874,
+   "bytes": 410200000000,
+   "files": 18388,
+   "dirs": 1290,
+   "failed": 0,
+   "description": "uso-backup 20261007-0100",
+   "incomplete": ""
+  },
+  {
+   "id": "000000000000000000000000000000a4",
+   "time": 1791281074,
+   "end": 1791281474,
+   "bytes": 409300000000,
+   "files": 18376,
+   "dirs": 1290,
+   "failed": 0,
+   "description": "uso-backup 20261006-0100",
+   "incomplete": ""
+  },
+  {
+   "id": "000000000000000000000000000000a5",
+   "time": 1791194674,
+   "end": 1791195074,
+   "bytes": 408400000000,
+   "files": 18364,
+   "dirs": 1290,
+   "failed": 0,
+   "description": "uso-backup 20261005-0100",
+   "incomplete": ""
+  }
+ ]
+}
