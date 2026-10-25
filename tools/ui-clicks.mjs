@@ -988,6 +988,136 @@ async function partnerStreams(browser) {
   res.ms = Date.now() - t0;
   return res;
 }
+// ------------------------------------------------------------------ the wait's wave never on the page's content (2026-10-25)
+// core.js busyPlace(): an action waiting for its answer showed a large wave at the window's middle - on Ms. Snapshotini's
+// disk card it sat on «Tour, reading them too» like a broken button. Now, on several pages at both widths and themes:
+//   - a wait at the page's top: the slim wave shows (not the corner pill), inside the window, on no control, row or words
+//     (beside the desk head it may stand in the window's middle: nothing there);
+//   - a dialog's button that posts: the wave in the dialog's foot, on none of the dialog's controls or words;
+//   - deep in the page, nothing free: the pill in the bottom right corner, in the window, never at the middle;
+//   - a button that waves itself (the disk card's «Tour, reading them too»): no other wave - until it leaves the window;
+//   - the wait over: the mark gone.
+const BUSY_ROUTES = ['snapshot', 'backup', 'restore', 'caretaker', 'cleanup/tidy', 'logs'];
+async function busyMark(browser) {
+  const res = { route: 'busy mark', theme: 'dark', width: 1440, tested: 0, skipped: 0, capped: 0, hidden: 0, sections: 0, fails: [], ms: 0 };
+  const t0 = Date.now();
+  const fail = (what) => res.fails.push(what);
+  const h = await startHarness({});
+  const snap = JSON.parse(fs.readFileSync(path.join(REPO, 'tests', 'ui', 'states', 'snapshot.json'), 'utf8'));
+  (snap.zfs.pools || []).forEach((p) => { if (p.array) p.asleep = true; });
+  snap.zfs.asleep = (snap.zfs.pools || []).filter((p) => p.array).map((p) => p.name);
+  h.setState('snapshot', snap);
+  h.setPost('snapshot.scan', () => ({ state: snap }));
+  // where the mark is and what lies under it (#sso-busy itself left out; in a dialog only the dialog's own)
+  const look = () => {
+    const shield = document.getElementById('sso-busy');
+    const w = shield && shield.firstElementChild;
+    if (!shield || getComputedStyle(shield).display === 'none') return { shown: false };
+    if (!w || w.hidden) return { shown: true, wave: false };
+    const r = w.getBoundingClientRect();
+    shield.style.display = 'none';
+    const scope = Office.dialogOpen() ? document.getElementById('sso-dialog') : document.getElementById('sso');
+    const under = [...scope.querySelectorAll('button, a, input, select, textarea, summary, label, .row, .unfolds, .chip, h1, h2, h3, p, li, td, th, pre')]
+      .filter((e) => { const b = e.getBoundingClientRect(); return b.width && b.height && b.left < r.right && b.right > r.left && b.top < r.bottom && b.bottom > r.top; })
+      .map((e) => `${e.tagName.toLowerCase()}${e.className ? '.' + String(e.className).split(' ')[0] : ''} «${(e.textContent || '').trim().slice(0, 30)}»`);
+    shield.style.display = 'block';
+    const mid = r.left < innerWidth * 0.6 && r.right > innerWidth * 0.4 && r.top < innerHeight * 0.6 && r.bottom > innerHeight * 0.4;
+    return { shown: true, wave: true, corner: w.classList.contains('busy-corner'), under, mid, inside: r.left >= 0 && r.top >= 0 && r.right <= document.documentElement.clientWidth && r.bottom <= innerHeight,
+      box: [r.left, r.top, r.width, r.height].map(Math.round).join(',') };
+  };
+  try {
+    for (const theme of ['dark', 'light']) {
+      for (const width of [1440, 375]) {
+        const ctx = await browser.newContext({ viewport: { width, height: 900 }, locale: 'en-US' });
+        await ctx.addInitScript((t) => { try { localStorage.setItem('office.theme', t); } catch (e) { /* none */ } }, theme);
+        const page = await ctx.newPage();
+        const errors = [];
+        page.on('pageerror', (e) => errors.push(`page error: ${String(e.message).slice(0, 160)}`));
+        // the actions this check starts wait 2.5 s for their answer
+        await page.route('**/api.php', async (r) => {
+          let a = '';
+          try { a = JSON.parse(r.request().postData() || '{}').a || ''; } catch (e) { /* not ours */ }
+          if (/^(snapshot\.scan|uc\.slow)$/.test(a)) await new Promise((ok) => setTimeout(ok, 2500));
+          await r.continue().catch(() => {});
+        });
+        const at = `${theme} ${width}`;
+        let m;
+        for (const route of BUSY_ROUTES) {
+          await page.goto(`${h.url}#/${route}`, { waitUntil: 'load' });
+          await page.waitForFunction(() => window.Office && Office.current && document.querySelector('#sso-desk .section, #sso-desk section, #sso-desk .box'), null, { timeout: 15000 }).catch(() => {});
+          await page.waitForTimeout(600);
+          // at the top: the slim wave on nothing
+          await page.evaluate(() => { window.scrollTo(0, 0); Office.busy('uc', true); });
+          await page.waitForTimeout(600);
+          m = await page.evaluate(look);
+          res.tested++;
+          if (!m.shown || !m.wave) fail(`${route} ${at}: a wait at the top shows no wave`);
+          else if (m.corner || m.under.length || !m.inside) fail(`${route} ${at}: the wave at the top (${m.box}${m.corner ? ', the corner pill' : ''}) lies on ${m.under.join(', ') || 'the window\'s edge'}`);
+          // deep in the page: somewhere in the window, never at the middle
+          await page.evaluate(() => window.scrollTo(0, (document.documentElement.scrollHeight - innerHeight) / 2));
+          await page.waitForTimeout(300);
+          m = await page.evaluate(look);
+          res.tested++;
+          if (!m.shown || !m.wave || !m.inside || m.mid || (!m.corner && m.under.length)) fail(`${route} ${at}: deep in the page the wave is ${!m.wave ? 'missing' : `at ${m.box}${m.under && m.under.length ? ` on ${m.under.join(', ')}` : ''}`}`);
+          await page.evaluate(() => Office.busy('uc', false));
+          await page.waitForTimeout(100);
+          m = await page.evaluate(look);
+          res.tested++;
+          if (m.shown) fail(`${route} ${at}: the mark stays after the wait`);
+          // a dialog's button that posts: the wave in its foot
+          await page.evaluate(() => { window.scrollTo(0, 0); Office.dialog({ title: 'Wait', body: 'A moment.', buttons: [{ text: 'Cancel' }, { text: 'Go on', kind: 'primary', act: () => Office.api.post('uc.slow', {}) }] }); });
+          await page.click('#sso-dialog-foot button:last-child');
+          await page.waitForTimeout(700);
+          m = await page.evaluate(look);
+          const foot = await page.evaluate(() => { const r = document.getElementById('sso-dialog-foot').getBoundingClientRect(); const w = document.querySelector('#sso-busy span').getBoundingClientRect(); return w.top >= r.top && w.bottom <= r.bottom && w.left >= r.left && w.right <= r.right; });
+          res.tested++;
+          if (!m.wave || m.corner || !foot || m.under.length) fail(`${route} ${at}: a dialog's wait - the wave ${!m.wave ? 'is missing' : `at ${m.box}${!foot ? ', not in the foot' : ''}${m.under.length ? ` on ${m.under.join(', ')}` : ''}`}`);
+          await page.waitForFunction(() => getComputedStyle(document.getElementById('sso-busy')).display === 'none', null, { timeout: 6000 }).catch(() => fail(`${route} ${at}: the dialog's wait never ended`));
+          await page.evaluate(() => { if (Office.dialogOpen() && Office.closeDialog) Office.closeDialog(); });
+          await page.keyboard.press('Escape');
+        }
+        // the disk card's «Tour, reading them too» waves itself: no other wave while it is in sight
+        await page.goto(`${h.url}#/snapshot`, { waitUntil: 'load' });
+        await page.waitForTimeout(1200);
+        const tour = await page.evaluate(() => {
+          const b = document.querySelector('.sp-disks .card-foot button');
+          if (!b) return false;
+          b.scrollIntoView({ block: 'center' });
+          b.click();
+          return true;
+        });
+        res.tested++;
+        if (!tour) fail(`snapshot ${at}: no «Tour, reading them too» on the disk card (the stub's array asleep)`);
+        else {
+          await page.waitForTimeout(800);
+          m = await page.evaluate(look);
+          const own = await page.evaluate(() => { const s = document.querySelector('.sp-disks .card-foot button.running .spin'); return !!s && s.getBoundingClientRect().width > 0; });
+          if (!own) fail(`snapshot ${at}: the tour's button doesn't wave while the tour runs`);
+          if (!m.shown || m.wave) fail(`snapshot ${at}: the tour's button waves - ${!m.shown ? 'no wait at all (clicks not held)' : `another wave at ${m.box}`}`);
+          // the button out of sight: the wave comes back
+          await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+          await page.waitForTimeout(300);
+          const away = await page.evaluate(() => document.querySelector('.sp-disks .card-foot button').getBoundingClientRect().bottom < 0);
+          if (away) {
+            m = await page.evaluate(look);
+            res.tested++;
+            if (!m.wave) fail(`snapshot ${at}: the tour's button out of sight - no wave`);
+          }
+          await page.waitForFunction(() => getComputedStyle(document.getElementById('sso-busy')).display === 'none', null, { timeout: 6000 }).catch(() => fail(`snapshot ${at}: the tour's wait never ended`));
+        }
+        const wide = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+        if (wide) fail(`${at}: the page scrolls sideways`);
+        for (const e of [...new Set(errors)]) fail(`${at}: ${e}`);
+        await ctx.close();
+      }
+    }
+  } catch (e) {
+    fail(String(e.message || e).split('\n')[0].slice(0, 200));
+  }
+  await h.close();
+  res.ms = Date.now() - t0;
+  return res;
+}
 const walks = opt.states ? [] : WALK.filter((d) => !opt.only || routes.includes(d));
 results.push(...await Promise.all(walks.map((d) => routeWalk(browser, harness, d))));
 if (!opt.states && (!opt.only || routes.includes('jack/setup'))) results.push(await dialogStack(browser, harness));
@@ -995,6 +1125,7 @@ if (!opt.states && (!opt.only || routes.includes('caretaker'))) results.push(awa
 if (!opt.states && (!opt.only || routes.includes('caretaker'))) results.push(await netBusy(browser));
 if (!opt.states && (!opt.only || routes.includes('caretaker'))) results.push(await pairAddress(browser));
 if (!opt.states && (!opt.only || routes.includes('backup'))) results.push(await partnerStreams(browser));
+if (!opt.states && (!opt.only || routes.includes('snapshot'))) results.push(await busyMark(browser));
 await browser.close();
 await harness.close();
 
