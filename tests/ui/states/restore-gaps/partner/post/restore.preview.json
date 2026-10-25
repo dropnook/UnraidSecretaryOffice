@@ -1,0 +1,12 @@
+{"ok": true, "preview": {"kind": "partner", "what": "appdata ← PartnerNAS",
+ "target": {"pair": "2ec7accd", "unit": "share:appdata", "snap": "uso-backup-20261008-0937", "pool": null, "kind": "pair", "partner": "PartnerNAS", "dataset": "cache/appdata.restored-20261009-101500", "how": "beside", "path": "/mnt/user/appdata"},
+ "method": null,
+ "steps": [{"do": "pull", "pair": "2ec7accd", "unit": "share:appdata", "snap": "uso-backup-20261008-0937", "dataset": "cache/appdata.restored-20261009-101500", "resume": false, "parent": null, "partner": "PartnerNAS", "path": "/mnt/user/appdata", "time": 1791447074, "mount": "/mnt/addons/UnraidSecretaryOffice/restored/PartnerNAS-share-appdata-20261009-101500"},
+           {"do": "mount", "dataset": "cache/appdata.restored-20261009-101500", "path": "/mnt/addons/UnraidSecretaryOffice/restored/PartnerNAS-share-appdata-20261009-101500"}],
+ "blockers": [], "notes": [{"key": "note.partner_beside", "params": {"name": "PartnerNAS"}}],
+ "after": [{"key": "after.partner_then", "params": {"path": "/mnt/user/appdata", "name": "PartnerNAS", "what": "appdata"}}, {"key": "after.partner_drop", "params": []}],
+ "aside": [{"what": "pulled", "from": "PartnerNAS: share:appdata@uso-backup-20261008-0937", "to": "cache/appdata.restored-20261009-101500"}],
+ "stops": [], "downtime": 0, "sizes": {"need": 244850688, "free": 412316860416, "measuring": false, "compresses": true},
+ "options": {"pools": null, "kind": "pair"}, "putback_pre": [], "putback_post": [], "putback_of": null,
+ "source": {"path": "PartnerNAS: share:appdata@uso-backup-20261008-0937", "time": 1791447074, "bytes": 244850688},
+ "stamp": "20261009-101500", "token": "harness"}}

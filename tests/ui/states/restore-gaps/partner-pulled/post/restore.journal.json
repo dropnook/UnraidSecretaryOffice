@@ -1,0 +1,5 @@
+{"ok": true, "journal": {"id": "20261009-061502-5b2e", "kind": "partner", "result": "ok", "steps": [
+  {"do": "pull", "state": "ok", "pair": "2ec7accd", "unit": "share:appdata", "snap": "uso-backup-20261008-0937", "dataset": "cache/appdata.restored-20261009-061502", "partner": "PartnerNAS", "resume": false},
+  {"do": "mount", "state": "ok", "dataset": "cache/appdata.restored-20261009-061502", "path": "/mnt/addons/UnraidSecretaryOffice/restored/PartnerNAS-share-appdata-20261009-061502"}],
+  "aside": [], "after": [{"key": "after.partner_then", "params": {"path": "/mnt/user/appdata", "name": "PartnerNAS", "what": "appdata"}}, {"key": "after.partner_drop", "params": []}]},
+ "log": ["Restore 20261009-061502-5b2e (partner: appdata ← PartnerNAS), 2 steps", "Done: ok"]}

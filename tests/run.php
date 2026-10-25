@@ -13600,7 +13600,7 @@ JS);
         && str_contains($rjs2, '} else if (live) placeRunCard();'));
     $bjs2 = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
     check('backup run card 1.60.1: above the tiles too, the tiles stay', str_contains($bjs2, 'if (live()) root.appendChild(runningCard());') && !str_contains($bjs2, 's.grid.hidden = live();'));
-    check('restore 1.60.1: a receiver with partners\' copies but no packages of its own says so (bubble.kept_only)', str_contains($rjs2, "held ? T('bubble.kept_only', { n: held }) : T('bubble.no_packages')"));
+    check('restore 1.60.1: a receiver with partners\' copies but no packages of its own says so (bubble.kept_only)', str_contains($rjs2, "held ? T('bubble.kept_only', { n: held }) : tp ? T('bubble.no_packages_ticket', { name: tp.name }) : T('bubble.no_packages')"));
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         $lj = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/restore/lang/$l.json"), true) ?: [];
         same("restore run card: $l - the card's words and a short name for every step kind", [], array_values(array_filter(['rc.since', 'rc.left', 'rc.end', 'rc.errors',
@@ -53902,6 +53902,460 @@ JS);
  * a dataset of its own: its app's or VM's own unit, never its share's), and an app's package «offsite» only once its own
  * Kopia source (or the backup place's) has a copy.
  */
+/**
+ * The restore matrix's gaps 6–12 on Mr. Restori's page (task/restore-gaps): tests/restoregaps.js runs desk.js's helpers
+ * under node on small states; here what each case must give.
+ */
+function testRestoreGapsPage(): void
+{
+    $node = testsNode();
+    if ($node === '') {
+        check('restore gaps page: node is missing here - skipped', true);
+        return;
+    }
+    [, $raw] = run([$node, OFFICE_DIR . '/tests/restoregaps.js', OFFICE_WEB . '/desks/restore/desk.js'], 30);
+    $o = json_decode(trim((string) $raw), true);
+    if (!is_array($o)) {
+        check('restore gaps page: ran under node', false, (string) $raw);
+        return;
+    }
+    // #10: a new server with a ticket — the empty Apps, VMs and Databases point at the backup place at the partner
+    $t = $o['t10'] ?? [];
+    same('gap 10: no packages yet on a new server with a ticket — they come with the backup place from the partner (Apps, VMs, Databases)',
+        ['apps_from_ticket {"name":"OldNAS"}', 'vms_from_ticket {"name":"OldNAS"}', 'apps_from_ticket {"name":"OldNAS"}'], [$t['apps'] ?? null, $t['vms'] ?? null, $t['dbs'] ?? null]);
+    check('gap 10: … with a link to that step («Onto a new server»)', in_array('ticket_link {"name":"OldNAS"}', (array) ($t['link'] ?? []), true), json_encode($t['link'] ?? null));
+    same('gap 10: without a ticket — «with Mr. Backupsy\'s first backup run» as before; a place with packages — none there',
+        [['apps_no_packages', 'apps_no_packages', 'bubble.no_packages'], ['apps_none', 'vms_none']], [$t['plain'] ?? null, $t['found'] ?? null]);
+    same('gap 10: … and the ticket\'s tile names whose units they are (the gone server\'s), never «of mine»', 'tile.partner_line_ticket {"n":1,"of":"Tower"}', $t['tile'] ?? null);
+    $b = $o['t12'] ?? [];
+    check('gap 12: «The flash» names the boot pool\'s own snapshots — how many, the newest, its read-only path',
+        in_array('flash.boot_snaps {"n":3,"dataset":"flash/boot","when":"D9"}', (array) ($b['on'] ?? []), true)
+        && in_array('/boot/.zfs/snapshot/uso-backup-20261025-0300', (array) ($b['on'] ?? []), true), json_encode($b['on'] ?? null));
+    check('gap 12: … single pieces by hand, the boot pool never rolled back here (download-only spirit: no button)', in_array('flash.boot_snaps_how', (array) ($b['on'] ?? []), true));
+    same('gap 12: kept with snapshots (the engine\'s mode) — these are the ones his text means, not «too»', 'flash.boot_snaps_these {"n":3,"dataset":"flash/boot","when":"D9"}', $b['these'] ?? null);
+    check('gap 12: a boot pool asleep — named, its snapshots not looked at', in_array('flash.boot_snaps_asleep {"dataset":"flash/boot"}', (array) ($b['asleep'] ?? []), true), json_encode($b['asleep'] ?? null));
+    same('gap 12: none there, a stick, an older agent\'s state — nothing said', [null, null, null], array_map(fn ($k) => array_key_exists($k, $b) ? $b[$k] : 'x', ['none', 'stick', 'old']));
+    $n = $o['t9'] ?? [];
+    $k = fn (string $id) => "kopia:$id";
+    same('gap 9: a Kopia restore of a share\'s source, staged — its place: each app\'s folder in it and the share itself, with that moment',
+        [['/mnt/user/appdata/nextcloud', 'kopia:J1'], ['/mnt/user/appdata', 'kopia:J1']], $n['share'] ?? null);
+    same('gap 9: … an app\'s own source — its folders and the shares it binds whole', [['/mnt/user/appdata/nextcloud', 'kopia:J1'], ['/mnt/user/nextcloud', 'kopia:J1']], $n['own'] ?? null);
+    same('gap 9: … a VM\'s own source — its disks\' folder', [['/mnt/user/domains/Win', 'kopia:J1']], $n['vm'] ?? null);
+    same('gap 9: … one path of a source, staged — what lies inside it; swapped or copied beside already — nothing more to place',
+        [[['/mnt/user/appdata/nextcloud', 'kopia:J1']], []], [$n['path'] ?? null, $n['pathCopy'] ?? null]);
+    same('gap 8: a partner pull of a share — its apps\' folders and the share, with the pull as the moment (partner:<journal>:<unit>)',
+        [['/mnt/user/appdata/nextcloud', 'partner:J1:share:appdata'], ['/mnt/user/appdata', 'partner:J1:share:appdata']], $n['partner'] ?? null);
+    same('gap 8/9: the backup place pulled, a pull put back, a failed restore — nothing to place', [[], [], []], [$n['partnerPlace'] ?? null, $n['putBack'] ?? null, $n['failed'] ?? null]);
+    same('gap 9: each named by its owner — the app, the share', ['Nextcloud', 'pt.unit_share {"name":"appdata"}'], $n['labels'] ?? null);
+    check('gap 9: the row\'s «From offsite» opens that source\'s own «Restore…»; the guide is named as the way by hand',
+        in_array('kr.button', (array) ($n['block'] ?? []), true) && in_array('kp.guide_hand', (array) ($n['block'] ?? []), true) && !in_array('kp.guide', (array) ($n['block'] ?? []), true),
+        json_encode($n['block'] ?? null));
+    check('gap 9: … without a restore folder mapped: no button, the guide (it says how to map one)',
+        !in_array('kr.button', (array) ($n['blockNoMap'] ?? []), true) && in_array('kp.guide', (array) ($n['blockNoMap'] ?? []), true), json_encode($n['blockNoMap'] ?? null));
+    $e = $o['t8'] ?? [];
+    $has = fn (string $what, string $key) => in_array($key, (array) ($e[$what] ?? []), true);
+    check('gap 8: an app\'s row has «From a partner» — what the partner keeps of it, and «Fetch from PartnerNAS…»',
+        $has('fresh', 'from_partner') && $has('fresh', 'pa.line {"name":"PartnerNAS","unit":"pt.unit_share {\"name\":\"appdata\"}","n":2,"when":"D20"}')
+        && $has('fresh', 'pa.fetch {"name":"PartnerNAS"}'), json_encode($e['fresh'] ?? null));
+    check('gap 8: … and its package: in the backup place at the partner, fetched on its own (then «Earlier backups»)', $has('fresh', 'pa.package {"name":"PartnerNAS"}') && $has('fresh', 'pa.place_fetch'),
+        json_encode($e['fresh'] ?? null));
+    same('gap 8: before it starts, honestly how much comes: the whole unit — a share with every app\'s folders, an own unit as it is',
+        ['pa.whole {"unit":"pt.unit_share {\"name\":\"appdata\"}","size":"244850688 B","name":"PartnerNAS","when":"D20","what":"Nextcloud"}',
+         'pa.whole_own {"unit":"pt.unit_vm {\"name\":\"Win\"}","size":"244850688 B","name":"PartnerNAS","when":"D20"}'],
+        [$e['lead'][0] ?? null, $e['leadOwn'][0] ?? null]);
+    same('gap 8: the label «at PartnerNAS» says a click fetches it from there', 'chip.at_partner_go {"name":"PartnerNAS","unit":"pt.unit_share {\"name\":\"appdata\"}","n":2,"when":"D20"}', $e['chip'] ?? null);
+    same('gap 8: nothing at a partner, no place there — no part', null, array_key_exists('none', $e) ? $e['none'] : 'x');
+    check('gap 8: its data at no partner, but the backup place there — the package line alone', $has('packageOnly', 'pa.package {"name":"PartnerNAS"}')
+        && !array_filter((array) ($e['packageOnly'] ?? []), fn ($t) => str_starts_with((string) $t, 'pa.line')), json_encode($e['packageOnly'] ?? null));
+    check('gap 8: pulled already — said, and «Restore…» opens its folders on that moment; the package pulled too — «Earlier backups» offers it',
+        $has('pulled', 'pa.pulled {"when":"D30"}') && $has('pulled', 'files.button') && $has('pulled', 'pa.package_pulled {"name":"PartnerNAS"}') && !$has('pulled', 'pa.fetch {"name":"PartnerNAS"}'),
+        json_encode($e['pulled'] ?? null));
+    same('gap 8: what came back, for this app only — its folder, never the whole share row', [['/mnt/user/appdata/nextcloud', 'partner:J1:share:appdata']], $e['owner'] ?? null);
+    check('gap 8/6: a pull swapped in as its share — said so, nothing to fetch or place',
+        in_array('pa.swapped {"when":"D30"}', (array) ($e['swapped'] ?? []), true) && !in_array('pa.fetch {"name":"PartnerNAS"}', (array) ($e['swapped'] ?? []), true), json_encode($e['swapped'] ?? null));
+    check('gap 8: a pull removed again («Put back») — fetch anew', in_array('pa.fetch {"name":"PartnerNAS"}', (array) ($e['dropped'] ?? []), true), json_encode($e['dropped'] ?? null));
+    $w = $o['t6'] ?? [];
+    check('gap 6: a pull of a whole share beside its dataset — «Swap it in…» in its entry, saying what happens (aside, never deleted, put back)',
+        in_array('j.swap', (array) ($w['beside'] ?? []), true) && in_array('j.swap_hint {"share":"appdata"}', (array) ($w['beside'] ?? []), true)
+        && in_array('j.swap', (array) ($w['ticket'] ?? []), true), json_encode($w));
+    same('gap 6: no swap for a pull under UnraidSecretaryOffice-restored, a VM\'s unit, one put back', [null, null, null],
+        array_map(fn ($k) => array_key_exists($k, $w) ? $w[$k] : 'x', ['parent', 'vm', 'putBack']));
+    same('gap 6: swapped — the way to the swap\'s entry; nothing «to its place» any more (it is the share)', [['j.swapped {"share":"appdata"}'], []],
+        [$w['swapped'] ?? null, $w['places'] ?? null]);
+    $v = $o['t7'] ?? [];
+    check('gap 7: «Everything back into libvirt.img» — what it replaces said first; with the VM service off his «Restore all…»',
+        in_array('vm.all_replaces {"when":"D40"}', (array) ($v['off'] ?? []), true) && in_array('vm.all_2_text {"file":"/mnt/user/system/libvirt/libvirt.img"}', (array) ($v['off'] ?? []), true)
+        && in_array(['vm.all_button', false], (array) ($v['offButtons'] ?? []), true), json_encode($v));
+    check('gap 7: … the VM service on — the button waits (stop it first), the way by hand still there',
+        in_array(['vm.all_button', true], (array) ($v['onButtons'] ?? []), true) && in_array('vm.all_2_wait {"file":"/mnt/user/system/libvirt/libvirt.img"}', (array) ($v['on'] ?? []), true)
+        && in_array('vm.all_hand', (array) ($v['on'] ?? []), true), json_encode($v['on'] ?? null));
+    same('review M4: libvirt\'s «Put back» after a build that failed (nothing swapped) says it only sets the leftover copy aside',
+        ['j.libvirt_leftover_hint', 'j.libvirt_putback_hint', 'j.swap_putback_hint'], $o['m4'] ?? null);
+    same('gap 10: … and his bubble says the same, never «with Mr. Backupsy\'s first backup run» under the ticket\'s callout', 'bubble.no_packages_ticket {"name":"OldNAS"}', $t['bubble'] ?? null);
+}
+
+/** The restore matrix's gaps 6–12, the agent's side (task/restore-gaps) */
+function testRestoreGapsAgent(): void
+{
+    $tmp = hardeningTmp('rsgaps');
+    $keep = $GLOBALS['rs'] ?? [];
+    // #12: the boot pool's own snapshots, named as a source of the flash — the dataset at /boot, how many, the newest
+    file_put_contents("$tmp/zfs", "#!/bin/bash\necho \"\$*\" >> $tmp/zfs.asked\nprintf 'flash/boot@uso-backup-20261020-0300\\t1792450800\\nflash/boot@uso-plan-daily-20261024\\t1792800000\\nflash/boot@uso-backup-20261025-0300\\t1792890000\\n'\n");
+    chmod("$tmp/zfs", 0755);
+    $GLOBALS['rs']['zfs_bin'] = "$tmp/zfs";
+    $GLOBALS['rs']['boot_ds'] = 'flash/boot';
+    $b = rsBootSnaps([]);
+    same('gap 12: the boot pool\'s snapshots — its dataset, how many, the newest (name, time), where they are read', ['flash/boot', 3, 'uso-backup-20261025-0300', 1792890000, '/boot/.zfs/snapshot', false],
+        [$b['dataset'] ?? null, $b['count'] ?? null, $b['newest']['name'] ?? null, $b['newest']['time'] ?? null, $b['path'] ?? null, $b['asleep'] ?? null]);
+    same('gap 12: … asked of that dataset alone (its own snapshots, not those of datasets below)', ['list -Hp -t snapshot -o name,creation -s creation -d 1 flash/boot'],
+        array_values(array_filter(explode("\n", (string) @file_get_contents("$tmp/zfs.asked")))));
+    @unlink("$tmp/zfs.asked");
+    $b = rsBootSnaps(['flash' => true]);
+    same('gap 12: a boot pool asleep is never asked — said so, no count', [true, null, false], [$b['asleep'] ?? null, array_key_exists('count', (array) $b) ? $b['count'] : 'x', is_file("$tmp/zfs.asked")]);
+    $GLOBALS['rs']['boot_ds'] = false;
+    same('gap 12: a flash on a stick (no ZFS at /boot) — nothing to name', null, rsBootSnaps([]));
+    $GLOBALS['rs']['boot_ds'] = 'flash/boot; rm -rf /';
+    same('gap 12: a dataset name not in the shape of one — nothing', null, rsBootSnaps([]));
+    $GLOBALS['rs'] = $keep;
+    hardeningRm($tmp);
+}
+
+/** A stand-in bin folder for zfs/mount/umount (tests/fakezfs.php by its names), its state in zfs.json; the old $GLOBALS['rs'] */
+function restoreGapsBin(string $tmp, array $zfs, array $mounts = []): array
+{
+    @mkdir("$tmp/bin", 0700, true);
+    $code = (string) file_get_contents(OFFICE_DIR . '/tests/fakezfs.php');
+    foreach (['zfs', 'mount', 'umount'] as $n) {
+        file_put_contents("$tmp/bin/$n", '#!' . PHP_BINARY . "\n" . $code);
+        chmod("$tmp/bin/$n", 0755);
+    }
+    file_put_contents("$tmp/bin/zfs.json", json_encode($zfs));
+    file_put_contents("$tmp/bin/mounts", implode("\n", $mounts) . "\n");
+    @unlink("$tmp/bin/busy.json");
+    @unlink("$tmp/bin/calls.log");
+    putenv("OFFICE_PARTNER_BIN=$tmp/bin");
+    return $GLOBALS['rs'] ?? [];
+}
+
+/** The steps of a plan run one by one as his job does (stop/start of containers left out: no Docker here) — the journal */
+function restoreGapsRun(array $plan, string $id, ?array &$j = null): array
+{
+    $j = rsJournalNew($id, $plan);
+    rsPrivateDir(rsData());
+    rsPrivateDir(rsDir($id));
+    writeAtomic(rsDir($id) . '/plan.json', jsonEncode($plan), 0600, 0, 0);
+    $failed = false;
+    foreach (array_keys($j['steps']) as $i) {
+        if ($failed) {
+            $j['steps'][$i]['state'] = 'skipped';
+            continue;
+        }
+        $res = in_array($j['steps'][$i]['do'], ['stop', 'start'], true) ? ['state' => 'ok', 'stopped' => [], 'started' => []] : rsStep($j, $i);
+        $j['steps'][$i] = array_merge($j['steps'][$i], $res);
+        $failed = $res['state'] === 'failed';
+    }
+    $j['result'] = $failed ? 'failed' : 'ok';
+    $j['started'] = $j['finished'] = time();
+    rsJournalWrite($j, false);
+    return $j;
+}
+
+/** Gap 6: a partner's pull of a whole share swapped in as the share — and back */
+function testRestoreGapsSwap(): void
+{
+    $tmp = hardeningTmp('rsswap');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $keep = $GLOBALS['rs'] ?? [];
+    $pullId = '20261025-100000-ab12';
+    $dn = 'tank/appdata.restored-20261025-100000';
+    $mnt = "$tmp/restored/PartnerNAS-share-appdata-20261025-100000";
+    @mkdir($mnt, 0755, true);
+    $zfs = ['tank' => ['guid' => '1', 'mounted' => true], 'tank/appdata' => ['guid' => '11', 'mounted' => true, 'snaps' => ['uso-backup-20261024-0300', 'uso-backup-20261025-0300']],
+            $dn => ['guid' => '22', 'mountpoint' => 'legacy', 'canmount' => 'noauto', 'mounted' => false, 'snaps' => ['uso-backup-20261024-0300']]];
+    $fresh = function (array $over = [], array $zfsOver = []) use ($tmp, $zfs, $dn, $mnt, $pullId, $keep): void {
+        $GLOBALS['rs'] = $keep;
+        restoreGapsBin($tmp, array_replace($zfs, $zfsOver), ["$dn $mnt zfs ro 0 0"]);
+        exec('rm -rf ' . escapeshellarg("$tmp/data"));
+        $GLOBALS['rs'] = array_merge($GLOBALS['rs'], ['data' => "$tmp/data", 'restored_root' => "$tmp/restored", 'mounts_file' => "$tmp/bin/mounts",
+            'users' => fn (array $p, array $r) => [['nextcloud'], []], 'open' => fn (array $p) => [], 'vm_disks' => fn () => [], 'fs' => ['tank' => 'zfs'],
+            'sys_block' => "$tmp/sysblock", 'docker_running' => false, 'state' => ['kopia' => ['restore' => null]]], $over);
+        $pull = ['id' => $pullId, 'kind' => 'partner', 'what' => 'appdata ← PartnerNAS', 'result' => 'ok', 'created' => 1, 'started' => 1, 'finished' => 2, 'putback' => null,
+                 'target' => ['pair' => 'p1', 'unit' => 'share:appdata', 'partner' => 'PartnerNAS', 'path' => '/mnt/user/appdata', 'dataset' => $dn],
+                 'steps' => [['do' => 'pull', 'state' => 'ok', 'dataset' => $dn, 'undo' => [['do' => 'drop', 'dataset' => $dn, 'path' => $mnt, 'guid' => '22']]],
+                             ['do' => 'mount', 'state' => 'ok', 'dataset' => $dn, 'path' => $mnt]],
+                 'pulled' => [['dataset' => $dn, 'guid' => '22', 'pair' => 'p1', 'partner' => 'PartnerNAS', 'unit' => 'share:appdata', 'snap' => 'uso-backup-20261024-0300',
+                               'time' => 1792800000, 'path' => '/mnt/user/appdata', 'mount' => $mnt, 'bytes' => 1000]], 'aside' => [], 'stopped' => []];
+        rsPrivateDir(rsData());
+        rsPrivateDir(rsDir($pullId));
+        writeAtomic(rsDir($pullId) . '/plan.json', jsonEncode(['kind' => 'partner', 'target' => $pull['target']]), 0600, 0, 0);
+        rsJournalWrite($pull, false);
+    };
+    $z = fn () => json_decode((string) file_get_contents("$tmp/bin/zfs.json"), true);
+    $mounted = fn () => trim((string) file_get_contents("$tmp/bin/mounts"));
+    $aside = 'tank/.UnraidSecretaryOffice-restore-20261025-110000-appdata';
+
+    $fresh();
+    $plan = rsPlanPartnerSwap(['kind' => 'partner_swap', 'id' => $pullId], '20261025-110000');
+    same('gap 6: the swap — nothing blocks; what uses the share stops; the pull unmounted, the share\'s dataset aside whole, the pull in its place, then started again',
+        [[], ['not_open', 'stop', 'pull_umount', 'swap_out', 'swap_in', 'start'], $aside, ['nextcloud']],
+        [$plan['blockers'], array_column($plan['steps'], 'do'), $plan['steps'][3]['to'] ?? null, $plan['stops']]);
+    same('gap 6: … said: its 2 snapshots go aside with it; the aside is a hidden name at the pool\'s top (never a share), kept',
+        [2, '/mnt/tank/.UnraidSecretaryOffice-restore-20261025-110000-appdata', 'after.swap_done'],
+        [array_column($plan['notes'], 'params', 'key')['note.swap_snaps']['n'] ?? null, $plan['aside'][0]['to'] ?? null, $plan['after'][0]['key'] ?? null]);
+    $j = restoreGapsRun($plan, '20261025-110000-cd34');
+    $s = $z();
+
+    same('gap 6: swapped — the share\'s dataset is the pull (its guid), mounted where the share was; the old one aside with its snapshots, mounted; no copy left beside',
+        ['ok', '22', null, 'on', true, '11', true, ['uso-backup-20261024-0300', 'uso-backup-20261025-0300'], false, ''],
+        [$j['result'], $s['tank/appdata']['guid'] ?? null, array_key_exists('mountpoint', $s['tank/appdata'] ?? []) ? $s['tank/appdata']['mountpoint'] : 'x', $s['tank/appdata']['canmount'] ?? null, $s['tank/appdata']['mounted'] ?? null,
+         $s[$aside]['guid'] ?? null, $s[$aside]['mounted'] ?? null, $s[$aside]['snaps'] ?? null, isset($s[$dn]), $mounted()]);
+    $rows = rsJournals();
+    $byId = array_column($rows, null, 'id');
+    same('gap 6: the pull\'s row says it is swapped in (by the swap\'s entry); «Put back» of the swap is offered',
+        ['20261025-110000-cd34', true], [$byId[$pullId]['swapped_by'] ?? null, $byId['20261025-110000-cd34']['can_putback'] ?? null]);
+    same('gap 6: … removing the pull is refused while it is the share; swapping again too',
+        ['restore_putback_swapped', 'restore_swap_done'],
+        [rsPlanPutback(['id' => $pullId], '20261025-120000')['blockers'][0]['key'] ?? null, rsPlanPartnerSwap(['id' => $pullId], '20261025-120000')['blockers'][0]['key'] ?? null]);
+    $back = rsPlanPutback(['id' => '20261025-110000-cd34'], '20261025-120000');
+    same('gap 6: put back — stop, nothing open, the pull back to its name (read-only), the old dataset back, the pull mounted again, start',
+        [[], ['stop', 'not_open', 'swap_unsettle', 'swap_back', 'mount', 'start']], [$back['blockers'], array_column($back['steps'], 'do')]);
+    $jb = restoreGapsRun($back, '20261025-120000-ef56');
+    $s = $z();
+    same('gap 6: put back — the share\'s own dataset again (mounted), the pull beside it as before (legacy, read-only mount), nothing destroyed',
+        ['ok', '11', true, '22', 'legacy', 'noauto', false, "$dn $mnt zfs ro 0 0"],
+        [$jb['result'], $s['tank/appdata']['guid'] ?? null, $s['tank/appdata']['mounted'] ?? null, $s[$dn]['guid'] ?? null, $s[$dn]['mountpoint'] ?? null, $s[$dn]['canmount'] ?? null,
+         isset($s[$aside]), $mounted()]);
+
+    // refused: a program holds a file open; the share no dataset at a pool's top; its mountpoint its own; datasets inside
+    $fresh(['open' => fn (array $p) => ['smbd']]);
+    same('gap 6: a program holds a file of the share open — refused (he never ends one)', 'restore_in_use',
+        rsPlanPartnerSwap(['id' => $pullId], '20261025-110000')['blockers'][0]['key'] ?? null);
+    $fresh([], ['tank/appdata' => ['guid' => '11', 'mounted' => true, 'mountpoint' => '/mnt/elsewhere']]);
+    same('gap 6: the share\'s dataset with a mountpoint of its own — refused', 'restore_swap_mountpoint', rsPlanPartnerSwap(['id' => $pullId], '20261025-110000')['blockers'][0]['key'] ?? null);
+    $fresh([], ['tank/appdata/inner' => ['guid' => '12', 'mounted' => true]]);
+    same('gap 6: a dataset inside the share — refused', 'restore_swap_inner', rsPlanPartnerSwap(['id' => $pullId], '20261025-110000')['blockers'][0]['key'] ?? null);
+    $fresh(['vm_disks' => fn () => ['Win' => ['state' => 'running', 'disks' => ['/mnt/user/appdata/vdisk1.img']]]]);
+    $vmPlan = rsPlanPartnerSwap(['id' => $pullId], '20261025-110000');
+    check('gap 6: a VM with a disk in it running — refused', in_array('restore_vm_uses', array_column($vmPlan['blockers'], 'key'), true), json_encode($vmPlan['blockers']));
+    $fresh([], [$dn => null]);
+    $s = $z();
+    unset($s[$dn]);
+    file_put_contents("$tmp/bin/zfs.json", json_encode($s));
+    same('gap 6: the pull gone meanwhile — refused, said which', 'restore_aside_gone', rsPlanPartnerSwap(['id' => $pullId], '20261025-110000')['blockers'][0]['key'] ?? null);
+    // the share's dataset busy at the rename: the step fails, nothing swapped; «Put back» mounts the pull again
+    $fresh();
+    file_put_contents("$tmp/bin/busy.json", json_encode(['tank/appdata']));
+    $jf = restoreGapsRun(rsPlanPartnerSwap(['id' => $pullId], '20261025-110000'), '20261025-110000-cd34');
+    $s = $z();
+    same('gap 6: the share busy at the rename — failed there, the share and the pull as they were (the pull unmounted)',
+        ['failed', 'swap_out', '11', '22', ''], [$jf['result'], array_values(array_filter($jf['steps'], fn ($x) => $x['state'] === 'failed'))[0]['do'] ?? null,
+         $s['tank/appdata']['guid'] ?? null, $s[$dn]['guid'] ?? null, $mounted()]);
+    @unlink("$tmp/bin/busy.json");
+    $jb = restoreGapsRun(rsPlanPutback(['id' => '20261025-110000-cd34'], '20261025-120000'), '20261025-120000-ef56');
+    same('gap 6: … its put back mounts the pull again (read-only), nothing else', ['ok', "$dn $mnt zfs ro 0 0"], [$jb['result'], $mounted()]);
+    // a pull that is no share's dataset at a pool's top (a new server's, under UnraidSecretaryOffice-restored)
+    $fresh();
+    $pj = rsJournal($pullId);
+    $pj['pulled'][0]['dataset'] = 'tank/UnraidSecretaryOffice-restored/share-appdata';
+    rsJournalWrite($pj, false);
+    same('gap 6: a pull under UnraidSecretaryOffice-restored — no share\'s dataset to swap with: refused, «Restore…» copies', 'restore_swap_no_dataset',
+        rsPlanPartnerSwap(['id' => $pullId], '20261025-110000')['blockers'][0]['key'] ?? null);
+
+    // ---- the review of task/restore-gaps
+    // H1: the partner keeps a newer moment of the share than the pull (a run sent one since, or an older one was pulled):
+    // after a swap its copy there couldn't go on (the door never receives with -F) — refused, said why and what works
+    $fresh();
+    @mkdir("$tmp/ub/state", 0700, true);
+    $GLOBALS['rs']['ub_data'] = "$tmp/ub";
+    $sent = fn (string $snap) => file_put_contents("$tmp/ub/state/partner-sent.json", json_encode(['p1' => ['share:appdata' => ['snap' => $snap, 'dataset' => 'tank/appdata', 'time' => 5]]]));
+    $sent('uso-backup-20261025-0300');
+    $h1 = rsPlanPartnerSwap(['id' => $pullId], '20261025-110000');
+    same('review H1: a run sent a newer moment to the partner since the pulled one — refused (the partner\'s copy couldn\'t go on), naming both',
+        ['restore_swap_not_newest', 'uso-backup-20261024-0300', 'uso-backup-20261025-0300'],
+        [$h1['blockers'][0]['key'] ?? null, $h1['blockers'][0]['params']['snap'] ?? null, $h1['blockers'][0]['params']['newest'] ?? null]);
+    $sent('uso-backup-20261024-0300');
+    $h1 = rsPlanPartnerSwap(['id' => $pullId], '20261025-110000');
+    same('review H1: the pulled moment is the newest sent — swapped, and said: the copy at the partner goes on from it', [[], true],
+        [$h1['blockers'], in_array('note.swap_partner_goes_on', array_column($h1['notes'], 'key'), true)]);
+    $GLOBALS['rs']['held_newer'] = fn (string $pair, string $unit, string $snap) => ['uso-backup-20261026-0300'];
+    same('review H1: … the partner said it keeps a newer one (its last look) — refused too', 'restore_swap_not_newest',
+        rsPlanPartnerSwap(['id' => $pullId], '20261025-110000')['blockers'][0]['key'] ?? null);
+    unset($GLOBALS['rs']['held_newer']);
+    // L1: the undo is in the journal before the rename (a power cut between them leaves the way back recorded)
+    file_put_contents("$tmp/bin/watch", rsDir('20261025-110000-cd34') . '/journal.json');
+    $j = restoreGapsRun(rsPlanPartnerSwap(['id' => $pullId], '20261025-110000'), '20261025-110000-cd34');
+    @unlink("$tmp/bin/watch");
+    $atRename = array_map(fn ($f) => json_decode((string) file_get_contents($f), true), glob("$tmp/bin/at-rename-*.json") ?: []);
+    $undoAt = fn (int $n, string $do) => array_column(array_values(array_filter((array) ($atRename[$n]['steps'] ?? []), fn ($x) => ($x['do'] ?? '') === $do))[0]['undo'] ?? [], 'do');
+    same('review L1: at each rename the journal already holds that step\'s undo (swap_out: swap_back; swap_in: swap_unsettle)', [['swap_back'], ['swap_unsettle']],
+        [$undoAt(0, 'swap_out'), $undoAt(1, 'swap_in')]);
+    // L3: another pull of the same share over a standing swap — refused, naming the swap's entry
+    $other = 'tank/appdata.restored-20261025-130000';
+    $s = $z();
+    $s[$other] = ['guid' => '33', 'mountpoint' => 'legacy', 'canmount' => 'noauto', 'mounted' => false];
+    file_put_contents("$tmp/bin/zfs.json", json_encode($s));
+    $p2 = rsJournal($pullId);
+    $p2['id'] = '20261025-130000-ab13';
+    $p2['pulled'][0]['dataset'] = $other;
+    $p2['pulled'][0]['guid'] = '33';
+    $p2['target']['dataset'] = $other;
+    rsPrivateDir(rsDir($p2['id']));
+    rsJournalWrite($p2, false);
+    same('review L3: a second pull of the share while the first is swapped in — refused, naming that swap', ['restore_swap_other', '20261025-110000-cd34'],
+        [rsPlanPartnerSwap(['id' => $p2['id']], '20261025-140000')['blockers'][0]['key'] ?? null, rsPlanPartnerSwap(['id' => $p2['id']], '20261025-140000')['blockers'][0]['params']['entry'] ?? null]);
+    exec('rm -rf ' . escapeshellarg(rsDir($p2['id'])));
+    // H2: the put back looks at the aside too; a put back that fails at swap_back leaves the share there (the pull, swapped
+    // in again) and «Put back» is offered once more; the second one, the aside free, ends as before the swap
+    $back = rsPlanPutback(['id' => '20261025-110000-cd34'], '20261025-120000');
+    $notOpen = array_values(array_filter($back['steps'], fn ($x) => $x['do'] === 'not_open'))[0]['paths'] ?? [];
+    same('review H2: the put back checks the share and the aside\'s folder for open files', [true, true],
+        [in_array('/mnt/tank/appdata', $notOpen, true), in_array('/mnt/tank/.UnraidSecretaryOffice-restore-20261025-110000-appdata', $notOpen, true)]);
+    same('review M2: the put back says that what was written into the share since the swap stays in the copy beside', true,
+        in_array('after.swap_putback', array_column($back['after'], 'key'), true));
+    file_put_contents("$tmp/bin/busy.json", json_encode([$aside]));
+    $jb = restoreGapsRun($back, '20261025-120000-ef56');
+    $s = $z();
+    same('review H2: the aside busy at swap_back — failed there, but the share is there (the pull swapped in again, mounted), nothing lost',
+        ['failed', 'swap_back', '22', true, '11'], [$jb['result'], array_values(array_filter($jb['steps'], fn ($x) => $x['state'] === 'failed'))[0]['do'] ?? null,
+         $s['tank/appdata']['guid'] ?? null, $s['tank/appdata']['mounted'] ?? null, $s[$aside]['guid'] ?? null]);
+    $sw = rsJournal('20261025-110000-cd34');
+    $sw['putback'] = ['id' => '20261025-120000-ef56', 'result' => 'failed'];
+    rsJournalWrite($sw, false);
+    same('review H2: … «Put back» of the swap is offered again', true, array_column(rsJournals(), null, 'id')['20261025-110000-cd34']['can_putback'] ?? null);
+    @unlink("$tmp/bin/busy.json");
+    $jb = restoreGapsRun(rsPlanPutback(['id' => '20261025-110000-cd34'], '20261025-130000'), '20261025-130000-ef57');
+    $s = $z();
+    same('review H2: … the second put back — the share\'s own dataset again, the pull beside it read-only', ['ok', '11', '22', 'legacy', false],
+        [$jb['result'], $s['tank/appdata']['guid'] ?? null, $s[$dn]['guid'] ?? null, $s[$dn]['mountpoint'] ?? null, isset($s[$aside])]);
+    // H2 (live, Tower): a shell sitting in the set-aside folder made the dataset busy, yet held no file open — its working
+    // folder counts as holding it (a rename or umount there fails)
+    $keepOpen = $GLOBALS['rs']['open'] ?? null;
+    unset($GLOBALS['rs']['open']);
+    @mkdir("$tmp/proc/4242/fd", 0700, true);
+    @symlink('/mnt/tank/.UnraidSecretaryOffice-restore-20261025-110000-appdata/sub', "$tmp/proc/4242/cwd");
+    file_put_contents("$tmp/proc/4242/comm", "bash\n");
+    $GLOBALS['rs']['proc'] = "$tmp/proc";
+    same('review H2: a program whose working folder is inside counts as holding it', ['bash (4242)'],
+        rsOpenHolders(['/mnt/tank/.UnraidSecretaryOffice-restore-20261025-110000-appdata']));
+    unset($GLOBALS['rs']['proc']);
+    $GLOBALS['rs']['open'] = $keepOpen;
+    // L2: the put back of a swap on a pool asleep — refused (never woken unasked)
+    $fresh();
+    $j = restoreGapsRun(rsPlanPartnerSwap(['id' => $pullId], '20261025-110000'), '20261025-110000-cd34');
+    $GLOBALS['rs']['asleep_disks'] = ['tank' => true];
+    same('review L2: the put back of a swap with its pool asleep — refused', 'restore_putback_asleep',
+        rsPlanPutback(['id' => '20261025-110000-cd34'], '20261025-120000')['blockers'][0]['key'] ?? null);
+    unset($GLOBALS['rs']['asleep_disks']);
+    putenv('OFFICE_PARTNER_BIN');
+    $GLOBALS['rs'] = $keep;
+    hardeningRm($tmp);
+}
+
+/** Gap 7: all of libvirt.img back from the package's archive — the VM service off, the old image aside, put back */
+function testRestoreGapsLibvirt(): void
+{
+    $tmp = hardeningTmp('rslibvirt');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $keep = $GLOBALS['rs'] ?? [];
+    @mkdir("$tmp/src/libvirt/qemu/nvram", 0755, true);
+    file_put_contents("$tmp/src/libvirt/qemu/Schule.xml", '<domain><name>Schule</name></domain>');
+    file_put_contents("$tmp/src/libvirt/qemu/nvram/x_VARS-pure-efi.fd", 'vars');
+    exec('tar -C ' . escapeshellarg("$tmp/src") . ' -czf ' . escapeshellarg("$tmp/libvirt.tar.gz") . ' libvirt');
+    @mkdir("$tmp/system/libvirt", 0755, true);
+    $img = "$tmp/system/libvirt/libvirt.img";
+    $real = posix_geteuid() === 0 && is_executable('/sbin/mkfs.ext4') && is_executable('/sbin/losetup');
+    if ($real) {
+        exec('dd if=/dev/zero of=' . escapeshellarg($img) . ' bs=1M count=16 status=none && /sbin/mkfs.ext4 -q -F ' . escapeshellarg($img));
+    } else {
+        file_put_contents($img, str_repeat("\0", 65536));
+    }
+    $md5 = md5_file($img);
+    $GLOBALS['rs'] = array_merge($keep, ['data' => "$tmp/data", 'lv_root' => "$tmp/", 'fs' => [], 'lv_on' => fn (string $i) => null]);
+    if (!$real) {
+        // no loop device here: «mount» makes the folder, «umount» leaves it — the flow, not the image's inside
+        $GLOBALS['rs']['lv_cmd'] = fn (array $cmd) => [$cmd[0] === 'mount' ? (is_dir((string) end($cmd)) ? 0 : 1) : 0, '', ''];
+    }
+    $ctx = rsContext([]);
+    $server = ['libvirt' => "$tmp/libvirt.tar.gz", 'libvirt_time' => 1792800000, 'libvirt_bytes' => (int) filesize("$tmp/libvirt.tar.gz")];
+    $plan = rsPlanLibvirtFor($server, $img, '20261025-130000', $ctx);
+    same('gap 7: libvirt.img — nothing blocks with the VM service off; off once more, his copy built, the image aside, the copy in its place',
+        [[], ['lv_off', 'lv_build', 'lv_off', 'aside', 'move'], "$img.aside-20261025-130000", "$img.restored-20261025-130000"],
+        [$plan['blockers'], array_column($plan['steps'], 'do'), $plan['steps'][3]['to'] ?? null, $plan['steps'][1]['to'] ?? null]);
+    check('review M1: the VM service looked at again right before the image is set aside (the copy took minutes)', ($plan['steps'][2]['do'] ?? '') === 'lv_off');
+    check('review L5: aside and move look at the way to the image again right before (within its share folder)',
+        ($plan['steps'][3]['within'] ?? null) === "$tmp/system" && ($plan['steps'][4]['within'] ?? null) === "$tmp/system", json_encode($plan['steps'][3] ?? null));
+    check('gap 7: … said plainly first: it replaces every VM definition (those defined since stay in the old image aside); the disks untouched; then the VM service on',
+        ($plan['notes'][0]['key'] ?? '') === 'note.libvirt_replaces' && !empty($plan['notes'][0]['warn']) && ($plan['notes'][1]['key'] ?? '') === 'note.libvirt_disks'
+        && ($plan['after'][0]['key'] ?? '') === 'after.libvirt_on', json_encode([$plan['notes'], $plan['after']]));
+    $j = restoreGapsRun($plan, '20261025-130000-aa11');
+    same('gap 7: done — the old image aside untouched (the same bytes), the copy is libvirt.img, his mount gone',
+        ['ok', $md5, true, false, false], [$j['result'], @md5_file("$img.aside-20261025-130000"), is_file($img), is_file("$img.restored-20261025-130000"),
+         is_dir((string) $plan['steps'][1]['mnt'])]);
+    if ($real) {
+        @mkdir("$tmp/look", 0700);
+        exec('mount -o loop,ro ' . escapeshellarg($img) . ' ' . escapeshellarg("$tmp/look"));
+        $inside = [is_file("$tmp/look/qemu/Schule.xml"), is_file("$tmp/look/qemu/nvram/x_VARS-pure-efi.fd"), is_dir("$tmp/look/libvirt")];
+        exec('umount ' . escapeshellarg("$tmp/look"));
+        same('gap 7: … inside the new image: the archive\'s contents at its top (the VMs\' XML, their UEFI variables)', [true, true, false], $inside);
+    } else {
+        check('gap 7: … the image\'s inside: no loop device here (root and mkfs.ext4 needed) - not looked at', true);
+    }
+    $back = rsPlanPutback(['id' => '20261025-130000-aa11'], '20261025-140000');
+    same('gap 7: put back — the VM service off once more, the restored image aside, the old one back', [[], ['lv_off', 'aside', 'move', 'aside']],
+        [$back['blockers'], array_column($back['steps'], 'do')]);
+    $GLOBALS['rs']['lv_on'] = fn (string $i) => 'mounted';
+    same('gap 7: … put back refused while the VM service is on', 'restore_libvirt_service_on', rsPlanPutback(['id' => '20261025-130000-aa11'], '20261025-140000')['blockers'][0]['key'] ?? null);
+    $GLOBALS['rs']['lv_on'] = fn (string $i) => null;
+    $jb = restoreGapsRun($back, '20261025-140000-bb22');
+    same('gap 7: put back — libvirt.img is the old one again (its bytes), the restored one kept aside', ['ok', $md5, true],
+        [$jb['result'], md5_file($img), is_file("$img.putback-20261025-140000")]);
+    $GLOBALS['rs']['lv_on'] = fn (string $i) => 'mounted';
+    same('gap 7: the VM service on — refused', 'restore_libvirt_service_on', rsPlanLibvirtFor($server, $img, '20261025-150000', $ctx)['blockers'][0]['key'] ?? null);
+    $GLOBALS['rs']['lv_on'] = fn (string $i) => 'attached';
+    same('gap 7: off, but the image still attached as a loop device (a container holding the host\'s /) — refused, said so', 'restore_libvirt_attached',
+        rsPlanLibvirtFor($server, $img, '20261025-150000', $ctx)['blockers'][0]['key'] ?? null);
+    $GLOBALS['rs']['lv_on'] = fn (string $i) => null;
+    // review M5: his copy's umount fails (busy) — tried again, then said: the loop device stays until a reboot
+    $keepCmd = $GLOBALS['rs']['lv_cmd'] ?? null;
+    $GLOBALS['rs']['lv_cmd'] = fn (array $cmd) => $cmd[0] === 'mount' ? [is_dir((string) end($cmd)) ? 0 : 1, '', ''] : [32, '', 'target is busy'];
+    $p5 = rsPlanLibvirtFor($server, $img, '20261025-160000', $ctx);
+    $j5 = restoreGapsRun($p5, '20261025-160000-cc33');
+    $f5 = array_values(array_filter($j5['steps'], fn ($x) => ($x['state'] ?? '') === 'failed'))[0] ?? [];
+    same('review M5: the copy\'s umount fails twice — the build fails saying the loop device stays attached', ['failed', 'lv_build', 'lv_umount_failed', 2],
+        [$j5['result'], $f5['do'] ?? null, $f5['note'] ?? null, 2]);
+    if ($keepCmd !== null) {
+        $GLOBALS['rs']['lv_cmd'] = $keepCmd;
+    } else {
+        unset($GLOBALS['rs']['lv_cmd']);
+    }
+    exec('rm -rf ' . escapeshellarg("$img.restored-20261025-160000") . ' ' . escapeshellarg((string) $p5['steps'][1]['mnt']));
+    // review L4: an archive with a link out of libvirt's folder — refused (tar could write through it); libvirt's own
+    // autostart links (relative, or absolute into /etc/libvirt — Tower's archive has one) are fine
+    @mkdir("$tmp/lnk/libvirt/qemu/networks/autostart", 0755, true);
+    file_put_contents("$tmp/lnk/libvirt/qemu/networks/default.xml", '<network/>');
+    @symlink('../default.xml', "$tmp/lnk/libvirt/qemu/networks/autostart/default.xml");
+    @symlink('/etc/libvirt/qemu/Schule.xml', "$tmp/lnk/libvirt/qemu/networks/autostart/Schule.xml");
+    exec('tar -C ' . escapeshellarg("$tmp/lnk") . ' -czf ' . escapeshellarg("$tmp/lnk-ok.tar.gz") . ' libvirt');
+    @symlink('/etc', "$tmp/lnk/libvirt/x");
+    exec('tar -C ' . escapeshellarg("$tmp/lnk") . ' -czf ' . escapeshellarg("$tmp/lnk.tar.gz") . ' libvirt');
+    same('review L4: libvirt\'s own autostart links — fine; a link out of its folder — refused', [[], 'restore_libvirt_archive_bad'],
+        [rsPlanLibvirtFor(['libvirt' => "$tmp/lnk-ok.tar.gz"] + $server, $img, '20261025-150000', $ctx)['blockers'],
+         rsPlanLibvirtFor(['libvirt' => "$tmp/lnk.tar.gz"] + $server, $img, '20261025-150000', $ctx)['blockers'][0]['key'] ?? null]);
+    $bad = $tmp . '/bad.tar.gz';
+    @mkdir("$tmp/evil/etc", 0755, true);
+    file_put_contents("$tmp/evil/etc/passwd", 'x');
+    exec('tar -C ' . escapeshellarg("$tmp/evil") . ' -czf ' . escapeshellarg($bad) . ' etc');
+    same('gap 7: no archive; an archive with anything outside libvirt/; no image; an image that is a link — refused',
+        ['restore_libvirt_no_archive', 'restore_libvirt_archive_bad', 'restore_libvirt_no_image', 'restore_path_link'],
+        [rsPlanLibvirtFor([], $img, '20261025-150000', $ctx)['blockers'][0]['key'] ?? null,
+         rsPlanLibvirtFor(['libvirt' => $bad] + $server, $img, '20261025-150000', $ctx)['blockers'][0]['key'] ?? null,
+         rsPlanLibvirtFor($server, "$tmp/system/libvirt/none.img", '20261025-150000', $ctx)['blockers'][0]['key'] ?? null,
+         (function () use ($tmp, $img, $server, $ctx) { symlink($img, "$tmp/system/libvirt/link.img");
+             return rsPlanLibvirtFor($server, "$tmp/system/libvirt/link.img", '20261025-150000', $ctx)['blockers'][0]['key'] ?? null; })()]);
+    $GLOBALS['rs'] = $keep;
+    hardeningRm($tmp);
+}
+
 function testRestoreTruthChips(): void
 {
     $partners = [['id' => 'a1b2c3d4', 'name' => 'Vault', 'units' => [
@@ -55053,7 +55507,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
-                      'testRestoreReviewPaths', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
+                      'testRestoreReviewPaths', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];

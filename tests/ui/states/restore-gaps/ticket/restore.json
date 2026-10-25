@@ -1,0 +1,249 @@
+{
+  "time": 1791551074,
+  "host": "Tower",
+  "engine": {
+    "found": true,
+    "settings": true,
+    "busy": false,
+    "holder": null,
+    "kopia": false,
+    "kopia_container": "kopia",
+    "mount_root": "/mnt/addons/UnraidSecretaryOffice/snapshots",
+    "view_root": "/mnt/addons/UnraidSecretaryOffice/btrfs-snap",
+    "prefix": "uso-backup-",
+    "flash": "tar"
+  },
+  "place": {
+    "share": "UnraidSecretaryOffice",
+    "base": null,
+    "asleep": false,
+    "found": false,
+    "partner": null,
+    "snaps": 0
+  },
+  "kopia": {
+    "enabled": false,
+    "container": null,
+    "running": false,
+    "root": null,
+    "restore": null
+  },
+  "compose_root": "/boot/config/plugins/compose.manager/projects",
+  "templates_dir": "/boot/config/plugins/dockerMan/templates-user",
+  "libvirt_img": "/mnt/user/system/libvirt/libvirt.img",
+  "vm_service": true,
+  "pools_asleep": [],
+  "shares": [
+    {
+      "name": "appdata",
+      "mode": "snapshot",
+      "last": null
+    },
+    {
+      "name": "domains",
+      "mode": "snapshot",
+      "last": null
+    },
+    {
+      "name": "isos",
+      "mode": "snapshot",
+      "last": null
+    },
+    {
+      "name": "media",
+      "mode": "snapshot",
+      "last": null
+    },
+    {
+      "name": "nextcloud",
+      "mode": "snapshot",
+      "last": null
+    },
+    {
+      "name": "photos",
+      "mode": "snapshot",
+      "last": null
+    },
+    {
+      "name": "speedtest",
+      "mode": "snapshot",
+      "last": null
+    },
+    {
+      "name": "system",
+      "mode": "off",
+      "last": null
+    },
+    {
+      "name": "UnraidSecretaryOffice",
+      "mode": "snapshot",
+      "last": null
+    }
+  ],
+  "shares_back": [],
+  "apps": [],
+  "vms": [],
+  "server": null,
+  "flash": null,
+  "run": null,
+  "run_time": null,
+  "running": null,
+  "restores": [],
+  "partners": [
+    {
+      "id": "7f3e9a10",
+      "name": "PartnerNAS",
+      "kind": "ticket",
+      "of": "FamilienServer",
+      "expires": 1792067897,
+      "looked": 1791549497,
+      "tried": 1791549497,
+      "reachable": true,
+      "why": null,
+      "looking": false,
+      "units": [
+        {
+          "unit": "place",
+          "snaps": [
+            {
+              "name": "uso-backup-20261009-0430",
+              "used": 0,
+              "referenced": 151420928,
+              "creation": 1791513012
+            },
+            {
+              "name": "uso-backup-20261009-0117",
+              "used": 151310336,
+              "referenced": 151396352,
+              "creation": 1791501438
+            },
+            {
+              "name": "uso-backup-20261008-1701",
+              "used": 151080960,
+              "referenced": 151166976,
+              "creation": 1791471691
+            },
+            {
+              "name": "uso-backup-20261008-1328",
+              "used": 151044096,
+              "referenced": 151130112,
+              "creation": 1791458906
+            },
+            {
+              "name": "uso-backup-20261008-0937",
+              "used": 131047424,
+              "referenced": 131080192,
+              "creation": 1791445024
+            }
+          ],
+          "newest": 1791513012,
+          "why": null,
+          "known": true
+        },
+        {
+          "unit": "share:appdata",
+          "snaps": [
+            {
+              "name": "uso-backup-20261008-0937",
+              "used": 0,
+              "referenced": 244850688,
+              "creation": 1791445024
+            },
+            {
+              "name": "uso-backup-20261008-0736",
+              "used": 442368,
+              "referenced": 244764672,
+              "creation": 1791437781
+            },
+            {
+              "name": "uso-backup-20261008-0430",
+              "used": 1073152,
+              "referenced": 244789248,
+              "creation": 1791426605
+            },
+            {
+              "name": "uso-backup-20261008-0015",
+              "used": 2277376,
+              "referenced": 222027776,
+              "creation": 1791411354
+            },
+            {
+              "name": "uso-backup-20261007-1313",
+              "used": 3620864,
+              "referenced": 222760960,
+              "creation": 1791371630
+            }
+          ],
+          "newest": 1791445024,
+          "why": null,
+          "known": true
+        },
+        {
+          "unit": "share:domains",
+          "snaps": [
+            {
+              "name": "uso-backup-20261009-0430",
+              "used": 0,
+              "referenced": 98304,
+              "creation": 1791513012
+            },
+            {
+              "name": "uso-backup-20261009-0117",
+              "used": 0,
+              "referenced": 98304,
+              "creation": 1791501438
+            },
+            {
+              "name": "uso-backup-20261008-1701",
+              "used": 0,
+              "referenced": 98304,
+              "creation": 1791471691
+            },
+            {
+              "name": "uso-backup-20261008-1328",
+              "used": 0,
+              "referenced": 98304,
+              "creation": 1791458906
+            },
+            {
+              "name": "uso-backup-20261008-0937",
+              "used": 0,
+              "referenced": 98304,
+              "creation": 1791445024
+            },
+            {
+              "name": "uso-backup-20261008-0736",
+              "used": 0,
+              "referenced": 98304,
+              "creation": 1791437781
+            },
+            {
+              "name": "uso-backup-20261008-0430",
+              "used": 0,
+              "referenced": 98304,
+              "creation": 1791426605
+            }
+          ],
+          "newest": 1791513012,
+          "why": null,
+          "known": true
+        }
+      ],
+      "pools": null
+    }
+  ],
+  "kept": [],
+  "flash_backup": {
+    "mode": "tar",
+    "protection": "local",
+    "protection_note": {
+      "set": "local",
+      "why": [],
+      "since": null,
+      "partners": [
+        "PartnerNAS"
+      ],
+      "missed": []
+    }
+  }
+}

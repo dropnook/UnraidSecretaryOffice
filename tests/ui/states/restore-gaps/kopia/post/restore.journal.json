@@ -1,0 +1,4 @@
+{"ok": true, "journal": {"id": "20261009-061502-7a1c", "kind": "kopia", "result": "ok", "steps": [
+  {"do": "kopia", "state": "ok", "source": ".apps/nextcloud", "host": "/mnt/user/UnraidSecretaryOffice/restore/kopia/apps_nextcloud-20261009-061502"}],
+  "aside": [], "after": [{"key": "after.kopia", "params": {"path": "/mnt/user/UnraidSecretaryOffice/restore/kopia/apps_nextcloud-20261009-061502"}}]},
+ "log": ["Restore 20261009-061502-7a1c (kopia: apps/nextcloud), 1 steps", "Done: ok"]}

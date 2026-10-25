@@ -73,6 +73,7 @@ The detailed build notes up to 1.60.0 (every helper and test by name) are in tha
 | What Mr. Restori pulled back from a partner | a new dataset beside the original (`<dataset>.restored-<time>`; on a new server `<pool>/UnraidSecretaryOffice-restored/<unit>`), mounted read-only under `/mnt/addons/UnraidSecretaryOffice/restored/` |
 | Ms. Dustdevil's storeroom | `.UnraidSecretaryOffice-trash` (hidden; up to issue #7 `_UnraidSecretaryOffice-trash`, still read and moved over once) on the same disk or pool as what was put away |
 | What Mr. Restori replaced on the flash or in libvirt.img | `/boot/config/.UnraidSecretaryOffice-restore/<time>/`, `/etc/libvirt/.UnraidSecretaryOffice-restore/<time>/` (hidden; formerly `_UnraidSecretaryOffice-restore`) |
+| A share he swapped for a partner's pull; libvirt.img he replaced whole | `<pool>/.UnraidSecretaryOffice-restore-<time>-<share>` (a dataset, hidden: no share), `<libvirt.img>.aside-<time>` beside the image — kept until the user removes them |
 
 ## The data folder
 
@@ -720,7 +721,14 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   paged, searched; a link shown, never followed (no folder of the path may be one); a sleeping disk said, with «wake»; picks
   next to it, swapped in or into `UnraidSecretaryOffice/restore/files/<…>-<time>` (the share never made here); a partner's kept
   moment mounted read-only in RAM (`restore-peek-*`, unmounted at the job's end in any case) and only into that folder; my
-  copy at a partner comes over whole first (the door sends units, never a path). **The drill:**
+  copy at a partner comes over whole first (the door sends units, never a path). **The matrix's gaps 6–12**
+  (agent/desks/restore-partner.php, restore-libvirt.php, task/restore-gaps): an app's or VM's row pulls the unit holding it
+  (said first: the whole unit) and then opens step 4 on it (the page chains them; the journal of a pull or a staged Kopia
+  restore offers «Now to its place…» too); a pulled whole share is swapped in (`partner_swap`: the share's dataset aside
+  whole under `<pool>/.UnraidSecretaryOffice-restore-<time>-<share>`, never a share of its own, the pull renamed into its
+  place; refused while in use, under a running VM or an image, for the office's folders or inner datasets; put back swaps
+  them back, removing the pull waits meanwhile); libvirt.img whole (`libvirt`) only with the VM service off and the image
+  attached nowhere — built in a copy, the old image aside; the boot pool's snapshots are only named. **The drill:**
   throwaway containers only via `drillContainerArgs()` + `drillArgsSafe()`
   (`--network none`, no ports/binds/caps; too big = «not checked», never failed); refused during a parity check; a failed drill
   = one warning. Partner look from his tick, never a page request. **The flash archive's «Download…»** (`restore.flash_download`)

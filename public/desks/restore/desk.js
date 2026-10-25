@@ -61,6 +61,7 @@ function refreshLive() {
 
 /** Follows a restore while it runs: its journal straight from disk every two seconds (api part "job") */
 let jobFails = 0;
+let chained = null;            // a restore that opens the next step when it is done: {job, kind, id of the app or VM}
 async function pollJob() {
   clearTimeout(jobTimer);
   jobTimer = null;
@@ -81,6 +82,13 @@ async function pollJob() {
       Office.toast(T('job.done.' + (job.result === 'ok' ? 'ok' : job.result === 'warnings' ? 'warnings' : 'failed'), { what: job.what }), job.result !== 'ok');
       versions.clear();            // a package Kopia brought back is an earlier version now
       await load(true);
+      // a pull started for an app or VM (gap 8): its folders' restore on what came back
+      const c = chained && job && chained.job === job.id ? chained : null;
+      if (c) {
+        chained = null;
+        const r = (state.restores || []).find((x) => x.id === c.job);
+        if (r && ['ok', 'warnings'].includes(r.result)) placesFor(r, c.kind, c.id);
+      }
     }
   }
 }
@@ -300,7 +308,8 @@ function bubbleText() {
   if (run) return T('bubble.restoring', { what: run.what, n: run.step, total: run.steps });
   // a receiver keeps partners' copies without packages of its own (1.60.1): said as it is, not «they come with the first backup»
   const held = kept().reduce((n, p) => n + (p.units || []).filter((u) => (u.n || 0) > 0).length, 0);
-  if (!apps().length && !vms().length) return held ? T('bubble.kept_only', { n: held }) : T('bubble.no_packages');
+  const tp = !state.place.found && ticketPartner();       // a new server with a ticket: the packages come with the partner's copy (gap 10)
+  if (!apps().length && !vms().length) return held ? T('bubble.kept_only', { n: held }) : tp ? T('bubble.no_packages_ticket', { name: tp.name }) : T('bubble.no_packages');
   const out = [T('bubble.ready', { apps: T('count.apps', { n: apps().length }), vms: T('count.vms', { n: vms().length }), when: date(state.run_time) })];
   if (otherHolder()) out.push(T('bubble.busy_' + otherHolder()));
   const gone = apps().filter((a) => a.present === false).length + vms().filter((v) => v.state === 'missing').length;
@@ -449,7 +458,7 @@ function tileLine(sec) {
     const held = p.units.filter((u) => u.snaps.length);
     const newest = Math.max(0, ...held.map((u) => u.newest || 0));
     const line = p.looked === null ? T(p.looking ? 'tile.partner_asking' : 'tile.partner_never')
-      : held.length ? T('tile.partner_line', { n: held.length }) : T('tile.partner_none');
+      : held.length ? T(p.kind === 'ticket' ? 'tile.partner_line_ticket' : 'tile.partner_line', { n: held.length, of: p.of || '' }) : T('tile.partner_none');
     if (p.why === 'no_pair') return [T('tile.partner_no_pair'), ''];      // it no longer knows this pair: what it keeps is unknown now
     return [p.reachable === false ? T('tile.partner_as_of', { when: date(p.looked) }) : line, newest ? fmt.relative(newest) : ''];
   }
@@ -598,10 +607,39 @@ function barRows(s, name, list, wordsOf, missing) {
 const noFit = () => el('p', 'empty', T('list.none_fit'));
 
 // ------------------------------------------------------------------ apps
+/** A restore ticket here (a new server): the gone server's copies at a partner, the backup place among them */
+const ticketPartner = () => partners().find((p) => p.kind === 'ticket') || null;
+
+/**
+ * What an empty Apps, VMs or Databases says (the restore matrix's gap 10): packages in the place but none of this kind —
+ * none there; no place yet on a new server with a ticket — they come with the backup place from that partner (the one
+ * step «Onto a new server» starts with); else with Mr. Backupsy's first backup run
+ */
+function noPackagesText(kind) {
+  if (state.place.found) return T(`${kind}_none`);
+  if (kind === 'dbs' && apps().length) return T('dbs_none');
+  const tp = ticketPartner();
+  return tp ? T(kind === 'vms' ? 'vms_from_ticket' : 'apps_from_ticket', { name: tp.name }) : T('apps_no_packages');
+}
+
+/** The empty line, with the way to that step when the packages wait at a ticket's partner */
+function noPackages(kind) {
+  const p = el('p', 'empty', noPackagesText(kind));
+  const tp = !state.place.found && ticketPartner();
+  if (tp) {
+    const go = el('a', '', T('ticket_link', { name: tp.name }));
+    go.href = '#/restore';
+    go.dataset.own = '1';
+    go.onclick = (e) => { e.preventDefault(); openSection('move'); };
+    p.append(' ', go);
+  }
+  return p;
+}
+
 function appsSection() {
   const list = apps();
   const s = sectionBox(T('apps'), T('apps_sub'), list.length > 1 ? unfoldAll() : null, { place: 'apps' });
-  if (!list.length) { s.appendChild(el('p', 'empty', state.place.found ? T('apps_none') : T('apps_no_packages'))); return s; }
+  if (!list.length) { s.appendChild(noPackages('apps')); return s; }
   const metas = new Map(list.map((a) => [a, appMeta(a)]));
   const fits = barRows(s, 'apps', list, (a) => [a.name, a.id, metas.get(a).textContent], (a) => a.present === false);
   const box = el('div', 'box');
@@ -627,16 +665,26 @@ function rowChips(meta, x, extraPackage, extraData) {
     ...extraPackage,
     own ? null : kopiaChip(x.kopia, ['package']),
   ]);
-  const data = chipGroup(T('chip.label_data'), [...extraData, snapsChip(x.folders), kopiaChip(x.kopia, ['data', 'all']), ...(x.at_partner || []).map(atPartnerChip),
+  const data = chipGroup(T('chip.label_data'), [...extraData, snapsChip(x.folders), kopiaChip(x.kopia, ['data', 'all']), ...(x.at_partner || []).map((c) => atPartnerChip(c, x)),
     protChip(weakestFolder(x.folders))]);
   [pkg, data].forEach((g) => { if (g) meta.appendChild(g); });
 }
 
-/** «at <partner>»: a partner office keeps a unit this row's data lies in — a click opens its tile */
-function atPartnerChip(c) {
-  const x = chip(T('chip.at_partner', { name: c.name }), 'ok', T('chip.at_partner_hint', { name: c.name, unit: unitLabel(c.unit), n: c.n, when: date(c.newest) }));
+/**
+ * «at <partner>»: a partner office keeps a unit this row's data lies in — a click fetches it from there (the restore matrix's
+ * gap 8): pulled already, its folders' restore; else the pull, said first how much comes (the whole unit). While he can't
+ * restore (another restore, the engine busy): its tile.
+ */
+function atPartnerChip(c, owner) {
+  const x = chip(T('chip.at_partner', { name: c.name }), 'ok', T('chip.at_partner_go', { name: c.name, unit: unitLabel(c.unit), n: c.n, when: date(c.newest) }));
   x.dataset.own = '1';
-  x.onclick = () => openSection('partner:' + c.id);
+  x.onclick = () => {
+    const kind = vms().includes(owner) ? 'vm' : 'app';
+    const pulled = pulledOf(c.id, c.unit);
+    if (!canRestore()) openSection('partner:' + c.id);
+    else if (pulled) placesFor(pulled, kind, owner.id);
+    else partnerFetch(owner, kind, c);
+  };
   return x;
 }
 
@@ -674,6 +722,8 @@ function appDetail(a) {
   box.appendChild(packageBlock(a));
   box.appendChild(snapshotsBlock(a.folders, a.shares, a));
   if (kopia().enabled) box.appendChild(kopiaBlock(a.kopia));
+  const pa = partnerPart(a, 'app');
+  if (pa) box.appendChild(pa);
   if ((a.own_backups || []).length) box.appendChild(ownBlock(a));
   return box;
 }
@@ -910,6 +960,89 @@ const kopiaHolds = (p) => kopia().enabled && kopia().running && !!kopia().restor
 const kopiaFetched = (c) => (state.restores || []).some((r) => r.kind === 'kopia' && ['ok', 'warnings'].includes(r.result) && r.target
   && r.target.snapshot === c.snapshot && r.target.source === c.source && (r.target.path === c.path || !r.target.path));
 
+/**
+ * Where what a restore brought back belongs (the restore matrix's gaps 9 and 8): the folders of the apps and VMs, and the
+ * shares, that a finished Kopia restore staged in its restore folder (a whole source, or one path of it kept there) or a
+ * partner pull holds — each with the moment it became for step 4's dialog, as the agent names it (rsKopiaRestored():
+ * `kopia:<journal>`, rspRestored(): `partner:<journal>:<unit>`). Nothing for one put back, failed, or already in place.
+ *
+ * @return list<{path, label, whole, snap}>
+ */
+function placesBack(r) {
+  const t = (r && r.target) || {};
+  if (!r || !['ok', 'warnings'].includes(r.result) || r.putback || r.swapped_by) return [];
+  const units = [];
+  const own = (x) => (x.kopia || []).filter((k) => k.own).map((k) => k.source);
+  apps().forEach((a) => [...(a.folders || []), ...(a.shares || [])].forEach((f) => units.push({ path: f.path, label: a.name, whole: !!f.whole, own: own(a) })));
+  vms().forEach((v) => (v.folders || []).forEach((f) => units.push({ path: f.path, label: v.name, whole: false, own: own(v) })));
+  sharesBack().forEach((x) => units.push({ path: x.path, label: T('pt.unit_share', { name: x.name }), whole: true, own: [] }));
+  const inside = (p, root) => p === root || p.startsWith(String(root).replace(/\/+$/, '') + '/');
+  const shareOf = (p) => String(p).split('/')[3] || '';
+  let fits = null;
+  let snap = '';
+  if (r.kind === 'kopia') {
+    snap = 'kopia:' + r.id;
+    const src = String(t.source || '');
+    if (t.path) fits = t.mode === 'stage' && t.live ? (u) => inside(u.path, t.live) : null;
+    else if (src.startsWith('.')) fits = (u) => u.own.includes(src);       // an app's or VM's own source: all its folders
+    else fits = (u) => shareOf(u.path) === src;
+  } else if (r.kind === 'partner' && t.unit && t.unit !== 'place' && t.path) {
+    snap = `partner:${r.id}:${t.unit}`;
+    fits = (u) => inside(u.path, t.path);
+  }
+  if (!fits) return [];
+  const seen = new Set();
+  return units.filter((u) => fits(u) && !seen.has(u.path) && seen.add(u.path)).map((u) => ({ path: u.path, label: u.label, whole: u.whole, snap }));
+}
+
+/** A pull that can become its share (gap 6): a whole share's, landed beside its dataset at a pool's top, still here */
+const swappable = (r) => !!r && r.kind === 'partner' && ['ok', 'warnings'].includes(r.result) && !r.putback && !r.swapped_by && r.target
+  && String(r.target.unit || '').startsWith('share:') && /^[^/]+\/[^/]+\.restored-\d{8}-\d{6}$/.test(String(r.target.dataset || ''));
+
+/** «Swap it in…» under a pull of a whole share, or — swapped — the way to the swap's entry (gap 6) */
+function swapPart(r) {
+  const share = String((r.target || {}).unit || '').slice(6);
+  if (r.swapped_by) {
+    const p = el('p', 'role');
+    const go = el('a', '', T('j.swapped', { share }));
+    go.href = '#/restore';
+    go.dataset.own = '1';
+    go.onclick = (e) => { e.preventDefault(); openJournal(r.swapped_by); };
+    p.appendChild(go);
+    return p;
+  }
+  if (!swappable(r)) return null;
+  const p = el('div', 'rs-act');
+  p.append(restoreButton(T('j.swap'), { kind: 'partner_swap', id: r.id }, T('rd.title.swap', { share, name: r.target.partner || '' })), ' ',
+    el('span', 'role', T('j.swap_hint', { share })));
+  return p;
+}
+
+/** «Now to their place…»: each folder or share a restore brought back, with step 4's dialog on that moment */
+function placesPart(r, list = placesBack(r)) {
+  if (!list.length) return null;
+  const part = el('div', 'rs-pv-part rs-places-back');
+  part.appendChild(el('div', 'rs-part-title', T('j.place_title')));
+  part.appendChild(el('div', 'role', T(r.kind === 'partner' ? 'j.place_text_partner' : 'j.place_text', { n: list.length })));
+  const box = el('div', 'box');
+  list.forEach((u) => {
+    const row = el('div', 'row nocheck');
+    const main = el('div', 'row-main');
+    main.appendChild(el('div', 'row-name text', u.label));
+    const meta = el('div', 'row-meta');
+    meta.appendChild(copyCode(u.path));
+    main.appendChild(meta);
+    row.appendChild(main);
+    const right = el('div', 'rs-right');
+    right.appendChild(restoreButton(T('j.place_go'), { kind: 'files', path: u.path, snap: u.snap },
+      u.whole ? T('rd.title.share', { share: u.path.split('/')[3] }) : T('rd.title.files', { what: u.path })));
+    row.appendChild(right);
+    box.appendChild(row);
+  });
+  part.appendChild(box);
+  return part;
+}
+
 /** Earlier nights' packages, from the snapshots of the backup place's share - read when opened; and what Kopia keeps (1.72) */
 function earlierPart(kind, p) {
   const key = `${kind}:${p.id}`;
@@ -1110,9 +1243,10 @@ function kopiaBlock(sources) {
     line.append(copyCode(`${kopiaRoot()}/${s.source}`), ' ');
     line.appendChild(el('span', '', T('kp.covers_' + (s.covers || (s.own ? 'all' : 'data')))));
     line.appendChild(s.last ? chip(T('chip.kopia', { when: fmt.relative(s.last) }), 'ok', fmt.date(s.last)) : chip(T('chip.kopia_never'), 'warn', T('chip.kopia_never_hint')));
-    // 1.72: straight into that source's snapshots — browsed, a folder or a file of it, or all of it
+    // 1.72: straight into that source's snapshots — browsed, a folder or a file of it, or all of it; the source's own
+    // «Restore…», as on the Offsite tile (the restore matrix's gap 9: one hop, never the general guide first)
     if (kopia().restore && s.covers !== 'package') {
-      const go = button(T('kp.browse'), 'small', () => kopiaDialog(s.source, `${kopiaRoot()}/${s.source}`));
+      const go = button(T('kr.button'), 'small', () => kopiaDialog(s.source, `${kopiaRoot()}/${s.source}`));
       go.dataset.own = '1';
       go.disabled = !canRestore() || !kopia().running;
       line.append(' ', go);
@@ -1120,7 +1254,9 @@ function kopiaBlock(sources) {
     b.appendChild(line);
   });
   if (sources.length) {
-    const go = el('a', '', T('kp.guide'));
+    // with a restore folder the buttons above are the way; the guide is the way by hand (KopiaUI) — without one, it is
+    // the way, and says how to map a folder
+    const go = el('a', '', T(kopia().restore ? 'kp.guide_hand' : 'kp.guide'));
     go.href = '#/restore';
     go.onclick = (e) => { e.preventDefault(); openSection('kopia'); };
     const p = el('p', 'role');
@@ -1128,6 +1264,110 @@ function kopiaBlock(sources) {
     b.appendChild(p);
   }
   return b;
+}
+
+// ------------------------------------------------------------------ from a partner (the restore matrix's gap 8)
+/** A pull of this unit from this partner that is still here (done, not put back, not swapped in): its journal row */
+function pulledOf(pair, unit) {
+  return (state.restores || []).find((r) => r.kind === 'partner' && ['ok', 'warnings'].includes(r.result) && !r.putback
+    && r.target && r.target.pair === pair && r.target.unit === unit && !r.swapped_by) || null;
+}
+
+/** The newest moment a partner keeps of a unit (its row in «At <partner>») */
+function partnerNewest(pair, unit) {
+  const p = partnerOf(pair);
+  const u = p && (p.units || []).find((y) => y.unit === unit);
+  return (u && u.snaps && u.snaps[0]) || null;
+}
+
+/** A small action button of his (off while he can't restore) */
+function actButton(text, act) {
+  const b = button(text, 'small', act);
+  b.dataset.own = '1';
+  b.disabled = !canRestore();
+  if (b.disabled) b.title = runningJob() ? T('rd.wait_restore') : otherHolder() ? T('notice.busy_' + otherHolder()) : '';
+  return b;
+}
+
+/**
+ * «From a partner» in an app's or VM's row: per partner unit its data lies in — what is kept there; pulled already: its
+ * folders back on that moment; else «Fetch from <partner>…» (the whole unit comes — said in the dialog first). Then its
+ * package: in the backup place at the partner, pulled on its own (then «Earlier backups» offers it).
+ */
+function partnerPart(x, kind) {
+  const list = x.at_partner || [];
+  const places = partners().filter((p) => (p.units || []).some((u) => u.unit === 'place' && (u.snaps || []).length));
+  if (!list.length && !places.length) return null;
+  const b = block(T('from_partner'), T(kind === 'vm' ? 'pa.text_vm' : 'pa.text'));
+  list.forEach((c) => {
+    const line = el('div', 'rs-place');
+    line.appendChild(el('span', '', T('pa.line', { name: c.name, unit: unitLabel(c.unit), n: c.n, when: date(c.newest) })));
+    const pulled = pulledOf(c.id, c.unit);
+    // swapped in as its share (gap 6): that copy is the share now — nothing to fetch or place
+    const swapped = !pulled && (state.restores || []).find((r) => r.kind === 'partner' && r.swapped_by && !r.putback && r.target
+      && r.target.pair === c.id && r.target.unit === c.unit);
+    const swap = swapped && (state.restores || []).find((r) => r.id === swapped.swapped_by);
+    if (swapped) line.append(' ', chip(T('pa.swapped', { when: date((swap && (swap.finished || swap.started)) || swapped.finished) }), 'ok', T('j.swapped', { share: String(c.unit).slice(6) })));
+    else if (pulled) {
+      line.append(' ', chip(T('pa.pulled', { when: date(pulled.finished) }), 'ok', T('pa.pulled_hint', { name: c.name })),
+        ' ', actButton(T('files.button'), () => placesFor(pulled, kind, x.id)));
+    } else if (partnerNewest(c.id, c.unit)) line.append(' ', actButton(T('pa.fetch', { name: c.name }), () => partnerFetch(x, kind, c)));
+    const all = el('a', '', T('sh.partner_all'));
+    all.href = `#/${ID}/partner:${c.id}`;
+    all.onclick = (e) => { e.preventDefault(); openSection('partner:' + c.id); };
+    line.append(' ', all);
+    b.appendChild(line);
+  });
+  places.forEach((p) => {
+    const line = el('div', 'rs-place');
+    if (pulledOf(p.id, 'place')) line.appendChild(el('span', '', T('pa.package_pulled', { name: p.name })));
+    else {
+      const snap = partnerNewest(p.id, 'place');
+      line.append(el('span', '', T('pa.package', { name: p.name })), ' ',
+        restoreButton(T('pa.place_fetch'), { kind: 'partner', pair: p.id, unit: 'place', snap: snap.name },
+          T('rd.title.partner', { what: unitLabel('place'), name: p.name, when: date(snap.creation) })));
+    }
+    b.appendChild(line);
+  });
+  return b;
+}
+
+/** What a pull brings, said before it starts (gap 8): the partner sends whole units — a share with every folder in it */
+function fetchLead(x, c) {
+  const snap = partnerNewest(c.id, c.unit) || {};
+  const params = { unit: unitLabel(c.unit), size: fmt.size(snap.referenced || 0), name: c.name, when: date(snap.creation) };
+  const box = el('div', 'rs-fetch-lead');
+  box.appendChild(el('p', 'callout', String(c.unit).startsWith('share:') ? T('pa.whole', { ...params, what: x.name }) : T('pa.whole_own', params)));
+  return box;
+}
+
+/** «Fetch from <partner>…»: the pull of the unit's newest moment — then, once it is here, its folders' restore opens */
+function partnerFetch(x, kind, c) {
+  const snap = partnerNewest(c.id, c.unit);
+  if (!snap) { openSection('partner:' + c.id); return; }
+  restoreDialog({ kind: 'partner', pair: c.id, unit: c.unit, snap: snap.name },
+    T('rd.title.partner', { what: unitLabel(c.unit), name: c.name, when: date(snap.creation) }), { lead: fetchLead(x, c), then: { kind, id: x.id } });
+}
+
+/** The folders of one app or VM among what a restore brought back (placesBack) */
+function ownerPlaces(r, kind, id) {
+  const o = (kind === 'vm' ? vms() : apps()).find((y) => y.id === id);
+  if (!o) return [];
+  const mine = new Set([...(o.folders || []), ...(o.shares || [])].map((f) => f.path));
+  return placesBack(r).filter((u) => mine.has(u.path));
+}
+
+/** After a pull for an app or VM: its folders' restore on that moment — one opens at once, several are offered */
+function placesFor(r, kind, id) {
+  const list = ownerPlaces(r, kind, id);
+  const o = (kind === 'vm' ? vms() : apps()).find((y) => y.id === id);
+  if (!list.length || !o) return;
+  if (list.length === 1) {
+    const u = list[0];
+    restoreDialog({ kind: 'files', path: u.path, snap: u.snap }, u.whole ? T('rd.title.share', { share: u.path.split('/')[3] }) : T('rd.title.files', { what: u.path }));
+    return;
+  }
+  Office.dialog({ title: T('pa.then_title', { what: o.name }), body: placesPart(r, list), wide: true, buttons: [{ text: Office.t('common.close') }] });
 }
 
 /** What the apps keep themselves (Emby's plugin, Jellyfin, Plex, Immich) - a second way back */
@@ -1147,7 +1387,7 @@ function vmsSection() {
   if (!state.vm_service) s.appendChild(el('p', 'callout', T('vm.service_off')));
   const lv = state.server && state.server.libvirt;
   if (lv) s.appendChild(vmAllFold(lv));
-  if (!list.length) { s.appendChild(el('p', 'empty', T('vms_none'))); return s; }
+  if (!list.length) { s.appendChild(noPackages('vms')); return s; }
   const metas = new Map(list.map((v) => [v, vmMeta(v)]));
   const fits = barRows(s, 'vms', list, (v) => [v.name, v.id, metas.get(v).textContent], (v) => v.state === 'missing');
   const box = el('div', 'box');
@@ -1157,14 +1397,28 @@ function vmsSection() {
   return s;
 }
 
-/** All of libvirt.img back from its archive: VM service off, unpack into the image, VM service on */
+/**
+ * All of libvirt.img back from its archive (the restore matrix's gap 7): what it replaces said first (every VM definition
+ * and network), the VM service off in Unraid (the user), then he swaps the image for a copy with the archive in it — the
+ * old one aside, «Put back» possible —, the VM service on again; the way by hand in a terminal folded below
+ */
 function vmAllFold(a) {
   const img = state.libvirt_img || '/mnt/user/system/libvirt/libvirt.img';
+  const off = !state.vm_service;
+  const go = restoreButton(T('vm.all_button'), { kind: 'libvirt' }, T('rd.title.libvirt', { when: date(state.server.libvirt_time) }));
+  if (!off) { go.disabled = true; go.title = T('vm.all_wait_off'); }
+  const s2 = rstep(T('vm.all_2_office'), T(off ? 'vm.all_2_text' : 'vm.all_2_wait', { file: img }));
+  const act = el('div', 'rs-act');
+  act.appendChild(go);
+  s2.appendChild(act);
   return fold('vm.all', T('vm.all', { when: date(state.server.libvirt_time), size: fmt.size(state.server.libvirt_bytes || 0) }),
     el('p', 'role', T('vm.all_text', { file: a })),
+    el('p', 'callout warn', T('vm.all_replaces', { when: date(state.server.libvirt_time) })),
     rstep(T('vm.all_1'), T('vm.all_1_text')),
-    rstep(T('vm.all_2'), null, `mkdir -p /tmp/libvirt-img && mount -o loop ${q(img)} /tmp/libvirt-img && tar -xzf ${q(a)} -C /tmp/libvirt-img --strip-components=1 && umount /tmp/libvirt-img`),
-    rstep(T('vm.all_3'), T('vm.all_3_text')));
+    s2,
+    rstep(T('vm.all_3'), T('vm.all_3_text')),
+    fold('vm.all_hand', T('vm.all_hand'),
+      rstep(T('vm.all_2'), null, `mkdir -p /tmp/libvirt-img && mount -o loop ${q(img)} /tmp/libvirt-img && tar -xzf ${q(a)} -C /tmp/libvirt-img --strip-components=1 && umount /tmp/libvirt-img`)));
 }
 
 function vmStateChip(v) {
@@ -1218,6 +1472,8 @@ function vmDetail(v) {
   if (needs) box.appendChild(needs);
   box.appendChild(snapshotsBlock(v.folders, [], v));
   if (kopia().enabled) box.appendChild(kopiaBlock(v.kopia));
+  const pa = partnerPart(v, 'vm');
+  if (pa) box.appendChild(pa);
   return box;
 }
 
@@ -1353,6 +1609,14 @@ function sharePartnerBlock(x) {
     all.onclick = (e) => { e.preventDefault(); openSection('partner:' + c.id); };
     line.append(' ', all);
     b.appendChild(line);
+    // pulled beside it already: it can become the share (gap 6) — the old dataset aside, put back possible
+    const pulled = (state.restores || []).find((r) => swappable(r) && r.target.pair === c.id && r.target.unit === c.unit);
+    if (pulled) {
+      const sw = el('div', 'rs-place');
+      sw.append(el('span', '', T('sh.partner_pulled', { name: c.name, when: date(pulled.finished) })), ' ',
+        restoreButton(T('j.swap'), { kind: 'partner_swap', id: pulled.id }, T('rd.title.swap', { share: x.name, name: c.name })));
+      b.appendChild(sw);
+    }
   });
   return b;
 }
@@ -1412,7 +1676,7 @@ function dbsSection() {
   const groups = dbGroups();
   const n = groups.reduce((s, g) => s + g.items.length, 0);
   const s = sectionBox(T('dbs'), T('dbs_sub'), n > 1 ? unfoldAll() : null, { place: 'dbs' });
-  if (!groups.length) { s.appendChild(el('p', 'empty', apps().length || state.place.found ? T('dbs_none') : T('apps_no_packages'))); return s; }
+  if (!groups.length) { s.appendChild(noPackages('dbs')); return s; }
   // the bar over every entry; a group keeps its head over the entries that fit (its app's name counts for each)
   const all = groups.flatMap((g) => g.items.map((x) => ({ g, x, meta: dbMeta(g.app, x) })));
   const fits = new Set(barRows(s, 'dbs', all, (r) => [r.g.app.name, dbName(r.x), r.x.container, r.x.file, r.meta.textContent], (r) => r.g.app.present === false));
@@ -1761,9 +2025,11 @@ function flashSection() {
     box.appendChild(el('p', 'empty', T(mode === 'snapshot' ? 'flash.snapshot_text' : mode === 'off' ? 'flash.off_text' : 'flash.none_text')));
     if (mode === 'snapshot') {
       const c = Office.backupChip(fb.protection, fb.protection_note);
-      if (c) box.appendChild(el('div', 'row-meta', c, ' ', el('span', '', T('flash.where_offsite_own'))));
+      if (c) { const m = el('div', 'row-meta'); m.append(c, ' ', el('span', '', T('flash.where_offsite_own'))); box.appendChild(m); }
     }
     s.appendChild(box);
+    const boot = bootSnapsPart(fb);
+    if (boot) s.appendChild(boot);
     return s;
   }
   const f = state.flash;
@@ -1791,9 +2057,29 @@ function flashSection() {
   r.appendChild(right);
   box.appendChild(r);
   s.appendChild(box);
+  const boot = bootSnapsPart(fb);
+  if (boot) s.appendChild(boot);
   s.appendChild(el('p', 'role', T('flash.single_files')));
   s.appendChild(el('p', 'role', T('flash.new_server')));
   return s;
+}
+
+/**
+ * The boot pool's own snapshots (the restore matrix's gap 12): one more place the flash lives — how many of its dataset,
+ * the newest, its read-only folder to copy single pieces from by hand. Only named (the flash is download only): no
+ * button, the boot pool never rolled back here. Nothing when the flash isn't on ZFS or none are there.
+ */
+function bootSnapsPart(fb) {
+  const b = fb && fb.boot;
+  if (!b || (!b.asleep && !b.count)) return null;
+  const part = el('div', 'rs-flash-boot');
+  if (b.asleep) { part.appendChild(el('p', 'role', T('flash.boot_snaps_asleep', { dataset: b.dataset }))); return part; }
+  const line = el('p', '');
+  // kept with snapshots (the engine's mode): these are the ones his text above means — else one more place besides the archive
+  line.append(T(fb.mode === 'snapshot' ? 'flash.boot_snaps_these' : 'flash.boot_snaps', { n: b.count, dataset: b.dataset, when: date(b.newest && b.newest.time) }), ' ');
+  if (b.newest) line.appendChild(copyCode(`${b.path}/${b.newest.name}`));
+  part.append(line, el('p', 'role', T('flash.boot_snaps_how')));
+  return part;
 }
 
 /** «Download…»: what the archive holds said first (the licence key, the password hashes), then the browser saves it */
@@ -2070,9 +2356,10 @@ function momentView(m) {
  * an explicit «I have read it», then the start with the preview's token — the agent builds the plan
  * again and runs it only when it is still the same.
  */
-async function restoreDialog(req, title) {
+async function restoreDialog(req, title, how = {}) {
   if (!(await Office.freshState(ID))) return;      // what comes back rests on his look: a fresh one (the preview looks again too)
   const body = el('div', 'rs-dlg');
+  if (how.lead) body.appendChild(how.lead);        // what the caller says first (a pull for an app: the whole unit comes)
   const opts = el('div', 'rs-opts');
   const pv = el('div');
   const ok = el('label', 'check rs-confirm');
@@ -2095,7 +2382,7 @@ async function restoreDialog(req, title) {
     onClose: () => clearTimeout(timer),
     buttons: [
       { text: Office.t('common.cancel') },
-      { text: T(req.kind === 'putback' ? 'rd.go_putback' : req.kind === 'partner_start' ? 'rd.go_start' : 'rd.go'), kind: 'danger', act: start },
+      { text: T(req.kind === 'putback' ? 'rd.go_putback' : req.kind === 'partner_start' ? 'rd.go_start' : req.kind === 'partner_swap' ? 'rd.go_swap' : 'rd.go'), kind: 'danger', act: start },
     ],
   });
   const go = d.buttons[1];
@@ -2173,6 +2460,7 @@ async function restoreDialog(req, title) {
     }
     if (j.state) state = j.state;
     if (j.journal) job = j.journal;
+    if (how.then && j.id) chained = { ...how.then, job: j.id };      // once it is done: the next step opens (gap 8)
     Office.toast(T('rd.started', { what: plan.what }));
     expanded.add('j:' + j.id);
     sw.pick('journal', 'route');
@@ -2992,14 +3280,22 @@ function journalDetail(r) {
     const pb = r.putback && ['ok', 'warnings'].includes(r.putback.result) ? r.putback : null;
     if (pb) box.appendChild(putBackView(pb));     // undone: what «Afterwards» said is over — where the restored state went instead
     else if ((j.after || r.after || []).length && ['ok', 'warnings'].includes(j.result || r.result)) box.appendChild(listBlock(T('rd.after'), (j.after || r.after).map((a) => T(a.key, nice(a.params)))));
+    // staged in Kopia's restore folder, or pulled beside: each folder it holds to its place, from here (gaps 9 and 8)
+    const places = !live && !pb ? placesPart(r) : null;
+    if (places) box.appendChild(places);
     if (log && log.length) box.appendChild(fold(`log:${r.id}`, T('j.log'), el('pre', 'code rs-j-log', log.join('\n'))));
-    if (r.can_putback) {
+    // a pull of a whole share (gap 6): swapped in from here — or it is the share now (its own entry puts it back)
+    const sw6 = !live && !pb ? swapPart(r) : null;
+    if (sw6) box.appendChild(sw6);
+    if (r.swapped_by) {
+      // nothing to remove while it is the share: the swap's entry puts it back first
+    } else if (r.can_putback) {
       const p = el('div', 'rs-act');
       if (left.length) {
         p.append(restoreButton(T('j.remove_unfinished'), { kind: 'putback', id: r.id }, T('rd.title.unfinished', { what: journalTitle(r) })), ' ', el('span', 'role', T('j.remove_unfinished_hint')));
       } else {
         p.append(restoreButton(T(r.kind === 'partner' ? 'j.drop' : 'j.putback'), { kind: 'putback', id: r.id }, T('rd.title.putback', { what: journalTitle(r) })), ' ',
-          el('span', 'role', T(r.kind === 'partner' ? 'j.drop_hint' : r.kind === 'partner_start' ? 'j.start_putback_hint' : 'j.putback_hint')));
+          el('span', 'role', T(putbackHint(r))));
       }
       box.appendChild(p);
     } else if (!live && ['ok', 'warnings'].includes(r.result) && !r.putback && r.kind !== 'putback') box.appendChild(el('p', 'role', T(r.kind === 'kopia' ? 'j.no_putback_kopia' : 'j.no_putback')));
@@ -3024,6 +3320,15 @@ function journalDetail(r) {
     }
   }
   return box;
+}
+
+/** What «Put back» does, said beside it — a libvirt restore whose build failed swapped nothing: only its leftover copy goes aside (review M4) */
+function putbackHint(r) {
+  if (r.kind === 'partner') return 'j.drop_hint';
+  if (r.kind === 'partner_start') return 'j.start_putback_hint';
+  if (r.kind === 'partner_swap') return 'j.swap_putback_hint';
+  if (r.kind === 'libvirt') return (r.aside || []).length ? 'j.libvirt_putback_hint' : 'j.libvirt_leftover_hint';
+  return 'j.putback_hint';
 }
 
 /** A restore that was put back: when, where what it had restored went (<x>.putback-<time>), and its put back's own entry */
@@ -3156,6 +3461,6 @@ Office.placesFrom(ID, (s, part) => {
 // tests/run.php runs the databases tile's logic and the preview's sizes under node
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.restore = { setState: (s) => { state = s; }, greetOk, shareFromKopia, kopiaFetched, dbGroups, dbName, dbRequest, earlierOf, tileLine, sizesDone,
-    setJob: (j) => { job = j; }, runCardData, runCard, shortStep, liveJob, runCardShort, bubbleText, snapsChip };
+    noPackagesText, noPackages, bootSnapsPart, placesBack, placesPart, swapPart, swappable, vmAllFold, putbackHint, kopiaBlock, partnerPart, fetchLead, atPartnerChip, ownerPlaces, setJob: (j) => { job = j; }, runCardData, runCard, shortStep, liveJob, runCardShort, bubbleText, snapsChip };
 }
 })();

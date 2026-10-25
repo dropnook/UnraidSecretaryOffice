@@ -76,6 +76,7 @@ require_once __DIR__ . '/restore-partner.php';
 require_once __DIR__ . '/restore-dataset.php';      // «Make it a dataset of its own…» (1.60.1, asked from Mr. Backupsy's setup)
 require_once __DIR__ . '/restore-paths.php';        // 1.72: every share, one path out of Kopia, Kopia's packages as earlier versions
 require_once __DIR__ . '/restore-browse.php';       // files and folders at any depth of a moment, local or kept for a partner (matrix gap 4)
+require_once __DIR__ . '/restore-libvirt.php';      // all of libvirt.img back from its archive, the VM service off (matrix gap 7)
 
 function rsSizesFile(): string
 {
@@ -1008,7 +1009,53 @@ function rsPackages(string $base): array
 function rsFlashBackup(array $engine): array
 {
     $info = backupProtectionInfo('/boot/config');
-    return ['mode' => $engine['flash'], 'protection' => $info['level'], 'protection_note' => backupProtectionNote($info)];
+    return ['mode' => $engine['flash'], 'protection' => $info['level'], 'protection_note' => backupProtectionNote($info),
+            'boot' => rsBootSnaps()];
+}
+
+/**
+ * The boot pool's own snapshots (a flash on ZFS, Unraid 7.3's internal boot — the engine's in snapshot mode, Ms.
+ * Snapshotini's plans, the user's): the dataset mounted at /boot, how many snapshots of it alone, the newest — named on
+ * «The flash» as one more place it lives, read-only under /boot/.zfs/snapshot/<name> (the restore matrix's gap 12). Only
+ * named: single files are copied by hand, the boot pool never rolled back here. A pool asleep is never asked. Null: the
+ * flash isn't on ZFS (a stick).
+ *
+ * @return array{dataset: string, count: ?int, newest: ?array{name: string, time: int}, oldest: ?int, path: string, asleep: bool}|null
+ */
+function rsBootSnaps(?array $asleep = null): ?array
+{
+    $ds = $GLOBALS['rs']['boot_ds'] ?? null;             // tests: the dataset (false: none)
+    if ($ds === null) {
+        foreach (mountTable() as $m) {
+            $ds = $m['mount'] === '/boot' && $m['fs'] === 'zfs' ? $m['source'] : $ds;
+        }
+    }
+    if (!is_string($ds) || !preg_match('/^[A-Za-z][A-Za-z0-9_.:-]{0,63}(?:\/[A-Za-z0-9_.:-]{1,200}){0,8}$/D', $ds)) {
+        return null;
+    }
+    $out = ['dataset' => $ds, 'count' => null, 'newest' => null, 'oldest' => null, 'path' => '/boot/.zfs/snapshot', 'asleep' => false];
+    if (baseAsleep(explode('/', $ds)[0], $asleep ?? sleepingDisks())) {
+        $out['asleep'] = true;
+        return $out;
+    }
+    $zfs = $GLOBALS['rs']['zfs_bin'] ?? (bin('zfs') ? 'zfs' : null);
+    if ($zfs === null) {
+        return null;
+    }
+    [$exit, $text] = run([$zfs, 'list', '-Hp', '-t', 'snapshot', '-o', 'name,creation', '-s', 'creation', '-d', '1', $ds], 30);
+    if ($exit !== 0) {
+        return $out;                                    // not looked at: no count, never «none»
+    }
+    $snaps = [];
+    foreach (rows($text) as $f) {
+        if (count($f) >= 2 && str_starts_with($f[0], "$ds@") && ctype_digit($f[1])) {
+            $snaps[] = ['name' => substr($f[0], strlen($ds) + 1), 'time' => (int) $f[1]];
+        }
+    }
+    $out['count'] = count($snaps);
+    $out['newest'] = $snaps ? end($snaps) : null;
+    $out['oldest'] = $snaps ? $snaps[0]['time'] : null;
+    return $out;
 }
 
 function rsRunTime(string $run): ?int
@@ -1680,6 +1727,13 @@ function rsJournals(): array
         }
         $out[] = rsJournalRow($j);
     }
+    // a pull swapped in as its share (gap 6): said on its row — no copy beside it any more, its removal waits for the swap's put back
+    foreach ($out as &$row) {
+        if ($row['kind'] === 'partner') {
+            $row['swapped_by'] = rspSwappedBy($row['id'], $out);
+        }
+    }
+    unset($row);
     return $out;
 }
 
@@ -1776,7 +1830,9 @@ function rsCanPutback(array $j): bool
     if (($j['kind'] ?? '') === 'putback' || $kopiaAll || !in_array($j['result'] ?? '', ['ok', 'warnings', 'failed', 'interrupted'], true)) {
         return false;
     }
-    if (is_array($j['putback'] ?? null) && !in_array($j['putback']['result'] ?? '', ['refused'], true)) {
+    // a swap's put back that failed (its set-aside dataset busy) leaves the swap standing: offered again (review H2)
+    $again = ($j['kind'] ?? '') === 'partner_swap' && in_array($j['putback']['result'] ?? '', ['failed', 'interrupted'], true);
+    if (is_array($j['putback'] ?? null) && !in_array($j['putback']['result'] ?? '', ['refused'], true) && !$again) {
         return false;
     }
     return rsUndoSteps($j) !== [] || rsLeftStopped($j) !== [];
@@ -1928,6 +1984,8 @@ function rsPlan(array $r): array
         'putback' => rsPlanPutback($r, $stamp),
         'partner' => rsPlanPartner($r, $stamp),
         'partner_start' => rsPlanPartnerStart($r, $stamp),
+        'partner_swap' => rsPlanPartnerSwap($r, $stamp),
+        'libvirt' => rsPlanLibvirt($r, $stamp),
         default   => throw new Problem('unknown_target', ['target' => $kind]),
     };
     return rsPlanSeal($plan, $stamp);
@@ -3031,8 +3089,9 @@ function rsOpenHolders(array $paths): array
         if ($pid === $self || ($mine !== false && @readlink("$dir/ns/mnt") !== $mine)) {
             continue;
         }
-        foreach (@scandir("$dir/fd") ?: [] as $fd) {
-            $to = ctype_digit($fd) ? @readlink("$dir/fd/$fd") : false;
+        // its open files — and its working folder: a shell sitting inside holds a dataset busy too (review H2, Tower)
+        foreach (array_merge(['cwd'], array_map(fn ($f) => "fd/$f", array_filter(@scandir("$dir/fd") ?: [], 'ctype_digit'))) as $fd) {
+            $to = @readlink("$dir/$fd");
             if (!is_string($to) || !str_starts_with($to, '/')) {
                 continue;                                    // a pipe, a socket, anon_inode:…
             }
@@ -3302,6 +3361,11 @@ function rsPlanPutback(array $r, string $stamp): array
         $plan['blockers'][] = ['key' => is_array($j['putback'] ?? null) ? 'restore_putback_done' : 'restore_putback_not', 'params' => []];
         return $plan;
     }
+    // a pull swapped in as its share (gap 6) is the share now: its removal waits until the swap is put back
+    if (($j['kind'] ?? '') === 'partner' && rspSwappedBy($id) !== null) {
+        $plan['blockers'][] = ['key' => 'restore_putback_swapped', 'params' => ['share' => substr((string) ($j['target']['unit'] ?? ''), 6)]];
+        return $plan;
+    }
     $fill = function (mixed $v) use (&$fill, $stamp): mixed {
         return is_array($v) ? array_map($fill, $v) : (is_string($v) ? str_replace('{T}', $stamp, $v) : $v);
     };
@@ -3388,6 +3452,44 @@ function rsPlanPutback(array $r, string $stamp): array
             if ($off) {
                 $plan['notes'][] = ['key' => 'note.files_vms_off', 'params' => ['names' => implode(', ', $off)]];
             }
+        }
+    }
+    // libvirt.img put back (gap 7): only with the VM service off — looked at now, and again right before (lv_off)
+    $lvOn = ($j['kind'] ?? '') === 'libvirt' && $plan['steps'] ? rsLvServiceOn((string) ($orig['target']['image'] ?? '')) : null;
+    if ($lvOn !== null) {
+        $plan['blockers'][] = ['key' => $lvOn === 'attached' ? 'restore_libvirt_attached' : 'restore_libvirt_service_on', 'params' => ['path' => (string) ($orig['target']['image'] ?? '')]];
+    }
+    // a swap put back (gap 6): the share's dataset changes names again — never under an open file, a running VM or an image,
+    // neither of the share nor of the set-aside dataset's folder (review H2); never on a pool asleep (L2)
+    if (($j['kind'] ?? '') === 'partner_swap' && $plan['steps']) {
+        $live = (string) ($orig['target']['path'] ?? '');
+        $pool = (string) ($orig['target']['pool'] ?? '');
+        if ($pool !== '' && baseAsleep($pool, rspAsleepDisks())) {
+            $plan['blockers'][] = ['key' => 'restore_putback_asleep', 'params' => ['base' => $pool]];
+        }
+        $asides = array_values(array_filter(array_map(fn ($a) => is_array($a) ? (string) ($a['to'] ?? '') : '', (array) ($j['aside'] ?? [])),
+            fn ($p) => str_starts_with($p, '/mnt/') && rsCleanPath($p)));
+        $plan['after'][] = ['key' => 'after.swap_putback', 'params' => ['dataset' => (string) ($orig['target']['pulled'] ?? ''), 'share' => (string) ($orig['target']['share'] ?? '')]];
+        $paths = $live !== '' ? ['/mnt/user/' . (string) ($orig['target']['share'] ?? ''), $live] : [];
+        foreach ($paths ? rsVmsUsing($paths) : [] as $v) {
+            if ($v['state'] !== 'shut off') {
+                $plan['blockers'][] = ['key' => 'restore_vm_uses', 'params' => ['name' => $v['name'], 'state' => $v['state'], 'path' => $v['path']]];
+            }
+        }
+        $look = array_values(array_unique(array_filter(array_merge([$live], $asides))));
+        $holders = $look ? rsOpenHolders($look) : [];
+        if ($holders) {
+            $plan['blockers'][] = ['key' => 'restore_in_use', 'params' => ['names' => implode(', ', $holders), 'path' => implode(', ', $look)]];
+        }
+        foreach ($look ? rsLoopHolders($look) : [] as $h) {
+            $plan['blockers'][] = rsLoopBlocker($h);
+        }
+        if ($look) {
+            $at = 0;
+            foreach ($plan['steps'] as $k => $s) {
+                $at = $s['do'] === 'stop' ? $k + 1 : $at;
+            }
+            array_splice($plan['steps'], $at, 0, [['do' => 'not_open', 'paths' => $look]]);
         }
     }
     $now = rsContainersNow();
@@ -3783,6 +3885,13 @@ function rsStep(array &$j, int $i): array
         'peek_umount' => rsDoPeekUmount($j, $s),
         'pull_local' => rsDoPullLocal($j, $i),
         'start_from' => rsDoStartFrom($j, $i),
+        'pull_umount' => rsDoPullUmount($j, $s),
+        'lv_off'     => rsDoLvOff($s),
+        'lv_build'   => rsDoLvBuild($j, $i),
+        'swap_out'   => rsDoSwapOut($j, $i),
+        'swap_in'    => rsDoSwapIn($j, $i),
+        'swap_unsettle' => rsDoSwapUnsettle($j, $s),
+        'swap_back'  => rsDoSwapBack($j, $s),
         'md_stopped' => mdDoStopped($j, $s),
         'md_aside'   => mdDoAside($j, $s),
         'md_create'  => mdDoCreate($j, $s),
