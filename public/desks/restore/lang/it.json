@@ -1339,5 +1339,6 @@
   "rd.way_copy_pick_hint": "<nome>.restored-<ora> accanto a ciò che c'è — non si sostituisce niente, non si ferma niente.",
   "rd.way_swap_pick_hint": "Prima si fanno le copie; poi ciò che le usa si ferma per qualche secondo, ciò che c'è va da parte come <nome>.aside-<ora> e ogni copia prende il suo posto.",
   "rd.way_place_pick_hint": "Non c'è niente: prima si fanno le copie, poi ognuna va al suo posto.",
-  "note.pick_copy": "Non si sostituisce niente: ognuno arriva come <nome>.restored-<ora> accanto a dov'era."
+  "note.pick_copy": "Non si sostituisce niente: ognuno arriva come <nome>.restored-<ora> accanto a dov'era.",
+  "rd.way_copy_file": "Copiarlo accanto"
 }

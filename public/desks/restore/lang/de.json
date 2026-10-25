@@ -1339,5 +1339,6 @@
   "rd.way_copy_pick_hint": "<Name>.restored-<Zeit> neben dem, was da ist — nichts wird ersetzt, nichts stoppt.",
   "rd.way_swap_pick_hint": "Die Kopien entstehen zuerst; dann stoppt, was sie benutzt, für Sekunden, was da ist, geht als <Name>.aside-<Zeit> beiseite und jede Kopie nimmt ihren Platz ein.",
   "rd.way_place_pick_hint": "Da ist nichts: Die Kopien entstehen zuerst, dann kommt jede an ihren Platz.",
-  "note.pick_copy": "Nichts wird ersetzt: Jedes kommt als <Name>.restored-<Zeit> neben die Stelle, wo es war."
+  "note.pick_copy": "Nichts wird ersetzt: Jedes kommt als <Name>.restored-<Zeit> neben die Stelle, wo es war.",
+  "rd.way_copy_file": "Daneben kopieren"
 }

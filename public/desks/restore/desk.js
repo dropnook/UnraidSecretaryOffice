@@ -2617,13 +2617,22 @@ async function browseDialog(from, title) {
     if (mine !== seq || !Office.dialogOpen()) return;
     wake = false;
     if (!j.ok) { body.innerHTML = ''; body.appendChild(el('p', 'callout warn', problemText(j.error || { key: 'unknown' }))); return; }
-    if (at.zsnap && j.root) at = { path: j.root, snap: j.snap || '' };      // from Ms. Snapshotini's snapshot: its unit and moment
+    if (at.zsnap && j.root) {
+      // from Ms. Snapshotini's snapshot: its unit and moment from now on, the title naming it
+      at = { path: j.root, snap: j.snap || '' };
+      const head = body.closest('#sso-dialog') && body.closest('#sso-dialog').querySelector('#sso-dialog-title');
+      if (head) head.textContent = T('fb.title', { what: j.root.replace(/^\/mnt\/user\//, '') });
+    }
     rel = j.rel || '';
     last = j;
     draw(j);
   }
 
   function draw(j) {
+    // typing in the search redraws the folder: the field keeps the focus and what is typed since the request went out
+    const was = body.querySelector('.rs-fb-search');
+    const typing = !!was && document.activeElement === was;
+    if (typing) q = was.value;
     body.innerHTML = '';
     if (kept) body.appendChild(el('p', 'callout', T('fb.kept_note', { name: j.partner || '' })));
     // which moment (local): newest first, the one shown chosen
@@ -2673,6 +2682,7 @@ async function browseDialog(from, title) {
     let timer = null;
     s.oninput = () => { clearTimeout(timer); timer = setTimeout(() => { q = s.value; offset = 0; look(); }, 350); };
     body.appendChild(s);
+    if (typing) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); }
     const wrap = el('div', 'rs-fb-list-wrap');
     body.appendChild(wrap);
     list(wrap, j, crumb);
@@ -2733,7 +2743,14 @@ async function browseDialog(from, title) {
     if ((j.left || []).length) wrap.appendChild(el('p', 'role', T('fb.left', { n: j.left.length, names: j.left.join(', ') })));
   }
 
-  function open(path) { rel = path; q = ''; offset = 0; look(); }
+  function open(path) {
+    rel = path;
+    q = '';
+    offset = 0;
+    const f = body.querySelector('.rs-fb-search');
+    if (f) { f.value = ''; f.blur(); }          // another folder: its own search, from nothing
+    look();
+  }
 
   function pick() {
     if (!picked.size || !last) return false;
@@ -2771,7 +2788,7 @@ function pickOptions(box, plan, ask, change, sleepers) {
       // one file: the file's words; several (or a folder): each of them
       const many = !file || o.items.length > 1;
       const key = m === 'folder' ? 'rd.way_folder' : m === 'swap' && o.nothing_live ? 'rd.way_place' : 'rd.way_' + m;
-      const text = el('span', '', T(m === 'copy' && many ? 'rd.way_copy_pick' : key));
+      const text = el('span', '', T(m === 'copy' ? (many ? 'rd.way_copy_pick' : 'rd.way_copy_file') : key));
       text.appendChild(el('small', '', T(m === 'folder' ? 'rd.way_folder_hint' : many ? key + '_pick_hint' : key + '_file_hint')));
       l.append(r, text);
       way.appendChild(l);
@@ -2779,7 +2796,9 @@ function pickOptions(box, plan, ask, change, sleepers) {
     box.appendChild(way);
   } else box.appendChild(el('p', 'role', T('rd.way_folder_only')));
   if ((o.items || []).length) {
-    box.appendChild(listBlock(T('rd.picked'), o.items.map((i) => `${i.rel}${i.kind === 'dir' ? '/' : ''} — ${T(!i.found ? 'rd.item_not_in' : i.there ? 'rd.item_there' : 'rd.item_not_there')}`)));
+    // a partner's kept copy goes only into the restore folder: whether something is «there» here says nothing
+    box.appendChild(listBlock(T('rd.picked'), o.items.map((i) => `${i.rel}${i.kind === 'dir' ? '/' : ''}`
+      + (o.partner ? '' : ` — ${T(!i.found ? 'rd.item_not_in' : i.there ? 'rd.item_there' : 'rd.item_not_there')}`))));
   }
   if ((o.asleep || []).length || ask.wake) {
     const l = el('label', 'check');
