@@ -1352,5 +1352,10 @@
   "rd.way_swap_pick_hint": "Die Kopien entstehen zuerst; dann stoppt, was sie benutzt, für Sekunden, was da ist, geht als <Name>.aside-<Zeit> beiseite und jede Kopie nimmt ihren Platz ein.",
   "rd.way_place_pick_hint": "Da ist nichts: Die Kopien entstehen zuerst, dann kommt jede an ihren Platz.",
   "note.pick_copy": "Nichts wird ersetzt: Jedes kommt als <Name>.restored-<Zeit> neben die Stelle, wo es war.",
-  "rd.way_copy_file": "Daneben kopieren"
+  "rd.way_copy_file": "Daneben kopieren",
+  "apps_from_ticket": "Noch keine Pakete hier — sie kommen mit der Backup-Ablage vom Partner {name}: zuerst sie in «Auf einen neuen Server» zurückholen.",
+  "vms_from_ticket": "Noch keine VM-Pakete hier — sie kommen mit der Backup-Ablage vom Partner {name}: zuerst sie in «Auf einen neuen Server» zurückholen.",
+  "ticket_link": "Zur Backup-Ablage beim Partner {name} →",
+  "bubble.no_packages_ticket": "Noch keine Pakete hier: Sie kommen mit der Backup-Ablage vom Partner {name} — «Auf einen neuen Server» holt sie zuerst.",
+  "tile.partner_line_ticket": {"one": "1 Einheit von {of}", "other": "{n} Einheiten von {of}"}
 }

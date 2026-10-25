@@ -1352,5 +1352,10 @@
   "rd.way_swap_pick_hint": "Prima si fanno le copie; poi ciò che le usa si ferma per qualche secondo, ciò che c'è va da parte come <nome>.aside-<ora> e ogni copia prende il suo posto.",
   "rd.way_place_pick_hint": "Non c'è niente: prima si fanno le copie, poi ognuna va al suo posto.",
   "note.pick_copy": "Non si sostituisce niente: ognuno arriva come <nome>.restored-<ora> accanto a dov'era.",
-  "rd.way_copy_file": "Copiarlo accanto"
+  "rd.way_copy_file": "Copiarlo accanto",
+  "apps_from_ticket": "Ancora nessun pacchetto qui — arrivano con il deposito dei backup presso {name}: recuperalo prima in «Su un nuovo server».",
+  "vms_from_ticket": "Ancora nessun pacchetto VM qui — arrivano con il deposito dei backup presso {name}: recuperalo prima in «Su un nuovo server».",
+  "ticket_link": "Al deposito dei backup presso {name} →",
+  "bubble.no_packages_ticket": "Ancora nessun pacchetto qui: arrivano con il deposito dei backup presso {name} — «Su un nuovo server» lo recupera per primo.",
+  "tile.partner_line_ticket": {"one": "1 unità di {of}", "other": "{n} unità di {of}"}
 }

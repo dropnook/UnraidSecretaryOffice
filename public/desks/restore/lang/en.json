@@ -1352,5 +1352,10 @@
   "rd.way_swap_pick_hint": "The copies are made first; then what uses them stops for seconds, what is there goes aside as <name>.aside-<time> and each copy takes its place.",
   "rd.way_place_pick_hint": "Nothing is there: the copies are made first, then each takes its place.",
   "note.pick_copy": "Nothing is replaced: each comes as <name>.restored-<time> next to where it was.",
-  "rd.way_copy_file": "Copy it next to it"
+  "rd.way_copy_file": "Copy it next to it",
+  "apps_from_ticket": "No packages here yet — they come with the backup place from {name}: pull it first in «Onto a new server».",
+  "vms_from_ticket": "No VM packages here yet — they come with the backup place from {name}: pull it first in «Onto a new server».",
+  "ticket_link": "To the backup place at {name} →",
+  "bubble.no_packages_ticket": "No packages here yet: they come with the backup place from {name} — «Onto a new server» pulls it first.",
+  "tile.partner_line_ticket": {"one": "1 unit of {of}", "other": "{n} units of {of}"}
 }

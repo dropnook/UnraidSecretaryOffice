@@ -1352,5 +1352,10 @@
   "rd.way_swap_pick_hint": "Primero se hacen las copias; luego lo que las usa se detiene unos segundos, lo que hay se aparta como <nombre>.aside-<hora> y cada copia ocupa su lugar.",
   "rd.way_place_pick_hint": "No hay nada: primero se hacen las copias, luego cada una ocupa su lugar.",
   "note.pick_copy": "No se reemplaza nada: cada uno llega como <nombre>.restored-<hora> junto a donde estaba.",
-  "rd.way_copy_file": "Copiarlo al lado"
+  "rd.way_copy_file": "Copiarlo al lado",
+  "apps_from_ticket": "Aún no hay paquetes aquí — llegan con el lugar de las copias en {name}: tráelo primero en «A un servidor nuevo».",
+  "vms_from_ticket": "Aún no hay paquetes de VM aquí — llegan con el lugar de las copias en {name}: tráelo primero en «A un servidor nuevo».",
+  "ticket_link": "Al lugar de las copias en {name} →",
+  "bubble.no_packages_ticket": "Aún no hay paquetes aquí: llegan con el lugar de las copias en {name} — «A un servidor nuevo» lo trae primero.",
+  "tile.partner_line_ticket": {"one": "1 unidad de {of}", "other": "{n} unidades de {of}"}
 }

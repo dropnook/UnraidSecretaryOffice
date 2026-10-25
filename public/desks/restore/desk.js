@@ -300,7 +300,8 @@ function bubbleText() {
   if (run) return T('bubble.restoring', { what: run.what, n: run.step, total: run.steps });
   // a receiver keeps partners' copies without packages of its own (1.60.1): said as it is, not «they come with the first backup»
   const held = kept().reduce((n, p) => n + (p.units || []).filter((u) => (u.n || 0) > 0).length, 0);
-  if (!apps().length && !vms().length) return held ? T('bubble.kept_only', { n: held }) : T('bubble.no_packages');
+  const tp = !state.place.found && ticketPartner();       // a new server with a ticket: the packages come with the partner's copy (gap 10)
+  if (!apps().length && !vms().length) return held ? T('bubble.kept_only', { n: held }) : tp ? T('bubble.no_packages_ticket', { name: tp.name }) : T('bubble.no_packages');
   const out = [T('bubble.ready', { apps: T('count.apps', { n: apps().length }), vms: T('count.vms', { n: vms().length }), when: date(state.run_time) })];
   if (otherHolder()) out.push(T('bubble.busy_' + otherHolder()));
   const gone = apps().filter((a) => a.present === false).length + vms().filter((v) => v.state === 'missing').length;
@@ -449,7 +450,7 @@ function tileLine(sec) {
     const held = p.units.filter((u) => u.snaps.length);
     const newest = Math.max(0, ...held.map((u) => u.newest || 0));
     const line = p.looked === null ? T(p.looking ? 'tile.partner_asking' : 'tile.partner_never')
-      : held.length ? T('tile.partner_line', { n: held.length }) : T('tile.partner_none');
+      : held.length ? T(p.kind === 'ticket' ? 'tile.partner_line_ticket' : 'tile.partner_line', { n: held.length, of: p.of || '' }) : T('tile.partner_none');
     if (p.why === 'no_pair') return [T('tile.partner_no_pair'), ''];      // it no longer knows this pair: what it keeps is unknown now
     return [p.reachable === false ? T('tile.partner_as_of', { when: date(p.looked) }) : line, newest ? fmt.relative(newest) : ''];
   }
@@ -598,10 +599,39 @@ function barRows(s, name, list, wordsOf, missing) {
 const noFit = () => el('p', 'empty', T('list.none_fit'));
 
 // ------------------------------------------------------------------ apps
+/** A restore ticket here (a new server): the gone server's copies at a partner, the backup place among them */
+const ticketPartner = () => partners().find((p) => p.kind === 'ticket') || null;
+
+/**
+ * What an empty Apps, VMs or Databases says (the restore matrix's gap 10): packages in the place but none of this kind —
+ * none there; no place yet on a new server with a ticket — they come with the backup place from that partner (the one
+ * step «Onto a new server» starts with); else with Mr. Backupsy's first backup run
+ */
+function noPackagesText(kind) {
+  if (state.place.found) return T(`${kind}_none`);
+  if (kind === 'dbs' && apps().length) return T('dbs_none');
+  const tp = ticketPartner();
+  return tp ? T(kind === 'vms' ? 'vms_from_ticket' : 'apps_from_ticket', { name: tp.name }) : T('apps_no_packages');
+}
+
+/** The empty line, with the way to that step when the packages wait at a ticket's partner */
+function noPackages(kind) {
+  const p = el('p', 'empty', noPackagesText(kind));
+  const tp = !state.place.found && ticketPartner();
+  if (tp) {
+    const go = el('a', '', T('ticket_link', { name: tp.name }));
+    go.href = '#/restore';
+    go.dataset.own = '1';
+    go.onclick = (e) => { e.preventDefault(); openSection('move'); };
+    p.append(' ', go);
+  }
+  return p;
+}
+
 function appsSection() {
   const list = apps();
   const s = sectionBox(T('apps'), T('apps_sub'), list.length > 1 ? unfoldAll() : null, { place: 'apps' });
-  if (!list.length) { s.appendChild(el('p', 'empty', state.place.found ? T('apps_none') : T('apps_no_packages'))); return s; }
+  if (!list.length) { s.appendChild(noPackages('apps')); return s; }
   const metas = new Map(list.map((a) => [a, appMeta(a)]));
   const fits = barRows(s, 'apps', list, (a) => [a.name, a.id, metas.get(a).textContent], (a) => a.present === false);
   const box = el('div', 'box');
@@ -1147,7 +1177,7 @@ function vmsSection() {
   if (!state.vm_service) s.appendChild(el('p', 'callout', T('vm.service_off')));
   const lv = state.server && state.server.libvirt;
   if (lv) s.appendChild(vmAllFold(lv));
-  if (!list.length) { s.appendChild(el('p', 'empty', T('vms_none'))); return s; }
+  if (!list.length) { s.appendChild(noPackages('vms')); return s; }
   const metas = new Map(list.map((v) => [v, vmMeta(v)]));
   const fits = barRows(s, 'vms', list, (v) => [v.name, v.id, metas.get(v).textContent], (v) => v.state === 'missing');
   const box = el('div', 'box');
@@ -1412,7 +1442,7 @@ function dbsSection() {
   const groups = dbGroups();
   const n = groups.reduce((s, g) => s + g.items.length, 0);
   const s = sectionBox(T('dbs'), T('dbs_sub'), n > 1 ? unfoldAll() : null, { place: 'dbs' });
-  if (!groups.length) { s.appendChild(el('p', 'empty', apps().length || state.place.found ? T('dbs_none') : T('apps_no_packages'))); return s; }
+  if (!groups.length) { s.appendChild(noPackages('dbs')); return s; }
   // the bar over every entry; a group keeps its head over the entries that fit (its app's name counts for each)
   const all = groups.flatMap((g) => g.items.map((x) => ({ g, x, meta: dbMeta(g.app, x) })));
   const fits = new Set(barRows(s, 'dbs', all, (r) => [r.g.app.name, dbName(r.x), r.x.container, r.x.file, r.meta.textContent], (r) => r.g.app.present === false));
@@ -3156,6 +3186,6 @@ Office.placesFrom(ID, (s, part) => {
 // tests/run.php runs the databases tile's logic and the preview's sizes under node
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.restore = { setState: (s) => { state = s; }, greetOk, shareFromKopia, kopiaFetched, dbGroups, dbName, dbRequest, earlierOf, tileLine, sizesDone,
-    setJob: (j) => { job = j; }, runCardData, runCard, shortStep, liveJob, runCardShort, bubbleText, snapsChip };
+    noPackagesText, noPackages, setJob: (j) => { job = j; }, runCardData, runCard, shortStep, liveJob, runCardShort, bubbleText, snapsChip };
 }
 })();
