@@ -11,8 +11,8 @@
 const ID = 'restore';
 const T = Office.scope(ID);
 const { el, fmt } = Office;
-const SECTIONS = ['apps', 'vms', 'dbs', 'kopia', 'journal', 'move', 'drill'];
-const ICONS = { apps: '📦', vms: '🖥️', dbs: '🗄️', kopia: '☁️', journal: '📓', move: '🚚', drill: '🧪', partner: '🏢', kept: '🗂️' };
+const SECTIONS = ['apps', 'vms', 'shares', 'dbs', 'kopia', 'journal', 'move', 'drill'];
+const ICONS = { apps: '📦', vms: '🖥️', shares: '📁', dbs: '🗄️', kopia: '☁️', journal: '📓', move: '🚚', drill: '🧪', partner: '🏢', kept: '🗂️' };
 const SELF = (typeof document !== 'undefined' && document.currentScript && document.currentScript.src) || '';     // drill.js lies next to this file
 const HOLDERS = ['backup', 'check', 'dryrun', 'setup', 'restore', 'other'];
 const JOB_POLL = 2000;
@@ -22,6 +22,7 @@ let state = null;
 let view = null;
 const expanded = new Set();                   // rows unfolded on this page
 const versions = new Map();                   // "app:<id>" -> {loading, list, error}
+const kopiaVersions = new Map();              // "app:<id>" -> {loading, list, error}: what Kopia keeps of its package (1.72)
 let shown = [];                               // the rows of the section being drawn, for its "Unfold all"
 let job = null;                               // the restore going on (or the last one): data/restore-job.json
 let jobTimer = null;
@@ -76,6 +77,7 @@ async function pollJob() {
     if (live) jobTimer = setTimeout(pollJob, Office.pollDelay(JOB_POLL, jobFails));
     else if (was && ['queued', 'running'].includes(was)) {
       Office.toast(T('job.done.' + (job.result === 'ok' ? 'ok' : job.result === 'warnings' ? 'warnings' : 'failed'), { what: job.what }), job.result !== 'ok');
+      versions.clear();            // a package Kopia brought back is an earlier version now
       await load(true);
     }
   }
@@ -183,6 +185,7 @@ const partnerOf = (id) => partners().find((p) => p.id === id) || null;
 const kept = () => (state && state.kept) || [];            // what this office keeps of partners («Kept for <partner>»)
 const keptOf = (id) => kept().find((p) => p.id === id) || null;
 const vms = () => (state && state.vms) || [];
+const sharesBack = () => (state && state.shares_back) || [];   // every share that can come back (1.72, his «Shares» tile)
 const engine = () => (state && state.engine) || {};
 const kopia = () => (state && state.kopia) || {};
 // the Container Path Kopia names its sources after: the real one (the engine's last compare, or the container's
@@ -313,6 +316,7 @@ function render() {
   root.appendChild(Office.pageHelp(ID, [
     [T('help.tiles'), T('help.tiles_text')],
     [T('help.row'), T('help.row_text')],
+    [T('help.shares'), T('help.shares_text')],
     [T('help.dbs'), T('help.dbs_text')],
     [T('help.package'), T('help.package_text')],
     [T('help.snapshots'), T('help.snapshots_text')],
@@ -383,6 +387,12 @@ function tileLine(sec) {
   if (sec === 'vms') {
     const gone = vms().filter((v) => v.state === 'missing').length;
     return [T('tile.vms_line', { n: vms().length }), gone ? T('tile.gone', { n: gone }) : ''];
+  }
+  if (sec === 'shares') {
+    const list = sharesBack();
+    const gone = list.filter((x) => !x.exists).length;
+    const newest = Math.max(0, ...list.map((x) => x.newest || 0));
+    return [T('tile.shares_line', { n: list.length }), gone ? T('tile.shares_missing', { n: gone }) : newest ? fmt.relative(newest) : ''];
   }
   if (sec === 'dbs') {
     const all = dbGroups().flatMap((g) => g.items);
@@ -473,6 +483,7 @@ function sectionOf(sec) {
   shown = [];
   if (sec === 'apps') return appsSection();
   if (sec === 'vms') return vmsSection();
+  if (sec === 'shares') return sharesSection();
   if (sec === 'dbs') return dbsSection();
   if (sec === 'kopia') return kopiaSection();
   if (sec === 'journal') return journalSection();
@@ -860,7 +871,28 @@ function versionsOf(kind, p) {
   return wait;
 }
 
-/** Earlier nights' packages, from the snapshots of the backup place's share - read when opened */
+/**
+ * What Kopia keeps of a package (1.72): asked once for the page when «Earlier backups» opens — only where a source holds
+ * it (its own, or the backup place's share) and Kopia can be asked
+ */
+function kopiaVersionsOf(kind, p) {
+  const key = `${kind}:${p.id}`;
+  const have = kopiaVersions.get(key);
+  if (have && !have.error) return have.wait || Promise.resolve(have);
+  const wait = Office.api.post(`${ID}.versions_kopia`, { kind, id: p.id }).then((j) => {
+    const v = j.ok ? { list: j.versions || [] } : { error: j.error };
+    kopiaVersions.set(key, v);
+    return v;
+  });
+  kopiaVersions.set(key, { loading: true, wait });
+  return wait;
+}
+const kopiaHolds = (p) => kopia().enabled && kopia().running && !!kopia().restore && (p.kopia || []).some((s) => ['all', 'package'].includes(s.covers));
+/** A Kopia snapshot of the package already brought back: the version it became stands in the list */
+const kopiaFetched = (c) => (state.restores || []).some((r) => r.kind === 'kopia' && ['ok', 'warnings'].includes(r.result) && r.target
+  && r.target.snapshot === c.snapshot && r.target.source === c.source && (r.target.path === c.path || !r.target.path));
+
+/** Earlier nights' packages, from the snapshots of the backup place's share - read when opened; and what Kopia keeps (1.72) */
 function earlierPart(kind, p) {
   const key = `${kind}:${p.id}`;
   const det = keepFold(el('details', 'rs-how'), `earlier:${key}`);
@@ -870,17 +902,28 @@ function earlierPart(kind, p) {
   const show = () => {
     out.innerHTML = '';
     const v = versions.get(key);
+    const kv = kopiaHolds(p) ? kopiaVersions.get(key) : null;
     if (!v || v.loading) { out.appendChild(el('p', 'role', Office.t('common.loading'))); return; }
     if (v.error) { out.appendChild(el('p', 'role', Office.errorText(v.error, ID))); return; }
-    if (!v.list.length) { out.appendChild(el('p', 'role', T('earlier.none'))); return; }
+    // the offsite ones in the same list, newest first: fetched first («Get from Kopia…»), then like any other
+    const offsite = kv && kv.list ? kv.list.filter((c) => !kopiaFetched(c)).map((c) => ({ ...c, fetch: true })) : [];
+    const all = [...v.list, ...offsite].sort((a, b) => (b.run_time || b.time || 0) - (a.run_time || a.time || 0));
+    if (kv && kv.loading) {
+      const w = el('p', 'role running');
+      w.append(el('span', 'spin'), ' ', T('earlier.kopia_asking'));
+      out.appendChild(w);
+    } else if (kv && kv.error) out.appendChild(el('p', 'role', `${T('earlier.kopia_failed')} ${Office.errorText(kv.error, ID)}`));
+    if (!all.length) { out.appendChild(el('p', 'role', T('earlier.none'))); return; }
     out.appendChild(el('p', 'role', T('earlier.text')));
     const box = el('div', 'box');
-    v.list.forEach((x) => {
+    all.forEach((x) => {
+      if (x.fetch) { box.appendChild(kopiaVersionRow(kind, p, x)); return; }
       const row = el('div', 'row nocheck');
       const main = el('div', 'row-main');
       main.appendChild(el('div', 'row-name text', T('earlier.from', { when: date(x.run_time) })));
       const meta = el('div', 'row-meta');
-      meta.appendChild(el('span', '', T('earlier.snap', { when: date(x.time) })));
+      if (x.kopia) meta.appendChild(chip(T('earlier.kopia_chip'), 'ok', T('earlier.kopia_got_hint', { path: x.path })));
+      meta.appendChild(el('span', '', T(x.kopia ? 'earlier.kopia_snap' : 'earlier.snap', { when: date(x.time) })));
       const dbs = [...x.dumps, ...(x.sqlite || [])];
       if (dbs.length) meta.appendChild(el('span', '', dbs.map((d) => `${d.file.split('/').pop()} (${fmt.size(d.bytes)}, ${date(d.time)})`).join(', ')));
       meta.appendChild(copyCode(x.path));
@@ -907,8 +950,31 @@ function earlierPart(kind, p) {
     show();
     await versionsOf(kind, p);
     show();
+    if (kopiaHolds(p)) {
+      const kv = kopiaVersionsOf(kind, p);
+      show();
+      await kv;
+      if (det.open) show();
+    }
   };
   return det;
+}
+
+/** A package as Kopia keeps it, not fetched yet: «Get from Kopia…» brings that package alone into the restore folder */
+function kopiaVersionRow(kind, p, x) {
+  const row = el('div', 'row nocheck');
+  const main = el('div', 'row-main');
+  main.appendChild(el('div', 'row-name text', T('earlier.from', { when: date(x.run_time || x.time) })));
+  const meta = el('div', 'row-meta');
+  meta.appendChild(chip(T('earlier.kopia_chip'), 'ok', T('earlier.kopia_hint', { source: `${kopiaRoot()}/${x.source}` })));
+  meta.appendChild(el('span', '', T('earlier.kopia_snap', { when: date(x.time) })));
+  main.appendChild(meta);
+  row.appendChild(main);
+  const right = el('div', 'rs-right');
+  right.appendChild(restoreButton(T('earlier.kopia_fetch'), { kind: 'kopia', source: x.source, snapshot: x.snapshot, path: x.path, mode: 'stage' },
+    T('rd.title.kopia_pkg', { what: p.name, when: date(x.time) })));
+  row.appendChild(right);
+  return row;
 }
 
 /** The local snapshots of the folders an app or VM keeps its data in, and of whole shares it binds */
@@ -1026,6 +1092,13 @@ function kopiaBlock(sources) {
     line.append(copyCode(`${kopiaRoot()}/${s.source}`), ' ');
     line.appendChild(el('span', '', T('kp.covers_' + (s.covers || (s.own ? 'all' : 'data')))));
     line.appendChild(s.last ? chip(T('chip.kopia', { when: fmt.relative(s.last) }), 'ok', fmt.date(s.last)) : chip(T('chip.kopia_never'), 'warn', T('chip.kopia_never_hint')));
+    // 1.72: straight into that source's snapshots — browsed, a folder or a file of it, or all of it
+    if (kopia().restore && s.covers !== 'package') {
+      const go = button(T('kp.browse'), 'small', () => kopiaDialog(s.source, `${kopiaRoot()}/${s.source}`));
+      go.dataset.own = '1';
+      go.disabled = !canRestore() || !kopia().running;
+      line.append(' ', go);
+    }
     b.appendChild(line);
   });
   if (sources.length) {
@@ -1152,6 +1225,117 @@ function vmCommands(v) {
     how.append(el('p', 'role', T('vm.snaps')), codeBlock(more.join('\n')));
   }
   return how;
+}
+
+// ------------------------------------------------------------------ shares (1.72)
+/**
+ * Every share, not only those an app binds whole (the restore matrix's gap 1): its local snapshots — the whole share
+ * back (what is there goes aside first) or folders at its top, in step 4's dialog —, its Kopia source (browsed, one
+ * file or folder or all of it) and its units at partners (pulled beside, then a moment of the share)
+ */
+function sharesSection() {
+  const list = sharesBack();
+  const s = sectionBox(T('shares'), T('shares_sub'), list.length > 1 ? unfoldAll() : null, { place: 'shares' });
+  if (!list.length) { s.appendChild(el('p', 'empty', T('shares_none'))); return s; }
+  const metas = new Map(list.map((x) => [x, shareMeta(x)]));
+  const fits = barRows(s, 'shares', list, (x) => [x.name, metas.get(x).textContent], (x) => !x.exists);
+  const box = el('div', 'box');
+  fits.forEach((x) => box.appendChild(unfoldingRow('share:' + x.name, x.name, metas.get(x), () => shareDetail(x))));
+  if (!fits.length) box.appendChild(noFit());
+  s.appendChild(box);
+  s.appendChild(el('p', 'role rs-foot', T('shares_foot')));
+  return s;
+}
+
+function shareMeta(x) {
+  const meta = el('div', 'row-meta');
+  if (!x.exists) meta.appendChild(chip(T('sh.missing_chip'), 'danger', T('sh.missing_hint', { share: x.name })));
+  const snaps = snapsChip([x]);
+  if (snaps && x.exists) meta.appendChild(snaps);
+  const kc = x.kopia ? kopiaChip([{ ...x.kopia, covers: 'data' }], ['data']) : null;
+  if (kc) meta.appendChild(kc);
+  (x.at_partner || []).forEach((c) => meta.appendChild(atPartnerChip(c)));
+  if (x.pulled) meta.appendChild(chip(T('sh.pulled_chip', { n: x.pulled }), 'quiet', T('sh.pulled_hint')));
+  const pc = protChip(x);
+  if (pc) meta.appendChild(pc);
+  if ((x.whole_of || []).length) meta.appendChild(chip(T('sh.whole_of', { names: x.whole_of.join(', ') }), 'quiet', T('sh.whole_of_hint')));
+  return meta;
+}
+
+/** Was something of this share brought back by Kopia (a moment of it in step 4's dialog)? */
+function shareFromKopia(x) {
+  return (state.restores || []).some((r) => r.kind === 'kopia' && ['ok', 'warnings'].includes(r.result) && r.target
+    && (r.target.path ? String(r.target.live || '').startsWith(`${x.path}/`) : r.target.source === x.name || String(r.target.source || '').startsWith('.')));
+}
+
+function shareDetail(x) {
+  const box = el('div');
+  if (!x.exists) {
+    box.appendChild(el('p', 'callout warn', T('sh.missing', { share: x.name })));
+    oldSettingsLines({ old: x.old }).forEach((l) => box.appendChild(l));
+  }
+  const users = [...(x.whole_of || []), ...(x.folders_of || [])];
+  if (users.length || (x.vms || []).length) {
+    box.appendChild(el('p', 'role', [users.length ? T('sh.used_by', { names: users.join(', ') }) : '', (x.vms || []).length ? T('sh.vms', { names: x.vms.join(', ') }) : '']
+      .filter(Boolean).join(' ')));
+  }
+  // local: the whole share, or folders at its top (step 4's dialog, the share its owner)
+  const b = block(T('from_snapshots'), x.snaps ? T('sh.snaps_text') : x.asleep ? T('sh.snaps_asleep') : x.pulled || shareFromKopia(x) ? T('sh.snaps_other') : T('sh.snaps_none'));
+  const part = unitPart({ ...x, whole: false, containers: [], exists: x.exists }, null);
+  const can = x.exists && (x.snaps || x.asleep || x.pulled || shareFromKopia(x));
+  if (can) {
+    const t = part.querySelector('.rs-part-title');
+    t.append(' ', restoreButton(T('sh.whole'), { kind: 'files', path: x.path, mode: 'swap' }, T('rd.title.share', { share: x.name })),
+      ' ', restoreButton(T('sh.folders'), { kind: 'files', path: x.path, items: [] }, T('rd.title.share_part', { share: x.name })));
+  }
+  b.appendChild(part);
+  if (can) b.appendChild(el('p', 'role', T('sh.ways')));
+  box.appendChild(b);
+  if (kopia().enabled) box.appendChild(shareKopiaBlock(x));
+  if ((x.at_partner || []).length) box.appendChild(sharePartnerBlock(x));
+  return box;
+}
+
+/** Offsite: the share's Kopia source — browsed in Kopia's dialog (a file, a folder or all of it) */
+function shareKopiaBlock(x) {
+  const k = kopia();
+  const b = block(T('from_kopia'), x.kopia ? T('sh.kopia_text') : T('sh.kopia_none', { mode: T('sh.mode.' + (['off', 'snapshot', 'kopia'].includes(x.mode) ? x.mode : 'other')) }));
+  if (!x.kopia) return b;
+  const line = el('div', 'rs-place');
+  line.append(copyCode(`${kopiaRoot()}/${x.kopia.source}`), ' ');
+  line.appendChild(x.kopia.last ? chip(T('chip.kopia', { when: fmt.relative(x.kopia.last) }), 'ok', fmt.date(x.kopia.last)) : chip(T('chip.kopia_never'), 'warn', T('chip.kopia_never_hint')));
+  if (k.restore) {
+    const go = button(T('sh.kopia_button'), 'small', () => kopiaDialog(x.kopia.source, `${kopiaRoot()}/${x.kopia.source}`));
+    go.dataset.own = '1';
+    go.disabled = !canRestore() || !k.running || !x.exists;
+    if (!k.running) go.title = T('kg.container_stopped', { name: k.container || 'kopia', root: kopiaRoot() });
+    line.append(' ', go);
+  }
+  b.appendChild(line);
+  if (!k.restore) b.appendChild(el('p', 'role', `${T('kr.none')} ${T('kr.how', { name: k.container || 'kopia' })}`));
+  return b;
+}
+
+/** At a partner: the share's unit there — pulled beside (the existing pull), then a moment of the share above */
+function sharePartnerBlock(x) {
+  const b = block(T('sh.partner_title'), T('sh.partner_text'));
+  (x.at_partner || []).forEach((c) => {
+    const p = partnerOf(c.id);
+    const u = p && (p.units || []).find((y) => y.unit === c.unit);
+    const newest = u && u.snaps && u.snaps[0];
+    const line = el('div', 'rs-place');
+    line.appendChild(el('span', '', T('sh.partner_line', { name: c.name, n: c.n, when: date(c.newest) })));
+    if (newest) {
+      line.append(' ', restoreButton(T('sh.partner_pull', { name: c.name }), { kind: 'partner', pair: c.id, unit: c.unit, snap: newest.name },
+        T('rd.title.partner', { what: unitLabel(c.unit), name: c.name, when: date(newest.creation) })));
+    }
+    const all = el('a', '', T('sh.partner_all'));
+    all.href = `#/${ID}/partner:${c.id}`;
+    all.onclick = (e) => { e.preventDefault(); openSection('partner:' + c.id); };
+    line.append(' ', all);
+    b.appendChild(line);
+  });
+  return b;
 }
 
 // ------------------------------------------------------------------ databases
@@ -1666,6 +1850,7 @@ function stepText(s) {
   if (s.do === 'play' && s.immich) key = 'play_immich';
   if (s.do === 'aside' && s.optional) key = 'aside_optional';
   if (s.do === 'pull' && s.resume) key = 'pull_resume';
+  if (s.do === 'kopia' && s.path) key = 'kopia_path';
   if (s.do === 'pull' || s.do === 'pull_local') return T('step.' + key, { ...nice(s), unit: unitLabel(s.unit) });
   if (s.do === 'start_from') return T('step.start_from_' + (s.kind === 'vm' ? 'vm' : s.kind === 'look' ? 'look' : 'share'), nice(s));
   return T('step.' + key, nice(s));
@@ -1810,6 +1995,7 @@ async function restoreDialog(req, title) {
     sizes = plan.sizes;
     if (plan.options) sleepers = [...new Set([...sleepers, ...(plan.options.asleep || []), ...(plan.options.woken || [])])];
     if (plan.options && req.kind === 'files') options();
+    if (plan.options && req.kind === 'kopia') kopiaOptions(opts, plan, ask, onChange, sleepers);
     if (plan.options && req.kind === 'partner') partnerOptions(opts, plan, ask, onChange);
     if (plan.options && req.kind === 'partner_start') startOptions(opts, plan, ask, onChange, d.close);
     pv.appendChild(previewView(plan, sizes));
@@ -2110,36 +2296,143 @@ function sizesDone(sizes, sizeMap) {
   return { ...sizes, need: sizes.compresses ? alloc : logical, logical, apparent, measuring: false };
 }
 
-/** Step 6: which Kopia snapshot of a source — Kopia is asked first (seconds) — then the usual preview */
+/**
+ * Step 6: which Kopia snapshot of a source — Kopia is asked first (seconds) —, then all of it into the restore folder
+ * («This one…»), or «Browse…» it (1.72): one folder at a time, each file and folder with «Restore…» of its own
+ */
 async function kopiaDialog(source, path) {
-  const body = el('div');
+  const body = el('div', 'rs-kb');
   body.appendChild(el('p', 'role', T('kr.loading', { source: path })));
-  const d = Office.dialog({ title: T('rd.title.kopia', { what: path }), body, buttons: [{ text: Office.t('common.cancel') }] });
+  const d = Office.dialog({ title: T('rd.title.kopia', { what: path }), body, wide: true, buttons: [{ text: Office.t('common.cancel') }] });
   const j = await Office.api.post(`${ID}.kopia_list`, { source });
   if (!Office.dialogOpen()) return;
-  body.innerHTML = '';
-  if (!j.ok) { body.appendChild(el('p', 'callout warn', Office.errorText(j.error, ID))); return; }
-  if (!j.snapshots.length) { body.appendChild(el('p', 'role', T('kr.none_snaps'))); return; }
-  body.appendChild(el('p', 'role', T('kr.choose')));
-  const list = el('div', 'box');
-  j.snapshots.slice(0, 60).forEach((s) => {
-    const r = el('div', 'row nocheck');
-    const main = el('div', 'row-main');
-    main.appendChild(el('div', 'row-name', date(s.time)));
-    const meta = el('div', 'row-meta');
-    meta.append(el('span', '', fmt.size(s.bytes)), el('span', '', T('kr.files', { n: s.files })));
-    if (s.dirs !== null && s.dirs !== undefined) meta.appendChild(el('span', '', T('kr.dirs', { n: s.dirs })));
-    if (s.failed) meta.appendChild(chip(T('kr.failed', { n: s.failed }), 'warn', T('kr.failed_hint')));
-    if (s.description) meta.appendChild(el('span', '', s.description));
-    if (s.incomplete) meta.appendChild(chip(T('kr.incomplete'), 'warn', s.incomplete));
-    main.appendChild(meta);
-    r.appendChild(main);
-    const right = el('div', 'rs-right');
-    right.appendChild(button(T('kr.pick'), 'small', () => { d.close(); restoreDialog({ kind: 'kopia', source, snapshot: s.id }, T('rd.title.kopia', { what: path })); }));
-    r.appendChild(right);
-    list.appendChild(r);
-  });
-  body.appendChild(list);
+  let seq = 0;
+  const pickWhole = (s) => { d.close(); restoreDialog({ kind: 'kopia', source, snapshot: s.id }, T('rd.title.kopia', { what: path })); };
+  const list = () => {
+    seq++;
+    body.innerHTML = '';
+    if (!j.ok) { body.appendChild(el('p', 'callout warn', Office.errorText(j.error, ID))); return; }
+    if (!j.snapshots.length) { body.appendChild(el('p', 'role', T('kr.none_snaps'))); return; }
+    body.appendChild(el('p', 'role', T('kr.choose')));
+    const box = el('div', 'box');
+    j.snapshots.slice(0, 60).forEach((s) => {
+      const r = el('div', 'row nocheck');
+      const main = el('div', 'row-main');
+      main.appendChild(el('div', 'row-name', date(s.time)));
+      const meta = el('div', 'row-meta');
+      meta.append(el('span', '', fmt.size(s.bytes)), el('span', '', T('kr.files', { n: s.files })));
+      if (s.dirs !== null && s.dirs !== undefined) meta.appendChild(el('span', '', T('kr.dirs', { n: s.dirs })));
+      if (s.failed) meta.appendChild(chip(T('kr.failed', { n: s.failed }), 'warn', T('kr.failed_hint')));
+      if (s.description) meta.appendChild(el('span', '', s.description));
+      if (s.incomplete) meta.appendChild(chip(T('kr.incomplete'), 'warn', s.incomplete));
+      main.appendChild(meta);
+      r.appendChild(main);
+      const right = el('div', 'rs-right');
+      right.append(button(T('kb.browse'), 'small plain', () => browse(s, '')), button(T('kr.pick'), 'small', () => pickWhole(s)));
+      r.appendChild(right);
+      box.appendChild(r);
+    });
+    body.appendChild(box);
+  };
+  // one folder of a snapshot: where it is (each part a way back up), its entries — a folder opens, each has «Restore…»
+  async function browse(s, rel) {
+    const mine = ++seq;
+    body.innerHTML = '';
+    const wait = el('p', 'role running');
+    wait.append(el('span', 'spin'), ' ', T('kb.loading', { path: rel || '/' }));
+    body.appendChild(wait);
+    const ls = await Office.api.post(`${ID}.kopia_ls`, { source, snapshot: s.id, path: rel });
+    if (mine !== seq || !Office.dialogOpen()) return;
+    body.innerHTML = '';
+    const crumbs = el('div', 'rs-kb-crumbs');
+    const crumb = (text, act) => { const a = el('a', '', text); a.href = '#'; a.onclick = (e) => { e.preventDefault(); act(); }; return a; };
+    crumbs.append(crumb(T('kb.all_snaps'), list), ' › ', crumb(`${path} · ${date(s.time)}`, () => browse(s, '')));
+    const parts = rel ? rel.split('/') : [];
+    parts.forEach((p, i) => crumbs.append(' / ', i === parts.length - 1 ? el('strong', '', p) : crumb(p, () => browse(s, parts.slice(0, i + 1).join('/')))));
+    body.appendChild(crumbs);
+    if (!ls.ok) { body.appendChild(el('p', 'callout warn', Office.errorText(ls.error, ID))); return; }
+    if (ls.split && !rel) body.appendChild(el('p', 'role', T('kb.split')));
+    if (ls.live) {
+      const where = el('p', 'role');
+      where.append(T('kb.live'), ' ', copyCode(ls.live));
+      body.appendChild(where);
+    }
+    if (!ls.entries.length) { body.appendChild(el('p', 'empty', T('kb.empty'))); return; }
+    const box = el('div', 'box rs-kb-list');
+    ls.entries.forEach((e) => {
+      const sub = rel ? `${rel}/${e.name}` : e.name;
+      const r = el('div', 'row nocheck');
+      const main = el('div', 'row-main');
+      const name = el('div', 'row-name text');
+      if (e.type === 'd') name.appendChild(crumb(`${e.name}/`, () => browse(s, sub)));
+      else name.textContent = e.name;
+      main.appendChild(name);
+      const meta = el('div', 'row-meta');
+      if (e.bytes !== null && e.bytes !== undefined) meta.appendChild(el('span', '', fmt.size(e.bytes)));
+      if (e.files !== null && e.files !== undefined) meta.appendChild(el('span', '', T('kr.files', { n: e.files })));
+      if (e.time) meta.appendChild(el('span', '', date(e.time)));
+      if (!e.live) meta.appendChild(chip(T('kb.stage_only'), 'quiet', T('kb.stage_only_hint')));
+      main.appendChild(meta);
+      r.appendChild(main);
+      const right = el('div', 'rs-right');
+      const go = button(T('kb.restore'), 'small', () => {
+        d.close();
+        restoreDialog({ kind: 'kopia', source, snapshot: s.id, path: sub }, T('rd.title.kopia_path', { what: sub, when: date(s.time) }));
+      });
+      go.disabled = !canRestore();
+      right.appendChild(go);
+      r.appendChild(right);
+      box.appendChild(r);
+    });
+    body.appendChild(box);
+    if (ls.more) body.appendChild(el('p', 'role', T('kb.more', { n: ls.more })));
+    if (!rel) {
+      const all = el('p', 'role');
+      all.appendChild(button(T('kb.whole'), 'small plain', () => pickWhole(s)));
+      body.appendChild(all);
+    }
+  }
+  list();
+}
+
+/**
+ * One path out of Kopia (1.72): next to what is there, swapped in (put in place when nothing is there), or only into the
+ * restore folder — what only goes there (the office's own share, a package) has that way alone; wake a sleeping disk
+ */
+function kopiaOptions(box, plan, ask, change, sleepers) {
+  box.innerHTML = '';
+  const o = plan.options || {};
+  const ways = o.way || [];
+  if (ways.length > 1) {
+    const way = el('div', 'field');
+    way.appendChild(el('div', 'field-title', T('rd.way')));
+    ways.forEach((m) => {
+      const l = el('label', 'check');
+      const r = el('input');
+      r.type = 'radio';
+      r.name = 'rs-kway';
+      r.checked = (ask.mode || plan.target.mode) === m;
+      r.onchange = () => change({ mode: m });
+      const key = m === 'swap' && o.nothing_live ? 'rd.way_place' : m === 'stage' ? 'rd.way_stage' : 'rd.way_' + m;
+      const text = el('span', '', T(key));
+      text.appendChild(el('small', '', T(key + (o.kind === 'file' && m !== 'stage' ? '_file_hint' : '_hint'))));
+      l.append(r, text);
+      way.appendChild(l);
+    });
+    box.appendChild(way);
+  } else if (ways[0] === 'stage') box.appendChild(el('p', 'role', T('rd.way_stage_only')));
+  if ((o.asleep || []).length || ask.wake) {
+    const l = el('label', 'check');
+    const c = el('input');
+    c.type = 'checkbox';
+    c.checked = !!ask.wake;
+    c.onchange = () => change({ wake: c.checked });
+    const names = (o.asleep || []).length ? o.asleep : (o.woken || []).length ? o.woken : (sleepers || []);
+    const text = el('span', '', T('rd.wake', { base: names.join(', ') || '–' }));
+    text.appendChild(el('small', '', T(ask.wake && !(o.asleep || []).length ? 'rd.woke' : 'rd.wake_hint', { base: names.join(', ') || '–' })));
+    l.append(c, text);
+    box.appendChild(l);
+  }
 }
 
 // ------------------------------------------------------------------ the journal
@@ -2441,9 +2734,9 @@ Office.desk({
 // opens through its sub-route, the section under it (drill.js has the drill's)
 Office.places(ID, [
   ...sw.places(),
-  ...[['apps', 'apps'], ['vms', 'vms'], ['dbs', 'dbs'], ['kopia', 'kopia'], ['journal', 'journal'], ['move.title', 'move'], ['drill.title', 'drill']]
+  ...[['apps', 'apps'], ['vms', 'vms'], ['shares', 'shares'], ['dbs', 'dbs'], ['kopia', 'kopia'], ['journal', 'journal'], ['move.title', 'move'], ['drill.title', 'drill']]
     .map(([key, sec]) => ({ kind: 'section', key, route: `#/restore/${sec}` })),
-  ...['tiles', 'row', 'dbs', 'package', 'snapshots', 'kopia', 'commands', 'chips', 'restoring', 'journal', 'drill']
+  ...['tiles', 'row', 'shares', 'dbs', 'package', 'snapshots', 'kopia', 'commands', 'chips', 'restoring', 'journal', 'drill']
     .map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
 ]);
 
@@ -2469,6 +2762,7 @@ Office.placesFrom(ID, (s, part) => {
   }
   (s.apps || []).forEach((a) => out.push({ text: a.name, sub: T('tile.apps'), route: `#/${ID}/apps`, anchor: 'app:' + a.id }));
   (s.vms || []).forEach((v) => out.push({ text: v.name, sub: T('tile.vms'), route: `#/${ID}/vms`, anchor: 'vm:' + v.id }));
+  (s.shares_back || []).forEach((x) => out.push({ text: x.name, sub: T('tile.shares'), route: `#/${ID}/shares`, anchor: 'share:' + x.name }));
   dbGroups(s.apps || []).forEach((g) => g.items.forEach((x) => out.push({ text: `${dbName(x)} · ${g.app.name}`, sub: T('tile.dbs'),
     route: `#/${ID}/dbs`, anchor: x.key })));
   (s.partners || []).forEach((p) => out.push({ text: T('tile.partner', { name: p.name }), route: `#/${ID}/partner:${p.id}`, anchor: `tile.partner:${p.id}` }));
@@ -2477,7 +2771,7 @@ Office.placesFrom(ID, (s, part) => {
 
 // tests/run.php runs the databases tile's logic and the preview's sizes under node
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.restore = { setState: (s) => { state = s; }, greetOk, dbGroups, dbName, dbRequest, earlierOf, tileLine, sizesDone,
+  globalThis.OFFICE_DESK_TESTS.restore = { setState: (s) => { state = s; }, greetOk, shareFromKopia, kopiaFetched, dbGroups, dbName, dbRequest, earlierOf, tileLine, sizesDone,
     setJob: (j) => { job = j; }, runCardData, runCard, shortStep, liveJob, runCardShort, bubbleText };
 }
 })();

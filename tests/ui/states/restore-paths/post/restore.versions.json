@@ -1,0 +1,28 @@
+{
+ "kind": "app",
+ "id": "Nextcloud",
+ "versions": [
+  {
+   "snap": "cache/UnraidSecretaryOffice@uso-backup-20261008-0430",
+   "time": 1791464674,
+   "run": "20261008-0430",
+   "run_time": 1791464614,
+   "path": "/mnt/cache/UnraidSecretaryOffice/.zfs/snapshot/uso-backup-20261008-0430/backup/apps/Nextcloud",
+   "kopia": false,
+   "dumps": [],
+   "sqlite": [],
+   "files": 6
+  },
+  {
+   "snap": "kopia:20261009-141000-5a5a",
+   "time": 1791119074,
+   "run": "20261004-0100",
+   "run_time": 1791118954,
+   "path": "/mnt/user/UnraidSecretaryOffice/restore/kopia/apps_nextcloud-20261009-141000/Nextcloud",
+   "kopia": true,
+   "dumps": [],
+   "sqlite": [],
+   "files": 6
+  }
+ ]
+}
