@@ -1009,7 +1009,8 @@ function moverelliJackPool(array $h): ?string
 }
 
 /**
- * Every pool her movable shares live on (yes|prefer, the primary) measured for her rule $g (move_when_used_above X):
+ * Every pool her caching shares live on (yes|prefer, the primary) measured for her rule $g (move_when_used_above X; the
+ * movable ones of a pool are those her fill takes — poolLevelMovable()):
  * {pool: level + {mine: Jack Emby's pool} | null} (null: not looked at — no
  * ZFS pool, or asleep). Jack's bytes count only on his pool.
  */
@@ -1031,7 +1032,8 @@ function moverelliLevels(array $g, array $h): array
         $pool = (string) $pool;
         $mine = $pool === $jack;
         $level = poolLevel($pool, ['x' => (int) $g['move_when_used_above'], 'shares_dir' => $h['shares_dir'], 'names' => $names, 'zfs' => $h['zfs'],
-            'mnt' => $h['mnt'], 'jack_list' => $mine ? $h['jack_list_file'] : null, 'asleep' => $h['asleep'], 'measure' => $h['pool_measure'] ?? null]
+            'mnt' => $h['mnt'], 'jack_list' => $mine ? $h['jack_list_file'] : null, 'asleep' => $h['asleep'], 'measure' => $h['pool_measure'] ?? null,
+            'ini' => "$h[dir]/smart_mover.ini"]
             + array_intersect_key($h, array_flip(['stat', 'du', 'du_cache', 'du_launch'])));
         $out[$pool] = $level === null ? null : $level + ['mine' => $mine];
     }
@@ -1041,7 +1043,7 @@ function moverelliLevels(array $g, array $h): array
 /** The pools of moverelliLevels() not looked at that are btrfs/xfs waiting for their first du (poolLevelWaiting()) */
 function moverelliLevelsWaiting(array $levels, array $h): array
 {
-    $o = ['shares_dir' => $h['shares_dir'], 'names' => moverelliShareNames($h['shares_dir'], $h), 'mnt' => $h['mnt']]
+    $o = ['shares_dir' => $h['shares_dir'], 'names' => moverelliShareNames($h['shares_dir'], $h), 'mnt' => $h['mnt'], 'ini' => "$h[dir]/smart_mover.ini"]
        + array_intersect_key($h, array_flip(['stat', 'du_cache']));
     return array_values(array_filter(array_map('strval', array_keys(array_filter($levels, fn ($l) => $l === null))),
         fn (string $pool) => !poolsBySleep([$pool], $h['asleep'])['asleep'] && poolLevelWaiting($pool, $o)));
@@ -1051,7 +1053,8 @@ function moverelliLevelsWaiting(array $levels, array $h): array
 function moverelliPoolDu(string $pool): int
 {
     $h = moverelliHost();
-    $code = poolLevelDuJob($pool, ['shares_dir' => $h['shares_dir'], 'names' => moverelliShareNames($h['shares_dir'], $h), 'mnt' => $h['mnt'], 'asleep' => $h['asleep']]
+    $code = poolLevelDuJob($pool, ['shares_dir' => $h['shares_dir'], 'names' => moverelliShareNames($h['shares_dir'], $h), 'mnt' => $h['mnt'], 'asleep' => $h['asleep'],
+                                   'ini' => "$h[dir]/smart_mover.ini"]
         + array_intersect_key($h, array_flip(['stat', 'du', 'du_cache'])));
     logLine("Ms. Moverelli: pool $pool's movable share folders " . ($code === 0 ? 'measured' : 'not measured'));
     return $code;
@@ -1188,6 +1191,8 @@ function moverelliScan(?array $h = null): array
         // other movers on a schedule of their own: Mover Tuning's (refuses real runs), scripts that call a mover (named)
         'foreign'    => array_diff_key(moverelliForeign($h), ['unraid' => 1]),
         'job'        => $job,
+        // a scheduled run of hers (the joint run too) waiting for Unraid's mover or the backup's local part (M17)
+        'waiting'    => jackRunWaiting('moverelli', $h['waitdir']),
         'stopping'   => $stop !== null ? (in_array($stop['why'] ?? '', ['mover', 'array'], true) ? $stop['why'] : 'user') : null,
         'last'       => readJson("$dir/status.json"),
         'history'    => array_slice(moverelliHistory($dir), 0, 20),
@@ -1351,8 +1356,9 @@ function moverelliProgressState(?array $h = null): array
  * writes to <dest>/<share>/<rel>.partial, renamed at the end — what of it is written is that file's ALLOCATED size
  * (st_blocks · 512: its apparent size may be preallocated to the whole). Looked for only where the share's files go
  * (its secondary pool, else the array disks) and only on awake ones (the target is awake while written); the path
- * strictly from the source's below the share. {file_bytes, file_size (the file's own), waking (no .partial yet, a
- * destination still asleep: the move waits for its disk)} (0 / null when none is found).
+ * strictly from the source's below the share. {file_bytes, file_size (the file's own), waking (no .partial yet, every
+ * destination asleep: the move waits for its disk), waking_maybe (no .partial yet, some destinations asleep: it may)}
+ * (0 / null when none is found).
  */
 function moverelliInFlight(array $p, array $h): array
 {
@@ -1383,8 +1389,11 @@ function moverelliInFlight(array $p, array $h): array
             return ['file_bytes' => $size !== null ? min($done, $size) : $done, 'file_size' => $size];
         }
     }
-    // no .partial yet and a destination still asleep: Unraid's move waits for the disk to spin up
-    return ['file_bytes' => 0, 'file_size' => $src !== false ? (int) $src['size'] : null, 'waking' => (bool) $sleep['asleep']];
+    // no .partial yet and a destination still asleep: Unraid's move waits for the disk to spin up — sure only when every
+    // place it may write to sleeps; with some awake its choice is Unraid's (allocation), so only maybe (truth review M14)
+    $asleep = (bool) $sleep['asleep'];
+    return ['file_bytes' => 0, 'file_size' => $src !== false ? (int) $src['size'] : null, 'waking' => $asleep && !$awake]
+         + ($asleep && $awake ? ['waking_maybe' => true] : []);
 }
 
 /**

@@ -293,7 +293,7 @@
   "office.supporter_remove_do": "Retirer",
   "office.supporter_removed": "La clé de soutien a été retirée.",
   "agent.array_stopped_title": "L'array est arrêté.",
-  "agent.array_stopped_text": "Le secrétariat garde ses données dans appdata — il se remet au travail dès que l'array tourne.",
+  "agent.array_stopped_text": "Le secrétariat garde ses données dans {dir} — il se remet au travail dès que l'array tourne.",
   "agent.no_appdata_title": "Le partage appdata manque.",
   "agent.no_appdata_text": "Le secrétariat garde ses données dans {dir}, et {appdata} n'existe pas sur ce serveur. Le coursier ne crée jamais un partage de lui-même. Recrée-le sous ⟦Shares⟧ (ou remets le dossier en place) ; en quelques secondes, il crée alors lui-même son dossier.",
   "agent.label_home": "Premier démarrage",

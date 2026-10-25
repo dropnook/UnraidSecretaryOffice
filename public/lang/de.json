@@ -293,7 +293,7 @@
   "office.supporter_remove_do": "Entfernen",
   "office.supporter_removed": "Der Unterstützer-Schlüssel ist entfernt.",
   "agent.array_stopped_title": "Das Array ist gestoppt.",
-  "agent.array_stopped_text": "Das Sekretariat hat seine Daten in appdata — es arbeitet wieder, sobald das Array läuft.",
+  "agent.array_stopped_text": "Das Sekretariat hat seine Daten in {dir} — es arbeitet wieder, sobald das Array läuft.",
   "agent.no_appdata_title": "Das Share appdata fehlt.",
   "agent.no_appdata_text": "Das Sekretariat legt seine Daten in {dir} ab, und {appdata} gibt es auf diesem Server nicht. Ein Share legt der Hausbote nie von sich aus an. Lege es unter ⟦Shares⟧ wieder an (oder hol den Ordner zurück); dann legt er seinen Ordner binnen Sekunden selbst an.",
   "agent.label_home": "Erster Start",

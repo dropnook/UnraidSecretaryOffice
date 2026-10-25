@@ -1,0 +1,1791 @@
+{
+ "time": 1791505997,
+ "sources": [
+  {
+   "id": "agent",
+   "group": "office",
+   "label": "agent",
+   "param": "",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/agent.log",
+   "size": 47627,
+   "time": 1791505561
+  },
+  {
+   "id": "backup:latest",
+   "group": "office",
+   "label": "backup_latest",
+   "param": "",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/latest.log",
+   "size": 4398,
+   "time": 1791501440
+  },
+  {
+   "id": "backup:setup-20261009-0226.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261009-0226",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261009-0226.log",
+   "size": 13711,
+   "time": 1791505562
+  },
+  {
+   "id": "backup:setup-20261009-0222.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261009-0222",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261009-0222.log",
+   "size": 13711,
+   "time": 1791505338
+  },
+  {
+   "id": "backup:run-20261009-0117.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "run-20261009-0117",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/run-20261009-0117.log",
+   "size": 4398,
+   "time": 1791501440
+  },
+  {
+   "id": "backup:setup-20261008-2354.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2354",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2354.log",
+   "size": 13711,
+   "time": 1791496443
+  },
+  {
+   "id": "backup:setup-20261008-2353.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2353",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2353.log",
+   "size": 30844,
+   "time": 1791496432
+  },
+  {
+   "id": "backup:setup-20261008-2350.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2350",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2350.log",
+   "size": 29133,
+   "time": 1791496238
+  },
+  {
+   "id": "backup:setup-20261008-2349.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2349",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2349.log",
+   "size": 15422,
+   "time": 1791496188
+  },
+  {
+   "id": "backup:setup-20261008-2300.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2300",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2300.log",
+   "size": 13711,
+   "time": 1791493242
+  },
+  {
+   "id": "backup:setup-20261008-2259.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2259",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2259.log",
+   "size": 13711,
+   "time": 1791493157
+  },
+  {
+   "id": "backup:setup-20261008-2256.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2256",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2256.log",
+   "size": 13711,
+   "time": 1791493005
+  },
+  {
+   "id": "backup:setup-20261008-2254.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2254",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2254.log",
+   "size": 13711,
+   "time": 1791492854
+  },
+  {
+   "id": "backup:setup-20261008-2251.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2251",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2251.log",
+   "size": 13711,
+   "time": 1791492704
+  },
+  {
+   "id": "backup:setup-20261008-2248.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2248",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2248.log",
+   "size": 13711,
+   "time": 1791492512
+  },
+  {
+   "id": "backup:setup-20261008-2245.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2245",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2245.log",
+   "size": 13711,
+   "time": 1791492361
+  },
+  {
+   "id": "backup:setup-20261008-2244.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2244",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2244.log",
+   "size": 13711,
+   "time": 1791492278
+  },
+  {
+   "id": "backup:setup-20261008-2243.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2243",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2243.log",
+   "size": 13711,
+   "time": 1791492210
+  },
+  {
+   "id": "backup:setup-20261008-2242.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2242",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2242.log",
+   "size": 13711,
+   "time": 1791492127
+  },
+  {
+   "id": "backup:setup-20261008-2240.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2240",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2240.log",
+   "size": 13711,
+   "time": 1791492053
+  },
+  {
+   "id": "backup:setup-20261008-2239.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2239",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2239.log",
+   "size": 13711,
+   "time": 1791491977
+  },
+  {
+   "id": "backup:setup-20261008-2238.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2238",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2238.log",
+   "size": 13711,
+   "time": 1791491914
+  },
+  {
+   "id": "backup:check-20261008-2230.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "check-20261008-2230",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/check-20261008-2230.log",
+   "size": 315,
+   "time": 1791491441
+  },
+  {
+   "id": "backup:setup-20261008-2207.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2207",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2207.log",
+   "size": 13711,
+   "time": 1791490055
+  },
+  {
+   "id": "backup:setup-20261008-2205.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2205",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2205.log",
+   "size": 13711,
+   "time": 1791489902
+  },
+  {
+   "id": "backup:setup-20261008-2202.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2202",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2202.log",
+   "size": 13711,
+   "time": 1791489748
+  },
+  {
+   "id": "backup:setup-20261008-2159.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2159",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2159.log",
+   "size": 13711,
+   "time": 1791489563
+  },
+  {
+   "id": "backup:setup-20261008-2157.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2157",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2157.log",
+   "size": 13711,
+   "time": 1791489458
+  },
+  {
+   "id": "backup:setup-20261008-2149.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2149",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2149.log",
+   "size": 13711,
+   "time": 1791488981
+  },
+  {
+   "id": "backup:setup-20261008-2147.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2147",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2147.log",
+   "size": 13711,
+   "time": 1791488828
+  },
+  {
+   "id": "backup:setup-20261008-2144.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2144",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2144.log",
+   "size": 13711,
+   "time": 1791488674
+  },
+  {
+   "id": "backup:setup-20261008-1739.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-1739",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-1739.log",
+   "size": 13711,
+   "time": 1791473956
+  },
+  {
+   "id": "partner:door",
+   "group": "office",
+   "label": "partner_door",
+   "param": "",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/partner/door.log",
+   "size": 2170,
+   "time": 1791471681
+  },
+  {
+   "id": "router:192.168.1.190",
+   "group": "unraid",
+   "label": "router",
+   "param": "192.168.1.190",
+   "path": "/mnt/big/syslog/syslog-192.168.1.190.log",
+   "size": 5866,
+   "time": 1791459040
+  },
+  {
+   "id": "syslog",
+   "group": "unraid",
+   "label": "syslog",
+   "param": "",
+   "path": "/var/log/syslog",
+   "size": 535597,
+   "time": 1791505980
+  },
+  {
+   "id": "dmesg",
+   "group": "unraid",
+   "label": "dmesg",
+   "param": "",
+   "path": null,
+   "size": null,
+   "time": null
+  },
+  {
+   "id": "docker",
+   "group": "unraid",
+   "label": "docker",
+   "param": "",
+   "path": "/var/log/docker.log",
+   "size": 156,
+   "time": 1791501074
+  },
+  {
+   "id": "libvirt",
+   "group": "unraid",
+   "label": "libvirt",
+   "param": "",
+   "path": "/var/log/libvirt/libvirtd.log",
+   "size": 0,
+   "time": 1791501076
+  },
+  {
+   "id": "nginx",
+   "group": "unraid",
+   "label": "nginx",
+   "param": "",
+   "path": "/var/log/nginx/error.log",
+   "size": 629,
+   "time": 1791501066
+  },
+  {
+   "id": "samba:log.rpcd_classic",
+   "group": "unraid",
+   "label": "samba",
+   "param": "log.rpcd_classic",
+   "path": "/var/log/samba/log.rpcd_classic",
+   "size": 0,
+   "time": 1791501046
+  },
+  {
+   "id": "samba:log.rpcd_epmapper",
+   "group": "unraid",
+   "label": "samba",
+   "param": "log.rpcd_epmapper",
+   "path": "/var/log/samba/log.rpcd_epmapper",
+   "size": 0,
+   "time": 1791501046
+  },
+  {
+   "id": "samba:log.rpcd_fsrvp",
+   "group": "unraid",
+   "label": "samba",
+   "param": "log.rpcd_fsrvp",
+   "path": "/var/log/samba/log.rpcd_fsrvp",
+   "size": 0,
+   "time": 1791501046
+  },
+  {
+   "id": "samba:log.rpcd_lsad",
+   "group": "unraid",
+   "label": "samba",
+   "param": "log.rpcd_lsad",
+   "path": "/var/log/samba/log.rpcd_lsad",
+   "size": 6732,
+   "time": 1791505889
+  },
+  {
+   "id": "samba:log.rpcd_mdssvc",
+   "group": "unraid",
+   "label": "samba",
+   "param": "log.rpcd_mdssvc",
+   "path": "/var/log/samba/log.rpcd_mdssvc",
+   "size": 0,
+   "time": 1791501046
+  },
+  {
+   "id": "samba:log.rpcd_spoolss",
+   "group": "unraid",
+   "label": "samba",
+   "param": "log.rpcd_spoolss",
+   "path": "/var/log/samba/log.rpcd_spoolss",
+   "size": 0,
+   "time": 1791501046
+  },
+  {
+   "id": "samba:log.rpcd_winreg",
+   "group": "unraid",
+   "label": "samba",
+   "param": "log.rpcd_winreg",
+   "path": "/var/log/samba/log.rpcd_winreg",
+   "size": 0,
+   "time": 1791501046
+  },
+  {
+   "id": "samba:log.samba-dcerpcd",
+   "group": "unraid",
+   "label": "samba",
+   "param": "log.samba-dcerpcd",
+   "path": "/var/log/samba/log.samba-dcerpcd",
+   "size": 3204,
+   "time": 1791505889
+  },
+  {
+   "id": "samba:log.smbd",
+   "group": "unraid",
+   "label": "samba",
+   "param": "log.smbd",
+   "path": "/var/log/samba/log.smbd",
+   "size": 161,
+   "time": 1791501046
+  },
+  {
+   "id": "samba:log.wb-TOWER",
+   "group": "unraid",
+   "label": "samba",
+   "param": "log.wb-TOWER",
+   "path": "/var/log/samba/log.wb-TOWER",
+   "size": 0,
+   "time": 1791501046
+  },
+  {
+   "id": "samba:log.winbindd",
+   "group": "unraid",
+   "label": "samba",
+   "param": "log.winbindd",
+   "path": "/var/log/samba/log.winbindd",
+   "size": 171,
+   "time": 1791501046
+  },
+  {
+   "id": "samba:log.winbindd-idmap",
+   "group": "unraid",
+   "label": "samba",
+   "param": "log.winbindd-idmap",
+   "path": "/var/log/samba/log.winbindd-idmap",
+   "size": 0,
+   "time": 1791501046
+  },
+  {
+   "id": "php",
+   "group": "unraid",
+   "label": "php",
+   "param": "",
+   "path": "/var/log/phplog",
+   "size": 11510,
+   "time": 1791504085
+  },
+  {
+   "id": "graphql",
+   "group": "unraid",
+   "label": "api",
+   "param": "",
+   "path": "/var/log/graphql-api.log",
+   "size": 9761,
+   "time": 1791501173
+  },
+  {
+   "id": "mail",
+   "group": "unraid",
+   "label": "mail",
+   "param": "",
+   "path": "/var/log/maillog",
+   "size": 0,
+   "time": 1619630927
+  },
+  {
+   "id": "parity",
+   "group": "unraid",
+   "label": "parity",
+   "param": "",
+   "path": "/boot/config/parity-checks.log",
+   "size": 112,
+   "time": 1791501094
+  },
+  {
+   "id": "container:immich_server",
+   "group": "containers",
+   "label": "container",
+   "param": "immich_server",
+   "path": null,
+   "size": null,
+   "time": null
+  },
+  {
+   "id": "container:immich_redis",
+   "group": "containers",
+   "label": "container",
+   "param": "immich_redis",
+   "path": null,
+   "size": null,
+   "time": null
+  },
+  {
+   "id": "container:immich_postgres",
+   "group": "containers",
+   "label": "container",
+   "param": "immich_postgres",
+   "path": null,
+   "size": null,
+   "time": null
+  },
+  {
+   "id": "container:Nextcloud",
+   "group": "containers",
+   "label": "container",
+   "param": "Nextcloud",
+   "path": null,
+   "size": null,
+   "time": null
+  },
+  {
+   "id": "container:mariadb-nextcloud",
+   "group": "containers",
+   "label": "container",
+   "param": "mariadb-nextcloud",
+   "path": null,
+   "size": null,
+   "time": null
+  },
+  {
+   "id": "container:EmbyServer",
+   "group": "containers",
+   "label": "container",
+   "param": "EmbyServer",
+   "path": null,
+   "size": null,
+   "time": null
+  },
+  {
+   "id": "container:kopia",
+   "group": "containers",
+   "label": "container",
+   "param": "kopia",
+   "path": null,
+   "size": null,
+   "time": null
+  },
+  {
+   "id": "container:Grafana",
+   "group": "containers",
+   "label": "container",
+   "param": "Grafana",
+   "path": null,
+   "size": null,
+   "time": null
+  },
+  {
+   "id": "container:prometheus",
+   "group": "containers",
+   "label": "container",
+   "param": "prometheus",
+   "path": null,
+   "size": null,
+   "time": null
+  },
+  {
+   "id": "container:Node-Exporter",
+   "group": "containers",
+   "label": "container",
+   "param": "Node-Exporter",
+   "path": null,
+   "size": null,
+   "time": null
+  }
+ ],
+ "syslog": {
+  "errors": 0,
+  "warnings": 0
+ },
+ "varlog": {
+  "ok": true,
+  "own": true,
+  "fs": "tmpfs",
+  "total": 134217728,
+  "used": 123480064,
+  "pct": 92,
+  "warn": 60,
+  "full": 80
+ },
+ "flood": {
+  "look": {
+   "t": 1791505990,
+   "pct": 92,
+   "used": 123480064,
+   "total": 134217728,
+   "span": 600,
+   "grew": 9437184,
+   "rows": [
+    {
+     "path": "/var/log/nginx/error.log",
+     "size": 118489088,
+     "grew": 9420800,
+     "rate": 942080
+    },
+    {
+     "path": "/var/log/syslog",
+     "size": 2412544,
+     "grew": 16384,
+     "rate": 1638
+    }
+   ],
+   "cut": false
+  },
+  "case": {
+   "path": "/var/log/nginx/error.log",
+   "read": 1791505930,
+   "since": 1791505330,
+   "lines": 1180,
+   "binary": false,
+   "kinds": [
+    {
+     "n": 1168,
+     "share": 99,
+     "line": "2026/10/09 12:33:17 [error] 1234#1234: *88123 limiting requests, excess: 20.640 by zone \"authlimit\", client: 127.0.0.1, server: , request: \"GET /login HTTP/1.1\", host: \"127.0.0.1\", referrer: \"http://127.0.0.1/stub_status\""
+    },
+    {
+     "n": 12,
+     "share": 1,
+     "line": "2026/10/09 12:33:02 [error] 1234#1234: *88001 open() \"/usr/local/emhttp/plugins/dynamix.docker.manager/images/question.png\" failed (2: No such file or directory), client: 192.168.1.50, server: , request: \"GET /plugins/dynamix.docker.manager/images/question.png HTTP/1.1\", host: \"tower\""
+    }
+   ],
+   "local": {
+    "n": 1168,
+    "share": 99,
+    "client": "127.0.0.1",
+    "paths": [
+     "/login",
+     "/stub_status",
+     "/nginx_status",
+     "/basic_status",
+     "/status"
+    ],
+    "poller": "netdata"
+   },
+   "size": 118489088,
+   "grew": 9420800,
+   "rate": 942080
+  },
+  "catch": {
+   "t": 1791505960,
+   "looks": 30,
+   "seen": 9,
+   "who": [
+    {
+     "kind": "container",
+     "id": "c0ffee12c0ffee12c0ffee12c0ffee12c0ffee12c0ffee12c0ffee12c0ffee12",
+     "prog": "go.d.plugin",
+     "cmd": "/usr/libexec/netdata/plugins.d/go.d.plugin 1",
+     "n": 9,
+     "name": "netdata",
+     "image": "netdata/netdata:stable",
+     "poller": "netdata"
+    }
+   ],
+   "cut": false
+  },
+  "told": 1791505962,
+  "catching": false,
+  "every": 60,
+  "full": 80,
+  "notify": 90,
+  "pollers": {
+   "netdata": {
+    "tool": "Netdata",
+    "todo": true
+   },
+   "glances": {
+    "tool": "Glances",
+    "todo": false
+   },
+   "telegraf": {
+    "tool": "Telegraf",
+    "todo": false
+   },
+   "uptime_kuma": {
+    "tool": "Uptime Kuma",
+    "todo": false
+   },
+   "homepage": {
+    "tool": "Homepage",
+    "todo": false
+   },
+   "homarr": {
+    "tool": "Homarr",
+    "todo": false
+   }
+  }
+ },
+ "rules": [
+  [
+   "logger: [|+ #-]",
+   "skip"
+  ],
+  [
+   "non[ -]fatal error",
+   "skip"
+  ],
+  [
+   "correct gpt errors",
+   "skip"
+  ],
+  [
+   "dev error handler",
+   "skip"
+  ],
+  [
+   "not tainted",
+   "skip"
+  ],
+  [
+   ": connect from [0-9.]*",
+   "login"
+  ],
+  [
+   "(accepted password|ROOT LOGIN)",
+   "login"
+  ],
+  [
+   "preclear_disk",
+   "fs"
+  ],
+  [
+   "(invalid (password|user)|failed password)",
+   "minor"
+  ],
+  [
+   "sshd\\[\\d+\\]:",
+   "login"
+  ],
+  [
+   "(ACPI Warning|ACPI Exception|ACPI Error)",
+   "minor"
+  ],
+  [
+   "spurious",
+   "minor"
+  ],
+  [
+   "invalid signature",
+   "minor"
+  ],
+  [
+   "(soft|hard) resetting ",
+   "minor"
+  ],
+  [
+   " failed[ ,:]",
+   "minor"
+  ],
+  [
+   "prematurely closed",
+   "minor"
+  ],
+  [
+   "errno=[^0]",
+   "minor"
+  ],
+  [
+   " limiting speed to (PIO|UDM)",
+   "minor"
+  ],
+  [
+   ": replayed ",
+   "minor"
+  ],
+  [
+   "duplicate object",
+   "minor"
+  ],
+  [
+   " checksumming",
+   "system"
+  ],
+  [
+   " checksum",
+   "minor"
+  ],
+  [
+   "conflicts",
+   "minor"
+  ],
+  [
+   "(warning|warn:)",
+   "minor"
+  ],
+  [
+   "conflicts",
+   "minor"
+  ],
+  [
+   "killall",
+   "minor"
+  ],
+  [
+   "power is back",
+   "minor"
+  ],
+  [
+   "UPS self test",
+   "minor"
+  ],
+  [
+   "[ \\t]terror",
+   "error"
+  ],
+  [
+   "HPA detected: current [0-9]*168,",
+   "error"
+  ],
+  [
+   "kernel:  \\[mem .* page ",
+   "error"
+  ],
+  [
+   "(error[ :]|Emask )",
+   "error"
+  ],
+  [
+   "parity incorrect",
+   "error"
+  ],
+  [
+   "Fsck\\?",
+   "error"
+  ],
+  [
+   "invalid opcode: ",
+   "error"
+  ],
+  [
+   "nobody cared",
+   "warning"
+  ],
+  [
+   "Unknown boot option",
+   "error"
+  ],
+  [
+   "ata[0-9\\. ]+: disabled",
+   "error"
+  ],
+  [
+   "(DMA disabled|exit status 1 from user root)",
+   "error"
+  ],
+  [
+   "kernel BUG ",
+   "error"
+  ],
+  [
+   "Write Protect is on",
+   "error"
+  ],
+  [
+   "Call trace",
+   "error"
+  ],
+  [
+   "tainted:",
+   "error"
+  ],
+  [
+   "kernel:  \\[",
+   "error"
+  ],
+  [
+   "out[ _]of[ _]memory",
+   "error"
+  ],
+  [
+   "killed",
+   "error"
+  ],
+  [
+   "HPA detected: current [0-9]*055,",
+   "error"
+  ],
+  [
+   "(password mismatch|was not found in )",
+   "error"
+  ],
+  [
+   "unable to open primary script:",
+   "error"
+  ],
+  [
+   "(HPA|Host Protected Area)",
+   "minor"
+  ],
+  [
+   "power failure",
+   "error"
+  ],
+  [
+   "throttling rate",
+   "system"
+  ],
+  [
+   "get value of subfeature",
+   "system"
+  ],
+  [
+   "Linux version",
+   "system"
+  ],
+  [
+   "MHz processor",
+   "system"
+  ],
+  [
+   "CPU: Intel",
+   "system"
+  ],
+  [
+   "CPU[0-9]: Intel",
+   "system"
+  ],
+  [
+   "CPU: AMD",
+   "system"
+  ],
+  [
+   "CPU[0-9]: AMD",
+   "system"
+  ],
+  [
+   "kernel: Processors: ",
+   "system"
+  ],
+  [
+   "kernel: Memory: ",
+   "system"
+  ],
+  [
+   "kernel: SMP: ",
+   "system"
+  ],
+  [
+   "B HIGHMEM ",
+   "system"
+  ],
+  [
+   "LOWMEM ",
+   "system"
+  ],
+  [
+   "md: xor using",
+   "system"
+  ],
+  [
+   "BogoMIPS",
+   "system"
+  ],
+  [
+   "kernel: Console: ",
+   "system"
+  ],
+  [
+   " Thermal Zone",
+   "system"
+  ],
+  [
+   " Adding [0-9]+k swap on ",
+   "system"
+  ],
+  [
+   "Kernel command line:",
+   "system"
+  ],
+  [
+   "_sse",
+   "system"
+  ],
+  [
+   "found.*chip",
+   "system"
+  ],
+  [
+   "controller",
+   "system"
+  ],
+  [
+   " version ",
+   "system"
+  ],
+  [
+   "mouse|speaker|KBD port|AUX port|PS\\/2|keyboard]",
+   "system"
+  ],
+  [
+   "driver",
+   "system"
+  ],
+  [
+   "microcode",
+   "system"
+  ],
+  [
+   " mdcmd ",
+   "array"
+  ],
+  [
+   " md: ",
+   "array"
+  ],
+  [
+   "super.dat ",
+   "array"
+  ],
+  [
+   ": running, size:",
+   "array"
+  ],
+  [
+   "sas: ata[0-9].*dev error handler",
+   "drive"
+  ],
+  [
+   "Device inventory:",
+   "drive"
+  ],
+  [
+   ": pci-",
+   "drive"
+  ],
+  [
+   ", ATA DISK drive",
+   "drive"
+  ],
+  [
+   "Direct-Access ",
+   "drive"
+  ],
+  [
+   " attached scsi disk",
+   "drive"
+  ],
+  [
+   " attached scsi removable disk",
+   "drive"
+  ],
+  [
+   "SATA link up ",
+   "drive"
+  ],
+  [
+   " md[0-9][:) ]",
+   "drive"
+  ],
+  [
+   " md1[0-9][:) ]",
+   "drive"
+  ],
+  [
+   " md2[0-9][:) ]",
+   "drive"
+  ],
+  [
+   " [sh]d[a-z]1[: ]",
+   "drive"
+  ],
+  [
+   "kernel:  [sh]d[a-z][: ]",
+   "drive"
+  ],
+  [
+   " ide[0-9]: [^B]",
+   "drive"
+  ],
+  [
+   "hdparm ",
+   "drive"
+  ],
+  [
+   "scsi |[^d]ata|sas |ahci |[^a-z0-9]sd[a-z][^a-z]|usb",
+   "drive"
+  ],
+  [
+   "import disk[0-9]*: ",
+   "drive"
+  ],
+  [
+   "(ncq|trimmed on)",
+   "drive"
+  ],
+  [
+   "(spinup|spindown)",
+   "fs"
+  ],
+  [
+   "(reiserfs|xfs|btrfs|ext4)",
+   "fs"
+  ],
+  [
+   "mkdir.*\\/mnt\\/(disk|cache)",
+   "fs"
+  ],
+  [
+   "scst_",
+   "fs"
+  ],
+  [
+   "sending DHCP_REQUEST for",
+   "fs"
+  ],
+  [
+   "dhcpIPaddrLeaseTime=[0-9]* in DHCP server response.",
+   "fs"
+  ],
+  [
+   "dhcpT[12]value is missing in DHCP server response.",
+   "fs"
+  ],
+  [
+   "DHCP_ACK received from",
+   "fs"
+  ],
+  [
+   "kernel:[ \\t]*$",
+   "system"
+  ],
+  [
+   "rdevNumErrors\\.[0-9]*=0",
+   "fs"
+  ],
+  [
+   "sas eh calling libata port error handler",
+   "fs"
+  ],
+  [
+   "(entered blocking state|entered disabled state|entered forwarding state|entered listening state)",
+   "network"
+  ],
+  [
+   "(promiscuous mode|link is not ready|link becomes ready)",
+   "network"
+  ],
+  [
+   "(New relevant interface|no longer relevant|mDNS multicast|address record)",
+   "network"
+  ],
+  [
+   "(kvm:|docker[0-9])",
+   "fs"
+  ],
+  [
+   "ntpd.*Listening on interface",
+   "network"
+  ],
+  [
+   ": Listen normally on",
+   "network"
+  ],
+  [
+   "rc.inet1",
+   "network"
+  ],
+  [
+   "forcedeth",
+   "network"
+  ],
+  [
+   " r8169[ :]",
+   "network"
+  ],
+  [
+   " e1000[ :]",
+   "network"
+  ],
+  [
+   " e1000e[ :]",
+   "network"
+  ],
+  [
+   " sky2[ :]",
+   "network"
+  ],
+  [
+   " skge[ :]",
+   "network"
+  ],
+  [
+   " tg3[ :.]",
+   "network"
+  ],
+  [
+   " bcm5700[ :]",
+   "network"
+  ],
+  [
+   " sk98lin[ :]",
+   "network"
+  ],
+  [
+   "dhcp",
+   "network"
+  ],
+  [
+   "dnsmasq",
+   "network"
+  ],
+  [
+   "(bond[0-9]|eth[0-9]|vnet[0-9])",
+   "network"
+  ],
+  [
+   ": unRAID System",
+   "limetech"
+  ],
+  [
+   "Lime[ -]Tech",
+   "limetech"
+  ],
+  [
+   "key detected, registered",
+   "limetech"
+  ],
+  [
+   ": Unregistered",
+   "limetech"
+  ],
+  [
+   "emhttp[:[_]",
+   "emhttp"
+  ]
+ ],
+ "mine": {
+  "rules": [
+   {
+    "id": "a092ae4b1f15",
+    "re": "(spinup|spindown)",
+    "cat": "array"
+   },
+   {
+    "id": "62e11f279d58",
+    "re": "ata[0-9]+: hard resetting link",
+    "cat": "minor"
+   }
+  ],
+  "hide": [
+   {
+    "id": "a848882deb4a",
+    "text": "wsdd2["
+   }
+  ],
+  "time": 1791419597,
+  "max": 100
+ },
+ "hide": [
+  "wsdd2["
+ ],
+ "boot": 1791242697,
+ "tz": 7200,
+ "filters": [
+  {
+   "id": "a1b2c3d4e5f6",
+   "list": "syslog",
+   "name": "Disks today",
+   "words": "",
+   "cat": "drive",
+   "src": "",
+   "only": false,
+   "time": {
+    "preset": "today"
+   },
+   "open": false
+  },
+  {
+   "id": "0f1e2d3c4b5a",
+   "list": "syslog",
+   "name": "Network, last hour",
+   "words": "br0",
+   "cat": "network",
+   "src": "",
+   "only": false,
+   "time": {
+    "preset": "hour"
+   },
+   "open": false
+  },
+  {
+   "id": "1234567890ab",
+   "list": "varlog",
+   "name": "Since the start",
+   "words": "",
+   "cat": "",
+   "src": "",
+   "only": false,
+   "time": {
+    "preset": "boot"
+   },
+   "open": false
+  }
+ ],
+ "wakes": {
+  "hdds": [
+   "parity",
+   "disk1",
+   "disk2",
+   "disk3"
+  ],
+  "since": 1790984597,
+  "look": 4,
+  "wakes": [
+   {
+    "id": "demo0020",
+    "from": 1791505696,
+    "disks": [
+     "disk2",
+     "parity"
+    ],
+    "how": "caught",
+    "who": [
+     {
+      "kind": "container",
+      "prog": "rsync",
+      "sure": "wrote",
+      "name": "fotosync",
+      "desk": "",
+      "cmd": "rsync -a /import/ /fotos/",
+      "by": "",
+      "byname": "",
+      "files": [
+       "/mnt/disk2/Fotos/2026/Herbst/IMG_0420.jpg"
+      ]
+     },
+     {
+      "kind": "program",
+      "prog": "soffice.bin",
+      "sure": "wrote",
+      "name": "",
+      "desk": "",
+      "cmd": "/usr/lib/libreoffice/program/soffice.bin",
+      "by": "session",
+      "byname": "",
+      "files": [
+       "/mnt/disk2/Dokumente/Haus/Einkaufsliste.odt"
+      ]
+     },
+     {
+      "kind": "smb",
+      "prog": "smbd",
+      "sure": "open",
+      "name": "laptop-kueche",
+      "desk": "",
+      "cmd": "/usr/sbin/smbd -D",
+      "by": "",
+      "byname": "",
+      "files": [
+       "/mnt/user/Fotos/2026/Herbst/IMG_0412.jpg"
+      ]
+     }
+    ],
+    "cut": false,
+    "named": true,
+    "cron": [],
+    "started": [],
+    "smart": 1791505712,
+    "time": 1791505702,
+    "unraid": true
+   },
+   {
+    "id": "demo0021",
+    "from": 1791505592,
+    "disks": [
+     "disk1"
+    ],
+    "how": "caught",
+    "who": [],
+    "cut": false,
+    "named": true,
+    "cron": [],
+    "started": [],
+    "smart": 1791505596,
+    "time": 1791505596,
+    "unraid": true
+   },
+   {
+    "id": "demo0022",
+    "from": 1791505495,
+    "disks": [
+     "disk3"
+    ],
+    "how": "caught",
+    "who": [
+     {
+      "kind": "program",
+      "prog": "find",
+      "sure": "likely",
+      "name": "",
+      "desk": "",
+      "cmd": "find /mnt/user/Familienfilme -name *.nfo",
+      "by": "plugin",
+      "byname": "disk.tidy",
+      "files": [
+       "/mnt/user/Familienfilme/Geburtstag Oma.nfo"
+      ]
+     },
+     {
+      "kind": "program",
+      "prog": "smartctl",
+      "sure": "maybe",
+      "name": "",
+      "desk": "",
+      "cmd": "/usr/sbin/smartctl -a /dev/sdd",
+      "by": "web",
+      "byname": "",
+      "files": []
+     }
+    ],
+    "cut": false,
+    "named": true,
+    "cron": [],
+    "started": [],
+    "smart": 1791505510,
+    "time": 1791505501,
+    "unraid": false
+   },
+   {
+    "id": "demo0001",
+    "from": 1791505391,
+    "disks": [
+     "disk3",
+     "parity"
+    ],
+    "how": "caught",
+    "who": [
+     {
+      "kind": "container",
+      "prog": "Plex Media Scan",
+      "sure": "sure",
+      "name": "plex",
+      "desk": "",
+      "cmd": "/usr/lib/plexmediaserver/Plex Media Scanner",
+      "files": [
+       "/mnt/disk3/Familienfilme/Sommer 2019/Strand 1.mkv"
+      ]
+     },
+     {
+      "kind": "vm",
+      "prog": "qemu-system-x86",
+      "sure": "maybe",
+      "name": "Hausaufgaben",
+      "desk": "",
+      "cmd": "/usr/bin/qemu-system-x86_64 -name guest=Hausaufgaben",
+      "files": []
+     }
+    ],
+    "cut": false,
+    "named": true,
+    "cron": [],
+    "started": [],
+    "smart": 1791505406,
+    "time": 1791505397
+   },
+   {
+    "id": "demo0002",
+    "from": 1791502091,
+    "disks": [
+     "disk3"
+    ],
+    "how": "caught",
+    "who": [
+     {
+      "kind": "container",
+      "prog": "Plex Media Scan",
+      "sure": "sure",
+      "name": "plex",
+      "desk": "",
+      "cmd": "/usr/lib/plexmediaserver/Plex Media Scanner",
+      "files": [
+       "/mnt/disk3/Familienfilme/Sommer 2019/Strand 2.mkv"
+      ]
+     }
+    ],
+    "cut": false,
+    "named": true,
+    "cron": [],
+    "started": [
+     "plex"
+    ],
+    "smart": 1791502106,
+    "time": 1791502097
+   },
+   {
+    "id": "demo0003",
+    "from": 1791498371,
+    "disks": [
+     "disk2"
+    ],
+    "how": "caught",
+    "who": [
+     {
+      "kind": "smb",
+      "prog": "smbd",
+      "sure": "likely",
+      "name": "laptop-kueche",
+      "desk": "",
+      "cmd": "/usr/sbin/smbd -D",
+      "files": [
+       "/mnt/user/Fotos/2026/Herbst/IMG_0412.jpg"
+      ]
+     }
+    ],
+    "cut": false,
+    "named": true,
+    "cron": [],
+    "started": [],
+    "smart": 1791498386,
+    "time": 1791498377
+   },
+   {
+    "id": "demo0004",
+    "from": 1791495191,
+    "disks": [
+     "disk3"
+    ],
+    "how": "caught",
+    "who": [
+     {
+      "kind": "container",
+      "prog": "Plex Media Scan",
+      "sure": "sure",
+      "name": "plex",
+      "desk": "",
+      "cmd": "/usr/lib/plexmediaserver/Plex Media Scanner",
+      "files": [
+       "/mnt/disk3/Familienfilme/Sommer 2019/Strand 3.mkv"
+      ]
+     }
+    ],
+    "cut": false,
+    "named": true,
+    "cron": [],
+    "started": [],
+    "smart": 1791495206,
+    "time": 1791495197
+   },
+   {
+    "id": "demo0005",
+    "from": 1791487931,
+    "disks": [
+     "disk3"
+    ],
+    "how": "noticed",
+    "who": [],
+    "cut": false,
+    "named": true,
+    "cron": [],
+    "started": [],
+    "smart": null,
+    "time": 1791487937
+   },
+   {
+    "id": "demo0006",
+    "from": 1791477176,
+    "disks": [
+     "disk1"
+    ],
+    "how": "caught",
+    "who": [
+     {
+      "kind": "office",
+      "prog": "kopia",
+      "sure": "sure",
+      "name": "",
+      "desk": "backup",
+      "cmd": "kopia snapshot create",
+      "files": [
+       "/mnt/disk1/Dokumente/Haus/Grundriss.pdf"
+      ]
+     }
+    ],
+    "cut": false,
+    "named": true,
+    "cron": [
+     "office:backup"
+    ],
+    "started": [],
+    "smart": 1791477191,
+    "time": 1791477182
+   },
+   {
+    "id": "demo0007",
+    "from": 1791473591,
+    "disks": [
+     "disk3"
+    ],
+    "how": "caught",
+    "who": [
+     {
+      "kind": "container",
+      "prog": "Plex Media Scan",
+      "sure": "likely",
+      "name": "plex",
+      "desk": "",
+      "cmd": "/usr/lib/plexmediaserver/Plex Media Scanner",
+      "files": [
+       "/mnt/user/Familienfilme/Geburtstag Oma.mkv"
+      ]
+     }
+    ],
+    "cut": true,
+    "named": true,
+    "cron": [],
+    "started": [],
+    "smart": 1791473606,
+    "time": 1791473597
+   },
+   {
+    "id": "demo0008",
+    "from": 1791412391,
+    "disks": [
+     "disk2"
+    ],
+    "how": "caught",
+    "who": [
+     {
+      "kind": "cron",
+      "prog": "rsync",
+      "sure": "sure",
+      "name": "/usr/local/bin/fotos-sichern",
+      "desk": "",
+      "cmd": "rsync -a /mnt/disk2/Fotos /mnt/remotes/oma-nas/Fotos",
+      "files": [
+       "/mnt/disk2/Fotos"
+      ]
+     }
+    ],
+    "cut": false,
+    "named": true,
+    "cron": [
+     "/usr/local/bin/fotos-sichern"
+    ],
+    "started": [],
+    "smart": 1791412406,
+    "time": 1791412397
+   },
+   {
+    "id": "demo0009",
+    "from": 1791408791,
+    "disks": [
+     "disk3"
+    ],
+    "how": "caught",
+    "who": [
+     {
+      "kind": "container",
+      "prog": "Plex Media Scan",
+      "sure": "sure",
+      "name": "plex",
+      "desk": "",
+      "cmd": "/usr/lib/plexmediaserver/Plex Media Scanner",
+      "files": [
+       "/mnt/disk3/Familienfilme/Sommer 2019/Strand 4.mkv"
+      ]
+     }
+    ],
+    "cut": false,
+    "named": true,
+    "cron": [],
+    "started": [],
+    "smart": 1791408806,
+    "time": 1791408797
+   },
+   {
+    "id": "demo0010",
+    "from": 1791397991,
+    "disks": [
+     "disk3",
+     "parity"
+    ],
+    "how": "caught",
+    "who": [
+     {
+      "kind": "mover",
+      "prog": "move",
+      "sure": "sure",
+      "name": "",
+      "desk": "",
+      "cmd": "/usr/libexec/unraid/move",
+      "files": [
+       "/mnt/disk3/Familienserien/Urlaub am See/Teil 2.mkv"
+      ]
+     }
+    ],
+    "cut": false,
+    "named": true,
+    "cron": [],
+    "started": [],
+    "smart": 1791398006,
+    "time": 1791397997
+   },
+   {
+    "id": "demo0011",
+    "from": 1791325991,
+    "disks": [
+     "disk3"
+    ],
+    "how": "syslog",
+    "who": [],
+    "cut": false,
+    "named": true,
+    "cron": [],
+    "started": [],
+    "smart": 1791326006,
+    "time": 1791325997
+   },
+   {
+    "id": "demo0012",
+    "from": 1791235991,
+    "disks": [
+     "disk3"
+    ],
+    "how": "caught",
+    "who": [
+     {
+      "kind": "container",
+      "prog": "Plex Media Scan",
+      "sure": "sure",
+      "name": "plex",
+      "desk": "",
+      "cmd": "/usr/lib/plexmediaserver/Plex Media Scanner",
+      "files": [
+       "/mnt/disk3/Familienfilme/Sommer 2019/Strand 5.mkv"
+      ]
+     }
+    ],
+    "cut": false,
+    "named": true,
+    "cron": [],
+    "started": [],
+    "smart": 1791236006,
+    "time": 1791235997
+   },
+   {
+    "id": "demo0013",
+    "from": 1791145991,
+    "disks": [
+     "disk1"
+    ],
+    "how": "caught",
+    "who": [
+     {
+      "kind": "office",
+      "prog": "kopia",
+      "sure": "sure",
+      "name": "",
+      "desk": "backup",
+      "cmd": "kopia snapshot create",
+      "files": [
+       "/mnt/disk1/Dokumente/Haus/Grundriss.pdf"
+      ]
+     }
+    ],
+    "cut": false,
+    "named": true,
+    "cron": [
+     "office:backup"
+    ],
+    "started": [],
+    "smart": 1791146006,
+    "time": 1791145997
+   }
+  ]
+ }
+}

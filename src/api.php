@@ -30,6 +30,9 @@ declare(strict_types=1);
  *                                     (agent/lib/report.php) — it alone ever sends a report, and only on report_send
  * POST {"a": "office.report_image", "data": <base64>}   one picture for the next preview: checked by its first bytes and
  *                                     size, left in the RAM inbox (apiReportImageStash()) — the answer is its ref
+ * POST {"a": "restore.flash_download"}   the flash archive Mr. Restori's state names, streamed as a download — the one
+ *                                     file of the host's data the web side ever reads (read-only, checked anew here:
+ *                                     apiFlashFile(); HARDENING.md)
  *
  * Who may use it is Unraid's business: everything under /plugins/… is behind
  * its login (nginx auth_request), and every POST needs its csrf_token
@@ -102,6 +105,9 @@ function api_main(): void
         $desk = explode('.', $action)[0];
         if (!$office && !officeIsHired($desk) && explode('.', $action)[1] !== 'refresh') {
             answer(['ok' => false, 'error' => ['key' => 'not_hired', 'params' => ['desk' => $desk]]], 403);
+        }
+        if ($action === 'restore.flash_download') {
+            apiFlashDownload();          // the web side's own (read-only, one file): never through the mailbox
         }
         set_time_limit(660);
         ignore_user_abort(true);   // a deletion runs to the end even if the tab closes
@@ -684,6 +690,85 @@ function apiGzipWanted(?string $accept = null): bool
         }
     }
     return false;
+}
+
+/**
+ * The backup place's share as the engine's settings.ini names it ([general] dumps_share, its last value; '' none). Read
+ * here only to check the flash archive's path against it (apiFlashFile()) — the same rule as backupReadSettings().
+ */
+function apiFlashPlaceShare(string $file): string
+{
+    $section = null;
+    $share = '';
+    foreach (@file($file, FILE_IGNORE_NEW_LINES) ?: [] as $line) {
+        $line = trim($line);
+        if (preg_match('/^\[\s*([A-Za-z0-9_-]+)(?:\s+"(.*)")?\s*\]$/', $line, $m)) {
+            $section = isset($m[2]) ? "$m[1]|$m[2]" : $m[1];
+        } elseif ($section === 'general' && preg_match('/^dumps_share\s*=\s*(.*)$/', $line, $m)) {
+            $share = trim($m[1]);
+        }
+    }
+    return $share;
+}
+
+/**
+ * The flash archive to hand out (2026-10-25, a user: «where is my flash backup?»), or null: refused. Only the file Mr.
+ * Restori's state names (`flash.path`), and only when it is exactly <the backup place>/flash/flash.tar.gz — the place
+ * from the engine's settings (the office's share: …/backup, any other: …/unraid-backup, as backupDumpsPath()) —, a
+ * regular file, no link, and resolved (realpath) exactly there: no link on the way out of the place, nothing else of the
+ * host. $root for the tests.
+ */
+function apiFlashFile(?array $restore, string $share, string $root = '/mnt/user'): ?string
+{
+    $path = $restore['flash']['path'] ?? null;
+    if (!is_string($path) || !preg_match('/^[A-Za-z0-9._ @-]{1,64}$/D', $share) || trim($share, '.') === '') {
+        return null;
+    }
+    $place = "$root/$share/" . ($share === 'UnraidSecretaryOffice' ? 'backup' : 'unraid-backup');
+    if ($path !== "$place/flash/flash.tar.gz") {
+        return null;
+    }
+    clearstatcache(true, $path);
+    $real = realpath($path);
+    $realPlace = realpath($place);
+    if (is_link($path) || !is_file($path) || $real === false || $realPlace === false || $real !== "$realPlace/flash/flash.tar.gz" || is_link("$place/flash")) {
+        return null;
+    }
+    return $real;
+}
+
+/**
+ * «Download…» on Mr. Restori's flash tile: the archive streamed as it is (no gzip on a .gz, no copy anywhere), named
+ * flash-<server>-<date of the archive>.tar.gz. A POST like every request (csrf, X-Office, Origin); the page saves it.
+ */
+function apiFlashDownload(): never
+{
+    $file = apiFlashFile(officeReadJson(OFFICE_DATA . '/restore.json'), apiFlashPlaceShare(OFFICE_DATA . '/unraid-backup/settings.ini'));
+    $fh = $file !== null ? @fopen($file, 'rb') : false;
+    $st = $fh ? fstat($fh) : false;
+    if (!$fh || !$st || ($st['mode'] & 0170000) !== 0100000) {
+        answer(['ok' => false, 'error' => ['key' => 'flash_refused']], 404);
+    }
+    $host = preg_replace('/[^A-Za-z0-9_.-]/', '_', (string) gethostname()) ?: 'unraid';
+    $name = "flash-$host-" . date('Ymd-Hi', (int) $st['mtime']) . '.tar.gz';
+    while (ob_get_level() > 0) {
+        ob_end_clean();
+    }
+    set_time_limit(0);
+    http_response_code(200);
+    header('Content-Type: application/gzip');
+    header('Content-Length: ' . $st['size']);
+    header('Content-Disposition: attachment; filename="' . $name . '"');
+    while (!feof($fh) && !connection_aborted()) {
+        $chunk = fread($fh, 1 << 20);
+        if ($chunk === false) {
+            break;
+        }
+        echo $chunk;
+        flush();
+    }
+    fclose($fh);
+    exit;
 }
 
 /** The rows of the office's tile on Unraid's Dashboard (src/dashboard.php) with what runs right now, for its refresh */

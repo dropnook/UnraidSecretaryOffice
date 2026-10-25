@@ -1099,7 +1099,9 @@ function waLocations(array $vms, array $cron): array
 
     $groups[] = ['id' => 'vms', 'items' => array_values(array_filter([
         $item('domain_cfg', '/boot/config/domain.cfg'),
-        !empty($domain['IMAGE_FILE']) ? $item('libvirt_img', $domain['IMAGE_FILE'], ['mounted' => WA_LIBVIRT]) : null,
+        // what libvirt.img holds is protected as /etc/libvirt is (the engine archives it into the backup place), not
+        // by the image file's share (the truth review T16)
+        !empty($domain['IMAGE_FILE']) ? [...$item('libvirt_img', $domain['IMAGE_FILE'], ['mounted' => WA_LIBVIRT]), ...waBackup(WA_LIBVIRT)] : null,
         $item('vm_xml', WA_LIBVIRT . '/qemu', ['glob' => '*.xml']),
         $item('vm_nvram', WA_LIBVIRT . '/qemu/nvram', ['glob' => '*_VARS*.fd']),
         $item('vm_tpm', WA_LIBVIRT . '/qemu/swtpm/tpm-states', ['glob' => '*']),
@@ -1125,7 +1127,8 @@ function waLocations(array $vms, array $cron): array
     ]];
 
     $groups[] = ['id' => 'office', 'items' => array_values(array_filter([
-        $item('office_dir', OFFICE_DIR),
+        // the code lives in RAM: Unraid installs it anew at every start from the plugin on the flash - protected as that is
+        [...$item('office_dir', OFFICE_DIR), ...waBackup(WA_PLUGINS . '/unraid-secretary-office.plg')],
         // the data folder as the user set it (the agent may reach it on its pool directly: DATA_DIR)
         $item('office_data', DATA_DIR_USER),
         is_dir(BACKUP_DATA_DIR) ? $item('backup_data', DATA_DIR_USER . '/unraid-backup') : null,

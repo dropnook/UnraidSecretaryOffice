@@ -6,8 +6,14 @@
   "bubble.no_scan": "Mamma mia, non mi sono ancora nemmeno guardata intorno! Un giro dura solo pochi secondi.",
   "bubble.no_data": "Non riesco a raggiungere il server e non ho ancora niente da mostrare.",
   "bubble.count": {
-    "one": "Tengo d'occhio {n} snapshot, occupa {size}. Tutto a posto.",
-    "other": "Tengo d'occhio {n} snapshot, occupano {size}. Tutto a posto."
+    "one": "Tengo d'occhio {n} snapshot, occupa {size}.",
+    "other": "Tengo d'occhio {n} snapshot, occupano {size}."
+  },
+  "bubble.all_well": "Tutto a posto.",
+  "bubble.runner_off": "Le mie pianificazioni non girano: nel file cron della segreteria manca la loro riga.",
+  "bubble.plans_trouble": {
+    "one": "L'ultima esecuzione della mia pianificazione {names} non è andata a buon fine — la sua riga dice perché.",
+    "other": "Le ultime esecuzioni di {n} mie pianificazioni non sono andate a buon fine ({names}) — le loro righe dicono perché."
   },
   "bubble.backup": "Il motore di backup è in esecuzione dalle {since} ({step}).",
   "bubble.mounted": {

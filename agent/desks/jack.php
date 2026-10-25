@@ -344,7 +344,8 @@ function jackScan(): array
         'old_clone'  => is_dir(JACK_DATA . '/app/.git'),
         // Unraid's mover: may real runs go (its schedule «Disabled», Ms. Moverelli supervising with his list kept out), is it at work
         'mover'      => jackMoverState(),
-        'waiting'    => ['embycache' => jackRunWaiting('embycache'), 'gather' => jackRunWaiting('gather')],
+        // the joint run with Ms. Moverelli waiting on its schedule (Unraid's mover, Mr. Backupsy's local part — M17)
+        'waiting'    => ['embycache' => jackRunWaiting('embycache'), 'gather' => jackRunWaiting('gather'), 'night' => jackRunWaiting('moverelli')],
         'letgo'      => jackLetGoNote(),       // hired again: what he switched off when he was let go (said once)
     ];
     writeAtomic(deskFile('jack'), jsonEncode($state));
@@ -1050,7 +1051,11 @@ function jackNightNow(?string $dir = null, ?bool $hired = null): ?array
     $her = null;
     $st = ($n['who'] ?? '') === 'her' ? readJson("$dir/status.json") : null;
     if (is_array($st) && ($st['result'] ?? '') === 'running' && ($st['phase'] ?? '') === 'share' && is_string($st['share'] ?? null) && $st['share'] !== '') {
-        $her = ['share' => $st['share'], 'done' => max(0, (int) ($st['share_done_files'] ?? 0)), 'files' => max(0, (int) ($st['share_files'] ?? 0))];
+        // her fill (the oldest first across the pool) comes after every share's own step: its share is among the done
+        // ones, and the share_* counts are the last share's — never shown as this one's (truth review T31)
+        $filling = in_array($st['share'], array_column(array_filter((array) ($st['shares'] ?? []), 'is_array'), 'share'), true);
+        $her = $filling ? ['share' => $st['share'], 'fill' => true]
+            : ['share' => $st['share'], 'done' => max(0, (int) ($st['share_done_files'] ?? 0)), 'files' => max(0, (int) ($st['share_files'] ?? 0))];
     }
     $stop = readJson("$dir/night-stop.json");
     return moverelliNightShort($n) + ['stopping' => is_array($stop) ? (string) ($stop['why'] ?? 'user') : null, 'her' => $her];
@@ -2770,14 +2775,15 @@ function jackGatherWaiting(string $waitDir = RUN_DIR): ?array
     return jackRunWaiting('gather', $waitDir);
 }
 
-/** A scheduled run of $tool that waits (why: watching | mover), or null */
+/** A scheduled run of $tool that waits (why: watching | mover | backup — the joint run for Mr. Backupsy's local part), or null */
 function jackRunWaiting(string $tool, string $waitDir = RUN_DIR): ?array
 {
     $w = readJson("$waitDir/jack-$tool-wait.json");
     if (!$w || !flockHeld("$waitDir/jack-$tool-wait.lock")) {
         return null;                       // a wait whose job is gone (reboot, killed) is no wait
     }
-    return array_intersect_key($w, ['since' => 1, 'until' => 1, 'next' => 1, 'looked' => 1, 'who' => 1]) + ['why' => ($w['why'] ?? '') === 'mover' ? 'mover' : 'watching'];
+    $why = in_array($w['why'] ?? '', ['mover', 'backup'], true) ? $w['why'] : 'watching';
+    return array_intersect_key($w, ['since' => 1, 'until' => 1, 'next' => 1, 'looked' => 1, 'who' => 1]) + ['why' => $why];
 }
 
 /**

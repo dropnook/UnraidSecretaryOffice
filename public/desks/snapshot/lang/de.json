@@ -6,8 +6,14 @@
   "bubble.no_scan": "Mamma mia, ich habe mich noch gar nicht umgesehen! Ein Rundgang dauert nur ein paar Sekunden.",
   "bubble.no_data": "Ich komme nicht an den Server heran und habe noch nichts zu zeigen.",
   "bubble.count": {
-    "one": "Ich behalte {n} Snapshot im Blick, er belegt {size}. Tutto a posto.",
-    "other": "Ich behalte {n} Snapshots im Blick, sie belegen {size}. Tutto a posto."
+    "one": "Ich behalte {n} Snapshot im Blick, er belegt {size}.",
+    "other": "Ich behalte {n} Snapshots im Blick, sie belegen {size}."
+  },
+  "bubble.all_well": "Tutto a posto.",
+  "bubble.runner_off": "Meine Zeitpläne laufen nicht: In der Cron-Datei des Sekretariats fehlt ihre Zeile.",
+  "bubble.plans_trouble": {
+    "one": "Der letzte Lauf meines Zeitplans {names} ging nicht durch — seine Zeile sagt, warum.",
+    "other": "Die letzten Läufe von {n} meiner Zeitpläne gingen nicht durch ({names}) — ihre Zeilen sagen, warum."
   },
   "bubble.backup": "Die Backup-Engine läuft seit {since} ({step}).",
   "bubble.mounted": {

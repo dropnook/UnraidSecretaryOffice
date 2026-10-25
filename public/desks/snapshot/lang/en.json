@@ -6,8 +6,14 @@
   "bubble.no_scan": "Mamma mia, I haven't even looked around yet! A tour takes only a few seconds.",
   "bubble.no_data": "I can't reach the server and have nothing to show yet.",
   "bubble.count": {
-    "one": "I keep an eye on {n} snapshot, it takes {size}. Tutto a posto.",
-    "other": "I keep an eye on {n} snapshots, they take {size}. Tutto a posto."
+    "one": "I keep an eye on {n} snapshot, it takes {size}.",
+    "other": "I keep an eye on {n} snapshots, they take {size}."
+  },
+  "bubble.all_well": "Tutto a posto.",
+  "bubble.runner_off": "My schedules don't run: the office's cron file has no line for them.",
+  "bubble.plans_trouble": {
+    "one": "The last run of my schedule {names} didn't go through — its row says why.",
+    "other": "The last runs of {n} of my schedules didn't go through ({names}) — their rows say why."
   },
   "bubble.backup": "The backup engine is running since {since} ({step}).",
   "bubble.mounted": {

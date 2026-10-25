@@ -29,7 +29,8 @@
 >   entry once; Jack's run summary says «budget full» with it.
 > * `MEDIACACHE_STOP` (a file): a real run stops after the file it is on — never inside a copy; result `stopped`, exit 3.
 > * `MEDIACACHE_PROGRESS` (a file): rewritten at every file boundary — phase, per person planned/done, the file in work
->   with its target, person and reason, the fill's queue, the last 50 files done. Jack's live panel reads it.
+>   with its target, person and reason, the fill's queue, the last 50 files done. Jack's live panel reads it. A run with
+>   `MEDIACACHE_NO_FILL` (only giving back) plans no fill into it (2026-10-25): its counts are the give-back's alone.
 > * **Tidied per disk** (`remove_empty_on_disk`, 2026-10-20): a file filled from `/mnt/user0` leaves its folder empty on its
 >   disk while another disk still has something in it (Season 01: E01/E02 on disk2) — the folder on the disk it lay on
 >   goes as with Unraid's move; no other disk is read, the share's folder on the disk stays.

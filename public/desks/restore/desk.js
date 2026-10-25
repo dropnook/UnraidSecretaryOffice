@@ -11,8 +11,8 @@
 const ID = 'restore';
 const T = Office.scope(ID);
 const { el, fmt } = Office;
-const SECTIONS = ['apps', 'vms', 'dbs', 'kopia', 'journal', 'move', 'drill'];
-const ICONS = { apps: '📦', vms: '🖥️', dbs: '🗄️', kopia: '☁️', journal: '📓', move: '🚚', drill: '🧪', partner: '🏢', kept: '🗂️' };
+const SECTIONS = ['apps', 'vms', 'dbs', 'flash', 'kopia', 'journal', 'move', 'drill'];
+const ICONS = { apps: '📦', vms: '🖥️', dbs: '🗄️', flash: '💾', kopia: '☁️', journal: '📓', move: '🚚', drill: '🧪', partner: '🏢', kept: '🗂️' };
 const SELF = (typeof document !== 'undefined' && document.currentScript && document.currentScript.src) || '';     // drill.js lies next to this file
 const HOLDERS = ['backup', 'check', 'dryrun', 'setup', 'restore', 'other'];
 const JOB_POLL = 2000;
@@ -192,13 +192,17 @@ const kopiaRoot = () => kopia().root || KOPIA_ROOT_EXAMPLE;
 const kopiaRootNote = () => (kopia().root ? null : el('p', 'role', T('kg.root_example', { root: KOPIA_ROOT_EXAMPLE, path: engine().mount_root || '' })));
 const snapshotLink = (text) => Object.assign(el('a', '', text), { href: '#/snapshot' });
 
-/** All local snapshots of a set of folders: how many, the newest */
+/**
+ * All local snapshots of a set of folders: how many, the newest — and the parts (pools, disks) of a split share where
+ * the folders are but no snapshot holds them (R10: never a green «7 local snapshots» while one part has none)
+ */
 function snapSummary(folders) {
   const all = folders.flatMap((f) => f.places || []);
   const n = all.reduce((s, p) => s + (p.count || 0), 0);
   const newest = Math.max(0, ...folders.map((f) => f.newest || 0));
   const asleep = folders.some((f) => f.asleep);
-  return { n, newest, asleep };
+  const bare = [...new Set(all.filter((p) => p.exists && !p.asleep && !p.count).map((p) => p.base))];
+  return { n, newest, asleep, bare };
 }
 
 /** The newest Kopia copy among the sources of an app or VM */
@@ -210,6 +214,9 @@ function snapsChip(folders) {
   if (!folders.length) return null;
   const s = snapSummary(folders);
   if (s.asleep && !s.n) return chip(T('chip.snaps_asleep'), 'quiet', T('chip.snaps_asleep_hint'));
+  if (s.n && s.bare.length) {
+    return chip(T('chip.snaps_part', { n: s.n, when: fmt.relative(s.newest), bases: s.bare.join(', ') }), 'warn', T('chip.snaps_part_hint', { bases: s.bare.join(', ') }));
+  }
   return s.n ? chip(T('chip.snaps', { n: s.n, when: fmt.relative(s.newest) }), 'ok', T('chip.snaps_hint'))
     : chip(T('chip.no_snaps'), 'warn', T('chip.no_snaps_hint'));
 }
@@ -409,12 +416,20 @@ function tileLine(sec) {
       : dk === 'off' || dk === 'silent' ? Office.t(`common.docker_${dk}`) : T('tile.kopia_missing'), t ? fmt.relative(t) : ''];
   }
   if (sec === 'drill') return Office.restoreDrill ? Office.restoreDrill.tileLine() : [T('drill.tile_none'), ''];
+  if (sec === 'flash') {
+    const mode = flashMode();
+    if (mode === 'snapshot') return [T('tile.flash_snapshot'), ''];
+    if (mode === 'off') return [T('tile.flash_off'), ''];
+    return state.flash ? [T('tile.flash_line', { size: fmt.size(state.flash.bytes) }), fmt.relative(state.flash.time)] : [T('tile.flash_none'), ''];
+  }
   if (sec.startsWith('kept:')) {
     const p = keptOf(sec.slice(5));
     if (!p) return ['', ''];
     const held = p.units.filter((u) => u.n);
     const newest = Math.max(0, ...held.map((u) => u.newest || 0));
-    return [p.asleep ? T('tile.kept_asleep', { pool: p.pool }) : held.length ? T('tile.kept_line', { n: held.length }) : T('tile.kept_none'), newest ? fmt.relative(newest) : ''];
+    const inside = keptInsideCount(held);
+    return [p.asleep ? T('tile.kept_asleep', { pool: p.pool }) : !held.length ? T('tile.kept_none')
+      : inside ? T('tile.kept_line_inside', { n: held.length, inside }) : T('tile.kept_line', { n: held.length }), newest ? fmt.relative(newest) : ''];
   }
   if (sec.startsWith('partner:')) {
     const p = partnerOf(sec.slice(8));
@@ -475,6 +490,7 @@ function sectionOf(sec) {
   if (sec === 'vms') return vmsSection();
   if (sec === 'dbs') return dbsSection();
   if (sec === 'kopia') return kopiaSection();
+  if (sec === 'flash') return flashSection();
   if (sec === 'journal') return journalSection();
   if (sec === 'move') return moveSection();
   if (sec === 'drill') return Office.restoreDrill ? Office.restoreDrill.section() : drillWaiting();
@@ -1493,6 +1509,26 @@ function partnerSection(p) {
   return s;
 }
 
+/**
+ * What a kept moment carries (the look job read it: rspKeptPeek()): the apps and VMs inside — the folders of a share's
+ * copy, or an app's or VM's own unit — each {folder, kind, name}; null: not read
+ */
+const insideName = (x) => T(x.kind === 'vm' ? 'pt.unit_vm' : 'pt.unit_app', { name: x.name });
+/** «2 apps · 1 VM» over the units' newest moments (each name once), '' when nothing was read */
+function keptInsideCount(units) {
+  const seen = { app: new Set(), vm: new Set() };
+  let read = false;
+  units.forEach((u) => { if (Array.isArray(u.inside)) { read = true; u.inside.forEach((x) => seen[x.kind] && seen[x.kind].add(x.name)); } });
+  if (!read) return '';
+  const parts = [seen.app.size ? T('count.apps', { n: seen.app.size }) : '', seen.vm.size ? T('count.vms', { n: seen.vm.size }) : ''].filter(Boolean);
+  return parts.length ? andList(parts) : '';
+}
+/** The words for what a moment carries: its names, none, not read (asleep, not yet, couldn't) */
+function insideText(p, x, unread) {
+  if (Array.isArray(x)) return x.length ? T('kept.inside', { list: andList(x.map(insideName)) }) : T('kept.inside_none');
+  return p.asleep ? T('kept.inside_asleep', { pool: p.pool }) : unread ? T('kept.inside_failed') : T('kept.inside_unread');
+}
+
 /** The moments of one unit kept here for a partner, newest first, each with «Start here…» (kind partner_start) */
 function keptMoments(p, u) {
   const box = el('div', 'box');
@@ -1508,6 +1544,7 @@ function keptMoments(p, u) {
     if (i === 0) meta.appendChild(chip(T('pt.newest'), 'ok'));
     meta.appendChild(el('span', 'mono', s.name));
     if (s.referenced !== null && s.referenced !== undefined) meta.appendChild(el('span', '', T('pt.size', { size: fmt.size(s.referenced) })));
+    if (u.unit !== 'place') meta.appendChild(el('span', 'rs-kept-inside', insideText(p, s.inside, s.unread)));
     main.appendChild(meta);
     r.appendChild(main);
     const right = el('div', 'rs-right');
@@ -1517,6 +1554,98 @@ function keptMoments(p, u) {
     box.appendChild(r);
   });
   return box;
+}
+
+// ------------------------------------------------------------------ the flash (2026-10-25: a user couldn't find its archive)
+/** How Mr. Backupsy keeps the flash: tar (an archive in the backup place), snapshot (a boot pool's snapshots), off */
+const flashMode = () => ((state.flash_backup || {}).mode || (state.engine || {}).flash || 'off');
+
+/**
+ * «The flash»: the newest archive — when, how big, where it lives (here, offsite with the place's share, at a partner in the
+ * place's unit) — and «Download…»; with a boot pool's snapshots or switched off, that instead. Never single files back.
+ */
+function flashSection() {
+  const s = sectionBox(T('flash.title'), T('flash.sub'), { place: 'flash.title' });
+  const fb = state.flash_backup || {};
+  const mode = flashMode();
+  const box = el('div', 'box');
+  if (mode === 'snapshot' || mode === 'off' || !state.flash) {
+    box.appendChild(el('p', 'empty', T(mode === 'snapshot' ? 'flash.snapshot_text' : mode === 'off' ? 'flash.off_text' : 'flash.none_text')));
+    if (mode === 'snapshot') {
+      const c = Office.backupChip(fb.protection, fb.protection_note);
+      if (c) box.appendChild(el('div', 'row-meta', c, ' ', el('span', '', T('flash.where_offsite_own'))));
+    }
+    s.appendChild(box);
+    return s;
+  }
+  const f = state.flash;
+  const r = el('div', 'row nocheck');
+  const main = el('div', 'row-main');
+  main.appendChild(el('div', 'row-name text', 'flash.tar.gz'));
+  const meta = el('div', 'row-meta');
+  const c = Office.backupChip(fb.protection, fb.protection_note);
+  if (c) meta.appendChild(c);
+  meta.appendChild(el('span', '', date(f.time)));
+  meta.appendChild(el('span', '', fmt.size(f.bytes)));
+  main.appendChild(meta);
+  // where it lives: here, offsite (with the backup place's share), at the partners that received the place
+  const where = el('div', 'rs-flash-where');
+  where.appendChild(el('div', 'mono', T('flash.where_here', { path: f.path })));
+  if (fb.protection === 'offsite') where.appendChild(el('div', '', T('flash.where_offsite', { share: (state.place || {}).share || '' })));
+  const partnersOf = ((fb.protection_note || {}).partners || []);
+  if (partnersOf.length) where.appendChild(el('div', '', T('flash.where_partner', { names: andList(partnersOf), unit: T('pt.unit_place') })));
+  main.appendChild(where);
+  r.appendChild(main);
+  const right = el('div', 'rs-right');
+  const b = button(T('flash.download'), 'small', () => flashDownload(f));
+  b.dataset.own = '1';
+  right.appendChild(b);
+  r.appendChild(right);
+  box.appendChild(r);
+  s.appendChild(box);
+  s.appendChild(el('p', 'role', T('flash.single_files')));
+  s.appendChild(el('p', 'role', T('flash.new_server')));
+  return s;
+}
+
+/** «Download…»: what the archive holds said first (the licence key, the password hashes), then the browser saves it */
+function flashDownload(f) {
+  const body = el('div');
+  body.appendChild(el('p', 'callout warn', T('flash.download_text')));
+  body.appendChild(el('p', '', T('flash.download_size', { when: date(f.time), size: fmt.size(f.bytes) })));
+  if ((state.place || {}).asleep) body.appendChild(el('p', 'callout', T('flash.download_wakes')));
+  body.appendChild(el('p', 'role', T('flash.single_files')));
+  Office.dialog({ title: T('flash.download_title'), body, buttons: [
+    { text: Office.t('common.cancel') },
+    { text: T('flash.download_go'), kind: '', act: async () => {
+      Office.busy(ID, true);
+      try {
+        const j = await Office.api.download(`${ID}.flash_download`);
+        if (j.ok) Office.toast(T('flash.downloaded', { name: j.name }));
+        else Office.toast(Office.errorText(j.error, ID), true);
+      } finally {
+        Office.busy(ID, false);
+      }
+    } },
+  ] });
+}
+
+/** One app or VM inside a kept share's newest moment: its name, where it lies, «Start here…» for it alone (`only`) */
+function keptPackageRow(p, u, x, snap) {
+  const r = Office.place(`kept:${p.id}:${u.unit}:${x.folder}`, el('div', 'row nocheck rs-kept-pkg'));
+  const main = el('div', 'row-main');
+  main.appendChild(el('div', 'row-name text', insideName(x)));
+  const meta = el('div', 'row-meta');
+  const where = el('span', '', T('kept.package_meta', { unit: unitLabel(u.unit), when: date(snap.creation) }));
+  where.title = T('kept.package_hint', { unit: unitLabel(u.unit), name: p.name });
+  meta.appendChild(where);
+  main.appendChild(meta);
+  r.appendChild(main);
+  const right = el('div', 'rs-right');
+  right.appendChild(restoreButton(T('kept.start'), { kind: 'partner_start', pair: p.id, unit: u.unit, snap: snap.name, only: [x.folder] },
+    T('rd.title.partner_start', { what: insideName(x), name: p.name, when: date(snap.creation) })));
+  r.appendChild(right);
+  return r;
 }
 
 /**
@@ -1540,7 +1669,11 @@ function keptSection(p) {
     if (u.bytes) meta.appendChild(el('span', '', fmt.size(u.bytes)));
     if (u.new) meta.appendChild(chip(T('kept.new'), 'accent'));
     if (u.stale) meta.appendChild(chip(T('kept.stale'), 'warn', T('kept.stale_hint', { when: date(u.time) })));
+    if (u.unit !== 'place' && u.n) meta.appendChild(el('span', 'rs-kept-inside', insideText(p, u.inside, (u.snaps[0] || {}).unread)));
     box.appendChild(unfoldingRow(`kept:${p.id}:${u.unit}`, unitLabel(u.unit), meta, () => keptMoments(p, u)));
+    // what a share's copy carries, each app and VM a row of its own under it, «Start here…» on its newest moment
+    const newest = u.snaps[0];
+    if (newest && Array.isArray(u.inside) && String(u.unit).startsWith('share:')) u.inside.filter((x) => x.folder).forEach((x) => box.appendChild(keptPackageRow(p, u, x, newest)));
   });
   s.appendChild(box);
   return s;
@@ -1950,6 +2083,8 @@ function partnerOptions(box, plan, ask, change) {
  */
 function startOptions(box, plan, ask, change, close) {
   box.innerHTML = '';
+  // when one would do this here at all: this server takes over a partner that is gone (else: a new server pulls)
+  box.appendChild(el('p', 'callout', T('rd.start_when', { name: (plan.target && plan.target.partner) || '' })));
   const found = plan.options.found || [];
   if (found.length) box.appendChild(foundField(found, change));
   const needs = plan.options.needs || [];
@@ -2441,7 +2576,7 @@ Office.desk({
 // opens through its sub-route, the section under it (drill.js has the drill's)
 Office.places(ID, [
   ...sw.places(),
-  ...[['apps', 'apps'], ['vms', 'vms'], ['dbs', 'dbs'], ['kopia', 'kopia'], ['journal', 'journal'], ['move.title', 'move'], ['drill.title', 'drill']]
+  ...[['apps', 'apps'], ['vms', 'vms'], ['dbs', 'dbs'], ['kopia', 'kopia'], ['journal', 'journal'], ['move.title', 'move'], ['drill.title', 'drill'], ['flash.title', 'flash']]
     .map(([key, sec]) => ({ kind: 'section', key, route: `#/restore/${sec}` })),
   ...['tiles', 'row', 'dbs', 'package', 'snapshots', 'kopia', 'commands', 'chips', 'restoring', 'journal', 'drill']
     .map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
@@ -2478,6 +2613,6 @@ Office.placesFrom(ID, (s, part) => {
 // tests/run.php runs the databases tile's logic and the preview's sizes under node
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.restore = { setState: (s) => { state = s; }, greetOk, dbGroups, dbName, dbRequest, earlierOf, tileLine, sizesDone,
-    setJob: (j) => { job = j; }, runCardData, runCard, shortStep, liveJob, runCardShort, bubbleText };
+    setJob: (j) => { job = j; }, runCardData, runCard, shortStep, liveJob, runCardShort, bubbleText, snapsChip };
 }
 })();

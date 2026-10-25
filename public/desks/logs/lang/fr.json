@@ -148,7 +148,7 @@
   "cats.read_title": "Chaque ligne lue, selon les règles qu’on m’a données — la première règle qui correspond décide. « Sans intérêt » ne compte ni comme erreur ni comme avertissement ; « Aucune règle » : aucune ne correspond.",
   "syslog.title": "Syslog",
   "syslog.sub": "Chaque ligne du syslog d’Unraid depuis ma tournée précédente ({when}), rangée selon les règles qu’on m’a données ; par genre les plus récentes d’abord — les lignes semblables en une seule entrée.",
-  "syslog.sub_first": "Chaque ligne du syslog d’Unraid des dernières 24 heures (ma première tournée), rangée selon les règles qu’on m’a données ; les plus récentes d’abord — les lignes semblables en une seule entrée.",
+  "syslog.sub_first": "Les lignes du syslog d’Unraid des dernières 24 heures (ma première tournée : au plus ses 4 Mo les plus récents, pas sa copie plus ancienne), rangées selon les règles qu’on m’a données ; les plus récentes d’abord — les lignes semblables en une seule entrée.",
   "syslog.none": "Rien dans le syslog que mes règles rangent sous un genre. Si c’est bon signe, je ne sais pas.",
   "syslog.filter_label": "Filtrer les lignes du syslog",
   "tile.syslog_none": "la prochaine tournée le range",
@@ -158,7 +158,7 @@
   "credit": "Les règles avec lesquelles je range les lignes du syslog viennent de leur Enhanced Log. Sous la GPL (version 2 ou ultérieure).",
   "found.none_fit": "Aucune ligne ne correspond au filtre.",
   "found.sub": "Les lignes qui ressemblent à une erreur ou à un avertissement depuis ma tournée précédente ({when}) ; les lignes semblables en une seule entrée, les plus fréquentes d'abord.",
-  "found.sub_first": "Les lignes qui ressemblent à une erreur ou à un avertissement des dernières 24 heures (ma première tournée) ; les lignes semblables en une seule entrée, les plus fréquentes d'abord.",
+  "found.sub_first": "Les lignes qui ressemblent à une erreur ou à un avertissement des dernières 24 heures (ma première tournée : de chaque journal au plus ses 4 Mo les plus récents) ; les lignes semblables en une seule entrée, les plus fréquentes d'abord.",
   "found.none": "Rien qui ressemblait à une erreur ou à un avertissement. Calme — si c'est bien, je ne sais pas.",
   "found.quiet": {
     "one": "Dans 1 autre journal, rien de tel.",
@@ -172,6 +172,9 @@
   "partial": "seulement la partie la plus récente",
   "partial_file": "Depuis ma dernière tournée, il en est venu plus que je n'en lis en une tournée — {size} sautés, j'ai compté la partie la plus récente.",
   "partial_docker": "Au plus {n} lignes d'un conteneur par tournée — j'ai compté les plus récentes.",
+  "stopped_title": "Pas en marche — j'ai lu ce qu'il a écrit depuis ma dernière tournée, ses dernières lignes avant l'arrêt aussi.",
+  "found.no_containers": "Les journaux des conteneurs, je ne les ai pas lus — Docker n'a pas répondu.",
+  "partial_span": "Un journal que je ne connaissais pas encore, je ne le lis que par sa partie la plus récente (au plus 4 Mo) — les lignes plus anciennes de cette période, coupées ou déjà dans sa copie plus ancienne, je ne les ai pas comptées.",
   "rotated": "recommencé",
   "rotated_title": "Ce journal a été recommencé depuis ma dernière tournée — j'ai lu le reste de l'ancien là où je l'ai trouvé.",
   "more_kinds": {

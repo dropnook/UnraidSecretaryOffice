@@ -32,6 +32,7 @@ require_once dirname(__DIR__) . '/lib/partner.php';
 const RSP_LOOK_EVERY   = 6 * 3600;        // what a partner holds of mine: asked again after this long
 const RSP_RETRY_EVERY  = 1800;            // … after this long when it didn't answer
 const RSP_WANT_EVERY   = 60;              // «Look again»: at most this often
+const RSP_PEEK_MAX     = 120;             // kept moments read for the apps and VMs inside, per look job (newest first)
 const RSP_MOUNT_ROOT   = '/mnt/addons/UnraidSecretaryOffice/restored';
 const RSP_PARENT       = 'UnraidSecretaryOffice-restored';   // on a new server: <pool>/UnraidSecretaryOffice-restored/<unit>
 const RSP_NAME_RE      = '/^[A-Za-z0-9][A-Za-z0-9._-]{0,150}$/D';
@@ -213,6 +214,12 @@ function rspLookJob(array $args = []): int
             }
             $look($src);
         }
+        // what the kept moments carry (the apps and VMs inside): read here, in the job, never in a tick
+        try {
+            ($GLOBALS['rspKeptPeek'] ?? 'rspKeptPeek')();
+        } catch (Throwable $e) {
+            logLine('Mr. Restori: could not read what the kept copies carry: ' . $e->getMessage());
+        }
     } finally {
         if (trim((string) @file_get_contents(rspPidFile(), false, null, 0, 16)) === (string) getmypid()) {
             @unlink(rspPidFile());
@@ -311,7 +318,14 @@ function rspTick(): void
         }
     }
     $want = is_file(rspWantFile());
-    if ($sources && ($due || $want) && !rspLooking() && $now - (int) ($GLOBALS['rspLaunched'] ?? 0) >= ($want ? RSP_WANT_EVERY : 600)) {
+    // a kept moment not read yet on an awake pool (his state's `kept`, files only): the look job reads it
+    $peekDue = false;
+    foreach ((array) ($GLOBALS['rs']['state']['kept'] ?? []) as $k) {
+        foreach (empty($k['asleep']) ? (array) ($k['units'] ?? []) : [] as $u) {
+            $peekDue = $peekDue || (($u['unit'] ?? 'place') !== 'place' && array_filter((array) ($u['snaps'] ?? []), fn ($sn) => ($sn['inside'] ?? null) === null && empty($sn['unread'])));
+        }
+    }
+    if (($sources || $peekDue) && ($due || $want || $peekDue) && !rspLooking() && $now - (int) ($GLOBALS['rspLaunched'] ?? 0) >= ($want ? RSP_WANT_EVERY : 600)) {
         $GLOBALS['rspLaunched'] = $now;
         try {
             hostLaunch('restore-partner-look', [PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', 'restore-partner-look']);
@@ -330,6 +344,8 @@ function rspTick(): void
         }
     }
     $sig = implode(',', $sig) . ($want ? '+' : '') . (rspLooking() ? '*' : '');
+    clearstatcache(true, rspPeekFile());
+    $recv[] = 'peek:' . (int) @filemtime(rspPeekFile());          // the look job read what the kept moments carry
     $recvSig = implode(',', $recv);
     if (($sig !== ($GLOBALS['rspSig'] ?? null) || $recvSig !== ($GLOBALS['rspRecvSig'] ?? null)) && is_array($GLOBALS['rs']['state'] ?? null)) {
         $kept = $recvSig !== ($GLOBALS['rspRecvSig'] ?? null);
@@ -1057,6 +1073,7 @@ function rspKept(): array
     }
     $now = time();
     $out = [];
+    $cache = rspPeekCache();
     foreach (partnerPairs() as $p) {
         if (!is_array($p['receive'] ?? null) || !is_string($p['receive']['pool'] ?? null)) {
             continue;
@@ -1068,9 +1085,15 @@ function rspKept(): array
         foreach (partnerReceivedUnits($got, $now) as $u) {
             $ds = partnerUnitDataset($pool, $p['id'], $u['unit']);
             $snaps = $asleep ? [] : rspSnapsOf($ds);
+            foreach ($snaps as $i => $sn) {
+                $snaps[$i]['inside'] = $u['unit'] === 'place' ? null : rspInside($cache, $ds, $sn['name'], $sn['creation']);
+                $snaps[$i]['unread'] = $u['unit'] !== 'place' && rspPeekFailed($cache, $ds, $sn['name'], (int) $sn['creation']);
+            }
+            // the apps and VMs inside its newest moment (asleep: what was read of the moment the door noted last)
+            $inside = $u['unit'] === 'place' ? null : ($snaps ? $snaps[0]['inside'] : (is_string($u['snap'] ?? null) ? rspInside($cache, $ds, $u['snap'], null) : null));
             $units[] = ['unit' => $u['unit'], 'dataset' => $ds, 'snap' => $u['snap'], 'time' => $u['time'], 'new' => $u['new'], 'stale' => $u['stale'],
                         'snaps' => $snaps, 'n' => $snaps ? count($snaps) : $u['snaps'], 'newest' => $snaps[0]['creation'] ?? ($u['time'] ?: null),
-                        'bytes' => $snaps[0]['referenced'] ?? null];
+                        'bytes' => $snaps[0]['referenced'] ?? null, 'inside' => $inside];
         }
         usort($units, fn ($a, $b) => [$a['unit'] !== 'place', $a['unit']] <=> [$b['unit'] !== 'place', $b['unit']]);
         $out[] = ['id' => $p['id'], 'name' => $p['name'], 'pool' => $pool, 'asleep' => $asleep, 'used_bytes' => is_int($got['used_bytes'] ?? null) ? $got['used_bytes'] : null,
@@ -1107,9 +1130,11 @@ function rspFolderState(string $path): string
  * packages read — its own .uso-backup and those of its folders one level down — and unmounted again. Per folder
  * (''= the copy's top): {kind app|vm, name, dirs}. $GLOBALS['rs']['peek'] for the tests. Nothing found: [].
  */
-function rspPeek(string $snapshot): array
+function rspPeek(string $snapshot, ?bool &$read = null): array
 {
+    $read = false;
     if (isset($GLOBALS['rs']['peek'])) {
+        $read = true;
         return ($GLOBALS['rs']['peek'])($snapshot);
     }
     $dir = rtrim(sys_get_temp_dir(), '/') . '/uso-peek-' . bin2hex(random_bytes(4));
@@ -1118,6 +1143,7 @@ function rspPeek(string $snapshot): array
     }
     $out = [];
     if (run([partnerBin('mount') ?? 'mount', '-t', 'zfs', '-o', RSP_MOUNT_OPTIONS, $snapshot, $dir], 60)[0] === 0) {
+        $read = true;
         foreach (array_merge([$dir], glob("$dir/*", GLOB_ONLYDIR) ?: []) as $f) {
             $m = is_file("$f/" . RSP_INSIDE . '/manifest.json') && !is_link($f) ? readJson("$f/" . RSP_INSIDE . '/manifest.json') : null;
             if (is_array($m) && in_array($m['kind'] ?? '', ['app', 'vm'], true)) {
@@ -1148,6 +1174,96 @@ function rspNeeds(string $inside): array
         array_push($needs, ...$m[1]);
     }
     return array_values(array_unique(array_filter($needs, fn ($x) => preg_match(RS_NAME_PATTERN, $x))));
+}
+
+/**
+ * What the kept moments carry, read once per moment (2026-10-25, a user: «where are the apps and the VM?» — they lay
+ * inside the share units, seen only in «Start here…»'s dialog): «<dataset>@<snap>» => {creation, found: [{folder, kind,
+ * name}]}, written by the look job (rspKeptPeek()), never by a tick or a page request; a moment is the same only with the
+ * same creation (a snapshot made anew under an old name is read again). Read only in exactly this shape.
+ */
+function rspPeekFile(): string
+{
+    return partnerDir() . '/kept-peek.json';
+}
+
+/** @return array<string, array{creation:int, found:list<array{folder:string, kind:string, name:string}>, failed:?int}> failed: when it couldn't be mounted */
+function rspPeekCache(): array
+{
+    $out = [];
+    foreach ((array) ((readJson(rspPeekFile()) ?? [])['snaps'] ?? []) as $k => $v) {
+        if (!is_string($k) || !is_array($v) || !is_int($v['creation'] ?? null) || !is_array($v['found'] ?? null)) {
+            continue;
+        }
+        $found = [];
+        foreach ($v['found'] as $f) {
+            if (is_array($f) && in_array($f['kind'] ?? null, ['app', 'vm'], true) && is_string($f['name'] ?? null) && is_string($f['folder'] ?? null)) {
+                $found[] = ['folder' => $f['folder'], 'kind' => $f['kind'], 'name' => $f['name']];
+            }
+        }
+        $out[$k] = ['creation' => $v['creation'], 'found' => $found, 'failed' => is_int($v['failed'] ?? null) ? $v['failed'] : null];
+    }
+    return $out;
+}
+
+/** The apps and VMs inside a kept moment, as the look job read them — null: not read (yet, or it couldn't be: rspPeekFailed()) */
+function rspInside(array $cache, string $ds, string $snap, ?int $creation): ?array
+{
+    $c = $cache["$ds@$snap"] ?? null;
+    return $c !== null && $c['failed'] === null && ($creation === null || $c['creation'] === $creation) ? $c['found'] : null;
+}
+
+/** A kept moment the look job couldn't mount: tried again after a day, not at every look */
+function rspPeekFailed(array $cache, string $ds, string $snap, int $creation): bool
+{
+    $c = $cache["$ds@$snap"] ?? null;
+    return $c !== null && $c['failed'] !== null && $c['creation'] === $creation && time() - $c['failed'] < 86400;
+}
+
+/**
+ * The look job's second part: every kept moment not read yet peeked (rspPeek(): mounted read-only in RAM, the packages'
+ * manifests read, unmounted) — newest first, at most RSP_PEEK_MAX per job, never on a pool asleep (rspKept() lists no
+ * moments there; what was read of it stays). Moments gone are forgotten. Returns how many were read now.
+ */
+function rspKeptPeek(): int
+{
+    $cache = rspPeekCache();
+    $keep = [];
+    $n = 0;
+    foreach (rspKept() as $k) {
+        foreach ($k['units'] as $u) {
+            if ($k['asleep']) {
+                foreach ($cache as $key => $v) {
+                    if (str_starts_with($key, $u['dataset'] . '@')) {
+                        $keep[$key] = $v;
+                    }
+                }
+                continue;
+            }
+            if ($u['unit'] === 'place') {
+                continue;                      // the backup place's packages are read as a pulled place (rspPlaceSnaps)
+            }
+            foreach ($u['snaps'] as $sn) {
+                $key = "{$u['dataset']}@{$sn['name']}";
+                if (rspInside($cache, $u['dataset'], $sn['name'], (int) $sn['creation']) !== null || rspPeekFailed($cache, $u['dataset'], $sn['name'], (int) $sn['creation'])) {
+                    $keep[$key] = $cache[$key];
+                    continue;
+                }
+                if ($n >= RSP_PEEK_MAX) {
+                    continue;
+                }
+                $n++;
+                $found = [];
+                $read = false;
+                foreach (rspPeek($key, $read) as $folder => $p) {
+                    $found[] = ['folder' => (string) $folder, 'kind' => (string) $p['kind'], 'name' => (string) $p['name']];
+                }
+                $keep[$key] = ['creation' => (int) $sn['creation'], 'found' => $found, 'failed' => $read ? null : time()];
+            }
+        }
+    }
+    partnerWritePrivate(rspPeekFile(), ['v' => 1, 'time' => time(), 'snaps' => $keep]);
+    return $n;
 }
 
 /**

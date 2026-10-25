@@ -472,6 +472,7 @@
   "net.syslog.sender": "{sender}: last line {when}",
   "net.syslog.no_senders": "No sender yet — Unraid listens, nothing arrives. The router's side is the next guide.",
   "net.syslog.asleep": "The share's disks are asleep — I don't look into it now.",
+  "net.syslog.missing": "The share {share} is missing — Unraid doesn't list it, so I don't look into the folder. Create the share or choose another folder.",
   "net.syslog.loop": "⟦Remote syslog server⟧ is this server itself: Unraid sends its own lines to itself and writes them a second time into the share. Empty that field — or name a real SIEM.",
   "net.syslog.sleepy": "The folder's share lies on disks that spin down ({disks}): every line of the router wakes them. Choose a share on a pool that never sleeps.",
   "net.syslog.exported": "The folder's share is exported ({proto}): whoever can write it can write into the router's files. Set its export to «No».",

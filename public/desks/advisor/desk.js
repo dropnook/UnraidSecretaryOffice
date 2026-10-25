@@ -169,6 +169,15 @@ function unraidLink(path, text, kind) {
   return a;
 }
 
+/** A link that can't lead anywhere now (a container with Docker stopped): shown, but off, saying why */
+function dockerOffButton(text) {
+  const b = el('button', 'btn small', text);
+  b.type = 'button';
+  b.disabled = true;
+  b.title = Office.t('common.docker_off');
+  return b;
+}
+
 /** A button of the consultant's own (his second offer, after the manual way) */
 function offerButton(text, onclick, why) {
   const b = el('button', 'btn small plain', text);
@@ -320,7 +329,8 @@ function external(id, x) {
   const byKind = typeof e.open === 'object';     // a plugin or a container (the node exporter)
   const open = byKind ? e.open[x.kind] : e.open;
   const link = x.there ? unraidLink(open, T(byKind && x.kind === 'plugin' ? `open.${id}_plugin` : `open.${id}`), 'plain')
-    : e.install ? unraidLink(e.install, T('install'), '') : null;
+    : e.install && unknown(x) ? dockerOffButton(T('install'))         // ⟦Apps⟧ installs no container while Docker is stopped
+      : e.install ? unraidLink(e.install, T('install'), '') : null;
   if (link) acts.appendChild(link);
   // his own offer comes second: the manual way stays the first
   if (!x.there && x.offer === true) {
@@ -538,7 +548,9 @@ function networkEntry(id, x) {
     if (sys.loop) main.appendChild(el('div', 'row-detail ad-careful', T('net.syslog.loop')));
     if (sys.on && (sys.sleepy || []).length) main.appendChild(el('div', 'row-detail ad-careful', T('net.syslog.sleepy', { disks: sys.sleepy.join(', ') })));
     if (sys.on && (sys.exported || []).length) main.appendChild(el('div', 'row-detail ad-careful', T('net.syslog.exported', { proto: sys.exported.join(', ').toUpperCase() })));
-    if (sys.on && sys.asleep) main.appendChild(el('div', 'row-detail', T('net.syslog.asleep')));
+    // a share that isn't there is said as missing, never «asleep» (W11; an older agent: asleep only)
+    if (sys.on && sys.missing) main.appendChild(el('div', 'row-detail ad-careful', T('net.syslog.missing', { share: sys.missing })));
+    else if (sys.on && sys.asleep) main.appendChild(el('div', 'row-detail', T('net.syslog.asleep')));
     if (sys.on && Array.isArray(sys.senders)) {
       if (!sys.senders.length) main.appendChild(el('div', 'row-detail', T('net.syslog.no_senders')));
       else {
@@ -1442,6 +1454,6 @@ Office.placesFrom(ID, (s) => Object.entries(s.externals || {}).filter(([id, x]) 
 
 // tests/run.php runs this under node (Unraid's own) - never set in a browser
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.advisor = { setState: (s) => { state = s; }, textfileChip, bubbleText };
+  globalThis.OFFICE_DESK_TESTS.advisor = { setState: (s) => { state = s; }, textfileChip, bubbleText, external };
 }
 })();

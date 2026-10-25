@@ -293,7 +293,7 @@
   "office.supporter_remove_do": "Quitar",
   "office.supporter_removed": "Se ha quitado la clave de apoyo.",
   "agent.array_stopped_title": "El array está detenido.",
-  "agent.array_stopped_text": "La secretaría guarda sus datos en appdata — vuelve al trabajo en cuanto el array esté en marcha.",
+  "agent.array_stopped_text": "La secretaría guarda sus datos en {dir} — vuelve al trabajo en cuanto el array esté en marcha.",
   "agent.no_appdata_title": "Falta el recurso compartido appdata.",
   "agent.no_appdata_text": "La secretaría guarda sus datos en {dir}, y {appdata} no existe en este servidor. El mensajero nunca crea un recurso compartido por su cuenta. Vuelve a crearlo en ⟦Shares⟧ (o recupera la carpeta); en pocos segundos él mismo crea su carpeta.",
   "agent.label_home": "Primer inicio",

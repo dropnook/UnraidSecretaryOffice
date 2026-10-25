@@ -170,6 +170,20 @@ function itemChip(it) {
 }
 
 const lastRun = () => (state && state.history && state.history[0]) || null;
+/**
+ * The scheduled backup that didn't run (the truth review T25): the schedule's last due time (the agent's `prev`) passed by
+ * more than half its interval (at most 3 h - a run may wait its turn behind Ms. Moverelli's) and no backup started since.
+ * Null while one runs or waits for its minute, before the first backup, without a schedule, or from an older agent (no prev).
+ */
+function missedRun() {
+  const sc = state && state.schedule;
+  const last = lastRun();
+  if (!sc || !sc.enabled || typeof sc.prev !== 'number' || !last || live() || state.queued) return null;
+  const every = typeof sc.next === 'number' && sc.next > sc.prev ? sc.next - sc.prev : 6 * 3600;
+  if (Date.now() / 1000 - sc.prev < Math.min(3 * 3600, Math.max(900, every / 2))) return null;
+  return last.started >= sc.prev - 120 ? null : sc.prev;
+}
+const missedLine = () => (missedRun() ? T('stat.missed', { when: fmt.date(missedRun()) }) : '');
 /** A run that ended because the array was being stopped (engine 2.24): stopped on purpose, nothing lost — never a failure */
 const arrayStopped = (r) => !!(r && r.result === 'aborted' && r.message === 'array_stopping');
 /** How many shares a run left out because their pool slept (engine 2.28, asleep_pools = skip) */
@@ -469,7 +483,11 @@ function bubbleText(pg) {
     if (last.result === 'ok') out.push(k.length && !unsafe ? T('bubble.last_ok_kopia', { when, ok, total: k.length }) : T('bubble.last_ok', { when }));
     else if (arrayStopped(last)) out.push(T('bubble.last_array_stop', { when }));
     else out.push(T('bubble.last_' + last.result, { when, errors: last.errors, warnings: last.warnings, n: last.result === 'errors' ? last.errors : last.warnings }));
-    out.push(...warnLines(last, true));
+    const lines = warnLines(last, true);
+    out.push(...lines);
+    // a warning without a code of its own (an older engine, a plain warn line): which one, its log says - never left unnamed (B12)
+    // (Nextcloud's open folder has its own callout)
+    if (last.result === 'warnings' && !lines.length && !(last.warning_items || []).some((w) => w && w.code === 'nc_datadir_readable')) out.push(T('bubble.warn_in_log'));
     if (asleepUnits(last)) out.push(T('bubble.asleep_left', { n: asleepUnits(last), pools: (last.asleep.pools || []).join(', ') }));
     if (state.kopia_held) out.push(T('bubble.kopia_held'));
     else if (kopiaStuck()) out.push(T('bubble.kopia_stuck', { when: fmt.date(kopiaStuck().since) }));
@@ -477,7 +495,7 @@ function bubbleText(pg) {
     if (age > 36 * 3600) out.push(T('bubble.old', { days: Math.floor(age / 86400) }));
   }
   if (newSkip()) out.push(T('bubble.skipped', { when: fmt.relative(newSkip().time) }));
-  if (waitingCount()) out.push(T('bubble.waiting', { n: waitingCount() }));
+  if (waitingCount()) out.push(T(waitingUnsure() ? 'bubble.waiting_unsure' : 'bubble.waiting', { n: waitingCount() }));
   if (state.schedule && state.schedule.script && !state.schedule.enabled) out.push(T('bubble.no_schedule'));
   const drift = (state.drift && state.drift.items || []).filter((d) => d.level !== 'info').length;
   if (drift) out.push(T('bubble.drift', { n: drift }));
@@ -583,8 +601,18 @@ function waitingText() {
   }
   if ((w.apps || []).length) parts.push(T('waiting.apps', { n: w.apps.length, list: short(w.apps) }));
   if ((w.vms || []).length) parts.push(T('waiting.vms', { n: w.vms.length, list: short(w.vms) }));
-  return T('waiting.callout', { n: waitingCount() }) + ' ' + parts.join(' · ');
+  // Docker not running: new apps couldn't be looked for - said, never «none» (the agent's waiting.docker)
+  if (w.docker === 'off' || w.docker === 'silent') parts.push(T('waiting.apps_unknown'));
+  return T(waitingUnsure() ? 'waiting.callout_unsure' : 'waiting.callout', { n: waitingCount() }) + ' ' + parts.join(' · ');
 }
+/** A VM not set up yet: what its row and tip can truly say - in its share's snapshot, nothing holds it, or not known yet */
+function vmUnset(v) {
+  if (!v.share_mode) return 'unknown';         // no plan has seen where its disks lie yet
+  return vmLevel(v, !!(state.settings && state.settings.kopia_enabled)) === 'none' ? 'none' : 'local';
+}
+const vmUnsetHint = (v) => T({ unknown: 'vm.not_set_up_unknown', none: 'vm.not_set_up_none', local: 'vm.not_set_up_hint' }[vmUnset(v)]);
+/** A new VM waiting whose disks no local snapshot is known to hold: «only in the local snapshots so far» isn't true for it (T22) */
+const waitingUnsure = () => (waiting().vms || []).some((n) => { const v = (state.vms || []).find((x) => x.name === n); return !v || vmUnset(v) !== 'local'; });
 
 /** Engine 2.49: its folder or settings.ini isn't root's alone - it refuses to work, the agent starts nothing (the command shown) */
 function untrustedCallout() {
@@ -994,14 +1022,15 @@ function overviewTiles() {
     if (last.finished) when.push(dur(last.finished - last.started));
     // engine 2.28: the shares it left out because their pool slept (the user's choice - the result stays ok)
     if (asleepUnits(last)) when.push(T('asleep.left_out', { n: asleepUnits(last) }));
-    add({ key: 'last', label: T('stat.last'), running: live(), value: T('result.' + last.result), sub: [when.join(' · '), containersLine(last), tour].filter(Boolean),
-      alert: (last.result !== 'ok' && !arrayStopped(last)) || tourBad });
+    add({ key: 'last', label: T('stat.last'), running: live(), value: T('result.' + last.result), sub: [when.join(' · '), containersLine(last), tour, missedLine()].filter(Boolean),
+      alert: (last.result !== 'ok' && !arrayStopped(last)) || tourBad || !!missedRun() });
   } else {
-    add({ key: 'last', label: T('stat.last'), running: live(), value: '–', sub: [T('bubble.no_runs'), tour].filter(Boolean), alert: tourBad });
+    add({ key: 'last', label: T('stat.last'), running: live(), value: '–', sub: [T('bubble.no_runs'), tour, missedLine()].filter(Boolean), alert: tourBad || !!missedRun() });
   }
   const sc = state.schedule || {};
   const value = sc.enabled ? (sc.frequency === 'custom' ? fmt.cron(sc.custom) : T('freq.' + sc.frequency)) : T('stat.not_scheduled');
-  const next = sc.enabled && sc.next ? T('stat.next', { when: fmt.relative(sc.next) }) : '';
+  // a next time already past (a page left open, a state kept while the engine's folder slept): never «next backup … ago» (B14)
+  const next = sc.enabled && sc.next ? T(sc.next < Date.now() / 1000 ? 'stat.next_due' : 'stat.next', { when: fmt.relative(sc.next) }) : '';
   add({ key: 'schedule', label: T('stat.schedule'), value, sub: [sc.enabled ? next : T('stat.schedule_hint')],
     alert: !sc.enabled });
   const c = state.containers;
@@ -1044,21 +1073,28 @@ function overviewTiles() {
   const pk = packages();
   if (dbs.length || (set.nextcloud || []).length) {
     const latest = (state.dumps || []).find((d) => d.files.length);
-    const pkDumps = pk ? pk.apps.filter((a) => !a.stale).flatMap((a) => a.files.filter((f) => f.what === 'dump')) : [];
+    const cur = pk ? pk.apps.filter((a) => !a.stale) : [];
+    const pkDumps = cur.flatMap((a) => a.files.filter((f) => f.what === 'dump'));
+    // a dump the last run couldn't make: the engine kept the earlier one in the package (its run isn't the package's) - the
+    // newest dump's time alone would hide it (the truth review T24)
+    const kept = cur.flatMap((a) => a.files.filter((f) => f.what === 'dump' && f.run && a.run && f.run !== a.run));
     const sub = [];
     if (pkDumps.length) sub.push(T('stat.db_last', { when: fmt.relative(Math.max(...pkDumps.map((f) => f.time))), size: fmt.size(pkDumps.reduce((a, f) => a + f.bytes, 0)) }));
     else if (latest) sub.push(T('stat.db_last', { when: fmt.relative(latest.time), size: fmt.size(latest.files.reduce((a, f) => a + f.bytes, 0)) }));
     else if (dbs.length) sub.push(T('never'));
+    if (kept.length) sub.push(T('stat.db_old', { n: kept.length, when: fmt.relative(Math.min(...kept.map((f) => f.time || 0).filter(Boolean), Date.now() / 1000)) }));
     if ((set.nextcloud || []).length) sub.push(T('stat.db_nextcloud'));
-    add({ key: 'dumps', label: T('stat.dbs'), value: String(dbs.length), sub: [sub.join(' · ')], filters: 'dumps' });
+    add({ key: 'dumps', label: T('stat.dbs'), value: String(dbs.length), sub: [sub.join(' · ')], alert: kept.length > 0, filters: 'dumps' });
   }
   // the packages: per app and VM its small files, written by every run
   if (pk) {
     const cur = [...pk.apps, ...pk.vms].filter((x) => !x.stale);
     const bad = cur.filter((x) => x.result === 'errors').length;
+    const warned = cur.filter((x) => x.result === 'warnings').length;       // B12: a warning is said, not only errors
     const stale = pk.apps.length + pk.vms.length - cur.length;
     const sub = [pk.time ? T('stat.pk_when', { when: fmt.relative(pk.time) }) : T('never')];
     if (bad) sub.push(T('stat.pk_errors', { n: bad }));
+    if (warned) sub.push(T('stat.pk_warnings', { n: warned }));
     if (stale) sub.push(T('stat.pk_stale', { n: stale }));
     if (pk.old_runs) sub.push(T('stat.pk_old', { n: pk.old_runs }));
     if (pk.asleep) sub.push(T('stat.pk_asleep'));
@@ -1075,7 +1111,11 @@ function overviewTiles() {
       count[k] = (count[k] || 0) + 1;
     });
     const sub = ['freeze', 'pause', 'shutdown', 'none', 'off', 'unset'].filter((k) => count[k]).map((k) => T('stat.vm_' + k, { n: count[k] }));
-    add({ key: 'vms', label: T('stat.vms'), value: String(vms.length), sub: [sub.join(' · ')], alert: !!count.unset, filters: 'vms' });
+    // set up, but nothing holds it (its share not backed up, no snapshot possible for its disks): said and alerted, never
+    // «1 frozen» calm beside a row «not backed up» (the truth review T23)
+    const unsafe = protRows().filter((r) => r.kind === 'vm' && r.x.configured && r.level === 'none' && !(r.x.mode === 'off' && r.x.own.length)).length;
+    if (unsafe) sub.push(T('stat.vm_unsafe', { n: unsafe }));
+    add({ key: 'vms', label: T('stat.vms'), value: String(vms.length), sub: [sub.join(' · ')], alert: !!count.unset || unsafe > 0, filters: 'vms' });
   }
   const flash = set.flash || 'off';
   const fl = (state.shares || []).find((x) => x.flash);
@@ -1119,8 +1159,8 @@ function overviewTiles() {
   }
   // getting things back: where the backups lie, Mr. Restori's way — and his drill's certificate while he works here
   const dr = restoriHired() ? state.drill : null;
-  add({ key: 'restore', label: T('tile.restore'), value: dr ? T(dr.result === 'failed' ? 'stat.drill_failed' : 'stat.drill_passed') : Office.t('restore.name'),
-    sub: [dr ? fmt.date(dr.ended) : T('stat.restore_where')], alert: !!dr && dr.result === 'failed' });
+  add({ key: 'restore', label: T('tile.restore'), value: dr ? T({ failed: 'stat.drill_failed', unproven: 'stat.drill_unproven' }[dr.result] || 'stat.drill_passed') : Office.t('restore.name'),
+    sub: [dr ? fmt.date(dr.ended) : T('stat.restore_where')], alert: !!dr && ['failed', 'unproven'].includes(dr.result) });
   // no backup place yet (2026-10-21): the setup starts with it - the tiles of what a backup makes say so first
   if (placeFirstNeeded()) out.forEach((d) => { if (!['partners', 'drift', 'restore'].includes(d.key)) { d.sub = [T('tile.place_first')]; d.tip = ''; d.alert = d.key === 'last'; } });
   return out;
@@ -1481,7 +1521,7 @@ function protection() {
       const modeCell = el('td');
       modeCell.appendChild(protChip(r));
       if (vm.configured && vm.mode !== 'off') modeCell.append(' ', chip(T('vm.prep.' + vm.prepare), vm.prepare === 'none' ? 'warn' : '', T('vm.prep_text.' + vm.prepare)));
-      if (!vm.configured) modeCell.append(' ', chip(T('vm.not_set_up'), 'warn', T('vm.not_set_up_hint')));
+      if (!vm.configured) modeCell.append(' ', chip(T('vm.not_set_up'), 'warn', vmUnsetHint(vm)));
       const vp = vmPackage(vm.name);
       if (vp && (vp.stale || vp.result === 'errors')) modeCell.append(' ', pkChip(vp));
       const vi = kopiaOn ? itemOf('vm', vm.name) : null;
@@ -1707,7 +1747,7 @@ function vmDetail(v) {
     dl.append(el('dt', '', term), dd);
   };
   if (v.mode === 'off' && v.own.length) add(T('vm.d_snapshot'), T('vm.left_out'));
-  else add(T('vm.d_snapshot'), v.configured ? T('vm.prep_text.' + v.prepare) : T('vm.not_set_up_hint'));
+  else add(T('vm.d_snapshot'), v.configured ? T('vm.prep_text.' + v.prepare) : vmUnsetHint(v));
   if (v.last) add(T('vm.d_last'), T('vm.done_text.' + v.last.done, { s: dur(v.last.seconds) }), ' ', el('span', 'role', v.last.time ? fmt.relative(v.last.time) : ''));
   if (v.disks.length) {
     const ul = el('div', 'bk-rules');
@@ -2078,7 +2118,7 @@ function scheduleSection() {
   } else {
     main.appendChild(el('div', 'row-name text', sc.frequency === 'custom' ? fmt.cron(sc.custom) : T('freq.' + sc.frequency)));
     if (sc.next) {
-      const next = el('span', '', T('stat.next', { when: fmt.relative(sc.next) }));
+      const next = el('span', '', T(sc.next < Date.now() / 1000 ? 'stat.next_due' : 'stat.next', { when: fmt.relative(sc.next) }));     // B14
       next.title = fmt.date(sc.next);
       meta.appendChild(next);
       const took = typicalDuration();
@@ -2151,9 +2191,10 @@ function restoreSection() {
   // Mr. Restori's drill: whether restoring was proven lately (his certificate, one line)
   const dr = state.drill;
   if (dr && restori && restori.hired) {
-    const line = el('p', dr.result === 'failed' ? 'callout warn' : 'role');
+    const line = el('p', ['failed', 'unproven'].includes(dr.result) ? 'callout warn' : 'role');
     line.append(dr.result === 'failed' ? T('drill.line_failed', { when: fmt.date(dr.ended), names: (dr.failed || []).join(', ') || '–' })
-      : T('drill.line_passed', { when: fmt.date(dr.ended), proven: dr.proven, total: dr.total }), ' ');
+      : dr.result === 'unproven' ? T('drill.line_unproven', { when: fmt.date(dr.ended), total: dr.total })
+        : T('drill.line_passed', { when: fmt.date(dr.ended), proven: dr.proven, total: dr.total }), ' ');
     const go = el('a', '', T('drill.line_go'));
     go.href = '#/restore/drill';
     line.appendChild(go);
@@ -2197,11 +2238,7 @@ async function chooseRun() {
     input.checked = m === mode;
     input.onchange = () => { mode = m; };
     const text = el('span', '', T('mode.' + m));
-    // a full backup sends to Kopia only while it is switched on in the settings: say what really happens; a run without
-    // the offsite upload still sends to the partners whose units have a partner level (engine 2.42)
-    const to = m === 'nokopia' ? ((state.partners || []).filter((p) => (p.units || []).length).map((p) => p.name)) : [];
-    text.appendChild(el('small', '', to.length ? T('mode_hint.nokopia_partners', { partners: to.join(', ') })
-      : T(m === 'backup' && !kopia ? 'mode_hint.backup_local' : 'mode_hint.' + m)));
+    text.appendChild(el('small', '', runHint(m, kopia)));
     label.append(input, text);
     box.appendChild(label);
   });
@@ -2218,6 +2255,25 @@ async function chooseRun() {
   });
   // one run a minute: its button grey until the minute changes (the head's buttons come back with the next drawing)
   if (d && d.buttons) minuteGuard([d.buttons[1]], () => false, () => { if (note) note.remove(); });
+}
+
+/**
+ * What a run of this mode really does, said in its option (the truth review T26): a full backup sends to Kopia only while it is
+ * switched on and the copy isn't held; the storage taking nothing makes its upload fail; a run without the offsite upload
+ * still sends to the partners whose units have a partner level (engine 2.42). Docker stopped (engine 2.54): no dumps, no app
+ * packages, no Kopia (its container), nothing stopped - the shares, VMs and the flash; Docker silent: the run ends at once.
+ */
+function runHint(m, kopia) {
+  if (m !== 'backup' && m !== 'nokopia') return T('mode_hint.' + m);
+  const c = state.containers || {};
+  const to = (state.partners || []).filter((p) => (p.units || []).length).map((p) => p.name);
+  if (c.silent) return T('mode_hint.docker_silent');
+  if (c.up === false) return to.length ? T('mode_hint.nodocker_partners', { partners: to.join(', ') }) : T('mode_hint.nodocker');
+  if (m === 'nokopia') return to.length ? T('mode_hint.nokopia_partners', { partners: to.join(', ') }) : T('mode_hint.nokopia');
+  if (!kopia) return T('mode_hint.backup_local');
+  if (state.kopia_held) return T('mode_hint.backup_held');
+  if (kopiaStuck()) return T('mode_hint.backup_stuck', { when: fmt.date(kopiaStuck().since) });
+  return T('mode_hint.backup');
 }
 
 async function startRun(mode) {
@@ -2383,7 +2439,7 @@ async function showLog(name, follow) {
 // setup.sh --apply checks and writes it — the same engine as in a terminal.
 const SETUP_POLL = 2000;
 const LIST_KEY = /\|(ignore|no_stop|known|skip|kopia_ignore|kopia_known|exclude_dataset|tar_exclude|folder)$/;
-let setup = { plan: null, draft: null, status: null, run: null, applied: null, open: new Set(), retire: true, asked: false, focus: null,
+let setup = { plan: null, draft: null, status: null, run: null, applied: null, open: new Set(), retire: null, asked: false, focus: null,
   model: null, levels: {}, held: {}, deps: new Set(), locks: {}, itemKeep: {},
   depsOff: new Set(), depNote: new Map(),   // «… mitsichern» unticked by the user, and the word a click left on its row
   viaShare: new Set(),       // apps and VMs offsite inside their share's Kopia source, as saved (setupInitLevels()), as item keys
@@ -2585,7 +2641,7 @@ const goneShareKey = (k, plan) => goneShares(plan).some((sh) => k.startsWith(`sh
 
 /** The decisions Apply sends: the draft, without the keys of ONLY_CHOSEN the user didn't choose here, never a gone app's */
 function setupDecisions() {
-  const out = { ...setup.draft, _retire_sources: setup.retire ? 'yes' : 'no' };
+  const out = { ...setup.draft, _retire_sources: retireOn(setup.plan) ? 'yes' : 'no' };
   const base = setup.base || setup.plan.P || {};
   ONLY_CHOSEN.forEach((k) => { if (same(base[k], setup.draft[k])) delete out[k]; });
   Object.keys(out).forEach((k) => { if (goneAppKey(k, setup.plan)) delete out[k]; });
@@ -3005,6 +3061,12 @@ function setupApply() {
   }
   // the backup place in one word (placeVerdict()): yellow while its packages stay only here, grey when a copy goes off-site
   placeLines(placeRow()).forEach((l) => box.appendChild(el('p', l.warn ? 'callout warn' : 'role', l.text)));
+  // the old Kopia sources this Apply sets to «manual» (T27): said, never done unseen - a warning while one is the user's own
+  const old = setup.plan.kopia ? oldSources(setup.plan) : [];
+  if (old.length && retireOn(setup.plan) && String(dget('kopia|enabled', '')).toLowerCase() === 'yes') {
+    box.appendChild(el('p', old.some(foreignSource) ? 'callout warn' : 'role',
+      T('setup.apply_sources_manual', { n: old.length, list: old.map((o) => oldUnit(o) || o.source).join(', ') })));
+  }
   // engine 2.68: the offsite storage takes nothing - Kopia's policies won't be set by this Apply (the rest goes as usual)
   const stuck = kopiaStuck();
   if (stuck && String(dget('kopia|enabled', '')).toLowerCase() === 'yes') {
@@ -4121,6 +4183,14 @@ function setupSwitcher() {
   return setupSw;
 }
 const oldSources = (plan) => ((plan.kopia && plan.kopia.sources) || []).filter((s) => s.state === 'orphan' || s.state === 'gone');
+/** An old source that isn't the office's (another path, KopiaUI's own): the user's schedule there */
+const foreignSource = (o) => o.state === 'gone' || (o.state === 'orphan' && (o.why === 'other' || !oldUnit(o)));
+/**
+ * «Set them to manual» for this Apply (setup.sh --apply _retire_sources sets every old source to manual, the user's own ones
+ * too - the truth review T27): ticked by default only while every old source is the office's; with one of the user's among
+ * them it starts unticked, so their own schedule never stops unseen. A tick by hand counts (setup.retire true/false).
+ */
+const retireOn = (plan) => (setup.retire === null ? !(plan ? oldSources(plan) : []).some(foreignSource) : !!setup.retire);
 
 /** The tiles for the switcher: setupTileData() as it stands, each with its step as its section (none before the plan) */
 function setupTileList() {
@@ -4499,12 +4569,20 @@ function asleepChoice(plan) {
   return f;
 }
 
-/** «pool asleep now» on a share's or VM's row (engine 2.28, the plan's asleep_bases): what the night does with it, in its tip */
+/**
+ * «pool asleep now» on a share's or VM's row (engine 2.28, the plan's asleep_bases): what the backup does with it, in its tip.
+ * The backup place's pool is woken whatever the choice (the packages are the point - backup.sh asleep_plan): a unit whose
+ * sleeping parts all lie there is never «left out» (S9).
+ */
 function asleepChip(bases) {
   if (!bases || !bases.length) return null;
   const disk = bases.every((b) => /^disk\d+$/.test(b));
+  const skip = dget('general|asleep_pools', 'wake') === 'skip';
+  const place = setup.plan ? (setup.plan.shares || []).find((sh) => sh.name === dget('general|dumps_share')) : null;
+  const placeBases = place ? String(place.locations || '').split(/[\s,]+/).filter(Boolean) : [];
+  const woken = skip && bases.every((b) => placeBases.includes(b));
   return chip(T(disk ? 'setup.asleep.chip_disk' : 'setup.asleep.chip'), '',
-    T(dget('general|asleep_pools', 'wake') === 'skip' ? 'setup.asleep.chip_skip' : 'setup.asleep.chip_wake', { names: bases.join(', ') }));
+    T(woken ? 'setup.asleep.chip_place' : skip ? 'setup.asleep.chip_skip' : 'setup.asleep.chip_wake', { names: bases.join(', ') }));
 }
 
 function shareWhy(sh) {
@@ -5502,7 +5580,9 @@ function viaChip(key, share, partners, offsite) {
  */
 function offChip(kind, shares) {
   const share = shares.join(', ');
-  return chip(T('setup.off_in_share', { share }), '', T('setup.off_in_share_hint_' + kind, { share }));
+  // a VM's configuration is in the archive of /etc/libvirt every backup writes (S7) - unless that archive is switched off
+  const hint = kind === 'vm' && dget('libvirt|mode', 'tar') === 'off' ? 'setup.off_in_share_hint_vm_nolibvirt' : 'setup.off_in_share_hint_' + kind;
+  return chip(T('setup.off_in_share', { share }), '', T(hint, { share }));
 }
 
 /**
@@ -5532,7 +5612,9 @@ function levelPick(key, onPick, partner, kopiaShare) {
     b.type = 'button';
     b.setAttribute('role', 'radio');
     b.setAttribute('aria-checked', String(f.id === nowId));
-    b.title = T('setup.level_hint.' + (f.key === 'partner' && key.startsWith('vm:') ? 'partner_vm' : f.key), { partners: names });
+    // a VM's words are its own (S5: no «folder in appdata», no dumps; its package holds XML, UEFI variables, TPM state)
+    const vmKey = key.startsWith('vm:') ? ({ partner: 'partner_vm', 0: 'vm_0', 1: 'vm_1' })[f.key] : null;
+    b.title = T('setup.level_hint.' + (vmKey || f.key), { partners: names });
     if (via && f.lv > 0 && !f.partner) { b.disabled = true; b.title = T('partner.via_fixed', { share: via.share, partners: names }); }
     else if (via && f.partner) b.title = [viaText(key, via.share, names, f.id === nowId && kVia), f.lv === 2 && !(f.id === nowId && kVia) ? T('setup.level_hint.2') : ''].filter(Boolean).join(' ');
     else if (f.partner && !partner.ok) { b.disabled = true; b.title = T('partner.why.' + (partner.why || 'no_dataset')); }
@@ -5726,8 +5808,9 @@ function setupApps(plan) {
     if (a.volumes.length) meta.appendChild(chip(T('setup.ct_volumes', { list: a.volumes.join(', ') }), 'danger', T('setup.ct_volumes_hint')));
     if (a.volumesCache.length) meta.appendChild(chip(T('setup.ct_volumes_cache', { list: a.volumesCache.join(', ') }), '', T('setup.ct_volumes_cache_hint')));
     if (!a.folders.length && !a.deps.length) {
-      const flashOff = dget('flash|mode', 'off') === 'off';
-      meta.appendChild(chip(T('setup.app_nodata'), flashOff ? 'warn' : '', T(flashOff ? 'setup.app_nodata_noflash' : 'setup.app_nodata_hint')));
+      // backed up, its template or compose file goes into its package (S6); at «off» it has none - then only the flash's backup
+      const flashOff = l === 0 && dget('flash|mode', 'off') === 'off';
+      meta.appendChild(chip(T('setup.app_nodata'), flashOff ? 'warn' : '', T(l > 0 ? 'setup.app_nodata_hint' : flashOff ? 'setup.app_nodata_noflash' : 'setup.app_nodata_off')));
     }
     main.appendChild(meta);
     // its folders in a share no snapshot is possible in (XFS, an array disk): «local» keeps nothing of it, stopping it changes nothing (T08)
@@ -6280,10 +6363,12 @@ const oldUnit = (o) => (OLD_KINDS.includes(o.kind) && typeof o.name === 'string'
  * (another path, an old script's). An older engine's entry without why: the source as it is.
  */
 function oldSourceWords(o) {
-  if (o.state === 'gone') return T('setup.sources.row_other', { what: o.source });
+  // not the office's: «stays as it is» only while this Apply doesn't set it to manual (T27)
+  const other = () => T(retireOn(setup.plan) ? 'setup.sources.row_other_manual' : 'setup.sources.row_other', { what: o.source });
+  if (o.state === 'gone') return other();
   if (o.state !== 'orphan' || typeof o.why !== 'string') return o.source;
   const what = oldUnit(o);
-  if (!what || o.why === 'other') return T('setup.sources.row_other', { what: o.source });
+  if (!what || o.why === 'other') return other();
   if (o.why === 'gone') return T('setup.sources.row_gone', { what });
   const n = Number.isInteger(o.snapshots) ? o.snapshots : 0;
   const older = n > 0 ? T('setup.sources.older', { snapshots: T('setup.orphans.snapshots', { n }), when: kopiaWhen(o.newest) }) : T('setup.sources.older_bare');
@@ -6304,7 +6389,7 @@ function setupSources(old) {
   s.appendChild(ul);
   // a one-time order for the next Apply (setup.sh --apply _retire_sources), no setting of settings.ini: said so on the row
   // (2026-10-17, silent controls: unticked, a reload ticked it again without a word)
-  const once = checkbox(T('setup.sources_manual'), setup.retire, (v) => { setup.retire = v; }, T('setup.sources_manual_hint'));
+  const once = checkbox(T('setup.sources_manual'), retireOn(setup.plan), (v) => { setup.retire = v; Office.keepInPlace(s, () => renderSetup()); }, T('setup.sources_manual_hint'));
   once.lastChild.appendChild(el('small', 'bk-once', T('setup.sources_manual_once')));
   s.appendChild(once);
   // engine 2.51: the office's own sources under its mount root («orphan»; never «gone» - not the office's) can go in Kopia
@@ -6966,7 +7051,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     setupFilter,
     setupFits, setupFirstNew, setupFocus, setupTileData, setupTileList, setupNewCounts, setupSwitcher, SETUP_TILES, STEP_TILE,
     driftText, driftParams, messageText, orderText, scheduleSection,
-    overviewTiles, tileNode, tileList, protRows, protView, protTileCounts, protPartners, protChip, protSum, vmLevel, viaText, historyRows, PROT_TILES, PROT_ID, TILES,
+    overviewTiles, retireOn, foreignSource, oldSourceWords, asleepChip, runHint, missedRun, waitingUnsure, vmUnset, tileNode, tileList, protRows, protView, protTileCounts, protPartners, protChip, protSum, vmLevel, viaText, historyRows, PROT_TILES, PROT_ID, TILES,
     truth, levelTruth, kopiaTruth, protPartnerTruth, unitTry, shareLeftOut, setupDeriveItems, appNoSnap,
     setState: (s) => { state = s; },
     setupDraftFromPlan, setupNewLines, setupNewRows, setupChanges, setupSaved, waitingFolders, waitChoice, waitSet, levelOf, waitingText, appSharesText,

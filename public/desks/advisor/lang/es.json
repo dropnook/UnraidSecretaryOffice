@@ -472,6 +472,7 @@
   "net.syslog.sender": "{sender}: última línea {when}",
   "net.syslog.no_senders": "Aún ningún remitente — Unraid escucha, no llega nada. El lado del router es la siguiente guía.",
   "net.syslog.asleep": "Los discos del recurso compartido duermen — ahora no miro dentro.",
+  "net.syslog.missing": "Falta el recurso compartido {share} — Unraid no lo lista, así que no miro en la carpeta. Crea el recurso compartido o elige otra carpeta.",
   "net.syslog.loop": "⟦Remote syslog server⟧ es este mismo servidor: Unraid se envía sus propias líneas y las escribe una segunda vez en el recurso compartido. Vacía ese campo — o indica un SIEM de verdad.",
   "net.syslog.sleepy": "El recurso compartido de la carpeta está en discos que se duermen ({disks}): cada línea del router los despierta. Elige un recurso compartido en un pool que nunca duerme.",
   "net.syslog.exported": "El recurso compartido de la carpeta está exportado ({proto}): quien puede escribirlo puede escribir en los archivos del router. Pon su exportación en «No».",

@@ -56,7 +56,11 @@ desk('backup', [
         if (!$fs['zfs'] && !$fs['btrfs']) {
             return fit(false, 'no_cow');
         }
-        foreach (houseContainers() as $c) {
+        $all = houseContainersKnown();
+        if ($all === null) {
+            return fit(true, 'docker_off');        // Docker stopped: whether Kopia is here can't be told - never «without Kopia»
+        }
+        foreach ($all as $c) {
             if (preg_match('/kopia/i', $c['image'] . ' ' . $c['name'])) {
                 return fit(true, 'yes', ['kopia' => $c['name']]);
             }
@@ -222,7 +226,7 @@ function backupScan(): array
         $state = ['time' => time(), 'asleep' => true] + $old + $state;
         // the schedule lies on the flash: its next time anew, never «next backup 3 hours ago» from the kept state (B14)
         if (is_array($old['schedule'] ?? null)) {
-            $state['schedule'] = array_diff_key(officeJobSchedule('backup'), ['script' => 1]) + $old['schedule'];
+            $state['schedule'] = backupSchedulePrev(array_diff_key(officeJobSchedule('backup'), ['script' => 1]) + $old['schedule']);
         }
         $GLOBALS['backup'] = $state;
         writeAtomic(deskFile('backup'), jsonEncode($state));
@@ -287,7 +291,8 @@ function backupScan(): array
         'shares'     => backupShares($settings, $history),
         'items'      => backupKopiaItems($settings, $history),
         'vms'        => $vms = backupVms($settings),
-        'waiting'    => backupWaiting($settings, $vms, backupDockerSilent() ? [] : null),   // new folders, apps and VMs waiting for a decision (engine 2.21); Docker silent: no apps asked (B15)
+        // new folders, apps and VMs waiting for a decision (engine 2.21); Docker silent (B15) or stopped: no apps asked, said
+        'waiting'    => backupWaiting($settings, $vms, ($dk = backupDockerLook()) === 'up' ? null : [], docker: $dk),
         'containers' => backupContainers($settings),
         'partners'   => backupPartners($settings, $history, $running ? $status : null),   // engine 2.27: the last transfer per partner
         'dumps'      => backupDumps(),           // run folders of engines before 2.18, until the first 2.18 run cleared them
@@ -560,7 +565,9 @@ function backupDrillLine(?array $cert = null): ?array
             $failed[$it['name']] = true;
         }
     }
-    return ['result' => $last['result'], 'ended' => (int) ($last['ended'] ?? 0), 'proven' => (int) ($last['proven'] ?? 0),
+    // a drill that proved nothing (every item «not checked» or asleep) is no «passed» (truth review T18)
+    $unproven = $last['result'] === 'passed' && isset($last['proven']) && (int) $last['proven'] + (int) ($last['warnings'] ?? 0) === 0;
+    return ['result' => $unproven ? 'unproven' : $last['result'], 'ended' => (int) ($last['ended'] ?? 0), 'proven' => (int) ($last['proven'] ?? 0),
             'total' => (int) ($last['items'] ?? 0), 'failed' => array_slice(array_keys($failed), 0, 4)];
 }
 
@@ -771,6 +778,12 @@ function backupDockerSilent(): bool
     }
     $until = $now + BACKUP_DOCKER_KEEP;
     return houseDocker(['version', '--format', '{{.Server.Version}}'], BACKUP_DOCKER_LOOK)[0] === 124;
+}
+
+/** Docker for the overview's look at new apps: 'silent' (B15: not asked now), 'off' (stopped: `docker ps` got no answer) or 'up' */
+function backupDockerLook(): string
+{
+    return backupDockerSilent() ? 'silent' : (houseContainersKnown() === null ? 'off' : 'up');
 }
 
 /**
@@ -1630,9 +1643,14 @@ function backupZfsSnapSum(string $out, string $snap): ?int
  * $containers (name => compose project), $file and $appShares for the tests; otherwise docker ps, the engine's state
  * and backupAppShares().
  */
-function backupWaiting(array $s, array $vms, ?array $containers = null, ?string $file = null, ?array $appShares = null, ?callable $there = null): array
+function backupWaiting(array $s, array $vms, ?array $containers = null, ?string $file = null, ?array $appShares = null, ?callable $there = null,
+                       ?string $docker = null): array
 {
     $out = ['folders' => [], 'apps' => [], 'vms' => []];
+    // Docker stopped or silent (backupDockerLook()): new apps couldn't be looked for - the page says so, never «none new»
+    if ($s && $docker !== null && $docker !== 'up' && ($s['docker']['known'] ?? [])) {
+        $out['docker'] = $docker;
+    }
     // a folder the last run noted that is gone by now waits for nothing (2026-10-10: the callout stayed until the next
     // run and «Decide…» found nothing to decide); looked at only where the share's disks are awake - never woken for it
     $there ??= function (string $share, string $folder) use ($s): bool {
@@ -2037,7 +2055,23 @@ function backupLibvirtArchive(string $file): array
 function backupSchedule(): array
 {
     // order_hint: the same minute as Ms. Moverelli's run, from before the save check (agent/lib/nightorder.php; a quiet line)
-    return ['script' => is_file(BACKUP_DATA_DIR . '/settings.ini')] + officeJobSchedule('backup') + ['order_hint' => nightOrderHint()];
+    return backupSchedulePrev(['script' => is_file(BACKUP_DATA_DIR . '/settings.ini')] + officeJobSchedule('backup') + ['order_hint' => nightOrderHint()]);
+}
+
+/**
+ * The schedule's last due time (`prev`): when its cron line last fired - only while the cron file is older than that
+ * moment (a schedule saved since then never had the chance: no «didn't run» for it). The page says a scheduled backup
+ * that didn't run from it (the truth review T25: «last backup ok» and «next backup in 4 hours» while nothing ran for
+ * 9 days). Null without a schedule. $file and $now for the tests.
+ */
+function backupSchedulePrev(array $sc, string $file = OFFICE_CRON, ?int $now = null): array
+{
+    $now ??= time();
+    $cron = !empty($sc['enabled']) && is_string($sc['custom'] ?? null) ? $sc['custom'] : null;
+    $prev = $cron !== null ? cronPrevious($cron, $now) : null;
+    $since = @filemtime($file);
+    $sc['prev'] = $prev !== null && $since !== false && $since < $prev ? $prev : null;
+    return $sc;
 }
 
 /**

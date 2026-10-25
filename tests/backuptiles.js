@@ -47,6 +47,7 @@ const same = (name, got, want) => {
 
 // ---------------------------------------------------------------- a server: Kopia on, the flash in a snapshot
 const NOW = 1791600000;
+Date.now = () => (NOW + 60) * 1000;          // the page's clock: the tests' (a next time «in 5 hours», never one already past)
 // a share at «kopia» has its good copy offsite (the rows go by results: the truth review P2)
 const share = (name, mode, more) => ({ name, mode, method: 'auto', retention: null, ignores: [], excluded: [], locations: ['maple'], fs: ['zfs'],
   last: mode === 'kopia' ? { ok: true, good: NOW - 3600, time: NOW - 3600, seconds: 5 } : null, ...more });
@@ -400,6 +401,122 @@ same('history: a word fits its rows only', h.filter((x) => Office.fits(W('warnin
   // T21: the section's line is the tile's line (both protSum(protRows()))
   B.setState(base());
   same('truth T21: the protection tile\'s line is protSum of the rows', B.overviewTiles().find((t) => t.key === 'prot').sub, [B.protSum(B.protRows())]);
+}
+
+// ---------------------------------------------------------------- the truth review's rest (T22–T27, B12, B14, S9): what the
+// overview, the start dialog and the setup say is what is there — on the tests' clock (Date.now pinned to NOW)
+{
+  Date.now = () => NOW * 1000;
+  const tileOf = (k) => B.overviewTiles().find((t) => t.key === k) || null;
+  // T25: a daily schedule whose last due time passed 4 h ago with no backup since — the last backup's tile alerts and says so
+  let s = base();
+  s.status = null;
+  s.schedule = { ...s.schedule, prev: NOW - 4 * 3600, next: NOW + 20 * 3600 };
+  s.history = [run(NOW - 30 * 3600)];
+  B.setState(s);
+  same('truth T25: a scheduled backup that didn\'t run — tile «last» alerts and names it',
+    [tileOf('last').alert, tileOf('last').sub.includes(`stat.missed {"when":"date(${NOW - 4 * 3600})"}`), B.missedRun()], [true, true, NOW - 4 * 3600]);
+  s.history = [run(NOW - 4 * 3600 + 30)];
+  B.setState(s);
+  same('truth T25: … the backup of that time ran — nothing missed', [B.missedRun(), tileOf('last').alert], [null, false]);
+  s.history = [run(NOW - 30 * 3600)];
+  s.schedule.prev = NOW - 3600;
+  B.setState(s);
+  same('truth T25: … due an hour ago (a run may wait its turn) — not yet said', B.missedRun(), null);
+  s.schedule.prev = null;
+  B.setState(s);
+  same('truth T25: … an older agent (no prev) — never guessed', B.missedRun(), null);
+  // B14: a next time already past is never «next backup … ago»
+  s = base();
+  s.schedule = { ...s.schedule, next: NOW - 3 * 3600 };
+  B.setState(s);
+  same('truth B14: the next time past — «was due», never «next backup … ago»', tileOf('schedule').sub, [`stat.next_due {"when":"rel(${NOW - 3 * 3600})"}`]);
+  // T24: one dump the last run couldn't make (the engine kept the earlier one) — the databases tile alerts and says it
+  s = base();
+  s.packages.apps[0].files[0] = { ...s.packages.apps[0].files[0], run: 'r0', time: NOW - 21 * 86400 };
+  B.setState(s);
+  same('truth T24: an older dump kept in a current package — the tile alerts, «1 kept from an earlier backup»',
+    [tileOf('dumps').alert, tileOf('dumps').sub[0].includes(`stat.db_old {"n":1,"when":"rel(${NOW - 21 * 86400})"}`)], [true, true]);
+  B.setState(base());
+  same('truth T24: … every dump of this run — calm', tileOf('dumps').alert, false);
+  // B12: the packages tile names packages with warnings, not only errors
+  s = base();
+  s.packages.apps[2].result = 'warnings';
+  B.setState(s);
+  same('truth B12: a package with warnings is said on the packages tile', tileOf('apps').sub[0].includes('stat.pk_warnings {"n":1}'), true);
+  // B12: a warning without a code — the bubble says where to read it, never «ended with a warning» alone
+  s = base();
+  s.status = null;
+  B.setState(s);
+  same('truth B12: a warning without a code — «which one, its log says»', B.bubbleText().includes('bubble.warn_in_log'), true);
+  // T23: a VM set up whose share isn't backed up — «1 frozen» never calm: the tile alerts and counts it
+  s = base();
+  s.vms = [vm('win', { share_mode: 'off', own: [] })];
+  B.setState(s);
+  same('truth T23: a VM set up, its share off — the VMs tile alerts, «1 not backed up»',
+    [tileOf('vms').alert, tileOf('vms').sub[0].includes('stat.vm_unsafe {"n":1}')], [true, true]);
+  s.vms = [vm('win')];
+  B.setState(s);
+  same('truth T23: … its share snapshotted — calm', tileOf('vms').alert, false);
+  // T22: a new VM no plan has seen — never «only in the local snapshots so far», its tip says it isn't known
+  s = base();
+  s.vms = [vm('lab', { configured: false, share: '', share_mode: null, snap: null })];
+  s.waiting = { folders: [], apps: [], vms: ['lab'] };
+  B.setState(s);
+  same('truth T22: a new VM whose disks no plan saw — «unknown», the callout and the bubble say «not known»',
+    [B.vmUnset(s.vms[0]), B.waitingUnsure(), B.waitingText().startsWith('waiting.callout_unsure'), B.bubbleText().some((x) => x.startsWith('bubble.waiting_unsure'))],
+    ['unknown', true, true, true]);
+  s.vms = [vm('lab', { configured: false })];
+  B.setState(s);
+  same('truth T22: … in a snapshotted share — «only in the local snapshots so far» holds', [B.vmUnset(s.vms[0]), B.waitingText().startsWith('waiting.callout ')], ['local', true]);
+  s.vms = [vm('lab', { configured: false, share_mode: 'off' })];
+  B.setState(s);
+  same('truth T22: … in a share not backed up — «none»', B.vmUnset(s.vms[0]), 'none');
+  s.waiting = { folders: [], apps: [], vms: ['lab'], docker: 'off' };
+  B.setState(s);
+  same('truth: Docker stopped — the waiting list says new apps weren\'t looked for', B.waitingText().includes('waiting.apps_unknown'), true);
+  // T26: «Start a backup» says what this run really does
+  s = base();
+  B.setState(s);
+  same('truth T26: as usual — the full backup\'s words', B.runHint('backup', true), 'mode_hint.backup');
+  s.containers = { ...s.containers, up: false };
+  B.setState(s);
+  same('truth T26: Docker stopped — no dumps, no packages, nothing offsite (both full and without upload); the partner named',
+    [B.runHint('backup', true), B.runHint('nokopia', true), B.runHint('dryrun', true)],
+    ['mode_hint.nodocker_partners {"partners":"Vault"}', 'mode_hint.nodocker_partners {"partners":"Vault"}', 'mode_hint.dryrun']);
+  s.containers = { ...s.containers, up: false, silent: true };
+  B.setState(s);
+  same('truth T26: Docker silent — the run would end at once', B.runHint('backup', true), 'mode_hint.docker_silent');
+  s = base();
+  s.kopia_held = { repo: 'r1', time: NOW };
+  B.setState(s);
+  same('truth T26: the copy held — nothing offsite', B.runHint('backup', true), 'mode_hint.backup_held');
+  s = base();
+  s.kopia_writes = { state: 'stuck', since: NOW - 7200 };
+  B.setState(s);
+  same('truth T26: the storage taking nothing — the upload fails', B.runHint('backup', true), `mode_hint.backup_stuck {"when":"date(${NOW - 7200})"}`);
+  // T27: old Kopia sources — the user's own are never set to «manual» unseen
+  const plan = { kopia: { sources: [{ state: 'orphan', why: 'gone', kind: 'app', name: 'Fotobuch', source: '/x/.apps/Fotobuch' }] } };
+  B.setup.retire = null;
+  same('truth T27: only the office\'s own old sources — ticked by default', B.retireOn(plan), true);
+  plan.kopia.sources.push({ state: 'gone', source: 'root@tower:/mnt/user/photos' });
+  B.setup.plan = plan;
+  B.setup.draft = {};
+  same('truth T27: one of the user\'s own among them — unticked by default, its row «stays as it is»',
+    [B.retireOn(plan), B.oldSourceWords(plan.kopia.sources[1])], [false, 'setup.sources.row_other {"what":"root@tower:/mnt/user/photos"}']);
+  B.setup.retire = true;
+  same('truth T27: ticked by hand — its row says this Apply sets it to «manual»', B.oldSourceWords(plan.kopia.sources[1]),
+    'setup.sources.row_other_manual {"what":"root@tower:/mnt/user/photos"}');
+  B.setup.retire = null;
+  // S9: a share asleep on the backup place's pool is woken anyway — never «left out»
+  B.setup.plan = { shares: [{ name: 'media', locations: 'maple' }] };
+  B.setup.draft = { 'general|asleep_pools': 'skip', 'general|dumps_share': 'media' };
+  same('truth S9: asleep on the backup place\'s pool — «woken anyway», elsewhere «left out»',
+    [B.asleepChip(['maple']).title, B.asleepChip(['hazel']).title],
+    ['setup.asleep.chip_place {"names":"maple"}', 'setup.asleep.chip_skip {"names":"hazel"}']);
+  B.setup.plan = null;
+  B.setup.draft = null;
+  Date.now = () => (NOW + 60) * 1000;
 }
 
 console.log(JSON.stringify(out));
