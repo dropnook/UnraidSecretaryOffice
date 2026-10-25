@@ -73,6 +73,7 @@
   "protect.why.kopia_never": "réglé : hors site — pas encore de copie",
   "protect.why.kopia_held": "réglé : hors site — retenu, la copie est soudain vide",
   "protect.why.kopia_gone": "le conteneur de Kopia a disparu — plus de nouvelles copies",
+  "protect.why.kopia_docker_off": "Docker est arrêté — plus de nouvelle copie hors site",
   "protect.why.kopia_stuck": "le hors site n'accepte rien depuis {since}",
   "protect.why.kopia_away": "hors site injoignable depuis {since}",
   "protect.why.kopia_failed": "la dernière copie hors site a échoué — une plus ancienne existe",

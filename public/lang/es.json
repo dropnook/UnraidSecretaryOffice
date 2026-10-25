@@ -73,6 +73,7 @@
   "protect.why.kopia_never": "ajustado: fuera de casa — aún sin copia",
   "protect.why.kopia_held": "ajustado: fuera de casa — retenido, la copia está vacía de repente",
   "protect.why.kopia_gone": "el contenedor de Kopia ya no está — ninguna copia nueva",
+  "protect.why.kopia_docker_off": "Docker está apagado — ninguna copia nueva fuera de casa",
   "protect.why.kopia_stuck": "fuera de casa no acepta nada desde {since}",
   "protect.why.kopia_away": "fuera de casa inaccesible desde {since}",
   "protect.why.kopia_failed": "la última copia fuera de casa falló — hay una más antigua",

@@ -267,7 +267,9 @@ function partnerLookMoved(string $runDir): array
             || !is_string($r['address'] ?? null) || !partnerAddressValid($r['address']) || !is_int($r['time'] ?? null)) {
             continue;
         }
-        $out[$m[1]] = ['address' => $r['address'], 'time' => $r['time']];
+        // from: the door line's from= it wrote (a host name resolved, review 1.72.0 L5); an older record has none
+        $out[$m[1]] = ['address' => $r['address'], 'time' => $r['time']]
+            + (is_string($r['from'] ?? null) && partnerLookFromIps($r['from']) ? ['from' => $r['from']] : []);
     }
     return $out;
 }

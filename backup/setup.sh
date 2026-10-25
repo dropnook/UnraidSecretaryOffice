@@ -1,6 +1,10 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.75 - 2026-10-25
+# unraid-backup - setup.sh                        Version 2.76 - 2026-10-25
+#   2.76 What goes to a partner is asked per partner: a VM's or app's own dataset in a share stays here when its unit
+#        doesn't take it there (the VM or app not ticked for that partner, or the app's second dataset) - partner_left
+#        names it with owner (vm:<n> | app:<n>), hint partner_child_left_owner (up to 2.75 left off silently); a dataset
+#        inside an app's own one is the app's (hint partner_child_left_app), never «of no app or VM» of its share
 #   2.75 An [app "<name>"] section with folder alone (the app's own dataset in a share going to a partner, the app at
 #        another level) is written and kept - up to 2.74 only with kopia = yes or a partner, so the office's folder never
 #        landed and its Apply list showed it after every Apply (backup.sh: Docker switched off is docker_off, a warning)
@@ -2085,7 +2089,8 @@ TXT
 # snapshots (not off). Since 2.42 nothing is asked of the pairs beyond their sections: the partner's door takes any
 # unit up to its quota (2.29-2.41 a unit no partner had agreed to was not_agreed here and skipped by the run).
 declare -A PARTNER_OKU=() PARTNER_WHYU=()     # unit -> yes/no, why not (the plan's partner_ok / partner_why)
-declare -A PARTNER_LEFTU=()                   # 2.74: unit -> its child datasets that stay here ("<dataset>|<folder>" lines; partner_left)
+declare -A PARTNER_LEFTU=()                   # 2.74: unit -> its child datasets that stay here ("<dataset>|<folder>|<owner>" lines; partner_left;
+                                              # 2.76: for any of its partners - owner vm:<n> | app:<n> when that unit doesn't take it)
 PARTNER_SOURCE="none"                         # pairs | settings | none
 pu_app_folder() { if [[ -n "${OLD[app|$1|folder]+x}" ]]; then printf '%s\n' "${OLD[app|$1|folder]}"; else plist "app|$1|folder"; fi; }
 declare -A ANEW=() ANEW_N=()                  # 2.45: gone partner id -> the pair made anew, how many of its units went there
@@ -2128,23 +2133,32 @@ step_partners() {
     # 2.74: a child dataset that is no unit of its own no longer keeps a share here - it goes without it (PARTNER_LEFTU)
     unit_ok() {
         if ! partner_unit_dataset "$1"; then PARTNER_OKU[$1]="no"; PARTNER_WHYU[$1]="$PU_WHY"; return 0; fi
-        PARTNER_OKU[$1]="yes"; PARTNER_LEFTU[$1]="$PU_LEFT"
+        PARTNER_OKU[$1]="yes"; PARTNER_LEFTU[$1]=""
         return 0
     }
-    # left_hint <unit> <partner id>: each child dataset that stays here, said once per dataset and partner
+    # left_hint <unit> <partner id>: each child dataset that stays here when the unit goes to that partner (2.76: asked
+    # per partner, once every unit's partners are decided - a VM's or app's own dataset stays when its unit doesn't take
+    # it there), said once per dataset and partner; PARTNER_LEFTU[unit] gathers them over its partners
     left_hint() {
-        local c f nm kind="${1%%:*}" pn
+        local c f o nm kind="${1%%:*}" pn
         [[ "$kind" == place ]] && nm="$(pget "general|dumps_share")" || nm="${1#*:}"
         pn="$(pget "partner|$2|name" "$2")"
-        while IFS='|' read -r c f; do
-            [[ -n "$c" && -z "${left_told[$c|$2]:-}" ]] || continue
+        partner_unit_dataset "$1" "$2" || return 0
+        while IFS='|' read -r c f o; do
+            [[ -n "$c" ]] || continue
+            [[ $'\n'"${PARTNER_LEFTU[$1]:-}" == *$'\n'"$c|"* ]] || PARTNER_LEFTU[$1]+="$c|$f|$o"$'\n'
+            [[ -z "${left_told[$c|$2]:-}" ]] || continue
             left_told[$c|$2]=1
-            if [[ "$kind" == place ]]; then
+            if [[ -n "$o" ]]; then
+                hint_as partner_child_left_owner "Share '$nm': its dataset $c ($f) is ${o}'s own, which doesn't take it to partner $pn - it stays here, the rest goes to partner $pn" name "$nm" folder "$f" dataset "$c" partner "$pn" owner "${o#*:}"
+            elif [[ "$kind" == app ]]; then
+                hint_as partner_child_left_app "App '$nm': the dataset $c ($f) inside its own dataset is no unit of its own - it stays here, the rest of the app goes to partner $pn" name "$nm" folder "$f" dataset "$c" partner "$pn"
+            elif [[ "$kind" == place ]]; then
                 hint_as partner_child_left_place "The backup place ($nm): its dataset $c ($f) is no unit of its own - it stays here, the rest goes to partner $pn" name "$nm" folder "$f" dataset "$c" partner "$pn"
             else
                 hint_as partner_child_left_share "Share '$nm': its dataset $c ($f) belongs to no app or VM - it stays here, the rest of the share goes to partner $pn" name "$nm" folder "$f" dataset "$c" partner "$pn"
             fi
-        done <<<"${PARTNER_LEFTU[$1]:-}"
+        done <<<"$PU_LEFT"
         return 0
     }
     # keep_ids <key> <unit> <off 1/0>: the key's partners that exist - none for a unit that can't travel or is off
@@ -2161,7 +2175,6 @@ step_partners() {
             elif [[ "$off" == 1 ]]; then hint_as "partner_off_${unit%%:*}" "${unit}: not backed up (off) - nothing of it goes to partner $(pget "partner|$v|name" "$v")" \
                 name "${unit#*:}" partner "$(pget "partner|$v|name" "$v")"; continue; fi
             [[ "$was" != "$v" ]] && ANEW_N[$was]=$(( ${ANEW_N[$was]:-0} + 1 ))
-            left_hint "$unit" "$v"
             grep -Fxq -- "$v" <<<"$out" || out+="$v"$'\n'
         done < <(if [[ -n "${OLD[$key]+x}" ]]; then printf '%s\n' "${OLD[$key]}"; else printf '%s\n' "${P[$key]}"; fi)
         if [[ -n "$out" ]]; then P[$key]="${out%$'\n'}"; else unset "P[$key]"; fi
@@ -2183,8 +2196,15 @@ step_partners() {
     done < <(for k in "${!OLD[@]}" "${!P[@]}"; do [[ "$k" =~ ^app\|(.+)\|partner$ ]] && printf '%s\n' "${BASH_REMATCH[1]}"; done | LC_ALL=C sort -u)
     unit_ok place
     keep_ids "general|partner_place" place 0
-    unset -f keep_ids unit_ok left_hint
     _apply_P
+    # 2.76: what stays here per unit and partner - asked once every unit's partners are decided (an app's own dataset
+    # in a share stays when the app doesn't go to that partner)
+    for id in $(printf '%s\n' "${!pair[@]}" | LC_ALL=C sort); do
+        while IFS= read -r u; do
+            [[ -n "$u" && "${PARTNER_OKU[$u]:-}" == "yes" ]] && left_hint "$u" "$id"
+        done < <(partner_units "$id")
+    done
+    unset -f keep_ids unit_ok left_hint
     for id in "${!ANEW[@]}"; do
         n="${ANEW[$id]}"
         if (( ${ANEW_N[$id]:-0} > 0 )); then
@@ -3203,7 +3223,8 @@ plan_write() {
     pu="$(for k in "${!PARTNER_OKU[@]}"; do printf '%s\x1f%s\x1f%s\x1f%s\n' "$k" "${PARTNER_OKU[$k]}" "${PARTNER_WHYU[$k]:-}" "$(sed '/^$/d' <<<"${PARTNER_LEFTU[$k]:-}" | tr '\n' $'\x1e')"; done \
         | us_json unit ok why left \
         | jq 'map(select(.unit != "") | {key: .unit, value: {ok: (.ok == "yes"), why: (if .why == "" then null else .why end),
-              left: (.left | split("\u001e") | map(select(length > 0) | split("|") | {dataset: .[0], folder: (.[1] // "")}))}}) | from_entries')" || pu='{}'
+              left: (.left | split("\u001e") | map(select(length > 0) | split("|") | {dataset: .[0], folder: (.[1] // "")}
+                     + (if (.[2] // "") != "" then {owner: .[2]} else {} end)))}}) | from_entries')" || pu='{}'
     local plist_json
     plist_json() { plist "$1" | jq -R . | jq -sc .; }
     shares="$(jq -c --argjson pu "$pu" --arg place "$(pget "general|dumps_share")" \

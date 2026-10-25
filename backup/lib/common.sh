@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.75"
+UB_VERSION="2.76"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -4516,11 +4516,12 @@ app_own_ds() {
     return 1
 }
 
-# partner_app_ds <dataset>  -> 0 when it is an app's own folder dataset (2.45: a unit of its own, like a VM's)
+# partner_app_ds <dataset>  -> 0 and PAD_APP when it is an app's own folder dataset (2.45: a unit of its own, like a VM's)
 partner_app_ds() {
     local n
+    PAD_APP=""
     while IFS= read -r n; do
-        [[ -n "$n" ]] && app_own_ds "$n" && [[ "$AO_DS" == "$1" ]] && return 0
+        [[ -n "$n" ]] && app_own_ds "$n" && [[ "$AO_DS" == "$1" ]] && { PAD_APP="$n"; return 0; }
     done < <(cfg_names app)
     return 1
 }
@@ -4553,11 +4554,12 @@ ds_bind_app() {
     return 0
 }
 
-# partner_vm_ds <dataset>  -> 0 when it is (or lies below) a VM's own dataset
+# partner_vm_ds <dataset>  -> 0 and PVD_VM when it is (or lies below) a VM's own dataset
 partner_vm_ds() {
     local n d
+    PVD_VM=""
     for n in "${VM_NAMES[@]}"; do
-        while IFS= read -r d; do [[ -n "$d" && ( "$1" == "$d" || "$1" == "$d/"* ) ]] && return 0; done <<<"${VM_OWN_DS[$n]:-}"
+        while IFS= read -r d; do [[ -n "$d" && ( "$1" == "$d" || "$1" == "$d/"* ) ]] && { PVD_VM="$n"; return 0; }; done <<<"${VM_OWN_DS[$n]:-}"
     done
     return 1
 }
@@ -4570,11 +4572,18 @@ partner_vm_ds() {
 #   (children    up to 2.73: a share with child datasets other than its VMs' and apps' own - the whole share stayed here)
 # 2.74: a child dataset that is no unit of its own (no VM's, no app's - by its [app] folder or Docker's binds -, not
 # excluded, not the storeroom) no longer keeps the share here: the share goes, zfs send without -R leaves the child
-# out, and PU_LEFT names each such child ("<dataset>|<folder inside the share>", one per line) for the plan and the run.
+# out, and PU_LEFT names each such child ("<dataset>|<folder inside the share>|<owner>", one per line) for the plan and
+# the run.
+# 2.76 (with <partner id>): a VM's or app's own dataset is skipped only when that unit goes to this partner as that very
+# dataset (vm:<n> among its units; app:<n> among them and app_own_ds giving this dataset) - else it stays here too and
+# PU_LEFT names its owner (vm:<n> | app:<n>; up to 2.75 it was left off silently). Without an id (the setup's
+# partner_ok) such a dataset counts as its unit's, as before. A dataset below another child dataset goes or stays with
+# that one and is never named for the share; for an app: unit, PU_LEFT names the child datasets inside the app's own
+# dataset (zfs send without -R leaves them out too).
 # Inventory (inv_scan), Docker (docker_load), VMs (vm_load) and the backup place (DUMPS_SHARE) must be loaded.
 partner_unit_dataset() {
-    local u="$1" s="" b m layer sub ds mp own n
-    local -a locs=() excl=()
+    local u="$1" pid="${2:-}" s="" b m layer sub ds mp own n owner
+    local -a locs=() excl=() kids=() pus=()
     PU_DS=""; PU_WHY=""; PU_LEFT=""
     case "$u" in
         place)   s="${DUMPS_SHARE:-}"; [[ -n "$s" ]] || { PU_WHY="no_dataset"; return 1; } ;;
@@ -4591,7 +4600,9 @@ partner_unit_dataset() {
             s="${u#app:}"
             partner_unit_name_ok "$s" || { PU_WHY="name"; return 1; }
             app_own_ds "$s" || { PU_WHY="$AO_WHY"; return 1; }
-            PU_DS="$AO_DS"; return 0 ;;
+            PU_DS="$AO_DS"
+            partner_left_inside "$AO_SHARE" "$AO_DS"
+            return 0 ;;
         *)       PU_WHY="name"; return 1 ;;
     esac
     inv_has_share "$s" && [[ "${INV_METHOD[$s]}" != "none" ]] || { PU_WHY="no_dataset"; return 1; }
@@ -4601,16 +4612,51 @@ partner_unit_dataset() {
     [[ "$m" == "zfs" && -n "$layer" ]] || { PU_WHY="no_dataset"; return 1; }
     [[ -z "$sub" ]] || { PU_WHY="not_dataset"; return 1; }
     mapfile -t excl < <(cfg_list "share|$s|exclude_dataset")
+    while IFS='|' read -r b ds mp; do [[ -n "$ds" ]] && kids+=( "$ds" ); done <<<"${INV_CHILDREN[$s]:-}"
+    [[ -n "$pid" ]] && mapfile -t pus < <(partner_units "$pid")
     while IFS='|' read -r b ds mp; do
         [[ -z "$ds" ]] && continue
         ub_storeroom "${ds##*/}" && continue                                     # Ms. Dustdevil's storeroom: never backed up
-        partner_vm_ds "$ds" && continue                                          # a VM's own dataset is a unit of its own
-        partner_app_ds "$ds" && continue                                         # an app's own folder dataset too (2.45)
-        ds_bind_app "$b" "$mp" && continue                                       # ... known from Docker's binds (2.74)
         in_list "$ds" "${excl[@]}" || _parent_excluded "$ds" "${excl[@]}" && continue
-        PU_LEFT+="$ds|${mp#"${INV_BASE_PATH[$b]:-}/$s/"}"$'\n'                   # 2.74: it stays here, the share goes
+        _parent_excluded "$ds" "${kids[@]}" && continue                          # 2.76: below another child - goes or stays with it
+        owner=""
+        if partner_vm_ds "$ds"; then owner="vm:$PVD_VM"                         # a VM's own dataset is a unit of its own
+        elif partner_app_ds "$ds"; then owner="app:$PAD_APP"                    # an app's own folder dataset too (2.45)
+        elif ds_bind_app "$b" "$mp"; then owner="app:$DBA_APP"; fi              # ... known from Docker's binds (2.74)
+        if [[ -n "$owner" ]]; then
+            [[ -z "$pid" ]] && continue                                          # the setup's partner_ok: its unit's, as before
+            partner_unit_takes "$owner" "$ds" "${pus[@]}" && continue            # 2.76: it goes to this partner as that unit
+        fi
+        PU_LEFT+="$ds|${mp#"${INV_BASE_PATH[$b]:-}/$s/"}|$owner"$'\n'           # 2.74: it stays here, the share goes
     done <<<"${INV_CHILDREN[$s]:-}"
     PU_DS="$layer"
+    return 0
+}
+
+# partner_unit_takes <vm:n|app:n> <dataset> <the partner's units...>  -> 0 when that unit goes to the partner and sends
+# exactly this dataset (2.76): a VM ticked for it (its own datasets, «split» said under its own unit); an app ticked for
+# it whose own dataset (app_own_ds: its [app] folder, else Docker's binds) is this one - a second dataset it binds stays
+partner_unit_takes() {
+    local o="$1" ds="$2"; shift 2
+    in_list "$o" "$@" || return 1
+    [[ "$o" == vm:* ]] && return 0
+    app_own_ds "${o#app:}" && [[ "$AO_DS" == "$ds" ]]
+}
+
+# partner_left_inside <share> <dataset>: PU_LEFT += the child datasets right inside that dataset (2.76: an app's own
+# dataset holding datasets of its own - zfs send without -R leaves them out); storeroom and excluded ones not named
+partner_left_inside() {
+    local s="$1" top="$2" b ds mp
+    local -a excl=() kids=()
+    mapfile -t excl < <(cfg_list "share|$s|exclude_dataset")
+    while IFS='|' read -r b ds mp; do [[ -n "$ds" && "$ds" == "$top/"* ]] && kids+=( "$ds" ); done <<<"${INV_CHILDREN[$s]:-}"
+    while IFS='|' read -r b ds mp; do
+        [[ -n "$ds" && "$ds" == "$top/"* ]] || continue
+        ub_storeroom "${ds##*/}" && continue
+        in_list "$ds" "${excl[@]}" || _parent_excluded "$ds" "${excl[@]}" && continue
+        _parent_excluded "$ds" "${kids[@]}" && continue
+        PU_LEFT+="$ds|${mp#"${INV_BASE_PATH[$b]:-}/$s/"}|"$'\n'
+    done <<<"${INV_CHILDREN[$s]:-}"
     return 0
 }
 
@@ -4743,6 +4789,8 @@ partner_anew_match() {
 
 # --- What the phase did, for status.json (section 7) ---------------------------
 ST_PARTNER_IDS=()         # "id|name" of the partners this run sends to (empty: "partner": null)
+declare -gA ST_PARTNER_WALL=() # 2.76: id -> the seconds its transfers took from the first start to the last end (several at
+                               # once: the wall time, status.json partners[].seconds - the office's Mbit/s)
 ST_PARTNER_PLAN=()        # "id|unit" in the phase's order
 ST_PARTNER_CUR=""         # "id|unit" being sent
 ST_PARTNER_CUR_T=0
@@ -4754,12 +4802,18 @@ ST_PARTNER_FAILED=()      # "id|unit|why"
 ST_PARTNER_INTERRUPTED="" # "id|unit": the transfer an array stop (or a stop by hand) ended - resumed by the next run
 ST_PARTNER_STREAMS=()     # 2.73: "id|unit|since|bytes|estimate" - every transfer going on (backup.sh partner_cur_set)
 ST_PARTNER_INTERRUPTED_ALL=()  # 2.73: every one it ended (several datasets at once), the first = ST_PARTNER_INTERRUPTED
-ST_PARTNER_LEFT=()        # 2.74: "id|unit|dataset|folder" - a child dataset of a unit sent that stays here (no unit of its own)
+ST_PARTNER_LEFT=()        # 2.74: "id|unit|dataset|folder|owner" - a child dataset of a unit sent that stays here (no unit of its own;
+                          # 2.76: owner vm:<n> | app:<n> - its unit doesn't take it to this partner)
 
 partner_status_json() {
     (( ${#ST_PARTNER_IDS[@]} )) || { echo null; return 0; }
     local ids plan done_ sk fl st ia lo
     ids="$(printf '%s\n' "${ST_PARTNER_IDS[@]}" | jq -R 'select(length > 0) | split("|") | {id: .[0], name: .[1]}' | jq -sc .)" || ids='[]'
+    local k wall='{}'
+    for k in "${!ST_PARTNER_WALL[@]}"; do
+        wall="$(jq -c --arg k "$k" --argjson v "${ST_PARTNER_WALL[$k]}" '.[$k] = $v' <<<"$wall")" || wall='{}'
+    done
+    ids="$(jq -c --argjson w "$wall" 'map(if $w[.id] != null then .seconds = $w[.id] else . end)' <<<"$ids")" || ids='[]'
     plan="$(printf '%s\n' "${ST_PARTNER_PLAN[@]}" | jq -R 'select(length > 0) | split("|") | {id: .[0], unit: .[1]}' | jq -sc .)" || plan='[]'
     done_="$(printf '%s\n' "${ST_PARTNER_DONE[@]}" | jq -R 'select(length > 0) | split("|")
         | {id: .[0], unit: .[1], snap: .[2], from: (if .[3] == "" then null else .[3] end), bytes: (.[4] | tonumber),
@@ -4773,7 +4827,9 @@ partner_status_json() {
         | {id: .[0], unit: .[1], since: (.[2] | tonumber), bytes: (.[3] | tonumber), estimate: (.[4] | tonumber | if . > 0 then . else null end)}' | jq -sc .)" || st='[]'
     ia="$(printf '%s\n' "${ST_PARTNER_INTERRUPTED_ALL[@]}" | jq -R 'select(length > 0) | split("|") | {id: .[0], unit: .[1]}' | jq -sc .)" || ia='[]'
     # 2.74: per unit planned, each child dataset that stays here (the unit goes without it: zfs send without -R)
-    lo="$(printf '%s\n' "${ST_PARTNER_LEFT[@]}" | jq -R 'select(length > 0) | split("|") | {id: .[0], unit: .[1], dataset: .[2], folder: .[3]}' | jq -sc .)" || lo='[]'
+    # 2.76: owner (vm:<n> | app:<n>) when it is a VM's or app's own dataset that unit doesn't take to this partner
+    lo="$(printf '%s\n' "${ST_PARTNER_LEFT[@]}" | jq -R 'select(length > 0) | split("|") | {id: .[0], unit: .[1], dataset: .[2], folder: .[3]}
+        + (if (.[4] // "") != "" then {owner: .[4]} else {} end)' | jq -sc .)" || lo='[]'
     jq -nc --argjson partners "${ids:-[]}" --argjson planned "${plan:-[]}" --argjson done "${done_:-[]}" \
         --argjson skipped "${sk:-[]}" --argjson failed "${fl:-[]}" --arg cur "$ST_PARTNER_CUR" --argjson since "${ST_PARTNER_CUR_T:-0}" \
         --argjson bytes "${ST_PARTNER_CUR_BYTES:-0}" --argjson est "${ST_PARTNER_CUR_EST:-0}" --arg intr "$ST_PARTNER_INTERRUPTED" \

@@ -514,6 +514,9 @@ function usonetJob(?int $now = null): ?array
     $alive = $pid !== null ? (@posix_kill($pid, 0) || posix_get_last_error() === 1) : $now - $m['time'] <= USONET_JOB_QUEUED;     // EPERM: it lives
     if (!$alive || $now - $m['time'] > USONET_JOB_MAX) {
         @unlink($file);
+        if ($m['what'] === 'join') {
+            @unlink(usonetFlashDir() . '/authkey');     // review 1.72.0 M1: a secret never left on the flash (the flash archive)
+        }
         $last = usonetJoinOutcome();
         if ($m['what'] === 'join' && ($last === null || $last['time'] < $m['time'])) {
             writeAtomic(usonetRunDir() . '/join.json', jsonEncode(['time' => $now, 'ok' => false, 'why' => 'job_gone']), 0600, 0, 0);
@@ -645,7 +648,14 @@ function usonet_join(array $r, ?string $inbox = null): array
     unset($key);
     usonetConfigWrite(['JOINED' => 'no', 'NAME' => usonetNodeName(), 'CONTROL' => $control]);
     usonetJobMark('join');
-    hostLaunch('usonet-join', [PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', 'usonet-join']);
+    try {
+        hostLaunch('usonet-join', [PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', 'usonet-join']);
+    } catch (Throwable $e) {
+        // review 1.72.0 M1: no job to use it - the key goes again (never left on the flash), the mark with it
+        @unlink("$dir/authkey");
+        @unlink(usonetRunDir() . '/job.json');
+        throw $e;
+    }
     return ['ok' => true, 'usonet' => usonetPublic()];
 }
 

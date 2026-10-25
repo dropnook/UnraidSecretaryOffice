@@ -495,8 +495,14 @@ function testSnapPlanIdNeverReused(): void
     $old = $young;
     unset($old['born']);
     same('plan ids: a plan without born (an older office\'s) — its whole series as before', 31, count(snapPlanDoomed($old, ['zfs:hazel/appdata'], $all, $now + 7200, [])));
-    same('plan ids: owns — its name and not older than it', [true, false, false],
-        [snapPlanOwns($young, snapPlanName('hourly', $now)), snapPlanOwns($young, snapPlanName('hourly', $now - 3600)), snapPlanOwns($young, snapPlanName('daily', $now))]);
+    same('plan ids: owns — its name and not older than it (review 1.72.0 L3: by more than 14 h, the names\' local clock)', [true, false, false],
+        [snapPlanOwns($young, snapPlanName('hourly', $now)), snapPlanOwns($young, snapPlanName('hourly', $now - 15 * 3600)), snapPlanOwns($young, snapPlanName('daily', $now))]);
+    // review 1.72.0 L3: the names are local time and the agent follows a zone change at runtime (and the autumn hour comes
+    // twice) - the plan's first snapshots may read as up to a zone's width older than born: still its own, thinned as such
+    same('plan ids L3: a snapshot named an hour (or 13 h) before born - after a zone change, in the repeated hour - still the plan\'s; the page\'s born_stamp alike',
+        [true, true, date('Ymd-Hi', $young['born'] - 14 * 3600)],
+        [snapPlanOwns($young, snapPlanName('hourly', $now - 3600)), snapPlanOwns($young, snapPlanName('hourly', $now - 13 * 3600)),
+         function_exists('snapPlanBornStamp') ? snapPlanBornStamp($young) : null]);
     check('plan ids: … a run in the minute it was born is its own', snapPlanOwns(['born' => $now + 59] + $young, snapPlanName('hourly', $now)));
     $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/snapshot/desk.js');
     check('plan ids: the page\'s planOf() never labels an older snapshot as the plan\'s (born_stamp, the names\' clock)', str_contains($js, 'm[2] < p.born_stamp'));
@@ -6496,7 +6502,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.75'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.76'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -8483,9 +8489,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.75 everywhere it is named', ['2.75', '2.75', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.75"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.75** –')]);
+    same('data trust: the engine\'s version 2.76 everywhere it is named', ['2.76', '2.76', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.76"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.76** –')]);
     // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
     same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
         array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
@@ -9336,9 +9342,9 @@ SH);
         "-i $pdir/$id.key -o IdentitiesOnly=yes -o BatchMode=yes -o UserKnownHostsFile=$pdir/$id.known -o StrictHostKeyChecking=yes "
         . '-o Ciphers=aes128-gcm@openssh.com,aes256-gcm@openssh.com,chacha20-poly1305@openssh.com -o Compression=no -o ConnectTimeout=15 -o ServerAliveInterval=30 '
         . '-o ServerAliveCountMax=4 -p 2222 root@10.0.0.9 ping', $first);
-    same('partner phase: status.json partner - partners, planned (the place, by size, the one not covered last), skipped',
-        [[['id' => $id, 'name' => 'vault']], ['place', 'share:docs', 'vm:vm1', 'share:appdata', 'share:rootfolder'], [['id' => $id, 'unit' => 'share:rootfolder', 'why' => 'not_dataset']], [], null, null],
-        [$p['partners'] ?? null, array_column($p['planned'] ?? [], 'unit'), $p['skipped'] ?? null, $p['failed'] ?? null, $v($p, 'current'), $v($p, 'interrupted')], json_encode($p));
+    same('partner phase: status.json partner - partners (2.76: with the wall time of its transfers), planned (the place, by size, the one not covered last), skipped',
+        [[['id' => $id, 'name' => 'vault', 'seconds' => true]], ['place', 'share:docs', 'vm:vm1', 'share:appdata', 'share:rootfolder'], [['id' => $id, 'unit' => 'share:rootfolder', 'why' => 'not_dataset']], [], null, null],
+        [array_map(fn ($x) => is_array($x) ? array_replace($x, ['seconds' => is_int($x['seconds'] ?? null) && $x['seconds'] >= 0]) : $x, $p['partners'] ?? []) ?: null, array_column($p['planned'] ?? [], 'unit'), $p['skipped'] ?? null, $p['failed'] ?? null, $v($p, 'current'), $v($p, 'interrupted')], json_encode($p));
     $d = $byUnit($p['done'] ?? []);
     same('partner phase: done - per unit snap, from (null: whole), bytes (what left, pv\'s count), seconds, Mbit/s',
         [$snap, null, 100000, true, true, false], [$d['share:appdata']['snap'] ?? null, $v($d['share:appdata'] ?? null, 'from'), $d['share:appdata']['bytes'] ?? null,
@@ -9606,8 +9612,12 @@ SH);
     same('partner phase 2.74: appdata holding a child dataset of no app or VM - still sent (zfs send of its own dataset), not skipped',
         [true, null, true], [in_array('share:appdata', array_column($p['done'] ?? [], 'unit'), true), array_column($p['skipped'] ?? [], 'why', 'unit')['share:appdata'] ?? null,
          in_array("zfs send -L -c maple/appdata@$snap", $names(), true)], json_encode($p) . $log());
-    same('partner phase 2.74: … the child reported per child (status.json partner.left_out); c1\'s own dataset (Docker\'s binds, no [app] section) not among them',
-        [['id' => $id, 'unit' => 'share:appdata', 'dataset' => 'maple/appdata/drop', 'folder' => 'drop']], $p['left_out'] ?? null, json_encode($p));
+    // 2.76 (review 1.72.0 H1): c1's own dataset (Docker's binds, no [app] section) with c1 not going to this partner - up to
+    // 2.75 skipped as «the app's» and so left off silently; now named left out, its owner said
+    same('partner phase 2.74: … the child reported per child (status.json partner.left_out); 2.76: c1\'s own dataset (Docker\'s binds, c1 not for this partner) too, owner app:c1',
+        [['id' => $id, 'unit' => 'share:appdata', 'dataset' => 'maple/appdata/c1', 'folder' => 'c1', 'owner' => 'app:c1'],
+         ['id' => $id, 'unit' => 'share:appdata', 'dataset' => 'maple/appdata/drop', 'folder' => 'drop']], $p['left_out'] ?? null, json_encode($p));
+    check('partner phase 2.76: … the owned one said in the log with its owner', str_contains($log(), 'share:appdata: its dataset maple/appdata/c1 (c1) is app:c1\'s own, which doesn\'t take it to this partner'), $log());
     check('partner phase 2.74: … said in the run\'s plan and in the partner phase', str_contains($log(), 'share:appdata goes without its dataset maple/appdata/drop (drop)')
         && str_contains($log(), 'share:appdata: its dataset maple/appdata/drop (drop) is no unit of its own'), $log());
     check('partner phase 2.74: … the run ends without «children» anywhere', !str_contains($log(), 'children') && !in_array('children', array_column($p['skipped'] ?? [], 'why'), true), $log());
@@ -9628,9 +9638,34 @@ SH);
     file_put_contents("$data/settings.ini", $ini0);
     $night();
     $run();
-    same('partner phase 2.74: … c1 also binds the other child - that one is c1\'s now, nothing left out, appdata sent', [[], true],
-        [$status()['partner']['left_out'] ?? null, in_array('share:appdata', array_column($status()['partner']['done'] ?? [], 'unit'), true)], json_encode($status()['partner'] ?? null));
+    same('partner phase 2.76: … c1 also binds the other child, c1 not for this partner - both c1\'s, both left out (owner app:c1), appdata sent',
+        [[['maple/appdata/c1', 'app:c1'], ['maple/appdata/drop', 'app:c1']], true],
+        [array_map(fn ($x) => [$x['dataset'] ?? null, $x['owner'] ?? null], $status()['partner']['left_out'] ?? []), in_array('share:appdata', array_column($status()['partner']['done'] ?? [], 'unit'), true)],
+        json_encode($status()['partner'] ?? null));
+    // c1 for this partner, binding both: app:c1 sends its own dataset (the first it binds) - the second one is in no stream:
+    // left out with its owner (up to 2.75 skipped as «c1's» although app:c1 never sent it)
+    file_put_contents("$data/settings.ini", $ini0 . "[app \"c1\"]\npartner = $id\n");
+    $night();
+    $run();
+    $p = $status()['partner'] ?? [];
+    same('partner phase 2.76: … c1 for this partner binding both - app:c1 sends maple/appdata/c1, maple/appdata/drop left out (owner app:c1), appdata sent',
+        [true, true, [['share:appdata', 'maple/appdata/drop', 'app:c1']]],
+        [in_array("zfs send -L -c maple/appdata/c1@$snap", $names(), true) || in_array('app:c1', array_column($p['done'] ?? [], 'unit'), true),
+         in_array('share:appdata', array_column($p['done'] ?? [], 'unit'), true),
+         array_map(fn ($x) => [$x['unit'] ?? null, $x['dataset'] ?? null, $x['owner'] ?? null], $p['left_out'] ?? [])], json_encode($p) . $log());
     file_put_contents("$fake/inspect.json", $insp0);
+    // 2.76 (review L9): a dataset inside the app's own dataset (appdata/c1/sub) is no child «of no app or VM» of appdata - it
+    // is left out of app:c1's stream (zfs send without -R), named under app:c1; appdata names nothing
+    @mkdir("$pool/appdata/c1/sub", 0700, true);
+    file_put_contents("$fake/mounts", $mounts0 . "maple/appdata/c1 $pool/appdata/c1 zfs rw 0 0\nmaple/appdata/c1/sub $pool/appdata/c1/sub zfs rw 0 0\n");
+    file_put_contents("$fake/zfs.txt", $zfs0 . $z('maple/appdata/c1', "$pool/appdata/c1", 40) . $z('maple/appdata/c1/sub', "$pool/appdata/c1/sub", 20));
+    file_put_contents("$data/settings.ini", $ini0 . "[app \"c1\"]\nfolder = appdata/c1\npartner = $id\n");
+    $night();
+    $run();
+    $p = $status()['partner'] ?? [];
+    same('partner phase 2.76: a dataset inside an app\'s own dataset - left out of app:c1 (not of appdata), app:c1 and appdata sent',
+        [[['id' => $id, 'unit' => 'app:c1', 'dataset' => 'maple/appdata/c1/sub', 'folder' => 'c1/sub']], true, true],
+        [$p['left_out'] ?? null, in_array('app:c1', array_column($p['done'] ?? [], 'unit'), true), in_array('share:appdata', array_column($p['done'] ?? [], 'unit'), true)], json_encode($p) . $log());
     file_put_contents("$fake/mounts", $mounts0);
     file_put_contents("$fake/zfs.txt", $zfs0);
     file_put_contents("$data/settings.ini", $ini0);
@@ -9788,7 +9823,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.75', [1, '2.75'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.76', [1, '2.76'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -9873,13 +9908,17 @@ SH);
     $plan2 = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
     $sh2 = array_column($plan2['shares'] ?? [], null, 'name');
     $left = array_values(array_filter($plan2['messages'] ?? [], fn ($m) => ($m['code'] ?? '') === 'partner_child_left_share'));
-    same('setup plan 2.74: appdata with a child of no app or VM - partner_ok, no partner_why, its partner kept, the child in partner_left',
-        [true, null, [$id], [['dataset' => 'maple/appdata/drop', 'folder' => 'drop']]],
+    same('setup plan 2.74: appdata with a child of no app or VM - partner_ok, no partner_why, its partner kept, the child in partner_left (2.76: and c1\'s own, c1 not for the partner, with its owner)',
+        [true, null, [$id], [['dataset' => 'maple/appdata/c1', 'folder' => 'c1', 'owner' => 'app:c1'], ['dataset' => 'maple/appdata/drop', 'folder' => 'drop']]],
         [$sh2['appdata']['partner_ok'] ?? null, $v($sh2['appdata'] ?? null, 'partner_why'), $plan2['P']['share|appdata|partner'] ?? null, $sh2['appdata']['partner_left'] ?? null], $out);
     same('setup plan 2.74: … said once, per child and partner, with its params (the office\'s words: setup.msg.partner_child_left_share)',
         [[['name' => 'appdata', 'folder' => 'drop', 'dataset' => 'maple/appdata/drop', 'partner' => 'vault']], true],
         [array_column($left, 'params'), isset($en['setup.msg.partner_child_left_share'], $en['setup.msg.partner_child_left_place'])], $out);
     same('setup plan 2.74: a share without such a child - partner_left empty', [], $sh2['docs']['partner_left'] ?? null);
+    $owned = array_values(array_filter($plan2['messages'] ?? [], fn ($m) => ($m['code'] ?? '') === 'partner_child_left_owner'));
+    same('setup plan 2.76 (review H1): c1\'s own dataset, c1 not for the partner - said once with its owner (setup.msg.partner_child_left_owner, ×5 with _app)',
+        [[['name' => 'appdata', 'folder' => 'c1', 'dataset' => 'maple/appdata/c1', 'partner' => 'vault', 'owner' => 'c1']], true],
+        [array_column($owned, 'params'), isset($en['setup.msg.partner_child_left_owner'], $en['setup.msg.partner_child_left_app'])], $out);
     // 2.75 (INV-TRUTH, a phantom Apply change): c1's folder a dataset of its own, appdata going to the partner, c1 itself only
     // local - the page keeps app|c1|folder (truth review T04, office 1.71.3); up to 2.74 the setup wrote no [app] section
     // without kopia or a partner, so the folder never landed and the Apply list showed it after every Apply
@@ -9901,8 +9940,8 @@ SH);
     same('setup apply 2.75: … settings.ini loads without errors', '0', trim((string) shell_exec('bash -c ' . escapeshellarg("$env; source $lib >/dev/null 2>&1; cfg_load $data/settings.ini; cfg_validate >/dev/null; echo \${#CFG_ERRORS[@]}"))));
     $out = $setup('--plan');
     $planF = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
-    same('setup plan 2.75: … read back - the saved folder (O) is the proposal (P), nothing pending for the app, c1\'s dataset no left-out child',
-        [['appdata/c1'], ['appdata/c1'], [], [['dataset' => 'maple/appdata/drop', 'folder' => 'drop']]],
+    same('setup plan 2.75: … read back - the saved folder (O) is the proposal (P), nothing pending for the app; 2.76: c1\'s dataset left out with its owner (c1 only local)',
+        [['appdata/c1'], ['appdata/c1'], [], [['dataset' => 'maple/appdata/c1', 'folder' => 'c1', 'owner' => 'app:c1'], ['dataset' => 'maple/appdata/drop', 'folder' => 'drop']]],
         [$planF['O']['app|c1|folder'] ?? null, $planF['P']['app|c1|folder'] ?? null, $appPending($planF),
          array_column($planF['shares'] ?? [], null, 'name')['appdata']['partner_left'] ?? null], $out);
     // the page's next Apply sends the same (its draft: the plan's P with the folder kept) - the second plan has no change
@@ -10014,6 +10053,53 @@ SH);
  * partner block per partner (status.json / history), the last transfer per partner for the overview tile, what the
  * setup's Apply accepts (only the plan's partners), the Dashboard's line while a run sends to a partner.
  */
+/**
+ * Code review 1.72.0, the engine's small ones, each function taken out of backup.sh and run alone with stand-ins:
+ * M1 the flash archive never holds the USO network's auth key (whatever tar_exclude says); L7 a rate change told only
+ * to a pid that is still pv (a slot waiting for ssh and the door while its pv's pid came round to another process).
+ */
+function testBackupReview172(): void
+{
+    $tmp = hardeningTmp('backup-review172');
+    foreach (["$tmp/boot/config/plugins/unraid-secretary-office/usonet", "$tmp/stage", "$tmp/bin", "$tmp/proc", "$tmp/pt/s1", "$tmp/pt/s2"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    file_put_contents("$tmp/boot/config/go", "#!/bin/bash\n");
+    file_put_contents("$tmp/boot/config/plugins/unraid-secretary-office/usonet/usonet.cfg", "JOINED=\"no\"\n");
+    file_put_contents("$tmp/boot/config/plugins/unraid-secretary-office/usonet/authkey", "tskey-auth-kSecret99-ZyXwVuTsRqPoNmLk\n");
+    $bsh = escapeshellarg(OFFICE_DIR . '/backup/backup.sh');
+    $fn = fn (string $name) => "eval \"\$(sed -n '/^$name() {/,/^}/p' $bsh)\"; ";
+    $out = (string) shell_exec('bash -c ' . escapeshellarg('log() { :; }; err() { echo "ERR $*"; }; human() { :; }; pkg_mark() { :; }; declare -A PKG_RESULT=(); '
+        . 'PKG_STAGE=' . escapeshellarg("$tmp/stage") . '; UB_BOOT=' . escapeshellarg("$tmp/boot") . '; LOG_FILE=/dev/null; FLASH_TAR_EXCLUDE=("./bz*"); '
+        . $fn('flash_tar') . 'flash_tar; tar -tzf ' . escapeshellarg("$tmp/stage/flash/flash.tar.gz") . ' | sort') . ' 2>&1');
+    same('engine review M1: the flash archive - the flash as it is, the USO network\'s config in it, its auth key never',
+        [true, true, false, false], [str_contains($out, './config/go'), str_contains($out, 'usonet/usonet.cfg'), str_contains($out, 'authkey'), str_contains($out, 'ERR')], $out);
+
+    // L7: two slots - one pvpid now another process (sleep), one still pv: only the pv is told (pv -R)
+    file_put_contents("$tmp/bin/pv", "#!/bin/sh\necho \"pv \$*\" >>" . escapeshellarg("$tmp/pv.log") . "\n");
+    chmod("$tmp/bin/pv", 0755);
+    $sleep = trim((string) shell_exec('command -v sleep'));
+    copy($sleep, "$tmp/proc/pv");
+    chmod("$tmp/proc/pv", 0755);
+    $other = proc_open([$sleep, '30'], [], $p1);
+    $pv = proc_open(["$tmp/proc/pv", '30'], [], $p2);
+    $pidOther = proc_get_status($other)['pid'];
+    $pidPv = proc_get_status($pv)['pid'];
+    usleep(200000);
+    file_put_contents("$tmp/pt/s1/pvpid", "$pidOther\n");
+    file_put_contents("$tmp/pt/s2/pvpid", "$pidPv\n");
+    shell_exec('bash -c ' . escapeshellarg('PATH=' . escapeshellarg("$tmp/bin") . ':$PATH; slots_n() { printf 2; }; partner_rate_each() { printf 500000; }; '
+        . 'PT_SHARE_N=1; declare -A SL_PID=([1]=11 [2]=12); PARTNER_TMP=' . escapeshellarg("$tmp/pt") . '; UB_PARTNER_PV_EVERY=2; '
+        . $fn('partner_rate_share') . 'partner_rate_share a1b2c3d4') . ' 2>&1');
+    foreach ([$other, $pv] as $h) {
+        proc_terminate($h, SIGKILL);
+        proc_close($h);
+    }
+    same('engine review L7: the new rate told only to the pid that is still pv - never to a pid another process took over',
+        ["pv -R $pidPv -n -b -i 2 -L 500000"], file("$tmp/pv.log", FILE_IGNORE_NEW_LINES) ?: []);
+    hardeningRm($tmp);
+}
+
 function testBackupPartnerOffice(): void
 {
     $tmp = sys_get_temp_dir() . '/office-tests-partneroffice-' . getmypid();
@@ -10037,6 +10123,32 @@ function testBackupPartnerOffice(): void
         [count($r ?? []), $r[0]['id'] ?? null, $r[0]['sent'] ?? null, $r[0]['bytes'] ?? null, $r[0]['seconds'] ?? null, $r[0]['mbit'] ?? null, $r[0]['skipped'] ?? null,
          $r[0]['units'][1]['resumed'] ?? null, array_key_exists('from', $r[0]['units'][0] ?? []) ? $r[0]['units'][0]['from'] : 'missing']);
     same('partner office: no partner block - null', [null, null], [backupPartnerRun(null), backupPartnerRun(['planned' => []])]);
+    // review 1.72.0 L6: with several transfers at once the rate is over the phase's wall time per partner (engine 2.76
+    // partners[].seconds), not over the sum of the units' seconds (4 at once: a quarter of the real rate); without it, the sum
+    $wall = $block;
+    $wall['partners'][0]['seconds'] = 1;
+    $wall['done'][1]['seconds'] = 2;
+    $rw = backupPartnerRun($wall);
+    same('partner office L6: the wall time of the partner\'s transfers decides its Mbit/s (4 MB in 1 s = 32), seconds the wall time; an older engine: the sum (4 MB in 4 s = 8)',
+        [[32.0, 1], [8.0, 4]], [[$rw[0]['mbit'] ?? null, $rw[0]['seconds'] ?? null], (fn ($r) => [$r[0]['mbit'] ?? null, $r[0]['seconds'] ?? null])(backupPartnerRun(array_replace($wall, ['partners' => $block['partners']])))]);
+    // review 1.72.0 M2: an array stop ending several transfers at once - every one interrupted (engine 2.73 interrupted_all), the
+    // first alone in interrupted; an older engine without the list: interrupted
+    $intr = $block;
+    $intr['interrupted'] = ['id' => 'a1b2c3d4', 'unit' => 'vm:Debian'];
+    $intr['interrupted_all'] = [['id' => 'a1b2c3d4', 'unit' => 'vm:Debian'], ['id' => 'a1b2c3d4', 'unit' => 'share:docs'], ['id' => 'zz', 'unit' => 'x'], 'odd'];
+    same('partner office M2: every interrupted transfer (interrupted_all, only partners the run names), the first as before; without the list: interrupted',
+        [['vm:Debian', 'share:docs'], 'vm:Debian', ['vm:Debian'], []],
+        [backupPartnerRun($intr)[0]['interrupted_all'] ?? null, backupPartnerRun($intr)[0]['interrupted'] ?? null,
+         backupPartnerRun(array_diff_key($intr, ['interrupted_all' => 1]))[0]['interrupted_all'] ?? null, backupPartnerRun($block)[0]['interrupted_all'] ?? null]);
+    @mkdir("$tmp/m2/state", 0700, true);
+    file_put_contents("$tmp/m2/state/history.jsonl", json_encode(['run' => '20261008-0200', 'started' => 1000, 'finished' => 1500, 'result' => 'ok', 'kopia' => ['done' => []],
+            'partner' => array_replace($block, ['skipped' => []])]) . "\n"
+        . json_encode(['run' => '20261009-0200', 'started' => 2000, 'finished' => 2100, 'result' => 'aborted', 'message' => 'array_stopping', 'kopia' => ['done' => []],
+            'partner' => array_replace($intr, ['done' => [], 'skipped' => [['id' => 'a1b2c3d4', 'unit' => 'place', 'why' => 'array_stopping']]])]) . "\n");
+    $tp = backupTruth("$tmp/m2")['partner']['a1b2c3d4'] ?? [];
+    same('partner office M2: the truth - each interrupted unit\'s newest try did not arrive (skipped, the run\'s why), not only the first',
+        [['ok' => false, 'why' => 'skipped', 'code' => 'array_stopping', 'time' => 2100], ['ok' => false, 'why' => 'skipped', 'code' => 'array_stopping', 'time' => 2100]],
+        [$tp['vm:Debian'] ?? null, $tp['share:docs'] ?? null]);
     $line = ['run' => '20261008-0200', 'started' => 1000, 'finished' => 1500, 'result' => 'ok', 'partner' => $block, 'kopia' => ['done' => []]];
     $hist = "$tmp/history.jsonl";
     file_put_contents($hist, json_encode(['run' => '20261007-0200', 'started' => 500, 'finished' => 600, 'result' => 'ok', 'partner' => null]) . "\n" . json_encode($line) . "\n");
@@ -10483,7 +10595,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.75', [1, '2.75'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.76', [1, '2.76'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -22265,6 +22377,38 @@ function testHostAtRequeue(): void
     same('at requeue: a job gone from the queue is forgotten (job numbers come round again) — the new one remembered', [37 => ['told' => false]],
         $ok ? hostAtRequeued() : null);
     @unlink(HOST_AT_REQUEUED);
+
+    // review 1.72.0 M6: `atrm` fails - the old job stays ahead in the queue: remembered as handled (with the new one), so the
+    // next look never queues it again (up to 1.72.0 it did, every 3 s: the job started again and again)
+    foreach (glob("$spool/[a=]*") ?: [] as $f) {
+        @unlink($f);
+    }
+    file_put_contents("$tmp/atrm-off", "#!/bin/sh\necho \"atrm \$*\" >>" . escapeshellarg($log) . "\necho 'Cannot find jobid' >&2\nexit 1\n");
+    chmod("$tmp/atrm-off", 0755);
+    file_put_contents("$spool/" . $name('a', 0x12, $min + 600), $job($ours));
+    @unlink($log);
+    $first = $ok ? hostAtRequeue($spool, $now, ["$tmp/at", "$tmp/atrm-off"]) : null;
+    $second = $ok ? hostAtRequeue($spool, $now + 3, ["$tmp/at", "$tmp/atrm-off"]) : null;
+    same('at requeue M6: atrm fails - queued anew once, the old one remembered and never queued again',
+        [[18], [], 1, true], [$first, $second, count(preg_grep('/^at -M/', file($log, FILE_IGNORE_NEW_LINES) ?: [])), isset(($ok ? hostAtRequeued() : [])[18])]);
+    @unlink(HOST_AT_REQUEUED);
+    foreach (glob("$spool/[a=]*") ?: [] as $f) {
+        @unlink($f);
+    }
+    // review 1.72.0 L1: only root's own jobs - a spool file of another owner, or at's header naming another user, is never
+    // queued anew as root (whatever mark it carries)
+    if (posix_geteuid() === 0) {
+        @unlink($log);
+        file_put_contents("$spool/" . $name('a', 0x21, $min + 600), str_replace('# atrun uid=0 gid=0', '# atrun uid=99 gid=100', $job($ours)));
+        file_put_contents("$spool/" . $name('a', 0x22, $min + 600), $job($ours));
+        chown("$spool/" . $name('a', 0x22, $min + 600), 99);
+        same('at requeue L1: a job of another user (at\'s header) or a spool file not root\'s - left as it is', [[], false],
+            [$ok ? hostAtRequeue($spool, $now, ["$tmp/at", "$tmp/atrm"]) : null, file_exists($log)]);
+        foreach (glob("$spool/[a=]*") ?: [] as $f) {
+            @unlink($f);
+        }
+        @unlink(HOST_AT_REQUEUED);
+    }
 
     // hostLaunch(): `at` in UTC, the script puts the host's zone back first — a stand-in for env on PATH (run() looks its
     // command up there; env would look up at in run()'s own PATH)
@@ -34373,6 +34517,19 @@ function testWatchmanPartner(): void
     touch($keys, $now + 1515);
     $r = $round($now + 1520);
     same('watch partner: from= not the pair\'s address — door_changed all the same', ['door_changed'], $r['added']);
+    // review 1.72.0 L5: «Change the address…» to a host name - the door's from= is what it resolved to, the record keeps that
+    // list: his own, quiet (up to 1.72.0 door_changed: a name is no IP the line could be compared with)
+    watchmanAck('*', $data, $now + 1521, false);
+    $round($now + 1522);
+    $edit('from="100.64.0.8"', 'from="100.64.0.9"');
+    partnerPairsWrite([['address' => 'vault.example.lan'] + $pairA, $pairC, $pairD], $paths['partner_pairs']);
+    file_put_contents("$src/prun/address-a1b2c3d4.json", json_encode(['address' => 'vault.example.lan', 'port' => 22, 'time' => $now + 1523, 'state' => 'saved', 'from' => '100.64.0.9']));
+    chmod("$src/prun/address-a1b2c3d4.json", 0600);
+    touch($keys, $now + 1524);
+    $r = $round($now + 1525);
+    same('watch partner L5: from= changed by the Team Lead to what the pair\'s new host name resolves to — quiet, the new normal', [[], '100.64.0.9'],
+        [$r['added'], watchmanLoad($data)['baseline']['partner']['lines']['a1b2c3d4']['from'] ?? null]);
+    $edit('from="100.64.0.9"', 'from="100.64.0.8"');
     @unlink("$src/prun/address-a1b2c3d4.json");
     partnerPairsWrite([$pairA, $pairC, $pairD], $paths['partner_pairs']);
     $edit('from="100.64.0.8"', 'from="192.168.77.99"');
@@ -37697,6 +37854,20 @@ function testPartnerAddress(): void
     same('USO change: another host key there — not saved', ['wrong_key', 'host_key', '192.168.77.2'], (function () use ($jobA, $pairA) { $l = $jobA(); return [$l['state'] ?? null, $l['why'] ?? null, $pairA()['address'] ?? null]; })());
     $tryA('100.64.0.77');
     same('USO change: nobody there — not saved, said', ['unreachable', '192.168.77.2'], (function () use ($jobA, $pairA) { $l = $jobA(); return [$l['state'] ?? null, $pairA()['address'] ?? null]; })());
+    // review 1.72.0 H6: the USO namespace gone while its status.json stays - nsenter fails (exit 1, nothing on stdout), no ssh
+    // ever reached the partner: unreachable, nothing stored (up to 1.72.0 such an exit was «bad_answer» and counted as found:
+    // the address stored, known_hosts rewritten, the door's from= changed)
+    file_put_contents("$tmp/nsenter-gone", "#!/bin/sh\necho 'nsenter: cannot open /proc/1/ns/net: No such file or directory' >&2\nexit 1\n");
+    chmod("$tmp/nsenter-gone", 0755);
+    $Agone = $Anet;
+    $Agone['env']['USONET_NSENTER'] = "$tmp/nsenter-gone";
+    $keysBefore = (string) file_get_contents($A['keys']);
+    partnerTestAs($Agone, $launch . ' return partner_address(["id" => ' . var_export($id, true) . ', "step" => "try", "address" => "100.64.0.3", "port" => 22]);');
+    $l = partnerTestAs($Agone, 'partnerAddressJob(' . var_export($id, true) . '); return partner_address(["id" => ' . var_export($id, true) . ', "step" => "look"])["look"];');
+    same('USO change H6: nsenter fails (the namespace gone) - unreachable, not saved, the door line and known_hosts as they were',
+        ['unreachable', 'unreachable', '192.168.77.2', true, true],
+        [$l['state'] ?? null, $l['why'] ?? null, $pairA()['address'] ?? null, (string) file_get_contents($A['keys']) === $keysBefore,
+         str_starts_with((string) file_get_contents("$A[flash]/$id.known"), '192.168.77.2 ')]);
     $knownBefore = (string) file_get_contents("$A[flash]/$id.known");
     $tryA('100.64.0.3');
     $l = $jobA();
@@ -37720,6 +37891,20 @@ function testPartnerAddress(): void
         partnerTestAs($Anet, 'return partner_address(["id" => ' . var_export($id, true) . ', "step" => "save", "address" => "100.64.0.3", "port" => 22]);')['problem'] ?? null);
     $saved = partnerTestAs($Anet, 'return partner_address(["id" => ' . var_export($id, true) . ', "step" => "save", "confirm" => true, "address" => "100.64.0.3", "port" => 22]);');
     same('USO change: saved on purpose', [true, '100.64.0.3'], [$saved['saved'] ?? null, $pairA()['address'] ?? null]);
+    // review 1.72.0 L2: «Save» while a look at another address still runs - the save stands; the look, finishing later, stores
+    // nothing and leaves the saved record as it is (up to 1.72.0 it wrote its address over the one just saved)
+    // (the save lands while the job's ssh runs: the namespace stand-in writes the saved record first, as «Save» does)
+    partnerTestAs($Anet, 'return partner_address(["id" => ' . var_export($id, true) . ', "step" => "save", "confirm" => true, "address" => "100.64.0.9", "port" => 22]);');
+    $tryA('100.64.0.3');
+    $mark = "$A[run]/partner/address-$id.json";
+    file_put_contents("$tmp/nsenter-save", "#!/bin/sh\nprintf '%s' " . escapeshellarg(json_encode(['address' => '100.64.0.9', 'port' => 22, 'time' => time() + 1, 'state' => 'saved']))
+        . " >" . escapeshellarg($mark) . "\nshift\nexec \"\$@\"\n");
+    chmod("$tmp/nsenter-save", 0755);
+    $Asave = $Anet;
+    $Asave['env']['USONET_NSENTER'] = "$tmp/nsenter-save";
+    $l = partnerTestAs($Asave, 'partnerAddressJob(' . var_export($id, true) . '); return partner_address(["id" => ' . var_export($id, true) . ', "step" => "look"])["look"];');
+    same('USO change L2: a look ending after a save - the saved address stays, the record says saved there',
+        ['100.64.0.9', 'saved', '100.64.0.9'], [$pairA()['address'] ?? null, $l['state'] ?? null, $l['address'] ?? null]);
     // a door line changed by hand stays as it is
     $keys = (string) file_get_contents($A['keys']);
     file_put_contents($A['keys'], str_replace('restrict,', 'restrict,pty,', $keys));
@@ -41857,8 +42042,8 @@ function testHiddenStoreroom(): void
     same('hidden: engine — who leaves out the old name leaves out the new one too (before the setup wrote it); once; nobody else',
         ['_UnraidSecretaryOffice-trash*/|.DS_Store|.UnraidSecretaryOffice-trash*/', '_UnraidSecretaryOffice-trash*/|.UnraidSecretaryOffice-trash*/', '.DS_Store'],
         array_map(fn ($f) => $sh("cfg_load $tmp/$f.ini; apply_settings; IFS='|'; echo \"\${KOPIA_IGNORE[*]}\""), ['old', 'both', 'none']));
-    check('hidden: engine — a share\'s storeroom datasets are left out by both names (plan and partner units)',
-        substr_count((string) file_get_contents(OFFICE_DIR . '/backup/lib/common.sh'), 'ub_storeroom "${ds##*/}"') === 2
+    check('hidden: engine — a share\'s storeroom datasets are left out by both names (plan, partner units, 2.76: inside an app\'s own dataset)',
+        substr_count((string) file_get_contents(OFFICE_DIR . '/backup/lib/common.sh'), 'ub_storeroom "${ds##*/}"') === 3
         && !str_contains((string) file_get_contents(OFFICE_DIR . '/backup/lib/common.sh'), '== _UnraidSecretaryOffice-trash*'));
     $setupSrc = (string) file_get_contents(OFFICE_DIR . '/backup/setup.sh');
     check('hidden: setup — the plan adds both of Kopia\'s rules for the storeroom', str_contains($setupSrc, 'plist_add "kopia|ignore" "$UB_STOREROOM*/"')
@@ -53064,6 +53249,14 @@ function testBackupTruthProtection(): void
         [[[], [['name' => 'Vault', 'why' => 'never', 'code' => '']]], [['Vault'], []]],
         array_map(fn ($t) => (fn ($i) => [$i['partners'], $i['missed']])(backupProtectionInfo('/mnt/user/appdata/grafana/db', $s, [], $t)),
             [$truth(), $truth(['partner' => ['a1b2c3d4' => ['app:Grafana' => ['ok' => true, 'why' => '', 'code' => '', 'time' => 1]]]])]));
+    // review 1.72.0 H1: the engine's app:<name> sends only its first folder's dataset (<share>/<first dir>, app_own_ds) - a
+    // second folder of the app that is a dataset of its own isn't in that stream: no partner holds it (never «Vault»)
+    $s2 = $s;
+    $s2['app|Grafana']['folder'] = ['appdata/grafana/config', 'media/grafana-lib'];
+    $t2 = $truth(['children' => ['appdata/grafana', 'media/grafana-lib'], 'partner' => ['a1b2c3d4' => ['app:Grafana' => ['ok' => true, 'why' => '', 'code' => '', 'time' => 1]]]]);
+    same('truth H1: an app\'s second folder as a dataset of its own - no partner (the engine sends the first only); its first folder\'s dataset still Vault\'s',
+        [[[], []], [['Vault'], []]], array_map(fn ($p) => (fn ($i) => [$i['partners'], $i['missed']])(backupProtectionInfo($p, $s2, [], $t2)),
+            ['/mnt/user/media/grafana-lib/x', '/mnt/user/appdata/grafana/db']));
     same('truth: an app\'s own Kopia source decides for its folder (app:Emby has a copy)', ['offsite', []],
         (fn ($i) => [$i['level'], $i['why']])(backupProtectionInfo('/mnt/user/appdata/emby/x', $s, [], $truth())));
     same('truth: no backup run yet — nothing is protected, whatever is set', [['none', ['no_run']], ['none', ['no_run']]],
@@ -53101,6 +53294,20 @@ function testBackupTruthProtection(): void
         [$t['runs'], $t['kopia']['good'], $t['kopia']['last'], $t['partner']['a1b2c3d4'] ?? null]);
     same('truth: from the drift — no snapshots possible, new shares, Kopia\'s container gone; nothing held, stuck or unreachable without their files',
         [['xfs' => true, 'mixed' => true], ['photos' => true], true, false, null, null], [$t['no_snaps'], $t['new'], $t['kopia']['gone'], $t['kopia']['held'], $t['kopia']['stuck'], $t['kopia']['away']]);
+    // review 1.72.0 L9: Docker switched off (engine 2.75 kopia.state docker_off in the newest run that looked at Kopia) - the
+    // copies there stay offsite, said why (no new ones); a run that didn't look (skip) changes nothing, a later look ends it
+    same('truth L9: no run with Docker off - docker_off false', false, $t['kopia']['docker_off'] ?? null);
+    @mkdir("$tmp/dk/state", 0700, true);
+    $dk = fn (array $states) => (function () use ($tmp, $states) {
+        file_put_contents("$tmp/dk/state/history.jsonl", implode("\n", array_map(fn ($st, $i) => json_encode(['run' => "2026102$i-0200", 'started' => 100 * $i, 'finished' => 100 * $i + 50,
+            'result' => 'warnings', 'kopia' => ['state' => $st, 'done' => []]]), $states, array_keys($states))) . "\n");
+        return backupTruth("$tmp/dk")['kopia']['docker_off'];
+    })();
+    same('truth L9: the newest look at Kopia says docker_off - true; a run without a look after it keeps it; a later look ends it',
+        [true, true, false], [$dk(['yes', 'docker_off']), $dk(['docker_off', 'skip']), $dk(['docker_off', 'yes'])]);
+    same('truth L9: a source with a good copy while Docker is off - offsite, why kopia_docker_off (the words ×5: protect.why.kopia_docker_off)',
+        [['offsite', ['kopia_docker_off']], true], [(fn ($i) => [$i['level'], $i['why']])(backupProtectionInfo('/mnt/user/appdata/web', $s, [], $truth(['kopia' => ['docker_off' => true]]))),
+         !array_filter(['en', 'de', 'it', 'fr', 'es'], fn ($l) => !isset(json_decode((string) file_get_contents(OFFICE_DIR . "/public/lang/$l.json"), true)['protect.why.kopia_docker_off']))]);
     file_put_contents("$tmp/data/state/setup-plan.json", json_encode(['shares' => [['name' => 'xfs', 'method' => 'snap'], ['name' => 'other', 'method' => 'live']]]));
     touch("$tmp/data/state/setup-plan.json", 4000);
     file_put_contents("$tmp/data/state/kopia-held.json", json_encode(['v' => 1, 'repo' => 'abc', 'identity' => 'root@t', 'before' => 4, 'now' => 0, 'when' => 1, 'time' => 1]));
@@ -53109,8 +53316,26 @@ function testBackupTruthProtection(): void
     $t = backupTruth("$tmp/data");
     same('truth: a plan newer than the drift decides for the shares it lists; held, stuck since, unreachable since from their files',
         [['mixed' => true, 'other' => true], true, 4500, 4600], [$t['no_snaps'], $t['kopia']['held'], $t['kopia']['stuck'], $t['kopia']['away']]);
-    same('truth: Mr. Backupsy\'s summary — no snapshots (also [share] method = live), new shares not in settings.ini, the runs',
-        ['runs' => 2, 'no_snaps' => ['live', 'mixed', 'other'], 'new' => ['photos']], backupTruthSummary($t, $s));
+    same('truth: Mr. Backupsy\'s summary — no snapshots (also [share] method = live), new shares not in settings.ini, the runs; L9: Docker switched off',
+        ['runs' => 2, 'no_snaps' => ['live', 'mixed', 'other'], 'new' => ['photos'], 'docker_off' => false], backupTruthSummary($t, $s));
+    // L9 on Mr. Backupsy's rows (desk.js mirrors backupKopiaTruth): the same reason, from the summary's docker_off
+    $node = testsNode();
+    if ($node !== '') {
+        file_put_contents("$tmp/k.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: {}, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {},
+  has: () => false, store: () => null, storeJson: () => null, agent: { running: true }, place: (k, n) => n, keepInPlace: () => {} };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const t = { held: false, gone: false, stuck: null, away: null };
+console.log(JSON.stringify([b.kopiaTruth({ ...t, dockerOff: true }, { ok: true, good: 1 }).why, b.kopiaTruth(t, { ok: true, good: 1 }).why]));
+JS);
+        $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/k.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' 2>&1');
+        same('truth L9: Mr. Backupsy\'s rows - kopia_docker_off with Docker switched off, nothing without', ['kopia_docker_off', null], json_decode($raw, true) ?? $raw);
+        check('truth L9: … his truth() takes it from the summary', str_contains((string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js'), 'dockerOff: t.docker_off === true'));
+    }
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -53971,11 +54196,16 @@ function testUsoNetStatus(): void
         proc_terminate($dead, SIGKILL);
         proc_close($dead);
         file_put_contents("$run/job.json", json_encode(['what' => 'join', 'time' => $now - 30, 'step' => 'login', 'pid' => $pid]));
+        file_put_contents("$flash/authkey", "tskey-auth-kSecret99-ZyXwVuTsRqPoNmLk\n");
         $p = usonetPublic($now);
         same('USO network card: the join\'s job died — failed (job_gone), its mark gone, the log lines shown', ['failed', 'job_gone', false, 8],
             [$p['state'], $p['why'], file_exists("$run/job.json"), count($p['log'])]);
+        // review 1.72.0 M1: … and the auth key it left on the flash gone (else the next backup run archives it)
+        same('USO network card M1: the join\'s job died — its auth key gone from the flash', false, file_exists("$flash/authkey"));
         file_put_contents("$run/job.json", json_encode(['what' => 'join', 'time' => $now - USONET_JOB_QUEUED - 5, 'step' => 'queued', 'pid' => null]));
-        same('USO network card: a job atd never started — given up', ['failed', 'job_gone'], [usonetPublic($now)['state'], usonetPublic($now)['why']]);
+        file_put_contents("$flash/authkey", "tskey-auth-kSecret99-ZyXwVuTsRqPoNmLk\n");
+        same('USO network card: a job atd never started — given up (M1: its auth key gone)', ['failed', 'job_gone', false],
+            [usonetPublic($now)['state'], usonetPublic($now)['why'], file_exists("$flash/authkey")]);
         file_put_contents("$run/job.json", json_encode(['what' => 'join', 'time' => $now - 10, 'step' => 'queued', 'pid' => null]));
         same('USO network card: a job just queued — joining', 'joining', usonetPublic($now)['state']);
         @unlink("$run/job.json");
@@ -54029,6 +54259,19 @@ function testUsoNetStatus(): void
         unset($GLOBALS['ctNetSig']);
         caretakerUsonetFollow($now + 12);
         same('USO network card: a changed picture is written', 'in', readJson($kept)['usonet']['state'] ?? null);
+        // review 1.72.0 L4: a peer's link turning direct or relayed (the office's own probes flip it) is no new picture - the
+        // kept state in the data folder isn't rewritten for it (up to 1.72.0 as often as every 5 s: an HDD pool kept awake)
+        $st0 = (string) file_get_contents("$run/status.json");
+        file_put_contents("$run/status.json", str_replace('"name":"uso-partner","ips":["100.64.0.3","fd7a:115c:a1e0::3"],"tags":["tag:uso"],"online":true,"direct":false,"relay":"fra"',
+            '"name":"uso-partner","ips":["100.64.0.3","fd7a:115c:a1e0::3"],"tags":["tag:uso"],"online":true,"direct":true,"relay":""', $st0));
+        $mark = readJson($kept);
+        $mark['usonet']['state'] = 'marker';
+        file_put_contents($kept, json_encode($mark));
+        caretakerUsonetFollow($now + 13 + 5);
+        same('USO network card L4: only a peer\'s direct/relay changed - the kept state not rewritten', ['marker', true],
+            [readJson($kept)['usonet']['state'] ?? null, $st0 !== (string) file_get_contents("$run/status.json")]);
+        file_put_contents("$run/status.json", $st0);
+        unset($GLOBALS['ctNetNext']);
         // the partner cards follow with it (a partner joined anew: the card's «at another address» needs the new picture)
         file_put_contents($kept, json_encode(['time' => $now - 100, 'usonet' => ['state' => 'off'], 'partners' => ['pairs' => ['stale']], 'staff' => ['y']]));
         unset($GLOBALS['ctNetSig']);
@@ -54196,6 +54439,14 @@ function testUsoNetJoin(): void
         file_put_contents("$flash/usonet.cfg", "JOINED=\"yes\"\n");
         same('USO network join: already in — refused', 'usonet_joined', $refused(['secret_ref' => $stash(['key' => 'tskey-auth-kTest123-AbCdEfGhIjKlMnOp'])]));
         unlink("$flash/usonet.cfg");
+        // review 1.72.0 M1: the job can't be launched (atd away) - refused, and the auth key just written to the flash gone again
+        // with the job's mark (else it stays there and the next backup run archives it)
+        $GLOBALS['hostAtdLook'] = ["$tmp/no-atd.pid", "$tmp/no-proc"];
+        $why = $refused(['secret_ref' => $stash(['key' => 'tskey-auth-kTest123-AbCdEfGhIjKlMnOp'])]);
+        unset($GLOBALS['hostAtdLook']);
+        same('USO network join M1: the job not launched (atd away) - atd_off, no auth key left on the flash, no job mark', ['atd_off', false, false],
+            [$why, file_exists("$flash/authkey"), file_exists("$run/job.json")]);
+        @unlink("$flash/usonet.cfg");
         // the key's way, without starting anything (no atd here): written 0600 before the job, never in the card or the config
         usonetConfigWrite(['JOINED' => 'no', 'NAME' => 'uso-tower', 'CONTROL' => 'http://192.168.7.197:8085']);
         same('USO network: the config, key="value" lines', "JOINED=\"no\"\nNAME=\"uso-tower\"\nCONTROL=\"http://192.168.7.197:8085\"\n", file_get_contents("$flash/usonet.cfg"));
@@ -54242,7 +54493,7 @@ function testUsoNetJoin(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],

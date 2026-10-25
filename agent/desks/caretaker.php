@@ -958,8 +958,10 @@ function caretakerUsonetFollow(int $now): void
     }
     $GLOBALS['ctNetNext'] = $now + 5;
     $p = caretakerUsonet();
+    // a peer's direct/relay left out (review 1.72.0 L4): the office's own probes flip it - each flip rewrote the kept state
+    // in the data folder (an HDD pool kept awake); it comes along with the next real change or tour
     $sig = md5(jsonEncode([$p['state'] ?? '', $p['job'] ?? null, $p['slow'] ?? false, $p['ips'] ?? [], $p['tagged'] ?? null, $p['foreign'] ?? 0, $p['why'] ?? '',
-        array_map(fn (array $x) => [$x['name'], $x['ips'], $x['online'], $x['direct'], $x['relay'], $x['tagged']], $p['peers'] ?? [])]));
+        array_map(fn (array $x) => [$x['name'], $x['ips'], $x['online'], $x['tagged']], $p['peers'] ?? [])]));
     $files = caretakerPartnersStamp();
     $netNew = $sig !== ($GLOBALS['ctNetSig'] ?? null);
     $filesNew = $files !== ($GLOBALS['ctPartSig'] ?? null);

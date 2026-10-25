@@ -1,6 +1,12 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.75 - 2026-10-25
+# unraid-backup - backup.sh                       Version 2.76 - 2026-10-25
+#   2.76 Code review 1.72.0: a VM's or app's own dataset in a share sent to a partner whose unit doesn't go there stays
+#        here and is said (status.json partner.left_out with owner; up to 2.75 left off silently); a dataset inside an
+#        app's own dataset is left out of app:<name> (named there, no longer under the share). The flash archive never
+#        holds the USO network's auth key (usonet/authkey, whatever tar_exclude says). status.json partner.partners[]
+#        seconds: the wall time of a partner's transfers (several at once - the office's Mbit/s). A rate change is told
+#        only to a pid that is still pv.
 #   2.75 Docker switched off by the user while something goes offsite: no longer «Kopia container '<name>' does not
 #        exist» (an error, the run ending «errors») - Kopia can't be asked, kopia.state docker_off, a warning
 #        docker_off_offsite (warning_items); the local part and the partners as usual, the run ends with warnings. No
@@ -2457,6 +2463,9 @@ libvirt_tar() {
 flash_tar() {
     local out="$PKG_STAGE/flash/flash.tar.gz" ex=() e
     for e in "${FLASH_TAR_EXCLUDE[@]}"; do ex+=( "--exclude=$e" ); done
+    # 2.76: the office's USO-network auth key never goes into an archive, whatever tar_exclude says (it lies on the flash
+    # only until its node is in; a join that died could leave it there - a secret that never leaves the server)
+    ex+=( "--exclude=./config/plugins/unraid-secretary-office/usonet/authkey" )
     mkdir -p "$PKG_STAGE/flash"
     PKG_RESULT[flash]="ok"
     log "Backing up $UB_BOOT as an archive ..."
@@ -3439,12 +3448,13 @@ pool_room_check() {
 # partner.interrupted, the rest skipped - never failed. (zfs send never gets -s: that is --skip-missing, only with -R.)
 PARTNER_ORDER=()            # "id|unit|dataset|bytes" - the phase's transfers in their order (partner_plan)
 PARTNER_CANT=()             # "id|unit|why" - ticked, but it can't travel (skipped at once, said in the plan)
-# 2.74: a child dataset of a unit that goes but is no unit of its own stays here - ST_PARTNER_LEFT "id|unit|dataset|folder"
-# (status.json partner.left_out), said in the plan and the log per child; the unit itself goes (up to 2.73: children)
+# 2.74: a child dataset of a unit that goes but is no unit of its own stays here - ST_PARTNER_LEFT "id|unit|dataset|folder|owner"
+# (status.json partner.left_out), said in the plan and the log per child; the unit itself goes (up to 2.73: children).
+# 2.76: owner (vm:<n> | app:<n>) - a VM's or app's own dataset whose unit doesn't take it to this partner stays here too
 declare -A PARTNER_DOWN=()  # id -> why every unit of that partner is skipped (unreachable, no_key, ...)
 
 partner_plan() {
-    local id u ds b lc lf
+    local id u ds b lc lf lo
     local -a units=() rows=()
     local -A seen=()
     PARTNER_ORDER=(); PARTNER_CANT=(); ST_PARTNER_IDS=(); ST_PARTNER_PLAN=(); ST_PARTNER_LEFT=()
@@ -3455,7 +3465,7 @@ partner_plan() {
         ST_PARTNER_IDS+=( "$id|$(partner_name "$id")" )
         rows=(); seen=()
         for u in "${units[@]}"; do
-            if ! partner_unit_dataset "$u"; then PARTNER_CANT+=( "$id|$u|$PU_WHY" ); continue; fi
+            if ! partner_unit_dataset "$u" "$id"; then PARTNER_CANT+=( "$id|$u|$PU_WHY" ); continue; fi
             ds="$PU_DS"
             # the backup place's share ticked as a share too: one transfer (place)
             [[ -n "${seen[$ds]:-}" ]] && { log "  Partner $(partner_name "$id"): $u is the same dataset as ${seen[$ds]} - sent once"; continue; }
@@ -3463,7 +3473,7 @@ partner_plan() {
             # its pool left out this run (2.28, asleep_pools = skip): no snapshot to send - skipped, why asleep
             if [[ -n "${ASLEEP_DS[$ds]:-}" ]]; then PARTNER_CANT+=( "$id|$u|asleep" ); continue; fi
             if ! in_list "$ds" "${PLAN_ZFS[@]}"; then PARTNER_CANT+=( "$id|$u|not_snapshotted" ); continue; fi
-            while IFS='|' read -r lc lf; do if [[ -n "$lc" ]]; then ST_PARTNER_LEFT+=( "$id|$u|$lc|$lf" ); fi; done <<<"$PU_LEFT"
+            while IFS='|' read -r lc lf lo; do if [[ -n "$lc" ]]; then ST_PARTNER_LEFT+=( "$id|$u|$lc|$lf|$lo" ); fi; done <<<"$PU_LEFT"
             b="${ZDS_REF[$ds]:-}"
             if [[ "$u" == place ]]; then rows+=( "0|$u|$ds|${b:-0}" )
             elif is_uint "$b"; then rows+=( "1|$u|$ds|$b" )
@@ -3560,7 +3570,8 @@ partner_rate_share() { # partner_rate_share <id>
     (( each > 0 )) && command -v pv >/dev/null 2>&1 || return 0
     for k in "${!SL_PID[@]}"; do
         p="$(head -c 16 "$PARTNER_TMP/s$k/pvpid" 2>/dev/null | tr -dc '0-9')"
-        [[ -n "$p" ]] && kill -0 "$p" 2>/dev/null && pv -R "$p" -n -b -i "$UB_PARTNER_PV_EVERY" -L "$each" </dev/null >/dev/null 2>&1
+        # 2.76: still pv (its pid not taken over by another process while the slot waits for ssh and the door)
+        [[ -n "$p" ]] && kill -0 "$p" 2>/dev/null && [[ "$(head -c 16 "/proc/$p/comm" 2>/dev/null)" == pv* ]] && pv -R "$p" -n -b -i "$UB_PARTNER_PV_EVERY" -L "$each" </dev/null >/dev/null 2>&1
     done
     return 0
 }
@@ -4047,10 +4058,14 @@ partner_phase() {
         done
         for u in "${ST_PARTNER_LEFT[@]}"; do
             [[ "$u" == "$id|"* ]] || continue
-            IFS='|' read -r _ u ds b <<<"$u"
-            log "  $u: its dataset $ds ($b) is no unit of its own (no VM's, no app's) - it stays here, $u goes without it"
+            IFS='|' read -r _ u ds b why <<<"$u"
+            if [[ -n "$why" ]]; then log "  $u: its dataset $ds ($b) is $why's own, which doesn't take it to this partner - it stays here, $u goes without it"
+            else log "  $u: its dataset $ds ($b) is no unit of its own (no VM's, no app's) - it stays here, $u goes without it"; fi
         done
+        local tw
+        tw="$(date +%s)"
         partner_units_run "$id"
+        is_uint "${ST_PARTNER_WALL[$id]:-x}" || ST_PARTNER_WALL[$id]=$(( $(date +%s) - tw ))
         # 2.46: whatever did not arrive is said in this run - unreachable, array stopped, refused, failed (no nights of grace)
         partner_missed "$id"
     done
@@ -4397,8 +4412,8 @@ for pl in "${ST_PARTNER_IDS[@]}"; do
     done
     log "  Partner:          $(partner_name "$pl_id") <- ${pl_line:-nothing}${SNAP_NAME:+ ($SNAP_NAME)}"
     for po in "${ST_PARTNER_LEFT[@]}"; do
-        IFS='|' read -r po_id po_u po_ds po_f <<<"$po"
-        if [[ "$po_id" == "$pl_id" ]]; then log "                    $po_u goes without its dataset $po_ds ($po_f): no VM's or app's own - it stays here"; fi
+        IFS='|' read -r po_id po_u po_ds po_f po_o <<<"$po"
+        if [[ "$po_id" == "$pl_id" ]]; then log "                    $po_u goes without its dataset $po_ds ($po_f): $(if [[ -n "$po_o" ]]; then echo "$po_o's own, not sent to this partner"; else echo "no VM's or app's own"; fi) - it stays here"; fi
     done
 done
 status_write
