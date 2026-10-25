@@ -2950,9 +2950,10 @@ const noteRank = (n) => (!n ? 1 : (n.why || []).length || (n.missed || []).lengt
 function placeSummary(g) {
   const items = g.items || [];
   const main = items[0];
-  // what lives in RAM (system log, generated crontabs) and Docker's image data (rebuilt by pulling) don't count for the tile,
-  // nor what isn't there (the VM service off: no libvirt.img mounted, no domains) — never «not backed up» for nothing
-  const counted = items.filter((i) => !i.ram && i.id !== 'docker_image' && i.backup && i.exists !== false);
+  // what lives in RAM (system log; an older agent's crontabs) and Docker's image data (rebuilt by pulling — unless volumes
+  // lie in it) don't count for the tile, nor what isn't there (the VM service off: no libvirt.img mounted, no domains) —
+  // never «not backed up» for nothing; what is rebuilt from the flash carries the flash's protection (an agent of 1.73 on)
+  const counted = items.filter((i) => !i.ram && (i.id !== 'docker_image' || i.volumes > 0) && i.backup && i.exists !== false);
   const rank = { none: 0, local: 1, offsite: 2 };
   // the weakest item; among equals one whose note says why it is less than set, then one no partner keeps (Office.backupChip())
   const weakest = counted.sort((a, b) => (rank[a.backup] - rank[b.backup]) || noteRank(a.backup_note) - noteRank(b.backup_note))[0] || null;
@@ -2962,7 +2963,7 @@ function placeSummary(g) {
   else if (g.id === 'compose') sub = T('where.place.compose_sub', { n: (g.stacks || []).length });
   else if (g.id === 'vms') sub = T('where.place.vms_sub', { n: g.vms || 0 });
   else if (g.id === 'scripts') sub = T('where.place.scripts_sub', { n: (items[0] || {}).count || 0 });
-  else if (g.id === 'cron') sub = T('where.place.cron_sub', { n: g.jobs || 0, files: (items[0] || {}).count || 0 });
+  else if (g.id === 'cron') sub = T('where.place.cron_sub', { n: g.jobs || 0 });
   else if (g.id === 'unraid') sub = bootShort(g.boot);
   else if (g.id === 'office') sub = T('where.place.office_sub');
   return { main, worst, worstNote: weakest ? weakest.backup_note : null, sub };
@@ -3059,16 +3060,47 @@ function keepFold(det, key) {
   return det;
 }
 
+/**
+ * What a row of a place adds (an agent of 1.73 on; an older one's look has none of it): where something rebuilt at every
+ * start comes back from, and only what really is lost at a restart — /etc/cron.d's files nothing on the flash writes, the
+ * lines added to root's own crontab — or, in Docker's own data, volumes that pulling doesn't bring back
+ */
+function locNotes(it) {
+  const names = (list) => listNames(list, 3);
+  const out = [];
+  if (it.id === 'docker_image' && it.note) {
+    out.push(T('where.loc.docker_' + (it.note === 'folder' ? 'folder' : 'img')));
+    if (it.rebuilt) out.push(T('where.loc.docker_rebuilt'));
+    else if (it.volumes > 0) out.push(T('where.loc.docker_volumes', { n: it.volumes }));
+  }
+  if (it.id === 'cron_files' && it.left_out > 0) out.push(T('where.loc.cron_files_left', { n: it.left_out }));
+  if (it.id === 'cron_d' && it.rebuilt) {
+    out.push(T('where.loc.cron_d_built'));
+    const own = Object.entries(it.plugins || {});
+    if (own.length) out.push(T('where.loc.cron_d_plugin', { n: own.length, files: names(own.map(([f]) => f)), plugins: names([...new Set(own.map(([, p]) => p))]) }));
+    if ((it.stray || []).length) out.push(T('where.loc.cron_d_stray', { n: it.stray.length, files: names(it.stray) }));
+  }
+  if (it.id === 'crontab' && it.unit && it.exists) {
+    const other = (it.own || 0) + (it.plugin_lines || 0);
+    if (it.defaults > 0) out.push(other ? T('where.loc.crontab_defaults_some', { n: it.defaults }) : T('where.loc.crontab_defaults'));
+    if (it.plugin_lines > 0) out.push(T('where.loc.crontab_plugins', { n: it.plugin_lines, plugins: names(it.plugins || []) }));
+    if (it.own > 0) out.push(T('where.loc.crontab_own', { n: it.own }));
+  }
+  return out;
+}
+
 function placeDetail(g) {
   const box = el('div', 'clw-place');
   if (g.id === 'unraid') box.appendChild(bootIntro(g.boot));
   else box.appendChild(el('p', 'clw-place-intro', T('where.place.' + g.id + '_intro')));
   for (const it of g.items) {
     let figure = '';
-    if (it.count !== null && it.count !== undefined) figure = T('where.loc_count', { n: it.count });
+    if (it.count !== null && it.count !== undefined) figure = T(it.unit === 'jobs' ? 'where.place.cron_sub' : it.unit === 'files' ? 'where.loc_files' : 'where.loc_count', { n: it.count });
     else if (it.bytes) figure = fmt.size(it.bytes);
+    // the syslog's RAM sentence (a syslog server, the mirror to flash) only on the syslog: what is built anew at every
+    // start says where it comes back from instead (locNotes())
     const note = [Office.has(`${ID}.where.loc.${it.id}_note`) ? T('where.loc.' + it.id + '_note', { mounted: it.mounted || '' }) : '',
-      it.note ? T('where.loc.docker_' + it.note) : '', it.ram ? T('where.loc.ram') : '', !it.exists ? T('where.loc.missing') : ''].filter(Boolean).join(' ');
+      ...locNotes(it), it.ram && it.id === 'syslog' ? T('where.loc.ram') : '', !it.exists ? T('where.loc.missing') : ''].filter(Boolean).join(' ');
     box.appendChild(pathLine(T('where.loc.' + it.id), it.path, { figure, backup: it.backup, backupNote: it.backup_note, note, missing: !it.exists }));
     if (it.files && it.files.length) {
       const det = keepFold(el('details', 'clw-files'), `${g.id}:${it.id}`);
