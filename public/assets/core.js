@@ -326,7 +326,7 @@ function busyFree(s, solids, bottom) {
 function busyPlace() {
   busyFrame = 0;
   const el = busyEl();
-  if (el.style.display !== 'block') return;
+  if (el.style.display !== 'block' || typeof getComputedStyle !== 'function' || !el.getBoundingClientRect) return;   // (the tests' DOM)
   const wave = el.firstElementChild;
   wave.hidden = busyOwnWave(busyFrom);
   if (wave.hidden) return;
@@ -352,6 +352,13 @@ function busyPlace() {
   wave.style.top = `${(y - sr.top) / k}px`;
 }
 function busyAgain() { if (!busyFrame) busyFrame = requestAnimationFrame(busyPlace); }
+/** While shown, the wave follows the page's scrolling and the window's size (the tests' DOM has neither) */
+function busyFollow(on) {
+  if (typeof window === 'undefined' || !window.addEventListener) return;
+  const how = on ? 'addEventListener' : 'removeEventListener';
+  window[how]('scroll', busyAgain, true);
+  window[how]('resize', busyAgain);
+}
 const busyHolds = new Map();   // a desk waiting for work it started in the background -> its safety timer
 function busy(on) {
   if (on === true) busyCount++;
@@ -363,15 +370,13 @@ function busy(on) {
       if (!busyCount && !busyHolds.size) return;
       busyEl().style.display = 'block';
       busyPlace();
-      window.addEventListener('scroll', busyAgain, true);
-      window.addEventListener('resize', busyAgain);
+      busyFollow(true);
     }, 400);
   } else if (!want) {
     clearTimeout(busyTimer);
     busyTimer = null;
     busyEl().style.display = 'none';
-    window.removeEventListener('scroll', busyAgain, true);
-    window.removeEventListener('resize', busyAgain);
+    busyFollow(false);
   }
 }
 /** Office.busy('backup.setup', true) while a desk waits for a job it started (an apply, a plan);
