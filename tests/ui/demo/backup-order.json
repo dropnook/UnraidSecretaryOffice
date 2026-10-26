@@ -4,7 +4,7 @@
   "dir": "/usr/local/emhttp/plugins/unraid-secretary-office/backup",
   "data": "/mnt/cache/appdata/UnraidSecretaryOffice/data/unraid-backup",
   "asleep": false,
-  "version": "2.42",
+  "version": "2.77",
   "interface": 1,
   "compatible": true,
   "settings_found": true,

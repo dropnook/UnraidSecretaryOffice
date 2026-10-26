@@ -686,8 +686,8 @@
    {
     "name": "uso-onkel",
     "ips": [
-     "100.84.12.9",
-     "fd7a:115c:a1e0::9"
+     "100.84.12.5",
+     "fd7a:115c:a1e0::5"
     ],
     "online": true,
     "direct": false,

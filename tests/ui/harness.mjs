@@ -36,10 +36,16 @@ export const DEMO = path.join(HERE, 'demo');
 
 // The demo family's names in English (2026-10-10: the English shots on GitHub showed «Grosseltern», «Familienfotos»):
 // ui-shots passes names: DEMO_NAMES_EN for an English shot - every state, canned answer and the host go through it as text
-export const DEMO_NAMES_EN = [['FamilienServer', 'FamilyServer'], ['Familienfotos', 'FamilyPhotos'], ['Familienvideos', 'FamilyVideos'],
+export const DEMO_NAMES_EN = [['Liste von Vater', 'Dad\'s list'], ['Windows-Spiele', 'Windows-Games'], ['FamilienServer', 'FamilyServer'], ['Familienfotos', 'FamilyPhotos'], ['Familienvideos', 'FamilyVideos'],
   ['Familienserien', 'FamilySeries'], ['Familienfilme', 'FamilyMovies'], ['Fotos-Grosseltern', 'Photos-Grandparents'],
   ['Grosseltern', 'Grandparents'], ['Dokumente', 'Documents'], ['Handy-Tochter', 'Phone-Daughter'], ['Tochter', 'Daughter'],
-  ['Mutter', 'Mom'], ['Vater', 'Dad'], ['Onkel', 'Uncle'], ['Schule', 'School'], ['daten', 'data']];
+  ['Mutter', 'Mom'], ['Vater', 'Dad'], ['Onkel', 'Uncle'], ['Schule', 'School'], ['daten', 'data'],
+  // Mr. Restori's file browser (demo/post/restore.browse.json): a holiday folder of home videos
+  ['Sommerferien', 'Summer holidays'], ['Ausflug Bergsee', 'Mountain lake trip'], ['Rohschnitt', 'Rough cut'], ['Sandburg', 'Sandcastle'],
+  ['Strand am Abend', 'Beach at dusk'], ['Titelmusik', 'Title music'], ['neuester Schnitt', 'latest cut'], ['Fassung', 'Version'],
+  ['vor-dem-umzug', 'before-the-move'],
+  // the USO network's node names (demo/caretaker-usonet.json) and the servers' local names
+  ['familienserver', 'familyserver'], ['grosseltern', 'grandparents'], ['onkel', 'uncle'], ['tochter', 'daughter']];
 export function renamed(v, names) {
   if (!names || !names.length || v == null) return v;
   let t = JSON.stringify(v);
