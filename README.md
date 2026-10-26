@@ -5,56 +5,55 @@
   </picture>
 </h1>
 
-A whole team supports you in running your Unraid server, right in Unraid's web UI: backups and restore, snapshots, a media
-cache for Emby, Jellyfin and Plex, the mover, a night watchman and every log in one place. More on the [product page](https://uso.dropnook.app).
+A whole team helps you run your Unraid server, right in Unraid's web UI: backups that come back, snapshots, a media
+cache for Emby, Jellyfin and Plex, a tidy pool, a night watchman and every log in one place.
 
-<a name="team"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/team-dark.webp"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/team-light.webp" alt="The team of the Unraid Secretary Office: the Team Lead, Mr. Backupsy, Mr. Restori, Ms. Snapshotini, Jack Streamer, Ms. Moverelli, the Night Watchman, Ms. Dustdevil, Ms. Protocolli and the Consultant — each with one sentence about their work"></picture></a>
+[Product page](https://uso.dropnook.app) · [Full guide](docs/GUIDE.md)
 
-A fresh office has only the Team Lead. He looks at your server and suggests whom to hire.
+<a name="team"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/team-dark.webp"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/team-light.webp" alt="The team: the Team Lead, Mr. Backupsy, Mr. Restori, Ms. Snapshotini, Jack Streamer, Ms. Moverelli, the Night Watchman, Ms. Dustdevil, Ms. Protocolli and the Consultant"></picture></a>
+
+Start with the Team Lead. He looks at your server and suggests whom to hire.
 
 ## Backups that come back
 
-Mr. Backupsy backs up on your schedule: snapshots, database dumps and, encrypted with Kopia, offsite. Mr. Restori
-brings back apps, VMs, whole shares or single files from every place a copy is kept, hands you the flash archive — and
-rehearses it regularly on throwaway copies. A second Unraid server with the office becomes a partner: the two keep each
-other's backups, over your own network or the office's own Tailscale node.
+- **Mr. Backupsy** backs up on your schedule: snapshots, database dumps and, encrypted with Kopia, offsite.
+- **Mr. Restori** brings back apps, VMs, whole shares or single files, hands you the flash archive — and rehearses it
+  on throwaway copies.
+- **A partner:** with a second Unraid server running the office, you keep each other's backups — over your own network
+  or the office's own Tailscale node.
 
-<a name="backup-run"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup-light.png" alt="Mr. Backupsy: a run going on — its steps, its offsite sources, how long still"></picture></a>
+<a name="backup-run"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup-light.png" alt="A backup running"></picture></a>
 
-## The pool: fast and tidy
+## A fast, tidy pool
 
-Jack Streamer puts on the fast pool what you watch next in Emby, Jellyfin or Plex — the array disks may sleep. Ms. Moverelli adds
-helmi1987's Smart Mover to Unraid's mover: she moves to the array what hasn't been used on the pool for a while, and
-leaves what is current in the cache. Both in one joint run on a schedule, live to watch.
+Jack Streamer puts what you watch next in Emby, Jellyfin or Plex on the fast pool, so the array disks can sleep.
+Ms. Moverelli, with helmi1987's Smart Mover, takes the oldest files to the array only when the pool is above your limit.
+Both work in one joint run on your schedule, live to watch.
 
-<a name="moverelli-live"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/moverelli-live-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/moverelli-live-light.png" alt="Ms. Moverelli's joint run, live: the pool before and after, what Jack Streamer laid out, the array beside it"></picture></a>
+<a name="moverelli-live"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/moverelli-live-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/moverelli-live-light.png" alt="The pool before and after the joint run"></picture></a>
 
 ## The Night Watchman
 
-A round every five minutes. He only reads and changes nothing. Only what is different from usual goes into his watch
-book: a sign-in from a new address, a new plugin, a new device on the LAN — and, if you like, from your router's log
-too.
+A round every five minutes; he only reads. What is unusual goes into his watch book: a sign-in from a new address, a
+new plugin, a new device on the LAN — and your router's log, if you like.
 
-<a name="watchman-book"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/watchman-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/watchman-light.png" alt="The Night Watchman&#x27;s watch book: what was different from normal"></picture></a>
+<a name="watchman-book"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/watchman-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/watchman-light.png" alt="The watch book"></picture></a>
 
-Plus Ms. Snapshotini, Ms. Dustdevil, Ms. Protocolli and the Consultant; five languages, Unraid's themes, search with
-⌘K, on the phone too. **[The full guide](docs/GUIDE.md)** walks through every desk.
+Also on the team: Ms. Snapshotini, Ms. Dustdevil, Ms. Protocolli and the Consultant. Five languages, Unraid's themes,
+search with ⌘K, on the phone too. **[The full guide](docs/GUIDE.md)** walks through every desk.
 
 ## Careful by design
 
-- **Behind Unraid's login.** Only whoever is logged in to Unraid gets in; other web pages in your browser can't
-  trigger anything.
-- **Looks before it touches.** Before anything changes, it shows you what will happen and asks. What is replaced or
-  tidied up is set aside — nothing is deleted at once.
-- **You're in control.** Copies leave the server only where you send them: to your partner server, or encrypted to a
-  storage of your choice.
-- **Partners stay independent.** A partner server accepts copies, nothing more. If one is taken over, say by
-  ransomware, it can delete or overwrite nothing on the other.
-- **Only what the desks define.** The service on the server can do what root can, but it only offers the actions
-  written in the desks' code.
-- **Says what is really there.** Protection is shown from what the runs made, not from the settings; what couldn't be
+- **Behind Unraid's login.** Other web pages in your browser can't trigger anything.
+- **Asks first.** It shows what will happen before anything changes. What it replaces or tidies up is set aside, never
+  deleted at once.
+- **Your copies go where you send them:** to your partner, or encrypted to a storage of your choice.
+- **Partners stay independent.** A partner accepts copies, nothing more — taken over, say by ransomware, it can't delete
+  or overwrite anything on yours.
+- **Only what the desks define.** The service runs as root, but it offers only the actions written in the desks' code.
+- **Shows what is really there.** Protection comes from what the backups made, not from the settings; what couldn't be
   checked says so.
-- **Checked.** What was looked at, and what it found: [HARDENING.md](HARDENING.md).
+- **Checked:** what was looked at and what it found, in [HARDENING.md](HARDENING.md).
 
 ## Install
 
@@ -69,9 +68,9 @@ updates come through Unraid's plugin manager either way.
 
 ## Support
 
-A [tip](https://tip.uso.dropnook.app/) is welcome. Problems and wishes: right in
-the office, no GitHub account needed (*⋯ → Report a problem or a wish…*, you see every part before it is sent), or
-[GitHub issues](https://github.com/dropnook/UnraidSecretaryOffice/issues).
+Problems and wishes: right in the office, no GitHub account needed (*⋯ → Report a problem or a wish…* — you see every
+part before it is sent), or [GitHub issues](https://github.com/dropnook/UnraidSecretaryOffice/issues). A
+[tip](https://tip.uso.dropnook.app/) is welcome.
 
 ## Special thanks
 
