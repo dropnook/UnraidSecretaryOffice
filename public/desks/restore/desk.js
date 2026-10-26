@@ -292,7 +292,8 @@ function weakestFolder(folders) {
     || why(a.protection_note) - why(b.protection_note))[0] || null;
 }
 /** A folder's protection label: the level and why it is less than set — the partners are the row's own «at» labels */
-const protChip = (f) => (f ? Office.backupChip(f.protection, f.protection_note, { partners: false }) : null);
+// the partners stay in the word: «only local» beside «at <partner>» would contradict it (the at-partner chip is the way there)
+const protChip = (f) => (f ? Office.backupChip(f.protection, f.protection_note) : null);
 
 // ------------------------------------------------------------------ bubble
 // greet.2 «Which state do you want? I'll bring it back as it was.» only with packages to bring back (2026-10-18: a bubble
