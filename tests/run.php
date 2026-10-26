@@ -43857,6 +43857,13 @@ function testJackByWords(): void
         }
     }
     same('jack by-words: every «by» of the run list has its words in all five languages', [], $miss);
+    // owner 2026-10-26: «Rückgabewert 0» as a finished run's tooltip and «Budget 2000G» — words for people, never a raw code or value
+    foreach (['jack', 'moverelli'] as $d) {
+        $js = (string) file_get_contents(OFFICE_DIR . "/public/desks/$d/desk.js");
+        check("run list words ($d): a run that ended well says so, never «exit code 0»", str_contains($js, "r.exit === 0 ? T('exit_ok')"));
+    }
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/jack/desk.js');
+    check('jack scope line: the budget in sizes (fmt.size), never the raw setting «2000G»', str_contains($js, "T('budget', { size: fmt.size(budgetGb(set.cache_budget) * 1073741824) })"));
 }
 
 /**
