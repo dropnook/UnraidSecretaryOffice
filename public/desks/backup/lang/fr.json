@@ -1982,7 +1982,7 @@
   "warn_code.kopia_stalled": "Le stockage hors site n'accepte rien depuis le {since}. L'envoi de {name} par Kopia a été arrêté après {minutes} min sans progrès. Les snapshots locaux et les paquets sont faits.",
   "warn_code.docker_off_offsite": "Docker est désactivé — rien n'est parti hors site cette fois, car Kopia tourne dans un conteneur. Les snapshots et les paquets locaux sont faits. Tu peux activer Docker dans ⟦Settings⟧ → ⟦Docker⟧.",
   "notify.kopia_held.subject": "La copie hors site est soudain vide",
-  "notify.kopia_held": "Le {when}, il y avait {before} snapshots, maintenant {now} : une attaque ou le mauvais dépôt ? Rien ne part hors site. Si ce n'était pas toi : ne supprime rien, Object Lock garde peut-être encore les données. Si le dépôt est nouveau, dis-le à Monsieur Backupsi.",
+  "notify.kopia_held": "Le {when}, il y avait {before} snapshots, maintenant {now} : une attaque ou le mauvais dépôt ? Rien ne part hors site tant que tu n'as pas décidé. Si ce n'était pas toi : ne supprime rien, Object Lock garde peut-être encore les données ; le consultant montre comment les récupérer. Si le dépôt est nouveau, dis-le à Monsieur Backupsi.",
   "notify.kopia_writes.subject": "Le stockage hors site n'accepte plus rien",
   "notify.kopia_writes": "Depuis le {since}, le stockage hors site ({storage}) n'accepte rien. 1. Vérifie la page d'état du fournisseur. 2. Vérifie que la clé peut encore écrire. 3. Redémarre Kopia ({name}).",
   "held.callout": "La copie hors site est soudain vide ({before} snapshots le {when}, maintenant {now}). Depuis le {since}, rien ne part hors site. Si ce n'était pas toi : ne supprime rien – Object Lock garde peut-être encore les données.",

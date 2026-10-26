@@ -1967,7 +1967,7 @@
   "warn_code.kopia_stalled": "Lo spazio fuori sede non accetta niente dal {since}. Il caricamento di {name} da parte di Kopia è stato interrotto dopo {minutes} min senza progressi. Gli snapshot locali e i pacchetti sono pronti.",
   "warn_code.docker_off_offsite": "Docker è spento — questa volta niente è andato fuori sede, perché Kopia gira in un contenitore. Gli snapshot e i pacchetti locali sono fatti. Puoi accendere Docker in ⟦Settings⟧ → ⟦Docker⟧.",
   "notify.kopia_held.subject": "La copia fuori sede è improvvisamente vuota",
-  "notify.kopia_held": "Il {when} c'erano {before} snapshot, ora {now}: un attacco o il repository sbagliato? Niente va fuori sede. Se non sei stato tu: non eliminare niente, Object Lock potrebbe ancora conservare i dati. Se il repository è nuovo, dillo al signor Backupsi.",
+  "notify.kopia_held": "Il {when} c'erano {before} snapshot, ora {now}: un attacco o il repository sbagliato? Finché non decidi, niente va fuori sede. Se non sei stato tu: non eliminare niente, Object Lock potrebbe ancora conservare i dati; il consulente mostra come recuperarli. Se il repository è nuovo, dillo al signor Backupsi.",
   "notify.kopia_writes.subject": "Lo spazio fuori sede non accetta più niente",
   "notify.kopia_writes": "Dal {since} lo spazio fuori sede ({storage}) non accetta niente. 1. Controlla la pagina di stato del fornitore. 2. Controlla che la chiave possa ancora scrivere. 3. Riavvia Kopia ({name}).",
   "held.callout": "La copia fuori sede è improvvisamente vuota ({before} snapshot il {when}, ora {now}). Dal {since} niente va fuori sede. Se non sei stato tu: non eliminare niente – Object Lock potrebbe ancora conservare i dati.",

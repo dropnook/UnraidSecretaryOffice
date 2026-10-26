@@ -1961,7 +1961,7 @@
   "warn_code.kopia_stalled": "The offsite storage has taken nothing since {since}. Kopia's upload of {name} was ended after {minutes} min without progress. The local snapshots and packages are done.",
   "warn_code.docker_off_offsite": "Docker is switched off — nothing went offsite this time, because Kopia runs in a container. The local snapshots and packages are done. You can switch Docker on under ⟦Settings⟧ → ⟦Docker⟧.",
   "notify.kopia_held.subject": "The offsite copy is suddenly empty",
-  "notify.kopia_held": "On {when} there were {before} snapshots, now {now}: an attack or the wrong repository? Nothing goes offsite. If that wasn't you: delete nothing, Object Lock may still hold the data. If the repository is new, tell Mr. Backupsy.",
+  "notify.kopia_held": "On {when} there were {before} snapshots, now {now}: an attack or the wrong repository? Nothing goes offsite until you decide. If that wasn't you: delete nothing, Object Lock may still hold the data; the Consultant shows how to get it back. If the repository is new, tell Mr. Backupsy.",
   "notify.kopia_writes.subject": "The offsite storage takes nothing",
   "notify.kopia_writes": "Since {since} the offsite storage ({storage}) takes nothing. 1. Check the provider's status page. 2. Check that the key may still write. 3. Restart Kopia ({name}).",
   "held.callout": "The offsite copy is suddenly empty ({before} snapshots on {when}, now {now}). Nothing has gone offsite since {since}. If that wasn't you: delete nothing – Object Lock may still hold the data.",

@@ -1982,7 +1982,7 @@
   "warn_code.kopia_stalled": "El almacenamiento fuera de casa no acepta nada desde el {since}. La subida de {name} por Kopia se terminó tras {minutes} min sin avance. Las instantáneas locales y los paquetes están hechos.",
   "warn_code.docker_off_offsite": "Docker está apagado — esta vez nada salió fuera de casa, porque Kopia funciona en un contenedor. Las instantáneas y los paquetes locales están hechos. Puedes encender Docker en ⟦Settings⟧ → ⟦Docker⟧.",
   "notify.kopia_held.subject": "La copia fuera de casa está de repente vacía",
-  "notify.kopia_held": "El {when} había {before} instantáneas, ahora {now}: ¿un ataque o el repositorio equivocado? Nada sale fuera de casa. Si no fuiste tú: no borres nada, Object Lock quizá aún guarda los datos. Si el repositorio es nuevo, díselo al señor Backupsi.",
+  "notify.kopia_held": "El {when} había {before} instantáneas, ahora {now}: ¿un ataque o el repositorio equivocado? Hasta que decidas, nada sale fuera de casa. Si no fuiste tú: no borres nada, Object Lock quizá aún guarda los datos; el consultor muestra cómo recuperarlos. Si el repositorio es nuevo, díselo al señor Backupsi.",
   "notify.kopia_writes.subject": "El almacenamiento fuera de casa no acepta nada",
   "notify.kopia_writes": "Desde el {since} el almacenamiento fuera de casa ({storage}) no acepta nada. 1. Mira la página de estado del proveedor. 2. Comprueba que la clave aún puede escribir. 3. Reinicia Kopia ({name}).",
   "held.callout": "La copia fuera de casa está de repente vacía ({before} instantáneas el {when}, ahora {now}). Desde el {since} nada sale fuera de casa. Si no fuiste tú: no borres nada – Object Lock quizá aún guarda los datos.",
