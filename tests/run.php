@@ -53281,6 +53281,9 @@ SH);
                   'setup.msg.pool_low_space' => ['pool', 'free_h', 'size_h', 'floor_h', 'apps'], 'warn_code.pool_low_space' => ['pool', 'free_h', 'size_h', 'floor_h', 'apps'],
                   'setup.msg.kopia_volumes' => ['app', 'paths']] as $k => $ps) {
             $t = $s[$k] ?? null;
+            if (is_string($t) && is_string($s[$k . '_why'] ?? null)) {
+                $t .= ' ' . $s[$k . '_why'];       // 2026-10-26: the problem in short, the steps under it (`_why`)
+            }
             if (!is_string($t) || array_filter($ps, fn ($x) => !str_contains($t, '{' . $x . '}'))) {
                 $missing[] = "$l $k";
             }
@@ -53288,7 +53291,8 @@ SH);
         if (!str_contains((string) ($s['setup.msg.share_deleted_snapshots'] ?? ''), 'Snapshotini') || !str_contains((string) ($s['setup.msg.share_deleted_snapshots'] ?? ''), '⟦Shares⟧')) {
             $missing[] = "$l share_deleted_snapshots: the way (Ms. Snapshotini, ⟦Shares⟧)";
         }
-        if (!str_contains((string) ($s['setup.msg.kopia_volumes'] ?? ''), '⟦Host Path⟧') || !str_contains((string) ($s['setup.msg.kopia_volumes'] ?? ''), '/backups')) {
+        $kv = ($s['setup.msg.kopia_volumes'] ?? '') . ' ' . ($s['setup.msg.kopia_volumes_why'] ?? '');
+        if (!str_contains($kv, '⟦Host Path⟧') || !str_contains($kv, '{paths}') || !str_contains($kv, '/mnt/user/appdata/{app}/')) {
             $missing[] = "$l kopia_volumes: what lives there and how to bind it";
         }
     }

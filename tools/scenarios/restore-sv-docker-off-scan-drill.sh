@@ -4,12 +4,16 @@
 # Mr. Restori's look (RS-SCAN) ends and says what is: no VMs, Docker off — never «0 of 0» or «?» (INV-PAGE); his drill
 # (RS-DRILL) practises without container steps and passes (steps ok or «not checked» with a reason, never failed), no
 # drill container or folder left (INV-LEFTOVER). Pre-release (~4 min).
+# Its own packages first (BK-RUN-MANUAL, with Docker still on): the base's backup place is empty (base.sh sets its apps/
+# vms/ server/ flash/ aside), so on its own this cell only ever worked after another scenario's run - first in a set
+# (1.74.1's step 6b: restore desks only) his look found «vms 0» and the drill «nothing to practise» (tower-repair, 2026-10-26).
 . "$(dirname "$0")/lib.sh"
 scenario_begin restore-sv-docker-off-scan-drill
 needs docker
 cell() { local n=$1 ok=$2; shift 2; _row cell "$n" "$( ((ok)) && echo green || echo red)" "$*"; say "cell $n: $( ((ok)) && echo ok || echo RED) — $*"; }
 has vm && say "this server runs the VM service — the «no VMs» part is the base's only where it doesn't"
 nc_data_closed
+flow BK-RUN-MANUAL mode=backup               # the packages his look and the drill read (the base's place is empty)
 state SV-DOCKER-OFF cfg                    # switched off as the user does (docker.cfg): stopped alone is «on but silent»
 snap_before
 t0=$SECONDS
