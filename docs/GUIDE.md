@@ -35,7 +35,7 @@ reception puts the desks in the order you like.
 
 <a name="jack-live"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/jack-live-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/jack-live-light.png" alt="Jack Streamer live: he gets ready for each person what they watch next"></picture></a>
 
-<a name="moverelli-live"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/moverelli-live-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/moverelli-live-light.png" alt="Ms. Moverelli's joint run, live: the pool before and after (forecast), the array beside it, a file on its way"></picture></a>
+<a name="moverelli-live"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/moverelli-live-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/moverelli-live-light.png" alt="Ms. Moverelli's joint run, live: the pool before and after (forecast), what Jack Streamer laid out and how much of it was watched, the limit, the array beside it"></picture></a>
 
 <a name="snapshot-why"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/snapshot-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/snapshot-light.png" alt="Ms. Snapshotini: one snapshot in detail, why «used» and «new since» differ"></picture></a>
 
@@ -86,11 +86,15 @@ aside where. Only when you confirm does he start, on the server, one restore at 
 He never starts or recreates a container — he says what to click. For the rest there are ready-made commands with your
 names and paths, and a guide *onto a new server*.
 
+<a name="restore-files"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/restore-files-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/restore-files-light.png" alt="Mr. Restori&#x27;s «Files in it…»: a snapshot chosen, a holiday folder of family videos with its folders and files, two files ticked for «Restore…»"></picture></a>
+
 **The flash** has a tile of its own: when its archive was made, how big it is and where it is kept — here, offsite, at a
 partner (or the boot pool's snapshots, or «not backed up»). *Download…* hands you the archive after a dialog that says
 what it holds (the licence key, the password hashes); single files from it you copy back by hand. **Kept for
 <partner>** shows what this server keeps of a partner office, with the apps and VMs inside each copy — each can be
 started here.
+
+<a name="restore-shares"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/restore-shares-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/restore-shares-light.png" alt="Mr. Restori&#x27;s tiles — apps, VMs, shares, databases, the partner offices, the flash, offsite, the drill — and his shares: each with its local snapshots, its copy at a partner and the app that uses it"></picture></a>
 
 ### The restore drill
 
@@ -180,7 +184,7 @@ than the one the office was tested on.
 header. A tile on Unraid's Dashboard shows the essentials: the messenger, the Team Lead's open points, the last and
 next backup. The green dot beside *⋯* means the messenger (the office's agent) checked in within the last 70 seconds.
 
-<a name="backup-apply"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup-setup-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup-setup-light.png" alt="Mr. Backupsy&#x27;s setup: «Apply the settings?» — 1 proposal of mine · 1 change of yours"></picture></a>
+<a name="backup-apply"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup-setup-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup-setup-light.png" alt="Mr. Backupsy&#x27;s setup: «Apply the settings?» — each change with his proposals marked, what is new on the server, what goes to which partner"></picture></a>
 
 ## Updates and removal
 
@@ -279,7 +283,7 @@ USO network…* (and the plugin's removal) takes everything of it away again.
 
 <a name="backup-levels"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/levels-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/levels-light.png" alt="Mr. Backupsy&#x27;s setup: a level switch per VM with five fields — off, local, local + partner, local + offsite, local + partner + offsite; the partner fields grey where a VM has no ZFS dataset of its own"></picture></a>
 
-<a name="caretaker-partner"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/partner-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/partner-light.png" alt="The Team Lead&#x27;s partner card: what this server sends to the partner and what it keeps of the partner, each with its use and retention"></picture></a>
+<a name="caretaker-partner"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/partner-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/partner-light.png" alt="The Team Lead&#x27;s partner card: what this server sends to the partner and what it keeps of the partner, each with its use and retention; below it the USO network — this server&#x27;s node and its partners in it, direct or relayed"></picture></a>
 
 ## Notifications
 

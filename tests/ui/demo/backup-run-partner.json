@@ -4,7 +4,7 @@
  "dir": "/usr/local/emhttp/plugins/unraid-secretary-office/backup",
  "data": "/mnt/cache/appdata/UnraidSecretaryOffice/data/unraid-backup",
  "asleep": false,
- "version": "2.42",
+ "version": "2.77",
  "interface": 1,
  "compatible": true,
  "settings_found": true,
@@ -200,7 +200,23 @@
    ],
    "skipped": [],
    "failed": [],
-   "interrupted": null
+   "interrupted": null,
+   "streams": [
+    {
+     "id": "2ec7accd",
+     "unit": "share:Familienfotos",
+     "since": 1791551053,
+     "bytes": 1288490188,
+     "estimate": 4617089843
+    },
+    {
+     "id": "2ec7accd",
+     "unit": "share:Dokumente",
+     "since": 1791551093,
+     "bytes": 536870912,
+     "estimate": 3221225472
+    }
+   ]
   },
   "partner_ok": 1,
   "partner_failed": 0,
@@ -1541,10 +1557,10 @@
    "current": {
     "unit": "share:Familienfotos",
     "since": 1791551053,
-    "bytes": 1288490188,
-    "estimate": 4617089843,
+    "bytes": 1825361100,
+    "estimate": 7838315315,
     "rate": 89128960.0,
-    "eta": 95
+    "eta": 120
    }
   }
  ],

@@ -1444,5 +1444,388 @@
    ],
    "pools": null
   }
- ], "kept": [{"id": "7c1e9a02", "name": "Tochter", "pool": "cache", "asleep": false, "used_bytes": 23622320128, "quota_gb": 200, "time": 1791543874, "units": [{"unit": "share:Handy-Tochter", "dataset": "cache/UnraidSecretaryOffice-partners/7c1e9a02/share-Handy-Tochter", "snap": "uso-backup-20261009-1104", "time": 1791543874, "new": false, "stale": false, "snaps": [{"name": "uso-backup-20261009-1104", "creation": 1791543874, "used": 262144, "referenced": 19327352832}, {"name": "uso-backup-20261008-1104", "creation": 1791457474, "used": 524288, "referenced": 19326304256}, {"name": "uso-backup-20261007-1104", "creation": 1791371074, "used": 786432, "referenced": 19325255680}, {"name": "uso-backup-20261006-1104", "creation": 1791284674, "used": 1048576, "referenced": 19324207104}, {"name": "uso-backup-20261005-1104", "creation": 1791198274, "used": 1310720, "referenced": 19323158528}], "n": 5, "newest": 1791543874, "bytes": 19327352832}, {"unit": "vm:Schule", "dataset": "cache/UnraidSecretaryOffice-partners/7c1e9a02/vm-Schule", "snap": "uso-backup-20261009-1004", "time": 1791540274, "new": true, "stale": false, "snaps": [{"name": "uso-backup-20261009-1004", "creation": 1791540274, "used": 262144, "referenced": 4294967296}, {"name": "uso-backup-20261008-1004", "creation": 1791453874, "used": 524288, "referenced": 4293918720}, {"name": "uso-backup-20261007-1004", "creation": 1791367474, "used": 786432, "referenced": 4292870144}], "n": 3, "newest": 1791540274, "bytes": 4294967296}]}]
+ ], "kept": [{"id": "7c1e9a02", "name": "Tochter", "pool": "cache", "asleep": false, "used_bytes": 23622320128, "quota_gb": 200, "time": 1791543874, "units": [{"unit": "share:Handy-Tochter", "dataset": "cache/UnraidSecretaryOffice-partners/7c1e9a02/share-Handy-Tochter", "snap": "uso-backup-20261009-1104", "time": 1791543874, "new": false, "stale": false, "snaps": [{"name": "uso-backup-20261009-1104", "creation": 1791543874, "used": 262144, "referenced": 19327352832}, {"name": "uso-backup-20261008-1104", "creation": 1791457474, "used": 524288, "referenced": 19326304256}, {"name": "uso-backup-20261007-1104", "creation": 1791371074, "used": 786432, "referenced": 19325255680}, {"name": "uso-backup-20261006-1104", "creation": 1791284674, "used": 1048576, "referenced": 19324207104}, {"name": "uso-backup-20261005-1104", "creation": 1791198274, "used": 1310720, "referenced": 19323158528}], "n": 5, "newest": 1791543874, "bytes": 19327352832}, {"unit": "vm:Schule", "dataset": "cache/UnraidSecretaryOffice-partners/7c1e9a02/vm-Schule", "snap": "uso-backup-20261009-1004", "time": 1791540274, "new": true, "stale": false, "snaps": [{"name": "uso-backup-20261009-1004", "creation": 1791540274, "used": 262144, "referenced": 4294967296}, {"name": "uso-backup-20261008-1004", "creation": 1791453874, "used": 524288, "referenced": 4293918720}, {"name": "uso-backup-20261007-1004", "creation": 1791367474, "used": 786432, "referenced": 4292870144}], "n": 3, "newest": 1791540274, "bytes": 4294967296}]}],
+ "shares_back": [
+  {
+   "name": "appdata",
+   "path": "/mnt/user/appdata",
+   "state": "data",
+   "mode": "snapshot",
+   "exclusive": true,
+   "protection": "local",
+   "protection_note": {
+    "set": "local",
+    "why": [],
+    "since": null,
+    "partners": [
+     "Grosseltern"
+    ],
+    "missed": []
+   },
+   "exists": true,
+   "asleep": false,
+   "places": [
+    {
+     "base": "cache",
+     "fs": "zfs",
+     "live": "/mnt/cache/appdata",
+     "asleep": false,
+     "exists": true,
+     "dataset": "cache/appdata",
+     "own_dataset": true,
+     "inner": [],
+     "count": 7,
+     "latest": {
+      "id": "cache/appdata@uso-backup-20261009-0430",
+      "name": "uso-backup-20261009-0430",
+      "time": 1791513012,
+      "path": "/mnt/cache/appdata/.zfs/snapshot/uso-backup-20261009-0430",
+      "ours": true
+     }
+    }
+   ],
+   "snaps": 7,
+   "newest": 1791513012,
+   "oldest": 1791426605,
+   "kopia": null,
+   "at_partner": [
+    {
+     "id": "2ec7accd",
+     "name": "Grosseltern",
+     "unit": "share:appdata",
+     "newest": 1791445024,
+     "n": 5
+    }
+   ],
+   "pulled": 0,
+   "whole_of": [],
+   "folders_of": [
+    "EmbyServer",
+    "Grafana",
+    "immich",
+    "kopia",
+    "mariadb-nextcloud",
+    "Nextcloud",
+    "prometheus"
+   ],
+   "vms": [],
+   "old": null
+  },
+  {
+   "name": "Dokumente",
+   "path": "/mnt/user/Dokumente",
+   "state": "data",
+   "mode": "snapshot",
+   "exclusive": true,
+   "protection": "local",
+   "protection_note": null,
+   "exists": true,
+   "asleep": false,
+   "places": [
+    {
+     "base": "daten",
+     "fs": "zfs",
+     "live": "/mnt/daten/Dokumente",
+     "asleep": false,
+     "exists": true,
+     "dataset": "daten/Dokumente",
+     "own_dataset": true,
+     "inner": [],
+     "count": 7,
+     "latest": {
+      "id": "daten/Dokumente@uso-backup-20261009-0430",
+      "name": "uso-backup-20261009-0430",
+      "time": 1791513012,
+      "path": "/mnt/daten/Dokumente/.zfs/snapshot/uso-backup-20261009-0430",
+      "ours": true
+     }
+    }
+   ],
+   "snaps": 7,
+   "newest": 1791513012,
+   "oldest": 1791426605,
+   "kopia": null,
+   "at_partner": [],
+   "pulled": 0,
+   "whole_of": [
+    "Nextcloud"
+   ],
+   "folders_of": [],
+   "vms": [],
+   "old": null
+  },
+  {
+   "name": "domains",
+   "path": "/mnt/user/domains",
+   "state": "data",
+   "mode": "snapshot",
+   "exclusive": true,
+   "protection": "local",
+   "protection_note": {
+    "set": "local",
+    "why": [],
+    "since": null,
+    "partners": [
+     "Grosseltern"
+    ],
+    "missed": []
+   },
+   "exists": true,
+   "asleep": false,
+   "places": [
+    {
+     "base": "cache",
+     "fs": "zfs",
+     "live": "/mnt/cache/domains",
+     "asleep": false,
+     "exists": true,
+     "dataset": "cache/domains",
+     "own_dataset": true,
+     "inner": [],
+     "count": 7,
+     "latest": {
+      "id": "cache/domains@uso-backup-20261009-0430",
+      "name": "uso-backup-20261009-0430",
+      "time": 1791513012,
+      "path": "/mnt/cache/domains/.zfs/snapshot/uso-backup-20261009-0430",
+      "ours": true
+     }
+    }
+   ],
+   "snaps": 7,
+   "newest": 1791513012,
+   "oldest": 1791426605,
+   "kopia": null,
+   "at_partner": [
+    {
+     "id": "2ec7accd",
+     "name": "Grosseltern",
+     "unit": "share:domains",
+     "newest": 1791513012,
+     "n": 7
+    }
+   ],
+   "pulled": 0,
+   "whole_of": [],
+   "folders_of": [],
+   "vms": [],
+   "old": null
+  },
+  {
+   "name": "Familienfotos",
+   "path": "/mnt/user/Familienfotos",
+   "state": "data",
+   "mode": "snapshot",
+   "exclusive": true,
+   "protection": "local",
+   "protection_note": null,
+   "exists": true,
+   "asleep": false,
+   "places": [
+    {
+     "base": "daten",
+     "fs": "zfs",
+     "live": "/mnt/daten/Familienfotos",
+     "asleep": false,
+     "exists": true,
+     "dataset": "daten/Familienfotos",
+     "own_dataset": true,
+     "inner": [],
+     "count": 4,
+     "latest": {
+      "id": "daten/Familienfotos@uso-backup-20261009-0430",
+      "name": "uso-backup-20261009-0430",
+      "time": 1791513012,
+      "path": "/mnt/daten/Familienfotos/.zfs/snapshot/uso-backup-20261009-0430",
+      "ours": true
+     }
+    }
+   ],
+   "snaps": 4,
+   "newest": 1791513012,
+   "oldest": 1791458906,
+   "kopia": null,
+   "at_partner": [],
+   "pulled": 0,
+   "whole_of": [
+    "immich"
+   ],
+   "folders_of": [],
+   "vms": [],
+   "old": null
+  },
+  {
+   "name": "Familienvideos",
+   "path": "/mnt/user/Familienvideos",
+   "state": "data",
+   "mode": "snapshot",
+   "exclusive": true,
+   "protection": "local",
+   "protection_note": null,
+   "exists": true,
+   "asleep": false,
+   "places": [
+    {
+     "base": "daten",
+     "fs": "zfs",
+     "live": "/mnt/daten/Familienvideos",
+     "asleep": false,
+     "exists": true,
+     "dataset": "daten/Familienvideos",
+     "own_dataset": true,
+     "inner": [],
+     "count": 4,
+     "latest": {
+      "id": "daten/Familienvideos@uso-backup-20261009-0430",
+      "name": "uso-backup-20261009-0430",
+      "time": 1791513012,
+      "path": "/mnt/daten/Familienvideos/.zfs/snapshot/uso-backup-20261009-0430",
+      "ours": true
+     }
+    }
+   ],
+   "snaps": 4,
+   "newest": 1791513012,
+   "oldest": 1791458906,
+   "kopia": null,
+   "at_partner": [],
+   "pulled": 0,
+   "whole_of": [
+    "EmbyServer"
+   ],
+   "folders_of": [],
+   "vms": [],
+   "old": null
+  },
+  {
+   "name": "isos",
+   "path": "/mnt/user/isos",
+   "state": "data",
+   "mode": "snapshot",
+   "exclusive": true,
+   "protection": "local",
+   "protection_note": null,
+   "exists": true,
+   "asleep": false,
+   "places": [
+    {
+     "base": "daten",
+     "fs": "zfs",
+     "live": "/mnt/daten/isos",
+     "asleep": false,
+     "exists": true,
+     "dataset": "daten/isos",
+     "own_dataset": true,
+     "inner": [],
+     "count": 4,
+     "latest": {
+      "id": "daten/isos@uso-backup-20261009-0430",
+      "name": "uso-backup-20261009-0430",
+      "time": 1791513012,
+      "path": "/mnt/daten/isos/.zfs/snapshot/uso-backup-20261009-0430",
+      "ours": true
+     }
+    }
+   ],
+   "snaps": 4,
+   "newest": 1791513012,
+   "oldest": 1791458906,
+   "kopia": null,
+   "at_partner": [],
+   "pulled": 0,
+   "whole_of": [],
+   "folders_of": [],
+   "vms": [],
+   "old": null
+  },
+  {
+   "name": "paperless",
+   "path": "/mnt/user/paperless",
+   "state": "data",
+   "mode": "snapshot",
+   "exclusive": true,
+   "protection": "local",
+   "protection_note": null,
+   "exists": true,
+   "asleep": false,
+   "places": [
+    {
+     "base": "cache",
+     "fs": "zfs",
+     "live": "/mnt/cache/paperless",
+     "asleep": false,
+     "exists": true,
+     "dataset": "cache/paperless",
+     "own_dataset": true,
+     "inner": [],
+     "count": 7,
+     "latest": {
+      "id": "cache/paperless@uso-backup-20261009-0430",
+      "name": "uso-backup-20261009-0430",
+      "time": 1791513012,
+      "path": "/mnt/cache/paperless/.zfs/snapshot/uso-backup-20261009-0430",
+      "ours": true
+     }
+    }
+   ],
+   "snaps": 7,
+   "newest": 1791513012,
+   "oldest": 1791426605,
+   "kopia": null,
+   "at_partner": [],
+   "pulled": 0,
+   "whole_of": [],
+   "folders_of": [],
+   "vms": [],
+   "old": null
+  },
+  {
+   "name": "system",
+   "path": "/mnt/user/system",
+   "state": "data",
+   "mode": "off",
+   "exclusive": true,
+   "protection": "none",
+   "protection_note": null,
+   "exists": true,
+   "asleep": false,
+   "places": [
+    {
+     "base": "cache",
+     "fs": "zfs",
+     "live": "/mnt/cache/system",
+     "asleep": false,
+     "exists": true,
+     "dataset": "cache/system",
+     "own_dataset": true,
+     "inner": [],
+     "count": 0,
+     "latest": null
+    }
+   ],
+   "snaps": 0,
+   "newest": null,
+   "oldest": null,
+   "kopia": null,
+   "at_partner": [],
+   "pulled": 0,
+   "whole_of": [],
+   "folders_of": [],
+   "vms": [],
+   "old": null
+  }
+ ],
+ "flash_backup": {
+  "mode": "tar",
+  "protection": "local",
+  "protection_note": {
+   "set": "local",
+   "why": [],
+   "since": null,
+   "partners": [
+    "Grosseltern"
+   ],
+   "missed": []
+  }
+ }
 }

@@ -67,9 +67,23 @@
   "nr": 10,
   "desk": "caretaker",
   "moment": "partner",
-  "title": "Der Teamchef - Partner-Sekretariat bei den Grosseltern (Kopien in beide Richtungen)",
+  "title": "Der Teamchef - Partner-Sekretariat bei den Grosseltern (Kopien in beide Richtungen), darunter das USO-Netz mit beiden",
   "route": "caretaker",
-  "clip": "[data-ct=partners]"
+  "clip": "[data-ct=partners]",
+  "states": {
+   "caretaker": "caretaker-usonet"
+  }
+ },
+ {
+  "nr": 10,
+  "desk": "caretaker",
+  "moment": "usonet",
+  "title": "Der Teamchef - das USO-Netz: der eigene Tailscale-Knoten des Sekretariats, die Partner darin",
+  "route": "caretaker",
+  "states": {
+   "caretaker": "caretaker-usonet"
+  },
+  "clip": "[data-place=\"usonet\"]"
  },
  {
   "nr": 3,
@@ -151,6 +165,49 @@
  {
   "nr": 4,
   "desk": "restore",
+  "moment": "shares",
+  "title": "Herr Restori - seine Kacheln mit Shares und Flash, jeder Share mit seinen Snapshots und der Kopie beim Partner",
+  "route": "restore/shares",
+  "clip": [
+   ".rs-tiles",
+   "section:has(> [data-place=\"shares\"])"
+  ]
+ },
+ {
+  "nr": 4,
+  "desk": "restore",
+  "moment": "files",
+  "title": "Herr Restori - einzelne Dateien zurückholen: ein Zeitpunkt, ein Ordner Familienvideos, zwei Dateien angehakt",
+  "route": "restore/shares",
+  "prepare": [
+   {
+    "click": "[data-key=\"share:Familienvideos\"] .row-name",
+    "pause": 400
+   },
+   {
+    "js": "[...document.querySelectorAll('[data-key=\"share:Familienvideos\"] button')].find((b) => b.textContent === Office.t('restore.fb.button')).click()",
+    "pause": 900
+   },
+   {
+    "click": ".rs-fb-row input[aria-label=\"Sandburg.mp4\"]",
+    "pause": 300
+   },
+   {
+    "click": ".rs-fb-row input[aria-label=\"Strand am Abend.mp4\"]",
+    "pause": 300
+   },
+   {
+    "js": "document.activeElement && document.activeElement.blur(); const d = document.getElementById('sso-dialog'); if (d) d.style.maxHeight = 'none'",
+    "pause": 300
+   }
+  ],
+  "clip": "#sso-dialog",
+  "viewport": true,
+  "height": 1100
+ },
+ {
+  "nr": 4,
+  "desk": "restore",
   "moment": "partner-vm",
   "title": "Herr Restori - eine VM vom Partner zurückholen: die Schritte, der Balken, fertig etwa um, und wie er sie diesem Server anpasst",
   "route": "restore",
@@ -184,13 +241,17 @@
    {
     "click": "#sso-dialog .sp-why",
     "pause": 400
+   },
+   {
+    "js": "const d = document.getElementById('sso-dialog'); if (d) d.style.maxHeight = 'none'",
+    "pause": 300
    }
   ],
   "clip": [
    "#sso-dialog"
   ],
   "viewport": true,
-  "height": 1150
+  "height": 1300
  },
  {
   "nr": 6,
