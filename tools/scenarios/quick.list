@@ -25,7 +25,7 @@ backup-ct-app-is-dataset-run                    backup                          
 backup-st-renamed-run                           backup                          110
 backup-vm-ct-paused-shutoff-run                 backup                          110
 
-restore-sv-docker-off-scan-drill                restore                         40
+restore-sv-docker-off-scan-drill                restore                         90
 restore-rn-changes-between-putback              restore,backup                  55
 restore-ct-image-gone-drill                     restore                         65
 restore-ct-stopped-db-db                        restore                         110
