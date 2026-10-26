@@ -370,16 +370,16 @@
   "help.order": "Order",
   "help.order_text": "Templates first, then stacks, then appdata. A folder counts as in use as long as a template or stack names it — once those are gone, it shows up here.",
   "help.trash": "Storeroom",
-  "help.trash_text": "Nothing is deleted right away. What you put away is renamed into the hidden folder .UnraidSecretaryOffice-trash on the same disk — templates and stacks on the flash, appdata folders in the appdata share itself. That takes no time and no extra space, and \"Put back\" undoes it. Only \"Empty\" deletes for good. Docker's volumes can't be renamed: I copy them into .UnraidSecretaryOffice-trash beside Docker's data (in the share that holds docker.img or the docker folder), which needs their size free once more while copying. A folder _UnraidSecretaryOffice-trash from before is mine too: I move what lies in it over by myself.",
+  "help.trash_text": "Nothing is deleted right away: what you put away I only rename, into the hidden folder .UnraidSecretaryOffice-trash on the same disk. «Put back» undoes it; only «Empty» deletes for good. Docker's volumes I copy instead, beside Docker's data. For that, their size must be free there once more.",
   "help.templates_text": "Leftover: no container and no image. Unused: no container, but the image is still there. Duplicate: an older file with the same <Name>. A template whose container exists is in use.",
   "help.stacks_text": "Matched with the containers by project name, the way the Compose Manager names them. Paths and images come from docker compose config, with the .env. A stack with containers is stopped (compose down) before it is put away; named volumes stay.",
-  "help.appdata_text": "A folder is in use as soon as something names it: a container's mount, any template, a stack (with its .env), a compose file outside the Compose Manager, a VM, or any file on the flash (User Scripts, plugin settings …). A container that mounts the whole share doesn't count.",
+  "help.appdata_text": "A folder is in use when a container, a template, a stack, a compose file, a VM or a file on the flash names it. A container that mounts the whole share doesn't count.",
   "help.check": "Please check",
   "help.check_text": "Nothing uses it, but: something has the same name, it is only mentioned in caches or the shell history, or something was written there in the last 30 days.",
   "help.sizes": "Sizes",
   "help.sizes_text": "I count files and sizes in the background — folders to look at on my own, folders in use when you ask. Sleeping disks stay asleep; \"Wake & look\" wakes them when you want.",
   "help.safe": "Careful",
-  "help.safe_text": "While a backup runs I change nothing. I only ever rename — where that isn't possible (another disk, a dataset of its own) I refuse instead of copying. The one exception is Docker's volumes: Docker can't rename them, so I copy them, after checking there is room, and remove them only once the copy is complete.",
+  "help.safe_text": "While a backup runs, I change nothing. I only rename; where that isn't possible, I refuse. The exception: Docker's volumes I copy, and remove them only once the copy is complete.",
   "errors.cleanup_backup_running": "A backup is running — I'll wait until it's done.",
   "errors.cleanup_restore_running": "Mr. Restori is bringing something back right now — I'll wait until he's done.",
   "errors.cleanup_docker_down": "Docker doesn't answer — I won't touch {name} without it.",
@@ -503,7 +503,7 @@
   "d.mountpoint": "Mountpoint",
   "d.driver": "Driver",
   "d.uuid": "UUID",
-  "docker.note": "Images and the build cache can't go into my storeroom — removing them is for good, but images can be pulled again. Volumes go into it first: I copy what they hold beside Docker's data, and only then does Docker remove them. Only volumes of another driver or mounted from elsewhere (NFS, CIFS …) can't be copied — those go for good.",
+  "docker.note": "Images and the build cache are gone once removed; images can be pulled again. Volumes I copy into my storeroom first. The exception: volumes over NFS, CIFS or another driver are gone for good.",
   "docker.cache_at": "Asked Docker about its build cache {when}.",
   "remove.button": "Remove…",
   "remove.title": {
@@ -563,7 +563,7 @@
     "other": "{n} Docker leftovers · {size}"
   },
   "help.vms_text": "Folders in the domains share no VM uses; NVRAM files, TPM states and snapshot lists of deleted VMs (in libvirt.img); disk images in the isos share no VM has inserted. Only while the VM service runs. NVRAM copies of an existing VM's snapshots belong to Ms. Snapshotini.",
-  "help.docker_text": "Dangling images (left over from updates), tagged images no container uses, volumes no container mounts, the build cache. Docker can't rename them: volumes I copy into my storeroom beside Docker's data first and remove only once the copy is complete. Images and the cache are removed for good (images can be pulled again), and so are volumes of another driver or mounted from elsewhere (NFS, CIFS …) — never while a container still uses them.",
+  "help.docker_text": "Dangling and unused images, unused volumes and the build cache; never what a container uses. Volumes I copy into my storeroom first. Images and the cache are gone afterwards (images can be pulled again), and so are volumes over NFS, CIFS or another driver.",
   "errors.cleanup_vm_off": "The VM service isn't running — I won't touch {name} without it.",
   "errors.cleanup_destroy_failed": "zfs destroy of {name} failed: {detail}",
   "errors.cleanup_docker_failed": "Docker couldn't remove {name}: {detail}",
@@ -746,7 +746,7 @@
     "one": "1 share settings file left behind",
     "other": "{n} share settings files left behind"
   },
-  "help.flash_text": "Settings files in /boot/config/shares whose share is gone: a share removed by hand (its folders deleted) leaves its .cfg behind, and some tools still count it as a share. I offer such a file only while the array runs and Unraid knows no share of that name; a share Unraid knows keeps its file.",
+  "help.flash_text": "Settings files in /boot/config/shares whose share is gone. They stay behind when a share is deleted by hand, and some tools still count them as a share. I offer them only while the array runs.",
   "item.sharecfg": "Share settings",
   "errors.cleanup_share_known": "Unraid knows the share {name} — its settings stay.",
   "errors.cleanup_shares_unknown": "The array isn't started — I can't tell whether the share {name} still exists.",
@@ -807,7 +807,7 @@
   "pic.upload_hint": "From your computer: PNG, JPEG, WebP, GIF or SVG. Your browser makes a square PNG of at most 256 × 256 pixels out of it, and only that is sent; I keep it on the flash ({dir}).",
   "pic.upload_bad": "Your browser can't read that file as a picture.",
   "pic.local_preview": "A file on the server — too big to preview here.",
-  "pic.where": "Unraid takes a container's picture from its template, else from its label net.unraid.docker.icon. I look for pictures on this server named like the app (Unraid's dockerMan/images folder), for logos in Community Applications on this server, in a table of well-known images and by the image's name (the open dashboard-icons collection) — I only offer pictures that load. Or upload one of your own in the details.",
+  "pic.where": "I look for pictures on this server, in Community Applications, in a table of well-known images and in the open dashboard-icons collection. I only offer pictures that load. Or upload one of your own in the details.",
   "pic.checking_all": "Checking whether the pictures load…",
   "pic.ca_at": "Community Applications' list from {when}.",
   "pic.no_ca": "Community Applications' list isn't here (it comes when its ⟦Apps⟧ page is opened) — fewer logos to choose from.",
@@ -834,7 +834,7 @@
   "pic.stack_missing_text": "The Compose Manager has no picture for this stack (icon_url) — Unraid's Docker page shows a question mark in front of it, even when its containers have pictures.",
   "pic.stack_broken_text": "Its icon_url says {value}, but the Compose Manager can't show that (no such file, or not an address it takes).",
   "pic.stack_ok_text": "The Compose Manager shows a picture for this stack. Nothing to straighten.",
-  "pic.how_stack": "I write the address into the stack's icon_url, the way the Compose Manager's stack settings do — Unraid's Docker page shows it the next time it loads. A picture on this server, an uploaded one, or one from the web that isn't square I copy into the stack's folder first (icon.png): the Compose Manager only shows files from there or under /mnt. Nothing restarts. The old icon_url goes into my storeroom first.",
+  "pic.how_stack": "I write the picture into the stack's icon_url, the way the Compose Manager does. Unraid's Docker page shows it the next time it loads. If needed, I copy it into the stack's folder as icon.png. Nothing restarts. The old icon_url goes into my storeroom.",
   "pic.d.main": "Main app",
   "pic.data_address": "a picture inside the address itself (data:)",
   "pic.own_hint_address": "Or your own: the address of a PNG (at most 1 MB) — I load and check it before I hang it.",
@@ -845,8 +845,8 @@
   "d.stack": "Stack",
   "icons.stack_note": "Stacks: I write their icon_url in the Compose Manager — the picture shows on the Docker page's next load. I don't restart anything.",
   "loop.text": {
-    "one": "Unraid {version} has a fault: for a container without a picture, its Docker page and Dashboard ask for question.png — a file this version doesn't ship — again and again, about a thousand times a second, until /var/log is full. 1 container has no picture. Keep those pages closed until it has one, or put a stand-in in place now.",
-    "other": "Unraid {version} has a fault: for a container without a picture, its Docker page and Dashboard ask for question.png — a file this version doesn't ship — again and again, about a thousand times a second, until /var/log is full. {n} containers have no picture. Keep those pages closed until they have one, or put a stand-in in place now."
+    "one": "A fault in Unraid {version}: for containers without a picture, the Docker page and Dashboard ask for question.png endlessly, until /var/log is full. 1 container has no picture. Keep those pages closed or put a stand-in in place.",
+    "other": "A fault in Unraid {version}: for containers without a picture, the Docker page and Dashboard ask for question.png endlessly, until /var/log is full. {n} containers have no picture. Keep those pages closed or put a stand-in in place."
   },
   "loop.button": "Put a stand-in in place",
   "loop.done": "Stand-in in place — the loop has stopped. It lives in RAM: gone after a reboot.",
@@ -895,7 +895,7 @@
   "item.icon": "file before its picture",
   "restore.done_icon": "{name} is back as it was — the picture is gone again (for a stack: from its next Compose Up).",
   "restore.done_stack_icon": "Stack {name}: its picture in the Compose Manager is back as it was.",
-  "help.icons_text": "Containers that show a question mark on Unraid's Docker page and Dashboard: no picture set, or one Unraid can't load. For a container from a template I set the <Icon> in its template (shown at once); for one from a Compose Manager stack, the label in the stack's override file (lasting from its next Compose Up). Pictures come from this server (named like the app in Unraid's dockerMan/images folder; Apple's Time Machine logo for Time Machine containers), from Community Applications on this server, a table of well-known images (a database in an app's stack gets its database's logo) and, once checked, a guess from the image's name — addresses from the open dashboard-icons collection; nothing is bundled. Or upload your own in a container's details: your browser makes a square PNG of at most 256 × 256 pixels, I keep it on the flash in the office's folder and set it from there. Before I change a file, it goes into my storeroom. A Compose stack has a picture of its own in the Compose Manager (icon_url): when it has none, or one that points nowhere, I list it too and offer its main app's picture (never its database's or cache's) — written at once, the old one into my storeroom.",
+  "help.icons_text": "Containers that show a question mark on Unraid's Docker page and Dashboard: they have no picture, or it doesn't load. I set a picture in the template (shown at once) or, for a stack, in its override file (from its next Compose Up). Pictures come from this server, Community Applications, a table of well-known images or the open dashboard-icons collection. You can also upload your own in the details; I keep it on the flash. When a Compose stack lacks a picture of its own, I offer its main app's. Before I change a file, it goes into my storeroom.",
   "help.loop": "Unraid 7.3.2",
   "help.loop_text": "This version doesn't ship the question mark it shows for containers without a picture, and its pages ask for it endlessly — /var/log fills up within minutes. While that is so, I offer a stand-in (in RAM, gone after a reboot); once Unraid fixes it, my warning goes away.",
   "errors.cleanup_icon_has": "{name} already has a picture.",
@@ -973,7 +973,7 @@
     "other": "These {n} things go into my storeroom:"
   },
   "park.in_use_leftovers": "Still Mr. Restori's way back: {names}. His «Put back» of those restores won't find them until you put them back from my storeroom.",
-  "park.where_leftovers": "Each stays on its own pool or disk, in .UnraidSecretaryOffice-trash of its share (what lies on the flash or in libvirt.img goes into my storeroom there); datasets are renamed next to it. Only renamed, nothing is copied — put back any time until you empty the storeroom.",
+  "park.where_leftovers": "Each stays on its disk and is only renamed, into the .UnraidSecretaryOffice-trash folder of its share. Nothing is copied. You can put it back until you empty the storeroom.",
   "empty.leftovers": "Mr. Restori left nothing lying around. A tidy man!",
   "bubble.leftovers": {
     "one": "1 thing Mr. Restori left ({size})",
@@ -983,7 +983,7 @@
     "one": "1 of Mr. Restori's leftovers · {size}",
     "other": "{n} of Mr. Restori's leftovers · {size}"
   },
-  "help.leftovers_text": "Mr. Restori never deletes anything either: what a restore replaces he renames aside (.aside-<time>, at «Put back» .putback-<time>), a copy lands next to the live one (.restored-<time>), files on the flash and in libvirt.img go into his folders .UnraidSecretaryOffice-restore, and of databases he makes safety dumps. Dust, all of it — but you never know: I only put it into my storeroom. I find it in his journals, never by searching the disks. What his «Put back» still needs is marked «his way back».",
+  "help.leftovers_text": "Mr. Restori never deletes either: what a restore replaces he renames aside (.aside-…, .putback-…, .restored-…), and of databases he makes safety dumps. I find these leftovers in his journals, never by searching the disks. What his «Put back» still needs is marked «his way back».",
   "item.leftover": "Mr. Restori's leftover",
   "where.bubble.no_tour": "I haven't been round every corner yet — a tour takes a few seconds, then I'll know where everything lies.",
   "where.bubble.no_data": "I can't reach the server and have nothing to show yet.",
@@ -1391,7 +1391,7 @@
     "one": "1 stack",
     "other": "{n} stacks"
   },
-  "where.place.compose_intro": "A compose stack is described in a text file (compose.yaml — .yml is the same, just spelled shorter): which containers belong to it, with which image, folders and ports. The override file adds to or changes that without touching the original; the .env holds values such as passwords or paths that the compose file fills in — which is why it deserves extra care. The Compose Manager keeps a folder per stack on the flash; \"indirect\" stacks point to a folder elsewhere.",
+  "where.place.compose_intro": "A compose stack lives in a text file, compose.yaml: which containers, with which image, folders and ports. The override file changes that; the .env holds values such as passwords and deserves extra care. The Compose Manager keeps a folder per stack on the flash.",
   "where.place.vms": "VMs (libvirt)",
   "where.place.vms_sub": {
     "one": "1 VM",
@@ -1514,7 +1514,7 @@
   "where.boot.license_flash": "The license ({file}) is bound to the boot stick's GUID ({guid}): with a new stick, transfer it to the new GUID (⟦Tools⟧ → ⟦Registration⟧).",
   "where.boot.license_other": "The license ({file}) belongs to a GUID that is neither this stick's nor this TPM's — check it under ⟦Tools⟧ → ⟦Registration⟧.",
   "where.help.tiles": "Places under «Where things are»",
-  "where.help.tiles_text": "Each row is a place with files that matter. Its label shows the weakest protection among them (what Unraid builds anew at every start carries the protection of its source on the flash; the system log in RAM doesn't count, nor Docker's own data unless Docker volumes lie in it). A click on the row opens the paths with their size and protection.",
+  "where.help.tiles_text": "Each row is a place with files that matter. Its label shows the weakest protection among them. A click opens the paths with their size and protection.",
   "where.help.copy": "Copy",
   "where.help.copy_text": "Puts the path on the clipboard — for a terminal, the Files Viewer or a note for the day you need it.",
   "where.help.rows": "Rows in the tabs",
@@ -1522,9 +1522,9 @@
   "where.help.tour": "Tour",
   "where.help.tour_text": "Reads everything again right now — where everything is, and what lies around. Otherwise she looks again by herself when you open the page and her last look is a few minutes old (where everything is: 10 minutes).",
   "where.help.asleep": "Sleeping disks",
-  "where.help.asleep_text": "Ms. Dustdevil never wakes a sleeping disk on her own. What only an array disk could tell her stays unknown until it is awake; sizes of array shares are measured only when you ask. «Wake sleeping disks» next to Tour wakes them all at once for one tour; «Wake & look» in a room only the disks of that room.",
+  "where.help.asleep_text": "Ms. Dustdevil never wakes a sleeping disk on her own. «Wake sleeping disks» wakes them all for one tour; «Wake & look» only the disks of one room.",
   "where.help.tunables": "A disk tunable",
-  "where.help.tunables_text": "One of Unraid's ⟦Disk Settings⟧ I have an opinion on (I only read it). ⟦Tunable (md_write_method)⟧: «⟦Auto⟧» means «⟦read/modify/write⟧» — only the target disk and the parity spin; «⟦reconstruct write⟧» (turbo write) is much faster but spins up every array disk. Which fits depends on whether your shares write straight to the array or through a pool.",
+  "where.help.tunables_text": "I have an opinion on ⟦Tunable (md_write_method)⟧ in the ⟦Disk Settings⟧; I only read it. «⟦reconstruct write⟧» (turbo write) writes faster but wakes every array disk.",
   "where.help.labels": "Backup labels",
   "where.help.labels_text": "How Mr. Backupsy protects a path, after the rules of his settings:",
   "where.wake": "Wake sleeping disks",
@@ -1644,33 +1644,33 @@
   "where.adv.to_vm_settings": "⟦VM Manager⟧",
   "where.adv.to_vms": "⟦VMs⟧",
   "where.adv.system_array.title": "On the array: {names}",
-  "where.adv.system_array.why": "Docker's and the VMs' own things belong on a pool (SSD/NVMe): on the array every container and VM gets slow, and the disks never get to sleep. In the share's settings set the primary storage to a pool and the secondary to none, then let the mover bring the files over (with Docker and VMs stopped).",
+  "where.adv.system_array.why": "Docker and VMs belong on a pool; on the array they are slow and the disks never sleep. 1. In the share: primary a pool, secondary none. 2. Stop Docker and the VMs. 3. Run the mover.",
   "where.adv.mover.title": {
     "one": "The mover has no schedule — {names} relies on it",
     "other": "The mover has no schedule — {n} shares rely on it: {names}"
   },
-  "where.adv.mover.why": "These shares write to a pool first and the mover is meant to take things to the array (or back). Without a schedule it only runs when started by hand — the pool fills up. ⟦Settings⟧ → ⟦Scheduler⟧ → ⟦Mover Settings⟧. (If something else starts the mover for you, «I know, thanks».)",
+  "where.adv.mover.why": "These shares write to a pool first, and the mover is meant to take things to the array (or back). Without a schedule it only runs when started by hand. Then the pool fills up. Set the schedule under ⟦Settings⟧ → ⟦Scheduler⟧ → ⟦Mover Settings⟧. If something else starts the mover for you, click «I know, thanks».",
   "where.adv.exclusive_also": "also on {where}",
   "where.adv.exclusive_off.title": {
     "one": "Exclusive shares are off — {names} would qualify",
     "other": "Exclusive shares are off — {n} shares would qualify: {names}"
   },
   "where.adv.exclusive_off.why": {
-    "one": "Psst — this share lives on a single pool and nowhere else, and still every byte squeezes through Unraid's FUSE layer (shfs) under /mnt/user. As an exclusive share /mnt/user/… becomes a link straight to the pool, so reads and writes skip that layer — noticeably faster, most of all with many small files. Docker and VM paths like /mnt/user/appdata keep working: they go through the link. The setting can only be changed with the array stopped (Docker and VMs stop with it): ⟦Main⟧ → ⟦Array Operation⟧ → ⟦Stop⟧, then ⟦Settings⟧ → ⟦Global Share Settings⟧ → «⟦Permit exclusive shares⟧»: ⟦Yes⟧ → ⟦Apply⟧, and start the array again. Unraid decides when the array starts — a share with a folder on another disk or pool too stays as it is. (For exclusive shares Unraid ignores «⟦Minimum free space⟧».)",
-    "other": "Psst — these shares live on a single pool and nowhere else, and still every byte squeezes through Unraid's FUSE layer (shfs) under /mnt/user. As exclusive shares /mnt/user/… becomes a link straight to the pool, so reads and writes skip that layer — noticeably faster, most of all with many small files. Docker and VM paths like /mnt/user/appdata keep working: they go through the link. The setting can only be changed with the array stopped (Docker and VMs stop with it): ⟦Main⟧ → ⟦Array Operation⟧ → ⟦Stop⟧, then ⟦Settings⟧ → ⟦Global Share Settings⟧ → «⟦Permit exclusive shares⟧»: ⟦Yes⟧ → ⟦Apply⟧, and start the array again. Unraid decides when the array starts — a share with a folder on another disk or pool too stays as it is. (For exclusive shares Unraid ignores «⟦Minimum free space⟧».)"
+    "one": "Psst — this share lives on one pool only. As an exclusive share, it would skip Unraid's FUSE layer and be noticeably faster, most of all with many small files. Paths like /mnt/user/appdata keep working. How to switch it on: 1. Stop the array (⟦Main⟧ → ⟦Array Operation⟧ → ⟦Stop⟧); Docker and VMs stop with it. 2. ⟦Settings⟧ → ⟦Global Share Settings⟧ → «⟦Permit exclusive shares⟧» to ⟦Yes⟧, then ⟦Apply⟧. 3. Start the array. Mind: «⟦Minimum free space⟧» no longer applies then.",
+    "other": "Psst — these shares live on one pool only. As exclusive shares, they would skip Unraid's FUSE layer and be noticeably faster, most of all with many small files. Paths like /mnt/user/appdata keep working. How to switch it on: 1. Stop the array (⟦Main⟧ → ⟦Array Operation⟧ → ⟦Stop⟧); Docker and VMs stop with it. 2. ⟦Settings⟧ → ⟦Global Share Settings⟧ → «⟦Permit exclusive shares⟧» to ⟦Yes⟧, then ⟦Apply⟧. 3. Start the array. Mind: «⟦Minimum free space⟧» no longer applies then."
   },
   "where.adv.exclusive_elsewhere.title": {
     "one": "{names} can't be exclusive",
     "other": "{n} shares can't be exclusive: {names}"
   },
-  "where.adv.exclusive_elsewhere.why": "Well, well — a folder of the same name on another pool or disk (in brackets). That alone, even an empty one, keeps Unraid from linking the share straight to its pool: it stays in the slower FUSE layer. What lies in that folder is part of the share: move it onto the share's pool (Unraid's file manager: ⟦Browse⟧), or delete the folder if it is empty. Then stop and start the array once (⟦Main⟧ → ⟦Array Operation⟧) — Unraid decides when it starts. Fix Common Problems reports such folders too — let it check again after tidying up (⟦Settings⟧ → ⟦User Utilities⟧ → Fix Common Problems → Rescan).",
+  "where.adv.exclusive_elsewhere.why": "Well, well — a folder of the same name lies on another pool or disk (in brackets). That alone, even empty, prevents an exclusive share. How to fix it: 1. Move its content onto the share's pool (⟦Browse⟧), or delete the folder if it is empty. 2. Stop and start the array (⟦Main⟧ → ⟦Array Operation⟧).",
   "where.adv.exclusive_unclear.title": {
     "one": "{names} isn't exclusive — and I can't see why",
     "other": "{n} shares aren't exclusive — and I can't see why: {names}"
   },
   "where.adv.exclusive_unclear.why": {
-    "one": "Now that's a mystery: by its settings it qualifies, I see its folder only on its own pool, and still Unraid says «⟦Exclusive access⟧: ⟦No⟧». {maybe} Unraid decides when the array starts: once that is sorted out, stop and start the array (⟦Main⟧ → ⟦Array Operation⟧).",
-    "other": "Now that's a mystery: by their settings they qualify, I see their folder only on their own pool, and still Unraid says «⟦Exclusive access⟧: ⟦No⟧». {maybe} Unraid decides when the array starts: once that is sorted out, stop and start the array (⟦Main⟧ → ⟦Array Operation⟧)."
+    "one": "A mystery: it qualifies and lies only on its pool, yet Unraid says «⟦Exclusive access⟧: ⟦No⟧». {maybe} Then stop and start the array (⟦Main⟧ → ⟦Array Operation⟧).",
+    "other": "A mystery: they qualify and lie only on their pool, yet Unraid says «⟦Exclusive access⟧: ⟦No⟧». {maybe} Then stop and start the array (⟦Main⟧ → ⟦Array Operation⟧)."
   },
   "where.adv.exclusive_unclear.asleep": "Perhaps a folder of the same name lies on a disk I didn't look at because it was asleep ({disks}) — have a look there and move it onto the pool.",
   "where.adv.exclusive_unclear.awake": "Perhaps the settings changed after the array started.",
@@ -1679,16 +1679,16 @@
     "other": "{n} shares could be exclusive — but for the secondary storage: {names}"
   },
   "where.adv.exclusive_overflow.why": {
-    "one": "I couldn't help noticing: this share keeps its data on its pool, and the mover brings back whatever spilled over to the secondary storage. Without a secondary storage it could be an exclusive share — /mnt/user/… a link straight to the pool, past Unraid's FUSE layer, noticeably faster. Worth it only if the pool has room for all of it: without a secondary storage a full pool means a full share. If so: run the mover so everything is on the pool, set «⟦Secondary storage⟧» to «⟦None⟧» in the share's settings, delete what is left of the share on another pool or disk (in brackets; empty folders count too), then stop and start the array. Needs «⟦Permit exclusive shares⟧» (⟦Settings⟧ → ⟦Global Share Settings⟧).",
-    "other": "I couldn't help noticing: these shares keep their data on their pool, and the mover brings back whatever spilled over to the secondary storage. Without a secondary storage they could be exclusive shares — /mnt/user/… a link straight to the pool, past Unraid's FUSE layer, noticeably faster. Worth it only if the pool has room for all of it: without a secondary storage a full pool means a full share. If so: run the mover so everything is on the pool, set «⟦Secondary storage⟧» to «⟦None⟧» in the share's settings, delete what is left of the share on another pool or disk (in brackets; empty folders count too), then stop and start the array. Needs «⟦Permit exclusive shares⟧» (⟦Settings⟧ → ⟦Global Share Settings⟧)."
+    "one": "I couldn't help noticing: without a secondary storage this share could be exclusive and noticeably faster. Worth it only if the pool has room for everything: then a full pool means a full share. 1. Run the mover until everything is on the pool. 2. In the share, «⟦Secondary storage⟧» to «⟦None⟧». 3. Delete leftovers on other disks or pools (in brackets), empty folders too. 4. Stop and start the array. Needs «⟦Permit exclusive shares⟧».",
+    "other": "I couldn't help noticing: without a secondary storage these shares could be exclusive and noticeably faster. Worth it only if the pool has room for everything: then a full pool means a full share. 1. Run the mover until everything is on the pool. 2. In the share, «⟦Secondary storage⟧» to «⟦None⟧». 3. Delete leftovers on other disks or pools (in brackets), empty folders too. 4. Stop and start the array. Needs «⟦Permit exclusive shares⟧»."
   },
   "where.adv.compose_build.title": {
     "one": "{names} builds its own image",
     "other": "{n} stacks build their own image: {names}"
   },
   "where.adv.compose_build.why": {
-    "one": "Its image is built here from a Dockerfile («build:» in the compose file); no registry has it. Compose Manager's «Update» and «Force Update» pull the images first — that fails here and can leave the containers «Created». Rebuild it instead, in a terminal (Unraid's >_ at the top right): this fetches the newer base image, builds anew and recreates what changed.",
-    "other": "Their images are built here from a Dockerfile («build:» in the compose file); no registry has them. Compose Manager's «Update» and «Force Update» pull the images first — that fails here and can leave the containers «Created». Rebuild them instead, in a terminal (Unraid's >_ at the top right): this fetches the newer base image, builds anew and recreates what changed."
+    "one": "Its image is built here; no registry has it. So «Update» in the Compose Manager fails and can leave the containers «Created». Rebuild it in a terminal instead (Unraid's >_ at the top right), with the command below.",
+    "other": "Their images are built here; no registry has them. So «Update» in the Compose Manager fails and can leave the containers «Created». Rebuild them in a terminal instead (Unraid's >_ at the top right), with the command below."
   },
   "where.adv.cron_dead.title": {
     "one": "A cron line starts {names} — and that's gone",
@@ -1711,8 +1711,8 @@
   "where.adv.old_disks.why": "More than about 5 years of running hours. Not a fault — but the time to keep an eye on SMART, have a spare at hand and make sure what's on it is backed up.",
   "where.adv.no_parity.title": "The array runs without parity",
   "where.adv.no_parity.why": {
-    "one": "If its data disk fails, what is on it is gone — and nothing tells you beforehand. A parity disk (at least as big as the biggest data disk) rebuilds a failed disk. ⟦Main⟧ → stop the array → put a disk into the parity slot → start: Unraid builds the parity (hours, the array stays usable).",
-    "other": "If one of the {n} data disks fails, what is on it is gone — and nothing tells you beforehand. A parity disk (at least as big as the biggest data disk) rebuilds a failed disk. ⟦Main⟧ → stop the array → put a disk into the parity slot → start: Unraid builds the parity (hours, the array stays usable)."
+    "one": "If its data disk fails, everything on it is gone. A parity disk, at least as big as the biggest data disk, rebuilds it: ⟦Main⟧ → stop the array, put a disk into the parity slot, start the array.",
+    "other": "If one of the {n} data disks fails, everything on it is gone. A parity disk, at least as big as the biggest data disk, rebuilds it: ⟦Main⟧ → stop the array, put a disk into the parity slot, start the array."
   },
   "where.adv.parity.title": "Last parity check: {when}",
   "where.adv.parity.why": "A regular check (monthly or quarterly) finds bad sectors before a disk fails and you need the parity. ⟦Settings⟧ → ⟦Scheduler⟧ → ⟦Parity Check⟧, with a time when nobody needs the server.",
@@ -1726,30 +1726,30 @@
     "other": "{n} Windows VMs can hold up the array stop: {names}"
   },
   "where.adv.vm_windows.why": {
-    "one": "Well, well — when the array stops, Unraid asks every VM to shut down and waits up to {timeout} s (⟦Settings⟧ → ⟦VM Manager⟧ → «⟦VM shutdown time-out⟧»); whatever still runs then is switched off hard, like pulling the plug — unsaved work is gone, and Windows checks its disk at the next start. No guest agent answers in this one, so Unraid's request is the power button — and an idle Windows with its display off likes to ignore it: the array stop waits the whole {timeout} s for nothing, then comes the plug. What helps, in Windows: the QEMU Guest Agent (on the virtio-win ISO: guest-agent\\qemu-ga-x86_64.msi) — Unraid then asks the agent, and Windows listens; or in its power options «Turn off the display: Never» and «When I press the power button: Shut down». A longer time-out doesn't help against that — the wait only gets longer; and it has to stay below the disks' shutdown time-out ({disk} s, ⟦Settings⟧ → ⟦Disk Settings⟧ → «⟦Shutdown time-out⟧»).",
-    "other": "Well, well — when the array stops, Unraid asks every VM to shut down and waits up to {timeout} s (⟦Settings⟧ → ⟦VM Manager⟧ → «⟦VM shutdown time-out⟧»); whatever still runs then is switched off hard, like pulling the plug — unsaved work is gone, and Windows checks its disk at the next start. No guest agent answers in these, so Unraid's request is the power button — and an idle Windows with its display off likes to ignore it: the array stop waits the whole {timeout} s for nothing, then comes the plug. What helps, in Windows: the QEMU Guest Agent (on the virtio-win ISO: guest-agent\\qemu-ga-x86_64.msi) — Unraid then asks the agent, and Windows listens; or in its power options «Turn off the display: Never» and «When I press the power button: Shut down». A longer time-out doesn't help against that — the wait only gets longer; and it has to stay below the disks' shutdown time-out ({disk} s, ⟦Settings⟧ → ⟦Disk Settings⟧ → «⟦Shutdown time-out⟧»)."
+    "one": "Well, well: when the array stops, Unraid asks every VM to shut down, waits up to {timeout} s and then switches it off hard. Unsaved work is gone then. This one has no guest agent, and an idle Windows likes to ignore the request. What helps, in Windows: 1. Install the QEMU Guest Agent (virtio-win ISO: guest-agent\\qemu-ga-x86_64.msi). 2. Or, in the power options, choose «Turn off the display: Never» and «When I press the power button: Shut down». A longer «⟦VM shutdown time-out⟧» doesn't help; it has to stay below the disks' «⟦Shutdown time-out⟧» anyway ({disk} s).",
+    "other": "Well, well: when the array stops, Unraid asks every VM to shut down, waits up to {timeout} s and then switches it off hard. Unsaved work is gone then. These have no guest agent, and an idle Windows likes to ignore the request. What helps, in Windows: 1. Install the QEMU Guest Agent (virtio-win ISO: guest-agent\\qemu-ga-x86_64.msi). 2. Or, in the power options, choose «Turn off the display: Never» and «When I press the power button: Shut down». A longer «⟦VM shutdown time-out⟧» doesn't help; it has to stay below the disks' «⟦Shutdown time-out⟧» anyway ({disk} s)."
   },
   "where.adv.vm_sparse.disk": "{vm}: {file} — {virtual} virtual disk, {used} used",
   "where.adv.vm_sparse.title": {"one": "A VM disk far bigger than what it holds: {names}", "other": "{n} VM disks far bigger than what they hold: {names}"},
-  "where.adv.vm_sparse.why": "Well, well — {example}. On the server that costs nothing: a sparse file, the empty part isn't stored. But the first upload offsite (Kopia) reads the whole file once, the empty part as zeros — hours for nothing (a 1.6 TB disk holding 21 GB: close to three hours at 200 MB/s); later runs skip the file while it is unchanged. A smaller virtual disk, or a qcow2 disk the guest trims (discard='unmap' on the disk in the VM's XML, then TRIM inside the guest), keeps the file at what it holds. The local snapshots don't mind either way.",
+  "where.adv.vm_sparse.why": "Well, well: {example}. On the server that costs nothing, but the first upload offsite (Kopia) reads the whole virtual disk, the empty part too. That costs hours for nothing. The remedy: a smaller virtual disk, or a qcow2 disk with discard='unmap' in the VM's XML and TRIM inside the guest.",
   "where.adv.vm_netmodel.title": {"one": "A VM's network runs through QEMU: {names}", "other": "{n} VMs' network runs through QEMU: {names}"},
-  "where.adv.vm_netmodel.why": "Good to know: with Unraid's network model «virtio-net» every packet of the VM goes through the QEMU process. Unraid recommends it as the default because it is more stable — and for most VMs it is plenty. Only when a VM needs a lot of throughput (several Gbit/s between VM and server; measured: one stream 2.2 Gbit/s with «virtio-net», 93 Gbit/s with «virtio») is «virtio» worth it: ⟦VMs⟧ → the VM → ⟦Edit⟧ → «⟦Network Model⟧». The VM must be off for it; Unraid calls «virtio» faster but possibly less stable.",
+  "where.adv.vm_netmodel.why": "With «virtio-net», every packet of the VM goes through QEMU. For most VMs that is plenty, and Unraid recommends it as more stable. If a VM needs several Gbit/s to the server, «virtio» is much faster: 1. Turn the VM off. 2. ⟦VMs⟧ → the VM → ⟦Edit⟧ → «⟦Network Model⟧» to «virtio».",
   "where.adv.vm_migratable.title": {"one": "A VM hides CPU features for a migration: {names}", "other": "{n} VMs hide CPU features for a migration: {names}"},
-  "where.adv.vm_migratable.why": "Good to know: with ⟦CPU Mode⟧ «⟦Host Passthrough⟧» and «⟦Migratable⟧» On (Unraid's default for new VMs), libvirt hides the CPU features that would stand in the way of moving the running VM to another server (invtsc, for instance). It costs no RAM and no CPU time, but the guest sees fewer of the CPU's capabilities — that can cost performance (timers, some instructions). And libvirt itself says it only makes such a move safe between identical servers. Unraid never moves VMs to another server — Off gives the guest the whole CPU: ⟦VMs⟧ → the VM → ⟦Edit⟧ → «⟦Migratable⟧» (beside ⟦CPU Mode⟧) → Off. The VM must be stopped for it.",
+  "where.adv.vm_migratable.why": "With ⟦CPU Mode⟧ «⟦Host Passthrough⟧» and «⟦Migratable⟧» On, the VM doesn't see all of the CPU's features. That can cost performance. It is only needed to move running VMs to another server, and Unraid never does that. How to switch it off: 1. Stop the VM. 2. ⟦VMs⟧ → the VM → ⟦Edit⟧ → «⟦Migratable⟧» (beside ⟦CPU Mode⟧) → Off.",
   "where.adv.write_method.auto": "«⟦Auto⟧» (that is «⟦read/modify/write⟧»)",
   "where.adv.write_method.rmw": "«⟦read/modify/write⟧»",
   "where.adv.write_method_keep.title": "Write method {method} — the right one here",
-  "where.adv.write_method_keep.why": "«⟦Tunable (md_write_method)⟧» is set to {method}: to write to the array with parity, Unraid first reads the old data and the parity — only the target disk and the parity disk spin, writing is slower. «⟦reconstruct write⟧» (turbo write) reads all the other data disks instead: much faster, but every array disk spins up. None of your shares writes straight to the array — {moved} So only the mover writes to the array, when nobody is waiting for it. {disks}",
+  "where.adv.write_method_keep.why": "«⟦Tunable (md_write_method)⟧» is set to {method}: only the target disk and the parity spin. «⟦reconstruct write⟧» (turbo write) would be faster but wakes every array disk. None of your shares writes straight to the array — {moved} {disks}",
   "where.adv.write_method_keep.moved": {"one": "{n} share lands on a pool first; the mover takes its files to the array later.", "other": "{n} shares land on a pool first; the mover takes their files to the array later."},
   "where.adv.write_method_keep.no_moved": "they all live on pools.",
   "where.adv.write_method_keep.sleep": "And the other disks sleep on. Keep it as it is.",
   "where.adv.write_method_keep.awake": "Turbo write would gain nothing there anyone notices. Keep it as it is.",
   "where.adv.write_method_turbo.title": {"one": "A share writes straight to the array: {names}", "other": "{n} shares write straight to the array: {names}"},
-  "where.adv.write_method_turbo.why": "«⟦Tunable (md_write_method)⟧» is set to {method}: for every block Unraid first reads the old data and the parity, then writes both — only the target disk and the parity disk spin, but big copies take their time. «⟦reconstruct write⟧» (turbo write) reads all the other data disks instead and writes much faster — but every array disk spins up. With no pool in front, what you copy there goes straight onto the array. {disks} {how}",
+  "where.adv.write_method_turbo.why": "«⟦Tunable (md_write_method)⟧» is set to {method}: big copies to the array take time. «⟦reconstruct write⟧» (turbo write) writes much faster but wakes every array disk. With no pool in front, what you copy there goes straight onto the array. {disks} {how}",
   "where.adv.write_method_turbo.sleep": "Your disks spin down when idle, so turbo write all the time would wake all of them for every little write — use it for big copies: «⟦reconstruct write⟧» before, «⟦Auto⟧» again after.",
   "where.adv.write_method_turbo.awake": "Your disks never spin down anyway — as long as that stays so, «⟦reconstruct write⟧» costs you nothing extra and makes those writes faster.",
   "where.adv.write_method_turbo.plugin": "Or let the plugin «CA Auto Turbo Write Mode» (⟦Apps⟧) switch for you: turbo write while all disks are spinning anyway, the slow way while some sleep. Or give those shares a pool in front, and the mover writes later.",
-  "where.adv.write_method_turbo.plugin_off": "The plugin «CA Auto Turbo Write Mode» is installed, but its automatic switching is off — with «Enable Automatic Turbo Mode» on its page it switches for you: turbo write while all disks are spinning anyway, the slow way while some sleep.",
+  "where.adv.write_method_turbo.plugin_off": "The plugin «CA Auto Turbo Write Mode» is installed, but its automatic switching is off. Switch on «Enable Automatic Turbo Mode» on its page. Then it switches for you: turbo write while all disks are spinning anyway, the slow way while some sleep.",
   "where.adv.security.title": "Security is the night watchman's job now",
   "where.adv.security.why": "Shares open to everyone, Telnet, FTP, privileged containers, the CPU's protection — that's his department now, and he notices when something changes, too. Only: he doesn't work here yet. The team lead can hire him. If you ask me: I would.",
   "section.partners": "What partners left",
@@ -1759,11 +1759,11 @@
   "cat.partners.dropped": "No longer kept",
   "cat.partners.dropped_text": "The pair is still there — the Team Lead no longer keeps this unit of it",
   "park.text_partners": {"one": "This partner's copies go into my storeroom:", "other": "These {n} partners' copies go into my storeroom:"},
-  "park.where_partners": "Each stays on its pool: the dataset is renamed into the pool's partners' place (zfs rename — a whole pair next to itself, a single unit one level up, as .UnraidSecretaryOffice-trash-…; its units and snapshots go along), the note of where it came from lies in my storeroom on the flash. Only renamed, nothing is copied — put back any time until you empty the storeroom.",
+  "park.where_partners": "Each stays on its pool: I only rename the dataset with its snapshots (zfs rename); nothing is copied. The note of where it came from lies in my storeroom. You can put it back until you empty the storeroom.",
   "empty.partners": "No partner left anything here.",
   "bubble.partners": {"one": "1 partner's copies left behind ({size})", "other": "{n} partners' copies left behind ({size})"},
   "fact.partners": {"one": "1 partner's leftover · {size}", "other": "{n} partners' leftovers · {size}"},
-  "help.partners_text": "A partner office kept its copies here (the door received them into <pool>/UnraidSecretaryOffice-partners/<pair>). When the partnership ends the copies stay — dust, but you never know: maybe you pair again. Once the pair is gone from the Team Lead's list I show them here and put them into my storeroom on request (zfs rename next to it) — never while the door is receiving for that pair. I never wake a sleeping disk unless you want me to.",
+  "help.partners_text": "A partner office kept its copies here. When the partnership ends, they stay. Once the pair is gone from the Team Lead's list, I show them here and put them into my storeroom on request, never while the door is receiving. I wake sleeping disks only when you ask.",
   "item.partner": "partner's copies",
   "item.package": "Mr. Backupsy's package",
   "why.transfer": "receiving",
@@ -1777,7 +1777,7 @@
   "pa.d.units": "Units",
   "pa.text": "Nothing receives into it any more: the Team Lead has no pair of this id. Should you pair again, a new pair gets a new id — these old copies don't come back on their own.",
   "pa.dropped_name": "{unit} of {name} — no longer kept",
-  "pa.dropped_text": "The partnership with {name} goes on, but the Team Lead no longer keeps this unit for it («Keep less of {name}…»): the door receives nothing more into it, the copies just lie here. I put it into my storeroom on request — renamed into the partners' place on the same pool, put back any time; never while the door is receiving it.",
+  "pa.dropped_text": "The partnership with {name} goes on, but the Team Lead no longer keeps this unit («Keep less of {name}…»). On request it goes into my storeroom, never while the door is receiving into it.",
   "where.partners.title": "Partners' copies",
   "where.partners.sum": {"one": "1 partner keeps copies here", "other": "{n} partners keep copies here"},
   "where.partners.asleep": "asleep, not looked at: {pools}",
