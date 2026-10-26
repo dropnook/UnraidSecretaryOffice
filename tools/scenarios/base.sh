@@ -31,9 +31,9 @@
 # own), the backup place's apps/ vms/ server/ flash/, .uso-backup* in app and VM folders, the storeroom, *.aside-<n>,
 # *.restored-<n>, *.partial, .uso-drill-*. 4 apps (Tower): apps.sh all - when there.
 # 5 VMs: vm_make - when there. 6 Unraid: the mover's schedule, Mover Tuning, User Scripts, parity check, disks spun up,
-# NTP, the time zone, unread notifications archived (Unraid's notify archive). 7 the agent started, its heartbeat,
-# then `check standard` against the base (lib.sh, once it is there) and the plan's change list against
-# base/<host>/plan-changes.known.
+# NTP, the time zone, Docker's host access off (said), unread notifications archived (Unraid's notify archive). 7 the
+# agent started, its heartbeat, then `check standard` against the base (lib.sh, once it is there) and the plan's change
+# list against base/<host>/plan-changes.known.
 # Facts per VM: base/<tower|test3>/base.env. Exit 0 the base is there, 1 a step failed (said), 2 refused / wrong call.
 set -u
 SC=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -652,6 +652,13 @@ asleep=$(awk -F= '/^\[/{n=$0} /^spundown="1"/{print n}' /var/local/emhttp/disks.
 if [[ -n $asleep ]]; then act "spin up the disks asleep: $asleep" /usr/local/sbin/emcmd cmdSpinupAll=apply
 else log "every disk spun up"; fi
 pgrep -x ntpd >/dev/null && log "ntpd runs" || warn "ntpd does not run (the clock is not from NTP)"
+# Docker's «Host access to custom networks» stays off on the test VMs (no scenario needs it): on, Unraid's rc.docker adds
+# `default via <gw> dev shim-br0 metric 0` ahead of br0's, and replies to the owner's VPN go out the shim and are lost
+# (tower-repair, 2026-10-26). Said, never switched here (Docker settings, or docker.cfg with Docker stopped)
+if [[ $(tr -d '\r' < /boot/config/docker.cfg 2>/dev/null | sed -n 's/^DOCKER_ALLOW_ACCESS="\(.*\)"$/\1/p') == yes ]] \
+    || ip -4 route show default 2>/dev/null | grep -q 'dev shim-'; then
+    warn "Docker's host access to custom networks is on ($(ip -4 route show default | grep -c 'dev shim-') shim default route(s)) - the base has it off: switch it off in Docker's settings"
+else log "Docker's host access to custom networks is off (one default route: br0's)"; fi
 lt=$(readlink /etc/localtime)
 [[ $lt == "$LOCALTIME" ]] && log "time zone as the base: $lt ($(date +%Z))" || warn "time zone $lt, the base $LOCALTIME"
 nu=$(ls /tmp/notifications/unread 2>/dev/null | wc -l)
