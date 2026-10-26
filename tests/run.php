@@ -42803,7 +42803,7 @@ JS);
     same('drift codes (node): the backup place\'s problem as its message', $l['message.dumps_missing'] ?? '', $c[8]);
     // engine 2.65 (D-F1, scenario B13): too little room for the packages - up to 2.64 the engine's English sentence on the German page
     same('message (node): no room for the packages in German — the place, the sizes as sizes; without params the words without them; the engine\'s own words as they are',
-        ['Zu wenig freier Platz in der Backup-Ablage /mnt/cache/UnraidSecretaryOffice/backup: 1 GB frei, die Einrichtung hält mindestens 8 GB frei — nichts wurde gesichert. Dort Platz schaffen oder bei «Einrichten…» den «Freien Platz in der Backup-Ablage» senken, dann das Backup neu starten.',
+        ['Zu wenig Platz in der Backup-Ablage /mnt/cache/UnraidSecretaryOffice/backup: 1 GB frei, 8 GB sollen frei bleiben. Nichts wurde gesichert. Schaffe dort Platz oder senke bei «Einrichten…» den «Freien Platz in der Backup-Ablage» und starte neu.',
          $l['message.no_space_packages_plain'] ?? '?', $l['message.no_space_packages_plain'] ?? '?', 'Cannot create /x', $l['message.array_stopping'] ?? '?'], $r['de']['msgs'] ?? null);
     hardeningRm($tmp);
 }
