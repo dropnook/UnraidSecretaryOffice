@@ -417,7 +417,7 @@
   "lock.3": "Wer es anbietet: Amazon S3, Backblaze B2, Wasabi, IDrive e2 — und versitygw auf einem zweiten Unraid, deinem oder dem eines Partners (unten). MEGA S4 nicht.",
   "lock.4": "1. Den Bucket mit eingeschaltetem Object Lock anlegen — die meisten Anbieter lassen es nur dann wählen (AWS und Backblaze auch später); die Versionierung kommt damit.",
   "lock.5": "2. Das Repository mit der Sperre anlegen, in Unraids Terminal im Kopia-Container (docker exec -it kopia sh): der erste Befehl unten; Kopia fragt nach dem Repository-Passwort. Nur ein neues Repository kann es bekommen.",
-  "lock.6": "3. Kopia die Sperren bei jeder vollen Wartung verlängern lassen (der zweite Befehl), sonst verlieren Daten, die sich nie ändern, nach {days} Tagen ihre Sperre. Kopias tägliche volle Wartung reicht dafür.",
+  "lock.6": "3. Kopia die Sperren bei jeder vollen Wartung verlängern lassen (der zweite Befehl), sonst verlieren Daten, die sich nie ändern, nach {days} Tagen ihre Sperre. Die volle Wartung muss also öfter laufen als alle {days} Tage – Kopias Standard (täglich) reicht.",
   "lock.7": "Der Preis: Was Kopia löscht, bleibt bis zum Ende der Sperre gespeichert und kostet, etwa {days} Tage mehr Daten. Leg beim Anbieter eine Lifecycle-Regel an, die alte Versionen nach {days} Tagen plus einem löscht, sonst bleiben sie für immer.",
   "lock.8": "Nach einem Angriff sind die gesperrten Versionen noch da. 1. Im Kopia-Container den letzten Befehl ausführen: Er verbindet das Repository nur lesend, auf einen Zeitpunkt vor dem Angriff. 2. Darüber zurückholen, was du brauchst (kopia --config-file=/tmp/before.config snapshot restore …).",
   "lock.9": "Quick Win: Mein Assistent («Repository einrichten») fragt deinen Bucket, ob er das kann, und bietet es an, wenn ja.",

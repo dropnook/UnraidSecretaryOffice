@@ -417,7 +417,7 @@
   "lock.3": "Who offers it: Amazon S3, Backblaze B2, Wasabi, IDrive e2 — and versitygw on a second Unraid, yours or a partner's (below). MEGA S4 doesn't.",
   "lock.4": "1. Create the bucket with Object Lock switched on — most providers only let you choose it then (AWS and Backblaze also later); versioning comes with it.",
   "lock.5": "2. Create the repository with the lock, in Unraid's terminal inside the Kopia container (docker exec -it kopia sh): the first command below; Kopia asks for the repository password. Only a new repository can get it.",
-  "lock.6": "3. Let Kopia extend the locks at every full maintenance (the second command), or data that never changes loses its lock after {days} days. Kopia's daily full maintenance is enough for that.",
+  "lock.6": "3. Let Kopia extend the locks at every full maintenance (the second command), or data that never changes loses its lock after {days} days. So the full maintenance must run more often than every {days} days – Kopia's default (daily) is enough.",
   "lock.7": "The price: what Kopia deletes stays stored until its lock ends and is billed, roughly {days} days of extra data. Add a lifecycle rule at your provider that deletes old versions after {days} days plus one, or they stay for good.",
   "lock.8": "After an attack the locked versions are still there. 1. Run the last command in the Kopia container: it connects the repository read-only, at a moment before the attack. 2. Bring back what you need through it (kopia --config-file=/tmp/before.config snapshot restore …).",
   "lock.9": "Quick win: my assistant («Set up the repository») asks your bucket whether it can do this and offers it when it can.",
