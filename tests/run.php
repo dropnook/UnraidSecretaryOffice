@@ -7317,9 +7317,9 @@ JS);
     same('btrfs brake: where the retention doesn\'t hold and where the brake found none left, per disk - an asleep one from the run before, an old disk not', [
         'Aufbewahrung 14 Tage — auf disk3 liegen nur noch 5 Snapshots, der älteste vom 14.10.2026 03:00 (die Notbremse hat ältere gelöscht).',
         'Aufbewahrung 14 Tage — auf disk5 liegt kein Snapshot mehr (die Notbremse hat ältere gelöscht).',
-        'Auf disk5 sind nur noch 80 GB frei (Notbremse bei 300 GB) — und es ist kein Snapshot von mir mehr übrig, den ich freigeben könnte. Platz schaffen hilft nur ausserhalb des Backups.',
+        'Auf disk5 sind nur noch 80 GB frei (Notbremse bei 300 GB), und ich habe keinen Snapshot mehr zum Freigeben. Schaffe dort selbst Platz.',
         'Aufbewahrung 14 Tage — auf disk6 liegt nur noch 1 Snapshot, vom 18.10.2026 03:00 (die Notbremse hat ältere gelöscht).',
-        'Auf disk8 sind nur noch 12 GB frei (Notbremse bei 30 GB) — und es ist kein Snapshot von mir mehr übrig, den ich freigeben könnte. Platz schaffen hilft nur ausserhalb des Backups.'], $r['gaps'] ?? null);
+        'Auf disk8 sind nur noch 12 GB frei (Notbremse bei 30 GB), und ich habe keinen Snapshot mehr zum Freigeben. Schaffe dort selbst Platz.'], $r['gaps'] ?? null);
     same('btrfs brake: an older engine\'s runs - nothing said', [], $r['older'] ?? null);
 }
 
@@ -10764,7 +10764,7 @@ function testKopiaEmptied(): void
     $f = explode("\x1f", $n[0] ?? '');
     same('kopia held: … an alert right away, in the office\'s words', [1, true, 'alert', true],
         [count($n), in_array('Unraid Secretary Office: Mr. Backupsy: The offsite copy is suddenly empty', $f, true), $f[array_search('-i', $f, true) + 1] ?? null,
-         in_array("Snapshots on $when: 4, now: 0 — not deleted by the office. Possibly an attack or the wrong repository: nothing goes offsite until you decide. If that wasn't you: delete nothing, Object Lock may still hold the data; the Consultant shows how to get it back. A repository that is really new: say so on Mr. Backupsy's page.", $f, true)]);
+         in_array("On $when there were 4 snapshots, now 0: an attack or the wrong repository? Nothing goes offsite until you decide. If that wasn't you: delete nothing, Object Lock may still hold the data; the Consultant shows how to get it back. If the repository is new, tell Mr. Backupsy.", $f, true)]);
     $h = $held();
     same('kopia held: the hold kept (repository, identity, before, now, when = the count compared with), 0600', [1, $repo, 'root@kopia', 4, 0, 2, 0, (int) ($record()['time'] ?? 0), false, '600'],
         [$h['v'] ?? null, $h['repo'] ?? null, $h['identity'] ?? null, $h['before'] ?? null, $h['now'] ?? null, $h['sources_before'] ?? null, $h['sources_now'] ?? null,
@@ -42803,7 +42803,7 @@ JS);
     same('drift codes (node): the backup place\'s problem as its message', $l['message.dumps_missing'] ?? '', $c[8]);
     // engine 2.65 (D-F1, scenario B13): too little room for the packages - up to 2.64 the engine's English sentence on the German page
     same('message (node): no room for the packages in German — the place, the sizes as sizes; without params the words without them; the engine\'s own words as they are',
-        ['Zu wenig freier Platz in der Backup-Ablage /mnt/cache/UnraidSecretaryOffice/backup: 1 GB frei, die Einrichtung hält mindestens 8 GB frei — nichts wurde gesichert. Dort Platz schaffen oder bei «Einrichten…» den «Freien Platz in der Backup-Ablage» senken, dann das Backup neu starten.',
+        ['Zu wenig Platz in der Backup-Ablage /mnt/cache/UnraidSecretaryOffice/backup: 1 GB frei, 8 GB sollen frei bleiben. Nichts wurde gesichert. Schaffe dort Platz oder senke bei «Einrichten…» den «Freien Platz in der Backup-Ablage» und starte neu.',
          $l['message.no_space_packages_plain'] ?? '?', $l['message.no_space_packages_plain'] ?? '?', 'Cannot create /x', $l['message.array_stopping'] ?? '?'], $r['de']['msgs'] ?? null);
     hardeningRm($tmp);
 }
