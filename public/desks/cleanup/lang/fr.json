@@ -370,16 +370,16 @@
   "help.order": "Ordre",
   "help.order_text": "D'abord les modèles, puis les stacks, puis appdata. Un dossier compte comme utilisé tant qu'un modèle ou une stack le nomme — une fois ceux-ci partis, il apparaît ici.",
   "help.trash": "Débarras",
-  "help.trash_text": "Rien n'est supprimé tout de suite. Ce que tu ranges, je ne fais que le renommer : dans le dossier caché .UnraidSecretaryOffice-trash sur le même disque. Pour les modèles et les stacks, ce dossier est sur la flash, pour les dossiers appdata dans le partage appdata lui-même. C'est immédiat et ça ne prend pas de place en plus. « Remettre en place » l'annule, seul « Vider » supprime définitivement. Les volumes de Docker font exception, car ils ne peuvent pas être renommés. Je les copie dans .UnraidSecretaryOffice-trash à côté des données de Docker, donc dans le partage qui contient docker.img ou le dossier de Docker. Pour cela, leur taille doit être libre une fois de plus pendant la copie. Un dossier _UnraidSecretaryOffice-trash d'avant est à moi aussi. Je déménage moi-même ce qu'il contient.",
+  "help.trash_text": "Rien n'est supprimé tout de suite : ce que tu ranges, je le renomme seulement, dans le dossier caché .UnraidSecretaryOffice-trash sur le même disque. « Remettre en place » l'annule ; seul « Vider » supprime définitivement. Les volumes de Docker, je les copie plutôt, à côté des données de Docker. Il y faut donc leur taille libre une fois de plus.",
   "help.templates_text": "Reste : ni conteneur ni image. Inutilisé : pas de conteneur, mais l'image est encore là. Doublon : un fichier plus ancien avec le même <Name>. Un modèle dont le conteneur existe est utilisé.",
   "help.stacks_text": "Rapprochées des conteneurs par nom de projet, comme le Compose Manager les nomme. Chemins et images viennent de docker compose config, avec le .env. Une stack avec des conteneurs est arrêtée (compose down) avant d'être rangée ; les volumes nommés restent.",
-  "help.appdata_text": "Un dossier est utilisé dès que quelque chose le nomme : le montage d'un conteneur, n'importe quel modèle, une stack (avec son .env), un fichier compose hors du Compose Manager, une VM, ou n'importe quel fichier sur la flash (User Scripts, réglages de plugins …). Un conteneur qui monte tout le partage ne compte pas.",
+  "help.appdata_text": "Un dossier est utilisé quand un conteneur, un modèle, une stack, un fichier compose, une VM ou un fichier sur la flash le nomme. Un conteneur qui monte tout le partage ne compte pas.",
   "help.check": "À vérifier",
   "help.check_text": "Rien ne l'utilise, mais : quelque chose porte le même nom, il n'est mentionné que dans des caches ou l'historique du shell, ou quelque chose y a été écrit dans les 30 derniers jours.",
   "help.sizes": "Tailles",
   "help.sizes_text": "Je compte les fichiers et les tailles en arrière-plan — les dossiers à regarder de moi-même, les dossiers utilisés quand tu le demandes. Les disques endormis restent endormis ; « Réveiller et regarder » les réveille quand tu veux.",
   "help.safe": "Prudence",
-  "help.safe_text": "Pendant qu'une sauvegarde tourne, je ne change rien. Je ne fais jamais que renommer. Là où ce n'est pas possible, par exemple vers un autre disque ou dans un dataset à part, je refuse au lieu de copier. La seule exception, ce sont les volumes de Docker, car Docker ne peut pas les renommer. Je les copie après avoir vérifié la place. Ils ne sont retirés qu'une fois la copie complète.",
+  "help.safe_text": "Pendant qu'une sauvegarde tourne, je ne change rien. Je ne fais que renommer ; là où ce n'est pas possible, je refuse. L'exception : les volumes de Docker, je les copie, et ne les retire qu'une fois la copie complète.",
   "errors.cleanup_backup_running": "Une sauvegarde est en cours — j'attends qu'elle soit terminée.",
   "errors.cleanup_restore_running": "Monsieur Restori ramène quelque chose en ce moment — j'attends qu'il ait fini.",
   "errors.cleanup_docker_down": "Docker ne répond pas — je ne touche pas à {name} sans lui.",
@@ -503,7 +503,7 @@
   "d.mountpoint": "Point de montage",
   "d.driver": "Pilote",
   "d.uuid": "UUID",
-  "docker.note": "Les images et le cache de build ne peuvent pas aller dans mon débarras. Les retirer est définitif, mais les images peuvent être retéléchargées. Les volumes vont d'abord dans le débarras : je copie ce qu'ils contiennent à côté des données de Docker, et seulement ensuite Docker les retire. Sauf les volumes d'un autre pilote ou montés d'ailleurs, par exemple via NFS ou CIFS. Ceux-là, je ne peux pas les copier, donc les retirer est définitif.",
+  "docker.note": "Les images et le cache de build sont perdus une fois retirés ; les images peuvent être retéléchargées. Les volumes, je les copie d'abord dans mon débarras. L'exception : les volumes via NFS, CIFS ou un autre pilote partent définitivement.",
   "docker.cache_at": "J'ai interrogé Docker sur son cache de build {when}.",
   "remove.button": "Retirer…",
   "remove.title": {
@@ -563,7 +563,7 @@
     "other": "{n} restes Docker · {size}"
   },
   "help.vms_text": "Dossiers du partage domains qu'aucune VM n'utilise ; fichiers NVRAM, états TPM et listes de snapshots de VM supprimées (dans libvirt.img) ; images disque du partage isos qu'aucune VM n'a insérées. Seulement pendant que le service VM tourne. Les copies NVRAM des snapshots d'une VM existante relèvent de Madame Snapshotini.",
-  "help.docker_text": "Ce que je montre ici : les images orphelines (restes de mises à jour), les images avec un tag qu'aucun conteneur n'utilise, les volumes qu'aucun conteneur ne monte, et le cache de build. Je ne retire jamais ce qu'un conteneur utilise encore. Docker ne peut rien renommer de tout ça. Les volumes, je les copie donc d'abord dans mon débarras à côté des données de Docker, et je ne les retire qu'une fois la copie complète. Sont retirés définitivement les images (elles peuvent être retéléchargées), le cache, et les volumes d'un autre pilote ou montés d'ailleurs, par exemple via NFS ou CIFS.",
+  "help.docker_text": "Images orphelines et inutilisées, volumes inutilisés et le cache de build ; jamais ce qu'un conteneur utilise. Les volumes, je les copie d'abord dans mon débarras. Les images et le cache sont ensuite perdus (les images peuvent être retéléchargées), tout comme les volumes via NFS, CIFS ou un autre pilote.",
   "errors.cleanup_vm_off": "Le service VM ne tourne pas — je ne touche pas à {name} sans lui.",
   "errors.cleanup_destroy_failed": "zfs destroy de {name} a échoué : {detail}",
   "errors.cleanup_docker_failed": "Docker n'a pas pu retirer {name} : {detail}",
@@ -746,7 +746,7 @@
     "one": "{n} fichier de réglages resté",
     "other": "{n} fichiers de réglages restés"
   },
-  "help.flash_text": "Fichiers de réglages dans /boot/config/shares dont le partage a disparu. Quand on supprime un partage à la main, en effaçant ses dossiers, son .cfg reste. Certains outils le comptent alors encore comme partage. Je ne propose un tel fichier que pendant que l'array tourne et qu'Unraid ne connaît aucun partage de ce nom. Un partage qu'Unraid connaît garde son fichier.",
+  "help.flash_text": "Fichiers de réglages dans /boot/config/shares dont le partage a disparu. Ils restent quand un partage est supprimé à la main, et certains outils les comptent encore comme partage. Je ne les propose que pendant que l'array tourne.",
   "item.sharecfg": "Réglages de partage",
   "errors.cleanup_share_known": "Unraid connaît le partage {name} — ses réglages restent.",
   "errors.cleanup_shares_unknown": "L'array n'est pas démarré — je ne peux pas dire si le partage {name} existe encore.",
@@ -807,7 +807,7 @@
   "pic.upload_hint": "Depuis ton ordinateur : PNG, JPEG, WebP, GIF ou SVG. Ton navigateur en fait un PNG carré de 256 × 256 pixels au plus, et seul celui-ci est envoyé ; je le garde sur la flash ({dir}).",
   "pic.upload_bad": "Ton navigateur ne peut pas lire ce fichier comme une image.",
   "pic.local_preview": "Un fichier sur le serveur — trop gros pour un aperçu ici.",
-  "pic.where": "Unraid prend l'image d'un conteneur dans son modèle, sinon dans son label net.unraid.docker.icon. Je cherche des images sur ce serveur nommées comme l'appli (le dossier dockerMan/images d'Unraid) et des logos dans Community Applications sur ce serveur. S'y ajoutent une table d'images connues et la collection libre dashboard-icons, consultée d'après le nom de l'image. Je ne propose que des images qui se chargent. Ou téléverse la tienne dans les détails.",
+  "pic.where": "Je cherche des images sur ce serveur, dans Community Applications, dans une table d'images connues et dans la collection libre dashboard-icons. Je ne propose que des images qui se chargent. Ou téléverse la tienne dans les détails.",
   "pic.checking_all": "Je vérifie si les images se chargent…",
   "pic.ca_at": "Liste de Community Applications du {when}.",
   "pic.no_ca": "La liste de Community Applications n'est pas là (elle arrive quand sa page ⟦Apps⟧ est ouverte) — moins de logos au choix.",
@@ -834,7 +834,7 @@
   "pic.stack_missing_text": "Le Compose Manager n'a pas d'image pour cette stack (icon_url) — la page Docker d'Unraid affiche un point d'interrogation devant, même quand ses conteneurs ont des images.",
   "pic.stack_broken_text": "Son icon_url indique {value}, mais le Compose Manager ne peut pas l'afficher (pas de tel fichier, ou pas une adresse qu'il accepte).",
   "pic.stack_ok_text": "Le Compose Manager affiche une image pour cette stack. Rien à redresser.",
-  "pic.how_stack": "J'écris l'adresse dans l'icon_url de la stack, comme le font les réglages de stack du Compose Manager. La page Docker d'Unraid affiche l'image à son prochain chargement. Le Compose Manager n'affiche que des fichiers du dossier de la stack ou sous /mnt. Certaines images, je les copie donc d'abord en icon.png dans le dossier de la stack : une image de ce serveur, une image téléversée ou une image du web qui n'est pas carrée. Je ne redémarre rien. L'ancien icon_url va d'abord dans mon débarras.",
+  "pic.how_stack": "J'écris l'image dans l'icon_url de la stack, comme le fait le Compose Manager. La page Docker d'Unraid l'affiche à son prochain chargement. Si besoin, je la copie dans le dossier de la stack en icon.png. Je ne redémarre rien. L'ancien icon_url va dans mon débarras.",
   "pic.d.main": "Appli principale",
   "pic.data_address": "une image dans l'adresse elle-même (data:)",
   "pic.own_hint_address": "Ou la tienne : l'adresse d'un PNG (1 Mo au plus) — je la charge et la vérifie avant de l'accrocher.",
@@ -845,8 +845,8 @@
   "d.stack": "Stack",
   "icons.stack_note": "Stacks : j'écris leur icon_url dans le Compose Manager — l'image apparaît au prochain chargement de la page Docker. Je ne redémarre rien.",
   "loop.text": {
-    "one": "Unraid {version} a un défaut : quand un conteneur n'a pas d'image, la page Docker et le Tableau de bord demandent sans cesse question.png. Cette version ne livre pas ce fichier. Les pages le demandent environ mille fois par seconde, jusqu'à ce que /var/log soit plein. {n} conteneur n'a pas d'image. Ce que tu peux faire : garde ces pages fermées jusqu'à ce qu'il en ait une, ou mets un remplaçant en place maintenant.",
-    "other": "Unraid {version} a un défaut : quand un conteneur n'a pas d'image, la page Docker et le Tableau de bord demandent sans cesse question.png. Cette version ne livre pas ce fichier. Les pages le demandent environ mille fois par seconde, jusqu'à ce que /var/log soit plein. {n} conteneurs n'ont pas d'image. Ce que tu peux faire : garde ces pages fermées jusqu'à ce qu'ils en aient une, ou mets un remplaçant en place maintenant."
+    "one": "Un défaut dans Unraid {version} : pour les conteneurs sans image, la page Docker et le Tableau de bord demandent question.png sans fin, jusqu'à ce que /var/log soit plein. {n} conteneur n'a pas d'image. Garde ces pages fermées ou mets un remplaçant en place.",
+    "other": "Un défaut dans Unraid {version} : pour les conteneurs sans image, la page Docker et le Tableau de bord demandent question.png sans fin, jusqu'à ce que /var/log soit plein. {n} conteneurs n'ont pas d'image. Garde ces pages fermées ou mets un remplaçant en place."
   },
   "loop.button": "Mettre un remplaçant en place",
   "loop.done": "Remplaçant en place — la boucle s'est arrêtée. Il vit en RAM : disparu après un redémarrage.",
@@ -895,7 +895,7 @@
   "item.icon": "fichier d'avant son image",
   "restore.done_icon": "{name} est revenu comme avant — l'image a de nouveau disparu (pour une stack : à partir de son prochain Compose Up).",
   "restore.done_stack_icon": "Stack {name} : son image dans le Compose Manager est revenue comme avant.",
-  "help.icons_text": "Voici les conteneurs qui affichent un point d'interrogation sur la page Docker et le Tableau de bord d'Unraid. Ils n'ont pas d'image, ou une qu'Unraid ne peut pas charger. Pour un conteneur issu d'un modèle, je mets le <Icon> dans son modèle, ce qui s'affiche tout de suite. Pour un conteneur d'une stack du Compose Manager, je mets le label dans le fichier override de la stack. Cela tient à partir de son prochain Compose Up. Les images viennent de ce serveur : nommées comme l'appli dans le dossier dockerMan/images d'Unraid, et le logo Time Machine d'Apple pour les conteneurs Time Machine. D'autres viennent de Community Applications sur ce serveur et d'une table d'images connues. Dans cette table, une base de données dans la stack d'une appli reçoit le logo de sa base de données. Sinon, je devine d'après le nom de l'image une adresse de la collection libre dashboard-icons, et je la vérifie. Rien n'est livré avec. Tu peux aussi téléverser ta propre image dans les détails d'un conteneur. Ton navigateur en fait un PNG carré de 256 × 256 pixels au plus. Je le garde sur la flash dans le dossier du secrétariat et je le règle depuis là. Une stack compose a aussi sa propre image dans le Compose Manager (icon_url). Quand elle n'en a pas, ou une qui ne mène nulle part, je liste aussi la stack. Je propose alors l'image de son appli principale, jamais celle de sa base de données ou de son cache, et je l'écris tout de suite. Avant que je modifie un fichier, il va dans mon débarras.",
+  "help.icons_text": "Des conteneurs qui affichent un point d'interrogation sur la page Docker et le Tableau de bord d'Unraid : ils n'ont pas d'image, ou elle ne se charge pas. Je mets une image dans le modèle (affichée tout de suite) ou, pour une stack, dans son fichier override (à partir de son prochain Compose Up). Les images viennent de ce serveur, de Community Applications, d'une table d'images connues ou de la collection libre dashboard-icons. Tu peux aussi téléverser la tienne dans les détails ; je la garde sur la flash. Quand une stack compose n'a pas d'image propre, je propose celle de son appli principale. Avant que je modifie un fichier, il va dans mon débarras.",
   "help.loop": "Unraid 7.3.2",
   "help.loop_text": "Cette version ne livre pas le point d'interrogation qu'elle affiche pour les conteneurs sans image, et ses pages le demandent sans fin — /var/log se remplit en quelques minutes. Tant que c'est le cas, je propose un remplaçant (en RAM, disparu après un redémarrage) ; dès qu'Unraid corrige ça, mon avertissement disparaît.",
   "errors.cleanup_icon_has": "{name} a déjà une image.",
@@ -973,7 +973,7 @@
     "other": "Ces {n} choses vont dans mon débarras :"
   },
   "park.in_use_leftovers": "Encore le chemin de retour de Monsieur Restori : {names}. Son « Remettre en place » de ces restaurations ne les trouvera pas tant que tu ne les remets pas en place depuis mon débarras.",
-  "park.where_leftovers": "Chaque chose reste sur son pool ou son disque, dans le dossier .UnraidSecretaryOffice-trash de son partage. Ce qui est sur la flash ou dans libvirt.img va dans mon débarras là-bas. Les datasets sont renommés juste à côté. Seulement renommé, rien n'est copié. Tu peux remettre en place quand tu veux, jusqu'à ce que tu vides le débarras.",
+  "park.where_leftovers": "Chaque chose reste sur son disque et est seulement renommée, dans le dossier .UnraidSecretaryOffice-trash de son partage. Rien n'est copié. Tu peux la remettre en place jusqu'à ce que tu vides le débarras.",
   "empty.leftovers": "Monsieur Restori n'a rien laissé traîner. Un homme soigneux !",
   "bubble.leftovers": {
     "one": "{n} reste de Monsieur Restori ({size})",
@@ -983,7 +983,7 @@
     "one": "{n} reste de Monsieur Restori · {size}",
     "other": "{n} restes de Monsieur Restori · {size}"
   },
-  "help.leftovers_text": "Monsieur Restori ne supprime jamais rien non plus. Ce qu'une restauration remplace, il le renomme de côté : .aside-<heure>, à « Remettre en place » .putback-<heure>. Une copie atterrit à côté de celle en service, en .restored-<heure>. Les fichiers de la flash et de libvirt.img, il les met dans ses dossiers .UnraidSecretaryOffice-restore. Des bases de données, il fait des dumps de sécurité. De la poussière, tout ça, mais on ne sait jamais : je le mets seulement dans mon débarras. Je le trouve dans ses journaux, jamais en fouillant les disques. Ce dont son « Remettre en place » a encore besoin est marqué « son chemin de retour ».",
+  "help.leftovers_text": "Monsieur Restori ne supprime jamais rien non plus : ce qu'une restauration remplace, il le renomme de côté (.aside-…, .putback-…, .restored-…), et des bases de données il fait des dumps de sécurité. Je trouve ces restes dans ses journaux, jamais en fouillant les disques. Ce dont son « Remettre en place » a encore besoin est marqué « son chemin de retour ».",
   "item.leftover": "reste de Monsieur Restori",
   "where.bubble.no_tour": "Je ne suis pas encore passée dans chaque recoin — une tournée prend quelques secondes, après je saurai où tout se trouve.",
   "where.bubble.no_data": "Je n'arrive pas à joindre le serveur et je n'ai encore rien à montrer.",
@@ -1391,7 +1391,7 @@
     "one": "{n} stack",
     "other": "{n} stacks"
   },
-  "where.place.compose_intro": "Une stack compose est décrite dans un fichier texte, le compose.yaml (.yml, c'est pareil, juste écrit plus court). Il dit quels conteneurs en font partie, avec quelle image, quels dossiers et quels ports. Le fichier override y ajoute ou modifie des choses sans toucher à l'original. Le .env contient des valeurs que le fichier compose reprend, comme des mots de passe ou des chemins. C'est pourquoi il mérite un soin particulier. Le Compose Manager garde un dossier par stack sur la flash. Les stacks « indirectes » pointent vers un dossier ailleurs.",
+  "where.place.compose_intro": "Une stack compose tient dans un fichier texte, compose.yaml : quels conteneurs, avec quelle image, quels dossiers et quels ports. Le fichier override le modifie ; le .env contient des valeurs comme des mots de passe et mérite un soin particulier. Le Compose Manager garde un dossier par stack sur la flash.",
   "where.place.vms": "VM (libvirt)",
   "where.place.vms_sub": {
     "one": "{n} VM",
@@ -1514,7 +1514,7 @@
   "where.boot.license_flash": "La licence ({file}) est liée au GUID de la clé de démarrage ({guid}) : avec une nouvelle clé, transfère-la vers le nouveau GUID (⟦Tools⟧ → ⟦Registration⟧).",
   "where.boot.license_other": "La licence ({file}) appartient à un GUID qui n'est ni celui de cette clé ni celui de ce TPM — vérifie-la sous ⟦Tools⟧ → ⟦Registration⟧.",
   "where.help.tiles": "Endroits sous « Où se trouvent les choses »",
-  "where.help.tiles_text": "Chaque ligne est un endroit avec des fichiers qui comptent. Son étiquette montre la protection la plus faible parmi eux. Ce qu'Unraid reconstruit à chaque démarrage porte la protection de sa source sur la flash. Le journal du système en RAM ne compte pas. Les données propres de Docker ne comptent que si des volumes Docker s'y trouvent. Un clic sur la ligne ouvre les chemins avec leur taille et leur protection.",
+  "where.help.tiles_text": "Chaque ligne est un endroit avec des fichiers qui comptent. Son étiquette montre la protection la plus faible parmi eux. Un clic ouvre les chemins avec leur taille et leur protection.",
   "where.help.copy": "Copier",
   "where.help.copy_text": "Met le chemin dans le presse-papiers — pour un terminal, le Files Viewer ou une note pour le jour où tu en auras besoin.",
   "where.help.rows": "Lignes dans les onglets",
@@ -1522,9 +1522,9 @@
   "where.help.tour": "Tournée",
   "where.help.tour_text": "Relit tout tout de suite — où tout se trouve et ce qui traîne. Sinon elle regarde à nouveau d'elle-même quand tu ouvres la page et que son dernier coup d'œil date de quelques minutes (où tout se trouve : 10 minutes).",
   "where.help.asleep": "Disques endormis",
-  "where.help.asleep_text": "Madame Plumeau ne réveille jamais d'elle-même un disque endormi. Ce que seul un disque de l'array pourrait lui dire reste inconnu tant qu'il n'est pas réveillé ; la taille des partages de l'array n'est mesurée que si tu le demandes. « Réveiller les disques endormis » à côté de Tournée les réveille tous d'un coup pour une tournée ; « Réveiller et regarder » dans une pièce seulement les disques de cette pièce.",
+  "where.help.asleep_text": "Madame Plumeau ne réveille jamais d'elle-même un disque endormi. « Réveiller les disques endormis » les réveille tous pour une tournée ; « Réveiller et regarder » seulement les disques d'une pièce.",
   "where.help.tunables": "Un réglage des disques",
-  "where.help.tunables_text": "Sur l'un des ⟦Disk Settings⟧ d'Unraid, j'ai un avis. Je ne fais que le lire. Il s'agit de ⟦Tunable (md_write_method)⟧. « ⟦Auto⟧ » veut dire « ⟦read/modify/write⟧ » : seuls le disque cible et la parité tournent. « ⟦reconstruct write⟧ » (turbo write) est bien plus rapide, mais fait démarrer chaque disque de l'array. Ce qui convient le mieux dépend de si tes partages écrivent directement sur l'array ou via un pool.",
+  "where.help.tunables_text": "J'ai un avis sur ⟦Tunable (md_write_method)⟧ dans les ⟦Disk Settings⟧ ; je ne fais que le lire. « ⟦reconstruct write⟧ » (turbo write) écrit plus vite, mais réveille chaque disque de l'array.",
   "where.help.labels": "Étiquettes de sauvegarde",
   "where.help.labels_text": "Comment Monsieur Backupsi protège un chemin, d'après les règles de ses réglages :",
   "where.wake": "Réveiller les disques endormis",
@@ -1644,7 +1644,7 @@
   "where.adv.to_vm_settings": "⟦VM Manager⟧",
   "where.adv.to_vms": "⟦VMs⟧",
   "where.adv.system_array.title": "Sur l'array : {names}",
-  "where.adv.system_array.why": "Les affaires de Docker et des VM ont leur place sur un pool (SSD/NVMe). Sur l'array, chaque conteneur et chaque VM devient lent, et les disques ne peuvent jamais dormir. Comment corriger : 1. Dans les réglages du partage, mets le stockage principal sur un pool et le secondaire sur aucun. 2. Arrête Docker et les VM. 3. Laisse le Mover transférer les fichiers.",
+  "where.adv.system_array.why": "Docker et les VM ont leur place sur un pool ; sur l'array, ils sont lents et les disques ne dorment jamais. 1. Dans le partage : principal un pool, secondaire aucun. 2. Arrête Docker et les VM. 3. Lance le Mover.",
   "where.adv.mover.title": {
     "one": "Le Mover n'a pas de planification — {names} compte dessus",
     "other": "Le Mover n'a pas de planification — {n} partages comptent dessus : {names}"
@@ -1656,21 +1656,21 @@
     "other": "Les partages exclusifs sont désactivés — {n} partages pourraient l'être : {names}"
   },
   "where.adv.exclusive_off.why": {
-    "one": "Psst — ce partage vit sur un seul pool et nulle part ailleurs. Pourtant, chaque octet sous /mnt/user se faufile par la couche FUSE d'Unraid (shfs). En partage exclusif, /mnt/user/… devient un lien direct vers le pool. Lectures et écritures contournent alors cette couche. C'est nettement plus rapide, surtout avec beaucoup de petits fichiers. Les chemins de Docker et des VM comme /mnt/user/appdata continuent de marcher : ils passent par le lien. Comment l'activer : 1. Arrête l'array : ⟦Main⟧ → ⟦Array Operation⟧ → ⟦Stop⟧. Docker et les VM s'arrêtent avec lui. 2. Mets ⟦Settings⟧ → ⟦Global Share Settings⟧ → « ⟦Permit exclusive shares⟧ » sur ⟦Yes⟧, puis ⟦Apply⟧. 3. Redémarre l'array. Unraid décide au démarrage de l'array. Un partage qui a aussi un dossier sur un autre disque ou pool reste tel quel. Bon à savoir : pour les partages exclusifs, Unraid ignore le réglage « ⟦Minimum free space⟧ ».",
-    "other": "Psst — ces partages vivent sur un seul pool et nulle part ailleurs. Pourtant, chaque octet sous /mnt/user se faufile par la couche FUSE d'Unraid (shfs). En partages exclusifs, /mnt/user/… devient un lien direct vers le pool. Lectures et écritures contournent alors cette couche. C'est nettement plus rapide, surtout avec beaucoup de petits fichiers. Les chemins de Docker et des VM comme /mnt/user/appdata continuent de marcher : ils passent par le lien. Comment l'activer : 1. Arrête l'array : ⟦Main⟧ → ⟦Array Operation⟧ → ⟦Stop⟧. Docker et les VM s'arrêtent avec lui. 2. Mets ⟦Settings⟧ → ⟦Global Share Settings⟧ → « ⟦Permit exclusive shares⟧ » sur ⟦Yes⟧, puis ⟦Apply⟧. 3. Redémarre l'array. Unraid décide au démarrage de l'array. Un partage qui a aussi un dossier sur un autre disque ou pool reste tel quel. Bon à savoir : pour les partages exclusifs, Unraid ignore le réglage « ⟦Minimum free space⟧ »."
+    "one": "Psst — ce partage vit sur un seul pool. En partage exclusif, il contournerait la couche FUSE d'Unraid et serait nettement plus rapide, surtout avec beaucoup de petits fichiers. Les chemins comme /mnt/user/appdata continuent de marcher. Pour l'activer : 1. Arrête l'array (⟦Main⟧ → ⟦Array Operation⟧ → ⟦Stop⟧) ; Docker et les VM s'arrêtent avec lui. 2. ⟦Settings⟧ → ⟦Global Share Settings⟧ → « ⟦Permit exclusive shares⟧ » sur ⟦Yes⟧, puis ⟦Apply⟧. 3. Démarre l'array. Attention : « ⟦Minimum free space⟧ » ne s'applique alors plus.",
+    "other": "Psst — ces partages vivent sur un seul pool. En partages exclusifs, ils contourneraient la couche FUSE d'Unraid et seraient nettement plus rapides, surtout avec beaucoup de petits fichiers. Les chemins comme /mnt/user/appdata continuent de marcher. Pour l'activer : 1. Arrête l'array (⟦Main⟧ → ⟦Array Operation⟧ → ⟦Stop⟧) ; Docker et les VM s'arrêtent avec lui. 2. ⟦Settings⟧ → ⟦Global Share Settings⟧ → « ⟦Permit exclusive shares⟧ » sur ⟦Yes⟧, puis ⟦Apply⟧. 3. Démarre l'array. Attention : « ⟦Minimum free space⟧ » ne s'applique alors plus."
   },
   "where.adv.exclusive_elsewhere.title": {
     "one": "{names} ne peut pas être exclusif",
     "other": "{n} partages ne peuvent pas être exclusifs : {names}"
   },
-  "where.adv.exclusive_elsewhere.why": "Tiens, tiens — un dossier du même nom se trouve sur un autre pool ou disque (entre parenthèses). Lui seul, même vide, empêche Unraid de lier le partage directement à son pool. Le partage reste alors dans la couche FUSE, plus lente. Comment corriger : 1. Ce qui est dans ce dossier fait partie du partage. Déplace-le sur le pool du partage (le gestionnaire de fichiers d'Unraid : ⟦Browse⟧), ou supprime le dossier s'il est vide. 2. Arrête et redémarre l'array une fois (⟦Main⟧ → ⟦Array Operation⟧). Unraid décide au démarrage. 3. Fix Common Problems signale aussi ces dossiers. Laisse-le vérifier à nouveau ensuite : ⟦Settings⟧ → ⟦User Utilities⟧ → Fix Common Problems → Rescan.",
+  "where.adv.exclusive_elsewhere.why": "Tiens, tiens — un dossier du même nom se trouve sur un autre pool ou disque (entre parenthèses). Lui seul, même vide, empêche un partage exclusif. Pour corriger : 1. Déplace son contenu sur le pool du partage (⟦Browse⟧), ou supprime le dossier s'il est vide. 2. Arrête et redémarre l'array (⟦Main⟧ → ⟦Array Operation⟧).",
   "where.adv.exclusive_unclear.title": {
     "one": "{names} n'est pas exclusif — et je ne vois pas pourquoi",
     "other": "{n} partages ne sont pas exclusifs — et je ne vois pas pourquoi : {names}"
   },
   "where.adv.exclusive_unclear.why": {
-    "one": "Voilà un mystère : d'après ses réglages il convient, et je ne vois son dossier que sur son propre pool. Pourtant Unraid dit « ⟦Exclusive access⟧ : ⟦No⟧ ». {maybe} Unraid décide au démarrage de l'array. Une fois ça réglé, arrête et redémarre l'array (⟦Main⟧ → ⟦Array Operation⟧).",
-    "other": "Voilà un mystère : d'après leurs réglages ils conviennent, et je ne vois leur dossier que sur leur propre pool. Pourtant Unraid dit « ⟦Exclusive access⟧ : ⟦No⟧ ». {maybe} Unraid décide au démarrage de l'array. Une fois ça réglé, arrête et redémarre l'array (⟦Main⟧ → ⟦Array Operation⟧)."
+    "one": "Un mystère : il convient et ne se trouve que sur son pool, et pourtant Unraid dit « ⟦Exclusive access⟧ : ⟦No⟧ ». {maybe} Ensuite, arrête et redémarre l'array (⟦Main⟧ → ⟦Array Operation⟧).",
+    "other": "Un mystère : ils conviennent et ne se trouvent que sur leur pool, et pourtant Unraid dit « ⟦Exclusive access⟧ : ⟦No⟧ ». {maybe} Ensuite, arrête et redémarre l'array (⟦Main⟧ → ⟦Array Operation⟧)."
   },
   "where.adv.exclusive_unclear.asleep": "Peut-être qu'un dossier du même nom se trouve sur un disque où je n'ai pas regardé parce qu'il dormait ({disks}) — va voir là-bas et déplace-le sur le pool.",
   "where.adv.exclusive_unclear.awake": "Peut-être que les réglages ont changé après le démarrage de l'array.",
@@ -1679,16 +1679,16 @@
     "other": "{n} partages pourraient être exclusifs — sans le stockage secondaire : {names}"
   },
   "where.adv.exclusive_overflow.why": {
-    "one": "Je n'ai pas pu m'empêcher de le remarquer : ce partage garde ses données sur son pool. Le Mover ramène ce qui a débordé sur le stockage secondaire. Sans stockage secondaire, il pourrait être un partage exclusif. Alors /mnt/user/… serait un lien direct vers le pool, en contournant la couche FUSE d'Unraid, et nettement plus rapide. Ça ne vaut la peine que si le pool a de la place pour tout. Sans stockage secondaire, un pool plein veut dire un partage plein. Si oui : 1. Laisse tourner le Mover jusqu'à ce que tout soit sur le pool. 2. Dans les réglages du partage, mets « ⟦Secondary storage⟧ » sur « ⟦None⟧ ». 3. Supprime ce qui reste du partage sur un autre pool ou disque (entre parenthèses). Les dossiers vides comptent aussi. 4. Arrête et redémarre l'array. Il faut pour cela que « ⟦Permit exclusive shares⟧ » soit activé (⟦Settings⟧ → ⟦Global Share Settings⟧).",
-    "other": "Je n'ai pas pu m'empêcher de le remarquer : ces partages gardent leurs données sur leur pool. Le Mover ramène ce qui a débordé sur le stockage secondaire. Sans stockage secondaire, ils pourraient être des partages exclusifs. Alors /mnt/user/… serait un lien direct vers le pool, en contournant la couche FUSE d'Unraid, et nettement plus rapide. Ça ne vaut la peine que si le pool a de la place pour tout. Sans stockage secondaire, un pool plein veut dire un partage plein. Si oui : 1. Laisse tourner le Mover jusqu'à ce que tout soit sur le pool. 2. Dans les réglages du partage, mets « ⟦Secondary storage⟧ » sur « ⟦None⟧ ». 3. Supprime ce qui reste du partage sur un autre pool ou disque (entre parenthèses). Les dossiers vides comptent aussi. 4. Arrête et redémarre l'array. Il faut pour cela que « ⟦Permit exclusive shares⟧ » soit activé (⟦Settings⟧ → ⟦Global Share Settings⟧)."
+    "one": "Ça m'a frappée : sans stockage secondaire, ce partage pourrait être exclusif et nettement plus rapide. Utile seulement si le pool a de la place pour tout : un pool plein veut alors dire un partage plein. 1. Laisse tourner le Mover jusqu'à ce que tout soit sur le pool. 2. Dans le partage, « ⟦Secondary storage⟧ » sur « ⟦None⟧ ». 3. Supprime les restes sur d'autres disques ou pools (entre parenthèses), les dossiers vides aussi. 4. Arrête et redémarre l'array. Il faut « ⟦Permit exclusive shares⟧ ».",
+    "other": "Ça m'a frappée : sans stockage secondaire, ces partages pourraient être exclusifs et nettement plus rapides. Utile seulement si le pool a de la place pour tout : un pool plein veut alors dire un partage plein. 1. Laisse tourner le Mover jusqu'à ce que tout soit sur le pool. 2. Dans le partage, « ⟦Secondary storage⟧ » sur « ⟦None⟧ ». 3. Supprime les restes sur d'autres disques ou pools (entre parenthèses), les dossiers vides aussi. 4. Arrête et redémarre l'array. Il faut « ⟦Permit exclusive shares⟧ »."
   },
   "where.adv.compose_build.title": {
     "one": "{names} construit sa propre image",
     "other": "{n} stacks construisent leur propre image : {names}"
   },
   "where.adv.compose_build.why": {
-    "one": "Son image est construite ici à partir d'un Dockerfile (« build: » dans le fichier compose). Aucun registre ne l'a. Mais « Update » et « Force Update » du Compose Manager téléchargent d'abord les images. Ici, ça échoue et peut laisser les conteneurs « Created ». Reconstruis-la plutôt dans un terminal (le >_ d'Unraid en haut à droite). Ça récupère l'image de base plus récente, reconstruit et recrée ce qui a changé.",
-    "other": "Leurs images sont construites ici à partir d'un Dockerfile (« build: » dans le fichier compose). Aucun registre ne les a. Mais « Update » et « Force Update » du Compose Manager téléchargent d'abord les images. Ici, ça échoue et peut laisser les conteneurs « Created ». Reconstruis-les plutôt dans un terminal (le >_ d'Unraid en haut à droite). Ça récupère l'image de base plus récente, reconstruit et recrée ce qui a changé."
+    "one": "Son image est construite ici ; aucun registre ne l'a. « Update » dans le Compose Manager échoue donc et peut laisser les conteneurs « Created ». Reconstruis-la plutôt dans un terminal (le >_ d'Unraid en haut à droite), avec la commande ci-dessous.",
+    "other": "Leurs images sont construites ici ; aucun registre ne les a. « Update » dans le Compose Manager échoue donc et peut laisser les conteneurs « Created ». Reconstruis-les plutôt dans un terminal (le >_ d'Unraid en haut à droite), avec la commande ci-dessous."
   },
   "where.adv.cron_dead.title": {
     "one": "Une ligne cron lance {names} — qui n'existe plus",
@@ -1711,8 +1711,8 @@
   "where.adv.old_disks.why": "Plus d'environ 5 ans d'heures de fonctionnement. Pas un défaut — mais le moment de garder un œil sur SMART, d'avoir un disque de rechange sous la main et de s'assurer que ce qu'il contient est sauvegardé.",
   "where.adv.no_parity.title": "L'array tourne sans parité",
   "where.adv.no_parity.why": {
-    "one": "Si son disque de données lâche, ce qui s'y trouve est perdu. Rien ne te prévient avant. Un disque de parité reconstruit un disque défaillant. Il doit être au moins aussi grand que le plus grand disque de données. Comment le mettre en place : 1. ⟦Main⟧ → arrête l'array. 2. Mets un disque dans l'emplacement de parité. 3. Démarre l'array. Unraid construit alors la parité. Ça prend des heures ; l'array reste utilisable pendant ce temps.",
-    "other": "Si l'un des {n} disques de données lâche, ce qui s'y trouve est perdu. Rien ne te prévient avant. Un disque de parité reconstruit un disque défaillant. Il doit être au moins aussi grand que le plus grand disque de données. Comment le mettre en place : 1. ⟦Main⟧ → arrête l'array. 2. Mets un disque dans l'emplacement de parité. 3. Démarre l'array. Unraid construit alors la parité. Ça prend des heures ; l'array reste utilisable pendant ce temps."
+    "one": "Si son disque de données lâche, tout ce qui s'y trouve est perdu. Un disque de parité, au moins aussi grand que le plus grand disque de données, le reconstruit : ⟦Main⟧ → arrête l'array, mets un disque dans l'emplacement de parité, démarre l'array.",
+    "other": "Si l'un des {n} disques de données lâche, tout ce qui s'y trouve est perdu. Un disque de parité, au moins aussi grand que le plus grand disque de données, le reconstruit : ⟦Main⟧ → arrête l'array, mets un disque dans l'emplacement de parité, démarre l'array."
   },
   "where.adv.parity.title": "Dernier contrôle de parité : {when}",
   "where.adv.parity.why": "Un contrôle régulier (mensuel ou trimestriel) trouve les secteurs défectueux avant qu'un disque ne lâche et que tu aies besoin de la parité. ⟦Settings⟧ → ⟦Scheduler⟧ → ⟦Parity Check⟧, à une heure où personne n'a besoin du serveur.",
@@ -1726,26 +1726,26 @@
     "other": "{n} VM Windows peuvent retenir l'arrêt de l'array : {names}"
   },
   "where.adv.vm_windows.why": {
-    "one": "Tiens, tiens : quand l'array s'arrête, Unraid demande à chaque VM de s'éteindre et attend jusqu'à {timeout} s. Ce qui tourne encore ensuite est coupé net, comme on débranche la prise. Le travail non enregistré est perdu, et Windows vérifie son disque au démarrage suivant. Dans cette VM, aucun agent invité ne répond. La demande d'Unraid n'arrive donc que comme un appui sur le bouton d'alimentation. Un Windows inactif, écran éteint, aime l'ignorer. L'arrêt de l'array attend alors les {timeout} s entières pour rien, puis vient la prise. Deux choses aident, dans Windows : 1. Installe le QEMU Guest Agent (sur l'ISO virtio-win : guest-agent\\qemu-ga-x86_64.msi). Unraid lui demande alors, et Windows écoute. 2. Ou bien, dans ses options d'alimentation, choisis « Éteindre l'écran : Jamais » et « Lorsque j'appuie sur le bouton d'alimentation : Arrêter ». Un délai plus long n'y change rien : l'attente s'allonge seulement. Il se trouve sous ⟦Settings⟧ → ⟦VM Manager⟧ → « ⟦VM shutdown time-out⟧ ». Il doit aussi rester sous le délai d'extinction des disques ({disk} s, ⟦Settings⟧ → ⟦Disk Settings⟧ → « ⟦Shutdown time-out⟧ »).",
-    "other": "Tiens, tiens : quand l'array s'arrête, Unraid demande à chaque VM de s'éteindre et attend jusqu'à {timeout} s. Ce qui tourne encore ensuite est coupé net, comme on débranche la prise. Le travail non enregistré est perdu, et Windows vérifie son disque au démarrage suivant. Dans ces VM, aucun agent invité ne répond. La demande d'Unraid n'arrive donc que comme un appui sur le bouton d'alimentation. Un Windows inactif, écran éteint, aime l'ignorer. L'arrêt de l'array attend alors les {timeout} s entières pour rien, puis vient la prise. Deux choses aident, dans Windows : 1. Installe le QEMU Guest Agent (sur l'ISO virtio-win : guest-agent\\qemu-ga-x86_64.msi). Unraid lui demande alors, et Windows écoute. 2. Ou bien, dans ses options d'alimentation, choisis « Éteindre l'écran : Jamais » et « Lorsque j'appuie sur le bouton d'alimentation : Arrêter ». Un délai plus long n'y change rien : l'attente s'allonge seulement. Il se trouve sous ⟦Settings⟧ → ⟦VM Manager⟧ → « ⟦VM shutdown time-out⟧ ». Il doit aussi rester sous le délai d'extinction des disques ({disk} s, ⟦Settings⟧ → ⟦Disk Settings⟧ → « ⟦Shutdown time-out⟧ »)."
+    "one": "Tiens, tiens : quand l'array s'arrête, Unraid demande à chaque VM de s'éteindre, attend jusqu'à {timeout} s, puis la coupe net. Le travail non enregistré est perdu. Celle-ci n'a pas d'agent invité, et un Windows inactif aime ignorer la demande. Ce qui aide, dans Windows : 1. Installe le QEMU Guest Agent (ISO virtio-win : guest-agent\\qemu-ga-x86_64.msi). 2. Ou, dans les options d'alimentation, choisis « Éteindre l'écran : Jamais » et « Lorsque j'appuie sur le bouton d'alimentation : Arrêter ». Un « ⟦VM shutdown time-out⟧ » plus long n'aide pas ; il doit rester sous le « ⟦Shutdown time-out⟧ » des disques ({disk} s).",
+    "other": "Tiens, tiens : quand l'array s'arrête, Unraid demande à chaque VM de s'éteindre, attend jusqu'à {timeout} s, puis la coupe net. Le travail non enregistré est perdu. Celles-ci n'ont pas d'agent invité, et un Windows inactif aime ignorer la demande. Ce qui aide, dans Windows : 1. Installe le QEMU Guest Agent (ISO virtio-win : guest-agent\\qemu-ga-x86_64.msi). 2. Ou, dans les options d'alimentation, choisis « Éteindre l'écran : Jamais » et « Lorsque j'appuie sur le bouton d'alimentation : Arrêter ». Un « ⟦VM shutdown time-out⟧ » plus long n'aide pas ; il doit rester sous le « ⟦Shutdown time-out⟧ » des disques ({disk} s)."
   },
   "where.adv.vm_sparse.disk": "{vm} : {file} — disque virtuel de {virtual}, {used} utilisés",
   "where.adv.vm_sparse.title": {"one": "{n} disque de VM bien plus gros que ce qu'il contient : {names}", "other": "{n} disques de VM bien plus gros que ce qu'ils contiennent : {names}"},
-  "where.adv.vm_sparse.why": "Tiens, tiens : {example}. Sur le serveur, ça ne coûte rien. Le fichier est creux (sparse), sa partie vide n'est pas stockée. Mais le premier envoi hors site (Kopia) lit tout le fichier, la partie vide comme des zéros. Ça coûte des heures pour rien. Un disque de 1,6 To contenant 21 Go prend près de trois heures à 200 Mo/s. Les sauvegardes suivantes sautent le fichier tant qu'il ne change pas. Deux moyens gardent le fichier à la taille de son contenu : 1. Un disque virtuel plus petit. 2. Un disque qcow2 que l'invité trimme : discard='unmap' sur le disque dans le XML de la VM, puis TRIM dans l'invité. Les snapshots locaux s'en moquent dans les deux cas.",
+  "where.adv.vm_sparse.why": "Tiens, tiens : {example}. Sur le serveur, ça ne coûte rien, mais le premier envoi hors site (Kopia) lit tout le disque virtuel, la partie vide aussi. Ça coûte des heures pour rien. Le remède : un disque virtuel plus petit, ou un disque qcow2 avec discard='unmap' dans le XML de la VM et TRIM dans l'invité.",
   "where.adv.vm_netmodel.title": {"one": "{n} VM dont le réseau passe par QEMU : {names}", "other": "{n} VM dont le réseau passe par QEMU : {names}"},
-  "where.adv.vm_netmodel.why": "Bon à savoir : avec le modèle réseau « virtio-net » d'Unraid, chaque paquet de la VM passe par le processus QEMU. Unraid le recommande par défaut parce qu'il est plus stable. Pour la plupart des VM, il suffit largement. « virtio » ne vaut la peine que si une VM a besoin de beaucoup de débit, soit plusieurs Gbit/s entre la VM et le serveur. Mesuré : un flux à 2,2 Gbit/s avec « virtio-net », 93 Gbit/s avec « virtio ». Unraid dit « virtio » plus rapide mais peut-être moins stable. Comment basculer : 1. Éteins la VM. 2. ⟦VMs⟧ → la VM → ⟦Edit⟧ → mets « ⟦Network Model⟧ » sur « virtio ».",
+  "where.adv.vm_netmodel.why": "Avec « virtio-net », chaque paquet de la VM passe par QEMU. Pour la plupart des VM, ça suffit, et Unraid le recommande comme plus stable. Si une VM a besoin de plusieurs Gbit/s vers le serveur, « virtio » est bien plus rapide : 1. Éteins la VM. 2. ⟦VMs⟧ → la VM → ⟦Edit⟧ → « ⟦Network Model⟧ » sur « virtio ».",
   "where.adv.vm_migratable.title": {"one": "{n} VM cache des fonctions du CPU pour une migration : {names}", "other": "{n} VM cachent des fonctions du CPU pour une migration : {names}"},
-  "where.adv.vm_migratable.why": "Bon à savoir : avec ⟦CPU Mode⟧ « ⟦Host Passthrough⟧ » et « ⟦Migratable⟧ » sur On, libvirt cache certaines fonctions du CPU, invtsc par exemple. C'est le réglage par défaut d'Unraid pour les nouvelles VM. Ces fonctions empêcheraient de déplacer la VM en marche vers un autre serveur. Cela ne coûte ni RAM ni temps CPU. Mais l'invité voit moins de capacités du CPU, et cela peut coûter des performances (horloges, certaines instructions). libvirt dit lui-même qu'il ne rend un tel déplacement sûr qu'entre serveurs identiques. De toute façon, Unraid ne déplace jamais de VM vers un autre serveur. Avec Off, l'invité reçoit tout le CPU : 1. Arrête la VM. 2. ⟦VMs⟧ → la VM → ⟦Edit⟧ → « ⟦Migratable⟧ » (à côté de ⟦CPU Mode⟧) → Off.",
+  "where.adv.vm_migratable.why": "Avec ⟦CPU Mode⟧ « ⟦Host Passthrough⟧ » et « ⟦Migratable⟧ » sur On, la VM ne voit pas toutes les fonctions du CPU. Cela peut coûter des performances. Ce n'est utile que pour déplacer des VM en marche vers un autre serveur, et Unraid ne le fait jamais. Pour le désactiver : 1. Arrête la VM. 2. ⟦VMs⟧ → la VM → ⟦Edit⟧ → « ⟦Migratable⟧ » (à côté de ⟦CPU Mode⟧) → Off.",
   "where.adv.write_method.auto": "« ⟦Auto⟧ » (c'est-à-dire « ⟦read/modify/write⟧ »)",
   "where.adv.write_method.rmw": "« ⟦read/modify/write⟧ »",
   "where.adv.write_method_keep.title": "Méthode d'écriture {method} : la bonne ici",
-  "where.adv.write_method_keep.why": "« ⟦Tunable (md_write_method)⟧ » est réglé sur {method}. Pour écrire sur l'array avec parité, Unraid lit alors d'abord les anciennes données et la parité. Seuls le disque cible et le disque de parité tournent ; l'écriture est plus lente. « ⟦reconstruct write⟧ » (turbo write) lit à la place tous les autres disques de données. C'est bien plus rapide, mais chaque disque de l'array démarre. Aucun de tes partages n'écrit directement sur l'array — {moved} Seul le Mover écrit donc sur l'array, quand personne ne l'attend. {disks}",
+  "where.adv.write_method_keep.why": "« ⟦Tunable (md_write_method)⟧ » est réglé sur {method} : seuls le disque cible et la parité tournent. « ⟦reconstruct write⟧ » (turbo write) serait plus rapide, mais réveille chaque disque de l'array. Aucun de tes partages n'écrit directement sur l'array — {moved} {disks}",
   "where.adv.write_method_keep.moved": {"one": "{n} partage arrive d'abord sur un pool ; le Mover emmène ses fichiers vers l'array plus tard.", "other": "{n} partages arrivent d'abord sur un pool ; le Mover emmène leurs fichiers vers l'array plus tard."},
   "where.adv.write_method_keep.no_moved": "ils vivent tous sur des pools.",
   "where.adv.write_method_keep.sleep": "Et les autres disques continuent de dormir. Garde-le ainsi.",
   "where.adv.write_method_keep.awake": "Le turbo write n'y apporterait rien que l'on remarque. Garde-le ainsi.",
   "where.adv.write_method_turbo.title": {"one": "{n} partage écrit directement sur l'array : {names}", "other": "{n} partages écrivent directement sur l'array : {names}"},
-  "where.adv.write_method_turbo.why": "« ⟦Tunable (md_write_method)⟧ » est réglé sur {method}. Pour chaque bloc, Unraid lit alors d'abord les anciennes données et la parité, puis écrit les deux. Seuls le disque cible et le disque de parité tournent, mais les grosses copies prennent leur temps. « ⟦reconstruct write⟧ » (turbo write) lit à la place tous les autres disques de données et écrit bien plus vite. Mais chaque disque de l'array démarre. Sans pool devant, ce que tu y copies va directement sur l'array. {disks} {how}",
+  "where.adv.write_method_turbo.why": "« ⟦Tunable (md_write_method)⟧ » est réglé sur {method} : les grosses copies vers l'array prennent du temps. « ⟦reconstruct write⟧ » (turbo write) écrit bien plus vite, mais réveille chaque disque de l'array. Sans pool devant, ce que tu y copies va directement sur l'array. {disks} {how}",
   "where.adv.write_method_turbo.sleep": "Tes disques se mettent en veille quand ils ne font rien, donc le turbo write en permanence les réveillerait tous à chaque petite écriture — utilise-le pour les grosses copies : « ⟦reconstruct write⟧ » avant, de nouveau « ⟦Auto⟧ » après.",
   "where.adv.write_method_turbo.awake": "Tes disques ne se mettent de toute façon jamais en veille — tant que cela reste ainsi, « ⟦reconstruct write⟧ » ne te coûte rien de plus et rend ces écritures plus rapides.",
   "where.adv.write_method_turbo.plugin": "Ou laisse le plugin « CA Auto Turbo Write Mode » (⟦Apps⟧) basculer pour toi : turbo write tant que tous les disques tournent de toute façon, la manière lente tant que certains dorment. Ou donne un pool à ces partages, et le Mover écrit plus tard.",
@@ -1759,11 +1759,11 @@
   "cat.partners.dropped": "Plus gardée",
   "cat.partners.dropped_text": "Le partenariat existe toujours — le chef d'équipe ne garde plus cette unité",
   "park.text_partners": {"one": "Les copies de ce partenaire vont dans mon débarras :", "other": "Les copies de ces {n} partenaires vont dans mon débarras :"},
-  "park.where_partners": "Chacune reste sur son pool. Je renomme le dataset avec zfs rename dans l'emplacement des partenaires du pool, en .UnraidSecretaryOffice-trash-…. Une paire entière atterrit juste à côté d'elle-même, une unité seule un niveau plus haut. Ses unités et ses snapshots suivent. La note d'où il vient est dans mon débarras sur la flash. Seulement renommé, rien n'est copié. Tu peux remettre en place quand tu veux, jusqu'à ce que tu vides le débarras.",
+  "park.where_partners": "Chacune reste sur son pool : je renomme seulement le dataset avec ses snapshots (zfs rename) ; rien n'est copié. La note d'où il vient est dans mon débarras. Tu peux la remettre en place jusqu'à ce que tu vides le débarras.",
   "empty.partners": "Aucun partenaire n'a rien laissé ici.",
   "bubble.partners": {"one": "les copies de {n} partenaire traînent encore ({size})", "other": "les copies de {n} partenaires traînent encore ({size})"},
   "fact.partners": {"one": "reste de {n} partenaire · {size}", "other": "restes de {n} partenaires · {size}"},
-  "help.partners_text": "Un secrétariat partenaire gardait ici ses copies. La porte les recevait dans <pool>/UnraidSecretaryOffice-partners/<partenaire>. Quand le partenariat se termine, les copies restent. De la poussière, mais on ne sait jamais : peut-être vous appairerez-vous à nouveau. Dès que le partenariat n'est plus dans la liste du chef d'équipe, je montre les copies ici. Si tu veux, je les mets dans mon débarras (zfs rename juste à côté), mais jamais pendant que la porte reçoit pour ce partenaire. Je ne réveille jamais un disque qui dort, sauf si tu le veux.",
+  "help.partners_text": "Un secrétariat partenaire gardait ici ses copies. Quand le partenariat se termine, elles restent. Dès que le partenaire n'est plus dans la liste du chef d'équipe, je les montre ici et, si tu veux, je les mets dans mon débarras, jamais pendant que la porte reçoit. Je ne réveille les disques qui dorment que si tu le demandes.",
   "item.partner": "copies d'un partenaire",
   "item.package": "paquet de Monsieur Backupsi",
   "why.transfer": "en réception",
@@ -1777,7 +1777,7 @@
   "pa.d.units": "Unités",
   "pa.text": "Plus personne n'y reçoit : le chef d'équipe n'a aucun partenariat de cet id. Si vous vous appairez à nouveau, le nouveau partenariat reçoit un nouvel id — ces anciennes copies ne reviennent pas toutes seules.",
   "pa.dropped_name": "{unit} de {name} — plus gardée",
-  "pa.dropped_text": "Le partenariat avec {name} continue. Mais le chef d'équipe ne garde plus cette unité (« Garder moins de {name}… »). La porte n'y reçoit plus rien, les copies traînent là. Sur demande je la range dans mon débarras : renommée dans l'emplacement des partenaires sur le même pool, et tu peux la remettre en place quand tu veux. Jamais pendant que la porte y reçoit.",
+  "pa.dropped_text": "Le partenariat avec {name} continue, mais le chef d'équipe ne garde plus cette unité (« Garder moins de {name}… »). Sur demande, je la range dans mon débarras, jamais pendant que la porte y reçoit.",
   "where.partners.title": "Copies des partenaires",
   "where.partners.sum": {"one": "{n} partenaire garde des copies ici", "other": "{n} partenaires gardent des copies ici"},
   "where.partners.asleep": "endormis, pas regardés : {pools}",
