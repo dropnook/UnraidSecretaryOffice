@@ -54379,6 +54379,11 @@ function testRestoreTruthChips(): void
         [['local', 'offsite', ['kopia_never']], ['offsite', 'offsite', []], ['local', 'offsite', ['kopia_never']]],
         [$lv(rsPackageProtectionInfo($pk, 'app:Emby', $s, $truth)), $lv(rsPackageProtectionInfo($pk, 'app:Emby', $s, array_replace_recursive($truth, ['kopia' => ['good' => ['app:Emby' => 1]]]))),
          $lv(rsPackageProtectionInfo($pk, null, $s, $truth))]);
+    // owner 2026-10-26: «only local» beside «at Grandparents» on a share row — the row's protection chip hid the partners
+    // the results name (note.partners), so its word contradicted the at-partner chip beside it
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/restore/desk.js');
+    check('restore truth: the rows\' protection chip keeps the partners in its word (never «only local» beside «at <partner>»)',
+        (bool) preg_match('/const protChip = \(f\) => \(f \? Office\.backupChip\(f\.protection, f\.protection_note\) : null\);/', $js));
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
