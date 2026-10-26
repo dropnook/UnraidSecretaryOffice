@@ -555,7 +555,7 @@ function scopeLine() {
   const scope = T('libraries_people', { libs: (set.libraries || []).join(', ') || T('all'), people: peopleText(set.valid_users) });
   const line = Office.place('overview', el('div', 'jo-scope'));
   line.append(el('span', 'jo-scope-title', T('overview')),
-    el('span', 'jo-scope-text', `${set.cache_budget ? T('budget', { size: set.cache_budget }) : amount.join(' · ')} — ${scope}`));
+    el('span', 'jo-scope-text', `${set.cache_budget ? T('budget', { size: fmt.size(budgetGb(set.cache_budget) * 1073741824) }) : amount.join(' · ')} — ${scope}`));
   return line;
 }
 
@@ -1131,7 +1131,7 @@ function fillRuns(box) {
     const meta = el('div', 'row-meta');
     const ok = ['ok'].includes(r.result) && !((r.status || {}).errors);
     const cls = ['refused', 'skipped', 'stopped'].includes(r.result) ? 'quiet' : ok ? 'ok' : 'warn';
-    meta.append(chip(T('result.' + (r.result || 'failed')), cls, r.exit != null ? T('exit_code', { n: r.exit }) : ''),
+    meta.append(chip(T('result.' + (r.result || 'failed')), cls, r.exit === 0 ? T('exit_ok') : r.exit != null ? T('exit_code', { n: r.exit }) : ''),
       el('span', '', fmt.date(r.started)), el('span', '', runBy(r)));
     if (r.finished && r.finished - r.started >= 60) meta.appendChild(el('span', '', fmt.duration(r.finished - r.started)));
     main.append(meta, el('div', 'row-meta', runSummary(r)));

@@ -1803,7 +1803,7 @@ function fillRuns(box) {
     const meta = el('div', 'row-meta');
     const ok = r.result === 'ok';
     const cls = ['refused', 'skipped', 'stopped'].includes(r.result) ? 'quiet' : ok ? 'ok' : 'warn';
-    meta.append(chip(T('result.' + (r.result || 'failed')), cls, r.exit != null ? T('exit_code', { n: r.exit }) : ''),
+    meta.append(chip(T('result.' + (r.result || 'failed')), cls, r.exit === 0 ? T('exit_ok') : r.exit != null ? T('exit_code', { n: r.exit }) : ''),
       el('span', '', fmt.date(r.started)), el('span', '', runBy(r)));
     if (r.finished && r.finished - r.started >= 60) meta.appendChild(el('span', '', fmt.duration(r.finished - r.started)));
     main.append(meta, el('div', 'row-meta', runSummary(r, true)));
