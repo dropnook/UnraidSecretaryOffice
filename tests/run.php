@@ -3975,8 +3975,8 @@ function testDetailsKept(): void
             }
         }
     }
-    // the office's own: «How to read this page» remembers itself in the browser; the report dialog's lists (yours, the diagnostics' files) live in a dialog
-    same('details: every one a desk builds keeps what the user chose (keepFold)', ['assets/core.js page-help', 'assets/core.js sso-report-yours', 'assets/core.js sso-report-diag-files'], $bare);
+    // the office's own: «How to read this page» remembers itself in the browser (the report dialog folds nothing since 2026-10-27)
+    same('details: every one a desk builds keeps what the user chose (keepFold)', ['assets/core.js page-help'], $bare);
     foreach (glob(OFFICE_WEB . '/desks/*/desk.js') ?: [] as $f) {
         $js = (string) file_get_contents($f);
         if (str_contains($js, 'keepFold(el(')) {
@@ -40246,6 +40246,8 @@ const visible = (n) => { for (let x = n; x; x = x.parentNode) if (x.hidden) retu
 const body = () => byId['sso-dialog-body'];
 const one = (f) => walk(body(), f)[0];
 const button = (label) => one((n) => n.tag === 'button' && n.textContent === label);
+const why = () => { const w = walk(byId['sso-dialog-foot'], (n) => typeof n.className === 'string' && n.className.split(' ').includes('sso-report-why'))[0];
+  return !w ? 'missing' : w.hidden ? null : [text(w).trim(), !!walk(w, (n) => n.className === 'spin').length && w.className.includes('running')]; };
 (async () => {
   await sleep(30);
   document.body.contains = () => true;         // the dialog is on the page
@@ -40292,11 +40294,12 @@ const button = (label) => one((n) => n.tag === 'button' && n.textContent === lab
   wakeCb.checked = true; wakeCb.onchange();
   posts.length = 0;
   await button('office.report_preview').onclick();
-  out.running = { asked: asked(), sendOff: send.disabled, wave: !!one((n) => n.className === 'spin'), rowDisabled: part().disabled, rowTicked: part().checked,
+  out.running = { asked: asked(), sendOff: send.disabled, why: why(), wave: !!one((n) => n.className === 'spin'), rowDisabled: part().disabled, rowTicked: part().checked,
     draft: JSON.parse(store['office.report.draft'] || '{}') };
   diagState = 'ready';
   await sleep(2300);
-  out.ready = { polled: posts.filter((p) => p.a === 'office.report_diag').map((p) => p.token), sendOn: !send.disabled, rowOn: part().checked && !part().disabled,
+  out.ready = { polled: posts.filter((p) => p.a === 'office.report_diag').map((p) => p.token), sendOn: !send.disabled, why: why(), rowOn: part().checked && !part().disabled,
+    filesOpen: [one((n) => n.className === 'sso-report-diag-files').tag, walk(body(), (n) => n.tag === 'details' || n.tag === 'summary').length],
     size: text(one((n) => n.className === 'sso-report-diag-shown')).includes('office.report_diag_ready'),
     files: text(one((n) => n.className === 'sso-report-diag-files')).includes('d/logs/syslog.txt'),
     hidden: walk(one((n) => n.className === 'sso-report-diag-shown'), (n) => n.className === 'sso-report-hidden').map(text) };
@@ -40339,6 +40342,8 @@ JS);
         [$r['asleep']['asked'], $r['asleep']['wakeShown'], $r['asleep']['row'], $r['asleep']['sendOff']]);
     same('report dialog diagnostics: with «wake» — asked so; the wave, its part ticked but off, «Send» off; nothing of it in the draft', [[[true, true]], true, true, true, true, ['kind', 'desk', 'title', 'text']],
         [$r['running']['asked'], $r['running']['sendOff'], $r['running']['wave'], $r['running']['rowDisabled'], $r['running']['rowTicked'], array_keys($r['running']['draft'])]);
+    same('report dialog diagnostics: … beside the buttons: wait for Unraid\'s diagnostics, with the wave', ['office.report_why_diag', true], $r['running']['why']);
+    same('report dialog diagnostics: ready — the line gone; the files open, nothing to click', [null, ['div', 0]], [$r['ready']['why'], $r['ready']['filesOpen']]);
     same('report dialog diagnostics: asked again until ready — then size, files, what the office hid in them, its part on, «Send» on', [true, true, true, true, true, ['office.report_hidden']],
         [in_array($d, $r['ready']['polled'], true), $r['ready']['rowOn'], $r['ready']['sendOn'], $r['ready']['size'], $r['ready']['files'], $r['ready']['hidden']]);
     same('report dialog diagnostics: «Send» names the part; the inbox didn\'t take them — said; nothing dropped after a send', [['versions', 'diagnostics'], ['office.report_diag_not_sent.off'], 0, 0],
@@ -40617,7 +40622,7 @@ const mk = (tag) => {
   const n = { tag, id: '', className: '', style: {}, dataset: {}, hidden: false, textContent: '', children: [], parentNode: null, attrs: {},
     value: '', checked: false, disabled: false, type: '', onclick: null, oninput: null, onchange: null, offsetHeight: 0,
     appendChild(c) { if (typeof c === 'object') { c.parentNode = this; } this.children.push(c); return c; },
-    append(...c) { c.forEach((x) => this.appendChild(x)); }, after() {}, remove() {}, prepend() {},
+    append(...c) { c.forEach((x) => this.appendChild(x)); }, after() {}, remove() {}, prepend(...c) { c.forEach((x) => { if (typeof x === 'object') x.parentNode = this; }); this.children.unshift(...c); },
     setAttribute(k, v) { this.attrs[k] = String(v); }, removeAttribute(k) { delete this.attrs[k]; }, getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; },
     hasAttribute(k) { return k in this.attrs; }, addEventListener() {}, removeEventListener() {},
     querySelector: () => null, querySelectorAll: () => [], contains: () => false, closest: () => null, matches: () => false,
@@ -40662,6 +40667,9 @@ const visible = (n) => { for (let x = n; x; x = x.parentNode) if (x.hidden) retu
 const body = () => byId['sso-dialog-body'];
 const one = (f) => walk(body(), f)[0];
 const button = (label) => one((n) => n.tag === 'button' && n.textContent === label);
+// the line beside the buttons that says why «Send» is off: [its text, the wave] — null while hidden
+const why = () => { const w = walk(byId['sso-dialog-foot'], (n) => typeof n.className === 'string' && n.className.split(' ').includes('sso-report-why'))[0];
+  return !w ? 'missing' : w.hidden ? null : [text(w).trim(), !!walk(w, (n) => n.className === 'spin').length && w.className.includes('running')]; };
 (async () => {
   await sleep(30);
   O.strings = { 'office.report_sent': 'Sent. Thank you!', 'office.report_hidden': 'Hidden: {list}', 'errors.report_day': { one: '{n} in 24 hours; next from {when}.', other: '{n} in 24 hours; next from {when}.' },
@@ -40693,10 +40701,11 @@ const button = (label) => one((n) => n.tag === 'button' && n.textContent === lab
   const desk = one((n) => n.tag === 'select');
   const send = dlg.buttons[1];
   out.opened = { title: byId['sso-dialog-title'].textContent, desk: desk.value, deskOptions: desk.children.map((o) => o.value), sendOff: send.disabled,
-    asked: posts.map((p) => p.a), wide: byId['sso-dialog'].className,
-    issues: walk(body(), (n) => n.tag === 'a').filter((a) => !walk(one((n) => n.tag === 'details'), (x) => x === a).length).map((a) => a.href),
-    yours: text(one((n) => n.tag === 'details')).includes('Darker') && !text(one((n) => n.tag === 'details')).includes('#40') && !text(one((n) => n.tag === 'details')).includes('private-inbox'),
-    rows: walk(one((n) => n.tag === 'details'), (n) => n.tag === 'li').map((li) => ({ title: text(li.children[0]), meta: text(li.children[1]),
+    asked: posts.map((p) => p.a), wide: byId['sso-dialog'].className, why: why(), details: walk(body(), (n) => n.tag === 'details' || n.tag === 'summary').length,
+    yoursOpen: [one((n) => n.className === 'sso-report-yours').tag, visible(one((n) => n.className === 'sso-report-yours')), text(one((n) => n.className === 'sso-report-yours-head'))],
+    issues: walk(body(), (n) => n.tag === 'a').filter((a) => !walk(one((n) => n.className === 'sso-report-yours'), (x) => x === a).length).map((a) => a.href),
+    yours: text(one((n) => n.className === 'sso-report-yours')).includes('Darker') && !text(one((n) => n.className === 'sso-report-yours')).includes('#40') && !text(one((n) => n.className === 'sso-report-yours')).includes('private-inbox'),
+    rows: walk(one((n) => n.className === 'sso-report-yours'), (n) => n.tag === 'li').map((li) => ({ title: text(li.children[0]), meta: text(li.children[1]),
       chips: walk(li, (n) => /(^| )chip( |$)/.test(n.className)).map((c) => [c.className, text(c)]),
       links: walk(li, (n) => n.tag === 'a').map((a) => [a.href, text(a), a.target, a.rel]) })) };
   const [title] = walk(body(), (n) => n.tag === 'input' && n.className === 'input');
@@ -40709,10 +40718,11 @@ const button = (label) => one((n) => n.tag === 'button' && n.textContent === lab
   await button('office.report_preview').onclick();
   const asked = posts[0] || {};
   out.preview = { a: asked.a, kind: asked.kind, desk: asked.desk, title: asked.title, name: asked.name, lang: asked.lang, browser: asked.browser, error: asked.error,
-    sendOn: !send.disabled, parts: walk(body(), (n) => n.tag === 'input' && n.type === 'checkbox' && !!n.dataset.part).map((c) => [c.dataset.part, c.checked, c.disabled]),
+    sendOn: !send.disabled, why: why(), details: walk(body(), (n) => n.tag === 'details' || n.tag === 'summary').length,
+    parts: walk(body(), (n) => n.tag === 'input' && n.type === 'checkbox' && !!n.dataset.part).map((c) => [c.dataset.part, c.checked, c.disabled]),
     log: text(one((n) => n.className === 'code sso-report-log')), hidden: text(body()).includes('‹share-1› = Media'), hint: text(body()).includes('office.report_hint.address') };
   title.value = 'Her plan ran three times'; title.oninput();
-  out.changed = { sendOff: send.disabled, previewHidden: one((n) => n.className === 'sso-report-preview').hidden };
+  out.changed = { sendOff: send.disabled, previewHidden: one((n) => n.className === 'sso-report-preview').hidden, why: why() };
   await button('office.report_preview').onclick();
   walk(body(), (n) => n.tag === 'input' && n.type === 'checkbox' && n.dataset.part === 'log')[0].checked = false;
   posts.length = 0;
@@ -40721,7 +40731,7 @@ const button = (label) => one((n) => n.tag === 'button' && n.textContent === lab
   const sent = posts.find((p) => p.a === 'office.report_send') || {};
   out.sent = { token: sent.token, parts: sent.parts, title: sent.title, shown: walk(body(), (n) => n.className === 'sso-report-sent').map(text)[0] || null,
     link: walk(one((n) => n.className === 'sso-report-done'), (n) => n.tag === 'a').map((a) => a.href), sendHidden: send.hidden, closeText: dlg.buttons[0].textContent,
-    draft: store['office.report.draft'] || null, formHidden: one((n) => n.className === 'sso-report-form').hidden };
+    draft: store['office.report.draft'] || null, formHidden: one((n) => n.className === 'sso-report-form').hidden, why: why() };
   dlg.close();
   out.classesGone = byId['sso-dialog'].className;
 
@@ -40736,7 +40746,7 @@ const button = (label) => one((n) => n.tag === 'button' && n.textContent === lab
   await button('office.report_preview').onclick();
   await dlg2.buttons[1].onclick();
   await sleep(10);
-  out.week = { msg: text(one((n) => n.className === 'callout warn' && !n.hidden) || {}), sendOff: dlg2.buttons[1].disabled, desk: one((n) => n.tag === 'select').value };
+  out.week = { msg: text(one((n) => n.className === 'callout warn' && !n.hidden) || {}), sendOff: dlg2.buttons[1].disabled, desk: one((n) => n.tag === 'select').value, why: why() };
   // closed without sending: the draft stays
   dlg2.buttons[0].onclick();
   await sleep(10);
@@ -40767,6 +40777,21 @@ const button = (label) => one((n) => n.tag === 'button' && n.textContent === lab
   await sleep(10);
   out.inbox.refused = { msg: text(one((n) => n.className === 'callout warn' && !n.hidden) || {}), note: capOf().textContent, sendOff: d4.buttons[1].disabled };
   d4.close();
+  // the reason when nothing can go: reports closed for now; the messenger away (before anything else)
+  answers['office.reports'] = { ok: true, reports: [], n: 0, left: 25, cap: 25, next: null, closed: true };
+  answers['office.report_preview'] = { ...answers['office.report_preview'], closed: true };
+  const d5 = O.reportDialog();
+  await sleep(20);
+  out.whyClosed = [why()];
+  await button('office.report_preview').onclick();
+  out.whyClosed.push(why(), d5.buttons[1].disabled);
+  d5.close();
+  O.agent = { running: false };
+  const d6 = O.reportDialog();
+  await sleep(20);
+  out.whyAway = [why(), d6.buttons[1].disabled];
+  d6.close();
+  O.agent = { running: true };
   // written whole before the exit: to a pipe, process.exit() right after console.log() cuts the output at 64 KiB
   process.stdout.write(JSON.stringify(out) + '\n', () => process.exit(0));
 })().catch((e) => { process.stdout.write(JSON.stringify({ error: String(e && e.stack || e) }) + '\n', () => process.exit(1)); });
@@ -40782,6 +40807,8 @@ JS);
     same('report dialog: opens wide with the desk shown, asks only for «Your reports» and whether the inbox takes them, «Send» off', ['office.report_title', 'snapshot', ['office', 'caretaker', 'snapshot'], true, ['office.report_inbox', 'office.reports'], true],
         [$o['title'], $o['desk'], $o['deskOptions'], $o['sendOff'], $o['asked'], str_contains($o['wide'], 'wide') && str_contains($o['wide'], 'sso-report-dialog')]);
     same('report dialog: … the GitHub issues for account holders (no forum yet), «Your reports» without the private inbox\'s numbers', [['https://github.com/dropnook/UnraidSecretaryOffice/issues'], true], [$o['issues'], $o['yours']]);
+    same('report dialog: … «Your reports» open, nothing to click (2026-10-27): no <details> in the dialog', [['div', true, 'office.report_yours'], 0], [$o['yoursOpen'], $o['details']]);
+    same('report dialog: … beside the buttons, why «Send» is off: the preview first', [['office.report_why_preview', false]], [$o['why']]);
     $pub14 = 'https://github.com/dropnook/UnraidSecretaryOffice/issues/14';
     same('report dialog: «Your reports» — title, kind · desk · day, where it stands, the public issue (only the public repository\'s, a new tab)', [
         ['title' => 'Darker', 'chips' => [['chip accent', 'Looked at']], 'links' => [[$pub14, 'Issue #14', '_blank', 'noopener noreferrer']]],
@@ -40800,13 +40827,25 @@ JS);
     same('report dialog: … then «Send» is on, every part a tick box (the words and the ID always)', [true, [['words', true, true], ['versions', true, false], ['unraid', true, false],
         ['language', true, false], ['team', true, false], ['error', true, false], ['log', true, false], ['id', true, true]]], [$p['sendOn'], $p['parts']]);
     same('report dialog: … the log in full, what was hidden, the hint', ['2026-10-08 10:00:00  Ms. Snapshotini: created ‹pool-1›/‹share-1›@…', true, true], [$p['log'], $p['hidden'], $p['hint']]);
-    same('report dialog: a word changed — the preview and «Send» go', ['sendOff' => true, 'previewHidden' => true], $r['changed']);
+    same('report dialog: … with the preview «Send» on, the line gone; every part open (no <details>)', [null, 0], [$p['why'], $p['details']]);
+    same('report dialog: a word changed — the preview and «Send» go, the line says the preview again', ['sendOff' => true, 'previewHidden' => true, 'why' => ['office.report_why_preview', false]], $r['changed']);
     $s = $r['sent'];
     same('report dialog: «Send» — the preview\'s token, the parts still ticked, the words as now', [str_repeat('a', 32), ['versions', 'unraid', 'language', 'team', 'error'], 'Her plan ran three times'],
         [$s['token'], $s['parts'], $s['title']]);
     same('report dialog: … thanks without the private inbox\'s number or link, the draft gone, «Send» gone, «Close»', ['Sent. Thank you!', [], true, 'common.close', null, true],
         [$s['shown'], $s['link'], $s['sendHidden'], $s['closeText'], $s['draft'], $s['formHidden']]);
     check('report dialog: … its classes go with it', !str_contains($r['classesGone'], 'sso-report-dialog'));
+    same('report dialog: … sent — no line beside the buttons', null, $s['why']);
+    same('report dialog: the day used up — the line says it with its time', 'office.report_none_left', $r['week']['why'][0] ?? null);
+    same('report dialog: reports closed — said at the buttons on opening and with a preview, «Send» off', [['office.report_closed_note', false], ['office.report_closed_note', false], true], $r['whyClosed']);
+    same('report dialog: the messenger away — said at the buttons first, «Send» off', [['agent.away', false], true], $r['whyAway']);
+    // the reason for the preview quotes the real button (without its «…») in each language
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $lang = json_decode((string) file_get_contents(OFFICE_WEB . "/lang/$code.json"), true) ?: [];
+        $label = rtrim((string) ($lang['office.report_preview'] ?? '?'), '…');
+        check("report dialog: $code — «Send»'s reason names the preview button as it is", str_contains((string) ($lang['office.report_why_preview'] ?? ''), "«{$label}»")
+            && isset($lang['office.report_why_diag'], $lang['office.report_why_pictures']));
+    }
     check('report dialog: report_day says its time, «Send» stays off; no desk given and no draft: the office as a whole', str_starts_with($r['week']['msg'], '25 in 24 hours; next from ') && !str_contains($r['week']['msg'], '{when}')
         && $r['week']['sendOff'] === true && $r['week']['desk'] === 'office', json_encode($r['week']));
     same('report dialog: closed without sending — the draft stays and comes back', ['Another', 'Another'], [$r['keptDraft'], $r['reopened']]);
@@ -41087,7 +41126,7 @@ const mk = (tag) => {
   const n = { tag, id: '', className: '', style: {}, dataset: {}, hidden: false, textContent: '', children: [], parentNode: null, attrs: {}, listeners: {},
     value: '', checked: false, disabled: false, type: '', onclick: null, oninput: null, onchange: null, offsetHeight: 0, src: '', files: null,
     appendChild(c) { if (typeof c === 'object') { c.parentNode = this; } this.children.push(c); return c; },
-    append(...c) { c.forEach((x) => this.appendChild(x)); }, after() {}, remove() {}, prepend() {},
+    append(...c) { c.forEach((x) => this.appendChild(x)); }, after() {}, remove() {}, prepend(...c) { c.forEach((x) => { if (typeof x === 'object') x.parentNode = this; }); this.children.unshift(...c); },
     setAttribute(k, v) { this.attrs[k] = String(v); }, removeAttribute(k) { delete this.attrs[k]; }, getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; },
     hasAttribute(k) { return k in this.attrs; }, addEventListener(k, f) { this.listeners[k] = f; }, removeEventListener() {},
     querySelector: () => null, querySelectorAll: () => [], contains: () => false, closest: () => null, matches: () => false,
@@ -41130,6 +41169,8 @@ const walk = (n, f, out = []) => { if (n && typeof n === 'object') { if (f(n)) o
 const text = (n) => (typeof n === 'string' ? n : [n.textContent || '', ...(n.children || []).map(text)].join(''));
 const body = () => byId['sso-dialog-body'];
 const one = (f) => walk(body(), f)[0];
+const why = () => { const w = walk(byId['sso-dialog-foot'], (n) => typeof n.className === 'string' && n.className.split(' ').includes('sso-report-why'))[0];
+  return !w ? 'missing' : w.hidden ? null : text(w); };
 (async () => {
   await sleep(30);
   O.agent = { running: true };
@@ -41170,14 +41211,17 @@ const one = (f) => walk(body(), f)[0];
   const boxes = walk(body(), (n) => n.tag === 'input' && n.type === 'checkbox' && !!(n.dataset.part || n.dataset.check));     // the preview's (not the form's diagnostics ticks)
   out.parts = boxes.map((c) => c.dataset.part || c.dataset.check);
   out.sendOffWithoutTick = send.disabled;
+  out.whyUnchecked = why();
   const ok = boxes.find((c) => c.dataset.check === 'images');
   const pic = boxes.find((c) => c.dataset.part === 'image1');
   pic.checked = false; pic.onchange();
   out.sendOnUnticked = !send.disabled;
+  out.whyUnticked = why();
   pic.checked = true; pic.onchange();
   out.sendOffAgain = send.disabled;
   ok.checked = true; ok.onchange();
   out.sendOnTicked = !send.disabled;
+  out.whyTicked = why();
   posts.length = 0;
   await send.onclick();
   await sleep(10);
@@ -41202,6 +41246,8 @@ JS);
     same('report dialog pictures: its own tick and the required one; «Send» off until it is ticked (or the picture unticked)',
         [['words', 'versions', 'unraid', 'language', 'team', 'log', 'image1', 'images', 'id'], true, true, true, true],
         [$r['parts'], $r['sendOffWithoutTick'], $r['sendOnUnticked'], $r['sendOffAgain'], $r['sendOnTicked']]);
+    same('report dialog pictures: … beside the buttons: confirm the pictures; gone once confirmed or the picture unticked', ['office.report_why_pictures', null, null],
+        [$r['whyUnchecked'], $r['whyUnticked'], $r['whyTicked']]);
     same('report dialog pictures: the send names the picture and the tick', [['versions', 'unraid', 'language', 'team', 'image1'], true], [$r['sent']['parts'], $r['sent']['checked']]);
     hardeningRm($tmp);
 }
