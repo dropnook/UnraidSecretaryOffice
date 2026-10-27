@@ -318,7 +318,8 @@ function backupScan(): array
 /**
  * What the engine's results say beside settings.ini, for the rows of «Is everything protected?» (backupTruth()): runs
  * (backup runs in the history), no_snaps (shares whose file system takes no snapshot — the engine's drift, a newer plan,
- * or [share] method = live), new (shares new or renamed, not backed up until the setup takes them).
+ * or [share] method = live), new (shares new or renamed, not backed up until the setup takes them), cleared (when his
+ * let-go cleared the engine's snapshots away, no backup run since; else null).
  */
 function backupTruthSummary(array $t, array $settings): array
 {
@@ -332,7 +333,8 @@ function backupTruthSummary(array $t, array $settings): array
     sort($noSnaps, SORT_NATURAL | SORT_FLAG_CASE);
     $new = array_values(array_filter(array_map('strval', array_keys($t['new'])), fn ($n) => !isset($settings["share|$n"])));
     sort($new, SORT_NATURAL | SORT_FLAG_CASE);
-    return ['runs' => $t['runs'], 'no_snaps' => $noSnaps, 'new' => $new, 'docker_off' => ($t['kopia']['docker_off'] ?? false) === true];
+    return ['runs' => $t['runs'], 'no_snaps' => $noSnaps, 'new' => $new, 'docker_off' => ($t['kopia']['docker_off'] ?? false) === true,
+            'cleared' => is_int($t['cleared'] ?? null) ? $t['cleared'] : null];
 }
 
 /**

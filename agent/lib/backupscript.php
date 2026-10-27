@@ -411,7 +411,8 @@ function backupProtection(string $path, int $depth = 0, ?array $settings = null,
  *   level     what is really there: offsite only once Kopia made a copy of it (its repository not held), local only where
  *             a run took a snapshot (its share's file system takes one), else lower
  *   set       what settings.ini sets
- *   why       codes, in this order: no_run (no backup run yet), no_snaps (its share's file system takes no snapshot),
+ *   why       codes, in this order: no_run (no backup run yet), cleared (his let-go cleared the engine's snapshots away,
+ *             no backup run since), no_snaps (its share's file system takes no snapshot),
  *             kopia_held (the repository suddenly empty: the engine holds Kopia), kopia_never (Kopia made no copy of it
  *             yet), kopia_gone (Kopia's container is gone), kopia_docker_off (Docker switched off: no new copies),
  *             kopia_stuck / kopia_away (the storage takes nothing /
@@ -454,6 +455,9 @@ function backupProtectionInfo(string $path, ?array $settings = null, ?array $app
     $local = true;
     if (!$truth['runs']) {
         $out['why'][] = 'no_run';
+        $local = false;
+    } elseif (($truth['cleared'] ?? null) !== null) {
+        $out['why'][] = 'cleared';          // his let-go cleared the engine's snapshots away, no run since
         $local = false;
     } elseif ($share !== null && (isset($truth['no_snaps'][$share]) || backupSetting($settings, "share|$share", 'method') === 'live')) {
         $out['why'][] = 'no_snaps';
@@ -692,6 +696,8 @@ function backupZfsChildren(): array
  *             method decides for the shares it lists)
  *   new       share => true: new or renamed, not in settings.ini (drift share_new / share_renamed)
  *   partner   id => unit => {ok, why: skipped|failed, code: the engine's why, time} — its newest try
+ *   cleared   when his let-go cleared the engine's snapshots away (backupLetGoCleared()), as long as no backup run came
+ *             after — no local snapshot holds anything then, whatever the runs before made (else null)
  */
 function backupTruth(?string $data = null): array
 {
@@ -700,12 +706,16 @@ function backupTruth(?string $data = null): array
     $f = ['history' => "$data/state/history.jsonl", 'drift' => "$data/state/drift.json", 'plan' => "$data/state/setup-plan.json",
           'held' => "$data/state/kopia-held.json", 'watch' => "$data/state/kopia-watch.json", 'reach' => "$data/state/kopia-reach.json"];
     clearstatcache();
-    $stamp = $data . '|' . implode('|', array_map(fn ($x) => @filemtime($x) . ':' . @filesize($x), $f));
+    $letgo = backupLetGoJournalDir($data);
+    $journals = backupLetGoJournals($letgo);
+    $stamp = $data . '|' . implode('|', array_map(fn ($x) => @filemtime($x) . ':' . @filesize($x), $f))
+        . '|' . implode(',', array_map(fn ($n) => $n . ':' . @filemtime("$letgo/$n") . ':' . @filesize("$letgo/$n"), $journals));
     if (($cache['stamp'] ?? null) === $stamp) {
         return $cache['truth'];
     }
     $t = ['runs' => 0, 'kopia' => ['good' => [], 'last' => [], 'held' => false, 'gone' => false, 'docker_off' => false, 'stuck' => null, 'away' => null],
-          'no_snaps' => [], 'new' => [], 'partner' => []];
+          'no_snaps' => [], 'new' => [], 'partner' => [], 'cleared' => null];
+    $lastRun = 0;
     foreach (@file($f['history'], FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {      // oldest first
         $j = json_decode($line, true);
         if (!is_array($j) || !is_string($j['run'] ?? null) || ($j['result'] ?? '') === 'skipped') {
@@ -718,6 +728,7 @@ function backupTruth(?string $data = null): array
             $t['kopia']['docker_off'] = $ks === 'docker_off';
         }
         $when = is_int($j['finished'] ?? null) && $j['finished'] > 0 ? $j['finished'] : (int) ($j['started'] ?? 0);
+        $lastRun = max($lastRun, $when);
         foreach (is_array($j['kopia']['done'] ?? null) ? $j['kopia']['done'] : [] as $k) {
             if (is_array($k) && is_string($k['name'] ?? null)) {
                 $t['kopia']['last'][$k['name']] = !empty($k['ok']);
@@ -776,8 +787,52 @@ function backupTruth(?string $data = null): array
     if (is_array($reach) && ($reach['v'] ?? null) === 1 && is_int($reach['since'] ?? null) && $reach['since'] > 0) {
         $t['kopia']['away'] = $reach['since'];
     }
+    $cleared = backupLetGoCleared($letgo, $journals);
+    $t['cleared'] = $t['runs'] && $cleared !== null && $cleared >= $lastRun ? $cleared : null;
     $cache = ['stamp' => $stamp, 'truth' => $t];
     return $t;
+}
+
+/**
+ * Mr. Backupsy's let-go journals (agent/desks/backup-letgo.php backupLetGoDir(): `backup/` in the data folder, beside the
+ * engine's `unraid-backup/`) — for $data, the engine's data folder.
+ */
+function backupLetGoJournalDir(string $data): string
+{
+    return dirname($data) . '/backup';
+}
+
+/** The let-go's journals `letgo-<stamp>.json` in $dir, the newest 20 first (none through a link) */
+function backupLetGoJournals(string $dir): array
+{
+    if (is_link($dir) || !is_dir($dir)) {
+        return [];
+    }
+    $names = array_values(array_filter(@scandir($dir) ?: [], fn ($n) => preg_match('/^letgo-\d{8}-\d{6}(?:-\d+)?\.json$/D', $n) === 1));
+    usort($names, fn ($a, $b) => strnatcmp($b, $a));
+    return array_slice($names, 0, 20);
+}
+
+/**
+ * When his let-go last cleared the engine's snapshots away (truth review INV-TRUTH, 2026-10-27: after «Also clear away»
+ * every row still said «only local», as if the runs' snapshots were there): the newest journal (backupLetGoJournals())
+ * that deleted at least one snapshot — its end (finished, else its last heartbeat; a clearing holds the engine's lock, so
+ * no run lies inside it). Journals read in exactly their shape; null: none.
+ */
+function backupLetGoCleared(string $dir, ?array $journals = null): ?int
+{
+    foreach ($journals ?? backupLetGoJournals($dir) as $n) {
+        $j = is_link("$dir/$n") ? null : readJson("$dir/$n");
+        if (!is_array($j) || ($j['interface'] ?? null) !== 1 || !is_array($j['deleted'] ?? null) || !$j['deleted']) {
+            continue;
+        }
+        foreach (['finished', 'heartbeat', 'started', 'created'] as $k) {
+            if (is_int($j[$k] ?? null) && $j[$k] > 0) {
+                return $j[$k];
+            }
+        }
+    }
+    return null;
 }
 
 /**
