@@ -925,6 +925,14 @@ ini_diff() {
     LC_ALL=C comm -23 <(_ini_flat "$1") <(_ini_flat "$2") | sed 's/^/-/'
     LC_ALL=C comm -13 <(_ini_flat "$1") <(_ini_flat "$2") | sed 's/^/+/'
 }
+# _diff_base_writes [--only]: ini_diff lines (stdin) without what any Apply on this base writes — a share's identity keys
+# (id, locations) and the base's known plan changes (checks.sh _ck_known_changes); --only: just those lines
+_diff_base_writes() {
+    local known v=-v
+    [[ ${1:-} == --only ]] && v=
+    known=$( { declare -F _ck_known_changes >/dev/null && _ck_known_changes; } | sed 's/[][\.*^$|+?(){}]/\\&/g' | paste -sd'|' -)
+    grep $v -E "^[-+](share\|[^|]*\|(id|locations)${known:+|$known})=" || true
+}
 
 # --------------------------------------------------------------------------------------------------------------- checks
 allow() {
@@ -1013,9 +1021,14 @@ _diff_md5() {   # <file in before/after>: the paths whose md5 changed, appeared 
         awk '/^[<>]/{print $2}' | sort -u
 }
 
-# INV-SETTINGS — no saved setting changes without an Apply. With expect_diff: INV-DIFF-EXACT, the ini diff is exactly that.
+# INV-SETTINGS — no saved setting changes without an Apply. With expect_diff: INV-DIFF-EXACT, the ini diff is exactly that
+# — beside what any Apply on this base writes, announced or not (_diff_base_writes: a share's id and locations as the
+# engine finds them, the base's known plan changes — Tower's [partner] of the carried pair). Up to 2026-10-27 those
+# counted: backup-sv-docker-off-first-setup-run went red right after a base reset (the base's settings.ini has neither
+# the [partner] section nor uso-yes as the folder it is now — a dataset at the base's making), green when an earlier
+# scenario's Apply had already written them.
 check_inv_settings() {
-    local changed f exp got
+    local changed f exp got extra
     changed=$(_diff_md5 settings.md5)
     [[ -z $changed ]] && { echo "unchanged"; return 0; }
     if [[ -s $KEEP/.expect-diff ]]; then
@@ -1031,11 +1044,14 @@ check_inv_settings() {
             fi
         done <"$KEEP/.expect-diff" | LC_ALL=C sort)
         changed=$(grep -v -e '/settings.ini$' -e '/smart_mover.ini$' <<<"$changed")
+        # what any Apply on this base writes, when not announced: left out (said beside)
+        extra=$(LC_ALL=C comm -23 <(printf '%s\n' "$got" | sed '/^$/d') <(printf '%s\n' "$exp" | sed '/^$/d') | _diff_base_writes --only)
+        [[ -n $extra ]] && got=$(grep -vxF -f <(printf '%s\n' "$extra") <<<"$got" || true)
         if [[ $got == "$exp" && -z $changed ]]; then
-            echo "INV-DIFF-EXACT: the diff is exactly what was announced"
+            echo "INV-DIFF-EXACT: the diff is exactly what was announced${extra:+ (beside what any Apply on this base writes: $(paste -sd' ' <<<"$extra"))}"
             return 0
         fi
-        echo "INV-DIFF-EXACT: diff $(paste -sd' ' <<<"$got") ≠ expected $(paste -sd' ' <<<"$exp")${changed:+; also changed: $(paste -sd' ' <<<"$changed")}"
+        echo "INV-DIFF-EXACT: diff $(paste -sd' ' <<<"$got") ≠ expected $(paste -sd' ' <<<"$exp")${changed:+; also changed: $(paste -sd' ' <<<"$changed")}${extra:+ (left out, any Apply on this base writes them: $(paste -sd' ' <<<"$extra"))}"
         return 1
     fi
     echo "changed: $(paste -sd' ' <<<"$changed")"
@@ -1575,6 +1591,10 @@ _self_test() {
     printf 'extra = 1\n' >>"$KEEP/ub/settings.ini"
     UB=$KEEP/ub snap_after
     _st 1 "INV-DIFF-EXACT one more" check_inv_settings
+    cp "$KEEP/b.ini" "$KEEP/ub/settings.ini"
+    printf '[share "uso-st"]\nid = ino:cache:1\nlocations = cache\n' >>"$KEEP/ub/settings.ini"
+    UB=$KEEP/ub snap_after
+    _st 0 "INV-DIFF-EXACT a share's id and locations beside (any Apply writes them)" check_inv_settings
     rm -f "$KEEP/.expect-diff"
     rm -rf "$KEEP/ub"
 
