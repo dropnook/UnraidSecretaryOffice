@@ -1389,6 +1389,17 @@ function moverelliInFlight(array $p, array $h): array
             return ['file_bytes' => $size !== null ? min($done, $size) : $done, 'file_size' => $size];
         }
     }
+    // the source gone and no .partial: the file has landed and her next progress line isn't written yet — all of it is
+    // across (Tower 2026-10-28: a 4 GiB file landed, her answer still naming it with file_bytes 0, the card 0 %, the disks
+    // 99 %). Only with the source gone: a file already there beside a source still waiting is no proof («File exists»)
+    if ($src === false) {
+        foreach ($awake as $d) {
+            $st = @lstat("$mnt/$d/$share/$rel");
+            if ($st !== false && ($st['mode'] & 0170000) === 0100000) {
+                return ['file_bytes' => (int) $st['size'], 'file_size' => (int) $st['size']];
+            }
+        }
+    }
     // no .partial yet and a destination still asleep: Unraid's move waits for the disk to spin up — sure only when every
     // place it may write to sleeps; with some awake its choice is Unraid's (allocation), so only maybe (truth review M14)
     $asleep = (bool) $sleep['asleep'];

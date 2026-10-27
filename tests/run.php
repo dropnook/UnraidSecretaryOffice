@@ -45328,7 +45328,17 @@ function testMoverelliStop(): void
     same('in flight: a path outside the share, «..» in it, not moving — nothing', array_fill(0, 3, ['file_bytes' => 0, 'file_size' => null]),
         [moverelliInFlight(['file' => "/etc/passwd"] + $p0, $hf), moverelliInFlight(['file' => "$tmp/mnt/cache/Docs/../Docs/big.bin"] + $p0, $hf), moverelliInFlight(['phase' => 'look'] + $p0, $hf)]);
     @unlink("$tmp/mnt/disk2/Docs/big.bin.partial");
+    // landed, her next progress line not yet written (Tower 2026-10-28: the card 0 %, the disks 99 %): the source gone, the
+    // file on the destination — all of it across; a file there beside a source still waiting counts nothing
+    file_put_contents("$tmp/mnt/disk2/Docs/big.bin", str_repeat('b', 300000));
+    same('in flight: a file there beside its source (no .partial) — nothing counted', ['file_bytes' => 0, 'file_size' => 300000, 'waking' => false],
+        moverelliInFlight($p0, $hf));
     @unlink("$tmp/mnt/cache/Docs/big.bin");
+    same('in flight: the source gone, the file landed — all of it across', ['file_bytes' => 300000, 'file_size' => 300000], moverelliInFlight($p0, $hf));
+    $hf['asleep'] = ['disk2' => true];
+    same('in flight: … landed on a disk asleep now — not looked at', 0, moverelliInFlight($p0, $hf)['file_bytes']);
+    $hf['asleep'] = [];
+    @unlink("$tmp/mnt/disk2/Docs/big.bin");
 
     // Unraid's mover starts while she runs: after the file in flight — the stop file with why and by what, no kill
     $stop = "$tmp/watch-stop.json";
