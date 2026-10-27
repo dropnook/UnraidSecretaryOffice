@@ -456,8 +456,8 @@ function counts(errors, warnings) {
 // ------------------------------------------------------------------ the row: her tour's three tiles and «Read out»
 /**
  * Her page on core's switcher (CLAUDE.md «Tiles», Office.sections): /var/log, the containers' logs, errors & warnings,
- * the syslog by her rules — what her tour counted —, who woke the disks (only with a spinning disk: wakesWanted()) and
- * «Read out», the reader. No start tile: nothing chosen shows them all in the row's order;
+ * the syslog by her rules — what her tour counted —, who woke the disks (always; without a spinning disk it says so:
+ * wakesNoHdd()) and «Read out», the reader. No start tile: nothing chosen shows them all in the row's order;
  * «Read out» chosen gives the reader the whole page. Kept as logs.tile; #/logs/<tile> picks one like a click.
  */
 const sw = Office.sections({
@@ -470,7 +470,7 @@ const sw = Office.sections({
     { id: 'docker', key: 'docker.title', place: 'tile.docker', tile: (a) => dockerTile(a), section: () => dockerView() },
     { id: 'found', key: 'found.title', place: 'tile.found', tile: (a) => foundTile(a), section: () => foundView() },
     { id: 'syslog', key: 'syslog.title', place: 'tile.syslog', tile: (a) => syslogTile(a), section: () => syslogView() },
-    wakesWanted() ? { id: 'wakes', key: 'wakes.title', place: 'tile.wakes', tile: (a) => wakesTile(a), section: () => wakesView() } : null,
+    { id: 'wakes', key: 'wakes.title', place: 'tile.wakes', tile: (a) => wakesTile(a), section: () => wakesView() },
     { id: 'read', key: 'tile.read', place: 'tile.read', tile: (a) => readTile(a), section: () => readerSection() },
   ],
 });
@@ -884,14 +884,16 @@ function foundView() {
 /*
  * «Who woke my disks?» (agent/desks/logs-diskwakes.php): every wake of a spinning disk she noticed in the last 7 days — per
  * disk how often (a click shows only its wakes: a filter, never kept, said in the note line) and per wake who she caught
- * waiting for it while it spun up, the surest first; «Not found out» when nobody was. Only with a rotating disk.
+ * waiting for it while it spun up, the surest first; «Not found out» when nobody was. Only rotating disks are watched; on a
+ * server without one (all flash: SSDs, NVMe) the tile and its section say so in one line — a hidden tile looked like a bug.
  */
 let wakeDisk = '';              // the disk chosen in «By disk»: a filter, never kept
 let shownWakes = [];            // the unfoldable rows of the wakes: {open(), set(open)}
 const unfoldedWakes = new Set(); // wakes unfolded on this visit
 const wakesOf = () => (state && state.wakes && Array.isArray(state.wakes.wakes) ? state.wakes.wakes : []);
-/** A rotating disk there (the state says so): only then her tile — an older messenger's state says nothing, the tile stays */
-const wakesWanted = () => !state || !state.wakes || (Array.isArray(state.wakes.hdds) && state.wakes.hdds.length > 0);
+/** No rotating disk there (the state says so) and no wake kept from before: nothing to watch — an older messenger's
+    state says nothing (no `hdds`), the tile shows as it always did */
+const wakesNoHdd = () => !!(state && state.wakes && Array.isArray(state.wakes.hdds) && !state.wakes.hdds.length && !wakesOf().length);
 const wakesBar = () => listBar('wakes', { label: T('wakes.filter_label') });
 /** Midnight of the state's day (the server looked just now; a kept state counts by its own day) */
 const startOfToday = () => { const d = new Date(((state && state.time) || Date.now() / 1000) * 1000); d.setHours(0, 0, 0, 0); return d.getTime() / 1000; };
@@ -929,6 +931,7 @@ function wakesTile(a) {
   const all = wakesOf();
   const lines = [];
   if (!state || !state.wakes) lines.push(state ? T('wakes.not_yet') : Office.t('common.loading'));
+  else if (wakesNoHdd()) lines.push(T('wakes.no_hdd'));
   else if (state.wakes.on === false) lines.push(T('wakes.tile_off'), all.length ? T('wakes.tile_week', { n: all.length }) : '');
   else if (!all.length) lines.push(T('wakes.tile_none'), T('wakes.tile_since', { when: fmt.date(state.wakes.since) }));
   else {
@@ -993,10 +996,12 @@ function wakesView() {
   const look = (state && state.wakes && state.wakes.look) || 4;
   const box = el('section', 'section lg-view');
   const known = !!(state && state.wakes);
-  box.appendChild(Office.sectionHead(T('wakes.title'), T('wakes.sub', { s: look }), ...(known ? [wakesSwitch()] : []), unfold, { place: 'wakes.title' }));
+  const noHdd = wakesNoHdd();
+  box.appendChild(Office.sectionHead(T('wakes.title'), T('wakes.sub', { s: look }), ...(known && !noHdd ? [wakesSwitch()] : []), unfold, { place: 'wakes.title' }));
   unfold.hidden = true;
-  if (!known) {
-    box.appendChild(el('p', 'empty', state ? T('wakes.not_yet') : Office.t('common.loading')));
+  if (!known || noHdd) {
+    // before her first look: not yet / loading; no spinning disk: that one line — no switch, no filter bar, no empty list
+    box.appendChild(el('p', 'empty', noHdd ? T('wakes.no_hdd') : state ? T('wakes.not_yet') : Office.t('common.loading')));
     return box;
   }
   if (state.wakes.on === false) box.appendChild(el('p', 'callout', T('wakes.off_note')));

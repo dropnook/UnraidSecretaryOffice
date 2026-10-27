@@ -36003,7 +36003,7 @@ function testLogsFiltersPage(): void
         check('logs filters page: ran under node', false, $raw);
         return;
     }
-    check("logs filters page: her lists under node ({$r['pass']} checks)", $r['pass'] >= 54 && !$r['fail']);
+    check("logs filters page: her lists under node ({$r['pass']} checks)", $r['pass'] >= 61 && !$r['fail']);
     foreach ($r['fail'] as $f) {
         check('logs filters page: ' . ($f[0] ?? '?'), false, 'got ' . json_encode($f[1] ?? null) . ', want ' . json_encode($f[2] ?? null));
     }
