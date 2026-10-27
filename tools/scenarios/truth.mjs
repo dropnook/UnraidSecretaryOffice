@@ -303,7 +303,10 @@ function judgeRow(page, r, lang) {
   const shown = r.chips.map((c) => `«${c.text}»`).join(' ');
   checked++;
   if (opt.verbose) out.push({ verdict: 'seen', id: 'row', unit, page: shown, truth: `local ${local}, offsite ${offsite}, partner ${JSON.stringify(partnerTruth(units).held)} (${units.join(' ')})` });
-  const claimsLocal = (level && level !== 'none') || (snapChip && Number(String(snapChip.n || '1').replace(/\D/g, '')) > 0);
+  // «n local snapshots» counts the snapshots of the row's folders (any name): for a VM whose disk file is missing the
+  // folder is what it counts, not the disk — judged by TR-SNAPS there, the level alone says whether the disk is held
+  const missingDisk = kind === 'vm' && truth.vms[name].disks.some((d) => d.missing);
+  const claimsLocal = (level && level !== 'none') || (!missingDisk && snapChip && Number(String(snapChip.n || '1').replace(/\D/g, '')) > 0);
   if (rule('TR-LOCAL') && claimsLocal) {
     if (local === 'no') fail('TR-LOCAL', unit, shown, `no engine snapshot holds it (${snapsTxt(places)})${detail ? ` — ${detail}` : ''}`);
     else if (kind === 'vm' && detail && local === 'yes') note('TR-LOCAL', unit, shown, `${detail} (${snapsTxt(places)})`);
