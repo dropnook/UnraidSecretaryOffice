@@ -45410,7 +45410,7 @@ JS);
         $o = is_array($o) ? $o : [];
         same('run card: the steps — Looking around, a step per share of the run, Tidying up; Back done, Docs running', [['rc.look', 'done'], ['Back', 'done'], ['Docs', 'running'], ['Docs' === '' ? '' : 'rc.tidy', 'pending']],
             $o['steps'] ?? null);
-        same('run card: the first reading — the time left still estimated (Back moved before: since this page saw Docs): the bar as far as the further of files (1 of 4: 25 %) and bytes (20 %), no end', [2, 25, null, null, true], $o['first'] ?? null);
+        same('run card: the first reading — the time left still estimated (Back moved before: since this page saw Docs): the bar by bytes (20 %), not the files\' 1 of 4 (25 %), no end', [2, 20, null, null, true], $o['first'] ?? null);
         same('run card: the file in flight counts with its .partial — 200 + 300 = 50 %; the file\'s own 10 B/s from the readings', [500, 50, 700, 500, 500, 10], $o['flight'] ?? null);
         same('run card: no .partial yet, the target disk asleep — «The target disk is waking up …» under the file', ['rc.on_way {"file":"c2.txt (rc.file_bytes {\\"done\\":\\"0 B\\",\\"size\\":\\"500 B\\"})","from":"pic.pool_name {\\"pool\\":\\"cache\\"}","to":"pic.array"}', 'rc.waking'],
             $o['waking'] ?? null);
@@ -47273,6 +47273,13 @@ out.card = texts(card).filter((x) => / % /.test(x) || /^rc\.parts/.test(x));
 // big files only: files and bytes go together — one percent
 const big = m.runCardData({ ...own(0, 0, 0), share: 'big', plan: ['big'], share_files: 4, share_bytes: 4000, share_done_files: 1, share_done_bytes: 1000 }, 1002);
 out.big = [big.percent, m.percentText(big)];
+// 2026-10-27 (BF3): twenty 1 MB files and one of 4 GiB, 10 small ones over — by bytes (0 %), never the files' 47 %; the
+// share's bytes unknown — by files
+const MB = 1048576;
+const mixed = m.runCardData({ ...own(0, 10, 10 * MB), share: 'mixed', plan: ['mixed'], share_files: 21, share_bytes: 4096 * MB + 20 * MB, started: 1000 }, 1003);
+out.mixed = [mixed.percent, mixed.byTime, mixed.filesPct, mixed.bytesPct, m.percentText(mixed)];
+const noBytes = m.runCardData({ ...own(0, 10, 0), share: 'nobytes', plan: ['nobytes'], share_files: 21, share_bytes: 0, started: 1000 }, 1003);
+out.noBytes = [noBytes.percent, noBytes.filesPct, noBytes.bytesPct, m.percentText(noBytes)];
 // an idle share unfolded / its chip: where it lies, without ⟦Secondary storage⟧
 out.idle = [m.idleText({ share: 'nextcloud_data', use: 'only', primary: 'ripley' }), m.idleText({ share: 'isos', use: 'no', primary: '' }), m.idleText({ share: 'x', use: 'only', primary: '' }),
   m.idleText({ share: 'old' })];
@@ -47294,13 +47301,16 @@ JS);
     same('page truth: looking around, a dry run — «at work», no way named', ['bubble.running', 'bubble.running'], [$o['looking'] ?? null, $o['dry'] ?? null]);
     same('page truth: no greeting while she works; «off to the array» (greet.1, greet.2) not with prefer shares only — the others stay; with an aged share into the array yes, with age 0 and no fill rule not',
         ['', ['', '', 'greet.3'], 'greet.1', ''], [$o['greetRunning'] ?? null, $o['greetPreferOnly'] ?? null, $o['greetAged'] ?? null, $o['greetAgeZero'] ?? null]);
-    same('page truth: the time left not known yet — files and bytes both («10 % of the files · 0 % of the data», never a lone «0 %»), the bar as far as the files', [10, false, 10, 0, 'rc.parts {"files":10,"bytes":0}'],
+    same('page truth: the time left not known yet — files and bytes both («10 % of the files · 0 % of the data», never a lone «0 %»), the bar by the bytes', [0, false, 10, 0, 'rc.parts {"files":10,"bytes":0}'],
         array_slice($o['early'] ?? [], 0, 5));
     $ow = $o['owner'] ?? [];
     check('page truth: the owner\'s numbers after 10 min — the time left known, the percent the time done (files cost too): above the bytes\' 0 %, below the files\' 10 %, said as «N %»',
         ($ow[5] ?? false) && ($ow[1] ?? false) && ($ow[0] ?? 0) >= 2 && ($ow[0] ?? 99) < 10 && ($ow[2] ?? null) === 10 && ($ow[3] ?? null) === 0 && ($ow[4] ?? '') === ($ow[0] ?? '') . ' %', json_encode($ow));
     check('page truth: … the card\'s bar says it, never «0 %»', (bool) preg_grep('/^[1-9] % · rc\.rate_avg/', $o['card'] ?? []) && !preg_grep('/^0 % /', $o['card'] ?? []), json_encode($o['card'] ?? null));
     same('page truth: big files — files and bytes alike: one percent', [25, '25 %'], $o['big'] ?? null);
+    same('page truth: 10 of 21 files over, 10 MB of 4.01 GiB, the time left not known yet — the percent by bytes: 0, never the files\' 47 (both said in its words)',
+        [0, false, 47, 0, 'rc.parts {"files":47,"bytes":0}'], $o['mixed'] ?? null);
+    same('page truth: … the share\'s bytes unknown — by files', [47, 47, null, '47 %'], $o['noBytes'] ?? null);
     same('page truth: an idle share says where it lies — pool only (its pool), array only, a pool unnamed (Smart Mover\'s cache), an older agent\'s row', [
         'state_tip.none_pool {"share":"nextcloud_data","pool":"ripley"}', 'state_tip.none_array {"share":"isos"}', 'state_tip.none_pool {"share":"x","pool":"cache"}', 'state_tip.none {"share":"old"}'],
         $o['idle'] ?? null);

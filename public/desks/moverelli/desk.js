@@ -130,10 +130,11 @@ function jackPanel(nn) {
 
 /**
  * What her card shows of Smart Mover's live status, pure (tests/run.php under node): the steps — Umschauen, one per share
- * of the run, Aufräumen — with the current one, the share in flight by files and bytes, its percent (by bytes, else
- * files), the file in flight with its own live rate (core.js Office.runRate), the time left from the page's readings
- * (runEstimate(): files × time per file + bytes ÷ bandwidth; a range while unsure) and the end once the share in flight
- * is the run's last and the time left sure
+ * of the run, Aufräumen — with the current one, the share in flight by files and bytes, its percent (the share's time
+ * done once the time left is known; before that by bytes, by files only while the share's bytes are unknown), the file
+ * in flight with its own live rate (core.js Office.runRate), the time left from the page's readings (runEstimate():
+ * files × time per file + bytes ÷ bandwidth; a range while unsure) and the end once the share in flight is the run's
+ * last and the time left sure
  */
 function runCardData(p, now, nn = null) {
   const plan = Array.isArray(p.plan) ? p.plan : [];
@@ -154,14 +155,16 @@ function runCardData(p, now, nn = null) {
   const fileBytes = Number(p.file_bytes) || 0;
   const dBytes = (Number(p.share_done_bytes) || 0) + fileBytes;
   const est = phase === 'share' && (bytes > 0 || files > 0) ? runEstimate(p, { files, bytes, dFiles, dBytes }, now) : null;
-  // the percent (the owner, 2026-10-18: «0 %» while 5 405 of 51 312 small files were done, 1 of 329 GB): what of the
-  // share's time is done once the time left is known (runEstimate(): files and bytes each by their cost); before that
-  // files and bytes both — the bar as far as the further of them
+  // the percent: what of the share's time is done once the time left is known (runEstimate(): files and bytes each by
+  // their cost); before that by bytes whenever the share's bytes are known (the file in flight's .partial counted), by
+  // files only without them. Never the further of the two (2026-10-27: 10 of 21 files over, 10 MB of 4 GiB — «48 %»
+  // while the run had hardly begun); the text still says both («10 % of the files · 0 % of the data», percentText(),
+  // the owner 2026-10-18: never a lone «0 %» while thousands of small files are done)
   const pct = (x, all) => (all > 0 ? Math.min(100, Math.floor(100 * x / all)) : null);
   const filesPct = phase === 'share' ? pct(dFiles, files) : null;
   const bytesPct = phase === 'share' ? pct(dBytes, bytes) : null;
   const byTime = est && est.left !== null && est.part !== null ? Math.min(100, Math.floor(100 * est.part)) : null;
-  const percent = phase !== 'share' ? null : byTime !== null ? byTime : Math.max(filesPct ?? -1, bytesPct ?? -1) >= 0 ? Math.max(filesPct ?? 0, bytesPct ?? 0) : null;
+  const percent = phase !== 'share' ? null : byTime !== null ? byTime : bytesPct ?? filesPct;
   const left = est && est.left !== null ? est.left : null;
   // unsure (the readings can't yet tell the time per file from the bandwidth): a range, no end
   const range = left !== null && !est.sure ? [est.lo, est.hi] : null;
