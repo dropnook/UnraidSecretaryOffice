@@ -26,8 +26,8 @@
 //   TR-OFFSITE    «offsite» (… + offsite) — Kopia holds a complete snapshot of its source (a VM's or an app's folder: in the
 //                 share's newest snapshot); shown green alone while the repository is held or takes nothing — red
 //   TR-PARTNER    «local + partner» / «at <partner>» — that partner's door lists a snapshot of the unit (a VM or app in a
-//                 dataset of its own: only its own unit; else its share's); green alone while the partner's newest is not
-//                 the last backup run's snapshot — red
+//                 dataset of its own: only its own unit; else its share's; Mr. Restori's «at <partner>» the unit its tip
+//                 names); green alone while the partner's newest is not the last backup run's snapshot — red
 //   TR-ROW        every share of the server (shares.ini) is a row on Mr. Backupsy's overview once a backup ran; a share
 //                 newer (truth `born`) than the office's last look at the shares (the engine's drift check; a replan
 //                 adds no row) is a note: the page can't know it yet
@@ -136,7 +136,7 @@ const matchKey = (text, key, lang, whole = true) => {
 };
 const LEVELS = ['none', 'local', 'partner', 'offsite', 'partner_offsite'];
 const levelOf = (text, lang) => LEVELS.find((l) => matchKey(text, `office.protect.${l}`, lang)) || null;
-const WHY = ['no_run', 'no_snaps', 'kopia_never', 'kopia_held', 'kopia_gone', 'kopia_stuck', 'kopia_away', 'kopia_failed', 'new_share', 'partner_never', 'partner_skipped', 'partner_failed'];
+const WHY = ['no_run', 'cleared', 'no_snaps', 'vm_no_snap', 'kopia_never', 'kopia_held', 'kopia_gone', 'kopia_stuck', 'kopia_away', 'kopia_failed', 'new_share', 'partner_never', 'partner_skipped', 'partner_failed'];
 const whyOf = (text, lang) => WHY.find((w) => matchKey(text, `office.protect.why.${w}`, lang)) || null;
 
 // ------------------------------------------------------------------------------------------------- the pages
@@ -180,7 +180,7 @@ const rule = (id) => !opt.only || opt.only.includes(id);
 const fail = (id, unit, page, tr) => out.push({ verdict: 'FAIL', id, unit, page, truth: tr });
 const note = (id, unit, page, tr) => out.push({ verdict: 'note', id, unit, page, truth: tr });
 const okRun = truth.runs && truth.runs.last && ['ok', 'warnings'].includes(truth.runs.last.result) ? truth.runs.last.snapshot : null;
-const snapsTxt = (places) => (places || []).map((p) => `${p.base} ${p.fs}${p.ds ? ` ${p.ds}` : ''}: ${p.asleep ? 'asleep' : p.snaps === null ? '?' : `${p.snaps} engine${p.all ? `, ${p.all} in all` : ''}`}`).join(', ') || 'no place';
+const snapsTxt = (places) => (places || []).map((p) => `${p.base} ${p.fs}${p.ds ? ` ${p.ds}` : ''}: ${p.asleep ? 'asleep' : p.snaps === null ? '?' : `${p.snaps} engine${p.snaps_folder !== undefined ? ` holding the file (of ${p.snaps_folder})` : ''}${p.all ? `, ${p.all} in all` : ''}`}`).join(', ') || 'no place';
 
 // the partner truth of a unit: {held: true|false|null, by: [names], newest: {name: snap}}
 function partnerTruth(units) {
@@ -213,6 +213,52 @@ function appUnits(a) {
   return app.folders.some((f) => f.own_dataset) ? [`app:${a}`] : [...new Set(app.folders.map((f) => f.share))].flatMap(shareUnits);
 }
 
+// a unit as Mr. Restori names it in a chip's tip (his unitLabel(): pt.unit_place / _share / _vm / _app) → its id, or null
+function unitOfLabel(label, lang) {
+  if (matchKey(label, 'restore.pt.unit_place', lang)) return 'place';
+  for (const k of ['share', 'vm', 'app']) {
+    const g = matchKey(label, `restore.pt.unit_${k}`, lang);
+    if (g && g.name) return `${k}:${g.name}`;
+  }
+  return null;
+}
+/**
+ * Mr. Restori's «at <partner>» chip against the unit its tip names (restore.chip.at_partner_go: «X keeps <unit>: …» — the
+ * share of one of the row's folders, a share it binds whole, its own app: or vm: unit), at the doors of the partners of
+ * that name. Unjudged (a note) when one of them wasn't asked (the canary, a pair without its key: the chip may be that
+ * pair's) or wasn't asked about that unit. → [verdict 'FAIL'|'note'|null, what the truth says]
+ */
+function judgeAtChip(c) {
+  const same = (truth.partners || []).filter((p) => p.name === c.name);
+  if (!same.length) return ['note', `not judged: no pair named ${c.name} that this office sends to (a restore ticket's partner?) — pairs: ${(truth.partners || []).map((p) => p.name).join(', ') || 'none'}`];
+  const unasked = same.filter((p) => !p.asked);
+  const answers = same.filter((p) => p.asked).map((p) => p.units[c.unit]).filter(Boolean);
+  if (answers.some((x) => x.n > 0)) return [null, `${c.name} holds ${c.unit}`];
+  if (unasked.length) return ['note', `not judged: ${unasked.map((p) => `${p.name} ${p.id} ${p.why || 'not asked'}`).join(', ')} — the chip may be that pair's${answers.length ? `; the asked one lists nothing of ${c.unit}` : ''}`];
+  if (!answers.length || answers.some((x) => x.n === null)) return ['note', `not judged: ${c.name}'s door not asked about ${c.unit}${answers.some((x) => x.n === null) ? ' (no answer)' : ''}`];
+  return ['FAIL', `${c.name}'s door lists nothing of ${c.unit} (the unit the chip's tip names)`];
+}
+
+/** a row's «at <partner>» chips: {name, unit: what its tip names (null: it doesn't say)} */
+const atChipsOf = (r, lang) => r.chips.map((c) => {
+  const g = matchKey(c.text, 'restore.chip.at_partner', lang);
+  if (!g) return null;
+  const tip = matchKey(c.title, 'restore.chip.at_partner_go', lang);
+  return { name: g.name, unit: tip && tip.unit ? unitOfLabel(tip.unit, lang) : null };
+}).filter(Boolean);
+/** each «at <partner>» chip of a row whose tip names its unit — whatever the truth knows of the row's own folders */
+function judgeAtChips(page, r, lang) {
+  if (!rule('TR-PARTNER')) return;
+  const shown = r.chips.map((c) => `«${c.text}»`).join(' ');
+  for (const c of atChipsOf(r, lang).filter((x) => x.unit)) {
+    checked++;
+    const [v, tr] = judgeAtChip(c);
+    if (v === 'FAIL') fail('TR-PARTNER', `${page} ${r.place}`, shown, tr);
+    else if (v === 'note') note('TR-PARTNER', `${page} ${r.place}`, `«at ${c.name}» (${c.unit})`, tr);
+    else if (opt.verbose) out.push({ verdict: 'seen', id: 'chip', unit: `${page} ${r.place}`, page: `«at ${c.name}» (${c.unit})`, truth: tr });
+  }
+}
+
 /** one row's claim against the unit's truth */
 function judgeRow(page, r, lang) {
   const [kind, ...rest] = r.place.split(':');
@@ -220,7 +266,9 @@ function judgeRow(page, r, lang) {
   const level = r.chips.map((c) => levelOf(c.text, lang)).find(Boolean);
   const whys = r.chips.map((c) => whyOf(c.text, lang)).filter(Boolean);
   const snapChip = r.chips.map((c) => matchKey(c.text, 'restore.chip.snaps', lang)).find(Boolean);
-  const partnerChips = r.chips.map((c) => matchKey(c.text, 'restore.chip.at_partner', lang)).filter(Boolean).map((g) => g.name);
+  // «at <partner>» whose tip names its unit: judgeAtChips(); one whose tip doesn't say (an older page): the row's units
+  const atChips = atChipsOf(r, lang);
+  const partnerChips = atChips.filter((c) => !c.unit).map((c) => c.name);
   // Mr. Restori's «offsite <when>»: its tip names the Kopia source it means — the package's (the backup place's share:
   // says nothing about the data), the data's share, or a source of its own; judged against that source in Kopia's list
   const kopiaChips = r.chips.filter((c) => matchKey(c.text, 'restore.chip.kopia', lang)).map((c) => {
@@ -242,6 +290,9 @@ function judgeRow(page, r, lang) {
     const v = truth.vms[name];
     if (!v) return;
     local = v.local; offsite = v.offsite; places = v.disks.flatMap((d) => d.places); units = vmUnits(name);
+    // a disk file gone (truth-facts.php: judged by its folder — the snapshots there hold it as it was): said beside
+    const gone = v.disks.filter((d) => d.missing);
+    if (gone.length) detail = `disk ${gone.map((d) => d.path).join(', ')} missing now — only the engine's snapshots of its folder that still hold the file count`;
   } else if (kind === 'app') {
     const a = truth.apps[name];
     if (!a || !a.folders.length) return;         // a package of an app gone, or an app without data: its package's chips
@@ -252,9 +303,13 @@ function judgeRow(page, r, lang) {
   const shown = r.chips.map((c) => `«${c.text}»`).join(' ');
   checked++;
   if (opt.verbose) out.push({ verdict: 'seen', id: 'row', unit, page: shown, truth: `local ${local}, offsite ${offsite}, partner ${JSON.stringify(partnerTruth(units).held)} (${units.join(' ')})` });
-  const claimsLocal = (level && level !== 'none') || (snapChip && Number(String(snapChip.n || '1').replace(/\D/g, '')) > 0);
+  // «n local snapshots» counts the snapshots of the row's folders (any name): for a VM whose disk file is missing the
+  // folder is what it counts, not the disk — judged by TR-SNAPS there, the level alone says whether the disk is held
+  const missingDisk = kind === 'vm' && truth.vms[name].disks.some((d) => d.missing);
+  const claimsLocal = (level && level !== 'none') || (!missingDisk && snapChip && Number(String(snapChip.n || '1').replace(/\D/g, '')) > 0);
   if (rule('TR-LOCAL') && claimsLocal) {
     if (local === 'no') fail('TR-LOCAL', unit, shown, `no engine snapshot holds it (${snapsTxt(places)})${detail ? ` — ${detail}` : ''}`);
+    else if (kind === 'vm' && detail && local === 'yes') note('TR-LOCAL', unit, shown, `${detail} (${snapsTxt(places)})`);
     else if (local === 'partial') note('TR-LOCAL', unit, shown, `only part of it is in a snapshot (${snapsTxt(places)})`);
   }
   if (rule('TR-SNAPS') && snapChip && snapChip.n !== undefined) {
@@ -277,7 +332,7 @@ function judgeRow(page, r, lang) {
     else if (!whys.length && (truth.kopia.held || truth.kopia.stuck)) fail('TR-OFFSITE', unit, shown, `the repository is ${truth.kopia.held ? 'held (suddenly empty)' : 'taking nothing (stuck)'} — green alone`);
   }
   const claimsPartner = level === 'partner' || level === 'partner_offsite' || partnerChips.length;
-  if (rule('TR-PARTNER') && !claimsPartner && level) {
+  if (rule('TR-PARTNER') && !claimsPartner && !atChips.length && level) {
     const pt = partnerTruth(units);
     if (pt.held === true) note('TR-UNDER', unit, shown, `${pt.by.join(', ')} holds ${units.join(' / ')} — the page names no partner`);
   }
@@ -285,7 +340,8 @@ function judgeRow(page, r, lang) {
     const pt = partnerTruth(units);
     if (pt.held === false) fail('TR-PARTNER', unit, shown, `no partner holds ${units.join(' / ') || 'a unit of it'}${detail ? ` (${detail})` : ''}`);
     else if (pt.held === true && partnerChips.length) {
-      const missing = partnerChips.filter((n) => !pt.by.includes(n));
+      // a partner of that name not asked (the canary, a pair without its key) is no finding
+      const missing = partnerChips.filter((n) => !pt.by.includes(n) && (truth.partners || []).filter((p) => p.name === n).every((p) => p.asked));
       if (missing.length) fail('TR-PARTNER', unit, shown, `${missing.join(', ')} holds nothing of ${units.join(' / ')} (held by: ${pt.by.join(', ')})`);
     }
     if (pt.held === true && !whys.length && okRun && level && level.startsWith('partner')) {
@@ -345,7 +401,11 @@ for (const lang of opt.langs) {
       const p = await draw(route, lang);
       report.pages.push({ route, lang, drawn: p.drawn, rows: p.rows.length, errors: p.errors });
       if (!p.drawn) { fail('TR-PAGE', route, 'did not draw', p.errors.join('; ')); continue; }
-      for (const r of p.rows) if (r.place.startsWith(route.endsWith('apps') ? 'app:' : 'vm:')) judgeRow(route, r, lang);
+      for (const r of p.rows) {
+        if (!r.place.startsWith(route.endsWith('apps') ? 'app:' : 'vm:')) continue;
+        judgeAtChips(route, r, lang);
+        judgeRow(route, r, lang);
+      }
       if (route === 'restore/apps' && rule('TR-DOCKER') && !truth.docker.answers) {
         checked++;
         const gone = p.rows.filter((r) => r.place.startsWith('app:') && r.chips.some((c) => matchKey(c.text, 'restore.chip.gone', lang)));

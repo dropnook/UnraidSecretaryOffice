@@ -53942,7 +53942,27 @@ function testBackupTruthProtection(): void
     same('truth: a plan newer than the drift decides for the shares it lists; held, stuck since, unreachable since from their files',
         [['mixed' => true, 'other' => true], true, 4500, 4600], [$t['no_snaps'], $t['kopia']['held'], $t['kopia']['stuck'], $t['kopia']['away']]);
     same('truth: Mr. Backupsy\'s summary — no snapshots (also [share] method = live), new shares not in settings.ini, the runs; L9: Docker switched off',
-        ['runs' => 2, 'no_snaps' => ['live', 'mixed', 'other'], 'new' => ['photos'], 'docker_off' => false], backupTruthSummary($t, $s));
+        ['runs' => 2, 'no_snaps' => ['live', 'mixed', 'other'], 'new' => ['photos'], 'docker_off' => false, 'cleared' => null], backupTruthSummary($t, $s));
+    // INV-TRUTH 2026-10-27 (backup-letgo-snapshots-packages): «Also clear away» at his let-go deletes the engine's snapshots -
+    // the runs before hold nothing locally any more: no «only local» until the next run (his journals in data/backup/)
+    @mkdir("$tmp/backup", 0700, true);
+    $journal = fn (string $id, int $end, array $deleted) => file_put_contents("$tmp/backup/letgo-$id.json", json_encode(['interface' => 1, 'id' => $id,
+        'result' => 'done', 'created' => $end - 5, 'started' => $end - 4, 'finished' => $end, 'heartbeat' => $end, 'moved' => [], 'deleted' => $deleted, 'failed' => []]));
+    $journal('20261021-000100', 2500, []);
+    same('truth cleared: a clearing that deleted nothing - the runs\' snapshots are there', null, backupTruth("$tmp/data")['cleared']);
+    $journal('20261021-000200', 2600, ['cache/appdata@uso-backup-20261021-0200']);
+    $journal('20261021-000300', 2700, []);
+    file_put_contents("$tmp/backup/letgo-20261021-000400.json", '{"interface": 2, "deleted": ["x"], "finished": 9999}');
+    same('truth cleared: the newest clearing (in its shape) that deleted a snapshot, after the last run - its end; the summary carries it',
+        [2600, 2600], [backupTruth("$tmp/data")['cleared'], backupTruthSummary(backupTruth("$tmp/data"), $s)['cleared']]);
+    same('truth cleared: no local level, said why (protect.why.cleared ×5); Kopia\'s copies stay offsite',
+        [['none', ['cleared']], ['offsite', ['cleared']], true],
+        [(fn ($i) => [$i['level'], $i['why']])(backupProtectionInfo('/mnt/user/xfs/a', $s, [], $truth(['cleared' => 2600]))),
+         (fn ($i) => [$i['level'], $i['why']])(backupProtectionInfo('/mnt/user/appdata/web', $s, [], $truth(['cleared' => 2600]))),
+         !array_filter(['en', 'de', 'it', 'fr', 'es'], fn ($l) => !isset(json_decode((string) file_get_contents(OFFICE_DIR . "/public/lang/$l.json"), true)['protect.why.cleared'],
+             json_decode((string) file_get_contents(OFFICE_DIR . "/public/lang/$l.json"), true)['protect.why_text.cleared']))]);
+    file_put_contents("$tmp/data/state/history.jsonl", $line('20261021-0400', 3500, []) . "\n", FILE_APPEND);
+    same('truth cleared: a backup run after the clearing - its snapshots are there again', [3, null], [backupTruth("$tmp/data")['runs'], backupTruth("$tmp/data")['cleared']]);
     // L9 on Mr. Backupsy's rows (desk.js mirrors backupKopiaTruth): the same reason, from the summary's docker_off
     $node = testsNode();
     if ($node !== '') {
@@ -53955,10 +53975,13 @@ globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: {}, desk: () =>
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const b = OFFICE_DESK_TESTS.backup;
 const t = { held: false, gone: false, stuck: null, away: null };
-console.log(JSON.stringify([b.kopiaTruth({ ...t, dockerOff: true }, { ok: true, good: 1 }).why, b.kopiaTruth(t, { ok: true, good: 1 }).why]));
+console.log(JSON.stringify([b.kopiaTruth({ ...t, dockerOff: true }, { ok: true, good: 1 }).why, b.kopiaTruth(t, { ok: true, good: 1 }).why,
+  b.levelTruth('local', { ...t, runs: 2, noSnaps: new Set(), cleared: 2600 }, 'appdata', null), b.levelTruth('local', { ...t, runs: 2, noSnaps: new Set(), cleared: null }, 'appdata', null).level]));
 JS);
         $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/k.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' 2>&1');
-        same('truth L9: Mr. Backupsy\'s rows - kopia_docker_off with Docker switched off, nothing without', ['kopia_docker_off', null], json_decode($raw, true) ?? $raw);
+        same('truth L9: Mr. Backupsy\'s rows - kopia_docker_off with Docker switched off, nothing without; cleared: no local level (the agent\'s code)',
+            ['kopia_docker_off', null, ['level' => 'none', 'set' => 'local', 'why' => ['cleared'], 'since' => null], 'local'], json_decode($raw, true) ?? $raw);
+        check('truth cleared: … his truth() takes it from the summary', str_contains((string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js'), "cleared: typeof t.cleared === 'number'"));
         check('truth L9: … his truth() takes it from the summary', str_contains((string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js'), 'dockerOff: t.docker_off === true'));
     }
     exec('rm -rf ' . escapeshellarg($tmp));
@@ -54446,6 +54469,18 @@ function testRestoreTruthChips(): void
         [['local', 'offsite', ['kopia_never']], ['offsite', 'offsite', []], ['local', 'offsite', ['kopia_never']]],
         [$lv(rsPackageProtectionInfo($pk, 'app:Emby', $s, $truth)), $lv(rsPackageProtectionInfo($pk, 'app:Emby', $s, array_replace_recursive($truth, ['kopia' => ['good' => ['app:Emby' => 1]]]))),
          $lv(rsPackageProtectionInfo($pk, null, $s, $truth))]);
+    // INV-TRUTH 2026-10-27 (backup-vm-disk-missing-run): a VM whose disk no snapshot can hold (the engine's plan: snap
+    // missing, block, live, none) is not backed up on his page either — as on Mr. Backupsy's (vmLevel()), said why
+    $f = [['path' => '/mnt/user/domains/vm1', 'protection' => 'local', 'protection_note' => null],
+          ['path' => '/mnt/user/domains/vm2', 'protection' => 'offsite', 'protection_note' => ['set' => 'offsite', 'why' => ['kopia_failed'], 'since' => null, 'partners' => ['Vault'], 'missed' => []]],
+          ['path' => '/mnt/user/xfs/vm3', 'protection' => 'none', 'protection_note' => ['set' => 'local', 'why' => ['no_snaps'], 'since' => null, 'partners' => [], 'missed' => []]]];
+    same('restore truth: a VM\'s disk in no snapshot (snap missing) - its folders not backed up, why vm_no_snap beside the reasons there were; snap yes or no plan - as they are',
+        [['none', 'none', 'none'], [['set' => 'local', 'why' => ['vm_no_snap'], 'since' => null, 'partners' => [], 'missed' => []],
+          ['set' => 'offsite', 'why' => ['kopia_failed', 'vm_no_snap'], 'since' => null, 'partners' => [], 'missed' => []], $f[2]['protection_note']], $f, $f],
+        [array_column(rsVmNoSnap($f, 'missing'), 'protection'), array_column(rsVmNoSnap($f, 'missing'), 'protection_note'), rsVmNoSnap($f, 'yes'), rsVmNoSnap($f, null)]);
+    check('restore truth: protect.why.vm_no_snap and its text in all five languages', !array_filter(['en', 'de', 'it', 'fr', 'es'],
+        fn ($l) => !isset(json_decode((string) file_get_contents(OFFICE_DIR . "/public/lang/$l.json"), true)['protect.why.vm_no_snap'],
+            json_decode((string) file_get_contents(OFFICE_DIR . "/public/lang/$l.json"), true)['protect.why_text.vm_no_snap'])));
     // owner 2026-10-26: «only local» beside «at Grandparents» on a share row — the row's protection chip hid the partners
     // the results name (note.partners), so its word contradicted the at-partner chip beside it
     $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/restore/desk.js');

@@ -1244,6 +1244,7 @@ function truth() {
     held: !!(state && state.kopia_held),
     gone: drift.some((d) => ['kopia_no_container', 'kopia_container_gone'].includes(d.code)),
     dockerOff: t.docker_off === true,      // engine 2.75 kopia.state docker_off in the newest look at Kopia (review L9)
+    cleared: typeof t.cleared === 'number' ? t.cleared : null,     // his let-go cleared the engine's snapshots, no run since
     stuck: stuck ? stuck.since : null,
     away: state && state.offsite && state.offsite.unreachable_since ? state.offsite.unreachable_since : null,
   };
@@ -1257,7 +1258,8 @@ function kopiaTruth(t, last) {
 }
 /**
  * A level as set, lowered to what is there (the agent's backupProtectionInfo(), the same codes): local only once a run
- * took a snapshot of it — none before the first run, none where its share's file system takes none —, offsite only with
+ * took a snapshot of it — none before the first run, none after his let-go cleared the snapshots away until the next run,
+ * none where its share's file system takes none —, offsite only with
  * a good Kopia copy of its source (`last`). → {level, set, why: [codes], since}
  */
 function levelTruth(set, t, share, last) {
@@ -1265,6 +1267,7 @@ function levelTruth(set, t, share, last) {
   if (!set || set === 'none') return out;
   let local = true;
   if (!t.runs) { out.why.push('no_run'); local = false; }
+  else if (t.cleared) { out.why.push('cleared'); local = false; }
   else if (share && t.noSnaps.has(share)) { out.why.push('no_snaps'); local = false; }
   out.level = local ? 'local' : 'none';
   if (set === 'offsite' && t.runs) {

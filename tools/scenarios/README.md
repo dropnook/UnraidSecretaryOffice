@@ -806,6 +806,13 @@ their text in the drawn language (`office.protect.*`, `protect.why.*`, Restori's
 | TR-CHECKS | count in «In place» anything but ok true, or as a must anything but required and ok false (ok null: neither) | T13 |
 | TR-UNDER | (a note, never red) say «not backed up» for a unit whose datasets hold the engine's snapshots | — |
 
+Mr. Restori's «at <partner>» chip is judged against the unit its tip names (a share of the row's folders, a share
+it binds whole — Nextcloud's data share —, its own `app:`/`vm:` unit) at the doors of the partners of that name; one
+of that name the truth can't ask (the canary, an old pair whose key went with a re-pair at the same address) leaves
+it a note. A VM disk file that isn't there (VM-DISK-MISSING) counts only the engine snapshots of its folder that still
+hold the file. INV-DIFF-EXACT leaves out what any Apply on the base writes when not announced (a share's
+`id`/`locations`, `plan-changes.known`; 2026-10-27).
+
 **Only the tree under test's page is judged.** A scenario that installed an older release (state IN-DOWNGRADE <tag>)
 draws that tag's page (run.sh passes `--tree <tag>`; `USO_PAGE_TREE=<tag>` for a whole run): lies fixed since are no
 finding of this tree, so every finding becomes a note, a line `note TR-TREE pages` says why, and the last line names the

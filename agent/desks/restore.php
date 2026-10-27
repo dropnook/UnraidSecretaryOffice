@@ -1343,6 +1343,32 @@ function rsNeeds(array $folders, array $whole, array &$ctx): array
     return array_values(array_map(fn ($s) => rsShareNow((string) $s, $ctx), $shares));
 }
 
+/**
+ * A VM's folders when no snapshot can hold its disks (the engine's plan: snap block, live, missing or none — its disk a
+ * whole device, on a file system without snapshots, not found, none): not backed up, said why (`vm_no_snap`), as Mr.
+ * Backupsy's row says it (desk.js vmLevel()) — the folder's own snapshots hold the rest of it, never the disk (INV-TRUTH
+ * 2026-10-27, backup-vm-disk-missing-run: «only local» on a VM whose disk file was gone). Its local snapshots stay listed:
+ * an older one may hold the disk.
+ */
+function rsVmNoSnap(array $folders, ?string $snap): array
+{
+    if ($snap === null || $snap === 'yes') {
+        return $folders;
+    }
+    foreach ($folders as &$f) {
+        if (in_array($f['protection'] ?? null, [null, 'none'], true)) {
+            continue;
+        }
+        $note = is_array($f['protection_note'] ?? null) ? $f['protection_note'] : ['set' => $f['protection'], 'why' => [], 'since' => null, 'partners' => [], 'missed' => []];
+        $note['why'][] = 'vm_no_snap';
+        $note['partners'] = [];
+        $f['protection'] = 'none';
+        $f['protection_note'] = $note;
+    }
+    unset($f);
+    return $folders;
+}
+
 /** A folder as the page shows it: where it lies, its protection, its local snapshots */
 function rsFolder(string $path, array $containers, array &$ctx): array
 {
@@ -1472,6 +1498,13 @@ function rsScan(): array
         $a['files'] = array_values(array_filter($a['files'], fn ($f) => $f['what'] !== 'error'));
         $state['apps'][] = $a;
     }
+    // what the engine's last plan says of each VM's disks (snap: yes | block | live | missing | none), as Mr. Backupsy reads it
+    $vmSnap = [];
+    foreach ((array) (readJson(BACKUP_DATA_DIR . '/state/setup-plan.json')['vms'] ?? []) as $pv) {
+        if (is_array($pv) && is_string($pv['name'] ?? null) && is_string($pv['snap'] ?? null)) {
+            $vmSnap[$pv['name']] = $pv['snap'];
+        }
+    }
     foreach ($pk['vms'] ?? [] as $v) {
         $units = [];
         foreach ($v['disks'] as $d) {
@@ -1481,7 +1514,8 @@ function rsScan(): array
                 $units["/mnt/user/{$sp[0]}/$first"] = true;
             }
         }
-        $v['folders'] = array_map(fn ($p) => rsFolder($p, [], $ctx) + ['share' => explode('/', $p)[3], 'whole' => false], array_keys($units));
+        $v['folders'] = rsVmNoSnap(array_map(fn ($p) => rsFolder($p, [], $ctx) + ['share' => explode('/', $p)[3], 'whole' => false], array_keys($units)),
+            $vmSnap[$v['name']] ?? null);
         $v['needs'] = rsNeeds($v['folders'], [], $ctx);
         $v['state'] = $vmStates === null ? null : ($vmStates[$v['name']] ?? 'missing');
         $v['kopia'] = $sourcesOf('vm', $v['name'], $v['id'], $v['folders'], []);
