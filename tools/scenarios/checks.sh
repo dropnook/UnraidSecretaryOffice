@@ -258,8 +258,8 @@ bubble_look() {
 
 # Ms. Moverelli's run card against the disks (a look while her run is at work): the percent as desk.js runCardData()
 # computes it from her live answer (by bytes, the file in flight's .partial counted; else by files) against the bytes
-# of the share in flight that really reached the other side since snap_before (a tracked share only) — more than 20
-# points apart is a finding; and «On its way: file — from → to» (to: her state's share entry, else «array») against
+# of the share in flight that really reached the other side since snap_before, the file in flight's .partial there
+# counted the same way (a tracked share only) — more than 20 points apart is a finding; and «On its way: file — from → to» (to: her state's share entry, else «array») against
 # where the share's files really go (prefer: its pool; yes: the array)
 _ck_tiles_moverelli() {
     local label=$1 dir=$2 prog p share card real0 real1 to want use pool
@@ -279,8 +279,10 @@ _ck_tiles_moverelli() {
     real0=$(_ck_pct_of "${real0:-}" "$sb"); real1=$(_ck_pct_of "${real1:-}" "$sb")
     use=$(_ck_share_use "$share")
     pool=$(_ck_share_pool "$share")
-    # what the card can show from her answer: its percent lies between the share's files % and bytes % (the file in
-    # flight's .partial counted) — desk.js's runCardData(): time done once estimated, before that the larger of the two
+    # what the card can show from her answer — desk.js's runCardData(): before the time left is known the bytes % (the
+    # file in flight's .partial counted; the files % only while the share's bytes are unknown), once it is known the
+    # share's time done, which lies between the files % and the bytes % (each part by its cost). The page's estimate
+    # comes from its own readings, which this one answer can't tell: lo–hi spans both, the bytes % always inside
     local lo hi
     read -r lo hi < <(jq -r 'if (.phase // "look") != "share" then "" else
         ((.share_bytes // 0) | tonumber) as $b | ((.share_files // 0) | tonumber) as $f |
@@ -312,18 +314,28 @@ _ck_pct_of() {
 # _ck_moved_pct <share> <file>: the share's inventory now (kept in file); «<done> <total>» — the bytes that were on the side
 # her run takes from at snap_before (prefer: the array; yes: the pool) and are on the other side now — hers only: a
 # file on Jack Streamer's list at snap_before or now is his (her run leaves it; his give-back in a joint run takes a
-# film his look dropped from the list to the array — M7, 2026-10-20: «0 % on the card, 21 % across» was his film)
+# film his look dropped from the list to the array — M7, 2026-10-20: «0 % on the card, 21 % across» was his film).
+# The file in flight counts with what of its <rel>.partial on the other side is written, as her card counts it
+# (moverelliInFlight(): st_blocks · 512, at most the file's size — its apparent size may be preallocated to the whole;
+# BF3 2026-10-27: a 4 GiB file half written, the card 54 %, the disks «0 %»)
 _ck_moved_pct() {
-    local use
+    local use b
     use=$(_ck_share_use "$1")
     inventory "$1" >"$2"
     awk -F'\t' -v pre="$use" -v sh="$1" 'function src(b) { return (pre == "prefer") ? (b ~ /^disk[0-9]+$/) : (b !~ /^disk[0-9]+$/) }
         FILENAME == ARGV[1] { p = $0; if (sub("^/mnt/[^/]+/" sh "/", "", p)) jack[p] = 1; next }
         FILENAME == ARGV[2] { if ($0 !~ /^#/ && src($5) && !($1 in jack)) { size[$1] = $2; total += $2 } next }
-        ($0 !~ /^#/) && ($1 in size) && !src($5) { done += size[$1] }
-        END { if (total > 0) printf "%d %d", done, total }' \
+        FILENAME == ARGV[3] { if (($1 in size) && !src($3)) { w = 512 * $2; part[$1] = w < size[$1] ? w : size[$1] } next }
+        ($0 !~ /^#/) && ($1 in size) && !src($5) { done += size[$1]; moved[$1] = 1 }
+        END { for (r in part) if (!(r in moved)) done += part[r]; if (total > 0) printf "%d %d", done, total }' \
         <(cat "$KEEP/before/files/mediacache_exclude.txt" "$D/mediacache/mediacache_exclude.txt" 2>/dev/null; echo) \
-        "$KEEP/before/inventory/$1.tsv" "$2"
+        "$KEEP/before/inventory/$1.tsv" \
+        <(for b in $(bases); do
+              base_asleep "$b" && continue
+              [[ -d /mnt/$b/$1 ]] && find "/mnt/$b/$1" \( "${_INV_PRUNE[@]}" \) -prune -o -type f -name '*.partial' \
+                  -printf "%P\t%b\t$b\n" 2>/dev/null | sed 's/\.partial\t/\t/'
+          done; echo) \
+        "$2"
 }
 
 # the last look after the flow — once per check run (INV-PAGE and INV-BUBBLE share it)
