@@ -398,6 +398,12 @@ foreach ($libvirt ? array_filter(array_map('trim', $out), 'strlen') : [] as $v) 
             $share = preg_match('#^/mnt/[^/]+/([^/]+)/(.+)$#', $path, $m) ? $m[1] : null;
             $rel = $share !== null ? (dirname($m[2]) === '.' ? '' : dirname($m[2])) : '';
             $places = folderPlaces($path);
+            // a disk file that isn't there (VM-DISK-MISSING: the XML names a file gone since): its folder's places — the
+            // engine's snapshots of that folder hold the disk as it was before it went (`missing`: truth.mjs notes it)
+            $missing = !$places && !file_exists($path);
+            if ($missing) {
+                $places = folderPlaces(dirname($path));
+            }
             $own = null;
             foreach ($places as $p) {
                 if ($p['ds'] !== null && $share !== null) {
@@ -409,7 +415,7 @@ foreach ($libvirt ? array_filter(array_map('trim', $out), 'strlen') : [] as $v) 
                 $off = isset($kopia['sources']['/uso/.vms/' . pkgFolder($v)]) ? true : kopiaHolds($share, $rel);
             }
             $disks[] = ['path' => $path, 'share' => $share, 'folder' => $rel, 'places' => $places, 'own_dataset' => $own,
-                'local' => localOf($places), 'offsite' => $off];
+                'local' => localOf($places), 'offsite' => $off, 'missing' => $missing];
         }
     }
     $loc = array_column($disks, 'local');
