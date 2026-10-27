@@ -809,8 +809,8 @@ their text in the drawn language (`office.protect.*`, `protect.why.*`, Restori's
 Mr. Restori's «at <partner>» chip is judged against the unit its tip names (a share of the row's folders, a share
 it binds whole — Nextcloud's data share —, its own `app:`/`vm:` unit) at the doors of the partners of that name; one
 of that name the truth can't ask (the canary, an old pair whose key went with a re-pair at the same address) leaves
-it a note. A VM disk file that isn't there (VM-DISK-MISSING) is judged by its folder, whose snapshots hold it as it
-was (a note says so). INV-DIFF-EXACT leaves out what any Apply on the base writes when not announced (a share's
+it a note. A VM disk file that isn't there (VM-DISK-MISSING) counts only the engine snapshots of its folder that still
+hold the file. INV-DIFF-EXACT leaves out what any Apply on the base writes when not announced (a share's
 `id`/`locations`, `plan-changes.known`; 2026-10-27).
 
 **Only the tree under test's page is judged.** A scenario that installed an older release (state IN-DOWNGRADE <tag>)
