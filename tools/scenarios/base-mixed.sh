@@ -6,7 +6,7 @@
 #   bash base-mixed.sh objects        the profile's VMs and shares there (idempotent: what is there stays)
 #   bash base-mixed.sh remove         taken away again (the default reset does it: the default base never sees them)
 #   bash base-mixed.sh after          with the agent at work: the running VM started, the pair with the partner asked
-#   bash base-mixed.sh pair-id        the pair with MIXED_PARTNER_IP in Tower's pairs.json (its id), else exit 1
+#   bash base-mixed.sh pair-id        the newest pair with MIXED_PARTNER_IP in Tower's pairs.json (its id), else exit 1
 #   bash base-mixed.sh has-base       exit 0 when the profile's base is kept (<data>.base-mixed/data.tar)
 #   bash base-mixed.sh apply <id>     Mr. Backupsy's plan made anew and Apply with MIXED_DECISIONS (@ID@ = <id>) — the
 #                                     page's own body (flows.sh BK-APPLY: plan-changes.mjs --apply)
@@ -64,7 +64,8 @@ mixed_objects_remove() {
 
 mixed_pair_id() {
     _mx_env
-    jq -r --arg a "$MIXED_PARTNER_IP" '[(.pairs // [])[] | select(.address == $a and (.my_key | type) == "string") | .id][0] // empty' "$D/partner/pairs.json" 2>/dev/null
+    # the newest: pairing anew leaves the old silent pair beside the new one
+    jq -r --arg a "$MIXED_PARTNER_IP" '[(.pairs // [])[] | select(.address == $a and (.my_key | type) == "string")] | sort_by(.paired // 0) | last | .id // empty' "$D/partner/pairs.json" 2>/dev/null
 }
 # the partner's door answers the pair (its `ping`, the pair's own key — as the engine's ssh)
 mixed_pair_ok() {
