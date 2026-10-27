@@ -478,6 +478,45 @@ async function run() {
   same('a new visit: every bar empty, nothing applied by itself', again.map((x) => [note(x).hidden, x.querySelector('.filter-words').value, pick(x).value,
     !!(x.querySelector('.filter-only') && x.querySelector('.filter-only').querySelector('input').checked)]), again.map(() => [true, '', '', false]));
   logs.unmount();
+
+  // ---- «Who woke my disks?» on a server without a spinning disk (all flash): her tile is there and says so in one line;
+  // its section (a click) the same line — no switch, no filter bar, no empty list. Before her first look: «not yet».
+  const wakesVisit = async (wakes, sub) => {
+    state = freshState();
+    if (wakes === undefined) delete state.wakes; else state.wakes = wakes;
+    const r = new FakeNode('div');
+    desk.replaceChildren(r);
+    await logs.mount(r, sub);
+    await tick();
+    await tick();
+    const tile = r.all().find((n) => n.dataset && n.dataset.tile === 'wakes') || null;
+    const sec = sectionOf(r, 'wakes.title');
+    const out = {
+      tile: tile ? tile.querySelectorAll('.card-line').map(tx) : null,
+      empty: !!(tile && tile.classList.contains('empty-card')),
+      section: sec ? sec.querySelectorAll('p').map(tx) : null,
+      bar: !!barIn(sec),
+      switch: !!(sec && sec.querySelector('.switch')),
+      boxes: sec ? sec.querySelectorAll('.box').length : -1,
+    };
+    logs.unmount();
+    return out;
+  };
+  const flash = { hdds: [], since: now - 86400, look: 4, on: true, wakes: [] };
+  same('all flash: her tile there, one line — no disk spins here', await wakesVisit(flash, ''),
+    { tile: [T('wakes.no_hdd')], empty: true, section: [T('wakes.no_hdd')], bar: false, switch: false, boxes: 0 });
+  same('all flash: her section alone (a click) — the same one line, no filter bar', await wakesVisit(flash, 'wakes'),
+    { tile: [T('wakes.no_hdd')], empty: true, section: [T('wakes.no_hdd')], bar: false, switch: false, boxes: 0 });
+  same('all flash, switched off: still the one line (nothing to switch)', (await wakesVisit({ ...flash, on: false }, 'wakes')).section, [T('wakes.no_hdd')]);
+  same('before her first look: «not yet», as always', await wakesVisit(undefined, 'wakes'),
+    { tile: [T('wakes.not_yet')], empty: true, section: [T('wakes.not_yet')], bar: false, switch: false, boxes: 0 });
+  const spinning = await wakesVisit({ ...flash, hdds: ['parity', 'disk1'] }, 'wakes');
+  same('a spinning disk, no wake yet: «none in 7 days», the switch and the filter bar', [spinning.tile[0], spinning.bar, spinning.switch],
+    [T('wakes.tile_none'), true, true]);
+  const old = await wakesVisit({ ...flash, wakes: [{ id: 'w1', time: now - 3600, from: now - 3700, disks: ['disk1'], how: 'noticed', who: [] }] }, 'wakes');
+  same('no spinning disk now, but a wake kept from before: shown as always', [old.tile, old.bar], [[T('wakes.tile_today', { n: 1 }), T('wakes.tile_week', { n: 1 })], true]);
+  const older = await wakesVisit({ since: now - 86400, look: 4, wakes: [] }, 'wakes');
+  same('an older messenger\'s state (no `hdds`): the tile as it always was', [older.tile, older.bar], [[T('wakes.tile_none'), T('wakes.tile_since', { when: O.fmt.date(now - 86400) })], true]);
 }
 
 // her follow and tour timers end with the page; a failure on the way leaves them running: out after the line
