@@ -200,6 +200,39 @@ function folderPlaces(string $path): array
     }
     return $out;
 }
+/**
+ * A missing file's place (folderPlaces() of its folder): `snaps` = the engine's snapshots there that hold the file —
+ * read through ZFS's own snapshot folder (`<mountpoint>/.zfs/snapshot/<name>/…`, read-only; ZFS mounts it for the look
+ * and lets it go by itself) or the btrfs snapshot folder; `snaps_folder` = all of the engine's there, beside.
+ */
+function missingHeld(array $p, string $path): array
+{
+    global $zsnaps, $btrfsDir, $snapRe;
+    if ($p['snaps'] === null || !preg_match('#^/mnt/(?:user|user0|[^/]+)/(.+)$#', $path, $m)) {
+        return $p;
+    }
+    $onBase = "/mnt/{$p['base']}/$m[1]";
+    $p['snaps_folder'] = $p['snaps'];
+    $held = 0;
+    if ($p['fs'] === 'zfs' && $p['ds']) {
+        [$rc, $out] = sh(['zfs', 'get', '-H', '-o', 'value', 'mountpoint', $p['ds']], 10);
+        $mp = rtrim(trim($out[0] ?? ''), '/');
+        if ($rc !== 0 || $mp === '' || !str_starts_with($onBase, "$mp/")) {
+            $p['snaps'] = null;             // can't tell
+            return $p;
+        }
+        foreach ($zsnaps[$p['ds']] ?? [] as [$name]) {
+            $held += (int) file_exists("$mp/.zfs/snapshot/$name/" . substr($onBase, strlen($mp) + 1));
+        }
+    } elseif ($p['fs'] === 'btrfs') {
+        foreach (glob("/mnt/{$p['base']}/$btrfsDir/*") ?: [] as $d) {
+            $held += (int) (preg_match($snapRe, basename($d)) && file_exists("$d/$m[1]"));
+        }
+    }
+    $p['snaps'] = $held;
+    return $p;
+}
+
 /** local truth over places: yes (every place holds a snapshot) · partial · no · unknown (a place asleep, zfs silent) */
 function localOf(array $places): string
 {
@@ -398,11 +431,11 @@ foreach ($libvirt ? array_filter(array_map('trim', $out), 'strlen') : [] as $v) 
             $share = preg_match('#^/mnt/[^/]+/([^/]+)/(.+)$#', $path, $m) ? $m[1] : null;
             $rel = $share !== null ? (dirname($m[2]) === '.' ? '' : dirname($m[2])) : '';
             $places = folderPlaces($path);
-            // a disk file that isn't there (VM-DISK-MISSING: the XML names a file gone since): its folder's places — the
-            // engine's snapshots of that folder hold the disk as it was before it went (`missing`: truth.mjs notes it)
+            // a disk file that isn't there (VM-DISK-MISSING: the XML names a file gone since): its folder's places, and
+            // there only the engine's snapshots that still hold the file count (`missing`: truth.mjs says so)
             $missing = !$places && !file_exists($path);
             if ($missing) {
-                $places = folderPlaces(dirname($path));
+                $places = array_map(fn ($p) => missingHeld($p, $path), folderPlaces(dirname($path)));
             }
             $own = null;
             foreach ($places as $p) {

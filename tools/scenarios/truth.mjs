@@ -136,7 +136,7 @@ const matchKey = (text, key, lang, whole = true) => {
 };
 const LEVELS = ['none', 'local', 'partner', 'offsite', 'partner_offsite'];
 const levelOf = (text, lang) => LEVELS.find((l) => matchKey(text, `office.protect.${l}`, lang)) || null;
-const WHY = ['no_run', 'cleared', 'no_snaps', 'kopia_never', 'kopia_held', 'kopia_gone', 'kopia_stuck', 'kopia_away', 'kopia_failed', 'new_share', 'partner_never', 'partner_skipped', 'partner_failed'];
+const WHY = ['no_run', 'cleared', 'no_snaps', 'vm_no_snap', 'kopia_never', 'kopia_held', 'kopia_gone', 'kopia_stuck', 'kopia_away', 'kopia_failed', 'new_share', 'partner_never', 'partner_skipped', 'partner_failed'];
 const whyOf = (text, lang) => WHY.find((w) => matchKey(text, `office.protect.why.${w}`, lang)) || null;
 
 // ------------------------------------------------------------------------------------------------- the pages
@@ -180,7 +180,7 @@ const rule = (id) => !opt.only || opt.only.includes(id);
 const fail = (id, unit, page, tr) => out.push({ verdict: 'FAIL', id, unit, page, truth: tr });
 const note = (id, unit, page, tr) => out.push({ verdict: 'note', id, unit, page, truth: tr });
 const okRun = truth.runs && truth.runs.last && ['ok', 'warnings'].includes(truth.runs.last.result) ? truth.runs.last.snapshot : null;
-const snapsTxt = (places) => (places || []).map((p) => `${p.base} ${p.fs}${p.ds ? ` ${p.ds}` : ''}: ${p.asleep ? 'asleep' : p.snaps === null ? '?' : `${p.snaps} engine${p.all ? `, ${p.all} in all` : ''}`}`).join(', ') || 'no place';
+const snapsTxt = (places) => (places || []).map((p) => `${p.base} ${p.fs}${p.ds ? ` ${p.ds}` : ''}: ${p.asleep ? 'asleep' : p.snaps === null ? '?' : `${p.snaps} engine${p.snaps_folder !== undefined ? ` holding the file (of ${p.snaps_folder})` : ''}${p.all ? `, ${p.all} in all` : ''}`}`).join(', ') || 'no place';
 
 // the partner truth of a unit: {held: true|false|null, by: [names], newest: {name: snap}}
 function partnerTruth(units) {
@@ -292,7 +292,7 @@ function judgeRow(page, r, lang) {
     local = v.local; offsite = v.offsite; places = v.disks.flatMap((d) => d.places); units = vmUnits(name);
     // a disk file gone (truth-facts.php: judged by its folder — the snapshots there hold it as it was): said beside
     const gone = v.disks.filter((d) => d.missing);
-    if (gone.length) detail = `disk ${gone.map((d) => d.path).join(', ')} missing now — judged by its folder, whose snapshots hold it as it was`;
+    if (gone.length) detail = `disk ${gone.map((d) => d.path).join(', ')} missing now — only the engine's snapshots of its folder that still hold the file count`;
   } else if (kind === 'app') {
     const a = truth.apps[name];
     if (!a || !a.folders.length) return;         // a package of an app gone, or an app without data: its package's chips
