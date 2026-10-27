@@ -669,7 +669,8 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   time and count; never a stat or walk under /mnt, no getfattr); names (docker ps, smbstatus), cron lines due and
   Unraid's «read SMART» time come later from the job `logs-wake-name`, whose answer only her tick writes into the file;
   the tile always — without a rotating disk it says there is none (all flash); machine names and paths on her page
-  only, never in the agent's log. **Unraid's own look after a wake** (emhttpd's smartctl/hdparm, `hdparm -C`, smartctl in standby mode: `logsWakeReaction()`) is never a
+  only, never in the agent's log. **Unraid's own look after a wake** (emhttpd's smartctl/hdparm, `hdparm -C`,
+  smartctl in standby mode: `logsWakeReaction()`) is never a
   cause, only said apart (`unraid`; 1.68.0's records read the same way). Writes don't wait (page cache, the kernel's
   flush): a writers' list while a disk sleeps (files open for writing there, every `LOGS_WAKE_HOLD` s, budgeted; their
   write counters every look) gives «wrote to it»; a user share's file by the disk shfs holds it on; a plain program by who
