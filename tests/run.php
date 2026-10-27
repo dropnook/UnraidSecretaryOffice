@@ -54459,6 +54459,18 @@ function testRestoreTruthChips(): void
         [['local', 'offsite', ['kopia_never']], ['offsite', 'offsite', []], ['local', 'offsite', ['kopia_never']]],
         [$lv(rsPackageProtectionInfo($pk, 'app:Emby', $s, $truth)), $lv(rsPackageProtectionInfo($pk, 'app:Emby', $s, array_replace_recursive($truth, ['kopia' => ['good' => ['app:Emby' => 1]]]))),
          $lv(rsPackageProtectionInfo($pk, null, $s, $truth))]);
+    // INV-TRUTH 2026-10-27 (backup-vm-disk-missing-run): a VM whose disk no snapshot can hold (the engine's plan: snap
+    // missing, block, live, none) is not backed up on his page either — as on Mr. Backupsy's (vmLevel()), said why
+    $f = [['path' => '/mnt/user/domains/vm1', 'protection' => 'local', 'protection_note' => null],
+          ['path' => '/mnt/user/domains/vm2', 'protection' => 'offsite', 'protection_note' => ['set' => 'offsite', 'why' => ['kopia_failed'], 'since' => null, 'partners' => ['Vault'], 'missed' => []]],
+          ['path' => '/mnt/user/xfs/vm3', 'protection' => 'none', 'protection_note' => ['set' => 'local', 'why' => ['no_snaps'], 'since' => null, 'partners' => [], 'missed' => []]]];
+    same('restore truth: a VM\'s disk in no snapshot (snap missing) - its folders not backed up, why vm_no_snap beside the reasons there were; snap yes or no plan - as they are',
+        [['none', 'none', 'none'], [['set' => 'local', 'why' => ['vm_no_snap'], 'since' => null, 'partners' => [], 'missed' => []],
+          ['set' => 'offsite', 'why' => ['kopia_failed', 'vm_no_snap'], 'since' => null, 'partners' => [], 'missed' => []], $f[2]['protection_note']], $f, $f],
+        [array_column(rsVmNoSnap($f, 'missing'), 'protection'), array_column(rsVmNoSnap($f, 'missing'), 'protection_note'), rsVmNoSnap($f, 'yes'), rsVmNoSnap($f, null)]);
+    check('restore truth: protect.why.vm_no_snap and its text in all five languages', !array_filter(['en', 'de', 'it', 'fr', 'es'],
+        fn ($l) => !isset(json_decode((string) file_get_contents(OFFICE_DIR . "/public/lang/$l.json"), true)['protect.why.vm_no_snap'],
+            json_decode((string) file_get_contents(OFFICE_DIR . "/public/lang/$l.json"), true)['protect.why_text.vm_no_snap'])));
     // owner 2026-10-26: «only local» beside «at Grandparents» on a share row — the row's protection chip hid the partners
     // the results name (note.partners), so its word contradicted the at-partner chip beside it
     $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/restore/desk.js');
