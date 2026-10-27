@@ -22,6 +22,7 @@ else undo_push rm -f /var/lib/docker/unraid-autostart; fi
 undo_push ct_start ${was//,/ }
 grep -qx jack=hired "$prenote" 2>/dev/null && undo_push flow OF-FIRE desk=jack
 agent_wait 300
+ct_autostart_wait                            # 7.4: the agent is at work while rc.docker still starts the apps (2026-10-27)
 nc_data_closed                               # Unraid's array start at the boot opened Nextcloud's data folder (0777) — not this cell's
 snap_before
 flow OF-REBOOT-BACK
