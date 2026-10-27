@@ -2473,7 +2473,10 @@ Office.supporterAsk = async function supporterAsk(answer) {
  * The office's reports to its makers (agent/lib/report.php, the feedback concept). The page only asks the
  * agent: office.reports (the list — where each stands, its public issue —, the cap), office.report_preview (everything that would be sent, part by part, a
  * token — no network) and, on «Send» only, office.report_send (the previewed parts still ticked). «Send» stays off
- * until the preview was looked at; a word changed after it: the preview goes, «Send» with it. The draft is kept per
+ * until the preview was looked at; a word changed after it: the preview goes, «Send» with it. While «Send» is off, a
+ * line beside the buttons says why — the first reason of sendWhy() (2026-10-27: the reason used to sit far up in the
+ * dialog). Nothing folds: every part of the preview, the diagnostics' files and «Your reports» show open; only long
+ * contents (the log, the words) scroll inside their box. The draft is kept per
  * browser (Office.store report.draft) — a click outside or Escape loses nothing. The office shows only its own words
  * (errors.report_*), never a text of the makers' inbox.
  * Pictures (#6): up to REPORT_IMAGES_MAX screenshots (PNG, JPEG, WebP; chosen, pasted or dropped), each ≤ 2 MB as the
@@ -2484,7 +2487,8 @@ Office.supporterAsk = async function supporterAsk(answer) {
  * can't blank a picture). Pictures are never kept in the draft.
  * Unraid's diagnostics (2026-10-15): one tick in the form, never ticked by default, never remembered. With it the
  * preview has the agent run Unraid's own anonymized diagnostics and clean them once more itself; the page asks
- * office.report_diag until they are ready (size, files, what the office hid) and «Send» waits for them. A sleeping disk: the agent refuses (report_diag_asleep) and a second
+ * office.report_diag until they are ready (size, files, what the office hid) and «Send» waits for them (the line at the
+ * buttons says so, with the wave). A sleeping disk: the agent refuses (report_diag_asleep) and a second
  * tick «wake them» appears. They go after the report (the answer's `diagnostics` says whether); a preview thrown away
  * or the dialog closed drops them on the server.
  * Whether the makers' inbox takes reports (2026-10-21: it was archived, every report «failed»): on opening the dialog
@@ -2671,7 +2675,7 @@ Office.reportDialog = function reportDialog(deskId) {
   const done = el('div', 'sso-report-done');
   done.hidden = true;
   box.appendChild(done);
-  const yours = el('details', 'sso-report-yours');
+  const yours = el('div', 'sso-report-yours');                   // open when it has entries, nothing to click (2026-10-27)
   yours.hidden = true;
   box.appendChild(yours);
 
@@ -2682,7 +2686,32 @@ Office.reportDialog = function reportDialog(deskId) {
   // a picture ticked: only with the tick «I've looked at the pictures»
   const picsOk = () => !(state.boxes || []).some((b) => REPORT_IMAGE_PARTS.includes(b.dataset.part) && b.checked) || !!(state.imagesOk && state.imagesOk.checked);
   const diagBusy = () => !!(state.diag && state.diag.state === 'running');
-  const sendable = () => !!state.preview && !state.closed && !(state.cap && state.cap.left <= 0) && Office.agent.running && picsOk() && !diagBusy();
+  /** Why «Send» is off: the first reason that holds as [key, params, wave] — what stops any report first (the messenger
+      away, reports closed, the day's used up), then in the order the user meets them (the preview, Unraid's diagnostics,
+      the pictures' tick); null = «Send» is on. paintSend() sets «Send» by it and says it beside the buttons. */
+  const sendWhy = () => {
+    if (!Office.agent.running) return ['agent.away'];
+    if (state.closed) return ['office.report_closed_note'];
+    if (state.cap && state.cap.left <= 0) return ['office.report_none_left', { when: state.cap.next ? Office.fmt.date(state.cap.next) : '?' }];
+    if (!state.preview) return ['office.report_why_preview'];
+    if (diagBusy()) return ['office.report_why_diag', {}, true];
+    if (!picsOk()) return ['office.report_why_pictures'];
+    return null;
+  };
+  const why = el('p', 'sso-report-why');         // in the dialog's foot, beside the buttons (put there below)
+  why.setAttribute('aria-live', 'polite');
+  function paintSend() {
+    if (!send) return;
+    const r = sendWhy();
+    send.disabled = !!r;
+    why.innerHTML = '';
+    why.hidden = !r || state.sent;
+    why.classList.toggle('running', !!(r && r[2]));      // the wave shows only inside .running
+    if (r && !state.sent) {
+      if (r[2]) why.append(el('span', 'spin'), ' ');
+      why.append(t(r[0], r[1] || {}));
+    }
+  }
   const counter = () => {
     const used = utf8Bytes(text.value.trim());
     count.textContent = t('office.report_count', { used, max: REPORT_TEXT_MAX });
@@ -2703,7 +2732,7 @@ Office.reportDialog = function reportDialog(deskId) {
       preview.hidden = true;
       preview.innerHTML = '';
     }
-    if (send) send.disabled = !sendable();
+    paintSend();
   }
   [title, text].forEach((f) => { f.oninput = changed; });
   desk.onchange = changed;
@@ -2795,7 +2824,7 @@ Office.reportDialog = function reportDialog(deskId) {
     yours.innerHTML = '';
     yours.hidden = !list.length;
     if (!list.length) return;
-    yours.appendChild(el('summary', '', t('office.report_yours', { n: list.length })));
+    yours.appendChild(el('div', 'sso-report-yours-head', t('office.report_yours', { n: list.length })));
     const ul = el('ul', 'shortlist');
     list.forEach((r) => {
       const li = el('li');
@@ -2822,9 +2851,10 @@ Office.reportDialog = function reportDialog(deskId) {
     if (typeof j.left === 'number') state.cap = { n: j.n, left: j.left, cap: j.cap || 25, next: j.next || null };
     if (typeof j.closed === 'boolean') state.closed = j.closed;
     paintCap();
+    paintSend();
   }
 
-  /** One part of the preview: a tick box (or none: always sent), its name, its content folded under it */
+  /** One part of the preview: a tick box (or none: always sent), its name, its content open under it (never folded) */
   function partRow(id, content, ticked, fixed, label) {
     const row = el('div', 'sso-report-part');
     const head = el('label', 'check');
@@ -2892,7 +2922,7 @@ Office.reportDialog = function reportDialog(deskId) {
       }
       pic.appendChild(el('small', '', t('office.report_image_info', { w: im.width, h: im.height, size: Office.fmt.size(im.bytes) })));
       const cb = partRow(REPORT_IMAGE_PARTS[i], pic, ticked.has(REPORT_IMAGE_PARTS[i]), false, t('office.report_part.image', { n: i + 1 }));
-      cb.onchange = () => { if (send) send.disabled = !sendable(); };
+      cb.onchange = paintSend;
       boxes.push(cb);
     });
     if ((j.images || []).length) {
@@ -2901,7 +2931,7 @@ Office.reportDialog = function reportDialog(deskId) {
       const ok = el('input');
       ok.type = 'checkbox';
       ok.dataset.check = 'images';
-      ok.onchange = () => { if (send) send.disabled = !sendable(); };
+      ok.onchange = paintSend;
       head.append(ok, el('span', '', t('office.report_images_checked')));
       row.append(head, el('small', '', t('office.report_images_note')));
       preview.appendChild(row);
@@ -2910,7 +2940,7 @@ Office.reportDialog = function reportDialog(deskId) {
     if (j.diagnostics) {
       const diagBox = el('div', 'sso-report-diag-shown');
       const cb = partRow(REPORT_DIAG_PART, diagBox, ticked.has(REPORT_DIAG_PART));
-      cb.onchange = () => { if (send) send.disabled = !sendable(); };
+      cb.onchange = paintSend;
       boxes.push(cb);
       state.diag = { state: 'running', box: diagBox, cb };
       paintDiag();
@@ -2935,8 +2965,8 @@ Office.reportDialog = function reportDialog(deskId) {
       d.cb.disabled = true;
     } else if (d.state === 'ready') {
       d.box.appendChild(el('div', 'sso-report-value', t('office.report_diag_ready', { size: Office.fmt.size(d.bytes), n: d.count })));
-      const files = el('details', 'sso-report-diag-files');
-      files.appendChild(el('summary', '', t('office.report_diag_files')));
+      const files = el('div', 'sso-report-diag-files');           // open, nothing to click (2026-10-27)
+      files.appendChild(el('small', '', t('office.report_diag_files')));
       const names = (d.files || []).join('\n') + (d.count > (d.files || []).length ? `\n${t('office.report_diag_more', { n: d.count - d.files.length })}` : '');
       files.appendChild(el('pre', 'code sso-report-log', names));
       d.box.appendChild(files);
@@ -2952,7 +2982,7 @@ Office.reportDialog = function reportDialog(deskId) {
       d.cb.checked = false;
       d.cb.disabled = true;
     }
-    if (send) send.disabled = !sendable();
+    paintSend();
   }
   /** Asks the agent how far Unraid's diagnostics are, until they aren't running (or this preview is gone) */
   async function pollDiag(token) {
@@ -3007,7 +3037,7 @@ Office.reportDialog = function reportDialog(deskId) {
       paintPreview(j);
     } finally {
       show.disabled = !Office.agent.running;
-      if (send) send.disabled = !sendable();
+      paintSend();
     }
   };
 
@@ -3028,7 +3058,7 @@ Office.reportDialog = function reportDialog(deskId) {
         state.cap = { n, left: 0, cap: n, next: j.error.params && j.error.params.next };
       }
       paintCap();
-      setTimeout(() => { send.disabled = !sendable(); }, 0);     // after the dialog gave the buttons back
+      setTimeout(paintSend, 0);     // after the dialog gave the buttons back
       return false;
     }
     state.sent = true;
@@ -3085,7 +3115,8 @@ Office.reportDialog = function reportDialog(deskId) {
   $('#sso-dialog').classList.add('sso-report-dialog');           // a phone: the dialog takes the screen (office.css)
   $('#sso-dialog-backdrop').classList.add('sso-report-backdrop');
   send = dlg.buttons[1];
-  send.disabled = true;
+  $('#sso-dialog-foot').prepend(why);
+  paintSend();
   show.disabled = !Office.agent.running;
   if (!Office.agent.running) say(t('errors.agent_away'));
   title.focus();

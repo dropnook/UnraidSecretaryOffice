@@ -410,10 +410,6 @@
     "pause": 200
    },
    {
-    "click": "#sso-dialog .sso-report-yours > summary",
-    "pause": 400
-   },
-   {
     "js": "(() => { const b = document.querySelector(\"#sso-dialog-body\"); b.scrollTop = b.scrollHeight; })()",
     "pause": 300
    }
