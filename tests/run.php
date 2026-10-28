@@ -34050,6 +34050,40 @@ function testDrillShareFile(): void
     unlink("$pf/app/log/app.log");
     same('drill share file: nothing ordinary left — none (the step says so, «not checked», the drill doesn\'t fail on it)', null,
         drillShareFilePickFile($pf, 1793500000));
+    // 2026-10-28: why the guards didn't hold — the share itself was never looked at (the owner's server: a share kopia_tmp),
+    // folders saying Kopia, a repository, a database or a cache were walked into, and any fitting name counted the same
+    exec('rm -rf ' . escapeshellarg($pf));
+    foreach (['kopia_tmp_x/upload.txt', 'repository/blob.txt', 'nextcloud-db/notes.txt', 'databases/notes.txt', 'db/notes.txt',
+              'Cache/poster.jpg', '.git/description.txt', 'mongo_data/readme.txt', 'leveldb/000123.log', 'store/0a1b2c3d4e5f6.bin', 'store/CURRENT',
+              'store/1259', 'pg/global/pg_control', 'redis/dump.rdb', 'lmdb/data.mdb', 'Familie/2019/settings.dat'] as $rel) {
+        $put($rel);
+    }
+    $seen = [];
+    for ($n = 0; $n < 60; $n++) {
+        $seen[] = drillShareFilePickFile($pf, 1793500000)[0] ?? null;
+    }
+    same('drill share file: never inside a folder saying Kopia, repository, db, database, cache, .git; never a blob, a numbered log, a name without extension — only a plain name left',
+        ['Familie/2019/settings.dat'], array_values(array_unique($seen)));
+    $put('Familie/2019/Sommer/20190704.jpg');
+    $put('Familie/index.dat');
+    $seen = [];
+    for ($n = 0; $n < 60; $n++) {
+        $seen[] = drillShareFilePickFile($pf, 1793500000)[0] ?? null;
+    }
+    same('drill share file: a plainly ordinary file (a photo named by its date) first — the plain names only when the walk found none',
+        ['Familie/2019/Sommer/20190704.jpg'], array_values(array_unique($seen)));
+    same('drill share file: plain names', [true, true, true, false, false, false, false, false],
+        array_map('drillFilePlain', ['strand.jpg', '20190704.jpg', 'face.txt', '000123.log', 'p0a1b2c3d4.bin', '3f2a9c0e11ab.f', 'CURRENT', '1259']));
+    $kc = $ctx;
+    $kc['cfg'] += ['kopia_tmp' => ['shareUseCache' => 'only', 'shareCachePool' => 'maple'], 'Dokumente' => ['shareUseCache' => 'only', 'shareCachePool' => 'maple']];
+    $kc['zfs'] += ["$tmp/mnt/maple/kopia_tmp" => 'maple/kopia_tmp', "$tmp/mnt/maple/Dokumente" => 'maple/Dokumente'];
+    $kc['snaps'] += ['maple/kopia_tmp' => [['name' => 'uso-backup-20261101-0300', 'time' => 1793500000]], 'maple/Dokumente' => [['name' => 'uso-backup-20261101-0300', 'time' => 1793500000]]];
+    foreach (['kopia_tmp', 'Dokumente'] as $sh) {
+        @mkdir("$tmp/mnt/maple/$sh/.zfs/snapshot/uso-backup-20261101-0300", 0700, true);
+    }
+    same('drill share file: a share whose name says Kopia is never the drill\'s share — not even when it is the only one (no step, nothing said)', [null, null],
+        array_values(drillShareFilePick(['share|kopia_tmp' => ['mode' => ['local']]], $kc)));
+    same('drill share file: … the others still are', 'Dokumente', drillShareFilePick(['share|kopia_tmp' => ['mode' => ['local']], 'share|Dokumente' => ['mode' => ['local']]], $kc)['step']['id'] ?? null);
     $words = [];
     foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
         $words[] = str_contains((string) (json_decode((string) file_get_contents(OFFICE_WEB . "/desks/restore/lang/$code.json"), true)['drill.code.sharefile_none'] ?? ''), 'Kopia');
