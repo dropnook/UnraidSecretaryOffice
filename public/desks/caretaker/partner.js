@@ -464,6 +464,9 @@ function card(x) {
     d.append(units.length ? T('partner.they_keep', { list: units.map(([u, v]) => T('partner.snaps_of', { n: v.snaps, unit: unitText(u) })).join(', ') }) : T('partner.they_keep_none'));
     main.appendChild(d);
     if (tk.quota && (tk.quota.bytes || tk.quota.used_bytes)) main.appendChild(quotaBar(tk.quota.used_bytes || 0, tk.quota.bytes));
+    // its space for me full: its door refuses every new copy (refused_quota) — and what of it its earlier copies hold (a door of 2026-10-28 says)
+    if (tk.quota && tk.quota.bytes && (tk.quota.used_bytes || 0) >= tk.quota.bytes) main.appendChild(el('p', 'callout warn', T('partner.their_full', { name: x.name, host: Office.config.host })
+      + (tk.quota.aside_bytes ? ' ' + T('partner.their_full_aside', { name: x.name, host: Office.config.host, size: fmt.size(tk.quota.aside_bytes) }) : '')));
     if (tk.last_run && tk.last_run.time) main.appendChild(el('div', 'row-detail', T('partner.their_last_run', { when: fmt.relative(tk.last_run.time), result: tk.last_run.result || '?' })));
   }
   if (x.silent && x.tailnet !== null && x.tailnet !== undefined) main.appendChild(el('div', 'row-detail', T(x.tailnet ? 'partner.tailnet_online' : 'partner.tailnet_offline')));
@@ -484,9 +487,17 @@ function card(x) {
     else if (units.length) main.appendChild(el('div', 'row-detail', T('partner.i_keep_start', { name: x.name })));
     if (x.named && x.named.units && x.named.units.length && units.length === 0) main.appendChild(el('div', 'row-detail', T('partner.named', { name: x.name, list: unitsText(x.named.units) })));
     const got = x.i_keep;
-    if (got) {
-      main.appendChild(quotaBar(got.used_bytes || 0, x.receive.quota_gb ? x.receive.quota_gb * 1024 ** 3 : 0));
-      if (units.length) {
+    // what the pair holds now (one zfs list while its pool is awake — after a «Let go…» too) beats what the door wrote at its last receive
+    const now = x.aside || null;
+    if (got || now) {
+      const total = x.receive.quota_gb ? x.receive.quota_gb * 1024 ** 3 : 0;
+      const used = now ? now.used_bytes : (got.used_bytes || 0);
+      main.appendChild(quotaBar(used, total));
+      // full: the door refuses every new copy (refused_quota) — said, with what of it the earlier copies hold and the ways out
+      if (total && used >= total) main.appendChild(el('p', 'callout warn', T('partner.keep_full', { name: x.name })
+        + (now && now.bytes ? ' ' + T('partner.keep_full_aside', { size: fmt.size(now.bytes) }) : '')));
+      if (now && (now.list || []).length) main.appendChild(asideLine(x, now));
+      if (got && units.length) {
         const line = el('div', 'row-detail ct-got');
         units.forEach((u, i) => {
           if (i) line.append(' · ');
@@ -520,6 +531,7 @@ function card(x) {
   more.onclick = (e) => Office.menu(e, [
     ...(x.sends ? [{ text: T('partner.levels', { host: Office.config.host }), act: () => Office.go('#/backup/setup') }] : []),
     ...(x.receive ? [{ text: T('partner.t_make', { name: x.name }), act: () => ticketMakeDialog(x) }] : []),
+    ...(x.receive ? [{ text: T('partner.space_change'), act: () => spaceDialog(x) }] : []),
     { text: T('partner.address_change'), act: () => addressDialog(x) },
     { text: T('partner.renew'), act: () => renewDialog(x) },
     { separator: true },
@@ -528,6 +540,99 @@ function card(x) {
   acts.appendChild(more);
   r.appendChild(acts);
   return r;
+}
+
+// ------------------------------------------------------------------ what I keep of theirs: the space, the earlier copies (2026-10-28)
+/* The drill «Onto a new server» found both: the quota could only be set at pairing, and a full stream (a fresh start of a
+   unit there) left the unit before as <unit>.old-<time> in the pair's space — nothing showed it, nothing let it go.
+   partner_quota and partner_aside_letgo in agent/lib/partner.php; the door never lets them go on its own. */
+
+/** The door's earlier copies of a pair, on its card: which unit, from when, how big — and «Let go…» */
+function asideLine(x, now) {
+  const d = el('div', 'row-detail ct-got');
+  const label = el('strong', '', T('partner.aside') + ' ');
+  label.title = T('partner.aside_tip', { name: x.name });
+  d.appendChild(label);
+  d.append(now.list.map((a) => T('partner.aside_item', { unit: unitText(a.unit), when: a.time ? fmt.date(a.time) : a.stamp, size: fmt.size(a.bytes) })).join(' · '), ' ');
+  const go = el('button', 'btn small plain', T('partner.aside_letgo'));
+  go.type = 'button';
+  go.disabled = busyOff();
+  go.title = T('partner.aside_tip', { name: x.name });
+  go.onclick = () => asideDialog(x);
+  d.appendChild(go);
+  return d;
+}
+
+/** «Let go…»: the copies looked up anew (one zfs list), named with their size; only those go */
+async function asideDialog(card) {
+  await Office.freshState(ID);
+  const j = await Office.api.post(`${ID}.partner_aside_letgo`, { id: card.id, step: 'look' });
+  if (!took(j)) return;
+  if (!(j.list || []).length) { Office.toast(T('partner.aside_none', { name: card.name })); if (ctx) ctx.reload(); return; }
+  const box = el('div');
+  box.appendChild(el('p', '', T('partner.aside_text', { name: j.name })));
+  const ul = el('ul', 'ct-paside');
+  j.list.forEach((a) => ul.appendChild(el('li', '', T('partner.aside_item', { unit: unitText(a.unit), when: a.time ? fmt.date(a.time) : a.stamp, size: fmt.size(a.bytes) }))));
+  box.appendChild(ul);
+  box.appendChild(el('p', 'callout warn', T('partner.aside_total', { size: fmt.size(j.bytes) })));
+  Office.dialog({
+    title: T('partner.aside_title', { name: j.name }),
+    body: box,
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('partner.aside_go'), kind: 'danger', act: async () => {
+      const r = await Office.api.post(`${ID}.partner_aside_letgo`, { id: card.id, step: 'do', confirm: true, datasets: j.list.map((a) => a.dataset) });
+      if (!took(r)) return false;
+      if (r.gone) Office.toast(T('partner.aside_done', { n: r.gone, size: fmt.size(r.bytes) }));
+      (r.kept || []).forEach((k) => Office.toast(T('partner.aside_kept_' + (k.why === 'transfer' ? 'transfer' : 'zfs'), { unit: unitText(k.unit) }), true));
+      return true;
+    } }],
+  });
+}
+
+/** «Change the space…»: the quota after pairing — the same bounds as at «Accept a partner…»; lower than what is kept is said */
+async function spaceDialog(card) {
+  await Office.freshState(ID);
+  const j = await Office.api.post(`${ID}.partner_quota`, { id: card.id, step: 'look' });
+  if (!took(j)) return;
+  const box = el('div');
+  box.appendChild(el('p', '', T('partner.space_text', { name: j.name, pool: j.pool })));
+  const facts = [];
+  if (j.asleep) facts.push(T('partner.space_asleep', { pool: j.pool }));
+  else {
+    if (j.free_bytes !== null && j.free_bytes !== undefined) facts.push(T('partner.pool_free', { name: j.pool, free: fmt.size(j.free_bytes) }));
+    if (j.used_bytes !== null && j.used_bytes !== undefined) facts.push(T('partner.space_used', { used: fmt.size(j.used_bytes) })
+      + (j.aside_bytes ? ' — ' + T('partner.space_aside', { size: fmt.size(j.aside_bytes) }) : ''));
+  }
+  facts.forEach((f) => box.appendChild(el('p', 'role', f)));
+  const quota = input('number', j.quota_gb || 0);
+  quota.min = 0;
+  quota.max = j.max_gb;
+  quota.step = 1;
+  box.appendChild(field(T('partner.quota'), quota, T('partner.quota_help')));
+  const open = el('p', 'callout warn', T('partner.quota_open', { name: j.name }));
+  const below = el('p', 'callout warn', '');
+  box.append(open, below);
+  const value = () => Math.max(0, Math.min(j.max_gb, Math.round(Number(quota.value) || 0)));
+  const look = () => {
+    const gb = value();
+    open.hidden = gb !== 0;
+    const under = gb > 0 && j.used_bytes !== null && j.used_bytes !== undefined && j.used_bytes >= gb * 1024 ** 3;
+    below.hidden = !under;
+    if (under) below.textContent = T('partner.space_below', { name: j.name, used: fmt.size(j.used_bytes) });
+  };
+  quota.addEventListener('input', look);
+  look();
+  Office.dialog({
+    title: T('partner.space_title', { name: j.name }),
+    body: box,
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('partner.space_save'), kind: '', act: async () => {
+      const gb = value();
+      const r = await Office.api.post(`${ID}.partner_quota`, { id: card.id, step: 'do', confirm: true, quota_gb: gb });
+      if (!took(r)) return false;
+      Office.toast(r.set === 'now' ? T(gb ? 'partner.space_set' : 'partner.space_set_none', { name: j.name, quota: fmt.size(gb * 1024 ** 3) })
+        : T('partner.space_set_later', { name: j.name, pool: j.pool }));
+      return true;
+    } }],
+  });
 }
 
 // ------------------------------------------------------------------ «Change the address…» (2026-10-23)

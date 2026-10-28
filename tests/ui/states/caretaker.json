@@ -848,7 +848,27 @@
       "new": true,
       "stale": false
      }
-    ]
+    ],
+    "aside": {
+     "used_bytes": 2318254080,
+     "bytes": 2147983360,
+     "list": [
+      {
+       "dataset": "big/UnraidSecretaryOffice-partners/26bbb6eb/share-pdata.old-20261006-0300",
+       "unit": "share:pdata",
+       "stamp": "20261006-0300",
+       "time": 1791256800,
+       "bytes": 1073741824
+      },
+      {
+       "dataset": "big/UnraidSecretaryOffice-partners/26bbb6eb/share-pdata.old-20261007-0300",
+       "unit": "share:pdata",
+       "stamp": "20261007-0300",
+       "time": 1791343200,
+       "bytes": 1074241536
+      }
+     ]
+    }
    }
   ],
   "pending": [],

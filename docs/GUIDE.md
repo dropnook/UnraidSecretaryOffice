@@ -292,6 +292,10 @@ any of them up to the quota, keeps them with its own retention, and you can neve
 lossy internet path several shares go at once, but only while that really makes the copy faster; a rate limit counts
 for all of them together. What the partner really received is what Mr. Backupsy shows as «+ partner»; Mr. Restori's
 *At <partner>* brings it back into a new dataset beside the original.
+The receiver changes its quota later with *Change the quota…* in the pair's ⋯ menu (lower than what it keeps is
+allowed — new copies are then refused until space is freed). When the partner sends a unit whole again (set up anew, no
+snapshot in common), the door keeps the copy before aside instead of deleting it; the card lists those earlier copies
+with their size, and *Let go…* removes them — the door never does on its own, and a full quota says how much of it they hold.
 When a server is gone, the new one asks at its Team Lead (*Start from a partner's copy…*) and the partner answers with
 a **restore ticket** — a door for seven days that only hands over those copies; Mr. Restori's *Onto a new server*
 pulls the backup place first, then the shares and VMs. ZFS only, and the partner can read the copies — for a friend,

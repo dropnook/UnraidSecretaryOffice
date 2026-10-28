@@ -13,10 +13,11 @@ declare(strict_types=1);
  *                                     array may be stopped: nothing under /mnt is touched); with the array started and
  *                                     the data folder there, a pair it doesn't know (partnerKnownIds()) is refused
  *                                     no_pair — a line left from before the server was set up anew with its flash kept
- *   status                            the public summary (needs the data folder); `takes_all` true (a door since 1.60 takes
+ *   status                            the public summary (needs the data folder; `quota` with `aside_bytes` since 2026-10-28:
+ *                                     what the door's earlier copies <unit>.old-<time> hold of it); `takes_all` true (a door since 1.60 takes
  *                                     any unit of the pair up to its quota), `agreed` = every unit received so far and
  *                                     every unit the partner named with `offer` (for a sender up to 1.59), `wish` = []
- *   quota                             {"ok":true,"bytes","used_bytes"} of the pair's dataset here
+ *   quota                             {"ok":true,"bytes","used_bytes"} of the pair's dataset here (bytes: the rule in pairs.json, doorQuotaBytes())
  *   list <unit>                       the snapshots kept here of that unit
  *   resume <unit>                     {"ok":true,"token":<receive_resume_token>|null}
  *   recv <unit> <snap> [<from>|-t]    stdin → mbuffer → zfs recv -s -u into <pool>/UnraidSecretaryOffice-partners/<id>/<unit>;
@@ -245,12 +246,19 @@ function doorParents(string $pool, string $id, int $quotaGb): bool
             return false;
         }
     }
-    $want = $quotaGb > 0 ? (string) ($quotaGb * 1024 ** 3) : '0';
-    $have = doorZfsGet($pairDs, 'quota')['quota'] ?? null;
-    if ($have !== null && $have !== $want) {
-        run([$zfs, 'set', 'quota=' . ($quotaGb > 0 ? "{$quotaGb}G" : 'none'), $pairDs], 60);
-    }
+    partnerQuotaSync($pairDs, $quotaGb);         // the Team Lead's «Change the space…» sets it at once when it can, this at every receive
     return true;
+}
+
+/**
+ * The quota a partner is told (status, quota): the one the door holds it to — the receiver's rule in pairs.json. The
+ * dataset's own ZFS quota follows it (doorParents()), but ZFS takes none below what is used: a quota lowered below what
+ * is kept stays the rule here at once (refused_quota) while ZFS keeps the old one until enough is freed (2026-10-28,
+ * test4: the sender read the old 100 GB from ZFS after the receiver had set 50). Null: no limit.
+ */
+function doorQuotaBytes(array $receive): ?int
+{
+    return $receive['quota_gb'] > 0 ? $receive['quota_gb'] * 1024 ** 3 : null;
 }
 
 // ===================================================================== the verbs
@@ -362,8 +370,8 @@ function doorMain(array $argv): int
     $pairDs = "{$r['pool']}/" . PARTNER_PARENT . "/{$pair['id']}";       // a ticket reads the copies of the pair it was given for
     switch ($verb) {
         case 'quota':
-            $q = doorZfsGet($pairDs, 'quota,used');
-            doorSay(['ok' => true, 'bytes' => $q !== null && num($q['quota'] ?? '') > 0 ? num($q['quota']) : null, 'used_bytes' => $q !== null ? num($q['used'] ?? '') : 0]);
+            $q = doorZfsGet($pairDs, 'used');
+            doorSay(['ok' => true, 'bytes' => doorQuotaBytes($r), 'used_bytes' => $q !== null ? num($q['used'] ?? '') : 0]);
             return 0;
         case 'list':
             $ds = partnerUnitDataset($r['pool'], $pair['id'], $w[1]);
@@ -420,8 +428,11 @@ function doorStatus(array $pair): int
         if (!$asleep && doorPoolThere($r['pool'])) {
             $out['pool']['free_bytes'] = num(doorZfsGet($r['pool'], 'available')['available'] ?? '');
             $pairDs = "{$r['pool']}/" . PARTNER_PARENT . "/{$pair['id']}";
-            $q = doorZfsGet($pairDs, 'quota,used');
-            $out['quota'] = ['bytes' => $q !== null && num($q['quota'] ?? '') > 0 ? num($q['quota']) : null, 'used_bytes' => $q !== null ? num($q['used'] ?? '') : 0];
+            $q = doorZfsGet($pairDs, 'used');
+            // 2026-10-28: and how much of it the door's earlier copies hold (<unit>.old-<time>, only the receiver lets them go)
+            $aside = partnerAside($r['pool'], $pair['id'], array_keys((array) (partnerReceived($pair['id'])['units'] ?? [])));
+            $out['quota'] = ['bytes' => doorQuotaBytes($r), 'used_bytes' => $q !== null ? num($q['used'] ?? '') : 0,
+                             'aside_bytes' => $aside['bytes'] ?? 0];
             $units = [];
             foreach (array_keys((array) (partnerReceived($pair['id'])['units'] ?? [])) as $u) {
                 if (!is_string($u) || !preg_match(PARTNER_UNIT_RE, $u)) {
@@ -569,7 +580,9 @@ function doorRecv(array $pair, string $unit, string $snap, ?string $from): int
     if ($r['quota_gb'] > 0) {
         $used = num(doorZfsGet($pairDs, 'used')['used'] ?? '');
         if ($used >= $r['quota_gb'] * 1024 ** 3) {
-            return doorRefuse($id, 'refused_quota', true, ['used_bytes' => $used, 'bytes' => $r['quota_gb'] * 1024 ** 3]);
+            // 2026-10-28: what of it the door's own earlier copies hold — the sender says so («let them go at the partner»)
+            $aside = partnerAside($r['pool'], $id, array_keys((array) (partnerReceived($id)['units'] ?? [])));
+            return doorRefuse($id, 'refused_quota', true, ['used_bytes' => $used, 'bytes' => $r['quota_gb'] * 1024 ** 3, 'aside_bytes' => $aside['bytes'] ?? 0]);
         }
     }
     $zfs = partnerBin('zfs') ?? 'zfs';
@@ -611,8 +624,10 @@ function doorRecv(array $pair, string $unit, string $snap, ?string $from): int
     $aside = null;
     if (!$resume && $from === null && $info !== null) {
         // a full stream onto a dataset that holds snapshots the sender doesn't share (zfs recv without -F refuses it):
-        // the old one is put aside — renamed, never destroyed (the user or Ms. Dustdevil clears it) — and the stream
-        // goes into a fresh dataset with the first receive's properties
+        // the old one is put aside — renamed, never destroyed by the door: the receiver's Team Lead shows it and lets it go
+        // («Let go…», partner_aside_letgo()) — and the stream goes into a fresh dataset with the first receive's properties.
+        // Never trimmed on its own (2026-10-28): a full stream is what a sender set up anew or broken sends — two of them
+        // would let a sender wipe the history kept here, which the door never allows a sender
         $base = "$ds.old-" . date('Ymd-Hi', doorNow());
         $aside = $base;
         for ($i = 2; doorZfsGet($aside, 'type') !== null; $i++) {

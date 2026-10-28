@@ -88,6 +88,8 @@ const PARTNER_TICKET_ARG_RE = '/^ticket-([0-9a-f]{8})$/D';     // the door's arg
 const PARTNER_TICKET_VERBS  = ['ping', 'list', 'send-back', 'quota'];
 const PARTNER_TICKET_TIDY   = 86400;         // expired ticket lines go at the agent's start and once a day
 const PARTNER_TOKEN_RE      = '/^[0-9a-zA-Z-]{8,4000}$/D';     // a zfs receive_resume_token
+// the door's earlier copy of a unit (a full stream onto a unit that shares no snapshot with it): <unit dataset>.old-<Ymd-Hi>[-n]
+const PARTNER_ASIDE_RE      = '/^([A-Za-z0-9][A-Za-z0-9._-]*)\.old-(\d{8})-(\d{4})(?:-([1-9]\d{0,2}))?$/D';
 // the client's options (plan §3.5) — the engine's sender uses the same
 const PARTNER_SSH_OPTIONS   = ['-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes',
                                '-o', 'Ciphers=aes128-gcm@openssh.com,aes256-gcm@openssh.com,chacha20-poly1305@openssh.com',
@@ -1267,7 +1269,8 @@ function partnerStatusClean(mixed $s): ?array
         'lead'    => ['must' => $int($s['lead']['must'] ?? null), 'recommended' => $int($s['lead']['recommended'] ?? null)],
         'last_run' => null,
         'pool'    => ['free_bytes' => $int($s['pool']['free_bytes'] ?? null), 'asleep' => ($s['pool']['asleep'] ?? false) === true],
-        'quota'   => ['bytes' => $int($s['quota']['bytes'] ?? null), 'used_bytes' => $int($s['quota']['used_bytes'] ?? null)],
+        // aside_bytes (2026-10-28): what the door's earlier copies hold of it — null from an older door
+        'quota'   => ['bytes' => $int($s['quota']['bytes'] ?? null), 'used_bytes' => $int($s['quota']['used_bytes'] ?? null), 'aside_bytes' => $int($s['quota']['aside_bytes'] ?? null)],
         'units'   => [],
         'agreed'  => partnerUnitList($s['agreed'] ?? null),
         'wish'    => partnerUnitList($s['wish'] ?? null),
@@ -1670,6 +1673,88 @@ function partnerReceivedUnits(?array $got, int $now): array
     return $out;
 }
 
+// ===================================================================== the door's earlier copies, the quota
+
+/**
+ * A dataset below a pair's that the door put aside (partner-door.php: a full stream onto a unit that shares no snapshot
+ * with it renames the old one <unit>.old-<Ymd-Hi>[-n]): its unit, the stamp, when (the server's time). Null for any
+ * other name — and for a unit really named so ($units: the units received of the pair, a share «x.old-20261027-1535»).
+ *
+ * @return array{unit:string, stamp:string, time:?int}|null
+ */
+function partnerAsideOf(string $uds, array $units = []): ?array
+{
+    if (!preg_match(PARTNER_ASIDE_RE, $uds, $m)) {
+        return null;
+    }
+    $of = fn (string $d) => preg_match('/^(share|vm|app)-(.+)$/D', $d, $u) ? "$u[1]:$u[2]" : $d;
+    $unit = $of($m[1]);
+    if (!preg_match(PARTNER_UNIT_RE, $unit) || str_replace(':', '-', $unit) !== $m[1] || in_array($of($uds), $units, true)) {
+        return null;
+    }
+    $t = DateTime::createFromFormat('!Ymd-Hi', "$m[2]-$m[3]");
+    return ['unit' => $unit, 'stamp' => "$m[2]-$m[3]" . (isset($m[4]) ? "-$m[4]" : ''), 'time' => $t !== false ? $t->getTimestamp() : null];
+}
+
+/**
+ * What a pair holds here and the door's earlier copies of its units in it: ONE `zfs list` of the pair's dataset, one
+ * level — its `used` (what counts against the quota) and each copy put aside with its unit, when and its `used`. The
+ * caller looks at the pool's sleep first (never a wake for it). Null: no such dataset (nothing received yet), no zfs.
+ *
+ * @return array{used_bytes:int, bytes:int, list:list<array{dataset:string, unit:string, stamp:string, time:?int, bytes:int}>}|null
+ */
+function partnerAside(string $pool, string $id, array $units = []): ?array
+{
+    $zfs = partnerBin('zfs');
+    if ($zfs === null || !preg_match(PARTNER_POOL_RE, $pool) || !preg_match(PARTNER_ID_RE, $id)) {
+        return null;
+    }
+    $pairDs = "$pool/" . PARTNER_PARENT . "/$id";
+    [$exit, $text] = run([$zfs, 'list', '-H', '-p', '-o', 'name,used', '-t', 'filesystem', '-d', '1', $pairDs], 60);
+    if ($exit !== 0) {
+        return null;
+    }
+    $out = ['used_bytes' => 0, 'bytes' => 0, 'list' => []];
+    foreach (rows($text) as $r) {
+        if (count($r) < 2 || !ctype_digit($r[1])) {
+            continue;
+        }
+        if ($r[0] === $pairDs) {
+            $out['used_bytes'] = (int) $r[1];
+            continue;
+        }
+        $uds = str_starts_with($r[0], "$pairDs/") ? substr($r[0], strlen($pairDs) + 1) : '';
+        if ($uds === '' || str_contains($uds, '/') || ($a = partnerAsideOf($uds, $units)) === null) {
+            continue;
+        }
+        $out['list'][] = ['dataset' => $r[0]] + $a + ['bytes' => (int) $r[1]];
+        $out['bytes'] += (int) $r[1];
+    }
+    usort($out['list'], fn ($a, $b) => [$a['unit'], $a['stamp']] <=> [$b['unit'], $b['stamp']]);
+    return $out;
+}
+
+/** The pair's dataset held to its quota (zfs set when it differs): the door at every receive, the Team Lead's «Change the space…». False: not there, or zfs said no */
+function partnerQuotaSync(string $pairDs, int $quotaGb): bool
+{
+    $zfs = partnerBin('zfs') ?? 'zfs';
+    [$exit, $out] = run([$zfs, 'get', '-H', '-p', '-o', 'property,value', 'quota', $pairDs], 60);
+    if ($exit !== 0) {
+        return false;
+    }
+    $have = rows($out)[0][1] ?? null;
+    if ($have === ($quotaGb > 0 ? (string) ($quotaGb * 1024 ** 3) : '0')) {
+        return true;
+    }
+    return run([$zfs, 'set', 'quota=' . ($quotaGb > 0 ? "{$quotaGb}G" : 'none'), $pairDs], 60)[0] === 0;
+}
+
+/** The pair's pool for a look that must never wake it: awake (disks.ini) — else nothing is looked at */
+function partnerPoolAwake(string $pool): bool
+{
+    return poolsBySleep([$pool])['asleep'] === [];
+}
+
 /** The engine's last transfer to a pair (state/status.json partner.done, engine 2.27): bytes and Mbit/s — null before */
 function partnerLastTransfer(string $id): ?array
 {
@@ -1755,7 +1840,8 @@ function partnerPending(bool $tidy = false): array
 
 /**
  * The Team Lead's partner cards (his state's `partners`): from pairs.json, state.json and received/ — never a key, never
- * a block. Cheap: files only (authorized_keys on the flash read once).
+ * a block. Cheap: files only (authorized_keys on the flash read once) — and for a pair I keep copies of, one `zfs list`
+ * of its dataset while its pool is awake (what it holds now, the door's earlier copies: partnerAside()).
  */
 function partnerPublic(): array
 {
@@ -1787,6 +1873,8 @@ function partnerPublic(): array
         }
         $got = partnerReceived($p['id']);
         $status = $e['status'] ?? null;
+        // what I keep of theirs now and the door's earlier copies in it: one zfs list of the pair's dataset — never on a sleeping pool
+        $aside = $p['receive'] !== null && partnerPoolAwake($p['receive']['pool']) ? partnerAside($p['receive']['pool'], $p['id'], array_keys((array) ($got['units'] ?? []))) : null;
         $cards[] = [
             'id'         => $p['id'],
             'name'       => $p['name'],
@@ -1824,6 +1912,7 @@ function partnerPublic(): array
             'they_keep'  => $status,
             'i_keep'     => $got,
             'i_keep_units' => partnerReceivedUnits($got, $now),  // each with new/stale
+            'aside'      => $aside,                              // {used_bytes, bytes, list}: looked at now; null: not looked at (asleep, nothing there)
             'last_transfer' => partnerLastTransfer($p['id']),
             'tickets'    => $tickets['given'][$p['id']] ?? [],
             // 2026-10-23: the partner is online in the USO network (the peer of its name) at another address than the
@@ -2587,6 +2676,153 @@ function partner_end(array $r): array
         }
     }
     return ['ok' => true, 'partners' => partnerPublic()];
+}
+
+/** A pair I keep copies of, by the request's id (the action's first look) */
+function partnerKeepingPair(array $r): array
+{
+    $id = optText($r, 'id');
+    if (!preg_match(PARTNER_ID_RE, $id)) {
+        throw new Problem('bad_request');
+    }
+    $pair = partnerPair($id);
+    if ($pair === null) {
+        throw new Problem('partner_unknown');
+    }
+    if ($pair['receive'] === null) {
+        throw new Problem('partner_not_keeping', ['name' => $pair['name']]);
+    }
+    return $pair;
+}
+
+/**
+ * «Change the space…» on the receiver's card (2026-10-28, the drill «Onto a new server»: the quota could only be set at
+ * pairing — a full pair refused every unit until pairs.json was edited by hand). The same bounds as at «Accept a
+ * partner…»: 0 = no limit, at most PARTNER_QUOTA_MAX_GB. pairs.json first (the door reads it at every receive and holds
+ * the pair's dataset to it), then the dataset's quota at once while its pool is awake — asleep or nothing received yet:
+ * the next receive sets it (doorParents()), never a wake for it. The partner sees it at its next look (the door's
+ * `status` says the quota of pairs.json — doorQuotaBytes(); BLOCK-B said it once, at pairing, and nothing keeps it).
+ * Lower than what is kept is allowed and said: new copies are refused at once (the door's rule is pairs.json) until
+ * space is freed; ZFS takes no quota below what is used — it keeps its old one until then (a let-go sets it again).
+ * look {id}: the quota, what is kept now, the earlier copies, the pool's free space (null while it sleeps);
+ * do {id, quota_gb (a whole number), confirm: true}: {ok, quota_gb, set: now|later, below}.
+ */
+function partner_quota(array $r): array
+{
+    $pair = partnerKeepingPair($r);
+    $pool = $pair['receive']['pool'];
+    $awake = partnerPoolAwake($pool);
+    $aside = $awake ? partnerAside($pool, $pair['id'], array_keys((array) (partnerReceived($pair['id'])['units'] ?? []))) : null;
+    $step = optText($r, 'step', 'look');
+    if ($step === 'look') {
+        $free = null;
+        foreach ($awake ? partnerPools() : [] as $p) {
+            $free = $p['name'] === $pool ? $p['free'] : $free;
+        }
+        return ['ok' => true, 'name' => $pair['name'], 'pool' => $pool, 'asleep' => !$awake, 'quota_gb' => $pair['receive']['quota_gb'], 'max_gb' => PARTNER_QUOTA_MAX_GB,
+                'free_bytes' => $free, 'used_bytes' => $aside['used_bytes'] ?? null, 'aside_bytes' => $aside['bytes'] ?? null];
+    }
+    $gb = $r['quota_gb'] ?? null;
+    if ($step !== 'do' || ($r['confirm'] ?? null) !== true) {
+        throw new Problem('bad_request');
+    }
+    if (!is_int($gb) || $gb < 0 || $gb > PARTNER_QUOTA_MAX_GB) {
+        throw new Problem('partner_receive', ['field' => 'quota_gb']);
+    }
+    $before = $pair['receive']['quota_gb'];
+    $new = partnerPairUpdate($pair['id'], function (array $p) use ($gb) {
+        if ($p['receive'] === null) {
+            return null;
+        }
+        $p['receive']['quota_gb'] = $gb;
+        return $p;
+    });
+    if ($new === null || $new['receive'] === null) {
+        throw new Problem($new === null ? 'partner_unknown' : 'partner_not_keeping', ['name' => $pair['name']]);
+    }
+    // the door holds the pair to pairs.json at once (its refusal and what it tells the partner); the dataset's ZFS quota
+    // follows while the pool is awake — ZFS takes none below what is used (2026-10-28, test4): then it keeps the old one
+    // until enough is freed («Let go…» sets it again, so does every receive)
+    $there = $awake && $aside !== null;
+    $below = $gb > 0 && $aside !== null && $aside['used_bytes'] >= $gb * 1024 ** 3;
+    $synced = $there && partnerQuotaSync("$pool/" . PARTNER_PARENT . "/{$pair['id']}", $gb);
+    $zfsSays = $synced ? '' : ($there ? ' - ZFS keeps its own until enough is freed' : ' - set on the pool at the next receive');
+    partnerLog("the space kept for {$pair['name']} ({$pair['id']}) changed: " . ($before ?: 'no limit') . ($before ? ' GB' : '') . ' -> ' . ($gb ?: 'no limit') . ($gb ? ' GB' : '')
+        . $zfsSays . ($below ? ' - below what is kept now' : ''));
+    partnerDoorLogLine($pair['id'], 'quota: ' . ($gb ? "{$gb} GB" : 'no limit') . ' (the Team Lead)' . $zfsSays);
+    return ['ok' => true, 'quota_gb' => $gb, 'set' => $there ? 'now' : 'later', 'below' => $below, 'partners' => partnerPublic()];
+}
+
+/**
+ * «Let go…» of the door's earlier copies of a pair (partnerAside(): <pair>/<unit>.old-<time>, kept aside by a full
+ * stream — never destroyed by the door, they fill the pair's quota). look {id}: them and their size. do {id, datasets,
+ * confirm: true}: each one named that is still exactly one of them (looked up again; a unit, another pair's, anything
+ * else: never) and whose unit no receive holds right now (the door's lock of that unit — a full receive that fails puts
+ * its copy back) is destroyed with what lies in it: its snapshots into deletes.jsonl first (the night watchman's record
+ * of what the door's side destroyed), then `zfs destroy -r` of exactly that dataset (never -R: a clone of it elsewhere
+ * makes zfs say no, and it stays). Never while its pool sleeps. {ok, gone, kept: [{dataset, unit, why}], bytes}.
+ */
+function partner_aside_letgo(array $r): array
+{
+    $pair = partnerKeepingPair($r);
+    $id = $pair['id'];
+    $pool = $pair['receive']['pool'];
+    if (!partnerPoolAwake($pool)) {
+        throw new Problem('partner_aside_asleep', ['pool' => $pool]);
+    }
+    $aside = partnerAside($pool, $id, array_keys((array) (partnerReceived($id)['units'] ?? [])));
+    $byName = array_column($aside['list'] ?? [], null, 'dataset');
+    $step = optText($r, 'step', 'look');
+    if ($step === 'look') {
+        return ['ok' => true, 'name' => $pair['name'], 'list' => array_values($byName), 'bytes' => $aside['bytes'] ?? 0];
+    }
+    if ($step !== 'do' || ($r['confirm'] ?? null) !== true) {
+        throw new Problem('bad_request');
+    }
+    $want = idList($r, 'datasets');
+    $chosen = array_values(array_intersect_key($byName, array_flip($want)));
+    if (!$chosen) {
+        throw new Problem('partner_aside_gone', ['name' => $pair['name']]);
+    }
+    $zfs = partnerBin('zfs') ?? 'zfs';
+    $gone = [];
+    $kept = [];
+    $bytes = 0;
+    foreach ($chosen as $a) {
+        $ds = $a['dataset'];
+        $lock = partnerDirReady(partnerRunDir()) ? @fopen(partnerRunDir() . "/$id.unit-" . str_replace(':', '-', $a['unit']) . '.lock', 'c') : false;
+        if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) {
+            $kept[] = ['dataset' => $ds, 'unit' => $a['unit'], 'why' => 'transfer'];
+            continue;
+        }
+        [, $out] = run([$zfs, 'list', '-H', '-p', '-o', 'name', '-t', 'snapshot', '-r', $ds], 60);
+        $snaps = [];
+        foreach (rows($out) as $row) {
+            if (str_starts_with($row[0], "$ds@") && preg_match(PARTNER_SNAP_RE, substr($row[0], strlen($ds) + 1))) {
+                $snaps[] = substr($row[0], strlen($ds) + 1);
+            }
+        }
+        if ($snaps) {
+            partnerAppend(partnerDir() . '/deletes.jsonl', jsonEncode(['t' => time(), 'pair' => $id, 'dataset' => $ds, 'snaps' => $snaps]) . "\n");
+        }
+        [$exit, , $err] = run([$zfs, 'destroy', '-r', $ds], 300);
+        flock($lock, LOCK_UN);
+        fclose($lock);
+        if ($exit !== 0) {
+            $kept[] = ['dataset' => $ds, 'unit' => $a['unit'], 'why' => 'zfs'];
+            partnerDoorLogLine($id, "let go: $ds not destroyed: " . trim((string) $err));
+            continue;
+        }
+        $gone[] = $ds;
+        $bytes += $a['bytes'];
+        partnerDoorLogLine($id, "let go (the Team Lead): $ds, the earlier copy of {$a['unit']} kept aside {$a['stamp']} (" . count($snaps) . ' snapshot(s), ' . $a['bytes'] . ' bytes)');
+    }
+    if ($gone) {
+        partnerLog("the earlier copies of {$pair['name']} ($id) let go: " . implode(', ', $gone));
+        // a quota lowered below what was kept: ZFS takes it now that there is room (the door held the pair to it already)
+        partnerQuotaSync("$pool/" . PARTNER_PARENT . "/$id", $pair['receive']['quota_gb']);
+    }
+    return ['ok' => true, 'gone' => count($gone), 'kept' => $kept, 'bytes' => $bytes, 'partners' => partnerPublic()];
 }
 
 function partner_state(array $r): array

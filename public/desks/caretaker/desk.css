@@ -36,6 +36,7 @@
 .ct-pq-bar{flex:0 1 220px; min-width:120px; height:7px; border-radius:4px; background:var(--surface2); border:1px solid var(--line); overflow:hidden}
 .ct-pq-fill{height:100%; background:var(--accent)}
 .ct-pq-fill.full{background:var(--danger)}
+.ct-paside{margin:6px 0 10px; padding-left:20px; overflow-wrap:anywhere}   /* the earlier copies to let go (2026-10-28) */
 .ct-pret{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
 .ct-pret .input{width:auto; flex:0 1 110px; min-width:0}
 .ct-pret-part{display:flex; align-items:center; gap:6px; font-size:13px; color:var(--ink2)}
